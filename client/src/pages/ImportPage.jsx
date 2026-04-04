@@ -22,7 +22,7 @@ export default function ImportPage() {
   }
 
   return (
-    <div>
+    <div className="fade-in">
       <h2 className="page-title">Import PowerSchool CSV</h2>
       <p className="subtitle">
         Upload a cleaned PowerSchool CSV to import or update student records.
@@ -46,7 +46,7 @@ export default function ImportPage() {
             {result.error ? (
               <p className="error-msg">{result.error}</p>
             ) : (
-              <div>
+              <div className="alert alert-success">
                 <p className="text-sm"><strong>Total rows:</strong> {result.total}</p>
                 <p className="text-sm"><strong>Imported/updated:</strong> {result.imported}</p>
                 <p className="text-sm"><strong>Skipped:</strong> {result.skipped}</p>

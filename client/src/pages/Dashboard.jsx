@@ -27,10 +27,10 @@ export default function Dashboard() {
   if (loading) return <div className="loading">Loading...</div>;
 
   return (
-    <div>
+    <div className="fade-in">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
         <h2 className="page-title" style={{ marginBottom: 0 }}>Dashboard</h2>
-        <label className="text-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer' }}>
+        <label className="text-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
           <input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} />
           Show archived
         </label>
@@ -45,16 +45,16 @@ export default function Dashboard() {
       )}
 
       {courses.length === 0 ? (
-        <div className="card">
+        <div className="card empty-state">
           <p>No courses synced yet. Click <strong>Sync Schoology</strong> in the sidebar to pull your courses.</p>
         </div>
       ) : (
         <div className="grid-2">
           {courses.map(c => (
-            <Link to={`/course/${c.id}`} key={c.id} className="card" style={{ textDecoration: 'none', color: 'inherit', opacity: c.archived ? 0.6 : 1, position: 'relative' }}>
+            <Link to={`/course/${c.id}`} key={c.id} className="card" style={{ opacity: c.archived ? 0.6 : 1, position: 'relative' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
-                  <h3 style={{ marginBottom: '0.25rem' }}>{c.course_name}</h3>
+                  <h3 style={{ marginBottom: '0.25rem', fontWeight: 600 }}>{c.course_name}</h3>
                   {c.section_name && <p className="text-sm text-muted">{c.section_name}</p>}
                 </div>
                 {c.archived && <span className="badge badge-gray">Archived</span>}
@@ -66,7 +66,8 @@ export default function Dashboard() {
               )}
               <button
                 onClick={(e) => handleArchive(e, c.id)}
-                style={{ position: 'absolute', bottom: '0.75rem', right: '0.75rem', background: 'none', border: 'none', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer' }}
+                className="ghost accent"
+                style={{ position: 'absolute', bottom: '0.75rem', right: '0.75rem', fontSize: '0.75rem' }}
               >
                 {c.archived ? 'Unarchive' : 'Archive'}
               </button>

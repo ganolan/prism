@@ -8,12 +8,14 @@ import ImportPage from './pages/ImportPage.jsx';
 import ToolsPage from './pages/ToolsPage.jsx';
 import AnalyticsPage from './pages/AnalyticsPage.jsx';
 import FeedbackPage from './pages/FeedbackPage.jsx';
+import { useTheme } from './hooks/useTheme.jsx';
 import { triggerSync, getSyncStatus } from './services/api.js';
 import './app.css';
 
 export default function App() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
+  const { theme, setTheme, themes } = useTheme();
 
   async function handleSync() {
     setSyncing(true);
@@ -33,8 +35,10 @@ export default function App() {
       <div className="app">
         <nav className="sidebar">
           <h1 className="logo">Prism</h1>
+          <div className="sidebar-section-label">Navigation</div>
           <NavLink to="/" end>Dashboard</NavLink>
           <NavLink to="/search">Search Students</NavLink>
+          <div className="sidebar-section-label">Tools</div>
           <NavLink to="/feedback">Feedback Review</NavLink>
           <NavLink to="/tools">Class Tools</NavLink>
           <NavLink to="/import">Import CSV</NavLink>
@@ -49,6 +53,17 @@ export default function App() {
                 : `Error: ${syncResult.error}`}
             </div>
           )}
+          <div className="theme-switcher">
+            {Object.keys(themes).map(key => (
+              <button
+                key={key}
+                className={`theme-dot ${theme === key ? 'active' : ''}`}
+                data-theme={key}
+                onClick={() => setTheme(key)}
+                title={themes[key].description}
+              />
+            ))}
+          </div>
         </nav>
         <main className="content">
           <Routes>

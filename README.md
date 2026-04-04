@@ -11,7 +11,7 @@ It combines:
 
 The project is currently geared toward a single-teacher workflow, but it is structured so a colleague can fork it, point it at their own data, and extend it safely behind feature flags.
 
-For the full description of what Prism is intended to become, including the phased roadmap and feature scope, see [product-spec.md](/Users/gnolan/Library/CloudStorage/OneDrive-HongKongInternationalSchool/_repos/prism/product-spec.md).
+For the full description of what Prism is intended to become, including the phased roadmap and feature scope, see [product-spec.md](product-spec.md).
 
 ## What It Does
 
@@ -72,7 +72,7 @@ SCHOOLOGY_CONSUMER_KEY=your_key_here
 SCHOOLOGY_CONSUMER_SECRET=your_secret_here
 ```
 
-You can use [`.env.example`](/Users/gnolan/Library/CloudStorage/OneDrive-HongKongInternationalSchool/_repos/prism/.env.example) as the starting point:
+You can use [`.env.example`](.env.example) as the starting point:
 
 ```bash
 cp .env.example .env
@@ -134,7 +134,7 @@ From `client/`:
 
 ## Feature Flags
 
-Feature flags live in [config.yaml](/Users/gnolan/Library/CloudStorage/OneDrive-HongKongInternationalSchool/_repos/prism/config.yaml).
+Feature flags live in [config.yaml](config.yaml).
 
 This lets you fork the project and selectively enable features like analytics, feedback review, class tools, and Schoology write-back without removing code.
 
@@ -184,7 +184,7 @@ If the frontend loads but data does not appear:
 
 If Schoology sync fails:
 
-- read the API notes in [CLAUDE.md](/Users/gnolan/Library/CloudStorage/OneDrive-HongKongInternationalSchool/_repos/prism/CLAUDE.md)
+- read the API notes in [CLAUDE.md](CLAUDE.md)
 - verify that your Schoology consumer key and secret are valid
 - check whether your Schoology tenant behaves differently for redirects or write endpoints
 

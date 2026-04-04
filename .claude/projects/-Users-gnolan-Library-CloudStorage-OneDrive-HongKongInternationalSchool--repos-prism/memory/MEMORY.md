@@ -1,0 +1,1 @@
+- [Phase 1 MVP Progress](project_phase1_progress.md) — Prism Phase 1 complete: sync, DB, API, UI all working with live Schoology data

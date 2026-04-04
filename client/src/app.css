@@ -1,0 +1,179 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #f8f9fa;
+  --sidebar-bg: #1a1a2e;
+  --sidebar-text: #e0e0e0;
+  --accent: #4a90d9;
+  --accent-hover: #357abd;
+  --card-bg: #ffffff;
+  --border: #e0e0e0;
+  --text: #1a1a1a;
+  --text-muted: #6b7280;
+  --success: #22c55e;
+  --error: #ef4444;
+  --warning: #f59e0b;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.app {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 220px;
+  background: var(--sidebar-bg);
+  color: var(--sidebar-text);
+  padding: 1.5rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+}
+
+.sidebar .logo {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 1.5rem;
+  color: white;
+  letter-spacing: 0.05em;
+}
+
+.sidebar a {
+  color: var(--sidebar-text);
+  text-decoration: none;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  transition: background 0.15s;
+}
+
+.sidebar a:hover { background: rgba(255,255,255,0.1); }
+.sidebar a.active { background: var(--accent); color: white; }
+
+.sidebar-spacer { flex: 1; }
+
+.sync-btn {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 0.6rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: background 0.15s;
+}
+.sync-btn:hover:not(:disabled) { background: var(--accent-hover); }
+.sync-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.sync-result {
+  font-size: 0.75rem;
+  padding: 0.4rem;
+  border-radius: 4px;
+  margin-top: 0.5rem;
+  text-align: center;
+}
+.sync-result.success { background: rgba(34,197,94,0.15); color: var(--success); }
+.sync-result.error { background: rgba(239,68,68,0.15); color: var(--error); }
+
+/* Main content */
+.content {
+  flex: 1;
+  margin-left: 220px;
+  padding: 2rem;
+  max-width: 1200px;
+}
+
+/* Cards */
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+/* Tables */
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th, td {
+  text-align: left;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+th {
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.03em;
+}
+
+tr:hover { background: rgba(74,144,217,0.04); }
+
+/* Utility */
+.page-title { font-size: 1.5rem; font-weight: 700; margin-bottom: 1.5rem; }
+.subtitle { font-size: 0.9rem; color: var(--text-muted); margin-bottom: 1rem; }
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+.badge-blue { background: #dbeafe; color: #1d4ed8; }
+.badge-green { background: #dcfce7; color: #15803d; }
+.badge-red { background: #fee2e2; color: #b91c1c; }
+.badge-gray { background: #f3f4f6; color: #4b5563; }
+
+.text-muted { color: var(--text-muted); }
+.text-sm { font-size: 0.85rem; }
+.mb-1 { margin-bottom: 0.5rem; }
+.mb-2 { margin-bottom: 1rem; }
+
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
+
+a.link { color: var(--accent); text-decoration: none; }
+a.link:hover { text-decoration: underline; }
+
+/* Forms */
+input[type="text"], input[type="search"], input[type="email"], select {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  width: 100%;
+}
+input:focus, select:focus { outline: none; border-color: var(--accent); }
+
+button.primary {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+button.primary:hover { background: var(--accent-hover); }
+
+.loading { color: var(--text-muted); padding: 2rem; text-align: center; }
+.error-msg { color: var(--error); padding: 1rem; }

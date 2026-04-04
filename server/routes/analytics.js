@@ -1,0 +1,261 @@
+import { Router } from 'express';
+import { getDb } from '../db/index.js';
+
+const router = Router();
+
+// GET /api/analytics/course/:id — class-level analytics
+router.get('/course/:id', (req, res) => {
+  const db = getDb();
+  const courseId = req.params.id;
+
+  // Get all assignments with their grade distributions
+  const assignments = db.prepare(`
+    SELECT a.id, a.title, a.due_date, a.max_points, a.assignment_type
+    FROM assignments a
+    WHERE a.course_id = ? AND a.max_points > 0
+    ORDER BY a.due_date, a.title
+  `).all(courseId);
+
+  const distributions = [];
+  for (const a of assignments) {
+    const grades = db.prepare(`
+      SELECT g.score, g.max_score, g.exception,
+             (g.score * 100.0 / g.max_score) as pct
+      FROM grades g
+      WHERE g.assignment_id = ? AND g.score IS NOT NULL AND g.max_score > 0
+    `).all(a.id);
+
+    if (grades.length === 0) continue;
+
+    const pcts = grades.map(g => g.pct).sort((a, b) => a - b);
+    const n = pcts.length;
+    const mean = pcts.reduce((s, v) => s + v, 0) / n;
+    const variance = pcts.reduce((s, v) => s + (v - mean) ** 2, 0) / n;
+    const stdDev = Math.sqrt(variance);
+
+    // Quartiles
+    const q1 = percentile(pcts, 25);
+    const median = percentile(pcts, 50);
+    const q3 = percentile(pcts, 75);
+    const iqr = q3 - q1;
+    const whiskerLow = Math.max(pcts[0], q1 - 1.5 * iqr);
+    const whiskerHigh = Math.min(pcts[n - 1], q3 + 1.5 * iqr);
+    const outliers = pcts.filter(v => v < whiskerLow || v > whiskerHigh);
+
+    distributions.push({
+      assignment_id: a.id,
+      title: a.title,
+      due_date: a.due_date,
+      assignment_type: a.assignment_type,
+      max_points: a.max_points,
+      count: n,
+      mean: round(mean),
+      stdDev: round(stdDev),
+      min: round(pcts[0]),
+      q1: round(q1),
+      median: round(median),
+      q3: round(q3),
+      max: round(pcts[n - 1]),
+      whiskerLow: round(whiskerLow),
+      whiskerHigh: round(whiskerHigh),
+      outliers: outliers.map(round),
+    });
+  }
+
+  // Class average trend (running average across assignments in date order)
+  const trend = distributions.map(d => ({
+    title: d.title,
+    due_date: d.due_date,
+    mean: d.mean,
+    stdDev: d.stdDev,
+    assignment_type: d.assignment_type,
+  }));
+
+  // Formative vs summative summary
+  const formative = distributions.filter(d => d.assignment_type === 'formative');
+  const summative = distributions.filter(d => d.assignment_type === 'summative');
+  const comparison = {
+    formative: formative.length > 0 ? {
+      count: formative.length,
+      avgMean: round(formative.reduce((s, d) => s + d.mean, 0) / formative.length),
+      avgStdDev: round(formative.reduce((s, d) => s + d.stdDev, 0) / formative.length),
+    } : null,
+    summative: summative.length > 0 ? {
+      count: summative.length,
+      avgMean: round(summative.reduce((s, d) => s + d.mean, 0) / summative.length),
+      avgStdDev: round(summative.reduce((s, d) => s + d.stdDev, 0) / summative.length),
+    } : null,
+  };
+
+  res.json({ distributions, trend, comparison });
+});
+
+// GET /api/analytics/student/:id — individual student analytics
+router.get('/student/:id', (req, res) => {
+  const db = getDb();
+  const studentId = req.params.id;
+  const threshold = parseFloat(req.query.threshold) || 15;
+
+  // Get all grades with course info, ordered by date
+  const grades = db.prepare(`
+    SELECT g.score, g.max_score, g.exception,
+           a.id as assignment_id, a.title, a.due_date, a.assignment_type, a.max_points,
+           c.id as course_id, c.course_name,
+           (CASE WHEN g.score IS NOT NULL AND g.max_score > 0 THEN (g.score * 100.0 / g.max_score) ELSE NULL END) as pct
+    FROM grades g
+    JOIN assignments a ON a.id = g.assignment_id
+    JOIN courses c ON c.id = a.course_id
+    WHERE g.student_id = ?
+    ORDER BY a.due_date, a.title
+  `).all(studentId);
+
+  // Grade trends per course
+  const byCourse = {};
+  for (const g of grades) {
+    if (!byCourse[g.course_id]) byCourse[g.course_id] = { course_name: g.course_name, grades: [] };
+    byCourse[g.course_id].grades.push(g);
+  }
+
+  const trends = {};
+  for (const [courseId, data] of Object.entries(byCourse)) {
+    trends[courseId] = {
+      course_name: data.course_name,
+      points: data.grades.filter(g => g.pct != null).map(g => ({
+        title: g.title,
+        due_date: g.due_date,
+        pct: round(g.pct),
+        assignment_type: g.assignment_type,
+      })),
+    };
+  }
+
+  // Cross-course comparison
+  const crossCourse = Object.entries(byCourse).map(([courseId, data]) => {
+    const scored = data.grades.filter(g => g.pct != null);
+    if (scored.length === 0) return null;
+    const avg = scored.reduce((s, g) => s + g.pct, 0) / scored.length;
+    return { course_id: parseInt(courseId), course_name: data.course_name, avg_pct: round(avg), count: scored.length };
+  }).filter(Boolean);
+
+  // Significant changes (consecutive assignments within same course)
+  const alerts = [];
+  for (const [courseId, data] of Object.entries(byCourse)) {
+    const scored = data.grades.filter(g => g.pct != null);
+    for (let i = 1; i < scored.length; i++) {
+      const prev = scored[i - 1].pct;
+      const curr = scored[i].pct;
+      const change = curr - prev;
+      if (Math.abs(change) >= threshold) {
+        alerts.push({
+          course_name: data.course_name,
+          from: { title: scored[i - 1].title, pct: round(prev) },
+          to: { title: scored[i].title, pct: round(curr) },
+          change: round(change),
+          direction: change > 0 ? 'improvement' : 'decline',
+        });
+      }
+    }
+  }
+
+  res.json({ trends, crossCourse, alerts, threshold });
+});
+
+// PUT /api/assignments/:id/type — tag assignment as formative/summative
+router.put('/assignments/:id/type', (req, res) => {
+  const db = getDb();
+  const { assignment_type } = req.body;
+  if (!['formative', 'summative', 'assignment', 'discussion', 'assessment'].includes(assignment_type)) {
+    return res.status(400).json({ error: 'Invalid assignment_type' });
+  }
+  db.prepare('UPDATE assignments SET assignment_type = ? WHERE id = ?').run(assignment_type, req.params.id);
+  const updated = db.prepare('SELECT * FROM assignments WHERE id = ?').get(req.params.id);
+  if (!updated) return res.status(404).json({ error: 'Assignment not found' });
+  res.json(updated);
+});
+
+// POST /api/analytics/auto-flags/:courseId — run automated flag detection
+router.post('/auto-flags/:courseId', (req, res) => {
+  const db = getDb();
+  const courseId = req.params.courseId;
+  const threshold = parseFloat(req.body.threshold) || 15;
+  const lowGradeThreshold = parseFloat(req.body.low_grade_threshold) || 50;
+
+  const students = db.prepare(`
+    SELECT s.id, s.first_name, s.last_name
+    FROM students s JOIN enrolments e ON e.student_id = s.id
+    WHERE e.course_id = ?
+  `).all(courseId);
+
+  const created = [];
+
+  for (const student of students) {
+    const grades = db.prepare(`
+      SELECT g.score, g.max_score, g.exception,
+             a.id as assignment_id, a.title, a.due_date,
+             (CASE WHEN g.score IS NOT NULL AND g.max_score > 0 THEN (g.score * 100.0 / g.max_score) ELSE NULL END) as pct
+      FROM grades g
+      JOIN assignments a ON a.id = g.assignment_id
+      WHERE g.student_id = ? AND a.course_id = ?
+      ORDER BY a.due_date, a.title
+    `).all(student.id, courseId);
+
+    // Check for missing/excused work
+    const missing = grades.filter(g => g.score == null && !g.exception);
+    for (const m of missing) {
+      const exists = db.prepare(
+        'SELECT id FROM flags WHERE student_id = ? AND assignment_id = ? AND flag_type = ? AND resolved = 0'
+      ).get(student.id, m.assignment_id, 'late_submission');
+      if (!exists) {
+        db.prepare('INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason) VALUES (?, ?, ?, ?)')
+          .run(student.id, m.assignment_id, 'late_submission', `Missing: ${m.title}`);
+        created.push({ student: `${student.first_name} ${student.last_name}`, type: 'missing', assignment: m.title });
+      }
+    }
+
+    // Check for significant drops between consecutive scored assignments
+    const scored = grades.filter(g => g.pct != null);
+    for (let i = 1; i < scored.length; i++) {
+      const change = scored[i].pct - scored[i - 1].pct;
+      if (change <= -threshold) {
+        const exists = db.prepare(
+          'SELECT id FROM flags WHERE student_id = ? AND assignment_id = ? AND flag_type = ? AND resolved = 0'
+        ).get(student.id, scored[i].assignment_id, 'performance_change');
+        if (!exists) {
+          const reason = `${Math.abs(Math.round(change))}% drop: ${scored[i - 1].title} (${Math.round(scored[i - 1].pct)}%) -> ${scored[i].title} (${Math.round(scored[i].pct)}%)`;
+          db.prepare('INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason) VALUES (?, ?, ?, ?)')
+            .run(student.id, scored[i].assignment_id, 'performance_change', reason);
+          created.push({ student: `${student.first_name} ${student.last_name}`, type: 'performance_drop', reason });
+        }
+      }
+    }
+
+    // Check for grades below threshold
+    const belowThreshold = scored.filter(g => g.pct < lowGradeThreshold);
+    for (const g of belowThreshold) {
+      const exists = db.prepare(
+        'SELECT id FROM flags WHERE student_id = ? AND assignment_id = ? AND flag_type = ? AND resolved = 0'
+      ).get(student.id, g.assignment_id, 'review_needed');
+      if (!exists) {
+        db.prepare('INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason) VALUES (?, ?, ?, ?)')
+          .run(student.id, g.assignment_id, 'review_needed', `Below ${lowGradeThreshold}%: ${g.title} (${Math.round(g.pct)}%)`);
+        created.push({ student: `${student.first_name} ${student.last_name}`, type: 'low_grade', assignment: g.title });
+      }
+    }
+  }
+
+  res.json({ flagsCreated: created.length, details: created });
+});
+
+function percentile(sorted, p) {
+  const idx = (p / 100) * (sorted.length - 1);
+  const lower = Math.floor(idx);
+  const upper = Math.ceil(idx);
+  if (lower === upper) return sorted[lower];
+  return sorted[lower] + (sorted[upper] - sorted[lower]) * (idx - lower);
+}
+
+function round(v) {
+  return Math.round(v * 10) / 10;
+}
+
+export default router;

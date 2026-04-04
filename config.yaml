@@ -1,0 +1,10 @@
+features:
+  schoology_sync: true
+  manual_notes: true
+  student_flags: true
+  class_tools: true
+  analytics: true
+  feedback_inbox: true
+  feedback_review: true
+  revision_workflow: true
+  schoology_writeback: false

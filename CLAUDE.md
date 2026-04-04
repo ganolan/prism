@@ -121,9 +121,26 @@ npm run test:api   # Schoology API smoke test
 - [x] Feature flags enabled: feedback_inbox, feedback_review, revision_workflow
 - [x] Validated: inbox ingestion, edit with revision history, approve/revision workflow, manual entry, filters
 
-#### Phase 5 (Schoology Write-Back) — NOT STARTED
+#### Phase 5 (Schoology Write-Back) — ON HOLD
 
 Key discovery: bulk `PUT /sections/{id}/grades` works for writing grade comments. Individual PUT returns 405.
+
+**Blocked on:** Need a safe testing plan before implementing. Write-back touches live student data — must establish a sandbox approach (e.g. test section, dry-run mode, timestamp guards) before coding begins.
+
+#### UI Theme Redesign — COMPLETE (2026-04-04)
+
+Branch: `ui/theme-redesign`
+
+- [x] Theme system: ThemeProvider context (`client/src/hooks/useTheme.jsx`) with `data-theme` attribute on `<html>`, localStorage persistence
+- [x] Three themes: Prism (purple/pink light — default), Midnight (dark mode), Ocean (teal/blue light)
+- [x] Theme switcher dots in sidebar bottom
+- [x] Full CSS variable system in `app.css` — all colors, shadows, borders, gradients are theme-aware
+- [x] All 8 page components + StudentAnalytics updated to use CSS variables (no hardcoded colors)
+- [x] New button classes: `.primary`, `.secondary`, `.ghost`, `.tab-btn`, `.filter-btn`
+- [x] New alert classes: `.alert-warning`, `.alert-success`, `.alert-error`, `.alert-info`
+- [x] Inter font via Google Fonts, card hover animations, sidebar gradient
+
+**Adding new themes:** Add a `[data-theme="name"]` block in `app.css` with all CSS variables, add the theme key to `themes` in `useTheme.jsx`. No component changes needed.
 
 ### Run Commands
 
@@ -138,3 +155,13 @@ npm run dev:client # client only
 - Track build progress across sessions so work is not repeated and spec items are not missed.
 - Check this before starting a new phase.
 - Schema already has tables for notes/flags (Phase 2) and will need feedback table (Phase 4).
+- Phase 2 spec item not yet built: **class checklist generator** (create a checklist for a class, track completion per student, export as CSV).
+- Phase 5 is on hold pending a safe testing strategy for Schoology write-back.
+
+### Frontend Conventions
+
+- **Theming:** All colors must use CSS custom properties from `app.css` — never hardcode hex values in components. Use `var(--accent)`, `var(--bg-subtle)`, `var(--card-bg)`, etc.
+- **Button classes:** Use `.primary`, `.secondary`, `.ghost` (with `.danger`, `.success`, `.accent` modifiers), `.tab-btn`, `.filter-btn` — avoid inline button styles.
+- **Alert/banner classes:** Use `.alert.alert-warning`, `.alert.alert-success`, etc. instead of inline colored divs.
+- **Page wrapper:** Add `className="fade-in"` to the top-level div of each page for entry animation.
+- **Sidebar width:** 240px (set in CSS), content margin-left matches.

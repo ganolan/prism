@@ -24,7 +24,6 @@ export default function FeedbackPage() {
   const [selected, setSelected] = useState(null);
   const [inboxResult, setInboxResult] = useState(null);
   const [showManual, setShowManual] = useState(false);
-  const [showUpload, setShowUpload] = useState(false);
 
   function reload() {
     const params = {};
@@ -67,15 +66,14 @@ export default function FeedbackPage() {
   const approvableCount = items.filter(i => (i.status === 'draft' || i.status === 'revised') && !i.flag_for_review).length;
 
   return (
-    <div>
+    <div className="fade-in">
       <h2 className="page-title">Feedback Review</h2>
 
       {/* Action bar */}
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem', alignItems: 'center' }}>
         <button className="primary" onClick={handleProcessInbox}>Process Inbox</button>
         <UploadButton onDone={reload} />
-        <button onClick={() => setShowManual(!showManual)}
-          style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 6, padding: '0.5rem 1rem', cursor: 'pointer', fontSize: '0.85rem' }}>
+        <button className="secondary" onClick={() => setShowManual(!showManual)}>
           {showManual ? 'Cancel' : 'Manual Entry'}
         </button>
         {approvableCount > 0 && (
@@ -86,7 +84,7 @@ export default function FeedbackPage() {
       </div>
 
       {inboxResult && (
-        <div className="card" style={{ marginBottom: '1rem', background: '#f0fdf4' }}>
+        <div className="alert alert-success" style={{ marginBottom: '1rem' }}>
           <p className="text-sm">Inbox: {inboxResult.processed} imported, {inboxResult.errors} errors</p>
           {inboxResult.details.filter(d => d.status === 'error').map((d, i) => (
             <p key={i} className="text-sm" style={{ color: 'var(--error)' }}>{d.file}: {d.error || d.errors?.join('; ')}</p>
@@ -97,11 +95,10 @@ export default function FeedbackPage() {
       {showManual && <ManualEntry courses={courses} onDone={() => { setShowManual(false); reload(); }} />}
 
       {/* Filters */}
-      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
         {['', 'draft', 'flagged', 'revision_requested', 'revised', 'teacher_modified', 'approved'].map(s => (
           <button key={s} onClick={() => setFilter(s)}
-            className={filter === s ? 'primary' : ''}
-            style={filter !== s ? { background: 'transparent', border: '1px solid var(--border)', borderRadius: 6, padding: '0.35rem 0.75rem', cursor: 'pointer', fontSize: '0.8rem' } : { fontSize: '0.8rem' }}>
+            className={`filter-btn ${filter === s ? 'active' : ''}`}>
             {s || 'All'} {s === 'draft' ? `(${draftCount})` : s === 'flagged' ? `(${flaggedCount})` : ''}
           </button>
         ))}
@@ -116,12 +113,12 @@ export default function FeedbackPage() {
           {/* List panel */}
           <div style={{ flex: '0 0 420px', maxHeight: '70vh', overflowY: 'auto' }}>
             {items.length === 0 ? (
-              <div className="card"><p className="text-muted">No feedback items match the filter.</p></div>
+              <div className="card empty-state"><p>No feedback items match the filter.</p></div>
             ) : items.map(item => (
               <div key={item.id} onClick={() => loadDetail(item.id)}
                 className="card" style={{
                   cursor: 'pointer', padding: '0.75rem',
-                  borderLeft: selected?.id === item.id ? '3px solid var(--accent)' : '3px solid transparent',
+                  borderLeft: selected?.id === item.id ? `3px solid var(--accent)` : '3px solid transparent',
                   opacity: item.status === 'approved' ? 0.7 : 1,
                 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -150,7 +147,7 @@ export default function FeedbackPage() {
                 onUpdate={() => { loadDetail(selected.id); reload(); }}
               />
             ) : (
-              <div className="card"><p className="text-muted">Select a feedback item to review.</p></div>
+              <div className="card empty-state"><p>Select a feedback item to review.</p></div>
             )}
           </div>
         </div>
@@ -252,9 +249,9 @@ function FeedbackDetail({ item, onApprove, onDelete, onUpdate }) {
           <strong className="text-sm">Narrative Feedback</strong>
           {editing ? (
             <textarea value={narrative} onChange={e => setNarrative(e.target.value)} rows={5}
-              style={{ width: '100%', marginTop: '0.25rem', padding: '0.5rem', border: '1px solid var(--border)', borderRadius: 6, fontFamily: 'inherit', fontSize: '0.85rem' }} />
+              style={{ width: '100%', marginTop: '0.25rem' }} />
           ) : (
-            <p className="text-sm" style={{ whiteSpace: 'pre-wrap', marginTop: '0.25rem', background: 'var(--bg)', padding: '0.5rem', borderRadius: 6 }}>
+            <p className="text-sm" style={{ whiteSpace: 'pre-wrap', marginTop: '0.25rem', background: 'var(--bg-subtle)', padding: '0.5rem', borderRadius: 8 }}>
               {fb.narrative_feedback || '(none)'}
             </p>
           )}
@@ -277,14 +274,14 @@ function FeedbackDetail({ item, onApprove, onDelete, onUpdate }) {
           <strong className="text-sm">Teacher Notes <span className="text-muted">(not student-facing)</span></strong>
           {editing ? (
             <textarea value={teacherNotes} onChange={e => setTeacherNotes(e.target.value)} rows={2}
-              style={{ width: '100%', marginTop: '0.25rem', padding: '0.5rem', border: '1px solid var(--border)', borderRadius: 6, fontFamily: 'inherit', fontSize: '0.85rem' }} />
+              style={{ width: '100%', marginTop: '0.25rem' }} />
           ) : (
             <p className="text-sm text-muted" style={{ marginTop: '0.25rem' }}>{item.teacher_notes || '(none)'}</p>
           )}
         </div>
 
         {item.flag_for_review ? (
-          <div style={{ background: '#fef3c7', padding: '0.5rem 0.75rem', borderRadius: 6, marginBottom: '0.75rem' }}>
+          <div className="alert alert-warning" style={{ marginBottom: '0.75rem' }}>
             <span className="badge badge-red">Flagged</span>
             <span className="text-sm" style={{ marginLeft: '0.5rem' }}>{item.flag_reason || 'Flagged for review'}</span>
           </div>
@@ -295,7 +292,7 @@ function FeedbackDetail({ item, onApprove, onDelete, onUpdate }) {
           {editing ? (
             <>
               <button className="primary" onClick={saveEdit}>Save Changes</button>
-              <button onClick={() => setEditing(false)} style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 6, padding: '0.5rem 1rem', cursor: 'pointer', fontSize: '0.85rem' }}>Cancel</button>
+              <button className="secondary" onClick={() => setEditing(false)}>Cancel</button>
             </>
           ) : (
             <>
@@ -303,10 +300,10 @@ function FeedbackDetail({ item, onApprove, onDelete, onUpdate }) {
               {item.status !== 'approved' && (
                 <button className="primary" onClick={onApprove} style={{ background: 'var(--success)' }}>Approve</button>
               )}
-              <button onClick={() => setShowDiff(!showDiff)} style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 6, padding: '0.5rem 1rem', cursor: 'pointer', fontSize: '0.85rem' }}>
+              <button className="secondary" onClick={() => setShowDiff(!showDiff)}>
                 {showDiff ? 'Hide History' : `History (${history.length})`}
               </button>
-              <button onClick={onDelete} style={{ background: 'transparent', border: '1px solid var(--error)', color: 'var(--error)', borderRadius: 6, padding: '0.5rem 1rem', cursor: 'pointer', fontSize: '0.85rem', marginLeft: 'auto' }}>Delete</button>
+              <button className="ghost danger" onClick={onDelete} style={{ marginLeft: 'auto', border: '1px solid var(--error)', padding: '0.5rem 1rem', borderRadius: 8 }}>Delete</button>
             </>
           )}
         </div>
@@ -332,14 +329,13 @@ function FeedbackDetail({ item, onApprove, onDelete, onUpdate }) {
           {history.map((h, i) => {
             const hFb = JSON.parse(h.feedback_json || '{}');
             return (
-              <div key={i} style={{ padding: '0.5rem', background: 'var(--bg)', borderRadius: 6, marginBottom: '0.5rem', border: '1px solid var(--border)' }}>
+              <div key={i} style={{ padding: '0.5rem', background: 'var(--bg-subtle)', borderRadius: 8, marginBottom: '0.5rem', border: '1px solid var(--border)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
                   <span className="text-sm text-muted">Version {i + 1} — {h.status}</span>
                   <span className="text-sm text-muted">{new Date(h.changed_at).toLocaleString()}</span>
                 </div>
                 {h.score != null && <p className="text-sm">Score: {h.score}</p>}
                 <p className="text-sm" style={{ whiteSpace: 'pre-wrap' }}>{hFb.narrative_feedback || '(no narrative)'}</p>
-                {/* Highlight diff with current */}
                 {hFb.narrative_feedback !== fb.narrative_feedback && (
                   <p className="text-sm" style={{ color: 'var(--accent)', marginTop: '0.25rem' }}>
                     (narrative changed in later version)
@@ -378,9 +374,10 @@ function UploadButton({ onDone }) {
   }
 
   return (
-    <label className="primary" style={{
+    <label style={{
       display: 'inline-flex', alignItems: 'center', cursor: 'pointer',
-      background: 'var(--accent)', color: 'white', padding: '0.5rem 1rem', borderRadius: 6, fontSize: '0.85rem',
+      background: 'var(--accent)', color: 'white', padding: '0.5rem 1rem', borderRadius: 8, fontSize: '0.85rem', fontWeight: 600,
+      transition: 'all 0.15s ease',
     }}>
       {uploading ? 'Uploading...' : 'Upload JSON'}
       <input type="file" accept=".json" onChange={handleFile} style={{ display: 'none' }} />
@@ -446,17 +443,17 @@ function ManualEntry({ courses, onDone }) {
         <div style={{ gridColumn: '1 / -1' }}>
           <label className="text-sm">Narrative Feedback</label>
           <textarea value={form.narrative_feedback} onChange={e => setForm(f => ({ ...f, narrative_feedback: e.target.value }))}
-            rows={3} style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border)', borderRadius: 6, fontFamily: 'inherit' }} />
+            rows={3} />
         </div>
         <div>
           <label className="text-sm">Strengths (one per line)</label>
           <textarea value={form.strengths} onChange={e => setForm(f => ({ ...f, strengths: e.target.value }))}
-            rows={2} style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border)', borderRadius: 6, fontFamily: 'inherit' }} />
+            rows={2} />
         </div>
         <div>
           <label className="text-sm">Suggestions (one per line)</label>
           <textarea value={form.suggestions} onChange={e => setForm(f => ({ ...f, suggestions: e.target.value }))}
-            rows={2} style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border)', borderRadius: 6, fontFamily: 'inherit' }} />
+            rows={2} />
         </div>
         <div style={{ gridColumn: '1 / -1' }}>
           <button className="primary" type="submit" disabled={!form.student_id || !form.assignment_id}>Create Feedback</button>

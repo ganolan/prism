@@ -37,7 +37,6 @@ export default function AnalyticsPage() {
   if (!course) return <div className="error-msg">Course not found</div>;
 
   const rawDist = analytics?.distributions || [];
-  // Reshape for stacked bar box plot: whiskerLow, q1Range, q3Range, whiskerRange
   const dist = rawDist.map(d => ({
     ...d,
     whiskerLow: d.whiskerLow,
@@ -49,14 +48,14 @@ export default function AnalyticsPage() {
   const comparison = analytics?.comparison;
 
   return (
-    <div>
+    <div className="fade-in">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
         <h2 className="page-title" style={{ marginBottom: 0 }}>{course.course_name} — Analytics</h2>
         <Link to={`/course/${id}`} className="link text-sm">Back to roster</Link>
       </div>
 
       {dist.length === 0 ? (
-        <div className="card"><p className="text-muted">No scored assignments to analyse yet.</p></div>
+        <div className="card empty-state"><p>No scored assignments to analyse yet.</p></div>
       ) : (
         <>
           {/* Box and whisker */}
@@ -67,17 +66,16 @@ export default function AnalyticsPage() {
             </p>
             <ResponsiveContainer width="100%" height={350}>
               <ComposedChart data={dist} margin={{ top: 10, right: 20, bottom: 60, left: 10 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis dataKey="title" angle={-45} textAnchor="end" height={80} tick={{ fontSize: 11 }} interval={0} />
                 <YAxis domain={[0, 100]} label={{ value: '% Score', angle: -90, position: 'insideLeft', offset: 5 }} />
                 <Tooltip content={<BoxTooltip />} />
-                <ReferenceLine y={50} stroke="#f59e0b" strokeDasharray="3 3" label={{ value: '50%', fill: '#f59e0b', fontSize: 11 }} />
-                {/* Whisker low to Q1 */}
+                <ReferenceLine y={50} stroke="var(--warning)" strokeDasharray="3 3" label={{ value: '50%', fill: 'var(--warning)', fontSize: 11 }} />
                 <Bar dataKey="whiskerLow" stackId="box" fill="transparent" />
-                <Bar dataKey="q1Range" stackId="box" fill="#dbeafe" stroke="#93c5fd" />
-                <Bar dataKey="q3Range" stackId="box" fill="#93c5fd" stroke="#60a5fa" />
-                <Bar dataKey="whiskerRange" stackId="box" fill="transparent" stroke="#60a5fa" />
-                <Line type="monotone" dataKey="mean" stroke="#ef4444" strokeWidth={2} dot={{ fill: '#ef4444', r: 3 }} name="Class Mean" />
+                <Bar dataKey="q1Range" stackId="box" fill="var(--accent-light)" stroke="var(--accent)" />
+                <Bar dataKey="q3Range" stackId="box" fill="var(--accent)" stroke="var(--accent-hover)" opacity={0.6} />
+                <Bar dataKey="whiskerRange" stackId="box" fill="transparent" stroke="var(--accent)" />
+                <Line type="monotone" dataKey="mean" stroke="var(--secondary)" strokeWidth={2} dot={{ fill: 'var(--secondary)', r: 3 }} name="Class Mean" />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -94,14 +92,14 @@ export default function AnalyticsPage() {
                 low: Math.max(0, t.mean - t.stdDev),
                 high: Math.min(100, t.mean + t.stdDev),
               }))} margin={{ top: 10, right: 20, bottom: 60, left: 10 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis dataKey="title" angle={-45} textAnchor="end" height={80} tick={{ fontSize: 11 }} interval={0} />
                 <YAxis domain={[0, 100]} />
                 <Tooltip formatter={(v) => `${v}%`} />
                 <Legend />
-                <Line type="monotone" dataKey="high" stroke="#93c5fd" strokeDasharray="3 3" name="+1 SD" dot={false} />
-                <Line type="monotone" dataKey="mean" stroke="#4a90d9" strokeWidth={2} name="Mean" dot={{ fill: '#4a90d9', r: 3 }} />
-                <Line type="monotone" dataKey="low" stroke="#93c5fd" strokeDasharray="3 3" name="-1 SD" dot={false} />
+                <Line type="monotone" dataKey="high" stroke="var(--accent-light)" strokeDasharray="3 3" name="+1 SD" dot={false} />
+                <Line type="monotone" dataKey="mean" stroke="var(--accent)" strokeWidth={2} name="Mean" dot={{ fill: 'var(--accent)', r: 3 }} />
+                <Line type="monotone" dataKey="low" stroke="var(--accent-light)" strokeDasharray="3 3" name="-1 SD" dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -112,7 +110,7 @@ export default function AnalyticsPage() {
               <h3 style={{ marginBottom: '0.75rem' }}>Formative vs Summative</h3>
               <div className="grid-2">
                 {comparison.formative && (
-                  <div style={{ padding: '1rem', background: '#dbeafe', borderRadius: 8 }}>
+                  <div className="stat-card">
                     <strong>Formative</strong>
                     <p className="text-sm">{comparison.formative.count} assignments</p>
                     <p className="text-sm">Mean: {comparison.formative.avgMean}%</p>
@@ -120,7 +118,7 @@ export default function AnalyticsPage() {
                   </div>
                 )}
                 {comparison.summative && (
-                  <div style={{ padding: '1rem', background: '#fef3c7', borderRadius: 8 }}>
+                  <div style={{ padding: '1rem', background: 'var(--secondary-light)', borderRadius: 10, border: '1px solid var(--card-border)' }}>
                     <strong>Summative</strong>
                     <p className="text-sm">{comparison.summative.count} assignments</p>
                     <p className="text-sm">Mean: {comparison.summative.avgMean}%</p>
@@ -143,7 +141,7 @@ export default function AnalyticsPage() {
           <button className="primary" onClick={handleAutoFlags}>Run Auto-Flags</button>
         </div>
         {autoFlagResult && (
-          <div style={{ background: '#dcfce7', borderRadius: 6, padding: '0.5rem 0.75rem', marginBottom: '0.75rem' }}>
+          <div className="alert alert-success" style={{ marginBottom: '0.75rem' }}>
             <p className="text-sm">Created {autoFlagResult.flagsCreated} flags</p>
             {autoFlagResult.details.slice(0, 5).map((d, i) => (
               <p key={i} className="text-sm text-muted">{d.student}: {d.type} — {d.assignment || d.reason}</p>
@@ -193,7 +191,7 @@ function BoxTooltip({ active, payload, label }) {
   const d = payload[0]?.payload;
   if (!d) return null;
   return (
-    <div style={{ background: 'white', border: '1px solid #ddd', borderRadius: 6, padding: '0.5rem 0.75rem', fontSize: '0.8rem' }}>
+    <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '0.5rem 0.75rem', fontSize: '0.8rem', boxShadow: 'var(--card-shadow)' }}>
       <strong>{d.title}</strong>
       <p>n = {d.count} students</p>
       <p>Mean: {d.mean}% (SD: {d.stdDev})</p>

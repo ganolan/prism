@@ -6,3 +6,5 @@ inbox/processed/
 data/imports/*.csv
 *.log
 .DS_Store
+.claude/settings.local.json
+.claude/projects/

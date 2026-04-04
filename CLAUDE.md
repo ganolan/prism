@@ -4,12 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Purpose
 
-Test harness and utility scripts for the Schoology (PowerSchool Learning) REST API at HKIS. Used to automate grading, comment posting, and data extraction workflows.
+Prism is a local-first teacher dashboard for viewing, managing, and enriching student data from Schoology and PowerSchool. It combines a React frontend, an Express API, and a local SQLite database, with feature-flagged tools for analytics, notes, flags, feedback review, and future Schoology write-back workflows.
+
+For the full product intent, roadmap, and phased requirements, see `product-spec.md`.
 
 ## Setup
 
 ```bash
 npm install
+cd client && npm install
 ```
 
 Credentials live in `.env` (gitignored):
@@ -19,19 +22,34 @@ SCHOOLOGY_CONSUMER_KEY=...
 SCHOOLOGY_CONSUMER_SECRET=...
 ```
 
+Optional local overrides:
+```
+PORT=3001
+DB_PATH=server/db/students.db
+INBOX_DIR=inbox
+CONFIG_PATH=config.yaml
+```
+
 ## Running
 
 ```bash
-npm test          # runs test-api.js
-node test-api.js  # same thing
+npm run dev        # Express + Vite
+npm run dev:server # server only
+npm run dev:client # client only
+npm run build      # frontend production build
+npm run test:api   # Schoology API smoke test
 ```
 
 ## Architecture
 
 - **ESM project** (`"type": "module"` in package.json)
+- **Local-first app** with React frontend, Express backend, and SQLite persistence
 - **OAuth 1.0a** two-legged auth with PLAINTEXT signature via `oauth-1.0a` package
 - Token is empty (`{ key: '', secret: '' }`) for two-legged flow
-- All requests go to `https://api.schoology.com/v1/...` — never the school domain (`schoology.hkis.edu.hk`), which redirects to Microsoft SSO
+- Frontend talks to backend only through relative `/api/...` endpoints
+- Feature flags live in `config.yaml`
+- Local paths for DB, config, and inbox can be overridden via environment variables
+- All Schoology API requests go to `https://api.schoology.com/v1/...` — never the school domain (`schoology.hkis.edu.hk`), which redirects to Microsoft SSO
 
 ## Schoology API Quirks
 

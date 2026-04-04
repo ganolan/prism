@@ -11,6 +11,8 @@ It combines:
 
 The project is currently geared toward a single-teacher workflow, but it is structured so a colleague can fork it, point it at their own data, and extend it safely behind feature flags.
 
+For the full description of what Prism is intended to become, including the phased roadmap and feature scope, see [product-spec.md](/Users/gnolan/Library/CloudStorage/OneDrive-HongKongInternationalSchool/_repos/prism/product-spec.md).
+
 ## What It Does
 
 Prism can currently:
@@ -38,7 +40,7 @@ Prism can currently:
 ├── inbox/                  # optional feedback JSON drop folder
 ├── config.yaml             # feature flags
 ├── CLAUDE.md               # project notes and API quirks
-├── student-dashboard-spec.md
+├── product-spec.md
 ├── test-api.js             # Schoology API smoke test
 └── test-bulk-comment.js    # write-back API test
 ```
@@ -192,4 +194,4 @@ This repo was built around a real teacher workflow, so some assumptions are prac
 
 - expect to adapt field mappings and import workflows to your own school context
 - review feature flags before exposing tools to others
-- treat `CLAUDE.md` and `student-dashboard-spec.md` as the best sources of project intent and implementation history
+- treat `CLAUDE.md` and `product-spec.md` as the best sources of project intent and implementation history

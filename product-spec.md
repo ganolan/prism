@@ -1,4 +1,4 @@
-# Student Dashboard — Product Spec
+# Prism — Product Spec
 
 ## Overview
 

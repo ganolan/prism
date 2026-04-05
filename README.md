@@ -165,6 +165,14 @@ If you fork this project and want to extend it:
 5. Avoid storing application state in browser storage. This project is intentionally local-first through SQLite.
 6. Test sync and import flows against realistic data before merging.
 
+## Current Status
+
+Phases 1-4 of the product spec are complete (sync, enrichment, analytics, feedback review). Phase 5 (Schoology write-back) is on hold pending a safe test plan.
+
+**Standards-based grading** (Issue #7) is the current priority. HKIS uses measurement topics from PowerSchool with the General Academic Scale (Exhibiting Depth → Insufficient Evidence). Per-topic ratings are visible in Schoology's UI but not accessible via the REST API. See `.claude/schoology-api-reference.md` for full API findings.
+
+For detailed build progress, see `.claude/build-progress.md`.
+
 Good areas for improvement:
 
 - packaging for non-technical users

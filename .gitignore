@@ -1,10 +1,11 @@
 .env
 node_modules/
 server/db/*.db
+server/db/*.db-shm
+server/db/*.db-wal
 client/dist/
 inbox/processed/
 data/imports/*.csv
 *.log
 .DS_Store
 .claude/settings.local.json
-.claude/projects/

@@ -3,6 +3,43 @@ import { getDb } from '../db/index.js';
 
 const router = Router();
 
+const EXCEPTION_CODES = {
+  EXCUSED: 1,
+  INCOMPLETE: 2,
+  MISSING: 3,
+  LATE: 4,
+};
+
+function normalizeException(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+}
+
+function isPastDue(dueDate) {
+  if (!dueDate) return false;
+  const due = new Date(dueDate);
+  return !Number.isNaN(due.getTime()) && due < new Date();
+}
+
+function upsertFlag(db, { studentId, assignmentId, flagType, reason }) {
+  const hasAssignment = assignmentId != null;
+  const params = hasAssignment ? [studentId, flagType, assignmentId] : [studentId, flagType];
+  const existing = db.prepare(
+    `SELECT id, resolved FROM flags WHERE student_id = ? AND flag_type = ? AND ${hasAssignment ? 'assignment_id = ?' : 'assignment_id IS NULL'}`
+  ).get(...params);
+
+  if (existing) {
+    db.prepare('UPDATE flags SET flag_reason = ?, resolved = 0, resolved_at = NULL WHERE id = ?')
+      .run(reason, existing.id);
+    return { created: false, reopened: Boolean(existing.resolved) };
+  }
+
+  const result = db.prepare(
+    'INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason) VALUES (?, ?, ?, ?)'
+  ).run(studentId, assignmentId ?? null, flagType, reason);
+  return { created: true, reopened: false, id: result.lastInsertRowid };
+}
+
 // GET /api/analytics/course/:id — class-level analytics
 router.get('/course/:id', (req, res) => {
   const db = getDb();
@@ -200,15 +237,36 @@ router.post('/auto-flags/:courseId', (req, res) => {
     `).all(student.id, courseId);
 
     // Check for missing/excused work
-    const missing = grades.filter(g => g.score == null && !g.exception);
+    const missing = grades.filter(g => {
+      const exception = normalizeException(g.exception);
+      if (exception === EXCEPTION_CODES.LATE) return false;
+      if (exception === EXCEPTION_CODES.MISSING) return true;
+      if (exception) return false;
+      if (g.score != null) return false;
+      return isPastDue(g.due_date);
+    });
     for (const m of missing) {
-      const exists = db.prepare(
-        'SELECT id FROM flags WHERE student_id = ? AND assignment_id = ? AND flag_type = ? AND resolved = 0'
-      ).get(student.id, m.assignment_id, 'late_submission');
-      if (!exists) {
-        db.prepare('INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason) VALUES (?, ?, ?, ?)')
-          .run(student.id, m.assignment_id, 'late_submission', `Missing: ${m.title}`);
+      const result = upsertFlag(db, {
+        studentId: student.id,
+        assignmentId: m.assignment_id,
+        flagType: 'missing',
+        reason: m.title,
+      });
+      if (result.created) {
         created.push({ student: `${student.first_name} ${student.last_name}`, type: 'missing', assignment: m.title });
+      }
+    }
+
+    const lateSubmissions = grades.filter(g => normalizeException(g.exception) === EXCEPTION_CODES.LATE);
+    for (const l of lateSubmissions) {
+      const result = upsertFlag(db, {
+        studentId: student.id,
+        assignmentId: l.assignment_id,
+        flagType: 'late_submission',
+        reason: l.title,
+      });
+      if (result.created) {
+        created.push({ student: `${student.first_name} ${student.last_name}`, type: 'late_submission', assignment: l.title });
       }
     }
 

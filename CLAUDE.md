@@ -55,6 +55,7 @@ npm run test:api   # Schoology API smoke test
 ## Key References
 
 - **Schoology API quirks, verified endpoints, and SBG findings**: `.claude/schoology-api-reference.md`
+- **PowerSchool API probe results and access plan**: `.claude/powerschool-api-reference.md`
 - **Build progress across all phases**: `.claude/build-progress.md`
 - **Product spec and roadmap**: `product-spec.md`
 

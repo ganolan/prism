@@ -27,6 +27,10 @@ export const updateStudent = (id, data) => request(`/students/${id}`, {
   method: 'PUT',
   body: JSON.stringify(data),
 });
+export const updateParentPhone = (studentId, parentId, phone) => request(`/students/${studentId}/parents/${parentId}`, {
+  method: 'PUT',
+  body: JSON.stringify({ phone }),
+});
 
 // Grades
 export const getGrades = (params) => {

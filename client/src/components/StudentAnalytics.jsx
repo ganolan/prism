@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
 import {
-  ResponsiveContainer, LineChart, Line, BarChart, Bar,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell,
+  ResponsiveContainer, BarChart, Bar,
+  XAxis, YAxis, CartesianGrid, Tooltip, Cell,
 } from 'recharts';
 import { getStudentAnalytics } from '../services/api.js';
 
@@ -67,31 +66,6 @@ export default function StudentAnalytics({ studentId }) {
         </div>
       )}
 
-      {/* Grade trend per course */}
-      {courseIds.map((courseId, ci) => {
-        const t = trends[courseId];
-        if (t.points.length < 2) return null;
-        return (
-          <div className="card" key={courseId}>
-            <h3 style={{ marginBottom: '0.75rem' }}>
-              Grade Trend — <Link to={`/course/${courseId}`} className="link">{t.course_name}</Link>
-            </h3>
-            <ResponsiveContainer width="100%" height={250}>
-              <LineChart data={t.points} margin={{ top: 10, right: 20, bottom: 60, left: 10 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="title" angle={-45} textAnchor="end" height={80} tick={{ fontSize: 10 }} interval={0} />
-                <YAxis domain={[0, 100]} label={{ value: '%', angle: -90, position: 'insideLeft' }} />
-                <Tooltip formatter={(v) => `${v}%`} />
-                <Line
-                  type="monotone" dataKey="pct" name="Score"
-                  stroke={COLORS[ci % COLORS.length]} strokeWidth={2}
-                  dot={{ fill: COLORS[ci % COLORS.length], r: 4 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        );
-      })}
     </>
   );
 }

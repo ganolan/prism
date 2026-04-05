@@ -17,6 +17,16 @@ export function getDb() {
     // Run schema
     const schema = readFileSync(join(__dirname, 'schema.sql'), 'utf-8');
     db.exec(schema);
+
+    // Run incremental migrations (silently ignore duplicate column errors)
+    const migrations = [
+      `ALTER TABLE students ADD COLUMN nickname TEXT`,
+      `ALTER TABLE students ADD COLUMN picture_url TEXT`,
+      `ALTER TABLE parents ADD COLUMN phone TEXT`,
+    ];
+    for (const sql of migrations) {
+      try { db.exec(sql); } catch { /* column already exists */ }
+    }
   }
   return db;
 }

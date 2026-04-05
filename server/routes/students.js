@@ -60,15 +60,26 @@ router.get('/:id', (req, res) => {
   res.json({ ...student, courses, grades, notes, flags, parents });
 });
 
-// PUT /api/students/:id — update editable fields (preferred_name, etc.)
+// PUT /api/students/:id — update editable fields
 router.put('/:id', (req, res) => {
   const db = getDb();
-  const { preferred_name, parent_email, parent_phone } = req.body;
+  const { nickname } = req.body;
   db.prepare(`
-    UPDATE students SET preferred_name = ?, parent_email = ?, parent_phone = ?, updated_at = datetime('now')
+    UPDATE students SET nickname = ?, updated_at = datetime('now')
     WHERE id = ?
-  `).run(preferred_name ?? null, parent_email ?? null, parent_phone ?? null, req.params.id);
+  `).run(nickname ?? null, req.params.id);
   const updated = db.prepare('SELECT * FROM students WHERE id = ?').get(req.params.id);
+  res.json(updated);
+});
+
+// PUT /api/students/:id/parents/:parentId — update a parent's phone number
+router.put('/:id/parents/:parentId', (req, res) => {
+  const db = getDb();
+  const { phone } = req.body;
+  const result = db.prepare(`UPDATE parents SET phone = ? WHERE id = ? AND student_id = ?`)
+    .run(phone ?? null, req.params.parentId, req.params.id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Parent not found' });
+  const updated = db.prepare('SELECT * FROM parents WHERE id = ?').get(req.params.parentId);
   res.json(updated);
 });
 

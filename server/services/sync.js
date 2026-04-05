@@ -59,12 +59,13 @@ export async function fullSync(onProgress) {
       const studentEnrollments = enrollments.filter(e => e.admin !== '1' && e.admin !== 1);
 
       const upsertStudent = db.prepare(`
-        INSERT INTO students (schoology_uid, first_name, last_name, email, updated_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO students (schoology_uid, first_name, last_name, email, picture_url, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(schoology_uid) DO UPDATE SET
           first_name = excluded.first_name,
           last_name = excluded.last_name,
           email = COALESCE(excluded.email, students.email),
+          picture_url = COALESCE(excluded.picture_url, students.picture_url),
           updated_at = excluded.updated_at
       `);
 
@@ -76,7 +77,7 @@ export async function fullSync(onProgress) {
       `);
 
       for (const e of studentEnrollments) {
-        upsertStudent.run(String(e.uid), e.name_first, e.name_last, e.primary_email || null, now);
+        upsertStudent.run(String(e.uid), e.name_first, e.name_last, e.primary_email || null, e.picture_url || null, now);
         const studentRow = db.prepare('SELECT id FROM students WHERE schoology_uid = ?').get(String(e.uid));
         if (studentRow) {
           upsertEnrolment.run(studentRow.id, courseId, String(e.id));
@@ -207,12 +208,7 @@ export async function fullSync(onProgress) {
           WHERE id = ?
         `).run(email, prefName, now, s.id);
 
-        // Also update the legacy parent_email with first parent's email
         const parents = profile.parents?.parent || [];
-        if (parents.length > 0) {
-          db.prepare('UPDATE students SET parent_email = ? WHERE id = ? AND parent_email IS NULL')
-            .run(parents[0].primary_email || null, s.id);
-        }
 
         // Upsert parents
         for (const p of parents) {

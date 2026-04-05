@@ -7,9 +7,11 @@ CREATE TABLE IF NOT EXISTS students (
   first_name TEXT NOT NULL,
   last_name TEXT NOT NULL,
   preferred_name TEXT,
+  nickname TEXT,
   email TEXT,
   parent_email TEXT,
   parent_phone TEXT,
+  picture_url TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );
@@ -21,6 +23,7 @@ CREATE TABLE IF NOT EXISTS parents (
   first_name TEXT NOT NULL,
   last_name TEXT NOT NULL,
   email TEXT,
+  phone TEXT,
   relationship TEXT,
   UNIQUE(student_id, schoology_uid)
 );

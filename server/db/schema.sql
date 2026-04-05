@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS students (
   first_name TEXT NOT NULL,
   last_name TEXT NOT NULL,
   preferred_name TEXT,
-  nickname TEXT,
+  preferred_name_teacher TEXT,
   email TEXT,
   parent_email TEXT,
   parent_phone TEXT,

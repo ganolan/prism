@@ -12,6 +12,14 @@ import StudentAnalytics from '../components/StudentAnalytics.jsx';
 
 const CHART_COLORS = ['#7c3aed', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 
+function formatFlagReason(flag) {
+  if (!flag?.flag_reason) return '';
+  if (['missing', 'late_submission'].includes(flag.flag_type)) {
+    return flag.flag_reason.replace(/^Missing:\s*/i, '');
+  }
+  return flag.flag_reason;
+}
+
 function CopyButton({ text, label }) {
   const [copied, setCopied] = useState(false);
   function handleCopy(e) {
@@ -43,7 +51,7 @@ function CopyButton({ text, label }) {
   );
 }
 
-function CourseSection({ course, grades, courseIndex }) {
+function CourseSection({ course, grades, courseIndex, flagsByAssignment }) {
   const [expanded, setExpanded] = useState(true);
 
   const trendData = grades
@@ -114,20 +122,45 @@ function CourseSection({ course, grades, courseIndex }) {
               </tr>
             </thead>
             <tbody>
-              {grades.map(g => (
-                <tr key={g.id}>
-                  <td className="text-sm">{g.assignment_title}</td>
-                  <td className="text-sm text-muted">{g.due_date || '-'}</td>
-                  <td>
-                    {g.score != null
-                      ? <span>{g.score}{g.assignment_max_points ? ` / ${g.assignment_max_points}` : ''}</span>
-                      : '-'}
-                  </td>
-                  <td className="text-sm text-muted" style={{ maxWidth: '300px' }}>
-                    {g.grade_comment || '-'}
-                  </td>
-                </tr>
-              ))}
+              {grades.map(g => {
+                const assignmentFlags = flagsByAssignment?.[g.assignment_id] || [];
+                return (
+                  <tr key={g.id}>
+                    <td className="text-sm">
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                        <span>{g.assignment_title}</span>
+                        {assignmentFlags.length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                            {assignmentFlags.map(flag => {
+                              const flagReason = formatFlagReason(flag);
+                              const showReason = flagReason && flagReason !== g.assignment_title;
+                              return (
+                                <div key={flag.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                                  <span className={`badge ${flag.resolved ? 'badge-green' : 'badge-red'}`} style={{ textTransform: 'capitalize' }}>
+                                    {flag.flag_type.replace('_', ' ')}
+                                  </span>
+                                  {showReason && (
+                                    <span className="text-xs text-muted">{flagReason}</span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="text-sm text-muted">{g.due_date || '-'}</td>
+                    <td>
+                      {g.score != null
+                        ? <span>{g.score}{g.assignment_max_points ? ` / ${g.assignment_max_points}` : ''}</span>
+                        : '-'}
+                    </td>
+                    <td className="text-sm text-muted" style={{ maxWidth: '300px' }}>
+                      {g.grade_comment || '-'}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -245,7 +278,19 @@ export default function StudentPage() {
   if (!student) return <div className="error-msg">Student not found</div>;
 
   const displayName = student.preferred_name || student.first_name;
-  const activeFlags = student.flags.filter(f => !f.resolved);
+  const assignmentFlagMap = {};
+  const assignmentLookup = {};
+  for (const g of student.grades) {
+    if (!assignmentLookup[g.assignment_id]) {
+      assignmentLookup[g.assignment_id] = { title: g.assignment_title, courseName: g.course_name };
+    }
+  }
+  for (const f of student.flags) {
+    if (!f.assignment_id || f.resolved) continue;
+    if (!assignmentFlagMap[f.assignment_id]) assignmentFlagMap[f.assignment_id] = [];
+    assignmentFlagMap[f.assignment_id].push(f);
+  }
+  const activeFlags = student.flags.filter(f => !f.resolved && !f.assignment_id);
 
   const titleName = student.nickname
     ? `${displayName} [${student.nickname}] ${student.last_name}`
@@ -268,7 +313,7 @@ export default function StudentPage() {
           {activeFlags.map(f => (
             <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.4rem' }}>
               <span className="badge badge-red" style={{ textTransform: 'capitalize' }}>{f.flag_type.replace('_', ' ')}</span>
-              <span className="text-sm">{f.flag_reason}</span>
+              <span className="text-sm">{formatFlagReason(f) || f.flag_reason || '—'}</span>
               <button onClick={() => handleResolveFlag(f.id)} className="ghost accent" style={{ marginLeft: 'auto' }}>Resolve</button>
             </div>
           ))}
@@ -444,29 +489,49 @@ export default function StudentPage() {
           <p className="text-sm text-muted">No flags.</p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-            {student.flags.map(f => (
-              <div key={f.id} style={{
-                padding: '0.5rem 0.75rem', borderRadius: 8,
-                background: f.resolved ? 'var(--success-light)' : 'var(--warning-light)',
-                border: `1px solid ${f.resolved ? 'var(--success)' : 'var(--warning)'}`,
-                display: 'flex', alignItems: 'center', gap: '0.5rem',
-                opacity: f.resolved ? 0.7 : 1,
-              }}>
-                <span className={`badge ${f.resolved ? 'badge-green' : 'badge-red'}`} style={{ textTransform: 'capitalize' }}>
-                  {f.flag_type.replace('_', ' ')}
-                </span>
-                <span className="text-sm" style={{ flex: 1, textDecoration: f.resolved ? 'line-through' : 'none' }}>
-                  {f.flag_reason}
-                </span>
-                <span className="text-sm text-muted">{new Date(f.created_at).toLocaleDateString()}</span>
-                {f.resolved ? (
-                  <button onClick={() => handleReopenFlag(f.id)} className="ghost accent">Reopen</button>
-                ) : (
-                  <button onClick={() => handleResolveFlag(f.id)} className="ghost success">Resolve</button>
-                )}
-                <button onClick={() => handleDeleteFlag(f.id)} className="ghost danger">Delete</button>
-              </div>
-            ))}
+            {student.flags.map(f => {
+              const isAssignmentFlag = Boolean(f.assignment_id);
+              const isAutoFlag = ['missing', 'late_submission'].includes(f.flag_type);
+              const assignment = isAssignmentFlag ? assignmentLookup[f.assignment_id] : null;
+              const reasonText = formatFlagReason(f);
+              const primaryText = reasonText || assignment?.title || '';
+              const showAssignmentLabel = assignment && primaryText !== assignment.title;
+              return (
+                <div key={f.id} style={{
+                  padding: '0.5rem 0.75rem', borderRadius: 8,
+                  background: f.resolved ? 'var(--success-light)' : 'var(--warning-light)',
+                  border: `1px solid ${f.resolved ? 'var(--success)' : 'var(--warning)'}`,
+                  display: 'flex', alignItems: 'center', gap: '0.5rem',
+                  opacity: f.resolved ? 0.7 : 1,
+                }}>
+                  <span className={`badge ${f.resolved ? 'badge-green' : 'badge-red'}`} style={{ textTransform: 'capitalize' }}>
+                    {f.flag_type.replace('_', ' ')}
+                  </span>
+                  <span className="text-sm" style={{ flex: 1, textDecoration: f.resolved ? 'line-through' : 'none' }}>
+                    {primaryText || '—'}
+                    {showAssignmentLabel && (
+                      <span className="text-muted" style={{ marginLeft: '0.35rem', fontSize: '0.8rem' }}>
+                        {assignment.title}
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-sm text-muted">{new Date(f.created_at).toLocaleDateString()}</span>
+                  {!isAutoFlag && (
+                    f.resolved ? (
+                      <button onClick={() => handleReopenFlag(f.id)} className="ghost accent">Reopen</button>
+                    ) : (
+                      <button onClick={() => handleResolveFlag(f.id)} className="ghost success">Resolve</button>
+                    )
+                  )}
+                  {!isAutoFlag && (
+                    <button onClick={() => handleDeleteFlag(f.id)} className="ghost danger">Delete</button>
+                  )}
+                  {isAutoFlag && (
+                    <span className="text-xs text-muted">Auto from Schoology</span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -482,7 +547,13 @@ export default function StudentPage() {
         const grades = gradesByCourse[course.id] || [];
         if (grades.length === 0) return null;
         return (
-          <CourseSection key={course.id} course={course} grades={grades} courseIndex={i} />
+          <CourseSection
+            key={course.id}
+            course={course}
+            grades={grades}
+            courseIndex={i}
+            flagsByAssignment={assignmentFlagMap}
+          />
         );
       })}
 

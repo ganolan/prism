@@ -43,6 +43,15 @@ npm run test:api   # Schoology API smoke test
 - Feature flags live in `config.yaml`
 - All Schoology API requests go to `https://api.schoology.com/v1/...` — never the school domain
 
+### Frontend Conventions
+
+- **Theming:** All colors must use CSS custom properties from `app.css` — never hardcode hex values in components. Use `var(--accent)`, `var(--bg-subtle)`, `var(--card-bg)`, etc.
+- **Button classes:** Use `.primary`, `.secondary`, `.ghost` (with `.danger`, `.success`, `.accent` modifiers), `.tab-btn`, `.filter-btn` — avoid inline button styles.
+- **Alert/banner classes:** Use `.alert.alert-warning`, `.alert.alert-success`, etc. instead of inline colored divs.
+- **Page wrapper:** Add `className="fade-in"` to the top-level div of each page for entry animation.
+- **Sidebar width:** 240px (set in CSS), content margin-left matches.
+- **Adding new themes:** Add a `[data-theme="name"]` block in `app.css` with all CSS variables, add the theme key to `themes` in `useTheme.jsx`. No component changes needed.
+
 ## Key References
 
 - **Schoology API quirks, verified endpoints, and SBG findings**: `.claude/schoology-api-reference.md`
@@ -54,3 +63,4 @@ npm run test:api   # Schoology API smoke test
 - Check `.claude/build-progress.md` before starting any new phase to avoid repeating work.
 - Schema uses `CREATE TABLE IF NOT EXISTS` for safe idempotent creation via `getDb()`.
 - The school uses standards-based grading with measurement topics from PowerSchool. Per-topic ratings are NOT available via Schoology API — see `.claude/schoology-api-reference.md` for full details.
+- Phase 5 (Schoology write-back) is on hold pending a safe testing strategy.

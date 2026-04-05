@@ -24,7 +24,7 @@ export default function SearchPage() {
   const displayName = (s) => s.preferred_name || s.first_name;
 
   return (
-    <div>
+    <div className="fade-in">
       <h2 className="page-title">Search Students</h2>
 
       <form onSubmit={handleSearch} style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>

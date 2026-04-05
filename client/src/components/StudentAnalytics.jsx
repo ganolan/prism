@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 import { getStudentAnalytics } from '../services/api.js';
 
-const COLORS = ['#4a90d9', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
+const COLORS = ['#7c3aed', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 
 export default function StudentAnalytics({ studentId }) {
   const [data, setData] = useState(null);
@@ -53,11 +53,11 @@ export default function StudentAnalytics({ studentId }) {
           <h3 style={{ marginBottom: '0.75rem' }}>Cross-Course Comparison</h3>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={crossCourse} margin={{ top: 10, right: 20, bottom: 5, left: 10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis dataKey="course_name" tick={{ fontSize: 11 }} />
               <YAxis domain={[0, 100]} label={{ value: 'Avg %', angle: -90, position: 'insideLeft' }} />
               <Tooltip formatter={(v) => `${v}%`} />
-              <Bar dataKey="avg_pct" name="Average" radius={[4, 4, 0, 0]}>
+              <Bar dataKey="avg_pct" name="Average" radius={[6, 6, 0, 0]}>
                 {crossCourse.map((_, i) => (
                   <Cell key={i} fill={COLORS[i % COLORS.length]} />
                 ))}
@@ -78,7 +78,7 @@ export default function StudentAnalytics({ studentId }) {
             </h3>
             <ResponsiveContainer width="100%" height={250}>
               <LineChart data={t.points} margin={{ top: 10, right: 20, bottom: 60, left: 10 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis dataKey="title" angle={-45} textAnchor="end" height={80} tick={{ fontSize: 10 }} interval={0} />
                 <YAxis domain={[0, 100]} label={{ value: '%', angle: -90, position: 'insideLeft' }} />
                 <Tooltip formatter={(v) => `${v}%`} />

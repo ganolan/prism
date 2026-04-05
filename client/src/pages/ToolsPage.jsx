@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { getCourses, getEmails, getRandomStudents, getGroups } from '../services/api.js';
 
+const GROUP_COLORS = [
+  'var(--badge-blue-bg)', 'var(--badge-green-bg)', 'var(--warning-light)',
+  'var(--badge-pink-bg)', 'var(--accent-light)', 'var(--secondary-light)',
+  'var(--error-light)', 'var(--success-light)',
+];
+
 export default function ToolsPage() {
   const [courses, setCourses] = useState([]);
   const [selectedCourse, setSelectedCourse] = useState('');
@@ -10,7 +16,7 @@ export default function ToolsPage() {
   }, []);
 
   return (
-    <div>
+    <div className="fade-in">
       <h2 className="page-title">Class Tools</h2>
 
       <div style={{ marginBottom: '1.5rem', maxWidth: '400px' }}>
@@ -70,7 +76,7 @@ function EmailTool({ courseId }) {
       </div>
       {result && (
         <textarea readOnly value={result.formatted} rows={3}
-          style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border)', borderRadius: 6, fontFamily: 'inherit', fontSize: '0.85rem', background: 'var(--bg)' }}
+          style={{ background: 'var(--bg-subtle)' }}
         />
       )}
     </div>
@@ -94,7 +100,6 @@ function RandomPicker({ courseId }) {
     const data = await getRandomStudents(courseId, count);
     const finalPicked = data.picked;
 
-    // Animate through random names for 1.5s
     let tick = 0;
     intervalRef.current = setInterval(() => {
       const idx = Math.floor(Math.random() * data.total);
@@ -123,7 +128,7 @@ function RandomPicker({ courseId }) {
         </button>
       </div>
       {animating && display && (
-        <div style={{ fontSize: '1.5rem', fontWeight: 700, padding: '1rem', textAlign: 'center', color: 'var(--accent)' }}>
+        <div style={{ fontSize: '1.5rem', fontWeight: 700, padding: '1rem', textAlign: 'center', background: 'var(--gradient-primary)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
           {display}
         </div>
       )}
@@ -146,8 +151,6 @@ function GroupGenerator({ courseId }) {
   const [groups, setGroups] = useState(null);
 
   const displayName = (s) => `${s.preferred_name || s.first_name} ${s.last_name}`;
-
-  const colors = ['#dbeafe', '#dcfce7', '#fef3c7', '#fce7f3', '#e0e7ff', '#ccfbf1', '#fee2e2', '#fef9c3'];
 
   async function handleGenerate() {
     const data = await getGroups(courseId, groupCount, balanced);
@@ -180,13 +183,13 @@ function GroupGenerator({ courseId }) {
           Balance by grade
         </label>
         <button className="primary" onClick={handleGenerate}>Generate</button>
-        {groups && <button className="primary" onClick={handleExportCSV} style={{ background: '#6b7280' }}>Export CSV</button>}
+        {groups && <button className="secondary" onClick={handleExportCSV}>Export CSV</button>}
       </div>
 
       {groups && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
           {groups.map((g, i) => (
-            <div key={i} style={{ background: colors[i % colors.length], borderRadius: 8, padding: '0.75rem' }}>
+            <div key={i} style={{ background: GROUP_COLORS[i % GROUP_COLORS.length], borderRadius: 10, padding: '0.75rem' }}>
               <strong className="text-sm">Group {i + 1}</strong>
               <ul style={{ listStyle: 'none', marginTop: '0.4rem' }}>
                 {g.map(s => (

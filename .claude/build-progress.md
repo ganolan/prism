@@ -66,13 +66,12 @@ Blocked on resolving API access for per-topic ratings. Two paths:
 1. **Preferred**: Get admin/elevated API access to unlock `grading_rubrics` endpoint
 2. **Fallback**: Scrape per-topic ratings from Schoology web UI via Playwright
 
-## UI Theme Redesign — IN PROGRESS
+## UI Theme Redesign — COMPLETE (2026-04-04)
 
-Branch: `ui/theme-redesign`
+Merged via PR #2.
 
 - [x] Theme system with CSS custom properties and `data-theme` attribute
 - [x] Three themes: Prism (blues/pinks/purples light), Midnight (dark), Ocean (teals light)
 - [x] React Context + localStorage persistence via `useTheme.jsx`
 - [x] Theme switcher dots in sidebar
 - [x] All page components updated for theme variables
-- [ ] Uncommitted — needs commit and PR

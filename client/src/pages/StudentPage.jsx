@@ -95,7 +95,7 @@ export default function StudentPage() {
   }
 
   return (
-    <div>
+    <div className="fade-in">
       <h2 className="page-title">{displayName} {student.last_name}</h2>
       {student.preferred_name && (
         <p className="text-sm text-muted mb-1">Legal name: {student.first_name} {student.last_name}</p>
@@ -103,13 +103,13 @@ export default function StudentPage() {
 
       {/* Active flags banner */}
       {activeFlags.length > 0 && (
-        <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 8, padding: '0.75rem 1rem', marginBottom: '1rem' }}>
+        <div className="alert alert-warning">
           <strong style={{ color: '#92400e' }}>Active flags ({activeFlags.length})</strong>
           {activeFlags.map(f => (
             <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.4rem' }}>
               <span className="badge badge-red" style={{ textTransform: 'capitalize' }}>{f.flag_type.replace('_', ' ')}</span>
               <span className="text-sm">{f.flag_reason}</span>
-              <button onClick={() => handleResolveFlag(f.id)} className="text-sm" style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer' }}>Resolve</button>
+              <button onClick={() => handleResolveFlag(f.id)} className="ghost accent" style={{ marginLeft: 'auto' }}>Resolve</button>
             </div>
           ))}
         </div>
@@ -139,7 +139,7 @@ export default function StudentPage() {
                 </label>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <button className="primary" onClick={handleSave}>Save</button>
-                  <button onClick={() => setEditing(false)} style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: '6px', padding: '0.5rem 1rem', cursor: 'pointer' }}>Cancel</button>
+                  <button className="secondary" onClick={() => setEditing(false)}>Cancel</button>
                 </div>
               </div>
             ) : (
@@ -158,7 +158,7 @@ export default function StudentPage() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 {student.parents.map(p => (
-                  <div key={p.id} style={{ padding: '0.5rem 0.65rem', background: 'var(--bg)', borderRadius: 6, border: '1px solid var(--border)' }}>
+                  <div key={p.id} style={{ padding: '0.5rem 0.65rem', background: 'var(--bg-subtle)', borderRadius: 8, border: '1px solid var(--border)' }}>
                     <p className="text-sm" style={{ fontWeight: 600 }}>{p.first_name} {p.last_name}</p>
                     {p.email && <p className="text-sm"><a href={`mailto:${p.email}`} className="link">{p.email}</a></p>}
                     {p.relationship && <p className="text-sm text-muted">{p.relationship}</p>}
@@ -193,7 +193,7 @@ export default function StudentPage() {
             value={newNote}
             onChange={e => setNewNote(e.target.value)}
             rows={2}
-            style={{ flex: 1, padding: '0.5rem 0.75rem', border: '1px solid var(--border)', borderRadius: 6, fontFamily: 'inherit', fontSize: '0.9rem', resize: 'vertical' }}
+            style={{ flex: 1, resize: 'vertical' }}
           />
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
             <select value={noteCourseId} onChange={e => setNoteCourseId(e.target.value)} style={{ fontSize: '0.8rem' }}>
@@ -208,14 +208,14 @@ export default function StudentPage() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             {student.notes.map(n => (
-              <div key={n.id} style={{ padding: '0.5rem 0.75rem', background: 'var(--bg)', borderRadius: 6, border: '1px solid var(--border)' }}>
+              <div key={n.id} style={{ padding: '0.5rem 0.75rem', background: 'var(--bg-subtle)', borderRadius: 8, border: '1px solid var(--border)' }}>
                 {editingNoteId === n.id ? (
                   <div style={{ display: 'flex', gap: '0.5rem' }}>
                     <textarea value={editNoteText} onChange={e => setEditNoteText(e.target.value)} rows={2}
-                      style={{ flex: 1, padding: '0.4rem', border: '1px solid var(--border)', borderRadius: 4, fontFamily: 'inherit', fontSize: '0.85rem' }} />
+                      style={{ flex: 1 }} />
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                       <button className="primary" onClick={() => handleUpdateNote(n.id)} style={{ fontSize: '0.8rem' }}>Save</button>
-                      <button onClick={() => setEditingNoteId(null)} style={{ fontSize: '0.8rem', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>Cancel</button>
+                      <button className="ghost" onClick={() => setEditingNoteId(null)}>Cancel</button>
                     </div>
                   </div>
                 ) : (
@@ -225,9 +225,9 @@ export default function StudentPage() {
                       <span className="text-sm text-muted">{new Date(n.created_at).toLocaleDateString()}</span>
                       {n.course_id && <span className="badge badge-blue">{student.courses.find(c => c.id === n.course_id)?.course_name || 'Course'}</span>}
                       <button onClick={() => { setEditingNoteId(n.id); setEditNoteText(n.content); }}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent)', fontSize: '0.8rem' }}>Edit</button>
+                        className="ghost accent">Edit</button>
                       <button onClick={() => handleDeleteNote(n.id)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--error)', fontSize: '0.8rem' }}>Delete</button>
+                        className="ghost danger">Delete</button>
                     </div>
                   </>
                 )}
@@ -260,9 +260,9 @@ export default function StudentPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
             {student.flags.map(f => (
               <div key={f.id} style={{
-                padding: '0.5rem 0.75rem', borderRadius: 6,
-                background: f.resolved ? '#f0fdf4' : '#fefce8',
-                border: `1px solid ${f.resolved ? '#bbf7d0' : '#fde68a'}`,
+                padding: '0.5rem 0.75rem', borderRadius: 8,
+                background: f.resolved ? 'var(--success-light)' : 'var(--warning-light)',
+                border: `1px solid ${f.resolved ? 'var(--success)' : 'var(--warning)'}`,
                 display: 'flex', alignItems: 'center', gap: '0.5rem',
                 opacity: f.resolved ? 0.7 : 1,
               }}>
@@ -274,11 +274,11 @@ export default function StudentPage() {
                 </span>
                 <span className="text-sm text-muted">{new Date(f.created_at).toLocaleDateString()}</span>
                 {f.resolved ? (
-                  <button onClick={() => handleReopenFlag(f.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent)', fontSize: '0.8rem' }}>Reopen</button>
+                  <button onClick={() => handleReopenFlag(f.id)} className="ghost accent">Reopen</button>
                 ) : (
-                  <button onClick={() => handleResolveFlag(f.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--success)', fontSize: '0.8rem' }}>Resolve</button>
+                  <button onClick={() => handleResolveFlag(f.id)} className="ghost success">Resolve</button>
                 )}
-                <button onClick={() => handleDeleteFlag(f.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--error)', fontSize: '0.8rem' }}>Delete</button>
+                <button onClick={() => handleDeleteFlag(f.id)} className="ghost danger">Delete</button>
               </div>
             ))}
           </div>

@@ -33,18 +33,38 @@ export async function fullSync(onProgress) {
 
     // Upsert courses
     const upsertCourse = db.prepare(`
-      INSERT INTO courses (schoology_section_id, course_name, section_name, grading_period, synced_at)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO courses (schoology_section_id, course_name, section_name, course_code, section_school_code, grading_period, synced_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(schoology_section_id) DO UPDATE SET
         course_name = excluded.course_name,
         section_name = excluded.section_name,
+        course_code = excluded.course_code,
+        section_school_code = excluded.section_school_code,
         synced_at = excluded.synced_at
     `);
 
     for (const sec of sections) {
-      upsertCourse.run(String(sec.id), sec.course_title, sec.section_title, sec.grading_periods?.[0]?.title || null, now);
+      upsertCourse.run(
+        String(sec.id),
+        sec.course_title,
+        sec.section_title,
+        sec.course_code || null,
+        sec.section_school_code || null,
+        sec.grading_periods?.[0]?.title || null,
+        now
+      );
     }
     totalRecords += sections.length;
+
+    // Hide courses without course_code or section_school_code by default (only on first sync)
+    db.prepare(`
+      UPDATE courses
+      SET hidden = 1
+      WHERE (course_code IS NULL OR course_code = '')
+        AND (section_school_code IS NULL OR section_school_code = '')
+        AND hidden = 0
+        AND synced_at = ?
+    `).run(now);
 
     // 2. For each section, sync enrollments, assignments, grades
     for (const sec of sections) {

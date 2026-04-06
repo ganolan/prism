@@ -3,13 +3,18 @@ import { getDb } from '../db/index.js';
 
 const router = Router();
 
-// GET /api/courses — list all courses (non-archived by default)
+// GET /api/courses — list all courses (non-archived and visible by default)
 router.get('/', (req, res) => {
   const db = getDb();
   const includeArchived = req.query.archived === 'true';
-  const rows = includeArchived
-    ? db.prepare('SELECT * FROM courses ORDER BY course_name').all()
-    : db.prepare('SELECT * FROM courses WHERE archived = 0 ORDER BY course_name').all();
+  const includeHidden = req.query.hidden === 'true';
+
+  let query = 'SELECT * FROM courses WHERE 1=1';
+  if (!includeArchived) query += ' AND archived = 0';
+  if (!includeHidden) query += ' AND hidden = 0';
+  query += ' ORDER BY course_name';
+
+  const rows = db.prepare(query).all();
   res.json(rows);
 });
 
@@ -109,6 +114,16 @@ router.put('/:id/archive', (req, res) => {
   const newState = course.archived ? 0 : 1;
   db.prepare('UPDATE courses SET archived = ? WHERE id = ?').run(newState, req.params.id);
   res.json({ ...course, archived: newState });
+});
+
+// PUT /api/courses/:id/visibility — toggle visibility
+router.put('/:id/visibility', (req, res) => {
+  const db = getDb();
+  const course = db.prepare('SELECT * FROM courses WHERE id = ?').get(req.params.id);
+  if (!course) return res.status(404).json({ error: 'Course not found' });
+  const newState = course.hidden ? 0 : 1;
+  db.prepare('UPDATE courses SET hidden = ? WHERE id = ?').run(newState, req.params.id);
+  res.json({ ...course, hidden: newState });
 });
 
 export default router;

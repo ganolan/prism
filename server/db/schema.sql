@@ -33,8 +33,11 @@ CREATE TABLE IF NOT EXISTS courses (
   schoology_section_id TEXT UNIQUE NOT NULL,
   course_name TEXT NOT NULL,
   section_name TEXT,
+  course_code TEXT,
+  section_school_code TEXT,
   grading_period TEXT,
   archived INTEGER DEFAULT 0,
+  hidden INTEGER DEFAULT 0,
   synced_at TEXT
 );
 

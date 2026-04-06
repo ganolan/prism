@@ -13,8 +13,14 @@ async function request(path, options = {}) {
 }
 
 // Courses (archived=true to include archived)
-export const getCourses = (includeArchived) => request(`/courses${includeArchived ? '?archived=true' : ''}`);
+export const getCourses = (includeArchived, includeHidden) => {
+  const params = [];
+  if (includeArchived) params.push('archived=true');
+  if (includeHidden) params.push('hidden=true');
+  return request(`/courses${params.length ? '?' + params.join('&') : ''}`);
+};
 export const toggleArchiveCourse = (id) => request(`/courses/${id}/archive`, { method: 'PUT' });
+export const toggleCourseVisibility = (id) => request(`/courses/${id}/visibility`, { method: 'PUT' });
 export const getCourse = (id) => request(`/courses/${id}`);
 export const getCourseStudents = (id) => request(`/courses/${id}/students`);
 export const getCourseAssignments = (id) => request(`/courses/${id}/assignments`);

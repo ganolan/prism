@@ -218,7 +218,7 @@ export default function StudentPage() {
   const { id } = useParams();
   const [student, setStudent] = useState(null);
   const [editing, setEditing] = useState(false);
-  const [nicknameVal, setNicknameVal] = useState('');
+  const [preferredVal, setPreferredVal] = useState('');
   const [loading, setLoading] = useState(true);
 
   const [addingNote, setAddingNote] = useState(false);
@@ -232,7 +232,7 @@ export default function StudentPage() {
 
   function reload() {
     getStudent(id)
-      .then(s => { setStudent(s); setNicknameVal(s.nickname || ''); })
+      .then(s => { setStudent(s); setPreferredVal(s.preferred_name_teacher || ''); })
       .catch(console.error)
       .finally(() => setLoading(false));
   }
@@ -240,7 +240,7 @@ export default function StudentPage() {
   useEffect(() => { reload(); }, [id]);
 
   async function handleSave() {
-    const updated = await updateStudent(id, { nickname: nicknameVal.trim() || null });
+    const updated = await updateStudent(id, preferredVal.trim() || null);
     setStudent(prev => ({ ...prev, ...updated }));
     setEditing(false);
   }
@@ -277,7 +277,11 @@ export default function StudentPage() {
   if (loading) return <div className="loading">Loading...</div>;
   if (!student) return <div className="error-msg">Student not found</div>;
 
-  const displayName = student.preferred_name || student.first_name;
+  // Teacher-set preferred name wins, then Schoology preferred_name, then legal first_name
+  const displayName = student.preferred_name_teacher || student.preferred_name || student.first_name;
+  const legalFullName = `${student.first_name} ${student.last_name}`;
+  const displayedFullName = `${displayName} ${student.last_name}`;
+  const showLegalName = legalFullName !== displayedFullName;
   const assignmentFlagMap = {};
   const assignmentLookup = {};
   for (const g of student.grades) {
@@ -292,9 +296,7 @@ export default function StudentPage() {
   }
   const activeFlags = student.flags.filter(f => !f.resolved && !f.assignment_id);
 
-  const titleName = student.nickname
-    ? `${displayName} [${student.nickname}] ${student.last_name}`
-    : `${displayName} ${student.last_name}`;
+  const titleName = displayedFullName;
 
   const gradesByCourse = {};
   for (const g of student.grades) {
@@ -335,23 +337,26 @@ export default function StudentPage() {
               )}
               <div style={{ flex: 1 }}>
                 <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 700, lineHeight: 1.2 }}>{titleName}</h2>
-                {student.preferred_name && (
-                  <p className="text-sm text-muted" style={{ marginTop: '0.2rem' }}>Legal name: {student.first_name} {student.last_name}</p>
+                {showLegalName && (
+                  <p className="text-sm text-muted" style={{ marginTop: '0.2rem' }}>Legal name: {legalFullName}</p>
                 )}
                 {editing ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>
                     <label className="text-sm">
-                      Nickname
+                      Preferred name
                       <input
-                        type="text" value={nicknameVal}
-                        onChange={e => setNicknameVal(e.target.value)}
+                        type="text" value={preferredVal}
+                        onChange={e => setPreferredVal(e.target.value)}
                         placeholder="e.g. Alex"
                         autoFocus
                       />
                     </label>
+                    <p className="text-sm text-muted" style={{ margin: 0 }}>
+                      Overrides what name is displayed. Leave blank to use Schoology data.
+                    </p>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                       <button className="primary" onClick={handleSave}>Save</button>
-                      <button className="secondary" onClick={() => setEditing(false)}>Cancel</button>
+                      <button className="secondary" onClick={() => { setEditing(false); setPreferredVal(student.preferred_name_teacher || ''); }}>Cancel</button>
                     </div>
                   </div>
                 ) : (
@@ -363,7 +368,7 @@ export default function StudentPage() {
                       <path d="M13.488 2.513a1.75 1.75 0 0 0-2.475 0L6.75 6.774a2.75 2.75 0 0 0-.596.892l-.848 2.047a.75.75 0 0 0 .98.98l2.047-.848a2.75 2.75 0 0 0 .892-.596l4.261-4.262a1.75 1.75 0 0 0 0-2.474Z"/>
                       <path d="M4.75 3.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h6.5c.69 0 1.25-.56 1.25-1.25V9a.75.75 0 0 1 1.5 0v2.25A2.75 2.75 0 0 1 11.25 14h-6.5A2.75 2.75 0 0 1 2 11.25v-6.5A2.75 2.75 0 0 1 4.75 2H7a.75.75 0 0 1 0 1.5H4.75Z"/>
                     </svg>
-                    {student.nickname ? `Nickname: ${student.nickname}` : 'Add nickname'}
+                    {student.preferred_name_teacher ? `Preferred: ${student.preferred_name_teacher}` : 'Set preferred name'}
                   </button>
                 )}
                 {student.email && (

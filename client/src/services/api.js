@@ -29,9 +29,9 @@ export const getGradebook = (id) => request(`/courses/${id}/gradebook`);
 // Students
 export const searchStudents = (q) => request(`/students${q ? `?q=${encodeURIComponent(q)}` : ''}`);
 export const getStudent = (id) => request(`/students/${id}`);
-export const updateStudent = (id, data) => request(`/students/${id}`, {
+export const updateStudent = (id, preferred_name_teacher) => request(`/students/${id}`, {
   method: 'PUT',
-  body: JSON.stringify(data),
+  body: JSON.stringify({ preferred_name_teacher }),
 });
 export const updateParentPhone = (studentId, parentId, phone) => request(`/students/${studentId}/parents/${parentId}`, {
   method: 'PUT',

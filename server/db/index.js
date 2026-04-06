@@ -23,6 +23,7 @@ export function getDb() {
       `ALTER TABLE students ADD COLUMN nickname TEXT`,
       `ALTER TABLE students ADD COLUMN picture_url TEXT`,
       `ALTER TABLE parents ADD COLUMN phone TEXT`,
+      `ALTER TABLE students RENAME COLUMN nickname TO preferred_name_teacher`,
     ];
     for (const sql of migrations) {
       try { db.exec(sql); } catch { /* column already exists */ }

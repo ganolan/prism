@@ -63,11 +63,11 @@ router.get('/:id', (req, res) => {
 // PUT /api/students/:id — update editable fields
 router.put('/:id', (req, res) => {
   const db = getDb();
-  const { nickname } = req.body;
+  const { preferred_name_teacher } = req.body;
   db.prepare(`
-    UPDATE students SET nickname = ?, updated_at = datetime('now')
+    UPDATE students SET preferred_name_teacher = ?, updated_at = datetime('now')
     WHERE id = ?
-  `).run(nickname ?? null, req.params.id);
+  `).run(preferred_name_teacher ?? null, req.params.id);
   const updated = db.prepare('SELECT * FROM students WHERE id = ?').get(req.params.id);
   res.json(updated);
 });

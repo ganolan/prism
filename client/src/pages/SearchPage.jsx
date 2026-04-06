@@ -6,9 +6,10 @@ function matchesQuery(student, query) {
   if (!query.trim()) return true;
   const tokens = query.trim().toLowerCase().split(/\s+/);
   const haystack = [
+    student.preferred_name_teacher,
+    student.preferred_name,
     student.first_name,
     student.last_name,
-    student.preferred_name,
   ]
     .filter(Boolean)
     .join(' ')
@@ -31,7 +32,7 @@ export default function SearchPage() {
 
   const results = allStudents.filter(s => matchesQuery(s, query));
 
-  const displayName = (s) => s.preferred_name || s.first_name;
+  const displayName = (s) => s.preferred_name_teacher || s.preferred_name || s.first_name;
 
   return (
     <div className="fade-in">
@@ -88,7 +89,7 @@ export default function SearchPage() {
                       <Link to={`/student/${s.id}`} className="link">
                         {displayName(s)} {s.last_name}
                       </Link>
-                      {s.preferred_name && (
+                      {displayName(s) !== s.first_name && (
                         <span className="text-sm text-muted" style={{ marginLeft: '0.5rem' }}>
                           ({s.first_name})
                         </span>

@@ -27,8 +27,11 @@
   --text-muted: #6b5b95;
   --success: #10b981;
   --success-light: #d1fae5;
+  --success-bg: #d1fae5;
   --error: #ef4444;
   --error-light: #fee2e2;
+  --danger: #ef4444;
+  --danger-bg: #fee2e2;
   --warning: #f59e0b;
   --warning-light: #fef3c7;
   --gradient-primary: linear-gradient(135deg, #7c3aed 0%, #a855f7 50%, #ec4899 100%);
@@ -80,8 +83,11 @@
   --text-muted: #8b7bb5;
   --success: #34d399;
   --success-light: rgba(52, 211, 153, 0.12);
+  --success-bg: rgba(52, 211, 153, 0.12);
   --error: #f87171;
   --error-light: rgba(248, 113, 113, 0.12);
+  --danger: #f87171;
+  --danger-bg: rgba(248, 113, 113, 0.12);
   --warning: #fbbf24;
   --warning-light: rgba(251, 191, 36, 0.12);
   --gradient-primary: linear-gradient(135deg, #7c3aed 0%, #a855f7 50%, #ec4899 100%);
@@ -133,8 +139,11 @@
   --text-muted: #0369a1;
   --success: #10b981;
   --success-light: #d1fae5;
+  --success-bg: #d1fae5;
   --error: #ef4444;
   --error-light: #fee2e2;
+  --danger: #ef4444;
+  --danger-bg: #fee2e2;
   --warning: #f59e0b;
   --warning-light: #fef3c7;
   --gradient-primary: linear-gradient(135deg, #0284c7 0%, #06b6d4 50%, #14b8a6 100%);
@@ -640,4 +649,46 @@ button.ghost.accent:hover { background: var(--accent-light); }
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* ========================================================================
+   MODAL
+   ======================================================================== */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease;
+}
+
+.modal-content {
+  background: var(--card-bg);
+  padding: 1.5rem;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow-y: auto;
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.hover-lift {
+  transition: all 0.2s ease;
+}
+
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }

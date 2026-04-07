@@ -328,11 +328,18 @@ export default function StudentPage() {
           {/* Profile */}
           <div>
             <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
-              {student.picture_url && (
+              {(student.local_picture_path || student.picture_url) && (
                 <img
-                  src={student.picture_url} alt={displayName}
+                  src={student.local_picture_path || student.picture_url} alt={displayName}
                   style={{ width: 144, height: 144, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: '2px solid var(--border)' }}
-                  onError={e => { e.currentTarget.style.display = 'none'; }}
+                  onError={e => {
+                    // Fallback from local to remote URL if local fails
+                    if (student.local_picture_path && student.picture_url && e.currentTarget.src !== student.picture_url) {
+                      e.currentTarget.src = student.picture_url;
+                    } else {
+                      e.currentTarget.style.display = 'none';
+                    }
+                  }}
                 />
               )}
               <div style={{ flex: 1 }}>

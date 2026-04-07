@@ -23,6 +23,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Serve uploaded profile images
+const uploadsDir = join(__dirname, 'uploads');
+app.use('/uploads', express.static(uploadsDir));
+
 // Serve static client build in production
 const clientDist = join(__dirname, '..', 'client', 'dist');
 app.use(express.static(clientDist));

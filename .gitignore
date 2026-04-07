@@ -3,6 +3,7 @@ node_modules/
 server/db/*.db
 server/db/*.db-shm
 server/db/*.db-wal
+server/uploads/
 client/dist/
 inbox/processed/
 data/imports/*.csv

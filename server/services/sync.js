@@ -7,6 +7,7 @@ import {
   getSectionGrades,
   getUserProfile,
 } from './schoology.js';
+import { downloadProfileImage, generateImageFilename } from './imageDownload.js';
 
 // Full sync: sections -> enrollments -> assignments -> grades
 export async function fullSync(onProgress) {
@@ -85,7 +86,7 @@ export async function fullSync(onProgress) {
           first_name = excluded.first_name,
           last_name = excluded.last_name,
           email = COALESCE(excluded.email, students.email),
-          picture_url = COALESCE(excluded.picture_url, students.picture_url),
+          picture_url = excluded.picture_url,
           updated_at = excluded.updated_at
       `);
 
@@ -97,10 +98,28 @@ export async function fullSync(onProgress) {
       `);
 
       for (const e of studentEnrollments) {
-        upsertStudent.run(String(e.uid), e.name_first, e.name_last, e.primary_email || null, e.picture_url || null, now);
-        const studentRow = db.prepare('SELECT id FROM students WHERE schoology_uid = ?').get(String(e.uid));
+        const schoologyUid = String(e.uid);
+        const pictureUrl = e.picture_url || null;
+
+        upsertStudent.run(schoologyUid, e.name_first, e.name_last, e.primary_email || null, pictureUrl, now);
+
+        const studentRow = db.prepare('SELECT id FROM students WHERE schoology_uid = ?').get(schoologyUid);
         if (studentRow) {
           upsertEnrolment.run(studentRow.id, courseId, String(e.id));
+
+          // Download and store profile image locally if URL exists
+          if (pictureUrl) {
+            try {
+              const filename = generateImageFilename(schoologyUid, pictureUrl);
+              const localPath = await downloadProfileImage(pictureUrl, filename);
+              if (localPath) {
+                db.prepare('UPDATE students SET local_picture_path = ? WHERE id = ?').run(localPath, studentRow.id);
+              }
+            } catch (imgErr) {
+              // Non-fatal: continue sync even if image download fails
+              console.warn(`[sync] Failed to download image for student ${schoologyUid}:`, imgErr.message);
+            }
+          }
         }
       }
       totalRecords += studentEnrollments.length;

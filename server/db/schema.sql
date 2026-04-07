@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS students (
   parent_email TEXT,
   parent_phone TEXT,
   picture_url TEXT,
+  local_picture_path TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );

@@ -67,11 +67,19 @@ export default function SearchPage() {
                 {results.map(s => (
                   <tr key={s.id}>
                     <td style={{ width: '40px', padding: '0.25rem 0.5rem' }}>
-                      {s.picture_url ? (
+                      {(s.local_picture_path || s.picture_url) ? (
                         <img
-                          src={s.picture_url}
+                          src={s.local_picture_path || s.picture_url}
                           alt=""
                           style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', display: 'block' }}
+                          onError={e => {
+                            // Fallback from local to remote URL if local fails
+                            if (s.local_picture_path && s.picture_url && e.currentTarget.src !== s.picture_url) {
+                              e.currentTarget.src = s.picture_url;
+                            } else {
+                              e.currentTarget.style.display = 'none';
+                            }
+                          }}
                         />
                       ) : (
                         <div style={{

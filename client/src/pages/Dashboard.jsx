@@ -1,30 +1,18 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { getCourses, getCoursesByView, getSyncStatus, toggleCourseVisibility, importCourse } from '../services/api.js';
+import { getCourses, getCoursesByView, getSyncStatus, toggleCourseVisibility, importCourse, updateCourseBlockNumber } from '../services/api.js';
 
-// Derive academic year and semester from Schoology grading_period title string.
-// Examples:
-//   "2025-2026: 08/14/2025 - 06/17/2026"  → { academicYear: '2025-26', semester: 'Full Year' }
-//   "Semester 1: 08/14/2025 - 01/11/2026" → { academicYear: '2025-26', semester: 'Semester 1' }
-//   "Semester 2: 01/12/2026 - 06/17/2026" → { academicYear: '2025-26', semester: 'Semester 2' }
 function parseGradingPeriod(gradingPeriod) {
   if (!gradingPeriod) return { academicYear: 'Unknown', semester: 'Unknown' };
-
   let semester = 'Full Year';
   if (gradingPeriod.includes('Semester 1')) semester = 'Semester 1';
   else if (gradingPeriod.includes('Semester 2')) semester = 'Semester 2';
-
-  // Extract the first date in MM/DD/YYYY format
   const dateMatch = gradingPeriod.match(/(\d{2})\/(\d{2})\/(\d{4})/);
   if (!dateMatch) return { academicYear: 'Unknown', semester };
-
   const month = parseInt(dateMatch[1], 10);
   const year = parseInt(dateMatch[3], 10);
-  // Aug–Dec: this calendar year starts the academic year
-  // Jan–Jul: the previous calendar year started the academic year
   const startYear = month >= 8 ? year : year - 1;
   const academicYear = `${startYear}-${String(startYear + 1).slice(-2)}`;
-
   return { academicYear, semester };
 }
 
@@ -35,7 +23,6 @@ function groupByAcademicYear(courses) {
     if (!groups[academicYear]) groups[academicYear] = [];
     groups[academicYear].push(c);
   }
-  // Sort year keys descending (e.g. "2025-26" before "2024-25")
   return Object.entries(groups)
     .sort(([a], [b]) => b.localeCompare(a))
     .map(([year, yearCourses]) => ({ year, courses: yearCourses }));
@@ -43,42 +30,51 @@ function groupByAcademicYear(courses) {
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('current');
+  const [showHidden, setShowHidden] = useState(false);
   const [courses, setCourses] = useState([]);
   const [syncStatus, setSyncStatus] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [editMode, setEditMode] = useState(false);
-  const [allCourses, setAllCourses] = useState([]);
   const [importId, setImportId] = useState('');
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState(null);
   const [importSuccess, setImportSuccess] = useState(null);
+  // editingBlock: courseId currently being edited, blockDraft: current input value
+  const [editingBlock, setEditingBlock] = useState(null);
+  const [blockDraft, setBlockDraft] = useState('');
 
-  function reload() {
-    Promise.all([getCoursesByView(activeTab), getSyncStatus()])
-      .then(([c, s]) => { setCourses(c); setSyncStatus(s); })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }
-
-  function loadAllCourses() {
-    getCourses(true, true).then(setAllCourses).catch(console.error);
+  async function reload() {
+    try {
+      let coursesData;
+      if (showHidden) {
+        // Fetch all including hidden, filter by tab client-side
+        const all = await getCourses(true, true);
+        coursesData = activeTab === 'current'
+          ? all.filter(c => !c.archived)
+          : all.filter(c => c.archived);
+      } else {
+        coursesData = await getCoursesByView(activeTab);
+      }
+      const [, status] = await Promise.all([Promise.resolve(coursesData), getSyncStatus()]);
+      setCourses(coursesData);
+      setSyncStatus(status);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     setImportError(null);
     setImportSuccess(null);
     reload();
-  }, [activeTab]);
+  }, [activeTab, showHidden]);
 
-  async function handleToggleVisibility(courseId) {
+  async function handleToggleVisibility(e, courseId) {
+    e.preventDefault();
+    e.stopPropagation();
     await toggleCourseVisibility(courseId);
-    loadAllCourses();
     reload();
-  }
-
-  function openEditMode() {
-    setEditMode(true);
-    loadAllCourses();
   }
 
   async function handleImport(e) {
@@ -100,16 +96,108 @@ export default function Dashboard() {
     }
   }
 
+  function startEditBlock(e, courseId, currentValue) {
+    e.preventDefault();
+    e.stopPropagation();
+    setEditingBlock(courseId);
+    setBlockDraft(currentValue || '');
+  }
+
+  async function saveBlock(e, courseId) {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      await updateCourseBlockNumber(courseId, blockDraft.trim() || null);
+      setEditingBlock(null);
+      reload();
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  function cancelEditBlock(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    setEditingBlock(null);
+  }
+
   if (loading) return <div className="loading">Loading...</div>;
 
   const yearGroups = groupByAcademicYear(courses);
 
+  // Shared course card renderer
+  function CourseCard({ c, showSemester = false }) {
+    const { semester } = parseGradingPeriod(c.grading_period);
+    const isEditing = editingBlock === c.id;
+
+    return (
+      <Link
+        to={`/course/${c.id}`}
+        key={c.id}
+        className="card"
+        style={{ opacity: c.hidden ? 0.5 : (showSemester ? 0.75 : 1), position: 'relative' }}
+      >
+        {/* Block number — top right, prominent */}
+        <div style={{ position: 'absolute', top: '0.75rem', right: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+          {isEditing ? (
+            <>
+              <input
+                type="text"
+                value={blockDraft}
+                onChange={e => setBlockDraft(e.target.value)}
+                onClick={e => e.preventDefault() || e.stopPropagation()}
+                onKeyDown={e => { if (e.key === 'Enter') saveBlock(e, c.id); if (e.key === 'Escape') cancelEditBlock(e); }}
+                placeholder="Block #"
+                style={{ width: '70px', fontSize: '0.8rem', padding: '0.2rem 0.4rem' }}
+                autoFocus
+              />
+              <button className="ghost" style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }} onClick={e => saveBlock(e, c.id)}>✓</button>
+              <button className="ghost" style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }} onClick={cancelEditBlock}>✕</button>
+            </>
+          ) : (
+            <button
+              className="ghost"
+              style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', fontWeight: c.block_number ? 600 : 400, color: c.block_number ? 'var(--accent)' : 'var(--text-muted)' }}
+              onClick={e => startEditBlock(e, c.id, c.block_number)}
+              title="Set block number"
+            >
+              {c.block_number ? `Block ${c.block_number}` : '+ Block'}
+            </button>
+          )}
+        </div>
+
+        {/* Course info */}
+        <div style={{ paddingRight: '7rem' }}>
+          <h3 style={{ marginBottom: '0.25rem', fontWeight: 600 }}>{c.course_name}</h3>
+          {c.grading_period && showSemester && (
+            <p className="text-sm text-muted">{c.grading_period}</p>
+          )}
+        </div>
+
+        {/* Bottom row: badges + hide button */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.75rem' }}>
+          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+            {showSemester && <span className="badge badge-gray">{semester}</span>}
+            {c.hidden && <span className="badge" style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }}>Hidden</span>}
+          </div>
+          <button
+            className="ghost"
+            style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}
+            onClick={e => handleToggleVisibility(e, c.id)}
+            title={c.hidden ? 'Show course' : 'Hide course'}
+          >
+            {c.hidden ? 'Show' : 'Hide'}
+          </button>
+        </div>
+      </Link>
+    );
+  }
+
   return (
     <div className="fade-in">
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <h2 className="page-title" style={{ marginBottom: 0 }}>Dashboard</h2>
-        <button className="secondary" onClick={openEditMode}>Show/Hide Courses</button>
       </div>
 
       {/* Sync status */}
@@ -121,20 +209,16 @@ export default function Dashboard() {
         </p>
       )}
 
-      {/* Tab toggle */}
-      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
-        <button
-          className={activeTab === 'current' ? 'tab-btn active' : 'tab-btn'}
-          onClick={() => setActiveTab('current')}
-        >
-          Current
-        </button>
-        <button
-          className={activeTab === 'archived' ? 'tab-btn active' : 'tab-btn'}
-          onClick={() => setActiveTab('archived')}
-        >
-          Archived
-        </button>
+      {/* Controls: tab toggle + show hidden */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+        <button className={activeTab === 'current' ? 'tab-btn active' : 'tab-btn'} onClick={() => setActiveTab('current')}>Current</button>
+        <button className={activeTab === 'archived' ? 'tab-btn active' : 'tab-btn'} onClick={() => setActiveTab('archived')}>Archived</button>
+        <div style={{ marginLeft: 'auto' }}>
+          <label className="text-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', color: 'var(--text-muted)' }}>
+            <input type="checkbox" checked={showHidden} onChange={e => setShowHidden(e.target.checked)} />
+            Show hidden
+          </label>
+        </div>
       </div>
 
       {/* Current tab */}
@@ -145,21 +229,7 @@ export default function Dashboard() {
           </div>
         ) : (
           <div className="grid-2">
-            {courses.map(c => (
-              <Link to={`/course/${c.id}`} key={c.id} className="card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <h3 style={{ marginBottom: '0.25rem', fontWeight: 600 }}>{c.course_name}</h3>
-                    {c.section_name && <p className="text-sm text-muted">{c.section_name}</p>}
-                  </div>
-                </div>
-                {c.synced_at && (
-                  <p className="text-sm text-muted" style={{ marginTop: '0.5rem' }}>
-                    Synced {new Date(c.synced_at).toLocaleDateString()}
-                  </p>
-                )}
-              </Link>
-            ))}
+            {courses.map(c => <CourseCard key={c.id} c={c} />)}
           </div>
         )
       )}
@@ -174,34 +244,11 @@ export default function Dashboard() {
           ) : (
             yearGroups.map(({ year, courses: groupCourses }) => (
               <div key={year} style={{ marginBottom: '2rem' }}>
-                <h3 style={{
-                  marginBottom: '0.75rem',
-                  color: 'var(--text-muted)',
-                  fontWeight: 500,
-                  fontSize: '0.85rem',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.08em',
-                }}>
+                <h3 style={{ marginBottom: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                   {year}
                 </h3>
                 <div className="grid-2">
-                  {groupCourses.map(c => {
-                    const { semester } = parseGradingPeriod(c.grading_period);
-                    return (
-                      <Link to={`/course/${c.id}`} key={c.id} className="card" style={{ opacity: 0.75 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                          <div>
-                            <h3 style={{ marginBottom: '0.25rem', fontWeight: 600 }}>{c.course_name}</h3>
-                            {c.section_name && <p className="text-sm text-muted">{c.section_name}</p>}
-                          </div>
-                          <span className="badge badge-gray">{semester}</span>
-                        </div>
-                        {c.grading_period && (
-                          <p className="text-sm text-muted" style={{ marginTop: '0.5rem' }}>{c.grading_period}</p>
-                        )}
-                      </Link>
-                    );
-                  })}
+                  {groupCourses.map(c => <CourseCard key={c.id} c={c} showSemester />)}
                 </div>
               </div>
             ))
@@ -234,69 +281,9 @@ export default function Dashboard() {
                   disabled={importing}
                 />
               </div>
-              <button
-                className="primary"
-                onClick={handleImport}
-                disabled={importing || !importId.trim()}
-              >
+              <button className="primary" onClick={handleImport} disabled={importing || !importId.trim()}>
                 {importing ? 'Importing...' : 'Import'}
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Show/Hide Courses Modal */}
-      {editMode && (
-        <div className="modal-overlay" onClick={() => setEditMode(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 style={{ margin: 0 }}>Show/Hide Courses</h3>
-              <button className="ghost" onClick={() => setEditMode(false)}>✕</button>
-            </div>
-            <p className="text-sm text-muted" style={{ marginBottom: '1rem' }}>
-              Hidden courses will not appear on your dashboard. Click to show/hide.
-            </p>
-            <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
-              {allCourses.map(c => (
-                <div
-                  key={c.id}
-                  onClick={() => handleToggleVisibility(c.id)}
-                  style={{
-                    padding: '0.75rem',
-                    marginBottom: '0.5rem',
-                    borderRadius: 'var(--radius)',
-                    border: '1px solid var(--border)',
-                    cursor: 'pointer',
-                    opacity: c.hidden ? 0.5 : 1,
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    transition: 'all 0.2s ease',
-                  }}
-                  className="hover-lift"
-                >
-                  <div>
-                    <div style={{ fontWeight: 500 }}>{c.course_name}</div>
-                    {c.section_name && <div className="text-sm text-muted">{c.section_name}</div>}
-                    {(!c.course_code && !c.section_school_code) && (
-                      <div className="text-sm text-muted" style={{ fontStyle: 'italic' }}>No course code</div>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    {c.archived ? <span className="badge badge-gray">Past</span> : null}
-                    <span className="badge" style={{
-                      background: c.hidden ? 'var(--danger-bg)' : 'var(--success-bg)',
-                      color: c.hidden ? 'var(--danger)' : 'var(--success)',
-                    }}>
-                      {c.hidden ? 'Hidden' : 'Visible'}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-end' }}>
-              <button className="primary" onClick={() => setEditMode(false)}>Done</button>
             </div>
           </div>
         </div>

@@ -91,6 +91,11 @@ export async function getSectionGrades(sectionId) {
   return data?.grades?.grade || [];
 }
 
+export async function getSectionGradingPeriods(sectionId) {
+  const data = await apiGet(`/sections/${sectionId}/grading_periods`);
+  return data?.grading_period || [];
+}
+
 export async function getUserProfile(uid) {
   return apiGet(`/users/${uid}`);
 }

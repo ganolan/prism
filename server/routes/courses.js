@@ -1,20 +1,31 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
+import { apiGet } from '../services/schoology.js';
+import { syncSectionData } from '../services/sync.js';
 
 const router = Router();
 
 // GET /api/courses — list all courses (non-archived and visible by default)
 router.get('/', (req, res) => {
   const db = getDb();
-  const includeArchived = req.query.archived === 'true';
-  const includeHidden = req.query.hidden === 'true';
+  const { view } = req.query;
 
-  let query = 'SELECT * FROM courses WHERE 1=1';
-  if (!includeArchived) query += ' AND archived = 0';
-  if (!includeHidden) query += ' AND hidden = 0';
-  query += ' ORDER BY course_name';
+  let rows;
+  if (view === 'current') {
+    rows = db.prepare('SELECT * FROM courses WHERE archived = 0 AND hidden = 0 ORDER BY course_name').all();
+  } else if (view === 'archived') {
+    rows = db.prepare('SELECT * FROM courses WHERE archived = 1 AND hidden = 0 ORDER BY course_name').all();
+  } else {
+    // Legacy behaviour — keep for backwards compatibility
+    const includeArchived = req.query.archived === 'true';
+    const includeHidden = req.query.hidden === 'true';
+    let query = 'SELECT * FROM courses WHERE 1=1';
+    if (!includeArchived) query += ' AND archived = 0';
+    if (!includeHidden) query += ' AND hidden = 0';
+    query += ' ORDER BY course_name';
+    rows = db.prepare(query).all();
+  }
 
-  const rows = db.prepare(query).all();
   res.json(rows);
 });
 
@@ -104,6 +115,49 @@ router.get('/:id/gradebook', (req, res) => {
   }
 
   res.json({ assignments, students, grades: gradeMap });
+});
+
+// POST /api/courses/import — fetch a past course from Schoology and sync it
+router.post('/import', async (req, res) => {
+  const { sectionId } = req.body;
+  if (!sectionId) return res.status(400).json({ error: 'sectionId required' });
+
+  try {
+    const [sec, periodsData] = await Promise.all([
+      apiGet(`/sections/${sectionId}`),
+      apiGet(`/sections/${sectionId}/grading_periods`),
+    ]);
+
+    const gradingPeriod = periodsData?.grading_period?.[0]?.title || null;
+    const now = new Date().toISOString();
+    const db = getDb();
+
+    db.prepare(`
+      INSERT INTO courses (schoology_section_id, course_name, section_name, course_code, section_school_code, grading_period, archived, synced_at)
+      VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+      ON CONFLICT(schoology_section_id) DO UPDATE SET
+        course_name = excluded.course_name,
+        section_name = excluded.section_name,
+        course_code = excluded.course_code,
+        section_school_code = excluded.section_school_code,
+        grading_period = excluded.grading_period,
+        archived = 1,
+        synced_at = excluded.synced_at
+    `).run(
+      String(sec.id), sec.course_title, sec.section_title,
+      sec.course_code || null, sec.section_school_code || null,
+      gradingPeriod, now
+    );
+
+    const courseRow = db.prepare('SELECT * FROM courses WHERE schoology_section_id = ?').get(String(sec.id));
+    const { studentsCount, assignmentsCount, gradesCount } = await syncSectionData(db, String(sec.id), courseRow.id, now);
+
+    res.json({ course: courseRow, studentsCount, assignmentsCount, gradesCount });
+  } catch (err) {
+    if (err.message.includes('403')) return res.status(403).json({ error: 'Section not accessible — check the section ID and try again' });
+    if (err.message.includes('404')) return res.status(404).json({ error: 'Section not found — check the section ID and try again' });
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // PUT /api/courses/:id/archive — toggle archive status

@@ -26,6 +26,10 @@ export const importCourse = (sectionId) => request('/courses/import', {
 });
 export const toggleArchiveCourse = (id) => request(`/courses/${id}/archive`, { method: 'PUT' });
 export const toggleCourseVisibility = (id) => request(`/courses/${id}/visibility`, { method: 'PUT' });
+export const updateCourseBlockNumber = (id, block_number) => request(`/courses/${id}`, {
+  method: 'PUT',
+  body: JSON.stringify({ block_number }),
+});
 export const getCourse = (id) => request(`/courses/${id}`);
 export const getCourseStudents = (id) => request(`/courses/${id}/students`);
 export const getCourseAssignments = (id) => request(`/courses/${id}/assignments`);

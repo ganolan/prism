@@ -180,4 +180,17 @@ router.put('/:id/visibility', (req, res) => {
   res.json({ ...course, hidden: newState });
 });
 
+// PUT /api/courses/:id — update editable course fields
+router.put('/:id', (req, res) => {
+  const db = getDb();
+  const course = db.prepare('SELECT * FROM courses WHERE id = ?').get(req.params.id);
+  if (!course) return res.status(404).json({ error: 'Course not found' });
+  const { block_number } = req.body;
+  db.prepare('UPDATE courses SET block_number = ? WHERE id = ?').run(
+    block_number !== undefined ? block_number : course.block_number,
+    req.params.id
+  );
+  res.json(db.prepare('SELECT * FROM courses WHERE id = ?').get(req.params.id));
+});
+
 export default router;

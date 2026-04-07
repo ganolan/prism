@@ -5,8 +5,94 @@ import {
   getSectionEnrollments,
   getSectionAssignments,
   getSectionGrades,
+  getSectionGradingPeriods,
   getUserProfile,
 } from './schoology.js';
+
+// Sync enrollments, assignments, and grades for one section.
+// Returns counts of records written.
+export async function syncSectionData(db, sectionId, courseId, now) {
+  const enrollments = await getSectionEnrollments(sectionId);
+  const studentEnrollments = enrollments.filter(e => e.admin !== '1' && e.admin !== 1);
+
+  const upsertStudent = db.prepare(`
+    INSERT INTO students (schoology_uid, first_name, last_name, email, picture_url, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(schoology_uid) DO UPDATE SET
+      first_name = excluded.first_name,
+      last_name = excluded.last_name,
+      email = COALESCE(excluded.email, students.email),
+      picture_url = COALESCE(excluded.picture_url, students.picture_url),
+      updated_at = excluded.updated_at
+  `);
+  const upsertEnrolment = db.prepare(`
+    INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id)
+    VALUES (?, ?, ?)
+    ON CONFLICT(student_id, course_id) DO UPDATE SET
+      schoology_enrolment_id = excluded.schoology_enrolment_id
+  `);
+
+  for (const e of studentEnrollments) {
+    upsertStudent.run(String(e.uid), e.name_first, e.name_last, e.primary_email || null, e.picture_url || null, now);
+    const studentRow = db.prepare('SELECT id FROM students WHERE schoology_uid = ?').get(String(e.uid));
+    if (studentRow) upsertEnrolment.run(studentRow.id, courseId, String(e.id));
+  }
+
+  const assignments = await getSectionAssignments(sectionId);
+  const upsertAssignment = db.prepare(`
+    INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, max_points, assignment_type, synced_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(schoology_assignment_id) DO UPDATE SET
+      title = excluded.title,
+      due_date = excluded.due_date,
+      max_points = excluded.max_points,
+      assignment_type = excluded.assignment_type,
+      synced_at = excluded.synced_at
+  `);
+  for (const a of assignments) {
+    upsertAssignment.run(courseId, String(a.id), a.title, a.due || null, a.max_points ?? null, a.type || 'assignment', now);
+  }
+
+  const grades = await getSectionGrades(sectionId);
+  const upsertGrade = db.prepare(`
+    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, grade_comment, comment_status, exception, synced_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(student_id, assignment_id) DO UPDATE SET
+      score = excluded.score,
+      max_score = excluded.max_score,
+      grade_comment = excluded.grade_comment,
+      comment_status = excluded.comment_status,
+      exception = excluded.exception,
+      synced_at = excluded.synced_at
+  `);
+
+  const enrolmentMap = {};
+  const allEnrolments = db.prepare('SELECT id, student_id, schoology_enrolment_id FROM enrolments WHERE course_id = ?').all(courseId);
+  for (const en of allEnrolments) enrolmentMap[en.schoology_enrolment_id] = en.student_id;
+
+  const enrollIdToUid = {};
+  for (const e of enrollments) enrollIdToUid[String(e.id)] = String(e.uid);
+
+  let gradesCount = 0;
+  for (const g of grades) {
+    const enrollmentId = String(g.enrollment_id);
+    let studentId = enrolmentMap[enrollmentId];
+    if (!studentId) {
+      const uid = enrollIdToUid[enrollmentId];
+      if (uid) {
+        const row = db.prepare('SELECT id FROM students WHERE schoology_uid = ?').get(uid);
+        studentId = row?.id;
+      }
+    }
+    if (!studentId) continue;
+    const assignRow = db.prepare('SELECT id, max_points FROM assignments WHERE schoology_assignment_id = ?').get(String(g.assignment_id));
+    if (!assignRow) continue;
+    upsertGrade.run(studentId, assignRow.id, enrollmentId, g.grade ?? null, g.max_points ?? assignRow.max_points ?? null, g.comment || null, g.comment_status ?? null, g.exception ?? 0, now);
+    gradesCount++;
+  }
+
+  return { studentsCount: studentEnrollments.length, assignmentsCount: assignments.length, gradesCount };
+}
 
 // Full sync: sections -> enrollments -> assignments -> grades
 export async function fullSync(onProgress) {
@@ -33,24 +119,28 @@ export async function fullSync(onProgress) {
 
     // Upsert courses
     const upsertCourse = db.prepare(`
-      INSERT INTO courses (schoology_section_id, course_name, section_name, course_code, section_school_code, grading_period, synced_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO courses (schoology_section_id, course_name, section_name, course_code, section_school_code, grading_period, archived, synced_at)
+      VALUES (?, ?, ?, ?, ?, ?, 0, ?)
       ON CONFLICT(schoology_section_id) DO UPDATE SET
         course_name = excluded.course_name,
         section_name = excluded.section_name,
         course_code = excluded.course_code,
         section_school_code = excluded.section_school_code,
+        grading_period = excluded.grading_period,
+        archived = 0,
         synced_at = excluded.synced_at
     `);
 
     for (const sec of sections) {
+      const periods = await getSectionGradingPeriods(String(sec.id));
+      const gradingPeriod = periods[0]?.title || null;
       upsertCourse.run(
         String(sec.id),
         sec.course_title,
         sec.section_title,
         sec.course_code || null,
         sec.section_school_code || null,
-        sec.grading_periods?.[0]?.title || null,
+        gradingPeriod,
         now
       );
     }
@@ -71,130 +161,10 @@ export async function fullSync(onProgress) {
       const sectionId = String(sec.id);
       const courseRow = db.prepare('SELECT id FROM courses WHERE schoology_section_id = ?').get(sectionId);
       if (!courseRow) continue;
-      const courseId = courseRow.id;
 
-      // Enrollments
-      log(`Syncing enrollments for "${sec.course_title}"...`);
-      const enrollments = await getSectionEnrollments(sectionId);
-      const studentEnrollments = enrollments.filter(e => e.admin !== '1' && e.admin !== 1);
-
-      const upsertStudent = db.prepare(`
-        INSERT INTO students (schoology_uid, first_name, last_name, email, picture_url, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(schoology_uid) DO UPDATE SET
-          first_name = excluded.first_name,
-          last_name = excluded.last_name,
-          email = COALESCE(excluded.email, students.email),
-          picture_url = COALESCE(excluded.picture_url, students.picture_url),
-          updated_at = excluded.updated_at
-      `);
-
-      const upsertEnrolment = db.prepare(`
-        INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id)
-        VALUES (?, ?, ?)
-        ON CONFLICT(student_id, course_id) DO UPDATE SET
-          schoology_enrolment_id = excluded.schoology_enrolment_id
-      `);
-
-      for (const e of studentEnrollments) {
-        upsertStudent.run(String(e.uid), e.name_first, e.name_last, e.primary_email || null, e.picture_url || null, now);
-        const studentRow = db.prepare('SELECT id FROM students WHERE schoology_uid = ?').get(String(e.uid));
-        if (studentRow) {
-          upsertEnrolment.run(studentRow.id, courseId, String(e.id));
-        }
-      }
-      totalRecords += studentEnrollments.length;
-
-      // Assignments
-      log(`Syncing assignments for "${sec.course_title}"...`);
-      const assignments = await getSectionAssignments(sectionId);
-
-      const upsertAssignment = db.prepare(`
-        INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, max_points, assignment_type, synced_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(schoology_assignment_id) DO UPDATE SET
-          title = excluded.title,
-          due_date = excluded.due_date,
-          max_points = excluded.max_points,
-          assignment_type = excluded.assignment_type,
-          synced_at = excluded.synced_at
-      `);
-
-      for (const a of assignments) {
-        upsertAssignment.run(
-          courseId,
-          String(a.id),
-          a.title,
-          a.due || null,
-          a.max_points ?? null,
-          a.type || 'assignment',
-          now
-        );
-      }
-      totalRecords += assignments.length;
-
-      // Grades
-      log(`Syncing grades for "${sec.course_title}"...`);
-      const grades = await getSectionGrades(sectionId);
-
-      const upsertGrade = db.prepare(`
-        INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, grade_comment, comment_status, exception, synced_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(student_id, assignment_id) DO UPDATE SET
-          score = excluded.score,
-          max_score = excluded.max_score,
-          grade_comment = excluded.grade_comment,
-          comment_status = excluded.comment_status,
-          exception = excluded.exception,
-          synced_at = excluded.synced_at
-      `);
-
-      // Build enrollment_id -> student_id lookup from the grades' enrollment_ids
-      // Schoology grades use enrollment_id, not uid — we need to map through enrolments table
-      const enrolmentMap = {};
-      const allEnrolments = db.prepare('SELECT id, student_id, schoology_enrolment_id FROM enrolments WHERE course_id = ?').all(courseId);
-      for (const en of allEnrolments) {
-        enrolmentMap[en.schoology_enrolment_id] = en.student_id;
-      }
-
-      // Also build enrollment_id (from Schoology enrollments response) -> uid map
-      // Schoology grade.enrollment_id is actually the enrollment record ID, not the uid
-      const enrollIdToUid = {};
-      for (const e of enrollments) {
-        enrollIdToUid[String(e.id)] = String(e.uid);
-      }
-
-      for (const g of grades) {
-        const enrollmentId = String(g.enrollment_id);
-        // Map enrollment_id to student: first try via enrolments table, then via uid lookup
-        let studentId = enrolmentMap[enrollmentId];
-        if (!studentId) {
-          // Try mapping enrollment_id -> uid -> student
-          const uid = enrollIdToUid[enrollmentId];
-          if (uid) {
-            const row = db.prepare('SELECT id FROM students WHERE schoology_uid = ?').get(uid);
-            studentId = row?.id;
-          }
-        }
-        if (!studentId) continue; // skip grades for unknown students (e.g. admins)
-
-        const assignRow = db.prepare('SELECT id, max_points FROM assignments WHERE schoology_assignment_id = ?')
-          .get(String(g.assignment_id));
-        if (!assignRow) continue;
-
-        upsertGrade.run(
-          studentId,
-          assignRow.id,
-          enrollmentId,
-          g.grade ?? null,
-          g.max_points ?? assignRow.max_points ?? null,
-          g.comment || null,
-          g.comment_status ?? null,
-          g.exception ?? 0,
-          now
-        );
-      }
-      totalRecords += grades.length;
+      log(`Syncing "${sec.course_title}"...`);
+      const result = await syncSectionData(db, sectionId, courseRow.id, now);
+      totalRecords += result.studentsCount + result.assignmentsCount + result.gradesCount;
     }
 
     // 3. Fetch full profiles + parent data for all students

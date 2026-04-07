@@ -20,7 +20,7 @@ export default function CoursePage() {
   if (loading) return <div className="loading">Loading...</div>;
   if (!course) return <div className="error-msg">Course not found</div>;
 
-  const displayName = (s) => s.preferred_name || s.first_name;
+  const displayName = (s) => s.preferred_name_teacher || s.preferred_name || s.first_name;
 
   return (
     <div className="fade-in">
@@ -58,7 +58,7 @@ export default function CoursePage() {
                     <Link to={`/student/${s.id}`} className="link">
                       {displayName(s)} {s.last_name}
                     </Link>
-                    {s.preferred_name && (
+                    {displayName(s) !== s.first_name && (
                       <span className="text-sm text-muted" style={{ marginLeft: '0.5rem' }}>
                         ({s.first_name})
                       </span>
@@ -91,7 +91,7 @@ function GradebookView({ data }) {
   }
 
   const { assignments, students, grades } = data;
-  const displayName = (s) => s.preferred_name || s.first_name;
+  const displayName = (s) => s.preferred_name_teacher || s.preferred_name || s.first_name;
 
   return (
     <div className="card" style={{ overflowX: 'auto' }}>

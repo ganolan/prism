@@ -103,18 +103,6 @@ export default function Dashboard() {
     setBlockDraft(currentValue || '');
   }
 
-  async function saveBlock(e, courseId) {
-    e.preventDefault();
-    e.stopPropagation();
-    try {
-      await updateCourseBlockNumber(courseId, blockDraft.trim() || null);
-      setEditingBlock(null);
-      reload();
-    } catch (err) {
-      console.error(err);
-    }
-  }
-
   function cancelEditBlock(e) {
     e.preventDefault();
     e.stopPropagation();
@@ -141,27 +129,34 @@ export default function Dashboard() {
         <div style={{ position: 'absolute', top: '0.75rem', right: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
           {isEditing ? (
             <>
-              <input
-                type="text"
+              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--accent)', letterSpacing: '0.05em' }}>BLOCK</span>
+              <select
                 value={blockDraft}
-                onChange={e => setBlockDraft(e.target.value)}
-                onClick={e => e.preventDefault() || e.stopPropagation()}
-                onKeyDown={e => { if (e.key === 'Enter') saveBlock(e, c.id); if (e.key === 'Escape') cancelEditBlock(e); }}
-                placeholder="Block #"
-                style={{ width: '70px', fontSize: '0.8rem', padding: '0.2rem 0.4rem' }}
+                onChange={async e => {
+                  e.preventDefault(); e.stopPropagation();
+                  const val = e.target.value;
+                  setBlockDraft(val);
+                  await updateCourseBlockNumber(c.id, val || null);
+                  setEditingBlock(null);
+                  reload();
+                }}
+                onClick={e => { e.preventDefault(); e.stopPropagation(); }}
+                style={{ fontSize: '0.8rem', padding: '0.2rem 0.3rem' }}
                 autoFocus
-              />
-              <button className="ghost" style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }} onClick={e => saveBlock(e, c.id)}>✓</button>
+              >
+                <option value="">—</option>
+                {[1,2,3,4,5,6,7,8].map(n => <option key={n} value={String(n)}>{n}</option>)}
+              </select>
               <button className="ghost" style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }} onClick={cancelEditBlock}>✕</button>
             </>
           ) : (
             <button
               className="ghost"
-              style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', fontWeight: c.block_number ? 600 : 400, color: c.block_number ? 'var(--accent)' : 'var(--text-muted)' }}
+              style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', fontWeight: c.block_number ? 700 : 400, color: c.block_number ? 'var(--accent)' : 'var(--text-muted)', letterSpacing: c.block_number ? '0.05em' : 'normal' }}
               onClick={e => startEditBlock(e, c.id, c.block_number)}
               title="Set block number"
             >
-              {c.block_number ? `Block ${c.block_number}` : '+ Block'}
+              {c.block_number ? `BLOCK ${c.block_number}` : '+ Block'}
             </button>
           )}
         </div>

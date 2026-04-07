@@ -208,12 +208,26 @@ export default function Dashboard() {
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
         <button className={activeTab === 'current' ? 'tab-btn active' : 'tab-btn'} onClick={() => setActiveTab('current')}>Current</button>
         <button className={activeTab === 'archived' ? 'tab-btn active' : 'tab-btn'} onClick={() => setActiveTab('archived')}>Archived</button>
-        <div style={{ marginLeft: 'auto' }}>
-          <label className="text-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', color: 'var(--text-muted)' }}>
-            <input type="checkbox" checked={showHidden} onChange={e => setShowHidden(e.target.checked)} />
-            Show hidden
-          </label>
-        </div>
+        <span style={{ color: 'var(--border)', userSelect: 'none' }}>|</span>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
+          <div
+            onClick={() => setShowHidden(h => !h)}
+            style={{
+              position: 'relative', width: '36px', height: '20px',
+              background: showHidden ? 'var(--accent)' : 'var(--border)',
+              borderRadius: '10px', transition: 'background 0.2s', flexShrink: 0,
+            }}
+          >
+            <div style={{
+              position: 'absolute', top: '2px',
+              left: showHidden ? '18px' : '2px',
+              width: '16px', height: '16px',
+              background: 'white', borderRadius: '50%',
+              transition: 'left 0.2s',
+            }} />
+          </div>
+          <span className="text-sm" style={{ color: 'var(--text-muted)' }}>Show hidden</span>
+        </label>
       </div>
 
       {/* Current tab */}

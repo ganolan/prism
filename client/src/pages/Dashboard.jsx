@@ -7,10 +7,11 @@ function parseGradingPeriod(gradingPeriod) {
   let semester = 'Full Year';
   if (gradingPeriod.includes('Semester 1')) semester = 'Semester 1';
   else if (gradingPeriod.includes('Semester 2')) semester = 'Semester 2';
-  const dateMatch = gradingPeriod.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  const dateMatch = gradingPeriod.match(/(\d{2})\/(\d{2})\/(\d{2,4})/);
   if (!dateMatch) return { academicYear: 'Unknown', semester };
   const month = parseInt(dateMatch[1], 10);
-  const year = parseInt(dateMatch[3], 10);
+  const rawYear = parseInt(dateMatch[3], 10);
+  const year = rawYear < 100 ? 2000 + rawYear : rawYear;
   const startYear = month >= 8 ? year : year - 1;
   const academicYear = `${startYear}-${String(startYear + 1).slice(-2)}`;
   return { academicYear, semester };
@@ -39,8 +40,7 @@ export default function Dashboard() {
   const [importError, setImportError] = useState(null);
   const [importSuccess, setImportSuccess] = useState(null);
   // editingBlock: courseId currently being edited, blockDraft: current input value
-  const [editingBlock, setEditingBlock] = useState(null);
-  const [blockDraft, setBlockDraft] = useState('');
+  const [settingsCard, setSettingsCard] = useState(null);
 
   async function reload() {
     try {
@@ -96,19 +96,6 @@ export default function Dashboard() {
     }
   }
 
-  function startEditBlock(e, courseId, currentValue) {
-    e.preventDefault();
-    e.stopPropagation();
-    setEditingBlock(courseId);
-    setBlockDraft(currentValue || '');
-  }
-
-  function cancelEditBlock(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    setEditingBlock(null);
-  }
-
   if (loading) return <div className="loading">Loading...</div>;
 
   const yearGroups = groupByAcademicYear(courses);
@@ -116,73 +103,72 @@ export default function Dashboard() {
   // Shared course card renderer
   function CourseCard({ c, showSemester = false }) {
     const { semester } = parseGradingPeriod(c.grading_period);
-    const isEditing = editingBlock === c.id;
+    const isSettings = settingsCard === c.id;
 
     return (
       <Link
         to={`/course/${c.id}`}
         key={c.id}
         className="card"
-        style={{ opacity: c.hidden ? 0.5 : (showSemester ? 0.75 : 1), position: 'relative' }}
+        style={{ opacity: !!c.hidden ? 0.5 : (showSemester ? 0.75 : 1) }}
       >
-        {/* Block number — top right, prominent */}
-        <div style={{ position: 'absolute', top: '0.75rem', right: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-          {isEditing ? (
-            <>
-              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--accent)', letterSpacing: '0.05em' }}>BLOCK</span>
+        {/* Course info */}
+        <h3 style={{ marginBottom: '0.25rem', fontWeight: 600 }}>
+          {c.block_number && (
+            <span style={{ color: 'var(--accent)', fontWeight: 700, marginRight: '0.35rem' }}>[BK {c.block_number}]</span>
+          )}
+          {c.course_name}
+        </h3>
+        {c.grading_period && showSemester && (
+          <p className="text-sm text-muted">{c.grading_period}</p>
+        )}
+
+        {/* Bottom row: badges + cog / settings */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.75rem' }}>
+          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            {showSemester && <span className="badge badge-gray">{semester}</span>}
+            {!!c.hidden && <span className="badge" style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }}>Hidden</span>}
+          </div>
+
+          {isSettings ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} onClick={e => { e.preventDefault(); e.stopPropagation(); }}>
               <select
-                value={blockDraft}
+                defaultValue={c.block_number || ''}
                 onChange={async e => {
-                  e.preventDefault(); e.stopPropagation();
                   const val = e.target.value;
-                  setBlockDraft(val);
                   await updateCourseBlockNumber(c.id, val || null);
-                  setEditingBlock(null);
                   reload();
                 }}
-                onClick={e => { e.preventDefault(); e.stopPropagation(); }}
                 style={{ fontSize: '0.8rem', padding: '0.2rem 0.3rem' }}
-                autoFocus
               >
-                <option value="">—</option>
-                {[1,2,3,4,5,6,7,8].map(n => <option key={n} value={String(n)}>{n}</option>)}
+                <option value="">No block</option>
+                {[1,2,3,4,5,6,7,8].map(n => <option key={n} value={String(n)}>Block {n}</option>)}
               </select>
-              <button className="ghost" style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }} onClick={cancelEditBlock}>✕</button>
-            </>
+              <button
+                className="ghost"
+                style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}
+                onClick={e => { e.preventDefault(); e.stopPropagation(); handleToggleVisibility(e, c.id); }}
+              >
+                {!!c.hidden ? 'Show' : 'Hide'}
+              </button>
+              <button
+                className="ghost"
+                style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}
+                onClick={e => { e.preventDefault(); e.stopPropagation(); setSettingsCard(null); }}
+              >
+                ✕
+              </button>
+            </div>
           ) : (
             <button
               className="ghost"
-              style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', fontWeight: c.block_number ? 700 : 400, color: c.block_number ? 'var(--accent)' : 'var(--text-muted)', letterSpacing: c.block_number ? '0.05em' : 'normal' }}
-              onClick={e => startEditBlock(e, c.id, c.block_number)}
-              title="Set block number"
+              style={{ fontSize: '0.9rem', color: 'var(--text-muted)', lineHeight: 1 }}
+              onClick={e => { e.preventDefault(); e.stopPropagation(); setSettingsCard(c.id); }}
+              title="Card settings"
             >
-              {c.block_number ? `BLOCK ${c.block_number}` : '+ Block'}
+              ⚙
             </button>
           )}
-        </div>
-
-        {/* Course info */}
-        <div style={{ paddingRight: '7rem' }}>
-          <h3 style={{ marginBottom: '0.25rem', fontWeight: 600 }}>{c.course_name}</h3>
-          {c.grading_period && showSemester && (
-            <p className="text-sm text-muted">{c.grading_period}</p>
-          )}
-        </div>
-
-        {/* Bottom row: badges + hide button */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.75rem' }}>
-          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-            {showSemester && <span className="badge badge-gray">{semester}</span>}
-            {c.hidden && <span className="badge" style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }}>Hidden</span>}
-          </div>
-          <button
-            className="ghost"
-            style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}
-            onClick={e => handleToggleVisibility(e, c.id)}
-            title={c.hidden ? 'Show course' : 'Hide course'}
-          >
-            {c.hidden ? 'Show' : 'Hide'}
-          </button>
         </div>
       </Link>
     );

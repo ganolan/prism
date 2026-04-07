@@ -19,6 +19,11 @@ export const getCourses = (includeArchived, includeHidden) => {
   if (includeHidden) params.push('hidden=true');
   return request(`/courses${params.length ? '?' + params.join('&') : ''}`);
 };
+export const getCoursesByView = (view) => request(`/courses?view=${view}`);
+export const importCourse = (sectionId) => request('/courses/import', {
+  method: 'POST',
+  body: JSON.stringify({ sectionId }),
+});
 export const toggleArchiveCourse = (id) => request(`/courses/${id}/archive`, { method: 'PUT' });
 export const toggleCourseVisibility = (id) => request(`/courses/${id}/visibility`, { method: 'PUT' });
 export const getCourse = (id) => request(`/courses/${id}`);

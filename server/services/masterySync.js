@@ -16,13 +16,14 @@
  */
 
 import { chromium } from 'playwright';
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { getDb } from '../db/index.js';
 
 const SCHOOLOGY_BASE = 'https://schoology.hkis.edu.hk';
 const GRADING_SCALE_ID = 21337256; // HKIS General Academic Scale
 const SESSION_DIR = join(process.cwd(), '.playwright-session');
+const STATE_FILE = join(SESSION_DIR, 'storage-state.json');
 
 const POINTS_TO_GRADE = { 100: 'ED', 75: 'EX', 50: 'D', 25: 'EM', 0: 'IE' };
 const GRADE_TO_LABEL = {
@@ -34,55 +35,76 @@ const GRADE_TO_LABEL = {
 };
 
 /**
- * Open a Playwright browser using a dedicated session directory (NOT Chrome's
- * live profile, which is locked while Chrome is running).
- *
- * On first use, run `npm run mastery:login` to log in to Schoology in a
- * visible browser window — the session is saved to .playwright-session/.
+ * Launch a headless browser with saved Schoology session cookies.
+ * Uses explicit storageState (a JSON file of cookies + localStorage)
+ * rather than a persistent context directory, which avoids profile
+ * lock issues and headed-vs-headless cookie mismatches.
  */
 async function openPage() {
-  if (!existsSync(SESSION_DIR)) mkdirSync(SESSION_DIR, { recursive: true });
-  const browser = await chromium.launchPersistentContext(SESSION_DIR, {
-    headless: true,
-  });
-  const page = browser.pages()[0] || await browser.newPage();
-  return { browser, page };
+  const browser = await chromium.launch({ headless: true });
+  const contextOpts = {};
+  if (existsSync(STATE_FILE)) {
+    contextOpts.storageState = STATE_FILE;
+  }
+  const context = await browser.newContext(contextOpts);
+  const page = await context.newPage();
+  return { browser, page, context };
 }
 
 /**
- * After navigating to a Schoology page, check if we landed on a login page
- * (session expired or never logged in). Returns true if logged in OK.
+ * After navigating to a Schoology course page, check if we actually landed
+ * there or got redirected to a login/SSO page.
  */
-async function checkLoggedIn(page) {
+function checkLoggedIn(page) {
   const url = page.url();
-  // Schoology redirects to /login or an SSO provider when not authenticated
-  if (url.includes('/login') || url.includes('accounts.google.com') || url.includes('saml') || url.includes('sso')) {
-    return false;
-  }
-  // Also check if the page body contains a login form
-  const hasLoginForm = await page.evaluate(() => {
-    return !!document.querySelector('#edit-name, form[action*="login"], .login-form');
-  }).catch(() => false);
-  return !hasLoginForm;
+  // If we're still on the intended course page, we're logged in
+  if (url.includes('/district_mastery') || url.includes('/course/')) return true;
+  // Anything else (login page, SSO redirect, etc.) means not logged in
+  return false;
 }
 
 /**
  * Open a VISIBLE browser for the user to log in to Schoology.
- * Called via `npm run mastery:login` or `POST /api/mastery/login`.
+ * Auto-detects when login completes (URL returns to Schoology home),
+ * saves cookies to a JSON file, then closes the browser automatically.
+ * No manual close needed.
  */
 export async function interactiveLogin() {
   if (!existsSync(SESSION_DIR)) mkdirSync(SESSION_DIR, { recursive: true });
   console.log('[masterySync] Opening browser for Schoology login...');
-  console.log('[masterySync] Log in to Schoology, then close the browser window.');
-  const browser = await chromium.launchPersistentContext(SESSION_DIR, {
-    headless: false,
-  });
-  const page = browser.pages()[0] || await browser.newPage();
+
+  const browser = await chromium.launch({ headless: false });
+  const context = await browser.newContext();
+  const page = await context.newPage();
   await page.goto(`${SCHOOLOGY_BASE}/home`, { waitUntil: 'domcontentloaded' });
 
-  // Wait for the user to close the browser
-  await new Promise(resolve => browser.on('close', resolve));
-  console.log('[masterySync] Browser closed. Session saved.');
+  // Wait until the user has logged in and landed back on Schoology
+  console.log('[masterySync] Waiting for login to complete...');
+  try {
+    await page.waitForURL(
+      url => {
+        const s = url.toString();
+        return s.includes('schoology.hkis.edu.hk') &&
+               !s.includes('/login') &&
+               !s.includes('/saml') &&
+               !s.includes('accounts.google.com');
+      },
+      { timeout: 300000 } // 5 minute timeout
+    );
+  } catch {
+    await browser.close();
+    throw new Error('Login timed out after 5 minutes. Please try again.');
+  }
+
+  // Wait a moment for any final cookie-setting redirects
+  await page.waitForTimeout(2000);
+
+  // Save cookies + localStorage to a portable JSON file
+  const state = await context.storageState();
+  writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+
+  await browser.close();
+  console.log('[masterySync] Login complete. Session saved.');
 }
 
 /**
@@ -130,60 +152,96 @@ export async function syncMasteryForCourse(courseId, { onProgress } = {}) {
   const sectionId = courseRow.schoology_section_id;
   log(`Starting mastery sync for course ${courseRow.course_name} (section ${sectionId})`);
 
-  const { browser, page } = await openPage();
+  let { browser, page } = await openPage();
 
   try {
-    // ── Step 1: Get building_id from the mastery page ──────────────────────
+    // ── Step 1: Navigate and extract building_id ────────────────────────────
     log('Navigating to district mastery page...');
-    await page.goto(`${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery`, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-    // Check if we're logged in
-    const loggedIn = await checkLoggedIn(page);
+    // Intercept the page's own API requests to capture building_id
+    let buildingId = null;
+    page.on('request', req => {
+      const match = req.url().match(/building_id=(\d+)/);
+      if (match) buildingId = match[1];
+    });
+
+    await page.goto(`${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery`, {
+      waitUntil: 'load',
+      timeout: 30000,
+    });
+
+    // Check if we're logged in — if not, open a visible browser for the user
+    const loggedIn = checkLoggedIn(page);
     if (!loggedIn) {
-      throw new Error(
-        'Not logged in to Schoology. Run `npm run mastery:login` first to authenticate, then try syncing again.'
-      );
+      log('Not logged in — opening browser for Schoology login...');
+      await browser.close();
+
+      // Open a visible browser so the user can log in to Schoology
+      await interactiveLogin();
+
+      // Re-open headless and retry navigation
+      ({ browser, page } = await openPage());
+      page.on('request', req => {
+        const match = req.url().match(/building_id=(\d+)/);
+        if (match) buildingId = match[1];
+      });
+      await page.goto(`${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery`, {
+        waitUntil: 'load',
+        timeout: 30000,
+      });
+      if (!checkLoggedIn(page)) {
+        throw new Error('Still not logged in after login attempt. Please try again.');
+      }
     }
     log('Logged in OK');
 
-    // Extract building_id from the page's data or URL params used by the app
-    const buildingId = await page.evaluate(() => {
-      // Schoology embeds school/building context in the DOM
-      const el = document.querySelector('[data-building-id]');
-      if (el) return el.getAttribute('data-building-id');
-      // Fallback: look in window globals
-      if (window.sSchoolId) return window.sSchoolId;
-      if (window.Drupal?.settings?.s_common?.school_id) return window.Drupal.settings.s_common.school_id;
-      return null;
-    });
-
+    // If network interception didn't capture building_id, try DOM/globals
     if (!buildingId) {
-      // Try fetching aligned-objectives with just section_id — building_id may be optional
-      log('Warning: could not find building_id; will attempt without it');
-    } else {
-      log(`Found building_id: ${buildingId}`);
+      try {
+        // Wait for Drupal settings to initialize
+        await page.waitForFunction(
+          () => window.Drupal?.settings?.s_common?.school_id || window.sSchoolId,
+          { timeout: 10000 }
+        );
+        buildingId = await page.evaluate(() => {
+          return String(window.Drupal?.settings?.s_common?.school_id || window.sSchoolId || '');
+        });
+      } catch {
+        log('Warning: Drupal settings not found, trying data attributes...');
+        buildingId = await page.evaluate(() => {
+          const el = document.querySelector('[data-building-id]');
+          return el ? el.getAttribute('data-building-id') : null;
+        });
+      }
     }
 
+    if (!buildingId) {
+      throw new Error('Could not determine building_id from the mastery page. The page may not have loaded correctly.');
+    }
+    log(`Found building_id: ${buildingId}`);
+
     // ── Step 2: Fetch reporting categories + measurement topics ────────────
-    const objectivesUrl = buildingId
-      ? `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/aligned-objectives?building_id=${buildingId}&section_id=${sectionId}`
-      : `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/aligned-objectives?section_id=${sectionId}`;
+    const objectivesUrl = `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/aligned-objectives?building_id=${buildingId}&section_id=${sectionId}`;
 
     log('Fetching aligned objectives...');
     const objectivesData = await fetchInternal(page, objectivesUrl);
 
-    // objectivesData shape: { data: [ { id, external_id, title, weight, objectives: [...] } ] }
-    const categories = objectivesData.data || [];
+    // The API may return data under different keys depending on version
+    const categories = objectivesData.data || objectivesData || [];
     log(`Found ${categories.length} reporting categories`);
+    if (categories.length > 0) {
+      log(`  Category keys: ${Object.keys(categories[0]).join(', ')}`);
+    }
 
     // ── Step 3: Collect all material IDs across all topics ─────────────────
     const allMaterialIds = new Set();
     const allTopics = [];
 
     for (const cat of categories) {
-      for (const topic of (cat.objectives || [])) {
+      // Topics may be under: objectives, measurementTopics, measurement_topics, children
+      const topics = cat.child_objectives || cat.objectives || cat.measurementTopics || cat.measurement_topics || cat.children || [];
+      for (const topic of topics) {
         allTopics.push({ ...topic, categoryId: cat.id });
-        // Observations may reference materials — we collect IDs after fetching
       }
     }
 
@@ -192,9 +250,7 @@ export async function syncMasteryForCourse(courseId, { onProgress } = {}) {
 
     const observationsByTopic = {};
     for (const topic of allTopics) {
-      const obsUrl = buildingId
-        ? `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/material-observations/search?building_id=${buildingId}&objective_id=${topic.id}&section_id=${sectionId}`
-        : `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/material-observations/search?objective_id=${topic.id}&section_id=${sectionId}`;
+      const obsUrl = `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/material-observations/search?building_id=${buildingId}&objective_id=${topic.id}&section_id=${sectionId}`;
 
       const obsData = await fetchInternal(page, obsUrl);
       const observations = obsData.data || [];
@@ -205,7 +261,7 @@ export async function syncMasteryForCourse(courseId, { onProgress } = {}) {
         if (mid) allMaterialIds.add(String(mid));
       }
 
-      log(`  ${topic.external_id} ${topic.title}: ${observations.length} observations`);
+      log(`  ${topic.external_id || topic.externalId || topic.id} ${topic.title}: ${observations.length} observations`);
     }
 
     // ── Step 5: Fetch full assignment names ────────────────────────────────
@@ -271,11 +327,12 @@ export async function syncMasteryForCourse(courseId, { onProgress } = {}) {
     let scoresCount = 0;
 
     for (const cat of categories) {
-      upsertCategory.run(cat.id, courseId, cat.external_id || null, cat.title, cat.weight ?? null, now);
+      upsertCategory.run(cat.id, courseId, cat.external_id || cat.externalId || null, cat.title, cat.weight ?? null, now);
       categoriesCount++;
 
-      for (const topic of (cat.objectives || [])) {
-        upsertTopic.run(topic.id, cat.id, courseId, topic.external_id || null, topic.title, topic.weight ?? null, now);
+      const catTopics = cat.child_objectives || cat.objectives || cat.measurementTopics || cat.measurement_topics || cat.children || [];
+      for (const topic of catTopics) {
+        upsertTopic.run(topic.id, cat.id, courseId, topic.external_id || topic.externalId || null, topic.title, topic.weight ?? null, now);
         topicsCount++;
 
         const observations = observationsByTopic[topic.id] || [];

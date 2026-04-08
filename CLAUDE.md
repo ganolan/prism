@@ -32,6 +32,11 @@ Playwright browser binaries are installed automatically via `postinstall`.
 
 ## Running
 
+If the dev server fails to restart (port already in use), kill stale processes first:
+```bash
+lsof -ti:3001 | xargs kill -9; lsof -ti:5173 | xargs kill -9
+```
+
 ```bash
 npm run dev        # Express + Vite
 npm run dev:server # server only

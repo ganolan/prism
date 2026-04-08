@@ -1,0 +1,439 @@
+{
+  "course": "AI & MACHINE LEARNING: 8(A-B)",
+  "courseId": "7899907727",
+  "scrapedAt": "2026-04-08",
+  "students": {
+    "10260599": "Tse, Claire",
+    "10260681": "Leung, Tyler",
+    "10261677": "Kirpalani, Neel",
+    "23814429": "Liow, Zi Jun",
+    "102857313": "Wang, Gai Charles",
+    "108277941": "Wang, Marcus",
+    "117424902": "Lai, Ryan",
+    "121405597": "Lam, Athena",
+    "123693294": "Lin, Xi Rui",
+    "124747434": "Munir, Isaam",
+    "124747438": "Tang, Mi",
+    "124747447": "Miyake, Noah",
+    "130145804": "Lai, Charisse Wing Yan",
+    "130185496": "Tan, Lucas"
+  },
+  "gradingScale": {
+    "100": "Exhibiting Depth",
+    "75": "Exhibiting",
+    "50": "Developing",
+    "25": "Emerging",
+    "0": "Insufficient Evidence",
+    "null": "–"
+  },
+  "reportingCategories": [
+    {
+      "id": "c297caba-1289-4881-b6cc-b3338feb17ef",
+      "externalId": "ART.5",
+      "title": "HS Art: Produce",
+      "measurementTopics": [
+        {
+          "id": "3f7ccc6d-3f9f-42b8-8154-244cee5000b9",
+          "externalId": "ART.5.1",
+          "title": "Select, analyze, and interpret artistic work for presentation",
+          "assignments": [
+            {
+              "id": "7952841007",
+              "title": "AIML Project - AI Content Creator (S)",
+              "scores": {
+                "10260599": { "points": 100, "grade": "Exhibiting Depth" },
+                "10260681": { "points": 75, "grade": "Exhibiting" },
+                "10261677": { "points": 75, "grade": "Exhibiting" },
+                "23814429": { "points": 50, "grade": "Developing" },
+                "102857313": { "points": 100, "grade": "Exhibiting Depth" },
+                "108277941": { "points": 75, "grade": "Exhibiting" },
+                "117424902": { "points": 75, "grade": "Exhibiting" },
+                "121405597": { "points": 100, "grade": "Exhibiting Depth" },
+                "123693294": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747434": { "points": 75, "grade": "Exhibiting" },
+                "124747438": { "points": 75, "grade": "Exhibiting" },
+                "124747447": { "points": 50, "grade": "Developing" },
+                "130145804": { "points": 100, "grade": "Exhibiting Depth" },
+                "130185496": { "points": 100, "grade": "Exhibiting Depth" }
+              }
+            },
+            {
+              "id": "8047104185",
+              "title": "AIML Project - Autonomous Driving Challenge - Part 2: Development (S)",
+              "scores": {
+                "10260599": { "points": 100, "grade": "Exhibiting Depth" },
+                "10260681": { "points": 100, "grade": "Exhibiting Depth" },
+                "10261677": { "points": 100, "grade": "Exhibiting Depth" },
+                "23814429": { "points": 75, "grade": "Exhibiting" },
+                "102857313": { "points": 100, "grade": "Exhibiting Depth" },
+                "108277941": { "points": 100, "grade": "Exhibiting Depth" },
+                "117424902": { "points": 100, "grade": "Exhibiting Depth" },
+                "121405597": { "points": 100, "grade": "Exhibiting Depth" },
+                "123693294": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747434": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747438": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747447": { "points": 100, "grade": "Exhibiting Depth" },
+                "130145804": { "points": 100, "grade": "Exhibiting Depth" },
+                "130185496": { "points": 100, "grade": "Exhibiting Depth" }
+              }
+            },
+            {
+              "id": "8216461388",
+              "title": "AIML: Project - Computer Vision for Sustainable Development (S)",
+              "scores": {
+                "10260599": { "points": 100, "grade": "Exhibiting Depth" },
+                "10260681": { "points": 75, "grade": "Exhibiting" },
+                "10261677": { "points": 100, "grade": "Exhibiting Depth" },
+                "23814429": { "points": 75, "grade": "Exhibiting" },
+                "102857313": { "points": 100, "grade": "Exhibiting Depth" },
+                "108277941": { "points": 100, "grade": "Exhibiting Depth" },
+                "117424902": { "points": 100, "grade": "Exhibiting Depth" },
+                "121405597": { "points": 100, "grade": "Exhibiting Depth" },
+                "123693294": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747434": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747438": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747447": { "points": 100, "grade": "Exhibiting Depth" },
+                "130145804": { "points": 100, "grade": "Exhibiting Depth" },
+                "130185496": { "points": 100, "grade": "Exhibiting Depth" }
+              }
+            }
+          ]
+        },
+        {
+          "id": "b1c8f255-ed8b-4b8c-828c-b05ed955e9ad",
+          "externalId": "ART.5.2",
+          "title": "Develop and refine artistic techniques and work for presentation",
+          "assignments": [
+            {
+              "id": "8047104185",
+              "title": "AIML Project - Autonomous Driving Challenge - Part 2: Development (S)",
+              "scores": {
+                "10260599": { "points": 100, "grade": "Exhibiting Depth" },
+                "10260681": { "points": 100, "grade": "Exhibiting Depth" },
+                "10261677": { "points": 100, "grade": "Exhibiting Depth" },
+                "23814429": { "points": 100, "grade": "Exhibiting Depth" },
+                "102857313": { "points": 100, "grade": "Exhibiting Depth" },
+                "108277941": { "points": 100, "grade": "Exhibiting Depth" },
+                "117424902": { "points": 100, "grade": "Exhibiting Depth" },
+                "121405597": { "points": 100, "grade": "Exhibiting Depth" },
+                "123693294": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747434": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747438": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747447": { "points": 100, "grade": "Exhibiting Depth" },
+                "130145804": { "points": 100, "grade": "Exhibiting Depth" },
+                "130185496": { "points": 100, "grade": "Exhibiting Depth" }
+              }
+            },
+            {
+              "id": "7952841007",
+              "title": "AIML Project - AI Content Creator (S)",
+              "scores": {
+                "10260599": { "points": 100, "grade": "Exhibiting Depth" },
+                "10260681": { "points": 75, "grade": "Exhibiting" },
+                "10261677": { "points": 75, "grade": "Exhibiting" },
+                "23814429": { "points": 75, "grade": "Exhibiting" },
+                "102857313": { "points": 100, "grade": "Exhibiting Depth" },
+                "108277941": { "points": 100, "grade": "Exhibiting Depth" },
+                "117424902": { "points": 75, "grade": "Exhibiting" },
+                "121405597": { "points": 100, "grade": "Exhibiting Depth" },
+                "123693294": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747434": { "points": 75, "grade": "Exhibiting" },
+                "124747438": { "points": 75, "grade": "Exhibiting" },
+                "124747447": { "points": 75, "grade": "Exhibiting" },
+                "130145804": { "points": 100, "grade": "Exhibiting Depth" },
+                "130185496": { "points": 100, "grade": "Exhibiting Depth" }
+              }
+            },
+            {
+              "id": "8216461388",
+              "title": "AIML: Project - Computer Vision for Sustainable Development (S)",
+              "scores": {
+                "10260599": { "points": 75, "grade": "Exhibiting" },
+                "10260681": { "points": 75, "grade": "Exhibiting" },
+                "10261677": { "points": 100, "grade": "Exhibiting Depth" },
+                "23814429": { "points": 100, "grade": "Exhibiting Depth" },
+                "102857313": { "points": 100, "grade": "Exhibiting Depth" },
+                "108277941": { "points": 100, "grade": "Exhibiting Depth" },
+                "117424902": { "points": 100, "grade": "Exhibiting Depth" },
+                "121405597": { "points": 100, "grade": "Exhibiting Depth" },
+                "123693294": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747434": { "points": 50, "grade": "Developing" },
+                "124747438": { "points": 50, "grade": "Developing" },
+                "124747447": { "points": 100, "grade": "Exhibiting Depth" },
+                "130145804": { "points": 100, "grade": "Exhibiting Depth" },
+                "130185496": { "points": 100, "grade": "Exhibiting Depth" }
+              }
+            }
+          ]
+        },
+        {
+          "id": "5a4b44c1-a7c0-45d8-a27d-d3eec6a521f1",
+          "externalId": "ART.5.3",
+          "title": "Convey meaning through the presentation of artistic work",
+          "assignments": []
+        }
+      ]
+    },
+    {
+      "id": "63a233c3-056e-42dd-ab82-88cd60a11688",
+      "externalId": "ART.6",
+      "title": "HS Art: Create, Respond, Connect",
+      "measurementTopics": [
+        {
+          "id": "16102bd2-d1dc-48db-8930-8cb17bfbc043",
+          "externalId": "ART.6.1",
+          "title": "Generate and conceptualize artistic ideas and work",
+          "assignments": [
+            {
+              "id": "8047104184",
+              "title": "AIML Project - Autonomous Driving Challenge - Part 1: Ideation & Design (S)",
+              "scores": {
+                "10260599": { "points": 100, "grade": "Exhibiting Depth" },
+                "10260681": { "points": 100, "grade": "Exhibiting Depth" },
+                "10261677": { "points": 100, "grade": "Exhibiting Depth" },
+                "23814429": { "points": 100, "grade": "Exhibiting Depth" },
+                "102857313": { "points": 100, "grade": "Exhibiting Depth" },
+                "108277941": { "points": 100, "grade": "Exhibiting Depth" },
+                "117424902": { "points": 100, "grade": "Exhibiting Depth" },
+                "121405597": { "points": 100, "grade": "Exhibiting Depth" },
+                "123693294": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747434": { "points": 75, "grade": "Exhibiting" },
+                "124747438": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747447": { "points": 100, "grade": "Exhibiting Depth" },
+                "130145804": { "points": 100, "grade": "Exhibiting Depth" },
+                "130185496": { "points": 100, "grade": "Exhibiting Depth" }
+              }
+            },
+            {
+              "id": "7952841007",
+              "title": "AIML Project - AI Content Creator (S)",
+              "scores": {
+                "10260599": { "points": 100, "grade": "Exhibiting Depth" },
+                "10260681": { "points": 75, "grade": "Exhibiting" },
+                "10261677": { "points": 75, "grade": "Exhibiting" },
+                "23814429": { "points": 75, "grade": "Exhibiting" },
+                "102857313": { "points": 100, "grade": "Exhibiting Depth" },
+                "108277941": { "points": 100, "grade": "Exhibiting Depth" },
+                "117424902": { "points": 100, "grade": "Exhibiting Depth" },
+                "121405597": { "points": 100, "grade": "Exhibiting Depth" },
+                "123693294": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747434": { "points": 75, "grade": "Exhibiting" },
+                "124747438": { "points": 75, "grade": "Exhibiting" },
+                "124747447": { "points": 75, "grade": "Exhibiting" },
+                "130145804": { "points": 100, "grade": "Exhibiting Depth" },
+                "130185496": { "points": 100, "grade": "Exhibiting Depth" }
+              }
+            },
+            {
+              "id": "8216461388",
+              "title": "AIML: Project - Computer Vision for Sustainable Development (S)",
+              "scores": {
+                "10260599": { "points": 100, "grade": "Exhibiting Depth" },
+                "10260681": { "points": 50, "grade": "Developing" },
+                "10261677": { "points": 100, "grade": "Exhibiting Depth" },
+                "23814429": { "points": 100, "grade": "Exhibiting Depth" },
+                "102857313": { "points": 75, "grade": "Exhibiting" },
+                "108277941": { "points": 100, "grade": "Exhibiting Depth" },
+                "117424902": { "points": 100, "grade": "Exhibiting Depth" },
+                "121405597": { "points": 100, "grade": "Exhibiting Depth" },
+                "123693294": { "points": 75, "grade": "Exhibiting" },
+                "124747434": { "points": 50, "grade": "Developing" },
+                "124747438": { "points": 75, "grade": "Exhibiting" },
+                "124747447": { "points": 75, "grade": "Exhibiting" },
+                "130145804": { "points": 100, "grade": "Exhibiting Depth" },
+                "130185496": { "points": 75, "grade": "Exhibiting" }
+              }
+            }
+          ]
+        },
+        {
+          "id": "f85e0737-4255-4646-bb3e-7604599a5996",
+          "externalId": "ART.6.3",
+          "title": "Refine and complete artistic work",
+          "assignments": [
+            {
+              "id": "7952841007",
+              "title": "AIML Project - AI Content Creator (S)",
+              "scores": {
+                "10260599": { "points": 100, "grade": "Exhibiting Depth" },
+                "10260681": { "points": 50, "grade": "Developing" },
+                "10261677": { "points": 75, "grade": "Exhibiting" },
+                "23814429": { "points": 75, "grade": "Exhibiting" },
+                "102857313": { "points": 75, "grade": "Exhibiting" },
+                "108277941": { "points": 75, "grade": "Exhibiting" },
+                "117424902": { "points": 100, "grade": "Exhibiting Depth" },
+                "121405597": { "points": 75, "grade": "Exhibiting" },
+                "123693294": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747434": { "points": 50, "grade": "Developing" },
+                "124747438": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747447": { "points": 100, "grade": "Exhibiting Depth" },
+                "130145804": { "points": 100, "grade": "Exhibiting Depth" },
+                "130185496": { "points": 100, "grade": "Exhibiting Depth" }
+              }
+            },
+            {
+              "id": "8047104184",
+              "title": "AIML Project - Autonomous Driving Challenge - Part 1: Ideation & Design (S)",
+              "scores": {
+                "10260599": { "points": 100, "grade": "Exhibiting Depth" },
+                "10260681": { "points": 25, "grade": "Emerging" },
+                "10261677": { "points": 100, "grade": "Exhibiting Depth" },
+                "23814429": { "points": 100, "grade": "Exhibiting Depth" },
+                "102857313": { "points": 100, "grade": "Exhibiting Depth" },
+                "108277941": { "points": 100, "grade": "Exhibiting Depth" },
+                "117424902": { "points": 100, "grade": "Exhibiting Depth" },
+                "121405597": { "points": 100, "grade": "Exhibiting Depth" },
+                "123693294": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747434": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747438": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747447": { "points": 100, "grade": "Exhibiting Depth" },
+                "130145804": { "points": 100, "grade": "Exhibiting Depth" },
+                "130185496": { "points": 100, "grade": "Exhibiting Depth" }
+              }
+            },
+            {
+              "id": "8216461388",
+              "title": "AIML: Project - Computer Vision for Sustainable Development (S)",
+              "scores": {
+                "10260599": { "points": 100, "grade": "Exhibiting Depth" },
+                "10260681": { "points": 50, "grade": "Developing" },
+                "10261677": { "points": 100, "grade": "Exhibiting Depth" },
+                "23814429": { "points": 100, "grade": "Exhibiting Depth" },
+                "102857313": { "points": 100, "grade": "Exhibiting Depth" },
+                "108277941": { "points": 100, "grade": "Exhibiting Depth" },
+                "117424902": { "points": 100, "grade": "Exhibiting Depth" },
+                "121405597": { "points": 100, "grade": "Exhibiting Depth" },
+                "123693294": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747434": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747438": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747447": { "points": 75, "grade": "Exhibiting" },
+                "130145804": { "points": 100, "grade": "Exhibiting Depth" },
+                "130185496": { "points": 75, "grade": "Exhibiting" }
+              }
+            }
+          ]
+        },
+        {
+          "id": "17af86f3-bed9-42e5-85b8-dc99233107f0",
+          "externalId": "ART.6.6",
+          "title": "Apply criteria to evaluate artistic work",
+          "assignments": [
+            {
+              "id": "8047104185",
+              "title": "AIML Project - Autonomous Driving Challenge - Part 2: Development (S)",
+              "scores": {
+                "10260599": { "points": 100, "grade": "Exhibiting Depth" },
+                "10260681": { "points": 75, "grade": "Exhibiting" },
+                "10261677": { "points": 100, "grade": "Exhibiting Depth" },
+                "23814429": { "points": 100, "grade": "Exhibiting Depth" },
+                "102857313": { "points": 100, "grade": "Exhibiting Depth" },
+                "108277941": { "points": 75, "grade": "Exhibiting" },
+                "117424902": { "points": 100, "grade": "Exhibiting Depth" },
+                "121405597": { "points": 100, "grade": "Exhibiting Depth" },
+                "123693294": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747434": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747438": { "points": 50, "grade": "Developing" },
+                "124747447": { "points": 100, "grade": "Exhibiting Depth" },
+                "130145804": { "points": 100, "grade": "Exhibiting Depth" },
+                "130185496": { "points": 100, "grade": "Exhibiting Depth" }
+              }
+            },
+            {
+              "id": "8216461388",
+              "title": "AIML: Project - Computer Vision for Sustainable Development (S)",
+              "scores": {
+                "10260599": { "points": 100, "grade": "Exhibiting Depth" },
+                "10260681": { "points": 75, "grade": "Exhibiting" },
+                "10261677": { "points": 100, "grade": "Exhibiting Depth" },
+                "23814429": { "points": 100, "grade": "Exhibiting Depth" },
+                "102857313": { "points": 100, "grade": "Exhibiting Depth" },
+                "108277941": { "points": 100, "grade": "Exhibiting Depth" },
+                "117424902": { "points": 100, "grade": "Exhibiting Depth" },
+                "121405597": { "points": 100, "grade": "Exhibiting Depth" },
+                "123693294": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747434": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747438": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747447": { "points": 75, "grade": "Exhibiting" },
+                "130145804": { "points": 100, "grade": "Exhibiting Depth" },
+                "130185496": { "points": 75, "grade": "Exhibiting" }
+              }
+            },
+            {
+              "id": "7952841007",
+              "title": "AIML Project - AI Content Creator (S)",
+              "scores": {
+                "10260599": { "points": 100, "grade": "Exhibiting Depth" },
+                "10260681": { "points": 100, "grade": "Exhibiting Depth" },
+                "10261677": { "points": 100, "grade": "Exhibiting Depth" },
+                "23814429": { "points": 75, "grade": "Exhibiting" },
+                "102857313": { "points": 100, "grade": "Exhibiting Depth" },
+                "108277941": { "points": 75, "grade": "Exhibiting" },
+                "117424902": { "points": 100, "grade": "Exhibiting Depth" },
+                "121405597": { "points": 100, "grade": "Exhibiting Depth" },
+                "123693294": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747434": { "points": 75, "grade": "Exhibiting" },
+                "124747438": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747447": { "points": 100, "grade": "Exhibiting Depth" },
+                "130145804": { "points": 100, "grade": "Exhibiting Depth" },
+                "130185496": { "points": 100, "grade": "Exhibiting Depth" }
+              }
+            }
+          ]
+        },
+        {
+          "id": "076df8b0-d4ba-4082-83c5-b9bbc80c1685",
+          "externalId": "ART.6.7",
+          "title": "Relate artistic ideas and works with societal, cultural, and historical context to deepen understanding",
+          "assignments": []
+        },
+        {
+          "id": "102762fc-ab93-41f1-969d-f145dd8d5295",
+          "externalId": "ART.6.8",
+          "title": "Synthesize and relate knowledge and personal experiences to make art",
+          "assignments": [
+            {
+              "id": "8047104184",
+              "title": "AIML Project - Autonomous Driving Challenge - Part 1: Ideation & Design (S)",
+              "scores": {
+                "10260599": { "points": 75, "grade": "Exhibiting" },
+                "10260681": { "points": 50, "grade": "Developing" },
+                "10261677": { "points": 100, "grade": "Exhibiting Depth" },
+                "23814429": { "points": 75, "grade": "Exhibiting" },
+                "102857313": { "points": 75, "grade": "Exhibiting" },
+                "108277941": { "points": 50, "grade": "Developing" },
+                "117424902": { "points": 100, "grade": "Exhibiting Depth" },
+                "121405597": { "points": 75, "grade": "Exhibiting" },
+                "123693294": { "points": 75, "grade": "Exhibiting" },
+                "124747434": { "points": 50, "grade": "Developing" },
+                "124747438": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747447": { "points": 75, "grade": "Exhibiting" },
+                "130145804": { "points": 100, "grade": "Exhibiting Depth" },
+                "130185496": { "points": 100, "grade": "Exhibiting Depth" }
+              }
+            },
+            {
+              "id": "8216461388",
+              "title": "AIML: Project - Computer Vision for Sustainable Development (S)",
+              "scores": {
+                "10260599": { "points": 100, "grade": "Exhibiting Depth" },
+                "10260681": { "points": 75, "grade": "Exhibiting" },
+                "10261677": { "points": 100, "grade": "Exhibiting Depth" },
+                "23814429": { "points": 100, "grade": "Exhibiting Depth" },
+                "102857313": { "points": 100, "grade": "Exhibiting Depth" },
+                "108277941": { "points": 100, "grade": "Exhibiting Depth" },
+                "117424902": { "points": 100, "grade": "Exhibiting Depth" },
+                "121405597": { "points": 100, "grade": "Exhibiting Depth" },
+                "123693294": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747434": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747438": { "points": 100, "grade": "Exhibiting Depth" },
+                "124747447": { "points": 100, "grade": "Exhibiting Depth" },
+                "130145804": { "points": 100, "grade": "Exhibiting Depth" },
+                "130185496": { "points": 100, "grade": "Exhibiting Depth" }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

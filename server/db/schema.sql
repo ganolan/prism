@@ -130,6 +130,38 @@ CREATE TABLE IF NOT EXISTS inbox_log (
   processed_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Mastery / Standards-Based Grading tables
+
+CREATE TABLE IF NOT EXISTS reporting_categories (
+  id TEXT PRIMARY KEY,           -- Schoology UUID
+  course_id INTEGER REFERENCES courses(id),
+  external_id TEXT,              -- e.g. "ART.5"
+  title TEXT,
+  weight INTEGER,
+  synced_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS measurement_topics (
+  id TEXT PRIMARY KEY,           -- Schoology UUID
+  category_id TEXT REFERENCES reporting_categories(id),
+  course_id INTEGER REFERENCES courses(id),
+  external_id TEXT,              -- e.g. "ART.5.1"
+  title TEXT,
+  weight INTEGER,
+  synced_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS mastery_scores (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  student_uid TEXT NOT NULL,
+  assignment_schoology_id TEXT NOT NULL,
+  topic_id TEXT NOT NULL REFERENCES measurement_topics(id),
+  points INTEGER,                -- 0/25/50/75/100
+  grade TEXT,                    -- "ED"/"EX"/"D"/"EM"/"IE"
+  synced_at TEXT,
+  UNIQUE(student_uid, assignment_schoology_id, topic_id)
+);
+
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_enrolments_student ON enrolments(student_id);
 CREATE INDEX IF NOT EXISTS idx_enrolments_course ON enrolments(course_id);
@@ -142,3 +174,8 @@ CREATE INDEX IF NOT EXISTS idx_parents_student ON parents(student_id);
 CREATE INDEX IF NOT EXISTS idx_feedback_student ON feedback(student_id);
 CREATE INDEX IF NOT EXISTS idx_feedback_assignment ON feedback(assignment_id);
 CREATE INDEX IF NOT EXISTS idx_feedback_status ON feedback(status);
+CREATE INDEX IF NOT EXISTS idx_mastery_scores_student ON mastery_scores(student_uid);
+CREATE INDEX IF NOT EXISTS idx_mastery_scores_assignment ON mastery_scores(assignment_schoology_id);
+CREATE INDEX IF NOT EXISTS idx_mastery_scores_topic ON mastery_scores(topic_id);
+CREATE INDEX IF NOT EXISTS idx_measurement_topics_category ON measurement_topics(category_id);
+CREATE INDEX IF NOT EXISTS idx_reporting_categories_course ON reporting_categories(course_id);

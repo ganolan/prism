@@ -9,6 +9,7 @@ import {
   createFlag, resolveFlag, reopenFlag, deleteFlag,
 } from '../services/api.js';
 import StudentAnalytics from '../components/StudentAnalytics.jsx';
+import MasteryPerformanceSummary from '../components/MasteryPerformanceSummary.jsx';
 
 const CHART_COLORS = ['#7c3aed', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 
@@ -51,7 +52,7 @@ function CopyButton({ text, label }) {
   );
 }
 
-function CourseSection({ course, grades, courseIndex, flagsByAssignment }) {
+function CourseSection({ course, grades, courseIndex, flagsByAssignment, studentUid }) {
   const [expanded, setExpanded] = useState(true);
 
   const trendData = grades
@@ -99,6 +100,15 @@ function CourseSection({ course, grades, courseIndex, flagsByAssignment }) {
 
       {expanded && (
         <div style={{ padding: '0 1.25rem 1.25rem' }}>
+          {/* Mastery Performance Summary (SBG grid) */}
+          <div style={{ marginTop: '1rem', marginBottom: '0.5rem' }}>
+            <MasteryPerformanceSummary
+              courseId={course.id}
+              studentUid={studentUid}
+              courseName={course.course_name}
+            />
+          </div>
+
           {trendData.length >= 2 && (
             <div style={{ marginBottom: '1rem' }}>
               <ResponsiveContainer width="100%" height={200}>
@@ -558,6 +568,7 @@ export default function StudentPage() {
             grades={grades}
             courseIndex={i}
             flagsByAssignment={assignmentFlagMap}
+            studentUid={student.schoology_uid}
           />
         );
       })}

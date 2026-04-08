@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getCourse, getCourseStudents, getGradebook } from '../services/api.js';
+import { getCourse, getCourseStudents, getGradebook, triggerMasterySync, triggerMasteryLogin } from '../services/api.js';
 
 export default function CoursePage() {
   const { id } = useParams();
@@ -9,6 +9,8 @@ export default function CoursePage() {
   const [gradebook, setGradebook] = useState(null);
   const [view, setView] = useState('roster');
   const [loading, setLoading] = useState(true);
+  const [masterySyncing, setMasterySyncing] = useState(false);
+  const [masterySyncResult, setMasterySyncResult] = useState(null);
 
   useEffect(() => {
     Promise.all([getCourse(id), getCourseStudents(id), getGradebook(id)])
@@ -16,6 +18,30 @@ export default function CoursePage() {
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [id]);
+
+  async function handleMasterySync() {
+    setMasterySyncing(true);
+    setMasterySyncResult(null);
+    try {
+      const result = await triggerMasterySync(id);
+      setMasterySyncResult({ success: true, ...result });
+    } catch (err) {
+      const needsLogin = err.message?.includes('Not logged in') || err.message?.includes('mastery:login');
+      setMasterySyncResult({ success: false, error: err.message, needsLogin });
+    } finally {
+      setMasterySyncing(false);
+    }
+  }
+
+  async function handleMasteryLogin() {
+    setMasterySyncResult({ success: false, error: 'Opening login browser... Log in to Schoology, then close the browser window.', needsLogin: false });
+    try {
+      await triggerMasteryLogin();
+      setMasterySyncResult({ success: true, error: null, message: 'Login saved. Click Sync Mastery to pull data.' });
+    } catch (err) {
+      setMasterySyncResult({ success: false, error: `Login failed: ${err.message}` });
+    }
+  }
 
   if (loading) return <div className="loading">Loading...</div>;
   if (!course) return <div className="error-msg">Course not found</div>;
@@ -28,7 +54,7 @@ export default function CoursePage() {
       {course.section_name && <p className="subtitle">{course.section_name}</p>}
       <p className="text-sm text-muted mb-2">{course.studentCount} students</p>
 
-      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
         <button className={`tab-btn ${view === 'roster' ? 'active' : ''}`} onClick={() => setView('roster')}>
           Roster
         </button>
@@ -38,6 +64,35 @@ export default function CoursePage() {
         <Link to={`/course/${id}/analytics`} className="tab-btn" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>
           Analytics
         </Link>
+
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {masterySyncResult && (
+            <span className="text-sm" style={{ color: masterySyncResult.success ? 'var(--success)' : 'var(--danger)', maxWidth: 400 }}>
+              {masterySyncResult.success
+                ? (masterySyncResult.message || `Synced ${masterySyncResult.categoriesCount} categories, ${masterySyncResult.topicsCount} topics, ${masterySyncResult.scoresCount} scores`)
+                : masterySyncResult.error}
+            </span>
+          )}
+          {masterySyncResult?.needsLogin && (
+            <button className="primary" onClick={handleMasteryLogin} style={{ whiteSpace: 'nowrap' }}>
+              Log in to Schoology
+            </button>
+          )}
+          <button
+            className="secondary"
+            onClick={handleMasterySync}
+            disabled={masterySyncing}
+            title="Sync mastery (SBG) data from Schoology for this course"
+            style={{ whiteSpace: 'nowrap' }}
+          >
+            {masterySyncing ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                <span style={{ display: 'inline-block', width: 12, height: 12, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+                Syncing Mastery…
+              </span>
+            ) : 'Sync Mastery'}
+          </button>
+        </div>
       </div>
 
       {view === 'roster' ? (

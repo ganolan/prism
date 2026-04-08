@@ -651,6 +651,10 @@ button.ghost.accent:hover { background: var(--accent-light); }
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 /* ========================================================================
    MODAL
    ======================================================================== */

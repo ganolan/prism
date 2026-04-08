@@ -98,6 +98,15 @@ export const uploadFeedbackJson = (file) => {
   return fetch(`${BASE}/feedback/upload`, { method: 'POST', body: formData }).then(r => r.json());
 };
 
+// Mastery / SBG
+export const triggerMasteryLogin = () => request('/mastery/login', { method: 'POST' });
+export const triggerMasterySync = (courseId) => request(`/mastery/sync/${courseId}`, { method: 'POST' });
+export const getMasteryForCourse = (courseId) => request(`/mastery/${courseId}`);
+export const getMasteryForStudent = (courseId, studentUid) => request(`/mastery/${courseId}/student/${studentUid}`);
+export const getMasteryForAssignment = (courseId, assignmentId) => request(`/mastery/${courseId}/assignment/${assignmentId}`);
+export const writeMasteryScores = (courseId, data) => request(`/mastery/${courseId}/write`, { method: 'POST', body: JSON.stringify(data) });
+export const writeMasteryComment = (courseId, data) => request(`/mastery/${courseId}/write-comment`, { method: 'POST', body: JSON.stringify(data) });
+
 // Import
 export const uploadPowerSchoolCSV = (file) => {
   const formData = new FormData();

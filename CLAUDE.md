@@ -24,6 +24,12 @@ SCHOOLOGY_CONSUMER_SECRET=...
 
 Optional local overrides: `PORT`, `DB_PATH`, `INBOX_DIR`, `CONFIG_PATH`.
 
+Mastery sync (SBG data from Schoology's internal API) requires a one-time browser login:
+```bash
+npm run mastery:login   # Opens a browser — log in to Schoology, then close the window
+```
+Playwright browser binaries are installed automatically via `postinstall`.
+
 ## Running
 
 ```bash

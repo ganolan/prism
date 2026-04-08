@@ -28,6 +28,8 @@ export function getDb() {
       `ALTER TABLE courses ADD COLUMN hidden INTEGER DEFAULT 0`,
       `ALTER TABLE students RENAME COLUMN nickname TO preferred_name_teacher`,
       `ALTER TABLE courses ADD COLUMN block_number TEXT`,
+      `ALTER TABLE assignments ADD COLUMN mastery_grading_period_id TEXT`,
+      `ALTER TABLE assignments ADD COLUMN mastery_grading_category_id TEXT`,
     ];
     for (const sql of migrations) {
       try { db.exec(sql); } catch { /* column already exists */ }

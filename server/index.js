@@ -14,6 +14,7 @@ import flagsRouter from './routes/flags.js';
 import toolsRouter from './routes/tools.js';
 import analyticsRouter from './routes/analytics.js';
 import feedbackRouter from './routes/feedback.js';
+import masteryRouter from './routes/mastery.js';
 import { getFeatures } from './middleware/featureGate.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -38,6 +39,7 @@ app.use('/api/flags', flagsRouter);
 app.use('/api/tools', toolsRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/feedback', feedbackRouter);
+app.use('/api/mastery', masteryRouter);
 
 // Feature flags endpoint
 app.get('/api/features', (req, res) => {

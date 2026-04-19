@@ -1,17 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
-  ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-} from 'recharts';
-import {
   getStudent, updateStudent, updateParentPhone,
   createNote, updateNote, deleteNote,
   createFlag, resolveFlag, reopenFlag, deleteFlag,
 } from '../services/api.js';
 import StudentAnalytics from '../components/StudentAnalytics.jsx';
 import MasteryPerformanceSummary from '../components/MasteryPerformanceSummary.jsx';
-
-const CHART_COLORS = ['#7c3aed', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 
 function formatFlagReason(flag) {
   if (!flag?.flag_reason) return '';
@@ -52,19 +47,8 @@ function CopyButton({ text, label }) {
   );
 }
 
-function CourseSection({ course, grades, courseIndex, flagsByAssignment, studentUid }) {
+function CourseSection({ course, grades, flagsByAssignment, studentUid }) {
   const [expanded, setExpanded] = useState(true);
-
-  const trendData = grades
-    .filter(g => g.score != null && g.assignment_max_points)
-    .slice()
-    .sort((a, b) => (a.due_date || '').localeCompare(b.due_date || ''))
-    .map(g => ({
-      title: g.assignment_title,
-      pct: Math.round((g.score / g.assignment_max_points) * 100),
-    }));
-
-  const color = CHART_COLORS[courseIndex % CHART_COLORS.length];
 
   return (
     <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -109,19 +93,6 @@ function CourseSection({ course, grades, courseIndex, flagsByAssignment, student
             />
           </div>
 
-          {trendData.length >= 2 && (
-            <div style={{ marginBottom: '1rem' }}>
-              <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={trendData} margin={{ top: 8, right: 20, bottom: 50, left: 10 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="title" angle={-40} textAnchor="end" height={70} tick={{ fontSize: 10 }} interval={0} />
-                  <YAxis domain={[0, 100]} label={{ value: '%', angle: -90, position: 'insideLeft' }} />
-                  <Tooltip formatter={v => `${v}%`} />
-                  <Line type="monotone" dataKey="pct" name="Score" stroke={color} strokeWidth={2} dot={{ fill: color, r: 4 }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          )}
           <table>
             <thead>
               <tr>
@@ -220,6 +191,38 @@ function ParentCard({ parent, studentId, onUpdated }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function CollapsibleCard({ title, count, defaultOpen = false, children }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', gap: '0.5rem',
+          padding: '0.75rem 1.25rem', background: 'none', border: 'none', cursor: 'pointer',
+          textAlign: 'left',
+        }}
+      >
+        <h3 style={{ margin: 0 }}>{title}</h3>
+        {count != null && <span className="text-sm text-muted">({count})</span>}
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          width: 24, height: 24, borderRadius: 6, marginLeft: 'auto',
+          background: 'var(--bg-subtle)', border: '1px solid var(--border)',
+          color: 'var(--text)', flexShrink: 0,
+          transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+          transition: 'transform 0.2s',
+        }}>
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M4.427 6.427a.75.75 0 0 1 1.06 0L8 8.94l2.513-2.513a.75.75 0 0 1 1.06 1.06l-3.043 3.044a.75.75 0 0 1-1.06 0L4.427 7.487a.75.75 0 0 1 0-1.06z"/>
+          </svg>
+        </span>
+      </button>
+      {open && <div style={{ padding: '0 1.25rem 1.25rem' }}>{children}</div>}
     </div>
   );
 }
@@ -484,9 +487,8 @@ export default function StudentPage() {
         )}
       </div>
 
-      {/* Flags */}
-      <div className="card">
-        <h3 style={{ marginBottom: '0.75rem' }}>Flags</h3>
+      {/* Flags — collapsible, collapsed by default */}
+      <CollapsibleCard title="Flags" count={student.flags.length} defaultOpen={false}>
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', alignItems: 'flex-end' }}>
           <div style={{ flex: 1 }}>
             <input type="text" placeholder="Flag reason..." value={flagReason}
@@ -549,7 +551,7 @@ export default function StudentPage() {
             })}
           </div>
         )}
-      </div>
+      </CollapsibleCard>
 
       {/* Summary analytics (cross-course comparison + performance alerts) */}
       <StudentAnalytics studentId={parseInt(id)} />
@@ -558,7 +560,7 @@ export default function StudentPage() {
       {coursesWithGrades.length > 0 && (
         <h3 style={{ margin: '1.5rem 0 0.5rem', fontWeight: 600 }}>Courses</h3>
       )}
-      {student.courses.map((course, i) => {
+      {student.courses.map(course => {
         const grades = gradesByCourse[course.id] || [];
         if (grades.length === 0) return null;
         return (
@@ -566,7 +568,6 @@ export default function StudentPage() {
             key={course.id}
             course={course}
             grades={grades}
-            courseIndex={i}
             flagsByAssignment={assignmentFlagMap}
             studentUid={student.schoology_uid}
           />

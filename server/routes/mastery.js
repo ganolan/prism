@@ -90,7 +90,14 @@ router.get('/:courseId/student/:studentUid', (req, res) => {
     ORDER BY ms.topic_id, ms.assignment_schoology_id
   `).all(studentUid, courseId);
 
-  res.json({ topics, scores });
+  // Which (assignment, topic) pairs exist across ALL students — indicates topic is aligned to that assignment
+  const alignments = db.prepare(`
+    SELECT DISTINCT assignment_schoology_id, topic_id
+    FROM mastery_scores
+    WHERE topic_id IN (SELECT id FROM measurement_topics WHERE course_id = ?)
+  `).all(courseId);
+
+  res.json({ topics, scores, alignments });
 });
 
 // GET /api/mastery/:courseId/rubric — current scores for one student+assignment (pre-populate grading panel)

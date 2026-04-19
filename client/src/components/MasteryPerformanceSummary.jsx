@@ -48,6 +48,11 @@ function average(arr) {
   return nums.reduce((a, b) => a + b, 0) / nums.length;
 }
 
+function sentenceCase(str) {
+  if (!str) return '';
+  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+}
+
 // Approximate letter grade — based on HKIS General Academic Scale.
 // NOTE: this is an approximation of the full combination table.
 // See the letter grade popup for the authoritative HKIS scale.
@@ -84,8 +89,6 @@ function computeLetterGrade(categoryLevels) {
 // ── Letter grade scale popup ─────────────────────────────────────────────────
 
 function LetterGradePopup({ onClose, numCategories }) {
-  // Each row: [letterGrade, combinations per (2/3/4/5) reporting categories]
-  // Approximate from HKIS General Academic Scale
   const scale = [
     { grade: 'A',   bg: '#dcfce7', rows: { 2: '2ED', 3: '3ED', 4: '4ED', 5: '5ED' } },
     { grade: 'A-',  bg: '#dcfce7', rows: { 2: '1ED / 1EX', 3: '2ED / 1EX', 4: '3ED / 1EX', 5: '4ED / 1EX\n3ED / 2EX' } },
@@ -189,7 +192,8 @@ function LetterGradePopup({ onClose, numCategories }) {
 
 // ── Cell component ───────────────────────────────────────────────────────────
 
-function LevelCell({ grade, size = 'md', dim = false }) {
+function LevelCell({ grade, size = 'md', dim = false, pending = false }) {
+  if (!grade && pending) return <td style={{ background: 'var(--bg-subtle)', color: 'var(--text-muted)', textAlign: 'center', padding: size === 'sm' ? '0.2rem 0.3rem' : '0.35rem 0.5rem', fontStyle: 'italic', fontSize: '0.68rem' }}>Pending</td>;
   if (!grade) return <td style={{ background: 'var(--bg-subtle)', color: 'var(--text-muted)', textAlign: 'center', padding: size === 'sm' ? '0.2rem 0.3rem' : '0.35rem 0.5rem', opacity: dim ? 0.45 : 1 }}>—</td>;
   const c = LEVEL_COLORS[grade] || {};
   return (
@@ -211,6 +215,7 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showGradeScale, setShowGradeScale] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     if (!courseId || !studentUid) return;
@@ -223,7 +228,15 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
   if (loading) return <p className="text-sm text-muted">Loading mastery data...</p>;
   if (!data || !data.topics?.length) return null;
 
-  const { topics, scores } = data;
+  const { topics, scores, alignments } = data;
+
+  // Build set of aligned (assignment, topic) pairs
+  const alignedSet = new Set();
+  if (alignments) {
+    for (const a of alignments) {
+      alignedSet.add(`${a.assignment_schoology_id}::${a.topic_id}`);
+    }
+  }
 
   // ── Build structure ──────────────────────────────────────────────────────
 
@@ -239,7 +252,7 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
   }
   const categories = categoryOrder.map(id => categoryMap[id]);
 
-  // Get unique assignments from scores, preserve order (or sort by assignment title)
+  // Get unique assignments from scores, preserve order
   const assignmentIds = [...new Set(scores.map(s => s.assignment_schoology_id))];
   const assignmentTitles = {};
   for (const s of scores) {
@@ -263,7 +276,7 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
       .filter(p => p != null);
   }
 
-  const topicAvg = {}; // topic.id → avg points (or null)
+  const topicAvg = {};
   const topicMode = {};
   const topicCount = {};
   for (const t of topics) {
@@ -273,50 +286,234 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
     topicCount[t.id] = vals.length;
   }
 
-  // Per category: average of topic averages
-  const catAvg = {};
+  // Per category: flat average/mode of ALL individual proficiency scores (not average-of-averages)
+  const catFlatAvg = {};
+  const catFlatMode = {};
   for (const cat of categories) {
-    const avgs = cat.topics.map(t => topicAvg[t.id]).filter(v => v != null);
-    catAvg[cat.id] = average(avgs);
+    const allPoints = cat.topics.flatMap(t => topicScores[t.id]);
+    catFlatAvg[cat.id] = average(allPoints);
+    catFlatMode[cat.id] = modeOf(allPoints);
   }
 
-  const categoryLevels = categories.map(cat => pointsToLevel(catAvg[cat.id]));
+  // Letter grade uses flat category averages
+  const categoryLevels = categories.map(cat => pointsToLevel(catFlatAvg[cat.id]));
   const letterGrade = computeLetterGrade(categoryLevels);
 
+  const stickyCol = {
+    position: 'sticky', left: 0, zIndex: 2,
+  };
   const thStyle = {
     background: 'var(--bg-subtle)', padding: '0.35rem 0.5rem',
     fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-muted)',
     textAlign: 'center', border: '1px solid var(--border)', whiteSpace: 'nowrap',
   };
   const labelCellStyle = {
+    ...stickyCol,
     padding: '0.3rem 0.6rem', fontSize: '0.75rem', fontWeight: 600,
     color: 'var(--text-muted)', background: 'var(--bg-subtle)',
-    border: '1px solid var(--border)', whiteSpace: 'nowrap', textAlign: 'right',
+    border: '1px solid var(--border)', whiteSpace: 'normal', textAlign: 'right',
+    minWidth: 100, maxWidth: 180,
   };
-  const sectionLabelStyle = {
-    ...labelCellStyle, background: 'var(--bg)', fontStyle: 'italic', color: 'var(--text-muted)',
-  };
+
+  const masteryTable = assignmentIds.length > 0 ? (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ borderCollapse: 'collapse', fontSize: '0.8rem', width: '100%', minWidth: 500 }}>
+        <thead>
+          {/* Row 1: Reporting category headers */}
+          <tr>
+            <th style={{ ...thStyle, ...stickyCol, textAlign: 'right', minWidth: 100, maxWidth: 180, background: 'var(--bg-subtle)' }}>Reporting Categories</th>
+            {categories.map(cat => (
+              <th
+                key={cat.id}
+                colSpan={cat.topics.length}
+                style={{
+                  ...thStyle, fontWeight: 700,
+                  background: 'var(--accent-muted, var(--bg-subtle))',
+                  color: 'var(--accent)', borderBottom: '2px solid var(--accent)',
+                }}
+              >
+                {cat.title}
+              </th>
+            ))}
+          </tr>
+
+          {/* Row 2: Measurement topic headers */}
+          <tr>
+            <th style={{ ...thStyle, ...stickyCol, textAlign: 'right', minWidth: 100, maxWidth: 180, background: 'var(--bg-subtle)' }}>Measurement Topics</th>
+            {categories.flatMap(cat =>
+              cat.topics.map(t => (
+                <th key={t.id} style={{ ...thStyle, maxWidth: 120, minWidth: 60, whiteSpace: 'normal', lineHeight: 1.2, fontSize: '0.65rem', fontWeight: 500 }}>
+                  <span title={t.title}>{t.external_id} {sentenceCase(t.title)}</span>
+                </th>
+              ))
+            )}
+          </tr>
+
+          {/* Row 3: Times assessed */}
+          <tr>
+            <td style={labelCellStyle}>Times assessed</td>
+            {categories.flatMap(cat =>
+              cat.topics.map(t => (
+                <td key={t.id} style={{
+                  textAlign: 'center', color: 'var(--text-muted)',
+                  padding: '0.2rem', fontSize: '0.72rem',
+                  border: '1px solid var(--border)',
+                }}>
+                  {topicCount[t.id]}
+                </td>
+              ))
+            )}
+          </tr>
+        </thead>
+
+        <tbody>
+          {/* Assessment rows */}
+          {assignmentIds.map(aid => (
+            <tr key={aid}>
+              <td style={{
+                ...stickyCol,
+                padding: '0.3rem 0.6rem', border: '1px solid var(--border)',
+                fontSize: '0.78rem', background: 'var(--card-bg)',
+                minWidth: 100, maxWidth: 180, whiteSpace: 'normal',
+              }}>
+                <Link
+                  to={`/course/${courseId}/assessment/${aid}`}
+                  className="link"
+                  style={{ fontWeight: 500 }}
+                >
+                  {assignmentTitles[aid] || aid}
+                </Link>
+              </td>
+              {categories.flatMap(cat =>
+                cat.topics.map(t => {
+                  const sc = scoreLookup[t.id]?.[aid];
+                  const isAligned = alignedSet.has(`${aid}::${t.id}`);
+                  return <LevelCell key={t.id} grade={sc?.grade || null} pending={!sc && isAligned} />;
+                })
+              )}
+            </tr>
+          ))}
+        </tbody>
+
+        <tfoot>
+          {/* Measurement Topic Mode */}
+          <tr>
+            <td style={labelCellStyle}>Measurement Topic Mode</td>
+            {categories.flatMap(cat =>
+              cat.topics.map(t => {
+                const lvl = topicMode[t.id] != null ? pointsToLevel(topicMode[t.id]) : null;
+                const c = lvl ? LEVEL_COLORS[lvl] : null;
+                return (
+                  <td key={t.id} style={{
+                    textAlign: 'center', fontWeight: 600, fontSize: '0.75rem',
+                    padding: '0.25rem',
+                    background: c ? c.bg : 'var(--bg-subtle)',
+                    color: c ? c.text : 'var(--text-muted)',
+                    border: '1px solid var(--border)',
+                  }}>
+                    {lvl || '—'}
+                  </td>
+                );
+              })
+            )}
+          </tr>
+
+          {/* Reporting Category Mode (flat mode of all proficiency scores in the category) */}
+          <tr>
+            <td style={labelCellStyle}>Reporting Category Mode<br /><span style={{ fontWeight: 400, fontSize: '0.65rem' }}>(of all proficiencies)</span></td>
+            {categories.map(cat => {
+              const lvl = catFlatMode[cat.id] != null ? pointsToLevel(catFlatMode[cat.id]) : null;
+              const c = lvl ? LEVEL_COLORS[lvl] : null;
+              return (
+                <td key={cat.id} colSpan={cat.topics.length} style={{
+                  textAlign: 'center', fontWeight: 600, fontSize: '0.78rem',
+                  padding: '0.25rem',
+                  background: c ? c.bg : 'var(--bg-subtle)',
+                  color: c ? c.text : 'var(--text-muted)',
+                  border: '1px solid var(--border)',
+                }}>
+                  {lvl || '—'}
+                </td>
+              );
+            })}
+          </tr>
+
+          {/* Measurement Topic Average */}
+          <tr>
+            <td style={labelCellStyle}>Measurement Topic Average</td>
+            {categories.flatMap(cat =>
+              cat.topics.map(t => {
+                const lvl = pointsToLevel(topicAvg[t.id]);
+                const c = lvl ? LEVEL_COLORS[lvl] : null;
+                return (
+                  <td key={t.id} style={{
+                    textAlign: 'center', fontWeight: 600, fontSize: '0.75rem',
+                    padding: '0.25rem',
+                    background: c ? c.bg : 'var(--bg-subtle)',
+                    color: c ? c.text : 'var(--text-muted)',
+                    border: '1px solid var(--border)',
+                  }}>
+                    {lvl || '—'}{topicAvg[t.id] != null ? ` (${topicAvg[t.id].toFixed(0)})` : ''}
+                  </td>
+                );
+              })
+            )}
+          </tr>
+
+          {/* Reporting Category Average (flat average of all proficiency scores in the category) */}
+          <tr>
+            <td style={labelCellStyle}>Reporting Category Average<br /><span style={{ fontWeight: 400, fontSize: '0.65rem' }}>(of all proficiencies)</span></td>
+            {categories.map(cat => {
+              const avg = catFlatAvg[cat.id];
+              const lvl = pointsToLevel(avg);
+              const c = lvl ? LEVEL_COLORS[lvl] : null;
+              return (
+                <td key={cat.id} colSpan={cat.topics.length} style={{
+                  textAlign: 'center', fontWeight: 700, fontSize: '0.85rem',
+                  padding: '0.3rem',
+                  background: c ? c.bg : 'var(--bg-subtle)',
+                  color: c ? c.text : 'var(--text-muted)',
+                  border: '1px solid var(--border)',
+                }}>
+                  {lvl || '—'}{avg != null ? ` (${avg.toFixed(1)})` : ''}
+                </td>
+              );
+            })}
+          </tr>
+
+          {/* Schoology reported row */}
+          <tr>
+            <td style={{ ...labelCellStyle, color: 'var(--accent)', background: 'var(--bg)' }}>
+              Schoology Reported
+              <br /><span style={{ fontWeight: 400, fontSize: '0.65rem' }}>per Reporting Category</span>
+            </td>
+            {categories.map(cat => (
+              <td key={cat.id} colSpan={cat.topics.length} style={{
+                textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.75rem',
+                padding: '0.3rem', border: '1px solid var(--border)',
+                fontStyle: 'italic',
+              }}>
+                — (sync mastery to populate)
+              </td>
+            ))}
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  ) : null;
 
   return (
     <div style={{ marginBottom: '1.25rem' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
         <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600 }}>Mastery Performance Summary</h4>
-        {letterGrade && (
-          <span style={{
-            padding: '0.15rem 0.6rem', borderRadius: 6, fontWeight: 700, fontSize: '0.9rem',
-            background: '#f8fafc', border: '2px solid var(--border)',
-            color: LETTER_GRADE_COLORS[letterGrade] || 'var(--text)',
-          }}>
-            {letterGrade}
-          </span>
-        )}
         <button
           className="ghost"
-          onClick={() => setShowGradeScale(true)}
-          style={{ fontSize: '0.72rem', padding: '0.15rem 0.4rem', marginLeft: 'auto' }}
+          onClick={() => setExpanded(true)}
+          style={{ fontSize: '0.72rem', padding: '0.15rem 0.4rem' }}
+          title="Expand table to full screen"
         >
-          Letter Grade Scale ↗
+          Expand ↗
         </button>
       </div>
 
@@ -324,231 +521,56 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
         <LetterGradePopup onClose={() => setShowGradeScale(false)} numCategories={categories.length} />
       )}
 
+      {expanded && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 1000,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '1rem',
+          }}
+          onClick={() => setExpanded(false)}
+        >
+          <div
+            style={{
+              background: 'var(--card-bg)', borderRadius: 12,
+              padding: '1.5rem', width: '95vw', maxWidth: 1400,
+              maxHeight: '90vh', overflow: 'auto',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ margin: 0 }}>Mastery Performance Summary</h3>
+              <button className="ghost" onClick={() => setExpanded(false)}>✕</button>
+            </div>
+            {masteryTable}
+          </div>
+        </div>
+      )}
+
       {assignmentIds.length === 0 ? (
         <p className="text-sm text-muted">No mastery data yet. Run a mastery sync for this course.</p>
-      ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ borderCollapse: 'collapse', fontSize: '0.8rem', width: '100%', minWidth: 500 }}>
-            <thead>
-              {/* Row 1: Reporting category headers */}
-              <tr>
-                <th style={{ ...thStyle, textAlign: 'right', minWidth: 160 }}>Reporting Categories</th>
-                {categories.map(cat => (
-                  <th
-                    key={cat.id}
-                    colSpan={cat.topics.length}
-                    style={{
-                      ...thStyle, fontWeight: 700,
-                      background: 'var(--accent-muted, var(--bg-subtle))',
-                      color: 'var(--accent)', borderBottom: '2px solid var(--accent)',
-                    }}
-                  >
-                    {cat.title}
-                  </th>
-                ))}
-              </tr>
+      ) : masteryTable}
 
-              {/* Row 2: Reporting category averages */}
-              <tr>
-                <td style={{ ...labelCellStyle, color: 'var(--accent)', fontSize: '0.7rem' }}>
-                  Reporting Category Average
-                  <br /><span style={{ fontWeight: 400, fontSize: '0.65rem' }}>(of Measurement Topic Averages)</span>
-                </td>
-                {categories.map(cat => {
-                  const lvl = pointsToLevel(catAvg[cat.id]);
-                  const c = lvl ? LEVEL_COLORS[lvl] : null;
-                  return (
-                    <td
-                      key={cat.id}
-                      colSpan={cat.topics.length}
-                      style={{
-                        textAlign: 'center', fontWeight: 700, fontSize: '0.85rem',
-                        padding: '0.3rem',
-                        background: c ? c.bg : 'var(--bg-subtle)',
-                        color: c ? c.text : 'var(--text-muted)',
-                        border: '1px solid var(--border)',
-                      }}
-                    >
-                      {lvl || '—'}{catAvg[cat.id] != null ? ` (${catAvg[cat.id].toFixed(1)})` : ''}
-                    </td>
-                  );
-                })}
-              </tr>
-
-              {/* Row 3: Measurement topic headers */}
-              <tr>
-                <th style={{ ...thStyle, textAlign: 'right' }}>Measurement Topics</th>
-                {categories.flatMap(cat =>
-                  cat.topics.map(t => (
-                    <th key={t.id} style={{ ...thStyle, maxWidth: 100, whiteSpace: 'normal', lineHeight: 1.2 }}>
-                      <span title={t.title}>{t.external_id || t.title}</span>
-                    </th>
-                  ))
-                )}
-              </tr>
-
-              {/* Row 4: Measurement topic averages */}
-              <tr>
-                <td style={labelCellStyle}>Measurement Topic Average</td>
-                {categories.flatMap(cat =>
-                  cat.topics.map(t => {
-                    const lvl = pointsToLevel(topicAvg[t.id]);
-                    const c = lvl ? LEVEL_COLORS[lvl] : null;
-                    return (
-                      <td key={t.id} style={{
-                        textAlign: 'center', fontWeight: 600, fontSize: '0.75rem',
-                        padding: '0.25rem',
-                        background: c ? c.bg : 'var(--bg-subtle)',
-                        color: c ? c.text : 'var(--text-muted)',
-                        border: '1px solid var(--border)',
-                      }}>
-                        {lvl || '—'}{topicAvg[t.id] != null ? ` (${topicAvg[t.id].toFixed(0)})` : ''}
-                      </td>
-                    );
-                  })
-                )}
-              </tr>
-
-              {/* Row 5: Times assessed */}
-              <tr>
-                <td style={labelCellStyle}>Number of Times Assessed</td>
-                {categories.flatMap(cat =>
-                  cat.topics.map(t => (
-                    <td key={t.id} style={{
-                      textAlign: 'center', color: 'var(--text-muted)',
-                      padding: '0.2rem', fontSize: '0.72rem',
-                      border: '1px solid var(--border)',
-                    }}>
-                      {topicCount[t.id]}
-                    </td>
-                  ))
-                )}
-              </tr>
-            </thead>
-
-            <tbody>
-              {/* Summative assessment rows */}
-              <tr>
-                <td colSpan={1 + topics.length} style={{ ...sectionLabelStyle, textAlign: 'center', fontStyle: 'italic', fontSize: '0.68rem', padding: '0.2rem' }}>
-                  Summative Assessments
-                </td>
-              </tr>
-              {assignmentIds.map(aid => (
-                <tr key={aid}>
-                  <td style={{
-                    padding: '0.3rem 0.6rem', border: '1px solid var(--border)',
-                    fontSize: '0.78rem', background: 'var(--card-bg)',
-                  }}>
-                    <Link
-                      to={`/course/${courseId}/assessment/${aid}`}
-                      className="link"
-                      style={{ fontWeight: 500 }}
-                    >
-                      {assignmentTitles[aid] || aid}
-                    </Link>
-                  </td>
-                  {categories.flatMap(cat =>
-                    cat.topics.map(t => {
-                      const sc = scoreLookup[t.id]?.[aid];
-                      return <LevelCell key={t.id} grade={sc?.grade || null} />;
-                    })
-                  )}
-                </tr>
-              ))}
-            </tbody>
-
-            <tfoot>
-              {/* More Data section */}
-              <tr>
-                <td colSpan={1 + topics.length} style={{ ...sectionLabelStyle, textAlign: 'center', fontSize: '0.68rem', padding: '0.2rem' }}>
-                  More Data
-                </td>
-              </tr>
-
-              {/* Topic Mode */}
-              <tr>
-                <td style={labelCellStyle}>Measurement Topic Mode</td>
-                {categories.flatMap(cat =>
-                  cat.topics.map(t => {
-                    const lvl = topicMode[t.id] != null ? pointsToLevel(topicMode[t.id]) : null;
-                    const c = lvl ? LEVEL_COLORS[lvl] : null;
-                    return (
-                      <td key={t.id} style={{
-                        textAlign: 'center', fontWeight: 600, fontSize: '0.75rem',
-                        padding: '0.25rem',
-                        background: c ? c.bg : 'var(--bg-subtle)',
-                        color: c ? c.text : 'var(--text-muted)',
-                        border: '1px solid var(--border)',
-                      }}>
-                        {lvl || '—'}
-                      </td>
-                    );
-                  })
-                )}
-              </tr>
-
-              {/* Category-level mode (across all assessments) */}
-              <tr>
-                <td style={labelCellStyle}>Mode across All Assessments</td>
-                {categories.map(cat => {
-                  const allPoints = cat.topics.flatMap(t => topicScores[t.id]);
-                  const m = modeOf(allPoints);
-                  const lvl = m != null ? pointsToLevel(m) : null;
-                  const c = lvl ? LEVEL_COLORS[lvl] : null;
-                  return (
-                    <td key={cat.id} colSpan={cat.topics.length} style={{
-                      textAlign: 'center', fontWeight: 600, fontSize: '0.78rem',
-                      padding: '0.25rem',
-                      background: c ? c.bg : 'var(--bg-subtle)',
-                      color: c ? c.text : 'var(--text-muted)',
-                      border: '1px solid var(--border)',
-                    }}>
-                      {lvl || '—'}
-                    </td>
-                  );
-                })}
-              </tr>
-
-              {/* Category-level average (across all assessments) */}
-              <tr>
-                <td style={labelCellStyle}>Average across All Assessments</td>
-                {categories.map(cat => {
-                  const allPoints = cat.topics.flatMap(t => topicScores[t.id]);
-                  const avg = average(allPoints);
-                  const lvl = pointsToLevel(avg);
-                  const c = lvl ? LEVEL_COLORS[lvl] : null;
-                  return (
-                    <td key={cat.id} colSpan={cat.topics.length} style={{
-                      textAlign: 'center', fontWeight: 600, fontSize: '0.78rem',
-                      padding: '0.25rem',
-                      background: c ? c.bg : 'var(--bg-subtle)',
-                      color: c ? c.text : 'var(--text-muted)',
-                      border: '1px solid var(--border)',
-                    }}>
-                      {lvl || '—'}{avg != null ? ` (${avg.toFixed(1)})` : ''}
-                    </td>
-                  );
-                })}
-              </tr>
-
-              {/* Schoology reported row */}
-              <tr>
-                <td style={{ ...labelCellStyle, color: 'var(--accent)', background: 'var(--bg)' }}>
-                  Schoology Reported
-                  <br /><span style={{ fontWeight: 400, fontSize: '0.65rem' }}>per Reporting Category</span>
-                </td>
-                {categories.map(cat => (
-                  <td key={cat.id} colSpan={cat.topics.length} style={{
-                    textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.75rem',
-                    padding: '0.3rem', border: '1px solid var(--border)',
-                    fontStyle: 'italic',
-                  }}>
-                    — (sync mastery to populate)
-                  </td>
-                ))}
-              </tr>
-            </tfoot>
-          </table>
+      {/* Letter grade + grade scale link below table */}
+      {letterGrade && assignmentIds.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.5rem' }}>
+          <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>Approximate letter grade:</span>
+          <span style={{
+            padding: '0.15rem 0.6rem', borderRadius: 6, fontWeight: 700, fontSize: '0.9rem',
+            background: '#f8fafc', border: '2px solid var(--border)',
+            color: LETTER_GRADE_COLORS[letterGrade] || 'var(--text)',
+          }}>
+            {letterGrade}
+          </span>
+          <button
+            className="ghost"
+            onClick={() => setShowGradeScale(true)}
+            style={{ fontSize: '0.72rem', padding: '0.15rem 0.4rem' }}
+          >
+            Letter Grade Scale ↗
+          </button>
         </div>
       )}
     </div>

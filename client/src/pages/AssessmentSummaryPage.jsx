@@ -151,11 +151,8 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
                     padding: '0.3rem 0.6rem', border: '1px solid var(--border)',
                     fontSize: '0.78rem', color: 'var(--text)',
                   }}>
-                    <span style={{ fontWeight: 500, color: 'var(--text-muted)', fontSize: '0.68rem', marginRight: '0.3rem' }}>
-                      {t.external_id}
-                    </span>
                     {t.title}
-                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', opacity: 0.7 }}>{t.category_title}</div>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', opacity: 0.7 }}>{t.category_title} · {t.external_id}</div>
                   </td>
                   {LEVELS.map(l => {
                     const isCurrent = l === currentGrade;
@@ -246,7 +243,7 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AssessmentSummaryPage() {
-  const { courseId, assignmentId } = useParams();
+  const { id: courseId, assignmentId } = useParams();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -267,15 +264,14 @@ export default function AssessmentSummaryPage() {
 
   const { assignment, topics, students } = data;
 
-  // Group topics by category for display
-  const categoryOrder = [];
-  const catMap = {};
-  for (const t of topics) {
-    if (!catMap[t.category_id]) {
-      catMap[t.category_id] = { id: t.category_id, title: t.category_title };
-      categoryOrder.push(t.category_id);
+  // Filter to only topics aligned to this assignment (any student has a score for it)
+  const alignedTopicIds = new Set();
+  for (const s of students) {
+    for (const topicId of Object.keys(s.scores)) {
+      alignedTopicIds.add(topicId);
     }
   }
+  const alignedTopics = topics.filter(t => alignedTopicIds.has(String(t.id)));
 
   return (
     <div className="fade-in">
@@ -286,7 +282,7 @@ export default function AssessmentSummaryPage() {
         <h2 style={{ margin: '0.3rem 0 0.2rem', fontSize: '1.3rem', fontWeight: 700 }}>
           {assignment.title || assignmentId}
         </h2>
-        <p className="text-sm text-muted">{students.length} students</p>
+        <p className="text-sm text-muted">{students.length} students · {alignedTopics.length} measurement topics</p>
       </div>
 
       {/* Proficiency level legend */}
@@ -315,7 +311,7 @@ export default function AssessmentSummaryPage() {
           <StudentRubricCard
             key={student.schoology_uid}
             student={student}
-            topics={topics}
+            topics={alignedTopics}
             courseId={courseId}
             assignmentId={assignmentId}
             assignmentRow={assignment}

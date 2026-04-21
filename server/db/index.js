@@ -30,6 +30,20 @@ export function getDb() {
       `ALTER TABLE courses ADD COLUMN block_number TEXT`,
       `ALTER TABLE assignments ADD COLUMN mastery_grading_period_id TEXT`,
       `ALTER TABLE assignments ADD COLUMN mastery_grading_category_id TEXT`,
+      // Issue #13 additions
+      `ALTER TABLE assignments ADD COLUMN grading_category_id TEXT`,
+      `ALTER TABLE assignments ADD COLUMN grading_scale_id TEXT`,
+      `ALTER TABLE assignments ADD COLUMN folder_id TEXT`,
+      `ALTER TABLE assignments ADD COLUMN count_in_grade INTEGER DEFAULT 1`,
+      `ALTER TABLE students ADD COLUMN grad_year INTEGER`,
+      `ALTER TABLE students ADD COLUMN school_uid TEXT`,
+      `ALTER TABLE grades ADD COLUMN late INTEGER DEFAULT 0`,
+      `ALTER TABLE grades ADD COLUMN draft INTEGER DEFAULT 0`,
+      `ALTER TABLE assignments ADD COLUMN published INTEGER DEFAULT 1`,
+      `ALTER TABLE assignments ADD COLUMN display_weight INTEGER DEFAULT 0`,
+      // Indexes for issue #13 columns (must run after ALTER TABLEs above)
+      `CREATE INDEX IF NOT EXISTS idx_assignments_folder ON assignments(folder_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_assignments_grading_category ON assignments(grading_category_id)`,
     ];
     for (const sql of migrations) {
       try { db.exec(sql); } catch { /* column already exists */ }

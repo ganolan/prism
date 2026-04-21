@@ -35,7 +35,7 @@ Last full discovery scan: 2026-04-05 (110 endpoints tested, 48 working)
 | Method | Endpoint | Status | Notes |
 |--------|----------|--------|-------|
 | GET | `/v1/users/me` | 200 (via redirect) | Follow 303 manually. Returns full profile. |
-| GET | `/v1/users/{uid}` | 200 | Full profile: `uid`, `name_first`, `name_first_preferred`, `name_last`, `name_display`, `primary_email`, `role_id`, `school_id`, `building_id`, `picture_url`, `gender`, `position`, `grad_year`, `tz_offset`, `tz_name`, `parents`, `child_uids`, `permissions`, `language`. Student profiles have fewer fields (no `position`, `password`, `username`). |
+| GET | `/v1/users/{uid}` | 200 | Full profile: `uid`, `name_first`, `name_first_preferred`, `name_last`, `name_display`, `primary_email`, `role_id`, `school_id`, `building_id`, `picture_url`, `gender`, `position`, `grad_year`, `tz_offset`, `tz_name`, `parents`, `child_uids`, `permissions`, `language`. **Note:** `grad_year` is only present on teacher/staff profiles (and typically empty). Student profiles do NOT include `grad_year` — that data must come from PowerSchool. Student profiles also lack `position`, `password`, `username`. |
 | GET | `/v1/users/{uid}/sections` | 200 | Array of section objects with `course_title`, `section_title`, `course_id`, `id`. |
 | GET | `/v1/users/{uid}/grades` | 200 | Grade overview per section. Empty for teacher accounts. |
 | GET | `/v1/users/{uid}/updates` | 200 | Feed/update posts for the user. |
@@ -251,16 +251,41 @@ With our current two-legged OAuth access, we can read:
 | **Messages** | `/messages/inbox`, `/messages/sent` | Schoology messaging |
 | **Groups** | `/groups`, `/groups/{id}/updates`, `/discussions` | School groups and content |
 
-## Data We CANNOT Read
+## Data We CANNOT Read (via REST API)
 
 | Data Type | Why | Workaround |
 |-----------|-----|------------|
-| **Rubric criteria & ratings** | `grading_rubrics` endpoint returns 403 | Must scrape from UI or maintain manually |
-| **Per-topic mastery ratings** | Mastery endpoint grades arrays always empty | Reverse-engineer from grade percentages |
+| **Rubric criteria & ratings** | `grading_rubrics` endpoint returns 403 | **SOLVED**: Use internal API (`/course/{id}/district_mastery/api/...`) via Playwright browser session |
+| **Per-topic mastery ratings** | Mastery endpoint grades arrays always empty | **SOLVED**: Internal API `material-observations/search` returns per-student per-topic scores |
 | **Attendance** | Endpoints return 410 (deprecated/removed) | None via API |
 | **Global course catalog** | 403 — requires admin | Use `/users/{uid}/sections` for own courses |
 | **School user directory** | Returns school object, not user list | Enumerate via section enrollments |
 | **Search** | 403 | None via API |
+
+## Internal API (Schoology School Domain)
+
+Per-topic mastery data is accessible via Schoology's internal API on the school domain (`schoology.hkis.edu.hk`), authenticated via a live browser session (Playwright). These endpoints are used by Prism's mastery sync service.
+
+### Confirmed Internal Endpoints
+
+| Endpoint | What it returns |
+|---|---|
+| `GET /course/{id}/district_mastery/api/aligned-objectives?building_id=...&section_id=...` | Reporting categories + measurement topics (hierarchy, IDs, titles) |
+| `GET /course/{id}/district_mastery/api/material-observations/search?building_id=...&objective_id=...&section_id=...` | Per-student per-assignment scores for a specific measurement topic |
+| `GET /course/{id}/district_mastery/api/observations/search?student_uids={uid}&section_id={id}&material_type=ASSIGNMENT&material_id={id}` | All topic scores for one student + assignment |
+| `POST /iapi2/district-mastery/course/{id}/observations` | Write mastery scores back to Schoology |
+
+### Authentication
+
+- Requires a live browser session — use `npm run mastery:login` to authenticate via Playwright
+- Session is stored locally and reused across syncs until it expires
+- No OAuth needed — uses the teacher's browser cookies
+
+### Key Constants
+
+- `building_id`: `94044023` (HKIS)
+- `gradingScaleId`: `21337256` (General Academic Scale — used for ALL mastery writes)
+- Points mapping: ED=100, EX=75, D=50, EM=25, IE=0
 
 ## Standards-Based Grading (SBG) Findings
 
@@ -270,8 +295,17 @@ With our current two-legged OAuth access, we can read:
 - Each summative assignment is aligned to a subset of measurement topics from a course-level pool
 - Teachers rate students on each topic using the **General Academic Scale** (5 levels)
 - Schoology computes a single averaged grade per assignment and stores it as the `grade` field
-- The per-topic ratings are visible in Schoology's web UI (rubric popup, mastery gradebook) but **not accessible via the REST API**
+- Per-topic mastery ratings are accessible via the internal API (see above) and synced by Prism's mastery sync service
 - Measurement topics are grouped into **Reporting Categories** (buckets) in Schoology's mastery gradebook
+
+### Summative vs Formative Detection
+
+**Rule**: An assignment is **summative** if its `grading_scale_id` is `21337256` (General Academic Scale). All other assignments are **formative**.
+
+- Do NOT use `grading_category` title matching — category names vary by course and are unreliable
+- The General Academic Scale is the ONLY scale used for summative mastery grading at HKIS
+- Only summatives count towards overall student performance (mastery gradebook)
+- Formatives still matter and should be displayed but are secondary to summative data
 
 ### Grading Scales
 

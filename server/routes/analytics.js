@@ -45,13 +45,33 @@ router.get('/course/:id', (req, res) => {
   const db = getDb();
   const courseId = req.params.id;
 
-  // Get all assignments with their grade distributions
+  // General Academic Scale ID = summative; everything else = formative
+  const SUMMATIVE_SCALE_ID = '21337256';
+
+  // Get all assignments with their grade distributions (published only)
   const assignments = db.prepare(`
-    SELECT a.id, a.title, a.due_date, a.max_points, a.assignment_type
+    SELECT a.id, a.title, a.due_date, a.max_points, a.assignment_type, a.grading_scale_id, a.grading_category_id, a.folder_id
     FROM assignments a
-    WHERE a.course_id = ? AND a.max_points > 0
-    ORDER BY a.due_date, a.title
+    LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
+    LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
+    WHERE a.course_id = ? AND a.max_points > 0 AND a.published = 1
+    ORDER BY
+      CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN a.display_weight
+           WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN COALESCE(fp.display_weight, 0)
+           ELSE COALESCE(f.display_weight, a.display_weight) END ASC,
+      CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN 0
+           WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN COALESCE(f.display_weight, 0)
+           ELSE a.display_weight END ASC,
+      CASE WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN a.display_weight ELSE 0 END ASC,
+      a.title
   `).all(courseId);
+
+  // Auto-detect assignment type from grading_scale_id
+  for (const a of assignments) {
+    if (a.grading_scale_id) {
+      a.assignment_type = a.grading_scale_id === SUMMATIVE_SCALE_ID ? 'summative' : 'formative';
+    }
+  }
 
   const distributions = [];
   for (const a of assignments) {
@@ -124,7 +144,12 @@ router.get('/course/:id', (req, res) => {
     } : null,
   };
 
-  res.json({ distributions, trend, comparison });
+  // Folder structure for grouping
+  const folders = db.prepare(
+    'SELECT schoology_folder_id, title, color FROM folders WHERE course_id = ? ORDER BY display_weight'
+  ).all(courseId);
+
+  res.json({ distributions, trend, comparison, folders });
 });
 
 // GET /api/analytics/student/:id — individual student analytics
@@ -133,7 +158,7 @@ router.get('/student/:id', (req, res) => {
   const studentId = req.params.id;
   const threshold = parseFloat(req.query.threshold) || 15;
 
-  // Get all grades with course info, ordered by date
+  // Get all grades with course info, ordered by Schoology display order (published only)
   const grades = db.prepare(`
     SELECT g.score, g.max_score, g.exception,
            a.id as assignment_id, a.title, a.due_date, a.assignment_type, a.max_points,
@@ -142,8 +167,18 @@ router.get('/student/:id', (req, res) => {
     FROM grades g
     JOIN assignments a ON a.id = g.assignment_id
     JOIN courses c ON c.id = a.course_id
-    WHERE g.student_id = ?
-    ORDER BY a.due_date, a.title
+    LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
+    LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
+    WHERE g.student_id = ? AND a.published = 1
+    ORDER BY
+      CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN a.display_weight
+           WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN COALESCE(fp.display_weight, 0)
+           ELSE COALESCE(f.display_weight, a.display_weight) END ASC,
+      CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN 0
+           WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN COALESCE(f.display_weight, 0)
+           ELSE a.display_weight END ASC,
+      CASE WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN a.display_weight ELSE 0 END ASC,
+      a.title
   `).all(studentId);
 
   // Grade trends per course
@@ -232,8 +267,18 @@ router.post('/auto-flags/:courseId', (req, res) => {
              (CASE WHEN g.score IS NOT NULL AND g.max_score > 0 THEN (g.score * 100.0 / g.max_score) ELSE NULL END) as pct
       FROM grades g
       JOIN assignments a ON a.id = g.assignment_id
-      WHERE g.student_id = ? AND a.course_id = ?
-      ORDER BY a.due_date, a.title
+      LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
+      LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
+      WHERE g.student_id = ? AND a.course_id = ? AND a.published = 1
+      ORDER BY
+        CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN a.display_weight
+             WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN COALESCE(fp.display_weight, 0)
+             ELSE COALESCE(f.display_weight, a.display_weight) END ASC,
+        CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN 0
+             WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN COALESCE(f.display_weight, 0)
+             ELSE a.display_weight END ASC,
+        CASE WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN a.display_weight ELSE 0 END ASC,
+        a.title
     `).all(student.id, courseId);
 
     // Check for missing/excused work

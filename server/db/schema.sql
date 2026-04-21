@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS students (
   parent_email TEXT,
   parent_phone TEXT,
   picture_url TEXT,
+  grad_year INTEGER,
+  school_uid TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );
@@ -57,6 +59,12 @@ CREATE TABLE IF NOT EXISTS assignments (
   due_date TEXT,
   max_points REAL,
   assignment_type TEXT DEFAULT 'assignment',
+  grading_category_id TEXT,
+  grading_scale_id TEXT,
+  folder_id TEXT,
+  count_in_grade INTEGER DEFAULT 1,
+  published INTEGER DEFAULT 1,
+  display_weight INTEGER DEFAULT 0,
   synced_at TEXT
 );
 
@@ -70,6 +78,8 @@ CREATE TABLE IF NOT EXISTS grades (
   grade_comment TEXT,
   comment_status INTEGER,
   exception INTEGER DEFAULT 0,
+  late INTEGER DEFAULT 0,
+  draft INTEGER DEFAULT 0,
   synced_at TEXT,
   UNIQUE(student_id, assignment_id)
 );
@@ -130,6 +140,41 @@ CREATE TABLE IF NOT EXISTS inbox_log (
   processed_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Folders (unit/topic structure)
+CREATE TABLE IF NOT EXISTS folders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  course_id INTEGER NOT NULL REFERENCES courses(id),
+  schoology_folder_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  color TEXT,
+  parent_id TEXT DEFAULT '0',
+  display_weight INTEGER DEFAULT 0,
+  synced_at TEXT,
+  UNIQUE(course_id, schoology_folder_id)
+);
+
+-- Completion tracking
+CREATE TABLE IF NOT EXISTS completion (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  student_id INTEGER NOT NULL REFERENCES students(id),
+  course_id INTEGER NOT NULL REFERENCES courses(id),
+  total_rules INTEGER DEFAULT 0,
+  completed_rules INTEGER DEFAULT 0,
+  percent_complete REAL DEFAULT 0,
+  synced_at TEXT,
+  UNIQUE(student_id, course_id)
+);
+
+-- Grading categories (formative/summative)
+CREATE TABLE IF NOT EXISTS grading_categories (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  course_id INTEGER NOT NULL REFERENCES courses(id),
+  schoology_category_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  synced_at TEXT,
+  UNIQUE(course_id, schoology_category_id)
+);
+
 -- Mastery / Standards-Based Grading tables
 
 CREATE TABLE IF NOT EXISTS reporting_categories (
@@ -179,3 +224,7 @@ CREATE INDEX IF NOT EXISTS idx_mastery_scores_assignment ON mastery_scores(assig
 CREATE INDEX IF NOT EXISTS idx_mastery_scores_topic ON mastery_scores(topic_id);
 CREATE INDEX IF NOT EXISTS idx_measurement_topics_category ON measurement_topics(category_id);
 CREATE INDEX IF NOT EXISTS idx_reporting_categories_course ON reporting_categories(course_id);
+CREATE INDEX IF NOT EXISTS idx_folders_course ON folders(course_id);
+CREATE INDEX IF NOT EXISTS idx_completion_student ON completion(student_id);
+CREATE INDEX IF NOT EXISTS idx_completion_course ON completion(course_id);
+CREATE INDEX IF NOT EXISTS idx_grading_categories_course ON grading_categories(course_id);

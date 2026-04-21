@@ -53,14 +53,14 @@ router.get('/:id/students', (req, res) => {
     ORDER BY s.last_name, s.first_name
   `).all(req.params.id);
 
-  // Get grade summary per student for this course
+  // Get grade summary per student for this course (published assignments only)
   const gradeSummary = db.prepare(`
     SELECT g.student_id,
            COUNT(g.id) as graded_count,
            ROUND(AVG(CASE WHEN g.score IS NOT NULL AND g.max_score > 0 THEN (g.score * 100.0 / g.max_score) END), 1) as avg_pct
     FROM grades g
     JOIN assignments a ON a.id = g.assignment_id
-    WHERE a.course_id = ?
+    WHERE a.course_id = ? AND a.published = 1
     GROUP BY g.student_id
   `).all(req.params.id);
 
@@ -75,12 +75,24 @@ router.get('/:id/students', (req, res) => {
   res.json(enriched);
 });
 
-// GET /api/courses/:id/assignments — assignments for a course
+// GET /api/courses/:id/assignments — assignments for a course (published only)
 router.get('/:id/assignments', (req, res) => {
   const db = getDb();
-  const rows = db.prepare(
-    'SELECT * FROM assignments WHERE course_id = ? ORDER BY due_date DESC, title'
-  ).all(req.params.id);
+  const rows = db.prepare(`
+    SELECT a.* FROM assignments a
+    LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
+    LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
+    WHERE a.course_id = ? AND a.published = 1
+    ORDER BY
+      CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN a.display_weight
+           WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN COALESCE(fp.display_weight, 0)
+           ELSE COALESCE(f.display_weight, a.display_weight) END ASC,
+      CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN 0
+           WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN COALESCE(f.display_weight, 0)
+           ELSE a.display_weight END ASC,
+      CASE WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN a.display_weight ELSE 0 END ASC,
+      a.title
+  `).all(req.params.id);
   res.json(rows);
 });
 
@@ -88,12 +100,25 @@ router.get('/:id/assignments', (req, res) => {
 router.get('/:id/gradebook', (req, res) => {
   const db = getDb();
 
-  const assignments = db.prepare(
-    'SELECT id, title, max_points, due_date FROM assignments WHERE course_id = ? ORDER BY due_date, title'
-  ).all(req.params.id);
+  const assignments = db.prepare(`
+    SELECT a.id, a.title, a.max_points, a.due_date, a.grading_category_id, a.grading_scale_id, a.folder_id
+    FROM assignments a
+    LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
+    LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
+    WHERE a.course_id = ? AND a.published = 1
+    ORDER BY
+      CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN a.display_weight
+           WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN COALESCE(fp.display_weight, 0)
+           ELSE COALESCE(f.display_weight, a.display_weight) END ASC,
+      CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN 0
+           WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN COALESCE(f.display_weight, 0)
+           ELSE a.display_weight END ASC,
+      CASE WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN a.display_weight ELSE 0 END ASC,
+      a.title
+  `).all(req.params.id);
 
   const students = db.prepare(`
-    SELECT s.id, s.first_name, s.last_name, s.preferred_name
+    SELECT s.id, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher
     FROM students s
     JOIN enrolments e ON e.student_id = s.id
     WHERE e.course_id = ?
@@ -101,7 +126,7 @@ router.get('/:id/gradebook', (req, res) => {
   `).all(req.params.id);
 
   const grades = db.prepare(`
-    SELECT g.student_id, g.assignment_id, g.score, g.max_score, g.grade_comment, g.exception
+    SELECT g.student_id, g.assignment_id, g.score, g.max_score, g.grade_comment, g.exception, g.late, g.draft, g.comment_status
     FROM grades g
     JOIN assignments a ON a.id = g.assignment_id
     WHERE a.course_id = ?

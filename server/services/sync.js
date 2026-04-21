@@ -6,6 +6,8 @@ import {
   getSectionAssignments,
   getSectionGrades,
   getSectionGradingPeriods,
+  getSectionFolders,
+  getSectionGradingCategories,
   getUserProfile,
 } from './schoology.js';
 
@@ -16,13 +18,14 @@ export async function syncSectionData(db, sectionId, courseId, now) {
   const studentEnrollments = enrollments.filter(e => e.admin !== '1' && e.admin !== 1);
 
   const upsertStudent = db.prepare(`
-    INSERT INTO students (schoology_uid, first_name, last_name, email, picture_url, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO students (schoology_uid, first_name, last_name, email, picture_url, school_uid, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(schoology_uid) DO UPDATE SET
       first_name = excluded.first_name,
       last_name = excluded.last_name,
       email = COALESCE(excluded.email, students.email),
       picture_url = COALESCE(excluded.picture_url, students.picture_url),
+      school_uid = COALESCE(excluded.school_uid, students.school_uid),
       updated_at = excluded.updated_at
   `);
   const upsertEnrolment = db.prepare(`
@@ -33,36 +36,54 @@ export async function syncSectionData(db, sectionId, courseId, now) {
   `);
 
   for (const e of studentEnrollments) {
-    upsertStudent.run(String(e.uid), e.name_first, e.name_last, e.primary_email || null, e.picture_url || null, now);
+    upsertStudent.run(String(e.uid), e.name_first, e.name_last, e.primary_email || null, e.picture_url || null, e.school_uid ? String(e.school_uid) : null, now);
     const studentRow = db.prepare('SELECT id FROM students WHERE schoology_uid = ?').get(String(e.uid));
     if (studentRow) upsertEnrolment.run(studentRow.id, courseId, String(e.id));
   }
 
   const assignments = await getSectionAssignments(sectionId);
   const upsertAssignment = db.prepare(`
-    INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, max_points, assignment_type, synced_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, max_points, assignment_type, grading_category_id, grading_scale_id, folder_id, count_in_grade, published, display_weight, synced_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(schoology_assignment_id) DO UPDATE SET
       title = excluded.title,
       due_date = excluded.due_date,
       max_points = excluded.max_points,
       assignment_type = excluded.assignment_type,
+      grading_category_id = excluded.grading_category_id,
+      grading_scale_id = excluded.grading_scale_id,
+      folder_id = excluded.folder_id,
+      count_in_grade = excluded.count_in_grade,
+      published = excluded.published,
+      display_weight = excluded.display_weight,
       synced_at = excluded.synced_at
   `);
   for (const a of assignments) {
-    upsertAssignment.run(courseId, String(a.id), a.title, a.due || null, a.max_points ?? null, a.type || 'assignment', now);
+    upsertAssignment.run(
+      courseId, String(a.id), a.title, a.due || null, a.max_points ?? null,
+      a.type || 'assignment',
+      a.grading_category ? String(a.grading_category) : null,
+      a.grading_scale ? String(a.grading_scale) : null,
+      a.folder_id ? String(a.folder_id) : null,
+      a.count_in_grade ?? 1,
+      a.published ?? 1,
+      a.display_weight ?? 0,
+      now
+    );
   }
 
   const grades = await getSectionGrades(sectionId);
   const upsertGrade = db.prepare(`
-    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, grade_comment, comment_status, exception, synced_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, grade_comment, comment_status, exception, late, draft, synced_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(student_id, assignment_id) DO UPDATE SET
       score = excluded.score,
       max_score = excluded.max_score,
       grade_comment = excluded.grade_comment,
       comment_status = excluded.comment_status,
       exception = excluded.exception,
+      late = excluded.late,
+      draft = excluded.draft,
       synced_at = excluded.synced_at
   `);
 
@@ -87,7 +108,9 @@ export async function syncSectionData(db, sectionId, courseId, now) {
     if (!studentId) continue;
     const assignRow = db.prepare('SELECT id, max_points FROM assignments WHERE schoology_assignment_id = ?').get(String(g.assignment_id));
     if (!assignRow) continue;
-    upsertGrade.run(studentId, assignRow.id, enrollmentId, g.grade ?? null, g.max_points ?? assignRow.max_points ?? null, g.comment || null, g.comment_status ?? null, g.exception ?? 0, now);
+    // exception=4 means late in Schoology
+    const isLate = (g.exception === 4 || g.exception === '4') ? 1 : 0;
+    upsertGrade.run(studentId, assignRow.id, enrollmentId, g.grade ?? null, g.max_points ?? assignRow.max_points ?? null, g.comment || null, g.comment_status ?? null, g.exception ?? 0, isLate, 0, now);
     gradesCount++;
   }
 
@@ -156,7 +179,25 @@ export async function fullSync(onProgress) {
         AND synced_at = ?
     `).run(now);
 
-    // 2. For each section, sync enrollments, assignments, grades
+    // 2. For each section, sync enrollments, assignments, grades, folders, categories
+    const upsertFolder = db.prepare(`
+      INSERT INTO folders (course_id, schoology_folder_id, title, color, parent_id, display_weight, synced_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(course_id, schoology_folder_id) DO UPDATE SET
+        title = excluded.title,
+        color = excluded.color,
+        parent_id = excluded.parent_id,
+        display_weight = excluded.display_weight,
+        synced_at = excluded.synced_at
+    `);
+    const upsertCategory = db.prepare(`
+      INSERT INTO grading_categories (course_id, schoology_category_id, title, synced_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(course_id, schoology_category_id) DO UPDATE SET
+        title = excluded.title,
+        synced_at = excluded.synced_at
+    `);
+
     for (const sec of sections) {
       const sectionId = String(sec.id);
       const courseRow = db.prepare('SELECT id FROM courses WHERE schoology_section_id = ?').get(sectionId);
@@ -165,6 +206,25 @@ export async function fullSync(onProgress) {
       log(`Syncing "${sec.course_title}"...`);
       const result = await syncSectionData(db, sectionId, courseRow.id, now);
       totalRecords += result.studentsCount + result.assignmentsCount + result.gradesCount;
+
+      // Sync folders
+      try {
+        const folders = await getSectionFolders(sectionId);
+        for (const f of folders) {
+          upsertFolder.run(courseRow.id, String(f.id), f.title, f.color || null, f.parent_id || '0', f.display_weight || 0, now);
+        }
+        totalRecords += folders.length;
+      } catch { /* folders not available for this section */ }
+
+      // Sync grading categories
+      try {
+        const categories = await getSectionGradingCategories(sectionId);
+        for (const c of categories) {
+          upsertCategory.run(courseRow.id, String(c.id), c.title, now);
+        }
+        totalRecords += categories.length;
+      } catch { /* categories not available */ }
+
     }
 
     // 3. Fetch full profiles + parent data for all students
@@ -185,18 +245,20 @@ export async function fullSync(onProgress) {
       try {
         const profile = await getUserProfile(s.schoology_uid);
 
-        // Update student email and preferred name from profile
+        // Update student email, preferred name, and grad_year from profile
         const email = profile.primary_email || null;
         const prefName = (profile.name_first_preferred && profile.use_preferred_first_name === '1')
           ? profile.name_first_preferred : null;
+        const gradYear = profile.grad_year ? parseInt(profile.grad_year) : null;
 
         db.prepare(`
           UPDATE students SET
             email = COALESCE(?, email),
             preferred_name = COALESCE(preferred_name, ?),
+            grad_year = COALESCE(?, grad_year),
             updated_at = ?
           WHERE id = ?
-        `).run(email, prefName, now, s.id);
+        `).run(email, prefName, gradYear, now, s.id);
 
         const parents = profile.parents?.parent || [];
 

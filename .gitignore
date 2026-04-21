@@ -1,8 +1,8 @@
 .env
 node_modules/
-server/db/*.db
-server/db/*.db-shm
-server/db/*.db-wal
+*.db
+*.db-shm
+*.db-wal
 client/dist/
 inbox/processed/
 data/imports/*.csv

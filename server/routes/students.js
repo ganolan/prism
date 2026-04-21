@@ -37,12 +37,22 @@ router.get('/:id', (req, res) => {
 
   const grades = db.prepare(`
     SELECT g.*, a.title as assignment_title, a.due_date, a.max_points as assignment_max_points,
-           c.course_name, c.id as course_id
+           a.grading_scale_id, a.display_weight, c.course_name, c.id as course_id
     FROM grades g
     JOIN assignments a ON a.id = g.assignment_id
     JOIN courses c ON c.id = a.course_id
-    WHERE g.student_id = ?
-    ORDER BY a.due_date DESC
+    LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
+    LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
+    WHERE g.student_id = ? AND a.published = 1
+    ORDER BY
+      CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN a.display_weight
+           WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN COALESCE(fp.display_weight, 0)
+           ELSE COALESCE(f.display_weight, a.display_weight) END ASC,
+      CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN 0
+           WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN COALESCE(f.display_weight, 0)
+           ELSE a.display_weight END ASC,
+      CASE WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN a.display_weight ELSE 0 END ASC,
+      a.title
   `).all(req.params.id);
 
   const notes = db.prepare(

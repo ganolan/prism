@@ -100,6 +100,26 @@ export async function getUserProfile(uid) {
   return apiGet(`/users/${uid}`);
 }
 
+export async function getSectionFolders(sectionId) {
+  const data = await apiGet(`/sections/${sectionId}/folders`);
+  return data?.folders || data?.folder || [];
+}
+
+export async function getSectionGradingCategories(sectionId) {
+  const data = await apiGet(`/sections/${sectionId}/grading_categories`);
+  return data?.grading_category || [];
+}
+
+export async function getSectionCompletion(sectionId) {
+  const data = await apiGet(`/sections/${sectionId}/completion`);
+  return data?.completion || [];
+}
+
+export async function getSubmissionStatus(sectionId, assignmentId, userId) {
+  const data = await apiGet(`/sections/${sectionId}/submissions/${assignmentId}/${userId}`);
+  return data?.revision || [];
+}
+
 export async function pushGradeComments(sectionId, gradeUpdates) {
   // gradeUpdates: array of { assignment_id, enrollment_id, grade, comment, comment_status }
   return apiPut(`/sections/${sectionId}/grades`, {

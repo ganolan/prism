@@ -46,25 +46,80 @@ On hold pending a safe test plan for write-back without risking live student dat
 
 Key discovery: bulk `PUT /sections/{id}/grades` works for writing grade comments. Individual PUT returns 405.
 
-## Standards-Based Grading (Issue #7) — IN PROGRESS
-
-Branch: `feature/standards-based-grading`
+## Standards-Based Grading (Issue #7) — PHASES 1-3 COMPLETE
 
 ### Phase 0: API Discovery — COMPLETE (2026-04-04)
 
 Comprehensive probing of ~40+ Schoology API endpoint patterns. Key findings:
-- Per-topic measurement ratings NOT available via API (mastery endpoint returns empty, grading_rubrics returns 403)
-- Grade values ARE available and encode the number of measurement topics via averaging math
-- Grading scales, categories, and periods are all accessible
-- The `grading_rubrics` endpoint (documented, would have criteria+ratings) returns 403 — likely a permissions issue
+- Per-topic measurement ratings NOT available via public REST API
+- **RESOLVED**: Internal API on school domain provides full mastery data via Playwright browser session
 
-Full details: `.claude/schoology-api-reference.md`
+### Phase 1: DB Schema — COMPLETE (2026-04-08)
 
-### Phase 1+: Implementation — NOT STARTED
+- `reporting_categories` table (UUID, course_id, external_id, title, weight)
+- `measurement_topics` table (UUID, category_id, course_id, external_id, title, weight)
+- `mastery_scores` table (student_uid, assignment_schoology_id, topic_id, points, grade)
 
-Blocked on resolving API access for per-topic ratings. Two paths:
-1. **Preferred**: Get admin/elevated API access to unlock `grading_rubrics` endpoint
-2. **Fallback**: Scrape per-topic ratings from Schoology web UI via Playwright
+### Phase 2: Playwright Scraper Service — COMPLETE (2026-04-08)
+
+- `server/services/masterySync.js`: `syncMasteryForCourse()`, `getRubricScoresForStudent()`, `writeMasteryScores()`
+- Interactive login flow (`npm run mastery:login`)
+- Bulk sync and per-student-assignment lookup
+
+### Phase 3: API Routes + UI — COMPLETE (2026-04-08)
+
+- `/api/mastery/sync/:courseId`, `/api/mastery/:courseId`, `/api/mastery/:courseId/student/:studentUid`
+- `/api/mastery/:courseId/rubric`, `/api/mastery/:courseId/write`, `/api/mastery/:courseId/write-comment`
+- `/api/mastery/:courseId/assignment/:assignmentId` (whole-class rubric view)
+- MasteryPerformanceSummary component with per-topic grid, category averages, letter grade approximation
+- AssessmentSummaryPage with whole-class mastery view and inline grading/write-back
+
+### Phase 4: UI Enhancements — NOT STARTED
+
+- Rubric grading panel: load current scores, pick new levels, write back to Schoology
+
+## Unused API Fields (Issue #13) — COMPLETE (2026-04-20)
+
+### Schema Additions
+- `assignments`: added `grading_category_id`, `grading_scale_id`, `folder_id`
+- `students`: added `grad_year`, `school_uid`
+- `grades`: added `late`, `draft`
+- New tables: `folders`, `grading_categories`
+
+### Sync Enhancements
+- Assignments now store `grading_category`, `grading_scale`, `folder_id`, `published`, `display_weight` from Schoology
+- Student `school_uid` stored from enrollment response
+- Student `grad_year`: column exists but **Schoology API does not return grad_year for student profiles** (only present on teacher/staff profiles). Needs PowerSchool API access.
+- Late flag derived from Schoology exception code (exception=4)
+- Folders and grading categories synced per course (folder API key fixed: `data.folders` not `data.folder`)
+- Assignment ordering uses folder display_weight (primary) + assignment display_weight (secondary) to match Schoology page order
+
+### Formative/Summative Auto-Detection
+- **Rule**: `grading_scale_id === '21337256'` (General Academic Scale) = summative; everything else = formative
+- Analytics and gradebook now auto-detect assignment type — no manual tagging needed
+- Removes the prior bug where courses with non-standard category names (MAD, Robotics) showed no mastery data
+
+### UI Changes
+- Gradebook: shows S/F badges on column headers based on grading scale
+- Gradebook: exception badges (Excused, Incomplete, Missing, Late) with color coding
+- Gradebook: late indicator ("L" badge) on scores
+- Student page: grade level + graduating year badge on profile header
+- Student page: student ID displayed
+- Student page: exception and late/draft badges per assignment
+- Student page: student ID from email prefix (not school_uid which is Schoology-internal like "1_38757")
+- Course page: section_school_code shown in header
+- All assignment/grade queries filter `published = 1` (excludes unpublished)
+- Mastery topic derivation fixed: queries join through mastery_scores→assignments by course_id, not measurement_topics.course_id (fixes shared standards across courses — MAD now shows mastery)
+
+### Known Issues
+- `grad_year` not available from Schoology API for students (needs PowerSchool credentials)
+- Robotics mastery: course has summative assignments but mastery sync needs to be run for it
+- Assignment ordering requires a fresh sync to populate the folders table (bug fixed: API returns `data.folders` not `data.folder`)
+
+### Not Implemented (by design)
+- Completion data: not useful for the mastery-based system
+- count_in_grade: does not affect mastery calculation which determines final grades
+- Folder grouping in UI: folder structure used only for ordering, not visual grouping
 
 ## UI Theme Redesign — COMPLETE (2026-04-04)
 

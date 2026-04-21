@@ -52,7 +52,10 @@ export default function CoursePage() {
     <div className="fade-in">
       <h2 className="page-title">{course.course_name}</h2>
       {course.section_name && <p className="subtitle">{course.section_name}</p>}
-      <p className="text-sm text-muted mb-2">{course.studentCount} students</p>
+      <p className="text-sm text-muted mb-2">
+        {course.studentCount} students
+        {course.section_school_code && <span style={{ marginLeft: '0.75rem' }}>{course.section_school_code}</span>}
+      </p>
 
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
         <button className={`tab-btn ${view === 'roster' ? 'active' : ''}`} onClick={() => setView('roster')}>
@@ -140,6 +143,8 @@ export default function CoursePage() {
   );
 }
 
+const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
+
 function GradebookView({ data }) {
   if (!data || !data.assignments.length) {
     return <div className="card"><p className="text-muted">No assignments yet.</p></div>;
@@ -147,6 +152,7 @@ function GradebookView({ data }) {
 
   const { assignments, students, grades } = data;
   const displayName = (s) => s.preferred_name_teacher || s.preferred_name || s.first_name;
+  const SUMMATIVE_SCALE_ID = '21337256';
 
   return (
     <div className="card" style={{ overflowX: 'auto' }}>
@@ -154,11 +160,16 @@ function GradebookView({ data }) {
         <thead>
           <tr>
             <th style={{ position: 'sticky', left: 0, background: 'var(--table-header-bg)', zIndex: 1 }}>Student</th>
-            {assignments.map(a => (
-              <th key={a.id} style={{ minWidth: '80px', whiteSpace: 'nowrap' }} title={a.title}>
-                {a.title.length > 15 ? a.title.slice(0, 15) + '...' : a.title}
-              </th>
-            ))}
+            {assignments.map(a => {
+              const isSummative = a.grading_scale_id === SUMMATIVE_SCALE_ID;
+              const typeLabel = a.grading_scale_id ? (isSummative ? 'S' : 'F') : null;
+              return (
+                <th key={a.id} style={{ minWidth: '80px', whiteSpace: 'nowrap' }} title={a.title}>
+                  {typeLabel && <span className={`badge ${isSummative ? 'badge-blue' : 'badge-green'}`} style={{ fontSize: '0.6rem', marginRight: 4 }}>{typeLabel}</span>}
+                  {a.title.length > 15 ? a.title.slice(0, 15) + '…' : a.title}
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
@@ -171,9 +182,19 @@ function GradebookView({ data }) {
               </td>
               {assignments.map(a => {
                 const g = grades[s.id]?.[a.id];
+                const exLabel = g?.exception ? EXCEPTION_LABELS[g.exception] : null;
                 return (
                   <td key={a.id} style={{ textAlign: 'center' }} title={g?.grade_comment || ''}>
-                    {g?.score != null ? g.score : (g?.exception ? 'EX' : '-')}
+                    {g?.score != null ? (
+                      <span>
+                        {g.score}
+                        {g.late ? <span className="badge badge-red" style={{ fontSize: '0.55rem', marginLeft: 3 }}>L</span> : null}
+                      </span>
+                    ) : exLabel ? (
+                      <span className={`badge ${g.exception === 3 ? 'badge-red' : 'badge-blue'}`} style={{ fontSize: '0.6rem' }}>
+                        {exLabel}
+                      </span>
+                    ) : '-'}
                   </td>
                 );
               })}

@@ -450,22 +450,41 @@ export async function writeMasteryScores({
 export function getMasteryForCourse(courseId) {
   const db = getDb();
 
-  const categories = db.prepare(`
-    SELECT * FROM reporting_categories WHERE course_id = ? ORDER BY external_id
-  `).all(courseId);
-
+  // Derive topics and categories from actual scores for published assignments in this course
   const topics = db.prepare(`
-    SELECT * FROM measurement_topics WHERE course_id = ? ORDER BY external_id
+    SELECT DISTINCT mt.* FROM measurement_topics mt
+    WHERE mt.id IN (
+      SELECT DISTINCT ms.topic_id FROM mastery_scores ms
+      JOIN assignments a ON a.schoology_assignment_id = ms.assignment_schoology_id
+      WHERE a.course_id = ? AND a.published = 1
+    )
+    ORDER BY mt.external_id
   `).all(courseId);
 
-  const scores = db.prepare(`
+  const categoryIds = [...new Set(topics.map(t => t.category_id))];
+  const categories = categoryIds.length > 0 ? db.prepare(`
+    SELECT * FROM reporting_categories WHERE id IN (${categoryIds.map(() => '?').join(',')})
+    ORDER BY external_id
+  `).all(...categoryIds) : [];
+
+  const scores = topics.length > 0 ? db.prepare(`
     SELECT ms.*, s.first_name, s.last_name, s.preferred_name, s.schoology_uid
     FROM mastery_scores ms
     JOIN students s ON s.schoology_uid = ms.student_uid
-    JOIN measurement_topics mt ON mt.id = ms.topic_id
-    WHERE mt.course_id = ?
-    ORDER BY ms.student_uid, ms.topic_id, ms.assignment_schoology_id
-  `).all(courseId);
+    JOIN assignments a ON a.schoology_assignment_id = ms.assignment_schoology_id
+    LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
+    LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
+    WHERE a.course_id = ? AND a.published = 1
+    ORDER BY ms.student_uid, ms.topic_id,
+      CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN a.display_weight
+           WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN COALESCE(fp.display_weight, 0)
+           ELSE COALESCE(f.display_weight, a.display_weight) END ASC,
+      CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN 0
+           WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN COALESCE(f.display_weight, 0)
+           ELSE a.display_weight END ASC,
+      CASE WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN a.display_weight ELSE 0 END ASC,
+      ms.assignment_schoology_id
+  `).all(courseId) : [];
 
   return { categories, topics, scores };
 }

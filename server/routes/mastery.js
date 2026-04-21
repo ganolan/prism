@@ -72,30 +72,45 @@ router.get('/:courseId/student/:studentUid', (req, res) => {
   const { courseId, studentUid } = req.params;
   const db = getDb();
 
+  // Derive topics from actual scores for published assignments in this course (handles shared topics across courses)
   const topics = db.prepare(`
-    SELECT mt.*, rc.title AS category_title, rc.external_id AS category_external_id
+    SELECT DISTINCT mt.*, rc.title AS category_title, rc.external_id AS category_external_id
     FROM measurement_topics mt
     JOIN reporting_categories rc ON rc.id = mt.category_id
-    WHERE mt.course_id = ?
-    ORDER BY mt.external_id
+    WHERE mt.id IN (
+      SELECT DISTINCT ms.topic_id FROM mastery_scores ms
+      JOIN assignments a ON a.schoology_assignment_id = ms.assignment_schoology_id
+      WHERE a.course_id = ? AND a.published = 1
+    )
+    ORDER BY rc.external_id, mt.external_id
   `).all(courseId);
 
-  const scores = db.prepare(`
-    SELECT ms.*, a.title AS assignment_title
+  const topicIds = topics.map(t => t.id);
+  const scores = topicIds.length > 0 ? db.prepare(`
+    SELECT ms.*, a.title AS assignment_title, a.due_date AS assignment_due_date
     FROM mastery_scores ms
     LEFT JOIN assignments a ON a.schoology_assignment_id = ms.assignment_schoology_id
-    WHERE ms.student_uid = ? AND ms.topic_id IN (
-      SELECT id FROM measurement_topics WHERE course_id = ?
-    )
-    ORDER BY ms.topic_id, ms.assignment_schoology_id
-  `).all(studentUid, courseId);
+    LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
+    LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
+    WHERE ms.student_uid = ? AND a.course_id = ? AND a.published = 1
+    ORDER BY
+      CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN a.display_weight
+           WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN COALESCE(fp.display_weight, 0)
+           ELSE COALESCE(f.display_weight, a.display_weight) END ASC,
+      CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN 0
+           WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN COALESCE(f.display_weight, 0)
+           ELSE a.display_weight END ASC,
+      CASE WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN a.display_weight ELSE 0 END ASC,
+      ms.assignment_schoology_id
+  `).all(studentUid, courseId) : [];
 
   // Which (assignment, topic) pairs exist across ALL students — indicates topic is aligned to that assignment
-  const alignments = db.prepare(`
-    SELECT DISTINCT assignment_schoology_id, topic_id
-    FROM mastery_scores
-    WHERE topic_id IN (SELECT id FROM measurement_topics WHERE course_id = ?)
-  `).all(courseId);
+  const alignments = topicIds.length > 0 ? db.prepare(`
+    SELECT DISTINCT ms.assignment_schoology_id, ms.topic_id
+    FROM mastery_scores ms
+    JOIN assignments a ON a.schoology_assignment_id = ms.assignment_schoology_id
+    WHERE a.course_id = ? AND a.published = 1
+  `).all(courseId) : [];
 
   res.json({ topics, scores, alignments });
 });
@@ -163,11 +178,16 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
   const { courseId, assignmentId } = req.params;
   const db = getDb();
 
+  // Derive topics from actual scores for published assignments in this course
   const topics = db.prepare(`
-    SELECT mt.*, rc.title AS category_title, rc.external_id AS category_external_id
+    SELECT DISTINCT mt.*, rc.title AS category_title, rc.external_id AS category_external_id
     FROM measurement_topics mt
     JOIN reporting_categories rc ON rc.id = mt.category_id
-    WHERE mt.course_id = ?
+    WHERE mt.id IN (
+      SELECT DISTINCT ms.topic_id FROM mastery_scores ms
+      JOIN assignments a ON a.schoology_assignment_id = ms.assignment_schoology_id
+      WHERE a.course_id = ? AND a.published = 1
+    )
     ORDER BY rc.external_id, mt.external_id
   `).all(courseId);
 
@@ -184,11 +204,10 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
     ORDER BY s.last_name, s.first_name
   `).all(courseId);
 
-  const scores = db.prepare(`
-    SELECT * FROM mastery_scores WHERE assignment_schoology_id = ? AND topic_id IN (
-      SELECT id FROM measurement_topics WHERE course_id = ?
-    )
-  `).all(assignmentId, courseId);
+  const scores = topics.length > 0 ? db.prepare(`
+    SELECT * FROM mastery_scores WHERE assignment_schoology_id = ?
+    AND topic_id IN (${topics.map(() => '?').join(',')})
+  `).all(assignmentId, ...topics.map(t => t.id)) : [];
 
   // Grade comments from the regular grades table
   const comments = db.prepare(`

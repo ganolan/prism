@@ -47,6 +47,18 @@ function CopyButton({ text, label }) {
   );
 }
 
+const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
+
+function gradYearToLevel(gradYear) {
+  if (!gradYear) return null;
+  const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth(); // 0-indexed
+  // Academic year starts in August: if we're past August, grad year minus current year
+  const academicYear = currentMonth >= 7 ? currentYear + 1 : currentYear;
+  const grade = 12 - (gradYear - academicYear);
+  return grade >= 1 && grade <= 12 ? grade : null;
+}
+
 function CourseSection({ course, grades, flagsByAssignment, studentUid }) {
   const [expanded, setExpanded] = useState(true);
 
@@ -105,36 +117,38 @@ function CourseSection({ course, grades, flagsByAssignment, studentUid }) {
             <tbody>
               {grades.map(g => {
                 const assignmentFlags = flagsByAssignment?.[g.assignment_id] || [];
+                const exLabel = g.exception ? EXCEPTION_LABELS[g.exception] : null;
                 return (
                   <tr key={g.id}>
                     <td className="text-sm">
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                         <span>{g.assignment_title}</span>
-                        {assignmentFlags.length > 0 && (
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
-                            {assignmentFlags.map(flag => {
-                              const flagReason = formatFlagReason(flag);
-                              const showReason = flagReason && flagReason !== g.assignment_title;
-                              return (
-                                <div key={flag.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
-                                  <span className={`badge ${flag.resolved ? 'badge-green' : 'badge-red'}`} style={{ textTransform: 'capitalize' }}>
-                                    {flag.flag_type.replace('_', ' ')}
-                                  </span>
-                                  {showReason && (
-                                    <span className="text-xs text-muted">{flagReason}</span>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                          {g.late ? <span className="badge badge-red" style={{ fontSize: '0.65rem' }}>Late</span> : null}
+                          {g.draft ? <span className="badge badge-blue" style={{ fontSize: '0.65rem' }}>Draft</span> : null}
+                          {exLabel && g.exception !== 4 && <span className={`badge ${g.exception === 3 ? 'badge-red' : 'badge-blue'}`} style={{ fontSize: '0.65rem' }}>{exLabel}</span>}
+                          {assignmentFlags.map(flag => {
+                            const flagReason = formatFlagReason(flag);
+                            const showReason = flagReason && flagReason !== g.assignment_title;
+                            return (
+                              <div key={flag.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                                <span className={`badge ${flag.resolved ? 'badge-green' : 'badge-red'}`} style={{ textTransform: 'capitalize' }}>
+                                  {flag.flag_type.replace('_', ' ')}
+                                </span>
+                                {showReason && (
+                                  <span className="text-xs text-muted">{flagReason}</span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     </td>
                     <td className="text-sm text-muted">{g.due_date || '-'}</td>
                     <td>
                       {g.score != null
                         ? <span>{g.score}{g.assignment_max_points ? ` / ${g.assignment_max_points}` : ''}</span>
-                        : '-'}
+                        : exLabel ? <span className="text-sm text-muted">{exLabel}</span> : '-'}
                     </td>
                     <td className="text-sm text-muted" style={{ maxWidth: '300px' }}>
                       {g.grade_comment || '-'}
@@ -349,7 +363,20 @@ export default function StudentPage() {
                 />
               )}
               <div style={{ flex: 1 }}>
-                <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 700, lineHeight: 1.2 }}>{titleName}</h2>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 700, lineHeight: 1.2 }}>{titleName}</h2>
+                  {student.grad_year && (() => {
+                    const gradeLevel = gradYearToLevel(student.grad_year);
+                    return (
+                      <span className="badge badge-blue" title={`Graduating ${student.grad_year}`}>
+                        {gradeLevel ? `Grade ${gradeLevel}` : ''} (Class of {student.grad_year})
+                      </span>
+                    );
+                  })()}
+                  {student.email && student.email.includes('@') && (
+                    <span className="text-sm text-muted" title="Student ID">ID: {student.email.split('@')[0]}</span>
+                  )}
+                </div>
                 {showLegalName && (
                   <p className="text-sm text-muted" style={{ marginTop: '0.2rem' }}>Legal name: {legalFullName}</p>
                 )}

@@ -103,6 +103,7 @@ export default function CoursePage() {
           <table>
             <thead>
               <tr>
+                <th></th>
                 <th>Name</th>
                 <th>Email</th>
                 <th>Graded</th>
@@ -112,6 +113,25 @@ export default function CoursePage() {
             <tbody>
               {students.map(s => (
                 <tr key={s.id}>
+                  <td style={{ width: '40px', padding: '0.25rem 0.5rem' }}>
+                    {s.picture_url ? (
+                      <img
+                        src={s.picture_url}
+                        alt=""
+                        style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', display: 'block' }}
+                      />
+                    ) : (
+                      <div style={{
+                        width: 32, height: 32, borderRadius: '50%',
+                        background: 'var(--bg-subtle)', display: 'flex',
+                        alignItems: 'center', justifyContent: 'center',
+                        fontSize: '0.75rem', color: 'var(--text-muted)',
+                        fontWeight: 600,
+                      }}>
+                        {displayName(s)?.[0]}{s.last_name?.[0]}
+                      </div>
+                    )}
+                  </td>
                   <td>
                     <Link to={`/student/${s.id}`} className="link">
                       {displayName(s)} {s.last_name}

@@ -207,6 +207,34 @@ CREATE TABLE IF NOT EXISTS mastery_scores (
   UNIQUE(student_uid, assignment_schoology_id, topic_id)
 );
 
+-- Authoritative objective↔assignment alignments from Schoology's
+-- /district_mastery/api/alignments/search endpoint. A row here means the
+-- topic is aligned to the assignment even when no student has a score yet
+-- (so the UI can render "Pending" cells correctly).
+CREATE TABLE IF NOT EXISTS mastery_alignments (
+  assignment_schoology_id TEXT NOT NULL,
+  topic_id TEXT NOT NULL REFERENCES measurement_topics(id),
+  course_id INTEGER REFERENCES courses(id),
+  synced_at TEXT,
+  PRIMARY KEY (assignment_schoology_id, topic_id)
+);
+
+-- Schoology's own per-(student, objective) rollup as displayed in the mastery
+-- gradebook UI. objective_id refers to a topic UUID when is_category=0 and a
+-- reporting category UUID when is_category=1. grade_scaled_rounded is one of
+-- 87.50/62.50/37.50/12.50/0.00 (ED/EX/D/EM/IE).
+CREATE TABLE IF NOT EXISTS mastery_rollups (
+  student_uid TEXT NOT NULL,
+  objective_id TEXT NOT NULL,
+  course_id INTEGER REFERENCES courses(id),
+  is_category INTEGER NOT NULL DEFAULT 0,
+  grade_percentage REAL,
+  grade_scaled_rounded REAL,
+  override_value REAL,
+  synced_at TEXT,
+  PRIMARY KEY (student_uid, objective_id)
+);
+
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_enrolments_student ON enrolments(student_id);
 CREATE INDEX IF NOT EXISTS idx_enrolments_course ON enrolments(course_id);
@@ -224,6 +252,10 @@ CREATE INDEX IF NOT EXISTS idx_mastery_scores_assignment ON mastery_scores(assig
 CREATE INDEX IF NOT EXISTS idx_mastery_scores_topic ON mastery_scores(topic_id);
 CREATE INDEX IF NOT EXISTS idx_measurement_topics_category ON measurement_topics(category_id);
 CREATE INDEX IF NOT EXISTS idx_reporting_categories_course ON reporting_categories(course_id);
+CREATE INDEX IF NOT EXISTS idx_mastery_rollups_student ON mastery_rollups(student_uid);
+CREATE INDEX IF NOT EXISTS idx_mastery_rollups_course ON mastery_rollups(course_id);
+CREATE INDEX IF NOT EXISTS idx_mastery_alignments_course ON mastery_alignments(course_id);
+CREATE INDEX IF NOT EXISTS idx_mastery_alignments_topic ON mastery_alignments(topic_id);
 CREATE INDEX IF NOT EXISTS idx_folders_course ON folders(course_id);
 CREATE INDEX IF NOT EXISTS idx_completion_student ON completion(student_id);
 CREATE INDEX IF NOT EXISTS idx_completion_course ON completion(course_id);

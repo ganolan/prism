@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
-import { syncMasteryForCourse, writeMasteryScores, getMasteryForCourse, getRubricScoresForStudent, interactiveLogin } from '../services/masterySync.js';
+import { syncMasteryForCourse, writeMasteryScores, writeMasteryOverride, getMasteryForCourse, getRubricScoresForStudent, interactiveLogin } from '../services/masterySync.js';
 import { pushGradeComments } from '../services/schoology.js';
 
 const router = Router();
@@ -60,7 +60,13 @@ router.get('/:courseId', (req, res) => {
   const { courseId } = req.params;
   try {
     const data = getMasteryForCourse(courseId);
-    res.json(data);
+    const db = getDb();
+    const rollups = db.prepare(`
+      SELECT student_uid, objective_id, is_category, grade_percentage, grade_scaled_rounded, override_value
+      FROM mastery_rollups
+      WHERE course_id = ?
+    `).all(courseId);
+    res.json({ ...data, rollups });
   } catch (err) {
     console.error('[mastery] Error fetching mastery data:', err);
     res.status(500).json({ error: err.message });
@@ -104,15 +110,33 @@ router.get('/:courseId/student/:studentUid', (req, res) => {
       ms.assignment_schoology_id
   `).all(studentUid, courseId) : [];
 
-  // Which (assignment, topic) pairs exist across ALL students — indicates topic is aligned to that assignment
-  const alignments = topicIds.length > 0 ? db.prepare(`
-    SELECT DISTINCT ms.assignment_schoology_id, ms.topic_id
-    FROM mastery_scores ms
-    JOIN assignments a ON a.schoology_assignment_id = ms.assignment_schoology_id
-    WHERE a.course_id = ? AND a.published = 1
-  `).all(courseId) : [];
+  // Authoritative topic↔assignment alignments from the Schoology alignments
+  // endpoint. Falls back to inferring from scores if the table is empty
+  // (e.g. before the first sync after this feature was added).
+  let alignments = db.prepare(`
+    SELECT ma.assignment_schoology_id, ma.topic_id
+    FROM mastery_alignments ma
+    JOIN assignments a ON a.schoology_assignment_id = ma.assignment_schoology_id
+    WHERE ma.course_id = ? AND a.published = 1
+  `).all(courseId);
+  if (alignments.length === 0 && topicIds.length > 0) {
+    alignments = db.prepare(`
+      SELECT DISTINCT ms.assignment_schoology_id, ms.topic_id
+      FROM mastery_scores ms
+      JOIN assignments a ON a.schoology_assignment_id = ms.assignment_schoology_id
+      WHERE a.course_id = ? AND a.published = 1
+    `).all(courseId);
+  }
 
-  res.json({ topics, scores, alignments });
+  // Schoology's own per-(student, objective) rollups — the level shown in the
+  // mastery gradebook UI for this student, per topic and per reporting category.
+  const rollups = db.prepare(`
+    SELECT objective_id, is_category, grade_percentage, grade_scaled_rounded, override_value
+    FROM mastery_rollups
+    WHERE student_uid = ? AND course_id = ?
+  `).all(studentUid, courseId);
+
+  res.json({ topics, scores, alignments, rollups });
 });
 
 // GET /api/mastery/:courseId/rubric — current scores for one student+assignment (pre-populate grading panel)
@@ -138,6 +162,52 @@ router.get('/:courseId/rubric', async (req, res) => {
     res.json({ scores });
   } catch (err) {
     console.error('[mastery rubric] Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/mastery/:courseId/override — set or clear a teacher override
+// for one (student, objective). Pass gradeScaled as "87.50"/"62.50"/...
+// to set, or null/undefined to clear. Objective can be a reporting-category
+// UUID or a measurement-topic UUID.
+router.post('/:courseId/override', async (req, res) => {
+  const { courseId } = req.params;
+  const { studentUid, objectiveId, gradeScaled } = req.body;
+
+  if (!studentUid || !objectiveId) {
+    return res.status(400).json({ error: 'studentUid and objectiveId are required' });
+  }
+  if (gradeScaled != null && !['0.00', '12.50', '37.50', '62.50', '87.50'].includes(String(gradeScaled))) {
+    return res.status(400).json({ error: 'gradeScaled must be one of "0.00","12.50","37.50","62.50","87.50" or null to clear' });
+  }
+
+  const db = getDb();
+  const courseRow = db.prepare('SELECT schoology_section_id FROM courses WHERE id = ?').get(courseId);
+  if (!courseRow) return res.status(404).json({ error: 'Course not found' });
+
+  try {
+    const result = await writeMasteryOverride({
+      sectionId: courseRow.schoology_section_id,
+      studentUid,
+      objectiveId,
+      gradeScaled: gradeScaled != null ? String(gradeScaled) : null,
+    });
+
+    // Mirror Schoology's response into mastery_rollups so the UI reflects
+    // the override without requiring a full sync.
+    const override = result?.data?.outcome_override || {};
+    const overrideVal = override.grade_scaled_rounded != null ? Number(override.grade_scaled_rounded) : null;
+    db.prepare(`
+      INSERT INTO mastery_rollups (student_uid, objective_id, course_id, is_category, grade_percentage, grade_scaled_rounded, override_value, synced_at)
+      VALUES (?, ?, ?, 0, NULL, NULL, ?, ?)
+      ON CONFLICT(student_uid, objective_id) DO UPDATE SET
+        override_value = excluded.override_value,
+        synced_at = excluded.synced_at
+    `).run(String(studentUid), String(objectiveId), Number(courseId), overrideVal, new Date().toISOString());
+
+    res.json({ ok: true, override: overrideVal });
+  } catch (err) {
+    console.error('[mastery override] Error:', err);
     res.status(500).json({ error: err.message });
   }
 });

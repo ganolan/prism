@@ -124,6 +124,35 @@ async function fetchInternal(page, url) {
 }
 
 /**
+ * POST JSON to an internal district_mastery API endpoint. These POSTs require
+ * both X-CSRF-Token and X-CSRF-Key, read from Drupal.settings.s_common in the
+ * page. Without them the server returns 403 {"data":null}.
+ */
+async function postInternal(page, url, body) {
+  return page.evaluate(async ({ url, body }) => {
+    const csrf = {
+      token: window.Drupal?.settings?.s_common?.csrf_token,
+      key: window.Drupal?.settings?.s_common?.csrf_key,
+    };
+    if (!csrf.token || !csrf.key) throw new Error('CSRF token/key missing from Drupal.settings.s_common');
+    const res = await fetch(url, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-CSRF-Token': csrf.token,
+        'X-CSRF-Key': csrf.key,
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status} for POST ${url}`);
+    return res.json();
+  }, { url, body });
+}
+
+/**
  * Get building_id and section_id needed for district_mastery API calls.
  * These come from the course's Schoology section data already in the DB.
  */
@@ -245,6 +274,35 @@ export async function syncMasteryForCourse(courseId, { onProgress } = {}) {
       }
     }
 
+    // ── Step 3.5: Fetch authoritative (topic ↔ assignment) alignments ──────
+    // Using POST /alignments/search rather than inferring from scores means
+    // we see alignments even for assignments nobody has been graded on yet.
+    const alignmentRows = []; // { assignment_schoology_id, topic_id }
+    if (allTopics.length) {
+      try {
+        const alignUrl = `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/alignments/search`;
+        const alignData = await postInternal(page, alignUrl, {
+          building_id: Number(buildingId),
+          section_id: Number(sectionId),
+          objective_ids: allTopics.map(t => t.id).join(','),
+          include_gradeable_materials_only: true,
+        });
+        for (const a of (alignData.data || [])) {
+          const matId = a.gradeable_material?.material?.id;
+          const topicId = a.objective?.id;
+          if (matId && topicId) {
+            alignmentRows.push({
+              assignment_schoology_id: String(matId),
+              topic_id: String(topicId),
+            });
+          }
+        }
+        log(`  Got ${alignmentRows.length} topic↔assignment alignments`);
+      } catch (err) {
+        log(`Warning: alignments/search failed: ${err.message}`);
+      }
+    }
+
     // ── Step 4: Fetch observations per topic ───────────────────────────────
     log(`Fetching observations for ${allTopics.length} measurement topics...`);
 
@@ -285,6 +343,59 @@ export async function syncMasteryForCourse(courseId, { onProgress } = {}) {
         }
       } catch (err) {
         log(`Warning: could not fetch material names: ${err.message}`);
+      }
+    }
+
+    // ── Step 5.5: Fetch Schoology's per-(student, objective) rollups ───────
+    // This is what the Schoology mastery gradebook UI displays — the
+    // "officially reported" level for each student per measurement topic and
+    // per reporting category. Includes teacher overrides.
+    const rollupRows = []; // { student_uid, objective_id, is_category, grade_percentage, grade_scaled_rounded, override_value }
+    const studentUidSet = new Set();
+    for (const obsList of Object.values(observationsByTopic)) {
+      for (const o of obsList) studentUidSet.add(String(o.student_uid));
+    }
+    const studentUids = [...studentUidSet];
+    const categoryIdSet = new Set(categories.map(c => c.id));
+    const allObjectiveIds = [...categoryIdSet, ...allTopics.map(t => t.id)];
+
+    if (studentUids.length && allObjectiveIds.length) {
+      log(`Fetching Schoology rollups for ${studentUids.length} students × ${allObjectiveIds.length} objectives...`);
+      try {
+        const rollupUrl = `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/outcomes/objectives`;
+        const rollupData = await postInternal(page, rollupUrl, {
+          building_id: Number(buildingId),
+          section_id: Number(sectionId),
+          student_uids: studentUids.join(','),
+          ids: allObjectiveIds.join(','),
+        });
+
+        for (const row of (rollupData.data || [])) {
+          const objId = row.objective_id;
+          const isCategory = categoryIdSet.has(objId) ? 1 : 0;
+          for (const so of (row.student_outcomes || [])) {
+            const outcome = so.outcome || {};
+            const ov = so.outcome_override;
+            // Override shape unknown (never non-null in observed data) — store
+            // numeric value if plain number, else stringify for later inspection.
+            let overrideValue = null;
+            if (ov != null) {
+              if (typeof ov === 'number') overrideValue = ov;
+              else if (typeof ov === 'object') overrideValue = Number(ov.grade_scaled_rounded ?? ov.grade_percentage ?? ov.value ?? NaN) || null;
+            }
+            rollupRows.push({
+              student_uid: String(so.student_uid),
+              objective_id: objId,
+              is_category: isCategory,
+              grade_percentage: outcome.grade_percentage != null ? Number(outcome.grade_percentage) : null,
+              grade_scaled_rounded: outcome.grade_scaled_rounded != null ? Number(outcome.grade_scaled_rounded) : null,
+              override_value: overrideValue,
+            });
+          }
+        }
+        log(`  Got ${rollupRows.length} rollup rows`);
+      } catch (err) {
+        log(`Warning: rollup fetch failed: ${err.message}`);
       }
     }
 
@@ -371,9 +482,99 @@ export async function syncMasteryForCourse(courseId, { onProgress } = {}) {
       }
     }
 
-    log(`Done: ${categoriesCount} categories, ${topicsCount} topics, ${scoresCount} scores`);
-    return { categoriesCount, topicsCount, scoresCount, materialsCount: allMaterialIds.size };
+    // Persist authoritative alignments. Clear this course's alignments first
+    // so removed topic↔assignment pairs don't linger.
+    if (alignmentRows.length > 0) {
+      db.prepare(`DELETE FROM mastery_alignments WHERE course_id = ?`).run(courseId);
+    }
+    const upsertAlignment = db.prepare(`
+      INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id, synced_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(assignment_schoology_id, topic_id) DO UPDATE SET
+        course_id = excluded.course_id,
+        synced_at = excluded.synced_at
+    `);
+    let alignmentsCount = 0;
+    for (const a of alignmentRows) {
+      upsertAlignment.run(a.assignment_schoology_id, a.topic_id, courseId, now);
+      alignmentsCount++;
+    }
 
+    // Persist Schoology rollups. Clear this course's rollups first so
+    // students who no longer have a rollup (e.g. unenrolled) don't linger.
+    const upsertRollup = db.prepare(`
+      INSERT INTO mastery_rollups (student_uid, objective_id, course_id, is_category, grade_percentage, grade_scaled_rounded, override_value, synced_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(student_uid, objective_id) DO UPDATE SET
+        course_id = excluded.course_id,
+        is_category = excluded.is_category,
+        grade_percentage = excluded.grade_percentage,
+        grade_scaled_rounded = excluded.grade_scaled_rounded,
+        override_value = excluded.override_value,
+        synced_at = excluded.synced_at
+    `);
+    let rollupsCount = 0;
+    for (const r of rollupRows) {
+      upsertRollup.run(
+        r.student_uid, r.objective_id, courseId, r.is_category,
+        r.grade_percentage, r.grade_scaled_rounded, r.override_value, now
+      );
+      rollupsCount++;
+    }
+
+    log(`Done: ${categoriesCount} categories, ${topicsCount} topics, ${scoresCount} scores, ${rollupsCount} rollups, ${alignmentsCount} alignments`);
+    return { categoriesCount, topicsCount, scoresCount, rollupsCount, alignmentsCount, materialsCount: allMaterialIds.size };
+
+  } finally {
+    await browser.close();
+  }
+}
+
+/**
+ * Set or clear a Schoology mastery override for one (student, objective).
+ * objectiveId can be a reporting-category UUID or a measurement-topic UUID.
+ * Pass gradeScaled as one of "0.00"/"12.50"/"37.50"/"62.50"/"87.50" to set,
+ * or null to clear.
+ *
+ * Endpoint: POST /course/{sectionId}/district_mastery/api/nodes/{objectiveId}/outcome-override
+ */
+export async function writeMasteryOverride({
+  sectionId,
+  buildingId,
+  objectiveId,
+  studentUid,
+  gradeScaled,          // "87.50" | "62.50" | ... | null
+  gradingScaleId = GRADING_SCALE_ID,
+  gradingPeriodId = 0,
+}) {
+  const { browser, page } = await openPage();
+  try {
+    // Network-intercept building_id from the page's own XHR URLs — this is
+    // what the sync uses. `Drupal.settings.s_common.school_id` is null in
+    // this environment, so the DOM fallback doesn't work.
+    let bId = buildingId ? String(buildingId) : null;
+    if (!bId) {
+      page.on('request', req => {
+        const m = req.url().match(/building_id=(\d+)/);
+        if (m && !bId) bId = m[1];
+      });
+    }
+    await page.goto(`${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery`, {
+      waitUntil: 'load',
+    });
+    if (!bId) throw new Error('Could not determine building_id for override write (no XHR with building_id seen during page load)');
+
+    const url = `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/nodes/${objectiveId}/outcome-override`;
+    const body = {
+      building_id: Number(bId),
+      section_id: Number(sectionId),
+      grading_period_id: Number(gradingPeriodId) || 0,
+      student_uid: Number(studentUid),
+      grade_scaled: gradeScaled,     // string or null
+      grading_scale_id: Number(gradingScaleId),
+    };
+    const result = await postInternal(page, url, body);
+    return result;
   } finally {
     await browser.close();
   }

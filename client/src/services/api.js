@@ -106,6 +106,7 @@ export const getMasteryForStudent = (courseId, studentUid) => request(`/mastery/
 export const getMasteryForAssignment = (courseId, assignmentId) => request(`/mastery/${courseId}/assignment/${assignmentId}`);
 export const writeMasteryScores = (courseId, data) => request(`/mastery/${courseId}/write`, { method: 'POST', body: JSON.stringify(data) });
 export const writeMasteryComment = (courseId, data) => request(`/mastery/${courseId}/write-comment`, { method: 'POST', body: JSON.stringify(data) });
+export const writeMasteryOverride = (courseId, data) => request(`/mastery/${courseId}/override`, { method: 'POST', body: JSON.stringify(data) });
 
 // Import
 export const uploadPowerSchoolCSV = (file) => {

@@ -37,7 +37,8 @@ router.get('/:id', (req, res) => {
 
   const grades = db.prepare(`
     SELECT g.*, a.title as assignment_title, a.due_date, a.max_points as assignment_max_points,
-           a.grading_scale_id, a.display_weight, c.course_name, c.id as course_id
+           a.grading_scale_id, a.display_weight, a.schoology_assignment_id,
+           c.course_name, c.id as course_id
     FROM grades g
     JOIN assignments a ON a.id = g.assignment_id
     JOIN courses c ON c.id = a.course_id
@@ -54,6 +55,62 @@ router.get('/:id', (req, res) => {
       CASE WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN a.display_weight ELSE 0 END ASC,
       a.title
   `).all(req.params.id);
+
+  // Attach per-assignment mastery topic data. An assignment is "aligned" if it
+  // has at least one row in mastery_alignments (authoritative) OR mastery_scores
+  // (fallback for pre-refactor data). For each aligned assignment we return the
+  // union of its aligned topics with the student's grade on each.
+  if (student.schoology_uid) {
+    const alignmentRows = db.prepare(`
+      SELECT ma.assignment_schoology_id, ma.topic_id,
+             mt.title AS topic_title, mt.external_id AS topic_external_id, mt.category_id,
+             rc.title AS category_title, rc.external_id AS category_external_id
+      FROM mastery_alignments ma
+      JOIN measurement_topics mt ON mt.id = ma.topic_id
+      LEFT JOIN reporting_categories rc ON rc.id = mt.category_id
+    `).all();
+    const scoreRows = db.prepare(`
+      SELECT ms.assignment_schoology_id, ms.topic_id, ms.grade, ms.points,
+             mt.title AS topic_title, mt.external_id AS topic_external_id, mt.category_id,
+             rc.title AS category_title, rc.external_id AS category_external_id
+      FROM mastery_scores ms
+      JOIN measurement_topics mt ON mt.id = ms.topic_id
+      LEFT JOIN reporting_categories rc ON rc.id = mt.category_id
+      WHERE ms.student_uid = ?
+    `).all(student.schoology_uid);
+
+    // assignment_schoology_id → Map<topic_id, row>
+    const topicsByAssignment = new Map();
+    const ensure = (aid) => {
+      if (!topicsByAssignment.has(aid)) topicsByAssignment.set(aid, new Map());
+      return topicsByAssignment.get(aid);
+    };
+    for (const a of alignmentRows) {
+      ensure(String(a.assignment_schoology_id)).set(a.topic_id, {
+        topic_id: a.topic_id, title: a.topic_title, external_id: a.topic_external_id,
+        category_id: a.category_id, category_title: a.category_title, category_external_id: a.category_external_id,
+        grade: null, points: null,
+      });
+    }
+    for (const s of scoreRows) {
+      const aid = String(s.assignment_schoology_id);
+      const m = ensure(aid);
+      const existing = m.get(s.topic_id) || {
+        topic_id: s.topic_id, title: s.topic_title, external_id: s.topic_external_id,
+        category_id: s.category_id, category_title: s.category_title, category_external_id: s.category_external_id,
+        grade: null, points: null,
+      };
+      existing.grade = s.grade;
+      existing.points = s.points;
+      m.set(s.topic_id, existing);
+    }
+
+    for (const g of grades) {
+      const aid = String(g.schoology_assignment_id);
+      const map = topicsByAssignment.get(aid);
+      g.mastery = map ? { topics: [...map.values()].sort((a, b) => (a.external_id || '').localeCompare(b.external_id || '')) } : null;
+    }
+  }
 
   const notes = db.prepare(
     'SELECT * FROM notes WHERE student_id = ? ORDER BY created_at DESC'

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getMasteryForStudent } from '../services/api.js';
+import OverridePopup from './OverridePopup.jsx';
 
 // ── Proficiency level helpers ────────────────────────────────────────────────
 
@@ -216,6 +217,8 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
   const [loading, setLoading] = useState(true);
   const [showGradeScale, setShowGradeScale] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [overrideTarget, setOverrideTarget] = useState(null); // { category, currentLevel, hasOverride }
+  const [overrideSaving, setOverrideSaving] = useState(false);
 
   useEffect(() => {
     if (!courseId || !studentUid) return;
@@ -228,7 +231,25 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
   if (loading) return <p className="text-sm text-muted">Loading mastery data...</p>;
   if (!data || !data.topics?.length) return null;
 
-  const { topics, scores, alignments } = data;
+  const { topics, scores, alignments, rollups } = data;
+
+  // Schoology-reported rollup lookup by objective_id (works for both
+  // measurement topics and reporting categories).
+  const rollupByObj = {};
+  for (const r of (rollups || [])) {
+    rollupByObj[r.objective_id] = r;
+  }
+  const rollupLevel = (objId) => {
+    const r = rollupByObj[objId];
+    if (!r) return null;
+    const v = r.override_value != null ? r.override_value : r.grade_scaled_rounded;
+    return v != null ? pointsToLevel(v) : null;
+  };
+  const rollupPct = (objId) => {
+    const r = rollupByObj[objId];
+    return r?.grade_percentage ?? null;
+  };
+  const rollupIsOverride = (objId) => rollupByObj[objId]?.override_value != null;
 
   // Build set of aligned (assignment, topic) pairs
   const alignedSet = new Set();
@@ -328,7 +349,7 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
                 colSpan={cat.topics.length}
                 style={{
                   ...thStyle, fontWeight: 700,
-                  background: 'var(--accent-muted, var(--bg-subtle))',
+                  background: 'var(--accent-subtle)',
                   color: 'var(--accent)', borderBottom: '2px solid var(--accent)',
                 }}
               >
@@ -481,21 +502,88 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
             })}
           </tr>
 
-          {/* Schoology reported row */}
+          {/* Schoology Reported — per Measurement Topic (official data from Schoology mastery gradebook)
+              Hidden for now: re-enable by changing the condition below to `true`.
+              Data still syncs into mastery_rollups and is returned by the API. */}
+          {false && (
+            <tr>
+              <td style={{
+                ...labelCellStyle,
+                color: 'var(--accent)',
+                background: 'var(--accent-subtle)',
+                borderLeft: '3px solid var(--accent)',
+              }}>
+                Schoology Reported
+                <br /><span style={{ fontWeight: 400, fontSize: '0.65rem' }}>per Measurement Topic</span>
+              </td>
+              {categories.flatMap(cat =>
+                cat.topics.map(t => {
+                  const lvl = rollupLevel(t.id);
+                  const pct = rollupPct(t.id);
+                  const override = rollupIsOverride(t.id);
+                  const c = lvl ? LEVEL_COLORS[lvl] : null;
+                  return (
+                    <td key={t.id}
+                        title={override ? 'Teacher override set in Schoology' : undefined}
+                        style={{
+                      textAlign: 'center', fontWeight: 600, fontSize: '0.75rem',
+                      padding: '0.25rem',
+                      background: c ? c.bg : 'var(--bg-subtle)',
+                      color: c ? c.text : 'var(--text-muted)',
+                      border: '1px solid var(--border)',
+                      borderTop: '2px solid var(--accent)',
+                    }}>
+                      {lvl || '—'}{pct != null ? ` (${Math.round(pct)})` : ''}{override ? '*' : ''}
+                    </td>
+                  );
+                })
+              )}
+            </tr>
+          )}
+
+          {/* Schoology Reported — per Reporting Category.
+              Bounded with an accent border on all four sides to distinguish it
+              as the "official" row. Click a cell to set/clear the teacher
+              override that Schoology stores server-side. */}
           <tr>
-            <td style={{ ...labelCellStyle, color: 'var(--accent)', background: 'var(--bg)' }}>
+            <td style={{
+              ...labelCellStyle,
+              color: 'var(--accent)',
+              background: 'var(--accent-subtle)',
+              borderTop: '3px solid var(--accent)',
+              borderBottom: '3px solid var(--accent)',
+              borderLeft: '3px solid var(--accent)',
+              fontWeight: 700,
+            }}>
               Schoology Reported
               <br /><span style={{ fontWeight: 400, fontSize: '0.65rem' }}>per Reporting Category</span>
             </td>
-            {categories.map(cat => (
-              <td key={cat.id} colSpan={cat.topics.length} style={{
-                textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.75rem',
-                padding: '0.3rem', border: '1px solid var(--border)',
-                fontStyle: 'italic',
-              }}>
-                — (sync mastery to populate)
-              </td>
-            ))}
+            {categories.map((cat, idx) => {
+              const lvl = rollupLevel(cat.id);
+              const pct = rollupPct(cat.id);
+              const override = rollupIsOverride(cat.id);
+              const c = lvl ? LEVEL_COLORS[lvl] : null;
+              const isLast = idx === categories.length - 1;
+              return (
+                <td key={cat.id} colSpan={cat.topics.length}
+                    className="schoology-cell"
+                    onClick={() => setOverrideTarget({ category: cat, currentLevel: lvl, hasOverride: override })}
+                    title={override ? 'Teacher override set in Schoology — click to change or clear' : 'Click to set a teacher override in Schoology'}
+                    style={{
+                  textAlign: 'center', fontWeight: 700, fontSize: '0.85rem',
+                  padding: '0.35rem',
+                  background: c ? c.bg : 'var(--bg-subtle)',
+                  color: c ? c.text : 'var(--text-muted)',
+                  border: '1px solid var(--border)',
+                  borderTop: '3px solid var(--accent)',
+                  borderBottom: '3px solid var(--accent)',
+                  borderRight: isLast ? '3px solid var(--accent)' : '1px solid var(--border)',
+                  cursor: 'pointer',
+                }}>
+                  {lvl || '—'}{pct != null ? ` (${pct.toFixed(1)})` : ''}{override ? '*' : ''}
+                </td>
+              );
+            })}
           </tr>
         </tfoot>
       </table>
@@ -519,6 +607,21 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
 
       {showGradeScale && (
         <LetterGradePopup onClose={() => setShowGradeScale(false)} numCategories={categories.length} />
+      )}
+
+      {overrideTarget && (
+        <OverridePopup
+          courseId={courseId}
+          studentUid={studentUid}
+          objectiveId={overrideTarget.category.id}
+          objectiveTitle={overrideTarget.category.title}
+          currentLevel={overrideTarget.currentLevel}
+          hasOverride={overrideTarget.hasOverride}
+          saving={overrideSaving}
+          setSaving={setOverrideSaving}
+          onClose={() => setOverrideTarget(null)}
+          onSaved={async () => { const fresh = await getMasteryForStudent(courseId, studentUid); setData(fresh); }}
+        />
       )}
 
       {expanded && (

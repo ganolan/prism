@@ -1,24 +1,42 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getCourse, getCourseStudents, getGradebook, triggerMasterySync, triggerMasteryLogin } from '../services/api.js';
+import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, triggerMasterySync, triggerMasteryLogin } from '../services/api.js';
 import AnalyticsView from '../components/AnalyticsView.jsx';
+import OverridePopup, { LEVEL_COLORS } from '../components/OverridePopup.jsx';
+
+function pointsToLevel(points) {
+  if (points == null) return null;
+  if (points >= 87.5) return 'ED';
+  if (points >= 62.5) return 'EX';
+  if (points >= 37.5) return 'D';
+  if (points >= 12.5) return 'EM';
+  return 'IE';
+}
 
 export default function CoursePage() {
   const { id } = useParams();
   const [course, setCourse] = useState(null);
   const [students, setStudents] = useState([]);
   const [gradebook, setGradebook] = useState(null);
+  const [mastery, setMastery] = useState(null);
   const [view, setView] = useState('roster');
   const [loading, setLoading] = useState(true);
   const [masterySyncing, setMasterySyncing] = useState(false);
   const [masterySyncResult, setMasterySyncResult] = useState(null);
+  const [overrideTarget, setOverrideTarget] = useState(null); // { studentUid, category, currentLevel, hasOverride }
+  const [overrideSaving, setOverrideSaving] = useState(false);
 
   useEffect(() => {
-    Promise.all([getCourse(id), getCourseStudents(id), getGradebook(id)])
-      .then(([c, s, g]) => { setCourse(c); setStudents(s); setGradebook(g); })
+    Promise.all([getCourse(id), getCourseStudents(id), getGradebook(id), getMasteryForCourse(id).catch(() => null)])
+      .then(([c, s, g, m]) => { setCourse(c); setStudents(s); setGradebook(g); setMastery(m); })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [id]);
+
+  async function refreshMastery() {
+    const m = await getMasteryForCourse(id).catch(() => null);
+    setMastery(m);
+  }
 
   async function handleMasterySync() {
     setMasterySyncing(true);
@@ -100,66 +118,242 @@ export default function CoursePage() {
       </div>
 
       {view === 'roster' && (
-        <div className="card">
-          <table>
-            <thead>
-              <tr>
-                <th></th>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Graded</th>
-                <th>Average</th>
-              </tr>
-            </thead>
-            <tbody>
-              {students.map(s => (
-                <tr key={s.id}>
-                  <td style={{ width: '40px', padding: '0.25rem 0.5rem' }}>
-                    {s.picture_url ? (
-                      <img
-                        src={s.picture_url}
-                        alt=""
-                        style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', display: 'block' }}
-                      />
-                    ) : (
-                      <div style={{
-                        width: 32, height: 32, borderRadius: '50%',
-                        background: 'var(--bg-subtle)', display: 'flex',
-                        alignItems: 'center', justifyContent: 'center',
-                        fontSize: '0.75rem', color: 'var(--text-muted)',
-                        fontWeight: 600,
-                      }}>
-                        {displayName(s)?.[0]}{s.last_name?.[0]}
-                      </div>
-                    )}
-                  </td>
-                  <td>
-                    <Link to={`/student/${s.id}`} className="link">
-                      {displayName(s)} {s.last_name}
-                    </Link>
-                    {displayName(s) !== s.first_name && (
-                      <span className="text-sm text-muted" style={{ marginLeft: '0.5rem' }}>
-                        ({s.first_name})
-                      </span>
-                    )}
-                  </td>
-                  <td className="text-sm">{s.email || '-'}</td>
-                  <td>{s.graded_count}</td>
-                  <td>
-                    {s.avg_pct != null ? (
-                      <span className={`badge ${s.avg_pct >= 70 ? 'badge-green' : s.avg_pct >= 50 ? 'badge-blue' : 'badge-red'}`}>
-                        {s.avg_pct}%
-                      </span>
-                    ) : '-'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <RosterView
+          students={students}
+          mastery={mastery}
+          courseId={id}
+          displayName={displayName}
+          onOverrideClick={(studentUid, category, currentLevel, hasOverride) =>
+            setOverrideTarget({ studentUid, category, currentLevel, hasOverride })}
+        />
+      )}
+
+      {overrideTarget && (
+        <OverridePopup
+          courseId={Number(id)}
+          studentUid={overrideTarget.studentUid}
+          objectiveId={overrideTarget.category.id}
+          objectiveTitle={overrideTarget.category.title}
+          currentLevel={overrideTarget.currentLevel}
+          hasOverride={overrideTarget.hasOverride}
+          saving={overrideSaving}
+          setSaving={setOverrideSaving}
+          onClose={() => setOverrideTarget(null)}
+          onSaved={refreshMastery}
+        />
       )}
       {view === 'gradebook' && <GradebookView data={gradebook} />}
       {view === 'analytics' && <AnalyticsView id={id} />}
+    </div>
+  );
+}
+
+// ─── Roster view ────────────────────────────────────────────────────────────
+
+function levelCellStyle(level, extra = {}) {
+  const c = level ? LEVEL_COLORS[level] : null;
+  return {
+    background: c ? c.bg : 'var(--bg-subtle)',
+    color: c ? c.text : 'var(--text-muted)',
+    textAlign: 'center',
+    fontWeight: 700,
+    fontSize: '0.82rem',
+    padding: '0.5rem 0.4rem',
+    verticalAlign: 'middle',
+    whiteSpace: 'nowrap',
+    ...extra,
+  };
+}
+
+function RosterView({ students, mastery, courseId, displayName, onOverrideClick }) {
+  const categories = mastery?.categories || [];
+  const topics = mastery?.topics || [];
+  const scores = mastery?.scores || [];
+  const rollups = mastery?.rollups || [];
+
+  // topic_id → category_id
+  const topicToCategory = {};
+  for (const t of topics) topicToCategory[t.id] = t.category_id;
+
+  // uid → category_id → [points...]
+  const pointsByStudentCategory = {};
+  for (const s of scores) {
+    const uid = String(s.student_uid);
+    const catId = topicToCategory[s.topic_id];
+    if (!catId || s.points == null) continue;
+    (pointsByStudentCategory[uid] ??= {});
+    (pointsByStudentCategory[uid][catId] ??= []).push(s.points);
+  }
+
+  // uid → objective_id → rollup row (reporting-category rollups only for the roster)
+  const rollupByStudentObj = {};
+  for (const r of rollups) {
+    if (!r.is_category) continue;
+    (rollupByStudentObj[String(r.student_uid)] ??= {})[r.objective_id] = r;
+  }
+
+  const categoryAvg = (uid, catId) => {
+    const arr = pointsByStudentCategory[uid]?.[catId];
+    if (!arr?.length) return null;
+    return arr.reduce((a, b) => a + b, 0) / arr.length;
+  };
+  const schoologyRollup = (uid, catId) => rollupByStudentObj[String(uid)]?.[catId] || null;
+
+  // Mismatch marker — a thick amber top+bottom border around the cell pair
+  const MISMATCH_BORDER = '2px solid rgba(234, 179, 8, 0.85)';
+
+  return (
+    <div className="card" style={{ overflowX: 'auto' }}>
+      <table style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
+        <thead>
+          {/* Row 1: category group headers — use full title to match mastery summary */}
+          <tr>
+            <th rowSpan={2}></th>
+            <th rowSpan={2}>Name</th>
+            <th rowSpan={2}>Email</th>
+            {categories.map((cat, i) => (
+              <th
+                key={cat.id}
+                colSpan={2}
+                title={cat.title}
+                style={{
+                  textAlign: 'center',
+                  borderBottom: '2px solid var(--accent)',
+                  borderLeft: i === 0 ? undefined : '1px solid var(--border)',
+                  background: 'var(--accent-subtle)',
+                  color: 'var(--accent)',
+                  fontWeight: 700,
+                  padding: '0.4rem 0.6rem',
+                }}
+              >
+                {cat.title}
+              </th>
+            ))}
+          </tr>
+          {/* Row 2: computed / schoology sub-headers */}
+          <tr>
+            {categories.flatMap((cat, i) => [
+              <th
+                key={`${cat.id}-c`}
+                style={{
+                  fontSize: '0.65rem', fontWeight: 500, color: 'var(--text-muted)',
+                  textAlign: 'center', padding: '0.25rem 0.4rem',
+                  borderLeft: i === 0 ? undefined : '1px solid var(--border)',
+                }}
+              >
+                Computed
+              </th>,
+              <th
+                key={`${cat.id}-s`}
+                style={{
+                  fontSize: '0.7rem', fontWeight: 700, color: 'var(--accent)',
+                  textAlign: 'center', padding: '0.25rem 0.4rem',
+                  background: 'var(--accent-subtle)',
+                  borderLeft: '2px solid var(--accent)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                }}
+              >
+                Schoology
+              </th>,
+            ])}
+          </tr>
+        </thead>
+        <tbody>
+          {students.map(s => {
+            const uid = s.schoology_uid || s.uid;
+            return (
+              <tr key={s.id}>
+                <td style={{ width: '40px', padding: '0.25rem 0.5rem' }}>
+                  {s.picture_url ? (
+                    <img
+                      src={s.picture_url}
+                      alt=""
+                      style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', display: 'block' }}
+                    />
+                  ) : (
+                    <div style={{
+                      width: 32, height: 32, borderRadius: '50%',
+                      background: 'var(--bg-subtle)', display: 'flex',
+                      alignItems: 'center', justifyContent: 'center',
+                      fontSize: '0.75rem', color: 'var(--text-muted)',
+                      fontWeight: 600,
+                    }}>
+                      {displayName(s)?.[0]}{s.last_name?.[0]}
+                    </div>
+                  )}
+                </td>
+                <td>
+                  <Link to={`/student/${s.id}`} className="link">
+                    {displayName(s)} {s.last_name}
+                  </Link>
+                  {displayName(s) !== s.first_name && (
+                    <span className="text-sm text-muted" style={{ marginLeft: '0.5rem' }}>
+                      ({s.first_name})
+                    </span>
+                  )}
+                </td>
+                <td className="text-sm">{s.email || '-'}</td>
+                {categories.flatMap((cat, catIdx) => {
+                  const avg = categoryAvg(uid, cat.id);
+                  const avgLevel = avg != null ? pointsToLevel(avg) : null;
+                  const r = schoologyRollup(uid, cat.id);
+                  const rVal = r ? (r.override_value != null ? r.override_value : r.grade_scaled_rounded) : null;
+                  const rLevel = rVal != null ? pointsToLevel(rVal) : null;
+                  const hasOverride = r?.override_value != null;
+
+                  // Mismatch only when BOTH sides have a value and they differ.
+                  const mismatch = avgLevel && rLevel && avgLevel !== rLevel;
+                  const mismatchTitle = mismatch
+                    ? `Mismatch: Prism computed ${avgLevel}, Schoology reports ${rLevel}`
+                    : null;
+                  const mismatchBorders = mismatch
+                    ? { borderTop: MISMATCH_BORDER, borderBottom: MISMATCH_BORDER }
+                    : {};
+
+                  return [
+                    <td
+                      key={`${cat.id}-c`}
+                      title={mismatchTitle || (avg != null ? `Prism computed: ${avgLevel} (${avg.toFixed(1)})` : 'No data')}
+                      style={levelCellStyle(avgLevel, {
+                        borderLeft: catIdx === 0 ? undefined : '1px solid var(--border)',
+                        ...mismatchBorders,
+                      })}
+                    >
+                      {avgLevel || '—'}{avg != null ? ` (${Math.round(avg)})` : ''}
+                    </td>,
+                    <td
+                      key={`${cat.id}-s`}
+                      className="schoology-cell"
+                      onClick={() => onOverrideClick(uid, cat, rLevel, hasOverride)}
+                      title={mismatchTitle || (hasOverride
+                        ? `Schoology reported: ${rLevel} — override set (click to change or clear)`
+                        : `Schoology reported${rLevel ? `: ${rLevel}` : ': no data'} (click to set override)`)}
+                      style={levelCellStyle(rLevel, {
+                        cursor: 'pointer',
+                        borderLeft: '2px solid var(--accent)',
+                        ...mismatchBorders,
+                      })}
+                    >
+                      {rLevel || '—'}{r?.grade_percentage != null ? ` (${Math.round(r.grade_percentage)})` : ''}{hasOverride ? '*' : ''}
+                    </td>,
+                  ];
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {categories.length === 0 && (
+        <p className="text-sm text-muted" style={{ padding: '0.75rem' }}>
+          No mastery data yet. Click <strong>Sync Mastery</strong> above to pull reporting categories from Schoology.
+        </p>
+      )}
+      {categories.length > 0 && (
+        <p className="text-sm text-muted" style={{ padding: '0.5rem 0.75rem', marginTop: '0.25rem', borderTop: '1px solid var(--border)', fontSize: '0.72rem' }}>
+          Cells with an <span style={{ padding: '0 0.3rem', borderTop: '2px solid rgba(234, 179, 8, 0.85)', borderBottom: '2px solid rgba(234, 179, 8, 0.85)' }}>amber border</span> show a mismatch between Prism's computed average and Schoology's reported level. The <strong style={{ color: 'var(--accent)' }}>Schoology</strong> column (accent-bordered) is the authoritative data — click any cell to set an override.
+        </p>
+      )}
     </div>
   );
 }

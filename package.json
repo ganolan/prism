@@ -11,7 +11,8 @@
     "build": "cd client && npx vite build",
     "test:api": "node test-api.js",
     "postinstall": "npx playwright install chromium --quiet",
-    "mastery:login": "node -e \"import('./server/services/masterySync.js').then(m => m.interactiveLogin())\""
+    "mastery:login": "node -e \"import('./server/services/masterySync.js').then(m => m.interactiveLogin())\"",
+    "mastery:capture": "node scripts/capture-mastery-xhr.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",

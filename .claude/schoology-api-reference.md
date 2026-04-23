@@ -247,7 +247,8 @@ With our current two-legged OAuth access, we can read:
 | **Calendar** | `/sections/{id}/events`, `/users/{uid}/events` | Due dates, school events |
 | **Section feed** | `/sections/{id}/updates` | Announcements and posts |
 | **Completion** | `/sections/{id}/completion` | Student progress tracking |
-| **Mastery** | `/sections/{id}/mastery` | Structure exists but grades arrays always empty |
+| **Mastery (REST)** | `/sections/{id}/mastery` | Structure exists but grades arrays always empty |
+| **Mastery rollups (internal)** | `POST /course/{id}/district_mastery/api/outcomes/objectives` | Schoology's own per-(student, objective) rollup — the level shown in the UI. Works for topics or categories. |
 | **Messages** | `/messages/inbox`, `/messages/sent` | Schoology messaging |
 | **Groups** | `/groups`, `/groups/{id}/updates`, `/discussions` | School groups and content |
 
@@ -270,16 +271,103 @@ Per-topic mastery data is accessible via Schoology's internal API on the school 
 
 | Endpoint | What it returns |
 |---|---|
-| `GET /course/{id}/district_mastery/api/aligned-objectives?building_id=...&section_id=...` | Reporting categories + measurement topics (hierarchy, IDs, titles) |
-| `GET /course/{id}/district_mastery/api/material-observations/search?building_id=...&objective_id=...&section_id=...` | Per-student per-assignment scores for a specific measurement topic |
-| `GET /course/{id}/district_mastery/api/observations/search?student_uids={uid}&section_id={id}&material_type=ASSIGNMENT&material_id={id}` | All topic scores for one student + assignment |
-| `POST /iapi2/district-mastery/course/{id}/observations` | Write mastery scores back to Schoology |
+| `GET /course/{id}/district_mastery/api/aligned-objectives?building_id=...&section_id=...` | Reporting categories + measurement topics (hierarchy, IDs, titles). `is_parent: true` → reporting category; children are measurement topics. |
+| `GET /course/{id}/district_mastery/api/aligned-objectives/{objectiveId}/?building_id=...&section_id=...` | Single aligned objective detail. |
+| `GET /course/{id}/district_mastery/api/objectives/search?ids={uuid1,uuid2,...}` | Multi-get objective details (topic or category) by UUID. |
+| `GET /course/{id}/district_mastery/api/material-observations/search?building_id=...&objective_id=...&section_id=...` | Per-student per-assignment raw scores for a specific measurement topic. |
+| `GET /course/{id}/district_mastery/api/material-observations/search?building_id=...&section_id=...&student_uids={uid}` | **All observations for one student across all topics** in a single call — far more efficient than per-topic looping when you only need one student's data. |
+| `GET /course/{id}/district_mastery/api/observations/search?student_uids={uid}&section_id={id}&material_type=ASSIGNMENT&material_id={id}` | All topic scores for one student + one assignment. |
+| `POST /course/{id}/district_mastery/api/alignments/search` | Objective → assignment alignment mappings. Body: `{ building_id, section_id, objective_ids: "uuid1,uuid2", include_gradeable_materials_only: true }`. **Requires CSRF headers** (same as `outcomes/objectives`). Authoritative alignment source; Prism syncs this into `mastery_alignments`. |
+| `GET /course/{id}/district_mastery/api/student-alignments/search?building_id=...&section_id=...` | All active objective ↔ assignment alignments in the section. |
+| `POST /course/{id}/district_mastery/api/outcomes/objectives` | **Schoology's rollup** per (student, objective) — the level displayed in the mastery gradebook UI. Works for both topic UUIDs (per-topic rollup) and category/parent UUIDs (per-reporting-category rollup). Includes teacher overrides in `outcome_override`. See below for body/response shape. |
+| `GET /iapi2/district-mastery/course/{id}/grading-scales?grading_scale_ids={id}[,{id}...]` | Scale level definitions (levels, points, labels). |
+| `GET /iapi2/district-mastery/course/{id}/materials?material_id_types[0]={id}|ASSIGNMENT...` | Assignment metadata (title, grading period/category) for a list of material IDs. |
+| `GET /iapi2/district-mastery/course/{id}/materials?student_uid={uid}&materials=ASSIGNMENT:{id},ASSIGNMENT:{id},...` | Same but scoped to one student's materials. |
+| `POST /iapi2/district-mastery/course/{id}/observations` | Write raw mastery scores back to Schoology (per assignment, per topic). |
+| `POST /iapi2/district-mastery/metrics` | Client telemetry — **ignore**. |
+
+### `outcomes/objectives` — per-student rollups (the UI's reported level)
+
+**Request (POST):**
+```json
+{
+  "building_id": 97989879,
+  "section_id": 7899896088,
+  "student_uids": "uid1,uid2,...",
+  "ids": "objectiveUuid1,objectiveUuid2,..."
+}
+```
+
+Pass **category UUIDs** (parent objectives) for per-reporting-category rollups, **topic UUIDs** (child objectives) for per-topic rollups, or mix both in one call.
+
+**Response:**
+```json
+{
+  "data": [{
+    "objective_id": "uuid",
+    "student_outcomes": [{
+      "student_uid": 23814283,
+      "outcome": {
+        "grade_percentage": 95,
+        "grade_scaled": "95.00",
+        "grade_scaled_rounded": "87.50"
+      },
+      "outcome_override": null
+    }],
+    "material_outcomes": null
+  }]
+}
+```
+
+- `grade_scaled_rounded` is the level boundary: `87.50 → ED`, `62.50 → EX`, `37.50 → D`, `12.50 → EM`, `0.00 → IE`.
+- `grade_percentage` is the raw averaged percent.
+- `outcome_override` is populated when a teacher has manually overridden the rollup in the UI. Exact shape is **not yet confirmed** — observed values are all `null`; an override capture pass is required to document the structure and find the write-back endpoint.
+
+### Writing mastery overrides
+
+**Endpoint:** `POST /course/{sectionId}/district_mastery/api/nodes/{objectiveId}/outcome-override`
+
+`objectiveId` can be either a reporting-category (parent) UUID or a measurement-topic (child) UUID. Requires the same CSRF pair as other district_mastery POSTs.
+
+**Set body:**
+```json
+{
+  "building_id": 97989879,
+  "section_id": 7899896088,
+  "grading_period_id": 0,
+  "student_uid": 123693316,
+  "grade_scaled": "87.50",
+  "grading_scale_id": 21337256
+}
+```
+
+`grade_scaled` must be one of `"0.00"`, `"12.50"`, `"37.50"`, `"62.50"`, `"87.50"` (IE/EM/D/EX/ED) — string, not number.
+
+**Clear body:** same payload with `"grade_scaled": null`.
+
+**Response:**
+```json
+{
+  "data": {
+    "objective_id": "...",
+    "student_uid": 123693316,
+    "outcome_override": {
+      "grade_percentage": 87.5,
+      "grade_scaled": "87.50",
+      "grade_scaled_rounded": "87.50"
+    }
+  }
+}
+```
+
+Prism exposes this as `POST /api/mastery/:courseId/override` (body `{ studentUid, objectiveId, gradeScaled }`) and `writeMasteryOverride()` in `server/services/masterySync.js`.
 
 ### Authentication
 
 - Requires a live browser session — use `npm run mastery:login` to authenticate via Playwright
 - Session is stored locally and reused across syncs until it expires
 - No OAuth needed — uses the teacher's browser cookies
+- **POSTs to `/course/{id}/district_mastery/api/...` require CSRF headers**: `X-CSRF-Token` and `X-CSRF-Key`, both read from `window.Drupal.settings.s_common.csrf_token` / `.csrf_key` after the page loads. Also add `X-Requested-With: XMLHttpRequest`. Without both headers the response is `403 {"data":null}`. GETs under `/district_mastery/api/` and calls to `/iapi2/district-mastery/...` do not require these headers.
 
 ### Key Constants
 

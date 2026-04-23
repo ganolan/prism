@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getCourse, getCourseStudents, getGradebook, triggerMasterySync, triggerMasteryLogin } from '../services/api.js';
+import AnalyticsView from '../components/AnalyticsView.jsx';
 
 export default function CoursePage() {
   const { id } = useParams();
@@ -64,9 +65,9 @@ export default function CoursePage() {
         <button className={`tab-btn ${view === 'gradebook' ? 'active' : ''}`} onClick={() => setView('gradebook')}>
           Gradebook
         </button>
-        <Link to={`/course/${id}/analytics`} className="tab-btn" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>
+        <button className={`tab-btn ${view === 'analytics' ? 'active' : ''}`} onClick={() => setView('analytics')}>
           Analytics
-        </Link>
+        </button>
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {masterySyncResult && (
@@ -98,7 +99,7 @@ export default function CoursePage() {
         </div>
       </div>
 
-      {view === 'roster' ? (
+      {view === 'roster' && (
         <div className="card">
           <table>
             <thead>
@@ -156,9 +157,9 @@ export default function CoursePage() {
             </tbody>
           </table>
         </div>
-      ) : (
-        <GradebookView data={gradebook} />
       )}
+      {view === 'gradebook' && <GradebookView data={gradebook} />}
+      {view === 'analytics' && <AnalyticsView id={id} />}
     </div>
   );
 }

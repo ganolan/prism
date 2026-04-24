@@ -78,6 +78,21 @@ Comprehensive probing of ~40+ Schoology API endpoint patterns. Key findings:
 
 - Rubric grading panel: load current scores, pick new levels, write back to Schoology
 
+### Phase 5: Schoology Rollups + Overrides — COMPLETE (2026-04-24)
+
+- **Authoritative per-(student, objective) rollups** (what Schoology's mastery gradebook UI actually displays): captured via `POST /course/{id}/district_mastery/api/outcomes/objectives`. Works for both reporting-category (parent) and measurement-topic (child) UUIDs.
+- **Authoritative topic ↔ assignment alignments** via `POST /.../alignments/search` — replaces the previous inference-from-scores approach so "Pending" cells render even for topics with no scored student yet.
+- **Override write-back**: `POST /.../nodes/{objectiveId}/outcome-override` sets or clears a teacher override. `grade_scaled` takes `"0.00"|"12.50"|"37.50"|"62.50"|"87.50"` (IE/EM/D/EX/ED) or `null`.
+- **CSRF requirement documented**: all `/district_mastery/api/` POSTs need `X-CSRF-Token` + `X-CSRF-Key` from `window.Drupal.settings.s_common`. Added shared `postInternal()` helper in masterySync.js.
+- **New tables**: `mastery_rollups` (per-student per-objective rollup with override_value), `mastery_alignments` (topic↔assignment). Both auto-create via `schema.sql`.
+- **API additions**: `/api/mastery/:courseId` now includes rollups; `/api/mastery/:courseId/override` writes overrides.
+- **UI**:
+  - MasteryPerformanceSummary: "Schoology Reported per Reporting Category" row with accent-bordered cells. Click opens override popup (set any of 5 levels or clear). `*` marker when override is set.
+  - CoursePage roster: replaced `Graded` / `Average` columns with grouped-header columns per reporting category (Computed / Schoology side-by-side), amber mismatch border when Prism-computed level ≠ Schoology-reported level. Schoology column accent-bordered, cells are clickable for override. Far-right "Computed Letter Grade" column with scale popover using the same `computeLetterGrade()` formula as MasteryPerformanceSummary.
+  - StudentPage assignment table: 2 columns (Assignment | Score). For aligned assignments, title links to `/course/:id/assessment/:assignmentId` and a full-width CompactRubric renders below the name+due+flags row. Comment rendered as its own full-width `<tr>` below. CompactRubric uses each level's own palette for the student's earned cell (grading-green is reserved for the active rubric on the assessment page).
+- **Reusable components**: `OverridePopup.jsx` (exported with `LEVEL_COLORS`, `LEVELS`, `LEVEL_LABELS`, `SCALED_FOR_LEVEL`). `LetterGradePopup` + `computeLetterGrade` + `LETTER_GRADE_COLORS` exported from MasteryPerformanceSummary.
+- **Discovery scripts** for future API work: `scripts/capture-mastery-xhr.js` (`npm run mastery:capture [sectionId]`), `scripts/test-rollup-fetch.js`, `scripts/test-alignments-fetch.js`.
+
 ## Unused API Fields (Issue #13) — COMPLETE (2026-04-20)
 
 ### Schema Additions

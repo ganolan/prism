@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, triggerMasterySync, triggerMasteryLogin } from '../services/api.js';
 import AnalyticsView from '../components/AnalyticsView.jsx';
 import OverridePopup, { LEVEL_COLORS } from '../components/OverridePopup.jsx';
+import { computeLetterGrade, LetterGradePopup, LETTER_GRADE_COLORS } from '../components/MasteryPerformanceSummary.jsx';
 
 function pointsToLevel(points) {
   if (points == null) return null;
@@ -166,6 +167,7 @@ function levelCellStyle(level, extra = {}) {
 }
 
 function RosterView({ students, mastery, courseId, displayName, onOverrideClick }) {
+  const [showGradeScale, setShowGradeScale] = useState(false);
   const categories = mastery?.categories || [];
   const topics = mastery?.topics || [];
   const scores = mastery?.scores || [];
@@ -229,6 +231,29 @@ function RosterView({ students, mastery, courseId, displayName, onOverrideClick 
                 {cat.title}
               </th>
             ))}
+            {categories.length > 0 && (
+              <th
+                rowSpan={2}
+                style={{
+                  textAlign: 'center',
+                  borderLeft: '2px solid var(--accent)',
+                  background: 'var(--bg-subtle)',
+                  fontWeight: 700,
+                  padding: '0.4rem 0.6rem',
+                  minWidth: 90,
+                }}
+              >
+                <div>Computed Letter Grade</div>
+                <button
+                  className="ghost"
+                  onClick={() => setShowGradeScale(true)}
+                  style={{ fontSize: '0.65rem', padding: '0.1rem 0.35rem', marginTop: 2, fontWeight: 400 }}
+                  title="Show HKIS letter grade scale"
+                >
+                  Scale ↗
+                </button>
+              </th>
+            )}
           </tr>
           {/* Row 2: computed / schoology sub-headers */}
           <tr>
@@ -262,6 +287,14 @@ function RosterView({ students, mastery, courseId, displayName, onOverrideClick 
         <tbody>
           {students.map(s => {
             const uid = s.schoology_uid || s.uid;
+            // Per-student approximate letter grade using the same formula as
+            // MasteryPerformanceSummary: pointsToLevel(flat category average)
+            // for each reporting category → computeLetterGrade().
+            const categoryLevels = categories.map(cat => {
+              const avg = categoryAvg(uid, cat.id);
+              return avg != null ? pointsToLevel(avg) : null;
+            });
+            const letterGrade = computeLetterGrade(categoryLevels);
             return (
               <tr key={s.id}>
                 <td style={{ width: '40px', padding: '0.25rem 0.5rem' }}>
@@ -339,6 +372,23 @@ function RosterView({ students, mastery, courseId, displayName, onOverrideClick 
                     </td>,
                   ];
                 })}
+                {categories.length > 0 && (
+                  <td style={{
+                    borderLeft: '2px solid var(--accent)',
+                    background: 'var(--bg-subtle)',
+                    textAlign: 'center',
+                    padding: '0.4rem 0.6rem',
+                    fontWeight: 800,
+                    fontSize: '1.05rem',
+                    color: letterGrade ? (LETTER_GRADE_COLORS[letterGrade] || 'var(--text)') : 'var(--text-muted)',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title={letterGrade
+                    ? `Approximate letter grade from ${categoryLevels.filter(Boolean).join(' + ')}`
+                    : 'Not enough data — at least one reporting category is missing a computed level'}>
+                    {letterGrade || '—'}
+                  </td>
+                )}
               </tr>
             );
           })}
@@ -353,6 +403,9 @@ function RosterView({ students, mastery, courseId, displayName, onOverrideClick 
         <p className="text-sm text-muted" style={{ padding: '0.5rem 0.75rem', marginTop: '0.25rem', borderTop: '1px solid var(--border)', fontSize: '0.72rem' }}>
           Cells with an <span style={{ padding: '0 0.3rem', borderTop: '2px solid rgba(234, 179, 8, 0.85)', borderBottom: '2px solid rgba(234, 179, 8, 0.85)' }}>amber border</span> show a mismatch between Prism's computed average and Schoology's reported level. The <strong style={{ color: 'var(--accent)' }}>Schoology</strong> column (accent-bordered) is the authoritative data — click any cell to set an override.
         </p>
+      )}
+      {showGradeScale && (
+        <LetterGradePopup onClose={() => setShowGradeScale(false)} numCategories={categories.length} />
       )}
     </div>
   );

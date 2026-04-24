@@ -16,7 +16,7 @@ const LEVEL_COLORS = {
   IE: { bg: '#fee2e2', text: '#991b1b', border: '#fca5a5' },
 };
 
-const LETTER_GRADE_COLORS = {
+export const LETTER_GRADE_COLORS = {
   A: '#166534', 'A-': '#15803d',
   'B+': '#1d4ed8', B: '#2563eb', 'B-': '#3b82f6',
   'C+': '#b45309', C: '#d97706',
@@ -57,7 +57,7 @@ function sentenceCase(str) {
 // Approximate letter grade — based on HKIS General Academic Scale.
 // NOTE: this is an approximation of the full combination table.
 // See the letter grade popup for the authoritative HKIS scale.
-function computeLetterGrade(categoryLevels) {
+export function computeLetterGrade(categoryLevels) {
   if (!categoryLevels.length || categoryLevels.some(l => l == null)) return null;
   if (categoryLevels.includes('IE')) return 'F';
 
@@ -89,7 +89,7 @@ function computeLetterGrade(categoryLevels) {
 
 // ── Letter grade scale popup ─────────────────────────────────────────────────
 
-function LetterGradePopup({ onClose, numCategories }) {
+export function LetterGradePopup({ onClose, numCategories }) {
   const scale = [
     { grade: 'A',   bg: '#dcfce7', rows: { 2: '2ED', 3: '3ED', 4: '4ED', 5: '5ED' } },
     { grade: 'A-',  bg: '#dcfce7', rows: { 2: '1ED / 1EX', 3: '2ED / 1EX', 4: '3ED / 1EX', 5: '4ED / 1EX\n3ED / 2EX' } },

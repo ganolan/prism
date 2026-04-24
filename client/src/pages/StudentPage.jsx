@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { Fragment, useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   getStudent, updateStudent, updateParentPhone,
@@ -7,6 +7,70 @@ import {
 } from '../services/api.js';
 import StudentAnalytics from '../components/StudentAnalytics.jsx';
 import MasteryPerformanceSummary from '../components/MasteryPerformanceSummary.jsx';
+import { LEVEL_COLORS } from '../components/OverridePopup.jsx';
+
+const LEVELS = ['ED', 'EX', 'D', 'EM', 'IE'];
+
+// Compact rubric shown in place of the score column for aligned assignments.
+// One row per measurement topic, one column per level. The student's current
+// level is filled solid green (matching the AssessmentSummaryPage rubric).
+function CompactRubric({ topics }) {
+  return (
+    <table style={{ borderCollapse: 'collapse', fontSize: '0.7rem', lineHeight: 1.2, width: '100%', tableLayout: 'fixed' }}>
+      <thead>
+        <tr>
+          <th style={{
+            padding: '0.2rem 0.45rem', textAlign: 'left',
+            background: 'var(--bg-subtle)', border: '1px solid var(--border)',
+            fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.65rem',
+            width: 'auto',
+          }}>Measurement Topic</th>
+          {LEVELS.map(l => (
+            <th key={l} style={{
+              padding: '0.15rem 0.3rem', textAlign: 'center',
+              background: LEVEL_COLORS[l].bg, color: LEVEL_COLORS[l].text,
+              border: '1px solid var(--border)', fontWeight: 700,
+              fontSize: '0.68rem', width: '7%',
+            }}>{l}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {topics.map(t => (
+          <tr key={t.topic_id}>
+            <td style={{
+              padding: '0.2rem 0.45rem', border: '1px solid var(--border)',
+              fontSize: '0.7rem', color: 'var(--text)',
+              whiteSpace: 'normal', wordBreak: 'break-word',
+            }}>
+              <div style={{ fontWeight: 600 }}>{t.title}</div>
+              {(t.external_id || t.category_title) && (
+                <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>
+                  {t.external_id}{t.external_id && t.category_title ? ' · ' : ''}{t.category_title || ''}
+                </div>
+              )}
+            </td>
+            {LEVELS.map(l => {
+              const isCurrent = t.grade === l;
+              const c = LEVEL_COLORS[l];
+              return (
+                <td key={l} style={{
+                  border: `1px solid ${isCurrent ? c.text : 'var(--border)'}`,
+                  textAlign: 'center',
+                  padding: '0.2rem 0.3rem',
+                  background: isCurrent ? c.bg : 'var(--card-bg)',
+                  color: isCurrent ? c.text : 'var(--text-muted)',
+                  fontWeight: isCurrent ? 700 : 400,
+                  fontSize: '0.7rem',
+                }}>{isCurrent ? l : ''}</td>
+              );
+            })}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
 
 function formatFlagReason(flag) {
   if (!flag?.flag_reason) return '';
@@ -109,51 +173,88 @@ function CourseSection({ course, grades, flagsByAssignment, studentUid }) {
             <thead>
               <tr>
                 <th>Assignment</th>
-                <th>Due</th>
-                <th>Score</th>
-                <th>Comment</th>
+                <th>Score / Rubric</th>
               </tr>
             </thead>
             <tbody>
               {grades.map(g => {
                 const assignmentFlags = flagsByAssignment?.[g.assignment_id] || [];
                 const exLabel = g.exception ? EXCEPTION_LABELS[g.exception] : null;
+                const aligned = g.mastery?.topics?.length > 0;
+                const assessmentHref = `/course/${g.course_id}/assessment/${g.schoology_assignment_id}`;
+                const infoCell = (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    {/* Name (link only when aligned) */}
+                    <div>
+                      {aligned ? (
+                        <Link to={assessmentHref} className="link" style={{ fontWeight: 600 }}>
+                          {g.assignment_title}
+                        </Link>
+                      ) : (
+                        <span style={{ fontWeight: 600 }}>{g.assignment_title}</span>
+                      )}
+                    </div>
+                    {/* Due + flags row */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
+                      <span className="text-xs text-muted">Due: {g.due_date || '—'}</span>
+                      {g.late ? <span className="badge badge-red" style={{ fontSize: '0.65rem' }}>Late</span> : null}
+                      {g.draft ? <span className="badge badge-blue" style={{ fontSize: '0.65rem' }}>Draft</span> : null}
+                      {exLabel && g.exception !== 4 && <span className={`badge ${g.exception === 3 ? 'badge-red' : 'badge-blue'}`} style={{ fontSize: '0.65rem' }}>{exLabel}</span>}
+                      {assignmentFlags.map(flag => {
+                        const flagReason = formatFlagReason(flag);
+                        const showReason = flagReason && flagReason !== g.assignment_title;
+                        return (
+                          <span key={flag.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                            <span className={`badge ${flag.resolved ? 'badge-green' : 'badge-red'}`} style={{ textTransform: 'capitalize' }}>
+                              {flag.flag_type.replace('_', ' ')}
+                            </span>
+                            {showReason && <span className="text-xs text-muted">{flagReason}</span>}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
                 return (
-                  <tr key={g.id}>
-                    <td className="text-sm">
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                        <span>{g.assignment_title}</span>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
-                          {g.late ? <span className="badge badge-red" style={{ fontSize: '0.65rem' }}>Late</span> : null}
-                          {g.draft ? <span className="badge badge-blue" style={{ fontSize: '0.65rem' }}>Draft</span> : null}
-                          {exLabel && g.exception !== 4 && <span className={`badge ${g.exception === 3 ? 'badge-red' : 'badge-blue'}`} style={{ fontSize: '0.65rem' }}>{exLabel}</span>}
-                          {assignmentFlags.map(flag => {
-                            const flagReason = formatFlagReason(flag);
-                            const showReason = flagReason && flagReason !== g.assignment_title;
-                            return (
-                              <div key={flag.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
-                                <span className={`badge ${flag.resolved ? 'badge-green' : 'badge-red'}`} style={{ textTransform: 'capitalize' }}>
-                                  {flag.flag_type.replace('_', ' ')}
-                                </span>
-                                {showReason && (
-                                  <span className="text-xs text-muted">{flagReason}</span>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="text-sm text-muted">{g.due_date || '-'}</td>
-                    <td>
-                      {g.score != null
-                        ? <span>{g.score}{g.assignment_max_points ? ` / ${g.assignment_max_points}` : ''}</span>
-                        : exLabel ? <span className="text-sm text-muted">{exLabel}</span> : '-'}
-                    </td>
-                    <td className="text-sm text-muted" style={{ maxWidth: '300px' }}>
-                      {g.grade_comment || '-'}
-                    </td>
-                  </tr>
+                  <Fragment key={g.id}>
+                    <tr style={{ borderTop: '1px solid var(--border)' }}>
+                      {aligned ? (
+                        /* Aligned: name + due/flags span both columns; rubric goes below */
+                        <td colSpan={2} style={{ verticalAlign: 'top' }} className="text-sm">
+                          {infoCell}
+                        </td>
+                      ) : (
+                        <>
+                          <td className="text-sm" style={{ verticalAlign: 'top' }}>{infoCell}</td>
+                          <td style={{ verticalAlign: 'top' }}>
+                            {g.score != null
+                              ? <span>{g.score}{g.assignment_max_points ? ` / ${g.assignment_max_points}` : ''}</span>
+                              : exLabel ? <span className="text-sm text-muted">{exLabel}</span> : '—'}
+                          </td>
+                        </>
+                      )}
+                    </tr>
+                    {aligned && (
+                      <tr>
+                        <td colSpan={2} style={{ padding: '0.25rem 0.25rem 0.5rem', borderTop: 'none' }}>
+                          <div style={{ width: '100%' }}>
+                            <CompactRubric topics={g.mastery.topics} />
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    {g.grade_comment && (
+                      <tr>
+                        <td colSpan={2} className="text-sm text-muted" style={{
+                          paddingTop: '0.25rem', paddingBottom: '0.75rem',
+                          fontStyle: 'italic', borderTop: 'none',
+                        }}>
+                          <span style={{ fontWeight: 600, fontStyle: 'normal', color: 'var(--text-muted)', marginRight: '0.4rem' }}>Comment:</span>
+                          {g.grade_comment}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })}
             </tbody>

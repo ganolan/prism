@@ -16,11 +16,14 @@ const LEVEL_COLORS = {
   IE: { bg: '#fee2e2', text: '#991b1b', border: '#fca5a5' },
 };
 
+// Match proficiency level order: A=ED(blue), B=EX(green), C=D(yellow),
+// D=EM(orange), F=IE(red). Text tones from LEVEL_COLORS[].text; +/- variants
+// step one shade lighter.
 export const LETTER_GRADE_COLORS = {
-  A: '#166534', 'A-': '#15803d',
-  'B+': '#1d4ed8', B: '#2563eb', 'B-': '#3b82f6',
-  'C+': '#b45309', C: '#d97706',
-  D: '#c2410c', F: '#991b1b',
+  A: '#1e40af', 'A-': '#2563eb',
+  'B+': '#15803d', B: '#166534', 'B-': '#166534',
+  'C+': '#854d0e', C: '#713f12',
+  D: '#9a3412', F: '#991b1b',
 };
 
 function pointsToLevel(points) {
@@ -91,11 +94,11 @@ export function computeLetterGrade(categoryLevels) {
 
 export function LetterGradePopup({ onClose, numCategories }) {
   const scale = [
-    { grade: 'A',   bg: '#dcfce7', rows: { 2: '2ED', 3: '3ED', 4: '4ED', 5: '5ED' } },
-    { grade: 'A-',  bg: '#dcfce7', rows: { 2: '1ED / 1EX', 3: '2ED / 1EX', 4: '3ED / 1EX', 5: '4ED / 1EX\n3ED / 2EX' } },
-    { grade: 'B+',  bg: '#dbeafe', rows: { 2: '2EX\n1ED / 1D', 3: '1ED / 2EX\n3EX', 4: '2ED / 2EX\n1ED / 3EX\n4EX', 5: '3ED / 2EX\n2ED / 3EX\n1ED / 4EX\n5EX' } },
-    { grade: 'B',   bg: '#dbeafe', rows: { 2: '1EX / 1D\n1ED / 1EM', 3: '1ED / 1EX / 1D\n2EX / 1D\n1ED / 2D', 4: '1ED / 1EX / 2D\n2EX / 2D\n3EX / 1D', 5: '1ED / 2EX / 2D\n3EX / 2D' } },
-    { grade: 'B-',  bg: '#dbeafe', rows: { 2: '2D\n1EX / 1EM', 3: '1EX / 2D\n1ED / 1D / 1EM\n3D', 4: '2EX / 1D / 1EM\n1EX / 3D\n4D', 5: '2EX / 3D\n1EX / 4D\n5D' } },
+    { grade: 'A',   bg: '#dbeafe', rows: { 2: '2ED', 3: '3ED', 4: '4ED', 5: '5ED' } },
+    { grade: 'A-',  bg: '#dbeafe', rows: { 2: '1ED / 1EX', 3: '2ED / 1EX', 4: '3ED / 1EX', 5: '4ED / 1EX\n3ED / 2EX' } },
+    { grade: 'B+',  bg: '#dcfce7', rows: { 2: '2EX\n1ED / 1D', 3: '1ED / 2EX\n3EX', 4: '2ED / 2EX\n1ED / 3EX\n4EX', 5: '3ED / 2EX\n2ED / 3EX\n1ED / 4EX\n5EX' } },
+    { grade: 'B',   bg: '#dcfce7', rows: { 2: '1EX / 1D\n1ED / 1EM', 3: '1ED / 1EX / 1D\n2EX / 1D\n1ED / 2D', 4: '1ED / 1EX / 2D\n2EX / 2D\n3EX / 1D', 5: '1ED / 2EX / 2D\n3EX / 2D' } },
+    { grade: 'B-',  bg: '#dcfce7', rows: { 2: '2D\n1EX / 1EM', 3: '1EX / 2D\n1ED / 1D / 1EM\n3D', 4: '2EX / 1D / 1EM\n1EX / 3D\n4D', 5: '2EX / 3D\n1EX / 4D\n5D' } },
     { grade: 'C+',  bg: '#fef9c3', rows: { 2: '1D / 1EM', 3: '2D / 1EM\n1EX / 2EM', 4: '3D / 1EM\n2EX / 2EM', 5: '4D / 1EM\n3D / 2EM' } },
     { grade: 'C',   bg: '#fef9c3', rows: { 2: '2EM', 3: '1D / 2EM\n3EM', 4: '2D / 2EM\n1D / 3EM\n4EM', 5: '3D / 2EM\n2D / 3EM\n1D / 4EM\n5EM' } },
     { grade: 'D',   bg: '#ffedd5', rows: { 2: '1EM / 1IE+\nor lower', 3: '2EM / 1IE+\nor lower', 4: 'any IE\n≥2EM', 5: 'any IE\n≥3EM' } },

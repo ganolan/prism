@@ -528,7 +528,7 @@ export default function StudentPage() {
               <h3 style={{ margin: 0 }}>Family Contacts</h3>
               {student.parents?.some(p => p.email) && (
                 <CopyButton
-                  text={student.parents.filter(p => p.email).map(p => `${p.first_name} ${p.last_name} <${p.email}>`).join(', ')}
+                  text={student.parents.filter(p => p.email).map(p => `${p.first_name} ${p.last_name} <${p.email}>`).join('; ')}
                   label="Copy all emails"
                 />
               )}

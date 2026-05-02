@@ -79,7 +79,6 @@ export const getGroups = (courseId, count, balanced) => request(`/tools/groups/$
 // Analytics
 export const getCourseAnalytics = (id) => request(`/analytics/course/${id}`);
 export const getStudentAnalytics = (id, threshold) => request(`/analytics/student/${id}?threshold=${threshold || 15}`);
-export const updateAssignmentType = (id, type) => request(`/analytics/assignments/${id}/type`, { method: 'PUT', body: JSON.stringify({ assignment_type: type }) });
 export const runAutoFlags = (courseId, opts) => request(`/analytics/auto-flags/${courseId}`, { method: 'POST', body: JSON.stringify(opts || {}) });
 
 // Feedback

@@ -3,28 +3,22 @@ import {
   ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ReferenceLine, LineChart,
 } from 'recharts';
-import { getCourseAnalytics, getCourseAssignments, updateAssignmentType, runAutoFlags } from '../services/api.js';
+import { getCourseAnalytics, runAutoFlags } from '../services/api.js';
 
 export default function AnalyticsView({ id }) {
   const [analytics, setAnalytics] = useState(null);
-  const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [autoFlagResult, setAutoFlagResult] = useState(null);
 
   function reload() {
     setLoading(true);
-    Promise.all([getCourseAnalytics(id), getCourseAssignments(id)])
-      .then(([a, asgn]) => { setAnalytics(a); setAssignments(asgn); })
+    getCourseAnalytics(id)
+      .then(setAnalytics)
       .catch(console.error)
       .finally(() => setLoading(false));
   }
 
   useEffect(() => { reload(); }, [id]);
-
-  async function handleTypeChange(assignmentId, newType) {
-    await updateAssignmentType(assignmentId, newType);
-    reload();
-  }
 
   async function handleAutoFlags() {
     const result = await runAutoFlags(id);
@@ -42,7 +36,6 @@ export default function AnalyticsView({ id }) {
     whiskerRange: d.whiskerHigh - d.q3,
   }));
   const trend = analytics?.trend || [];
-  const comparison = analytics?.comparison;
 
   return (
     <div>
@@ -94,42 +87,16 @@ export default function AnalyticsView({ id }) {
             </ResponsiveContainer>
           </div>
 
-          {(comparison?.formative || comparison?.summative) && (
-            <div className="card">
-              <h3 style={{ marginBottom: '0.75rem' }}>Formative vs Summative</h3>
-              <div className="grid-2">
-                {comparison.formative && (
-                  <div className="stat-card">
-                    <strong>Formative</strong>
-                    <p className="text-sm">{comparison.formative.count} assignments</p>
-                    <p className="text-sm">Mean: {comparison.formative.avgMean}%</p>
-                    <p className="text-sm">Avg spread (SD): {comparison.formative.avgStdDev}</p>
-                  </div>
-                )}
-                {comparison.summative && (
-                  <div style={{ padding: '1rem', background: 'var(--secondary-light)', borderRadius: 10, border: '1px solid var(--card-border)' }}>
-                    <strong>Summative</strong>
-                    <p className="text-sm">{comparison.summative.count} assignments</p>
-                    <p className="text-sm">Mean: {comparison.summative.avgMean}%</p>
-                    <p className="text-sm">Avg spread (SD): {comparison.summative.avgStdDev}</p>
-                  </div>
-                )}
-              </div>
-              {!comparison.formative && !comparison.summative && (
-                <p className="text-sm text-muted">Tag assignments as formative or summative below to see comparison.</p>
-              )}
-            </div>
-          )}
         </>
       )}
 
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-          <h3>Assignment Types</h3>
+          <h3>Auto-Flags</h3>
           <button className="primary" onClick={handleAutoFlags}>Run Auto-Flags</button>
         </div>
         {autoFlagResult && (
-          <div className="alert alert-success" style={{ marginBottom: '0.75rem' }}>
+          <div className="alert alert-success">
             <p className="text-sm">Created {autoFlagResult.flagsCreated} flags</p>
             {autoFlagResult.details.slice(0, 5).map((d, i) => (
               <p key={i} className="text-sm text-muted">{d.student}: {d.type} — {d.assignment || d.reason}</p>
@@ -137,38 +104,6 @@ export default function AnalyticsView({ id }) {
             {autoFlagResult.details.length > 5 && <p className="text-sm text-muted">...and {autoFlagResult.details.length - 5} more</p>}
           </div>
         )}
-        <table>
-          <thead>
-            <tr>
-              <th>Assignment</th>
-              <th>Due</th>
-              <th>Max Pts</th>
-              <th>Type</th>
-            </tr>
-          </thead>
-          <tbody>
-            {assignments.map(a => (
-              <tr key={a.id}>
-                <td className="text-sm">{a.title}</td>
-                <td className="text-sm text-muted">{a.due_date || '-'}</td>
-                <td className="text-sm">{a.max_points || '-'}</td>
-                <td>
-                  <select
-                    value={a.assignment_type || 'assignment'}
-                    onChange={e => handleTypeChange(a.id, e.target.value)}
-                    style={{ fontSize: '0.8rem', padding: '0.2rem 0.4rem', width: 'auto' }}
-                  >
-                    <option value="assignment">Assignment</option>
-                    <option value="formative">Formative</option>
-                    <option value="summative">Summative</option>
-                    <option value="discussion">Discussion</option>
-                    <option value="assessment">Assessment</option>
-                  </select>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </div>
     </div>
   );

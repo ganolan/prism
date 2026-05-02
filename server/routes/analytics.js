@@ -45,12 +45,9 @@ router.get('/course/:id', (req, res) => {
   const db = getDb();
   const courseId = req.params.id;
 
-  // General Academic Scale ID = summative; everything else = formative
-  const SUMMATIVE_SCALE_ID = '21337256';
-
   // Get all assignments with their grade distributions (published only)
   const assignments = db.prepare(`
-    SELECT a.id, a.title, a.due_date, a.max_points, a.assignment_type, a.grading_scale_id, a.grading_category_id, a.folder_id
+    SELECT a.id, a.schoology_assignment_id, a.title, a.due_date, a.max_points, a.folder_id
     FROM assignments a
     LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
     LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
@@ -66,15 +63,26 @@ router.get('/course/:id', (req, res) => {
       a.title
   `).all(courseId);
 
-  // Auto-detect assignment type from grading_scale_id
+  // An assignment is summative iff it is mastery-aligned (matches the rule
+  // used by the student page and assessment page to decide when to render a
+  // mastery rubric). Aligned = has a row in mastery_alignments OR mastery_scores.
+  const alignedIds = new Set(
+    db.prepare(`
+      SELECT assignment_schoology_id AS sid FROM mastery_alignments
+      UNION
+      SELECT assignment_schoology_id AS sid FROM mastery_scores
+    `).all().map(r => String(r.sid))
+  );
   for (const a of assignments) {
-    if (a.grading_scale_id) {
-      a.assignment_type = a.grading_scale_id === SUMMATIVE_SCALE_ID ? 'summative' : 'formative';
-    }
+    a.assignment_type = alignedIds.has(String(a.schoology_assignment_id)) ? 'summative' : 'formative';
   }
 
+  // Distribution and trend charts only show summatives — formatives are graded
+  // on different scales and aggregating them with summatives is not meaningful.
+  const summativeAssignments = assignments.filter(a => a.assignment_type === 'summative');
+
   const distributions = [];
-  for (const a of assignments) {
+  for (const a of summativeAssignments) {
     const grades = db.prepare(`
       SELECT g.score, g.max_score, g.exception,
              (g.score * 100.0 / g.max_score) as pct
@@ -128,28 +136,12 @@ router.get('/course/:id', (req, res) => {
     assignment_type: d.assignment_type,
   }));
 
-  // Formative vs summative summary
-  const formative = distributions.filter(d => d.assignment_type === 'formative');
-  const summative = distributions.filter(d => d.assignment_type === 'summative');
-  const comparison = {
-    formative: formative.length > 0 ? {
-      count: formative.length,
-      avgMean: round(formative.reduce((s, d) => s + d.mean, 0) / formative.length),
-      avgStdDev: round(formative.reduce((s, d) => s + d.stdDev, 0) / formative.length),
-    } : null,
-    summative: summative.length > 0 ? {
-      count: summative.length,
-      avgMean: round(summative.reduce((s, d) => s + d.mean, 0) / summative.length),
-      avgStdDev: round(summative.reduce((s, d) => s + d.stdDev, 0) / summative.length),
-    } : null,
-  };
-
   // Folder structure for grouping
   const folders = db.prepare(
     'SELECT schoology_folder_id, title, color FROM folders WHERE course_id = ? ORDER BY display_weight'
   ).all(courseId);
 
-  res.json({ distributions, trend, comparison, folders });
+  res.json({ distributions, trend, folders });
 });
 
 // GET /api/analytics/student/:id — individual student analytics
@@ -158,10 +150,17 @@ router.get('/student/:id', (req, res) => {
   const studentId = req.params.id;
   const threshold = parseFloat(req.query.threshold) || 15;
 
-  // Get all grades with course info, ordered by Schoology display order (published only)
+  // Get all grades with course info, ordered by Schoology display order (published only).
+  // assignment_type is computed from mastery alignment (summative iff aligned),
+  // matching the rule used by the student/assessment pages.
   const grades = db.prepare(`
     SELECT g.score, g.max_score, g.exception,
-           a.id as assignment_id, a.title, a.due_date, a.assignment_type, a.max_points,
+           a.id as assignment_id, a.schoology_assignment_id, a.title, a.due_date, a.max_points,
+           CASE WHEN EXISTS (
+             SELECT 1 FROM mastery_alignments ma WHERE ma.assignment_schoology_id = a.schoology_assignment_id
+             UNION
+             SELECT 1 FROM mastery_scores ms WHERE ms.assignment_schoology_id = a.schoology_assignment_id
+           ) THEN 'summative' ELSE 'formative' END AS assignment_type,
            c.id as course_id, c.course_name,
            (CASE WHEN g.score IS NOT NULL AND g.max_score > 0 THEN (g.score * 100.0 / g.max_score) ELSE NULL END) as pct
     FROM grades g
@@ -230,19 +229,6 @@ router.get('/student/:id', (req, res) => {
   }
 
   res.json({ trends, crossCourse, alerts, threshold });
-});
-
-// PUT /api/assignments/:id/type — tag assignment as formative/summative
-router.put('/assignments/:id/type', (req, res) => {
-  const db = getDb();
-  const { assignment_type } = req.body;
-  if (!['formative', 'summative', 'assignment', 'discussion', 'assessment'].includes(assignment_type)) {
-    return res.status(400).json({ error: 'Invalid assignment_type' });
-  }
-  db.prepare('UPDATE assignments SET assignment_type = ? WHERE id = ?').run(assignment_type, req.params.id);
-  const updated = db.prepare('SELECT * FROM assignments WHERE id = ?').get(req.params.id);
-  if (!updated) return res.status(404).json({ error: 'Assignment not found' });
-  res.json(updated);
 });
 
 // POST /api/analytics/auto-flags/:courseId — run automated flag detection

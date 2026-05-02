@@ -276,11 +276,27 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
   }
   const categories = categoryOrder.map(id => categoryMap[id]);
 
-  // Get unique assignments from scores, preserve order
-  const assignmentIds = [...new Set(scores.map(s => s.assignment_schoology_id))];
+  // Show every aligned assignment (with or without scores), ordered by the
+  // server-side gradebook order in `alignments`. Any score-only assignments
+  // (shouldn't normally happen) are appended at the end so we don't drop data.
+  const assignmentIdSet = new Set();
+  const assignmentIds = [];
   const assignmentTitles = {};
+  for (const a of (alignments || [])) {
+    const aid = a.assignment_schoology_id;
+    if (!assignmentIdSet.has(aid)) {
+      assignmentIdSet.add(aid);
+      assignmentIds.push(aid);
+    }
+    if (a.assignment_title) assignmentTitles[aid] = a.assignment_title;
+  }
   for (const s of scores) {
-    if (s.assignment_title) assignmentTitles[s.assignment_schoology_id] = s.assignment_title;
+    const aid = s.assignment_schoology_id;
+    if (!assignmentIdSet.has(aid)) {
+      assignmentIdSet.add(aid);
+      assignmentIds.push(aid);
+    }
+    if (s.assignment_title && !assignmentTitles[aid]) assignmentTitles[aid] = s.assignment_title;
   }
 
   // Score lookup: topicId → assignmentId → { points, grade }

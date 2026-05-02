@@ -113,18 +113,38 @@ router.get('/:courseId/student/:studentUid', (req, res) => {
   // Authoritative topic↔assignment alignments from the Schoology alignments
   // endpoint. Falls back to inferring from scores if the table is empty
   // (e.g. before the first sync after this feature was added).
+  // Order matches the scores query above so the summary table renders aligned
+  // assignments (with or without scores) in the same gradebook order.
+  const alignmentOrderBy = `
+    CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN a.display_weight
+         WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN COALESCE(fp.display_weight, 0)
+         ELSE COALESCE(f.display_weight, a.display_weight) END ASC,
+    CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN 0
+         WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN COALESCE(f.display_weight, 0)
+         ELSE a.display_weight END ASC,
+    CASE WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN a.display_weight ELSE 0 END ASC,
+    a.schoology_assignment_id
+  `;
   let alignments = db.prepare(`
-    SELECT ma.assignment_schoology_id, ma.topic_id
+    SELECT ma.assignment_schoology_id, ma.topic_id,
+           a.title AS assignment_title, a.due_date AS assignment_due_date
     FROM mastery_alignments ma
     JOIN assignments a ON a.schoology_assignment_id = ma.assignment_schoology_id
+    LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
+    LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
     WHERE ma.course_id = ? AND a.published = 1
+    ORDER BY ${alignmentOrderBy}
   `).all(courseId);
   if (alignments.length === 0 && topicIds.length > 0) {
     alignments = db.prepare(`
-      SELECT DISTINCT ms.assignment_schoology_id, ms.topic_id
+      SELECT DISTINCT ms.assignment_schoology_id, ms.topic_id,
+             a.title AS assignment_title, a.due_date AS assignment_due_date
       FROM mastery_scores ms
       JOIN assignments a ON a.schoology_assignment_id = ms.assignment_schoology_id
+      LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
+      LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
       WHERE a.course_id = ? AND a.published = 1
+      ORDER BY ${alignmentOrderBy}
     `).all(courseId);
   }
 

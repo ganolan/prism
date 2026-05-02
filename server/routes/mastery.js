@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
-import { syncMasteryForCourse, writeMasteryScores, writeMasteryOverride, getMasteryForCourse, getRubricScoresForStudent, interactiveLogin } from '../services/masterySync.js';
+import { syncMasteryForCourse, syncMasteryForAssignment, writeMasteryScores, writeMasteryOverride, getMasteryForCourse, getRubricScoresForStudent, interactiveLogin } from '../services/masterySync.js';
 import { pushGradeComments } from '../services/schoology.js';
 
 const router = Router();
@@ -212,6 +212,19 @@ router.post('/:courseId/override', async (req, res) => {
   }
 });
 
+// POST /api/mastery/:courseId/assignment/:assignmentId/sync — re-pull scores
+// from Schoology for one assignment (faster than full course sync).
+router.post('/:courseId/assignment/:assignmentId/sync', async (req, res) => {
+  const { courseId, assignmentId } = req.params;
+  try {
+    const result = await syncMasteryForAssignment(courseId, assignmentId);
+    res.json(result);
+  } catch (err) {
+    console.error('[mastery assignment sync] Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/mastery/:courseId/write — write scores back to Schoology for one student+assignment
 router.post('/:courseId/write', async (req, res) => {
   const { courseId } = req.params;
@@ -234,6 +247,30 @@ router.post('/:courseId/write', async (req, res) => {
       gradingPeriodId,
       gradingCategoryId,
     });
+
+    // Mirror the just-confirmed Schoology state into our local mastery_scores
+    // so the UI re-fetch shows the new values immediately.
+    const studentRow = db.prepare(
+      'SELECT s.schoology_uid FROM students s JOIN enrolments e ON e.student_id = s.id WHERE e.schoology_enrolment_id = ?'
+    ).get(String(enrollmentId));
+    if (studentRow) {
+      const POINTS_TO_LETTER = { 0: 'IE', 25: 'EM', 50: 'D', 75: 'EX', 100: 'ED' };
+      const upsert = db.prepare(`
+        INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade, synced_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(student_uid, assignment_schoology_id, topic_id) DO UPDATE SET
+          points = excluded.points,
+          grade = excluded.grade,
+          synced_at = excluded.synced_at
+      `);
+      const now = new Date().toISOString();
+      for (const [topicId, info] of Object.entries(gradeInfo)) {
+        const points = Number(info.grade);
+        const letter = POINTS_TO_LETTER[points] ?? null;
+        upsert.run(studentRow.schoology_uid, String(assignmentId), topicId, points, letter, now);
+      }
+    }
+
     res.json(result);
   } catch (err) {
     console.error('[mastery write] Error:', err);

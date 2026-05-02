@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getMasteryForAssignment, writeMasteryScores, writeMasteryComment } from '../services/api.js';
+import { getMasteryForAssignment, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment } from '../services/api.js';
 
 const LEVELS = ['ED', 'EX', 'D', 'EM', 'IE'];
 const LEVEL_LABELS = {
@@ -48,35 +48,44 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
     setSaving(true);
     setSaveResult(null);
     try {
+      // Schoology's /observations endpoint replaces the entire observation set
+      // for this enrollment+material — partial payloads wipe untouched topics.
+      // Build gradeInfo from every aligned topic, with pending changes merged over
+      // the current scores.
       const gradeInfo = {};
-      for (const [topicId, level] of Object.entries(pending)) {
-        gradeInfo[topicId] = {
-          grade: String(LEVEL_POINTS[level] || 0),
-          gradingScaleId: 21337256,
-        };
+      for (const t of topics) {
+        const pendingLevel = pending[t.id];
+        const currentGrade = student.scores[t.id]?.grade;
+        const level = pendingLevel ?? currentGrade;
+        if (level == null) continue;
+        // Schoology expects numeric grade strings ("100"/"75"/...). DB stores
+        // letter codes ("ED"/"EX"/...). Always map through LEVEL_POINTS so the
+        // payload is uniformly numeric — Schoology silently drops letter codes.
+        const points = LEVEL_POINTS[level];
+        if (points == null) continue;
+        gradeInfo[t.id] = { grade: String(points), gradingScaleId: 21337256 };
       }
 
-      const writes = [];
+      const hasScoreChanges = Object.keys(pending).length > 0;
+      const hasCommentChange = comment !== (student.grade_comment || '');
 
-      if (Object.keys(gradeInfo).length > 0 && assignmentRow) {
-        writes.push(writeMasteryScores(courseId, {
+      if (hasScoreChanges && assignmentRow) {
+        await writeMasteryScores(courseId, {
           enrollmentId: student.enrollment_id,
           assignmentId,
           gradeInfo,
           gradingPeriodId: assignmentRow.mastery_grading_period_id,
           gradingCategoryId: assignmentRow.mastery_grading_category_id,
-        }));
+        });
       }
 
-      if (comment !== (student.grade_comment || '')) {
-        writes.push(writeMasteryComment(courseId, {
+      if (hasCommentChange) {
+        await writeMasteryComment(courseId, {
           enrollmentId: student.enrollment_id,
           assignmentId,
           comment,
-        }));
+        });
       }
-
-      await Promise.all(writes);
       setSaveResult('saved');
       setPending({});
       onSaved?.();
@@ -247,6 +256,8 @@ export default function AssessmentSummaryPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshResult, setRefreshResult] = useState(null);
 
   function load() {
     setLoading(true);
@@ -254,6 +265,20 @@ export default function AssessmentSummaryPage() {
       .then(setData)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
+  }
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    setRefreshResult(null);
+    try {
+      const result = await syncMasteryForAssignment(courseId, assignmentId);
+      setRefreshResult(`Synced ${result.scoresCount ?? 0} scores across ${result.topicsCount ?? 0} topics`);
+      load();
+    } catch (err) {
+      setRefreshResult(`Error: ${err.message}`);
+    } finally {
+      setRefreshing(false);
+    }
   }
 
   useEffect(load, [courseId, assignmentId]);
@@ -282,7 +307,17 @@ export default function AssessmentSummaryPage() {
         <h2 style={{ margin: '0.3rem 0 0.2rem', fontSize: '1.3rem', fontWeight: 700 }}>
           {assignment.title || assignmentId}
         </h2>
-        <p className="text-sm text-muted">{students.length} students · {alignedTopics.length} measurement topics</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <p className="text-sm text-muted" style={{ margin: 0 }}>
+            {students.length} students · {alignedTopics.length} measurement topics
+          </p>
+          <button className="secondary" onClick={handleRefresh} disabled={refreshing} style={{ fontSize: '0.78rem' }}>
+            {refreshing ? 'Refreshing...' : 'Refresh from Schoology'}
+          </button>
+          {refreshResult && (
+            <span className="text-sm text-muted" style={{ fontSize: '0.75rem' }}>{refreshResult}</span>
+          )}
+        </div>
       </div>
 
       {/* Proficiency level legend */}

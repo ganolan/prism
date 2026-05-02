@@ -581,6 +581,122 @@ export async function writeMasteryOverride({
 }
 
 /**
+ * Sync mastery scores from Schoology for a single assignment. Faster than a
+ * full course sync: fetches observations only for topics aligned to this
+ * assignment, then upserts mastery_scores filtered to this assignment.
+ *
+ * Used by the assessment page's "Refresh from Schoology" button so teachers
+ * can pick up out-of-band edits made directly in Schoology's gradebook.
+ */
+export async function syncMasteryForAssignment(courseId, assignmentId) {
+  const db = getDb();
+  const courseRow = getCourseRow(db, courseId);
+  if (!courseRow) throw new Error(`Course ${courseId} not found`);
+  const sectionId = courseRow.schoology_section_id;
+
+  const topicRows = db.prepare(`
+    SELECT topic_id FROM mastery_alignments
+    WHERE assignment_schoology_id = ? AND course_id = ?
+  `).all(String(assignmentId), Number(courseId));
+  if (topicRows.length === 0) {
+    return { topicsCount: 0, scoresCount: 0, note: 'No aligned topics in DB — run a full mastery sync first.' };
+  }
+  const topicIds = topicRows.map(r => r.topic_id);
+
+  let { browser, page } = await openPage();
+
+  async function gotoMasteryPage(p) {
+    let captured = null;
+    p.on('request', req => {
+      const m = req.url().match(/building_id=(\d+)/);
+      if (m) captured = m[1];
+    });
+    await p.goto(`${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery`, {
+      waitUntil: 'load',
+      timeout: 30000,
+    });
+    return captured;
+  }
+
+  try {
+    let buildingId = await gotoMasteryPage(page);
+
+    if (!checkLoggedIn(page)) {
+      await browser.close();
+      await interactiveLogin();
+      ({ browser, page } = await openPage());
+      buildingId = await gotoMasteryPage(page);
+      if (!checkLoggedIn(page)) {
+        throw new Error('Still not logged in. Run `npm run mastery:login` and try again.');
+      }
+    }
+
+    if (!buildingId) {
+      try {
+        buildingId = await page.evaluate(() =>
+          String(window.Drupal?.settings?.s_common?.school_id || window.sSchoolId || '')
+        );
+      } catch { /* fall through */ }
+    }
+    if (!buildingId) throw new Error('Could not determine building_id from the mastery page.');
+
+    const upsertScore = db.prepare(`
+      INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade, synced_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(student_uid, assignment_schoology_id, topic_id) DO UPDATE SET
+        points = excluded.points,
+        grade = excluded.grade,
+        synced_at = excluded.synced_at
+    `);
+    const deleteScore = db.prepare(`
+      DELETE FROM mastery_scores
+      WHERE assignment_schoology_id = ? AND topic_id = ? AND student_uid = ?
+    `);
+
+    const now = new Date().toISOString();
+    let scoresCount = 0;
+
+    for (const topicId of topicIds) {
+      const url = `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/material-observations/search?building_id=${buildingId}&objective_id=${topicId}&section_id=${sectionId}`;
+      const obsData = await fetchInternal(page, url);
+      const observations = obsData.data || [];
+
+      const seenUids = new Set();
+      for (const obs of observations) {
+        const obsAssignment = String(obs.gradeable_material?.material_id || '');
+        if (obsAssignment !== String(assignmentId)) continue;
+        const uid = String(obs.student_uid);
+        const points = obs.points ?? null;
+        const grade = points !== null ? (POINTS_TO_GRADE[points] ?? null) : null;
+        if (points === null) {
+          deleteScore.run(String(assignmentId), topicId, uid);
+        } else {
+          upsertScore.run(uid, String(assignmentId), topicId, points, grade, now);
+          scoresCount++;
+        }
+        seenUids.add(uid);
+      }
+
+      // Any local row for this (assignment, topic) whose student is no longer
+      // in Schoology's response means the score was cleared in Schoology.
+      const existing = db.prepare(`
+        SELECT student_uid FROM mastery_scores
+        WHERE assignment_schoology_id = ? AND topic_id = ?
+      `).all(String(assignmentId), topicId);
+      for (const row of existing) {
+        if (!seenUids.has(row.student_uid)) {
+          deleteScore.run(String(assignmentId), topicId, row.student_uid);
+        }
+      }
+    }
+
+    return { topicsCount: topicIds.length, scoresCount };
+  } finally {
+    await browser.close();
+  }
+}
+
+/**
  * Write mastery scores for one student+assignment back to Schoology.
  *
  * @param {object} params
@@ -600,13 +716,27 @@ export async function writeMasteryScores({
   gradingPeriodId,
   gradingCategoryId,
 }) {
-  const { browser, page } = await openPage();
+  let { browser, page } = await openPage();
 
   try {
     // Navigate to the course to establish session context
     await page.goto(`${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery`, {
       waitUntil: 'domcontentloaded',
     });
+
+    // If session is stale we'll be on a login/SSO page — relogin then retry.
+    if (!checkLoggedIn(page)) {
+      console.log('[mastery write] session stale, opening browser for relogin');
+      await browser.close();
+      await interactiveLogin();
+      ({ browser, page } = await openPage());
+      await page.goto(`${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery`, {
+        waitUntil: 'domcontentloaded',
+      });
+      if (!checkLoggedIn(page)) {
+        throw new Error('Still not logged in after relogin. Please run `npm run mastery:login` manually.');
+      }
+    }
 
     const url = `${SCHOOLOGY_BASE}/iapi2/district-mastery/course/${sectionId}/observations`;
     const payload = {
@@ -623,22 +753,37 @@ export async function writeMasteryScores({
       gradingCategoryId: Number(gradingCategoryId),
     };
 
+    const topicCount = Object.keys(gradeInfo).length;
+    console.log(`[mastery write] enrollment=${enrollmentId} assignment=${assignmentId} topics=${topicCount}`);
+    console.log(`[mastery write] gradeInfo=${JSON.stringify(gradeInfo)}`);
+
     const result = await page.evaluate(async ({ url, payload }) => {
+      const csrf = {
+        token: window.Drupal?.settings?.s_common?.csrf_token,
+        key: window.Drupal?.settings?.s_common?.csrf_key,
+      };
+      if (!csrf.token || !csrf.key) {
+        return { status: 0, ok: false, body: 'CSRF token/key missing from Drupal.settings.s_common' };
+      }
       const res = await fetch(url, {
         method: 'POST',
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-CSRF-Token': csrf.token,
+          'X-CSRF-Key': csrf.key,
         },
         body: JSON.stringify(payload),
       });
       const text = await res.text();
-      if (!res.ok) throw new Error(`HTTP ${res.status}: ${text}`);
-      return JSON.parse(text);
+      return { status: res.status, ok: res.ok, body: text };
     }, { url, payload });
 
-    return result;
+    console.log(`[mastery write] response status=${result.status} body=${result.body.slice(0, 500)}`);
+    if (!result.ok) throw new Error(`HTTP ${result.status}: ${result.body}`);
+    return JSON.parse(result.body);
   } finally {
     await browser.close();
   }

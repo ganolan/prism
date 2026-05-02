@@ -175,6 +175,18 @@ CREATE TABLE IF NOT EXISTS grading_categories (
   UNIQUE(course_id, schoology_category_id)
 );
 
+-- Grading scales (fetched from Schoology per-section, but stored globally
+-- since scale IDs are district-wide). levels_json is a JSON array of
+-- { name, value } sorted ascending by value, e.g.
+-- [{"name":"IE","value":0},{"name":"EM","value":12.5},...]. NULL or empty
+-- array means "numeric scale" — display as score / max_points.
+CREATE TABLE IF NOT EXISTS grading_scales (
+  schoology_scale_id TEXT PRIMARY KEY,
+  title TEXT,
+  levels_json TEXT,
+  synced_at TEXT
+);
+
 -- Mastery / Standards-Based Grading tables
 
 CREATE TABLE IF NOT EXISTS reporting_categories (

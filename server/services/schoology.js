@@ -110,6 +110,11 @@ export async function getSectionGradingCategories(sectionId) {
   return data?.grading_category || [];
 }
 
+export async function getSectionGradingScales(sectionId) {
+  const data = await apiGet(`/sections/${sectionId}/grading_scales`);
+  return data?.grading_scale || data?.grading_scales || [];
+}
+
 export async function getSectionCompletion(sectionId) {
   const data = await apiGet(`/sections/${sectionId}/completion`);
   return data?.completion || [];

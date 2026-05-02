@@ -8,6 +8,7 @@ import {
   getSectionGradingPeriods,
   getSectionFolders,
   getSectionGradingCategories,
+  getSectionGradingScales,
   getUserProfile,
 } from './schoology.js';
 
@@ -197,6 +198,14 @@ export async function fullSync(onProgress) {
         title = excluded.title,
         synced_at = excluded.synced_at
     `);
+    const upsertScale = db.prepare(`
+      INSERT INTO grading_scales (schoology_scale_id, title, levels_json, synced_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(schoology_scale_id) DO UPDATE SET
+        title = excluded.title,
+        levels_json = excluded.levels_json,
+        synced_at = excluded.synced_at
+    `);
 
     for (const sec of sections) {
       const sectionId = String(sec.id);
@@ -224,6 +233,30 @@ export async function fullSync(onProgress) {
         }
         totalRecords += categories.length;
       } catch { /* categories not available */ }
+
+      // Sync grading scales (district-wide; same scales repeat across sections,
+      // so the upsert is idempotent and cheap). Schoology returns each scale
+      // with a `scale.level[]` array of { grade, cutoff, average }. We store
+      // levels normalised as { name, cutoff, average } sorted ascending. Scales
+      // with no levels are treated as numeric (display as score / max_points).
+      try {
+        const scales = await getSectionGradingScales(sectionId);
+        for (const sc of scales) {
+          const rawLevels = sc.scale?.level || [];
+          const levels = Array.isArray(rawLevels)
+            ? rawLevels
+                .map(l => ({
+                  name: l.grade,
+                  cutoff: Number(l.cutoff),
+                  average: Number(l.average),
+                }))
+                .filter(l => l.name && Number.isFinite(l.average))
+                .sort((a, b) => a.average - b.average)
+            : [];
+          upsertScale.run(String(sc.id), sc.title || null, JSON.stringify(levels), now);
+        }
+        totalRecords += scales.length;
+      } catch { /* scales not available */ }
 
     }
 

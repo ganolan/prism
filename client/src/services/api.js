@@ -76,6 +76,9 @@ export const getEmails = (courseId, type) => request(`/tools/emails/${courseId}?
 export const getRandomStudents = (courseId, count) => request(`/tools/random/${courseId}?count=${count || 1}`);
 export const getGroups = (courseId, count, balanced) => request(`/tools/groups/${courseId}?count=${count || 4}&balanced=${balanced || false}`);
 
+// Grading scales — global lookup map
+export const getGradingScales = () => request('/grading-scales');
+
 // Analytics
 export const getCourseAnalytics = (id) => request(`/analytics/course/${id}`);
 export const getStudentAnalytics = (id, threshold) => request(`/analytics/student/${id}?threshold=${threshold || 15}`);

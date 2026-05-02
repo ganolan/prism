@@ -4,6 +4,8 @@ import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, trigge
 import AnalyticsView from '../components/AnalyticsView.jsx';
 import OverridePopup, { LEVEL_COLORS } from '../components/OverridePopup.jsx';
 import { computeLetterGrade, LetterGradePopup, LETTER_GRADE_COLORS } from '../components/MasteryPerformanceSummary.jsx';
+import { gradeLabel } from '../lib/gradeLabel.js';
+import { masteryCodeForLevel } from '../lib/masteryLevels.js';
 
 function pointsToLevel(points) {
   if (points == null) return null;
@@ -411,16 +413,13 @@ function RosterView({ students, mastery, courseId, displayName, onOverrideClick 
   );
 }
 
-const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
-
 function GradebookView({ data }) {
   if (!data || !data.assignments.length) {
     return <div className="card"><p className="text-muted">No assignments yet.</p></div>;
   }
 
-  const { assignments, students, grades } = data;
+  const { assignments, students, grades, grading_scales } = data;
   const displayName = (s) => s.preferred_name_teacher || s.preferred_name || s.first_name;
-  const SUMMATIVE_SCALE_ID = '21337256';
 
   return (
     <div className="card" style={{ overflowX: 'auto' }}>
@@ -429,11 +428,10 @@ function GradebookView({ data }) {
           <tr>
             <th style={{ position: 'sticky', left: 0, background: 'var(--table-header-bg)', zIndex: 1 }}>Student</th>
             {assignments.map(a => {
-              const isSummative = a.grading_scale_id === SUMMATIVE_SCALE_ID;
-              const typeLabel = a.grading_scale_id ? (isSummative ? 'S' : 'F') : null;
+              const isSummative = !!a.aligned;
               return (
                 <th key={a.id} style={{ minWidth: '80px', whiteSpace: 'nowrap' }} title={a.title}>
-                  {typeLabel && <span className={`badge ${isSummative ? 'badge-blue' : 'badge-green'}`} style={{ fontSize: '0.6rem', marginRight: 4 }}>{typeLabel}</span>}
+                  <span className={`badge ${isSummative ? 'badge-blue' : 'badge-green'}`} style={{ fontSize: '0.6rem', marginRight: 4 }}>{isSummative ? 'S' : 'F'}</span>
                   {a.title.length > 15 ? a.title.slice(0, 15) + '…' : a.title}
                 </th>
               );
@@ -450,19 +448,29 @@ function GradebookView({ data }) {
               </td>
               {assignments.map(a => {
                 const g = grades[s.id]?.[a.id];
-                const exLabel = g?.exception ? EXCEPTION_LABELS[g.exception] : null;
+                if (!g) return <td key={a.id} style={{ textAlign: 'center' }}>—</td>;
+                // Aligned (summative) assignments don't get scale-aware labels —
+                // the meaningful display is the per-topic mastery rubric (shown
+                // on the assessment page; future: rubric icon hover here). For
+                // now, keep raw score for aligned and let the scale label drive
+                // formatives only.
+                const lbl = a.aligned
+                  ? gradeLabel({ score: g.score, max_points: a.max_points, exception: g.exception, grading_scale_id: null, scales: null })
+                  : gradeLabel({ score: g.score, max_points: a.max_points, exception: g.exception, grading_scale_id: a.grading_scale_id, scales: grading_scales });
+                // For General Academic-family levels, shorten to ED/EX/D/EM/IE
+                // and apply the same color coding used in the aligned rubric.
+                const code = lbl.kind === 'scale' ? masteryCodeForLevel(lbl.text) : null;
+                const c = code ? LEVEL_COLORS[code] : null;
+                const text = lbl.kind === 'pending' ? '—' : (code || lbl.text);
+                const cellStyle = lbl.kind === 'mismatch' ? { textAlign: 'center', color: 'var(--danger)' }
+                  : { textAlign: 'center' };
+                const inner = c
+                  ? <span style={{ background: c.bg, color: c.text, border: `1px solid ${c.border}`, padding: '0.1rem 0.4rem', borderRadius: 4, fontWeight: 500, display: 'inline-block', minWidth: 24 }}>{text}</span>
+                  : text;
                 return (
-                  <td key={a.id} style={{ textAlign: 'center' }} title={g?.grade_comment || ''}>
-                    {g?.score != null ? (
-                      <span>
-                        {g.score}
-                        {g.late ? <span className="badge badge-red" style={{ fontSize: '0.55rem', marginLeft: 3 }}>L</span> : null}
-                      </span>
-                    ) : exLabel ? (
-                      <span className={`badge ${g.exception === 3 ? 'badge-red' : 'badge-blue'}`} style={{ fontSize: '0.6rem' }}>
-                        {exLabel}
-                      </span>
-                    ) : '-'}
+                  <td key={a.id} style={cellStyle} title={lbl.kind === 'mismatch' ? 'Score does not match any defined level on this grading scale — check Schoology' : (g.grade_comment || '')}>
+                    {inner}
+                    {g.late && lbl.kind !== 'exception' ? <span className="badge badge-red" style={{ fontSize: '0.55rem', marginLeft: 3 }}>L</span> : null}
                   </td>
                 );
               })}

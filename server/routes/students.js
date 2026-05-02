@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
+import { getGradingScalesMap } from '../db/scales.js';
 
 const router = Router();
 
@@ -124,7 +125,7 @@ router.get('/:id', (req, res) => {
     'SELECT * FROM parents WHERE student_id = ? ORDER BY last_name, first_name'
   ).all(req.params.id);
 
-  res.json({ ...student, courses, grades, notes, flags, parents });
+  res.json({ ...student, courses, grades, notes, flags, parents, grading_scales: getGradingScalesMap() });
 });
 
 // PUT /api/students/:id — update editable fields

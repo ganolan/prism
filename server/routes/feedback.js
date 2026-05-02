@@ -19,7 +19,7 @@ router.get('/', (req, res) => {
   const { status, student_id, assignment_id, flagged, course_id } = req.query;
   let sql = `
     SELECT f.*, s.first_name, s.last_name, s.preferred_name,
-           a.title as assignment_title, a.max_points,
+           a.title as assignment_title, a.max_points, a.grading_scale_id,
            c.course_name, c.id as course_id
     FROM feedback f
     JOIN students s ON s.id = f.student_id
@@ -42,7 +42,7 @@ router.get('/:id', (req, res) => {
   const db = getDb();
   const row = db.prepare(`
     SELECT f.*, s.first_name, s.last_name, s.preferred_name,
-           a.title as assignment_title, a.max_points,
+           a.title as assignment_title, a.max_points, a.grading_scale_id,
            c.course_name, c.id as course_id
     FROM feedback f
     JOIN students s ON s.id = f.student_id

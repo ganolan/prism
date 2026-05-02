@@ -15,6 +15,7 @@ import toolsRouter from './routes/tools.js';
 import analyticsRouter from './routes/analytics.js';
 import feedbackRouter from './routes/feedback.js';
 import masteryRouter from './routes/mastery.js';
+import { getGradingScalesMap } from './db/scales.js';
 import { getFeatures } from './middleware/featureGate.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -44,6 +45,12 @@ app.use('/api/mastery', masteryRouter);
 // Feature flags endpoint
 app.get('/api/features', (req, res) => {
   res.json(getFeatures());
+});
+
+// Grading scales — global lookup map for the client to render scale-aware
+// labels (Complete, ED, etc.) anywhere a grade is shown.
+app.get('/api/grading-scales', (req, res) => {
+  res.json(getGradingScalesMap());
 });
 
 // SPA fallback — serve index.html for non-API routes

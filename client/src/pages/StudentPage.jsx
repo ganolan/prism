@@ -8,6 +8,8 @@ import {
 import StudentAnalytics from '../components/StudentAnalytics.jsx';
 import MasteryPerformanceSummary from '../components/MasteryPerformanceSummary.jsx';
 import { LEVEL_COLORS } from '../components/OverridePopup.jsx';
+import { gradeLabel } from '../lib/gradeLabel.js';
+import { masteryCodeForLevel } from '../lib/masteryLevels.js';
 
 const LEVELS = ['ED', 'EX', 'D', 'EM', 'IE'];
 
@@ -123,7 +125,7 @@ function gradYearToLevel(gradYear) {
   return grade >= 1 && grade <= 12 ? grade : null;
 }
 
-function CourseSection({ course, grades, flagsByAssignment, studentUid }) {
+function CourseSection({ course, grades, flagsByAssignment, studentUid, scales }) {
   const [expanded, setExpanded] = useState(true);
 
   return (
@@ -227,9 +229,20 @@ function CourseSection({ course, grades, flagsByAssignment, studentUid }) {
                         <>
                           <td className="text-sm" style={{ verticalAlign: 'top' }}>{infoCell}</td>
                           <td style={{ verticalAlign: 'top' }}>
-                            {g.score != null
-                              ? <span>{g.score}{g.assignment_max_points ? ` / ${g.assignment_max_points}` : ''}</span>
-                              : exLabel ? <span className="text-sm text-muted">{exLabel}</span> : '—'}
+                            {(() => {
+                              const lbl = gradeLabel({
+                                score: g.score, max_points: g.assignment_max_points,
+                                exception: g.exception, grading_scale_id: g.grading_scale_id,
+                                scales,
+                              });
+                              const code = lbl.kind === 'scale' ? masteryCodeForLevel(lbl.text) : null;
+                              const c = code ? LEVEL_COLORS[code] : null;
+                              const style = lbl.kind === 'mismatch' ? { color: 'var(--danger)' }
+                                : lbl.kind === 'pending' ? { color: 'var(--text-muted)' }
+                                : c ? { background: c.bg, color: c.text, border: `1px solid ${c.border}`, padding: '0.1rem 0.4rem', borderRadius: 4, fontWeight: 500, display: 'inline-block' }
+                                : null;
+                              return <span className="text-sm" style={style} title={lbl.kind === 'mismatch' ? 'Score does not match any defined level on this grading scale — check Schoology' : undefined}>{lbl.text}</span>;
+                            })()}
                           </td>
                         </>
                       )}
@@ -698,6 +711,7 @@ export default function StudentPage() {
             grades={grades}
             flagsByAssignment={assignmentFlagMap}
             studentUid={student.schoology_uid}
+            scales={student.grading_scales}
           />
         );
       })}

@@ -4,8 +4,9 @@ import {
   getFeedback, getFeedbackItem, updateFeedback, approveFeedback,
   requestRevision, batchApproveFeedback, processInbox, deleteFeedback,
   uploadFeedbackJson, createManualFeedback, getCourses, getCourseStudents,
-  getCourseAssignments,
+  getCourseAssignments, getGradingScales,
 } from '../services/api.js';
+import { gradeLabel } from '../lib/gradeLabel.js';
 
 const STATUS_COLORS = {
   draft: 'badge-gray',
@@ -24,6 +25,7 @@ export default function FeedbackPage() {
   const [selected, setSelected] = useState(null);
   const [inboxResult, setInboxResult] = useState(null);
   const [showManual, setShowManual] = useState(false);
+  const [scales, setScales] = useState({});
 
   function reload() {
     const params = {};
@@ -35,6 +37,7 @@ export default function FeedbackPage() {
 
   useEffect(() => { reload(); }, [filter, courseFilter]);
   useEffect(() => { getCourses().then(setCourses); }, []);
+  useEffect(() => { getGradingScales().then(setScales).catch(console.error); }, []);
 
   async function handleProcessInbox() {
     const result = await processInbox();
@@ -129,7 +132,10 @@ export default function FeedbackPage() {
                 </div>
                 <p className="text-sm text-muted">{item.assignment_title}</p>
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.25rem' }}>
-                  {item.score != null && <span className="text-sm">Score: {item.score}{item.max_points ? `/${item.max_points}` : ''}</span>}
+                  {item.score != null && (() => {
+                    const lbl = gradeLabel({ score: item.score, max_points: item.max_points, grading_scale_id: item.grading_scale_id, scales });
+                    return <span className="text-sm" style={lbl.kind === 'mismatch' ? { color: 'var(--danger)' } : null} title={lbl.kind === 'mismatch' ? 'Score does not match any defined level on this grading scale — check Schoology' : undefined}>Score: {lbl.text}</span>;
+                  })()}
                   {item.flag_for_review ? <span className="badge badge-red">Flagged</span> : null}
                   <span className="text-sm text-muted" style={{ marginLeft: 'auto' }}>{new Date(item.created_at).toLocaleDateString()}</span>
                 </div>
@@ -142,6 +148,7 @@ export default function FeedbackPage() {
             {selected ? (
               <FeedbackDetail
                 item={selected}
+                scales={scales}
                 onApprove={() => handleApprove(selected.id)}
                 onDelete={() => handleDelete(selected.id)}
                 onUpdate={() => { loadDetail(selected.id); reload(); }}
@@ -161,7 +168,7 @@ export default function FeedbackPage() {
   }
 }
 
-function FeedbackDetail({ item, onApprove, onDelete, onUpdate }) {
+function FeedbackDetail({ item, scales, onApprove, onDelete, onUpdate }) {
   const [editing, setEditing] = useState(false);
   const [narrative, setNarrative] = useState('');
   const [score, setScore] = useState('');
@@ -221,7 +228,11 @@ function FeedbackDetail({ item, onApprove, onDelete, onUpdate }) {
               {item.max_points && <span className="text-muted"> / {item.max_points}</span>}
             </label>
           ) : (
-            <p className="text-sm"><strong>Score:</strong> {item.score ?? 'Not set'}{item.max_points ? ` / ${item.max_points}` : ''}</p>
+            (() => {
+              if (item.score == null) return <p className="text-sm"><strong>Score:</strong> Not set</p>;
+              const lbl = gradeLabel({ score: item.score, max_points: item.max_points, grading_scale_id: item.grading_scale_id, scales });
+              return <p className="text-sm" style={lbl.kind === 'mismatch' ? { color: 'var(--danger)' } : null}><strong>Score:</strong> {lbl.text}</p>;
+            })()
           )}
         </div>
 
@@ -334,7 +345,10 @@ function FeedbackDetail({ item, onApprove, onDelete, onUpdate }) {
                   <span className="text-sm text-muted">Version {i + 1} — {h.status}</span>
                   <span className="text-sm text-muted">{new Date(h.changed_at).toLocaleString()}</span>
                 </div>
-                {h.score != null && <p className="text-sm">Score: {h.score}</p>}
+                {h.score != null && (() => {
+                  const lbl = gradeLabel({ score: h.score, max_points: item.max_points, grading_scale_id: item.grading_scale_id, scales });
+                  return <p className="text-sm" style={lbl.kind === 'mismatch' ? { color: 'var(--danger)' } : null}>Score: {lbl.text}</p>;
+                })()}
                 <p className="text-sm" style={{ whiteSpace: 'pre-wrap' }}>{hFb.narrative_feedback || '(no narrative)'}</p>
                 {hFb.narrative_feedback !== fb.narrative_feedback && (
                   <p className="text-sm" style={{ color: 'var(--accent)', marginTop: '0.25rem' }}>

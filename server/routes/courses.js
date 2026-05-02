@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
+import { getGradingScalesMap } from '../db/scales.js';
 import { apiGet } from '../services/schoology.js';
 import { syncSectionData } from '../services/sync.js';
 
@@ -101,7 +102,13 @@ router.get('/:id/gradebook', (req, res) => {
   const db = getDb();
 
   const assignments = db.prepare(`
-    SELECT a.id, a.title, a.max_points, a.due_date, a.grading_category_id, a.grading_scale_id, a.folder_id
+    SELECT a.id, a.title, a.max_points, a.due_date, a.grading_category_id, a.grading_scale_id, a.folder_id,
+           a.schoology_assignment_id,
+           CASE WHEN EXISTS (
+             SELECT 1 FROM mastery_alignments ma WHERE ma.assignment_schoology_id = a.schoology_assignment_id
+             UNION
+             SELECT 1 FROM mastery_scores ms WHERE ms.assignment_schoology_id = a.schoology_assignment_id
+           ) THEN 1 ELSE 0 END AS aligned
     FROM assignments a
     LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
     LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
@@ -139,7 +146,7 @@ router.get('/:id/gradebook', (req, res) => {
     gradeMap[g.student_id][g.assignment_id] = g;
   }
 
-  res.json({ assignments, students, grades: gradeMap });
+  res.json({ assignments, students, grades: gradeMap, grading_scales: getGradingScalesMap() });
 });
 
 // POST /api/courses/import — fetch a past course from Schoology and sync it

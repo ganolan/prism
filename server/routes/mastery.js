@@ -285,18 +285,33 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
   const { courseId, assignmentId } = req.params;
   const db = getDb();
 
-  // Derive topics from actual scores for published assignments in this course
-  const topics = db.prepare(`
+  // Aligned topics for THIS assignment, sourced from the authoritative
+  // mastery_alignments table. Falls back to topics that have any score for
+  // this assignment if alignments haven't been synced yet — so a freshly
+  // aligned assignment with no grades still renders its rubric.
+  let topics = db.prepare(`
     SELECT DISTINCT mt.*, rc.title AS category_title, rc.external_id AS category_external_id
     FROM measurement_topics mt
     JOIN reporting_categories rc ON rc.id = mt.category_id
     WHERE mt.id IN (
-      SELECT DISTINCT ms.topic_id FROM mastery_scores ms
-      JOIN assignments a ON a.schoology_assignment_id = ms.assignment_schoology_id
-      WHERE a.course_id = ? AND a.published = 1
+      SELECT ma.topic_id FROM mastery_alignments ma
+      WHERE ma.assignment_schoology_id = ? AND ma.course_id = ?
     )
     ORDER BY rc.external_id, mt.external_id
-  `).all(courseId);
+  `).all(assignmentId, courseId);
+
+  if (topics.length === 0) {
+    topics = db.prepare(`
+      SELECT DISTINCT mt.*, rc.title AS category_title, rc.external_id AS category_external_id
+      FROM measurement_topics mt
+      JOIN reporting_categories rc ON rc.id = mt.category_id
+      WHERE mt.id IN (
+        SELECT DISTINCT ms.topic_id FROM mastery_scores ms
+        WHERE ms.assignment_schoology_id = ?
+      )
+      ORDER BY rc.external_id, mt.external_id
+    `).all(assignmentId);
+  }
 
   const assignmentRow = db.prepare(`
     SELECT * FROM assignments WHERE schoology_assignment_id = ? AND course_id = ?

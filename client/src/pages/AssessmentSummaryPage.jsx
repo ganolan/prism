@@ -289,14 +289,7 @@ export default function AssessmentSummaryPage() {
 
   const { assignment, topics, students } = data;
 
-  // Filter to only topics aligned to this assignment (any student has a score for it)
-  const alignedTopicIds = new Set();
-  for (const s of students) {
-    for (const topicId of Object.keys(s.scores)) {
-      alignedTopicIds.add(topicId);
-    }
-  }
-  const alignedTopics = topics.filter(t => alignedTopicIds.has(String(t.id)));
+  const alignedTopics = topics;
 
   return (
     <div className="fade-in">

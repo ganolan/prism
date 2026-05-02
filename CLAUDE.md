@@ -76,3 +76,17 @@ npm run test:api   # Schoology API smoke test
 - Schema uses `CREATE TABLE IF NOT EXISTS` for safe idempotent creation via `getDb()`.
 - The school uses standards-based grading with measurement topics from PowerSchool. Per-topic ratings are NOT available via Schoology API — see `.claude/schoology-api-reference.md` for full details.
 - Phase 5 (Schoology write-back) is on hold pending a safe testing strategy.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues on `ganolan/prism` (uses the `gh` CLI). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default canonical labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout — `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.

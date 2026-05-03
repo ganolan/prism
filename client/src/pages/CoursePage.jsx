@@ -4,8 +4,10 @@ import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, trigge
 import AnalyticsView from '../components/AnalyticsView.jsx';
 import OverridePopup, { LEVEL_COLORS } from '../components/OverridePopup.jsx';
 import { computeLetterGrade, LetterGradePopup, LETTER_GRADE_COLORS } from '../components/MasteryPerformanceSummary.jsx';
-import { gradeLabel } from '../lib/gradeLabel.js';
+import { gradeLabel, submissionStatus } from '../lib/gradeLabel.js';
 import { masteryCodeForLevel } from '../lib/masteryLevels.js';
+
+const SHORT_BADGE = { late: 'L', draft: 'D', missing: 'M', 'not-started': 'NS', submitted: 'S' };
 
 function pointsToLevel(points) {
   if (points == null) return null;
@@ -448,7 +450,21 @@ function GradebookView({ data }) {
               </td>
               {assignments.map(a => {
                 const g = grades[s.id]?.[a.id];
-                if (!g) return <td key={a.id} style={{ textAlign: 'center' }}>—</td>;
+                if (!g) {
+                  // No grade row exists — student is enrolled but Schoology has
+                  // recorded no activity for this assignment. Past-due → Missing.
+                  const empty = submissionStatus({
+                    score: null, exception: 0, late: 0, draft: 0,
+                    submitted_at: 0, due_date: a.due_date,
+                  });
+                  if (!empty.length) return <td key={a.id} style={{ textAlign: 'center' }}>—</td>;
+                  return (
+                    <td key={a.id} style={{ textAlign: 'center', whiteSpace: 'nowrap' }} title="Past due — student has not opened or submitted">
+                      <span className="badge badge-red" style={{ fontSize: '0.55rem' }}>M</span>
+                      <span className="badge badge-pink" style={{ fontSize: '0.55rem', marginLeft: 3 }}>NS</span>
+                    </td>
+                  );
+                }
                 // Aligned (summative) assignments don't get scale-aware labels —
                 // the meaningful display is the per-topic mastery rubric (shown
                 // on the assessment page; future: rubric icon hover here). For
@@ -467,10 +483,20 @@ function GradebookView({ data }) {
                 const inner = c
                   ? <span style={{ background: c.bg, color: c.text, border: `1px solid ${c.border}`, padding: '0.1rem 0.4rem', borderRadius: 4, fontWeight: 500, display: 'inline-block', minWidth: 24 }}>{text}</span>
                   : text;
+                const status = submissionStatus({
+                  score: g.score, exception: g.exception, late: g.late, draft: g.draft,
+                  submitted_at: g.submitted_at, due_date: a.due_date,
+                });
+                // Don't double up exception text — gradeLabel already shows it.
+                const inlineBadges = status.filter(b => b.kind !== 'exception');
                 return (
                   <td key={a.id} style={cellStyle} title={lbl.kind === 'mismatch' ? 'Score does not match any defined level on this grading scale — check Schoology' : (g.grade_comment || '')}>
                     {inner}
-                    {g.late && lbl.kind !== 'exception' ? <span className="badge badge-red" style={{ fontSize: '0.55rem', marginLeft: 3 }}>L</span> : null}
+                    {inlineBadges.map(b => (
+                      <span key={b.kind} className={`badge ${b.tone === 'red' ? 'badge-red' : b.tone === 'blue' ? 'badge-blue' : 'badge-pink'}`} style={{ fontSize: '0.55rem', marginLeft: 3 }} title={b.label}>
+                        {SHORT_BADGE[b.kind] || b.label[0]}
+                      </span>
+                    ))}
                   </td>
                 );
               })}

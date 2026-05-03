@@ -133,7 +133,7 @@ router.get('/:id/gradebook', (req, res) => {
   `).all(req.params.id);
 
   const grades = db.prepare(`
-    SELECT g.student_id, g.assignment_id, g.score, g.max_score, g.grade_comment, g.exception, g.late, g.draft, g.comment_status
+    SELECT g.student_id, g.assignment_id, g.score, g.max_score, g.grade_comment, g.exception, g.late, g.draft, g.submitted_at, g.comment_status
     FROM grades g
     JOIN assignments a ON a.id = g.assignment_id
     WHERE a.course_id = ?

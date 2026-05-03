@@ -36,17 +36,27 @@ router.get('/:id', (req, res) => {
     ORDER BY c.course_name
   `).all(req.params.id);
 
+  // LEFT JOIN grades so untouched assignments still appear (with null score).
+  // hasGradeRow lets the client distinguish "no engagement" (no row) from
+  // "row exists but no score yet" — relevant for OneDrive missing detection.
   const grades = db.prepare(`
-    SELECT g.*, a.title as assignment_title, a.due_date, a.max_points as assignment_max_points,
-           a.grading_scale_id, a.display_weight, a.schoology_assignment_id,
-           c.course_name, c.id as course_id
-    FROM grades g
-    JOIN assignments a ON a.id = g.assignment_id
-    JOIN courses c ON c.id = a.course_id
+    SELECT
+      g.id, g.score, g.max_score, g.grade_comment, g.comment_status,
+      g.exception, g.late, g.draft, g.submitted_at,
+      a.id as assignment_id,
+      a.title as assignment_title, a.due_date, a.max_points as assignment_max_points,
+      a.grading_scale_id, a.display_weight, a.schoology_assignment_id,
+      c.course_name, c.id as course_id,
+      CASE WHEN g.id IS NOT NULL THEN 1 ELSE 0 END as has_grade_row
+    FROM enrolments e
+    JOIN courses c ON c.id = e.course_id
+    JOIN assignments a ON a.course_id = c.id AND a.published = 1
+    LEFT JOIN grades g ON g.student_id = e.student_id AND g.assignment_id = a.id
     LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
     LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
-    WHERE g.student_id = ? AND a.published = 1
+    WHERE e.student_id = ?
     ORDER BY
+      c.course_name,
       CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN a.display_weight
            WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN COALESCE(fp.display_weight, 0)
            ELSE COALESCE(f.display_weight, a.display_weight) END ASC,

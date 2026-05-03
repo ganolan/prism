@@ -82,7 +82,6 @@ export const getGradingScales = () => request('/grading-scales');
 // Analytics
 export const getCourseAnalytics = (id) => request(`/analytics/course/${id}`);
 export const getStudentAnalytics = (id, threshold) => request(`/analytics/student/${id}?threshold=${threshold || 15}`);
-export const runAutoFlags = (courseId, opts) => request(`/analytics/auto-flags/${courseId}`, { method: 'POST', body: JSON.stringify(opts || {}) });
 
 // Feedback
 export const getFeedback = (params) => { const qs = new URLSearchParams(params).toString(); return request(`/feedback${qs ? `?${qs}` : ''}`); };

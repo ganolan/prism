@@ -120,9 +120,17 @@ export async function getSectionCompletion(sectionId) {
   return data?.completion || [];
 }
 
+// Returns the latest revision (highest revision_id) or null if none.
+// For lti_submission (OneDrive/GDrive) assignments, a revision with draft=1
+// indicates the student opened the linked doc and has work in progress but
+// has not submitted. An empty array means either "never opened" or — for
+// OneDrive submitted state — "submitted" (the public API does not expose
+// post-submit revisions for OneDrive); use grade row presence to disambiguate.
 export async function getSubmissionStatus(sectionId, assignmentId, userId) {
   const data = await apiGet(`/sections/${sectionId}/submissions/${assignmentId}/${userId}`);
-  return data?.revision || [];
+  const revisions = data?.revision || [];
+  if (!revisions.length) return null;
+  return revisions.reduce((m, r) => (r.revision_id > m.revision_id ? r : m));
 }
 
 export async function pushGradeComments(sectionId, gradeUpdates) {

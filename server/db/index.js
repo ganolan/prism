@@ -41,6 +41,10 @@ export function getDb() {
       `ALTER TABLE grades ADD COLUMN draft INTEGER DEFAULT 0`,
       `ALTER TABLE assignments ADD COLUMN published INTEGER DEFAULT 1`,
       `ALTER TABLE assignments ADD COLUMN display_weight INTEGER DEFAULT 0`,
+      // Issue #13 follow-up: distinguish submitted-awaiting-grade from
+      // never-opened on OneDrive/GDrive assignments. grade.timestamp is
+      // non-zero in Schoology only after a submission/grade-entry event.
+      `ALTER TABLE grades ADD COLUMN submitted_at INTEGER DEFAULT 0`,
       // Indexes for issue #13 columns (must run after ALTER TABLEs above)
       `CREATE INDEX IF NOT EXISTS idx_assignments_folder ON assignments(folder_id)`,
       `CREATE INDEX IF NOT EXISTS idx_assignments_grading_category ON assignments(grading_category_id)`,

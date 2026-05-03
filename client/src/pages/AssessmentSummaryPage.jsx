@@ -11,6 +11,7 @@ const LEVEL_LABELS = {
   IE: 'Insufficient Evidence',
 };
 const LEVEL_POINTS = { ED: 100, EX: 75, D: 50, EM: 25, IE: 0 };
+const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
 const LEVEL_COLORS = {
   ED: { bg: '#dbeafe', text: '#1e40af', border: '#93c5fd', activeBg: '#1d4ed8', activeText: '#fff' },
   EX: { bg: '#dcfce7', text: '#166534', border: '#86efac', activeBg: '#16a34a', activeText: '#fff' },
@@ -32,9 +33,18 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState(null);
 
-  const hasPendingChanges = Object.keys(pending).length > 0 || comment !== (student.grade_comment || '');
+  // Exception (Excused/Incomplete/Missing/Late) on the underlying grade locks
+  // the rubric: setting an exception in Schoology deletes the score, so any
+  // proficiency a teacher selected here would be wiped on the next sync.
+  // Until the exception is cleared (in Schoology, today; #40 will add
+  // Prism-side controls), the rubric is read-only.
+  const exceptionLabel = EXCEPTION_LABELS[student.exception];
+  const isLocked = !!exceptionLabel;
+
+  const hasPendingChanges = !isLocked && (Object.keys(pending).length > 0 || comment !== (student.grade_comment || ''));
 
   function selectLevel(topicId, level) {
+    if (isLocked) return;
     const currentGrade = student.scores[topicId]?.grade;
     if (level === currentGrade) {
       // Clicking current — deselect pending
@@ -122,10 +132,19 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
         {saveResult?.startsWith('error') && (
           <span className="badge badge-red" style={{ fontSize: '0.68rem' }}>{saveResult}</span>
         )}
+        {isLocked && (
+          <span className="badge badge-red" style={{ fontSize: '0.68rem' }} title="Exception set in Schoology — score data is deleted while the exception is active">
+            {exceptionLabel} — rubric locked
+          </span>
+        )}
       </div>
 
       {/* Rubric grid */}
-      <div style={{ overflowX: 'auto', padding: '0.75rem 1rem 0' }}>
+      <div style={{
+        overflowX: 'auto', padding: '0.75rem 1rem 0',
+        opacity: isLocked ? 0.45 : 1,
+        pointerEvents: isLocked ? 'none' : 'auto',
+      }}>
         <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.8rem' }}>
           <thead>
             <tr>

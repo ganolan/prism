@@ -3,12 +3,11 @@ import {
   ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ReferenceLine, LineChart,
 } from 'recharts';
-import { getCourseAnalytics, runAutoFlags } from '../services/api.js';
+import { getCourseAnalytics } from '../services/api.js';
 
 export default function AnalyticsView({ id }) {
   const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [autoFlagResult, setAutoFlagResult] = useState(null);
 
   function reload() {
     setLoading(true);
@@ -19,11 +18,6 @@ export default function AnalyticsView({ id }) {
   }
 
   useEffect(() => { reload(); }, [id]);
-
-  async function handleAutoFlags() {
-    const result = await runAutoFlags(id);
-    setAutoFlagResult(result);
-  }
 
   if (loading) return <div className="loading">Loading analytics...</div>;
 
@@ -90,21 +84,6 @@ export default function AnalyticsView({ id }) {
         </>
       )}
 
-      <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-          <h3>Auto-Flags</h3>
-          <button className="primary" onClick={handleAutoFlags}>Run Auto-Flags</button>
-        </div>
-        {autoFlagResult && (
-          <div className="alert alert-success">
-            <p className="text-sm">Created {autoFlagResult.flagsCreated} flags</p>
-            {autoFlagResult.details.slice(0, 5).map((d, i) => (
-              <p key={i} className="text-sm text-muted">{d.student}: {d.type} — {d.assignment || d.reason}</p>
-            ))}
-            {autoFlagResult.details.length > 5 && <p className="text-sm text-muted">...and {autoFlagResult.details.length - 5} more</p>}
-          </div>
-        )}
-      </div>
     </div>
   );
 }

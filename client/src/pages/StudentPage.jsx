@@ -8,7 +8,7 @@ import {
 import StudentAnalytics from '../components/StudentAnalytics.jsx';
 import MasteryPerformanceSummary from '../components/MasteryPerformanceSummary.jsx';
 import { LEVEL_COLORS } from '../components/OverridePopup.jsx';
-import { gradeLabel } from '../lib/gradeLabel.js';
+import { gradeLabel, submissionStatus } from '../lib/gradeLabel.js';
 import { masteryCodeForLevel } from '../lib/masteryLevels.js';
 
 const LEVELS = ['ED', 'EX', 'D', 'EM', 'IE'];
@@ -114,6 +114,7 @@ function CopyButton({ text, label }) {
 }
 
 const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
+const TONE_CLASS = { red: 'badge-red', blue: 'badge-blue', amber: 'badge-pink', neutral: 'badge-gray' };
 
 function gradYearToLevel(gradYear) {
   if (!gradYear) return null;
@@ -181,9 +182,16 @@ function CourseSection({ course, grades, flagsByAssignment, studentUid, scales }
             <tbody>
               {grades.map(g => {
                 const assignmentFlags = flagsByAssignment?.[g.assignment_id] || [];
-                const exLabel = g.exception ? EXCEPTION_LABELS[g.exception] : null;
                 const aligned = g.mastery?.topics?.length > 0;
                 const assessmentHref = `/course/${g.course_id}/assessment/${g.schoology_assignment_id}`;
+                const statusBadges = submissionStatus({
+                  score: g.score,
+                  exception: g.exception,
+                  late: g.late,
+                  draft: g.draft,
+                  submitted_at: g.submitted_at,
+                  due_date: g.due_date,
+                });
                 const infoCell = (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                     {/* Name (link only when aligned) */}
@@ -199,9 +207,9 @@ function CourseSection({ course, grades, flagsByAssignment, studentUid, scales }
                     {/* Due + flags row */}
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
                       <span className="text-xs text-muted">Due: {g.due_date || '—'}</span>
-                      {g.late ? <span className="badge badge-red" style={{ fontSize: '0.65rem' }}>Late</span> : null}
-                      {g.draft ? <span className="badge badge-blue" style={{ fontSize: '0.65rem' }}>Draft</span> : null}
-                      {exLabel && g.exception !== 4 && <span className={`badge ${g.exception === 3 ? 'badge-red' : 'badge-blue'}`} style={{ fontSize: '0.65rem' }}>{exLabel}</span>}
+                      {statusBadges.map(b => (
+                        <span key={b.kind} className={`badge ${TONE_CLASS[b.tone]}`} style={{ fontSize: '0.65rem' }}>{b.label}</span>
+                      ))}
                       {assignmentFlags.map(flag => {
                         const flagReason = formatFlagReason(flag);
                         const showReason = flagReason && flagReason !== g.assignment_title;
@@ -218,7 +226,7 @@ function CourseSection({ course, grades, flagsByAssignment, studentUid, scales }
                   </div>
                 );
                 return (
-                  <Fragment key={g.id}>
+                  <Fragment key={`${g.course_id}-${g.assignment_id}`}>
                     <tr style={{ borderTop: '1px solid var(--border)' }}>
                       {aligned ? (
                         /* Aligned: name + due/flags span both columns; rubric goes below */
@@ -251,7 +259,25 @@ function CourseSection({ course, grades, flagsByAssignment, studentUid, scales }
                       <tr>
                         <td colSpan={2} style={{ padding: '0.25rem 0.25rem 0.5rem', borderTop: 'none' }}>
                           <div style={{ width: '100%' }}>
-                            <CompactRubric topics={g.mastery.topics} />
+                            {/* Exception (Excused/Incomplete/Missing/Late) deletes
+                                score data in Schoology, so the rubric is hidden
+                                while the exception is active — show the label
+                                in its place. */}
+                            {EXCEPTION_LABELS[g.exception] ? (
+                              <div className="text-sm" style={{
+                                padding: '0.5rem 0.75rem',
+                                background: 'var(--bg-subtle)',
+                                border: '1px dashed var(--border)',
+                                borderRadius: 6,
+                                color: 'var(--text-muted)',
+                                fontStyle: 'italic',
+                              }}>
+                                <strong style={{ fontStyle: 'normal', color: 'var(--danger)' }}>{EXCEPTION_LABELS[g.exception]}</strong>
+                                {' — rubric hidden because Schoology deletes scores when an exception is set.'}
+                              </div>
+                            ) : (
+                              <CompactRubric topics={g.mastery.topics} />
+                            )}
                           </div>
                         </td>
                       </tr>

@@ -10,6 +10,7 @@ import {
   getSectionGradingCategories,
   getSectionGradingScales,
   getUserProfile,
+  getSubmissionStatus,
 } from './schoology.js';
 
 // Sync enrollments, assignments, and grades for one section.
@@ -74,17 +75,20 @@ export async function syncSectionData(db, sectionId, courseId, now) {
   }
 
   const grades = await getSectionGrades(sectionId);
+  // Note: late/draft are owned by the submission-status sync (below) and are
+  // intentionally NOT updated on conflict here. Grade sync seeds them to 0
+  // on initial insert; submission sync overwrites them with authoritative
+  // values from /sections/{id}/submissions/{aid}/{uid}.
   const upsertGrade = db.prepare(`
-    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, grade_comment, comment_status, exception, late, draft, synced_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, grade_comment, comment_status, exception, submitted_at, late, draft, synced_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)
     ON CONFLICT(student_id, assignment_id) DO UPDATE SET
       score = excluded.score,
       max_score = excluded.max_score,
       grade_comment = excluded.grade_comment,
       comment_status = excluded.comment_status,
       exception = excluded.exception,
-      late = excluded.late,
-      draft = excluded.draft,
+      submitted_at = excluded.submitted_at,
       synced_at = excluded.synced_at
   `);
 
@@ -109,13 +113,58 @@ export async function syncSectionData(db, sectionId, courseId, now) {
     if (!studentId) continue;
     const assignRow = db.prepare('SELECT id, max_points FROM assignments WHERE schoology_assignment_id = ?').get(String(g.assignment_id));
     if (!assignRow) continue;
-    // exception=4 means late in Schoology
-    const isLate = (g.exception === 4 || g.exception === '4') ? 1 : 0;
-    upsertGrade.run(studentId, assignRow.id, enrollmentId, g.grade ?? null, g.max_points ?? assignRow.max_points ?? null, g.comment || null, g.comment_status ?? null, g.exception ?? 0, isLate, 0, now);
+    upsertGrade.run(studentId, assignRow.id, enrollmentId, g.grade ?? null, g.max_points ?? assignRow.max_points ?? null, g.comment || null, g.comment_status ?? null, g.exception ?? 0, Number(g.timestamp) || 0, now);
     gradesCount++;
   }
 
-  return { studentsCount: studentEnrollments.length, assignmentsCount: assignments.length, gradesCount };
+  // Submission status sync: authoritative late/draft from
+  // /sections/{id}/submissions/{aid}/{uid}. Only runs for assignments with a
+  // dropbox; saves API calls on assignments students can't submit to.
+  // For OneDrive/GDrive (lti_submission), a revision with draft=1 means
+  // "opened, work in progress, not submitted" — exactly the state we want
+  // to surface in the UI. Empty revision array means either never-opened or
+  // already-submitted (indistinguishable from this endpoint for OneDrive).
+  const dropboxAssignments = assignments.filter(a => a.allow_dropbox === '1' || a.allow_dropbox === 1);
+  const upsertSubmissionStatus = db.prepare(`
+    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, exception, late, draft, synced_at)
+    VALUES (?, ?, ?, NULL, ?, 0, ?, ?, ?)
+    ON CONFLICT(student_id, assignment_id) DO UPDATE SET
+      late = excluded.late,
+      draft = excluded.draft,
+      synced_at = excluded.synced_at
+  `);
+  const clearSubmissionStatus = db.prepare(`
+    UPDATE grades SET late = 0, draft = 0, synced_at = ?
+    WHERE student_id = ? AND assignment_id = ?
+  `);
+
+  let submissionCount = 0;
+  for (const a of dropboxAssignments) {
+    const assignRow = db.prepare('SELECT id, max_points FROM assignments WHERE schoology_assignment_id = ?').get(String(a.id));
+    if (!assignRow) continue;
+    for (const e of studentEnrollments) {
+      const studentRow = db.prepare('SELECT id FROM students WHERE schoology_uid = ?').get(String(e.uid));
+      if (!studentRow) continue;
+      let revision;
+      try {
+        revision = await getSubmissionStatus(sectionId, String(a.id), String(e.uid));
+      } catch { continue; }
+      if (revision) {
+        upsertSubmissionStatus.run(
+          studentRow.id, assignRow.id, String(e.id),
+          assignRow.max_points ?? null,
+          revision.late ? 1 : 0,
+          revision.draft ? 1 : 0,
+          now,
+        );
+        submissionCount++;
+      } else {
+        clearSubmissionStatus.run(now, studentRow.id, assignRow.id);
+      }
+    }
+  }
+
+  return { studentsCount: studentEnrollments.length, assignmentsCount: assignments.length, gradesCount, submissionCount };
 }
 
 // Full sync: sections -> enrollments -> assignments -> grades
@@ -214,7 +263,7 @@ export async function fullSync(onProgress) {
 
       log(`Syncing "${sec.course_title}"...`);
       const result = await syncSectionData(db, sectionId, courseRow.id, now);
-      totalRecords += result.studentsCount + result.assignmentsCount + result.gradesCount;
+      totalRecords += result.studentsCount + result.assignmentsCount + result.gradesCount + (result.submissionCount || 0);
 
       // Sync folders
       try {

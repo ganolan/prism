@@ -351,9 +351,12 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
     AND topic_id IN (${topics.map(() => '?').join(',')})
   `).all(assignmentId, ...topics.map(t => t.id)) : [];
 
-  // Grade comments from the regular grades table
-  const comments = db.prepare(`
-    SELECT s.schoology_uid, g.grade_comment
+  // Grade comments + exception from the regular grades table.
+  // Exception (1=Excused, 2=Incomplete, 3=Missing, 4=Late) deletes any
+  // existing score in Schoology when set — surfaced on the assessment page so
+  // the rubric can be locked while an exception is active.
+  const commentsAndExceptions = db.prepare(`
+    SELECT s.schoology_uid, g.grade_comment, g.exception
     FROM grades g
     JOIN students s ON s.id = g.student_id
     JOIN assignments a ON a.id = g.assignment_id
@@ -361,7 +364,11 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
   `).all(assignmentId);
 
   const commentMap = {};
-  for (const c of comments) commentMap[c.schoology_uid] = c.grade_comment || '';
+  const exceptionMap = {};
+  for (const c of commentsAndExceptions) {
+    commentMap[c.schoology_uid] = c.grade_comment || '';
+    exceptionMap[c.schoology_uid] = c.exception ?? 0;
+  }
 
   const scoreMap = {};
   for (const sc of scores) {
@@ -376,6 +383,7 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
       ...s,
       scores: scoreMap[s.schoology_uid] || {},
       grade_comment: commentMap[s.schoology_uid] || '',
+      exception: exceptionMap[s.schoology_uid] || 0,
     })),
   });
 });

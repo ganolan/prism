@@ -396,6 +396,14 @@ export default function StudentPage() {
 
   const [flagReason, setFlagReason] = useState('');
   const [flagType, setFlagType] = useState('custom');
+  const [photoEnlarged, setPhotoEnlarged] = useState(false);
+
+  useEffect(() => {
+    if (!photoEnlarged) return;
+    function onKey(e) { if (e.key === 'Escape') setPhotoEnlarged(false); }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [photoEnlarged]);
 
   function reload() {
     getStudent(id)
@@ -498,7 +506,8 @@ export default function StudentPage() {
               {student.picture_url && (
                 <img
                   src={student.picture_url} alt={displayName}
-                  style={{ width: 144, height: 144, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: '2px solid var(--border)' }}
+                  style={{ width: 144, height: 144, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: '2px solid var(--border)', cursor: 'zoom-in' }}
+                  onClick={() => setPhotoEnlarged(true)}
                   onError={e => { e.currentTarget.style.display = 'none'; }}
                 />
               )}
@@ -744,6 +753,31 @@ export default function StudentPage() {
 
       {student.grades.length === 0 && (
         <div className="card"><p className="text-muted">No grades yet.</p></div>
+      )}
+
+      {photoEnlarged && student.picture_url && (
+        <div
+          onClick={() => setPhotoEnlarged(false)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 1000, cursor: 'zoom-out', padding: '2rem',
+          }}
+        >
+          <img
+            src={student.picture_url} alt={displayName}
+            onLoad={e => {
+              const img = e.currentTarget;
+              img.style.width = `${img.naturalWidth * 2}px`;
+              img.style.height = `${img.naturalHeight * 2}px`;
+            }}
+            style={{
+              maxWidth: '90vw', maxHeight: '90vh',
+              objectFit: 'contain', boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+            }}
+            onClick={e => e.stopPropagation()}
+          />
+        </div>
       )}
     </div>
   );

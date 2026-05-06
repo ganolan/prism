@@ -78,18 +78,24 @@ router.get('/:courseId/student/:studentUid', (req, res) => {
   const { courseId, studentUid } = req.params;
   const db = getDb();
 
-  // Derive topics from actual scores for published assignments in this course (handles shared topics across courses)
+  // Topics that are either aligned to a published assignment in this course
+  // OR have a score for one. Alignments alone are enough — they let the UI
+  // render a topic column with "Pending" cells before any grades exist.
   const topics = db.prepare(`
     SELECT DISTINCT mt.*, rc.title AS category_title, rc.external_id AS category_external_id
     FROM measurement_topics mt
     JOIN reporting_categories rc ON rc.id = mt.category_id
     WHERE mt.id IN (
-      SELECT DISTINCT ms.topic_id FROM mastery_scores ms
+      SELECT ma.topic_id FROM mastery_alignments ma
+      JOIN assignments a ON a.schoology_assignment_id = ma.assignment_schoology_id
+      WHERE ma.course_id = ? AND a.published = 1
+      UNION
+      SELECT ms.topic_id FROM mastery_scores ms
       JOIN assignments a ON a.schoology_assignment_id = ms.assignment_schoology_id
       WHERE a.course_id = ? AND a.published = 1
     )
     ORDER BY rc.external_id, mt.external_id
-  `).all(courseId);
+  `).all(courseId, courseId);
 
   const topicIds = topics.map(t => t.id);
   const scores = topicIds.length > 0 ? db.prepare(`

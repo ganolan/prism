@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
 import { syncMasteryForCourse, syncMasteryForAssignment, writeMasteryScores, writeMasteryOverride, getMasteryForCourse, getRubricScoresForStudent, interactiveLogin } from '../services/masterySync.js';
-import { pushGradeComments } from '../services/schoology.js';
+import { pushGradeComments, getSectionGrades } from '../services/schoology.js';
 
 const router = Router();
 const syncsInProgress = new Set();
@@ -407,12 +407,57 @@ router.post('/:courseId/write-comment', async (req, res) => {
   const courseRow = db.prepare('SELECT schoology_section_id FROM courses WHERE id = ?').get(courseId);
   if (!courseRow) return res.status(404).json({ error: 'Course not found' });
 
+  // PUT /sections/{id}/grades replaces the grade record. Sending a payload
+  // without `grade` wipes the existing grade — and for rubric-aligned
+  // assignments that wipe also clears the underlying mastery observations on
+  // Schoology. Always echo back the current grade, exception, and
+  // comment_status so the PUT acts as a comment-only update.
+  //
+  // We MUST read this fresh from Schoology, not from the local grades table.
+  // The client sends rubric scores via writeMasteryScores immediately before
+  // the comment write, so the local DB is stale by the time we get here, and
+  // for brand-new students it may have no row at all. Echoing the stale/null
+  // grade reproduced the original #46 wipe — see commit history.
+  let fresh = null;
   try {
-    const result = await pushGradeComments(courseRow.schoology_section_id, [{
-      assignment_id: String(assignmentId),
-      enrollment_id: String(enrollmentId),
-      comment: comment || '',
-    }]);
+    const allGrades = await getSectionGrades(courseRow.schoology_section_id);
+    fresh = allGrades.find(g =>
+      String(g.assignment_id) === String(assignmentId) &&
+      String(g.enrollment_id) === String(enrollmentId)
+    ) || null;
+  } catch (err) {
+    console.warn(`[mastery write-comment] fresh grade lookup failed: ${err.message}`);
+  }
+
+  const payload = {
+    assignment_id: String(assignmentId),
+    enrollment_id: String(enrollmentId),
+    comment: comment || '',
+    comment_status: 1,
+  };
+  if (fresh && fresh.grade != null) payload.grade = String(fresh.grade);
+  if (fresh && fresh.exception != null) payload.exception = fresh.exception;
+
+  try {
+    const result = await pushGradeComments(courseRow.schoology_section_id, [payload]);
+
+    // Mirror the just-confirmed comment into our local grades row so the UI
+    // re-fetch immediately reflects the update — without this the comment
+    // appears "lost" in Prism after Save (it's only persisted on Schoology
+    // and the regular grades sync hasn't been re-run).
+    db.prepare(`
+      UPDATE grades
+      SET grade_comment = ?, comment_status = 1
+      WHERE student_id = (
+        SELECT s.id FROM students s
+        JOIN enrolments e ON e.student_id = s.id
+        WHERE e.schoology_enrolment_id = ?
+      )
+      AND assignment_id = (
+        SELECT id FROM assignments WHERE schoology_assignment_id = ?
+      )
+    `).run(comment || '', String(enrollmentId), String(assignmentId));
+
     res.json(result);
   } catch (err) {
     console.error('[mastery write-comment] Error:', err);

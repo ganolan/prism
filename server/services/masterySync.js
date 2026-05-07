@@ -19,6 +19,7 @@ import { chromium } from 'playwright';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { getDb } from '../db/index.js';
+import { getSectionGrades } from './schoology.js';
 
 const SCHOOLOGY_BASE = 'https://schoology.hkis.edu.hk';
 const GRADING_SCALE_ID = 21337256; // HKIS General Academic Scale
@@ -690,7 +691,43 @@ export async function syncMasteryForAssignment(courseId, assignmentId) {
       }
     }
 
-    return { topicsCount: topicIds.length, scoresCount };
+    // Also pull grade comments + comment_status + exception + score from the
+    // public grades endpoint for this assignment. Mastery observations alone
+    // don't carry comments, and the assessment-page Refresh button is the
+    // only sync the user runs from there — without this, comments edited in
+    // Schoology never make it back into Prism.
+    let commentsCount = 0;
+    try {
+      const allGrades = await getSectionGrades(sectionId);
+      const forAssignment = allGrades.filter(g => String(g.assignment_id) === String(assignmentId));
+      const updateGrade = db.prepare(`
+        UPDATE grades
+        SET score = ?, grade_comment = ?, comment_status = ?, exception = ?
+        WHERE student_id = (
+          SELECT s.id FROM students s
+          JOIN enrolments e ON e.student_id = s.id
+          WHERE e.schoology_enrolment_id = ?
+        )
+        AND assignment_id = (
+          SELECT id FROM assignments WHERE schoology_assignment_id = ?
+        )
+      `);
+      for (const g of forAssignment) {
+        const info = updateGrade.run(
+          g.grade ?? null,
+          g.comment || null,
+          g.comment_status ?? null,
+          g.exception ?? 0,
+          String(g.enrollment_id),
+          String(assignmentId),
+        );
+        if (info.changes > 0) commentsCount++;
+      }
+    } catch (err) {
+      console.warn(`[mastery sync] grade-comment pull failed for assignment ${assignmentId}: ${err.message}`);
+    }
+
+    return { topicsCount: topicIds.length, scoresCount, commentsCount };
   } finally {
     await browser.close();
   }

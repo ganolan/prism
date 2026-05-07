@@ -291,7 +291,7 @@ export default function AssessmentSummaryPage() {
     setRefreshResult(null);
     try {
       const result = await syncMasteryForAssignment(courseId, assignmentId);
-      setRefreshResult(`Synced ${result.scoresCount ?? 0} scores across ${result.topicsCount ?? 0} topics`);
+      setRefreshResult(`Synced ${result.scoresCount ?? 0} scores across ${result.topicsCount ?? 0} topics${result.commentsCount ? `, ${result.commentsCount} comments` : ''}`);
       load();
     } catch (err) {
       setRefreshResult(`Error: ${err.message}`);

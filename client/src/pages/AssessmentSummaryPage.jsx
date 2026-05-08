@@ -287,6 +287,7 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
               setPending({});
               setComment(student.grade_comment || '');
               setDisplay(loadedDisplay);
+              setAutoFlipArmed(student.has_grade_row !== true);
             }}>
               Discard Changes
             </button>
@@ -308,10 +309,19 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
               role="switch"
               aria-checked={display}
               aria-label="Display to student"
+              tabIndex={isLocked ? -1 : 0}
               onClick={() => {
                 if (isLocked) return;
                 setDisplay(d => !d);
                 setAutoFlipArmed(false);
+              }}
+              onKeyDown={e => {
+                if (isLocked) return;
+                if (e.key === ' ' || e.key === 'Enter') {
+                  e.preventDefault();
+                  setDisplay(d => !d);
+                  setAutoFlipArmed(false);
+                }
               }}
               style={{
                 position: 'relative', width: 36, height: 20,

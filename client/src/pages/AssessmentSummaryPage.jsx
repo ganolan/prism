@@ -31,13 +31,17 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
   const [pending, setPending] = useState({});
   const [comment, setComment] = useState(student.grade_comment || '');
   // Display-to-student toggle (#34). Loaded from grades.comment_status:
-  // 1 → ON, anything else → OFF. For virgin records (no grade row synced
-  // from Schoology) we arm auto-flip so the toggle flips ON the first time
-  // the teacher types a comment or selects a rubric cell. Once the user has
-  // touched the toggle (auto or manual) we disarm.
+  // 1 → ON, anything else → OFF. Auto-flip is armed when the row hasn't been
+  // published yet AND has no comment text — covers virgin records and rows
+  // that exist from a sync but haven't had any meaningful teacher action.
+  // Once the toggle has been touched (auto or manual) we disarm; Schoology's
+  // existing state (already-published rows or rows with saved comments) is
+  // never auto-flipped over.
   const loadedDisplay = student.comment_status === 1;
   const [display, setDisplay] = useState(loadedDisplay);
-  const [autoFlipArmed, setAutoFlipArmed] = useState(student.has_grade_row !== true);
+  const [autoFlipArmed, setAutoFlipArmed] = useState(
+    student.comment_status !== 1 && !student.grade_comment
+  );
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState(null);
 
@@ -289,7 +293,7 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
               setPending({});
               setComment(student.grade_comment || '');
               setDisplay(loadedDisplay);
-              setAutoFlipArmed(student.has_grade_row !== true);
+              setAutoFlipArmed(student.comment_status !== 1 && !student.grade_comment);
             }}>
               Discard Changes
             </button>

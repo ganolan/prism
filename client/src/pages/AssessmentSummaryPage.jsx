@@ -96,6 +96,7 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
 
       const hasScoreChanges = Object.keys(pending).length > 0;
       const hasCommentChange = comment !== (student.grade_comment || '');
+      const hasDisplayChange = display !== loadedDisplay;
 
       if (hasScoreChanges && assignmentRow) {
         await writeMasteryScores(courseId, {
@@ -107,11 +108,12 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
         });
       }
 
-      if (hasCommentChange) {
+      if (hasCommentChange || hasDisplayChange) {
         await writeMasteryComment(courseId, {
           enrollmentId: student.enrollment_id,
           assignmentId,
           comment,
+          commentStatus: display,
         });
       }
       setSaveResult('saved');

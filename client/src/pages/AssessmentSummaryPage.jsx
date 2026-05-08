@@ -57,15 +57,17 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
 
   function selectLevel(topicId, level) {
     if (isLocked) return;
-    if (autoFlipArmed) {
-      setDisplay(true);
-      setAutoFlipArmed(false);
-    }
     const currentGrade = student.scores[topicId]?.grade;
     if (level === currentGrade) {
       // Clicking current — deselect pending
       setPending(p => { const n = { ...p }; delete n[topicId]; return n; });
     } else {
+      // Auto-flip ON the first time a real selection is made for a virgin
+      // record. Deselect clicks (level === currentGrade) don't count.
+      if (autoFlipArmed) {
+        setDisplay(true);
+        setAutoFlipArmed(false);
+      }
       setPending(p => ({ ...p, [topicId]: level }));
     }
   }

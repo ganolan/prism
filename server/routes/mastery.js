@@ -455,22 +455,35 @@ router.post('/:courseId/write-comment', async (req, res) => {
   try {
     const result = await pushGradeComments(courseRow.schoology_section_id, [payload]);
 
-    // Mirror the just-confirmed comment into our local grades row so the UI
-    // re-fetch immediately reflects the update — without this the comment
-    // appears "lost" in Prism after Save (it's only persisted on Schoology
-    // and the regular grades sync hasn't been re-run).
-    db.prepare(`
-      UPDATE grades
-      SET grade_comment = ?, comment_status = ?
-      WHERE student_id = (
-        SELECT s.id FROM students s
-        JOIN enrolments e ON e.student_id = s.id
-        WHERE e.schoology_enrolment_id = ?
-      )
-      AND assignment_id = (
-        SELECT id FROM assignments WHERE schoology_assignment_id = ?
-      )
-    `).run(comment || '', commentStatusInt, String(enrollmentId), String(assignmentId));
+    // Mirror to local DB. Use upsert so virgin records (no prior grade row)
+    // also get cached locally — without this, the assessment page would
+    // re-render with loadedDisplay=false and the toggle would appear unsaved
+    // immediately after save.
+    const studentRow = db.prepare(`
+      SELECT s.id FROM students s
+      JOIN enrolments e ON e.student_id = s.id
+      WHERE e.schoology_enrolment_id = ?
+    `).get(String(enrollmentId));
+    const assignmentRow = db.prepare(`
+      SELECT id FROM assignments WHERE schoology_assignment_id = ?
+    `).get(String(assignmentId));
+    if (studentRow && assignmentRow) {
+      db.prepare(`
+        INSERT INTO grades (student_id, assignment_id, enrolment_id, grade_comment, comment_status, synced_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(student_id, assignment_id) DO UPDATE SET
+          grade_comment = excluded.grade_comment,
+          comment_status = excluded.comment_status,
+          synced_at = excluded.synced_at
+      `).run(
+        studentRow.id,
+        assignmentRow.id,
+        String(enrollmentId),
+        comment || '',
+        commentStatusInt,
+        new Date().toISOString(),
+      );
+    }
 
     res.json(result);
   } catch (err) {

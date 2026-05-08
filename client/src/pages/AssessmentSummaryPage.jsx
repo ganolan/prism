@@ -283,13 +283,52 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
             {saving ? 'Saving...' : 'Update Schoology'}
           </button>
           {hasPendingChanges && !saving && (
-            <button className="ghost" onClick={() => { setPending({}); setComment(student.grade_comment || ''); }}>
+            <button className="ghost" onClick={() => {
+              setPending({});
+              setComment(student.grade_comment || '');
+              setDisplay(loadedDisplay);
+            }}>
               Discard Changes
             </button>
           )}
           {!hasPendingChanges && (
             <span className="text-sm text-muted">No changes</span>
           )}
+          <label
+            style={{
+              marginLeft: 'auto', display: 'inline-flex', alignItems: 'center',
+              gap: '0.5rem', fontSize: '0.78rem', color: 'var(--text-muted)',
+              cursor: isLocked ? 'not-allowed' : 'pointer', userSelect: 'none',
+              opacity: isLocked ? 0.45 : 1,
+            }}
+            title="When ON, the student sees this assignment's grade, comment, and proficiencies on Schoology."
+          >
+            Display to student
+            <span
+              role="switch"
+              aria-checked={display}
+              aria-label="Display to student"
+              onClick={() => {
+                if (isLocked) return;
+                setDisplay(d => !d);
+                setAutoFlipArmed(false);
+              }}
+              style={{
+                position: 'relative', width: 36, height: 20,
+                background: display ? 'var(--accent)' : 'var(--bg-subtle)',
+                border: '1px solid var(--border)', borderRadius: 999,
+                transition: 'background 0.15s',
+                pointerEvents: isLocked ? 'none' : 'auto',
+              }}
+            >
+              <span style={{
+                position: 'absolute', top: 1, left: display ? 17 : 1,
+                width: 16, height: 16, borderRadius: '50%',
+                background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
+                transition: 'left 0.15s',
+              }} />
+            </span>
+          </label>
         </div>
       </div>
     </div>

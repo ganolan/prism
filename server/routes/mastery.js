@@ -357,12 +357,15 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
     AND topic_id IN (${topics.map(() => '?').join(',')})
   `).all(assignmentId, ...topics.map(t => t.id)) : [];
 
-  // Grade comments + exception from the regular grades table.
+  // Grade comments + exception + comment_status from the regular grades table.
   // Exception (1=Excused, 2=Incomplete, 3=Missing, 4=Late) deletes any
   // existing score in Schoology when set — surfaced on the assessment page so
   // the rubric can be locked while an exception is active.
-  const commentsAndExceptions = db.prepare(`
-    SELECT s.schoology_uid, g.grade_comment, g.exception
+  // comment_status drives the Display-to-student toggle (#34): integer 1 = visible,
+  // null/missing = hidden. has_grade_row distinguishes "synced and got null"
+  // from "never synced" so the client can arm auto-flip only for virgin rows.
+  const gradeRows = db.prepare(`
+    SELECT s.schoology_uid, g.grade_comment, g.exception, g.comment_status
     FROM grades g
     JOIN students s ON s.id = g.student_id
     JOIN assignments a ON a.id = g.assignment_id
@@ -371,9 +374,13 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
 
   const commentMap = {};
   const exceptionMap = {};
-  for (const c of commentsAndExceptions) {
+  const commentStatusMap = {};
+  const hasGradeRowMap = {};
+  for (const c of gradeRows) {
     commentMap[c.schoology_uid] = c.grade_comment || '';
     exceptionMap[c.schoology_uid] = c.exception ?? 0;
+    commentStatusMap[c.schoology_uid] = c.comment_status ?? null;
+    hasGradeRowMap[c.schoology_uid] = true;
   }
 
   const scoreMap = {};
@@ -390,6 +397,8 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
       scores: scoreMap[s.schoology_uid] || {},
       grade_comment: commentMap[s.schoology_uid] || '',
       exception: exceptionMap[s.schoology_uid] || 0,
+      comment_status: commentStatusMap[s.schoology_uid] ?? null,
+      has_grade_row: hasGradeRowMap[s.schoology_uid] === true,
     })),
   });
 });

@@ -406,7 +406,7 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
 // POST /api/mastery/:courseId/write-comment — write grade comment back to Schoology
 router.post('/:courseId/write-comment', async (req, res) => {
   const { courseId } = req.params;
-  const { enrollmentId, assignmentId, comment } = req.body;
+  const { enrollmentId, assignmentId, comment, commentStatus } = req.body;
 
   if (!enrollmentId || !assignmentId) {
     return res.status(400).json({ error: 'enrollmentId and assignmentId are required' });
@@ -415,6 +415,11 @@ router.post('/:courseId/write-comment', async (req, res) => {
   const db = getDb();
   const courseRow = db.prepare('SELECT schoology_section_id FROM courses WHERE id = ?').get(courseId);
   if (!courseRow) return res.status(404).json({ error: 'Course not found' });
+
+  // Public OAuth API uses integer 1 = visible, null = hidden.
+  // Map the boolean from the client; default to 1 when omitted so existing
+  // callers (none today) keep their current behaviour.
+  const commentStatusInt = commentStatus === false ? null : 1;
 
   // PUT /sections/{id}/grades replaces the grade record. Sending a payload
   // without `grade` wipes the existing grade — and for rubric-aligned
@@ -442,7 +447,7 @@ router.post('/:courseId/write-comment', async (req, res) => {
     assignment_id: String(assignmentId),
     enrollment_id: String(enrollmentId),
     comment: comment || '',
-    comment_status: 1,
+    comment_status: commentStatusInt,
   };
   if (fresh && fresh.grade != null) payload.grade = String(fresh.grade);
   if (fresh && fresh.exception != null) payload.exception = fresh.exception;
@@ -456,7 +461,7 @@ router.post('/:courseId/write-comment', async (req, res) => {
     // and the regular grades sync hasn't been re-run).
     db.prepare(`
       UPDATE grades
-      SET grade_comment = ?, comment_status = 1
+      SET grade_comment = ?, comment_status = ?
       WHERE student_id = (
         SELECT s.id FROM students s
         JOIN enrolments e ON e.student_id = s.id
@@ -465,7 +470,7 @@ router.post('/:courseId/write-comment', async (req, res) => {
       AND assignment_id = (
         SELECT id FROM assignments WHERE schoology_assignment_id = ?
       )
-    `).run(comment || '', String(enrollmentId), String(assignmentId));
+    `).run(comment || '', commentStatusInt, String(enrollmentId), String(assignmentId));
 
     res.json(result);
   } catch (err) {

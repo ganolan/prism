@@ -30,6 +30,14 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
   // pending: { [topicId]: 'ED'|'EX'|'D'|'EM'|'IE' }
   const [pending, setPending] = useState({});
   const [comment, setComment] = useState(student.grade_comment || '');
+  // Display-to-student toggle (#34). Loaded from grades.comment_status:
+  // 1 → ON, anything else → OFF. For virgin records (no grade row synced
+  // from Schoology) we arm auto-flip so the toggle flips ON the first time
+  // the teacher types a comment or selects a rubric cell. Once the user has
+  // touched the toggle (auto or manual) we disarm.
+  const loadedDisplay = student.comment_status === 1;
+  const [display, setDisplay] = useState(loadedDisplay);
+  const [autoFlipArmed, setAutoFlipArmed] = useState(student.has_grade_row !== true);
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState(null);
 
@@ -41,7 +49,11 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
   const exceptionLabel = EXCEPTION_LABELS[student.exception];
   const isLocked = !!exceptionLabel;
 
-  const hasPendingChanges = !isLocked && (Object.keys(pending).length > 0 || comment !== (student.grade_comment || ''));
+  const hasPendingChanges = !isLocked && (
+    Object.keys(pending).length > 0 ||
+    comment !== (student.grade_comment || '') ||
+    display !== loadedDisplay
+  );
 
   function selectLevel(topicId, level) {
     if (isLocked) return;

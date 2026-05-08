@@ -57,6 +57,10 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
 
   function selectLevel(topicId, level) {
     if (isLocked) return;
+    if (autoFlipArmed) {
+      setDisplay(true);
+      setAutoFlipArmed(false);
+    }
     const currentGrade = student.scores[topicId]?.grade;
     if (level === currentGrade) {
       // Clicking current — deselect pending
@@ -253,7 +257,17 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
         </label>
         <textarea
           value={comment}
-          onChange={e => setComment(e.target.value)}
+          onChange={e => {
+            const next = e.target.value;
+            // Auto-flip ON the first time the comment goes empty → non-empty
+            // for a virgin record. After firing once, autoFlipArmed is cleared
+            // so subsequent edits don't re-flip the toggle.
+            if (autoFlipArmed && comment === '' && next !== '') {
+              setDisplay(true);
+              setAutoFlipArmed(false);
+            }
+            setComment(next);
+          }}
           rows={3}
           style={{ width: '100%', fontSize: '0.82rem', resize: 'vertical', boxSizing: 'border-box' }}
           placeholder="Teacher comment for this student on this assessment..."

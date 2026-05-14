@@ -11,3 +11,4 @@ data/imports/*.csv
 .claude/settings.local.json
 .playwright-session/
 .playwright-mcp/
+scripts/*-capture.json

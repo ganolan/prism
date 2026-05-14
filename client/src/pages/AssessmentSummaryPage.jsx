@@ -45,22 +45,26 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState(null);
 
-  // Exception (Excused/Incomplete/Missing/Late) on the underlying grade locks
-  // the rubric: setting an exception in Schoology deletes the score, so any
+  // Exception (Excused/Incomplete/Missing) on the underlying grade locks the
+  // rubric grid: setting one of these in Schoology deletes the score, so any
   // proficiency a teacher selected here would be wiped on the next sync.
-  // Until the exception is cleared (in Schoology, today; #40 will add
-  // Prism-side controls), the rubric is read-only.
+  // Comments and the Display-to-student toggle stay editable — Schoology
+  // allows those for flagged students, and they add important context for
+  // students/parents. Late (4) doesn't lock anything.
   const exceptionLabel = EXCEPTION_LABELS[student.exception];
-  const isLocked = !!exceptionLabel;
+  // Rubric-locking exceptions only. Schoology disables rubric editing for
+  // Excused/Incomplete/Missing but leaves the comment + display-to-student
+  // flag editable — Prism mirrors that. Late (4) does NOT lock the rubric.
+  const isRubricLocked = student.exception === 1 || student.exception === 2 || student.exception === 3;
 
-  const hasPendingChanges = !isLocked && (
+  const hasPendingChanges = (
     Object.keys(pending).length > 0 ||
     comment !== (student.grade_comment || '') ||
     display !== loadedDisplay
   );
 
   function selectLevel(topicId, level) {
-    if (isLocked) return;
+    if (isRubricLocked) return;
     const currentGrade = student.scores[topicId]?.grade;
     if (level === currentGrade) {
       // Clicking current — deselect pending
@@ -156,7 +160,7 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
         {saveResult?.startsWith('error') && (
           <span className="badge badge-red" style={{ fontSize: '0.68rem' }}>{saveResult}</span>
         )}
-        {isLocked && (
+        {isRubricLocked && (
           <span className="badge badge-red" style={{ fontSize: '0.68rem' }} title="Exception set in Schoology — score data is deleted while the exception is active">
             {exceptionLabel} — rubric locked
           </span>
@@ -166,8 +170,8 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
       {/* Rubric grid */}
       <div style={{
         overflowX: 'auto', padding: '0.75rem 1rem 0',
-        opacity: isLocked ? 0.45 : 1,
-        pointerEvents: isLocked ? 'none' : 'auto',
+        opacity: isRubricLocked ? 0.45 : 1,
+        pointerEvents: isRubricLocked ? 'none' : 'auto',
       }}>
         <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.8rem' }}>
           <thead>
@@ -305,8 +309,7 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
             style={{
               marginLeft: 'auto', display: 'inline-flex', alignItems: 'center',
               gap: '0.5rem', fontSize: '0.78rem', color: 'var(--text-muted)',
-              cursor: isLocked ? 'not-allowed' : 'pointer', userSelect: 'none',
-              opacity: isLocked ? 0.45 : 1,
+              cursor: 'pointer', userSelect: 'none',
             }}
             title="When ON, the student sees this assignment's grade, comment, and proficiencies on Schoology."
           >
@@ -315,14 +318,12 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
               role="switch"
               aria-checked={display}
               aria-label="Display to student"
-              tabIndex={isLocked ? -1 : 0}
+              tabIndex={0}
               onClick={() => {
-                if (isLocked) return;
                 setDisplay(d => !d);
                 setAutoFlipArmed(false);
               }}
               onKeyDown={e => {
-                if (isLocked) return;
                 if (e.key === ' ' || e.key === 'Enter') {
                   e.preventDefault();
                   setDisplay(d => !d);
@@ -334,7 +335,6 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
                 background: display ? 'var(--accent)' : 'var(--bg-subtle)',
                 border: '1px solid var(--border)', borderRadius: 999,
                 transition: 'background 0.15s',
-                pointerEvents: isLocked ? 'none' : 'auto',
               }}
             >
               <span style={{

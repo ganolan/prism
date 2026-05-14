@@ -22,7 +22,7 @@ SCHOOLOGY_CONSUMER_KEY=...
 SCHOOLOGY_CONSUMER_SECRET=...
 ```
 
-Optional local overrides: `PORT`, `DB_PATH`, `INBOX_DIR`, `CONFIG_PATH`.
+The SQLite database lives at `server/db/students.db` (gitignored). PowerSchool CSV drops go in `data/imports/`. Optional local overrides: `PORT`, `DB_PATH` (default `server/db/students.db`), `INBOX_DIR`, `CONFIG_PATH`.
 
 Mastery sync (SBG data from Schoology's internal API) requires a one-time browser login:
 ```bash

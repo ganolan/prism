@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { useState } from 'react';
 import { StudentRubricCard } from './AssessmentSummaryPage.jsx';
 
 vi.mock('../services/api.js', () => ({
@@ -72,7 +73,28 @@ describe('StudentRubricCard draft persistence', () => {
   });
 
   it('clears the stored draft after a successful save', async () => {
-    renderCard();
+    // The real page unmounts every card while it reloads after a save (it
+    // renders a global "Loading..." view). Reproduce that teardown here so
+    // the test exercises the production path.
+    function SaveHarness() {
+      const [mounted, setMounted] = useState(true);
+      if (!mounted) return null;
+      return (
+        <StudentRubricCard
+          student={makeStudent()}
+          topics={TOPICS}
+          courseId="4"
+          assignmentId="8"
+          assignmentRow={{ mastery_grading_period_id: 1, mastery_grading_category_id: 2 }}
+          onSaved={() => setMounted(false)}
+        />
+      );
+    }
+    render(
+      <MemoryRouter>
+        <SaveHarness />
+      </MemoryRouter>
+    );
 
     fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
     expect(

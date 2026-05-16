@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getMasteryForAssignment, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment } from '../services/api.js';
 import { draftKey, readDraft, writeDraft, clearDraft } from '../lib/assessmentDraft.js';
@@ -58,12 +58,6 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   );
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState(null);
-  // A successful save clears the draft, but the card stays mounted until the
-  // parent's onSaved() reload completes — and `display`/`comment` may still
-  // differ from the stale `student` props, so hasPendingChanges can stay true.
-  // This ref tells the persist effect to leave the key cleared until the
-  // teacher makes a fresh edit. See #47.
-  const justSavedRef = useRef(false);
 
   // Exception (Excused/Incomplete/Missing) on the underlying grade locks the
   // rubric grid: setting one of these in Schoology deletes the score, so any
@@ -84,10 +78,9 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   );
 
   // Persist unsaved work to localStorage so it survives a page reload (#47).
-  // Remove the entry the moment the card returns to a no-changes state, or
-  // once a save has succeeded (until a fresh edit re-arms persistence).
+  // Remove the entry the moment the card returns to a no-changes state.
   useEffect(() => {
-    if (hasPendingChanges && !justSavedRef.current) {
+    if (hasPendingChanges) {
       writeDraft(storageKey, { pending, comment, display });
     } else {
       clearDraft(storageKey);
@@ -96,8 +89,6 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
 
   function selectLevel(topicId, level) {
     if (isRubricLocked) return;
-    // A fresh edit re-arms draft persistence after a prior save.
-    justSavedRef.current = false;
     const currentGrade = student.scores[topicId]?.grade;
     if (level === currentGrade) {
       // Clicking current — deselect pending
@@ -159,10 +150,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
       }
       setSaveResult('saved');
       setPending({});
-      // Mark saved so the persist effect won't re-create the draft from any
-      // residual display/comment diff before onSaved()'s reload remounts the
-      // card; then clear the key explicitly.
-      justSavedRef.current = true;
+      // Explicit clear: onSaved() triggers a page reload that unmounts this
+      // card, so the write effect above will not run to clear the key itself.
       clearDraft(storageKey);
       onSaved?.();
     } catch (err) {
@@ -309,8 +298,6 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           value={comment}
           onChange={e => {
             const next = e.target.value;
-            // A fresh edit re-arms draft persistence after a prior save.
-            justSavedRef.current = false;
             // Auto-flip ON the first time the comment goes empty → non-empty
             // for a virgin record. After firing once, autoFlipArmed is cleared
             // so subsequent edits don't re-flip the toggle.
@@ -360,16 +347,12 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
               aria-label="Display to student"
               tabIndex={0}
               onClick={() => {
-                // A fresh edit re-arms draft persistence after a prior save.
-                justSavedRef.current = false;
                 setDisplay(d => !d);
                 setAutoFlipArmed(false);
               }}
               onKeyDown={e => {
                 if (e.key === ' ' || e.key === 'Enter') {
                   e.preventDefault();
-                  // A fresh edit re-arms draft persistence after a prior save.
-                  justSavedRef.current = false;
                   setDisplay(d => !d);
                   setAutoFlipArmed(false);
                 }

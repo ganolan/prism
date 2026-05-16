@@ -72,6 +72,29 @@ The purge is idempotent — running it on every boot is harmless (after the
 first run there is nothing to delete, and the form no longer creates these
 types). It doubles as a permanent guard.
 
+#### Multiple Prism instances
+
+Prism is local-first: each machine has its own `server/db/students.db`, with
+no shared database. The fix is delivered as *code*, not as a one-time
+operation against a single database. Because `purgeLegacyAutoFlags` runs
+inside `migrate(db)`, which `getDb()` calls on every server boot, any other
+instance the same user runs purges its own stale flags the first time it
+boots this commit. The code carries the cleanup; every instance self-heals
+independently.
+
+This is why the purge stays at DB-init rather than moving into the Schoology
+sync feature. It *could* run inside `fullSync()` safely — it is an idempotent
+`DELETE` — but it should not:
+
+- **Coverage.** DB-init runs unconditionally on every boot. Sync only runs on
+  a manual "Sync Schoology" action; an instance that is never synced would
+  keep its stale flags.
+- **It is a migration, not reconciliation.** Sync reconciles ongoing
+  Schoology data. This purge removes dead rows from a feature that no longer
+  exists — nothing generates `missing` / `late_submission` flags anymore, so
+  there is no recurring drift to reconcile. It belongs alongside the other
+  one-time migrations.
+
 ### 2. StudentPage cleanup (client)
 
 - Remove the `isAutoFlag` constant and both `!isAutoFlag` guards, so every

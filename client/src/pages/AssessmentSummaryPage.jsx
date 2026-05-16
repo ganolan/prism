@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getMasteryForAssignment, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment } from '../services/api.js';
+import { draftKey, readDraft, writeDraft, clearDraft, draftBaseline } from '../lib/assessmentDraft.js';
 
 const LEVELS = ['ED', 'EX', 'D', 'EM', 'IE'];
 const LEVEL_LABELS = {
@@ -26,21 +27,47 @@ function displayName(student) {
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
-function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, onSaved }) {
+export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, onSaved }) {
+  const loadedDisplay = student.comment_status === 1;
+  const storageKey = draftKey(courseId, assignmentId, student.enrollment_id);
+  // Signature of the synced Schoology values this card was rendered against.
+  // A stored draft is only valid while this is unchanged (#47).
+  const currentBaseline = draftBaseline(student, topics);
+
+  // Restore any unsaved draft for this card from localStorage (#47). Read once
+  // on mount; a restored draft means the teacher already interacted with the
+  // card, so auto-flip starts disarmed. A draft whose `base` no longer matches
+  // the synced data is stale — Schoology changed underneath it — so it is
+  // discarded and the synced values (the source of truth) win.
+  const [restoredDraft] = useState(() => {
+    const draft = readDraft(storageKey);
+    if (!draft) return null;
+    if (draft.base !== currentBaseline) {
+      clearDraft(storageKey);
+      return null;
+    }
+    return draft;
+  });
+
   // pending: { [topicId]: 'ED'|'EX'|'D'|'EM'|'IE' }
-  const [pending, setPending] = useState({});
-  const [comment, setComment] = useState(student.grade_comment || '');
+  const [pending, setPending] = useState(() => restoredDraft?.pending ?? {});
+  const [comment, setComment] = useState(
+    () => restoredDraft?.comment ?? (student.grade_comment || '')
+  );
   // Display-to-student toggle (#34). Loaded from grades.comment_status:
   // 1 → ON, anything else → OFF. Auto-flip is armed when the row hasn't been
   // published yet AND has no comment text — covers virgin records and rows
   // that exist from a sync but haven't had any meaningful teacher action.
   // Once the toggle has been touched (auto or manual) we disarm; Schoology's
   // existing state (already-published rows or rows with saved comments) is
-  // never auto-flipped over.
-  const loadedDisplay = student.comment_status === 1;
-  const [display, setDisplay] = useState(loadedDisplay);
-  const [autoFlipArmed, setAutoFlipArmed] = useState(
-    student.comment_status !== 1 && !student.grade_comment
+  // never auto-flipped over. A restored draft also disarms it.
+  const [display, setDisplay] = useState(
+    () => restoredDraft?.display ?? loadedDisplay
+  );
+  const [autoFlipArmed, setAutoFlipArmed] = useState(() =>
+    restoredDraft
+      ? false
+      : student.comment_status !== 1 && !student.grade_comment
   );
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState(null);
@@ -62,6 +89,18 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
     comment !== (student.grade_comment || '') ||
     display !== loadedDisplay
   );
+
+  // Persist unsaved work to localStorage so it survives a page reload (#47).
+  // The `base` signature lets a later mount detect if Schoology data changed
+  // underneath the draft. Remove the entry the moment the card returns to a
+  // no-changes state.
+  useEffect(() => {
+    if (hasPendingChanges) {
+      writeDraft(storageKey, { pending, comment, display, base: currentBaseline });
+    } else {
+      clearDraft(storageKey);
+    }
+  }, [hasPendingChanges, pending, comment, display, storageKey, currentBaseline]);
 
   function selectLevel(topicId, level) {
     if (isRubricLocked) return;
@@ -126,6 +165,9 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
       }
       setSaveResult('saved');
       setPending({});
+      // Explicit clear: onSaved() triggers a page reload that unmounts this
+      // card, so the write effect above will not run to clear the key itself.
+      clearDraft(storageKey);
       onSaved?.();
     } catch (err) {
       setSaveResult(`error: ${err.message}`);

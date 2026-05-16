@@ -116,4 +116,36 @@ describe('StudentRubricCard draft persistence', () => {
       localStorage.getItem('prism:assessment-draft:4:8:enr-1')
     ).toBeNull();
   });
+
+  it('restores the display-to-student toggle after a remount', () => {
+    const { unmount } = renderCard();
+
+    const toggle = screen.getByRole('switch', { name: /display to student/i });
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+
+    unmount();
+    renderCard();
+
+    expect(
+      screen.getByRole('switch', { name: /display to student/i })
+    ).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('clears the stored draft when changes are discarded', () => {
+    renderCard();
+
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    expect(
+      localStorage.getItem('prism:assessment-draft:4:8:enr-1')
+    ).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /discard changes/i }));
+
+    expect(
+      localStorage.getItem('prism:assessment-draft:4:8:enr-1')
+    ).toBeNull();
+  });
 });

@@ -69,4 +69,20 @@ describe('draftBaseline', () => {
     const b = { grade_comment: '', comment_status: 0, exception: null, scores: { t1: { grade: 'D' } } };
     expect(draftBaseline(a, topics)).not.toBe(draftBaseline(b, topics));
   });
+
+  it('produces the same signature regardless of topic array order', () => {
+    const student = {
+      grade_comment: '', comment_status: 0, exception: null,
+      scores: { t1: { grade: 'ED' }, t2: { grade: 'D' } },
+    };
+    const forward = [{ id: 't1' }, { id: 't2' }];
+    const reversed = [{ id: 't2' }, { id: 't1' }];
+    expect(draftBaseline(student, forward)).toBe(draftBaseline(student, reversed));
+  });
+
+  it('handles empty topics and a student with no scores', () => {
+    const a = draftBaseline({ grade_comment: 'x', comment_status: 1, exception: null }, []);
+    const b = draftBaseline({ grade_comment: 'x', comment_status: 1, exception: null, scores: {} }, []);
+    expect(a).toBe(b);
+  });
 });

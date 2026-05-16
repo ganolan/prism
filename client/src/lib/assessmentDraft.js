@@ -37,9 +37,15 @@ export function clearDraft(key) {
 // against. Comparing a draft's stored signature to a freshly-recomputed one
 // detects when Schoology data changed underneath the draft (#47).
 export function draftBaseline(student, topics) {
+  // Build `scores` from topic ids sorted (as strings) so JSON.stringify emits
+  // keys in a stable order regardless of the `topics` array order — equal
+  // synced state must always produce an equal signature.
   const scores = {};
-  for (const t of topics) {
-    scores[t.id] = student.scores?.[t.id]?.grade ?? null;
+  const sortedIds = topics
+    .map((t) => t.id)
+    .sort((a, b) => String(a).localeCompare(String(b)));
+  for (const id of sortedIds) {
+    scores[id] = student.scores?.[id]?.grade ?? null;
   }
   return JSON.stringify({
     grade_comment: student.grade_comment ?? '',

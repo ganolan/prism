@@ -181,6 +181,19 @@ describe('StudentRubricCard draft persistence', () => {
     ).toBeNull();
   });
 
+  it('discards a legacy draft that has no base signature', () => {
+    // Drafts persisted before the staleness feature have no `base` key; they
+    // must be treated as stale and discarded.
+    localStorage.setItem(
+      'prism:assessment-draft:4:8:enr-1',
+      JSON.stringify({ pending: { t1: 'D' }, comment: 'legacy draft', display: true })
+    );
+    renderCard();
+    expect(screen.queryByText('1 pending change')).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue('');
+    expect(localStorage.getItem('prism:assessment-draft:4:8:enr-1')).toBeNull();
+  });
+
   it('clears the stored draft when changes are discarded', () => {
     renderCard();
 

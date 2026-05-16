@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getMasteryForAssignment, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment } from '../services/api.js';
+import { draftKey, readDraft, writeDraft, clearDraft } from '../lib/assessmentDraft.js';
 
 const LEVELS = ['ED', 'EX', 'D', 'EM', 'IE'];
 const LEVEL_LABELS = {
@@ -26,24 +27,43 @@ function displayName(student) {
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
-function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, onSaved }) {
+export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, onSaved }) {
+  const loadedDisplay = student.comment_status === 1;
+  const storageKey = draftKey(courseId, assignmentId, student.enrollment_id);
+
+  // Restore any unsaved draft for this card from localStorage (#47). Read once
+  // on mount; a restored draft means the teacher already interacted with the
+  // card, so auto-flip starts disarmed.
+  const [restoredDraft] = useState(() => readDraft(storageKey));
+
   // pending: { [topicId]: 'ED'|'EX'|'D'|'EM'|'IE' }
-  const [pending, setPending] = useState({});
-  const [comment, setComment] = useState(student.grade_comment || '');
+  const [pending, setPending] = useState(() => restoredDraft?.pending ?? {});
+  const [comment, setComment] = useState(
+    () => restoredDraft?.comment ?? (student.grade_comment || '')
+  );
   // Display-to-student toggle (#34). Loaded from grades.comment_status:
   // 1 → ON, anything else → OFF. Auto-flip is armed when the row hasn't been
   // published yet AND has no comment text — covers virgin records and rows
   // that exist from a sync but haven't had any meaningful teacher action.
   // Once the toggle has been touched (auto or manual) we disarm; Schoology's
   // existing state (already-published rows or rows with saved comments) is
-  // never auto-flipped over.
-  const loadedDisplay = student.comment_status === 1;
-  const [display, setDisplay] = useState(loadedDisplay);
-  const [autoFlipArmed, setAutoFlipArmed] = useState(
-    student.comment_status !== 1 && !student.grade_comment
+  // never auto-flipped over. A restored draft also disarms it.
+  const [display, setDisplay] = useState(
+    () => restoredDraft?.display ?? loadedDisplay
+  );
+  const [autoFlipArmed, setAutoFlipArmed] = useState(() =>
+    restoredDraft
+      ? false
+      : student.comment_status !== 1 && !student.grade_comment
   );
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState(null);
+  // A successful save clears the draft, but the card stays mounted until the
+  // parent's onSaved() reload completes — and `display`/`comment` may still
+  // differ from the stale `student` props, so hasPendingChanges can stay true.
+  // This ref tells the persist effect to leave the key cleared until the
+  // teacher makes a fresh edit. See #47.
+  const justSavedRef = useRef(false);
 
   // Exception (Excused/Incomplete/Missing) on the underlying grade locks the
   // rubric grid: setting one of these in Schoology deletes the score, so any
@@ -63,8 +83,21 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
     display !== loadedDisplay
   );
 
+  // Persist unsaved work to localStorage so it survives a page reload (#47).
+  // Remove the entry the moment the card returns to a no-changes state, or
+  // once a save has succeeded (until a fresh edit re-arms persistence).
+  useEffect(() => {
+    if (hasPendingChanges && !justSavedRef.current) {
+      writeDraft(storageKey, { pending, comment, display });
+    } else {
+      clearDraft(storageKey);
+    }
+  }, [hasPendingChanges, pending, comment, display, storageKey]);
+
   function selectLevel(topicId, level) {
     if (isRubricLocked) return;
+    // A fresh edit re-arms draft persistence after a prior save.
+    justSavedRef.current = false;
     const currentGrade = student.scores[topicId]?.grade;
     if (level === currentGrade) {
       // Clicking current — deselect pending
@@ -126,6 +159,11 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
       }
       setSaveResult('saved');
       setPending({});
+      // Mark saved so the persist effect won't re-create the draft from any
+      // residual display/comment diff before onSaved()'s reload remounts the
+      // card; then clear the key explicitly.
+      justSavedRef.current = true;
+      clearDraft(storageKey);
       onSaved?.();
     } catch (err) {
       setSaveResult(`error: ${err.message}`);
@@ -271,6 +309,8 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
           value={comment}
           onChange={e => {
             const next = e.target.value;
+            // A fresh edit re-arms draft persistence after a prior save.
+            justSavedRef.current = false;
             // Auto-flip ON the first time the comment goes empty → non-empty
             // for a virgin record. After firing once, autoFlipArmed is cleared
             // so subsequent edits don't re-flip the toggle.
@@ -320,12 +360,16 @@ function StudentRubricCard({ student, topics, courseId, assignmentId, assignment
               aria-label="Display to student"
               tabIndex={0}
               onClick={() => {
+                // A fresh edit re-arms draft persistence after a prior save.
+                justSavedRef.current = false;
                 setDisplay(d => !d);
                 setAutoFlipArmed(false);
               }}
               onKeyDown={e => {
                 if (e.key === ' ' || e.key === 'Enter') {
                   e.preventDefault();
+                  // A fresh edit re-arms draft persistence after a prior save.
+                  justSavedRef.current = false;
                   setDisplay(d => !d);
                   setAutoFlipArmed(false);
                 }

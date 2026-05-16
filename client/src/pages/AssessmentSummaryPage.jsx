@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getMasteryForAssignment, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment } from '../services/api.js';
-import { draftKey, readDraft, writeDraft, clearDraft } from '../lib/assessmentDraft.js';
+import { draftKey, readDraft, writeDraft, clearDraft, draftBaseline } from '../lib/assessmentDraft.js';
 
 const LEVELS = ['ED', 'EX', 'D', 'EM', 'IE'];
 const LEVEL_LABELS = {
@@ -30,11 +30,24 @@ function displayName(student) {
 export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, onSaved }) {
   const loadedDisplay = student.comment_status === 1;
   const storageKey = draftKey(courseId, assignmentId, student.enrollment_id);
+  // Signature of the synced Schoology values this card was rendered against.
+  // A stored draft is only valid while this is unchanged (#47).
+  const currentBaseline = draftBaseline(student, topics);
 
   // Restore any unsaved draft for this card from localStorage (#47). Read once
   // on mount; a restored draft means the teacher already interacted with the
-  // card, so auto-flip starts disarmed.
-  const [restoredDraft] = useState(() => readDraft(storageKey));
+  // card, so auto-flip starts disarmed. A draft whose `base` no longer matches
+  // the synced data is stale — Schoology changed underneath it — so it is
+  // discarded and the synced values (the source of truth) win.
+  const [restoredDraft] = useState(() => {
+    const draft = readDraft(storageKey);
+    if (!draft) return null;
+    if (draft.base !== currentBaseline) {
+      clearDraft(storageKey);
+      return null;
+    }
+    return draft;
+  });
 
   // pending: { [topicId]: 'ED'|'EX'|'D'|'EM'|'IE' }
   const [pending, setPending] = useState(() => restoredDraft?.pending ?? {});
@@ -78,14 +91,16 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   );
 
   // Persist unsaved work to localStorage so it survives a page reload (#47).
-  // Remove the entry the moment the card returns to a no-changes state.
+  // The `base` signature lets a later mount detect if Schoology data changed
+  // underneath the draft. Remove the entry the moment the card returns to a
+  // no-changes state.
   useEffect(() => {
     if (hasPendingChanges) {
-      writeDraft(storageKey, { pending, comment, display });
+      writeDraft(storageKey, { pending, comment, display, base: currentBaseline });
     } else {
       clearDraft(storageKey);
     }
-  }, [hasPendingChanges, pending, comment, display, storageKey]);
+  }, [hasPendingChanges, pending, comment, display, storageKey, currentBaseline]);
 
   function selectLevel(topicId, level) {
     if (isRubricLocked) return;

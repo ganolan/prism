@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { draftKey, readDraft, writeDraft, clearDraft } from './assessmentDraft.js';
+import { draftKey, readDraft, writeDraft, clearDraft, draftBaseline } from './assessmentDraft.js';
 
 beforeEach(() => {
   localStorage.clear();
@@ -47,5 +47,26 @@ describe('clearDraft', () => {
     writeDraft(key, { pending: {}, comment: 'x', display: false });
     clearDraft(key);
     expect(readDraft(key)).toBeNull();
+  });
+});
+
+describe('draftBaseline', () => {
+  const topics = [{ id: 't1' }, { id: 't2' }];
+
+  it('produces the same signature for equal synced state', () => {
+    const s = { grade_comment: 'hi', comment_status: 1, exception: null, scores: { t1: { grade: 'ED' } } };
+    expect(draftBaseline(s, topics)).toBe(draftBaseline({ ...s }, topics));
+  });
+
+  it('changes when the synced comment changes', () => {
+    const a = { grade_comment: 'hi', comment_status: 1, exception: null, scores: {} };
+    const b = { ...a, grade_comment: 'bye' };
+    expect(draftBaseline(a, topics)).not.toBe(draftBaseline(b, topics));
+  });
+
+  it('changes when a synced topic score changes', () => {
+    const a = { grade_comment: '', comment_status: 0, exception: null, scores: { t1: { grade: 'ED' } } };
+    const b = { grade_comment: '', comment_status: 0, exception: null, scores: { t1: { grade: 'D' } } };
+    expect(draftBaseline(a, topics)).not.toBe(draftBaseline(b, topics));
   });
 });

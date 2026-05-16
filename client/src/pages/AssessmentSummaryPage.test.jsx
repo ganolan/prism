@@ -154,6 +154,33 @@ describe('StudentRubricCard draft persistence', () => {
     );
   });
 
+  it('discards a stale draft when Schoology data changed (Schoology wins)', () => {
+    const { unmount } = renderCard();
+
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), {
+      target: { value: 'my draft comment' },
+    });
+    expect(
+      localStorage.getItem('prism:assessment-draft:4:8:enr-1')
+    ).not.toBeNull();
+
+    unmount();
+
+    // Simulate Schoology holding newer data when the page next syncs.
+    const updatedStudent = { ...makeStudent(), grade_comment: 'published in schoology' };
+    renderCard({ student: updatedStudent });
+
+    // Schoology wins: the synced comment shows, the stale draft is gone.
+    expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue(
+      'published in schoology'
+    );
+    expect(screen.queryByText('1 pending change')).not.toBeInTheDocument();
+    expect(
+      localStorage.getItem('prism:assessment-draft:4:8:enr-1')
+    ).toBeNull();
+  });
+
   it('clears the stored draft when changes are discarded', () => {
     renderCard();
 

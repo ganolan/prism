@@ -32,3 +32,19 @@ export function clearDraft(key) {
     // localStorage unavailable — nothing to clear.
   }
 }
+
+// A deterministic signature of the synced Schoology values a draft was diffed
+// against. Comparing a draft's stored signature to a freshly-recomputed one
+// detects when Schoology data changed underneath the draft (#47).
+export function draftBaseline(student, topics) {
+  const scores = {};
+  for (const t of topics) {
+    scores[t.id] = student.scores?.[t.id]?.grade ?? null;
+  }
+  return JSON.stringify({
+    grade_comment: student.grade_comment ?? '',
+    comment_status: student.comment_status ?? null,
+    exception: student.exception ?? null,
+    scores,
+  });
+}

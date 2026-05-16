@@ -183,17 +183,60 @@ Good areas for improvement:
 
 ## Troubleshooting
 
-If the frontend loads but data does not appear:
+### `npm install` fails with a Python or node-gyp error
 
-- make sure the server is running on port `3001`
+`better-sqlite3` is a native addon that compiles from source when no prebuilt binary exists for your Node version. It needs Python to do this. If you see an error like `Could not find any Python installation to use`, your system Python is missing or broken.
+
+Fix on macOS with Homebrew:
+
+```bash
+brew install python@3
+brew link --overwrite python@3
+npm install
+```
+
+If `npm install` still can't find Python (visible as `executable path is ""`), pass the path directly:
+
+```bash
+npm install --python=/usr/local/bin/python3
+```
+
+To avoid this in future terminal sessions, make sure `/usr/local/bin` appears before any older Python entries in your `~/.zshrc` or `~/.bash_profile`:
+
+```bash
+export PATH="/usr/local/bin:$PATH"
+```
+
+### Schoology sync fails with a JSON parse error or HTML response
+
+This usually means the API is returning a login page instead of data. Two common causes:
+
+**Wrong `SCHOOLOGY_BASE_URL`.** It must always be `https://api.schoology.com` — not your school's Schoology login domain (e.g. `schoology.yourschool.edu`). The API endpoint is the same for every school.
+
+**`.env` changes not picked up.** The server only reads `.env` at startup. After editing `.env`, you must restart the server for changes to take effect.
+
+### Server won't start — port already in use
+
+If `npm run dev` fails because the ports are already taken (e.g. after a crash), kill the stale processes first:
+
+```bash
+lsof -ti:3001 | xargs kill -9; lsof -ti:5173 | xargs kill -9
+```
+
+Then run `npm run dev` again.
+
+### Frontend loads but data does not appear
+
+- confirm the server is running on port `3001`
 - confirm the Vite client is running on port `5173`
-- check that your `.env` file exists and contains valid Schoology credentials
-- confirm `SCHOOLOGY_BASE_URL` is the API host, not the school login domain
+- check that your `.env` file exists, is saved, and contains valid credentials
+- confirm `SCHOOLOGY_BASE_URL=https://api.schoology.com` (not the school domain)
+- restart the server after any `.env` change
 
-If Schoology sync fails:
+### Schoology sync fails with a credentials error
 
-- read the API notes in [CLAUDE.md](CLAUDE.md)
-- verify that your Schoology consumer key and secret are valid
+- verify your consumer key and secret are correct in `.env`
+- check the API notes in [CLAUDE.md](CLAUDE.md)
 - check whether your Schoology tenant behaves differently for redirects or write endpoints
 
 ## Notes for Colleagues

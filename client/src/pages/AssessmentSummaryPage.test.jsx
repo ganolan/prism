@@ -134,6 +134,26 @@ describe('StudentRubricCard draft persistence', () => {
     ).toHaveAttribute('aria-checked', 'true');
   });
 
+  it('persists and restores a comment draft for a rubric-locked card', () => {
+    const lockedStudent = { ...makeStudent(), exception: 3 };
+
+    const { unmount } = renderCard({ student: lockedStudent });
+
+    fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), {
+      target: { value: 'locked but commented' },
+    });
+    expect(
+      localStorage.getItem('prism:assessment-draft:4:8:enr-1')
+    ).not.toBeNull();
+
+    unmount();
+    renderCard({ student: lockedStudent });
+
+    expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue(
+      'locked but commented'
+    );
+  });
+
   it('clears the stored draft when changes are discarded', () => {
     renderCard();
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { draftKey, readDraft, writeDraft, clearDraft } from './assessmentDraft.js';
 
 beforeEach(() => {
@@ -29,6 +29,15 @@ describe('writeDraft / readDraft', () => {
     const key = draftKey('4', '8', '1');
     localStorage.setItem(key, '{not json');
     expect(readDraft(key)).toBeNull();
+  });
+
+  it('does not throw when localStorage.setItem fails', () => {
+    const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+      throw new Error('quota exceeded');
+    });
+    const key = draftKey('4', '8', '1');
+    expect(() => writeDraft(key, { pending: {}, comment: 'x', display: true })).not.toThrow();
+    spy.mockRestore();
   });
 });
 

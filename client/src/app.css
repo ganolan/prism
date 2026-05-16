@@ -317,6 +317,7 @@ body {
    ======================================================================== */
 .content {
   flex: 1;
+  min-width: 0;        /* allow flex item to shrink below content's intrinsic width */
   margin-left: 240px;
   padding: 2rem 2.5rem;
   max-width: 1280px;

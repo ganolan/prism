@@ -75,11 +75,7 @@ function CompactRubric({ topics }) {
 }
 
 function formatFlagReason(flag) {
-  if (!flag?.flag_reason) return '';
-  if (['missing', 'late_submission'].includes(flag.flag_type)) {
-    return flag.flag_reason.replace(/^Missing:\s*/i, '');
-  }
-  return flag.flag_reason;
+  return flag?.flag_reason || '';
 }
 
 function CopyButton({ text, label }) {
@@ -381,6 +377,80 @@ function CollapsibleCard({ title, count, defaultOpen = false, children }) {
   );
 }
 
+// Flags list + creation form. All flags are user-managed: every row is
+// resolvable and deletable. (The auto-flag feature that once produced
+// un-removable 'missing'/'late_submission' rows was dropped in 743a68d, and
+// those orphaned rows are purged at DB-init — see issue #45.)
+export function FlagsCard({ flags, assignmentLookup = {}, onAddFlag, onResolveFlag, onReopenFlag, onDeleteFlag }) {
+  const [flagReason, setFlagReason] = useState('');
+  const [flagType, setFlagType] = useState('custom');
+
+  function handleAdd() {
+    if (!flagReason.trim()) return;
+    onAddFlag(flagType, flagReason.trim());
+    setFlagReason('');
+    setFlagType('custom');
+  }
+
+  return (
+    <>
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', alignItems: 'flex-end' }}>
+        <div style={{ flex: 1 }}>
+          <input type="text" placeholder="Flag reason..." value={flagReason}
+            onChange={e => setFlagReason(e.target.value)} />
+        </div>
+        <select value={flagType} onChange={e => setFlagType(e.target.value)} style={{ width: 'auto' }}>
+          <option value="custom">Custom</option>
+          <option value="review_needed">Review Needed</option>
+          <option value="performance_change">Performance Change</option>
+        </select>
+        <button className="primary" onClick={handleAdd} disabled={!flagReason.trim()}>Add Flag</button>
+      </div>
+      {flags.length === 0 ? (
+        <p className="text-sm text-muted">No flags.</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+          {flags.map(f => {
+            const isAssignmentFlag = Boolean(f.assignment_id);
+            const assignment = isAssignmentFlag ? assignmentLookup[f.assignment_id] : null;
+            const reasonText = formatFlagReason(f);
+            const primaryText = reasonText || assignment?.title || '';
+            const showAssignmentLabel = assignment && primaryText !== assignment.title;
+            return (
+              <div key={f.id} style={{
+                padding: '0.5rem 0.75rem', borderRadius: 8,
+                background: f.resolved ? 'var(--success-light)' : 'var(--warning-light)',
+                border: `1px solid ${f.resolved ? 'var(--success)' : 'var(--warning)'}`,
+                display: 'flex', alignItems: 'center', gap: '0.5rem',
+                opacity: f.resolved ? 0.7 : 1,
+              }}>
+                <span className={`badge ${f.resolved ? 'badge-green' : 'badge-red'}`} style={{ textTransform: 'capitalize' }}>
+                  {f.flag_type.replace('_', ' ')}
+                </span>
+                <span className="text-sm" style={{ flex: 1, textDecoration: f.resolved ? 'line-through' : 'none' }}>
+                  {primaryText || '—'}
+                  {showAssignmentLabel && (
+                    <span className="text-muted" style={{ marginLeft: '0.35rem', fontSize: '0.8rem' }}>
+                      {assignment.title}
+                    </span>
+                  )}
+                </span>
+                <span className="text-sm text-muted">{new Date(f.created_at).toLocaleDateString()}</span>
+                {f.resolved ? (
+                  <button onClick={() => onReopenFlag(f.id)} className="ghost accent">Reopen</button>
+                ) : (
+                  <button onClick={() => onResolveFlag(f.id)} className="ghost success">Resolve</button>
+                )}
+                <button onClick={() => onDeleteFlag(f.id)} className="ghost danger">Delete</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function StudentPage() {
   const { id } = useParams();
   const [student, setStudent] = useState(null);
@@ -394,8 +464,6 @@ export default function StudentPage() {
   const [editingNoteId, setEditingNoteId] = useState(null);
   const [editNoteText, setEditNoteText] = useState('');
 
-  const [flagReason, setFlagReason] = useState('');
-  const [flagType, setFlagType] = useState('custom');
   const [photoEnlarged, setPhotoEnlarged] = useState(false);
 
   useEffect(() => {
@@ -437,11 +505,9 @@ export default function StudentPage() {
 
   async function handleDeleteNote(noteId) { await deleteNote(noteId); reload(); }
 
-  async function handleAddFlag() {
-    if (!flagReason.trim()) return;
+  async function handleAddFlag(flagType, flagReason) {
+    if (!flagReason?.trim()) return;
     await createFlag({ student_id: parseInt(id), flag_type: flagType, flag_reason: flagReason });
-    setFlagReason('');
-    setFlagType('custom');
     reload();
   }
 
@@ -665,68 +731,14 @@ export default function StudentPage() {
 
       {/* Flags — collapsible, collapsed by default */}
       <CollapsibleCard title="Flags" count={student.flags.length} defaultOpen={false}>
-        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', alignItems: 'flex-end' }}>
-          <div style={{ flex: 1 }}>
-            <input type="text" placeholder="Flag reason..." value={flagReason}
-              onChange={e => setFlagReason(e.target.value)} />
-          </div>
-          <select value={flagType} onChange={e => setFlagType(e.target.value)} style={{ width: 'auto' }}>
-            <option value="custom">Custom</option>
-            <option value="review_needed">Review Needed</option>
-            <option value="late_submission">Late Submission</option>
-            <option value="performance_change">Performance Change</option>
-          </select>
-          <button className="primary" onClick={handleAddFlag} disabled={!flagReason.trim()}>Add Flag</button>
-        </div>
-        {student.flags.length === 0 ? (
-          <p className="text-sm text-muted">No flags.</p>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-            {student.flags.map(f => {
-              const isAssignmentFlag = Boolean(f.assignment_id);
-              const isAutoFlag = ['missing', 'late_submission'].includes(f.flag_type);
-              const assignment = isAssignmentFlag ? assignmentLookup[f.assignment_id] : null;
-              const reasonText = formatFlagReason(f);
-              const primaryText = reasonText || assignment?.title || '';
-              const showAssignmentLabel = assignment && primaryText !== assignment.title;
-              return (
-                <div key={f.id} style={{
-                  padding: '0.5rem 0.75rem', borderRadius: 8,
-                  background: f.resolved ? 'var(--success-light)' : 'var(--warning-light)',
-                  border: `1px solid ${f.resolved ? 'var(--success)' : 'var(--warning)'}`,
-                  display: 'flex', alignItems: 'center', gap: '0.5rem',
-                  opacity: f.resolved ? 0.7 : 1,
-                }}>
-                  <span className={`badge ${f.resolved ? 'badge-green' : 'badge-red'}`} style={{ textTransform: 'capitalize' }}>
-                    {f.flag_type.replace('_', ' ')}
-                  </span>
-                  <span className="text-sm" style={{ flex: 1, textDecoration: f.resolved ? 'line-through' : 'none' }}>
-                    {primaryText || '—'}
-                    {showAssignmentLabel && (
-                      <span className="text-muted" style={{ marginLeft: '0.35rem', fontSize: '0.8rem' }}>
-                        {assignment.title}
-                      </span>
-                    )}
-                  </span>
-                  <span className="text-sm text-muted">{new Date(f.created_at).toLocaleDateString()}</span>
-                  {!isAutoFlag && (
-                    f.resolved ? (
-                      <button onClick={() => handleReopenFlag(f.id)} className="ghost accent">Reopen</button>
-                    ) : (
-                      <button onClick={() => handleResolveFlag(f.id)} className="ghost success">Resolve</button>
-                    )
-                  )}
-                  {!isAutoFlag && (
-                    <button onClick={() => handleDeleteFlag(f.id)} className="ghost danger">Delete</button>
-                  )}
-                  {isAutoFlag && (
-                    <span className="text-xs text-muted">Auto from Schoology</span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <FlagsCard
+          flags={student.flags}
+          assignmentLookup={assignmentLookup}
+          onAddFlag={handleAddFlag}
+          onResolveFlag={handleResolveFlag}
+          onReopenFlag={handleReopenFlag}
+          onDeleteFlag={handleDeleteFlag}
+        />
       </CollapsibleCard>
 
       {/* Summary analytics (cross-course comparison + performance alerts) */}

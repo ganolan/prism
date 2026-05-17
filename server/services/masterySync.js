@@ -26,6 +26,12 @@ const GRADING_SCALE_ID = 21337256; // HKIS General Academic Scale
 const SESSION_DIR = join(process.cwd(), '.playwright-session');
 const STATE_FILE = join(SESSION_DIR, 'storage-state.json');
 
+// True if a saved Schoology browser session file exists on disk. Best-effort:
+// the session may still be expired — this only reports presence, not validity.
+export function hasMasterySession() {
+  return existsSync(STATE_FILE);
+}
+
 const POINTS_TO_GRADE = { 100: 'ED', 75: 'EX', 50: 'D', 25: 'EM', 0: 'IE' };
 const GRADE_TO_LABEL = {
   ED: 'Exhibiting Depth',
@@ -169,7 +175,7 @@ function getCourseRow(db, courseId) {
  * @param {Function} [opts.onProgress] — called with { message } as work proceeds
  * @returns {{ categories, topics, assignments, scores }}
  */
-export async function syncMasteryForCourse(courseId, { onProgress } = {}) {
+export async function syncMasteryForCourse(courseId, { onProgress, allowInteractiveLogin = true } = {}) {
   const log = (msg) => {
     console.log(`[masterySync] ${msg}`);
     onProgress?.({ message: msg });
@@ -203,6 +209,9 @@ export async function syncMasteryForCourse(courseId, { onProgress } = {}) {
     // Check if we're logged in — if not, open a visible browser for the user
     const loggedIn = checkLoggedIn(page);
     if (!loggedIn) {
+      if (!allowInteractiveLogin) {
+        throw new Error('Not logged in to Schoology — the mastery session has expired. Log in and retry.');
+      }
       log('Not logged in — opening browser for Schoology login...');
       await browser.close();
 

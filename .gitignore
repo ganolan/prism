@@ -12,3 +12,4 @@ data/imports/*.csv
 .playwright-session/
 .playwright-mcp/
 scripts/*-capture.json
+.superpowers/

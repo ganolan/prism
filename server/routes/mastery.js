@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
-import { syncMasteryForCourse, syncMasteryForAssignment, writeMasteryScores, writeMasteryOverride, getMasteryForCourse, getRubricScoresForStudent, interactiveLogin } from '../services/masterySync.js';
+import { hasMasterySession, syncMasteryForCourse, syncMasteryForAssignment, writeMasteryScores, writeMasteryOverride, getMasteryForCourse, getRubricScoresForStudent, interactiveLogin } from '../services/masterySync.js';
 import { pushGradeComments, getSectionGrades } from '../services/schoology.js';
 
 const router = Router();
@@ -22,6 +22,12 @@ router.post('/login', async (req, res) => {
   } finally {
     loginInProgress = false;
   }
+});
+
+// GET /api/mastery/login-status — best-effort: does a saved browser session
+// file exist? Does not verify the session is still valid.
+router.get('/login-status', (req, res) => {
+  res.json({ loggedIn: hasMasterySession() });
 });
 
 // POST /api/mastery/sync/:courseId — trigger Playwright mastery sync for a course

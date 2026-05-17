@@ -250,25 +250,34 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         {/* Review flag (#20) — Prism-local; never part of a Schoology save.
             Control and badge live together here in the card header. */}
         {reviewFlag ? (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+          <span
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+            onMouseEnter={() => setFlagControlHover(true)}
+            onMouseLeave={() => setFlagControlHover(false)}
+          >
             <span className="badge badge-amber" style={{ fontSize: '0.68rem' }}>
               ⚑ Review: {reviewFlag.flag_reason}
             </span>
             <button
               className="ghost danger"
               onClick={handleClearReviewFlag}
+              onFocus={() => setFlagControlHover(true)}
+              onBlur={() => setFlagControlHover(false)}
               disabled={flagBusy}
-              style={{ fontSize: '0.7rem' }}
+              aria-label="Clear review flag"
+              title="Clear review flag"
+              style={{
+                fontSize: '0.9rem', fontWeight: 600, lineHeight: 1,
+                padding: '0.1rem 0.35rem',
+                opacity: flagControlHover ? 1 : 0,
+                transition: 'opacity 0.12s',
+              }}
             >
-              Clear
+              ✕
             </button>
           </span>
         ) : showFlagInput ? (
-          <span
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
-            onMouseEnter={() => setFlagControlHover(true)}
-            onMouseLeave={() => setFlagControlHover(false)}
-          >
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
             <input
               type="text"
               value={flagReason}
@@ -292,18 +301,10 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             <button
               className="ghost"
               onClick={() => { setShowFlagInput(false); setFlagReason(''); }}
-              onFocus={() => setFlagControlHover(true)}
-              onBlur={() => setFlagControlHover(false)}
-              aria-label="Cancel"
               title="Cancel (Esc)"
-              style={{
-                fontSize: '0.9rem', fontWeight: 600, lineHeight: 1,
-                padding: '0.1rem 0.35rem',
-                opacity: flagControlHover ? 1 : 0,
-                transition: 'opacity 0.12s',
-              }}
+              style={{ fontSize: '0.7rem' }}
             >
-              ✕
+              Cancel
             </button>
           </span>
         ) : (

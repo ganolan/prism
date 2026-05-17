@@ -262,4 +262,17 @@ describe('StudentRubricCard review flag (#20)', () => {
     expect(writeMasteryScores).not.toHaveBeenCalled();
     expect(writeMasteryComment).not.toHaveBeenCalled();
   });
+
+  it('shows an error and keeps no flag when creation fails', async () => {
+    createFlag.mockRejectedValueOnce(new Error('network down'));
+    renderCard();
+    fireEvent.click(screen.getByRole('button', { name: /flag for review/i }));
+    fireEvent.change(screen.getByPlaceholderText('Reason for review...'), {
+      target: { value: 'Check citations' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Flag' }));
+
+    expect(await screen.findByText(/Flag failed: network down/)).toBeInTheDocument();
+    expect(screen.queryByText(/Review: Check citations/)).not.toBeInTheDocument();
+  });
 });

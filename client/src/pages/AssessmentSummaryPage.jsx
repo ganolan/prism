@@ -78,6 +78,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   const [showFlagInput, setShowFlagInput] = useState(false);
   const [flagReason, setFlagReason] = useState('');
   const [flagBusy, setFlagBusy] = useState(false);
+  const [flagError, setFlagError] = useState(null);
 
   // Exception (Excused/Incomplete/Missing) on the underlying grade locks the
   // rubric grid: setting one of these in Schoology deletes the score, so any
@@ -186,6 +187,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   async function handleFlagForReview() {
     const reason = flagReason.trim();
     if (!reason || !assignmentRow?.id) return;
+    setFlagError(null);
     setFlagBusy(true);
     try {
       const flag = await createFlag({
@@ -197,6 +199,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
       setReviewFlag({ id: flag.id, flag_reason: flag.flag_reason });
       setShowFlagInput(false);
       setFlagReason('');
+    } catch (err) {
+      setFlagError(`Flag failed: ${err.message}`);
     } finally {
       setFlagBusy(false);
     }
@@ -204,10 +208,13 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
 
   async function handleClearReviewFlag() {
     if (!reviewFlag) return;
+    setFlagError(null);
     setFlagBusy(true);
     try {
       await deleteFlag(reviewFlag.id);
       setReviewFlag(null);
+    } catch (err) {
+      setFlagError(`Clear failed: ${err.message}`);
     } finally {
       setFlagBusy(false);
     }
@@ -240,7 +247,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           <span className="badge badge-red" style={{ fontSize: '0.68rem' }}>{saveResult}</span>
         )}
         {reviewFlag && (
-          <span className="badge" style={{ background: '#fef3c7', color: '#92400e', fontSize: '0.68rem' }}>
+          <span className="badge badge-amber" style={{ fontSize: '0.68rem' }}>
             ⚑ Review: {reviewFlag.flag_reason}
           </span>
         )}
@@ -461,6 +468,9 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             <button className="ghost accent" onClick={() => setShowFlagInput(true)}>
               ⚑ Flag for review
             </button>
+          )}
+          {flagError && (
+            <span className="text-sm" style={{ color: 'var(--danger)' }}>{flagError}</span>
           )}
         </div>
       </div>

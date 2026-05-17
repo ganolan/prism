@@ -5,7 +5,7 @@ import { CourseSection } from './StudentPage.jsx';
 
 vi.mock('../components/MasteryPerformanceSummary.jsx', () => ({ default: () => null }));
 
-function renderCourseSection(flagsByAssignment) {
+function renderCourseSection(flagsByAssignment, gradeOverrides = {}) {
   return render(
     <MemoryRouter>
       <CourseSection
@@ -24,6 +24,7 @@ function renderCourseSection(flagsByAssignment) {
           submitted_at: 1,
           grading_scale_id: null,
           mastery: null,
+          ...gradeOverrides,
         }]}
         flagsByAssignment={flagsByAssignment}
         studentUid="uid-1"
@@ -55,5 +56,17 @@ describe('CourseSection review flag badge', () => {
     const pill = screen.getByText(/⟳ Re-submit requested/);
     expect(pill).toBeInTheDocument();
     expect(pill).toHaveClass('badge', 'badge-resubmit');
+  });
+
+  it('renders a Resubmitted pill when the grade row has resubmitted=true', () => {
+    renderCourseSection({}, { resubmitted: true });
+    const pill = screen.getByText(/↩ Resubmitted/);
+    expect(pill).toBeInTheDocument();
+    expect(pill).toHaveClass('badge', 'badge-resubmitted');
+  });
+
+  it('renders no Resubmitted pill when resubmitted is absent', () => {
+    renderCourseSection({});
+    expect(screen.queryByText(/↩ Resubmitted/)).not.toBeInTheDocument();
   });
 });

@@ -232,6 +232,12 @@ export function CourseSection({ course, grades, flagsByAssignment, studentUid, s
                           </span>
                         );
                       })}
+                      {g.resubmitted && (
+                        <span className="badge badge-resubmitted" style={{ fontSize: '0.68rem' }}
+                              title="The student has submitted new work since this was last graded">
+                          ↩ Resubmitted
+                        </span>
+                      )}
                     </div>
                   </div>
                 );

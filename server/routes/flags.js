@@ -27,35 +27,24 @@ router.get('/', (req, res) => {
 router.post('/', (req, res) => {
   const db = getDb();
   const { student_id, assignment_id, flag_type, flag_reason } = req.body;
-  if (!student_id || !flag_reason?.trim()) {
-    return res.status(400).json({ error: 'student_id and flag_reason are required' });
+  const type = flag_type || 'custom';
+  if (!student_id) {
+    return res.status(400).json({ error: 'student_id is required' });
+  }
+  // Only review_needed flags carry a reason; resubmit_requested is a reason-less
+  // toggle and custom flags (legacy, no longer created by the UI) are unconstrained.
+  if (type === 'review_needed' && !flag_reason?.trim()) {
+    return res.status(400).json({ error: 'flag_reason is required for review_needed flags' });
+  }
+  if (type === 'resubmit_requested' && !assignment_id) {
+    return res.status(400).json({ error: 'assignment_id is required for resubmit_requested flags' });
   }
   const result = db.prepare(`
     INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason)
     VALUES (?, ?, ?, ?)
-  `).run(student_id, assignment_id || null, flag_type || 'custom', flag_reason.trim());
+  `).run(student_id, assignment_id || null, type, flag_reason?.trim() || null);
   const flag = db.prepare('SELECT * FROM flags WHERE id = ?').get(result.lastInsertRowid);
   res.status(201).json(flag);
-});
-
-// PUT /api/flags/:id/resolve — resolve a flag
-router.put('/:id/resolve', (req, res) => {
-  const db = getDb();
-  db.prepare(`UPDATE flags SET resolved = 1, resolved_at = datetime('now') WHERE id = ?`)
-    .run(req.params.id);
-  const flag = db.prepare('SELECT * FROM flags WHERE id = ?').get(req.params.id);
-  if (!flag) return res.status(404).json({ error: 'Flag not found' });
-  res.json(flag);
-});
-
-// PUT /api/flags/:id/reopen — reopen a resolved flag
-router.put('/:id/reopen', (req, res) => {
-  const db = getDb();
-  db.prepare(`UPDATE flags SET resolved = 0, resolved_at = NULL WHERE id = ?`)
-    .run(req.params.id);
-  const flag = db.prepare('SELECT * FROM flags WHERE id = ?').get(req.params.id);
-  if (!flag) return res.status(404).json({ error: 'Flag not found' });
-  res.json(flag);
 });
 
 // DELETE /api/flags/:id

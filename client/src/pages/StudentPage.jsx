@@ -206,6 +206,15 @@ export function CourseSection({ course, grades, flagsByAssignment, studentUid, s
                       ))}
                       {assignmentFlags.map(flag => {
                         const flagReason = formatFlagReason(flag);
+                        // Review flags use the same amber badge + "⚑ Review: …"
+                        // format as the assessment page.
+                        if (flag.flag_type === 'review_needed') {
+                          return (
+                            <span key={flag.id} className="badge badge-amber" style={{ fontSize: '0.68rem' }}>
+                              ⚑ Review: {flagReason}
+                            </span>
+                          );
+                        }
                         const showReason = flagReason && flagReason !== g.assignment_title;
                         return (
                           <span key={flag.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>

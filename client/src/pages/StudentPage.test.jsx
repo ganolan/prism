@@ -34,16 +34,17 @@ function renderCourseSection(flagsByAssignment) {
 }
 
 describe('CourseSection review flag badge', () => {
-  it('renders a review_needed flag as a badge on the assignment row', () => {
+  it('renders a review_needed flag as an amber "⚑ Review:" badge on the assignment row', () => {
     renderCourseSection({
       10: [{ id: 5, flag_type: 'review_needed', flag_reason: 'Check citations', assignment_id: 10, resolved: 0 }],
     });
-    expect(screen.getByText('review needed')).toBeInTheDocument();
-    expect(screen.getByText('Check citations')).toBeInTheDocument();
+    const badge = screen.getByText(/⚑ Review: Check citations/);
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveClass('badge', 'badge-amber');
   });
 
   it('renders no review badge when the assignment has no flags', () => {
     renderCourseSection({});
-    expect(screen.queryByText('review needed')).not.toBeInTheDocument();
+    expect(screen.queryByText(/⚑ Review:/)).not.toBeInTheDocument();
   });
 });

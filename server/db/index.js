@@ -36,6 +36,10 @@ const MIGRATIONS = [
   // never-opened on OneDrive/GDrive assignments. grade.timestamp is
   // non-zero in Schoology only after a submission/grade-entry event.
   `ALTER TABLE grades ADD COLUMN submitted_at INTEGER DEFAULT 0`,
+  // Issue #49: latest non-draft submission revision time, for resubmission
+  // auto-detect. Compared against submitted_at (the submission/grade-entry
+  // time) at read time.
+  `ALTER TABLE grades ADD COLUMN latest_revision_at INTEGER DEFAULT 0`,
   // Indexes for issue #13 columns (must run after ALTER TABLEs above)
   `CREATE INDEX IF NOT EXISTS idx_assignments_folder ON assignments(folder_id)`,
   `CREATE INDEX IF NOT EXISTS idx_assignments_grading_category ON assignments(grading_category_id)`,

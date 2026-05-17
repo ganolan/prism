@@ -81,6 +81,11 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   const [flagError, setFlagError] = useState(null);
   const [flagControlHover, setFlagControlHover] = useState(false);
 
+  // Re-submit requested flag (#49) — Prism-local, submission-scoped, pure toggle.
+  const [resubmitFlag, setResubmitFlag] = useState(student.resubmit_flag || null);
+  const [resubmitBusy, setResubmitBusy] = useState(false);
+  const [resubmitHover, setResubmitHover] = useState(false);
+
   // Exception (Excused/Incomplete/Missing) on the underlying grade locks the
   // rubric grid: setting one of these in Schoology deletes the score, so any
   // proficiency a teacher selected here would be wiped on the next sync.
@@ -221,6 +226,38 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     }
   }
 
+  async function handleRequestResubmit() {
+    if (!assignmentRow?.id || resubmitBusy) return;
+    setFlagError(null);
+    setResubmitBusy(true);
+    try {
+      const flag = await createFlag({
+        student_id: student.id,
+        assignment_id: assignmentRow.id,
+        flag_type: 'resubmit_requested',
+      });
+      setResubmitFlag({ id: flag.id });
+    } catch (err) {
+      setFlagError(`Re-submit request failed: ${err.message}`);
+    } finally {
+      setResubmitBusy(false);
+    }
+  }
+
+  async function handleClearResubmit() {
+    if (!resubmitFlag || resubmitBusy) return;
+    setFlagError(null);
+    setResubmitBusy(true);
+    try {
+      await deleteFlag(resubmitFlag.id);
+      setResubmitFlag(null);
+    } catch (err) {
+      setFlagError(`Clear re-submit failed: ${err.message}`);
+    } finally {
+      setResubmitBusy(false);
+    }
+  }
+
   return (
     <div style={{
       border: '1px solid var(--border)', borderRadius: 10,
@@ -314,6 +351,45 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             style={{ fontSize: '0.7rem' }}
           >
             ⚑ Flag for review
+          </button>
+        )}
+        {/* Re-submit requested (#49) — Prism-local pure toggle; never part of a
+            Schoology save. */}
+        {resubmitFlag ? (
+          <span
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+            onMouseEnter={() => setResubmitHover(true)}
+            onMouseLeave={() => setResubmitHover(false)}
+          >
+            <span className="badge badge-resubmit" style={{ fontSize: '0.68rem' }}>
+              ⟳ Re-submit requested
+            </span>
+            <button
+              className="ghost danger"
+              onClick={handleClearResubmit}
+              onFocus={() => setResubmitHover(true)}
+              onBlur={() => setResubmitHover(false)}
+              disabled={resubmitBusy}
+              aria-label="Clear re-submit request"
+              title="Clear re-submit request"
+              style={{
+                fontSize: '0.9rem', fontWeight: 600, lineHeight: 1,
+                padding: '0.1rem 0.35rem',
+                opacity: resubmitHover ? 1 : 0,
+                transition: 'opacity 0.12s',
+              }}
+            >
+              ✕
+            </button>
+          </span>
+        ) : (
+          <button
+            className="ghost accent"
+            onClick={handleRequestResubmit}
+            disabled={resubmitBusy}
+            style={{ fontSize: '0.7rem' }}
+          >
+            ⟳ Request re-submit
           </button>
         )}
         {flagError && (

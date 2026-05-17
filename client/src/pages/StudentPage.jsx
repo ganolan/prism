@@ -3,9 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import {
   getStudent, updateStudent, updateParentPhone,
   createNote, updateNote, deleteNote,
-  createFlag, resolveFlag, reopenFlag, deleteFlag,
 } from '../services/api.js';
-import StudentAnalytics from '../components/StudentAnalytics.jsx';
 import MasteryPerformanceSummary from '../components/MasteryPerformanceSummary.jsx';
 import { LEVEL_COLORS } from '../components/OverridePopup.jsx';
 import { gradeLabel, submissionStatus } from '../lib/gradeLabel.js';
@@ -122,7 +120,7 @@ function gradYearToLevel(gradYear) {
   return grade >= 1 && grade <= 12 ? grade : null;
 }
 
-function CourseSection({ course, grades, flagsByAssignment, studentUid, scales }) {
+export function CourseSection({ course, grades, flagsByAssignment, studentUid, scales }) {
   const [expanded, setExpanded] = useState(true);
 
   return (
@@ -345,112 +343,6 @@ function ParentCard({ parent, studentId, onUpdated }) {
   );
 }
 
-function CollapsibleCard({ title, count, defaultOpen = false, children }) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-      <button
-        onClick={() => setOpen(o => !o)}
-        style={{
-          width: '100%', display: 'flex', alignItems: 'center', gap: '0.5rem',
-          padding: '0.75rem 1.25rem', background: 'none', border: 'none', cursor: 'pointer',
-          textAlign: 'left',
-        }}
-      >
-        <h3 style={{ margin: 0 }}>{title}</h3>
-        {count != null && <span className="text-sm text-muted">({count})</span>}
-        <span style={{
-          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          width: 24, height: 24, borderRadius: 6, marginLeft: 'auto',
-          background: 'var(--bg-subtle)', border: '1px solid var(--border)',
-          color: 'var(--text)', flexShrink: 0,
-          transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
-          transition: 'transform 0.2s',
-        }}>
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M4.427 6.427a.75.75 0 0 1 1.06 0L8 8.94l2.513-2.513a.75.75 0 0 1 1.06 1.06l-3.043 3.044a.75.75 0 0 1-1.06 0L4.427 7.487a.75.75 0 0 1 0-1.06z"/>
-          </svg>
-        </span>
-      </button>
-      {open && <div style={{ padding: '0 1.25rem 1.25rem' }}>{children}</div>}
-    </div>
-  );
-}
-
-// Flags list + creation form. All flags are user-managed: every row is
-// resolvable and deletable. (The auto-flag feature that once produced
-// un-removable 'missing'/'late_submission' rows was dropped in 743a68d, and
-// those orphaned rows are purged at DB-init — see issue #45.)
-export function FlagsCard({ flags, assignmentLookup = {}, onAddFlag, onResolveFlag, onReopenFlag, onDeleteFlag }) {
-  const [flagReason, setFlagReason] = useState('');
-  const [flagType, setFlagType] = useState('custom');
-
-  function handleAdd() {
-    if (!flagReason.trim()) return;
-    onAddFlag(flagType, flagReason.trim());
-    setFlagReason('');
-    setFlagType('custom');
-  }
-
-  return (
-    <>
-      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', alignItems: 'flex-end' }}>
-        <div style={{ flex: 1 }}>
-          <input type="text" placeholder="Flag reason..." value={flagReason}
-            onChange={e => setFlagReason(e.target.value)} />
-        </div>
-        <select value={flagType} onChange={e => setFlagType(e.target.value)} style={{ width: 'auto' }}>
-          <option value="custom">Custom</option>
-          <option value="review_needed">Review Needed</option>
-          <option value="performance_change">Performance Change</option>
-        </select>
-        <button className="primary" onClick={handleAdd} disabled={!flagReason.trim()}>Add Flag</button>
-      </div>
-      {flags.length === 0 ? (
-        <p className="text-sm text-muted">No flags.</p>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-          {flags.map(f => {
-            const isAssignmentFlag = Boolean(f.assignment_id);
-            const assignment = isAssignmentFlag ? assignmentLookup[f.assignment_id] : null;
-            const reasonText = formatFlagReason(f);
-            const primaryText = reasonText || assignment?.title || '';
-            const showAssignmentLabel = assignment && primaryText !== assignment.title;
-            return (
-              <div key={f.id} style={{
-                padding: '0.5rem 0.75rem', borderRadius: 8,
-                background: f.resolved ? 'var(--success-light)' : 'var(--warning-light)',
-                border: `1px solid ${f.resolved ? 'var(--success)' : 'var(--warning)'}`,
-                display: 'flex', alignItems: 'center', gap: '0.5rem',
-                opacity: f.resolved ? 0.7 : 1,
-              }}>
-                <span className={`badge ${f.resolved ? 'badge-green' : 'badge-red'}`} style={{ textTransform: 'capitalize' }}>
-                  {f.flag_type.replace('_', ' ')}
-                </span>
-                <span className="text-sm" style={{ flex: 1, textDecoration: f.resolved ? 'line-through' : 'none' }}>
-                  {primaryText || '—'}
-                  {showAssignmentLabel && (
-                    <span className="text-muted" style={{ marginLeft: '0.35rem', fontSize: '0.8rem' }}>
-                      {assignment.title}
-                    </span>
-                  )}
-                </span>
-                <span className="text-sm text-muted">{new Date(f.created_at).toLocaleDateString()}</span>
-                {f.resolved ? (
-                  <button onClick={() => onReopenFlag(f.id)} className="ghost accent">Reopen</button>
-                ) : (
-                  <button onClick={() => onResolveFlag(f.id)} className="ghost success">Resolve</button>
-                )}
-                <button onClick={() => onDeleteFlag(f.id)} className="ghost danger">Delete</button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </>
-  );
-}
-
 export default function StudentPage() {
   const { id } = useParams();
   const [student, setStudent] = useState(null);
@@ -505,16 +397,6 @@ export default function StudentPage() {
 
   async function handleDeleteNote(noteId) { await deleteNote(noteId); reload(); }
 
-  async function handleAddFlag(flagType, flagReason) {
-    if (!flagReason?.trim()) return;
-    await createFlag({ student_id: parseInt(id), flag_type: flagType, flag_reason: flagReason });
-    reload();
-  }
-
-  async function handleResolveFlag(flagId) { await resolveFlag(flagId); reload(); }
-  async function handleReopenFlag(flagId) { await reopenFlag(flagId); reload(); }
-  async function handleDeleteFlag(flagId) { await deleteFlag(flagId); reload(); }
-
   if (loading) return <div className="loading">Loading...</div>;
   if (!student) return <div className="error-msg">Student not found</div>;
 
@@ -524,18 +406,11 @@ export default function StudentPage() {
   const displayedFullName = `${displayName} ${student.last_name}`;
   const showLegalName = legalFullName !== displayedFullName;
   const assignmentFlagMap = {};
-  const assignmentLookup = {};
-  for (const g of student.grades) {
-    if (!assignmentLookup[g.assignment_id]) {
-      assignmentLookup[g.assignment_id] = { title: g.assignment_title, courseName: g.course_name };
-    }
-  }
   for (const f of student.flags) {
     if (!f.assignment_id || f.resolved) continue;
     if (!assignmentFlagMap[f.assignment_id]) assignmentFlagMap[f.assignment_id] = [];
     assignmentFlagMap[f.assignment_id].push(f);
   }
-  const activeFlags = student.flags.filter(f => !f.resolved && !f.assignment_id);
 
   const titleName = displayedFullName;
 
@@ -549,20 +424,6 @@ export default function StudentPage() {
 
   return (
     <div className="fade-in">
-      {/* Active flags banner */}
-      {activeFlags.length > 0 && (
-        <div className="alert alert-warning">
-          <strong style={{ color: '#92400e' }}>Active flags ({activeFlags.length})</strong>
-          {activeFlags.map(f => (
-            <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.4rem' }}>
-              <span className="badge badge-red" style={{ textTransform: 'capitalize' }}>{f.flag_type.replace('_', ' ')}</span>
-              <span className="text-sm">{formatFlagReason(f) || f.flag_reason || '—'}</span>
-              <button onClick={() => handleResolveFlag(f.id)} className="ghost accent" style={{ marginLeft: 'auto' }}>Resolve</button>
-            </div>
-          ))}
-        </div>
-      )}
-
       {/* Profile + Family row */}
       <div className="card">
         <div className="grid-2">
@@ -728,21 +589,6 @@ export default function StudentPage() {
           </div>
         )}
       </div>
-
-      {/* Flags — collapsible, collapsed by default */}
-      <CollapsibleCard title="Flags" count={student.flags.length} defaultOpen={false}>
-        <FlagsCard
-          flags={student.flags}
-          assignmentLookup={assignmentLookup}
-          onAddFlag={handleAddFlag}
-          onResolveFlag={handleResolveFlag}
-          onReopenFlag={handleReopenFlag}
-          onDeleteFlag={handleDeleteFlag}
-        />
-      </CollapsibleCard>
-
-      {/* Summary analytics (cross-course comparison + performance alerts) */}
-      <StudentAnalytics studentId={parseInt(id)} />
 
       {/* Per-course collapsible sections */}
       {coursesWithGrades.length > 0 && (

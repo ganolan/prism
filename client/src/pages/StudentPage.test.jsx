@@ -1,63 +1,49 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { FlagsCard } from './StudentPage.jsx';
+import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { CourseSection } from './StudentPage.jsx';
 
-function makeFlag(overrides = {}) {
-  return {
-    id: 1,
-    flag_type: 'custom',
-    flag_reason: 'Needs a chat',
-    assignment_id: null,
-    resolved: 0,
-    created_at: '2026-05-01 10:00:00',
-    ...overrides,
-  };
-}
+vi.mock('../components/MasteryPerformanceSummary.jsx', () => ({ default: () => null }));
 
-function renderFlags(flags, handlers = {}) {
+function renderCourseSection(flagsByAssignment) {
   return render(
-    <FlagsCard
-      flags={flags}
-      assignmentLookup={{}}
-      onAddFlag={handlers.onAddFlag || (() => {})}
-      onResolveFlag={handlers.onResolveFlag || (() => {})}
-      onReopenFlag={handlers.onReopenFlag || (() => {})}
-      onDeleteFlag={handlers.onDeleteFlag || (() => {})}
-    />
+    <MemoryRouter>
+      <CourseSection
+        course={{ id: 1, course_name: 'AIML' }}
+        grades={[{
+          course_id: 1,
+          assignment_id: 10,
+          schoology_assignment_id: 'sa-10',
+          assignment_title: 'Computer Vision Project',
+          due_date: '2026-04-12',
+          score: 80,
+          assignment_max_points: 100,
+          exception: 0,
+          late: 0,
+          draft: 0,
+          submitted_at: 1,
+          grading_scale_id: null,
+          mastery: null,
+        }]}
+        flagsByAssignment={flagsByAssignment}
+        studentUid="uid-1"
+        scales={[]}
+      />
+    </MemoryRouter>
   );
 }
 
-describe('FlagsCard', () => {
-  it('shows a Delete button on every flag row regardless of type', () => {
-    renderFlags([
-      makeFlag({ id: 1, flag_type: 'custom' }),
-      makeFlag({ id: 2, flag_type: 'review_needed' }),
-      makeFlag({ id: 3, flag_type: 'performance_change' }),
-    ]);
-    expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(3);
-  });
-
-  it('shows a Resolve button on an unresolved flag of any type', () => {
-    renderFlags([makeFlag({ flag_type: 'review_needed', resolved: 0 })]);
-    expect(screen.getByRole('button', { name: 'Resolve' })).toBeInTheDocument();
-  });
-
-  it('does not offer "Late Submission" as a flag type', () => {
-    renderFlags([]);
-    expect(
-      screen.queryByRole('option', { name: 'Late Submission' })
-    ).not.toBeInTheDocument();
-  });
-
-  it('adds a flag with the chosen type and reason', () => {
-    const onAddFlag = vi.fn();
-    renderFlags([], { onAddFlag });
-
-    fireEvent.change(screen.getByPlaceholderText('Flag reason...'), {
-      target: { value: 'check homework' },
+describe('CourseSection review flag badge', () => {
+  it('renders a review_needed flag as a badge on the assignment row', () => {
+    renderCourseSection({
+      10: [{ id: 5, flag_type: 'review_needed', flag_reason: 'Check citations', assignment_id: 10, resolved: 0 }],
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Add Flag' }));
+    expect(screen.getByText('review needed')).toBeInTheDocument();
+    expect(screen.getByText('Check citations')).toBeInTheDocument();
+  });
 
-    expect(onAddFlag).toHaveBeenCalledWith('custom', 'check homework');
+  it('renders no review badge when the assignment has no flags', () => {
+    renderCourseSection({});
+    expect(screen.queryByText('review needed')).not.toBeInTheDocument();
   });
 });

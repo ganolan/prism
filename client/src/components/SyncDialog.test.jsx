@@ -29,4 +29,54 @@ describe('SyncDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
     await waitFor(() => expect(screen.getByText(/Sync complete/)).toBeInTheDocument());
   });
+
+  it('shows the running overlay before the sync completes', async () => {
+    let finish;
+    vi.mocked(api.runSync).mockImplementation((opts, onEvent) => {
+      onEvent({ phase: 'schoology', status: 'running' });
+      return new Promise((resolve) => {
+        finish = () => {
+          onEvent({ type: 'summary', schoology: { records: 1 }, mastery: [], elapsedMs: 1 });
+          resolve();
+        };
+      });
+    });
+    render(<SyncDialog onClose={() => {}} />);
+    await waitFor(() => screen.getByRole('button', { name: /start sync/i }));
+    fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
+    await waitFor(() => expect(screen.getByText('Syncing…')).toBeInTheDocument());
+    finish();
+    await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
+  });
+
+  it('retry re-runs the sync with skipSchoology for the failed course', async () => {
+    vi.mocked(api.runSync).mockImplementation(async (opts, onEvent) => {
+      if (opts.skipSchoology) {
+        onEvent({ phase: 'mastery', courseId: 1, courseName: 'Biology 9', status: 'done', records: 4 });
+        onEvent({ type: 'summary', schoology: null, mastery: [], elapsedMs: 1 });
+      } else {
+        onEvent({ phase: 'schoology', status: 'done', records: 5 });
+        onEvent({ phase: 'mastery', courseId: 1, courseName: 'Biology 9', status: 'error', errorKind: 'other', message: 'boom' });
+        onEvent({ type: 'summary', schoology: { records: 5 }, mastery: [], elapsedMs: 1 });
+      }
+    });
+    render(<SyncDialog onClose={() => {}} />);
+    await waitFor(() => screen.getByRole('button', { name: /start sync/i }));
+    fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
+    await waitFor(() => expect(screen.getByText(/Sync finished with issues/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+    await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
+    expect(api.runSync).toHaveBeenLastCalledWith(
+      expect.objectContaining({ skipSchoology: true, masteryCourseIds: [1] }),
+      expect.any(Function),
+    );
+  });
+
+  it('shows a failure heading when runSync throws', async () => {
+    vi.mocked(api.runSync).mockRejectedValue(new Error('network down'));
+    render(<SyncDialog onClose={() => {}} />);
+    await waitFor(() => screen.getByRole('button', { name: /start sync/i }));
+    fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
+    await waitFor(() => expect(screen.getByText('Sync failed')).toBeInTheDocument());
+  });
 });

@@ -10,19 +10,27 @@ export default function SyncDialog({ onClose }) {
   const [loggedIn, setLoggedIn] = useState(false);
   const [events, setEvents] = useState([]);
   const [retryEnabled, setRetryEnabled] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     Promise.all([getCourses(true, true), getMasteryLoginStatus()])
       .then(([courseList, status]) => {
+        if (cancelled) return;
         setCourses(courseList);
         setLoggedIn(!!status.loggedIn);
         setMode('config');
       })
-      .catch(() => setMode('config'));
+      .catch(() => { if (!cancelled) setMode('config'); });
+    return () => { cancelled = true; };
   }, []);
 
   const reduced = useMemo(() => reduceSyncEvents(events), [events]);
 
+  // Fire-and-forget: startSync owns its error handling (failures surface as
+  // events). The running-mode overlay is intentionally non-dismissable —
+  // there is no backdrop/Escape handler — so the stream always runs to
+  // completion and needs no abort path.
   async function startSync(masteryCourseIds, { skipSchoology = false } = {}) {
     setEvents([]);
     setMode('running');
@@ -37,6 +45,7 @@ export default function SyncDialog({ onClose }) {
   }
 
   async function handleLogin() {
+    setBusy(true);
     try {
       await triggerMasteryLogin();
       const status = await getMasteryLoginStatus();
@@ -44,6 +53,8 @@ export default function SyncDialog({ onClose }) {
       setRetryEnabled(true);
     } catch {
       /* login browser failed or was cancelled — leave state unchanged */
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -61,7 +72,7 @@ export default function SyncDialog({ onClose }) {
           <SyncConfig
             courses={courses}
             loggedIn={loggedIn}
-            busy={false}
+            busy={busy}
             onStart={(ids) => startSync(ids)}
             onCancel={onClose}
             onLogin={handleLogin}

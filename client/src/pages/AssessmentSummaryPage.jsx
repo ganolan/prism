@@ -268,6 +268,9 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
               type="text"
               value={flagReason}
               onChange={e => setFlagReason(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !flagBusy && flagReason.trim()) handleFlagForReview();
+              }}
               placeholder="Reason for review..."
               style={{ fontSize: '0.78rem', width: 200 }}
               autoFocus

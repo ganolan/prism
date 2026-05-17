@@ -18,6 +18,7 @@ router.post('/sync', async (req, res) => {
   syncInProgress = true;
   const { masteryCourseIds = [], skipSchoology = false } = req.body || {};
   res.set('Content-Type', 'application/x-ndjson');
+  res.flushHeaders();
   const write = (evt) => res.write(JSON.stringify(evt) + '\n');
   try {
     await runUnifiedSync({ masteryCourseIds, skipSchoology }, write);

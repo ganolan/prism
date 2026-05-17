@@ -278,16 +278,6 @@ body {
 }
 .sync-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.sync-result {
-  font-size: 0.75rem;
-  padding: 0.4rem 0.6rem;
-  border-radius: 6px;
-  margin-top: 0.5rem;
-  text-align: center;
-  font-weight: 500;
-}
-.sync-result.success { background: var(--success-light); color: var(--success); }
-.sync-result.error { background: var(--error-light); color: var(--error); }
 
 /* Theme switcher */
 .theme-switcher {

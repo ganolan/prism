@@ -54,8 +54,41 @@ export const getGrades = (params) => {
 };
 
 // Sync
-export const triggerSync = () => request('/sync', { method: 'POST' });
 export const getSyncStatus = () => request('/sync/status');
+
+// Run the unified sync. Streams newline-delimited JSON progress events from the
+// server; each parsed event is passed to onEvent. Resolves when the stream ends.
+export async function runSync({ masteryCourseIds = [], skipSchoology = false }, onEvent) {
+  const res = await fetch(`${BASE}/sync`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ masteryCourseIds, skipSchoology }),
+  });
+  if (res.status === 409) throw new Error('A sync is already running.');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `Sync failed: ${res.status}`);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  const flush = (final) => {
+    let nl;
+    while ((nl = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (line) onEvent(JSON.parse(line));
+    }
+    if (final && buffer.trim()) onEvent(JSON.parse(buffer.trim()));
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    flush(false);
+  }
+  flush(true);
+}
 
 // Features
 export const getFeatures = () => request('/features');
@@ -101,6 +134,7 @@ export const uploadFeedbackJson = (file) => {
 
 // Mastery / SBG
 export const triggerMasteryLogin = () => request('/mastery/login', { method: 'POST' });
+export const getMasteryLoginStatus = () => request('/mastery/login-status');
 export const triggerMasterySync = (courseId) => request(`/mastery/sync/${courseId}`, { method: 'POST' });
 export const getMasteryForCourse = (courseId) => request(`/mastery/${courseId}`);
 export const getMasteryForStudent = (courseId, studentUid) => request(`/mastery/${courseId}/student/${studentUid}`);

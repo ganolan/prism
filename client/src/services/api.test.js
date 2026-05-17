@@ -36,7 +36,16 @@ describe('runSync', () => {
   });
 
   it('throws a clear error on 409', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 409 }));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false, status: 409, json: async () => ({ error: 'Sync already in progress' }),
+    }));
     await expect(runSync({}, () => {})).rejects.toThrow(/already running/i);
+  });
+
+  it('throws the server-provided message on a generic error', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false, status: 500, json: async () => ({ error: 'internal error' }),
+    }));
+    await expect(runSync({}, () => {})).rejects.toThrow('internal error');
   });
 });

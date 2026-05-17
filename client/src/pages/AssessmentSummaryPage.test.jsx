@@ -239,6 +239,31 @@ describe('StudentRubricCard review flag (#20)', () => {
     expect(await screen.findByText(/Review: Check citations/)).toBeInTheDocument();
   });
 
+  it('creates the flag when Enter is pressed in the reason input', async () => {
+    renderCard();
+    fireEvent.click(screen.getByRole('button', { name: /flag for review/i }));
+    const input = screen.getByPlaceholderText('Reason for review...');
+    fireEvent.change(input, { target: { value: 'Check citations' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(createFlag).toHaveBeenCalledWith({
+        student_id: 1,
+        assignment_id: 50,
+        flag_type: 'review_needed',
+        flag_reason: 'Check citations',
+      });
+    });
+    expect(await screen.findByText(/Review: Check citations/)).toBeInTheDocument();
+  });
+
+  it('does not create a flag when Enter is pressed with an empty reason', () => {
+    renderCard();
+    fireEvent.click(screen.getByRole('button', { name: /flag for review/i }));
+    fireEvent.keyDown(screen.getByPlaceholderText('Reason for review...'), { key: 'Enter' });
+    expect(createFlag).not.toHaveBeenCalled();
+  });
+
   it('shows the review badge and a Clear control when a flag exists', () => {
     renderCard({ student: { ...makeStudent(), review_flag: { id: 7, flag_reason: 'Re-mark' } } });
     expect(screen.getByText(/Review: Re-mark/)).toBeInTheDocument();

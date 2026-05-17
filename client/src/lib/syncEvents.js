@@ -10,7 +10,11 @@ export function reduceSyncEvents(events) {
   for (const evt of events) {
     if (evt.type === 'log') { logLines.push(evt.message); continue; }
     if (evt.type === 'summary') { summary = evt; fatal = fatal || !!evt.fatal; continue; }
-    if (evt.type === 'error') { fatal = true; continue; }
+    if (evt.type === 'error') {
+      fatal = true;
+      if (evt.message) logLines.push(evt.message);
+      continue;
+    }
 
     if (evt.phase === 'schoology') {
       let p = find('schoology');

@@ -43,4 +43,34 @@ describe('reduceSyncEvents', () => {
     const { fatal } = reduceSyncEvents([{ type: 'summary', fatal: true, mastery: [] }]);
     expect(fatal).toBe(true);
   });
+
+  it('a type:error event sets fatal and records the message in the log', () => {
+    const { fatal, logLines } = reduceSyncEvents([
+      { type: 'error', message: 'orchestrator blew up' },
+    ]);
+    expect(fatal).toBe(true);
+    expect(logLines).toContain('orchestrator blew up');
+  });
+
+  it('returns the default empty shape for no events', () => {
+    expect(reduceSyncEvents([])).toEqual({
+      phases: [], logLines: [], summary: null, fatal: false, failures: [], progress: 0,
+    });
+  });
+
+  it('handles log lines interleaved with multiple phases', () => {
+    const { phases, logLines } = reduceSyncEvents([
+      { phase: 'schoology', status: 'running' },
+      { type: 'log', message: 'Fetched 4 sections' },
+      { phase: 'schoology', status: 'done', records: 10 },
+      { phase: 'mastery', courseId: 1, courseName: 'A', status: 'running' },
+      { type: 'log', message: '[A] loading' },
+      { phase: 'mastery', courseId: 2, courseName: 'B', status: 'running' },
+      { phase: 'mastery', courseId: 1, courseName: 'A', status: 'done', records: 3 },
+    ]);
+    expect(phases.map((p) => p.key)).toEqual(['schoology', 'mastery:1', 'mastery:2']);
+    expect(phases[1]).toMatchObject({ status: 'done', records: 3 });
+    expect(phases[2]).toMatchObject({ status: 'running' });
+    expect(logLines).toEqual(['Fetched 4 sections', '[A] loading']);
+  });
 });

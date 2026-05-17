@@ -42,7 +42,7 @@ async function get(path) {
   }
 }
 
-describe('GET /api/mastery/:courseId/assignment/:assignmentId — review flags', () => {
+describe('GET /api/mastery/:courseId/assignment/:assignmentId — review and resubmit flags', () => {
   let courseId;
   let studentId;
   let assignmentInternalId;
@@ -103,6 +103,21 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — review flags',
     const { status, body } = await get(`/api/mastery/${courseId}/assignment/no-such-assignment`);
     expect(status).toBe(200);
     expect(body.students.every(s => s.review_flag === null)).toBe(true);
+  });
+
+  test('resubmit_flag is null when the student has no resubmit flag', async () => {
+    const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
+    expect(body.students[0].resubmit_flag).toBeNull();
+  });
+
+  test('resubmit_flag carries the id for a resubmit_requested flag', async () => {
+    const db = getDb();
+    const flagId = db.prepare(
+      `INSERT INTO flags (student_id, assignment_id, flag_type)
+       VALUES (?, ?, 'resubmit_requested')`
+    ).run(studentId, assignmentInternalId).lastInsertRowid;
+    const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
+    expect(body.students[0].resubmit_flag).toEqual({ id: flagId });
   });
 });
 

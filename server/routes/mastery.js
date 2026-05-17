@@ -409,6 +409,18 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
     reviewFlagMap[r.student_id] = { id: r.id, flag_reason: r.flag_reason };
   }
 
+  // Submission-scoped 'resubmit requested' flags for this assignment (#49).
+  const resubmitFlagRows = assignmentRow
+    ? db.prepare(`
+        SELECT id, student_id FROM flags
+        WHERE assignment_id = ? AND flag_type = 'resubmit_requested' AND resolved = 0
+      `).all(assignmentRow.id)
+    : [];
+  const resubmitFlagMap = {};
+  for (const r of resubmitFlagRows) {
+    resubmitFlagMap[r.student_id] = { id: r.id };
+  }
+
   res.json({
     assignment: assignmentRow || { schoology_assignment_id: assignmentId, title: 'Unknown Assignment' },
     topics,
@@ -420,6 +432,7 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
       comment_status: commentStatusMap[s.schoology_uid] ?? null,
       has_grade_row: hasGradeRowMap[s.schoology_uid] === true,
       review_flag: reviewFlagMap[s.id] || null,
+      resubmit_flag: resubmitFlagMap[s.id] || null,
     })),
   });
 });

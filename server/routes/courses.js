@@ -139,10 +139,20 @@ router.get('/:id/gradebook', (req, res) => {
     WHERE a.course_id = ?
   `).all(req.params.id);
 
+  // Submission-scoped 'resubmit requested' flags (#49, Part A). Prism-local.
+  const resubmitFlags = db.prepare(`
+    SELECT f.student_id, f.assignment_id
+    FROM flags f
+    JOIN assignments a ON a.id = f.assignment_id
+    WHERE a.course_id = ? AND f.flag_type = 'resubmit_requested' AND f.resolved = 0
+  `).all(req.params.id);
+  const resubmitSet = new Set(resubmitFlags.map(f => `${f.student_id}:${f.assignment_id}`));
+
   // Index grades by student_id -> assignment_id
   const gradeMap = {};
   for (const g of grades) {
     if (!gradeMap[g.student_id]) gradeMap[g.student_id] = {};
+    g.resubmit_requested = resubmitSet.has(`${g.student_id}:${g.assignment_id}`);
     gradeMap[g.student_id][g.assignment_id] = g;
   }
 

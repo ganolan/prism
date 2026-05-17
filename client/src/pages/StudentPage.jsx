@@ -215,6 +215,13 @@ export function CourseSection({ course, grades, flagsByAssignment, studentUid, s
                             </span>
                           );
                         }
+                        if (flag.flag_type === 'resubmit_requested') {
+                          return (
+                            <span key={flag.id} className="badge badge-resubmit" style={{ fontSize: '0.68rem' }}>
+                              ⟳ Re-submit requested
+                            </span>
+                          );
+                        }
                         const showReason = flagReason && flagReason !== g.assignment_title;
                         return (
                           <span key={flag.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>

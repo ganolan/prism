@@ -47,4 +47,13 @@ describe('CourseSection review flag badge', () => {
     renderCourseSection({});
     expect(screen.queryByText(/⚑ Review:/)).not.toBeInTheDocument();
   });
+
+  it('renders a re-submit requested pill for a resubmit_requested flag', () => {
+    renderCourseSection({
+      10: [{ id: 7, flag_type: 'resubmit_requested', assignment_id: 10, resolved: 0 }],
+    });
+    const pill = screen.getByText(/⟳ Re-submit requested/);
+    expect(pill).toBeInTheDocument();
+    expect(pill).toHaveClass('badge', 'badge-resubmit');
+  });
 });

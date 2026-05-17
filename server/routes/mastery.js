@@ -401,7 +401,7 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
   const reviewFlagRows = assignmentRow
     ? db.prepare(`
         SELECT id, student_id, flag_reason FROM flags
-        WHERE assignment_id = ? AND flag_type = 'review_needed'
+        WHERE assignment_id = ? AND flag_type = 'review_needed' AND resolved = 0
       `).all(assignmentRow.id)
     : [];
   const reviewFlagMap = {};

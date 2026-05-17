@@ -98,6 +98,12 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — review flags',
     const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
     expect(body.students[0].review_flag).toBeNull();
   });
+
+  test('does not throw for an unknown assignment id', async () => {
+    const { status, body } = await get(`/api/mastery/${courseId}/assignment/no-such-assignment`);
+    expect(status).toBe(200);
+    expect(body.students.every(s => s.review_flag === null)).toBe(true);
+  });
 });
 
 describe('GET /api/mastery/login-status', () => {

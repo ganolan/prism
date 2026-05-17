@@ -49,9 +49,15 @@ describe('runUnifiedSync', () => {
 
     const phases = events.filter((e) => e.phase);
     expect(phases[0]).toMatchObject({ phase: 'schoology', status: 'running' });
+    expect(phases[1]).toMatchObject({ phase: 'schoology', status: 'done', records: 42 });
+    expect(phases[2]).toMatchObject({ phase: 'mastery', status: 'running' });
     expect(phases.some((e) => e.phase === 'schoology' && e.status === 'done' && e.records === 42)).toBe(true);
     expect(phases.some((e) => e.phase === 'mastery' && e.status === 'done' && e.records === 7)).toBe(true);
     expect(events.at(-1)).toMatchObject({ type: 'summary' });
+
+    const logRow = h.db.prepare(`SELECT status, completed_at FROM sync_log WHERE sync_type = 'mastery'`).get();
+    expect(logRow.status).toBe('completed');
+    expect(logRow.completed_at).not.toBeNull();
   });
 
   test('skipSchoology omits the Schoology phase', async () => {
@@ -60,6 +66,8 @@ describe('runUnifiedSync', () => {
     await runUnifiedSync({ masteryCourseIds: [cid], skipSchoology: true }, (e) => events.push(e));
     expect(fullSync).not.toHaveBeenCalled();
     expect(events.some((e) => e.phase === 'schoology')).toBe(false);
+    expect(syncMasteryForCourse).toHaveBeenCalledTimes(1);
+    expect(events.some((e) => e.phase === 'mastery' && e.status === 'done')).toBe(true);
   });
 
   test('one mastery course failing does not abort the others', async () => {
@@ -76,6 +84,9 @@ describe('runUnifiedSync', () => {
     expect(masteryDone).toHaveLength(1);
     expect(masteryErr).toHaveLength(1);
     expect(masteryErr[0].errorKind).toBe('login');
+
+    const statuses = h.db.prepare(`SELECT status FROM sync_log WHERE sync_type = 'mastery' ORDER BY id`).all().map((r) => r.status);
+    expect(statuses.sort()).toEqual(['completed', 'error']);
   });
 
   test('a Schoology failure skips the mastery phase', async () => {

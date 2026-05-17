@@ -38,14 +38,23 @@ export async function runUnifiedSync({ masteryCourseIds = [], skipSchoology = fa
     }
   }
 
+  const selectCourse = db.prepare('SELECT id, course_name FROM courses WHERE id = ?');
+  const insertSyncLog = db.prepare(
+    `INSERT INTO sync_log (sync_type, status, started_at) VALUES ('mastery', 'running', ?)`
+  );
+  const completeSyncLog = db.prepare(
+    `UPDATE sync_log SET status = 'completed', records_synced = ?, completed_at = ? WHERE id = ?`
+  );
+  const failSyncLog = db.prepare(
+    `UPDATE sync_log SET status = 'error', error_message = ?, completed_at = ? WHERE id = ?`
+  );
+
   for (const courseId of masteryCourseIds) {
-    const courseRow = db.prepare('SELECT id, course_name FROM courses WHERE id = ?').get(courseId);
+    const courseRow = selectCourse.get(courseId);
     const courseName = courseRow?.course_name || `Course ${courseId}`;
     emit({ phase: 'mastery', courseId, courseName, status: 'running' });
 
-    const syncId = db.prepare(
-      `INSERT INTO sync_log (sync_type, status, started_at) VALUES ('mastery', 'running', ?)`
-    ).run(new Date().toISOString()).lastInsertRowid;
+    const syncId = insertSyncLog.run(new Date().toISOString()).lastInsertRowid;
 
     try {
       const result = await syncMasteryForCourse(courseId, {
@@ -53,14 +62,12 @@ export async function runUnifiedSync({ masteryCourseIds = [], skipSchoology = fa
         onProgress: (p) => emit({ type: 'log', message: `[${courseName}] ${p.message}` }),
       });
       const records = result.scoresCount || 0;
-      db.prepare(`UPDATE sync_log SET status = 'completed', records_synced = ?, completed_at = ? WHERE id = ?`)
-        .run(records, new Date().toISOString(), syncId);
+      completeSyncLog.run(records, new Date().toISOString(), syncId);
       summary.mastery.push({ courseId, courseName, status: 'done', records });
       emit({ phase: 'mastery', courseId, courseName, status: 'done', records });
     } catch (err) {
       const errorKind = classifyMasteryError(err);
-      db.prepare(`UPDATE sync_log SET status = 'error', error_message = ?, completed_at = ? WHERE id = ?`)
-        .run(err.message, new Date().toISOString(), syncId);
+      failSyncLog.run(err.message, new Date().toISOString(), syncId);
       summary.mastery.push({ courseId, courseName, status: 'error', errorKind, message: err.message });
       emit({ phase: 'mastery', courseId, courseName, status: 'error', errorKind, message: err.message });
     }

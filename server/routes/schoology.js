@@ -1,29 +1,29 @@
 import { Router } from 'express';
-import { fullSync } from '../services/sync.js';
 import { getDb } from '../db/index.js';
+import { runUnifiedSync } from '../services/syncOrchestrator.js';
 
 const router = Router();
 
 let syncInProgress = false;
 
-// POST /api/sync — trigger full Schoology sync
+// POST /api/sync — run the unified sync, streaming progress as newline-
+// delimited JSON. Body: { masteryCourseIds?: number[], skipSchoology?: boolean }.
 router.post('/sync', async (req, res) => {
   if (syncInProgress) {
     return res.status(409).json({ error: 'Sync already in progress' });
   }
-
   syncInProgress = true;
+  const { masteryCourseIds = [], skipSchoology = false } = req.body || {};
+  res.set('Content-Type', 'application/x-ndjson');
+  const write = (evt) => res.write(JSON.stringify(evt) + '\n');
   try {
-    const result = await fullSync((progress) => {
-      // Could use SSE for real-time progress in future
-      console.log(`[sync] ${progress.message}`);
-    });
-    res.json(result);
+    await runUnifiedSync({ masteryCourseIds, skipSchoology }, write);
   } catch (err) {
     console.error('[sync] Error:', err);
-    res.status(500).json({ error: err.message });
+    write({ type: 'error', message: err.message });
   } finally {
     syncInProgress = false;
+    res.end();
   }
 });
 

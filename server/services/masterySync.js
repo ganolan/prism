@@ -210,7 +210,6 @@ export async function syncMasteryForCourse(courseId, { onProgress, allowInteract
     const loggedIn = checkLoggedIn(page);
     if (!loggedIn) {
       if (!allowInteractiveLogin) {
-        await browser.close();
         throw new Error('Not logged in to Schoology — the mastery session has expired. Log in and retry.');
       }
       log('Not logged in — opening browser for Schoology login...');

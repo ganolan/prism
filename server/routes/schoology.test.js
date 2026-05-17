@@ -39,6 +39,7 @@ describe('POST /api/sync', () => {
         body: JSON.stringify({ masteryCourseIds: [] }),
       });
       expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toMatch(/application\/x-ndjson/);
       const events = await readNdjson(res);
       expect(events[0]).toMatchObject({ phase: 'schoology', status: 'done' });
       expect(events.at(-1)).toMatchObject({ type: 'summary' });
@@ -57,12 +58,11 @@ describe('POST /api/sync', () => {
     };
     const { server, port } = startServer();
     try {
-      const first = fetch(`http://localhost:${port}/api/sync`, {
+      const firstRes = await fetch(`http://localhost:${port}/api/sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
-      await new Promise((r) => setTimeout(r, 30));
       const second = await fetch(`http://localhost:${port}/api/sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -70,7 +70,39 @@ describe('POST /api/sync', () => {
       });
       expect(second.status).toBe(409);
       release();
-      await (await first).text();
+      await firstRes.text();
+    } finally {
+      server.close();
+    }
+  });
+
+  test('streams an error event and resets syncInProgress when orchestrator throws', async () => {
+    const { server, port } = startServer();
+    try {
+      h.impl = async (opts, onEvent) => {
+        onEvent({ phase: 'schoology', status: 'running' });
+        throw new Error('orchestrator blew up');
+      };
+      const res = await fetch(`http://localhost:${port}/api/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const events = await readNdjson(res);
+      expect(events.at(-1)).toMatchObject({ type: 'error', message: 'orchestrator blew up' });
+
+      // Confirm syncInProgress was reset — a second request must succeed (200, not 409).
+      h.impl = async (opts, onEvent) => {
+        onEvent({ phase: 'schoology', status: 'done', records: 0 });
+        onEvent({ type: 'summary', schoology: { records: 0 }, mastery: [], elapsedMs: 1 });
+      };
+      const second = await fetch(`http://localhost:${port}/api/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(second.status).toBe(200);
+      await second.text();
     } finally {
       server.close();
     }

@@ -8,10 +8,13 @@ let syncInProgress = false;
 
 // POST /api/sync — run the unified sync, streaming progress as newline-
 // delimited JSON. Body: { masteryCourseIds?: number[], skipSchoology?: boolean }.
+// Note: if the client disconnects mid-stream the sync continues to completion
+// server-side; there is no cancellation on client disconnect.
 router.post('/sync', async (req, res) => {
   if (syncInProgress) {
     return res.status(409).json({ error: 'Sync already in progress' });
   }
+
   syncInProgress = true;
   const { masteryCourseIds = [], skipSchoology = false } = req.body || {};
   res.set('Content-Type', 'application/x-ndjson');

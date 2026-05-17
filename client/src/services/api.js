@@ -100,8 +100,6 @@ export const deleteNote = (id) => request(`/notes/${id}`, { method: 'DELETE' });
 
 // Flags
 export const createFlag = (data) => request('/flags', { method: 'POST', body: JSON.stringify(data) });
-export const resolveFlag = (id) => request(`/flags/${id}/resolve`, { method: 'PUT' });
-export const reopenFlag = (id) => request(`/flags/${id}/reopen`, { method: 'PUT' });
 export const deleteFlag = (id) => request(`/flags/${id}`, { method: 'DELETE' });
 
 // Class tools

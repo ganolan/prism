@@ -10,26 +10,12 @@ import AnalyticsPage from './pages/AnalyticsPage.jsx';
 import FeedbackPage from './pages/FeedbackPage.jsx';
 import AssessmentSummaryPage from './pages/AssessmentSummaryPage.jsx';
 import { useTheme } from './hooks/useTheme.jsx';
-import { triggerSync, getSyncStatus } from './services/api.js';
+import SyncDialog from './components/SyncDialog.jsx';
 import './app.css';
 
 export default function App() {
-  const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState(null);
+  const [syncOpen, setSyncOpen] = useState(false);
   const { theme, setTheme, themes } = useTheme();
-
-  async function handleSync() {
-    setSyncing(true);
-    setSyncResult(null);
-    try {
-      const result = await triggerSync();
-      setSyncResult({ success: true, records: result.records });
-    } catch (err) {
-      setSyncResult({ success: false, error: err.message });
-    } finally {
-      setSyncing(false);
-    }
-  }
 
   return (
     <BrowserRouter>
@@ -44,16 +30,9 @@ export default function App() {
           <NavLink to="/tools">Class Tools</NavLink>
           <NavLink to="/import">Import CSV</NavLink>
           <div className="sidebar-spacer" />
-          <button className="sync-btn" onClick={handleSync} disabled={syncing}>
-            {syncing ? 'Syncing...' : 'Sync Schoology'}
+          <button className="sync-btn" onClick={() => setSyncOpen(true)}>
+            Sync
           </button>
-          {syncResult && (
-            <div className={`sync-result ${syncResult.success ? 'success' : 'error'}`}>
-              {syncResult.success
-                ? `Synced ${syncResult.records} records`
-                : `Error: ${syncResult.error}`}
-            </div>
-          )}
           <div className="theme-switcher">
             {Object.keys(themes).map(key => (
               <button
@@ -79,6 +58,7 @@ export default function App() {
             <Route path="/import" element={<ImportPage />} />
           </Routes>
         </main>
+        {syncOpen && <SyncDialog onClose={() => setSyncOpen(false)} />}
       </div>
     </BrowserRouter>
   );

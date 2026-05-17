@@ -126,11 +126,19 @@ export async function getSectionCompletion(sectionId) {
 // has not submitted. An empty array means either "never opened" or — for
 // OneDrive submitted state — "submitted" (the public API does not expose
 // post-submit revisions for OneDrive); use grade row presence to disambiguate.
+// The returned object also carries latestRevisionAt: the `created` time of the
+// latest non-draft revision (0 if none) — the baseline for #49 resubmit detection.
 export async function getSubmissionStatus(sectionId, assignmentId, userId) {
   const data = await apiGet(`/sections/${sectionId}/submissions/${assignmentId}/${userId}`);
   const revisions = data?.revision || [];
   if (!revisions.length) return null;
-  return revisions.reduce((m, r) => (r.revision_id > m.revision_id ? r : m));
+  const latest = revisions.reduce((m, r) => (r.revision_id > m.revision_id ? r : m));
+  // Baseline for resubmission detection (#49): newest *non-draft* revision time.
+  // A draft revision is not a submission and must not seed the baseline.
+  const latestRevisionAt = revisions
+    .filter(r => Number(r.draft) !== 1)
+    .reduce((m, r) => Math.max(m, Number(r.created) || 0), 0);
+  return { ...latest, latestRevisionAt };
 }
 
 export async function pushGradeComments(sectionId, gradeUpdates) {

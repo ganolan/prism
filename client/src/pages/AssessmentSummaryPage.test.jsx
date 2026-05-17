@@ -319,3 +319,51 @@ describe('StudentRubricCard review flag (#20)', () => {
     expect(screen.queryByText(/Review: Check citations/)).not.toBeInTheDocument();
   });
 });
+
+describe('StudentRubricCard — re-submit requested toggle', () => {
+  it('shows the ghost toggle when no resubmit flag is set', () => {
+    renderCard();
+    expect(screen.getByRole('button', { name: /request re-submit/i })).toBeInTheDocument();
+  });
+
+  it('creates a resubmit_requested flag with no reason on click', async () => {
+    createFlag.mockResolvedValueOnce({ id: 71, flag_type: 'resubmit_requested', flag_reason: null });
+    renderCard();
+    fireEvent.click(screen.getByRole('button', { name: /request re-submit/i }));
+    await waitFor(() => {
+      expect(createFlag).toHaveBeenCalledWith({
+        student_id: 1,
+        assignment_id: 50,
+        flag_type: 'resubmit_requested',
+      });
+    });
+    expect(await screen.findByText(/re-submit requested/i)).toBeInTheDocument();
+  });
+
+  it('clears the flag via the ✕ control', async () => {
+    renderCard({ student: { ...makeStudent(), resubmit_flag: { id: 71 } } });
+    fireEvent.click(screen.getByRole('button', { name: /clear re-submit request/i }));
+    await waitFor(() => expect(deleteFlag).toHaveBeenCalledWith(71));
+  });
+
+  it('the flag write does not trigger a Schoology write', async () => {
+    createFlag.mockResolvedValueOnce({ id: 71 });
+    renderCard();
+    fireEvent.click(screen.getByRole('button', { name: /request re-submit/i }));
+    await waitFor(() => expect(createFlag).toHaveBeenCalled());
+    expect(writeMasteryScores).not.toHaveBeenCalled();
+    expect(writeMasteryComment).not.toHaveBeenCalled();
+  });
+
+  it('shows a read-only Resubmitted pill when student.resubmitted is true', () => {
+    renderCard({ student: { ...makeStudent(), resubmitted: true } });
+    const pill = screen.getByText(/^↩ Resubmitted$/);
+    expect(pill).toBeInTheDocument();
+    expect(pill.tagName).not.toBe('BUTTON');
+  });
+
+  it('does not show the Resubmitted pill when student.resubmitted is false', () => {
+    renderCard({ student: { ...makeStudent(), resubmitted: false } });
+    expect(screen.queryByText(/^↩ Resubmitted$/)).not.toBeInTheDocument();
+  });
+});

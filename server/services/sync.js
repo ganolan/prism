@@ -126,15 +126,16 @@ export async function syncSectionData(db, sectionId, courseId, now) {
   // already-submitted (indistinguishable from this endpoint for OneDrive).
   const dropboxAssignments = assignments.filter(a => a.allow_dropbox === '1' || a.allow_dropbox === 1);
   const upsertSubmissionStatus = db.prepare(`
-    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, exception, late, draft, synced_at)
-    VALUES (?, ?, ?, NULL, ?, 0, ?, ?, ?)
+    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, exception, late, draft, latest_revision_at, synced_at)
+    VALUES (?, ?, ?, NULL, ?, 0, ?, ?, ?, ?)
     ON CONFLICT(student_id, assignment_id) DO UPDATE SET
       late = excluded.late,
       draft = excluded.draft,
+      latest_revision_at = excluded.latest_revision_at,
       synced_at = excluded.synced_at
   `);
   const clearSubmissionStatus = db.prepare(`
-    UPDATE grades SET late = 0, draft = 0, synced_at = ?
+    UPDATE grades SET late = 0, draft = 0, latest_revision_at = 0, synced_at = ?
     WHERE student_id = ? AND assignment_id = ?
   `);
 
@@ -155,6 +156,7 @@ export async function syncSectionData(db, sectionId, courseId, now) {
           assignRow.max_points ?? null,
           revision.late ? 1 : 0,
           revision.draft ? 1 : 0,
+          revision.latestRevisionAt || 0,
           now,
         );
         submissionCount++;

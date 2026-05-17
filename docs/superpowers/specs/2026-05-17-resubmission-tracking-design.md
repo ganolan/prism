@@ -239,6 +239,24 @@ is deliberately out of scope here.
 No code branch on assignment type is needed: for OneDrive the empty revision
 array naturally yields `latest_revision_at = 0` and no indicator.
 
+## Part B verification (2026-05-18)
+
+The timestamp model was verified empirically against live Schoology data via
+`scripts/probe-revision-timestamps.js`, before implementing Part B:
+
+- `grades.submitted_at` and `revision[].created` are both Unix epoch seconds —
+  directly comparable, no unit conversion needed.
+- Across 8 native-dropbox graded rows (Mobile App Development, assignment
+  `8230636099`), including students with 2–4 submission revisions,
+  `submitted_at` was later than the latest non-draft revision `created` in
+  every case. This confirms `submitted_at` tracks grade-modified time, not
+  submission time — so `latest_revision_at > submitted_at` is a sound
+  resubmission signal.
+- Most other sampled sections are OneDrive/GDrive assignments and returned
+  empty `revision[]` arrays, consistent with the documented limitation above.
+
+The fallback to a `graded_revision_id` baseline is therefore **not** needed.
+
 ## Out of scope
 
 - Bulk "mark as re-graded" across multiple students.

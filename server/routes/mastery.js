@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getDb } from '../db/index.js';
 import { hasMasterySession, syncMasteryForCourse, syncMasteryForAssignment, writeMasteryScores, writeMasteryOverride, getMasteryForCourse, getRubricScoresForStudent, interactiveLogin } from '../services/masterySync.js';
 import { pushGradeComments, getSectionGrades } from '../services/schoology.js';
+import { isResubmitted } from '../lib/resubmission.js';
 
 const router = Router();
 const syncsInProgress = new Set();
@@ -371,7 +372,7 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
   // null/missing = hidden. has_grade_row distinguishes "synced and got null"
   // from "never synced" so the client can arm auto-flip only for virgin rows.
   const gradeRows = db.prepare(`
-    SELECT s.schoology_uid, g.grade_comment, g.exception, g.comment_status
+    SELECT s.schoology_uid, g.score, g.submitted_at, g.latest_revision_at, g.grade_comment, g.exception, g.comment_status
     FROM grades g
     JOIN students s ON s.id = g.student_id
     JOIN assignments a ON a.id = g.assignment_id
@@ -382,11 +383,13 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
   const exceptionMap = {};
   const commentStatusMap = {};
   const hasGradeRowMap = {};
+  const resubmittedMap = {};
   for (const c of gradeRows) {
     commentMap[c.schoology_uid] = c.grade_comment || '';
     exceptionMap[c.schoology_uid] = c.exception ?? 0;
     commentStatusMap[c.schoology_uid] = c.comment_status ?? null;
     hasGradeRowMap[c.schoology_uid] = true;
+    resubmittedMap[c.schoology_uid] = isResubmitted(c);
   }
 
   const scoreMap = {};
@@ -409,6 +412,18 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
     reviewFlagMap[r.student_id] = { id: r.id, flag_reason: r.flag_reason };
   }
 
+  // Submission-scoped 'resubmit requested' flags for this assignment (#49).
+  const resubmitFlagRows = assignmentRow
+    ? db.prepare(`
+        SELECT id, student_id FROM flags
+        WHERE assignment_id = ? AND flag_type = 'resubmit_requested' AND resolved = 0
+      `).all(assignmentRow.id)
+    : [];
+  const resubmitFlagMap = {};
+  for (const r of resubmitFlagRows) {
+    resubmitFlagMap[r.student_id] = { id: r.id };
+  }
+
   res.json({
     assignment: assignmentRow || { schoology_assignment_id: assignmentId, title: 'Unknown Assignment' },
     topics,
@@ -420,6 +435,8 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
       comment_status: commentStatusMap[s.schoology_uid] ?? null,
       has_grade_row: hasGradeRowMap[s.schoology_uid] === true,
       review_flag: reviewFlagMap[s.id] || null,
+      resubmit_flag: resubmitFlagMap[s.id] || null,
+      resubmitted: resubmittedMap[s.schoology_uid] === true,
     })),
   });
 });

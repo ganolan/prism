@@ -3,6 +3,7 @@ import { getDb } from '../db/index.js';
 import { getGradingScalesMap } from '../db/scales.js';
 import { apiGet } from '../services/schoology.js';
 import { syncSectionData } from '../services/sync.js';
+import { isResubmitted } from '../lib/resubmission.js';
 
 const router = Router();
 
@@ -133,16 +134,27 @@ router.get('/:id/gradebook', (req, res) => {
   `).all(req.params.id);
 
   const grades = db.prepare(`
-    SELECT g.student_id, g.assignment_id, g.score, g.max_score, g.grade_comment, g.exception, g.late, g.draft, g.submitted_at, g.comment_status
+    SELECT g.student_id, g.assignment_id, g.score, g.max_score, g.grade_comment, g.exception, g.late, g.draft, g.submitted_at, g.latest_revision_at, g.comment_status
     FROM grades g
     JOIN assignments a ON a.id = g.assignment_id
     WHERE a.course_id = ?
   `).all(req.params.id);
 
+  // Submission-scoped 'resubmit requested' flags (#49, Part A). Prism-local.
+  const resubmitFlags = db.prepare(`
+    SELECT f.student_id, f.assignment_id
+    FROM flags f
+    JOIN assignments a ON a.id = f.assignment_id
+    WHERE a.course_id = ? AND f.flag_type = 'resubmit_requested' AND f.resolved = 0
+  `).all(req.params.id);
+  const resubmitSet = new Set(resubmitFlags.map(f => `${f.student_id}:${f.assignment_id}`));
+
   // Index grades by student_id -> assignment_id
   const gradeMap = {};
   for (const g of grades) {
     if (!gradeMap[g.student_id]) gradeMap[g.student_id] = {};
+    g.resubmit_requested = resubmitSet.has(`${g.student_id}:${g.assignment_id}`);
+    g.resubmitted = isResubmitted(g);
     gradeMap[g.student_id][g.assignment_id] = g;
   }
 

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
 import { getGradingScalesMap } from '../db/scales.js';
+import { isResubmitted } from '../lib/resubmission.js';
 
 const router = Router();
 
@@ -42,7 +43,7 @@ router.get('/:id', (req, res) => {
   const grades = db.prepare(`
     SELECT
       g.id, g.score, g.max_score, g.grade_comment, g.comment_status,
-      g.exception, g.late, g.draft, g.submitted_at,
+      g.exception, g.late, g.draft, g.submitted_at, g.latest_revision_at,
       a.id as assignment_id,
       a.title as assignment_title, a.due_date, a.max_points as assignment_max_points,
       a.grading_scale_id, a.display_weight, a.schoology_assignment_id,
@@ -120,6 +121,7 @@ router.get('/:id', (req, res) => {
       const aid = String(g.schoology_assignment_id);
       const map = topicsByAssignment.get(aid);
       g.mastery = map ? { topics: [...map.values()].sort((a, b) => (a.external_id || '').localeCompare(b.external_id || '')) } : null;
+      g.resubmitted = isResubmitted(g);
     }
   }
 

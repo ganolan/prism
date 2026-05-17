@@ -1,4 +1,4 @@
-import { describe, test, expect, vi } from 'vitest';
+import { describe, test, expect, vi, beforeEach } from 'vitest';
 import express from 'express';
 
 const h = vi.hoisted(() => ({ loggedIn: true }));
@@ -21,12 +21,17 @@ vi.mock('../services/schoology.js', () => ({
 
 import router from './mastery.js';
 
-async function get(path) {
+function startServer() {
   const app = express();
   app.use('/api/mastery', router);
   const server = app.listen(0);
+  return { server, port: server.address().port };
+}
+
+async function get(path) {
+  const { server, port } = startServer();
   try {
-    const res = await fetch(`http://localhost:${server.address().port}${path}`);
+    const res = await fetch(`http://localhost:${port}${path}`);
     return { status: res.status, body: await res.json() };
   } finally {
     server.close();
@@ -34,6 +39,8 @@ async function get(path) {
 }
 
 describe('GET /api/mastery/login-status', () => {
+  beforeEach(() => { h.loggedIn = true; });
+
   test('reports loggedIn true when a session file exists', async () => {
     h.loggedIn = true;
     const { status, body } = await get('/api/mastery/login-status');
@@ -43,7 +50,8 @@ describe('GET /api/mastery/login-status', () => {
 
   test('reports loggedIn false when no session file exists', async () => {
     h.loggedIn = false;
-    const { body } = await get('/api/mastery/login-status');
+    const { status, body } = await get('/api/mastery/login-status');
+    expect(status).toBe(200);
     expect(body).toEqual({ loggedIn: false });
   });
 });

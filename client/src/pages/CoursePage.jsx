@@ -478,8 +478,11 @@ function GradebookView({ data }) {
                 const code = lbl.kind === 'scale' ? masteryCodeForLevel(lbl.text) : null;
                 const c = code ? LEVEL_COLORS[code] : null;
                 const text = lbl.kind === 'pending' ? '—' : (code || lbl.text);
-                const cellStyle = lbl.kind === 'mismatch' ? { textAlign: 'center', color: 'var(--danger)' }
-                  : { textAlign: 'center' };
+                const cellStyle = {
+                  textAlign: 'center',
+                  ...(lbl.kind === 'mismatch' && { color: 'var(--danger)' }),
+                  ...(g.resubmit_requested && { background: 'var(--badge-resubmit-bg)' }),
+                };
                 const inner = c
                   ? <span style={{ background: c.bg, color: c.text, border: `1px solid ${c.border}`, padding: '0.1rem 0.4rem', borderRadius: 4, fontWeight: 500, display: 'inline-block', minWidth: 24 }}>{text}</span>
                   : text;
@@ -489,8 +492,15 @@ function GradebookView({ data }) {
                 });
                 // Don't double up exception text — gradeLabel already shows it.
                 const inlineBadges = status.filter(b => b.kind !== 'exception');
+                // The re-submit signal takes tooltip priority over the mismatch
+                // warning when a cell is both flagged and a score-mismatch.
+                const cellTitle = g.resubmit_requested
+                  ? 'Re-submit requested'
+                  : (lbl.kind === 'mismatch'
+                      ? 'Score does not match any defined level on this grading scale — check Schoology'
+                      : (g.grade_comment || ''));
                 return (
-                  <td key={a.id} style={cellStyle} title={lbl.kind === 'mismatch' ? 'Score does not match any defined level on this grading scale — check Schoology' : (g.grade_comment || '')}>
+                  <td key={a.id} style={cellStyle} title={cellTitle}>
                     {inner}
                     {inlineBadges.map(b => (
                       <span key={b.kind} className={`badge ${b.tone === 'red' ? 'badge-red' : b.tone === 'blue' ? 'badge-blue' : 'badge-pink'}`} style={{ fontSize: '0.55rem', marginLeft: 3 }} title={b.label}>

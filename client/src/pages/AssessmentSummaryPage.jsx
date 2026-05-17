@@ -246,10 +246,59 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         {saveResult?.startsWith('error') && (
           <span className="badge badge-red" style={{ fontSize: '0.68rem' }}>{saveResult}</span>
         )}
-        {reviewFlag && (
-          <span className="badge badge-amber" style={{ fontSize: '0.68rem' }}>
-            ⚑ Review: {reviewFlag.flag_reason}
+        {/* Review flag (#20) — Prism-local; never part of a Schoology save.
+            Control and badge live together here in the card header. */}
+        {reviewFlag ? (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+            <span className="badge badge-amber" style={{ fontSize: '0.68rem' }}>
+              ⚑ Review: {reviewFlag.flag_reason}
+            </span>
+            <button
+              className="ghost danger"
+              onClick={handleClearReviewFlag}
+              disabled={flagBusy}
+              style={{ fontSize: '0.7rem' }}
+            >
+              Clear
+            </button>
           </span>
+        ) : showFlagInput ? (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+            <input
+              type="text"
+              value={flagReason}
+              onChange={e => setFlagReason(e.target.value)}
+              placeholder="Reason for review..."
+              style={{ fontSize: '0.78rem', width: 200 }}
+              autoFocus
+            />
+            <button
+              className="primary"
+              onClick={handleFlagForReview}
+              disabled={flagBusy || !flagReason.trim()}
+              style={{ fontSize: '0.7rem' }}
+            >
+              Flag
+            </button>
+            <button
+              className="ghost"
+              onClick={() => { setShowFlagInput(false); setFlagReason(''); }}
+              style={{ fontSize: '0.7rem' }}
+            >
+              Cancel
+            </button>
+          </span>
+        ) : (
+          <button
+            className="ghost accent"
+            onClick={() => setShowFlagInput(true)}
+            style={{ fontSize: '0.7rem' }}
+          >
+            ⚑ Flag for review
+          </button>
+        )}
+        {flagError && (
+          <span className="text-sm" style={{ color: 'var(--danger)' }}>{flagError}</span>
         )}
         {isRubricLocked && (
           <span className="badge badge-red" style={{ fontSize: '0.68rem' }} title="Exception set in Schoology — score data is deleted while the exception is active">
@@ -436,42 +485,6 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
               }} />
             </span>
           </label>
-        </div>
-        {/* Review flag (#20) — Prism-local; never part of a Schoology save */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}>
-          {reviewFlag ? (
-            <button className="ghost danger" onClick={handleClearReviewFlag} disabled={flagBusy}>
-              Clear review flag
-            </button>
-          ) : showFlagInput ? (
-            <>
-              <input
-                type="text"
-                value={flagReason}
-                onChange={e => setFlagReason(e.target.value)}
-                placeholder="Reason for review..."
-                style={{ flex: 1, fontSize: '0.8rem' }}
-                autoFocus
-              />
-              <button
-                className="primary"
-                onClick={handleFlagForReview}
-                disabled={flagBusy || !flagReason.trim()}
-              >
-                Flag
-              </button>
-              <button className="ghost" onClick={() => { setShowFlagInput(false); setFlagReason(''); }}>
-                Cancel
-              </button>
-            </>
-          ) : (
-            <button className="ghost accent" onClick={() => setShowFlagInput(true)}>
-              ⚑ Flag for review
-            </button>
-          )}
-          {flagError && (
-            <span className="text-sm" style={{ color: 'var(--danger)' }}>{flagError}</span>
-          )}
         </div>
       </div>
     </div>

@@ -258,9 +258,13 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     }
   }
 
+  const bothSignals = !!resubmitFlag && !!student.resubmitted;
+
   return (
     <div style={{
-      border: '1px solid var(--border)', borderRadius: 10,
+      border: bothSignals ? '1px solid var(--resubmit-ring)' : '1px solid var(--border)',
+      boxShadow: bothSignals ? '0 0 0 2px var(--badge-resubmit-bg)' : 'none',
+      borderRadius: 10,
       background: 'var(--card-bg)', overflow: 'hidden',
       marginBottom: '1rem',
     }}>
@@ -391,6 +395,12 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           >
             ⟳ Request re-submit
           </button>
+        )}
+        {student.resubmitted && (
+          <span className="badge badge-resubmitted" style={{ fontSize: '0.68rem' }}
+                title="The student has submitted new work since this was last graded">
+            ↩ Resubmitted
+          </span>
         )}
         {flagError && (
           <span className="text-sm" style={{ color: 'var(--danger)' }}>{flagError}</span>

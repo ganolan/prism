@@ -354,4 +354,16 @@ describe('StudentRubricCard — re-submit requested toggle', () => {
     expect(writeMasteryScores).not.toHaveBeenCalled();
     expect(writeMasteryComment).not.toHaveBeenCalled();
   });
+
+  it('shows a read-only Resubmitted pill when student.resubmitted is true', () => {
+    renderCard({ student: { ...makeStudent(), resubmitted: true } });
+    const pill = screen.getByText(/^↩ Resubmitted$/);
+    expect(pill).toBeInTheDocument();
+    expect(pill.tagName).not.toBe('BUTTON');
+  });
+
+  it('does not show the Resubmitted pill when student.resubmitted is false', () => {
+    renderCard({ student: { ...makeStudent(), resubmitted: false } });
+    expect(screen.queryByText(/^↩ Resubmitted$/)).not.toBeInTheDocument();
+  });
 });

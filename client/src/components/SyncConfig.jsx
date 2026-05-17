@@ -28,6 +28,8 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
     [courses]
   );
 
+  // Selection is seeded once at mount. The parent (SyncDialog) only renders
+  // SyncConfig after courses have loaded, so `courses` is stable on mount.
   const [selected, setSelected] = useState(() => new Set(visibleIds));
   const [collapsed, setCollapsed] = useState({ visible: false, hidden: true, archived: true });
 
@@ -88,6 +90,7 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
                       type="button"
                       className="sync-caret"
                       onClick={() => toggleCollapse(group.key)}
+                      aria-label={`${collapsed[group.key] ? 'Expand' : 'Collapse'} ${group.label.toLowerCase()}`}
                     >
                       {collapsed[group.key] ? '▸' : '▾'}
                     </button>
@@ -98,13 +101,14 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
                         indeterminate={onCount > 0 && onCount < ids.length}
                         onChange={() => toggleGroup(group)}
                       />
-                      <span
-                        className="sync-group-name"
-                        onClick={() => toggleCollapse(group.key)}
-                      >
-                        {group.label} <span className="text-muted">({onCount} of {ids.length})</span>
-                      </span>
                     </label>
+                    <button
+                      type="button"
+                      className="sync-group-name"
+                      onClick={() => toggleCollapse(group.key)}
+                    >
+                      {group.label} <span className="text-muted">({onCount} of {ids.length})</span>
+                    </button>
                   </div>
                   {!collapsed[group.key] && (
                     <div className="sync-course-list">
@@ -112,7 +116,6 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
                         <label className="sync-course" key={c.id}>
                           <input
                             type="checkbox"
-                            aria-label={c.course_name}
                             checked={selected.has(c.id)}
                             onChange={() => toggleCourse(c.id)}
                           />
@@ -133,8 +136,9 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
           Schoology + {count} mastery course{count === 1 ? '' : 's'}
         </span>
         <div className="sync-foot-actions">
-          <button className="ghost" onClick={onCancel} disabled={busy}>Cancel</button>
+          <button type="button" className="ghost" onClick={onCancel} disabled={busy}>Cancel</button>
           <button
+            type="button"
             className="primary"
             onClick={() => onStart([...selected])}
             disabled={busy}

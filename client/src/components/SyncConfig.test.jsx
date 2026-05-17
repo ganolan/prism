@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import SyncConfig from './SyncConfig.jsx';
 
 const COURSES = [
@@ -14,7 +14,7 @@ function renderConfig(props = {}) {
     <SyncConfig
       courses={COURSES}
       loggedIn={true}
-      busy={false}
+      busy={props.busy ?? false}
       onStart={props.onStart || (() => {})}
       onCancel={props.onCancel || (() => {})}
       onLogin={props.onLogin || (() => {})}
@@ -62,6 +62,30 @@ describe('SyncConfig', () => {
         onStart={() => {}} onCancel={() => {}} onLogin={() => {}} />
     );
     expect(screen.getByRole('button', { name: /log in to schoology/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Biology 9')).not.toBeInTheDocument();
+  });
+
+  it('group select-all toggles every course in the group', () => {
+    renderConfig();
+    const groupCheckbox = screen.getByLabelText(/select all visible/i);
+    expect(groupCheckbox.checked).toBe(true);
+    fireEvent.click(groupCheckbox);
+    expect(screen.getByLabelText('Biology 9').checked).toBe(false);
+    expect(screen.getByLabelText('Chemistry 11').checked).toBe(false);
+    fireEvent.click(groupCheckbox);
+    expect(screen.getByLabelText('Biology 9').checked).toBe(true);
+  });
+
+  it('disables Cancel and Start while busy', () => {
+    renderConfig({ busy: true });
+    expect(screen.getByRole('button', { name: /start sync/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /cancel/i })).toBeDisabled();
+  });
+
+  it('collapses an expanded group when its header is clicked', () => {
+    renderConfig();
+    expect(screen.getByLabelText('Biology 9')).toBeInTheDocument();
+    fireEvent.click(screen.getByText(/Visible courses/));
     expect(screen.queryByLabelText('Biology 9')).not.toBeInTheDocument();
   });
 });

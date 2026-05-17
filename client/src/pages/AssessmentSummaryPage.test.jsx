@@ -242,12 +242,12 @@ describe('StudentRubricCard review flag (#20)', () => {
   it('shows the review badge and a Clear control when a flag exists', () => {
     renderCard({ student: { ...makeStudent(), review_flag: { id: 7, flag_reason: 'Re-mark' } } });
     expect(screen.getByText(/Review: Re-mark/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /clear review flag/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Clear' })).toBeInTheDocument();
   });
 
   it('clears the review flag via deleteFlag', async () => {
     renderCard({ student: { ...makeStudent(), review_flag: { id: 7, flag_reason: 'Re-mark' } } });
-    fireEvent.click(screen.getByRole('button', { name: /clear review flag/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
     await waitFor(() => expect(deleteFlag).toHaveBeenCalledWith(7));
   });
 

@@ -45,6 +45,8 @@
   --badge-red-text: #b91c1c;
   --badge-gray-bg: #f0ecf9;
   --badge-gray-text: #6b5b95;
+  --badge-amber-bg: #fef3c7;
+  --badge-amber-text: #92400e;
   --badge-pink-bg: #fce7f3;
   --badge-pink-text: #be185d;
   --table-header-bg: #f8f5ff;
@@ -101,6 +103,8 @@
   --badge-red-text: #fca5a5;
   --badge-gray-bg: rgba(139, 123, 181, 0.12);
   --badge-gray-text: #a89cc8;
+  --badge-amber-bg: rgba(251, 191, 36, 0.15);
+  --badge-amber-text: #fcd34d;
   --badge-pink-bg: rgba(244, 114, 182, 0.15);
   --badge-pink-text: #f9a8d4;
   --table-header-bg: #1f1640;
@@ -157,6 +161,8 @@
   --badge-red-text: #b91c1c;
   --badge-gray-bg: #f0f9ff;
   --badge-gray-text: #475569;
+  --badge-amber-bg: #fef3c7;
+  --badge-amber-text: #92400e;
   --badge-pink-bg: #cffafe;
   --badge-pink-text: #0e7490;
   --table-header-bg: #f0f9ff;
@@ -390,6 +396,7 @@ tr:last-child td { border-bottom: none; }
 .badge-green { background: var(--badge-green-bg); color: var(--badge-green-text); }
 .badge-red { background: var(--badge-red-bg); color: var(--badge-red-text); }
 .badge-gray { background: var(--badge-gray-bg); color: var(--badge-gray-text); }
+.badge-amber { background: var(--badge-amber-bg); color: var(--badge-amber-text); }
 .badge-pink { background: var(--badge-pink-bg); color: var(--badge-pink-text); }
 
 /* ========================================================================

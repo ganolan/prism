@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { migrate, purgeLegacyAutoFlags } from './index.js';
+import { migrate, purgeLegacyAutoFlags, purgeStudentScopedFlags } from './index.js';
 
 function seedFlag(db, studentId, flagType) {
   db.prepare(
@@ -42,6 +42,7 @@ describe('purgeLegacyAutoFlags', () => {
 
   test('preserves custom, review_needed, and performance_change flags', () => {
     purgeLegacyAutoFlags(db);
+    // purgeLegacyAutoFlags alone keeps these; via migrate() all NULL-assignment flags are also purged
     expect(flagTypes(db)).toEqual(['custom', 'performance_change', 'review_needed']);
   });
 
@@ -61,7 +62,64 @@ describe('migrate', () => {
     seedFlag(db, studentId, 'missing');
     seedFlag(db, studentId, 'custom');
     // A second migrate() simulates the next server boot calling getDb().
+    // Both flags have assignment_id = NULL, so both are purged (purgeLegacyAutoFlags
+    // removes 'missing'; purgeStudentScopedFlags removes all remaining NULL-scoped flags).
     migrate(db);
-    expect(flagTypes(db)).toEqual(['custom']);
+    expect(flagTypes(db)).toEqual([]);
+  });
+});
+
+describe('purgeStudentScopedFlags', () => {
+  let db;
+  let studentId;
+
+  beforeEach(() => {
+    db = new Database(':memory:');
+    migrate(db);
+    studentId = newStudent(db);
+  });
+
+  test('deletes flags with no assignment_id', () => {
+    seedFlag(db, studentId, 'custom');
+    seedFlag(db, studentId, 'review_needed');
+    purgeStudentScopedFlags(db);
+    expect(db.prepare('SELECT COUNT(*) AS c FROM flags').get().c).toBe(0);
+  });
+
+  test('keeps submission-scoped flags (assignment_id set)', () => {
+    const courseId = db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name) VALUES ('sc-1', 'Math')`
+    ).run().lastInsertRowid;
+    const assignmentId = db.prepare(
+      `INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-1', 'HW1')`
+    ).run(courseId).lastInsertRowid;
+    db.prepare(
+      `INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason)
+       VALUES (?, ?, 'review_needed', 'recheck')`
+    ).run(studentId, assignmentId);
+    purgeStudentScopedFlags(db);
+    expect(db.prepare('SELECT COUNT(*) AS c FROM flags').get().c).toBe(1);
+  });
+
+  test('runs as part of migrate() and is idempotent', () => {
+    seedFlag(db, studentId, 'custom');
+    migrate(db);
+    migrate(db);
+    expect(db.prepare('SELECT COUNT(*) AS c FROM flags').get().c).toBe(0);
+  });
+
+  test('preserves submission-scoped flags across a migrate() reboot', () => {
+    const courseId = db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name) VALUES ('sc-1', 'Math')`
+    ).run().lastInsertRowid;
+    const assignmentId = db.prepare(
+      `INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-1', 'HW1')`
+    ).run(courseId).lastInsertRowid;
+    db.prepare(
+      `INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason)
+       VALUES (?, ?, 'review_needed', 'recheck')`
+    ).run(studentId, assignmentId);
+    migrate(db); // simulate reboot
+    expect(db.prepare('SELECT COUNT(*) AS c FROM flags').get().c).toBe(1);
   });
 });

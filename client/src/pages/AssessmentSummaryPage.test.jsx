@@ -3,12 +3,15 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { useState } from 'react';
 import { StudentRubricCard } from './AssessmentSummaryPage.jsx';
+import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment } from '../services/api.js';
 
 vi.mock('../services/api.js', () => ({
   getMasteryForAssignment: vi.fn(),
   syncMasteryForAssignment: vi.fn(),
   writeMasteryScores: vi.fn().mockResolvedValue({}),
   writeMasteryComment: vi.fn().mockResolvedValue({}),
+  createFlag: vi.fn().mockResolvedValue({ id: 99, flag_reason: 'Check citations' }),
+  deleteFlag: vi.fn().mockResolvedValue({ success: true }),
 }));
 
 const TOPICS = [
@@ -32,16 +35,17 @@ function makeStudent() {
 }
 
 function renderCard(extraProps = {}) {
+  const { student, ...rest } = extraProps;
   return render(
     <MemoryRouter>
       <StudentRubricCard
-        student={makeStudent()}
+        student={student || makeStudent()}
         topics={TOPICS}
         courseId="4"
         assignmentId="8"
-        assignmentRow={{ mastery_grading_period_id: 1, mastery_grading_category_id: 2 }}
+        assignmentRow={{ id: 50, mastery_grading_period_id: 1, mastery_grading_category_id: 2 }}
         onSaved={() => {}}
-        {...extraProps}
+        {...rest}
       />
     </MemoryRouter>
   );
@@ -207,5 +211,68 @@ describe('StudentRubricCard draft persistence', () => {
     expect(
       localStorage.getItem('prism:assessment-draft:4:8:enr-1')
     ).toBeNull();
+  });
+});
+
+describe('StudentRubricCard review flag (#20)', () => {
+  it('shows a "Flag for review" button when there is no review flag', () => {
+    renderCard();
+    expect(screen.getByRole('button', { name: /flag for review/i })).toBeInTheDocument();
+  });
+
+  it('creates a submission-scoped review_needed flag with a reason', async () => {
+    renderCard();
+    fireEvent.click(screen.getByRole('button', { name: /flag for review/i }));
+    fireEvent.change(screen.getByPlaceholderText('Reason for review...'), {
+      target: { value: 'Check citations' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Flag' }));
+
+    await waitFor(() => {
+      expect(createFlag).toHaveBeenCalledWith({
+        student_id: 1,
+        assignment_id: 50,
+        flag_type: 'review_needed',
+        flag_reason: 'Check citations',
+      });
+    });
+    expect(await screen.findByText(/Review: Check citations/)).toBeInTheDocument();
+  });
+
+  it('shows the review badge and a Clear control when a flag exists', () => {
+    renderCard({ student: { ...makeStudent(), review_flag: { id: 7, flag_reason: 'Re-mark' } } });
+    expect(screen.getByText(/Review: Re-mark/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /clear review flag/i })).toBeInTheDocument();
+  });
+
+  it('clears the review flag via deleteFlag', async () => {
+    renderCard({ student: { ...makeStudent(), review_flag: { id: 7, flag_reason: 'Re-mark' } } });
+    fireEvent.click(screen.getByRole('button', { name: /clear review flag/i }));
+    await waitFor(() => expect(deleteFlag).toHaveBeenCalledWith(7));
+  });
+
+  it('flagging for review does not trigger a Schoology write', async () => {
+    renderCard();
+    fireEvent.click(screen.getByRole('button', { name: /flag for review/i }));
+    fireEvent.change(screen.getByPlaceholderText('Reason for review...'), {
+      target: { value: 'Check citations' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Flag' }));
+    await waitFor(() => expect(createFlag).toHaveBeenCalled());
+    expect(writeMasteryScores).not.toHaveBeenCalled();
+    expect(writeMasteryComment).not.toHaveBeenCalled();
+  });
+
+  it('shows an error and keeps no flag when creation fails', async () => {
+    createFlag.mockRejectedValueOnce(new Error('network down'));
+    renderCard();
+    fireEvent.click(screen.getByRole('button', { name: /flag for review/i }));
+    fireEvent.change(screen.getByPlaceholderText('Reason for review...'), {
+      target: { value: 'Check citations' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Flag' }));
+
+    expect(await screen.findByText(/Flag failed: network down/)).toBeInTheDocument();
+    expect(screen.queryByText(/Review: Check citations/)).not.toBeInTheDocument();
   });
 });

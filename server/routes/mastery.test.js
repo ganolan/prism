@@ -1,7 +1,10 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 import express from 'express';
 
-const h = vi.hoisted(() => ({ loggedIn: true }));
+const h = vi.hoisted(() => {
+  process.env.DB_PATH = ':memory:';
+  return { loggedIn: true };
+});
 
 vi.mock('../services/masterySync.js', () => ({
   hasMasterySession: () => h.loggedIn,
@@ -20,6 +23,7 @@ vi.mock('../services/schoology.js', () => ({
 }));
 
 import router from './mastery.js';
+import { getDb } from '../db/index.js';
 
 function startServer() {
   const app = express();
@@ -37,6 +41,70 @@ async function get(path) {
     server.close();
   }
 }
+
+describe('GET /api/mastery/:courseId/assignment/:assignmentId — review flags', () => {
+  let courseId;
+  let studentId;
+  let assignmentInternalId;
+
+  beforeEach(() => {
+    const db = getDb();
+    db.exec(
+      'DELETE FROM flags; DELETE FROM enrolments; DELETE FROM assignments; ' +
+      'DELETE FROM students; DELETE FROM courses;'
+    );
+    courseId = db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-1', 'Course')`
+    ).run().lastInsertRowid;
+    studentId = db.prepare(
+      `INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-1', 'Ada', 'Lovelace')`
+    ).run().lastInsertRowid;
+    db.prepare(
+      `INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'enr-1')`
+    ).run(studentId, courseId);
+    assignmentInternalId = db.prepare(
+      `INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-1', 'Project')`
+    ).run(courseId).lastInsertRowid;
+  });
+
+  test('review_flag is null when the student has no review flag', async () => {
+    const { status, body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
+    expect(status).toBe(200);
+    expect(body.students).toHaveLength(1);
+    expect(body.students[0].review_flag).toBeNull();
+  });
+
+  test('review_flag carries id and reason for a review_needed flag', async () => {
+    const db = getDb();
+    const flagId = db.prepare(
+      `INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason)
+       VALUES (?, ?, 'review_needed', 'Check the citations')`
+    ).run(studentId, assignmentInternalId).lastInsertRowid;
+
+    const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
+    expect(body.students[0].review_flag).toEqual({
+      id: flagId,
+      flag_reason: 'Check the citations',
+    });
+  });
+
+  test('a non-review flag on the same submission is ignored', async () => {
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason)
+       VALUES (?, ?, 'custom', 'something else')`
+    ).run(studentId, assignmentInternalId);
+
+    const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
+    expect(body.students[0].review_flag).toBeNull();
+  });
+
+  test('does not throw for an unknown assignment id', async () => {
+    const { status, body } = await get(`/api/mastery/${courseId}/assignment/no-such-assignment`);
+    expect(status).toBe(200);
+    expect(body.students.every(s => s.review_flag === null)).toBe(true);
+  });
+});
 
 describe('GET /api/mastery/login-status', () => {
   beforeEach(() => { h.loggedIn = true; });

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getMasteryForAssignment, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment } from '../services/api.js';
+import { getMasteryForAssignment, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, createFlag, deleteFlag } from '../services/api.js';
 import { draftKey, readDraft, writeDraft, clearDraft, draftBaseline } from '../lib/assessmentDraft.js';
 
 const LEVELS = ['ED', 'EX', 'D', 'EM', 'IE'];
@@ -71,6 +71,14 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   );
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState(null);
+
+  // Review flag (#20) — Prism-local, submission-scoped. Written via /api/flags,
+  // entirely independent of the Schoology grade/comment write below.
+  const [reviewFlag, setReviewFlag] = useState(student.review_flag || null);
+  const [showFlagInput, setShowFlagInput] = useState(false);
+  const [flagReason, setFlagReason] = useState('');
+  const [flagBusy, setFlagBusy] = useState(false);
+  const [flagError, setFlagError] = useState(null);
 
   // Exception (Excused/Incomplete/Missing) on the underlying grade locks the
   // rubric grid: setting one of these in Schoology deletes the score, so any
@@ -176,6 +184,42 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     }
   }
 
+  async function handleFlagForReview() {
+    const reason = flagReason.trim();
+    if (!reason || !assignmentRow?.id) return;
+    setFlagError(null);
+    setFlagBusy(true);
+    try {
+      const flag = await createFlag({
+        student_id: student.id,
+        assignment_id: assignmentRow.id,
+        flag_type: 'review_needed',
+        flag_reason: reason,
+      });
+      setReviewFlag({ id: flag.id, flag_reason: flag.flag_reason });
+      setShowFlagInput(false);
+      setFlagReason('');
+    } catch (err) {
+      setFlagError(`Flag failed: ${err.message}`);
+    } finally {
+      setFlagBusy(false);
+    }
+  }
+
+  async function handleClearReviewFlag() {
+    if (!reviewFlag) return;
+    setFlagError(null);
+    setFlagBusy(true);
+    try {
+      await deleteFlag(reviewFlag.id);
+      setReviewFlag(null);
+    } catch (err) {
+      setFlagError(`Clear failed: ${err.message}`);
+    } finally {
+      setFlagBusy(false);
+    }
+  }
+
   return (
     <div style={{
       border: '1px solid var(--border)', borderRadius: 10,
@@ -201,6 +245,11 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         )}
         {saveResult?.startsWith('error') && (
           <span className="badge badge-red" style={{ fontSize: '0.68rem' }}>{saveResult}</span>
+        )}
+        {reviewFlag && (
+          <span className="badge badge-amber" style={{ fontSize: '0.68rem' }}>
+            ⚑ Review: {reviewFlag.flag_reason}
+          </span>
         )}
         {isRubricLocked && (
           <span className="badge badge-red" style={{ fontSize: '0.68rem' }} title="Exception set in Schoology — score data is deleted while the exception is active">
@@ -387,6 +436,42 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
               }} />
             </span>
           </label>
+        </div>
+        {/* Review flag (#20) — Prism-local; never part of a Schoology save */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}>
+          {reviewFlag ? (
+            <button className="ghost danger" onClick={handleClearReviewFlag} disabled={flagBusy}>
+              Clear review flag
+            </button>
+          ) : showFlagInput ? (
+            <>
+              <input
+                type="text"
+                value={flagReason}
+                onChange={e => setFlagReason(e.target.value)}
+                placeholder="Reason for review..."
+                style={{ flex: 1, fontSize: '0.8rem' }}
+                autoFocus
+              />
+              <button
+                className="primary"
+                onClick={handleFlagForReview}
+                disabled={flagBusy || !flagReason.trim()}
+              >
+                Flag
+              </button>
+              <button className="ghost" onClick={() => { setShowFlagInput(false); setFlagReason(''); }}>
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button className="ghost accent" onClick={() => setShowFlagInput(true)}>
+              ⚑ Flag for review
+            </button>
+          )}
+          {flagError && (
+            <span className="text-sm" style={{ color: 'var(--danger)' }}>{flagError}</span>
+          )}
         </div>
       </div>
     </div>

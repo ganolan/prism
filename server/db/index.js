@@ -51,6 +51,15 @@ export function purgeLegacyAutoFlags(database) {
   database.exec(`DELETE FROM flags WHERE flag_type IN ('missing', 'late_submission')`);
 }
 
+// Remove orphaned student-scoped flags. Before #20/#19, flags could be created
+// against a student profile with no assignment_id (the retired FlagsCard).
+// Review flags are now always submission-scoped — student AND assignment — so a
+// NULL assignment_id marks a flag with no home in the UI. Idempotent — safe to
+// run on every boot. See #20/#19.
+export function purgeStudentScopedFlags(database) {
+  database.exec(`DELETE FROM flags WHERE assignment_id IS NULL`);
+}
+
 // Build the schema, apply incremental migrations, and run data purges on an
 // open database. Exported so tests can drive it against an in-memory database.
 export function migrate(database) {
@@ -61,7 +70,9 @@ export function migrate(database) {
     try { database.exec(sql); } catch { /* column already exists */ }
   }
 
+  // Data purges — independent of each other; order does not matter.
   purgeLegacyAutoFlags(database);
+  purgeStudentScopedFlags(database);
 }
 
 export function getDb() {

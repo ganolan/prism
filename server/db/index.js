@@ -70,6 +70,7 @@ export function migrate(database) {
     try { database.exec(sql); } catch { /* column already exists */ }
   }
 
+  // Data purges — independent of each other; order does not matter.
   purgeLegacyAutoFlags(database);
   purgeStudentScopedFlags(database);
 }

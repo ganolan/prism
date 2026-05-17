@@ -42,6 +42,7 @@ describe('purgeLegacyAutoFlags', () => {
 
   test('preserves custom, review_needed, and performance_change flags', () => {
     purgeLegacyAutoFlags(db);
+    // purgeLegacyAutoFlags alone keeps these; via migrate() all NULL-assignment flags are also purged
     expect(flagTypes(db)).toEqual(['custom', 'performance_change', 'review_needed']);
   });
 
@@ -105,5 +106,20 @@ describe('purgeStudentScopedFlags', () => {
     migrate(db);
     migrate(db);
     expect(db.prepare('SELECT COUNT(*) AS c FROM flags').get().c).toBe(0);
+  });
+
+  test('preserves submission-scoped flags across a migrate() reboot', () => {
+    const courseId = db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name) VALUES ('sc-1', 'Math')`
+    ).run().lastInsertRowid;
+    const assignmentId = db.prepare(
+      `INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-1', 'HW1')`
+    ).run(courseId).lastInsertRowid;
+    db.prepare(
+      `INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason)
+       VALUES (?, ?, 'review_needed', 'recheck')`
+    ).run(studentId, assignmentId);
+    migrate(db); // simulate reboot
+    expect(db.prepare('SELECT COUNT(*) AS c FROM flags').get().c).toBe(1);
   });
 });

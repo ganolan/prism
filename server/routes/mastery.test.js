@@ -50,7 +50,7 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — review and res
   beforeEach(() => {
     const db = getDb();
     db.exec(
-      'DELETE FROM flags; DELETE FROM enrolments; DELETE FROM assignments; ' +
+      'DELETE FROM flags; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; ' +
       'DELETE FROM students; DELETE FROM courses;'
     );
     courseId = db.prepare(
@@ -118,6 +118,21 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — review and res
     ).run(studentId, assignmentInternalId).lastInsertRowid;
     const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
     expect(body.students[0].resubmit_flag).toEqual({ id: flagId });
+  });
+
+  test('resubmitted is true when the latest revision postdates the grade', async () => {
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO grades (student_id, assignment_id, score, submitted_at, latest_revision_at)
+       VALUES (?, ?, 80, 1000, 2000)`
+    ).run(studentId, assignmentInternalId);
+    const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
+    expect(body.students[0].resubmitted).toBe(true);
+  });
+
+  test('resubmitted is false with no newer revision', async () => {
+    const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
+    expect(body.students[0].resubmitted).toBe(false);
   });
 });
 

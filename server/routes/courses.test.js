@@ -73,3 +73,21 @@ describe('GET /api/courses/:id/gradebook — resubmit_requested', () => {
     expect(body.grades[studentId][assignmentId].resubmit_requested).toBe(false);
   });
 });
+
+describe('GET /api/courses/:id/gradebook — resubmitted', () => {
+  test('cell resubmitted is true when the latest revision is newer than the grade', async () => {
+    const db = getDb();
+    db.prepare('UPDATE grades SET submitted_at = 1000, latest_revision_at = 2000 WHERE student_id = ? AND assignment_id = ?')
+      .run(studentId, assignmentId);
+    const { body } = await get(`/api/courses/${courseId}/gradebook`);
+    expect(body.grades[studentId][assignmentId].resubmitted).toBe(true);
+  });
+
+  test('cell resubmitted is false when the grade postdates the revision', async () => {
+    const db = getDb();
+    db.prepare('UPDATE grades SET submitted_at = 2000, latest_revision_at = 1000 WHERE student_id = ? AND assignment_id = ?')
+      .run(studentId, assignmentId);
+    const { body } = await get(`/api/courses/${courseId}/gradebook`);
+    expect(body.grades[studentId][assignmentId].resubmitted).toBe(false);
+  });
+});

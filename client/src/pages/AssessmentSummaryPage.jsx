@@ -79,6 +79,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   const [flagReason, setFlagReason] = useState('');
   const [flagBusy, setFlagBusy] = useState(false);
   const [flagError, setFlagError] = useState(null);
+  const [flagControlHover, setFlagControlHover] = useState(false);
 
   // Exception (Excused/Incomplete/Missing) on the underlying grade locks the
   // rubric grid: setting one of these in Schoology deletes the score, so any
@@ -263,13 +264,18 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             </button>
           </span>
         ) : showFlagInput ? (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+          <span
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+            onMouseEnter={() => setFlagControlHover(true)}
+            onMouseLeave={() => setFlagControlHover(false)}
+          >
             <input
               type="text"
               value={flagReason}
               onChange={e => setFlagReason(e.target.value)}
               onKeyDown={e => {
                 if (e.key === 'Enter' && !flagBusy && flagReason.trim()) handleFlagForReview();
+                if (e.key === 'Escape') { setShowFlagInput(false); setFlagReason(''); }
               }}
               placeholder="Reason for review..."
               style={{ fontSize: '0.78rem', width: 200 }}
@@ -286,9 +292,18 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             <button
               className="ghost"
               onClick={() => { setShowFlagInput(false); setFlagReason(''); }}
-              style={{ fontSize: '0.7rem' }}
+              onFocus={() => setFlagControlHover(true)}
+              onBlur={() => setFlagControlHover(false)}
+              aria-label="Cancel"
+              title="Cancel (Esc)"
+              style={{
+                fontSize: '0.9rem', fontWeight: 600, lineHeight: 1,
+                padding: '0.1rem 0.35rem',
+                opacity: flagControlHover ? 1 : 0,
+                transition: 'opacity 0.12s',
+              }}
             >
-              Cancel
+              ✕
             </button>
           </span>
         ) : (

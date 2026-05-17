@@ -264,6 +264,24 @@ describe('StudentRubricCard review flag (#20)', () => {
     expect(createFlag).not.toHaveBeenCalled();
   });
 
+  it('cancels the reason input when Escape is pressed', () => {
+    renderCard();
+    fireEvent.click(screen.getByRole('button', { name: /flag for review/i }));
+    const input = screen.getByPlaceholderText('Reason for review...');
+    fireEvent.change(input, { target: { value: 'oops' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(screen.queryByPlaceholderText('Reason for review...')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /flag for review/i })).toBeInTheDocument();
+  });
+
+  it('cancels the reason input via the ✕ button', () => {
+    renderCard();
+    fireEvent.click(screen.getByRole('button', { name: /flag for review/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByPlaceholderText('Reason for review...')).not.toBeInTheDocument();
+    expect(createFlag).not.toHaveBeenCalled();
+  });
+
   it('shows the review badge and a Clear control when a flag exists', () => {
     renderCard({ student: { ...makeStudent(), review_flag: { id: 7, flag_reason: 'Re-mark' } } });
     expect(screen.getByText(/Review: Re-mark/)).toBeInTheDocument();

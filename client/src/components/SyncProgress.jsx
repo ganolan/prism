@@ -35,9 +35,10 @@ function RemedyBanner({ failure, retryEnabled, onLogin, onRetry }) {
       )}
       <div className="sync-remedy-actions">
         {isLogin && (
-          <button className="secondary" onClick={onLogin}>Log in to Schoology</button>
+          <button type="button" className="secondary" onClick={onLogin}>Log in to Schoology</button>
         )}
         <button
+          type="button"
           className="secondary"
           onClick={() => onRetry([failure.courseId])}
           disabled={isLogin && !retryEnabled}
@@ -64,7 +65,7 @@ export default function SyncProgress({ reduced, mode, retryEnabled, onDone, onRe
   return (
     <div className="sync-progress">
       <div className={`sync-progress-head ${headingClass}`}>
-        <h3>{running && <span className="sync-spinner" />}{heading}</h3>
+        <h2>{running && <span className="sync-spinner" aria-hidden="true" />}{heading}</h2>
         {running && <p className="text-muted text-sm">Please don't close Prism — this takes a minute.</p>}
       </div>
 
@@ -78,11 +79,13 @@ export default function SyncProgress({ reduced, mode, retryEnabled, onDone, onRe
 
       {logLines.length > 0 && (
         <div className="sync-log">
-          {logLines.slice(-40).map((line, i) => <div key={i}>{line}</div>)}
+          {logLines.slice(-40).map((line, i) => (
+            <div key={Math.max(0, logLines.length - 40) + i}>{line}</div>
+          ))}
         </div>
       )}
 
-      {mode === 'done' && failures.map((f) => (
+      {mode === 'done' && failures.filter((f) => f.courseId != null).map((f) => (
         <RemedyBanner
           key={f.key}
           failure={f}
@@ -96,7 +99,7 @@ export default function SyncProgress({ reduced, mode, retryEnabled, onDone, onRe
         <span className="text-muted text-sm">
           {summary && mode === 'done' && `Finished in ${(summary.elapsedMs / 1000).toFixed(0)}s`}
         </span>
-        <button className="primary" onClick={onDone} disabled={running}>Done</button>
+        <button type="button" className="primary" onClick={onDone} disabled={running}>Done</button>
       </div>
     </div>
   );

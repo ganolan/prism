@@ -395,6 +395,20 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
     scoreMap[sc.student_uid][sc.topic_id] = { points: sc.points, grade: sc.grade };
   }
 
+  // Submission-scoped 'review needed' flags for this assignment (#20).
+  // Prism-local; keyed by internal student_id. assignmentRow is undefined for
+  // an unknown assignment id — no flags can exist in that case.
+  const reviewFlagRows = assignmentRow
+    ? db.prepare(`
+        SELECT id, student_id, flag_reason FROM flags
+        WHERE assignment_id = ? AND flag_type = 'review_needed'
+      `).all(assignmentRow.id)
+    : [];
+  const reviewFlagMap = {};
+  for (const r of reviewFlagRows) {
+    reviewFlagMap[r.student_id] = { id: r.id, flag_reason: r.flag_reason };
+  }
+
   res.json({
     assignment: assignmentRow || { schoology_assignment_id: assignmentId, title: 'Unknown Assignment' },
     topics,
@@ -405,6 +419,7 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
       exception: exceptionMap[s.schoology_uid] || 0,
       comment_status: commentStatusMap[s.schoology_uid] ?? null,
       has_grade_row: hasGradeRowMap[s.schoology_uid] === true,
+      review_flag: reviewFlagMap[s.id] || null,
     })),
   });
 });

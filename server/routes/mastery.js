@@ -88,6 +88,9 @@ router.get('/:courseId/student/:studentUid', (req, res) => {
   // Topics that are either aligned to a published assignment in this course
   // OR have a score for one. Alignments alone are enough — they let the UI
   // render a topic column with "Pending" cells before any grades exist.
+  // Filter both inner selects to assignments individually-relevant to this
+  // student (#54) so a topic aligned only to other-student assessments does
+  // not appear as an empty column on this student's summary.
   const topics = db.prepare(`
     SELECT DISTINCT mt.*, rc.title AS category_title, rc.external_id AS category_external_id
     FROM measurement_topics mt
@@ -96,13 +99,27 @@ router.get('/:courseId/student/:studentUid', (req, res) => {
       SELECT ma.topic_id FROM mastery_alignments ma
       JOIN assignments a ON a.schoology_assignment_id = ma.assignment_schoology_id
       WHERE ma.course_id = ? AND a.published = 1
+        AND (
+          a.num_assignees IS NULL OR a.num_assignees = 0
+          OR EXISTS (
+            SELECT 1 FROM assignment_assignees aa
+            WHERE aa.assignment_id = a.id AND aa.schoology_uid = ?
+          )
+        )
       UNION
       SELECT ms.topic_id FROM mastery_scores ms
       JOIN assignments a ON a.schoology_assignment_id = ms.assignment_schoology_id
       WHERE a.course_id = ? AND a.published = 1
+        AND (
+          a.num_assignees IS NULL OR a.num_assignees = 0
+          OR EXISTS (
+            SELECT 1 FROM assignment_assignees aa
+            WHERE aa.assignment_id = a.id AND aa.schoology_uid = ?
+          )
+        )
     )
     ORDER BY rc.external_id, mt.external_id
-  `).all(courseId, courseId);
+  `).all(courseId, studentUid, courseId, studentUid);
 
   const topicIds = topics.map(t => t.id);
   const scores = topicIds.length > 0 ? db.prepare(`
@@ -112,6 +129,13 @@ router.get('/:courseId/student/:studentUid', (req, res) => {
     LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
     LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
     WHERE ms.student_uid = ? AND a.course_id = ? AND a.published = 1
+      AND (
+        a.num_assignees IS NULL OR a.num_assignees = 0
+        OR EXISTS (
+          SELECT 1 FROM assignment_assignees aa
+          WHERE aa.assignment_id = a.id AND aa.schoology_uid = ?
+        )
+      )
     ORDER BY
       CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN a.display_weight
            WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN COALESCE(fp.display_weight, 0)
@@ -121,7 +145,7 @@ router.get('/:courseId/student/:studentUid', (req, res) => {
            ELSE a.display_weight END ASC,
       CASE WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN a.display_weight ELSE 0 END ASC,
       ms.assignment_schoology_id
-  `).all(studentUid, courseId) : [];
+  `).all(studentUid, courseId, studentUid) : [];
 
   // Authoritative topic↔assignment alignments from the Schoology alignments
   // endpoint. Falls back to inferring from scores if the table is empty
@@ -146,8 +170,15 @@ router.get('/:courseId/student/:studentUid', (req, res) => {
     LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
     LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
     WHERE ma.course_id = ? AND a.published = 1
+      AND (
+        a.num_assignees IS NULL OR a.num_assignees = 0
+        OR EXISTS (
+          SELECT 1 FROM assignment_assignees aa
+          WHERE aa.assignment_id = a.id AND aa.schoology_uid = ?
+        )
+      )
     ORDER BY ${alignmentOrderBy}
-  `).all(courseId);
+  `).all(courseId, studentUid);
   if (alignments.length === 0 && topicIds.length > 0) {
     alignments = db.prepare(`
       SELECT DISTINCT ms.assignment_schoology_id, ms.topic_id,
@@ -157,8 +188,15 @@ router.get('/:courseId/student/:studentUid', (req, res) => {
       LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
       LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
       WHERE a.course_id = ? AND a.published = 1
+        AND (
+          a.num_assignees IS NULL OR a.num_assignees = 0
+          OR EXISTS (
+            SELECT 1 FROM assignment_assignees aa
+            WHERE aa.assignment_id = a.id AND aa.schoology_uid = ?
+          )
+        )
       ORDER BY ${alignmentOrderBy}
-    `).all(courseId);
+    `).all(courseId, studentUid);
   }
 
   // Schoology's own per-(student, objective) rollups — the level shown in the
@@ -350,14 +388,27 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
     SELECT * FROM assignments WHERE schoology_assignment_id = ? AND course_id = ?
   `).get(assignmentId, courseId);
 
-  const students = db.prepare(`
+  // Hide students an individually-targeted assignment isn't assigned to —
+  // matches the student-page rule (#54). assignmentRow is undefined for an
+  // unknown assignment id; treat that as "no targeting" so the roster still
+  // renders.
+  const targeted = assignmentRow && assignmentRow.num_assignees && assignmentRow.num_assignees > 0;
+  const students = db.prepare(targeted ? `
+    SELECT s.id, s.schoology_uid, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher,
+           e.schoology_enrolment_id AS enrollment_id
+    FROM students s
+    JOIN enrolments e ON e.student_id = s.id
+    JOIN assignment_assignees aa ON aa.schoology_uid = s.schoology_uid AND aa.assignment_id = ?
+    WHERE e.course_id = ?
+    ORDER BY s.last_name, s.first_name
+  ` : `
     SELECT s.id, s.schoology_uid, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher,
            e.schoology_enrolment_id AS enrollment_id
     FROM students s
     JOIN enrolments e ON e.student_id = s.id
     WHERE e.course_id = ?
     ORDER BY s.last_name, s.first_name
-  `).all(courseId);
+  `).all(...(targeted ? [assignmentRow.id, courseId] : [courseId]));
 
   const scores = topics.length > 0 ? db.prepare(`
     SELECT * FROM mastery_scores WHERE assignment_schoology_id = ?

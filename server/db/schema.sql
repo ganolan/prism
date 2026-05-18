@@ -65,7 +65,18 @@ CREATE TABLE IF NOT EXISTS assignments (
   count_in_grade INTEGER DEFAULT 1,
   published INTEGER DEFAULT 1,
   display_weight INTEGER DEFAULT 0,
+  num_assignees INTEGER,
   synced_at TEXT
+);
+
+-- Individually-assigned targeting. A row here means the assignment is
+-- targeted at the given schoology user. When no rows exist for an
+-- assignment (and num_assignees is NULL or 0), the assignment is open
+-- to all students in the section. See #54.
+CREATE TABLE IF NOT EXISTS assignment_assignees (
+  assignment_id INTEGER NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+  schoology_uid TEXT NOT NULL,
+  PRIMARY KEY (assignment_id, schoology_uid)
 );
 
 CREATE TABLE IF NOT EXISTS grades (
@@ -272,3 +283,4 @@ CREATE INDEX IF NOT EXISTS idx_folders_course ON folders(course_id);
 CREATE INDEX IF NOT EXISTS idx_completion_student ON completion(student_id);
 CREATE INDEX IF NOT EXISTS idx_completion_course ON completion(course_id);
 CREATE INDEX IF NOT EXISTS idx_grading_categories_course ON grading_categories(course_id);
+CREATE INDEX IF NOT EXISTS idx_assignment_assignees_uid ON assignment_assignees(schoology_uid);

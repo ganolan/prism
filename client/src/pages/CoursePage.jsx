@@ -449,6 +449,13 @@ function GradebookView({ data }) {
                 </Link>
               </td>
               {assignments.map(a => {
+                // Individually-assigned assignments targeted at other students
+                // render as a grayed dash with no badges or grade logic (#54).
+                if (a.assignees && !a.assignees.includes(s.id)) {
+                  return (
+                    <td key={a.id} style={{ textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-subtle)' }} title="Not assigned to this student">—</td>
+                  );
+                }
                 const g = grades[s.id]?.[a.id];
                 if (!g) {
                   // No grade row exists — student is enrolled but Schoology has

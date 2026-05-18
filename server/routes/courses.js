@@ -55,14 +55,24 @@ router.get('/:id/students', (req, res) => {
     ORDER BY s.last_name, s.first_name
   `).all(req.params.id);
 
-  // Get grade summary per student for this course (published assignments only)
+  // Get grade summary per student for this course (published assignments
+  // only). Assignments individually targeted at other students are excluded
+  // from this student's averages and counts — see #54.
   const gradeSummary = db.prepare(`
     SELECT g.student_id,
            COUNT(g.id) as graded_count,
            ROUND(AVG(CASE WHEN g.score IS NOT NULL AND g.max_score > 0 THEN (g.score * 100.0 / g.max_score) END), 1) as avg_pct
     FROM grades g
     JOIN assignments a ON a.id = g.assignment_id
+    JOIN students s ON s.id = g.student_id
     WHERE a.course_id = ? AND a.published = 1
+      AND (
+        a.num_assignees IS NULL OR a.num_assignees = 0
+        OR EXISTS (
+          SELECT 1 FROM assignment_assignees aa
+          WHERE aa.assignment_id = a.id AND aa.schoology_uid = s.schoology_uid
+        )
+      )
     GROUP BY g.student_id
   `).all(req.params.id);
 
@@ -104,7 +114,7 @@ router.get('/:id/gradebook', (req, res) => {
 
   const assignments = db.prepare(`
     SELECT a.id, a.title, a.max_points, a.due_date, a.grading_category_id, a.grading_scale_id, a.folder_id,
-           a.schoology_assignment_id,
+           a.schoology_assignment_id, a.num_assignees,
            CASE WHEN EXISTS (
              SELECT 1 FROM mastery_alignments ma WHERE ma.assignment_schoology_id = a.schoology_assignment_id
              UNION
@@ -126,12 +136,45 @@ router.get('/:id/gradebook', (req, res) => {
   `).all(req.params.id);
 
   const students = db.prepare(`
-    SELECT s.id, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher
+    SELECT s.id, s.schoology_uid, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher
     FROM students s
     JOIN enrolments e ON e.student_id = s.id
     WHERE e.course_id = ?
     ORDER BY s.last_name, s.first_name
   `).all(req.params.id);
+
+  // Per-assignment relevance for individually-targeted assignments (#54).
+  // `assignees` on each assignment is an array of internal student.id values
+  // enrolled in this course who the assignment targets; absent/null means
+  // open-to-all. Columns relevant to zero enrolled students are dropped
+  // (they only exist in the course shell, not for the current roster).
+  const uidToStudentId = {};
+  for (const s of students) {
+    if (s.schoology_uid) uidToStudentId[s.schoology_uid] = s.id;
+  }
+  const assigneeRows = db.prepare(`
+    SELECT aa.assignment_id, aa.schoology_uid
+    FROM assignment_assignees aa
+    JOIN assignments a ON a.id = aa.assignment_id
+    WHERE a.course_id = ?
+  `).all(req.params.id);
+  const assigneesByAssignment = {};
+  for (const r of assigneeRows) {
+    const studentId = uidToStudentId[r.schoology_uid];
+    if (!studentId) continue;
+    if (!assigneesByAssignment[r.assignment_id]) assigneesByAssignment[r.assignment_id] = [];
+    assigneesByAssignment[r.assignment_id].push(studentId);
+  }
+  const filteredAssignments = [];
+  for (const a of assignments) {
+    if (a.num_assignees && a.num_assignees > 0) {
+      const list = assigneesByAssignment[a.id] || [];
+      if (list.length === 0) continue;
+      a.assignees = list;
+    }
+    delete a.num_assignees;
+    filteredAssignments.push(a);
+  }
 
   const grades = db.prepare(`
     SELECT g.student_id, g.assignment_id, g.score, g.max_score, g.grade_comment, g.exception, g.late, g.draft, g.submitted_at, g.latest_revision_at, g.comment_status
@@ -158,7 +201,7 @@ router.get('/:id/gradebook', (req, res) => {
     gradeMap[g.student_id][g.assignment_id] = g;
   }
 
-  res.json({ assignments, students, grades: gradeMap, grading_scales: getGradingScalesMap() });
+  res.json({ assignments: filteredAssignments, students, grades: gradeMap, grading_scales: getGradingScalesMap() });
 });
 
 // POST /api/courses/import — fetch a past course from Schoology and sync it

@@ -13,6 +13,21 @@ import {
   getSubmissionStatus,
 } from './schoology.js';
 
+// Schoology returns `assignees` as a JSON-encoded string of uids on the
+// REST assignment endpoint (e.g. `"[1234,5678]"`), but other shapes are
+// possible (plain array, `{assignee: [...]}` envelope). Normalize to a
+// flat array of uid strings; empty/missing → []. See #54.
+function parseAssignees(raw) {
+  if (raw == null || raw === '') return [];
+  let v = raw;
+  if (typeof v === 'string') {
+    try { v = JSON.parse(v); } catch { return []; }
+  }
+  if (Array.isArray(v)) return v.map(String);
+  if (typeof v === 'object' && Array.isArray(v.assignee)) return v.assignee.map(String);
+  return [];
+}
+
 // Sync enrollments, assignments, and grades for one section.
 // Returns counts of records written.
 export async function syncSectionData(db, sectionId, courseId, now) {
@@ -45,8 +60,8 @@ export async function syncSectionData(db, sectionId, courseId, now) {
 
   const assignments = await getSectionAssignments(sectionId);
   const upsertAssignment = db.prepare(`
-    INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, max_points, assignment_type, grading_category_id, grading_scale_id, folder_id, count_in_grade, published, display_weight, synced_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, max_points, assignment_type, grading_category_id, grading_scale_id, folder_id, count_in_grade, published, display_weight, num_assignees, synced_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(schoology_assignment_id) DO UPDATE SET
       title = excluded.title,
       due_date = excluded.due_date,
@@ -58,8 +73,11 @@ export async function syncSectionData(db, sectionId, courseId, now) {
       count_in_grade = excluded.count_in_grade,
       published = excluded.published,
       display_weight = excluded.display_weight,
+      num_assignees = excluded.num_assignees,
       synced_at = excluded.synced_at
   `);
+  const deleteAssignees = db.prepare(`DELETE FROM assignment_assignees WHERE assignment_id = ?`);
+  const insertAssignee = db.prepare(`INSERT OR IGNORE INTO assignment_assignees (assignment_id, schoology_uid) VALUES (?, ?)`);
   for (const a of assignments) {
     upsertAssignment.run(
       courseId, String(a.id), a.title, a.due || null, a.max_points ?? null,
@@ -70,8 +88,16 @@ export async function syncSectionData(db, sectionId, courseId, now) {
       a.count_in_grade ?? 1,
       a.published ?? 1,
       a.display_weight ?? 0,
+      Number.isFinite(Number(a.num_assignees)) ? Number(a.num_assignees) : null,
       now
     );
+    const row = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(a.id));
+    if (row) {
+      deleteAssignees.run(row.id);
+      for (const uid of parseAssignees(a.assignees)) {
+        insertAssignee.run(row.id, String(uid));
+      }
+    }
   }
 
   const grades = await getSectionGrades(sectionId);

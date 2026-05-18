@@ -84,7 +84,14 @@ router.get('/groups/:courseId', (req, res) => {
            (SELECT ROUND(AVG(CASE WHEN g.score IS NOT NULL AND g.max_score > 0
              THEN (g.score * 100.0 / g.max_score) END), 1)
             FROM grades g JOIN assignments a ON a.id = g.assignment_id
-            WHERE g.student_id = s.id AND a.course_id = ?) as avg_pct
+            WHERE g.student_id = s.id AND a.course_id = ?
+              AND (
+                a.num_assignees IS NULL OR a.num_assignees = 0
+                OR EXISTS (
+                  SELECT 1 FROM assignment_assignees aa
+                  WHERE aa.assignment_id = a.id AND aa.schoology_uid = s.schoology_uid
+                )
+              )) as avg_pct
     FROM students s
     JOIN enrolments e ON e.student_id = s.id
     WHERE e.course_id = ?

@@ -56,6 +56,13 @@ router.get('/:id', (req, res) => {
     LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
     LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
     WHERE e.student_id = ?
+      AND (
+        a.num_assignees IS NULL OR a.num_assignees = 0
+        OR EXISTS (
+          SELECT 1 FROM assignment_assignees aa
+          WHERE aa.assignment_id = a.id AND aa.schoology_uid = ?
+        )
+      )
     ORDER BY
       c.course_name,
       CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN a.display_weight
@@ -66,7 +73,7 @@ router.get('/:id', (req, res) => {
            ELSE a.display_weight END ASC,
       CASE WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN a.display_weight ELSE 0 END ASC,
       a.title
-  `).all(req.params.id);
+  `).all(req.params.id, student.schoology_uid || '');
 
   // Attach per-assignment mastery topic data. An assignment is "aligned" if it
   // has at least one row in mastery_alignments (authoritative) OR mastery_scores

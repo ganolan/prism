@@ -859,6 +859,10 @@ export function getMasteryForCourse(courseId) {
     ORDER BY external_id
   `).all(...categoryIds) : [];
 
+  // Exclude scores for (student, assignment) pairs where the assignment is
+  // individually targeted at others — #54. Keeps the class-roster category
+  // averages consistent with the student-page mastery summary, which applies
+  // the same filter.
   const scores = topics.length > 0 ? db.prepare(`
     SELECT ms.*, s.first_name, s.last_name, s.preferred_name, s.schoology_uid
     FROM mastery_scores ms
@@ -867,6 +871,13 @@ export function getMasteryForCourse(courseId) {
     LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
     LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
     WHERE a.course_id = ? AND a.published = 1
+      AND (
+        a.num_assignees IS NULL OR a.num_assignees = 0
+        OR EXISTS (
+          SELECT 1 FROM assignment_assignees aa
+          WHERE aa.assignment_id = a.id AND aa.schoology_uid = ms.student_uid
+        )
+      )
     ORDER BY ms.student_uid, ms.topic_id,
       CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN a.display_weight
            WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN COALESCE(fp.display_weight, 0)

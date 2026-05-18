@@ -136,6 +136,100 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — review and res
   });
 });
 
+describe('GET /api/mastery/:courseId/assignment/:assignmentId — individually assigned (#54)', () => {
+  let courseId;
+  let studentA;
+  let studentB;
+
+  beforeEach(() => {
+    const db = getDb();
+    db.exec(
+      'DELETE FROM assignment_assignees; DELETE FROM flags; DELETE FROM grades; ' +
+      'DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
+    );
+    courseId = db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-2', 'Course')`
+    ).run().lastInsertRowid;
+    studentA = db.prepare(
+      `INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-A', 'Ada', 'A')`
+    ).run().lastInsertRowid;
+    studentB = db.prepare(
+      `INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-B', 'Bob', 'B')`
+    ).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'eA')`).run(studentA, courseId);
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'eB')`).run(studentB, courseId);
+  });
+
+  test('open-to-all assignment lists both students', async () => {
+    getDb().prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-open', 'Open')`).run(courseId);
+    const { body } = await get(`/api/mastery/${courseId}/assignment/sa-open`);
+    const uids = body.students.map(s => s.schoology_uid).sort();
+    expect(uids).toEqual(['uid-A', 'uid-B']);
+  });
+
+  test('individually-targeted assignment hides non-targeted students', async () => {
+    const db = getDb();
+    const aid = db.prepare(
+      `INSERT INTO assignments (course_id, schoology_assignment_id, title, num_assignees) VALUES (?, 'sa-targeted', 'Targeted', 1)`
+    ).run(courseId).lastInsertRowid;
+    db.prepare(`INSERT INTO assignment_assignees (assignment_id, schoology_uid) VALUES (?, 'uid-A')`).run(aid);
+    const { body } = await get(`/api/mastery/${courseId}/assignment/sa-targeted`);
+    expect(body.students.map(s => s.schoology_uid)).toEqual(['uid-A']);
+  });
+});
+
+describe('GET /api/mastery/:courseId/student/:studentUid — individually assigned (#54)', () => {
+  let courseId;
+  let topicId;
+  let categoryId;
+
+  beforeEach(() => {
+    const db = getDb();
+    db.exec(
+      'DELETE FROM mastery_alignments; DELETE FROM mastery_scores; ' +
+      'DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
+      'DELETE FROM assignment_assignees; DELETE FROM assignments; ' +
+      'DELETE FROM enrolments; DELETE FROM students; DELETE FROM courses;'
+    );
+    courseId = db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-3', 'Course')`
+    ).run().lastInsertRowid;
+    categoryId = 'cat-1';
+    db.prepare(`INSERT INTO reporting_categories (id, course_id, external_id, title) VALUES (?, ?, 'ART.5', 'Cat')`).run(categoryId, courseId);
+    topicId = 'topic-1';
+    db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES (?, ?, ?, 'ART.5.1', 'Topic')`).run(topicId, categoryId, courseId);
+    db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-X', 'X', 'Y')`).run();
+  });
+
+  test('alignment for an assignment targeted at others is excluded from student summary', async () => {
+    const db = getDb();
+    const aid = db.prepare(
+      `INSERT INTO assignments (course_id, schoology_assignment_id, title, num_assignees, published) VALUES (?, 'sa-1', 'NotMine', 1, 1)`
+    ).run(courseId).lastInsertRowid;
+    db.prepare(`INSERT INTO assignment_assignees (assignment_id, schoology_uid) VALUES (?, 'uid-other')`).run(aid);
+    db.prepare(`INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id) VALUES ('sa-1', ?, ?)`).run(topicId, courseId);
+
+    const { body } = await get(`/api/mastery/${courseId}/student/uid-X`);
+    expect(body.alignments).toEqual([]);
+  });
+
+  test('stale score for an assignment targeted at others is excluded from student summary', async () => {
+    const db = getDb();
+    // An open-to-all alignment so the topic still surfaces.
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, published) VALUES (?, 'sa-open', 'Open', 1)`).run(courseId);
+    db.prepare(`INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id) VALUES ('sa-open', ?, ?)`).run(topicId, courseId);
+    // A separate individually-targeted assignment with a stale score row for uid-X.
+    const targetedAid = db.prepare(
+      `INSERT INTO assignments (course_id, schoology_assignment_id, title, num_assignees, published) VALUES (?, 'sa-targeted', 'Targeted', 1, 1)`
+    ).run(courseId).lastInsertRowid;
+    db.prepare(`INSERT INTO assignment_assignees (assignment_id, schoology_uid) VALUES (?, 'uid-other')`).run(targetedAid);
+    db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points) VALUES ('uid-X', 'sa-targeted', ?, 75)`).run(topicId);
+
+    const { body } = await get(`/api/mastery/${courseId}/student/uid-X`);
+    expect(body.scores.find(s => s.assignment_schoology_id === 'sa-targeted')).toBeUndefined();
+  });
+});
+
 describe('GET /api/mastery/login-status', () => {
   beforeEach(() => { h.loggedIn = true; });
 

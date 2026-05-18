@@ -91,3 +91,70 @@ describe('GET /api/courses/:id/gradebook — resubmitted', () => {
     expect(body.grades[studentId][assignmentId].resubmitted).toBe(false);
   });
 });
+
+describe('GET /api/courses/:id/gradebook — individually assigned (#54)', () => {
+  test('open-to-all assignments expose no assignees field', async () => {
+    const { body } = await get(`/api/courses/${courseId}/gradebook`);
+    expect(body.assignments).toHaveLength(1);
+    expect(body.assignments[0].assignees).toBeUndefined();
+  });
+
+  test('individually-targeted assignment exposes assignees list of enrolled student ids', async () => {
+    const db = getDb();
+    const otherStudentId = db.prepare(
+      `INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-2', 'Bob', 'Smith')`
+    ).run().lastInsertRowid;
+    db.prepare(
+      `INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'enr-2')`
+    ).run(otherStudentId, courseId);
+    const targetedId = db.prepare(
+      `INSERT INTO assignments (course_id, schoology_assignment_id, title, published, num_assignees) VALUES (?, 'sa-2', 'Targeted', 1, 1)`
+    ).run(courseId).lastInsertRowid;
+    db.prepare(
+      `INSERT INTO assignment_assignees (assignment_id, schoology_uid) VALUES (?, 'uid-1')`
+    ).run(targetedId);
+
+    const { body } = await get(`/api/courses/${courseId}/gradebook`);
+    const targeted = body.assignments.find(a => a.id === targetedId);
+    expect(targeted).toBeDefined();
+    expect(targeted.assignees).toEqual([studentId]);
+  });
+
+  test('assignment relevant to nobody enrolled is dropped from gradebook', async () => {
+    const db = getDb();
+    const targetedId = db.prepare(
+      `INSERT INTO assignments (course_id, schoology_assignment_id, title, published, num_assignees) VALUES (?, 'sa-3', 'Phantom', 1, 1)`
+    ).run(courseId).lastInsertRowid;
+    db.prepare(
+      `INSERT INTO assignment_assignees (assignment_id, schoology_uid) VALUES (?, 'uid-not-enrolled')`
+    ).run(targetedId);
+
+    const { body } = await get(`/api/courses/${courseId}/gradebook`);
+    expect(body.assignments.find(a => a.id === targetedId)).toBeUndefined();
+  });
+});
+
+describe('GET /api/courses/:id/students — individually-assigned aggregate (#54)', () => {
+  test('an assignment individually targeted at others does not count toward this student\'s avg', async () => {
+    const db = getDb();
+    // Add a second assignment, individually targeted at a different uid, with
+    // a grade row for our student (simulating stale data). The aggregate must
+    // ignore that grade because the assignment isn't relevant to this student.
+    const otherTargetedId = db.prepare(
+      `INSERT INTO assignments (course_id, schoology_assignment_id, title, published, num_assignees) VALUES (?, 'sa-4', 'NotMine', 1, 1)`
+    ).run(courseId).lastInsertRowid;
+    db.prepare(
+      `INSERT INTO assignment_assignees (assignment_id, schoology_uid) VALUES (?, 'uid-other')`
+    ).run(otherTargetedId);
+    db.prepare(
+      `INSERT INTO grades (student_id, assignment_id, score, max_score) VALUES (?, ?, 0, 100)`
+    ).run(studentId, otherTargetedId);
+
+    const { body } = await get(`/api/courses/${courseId}/students`);
+    const row = body.find(s => s.id === studentId);
+    // Without the filter, avg would be (75 + 0) / 2 = 37.5. With the filter
+    // applied, only the open-to-all 75/100 counts.
+    expect(row.avg_pct).toBe(75);
+    expect(row.graded_count).toBe(1);
+  });
+});

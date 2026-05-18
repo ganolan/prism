@@ -1,0 +1,56 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:developers.schoology.com)",
+      "WebFetch(domain:uc.powerschool-docs.com)",
+      "WebFetch(domain:dribbble.com)",
+
+      "Bash(curl -s http://localhost:3001/*)",
+      "Bash(curl -sS http://localhost:3001/*)",
+      "Bash(curl http://localhost:3001/*)",
+      "Bash(curl -s -X POST http://localhost:3001/api/sync)",
+      "Bash(lsof -ti:*)",
+      "Bash(xargs kill:*)",
+      "Bash(kill %1)",
+      "Bash(wait %1)",
+      "Bash(pkill -f \"Chromium|Google Chrome for Testing|playwright\")",
+
+      "Bash(node:*)",
+      "Bash(python3 *)",
+      "Bash(sqlite3:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(npx vite:*)",
+      "Bash(npx vitest *)",
+
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push *)",
+      "Bash(git pull *)",
+      "Bash(git checkout *)",
+      "Bash(git merge *)",
+      "Bash(git branch *)",
+      "Bash(git rev-list *)",
+
+      "Bash(gh issue:*)",
+      "Bash(gh pr *)",
+      "Bash(gh label *)",
+
+      "Bash(cat > *)",
+      "Bash(awk '{print $2}')",
+
+      "Skill(triage)",
+      "Skill(triage:*)",
+      "mcp__github__issue_read",
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "mcp__plugin_playwright_playwright__browser_tabs",
+      "mcp__plugin_playwright_playwright__browser_take_screenshot",
+      "mcp__plugin_playwright_playwright__browser_snapshot",
+      "mcp__plugin_playwright_playwright__browser_evaluate",
+      "mcp__plugin_playwright_playwright__browser_wait_for",
+      "mcp__plugin_playwright_playwright__browser_network_requests",
+      "mcp__plugin_playwright_playwright__browser_run_code"
+    ]
+  }
+}

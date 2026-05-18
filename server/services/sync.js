@@ -13,10 +13,12 @@ import {
   getSubmissionStatus,
 } from './schoology.js';
 
-// Schoology returns `assignees` as a JSON-encoded string of uids on the
-// REST assignment endpoint (e.g. `"[1234,5678]"`), but other shapes are
-// possible (plain array, `{assignee: [...]}` envelope). Normalize to a
-// flat array of uid strings; empty/missing → []. See #54.
+// Schoology returns `assignees` as a JSON-encoded string on the REST
+// assignment endpoint (e.g. `"[1234,5678]"`), but other shapes are
+// possible (plain array, `{assignee: [...]}` envelope). The values inside
+// are **enrollment IDs**, not user UIDs — callers must map through the
+// section's enrollments to recover the actual student UID. Normalize to a
+// flat array of id strings; empty/missing → []. See #54.
 function parseAssignees(raw) {
   if (raw == null || raw === '') return [];
   let v = raw;
@@ -78,6 +80,9 @@ export async function syncSectionData(db, sectionId, courseId, now) {
   `);
   const deleteAssignees = db.prepare(`DELETE FROM assignment_assignees WHERE assignment_id = ?`);
   const insertAssignee = db.prepare(`INSERT OR IGNORE INTO assignment_assignees (assignment_id, schoology_uid) VALUES (?, ?)`);
+  // Schoology's assignees[] field stores enrollment IDs; downstream queries
+  // join on user UID. Build the per-section enrolment_id → uid map once.
+  const enrolmentIdToUid = new Map(studentEnrollments.map(e => [String(e.id), String(e.uid)]));
   for (const a of assignments) {
     upsertAssignment.run(
       courseId, String(a.id), a.title, a.due || null, a.max_points ?? null,
@@ -94,8 +99,9 @@ export async function syncSectionData(db, sectionId, courseId, now) {
     const row = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(a.id));
     if (row) {
       deleteAssignees.run(row.id);
-      for (const uid of parseAssignees(a.assignees)) {
-        insertAssignee.run(row.id, String(uid));
+      for (const enrolmentId of parseAssignees(a.assignees)) {
+        const uid = enrolmentIdToUid.get(String(enrolmentId));
+        if (uid) insertAssignee.run(row.id, uid);
       }
     }
   }

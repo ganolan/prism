@@ -40,10 +40,15 @@ describe('purgeLegacyAutoFlags', () => {
     expect(flagTypes(db)).not.toContain('late_submission');
   });
 
-  test('preserves custom, review_needed, and performance_change flags', () => {
+  test('deletes performance_change flags', () => {
+    purgeLegacyAutoFlags(db);
+    expect(flagTypes(db)).not.toContain('performance_change');
+  });
+
+  test('preserves custom and review_needed flags', () => {
     purgeLegacyAutoFlags(db);
     // purgeLegacyAutoFlags alone keeps these; via migrate() all NULL-assignment flags are also purged
-    expect(flagTypes(db)).toEqual(['custom', 'performance_change', 'review_needed']);
+    expect(flagTypes(db)).toEqual(['custom', 'review_needed']);
   });
 
   test('is idempotent', () => {

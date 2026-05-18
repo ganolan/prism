@@ -45,14 +45,19 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_assignments_grading_category ON assignments(grading_category_id)`,
 ];
 
-// Remove orphaned auto-flag rows. The auto-flag feature that wrote
-// 'missing'/'late_submission' rows into the flags table was dropped in commit
-// 743a68d, but the rows it had created were left behind — surfacing as stale,
-// un-removable badges on the student page. Schoology is the single source of
-// truth for submission status (now shown as live inline badges), so these
-// rows are purged outright. Idempotent — safe to run on every boot. See #45.
+// Remove orphaned auto-flag rows. The auto-flag feature that wrote 'missing',
+// 'late_submission', and 'performance_change' rows into the flags table was
+// dropped in commit 743a68d, but the rows it had created were left behind —
+// surfacing as stale, un-removable badges on the student page. None of these
+// are creatable flag types any more (flags.js only writes 'review_needed',
+// 'resubmit_requested', and 'custom'), so any surviving row is an orphan.
+// 'performance_change' rows carry an assignment_id, so purgeStudentScopedFlags
+// does not catch them — they must be named explicitly here. Idempotent — safe
+// to run on every boot. See #45.
 export function purgeLegacyAutoFlags(database) {
-  database.exec(`DELETE FROM flags WHERE flag_type IN ('missing', 'late_submission')`);
+  database.exec(
+    `DELETE FROM flags WHERE flag_type IN ('missing', 'late_submission', 'performance_change')`
+  );
 }
 
 // Remove orphaned student-scoped flags. Before #20/#19, flags could be created

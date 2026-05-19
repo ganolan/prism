@@ -29,7 +29,11 @@ async function apiGet(path) {
       continue;
     }
     if (!res.ok) {
-      throw new Error(`Schoology API ${res.status}: GET ${path}`);
+      const err = new Error(`Schoology API ${res.status}: GET ${path}`);
+      err.status = res.status;
+      if (res.status === 429) err.rateLimited = true;
+      if (res.status === 429 || res.status >= 500) err.transient = true;
+      throw err;
     }
     return res.json();
   }

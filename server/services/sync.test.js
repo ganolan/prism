@@ -109,3 +109,36 @@ describe('syncSectionData — assignee mapping (#54)', () => {
     expect(rows.map(r => r.schoology_uid)).toEqual(['700001']);
   });
 });
+
+describe('syncSectionData — phase atomicity (#55)', () => {
+  let db;
+  let courseId;
+
+  beforeEach(() => {
+    db = new Database(':memory:');
+    migrate(db);
+    courseId = db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-9', 'TX Test')`
+    ).run().lastInsertRowid;
+    getSectionEnrollments.mockReset();
+    getSectionAssignments.mockReset();
+    getSectionGrades.mockReset();
+    getSubmissionStatus.mockReset();
+    getSectionGrades.mockResolvedValue([]);
+    getSubmissionStatus.mockResolvedValue(null);
+  });
+
+  test('failed assignments fetch leaves no assignment rows written for the section', async () => {
+    getSectionEnrollments.mockResolvedValue([
+      { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
+    ]);
+    getSectionAssignments.mockRejectedValue(new Error('boom'));
+
+    await expect(
+      syncSectionData(db, 'sec-9', courseId, new Date().toISOString())
+    ).rejects.toThrow();
+
+    const rows = db.prepare('SELECT COUNT(*) AS n FROM assignments WHERE course_id = ?').get(courseId);
+    expect(rows.n).toBe(0);
+  });
+});

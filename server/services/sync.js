@@ -184,32 +184,49 @@ export async function syncSectionData(db, sectionId, courseId, now) {
     WHERE student_id = ? AND assignment_id = ?
   `);
 
-  let submissionCount = 0;
+  // Phase 1: fetch all submission statuses (still serial here; concurrency in Phase 2).
+  // Build the work list with pre-resolved DB ids so the transactional writer is pure SQL.
+  const submissionResults = []; // { studentId, assignmentId, enrolmentId, maxPoints, revision }
   for (const a of dropboxAssignments) {
-    const assignRow = db.prepare('SELECT id, max_points FROM assignments WHERE schoology_assignment_id = ?').get(String(a.id));
+    const assignRow = selectAssignmentByExt.get(String(a.id));
     if (!assignRow) continue;
     for (const e of studentEnrollments) {
-      const studentRow = db.prepare('SELECT id FROM students WHERE schoology_uid = ?').get(String(e.uid));
+      const studentRow = selectStudentByUid.get(String(e.uid));
       if (!studentRow) continue;
       let revision;
       try {
         revision = await getSubmissionStatus(sectionId, String(a.id), String(e.uid));
       } catch { continue; }
-      if (revision) {
+      submissionResults.push({
+        studentId: studentRow.id,
+        assignmentId: assignRow.id,
+        enrolmentId: String(e.id),
+        maxPoints: assignRow.max_points ?? null,
+        revision,
+      });
+    }
+  }
+
+  // Phase 2: write everything in a single transaction.
+  let submissionCount = 0;
+  const writeSubmissions = db.transaction((rows) => {
+    for (const r of rows) {
+      if (r.revision) {
         upsertSubmissionStatus.run(
-          studentRow.id, assignRow.id, String(e.id),
-          assignRow.max_points ?? null,
-          revision.late ? 1 : 0,
-          revision.draft ? 1 : 0,
-          revision.latestRevisionAt || 0,
+          r.studentId, r.assignmentId, r.enrolmentId,
+          r.maxPoints,
+          r.revision.late ? 1 : 0,
+          r.revision.draft ? 1 : 0,
+          r.revision.latestRevisionAt || 0,
           now,
         );
         submissionCount++;
       } else {
-        clearSubmissionStatus.run(now, studentRow.id, assignRow.id);
+        clearSubmissionStatus.run(now, r.studentId, r.assignmentId);
       }
     }
-  }
+  });
+  writeSubmissions(submissionResults);
 
   return { studentsCount: studentEnrollments.length, assignmentsCount: assignments.length, gradesCount, submissionCount };
 }

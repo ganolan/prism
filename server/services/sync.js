@@ -139,23 +139,28 @@ export async function syncSectionData(db, sectionId, courseId, now) {
   const enrollIdToUid = {};
   for (const e of enrollments) enrollIdToUid[String(e.id)] = String(e.uid);
 
+  const selectStudentByUid = db.prepare('SELECT id FROM students WHERE schoology_uid = ?');
+  const selectAssignmentByExt = db.prepare('SELECT id, max_points FROM assignments WHERE schoology_assignment_id = ?');
   let gradesCount = 0;
-  for (const g of grades) {
-    const enrollmentId = String(g.enrollment_id);
-    let studentId = enrolmentMap[enrollmentId];
-    if (!studentId) {
-      const uid = enrollIdToUid[enrollmentId];
-      if (uid) {
-        const row = db.prepare('SELECT id FROM students WHERE schoology_uid = ?').get(uid);
-        studentId = row?.id;
+  const writeGrades = db.transaction((rows) => {
+    for (const g of rows) {
+      const enrollmentId = String(g.enrollment_id);
+      let studentId = enrolmentMap[enrollmentId];
+      if (!studentId) {
+        const uid = enrollIdToUid[enrollmentId];
+        if (uid) {
+          const row = selectStudentByUid.get(uid);
+          studentId = row?.id;
+        }
       }
+      if (!studentId) continue;
+      const assignRow = selectAssignmentByExt.get(String(g.assignment_id));
+      if (!assignRow) continue;
+      upsertGrade.run(studentId, assignRow.id, enrollmentId, g.grade ?? null, g.max_points ?? assignRow.max_points ?? null, g.comment || null, g.comment_status ?? null, g.exception ?? 0, Number(g.timestamp) || 0, now);
+      gradesCount++;
     }
-    if (!studentId) continue;
-    const assignRow = db.prepare('SELECT id, max_points FROM assignments WHERE schoology_assignment_id = ?').get(String(g.assignment_id));
-    if (!assignRow) continue;
-    upsertGrade.run(studentId, assignRow.id, enrollmentId, g.grade ?? null, g.max_points ?? assignRow.max_points ?? null, g.comment || null, g.comment_status ?? null, g.exception ?? 0, Number(g.timestamp) || 0, now);
-    gradesCount++;
-  }
+  });
+  writeGrades(grades);
 
   // Submission status sync: authoritative late/draft from
   // /sections/{id}/submissions/{aid}/{uid}. Only runs for assignments with a

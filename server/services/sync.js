@@ -12,6 +12,8 @@ import {
   getUserProfile,
   getSubmissionStatus,
 } from './schoology.js';
+import { runWithLimits } from './rateLimitedRunner.js';
+import { getSyncConfig } from '../middleware/featureGate.js';
 
 // Schoology returns `assignees` as a JSON-encoded string on the REST
 // assignment endpoint (e.g. `"[1234,5678]"`), but other shapes are
@@ -32,9 +34,15 @@ function parseAssignees(raw) {
 
 // Sync enrollments, assignments, and grades for one section.
 // Returns counts of records written.
-export async function syncSectionData(db, sectionId, courseId, now) {
+export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   const enrollments = await getSectionEnrollments(sectionId);
   const studentEnrollments = enrollments.filter(e => e.admin !== '1' && e.admin !== 1);
+
+  const {
+    submissionConcurrency = 2,
+    submissionRatePerSec = 4,
+    submissionAbandonAfter = 5,
+  } = opts;
 
   const upsertStudent = db.prepare(`
     INSERT INTO students (schoology_uid, first_name, last_name, email, picture_url, school_uid, updated_at)
@@ -184,30 +192,51 @@ export async function syncSectionData(db, sectionId, courseId, now) {
     WHERE student_id = ? AND assignment_id = ?
   `);
 
-  // Phase 1: fetch all submission statuses (still serial here; concurrency in Phase 2).
-  // Build the work list with pre-resolved DB ids so the transactional writer is pure SQL.
-  const submissionResults = []; // { studentId, assignmentId, enrolmentId, maxPoints, revision }
+  // Submission status phase: fetch with bounded concurrency + global rate cap;
+  // per-assignment atomicity — if any cell in an assignment hits a transient
+  // error, discard that assignment's in-memory results and continue.
+  const acceptedResults = []; // committed at end of section in one transaction
+  const failedAssignmentIds = [];
+  let submissionAbandoned = false;
+
   for (const a of dropboxAssignments) {
+    if (failedAssignmentIds.length >= submissionAbandonAfter) {
+      submissionAbandoned = true;
+      break;
+    }
     const assignRow = selectAssignmentByExt.get(String(a.id));
     if (!assignRow) continue;
-    for (const e of studentEnrollments) {
-      const studentRow = selectStudentByUid.get(String(e.uid));
-      if (!studentRow) continue;
-      let revision;
-      try {
-        revision = await getSubmissionStatus(sectionId, String(a.id), String(e.uid));
-      } catch { continue; }
-      submissionResults.push({
-        studentId: studentRow.id,
-        assignmentId: assignRow.id,
-        enrolmentId: String(e.id),
-        maxPoints: assignRow.max_points ?? null,
-        revision,
-      });
+
+    const cells = studentEnrollments
+      .map((e) => ({ e, studentRow: selectStudentByUid.get(String(e.uid)) }))
+      .filter((c) => c.studentRow);
+
+    let assignmentResults;
+    try {
+      assignmentResults = await runWithLimits(
+        cells,
+        async ({ e, studentRow }) => {
+          const revision = await getSubmissionStatus(sectionId, String(a.id), String(e.uid));
+          return {
+            studentId: studentRow.id,
+            assignmentId: assignRow.id,
+            enrolmentId: String(e.id),
+            maxPoints: assignRow.max_points ?? null,
+            revision,
+          };
+        },
+        { concurrency: submissionConcurrency, ratePerSec: submissionRatePerSec },
+      );
+    } catch (err) {
+      if (err && err.transient) {
+        failedAssignmentIds.push(String(a.id));
+        continue;
+      }
+      throw err; // non-transient errors abort the sync
     }
+    acceptedResults.push(...assignmentResults);
   }
 
-  // Phase 2: write everything in a single transaction.
   let submissionCount = 0;
   const writeSubmissions = db.transaction((rows) => {
     for (const r of rows) {
@@ -226,9 +255,16 @@ export async function syncSectionData(db, sectionId, courseId, now) {
       }
     }
   });
-  writeSubmissions(submissionResults);
+  writeSubmissions(acceptedResults);
 
-  return { studentsCount: studentEnrollments.length, assignmentsCount: assignments.length, gradesCount, submissionCount };
+  return {
+    studentsCount: studentEnrollments.length,
+    assignmentsCount: assignments.length,
+    gradesCount,
+    submissionCount,
+    failedAssignmentIds,
+    submissionAbandoned,
+  };
 }
 
 // Full sync: sections -> enrollments -> assignments -> grades
@@ -246,6 +282,7 @@ export async function fullSync(onProgress) {
   try {
     // 1. Get teacher's user ID and sections
     log('Fetching user profile...');
+    const syncConfig = getSyncConfig();
     const userId = await getMyUserId();
 
     log('Fetching course sections...');
@@ -326,7 +363,7 @@ export async function fullSync(onProgress) {
       if (!courseRow) continue;
 
       log(`Syncing "${sec.course_title}"...`);
-      const result = await syncSectionData(db, sectionId, courseRow.id, now);
+      const result = await syncSectionData(db, sectionId, courseRow.id, now, syncConfig);
       totalRecords += result.studentsCount + result.assignmentsCount + result.gradesCount + (result.submissionCount || 0);
 
       // Sync folders

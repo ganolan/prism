@@ -142,3 +142,80 @@ describe('syncSectionData — phase atomicity (#55)', () => {
     expect(rows.n).toBe(0);
   });
 });
+
+describe('syncSectionData — per-assignment atomicity (#55)', () => {
+  let db;
+  let courseId;
+
+  beforeEach(() => {
+    db = new Database(':memory:');
+    migrate(db);
+    courseId = db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-A', 'Atomicity')`
+    ).run().lastInsertRowid;
+    getSectionEnrollments.mockReset();
+    getSectionAssignments.mockReset();
+    getSectionGrades.mockReset();
+    getSubmissionStatus.mockReset();
+    getSectionGrades.mockResolvedValue([]);
+  });
+
+  test('one 429 in assignment A leaves all of A unwritten; B fully written', async () => {
+    getSectionEnrollments.mockResolvedValue([
+      { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
+      { id: '802', uid: '702', name_first: 'Bob', name_last: 'M', admin: '0' },
+    ]);
+    getSectionAssignments.mockResolvedValue([
+      { id: 'A1', title: 'A', published: 1, allow_dropbox: '1' },
+      { id: 'A2', title: 'B', published: 1, allow_dropbox: '1' },
+    ]);
+    getSubmissionStatus.mockImplementation(async (sid, aid, uid) => {
+      if (aid === 'A1' && uid === '701') {
+        const err = new Error('429'); err.rateLimited = true; err.transient = true; throw err;
+      }
+      return { revision_id: 1, late: 0, draft: 0, latestRevisionAt: 1000 };
+    });
+
+    const result = await syncSectionData(db, 'sec-A', courseId, new Date().toISOString());
+
+    expect(result.failedAssignmentIds).toEqual(['A1']);
+
+    const a1Rows = db.prepare(`
+      SELECT g.* FROM grades g
+      JOIN assignments a ON a.id = g.assignment_id
+      WHERE a.schoology_assignment_id = 'A1'
+    `).all();
+    expect(a1Rows.length).toBe(0);
+
+    const a2Rows = db.prepare(`
+      SELECT g.* FROM grades g
+      JOIN assignments a ON a.id = g.assignment_id
+      WHERE a.schoology_assignment_id = 'A2'
+    `).all();
+    expect(a2Rows.length).toBe(2);
+  });
+
+  test('abandonAfter threshold short-circuits remaining submission fetches', async () => {
+    getSectionEnrollments.mockResolvedValue([
+      { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
+    ]);
+    const assignments = Array.from({ length: 10 }, (_, i) => ({
+      id: `T${i}`, title: `T${i}`, published: 1, allow_dropbox: '1',
+    }));
+    getSectionAssignments.mockResolvedValue(assignments);
+    let callCount = 0;
+    getSubmissionStatus.mockImplementation(async () => {
+      callCount++;
+      const err = new Error('429'); err.rateLimited = true; err.transient = true; throw err;
+    });
+
+    const result = await syncSectionData(
+      db, 'sec-A', courseId, new Date().toISOString(),
+      { submissionConcurrency: 1, submissionRatePerSec: 100, submissionAbandonAfter: 3 }
+    );
+
+    expect(result.failedAssignmentIds.length).toBe(3);
+    expect(result.submissionAbandoned).toBe(true);
+    expect(callCount).toBeLessThanOrEqual(3);
+  });
+});

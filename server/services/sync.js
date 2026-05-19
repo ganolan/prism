@@ -54,11 +54,15 @@ export async function syncSectionData(db, sectionId, courseId, now) {
       schoology_enrolment_id = excluded.schoology_enrolment_id
   `);
 
-  for (const e of studentEnrollments) {
-    upsertStudent.run(String(e.uid), e.name_first, e.name_last, e.primary_email || null, e.picture_url || null, e.school_uid ? String(e.school_uid) : null, now);
-    const studentRow = db.prepare('SELECT id FROM students WHERE schoology_uid = ?').get(String(e.uid));
-    if (studentRow) upsertEnrolment.run(studentRow.id, courseId, String(e.id));
-  }
+  const selectStudent = db.prepare('SELECT id FROM students WHERE schoology_uid = ?');
+  const writeEnrollments = db.transaction((rows) => {
+    for (const e of rows) {
+      upsertStudent.run(String(e.uid), e.name_first, e.name_last, e.primary_email || null, e.picture_url || null, e.school_uid ? String(e.school_uid) : null, now);
+      const studentRow = selectStudent.get(String(e.uid));
+      if (studentRow) upsertEnrolment.run(studentRow.id, courseId, String(e.id));
+    }
+  });
+  writeEnrollments(studentEnrollments);
 
   const assignments = await getSectionAssignments(sectionId);
   const upsertAssignment = db.prepare(`

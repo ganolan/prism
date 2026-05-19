@@ -8,3 +8,8 @@ features:
   feedback_review: true
   revision_workflow: true
   schoology_writeback: false
+
+sync:
+  submissionConcurrency: 2
+  submissionRatePerSec: 4
+  submissionAbandonAfter: 5

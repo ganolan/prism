@@ -19,6 +19,16 @@ export function getFeatures() {
   return config.features || {};
 }
 
+export function getSyncConfig() {
+  if (!config) loadConfig();
+  return {
+    submissionConcurrency: 2,
+    submissionRatePerSec: 4,
+    submissionAbandonAfter: 5,
+    ...(config.sync || {}),
+  };
+}
+
 export function featureGate(featureName) {
   return (req, res, next) => {
     const features = getFeatures();

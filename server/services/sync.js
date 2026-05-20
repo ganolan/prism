@@ -430,8 +430,8 @@ export async function fullSync(onProgress, { includeHidden = false, includeArchi
       ON CONFLICT(schoology_section_id) DO UPDATE SET
         course_name = excluded.course_name,
         section_name = excluded.section_name,
-        course_code = COALESCE(excluded.course_code, courses.course_code),
-        section_school_code = COALESCE(excluded.section_school_code, courses.section_school_code),
+        course_code = excluded.course_code,
+        section_school_code = excluded.section_school_code,
         grading_period = excluded.grading_period,
         synced_at = excluded.synced_at
     `);

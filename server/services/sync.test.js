@@ -333,10 +333,14 @@ describe('fullSync — course skip matrix (#56)', () => {
     // getMySections returns sections matching the seeded course IDs. Order
     // matches seedCourses(). course_title is what fullSync logs but is
     // otherwise unused.
+    // course_code / section_school_code must be present on the mock sections
+    // because upsertCourse propagates them on every sync — missing values would
+    // null out the seeded codes and trip markExcludedCourses for every course.
+    // sec-excluded intentionally omits codes (that's the MASTER pattern).
     getMySections.mockResolvedValue([
-      { id: 'sec-visible',  course_title: 'Visible Course',   section_title: 'A' },
-      { id: 'sec-hidden',   course_title: 'Hidden Course',    section_title: 'A' },
-      { id: 'sec-archived', course_title: 'Archived Course',  section_title: 'A' },
+      { id: 'sec-visible',  course_title: 'Visible Course',   section_title: 'A', course_code: 'CSE101', section_school_code: 'S1' },
+      { id: 'sec-hidden',   course_title: 'Hidden Course',    section_title: 'A', course_code: 'CSE102', section_school_code: 'S2' },
+      { id: 'sec-archived', course_title: 'Archived Course',  section_title: 'A', course_code: 'CSE103', section_school_code: 'S3' },
       { id: 'sec-excluded', course_title: 'MASTER Template',  section_title: 'A' },
     ]);
   });

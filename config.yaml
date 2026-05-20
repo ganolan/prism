@@ -10,6 +10,6 @@ features:
   schoology_writeback: false
 
 sync:
-  submissionConcurrency: 2
+  submissionConcurrency: 4
   submissionRatePerSec: 10
   submissionAbandonAfter: 5

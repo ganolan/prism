@@ -275,6 +275,105 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   };
 }
 
+// End-of-sync serial retry pass for assignments that hit transient submission
+// errors during the main sync. One pass, no rate limiter, no Retry-After
+// honoring, no further retries on failure. Per-assignment atomicity preserved:
+// any new transient error in any cell discards that assignment's partial
+// results. Mutates `metrics.retries_succeeded`, `metrics.retries_failed`,
+// `metrics.submission_calls`, `metrics.rate_limit_hits`, and
+// `metrics.transient_failures`. Returns the list of entries that still failed.
+export async function retrySubmissions(db, failedEntries, now, metrics) {
+  const stillFailing = [];
+
+  const upsertSubmissionStatus = db.prepare(`
+    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, exception, late, draft, latest_revision_at, synced_at)
+    VALUES (?, ?, ?, NULL, ?, 0, ?, ?, ?, ?)
+    ON CONFLICT(student_id, assignment_id) DO UPDATE SET
+      late = excluded.late,
+      draft = excluded.draft,
+      latest_revision_at = excluded.latest_revision_at,
+      synced_at = excluded.synced_at
+  `);
+  const clearSubmissionStatus = db.prepare(`
+    UPDATE grades SET late = 0, draft = 0, latest_revision_at = 0, synced_at = ?
+    WHERE student_id = ? AND assignment_id = ?
+  `);
+  const selectStudentByUid = db.prepare('SELECT id FROM students WHERE schoology_uid = ?');
+  const selectAssignmentByExt = db.prepare('SELECT id, max_points FROM assignments WHERE schoology_assignment_id = ?');
+
+  for (const entry of failedEntries) {
+    const { sectionId: sid, assignmentExtId } = entry;
+    try {
+      const enrollments = await getSectionEnrollments(sid);
+      const studentEnrollments = enrollments.filter(e => e.admin !== '1' && e.admin !== 1);
+      const assignRow = selectAssignmentByExt.get(assignmentExtId);
+      if (!assignRow) {
+        stillFailing.push(entry);
+        continue;
+      }
+
+      const cellResults = [];
+      let assignmentFailed = false;
+      for (const e of studentEnrollments) {
+        const studentRow = selectStudentByUid.get(String(e.uid));
+        if (!studentRow) continue;
+        metrics.submission_calls++;
+        try {
+          const revision = await getSubmissionStatus(sid, assignmentExtId, String(e.uid));
+          cellResults.push({
+            studentId: studentRow.id,
+            assignmentId: assignRow.id,
+            enrolmentId: String(e.id),
+            maxPoints: assignRow.max_points ?? null,
+            revision,
+          });
+        } catch (err) {
+          if (err && err.transient) {
+            if (err.rateLimited) metrics.rate_limit_hits++; else metrics.transient_failures++;
+            assignmentFailed = true;
+            break;
+          }
+          throw err;
+        }
+      }
+
+      if (assignmentFailed) {
+        stillFailing.push(entry);
+        continue;
+      }
+
+      if (cellResults.length > 0) {
+        const writeRetry = db.transaction((rows) => {
+          for (const r of rows) {
+            if (r.revision) {
+              upsertSubmissionStatus.run(
+                r.studentId, r.assignmentId, r.enrolmentId,
+                r.maxPoints,
+                r.revision.late ? 1 : 0,
+                r.revision.draft ? 1 : 0,
+                r.revision.latestRevisionAt || 0,
+                now,
+              );
+            } else {
+              clearSubmissionStatus.run(now, r.studentId, r.assignmentId);
+            }
+          }
+        });
+        writeRetry(cellResults);
+      }
+      metrics.retries_succeeded++;
+    } catch (err) {
+      // Non-transient errors (or unexpected enrollments fetch failures): mark
+      // this entry as still-failing and continue with the next one. Never
+      // re-raise — the retry pass is best-effort.
+      stillFailing.push(entry);
+    }
+  }
+
+  metrics.retries_failed = stillFailing.length;
+  return stillFailing;
+}
+
 // Full sync: sections -> enrollments -> assignments -> grades
 export async function fullSync(onProgress) {
   const db = getDb();
@@ -434,6 +533,14 @@ export async function fullSync(onProgress) {
         totalRecords += scales.length;
       } catch { /* scales not available */ }
 
+    }
+
+    // Retry pass: one serial attempt for assignments that hit transient errors.
+    // No rate limiter, no Retry-After honoring, no further retries on failure.
+    if (metrics.failed_assignment_ids.length > 0 && metrics.abandoned === 0) {
+      log(`Retrying ${metrics.failed_assignment_ids.length} failed assignments...`);
+      metrics.retries_attempted = metrics.failed_assignment_ids.length;
+      metrics.failed_assignment_ids = await retrySubmissions(db, metrics.failed_assignment_ids, now, metrics);
     }
 
     // 3. Fetch full profiles + parent data for all students

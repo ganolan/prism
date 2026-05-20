@@ -38,4 +38,22 @@ router.get('/sync/status', (req, res) => {
   res.json({ syncing: syncInProgress, last: last || null });
 });
 
+// GET /api/sync/metrics — latest sync_metrics row, with failed_assignment_ids
+// parsed back to an array. Returns null if no syncs have completed yet.
+router.get('/sync/metrics', (req, res) => {
+  const db = getDb();
+  const row = db.prepare(`
+    SELECT id, sync_log_id, started_at, duration_ms,
+           submission_calls, rate_limit_hits, transient_failures,
+           retries_attempted, retries_succeeded, retries_failed,
+           concurrency, rate_per_sec, abandoned, failed_assignment_ids
+    FROM sync_metrics
+    ORDER BY id DESC
+    LIMIT 1
+  `).get();
+  if (!row) return res.json(null);
+  row.failed_assignment_ids = row.failed_assignment_ids ? JSON.parse(row.failed_assignment_ids) : [];
+  res.json(row);
+});
+
 export default router;

@@ -125,6 +125,23 @@ CREATE TABLE IF NOT EXISTS sync_log (
   completed_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS sync_metrics (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sync_log_id INTEGER REFERENCES sync_log(id),
+  started_at TEXT NOT NULL,
+  duration_ms INTEGER,
+  submission_calls INTEGER DEFAULT 0,
+  rate_limit_hits INTEGER DEFAULT 0,
+  transient_failures INTEGER DEFAULT 0,
+  retries_attempted INTEGER DEFAULT 0,
+  retries_succeeded INTEGER DEFAULT 0,
+  retries_failed INTEGER DEFAULT 0,
+  concurrency INTEGER,
+  rate_per_sec INTEGER,
+  abandoned INTEGER DEFAULT 0,
+  failed_assignment_ids TEXT
+);
+
 CREATE TABLE IF NOT EXISTS feedback (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   submission_id TEXT,

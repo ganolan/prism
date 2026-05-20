@@ -139,6 +139,7 @@ CREATE TABLE IF NOT EXISTS sync_metrics (
   concurrency INTEGER,
   rate_per_sec INTEGER,
   abandoned INTEGER DEFAULT 0,
+  sections_skipped INTEGER DEFAULT 0,
   failed_assignment_ids TEXT
 );
 

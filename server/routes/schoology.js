@@ -46,7 +46,7 @@ router.get('/sync/metrics', (req, res) => {
     SELECT id, sync_log_id, started_at, duration_ms,
            submission_calls, rate_limit_hits, transient_failures,
            retries_attempted, retries_succeeded, retries_failed,
-           concurrency, rate_per_sec, abandoned, failed_assignment_ids
+           concurrency, rate_per_sec, abandoned, sections_skipped, failed_assignment_ids
     FROM sync_metrics
     ORDER BY id DESC
     LIMIT 1

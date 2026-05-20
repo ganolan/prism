@@ -619,13 +619,14 @@ export async function fullSync(onProgress, { includeHidden = false, includeArchi
         sync_log_id, started_at, duration_ms,
         submission_calls, rate_limit_hits, transient_failures,
         retries_attempted, retries_succeeded, retries_failed,
-        concurrency, rate_per_sec, abandoned, failed_assignment_ids
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        concurrency, rate_per_sec, abandoned, sections_skipped, failed_assignment_ids
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       syncId, now, duration_ms,
       metrics.submission_calls, metrics.rate_limit_hits, metrics.transient_failures,
       metrics.retries_attempted, metrics.retries_succeeded, metrics.retries_failed,
       syncConfig.submissionConcurrency, syncConfig.submissionRatePerSec, metrics.abandoned,
+      metrics.sections_skipped,
       JSON.stringify(metrics.failed_assignment_ids),
     );
 

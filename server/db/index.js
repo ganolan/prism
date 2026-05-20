@@ -48,6 +48,10 @@ const MIGRATIONS = [
   // section_school_code. Distinct from `hidden` — the user-facing toggle to
   // 'Include hidden courses' must NEVER re-include excluded rows.
   `ALTER TABLE courses ADD COLUMN excluded INTEGER NOT NULL DEFAULT 0`,
+  // Issue #56: track sections the section loop skipped (excluded, or
+  // hidden/archived without the matching opt-in toggle) for telemetry via
+  // /api/sync/metrics.
+  `ALTER TABLE sync_metrics ADD COLUMN sections_skipped INTEGER DEFAULT 0`,
   // Indexes for issue #13 columns (must run after ALTER TABLEs above)
   `CREATE INDEX IF NOT EXISTS idx_assignments_folder ON assignments(folder_id)`,
   `CREATE INDEX IF NOT EXISTS idx_assignments_grading_category ON assignments(grading_category_id)`,

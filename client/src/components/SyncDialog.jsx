@@ -32,12 +32,12 @@ export default function SyncDialog({ onClose }) {
   // events). The running-mode overlay is intentionally non-dismissable —
   // there is no backdrop/Escape handler — so the stream always runs to
   // completion and needs no abort path.
-  async function startSync(masteryCourseIds, { skipSchoology = false } = {}) {
+  async function startSync(masteryCourseIds, { skipSchoology = false, includeHidden = false, includeArchived = false } = {}) {
     setEvents([]);
     setMetrics(null);
     setMode('running');
     try {
-      await runSync({ masteryCourseIds, skipSchoology }, (evt) => {
+      await runSync({ masteryCourseIds, skipSchoology, includeHidden, includeArchived }, (evt) => {
         setEvents((prev) => [...prev, evt]);
       });
     } catch (err) {
@@ -79,7 +79,7 @@ export default function SyncDialog({ onClose }) {
             courses={courses}
             loggedIn={loggedIn}
             busy={busy}
-            onStart={(ids) => startSync(ids)}
+            onStart={(ids, opts) => startSync(ids, opts)}
             onCancel={onClose}
             onLogin={handleLogin}
           />

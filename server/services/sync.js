@@ -15,6 +15,19 @@ import {
 import { runWithLimits } from './rateLimitedRunner.js';
 import { getSyncConfig } from '../middleware/featureGate.js';
 
+// Issue #56: flip newly-discovered template sections to excluded=1. Same
+// predicate as the boot-time backfill in db/index.js but called every sync
+// so new template sections appearing in subsequent syncs also get caught.
+// Idempotent.
+function markExcludedCourses(db) {
+  db.exec(`
+    UPDATE courses SET excluded = 1
+    WHERE excluded = 0
+      AND (course_code IS NULL OR course_code = '')
+      AND (section_school_code IS NULL OR section_school_code = '')
+  `);
+}
+
 // Schoology returns `assignees` as a JSON-encoded string on the REST
 // assignment endpoint (e.g. `"[1234,5678]"`), but other shapes are
 // possible (plain array, `{assignee: [...]}` envelope). The values inside
@@ -375,7 +388,7 @@ export async function retrySubmissions(db, failedEntries, now, metrics) {
 }
 
 // Full sync: sections -> enrollments -> assignments -> grades
-export async function fullSync(onProgress) {
+export async function fullSync(onProgress, { includeHidden = false, includeArchived = false } = {}) {
   const db = getDb();
   const log = (msg) => onProgress?.({ message: msg });
   const now = new Date().toISOString();
@@ -399,6 +412,7 @@ export async function fullSync(onProgress) {
       retries_succeeded: 0,
       retries_failed: 0,
       abandoned: 0,
+      sections_skipped: 0,
       failed_assignment_ids: [], // { sectionId, courseId, assignmentExtId }
     };
     const userId = await getMyUserId();
@@ -416,10 +430,9 @@ export async function fullSync(onProgress) {
       ON CONFLICT(schoology_section_id) DO UPDATE SET
         course_name = excluded.course_name,
         section_name = excluded.section_name,
-        course_code = excluded.course_code,
-        section_school_code = excluded.section_school_code,
+        course_code = COALESCE(excluded.course_code, courses.course_code),
+        section_school_code = COALESCE(excluded.section_school_code, courses.section_school_code),
         grading_period = excluded.grading_period,
-        archived = 0,
         synced_at = excluded.synced_at
     `);
 
@@ -438,15 +451,11 @@ export async function fullSync(onProgress) {
     }
     totalRecords += sections.length;
 
-    // Hide courses without course_code or section_school_code by default (only on first sync)
-    db.prepare(`
-      UPDATE courses
-      SET hidden = 1
-      WHERE (course_code IS NULL OR course_code = '')
-        AND (section_school_code IS NULL OR section_school_code = '')
-        AND hidden = 0
-        AND synced_at = ?
-    `).run(now);
+    // Issue #56: mark template sections (no codes) as permanently excluded.
+    // Subsumes the previous auto-hide pass — the section loop below skips
+    // excluded courses unconditionally, so they never reach the expensive
+    // per-section API calls.
+    markExcludedCourses(db);
 
     // 2. For each section, sync enrollments, assignments, grades, folders, categories
     const upsertFolder = db.prepare(`
@@ -475,10 +484,16 @@ export async function fullSync(onProgress) {
         synced_at = excluded.synced_at
     `);
 
+    const selectCourseFlags = db.prepare(
+      'SELECT id, hidden, archived, excluded FROM courses WHERE schoology_section_id = ?'
+    );
     for (const sec of sections) {
       const sectionId = String(sec.id);
-      const courseRow = db.prepare('SELECT id FROM courses WHERE schoology_section_id = ?').get(sectionId);
+      const courseRow = selectCourseFlags.get(sectionId);
       if (!courseRow) continue;
+      if (courseRow.excluded) { metrics.sections_skipped++; continue; }
+      if (courseRow.hidden && !includeHidden) { metrics.sections_skipped++; continue; }
+      if (courseRow.archived && !includeArchived) { metrics.sections_skipped++; continue; }
 
       log(`Syncing "${sec.course_title}"...`);
       const result = await syncSectionData(db, sectionId, courseRow.id, now, syncConfig);

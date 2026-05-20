@@ -320,6 +320,9 @@ describe('fullSync — course skip matrix (#56)', () => {
 
     getMyUserId.mockResolvedValue('user-1');
     getSectionGradingPeriods.mockResolvedValue([]);
+    // mockReset clears call history from previous describe blocks so assertions
+    // on mock.calls only reflect calls made during this test.
+    getSectionEnrollments.mockReset();
     getSectionEnrollments.mockResolvedValue([]);
     getSectionAssignments.mockResolvedValue([]);
     getSectionGrades.mockResolvedValue([]);

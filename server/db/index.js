@@ -115,3 +115,9 @@ export function getDb() {
   }
   return db;
 }
+
+// Test-only: let in-memory test DBs replace the module-level singleton so
+// callers of getDb() see the test fixture. Never call from production code.
+export function __setTestDb(testDb) {
+  db = testDb;
+}

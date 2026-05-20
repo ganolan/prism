@@ -198,6 +198,9 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   const acceptedResults = []; // committed at end of section in one transaction
   const failedAssignmentIds = [];
   let submissionAbandoned = false;
+  let rateLimitHits = 0;
+  let transientFailures = 0;
+  let submissionAttempts = 0;
 
   for (const a of dropboxAssignments) {
     if (failedAssignmentIds.length >= submissionAbandonAfter) {
@@ -216,6 +219,7 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
       assignmentResults = await runWithLimits(
         cells,
         async ({ e, studentRow }) => {
+          submissionAttempts++;
           const revision = await getSubmissionStatus(sectionId, String(a.id), String(e.uid));
           return {
             studentId: studentRow.id,
@@ -229,6 +233,7 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
       );
     } catch (err) {
       if (err && err.transient) {
+        if (err.rateLimited) rateLimitHits++; else transientFailures++;
         failedAssignmentIds.push(String(a.id));
         continue;
       }
@@ -264,6 +269,9 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     submissionCount,
     failedAssignmentIds,
     submissionAbandoned,
+    submissionAttempts,
+    rateLimitHits,
+    transientFailures,
   };
 }
 
@@ -283,6 +291,17 @@ export async function fullSync(onProgress) {
     // 1. Get teacher's user ID and sections
     log('Fetching user profile...');
     const syncConfig = getSyncConfig();
+    const startedAt = Date.now();
+    const metrics = {
+      submission_calls: 0,
+      rate_limit_hits: 0,
+      transient_failures: 0,
+      retries_attempted: 0,
+      retries_succeeded: 0,
+      retries_failed: 0,
+      abandoned: 0,
+      failed_assignment_ids: [], // { sectionId, courseId, assignmentExtId }
+    };
     const userId = await getMyUserId();
 
     log('Fetching course sections...');
@@ -364,6 +383,13 @@ export async function fullSync(onProgress) {
 
       log(`Syncing "${sec.course_title}"...`);
       const result = await syncSectionData(db, sectionId, courseRow.id, now, syncConfig);
+      metrics.submission_calls += result.submissionAttempts || 0;
+      metrics.rate_limit_hits += result.rateLimitHits || 0;
+      metrics.transient_failures += result.transientFailures || 0;
+      if (result.submissionAbandoned) metrics.abandoned = 1;
+      for (const aid of (result.failedAssignmentIds || [])) {
+        metrics.failed_assignment_ids.push({ sectionId, courseId: courseRow.id, assignmentExtId: aid });
+      }
       totalRecords += result.studentsCount + result.assignmentsCount + result.gradesCount + (result.submissionCount || 0);
 
       // Sync folders
@@ -464,6 +490,22 @@ export async function fullSync(onProgress) {
     }
     log(`Fetched ${profileCount} profiles, synced parent contacts`);
     totalRecords += profileCount;
+
+    const duration_ms = Date.now() - startedAt;
+    db.prepare(`
+      INSERT INTO sync_metrics (
+        sync_log_id, started_at, duration_ms,
+        submission_calls, rate_limit_hits, transient_failures,
+        retries_attempted, retries_succeeded, retries_failed,
+        concurrency, rate_per_sec, abandoned, failed_assignment_ids
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      syncId, now, duration_ms,
+      metrics.submission_calls, metrics.rate_limit_hits, metrics.transient_failures,
+      metrics.retries_attempted, metrics.retries_succeeded, metrics.retries_failed,
+      syncConfig.submissionConcurrency, syncConfig.submissionRatePerSec, metrics.abandoned,
+      JSON.stringify(metrics.failed_assignment_ids),
+    );
 
     // Update sync log
     db.prepare(`UPDATE sync_log SET status = 'completed', records_synced = ?, completed_at = ? WHERE id = ?`)

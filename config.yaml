@@ -11,5 +11,5 @@ features:
 
 sync:
   submissionConcurrency: 2
-  submissionRatePerSec: 4
+  submissionRatePerSec: 10
   submissionAbandonAfter: 5

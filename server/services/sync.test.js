@@ -22,7 +22,7 @@ import {
   getSectionGrades,
   getSubmissionStatus,
 } from './schoology.js';
-import { syncSectionData, retrySubmissions } from './sync.js';
+import { syncSectionData, retrySubmissions, fullSync } from './sync.js';
 
 describe('syncSectionData — assignee mapping (#54)', () => {
   let db;
@@ -275,5 +275,76 @@ describe('retrySubmissions (#55)', () => {
       SELECT g.* FROM grades g JOIN assignments a ON a.id = g.assignment_id WHERE a.schoology_assignment_id = 'RA1'
     `).all();
     expect(rows.length).toBe(0);
+  });
+});
+
+describe('fullSync — course skip matrix (#56)', () => {
+  let db;
+
+  // Seeds four courses representing each (hidden, archived, excluded) combo
+  // the section loop must distinguish. Returns the schoology_section_id list
+  // in stable order so assertions read naturally.
+  function seedCourses() {
+    const stmt = db.prepare(`
+      INSERT INTO courses
+        (schoology_section_id, course_name, course_code, section_school_code, hidden, archived, excluded)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run('sec-visible',  'Visible Course',  'CSE101', 'S1', 0, 0, 0);
+    stmt.run('sec-hidden',   'Hidden Course',   'CSE102', 'S2', 1, 0, 0);
+    stmt.run('sec-archived', 'Archived Course', 'CSE103', 'S3', 0, 1, 0);
+    stmt.run('sec-excluded', 'MASTER Template', null,     null, 0, 0, 1);
+    return ['sec-visible', 'sec-hidden', 'sec-archived', 'sec-excluded'];
+  }
+
+  // Schoology mocks that just satisfy fullSync's outer shape — every
+  // section-level lookup returns an empty array so per-section side effects
+  // don't matter; we only care which sections reach syncSectionData (proxied
+  // here via getSectionEnrollments, the first API call inside syncSectionData).
+  beforeEach(async () => {
+    db = new Database(':memory:');
+    migrate(db);
+    // Tell sync.js to use this DB. The real getDb() singleton is module-level;
+    // we monkey-patch it by setting DB_PATH or by using the in-memory hook the
+    // existing tests already rely on. The existing tests pass `db` directly
+    // into syncSectionData, but fullSync calls getDb() internally. Workaround:
+    // override the module's db handle.
+    const dbModule = await import('../db/index.js');
+    // eslint-disable-next-line no-import-assign
+    dbModule.__setTestDb?.(db);
+
+    const { getMyUserId, getMySections, getSectionGradingPeriods,
+            getSectionEnrollments, getSectionAssignments, getSectionGrades,
+            getSectionFolders, getSectionGradingCategories,
+            getSectionGradingScales } = await import('./schoology.js');
+
+    getMyUserId.mockResolvedValue('user-1');
+    getSectionGradingPeriods.mockResolvedValue([]);
+    getSectionEnrollments.mockResolvedValue([]);
+    getSectionAssignments.mockResolvedValue([]);
+    getSectionGrades.mockResolvedValue([]);
+    getSectionFolders.mockResolvedValue([]);
+    getSectionGradingCategories.mockResolvedValue([]);
+    getSectionGradingScales.mockResolvedValue([]);
+
+    // getMySections returns sections matching the seeded course IDs. Order
+    // matches seedCourses(). course_title is what fullSync logs but is
+    // otherwise unused.
+    getMySections.mockResolvedValue([
+      { id: 'sec-visible',  course_title: 'Visible Course',   section_title: 'A' },
+      { id: 'sec-hidden',   course_title: 'Hidden Course',    section_title: 'A' },
+      { id: 'sec-archived', course_title: 'Archived Course',  section_title: 'A' },
+      { id: 'sec-excluded', course_title: 'MASTER Template',  section_title: 'A' },
+    ]);
+  });
+
+  test('default sync skips hidden, archived, and excluded courses', async () => {
+    seedCourses();
+    const { getSectionEnrollments } = await import('./schoology.js');
+
+    await fullSync(() => {});
+
+    const visited = getSectionEnrollments.mock.calls.map(c => c[0]);
+    expect(visited).toEqual(['sec-visible']);
   });
 });

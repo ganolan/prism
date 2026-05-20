@@ -55,6 +55,7 @@ export const getGrades = (params) => {
 
 // Sync
 export const getSyncStatus = () => request('/sync/status');
+export const getSyncMetrics = () => request('/sync/metrics');
 
 // Run the unified sync. Streams newline-delimited JSON progress events from the
 // server; each parsed event is passed to onEvent. Resolves when the stream ends.

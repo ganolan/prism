@@ -10,6 +10,7 @@ beforeEach(() => {
     { id: 1, course_name: 'Biology 9', hidden: 0, archived: 0 },
   ]);
   vi.mocked(api.getMasteryLoginStatus).mockResolvedValue({ loggedIn: true });
+  vi.mocked(api.getSyncMetrics).mockResolvedValue(null);
 });
 
 describe('SyncDialog', () => {
@@ -78,5 +79,19 @@ describe('SyncDialog', () => {
     await waitFor(() => screen.getByRole('button', { name: /start sync/i }));
     fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
     await waitFor(() => expect(screen.getByText('Sync failed')).toBeInTheDocument());
+  });
+
+  it('shows the abandoned banner when sync_metrics reports abandoned', async () => {
+    vi.mocked(api.runSync).mockImplementation(async (opts, onEvent) => {
+      onEvent({ phase: 'schoology', status: 'done', records: 5 });
+      onEvent({ type: 'summary', schoology: { records: 5 }, mastery: [], elapsedMs: 1000 });
+    });
+    vi.mocked(api.getSyncMetrics).mockResolvedValue({
+      id: 1, abandoned: 1, retries_failed: 0, failed_assignment_ids: [],
+    });
+    render(<SyncDialog onClose={() => {}} />);
+    await waitFor(() => screen.getByRole('button', { name: /start sync/i }));
+    fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
+    await waitFor(() => expect(screen.getByText(/abandoned/i)).toBeInTheDocument());
   });
 });

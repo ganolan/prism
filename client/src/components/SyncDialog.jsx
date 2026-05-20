@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { getCourses, getMasteryLoginStatus, triggerMasteryLogin, runSync } from '../services/api.js';
+import { getCourses, getMasteryLoginStatus, triggerMasteryLogin, runSync, getSyncMetrics } from '../services/api.js';
 import { reduceSyncEvents } from '../lib/syncEvents.js';
 import SyncConfig from './SyncConfig.jsx';
 import SyncProgress from './SyncProgress.jsx';
@@ -11,6 +11,7 @@ export default function SyncDialog({ onClose }) {
   const [events, setEvents] = useState([]);
   const [retryEnabled, setRetryEnabled] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [metrics, setMetrics] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,6 +34,7 @@ export default function SyncDialog({ onClose }) {
   // completion and needs no abort path.
   async function startSync(masteryCourseIds, { skipSchoology = false } = {}) {
     setEvents([]);
+    setMetrics(null);
     setMode('running');
     try {
       await runSync({ masteryCourseIds, skipSchoology }, (evt) => {
@@ -41,6 +43,10 @@ export default function SyncDialog({ onClose }) {
     } catch (err) {
       setEvents((prev) => [...prev, { type: 'error', message: err.message }]);
     }
+    try {
+      const m = await getSyncMetrics();
+      setMetrics(m);
+    } catch { /* metrics fetch failure is non-fatal */ }
     setMode('done');
   }
 
@@ -80,14 +86,25 @@ export default function SyncDialog({ onClose }) {
         )}
 
         {(mode === 'running' || mode === 'done') && (
-          <SyncProgress
-            reduced={reduced}
-            mode={mode}
-            retryEnabled={retryEnabled}
-            onDone={onClose}
-            onRetry={handleRetry}
-            onLogin={handleLogin}
-          />
+          <>
+            {mode === 'done' && metrics?.abandoned ? (
+              <div className="alert alert-warning">
+                Submission sync was abandoned due to repeated rate limits. Re-run sync to retry.
+              </div>
+            ) : mode === 'done' && metrics?.retries_failed > 0 ? (
+              <div className="alert alert-warning">
+                {metrics.retries_failed} assignment{metrics.retries_failed === 1 ? '' : 's'} couldn't sync — re-run sync when ready.
+              </div>
+            ) : null}
+            <SyncProgress
+              reduced={reduced}
+              mode={mode}
+              retryEnabled={retryEnabled}
+              onDone={onClose}
+              onRetry={handleRetry}
+              onLogin={handleLogin}
+            />
+          </>
         )}
       </div>
     </div>

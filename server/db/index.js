@@ -84,7 +84,9 @@ export function purgeStudentScopedFlags(database) {
 // Issue #56: flip existing template-pattern courses (no course_code AND no
 // section_school_code) to excluded=1 so the next sync skips them without
 // requiring user action. Idempotent — the predicate filters to rows that
-// haven't been flagged yet, so re-running is a no-op.
+// haven't been flagged yet, so re-running is a no-op. Keep the predicate
+// in sync with markExcludedCourses in server/services/sync.js, which runs
+// the same UPDATE during fullSync to catch sections that appear later.
 export function backfillExcludedCourses(database) {
   database.exec(`
     UPDATE courses SET excluded = 1

@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS courses (
   grading_period TEXT,
   archived INTEGER DEFAULT 0,
   hidden INTEGER DEFAULT 0,
+  excluded INTEGER NOT NULL DEFAULT 0,
   synced_at TEXT
 );
 

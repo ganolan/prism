@@ -735,6 +735,24 @@ button.ghost.accent:hover { background: var(--accent-light); }
 }
 .sync-step-title { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; }
 .sync-step-desc { color: var(--text-muted); font-size: 0.85rem; margin: 0.35rem 0 0; }
+.sync-step-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding-left: 0.25rem;
+}
+.sync-step-toggles label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.95em;
+}
+.sync-step-toggles input[type="checkbox"] {
+  cursor: pointer;
+}
 .sync-badge {
   font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.04em;
   padding: 0.1rem 0.45rem; border-radius: 4px;

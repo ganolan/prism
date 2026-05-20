@@ -1,9 +1,9 @@
 import { useState, useMemo } from 'react';
 
 const GROUPS = [
-  { key: 'visible', label: 'Visible courses', match: (c) => !c.hidden && !c.archived },
-  { key: 'hidden', label: 'Hidden courses', match: (c) => c.hidden && !c.archived },
-  { key: 'archived', label: 'Archived courses', match: (c) => c.archived },
+  { key: 'visible',  label: 'Visible courses',  match: (c) => !c.hidden && !c.archived && !c.excluded },
+  { key: 'hidden',   label: 'Hidden courses',   match: (c) => c.hidden && !c.archived && !c.excluded },
+  { key: 'archived', label: 'Archived courses', match: (c) =>  c.archived && !c.excluded },
 ];
 
 // Checkbox that supports the indeterminate (tri-state) visual.
@@ -33,6 +33,18 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
   const [selected, setSelected] = useState(() => new Set(visibleIds));
   const [collapsed, setCollapsed] = useState({ visible: false, hidden: true, archived: true });
 
+  const [includeHidden, setIncludeHidden] = useState(false);
+  const [includeArchived, setIncludeArchived] = useState(false);
+
+  const hiddenCount = useMemo(
+    () => courses.filter((c) => c.hidden && !c.archived && !c.excluded).length,
+    [courses]
+  );
+  const archivedCount = useMemo(
+    () => courses.filter((c) => c.archived && !c.excluded).length,
+    [courses]
+  );
+
   const toggleCourse = (id) => setSelected((prev) => {
     const next = new Set(prev);
     next.has(id) ? next.delete(id) : next.add(id);
@@ -59,6 +71,24 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
         <p className="sync-step-desc">
           Courses, students, assignments, grades &amp; submission status — all sections in one pass.
         </p>
+        <div className="sync-step-toggles">
+          <label>
+            <input
+              type="checkbox"
+              checked={includeHidden}
+              onChange={(e) => setIncludeHidden(e.target.checked)}
+            />
+            <span>Include hidden courses{hiddenCount > 0 ? ` (${hiddenCount})` : ''}</span>
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={includeArchived}
+              onChange={(e) => setIncludeArchived(e.target.checked)}
+            />
+            <span>Include archived courses{archivedCount > 0 ? ` (${archivedCount})` : ''}</span>
+          </label>
+        </div>
       </div>
 
       <div className="sync-step">
@@ -140,7 +170,7 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
           <button
             type="button"
             className="primary"
-            onClick={() => onStart([...selected])}
+            onClick={() => onStart([...selected], { includeHidden, includeArchived })}
             disabled={busy}
           >
             Start sync

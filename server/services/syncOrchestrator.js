@@ -19,7 +19,10 @@ export function classifyMasteryError(err) {
 //   { phase:'mastery', courseId, courseName, status, records?, errorKind?, message? }
 //   { type:'log', message }
 //   { type:'summary', schoology, mastery, elapsedMs, fatal? }
-export async function runUnifiedSync({ masteryCourseIds = [], skipSchoology = false }, onEvent) {
+export async function runUnifiedSync(
+  { masteryCourseIds = [], skipSchoology = false, includeHidden = false, includeArchived = false },
+  onEvent
+) {
   const emit = (evt) => onEvent?.(evt);
   const db = getDb();
   const startedAt = Date.now();
@@ -28,7 +31,10 @@ export async function runUnifiedSync({ masteryCourseIds = [], skipSchoology = fa
   if (!skipSchoology) {
     emit({ phase: 'schoology', status: 'running' });
     try {
-      const result = await fullSync((progress) => emit({ type: 'log', message: progress.message }));
+      const result = await fullSync(
+        (progress) => emit({ type: 'log', message: progress.message }),
+        { includeHidden, includeArchived }
+      );
       summary.schoology = { records: result.records };
       emit({ phase: 'schoology', status: 'done', records: result.records });
     } catch (err) {

@@ -354,4 +354,35 @@ describe('fullSync — course skip matrix (#56)', () => {
     const visited = getSectionEnrollments.mock.calls.map(c => c[0]);
     expect(visited).toEqual(['sec-visible']);
   });
+
+  test('includeHidden=true visits visible + hidden, not archived, not excluded', async () => {
+    seedCourses();
+    const { getSectionEnrollments } = await import('./schoology.js');
+
+    await fullSync(() => {}, { includeHidden: true });
+
+    const visited = getSectionEnrollments.mock.calls.map(c => c[0]).sort();
+    expect(visited).toEqual(['sec-hidden', 'sec-visible']);
+  });
+
+  test('includeArchived=true visits visible + archived, not hidden, not excluded', async () => {
+    seedCourses();
+    const { getSectionEnrollments } = await import('./schoology.js');
+
+    await fullSync(() => {}, { includeArchived: true });
+
+    const visited = getSectionEnrollments.mock.calls.map(c => c[0]).sort();
+    expect(visited).toEqual(['sec-archived', 'sec-visible']);
+  });
+
+  test('excluded never reached even with both toggles on', async () => {
+    seedCourses();
+    const { getSectionEnrollments } = await import('./schoology.js');
+
+    await fullSync(() => {}, { includeHidden: true, includeArchived: true });
+
+    const visited = getSectionEnrollments.mock.calls.map(c => c[0]).sort();
+    expect(visited).toEqual(['sec-archived', 'sec-hidden', 'sec-visible']);
+    expect(visited).not.toContain('sec-excluded');
+  });
 });

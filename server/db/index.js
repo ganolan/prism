@@ -42,6 +42,12 @@ const MIGRATIONS = [
   `ALTER TABLE grades ADD COLUMN latest_revision_at INTEGER DEFAULT 0`,
   // Issue #54: per-assignment individually-assigned targeting.
   `ALTER TABLE assignments ADD COLUMN num_assignees INTEGER`,
+  // Issue #56: courses we never want to sync (e.g., template sections like
+  // "MASTER Art, Design & Technology" that carry assignments but zero real
+  // enrolments). Auto-detected by the absence of course_code AND
+  // section_school_code. Distinct from `hidden` — the user-facing toggle to
+  // 'Include hidden courses' must NEVER re-include excluded rows.
+  `ALTER TABLE courses ADD COLUMN excluded INTEGER NOT NULL DEFAULT 0`,
   // Indexes for issue #13 columns (must run after ALTER TABLEs above)
   `CREATE INDEX IF NOT EXISTS idx_assignments_folder ON assignments(folder_id)`,
   `CREATE INDEX IF NOT EXISTS idx_assignments_grading_category ON assignments(grading_category_id)`,
@@ -71,6 +77,19 @@ export function purgeStudentScopedFlags(database) {
   database.exec(`DELETE FROM flags WHERE assignment_id IS NULL`);
 }
 
+// Issue #56: flip existing template-pattern courses (no course_code AND no
+// section_school_code) to excluded=1 so the next sync skips them without
+// requiring user action. Idempotent — the predicate filters to rows that
+// haven't been flagged yet, so re-running is a no-op.
+export function backfillExcludedCourses(database) {
+  database.exec(`
+    UPDATE courses SET excluded = 1
+    WHERE excluded = 0
+      AND (course_code IS NULL OR course_code = '')
+      AND (section_school_code IS NULL OR section_school_code = '')
+  `);
+}
+
 // Build the schema, apply incremental migrations, and run data purges on an
 // open database. Exported so tests can drive it against an in-memory database.
 export function migrate(database) {
@@ -84,6 +103,7 @@ export function migrate(database) {
   // Data purges — independent of each other; order does not matter.
   purgeLegacyAutoFlags(database);
   purgeStudentScopedFlags(database);
+  backfillExcludedCourses(database);
 }
 
 export function getDb() {

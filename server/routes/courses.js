@@ -201,7 +201,16 @@ router.get('/:id/gradebook', (req, res) => {
     gradeMap[g.student_id][g.assignment_id] = g;
   }
 
-  res.json({ assignments: filteredAssignments, students, grades: gradeMap, grading_scales: getGradingScalesMap() });
+  // Folder metadata for this course — lets the client group assignments by
+  // their Schoology folder (Assessments tab, #22). Ordering of assignments
+  // already follows folder display_weight; this just supplies the titles.
+  const folders = db.prepare(`
+    SELECT schoology_folder_id, title, parent_id, display_weight
+    FROM folders
+    WHERE course_id = ?
+  `).all(req.params.id);
+
+  res.json({ assignments: filteredAssignments, students, grades: gradeMap, folders, grading_scales: getGradingScalesMap() });
 });
 
 // POST /api/courses/import — fetch a past course from Schoology and sync it

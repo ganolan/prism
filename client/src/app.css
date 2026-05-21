@@ -51,6 +51,12 @@
   --badge-pink-text: #be185d;
   --badge-resubmit-bg: #e6effe;
   --badge-resubmit-text: #1d4ed8;
+  --summative-bg: #fef3c7;
+  --summative-text: #92400e;
+  --summative-border: #f59e0b;
+  --formative-bg: #f1f5f9;
+  --formative-text: #475569;
+  --formative-border: #cbd5e1;
   --resubmit-ring: #1d4ed8;
   --table-header-bg: #f8f5ff;
   --table-row-hover: rgba(124, 58, 237, 0.03);
@@ -112,6 +118,12 @@
   --badge-pink-text: #f9a8d4;
   --badge-resubmit-bg: rgba(59, 130, 246, 0.18);
   --badge-resubmit-text: #93c5fd;
+  --summative-bg: rgba(245, 158, 11, 0.18);
+  --summative-text: #fcd34d;
+  --summative-border: rgba(245, 158, 11, 0.5);
+  --formative-bg: rgba(148, 163, 184, 0.14);
+  --formative-text: #cbd5e1;
+  --formative-border: rgba(148, 163, 184, 0.35);
   --resubmit-ring: #60a5fa;
   --table-header-bg: #1f1640;
   --table-row-hover: rgba(139, 92, 246, 0.06);
@@ -173,6 +185,12 @@
   --badge-pink-text: #0e7490;
   --badge-resubmit-bg: #dbeafe;
   --badge-resubmit-text: #1d4ed8;
+  --summative-bg: #fef3c7;
+  --summative-text: #92400e;
+  --summative-border: #f59e0b;
+  --formative-bg: #eef2f6;
+  --formative-text: #475569;
+  --formative-border: #cbd5e1;
   --resubmit-ring: #1d4ed8;
   --table-header-bg: #f0f9ff;
   --table-row-hover: rgba(2, 132, 199, 0.03);
@@ -409,6 +427,20 @@ tr:last-child td { border-bottom: none; }
 .badge-resubmit { background: var(--badge-resubmit-bg); color: var(--badge-resubmit-text); }
 .badge-resubmitted { background: var(--card-bg); color: var(--resubmit-ring); box-shadow: inset 0 0 0 1.5px var(--resubmit-ring); }
 .badge-pink { background: var(--badge-pink-bg); color: var(--badge-pink-text); }
+
+/* Formative / summative assignment type coding. Summative (amber) deliberately
+   carries more visual weight than formative (neutral). Used wherever F/S is
+   shown — gradebook headers, the Assessments tab. */
+.badge-summative {
+  background: var(--summative-bg);
+  color: var(--summative-text);
+  box-shadow: inset 0 0 0 1px var(--summative-border);
+}
+.badge-formative {
+  background: var(--formative-bg);
+  color: var(--formative-text);
+  box-shadow: inset 0 0 0 1px var(--formative-border);
+}
 
 /* ========================================================================
    TYPOGRAPHY

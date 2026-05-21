@@ -6,6 +6,7 @@ import OverridePopup, { LEVEL_COLORS } from '../components/OverridePopup.jsx';
 import { computeLetterGrade, LetterGradePopup, LETTER_GRADE_COLORS } from '../components/MasteryPerformanceSummary.jsx';
 import { gradeLabel, submissionStatus } from '../lib/gradeLabel.js';
 import { masteryCodeForLevel } from '../lib/masteryLevels.js';
+import { groupAssignmentsByFolder } from '../lib/assessmentGroups.js';
 
 const SHORT_BADGE = { late: 'L', draft: 'D', missing: 'M', 'not-started': 'NS', submitted: 'S' };
 
@@ -88,6 +89,9 @@ export default function CoursePage() {
         <button className={`tab-btn ${view === 'gradebook' ? 'active' : ''}`} onClick={() => setView('gradebook')}>
           Gradebook
         </button>
+        <button className={`tab-btn ${view === 'assessments' ? 'active' : ''}`} onClick={() => setView('assessments')}>
+          Assessments
+        </button>
         <button className={`tab-btn ${view === 'analytics' ? 'active' : ''}`} onClick={() => setView('analytics')}>
           Analytics
         </button>
@@ -148,6 +152,7 @@ export default function CoursePage() {
         />
       )}
       {view === 'gradebook' && <GradebookView data={gradebook} />}
+      {view === 'assessments' && <AssessmentsView data={gradebook} courseId={id} />}
       {view === 'analytics' && <AnalyticsView id={id} />}
     </div>
   );
@@ -525,6 +530,134 @@ function GradebookView({ data }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ─── Assessments view ────────────────────────────────────────────────────────
+
+// Show/hide toggle for an assignment type. Filled in the type's colour while
+// showing, greyed out while hidden (#22).
+function TypeFilterToggle({ label, count, active, type, onClick }) {
+  const colorStyle = active
+    ? {
+        background: `var(--${type}-bg)`,
+        color: `var(--${type}-text)`,
+        boxShadow: `inset 0 0 0 1px var(--${type}-border)`,
+      }
+    : {
+        background: 'var(--bg-subtle)',
+        color: 'var(--text-muted)',
+        boxShadow: 'inset 0 0 0 1px var(--border)',
+        opacity: 0.7,
+      };
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      title={active ? `Hide ${label.toLowerCase()} assessments` : `Show ${label.toLowerCase()} assessments`}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+        padding: '0.3rem 0.7rem', borderRadius: 999, border: 'none',
+        cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600,
+        transition: 'opacity 0.12s, background 0.12s',
+        ...colorStyle,
+      }}
+    >
+      <span style={{
+        display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
+        background: 'currentColor', opacity: active ? 1 : 0.5,
+      }} />
+      {label}
+      <span style={{ fontWeight: 700, opacity: 0.75 }}>{count}</span>
+    </button>
+  );
+}
+
+function AssessmentsView({ data, courseId }) {
+  const [showSummative, setShowSummative] = useState(true);
+  const [showFormative, setShowFormative] = useState(true);
+
+  if (!data || !data.assignments.length) {
+    return <div className="card"><p className="text-muted">No assignments yet.</p></div>;
+  }
+
+  const { assignments, folders } = data;
+  const summativeCount = assignments.filter(a => a.aligned).length;
+  const formativeCount = assignments.length - summativeCount;
+
+  const visible = assignments.filter(a => (a.aligned ? showSummative : showFormative));
+  const groups = groupAssignmentsByFolder(visible, folders);
+
+  return (
+    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap',
+        padding: '0.85rem 1.25rem', borderBottom: '1px solid var(--border)',
+      }}>
+        <span className="text-sm text-muted" style={{ marginRight: '0.25rem' }}>Show:</span>
+        <TypeFilterToggle
+          label="Summative" count={summativeCount} type="summative"
+          active={showSummative} onClick={() => setShowSummative(v => !v)}
+        />
+        <TypeFilterToggle
+          label="Formative" count={formativeCount} type="formative"
+          active={showFormative} onClick={() => setShowFormative(v => !v)}
+        />
+      </div>
+
+      {groups.length === 0 ? (
+        <p className="text-sm text-muted" style={{ padding: '1rem 1.25rem' }}>
+          No assessments match the current filters.
+        </p>
+      ) : (
+        groups.map(group => (
+          <div key={group.folderId ?? '__none__'}>
+            <div style={{
+              padding: '0.45rem 1.25rem',
+              background: 'var(--accent-subtle)',
+              color: 'var(--accent)',
+              fontWeight: 700, fontSize: '0.78rem',
+              borderBottom: '1px solid var(--border)',
+            }}>
+              {group.title || 'Ungrouped'}
+            </div>
+            {group.assignments.map(a => {
+              const isSummative = !!a.aligned;
+              return (
+                <div
+                  key={a.id}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '0.6rem',
+                    padding: '0.55rem 1.25rem',
+                    borderBottom: '1px solid var(--border)',
+                  }}
+                >
+                  <span
+                    className={`badge ${isSummative ? 'badge-summative' : 'badge-formative'}`}
+                    style={{ fontSize: '0.62rem', flexShrink: 0 }}
+                    title={isSummative ? 'Summative' : 'Formative'}
+                  >
+                    {isSummative ? 'S' : 'F'}
+                  </span>
+                  <Link
+                    to={`/course/${courseId}/assessment/${a.schoology_assignment_id}`}
+                    className="link"
+                    style={{ flex: 1 }}
+                  >
+                    {a.title}
+                  </Link>
+                  {a.due_date && (
+                    <span className="text-sm text-muted" style={{ flexShrink: 0 }}>
+                      Due {a.due_date}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ))
+      )}
     </div>
   );
 }

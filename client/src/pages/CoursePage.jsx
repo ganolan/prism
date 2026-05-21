@@ -522,6 +522,8 @@ function RubricModal({ student, assignment, courseId, topics, comment, onClose }
 function GradebookView({ data, courseId, mastery }) {
   const indexed = useMemo(() => indexMastery(mastery), [mastery]);
   const [rubricModal, setRubricModal] = useState(null);
+  // Comment shown instantly on cell hover (#36): { text, top, left }.
+  const [commentOverlay, setCommentOverlay] = useState(null);
 
   if (!data || !data.assignments.length) {
     return <div className="card"><p className="text-muted">No assignments yet.</p></div>;
@@ -623,8 +625,13 @@ function GradebookView({ data, courseId, mastery }) {
                 const code = lbl.kind === 'scale' ? masteryCodeForLevel(lbl.text) : null;
                 const c = code ? LEVEL_COLORS[code] : null;
                 const text = lbl.kind === 'pending' ? '—' : (code || lbl.text);
+                // A cell with an overall comment gets a corner indicator and an
+                // instant hover overlay (#36) — `position: relative` anchors the
+                // indicator.
+                const hasComment = !!g.grade_comment;
                 const cellStyle = {
                   textAlign: 'center',
+                  ...(hasComment && { position: 'relative' }),
                   ...(lbl.kind === 'mismatch' && { color: 'var(--danger)' }),
                   ...(g.resubmit_requested && { background: 'var(--badge-resubmit-bg)' }),
                   ...(g.resubmitted && { boxShadow: 'inset 0 0 0 2px var(--resubmit-ring)' }),
@@ -646,8 +653,9 @@ function GradebookView({ data, courseId, mastery }) {
                 });
                 // Don't double up exception text — gradeLabel already shows it.
                 const inlineBadges = status.filter(b => b.kind !== 'exception');
-                // Tooltip names whichever resubmission signals apply, falling
-                // back to the mismatch warning or the grade comment.
+                // The grade comment is surfaced via the corner indicator + the
+                // instant hover overlay (#36); the native title is reserved for
+                // the resubmission / mismatch signals only.
                 const signalTitle = [
                   g.resubmit_requested ? 'Re-submit requested' : null,
                   g.resubmitted ? 'Resubmitted since last graded' : null,
@@ -655,9 +663,40 @@ function GradebookView({ data, courseId, mastery }) {
                 const cellTitle = signalTitle
                   || (lbl.kind === 'mismatch'
                       ? 'Score does not match any defined level on this grading scale — check Schoology'
-                      : (g.grade_comment || ''));
+                      : '');
                 return (
-                  <td key={a.id} style={cellStyle} title={cellTitle}>
+                  <td
+                    key={a.id}
+                    style={cellStyle}
+                    title={cellTitle}
+                    onMouseEnter={hasComment ? (e) => {
+                      const r = e.currentTarget.getBoundingClientRect();
+                      // Drop the overlay below the cell, but flip it above when
+                      // the cell sits low in the viewport so a long comment
+                      // grows upward instead of off-screen.
+                      const below = r.bottom < window.innerHeight * 0.55;
+                      setCommentOverlay({
+                        text: g.grade_comment,
+                        left: Math.max(8, Math.min(r.left, window.innerWidth - 296)),
+                        ...(below
+                          ? { top: r.bottom + 4 }
+                          : { bottom: window.innerHeight - r.top + 4 }),
+                      });
+                    } : undefined}
+                    onMouseLeave={hasComment ? () => setCommentOverlay(null) : undefined}
+                  >
+                    {hasComment && (
+                      <span
+                        aria-hidden="true"
+                        title="Has a comment"
+                        style={{
+                          position: 'absolute', top: 0, right: 0,
+                          width: 0, height: 0,
+                          borderTop: '7px solid var(--accent)',
+                          borderLeft: '7px solid transparent',
+                        }}
+                      />
+                    )}
                     {inner}
                     {inlineBadges.map(b => (
                       <span key={b.kind} className={`badge ${b.tone === 'red' ? 'badge-red' : b.tone === 'blue' ? 'badge-blue' : 'badge-pink'}`} style={{ fontSize: '0.55rem', marginLeft: 3 }} title={b.label}>
@@ -681,6 +720,25 @@ function GradebookView({ data, courseId, mastery }) {
         comment={rubricModal.comment}
         onClose={() => setRubricModal(null)}
       />
+    )}
+    {commentOverlay && (
+      <div
+        style={{
+          position: 'fixed',
+          left: commentOverlay.left,
+          ...(commentOverlay.top != null
+            ? { top: commentOverlay.top }
+            : { bottom: commentOverlay.bottom }),
+          zIndex: 1200, maxWidth: 280,
+          background: 'var(--card-bg)', border: '1px solid var(--border)',
+          borderRadius: 8, boxShadow: '0 6px 24px rgba(0,0,0,0.18)',
+          padding: '0.5rem 0.7rem', fontSize: '0.78rem', color: 'var(--text)',
+          whiteSpace: 'pre-wrap', pointerEvents: 'none',
+        }}
+      >
+        <span style={{ fontWeight: 700, marginRight: 5 }}>Comment:</span>
+        {commentOverlay.text}
+      </div>
     )}
     </>
   );

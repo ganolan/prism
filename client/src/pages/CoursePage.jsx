@@ -553,19 +553,35 @@ function GradebookView({ data, courseId, mastery }) {
                     background: 'transparent',
                   }}
                 >
+                  {/* Diagonal guide line — runs parallel just under the title,
+                      starting from the column centre, so the eye can trace a
+                      column up to its label. Across columns the parallel lines
+                      frame each title in its own lane. */}
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      position: 'absolute',
+                      bottom: 24, left: '50%',
+                      width: 250, height: 1,
+                      background: 'var(--border)',
+                      transformOrigin: 'left bottom',
+                      transform: 'rotate(-45deg)',
+                    }}
+                  />
                   {/* Diagonal title (reads bottom-left → top-right) so column
                       names stay compact; links to its grading page (#37). The
                       title is absolutely positioned so its untransformed width
-                      doesn't stretch the column. Long names clip with an
-                      ellipsis — the full name shows on hover. The redundant
-                      trailing (F)/(S) is dropped since the badge conveys it. */}
+                      doesn't stretch the column, and starts at the column
+                      centre (left: 50%). Long names clip with an ellipsis — the
+                      full name shows on hover. The redundant trailing (F)/(S)
+                      is dropped since the badge conveys it. */}
                   <Link
                     to={`/course/${courseId}/assessment/${a.schoology_assignment_id}`}
                     className="link"
                     title={a.title}
                     style={{
                       position: 'absolute',
-                      bottom: 32, left: 14,
+                      bottom: 30, left: '50%',
                       transformOrigin: 'left bottom',
                       transform: 'rotate(-45deg)',
                       whiteSpace: 'nowrap',

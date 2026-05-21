@@ -542,32 +542,53 @@ function GradebookView({ data, courseId, mastery }) {
             {assignments.map(a => {
               const isSummative = !!a.aligned;
               return (
-                <th key={a.id} style={{ minWidth: 30, padding: '0.5rem 0.15rem 0.4rem', verticalAlign: 'bottom' }}>
-                  {/* Vertical title so long names are never clipped; title links
-                      to its grading page (#37). Badge sits at the bottom, next
-                      to the data cells. The redundant trailing (F)/(S) is
-                      dropped since the badge already conveys the type. */}
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
-                    <Link
-                      to={`/course/${courseId}/assessment/${a.schoology_assignment_id}`}
-                      className="link"
-                      title={a.title}
-                      style={{
-                        writingMode: 'vertical-rl',
-                        whiteSpace: 'nowrap',
-                        fontWeight: 500,
-                      }}
-                    >
-                      {a.title.replace(/\s*\((?:F|S)\)\s*$/i, '')}
-                    </Link>
-                    <span
-                      className={`badge ${isSummative ? 'badge-summative' : 'badge-formative'}`}
-                      style={{ fontSize: '0.6rem' }}
-                      title={isSummative ? 'Summative' : 'Formative'}
-                    >
-                      {isSummative ? 'S' : 'F'}
-                    </span>
-                  </div>
+                <th
+                  key={a.id}
+                  style={{
+                    position: 'relative',
+                    height: 240, width: 38, minWidth: 38, padding: 0,
+                    verticalAlign: 'bottom',
+                    // Transparent so a later column's header doesn't paint over
+                    // the diagonal title overflowing from the column before it.
+                    background: 'transparent',
+                  }}
+                >
+                  {/* Diagonal title (reads bottom-left → top-right) so column
+                      names stay compact; links to its grading page (#37). The
+                      title is absolutely positioned so its untransformed width
+                      doesn't stretch the column. Long names clip with an
+                      ellipsis — the full name shows on hover. The redundant
+                      trailing (F)/(S) is dropped since the badge conveys it. */}
+                  <Link
+                    to={`/course/${courseId}/assessment/${a.schoology_assignment_id}`}
+                    className="link"
+                    title={a.title}
+                    style={{
+                      position: 'absolute',
+                      bottom: 32, left: 14,
+                      transformOrigin: 'left bottom',
+                      transform: 'rotate(-45deg)',
+                      whiteSpace: 'nowrap',
+                      width: 260,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      fontWeight: 500,
+                    }}
+                  >
+                    {a.title.replace(/\s*\((?:F|S)\)\s*$/i, '')}
+                  </Link>
+                  {/* S/F badge pinned at the bottom centre, next to the data. */}
+                  <span
+                    className={`badge ${isSummative ? 'badge-summative' : 'badge-formative'}`}
+                    style={{
+                      position: 'absolute', bottom: 5, left: '50%',
+                      transform: 'translateX(-50%)',
+                      fontSize: '0.6rem',
+                    }}
+                    title={isSummative ? 'Summative' : 'Formative'}
+                  >
+                    {isSummative ? 'S' : 'F'}
+                  </span>
                 </th>
               );
             })}

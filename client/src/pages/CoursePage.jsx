@@ -151,7 +151,7 @@ export default function CoursePage() {
           onSaved={refreshMastery}
         />
       )}
-      {view === 'gradebook' && <GradebookView data={gradebook} />}
+      {view === 'gradebook' && <GradebookView data={gradebook} courseId={id} />}
       {view === 'assessments' && <AssessmentsView data={gradebook} courseId={id} />}
       {view === 'analytics' && <AnalyticsView id={id} />}
     </div>
@@ -420,7 +420,7 @@ function RosterView({ students, mastery, courseId, displayName, onOverrideClick 
   );
 }
 
-function GradebookView({ data }) {
+function GradebookView({ data, courseId }) {
   if (!data || !data.assignments.length) {
     return <div className="card"><p className="text-muted">No assignments yet.</p></div>;
   }
@@ -433,13 +433,36 @@ function GradebookView({ data }) {
       <table style={{ fontSize: '0.8rem' }}>
         <thead>
           <tr>
-            <th style={{ position: 'sticky', left: 0, background: 'var(--table-header-bg)', zIndex: 1 }}>Student</th>
+            <th style={{ position: 'sticky', left: 0, background: 'var(--table-header-bg)', zIndex: 1, verticalAlign: 'bottom' }}>Student</th>
             {assignments.map(a => {
               const isSummative = !!a.aligned;
               return (
-                <th key={a.id} style={{ minWidth: '80px', whiteSpace: 'nowrap' }} title={a.title}>
-                  <span className={`badge ${isSummative ? 'badge-blue' : 'badge-green'}`} style={{ fontSize: '0.6rem', marginRight: 4 }}>{isSummative ? 'S' : 'F'}</span>
-                  {a.title.length > 15 ? a.title.slice(0, 15) + '…' : a.title}
+                <th key={a.id} style={{ minWidth: 30, padding: '0.5rem 0.15rem 0.4rem', verticalAlign: 'bottom' }}>
+                  {/* Vertical title so long names are never clipped; title links
+                      to its grading page (#37). Badge sits at the bottom, next
+                      to the data cells. The redundant trailing (F)/(S) is
+                      dropped since the badge already conveys the type. */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
+                    <Link
+                      to={`/course/${courseId}/assessment/${a.schoology_assignment_id}`}
+                      className="link"
+                      title={a.title}
+                      style={{
+                        writingMode: 'vertical-rl',
+                        whiteSpace: 'nowrap',
+                        fontWeight: 500,
+                      }}
+                    >
+                      {a.title.replace(/\s*\((?:F|S)\)\s*$/i, '')}
+                    </Link>
+                    <span
+                      className={`badge ${isSummative ? 'badge-summative' : 'badge-formative'}`}
+                      style={{ fontSize: '0.6rem' }}
+                      title={isSummative ? 'Summative' : 'Formative'}
+                    >
+                      {isSummative ? 'S' : 'F'}
+                    </span>
+                  </div>
                 </th>
               );
             })}

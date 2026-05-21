@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, triggerMasterySync, triggerMasteryLogin } from '../services/api.js';
 import AnalyticsView from '../components/AnalyticsView.jsx';
@@ -7,6 +7,8 @@ import { computeLetterGrade, LetterGradePopup, LETTER_GRADE_COLORS } from '../co
 import { gradeLabel, submissionStatus } from '../lib/gradeLabel.js';
 import { masteryCodeForLevel } from '../lib/masteryLevels.js';
 import { groupAssignmentsByFolder } from '../lib/assessmentGroups.js';
+import { indexMastery, buildAssignmentRubric } from '../lib/gradebookMastery.js';
+import CompactRubric from '../components/CompactRubric.jsx';
 
 const SHORT_BADGE = { late: 'L', draft: 'D', missing: 'M', 'not-started': 'NS', submitted: 'S' };
 
@@ -151,7 +153,7 @@ export default function CoursePage() {
           onSaved={refreshMastery}
         />
       )}
-      {view === 'gradebook' && <GradebookView data={gradebook} courseId={id} />}
+      {view === 'gradebook' && <GradebookView data={gradebook} courseId={id} mastery={mastery} />}
       {view === 'assessments' && <AssessmentsView data={gradebook} courseId={id} />}
       {view === 'analytics' && <AnalyticsView id={id} />}
     </div>
@@ -420,7 +422,107 @@ function RosterView({ students, mastery, courseId, displayName, onOverrideClick 
   );
 }
 
-function GradebookView({ data, courseId }) {
+// ─── Gradebook mini rubric (#32) ─────────────────────────────────────────────
+
+// A segmented strip — one segment per aligned measurement topic, colored by
+// the student's earned level. Grey segment = topic not yet scored. Clickable.
+function MiniRubricStrip({ topics, onClick }) {
+  const summary = topics
+    .map(t => `${t.external_id || t.title}: ${t.grade || 'not graded'}`)
+    .join('\n');
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={summary}
+      aria-label="Show rubric detail"
+      style={{
+        display: 'flex', width: 64, height: 16, padding: 0, margin: '0 auto',
+        border: '1px solid var(--border)', borderRadius: 3,
+        overflow: 'hidden', cursor: 'pointer', background: 'none',
+      }}
+    >
+      {topics.map(t => {
+        const c = t.grade ? LEVEL_COLORS[t.grade] : null;
+        return (
+          <span
+            key={t.topic_id}
+            style={{ flex: 1, background: c ? c.bg : 'var(--bg-subtle)' }}
+          />
+        );
+      })}
+    </button>
+  );
+}
+
+// Modal opened from a MiniRubricStrip — the full rubric grid (shared
+// CompactRubric) plus the overall comment, matching the /student/ page.
+function RubricModal({ student, assignment, courseId, topics, comment, onClose }) {
+  const name = student.preferred_name_teacher || student.preferred_name || student.first_name;
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1100,
+        background: 'rgba(0,0,0,0.5)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: '1rem',
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          background: 'var(--card-bg)', borderRadius: 12,
+          maxWidth: 560, width: '100%', maxHeight: '85vh', overflow: 'auto',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+          padding: '0.85rem 1.1rem', borderBottom: '1px solid var(--border)',
+        }}>
+          <div>
+            <div style={{ fontWeight: 700 }}>{name} {student.last_name}</div>
+            <div className="text-sm text-muted" style={{ marginTop: 2 }}>
+              {assignment.title}
+              <span className="badge badge-summative" style={{ fontSize: '0.6rem', marginLeft: 6 }}>S</span>
+            </div>
+          </div>
+          <button className="ghost" onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        <div style={{ padding: '1rem 1.1rem' }}>
+          <CompactRubric topics={topics} />
+          {comment && (
+            <div
+              className="text-sm"
+              style={{
+                marginTop: '0.85rem', background: 'var(--bg-subtle)',
+                border: '1px solid var(--border)', borderRadius: 8,
+                padding: '0.6rem 0.75rem',
+              }}
+            >
+              <span style={{ fontWeight: 700, marginRight: 5 }}>Comment:</span>{comment}
+            </div>
+          )}
+        </div>
+        <div style={{ padding: '0 1.1rem 1rem' }}>
+          <Link
+            to={`/course/${courseId}/assessment/${assignment.schoology_assignment_id}`}
+            className="link"
+            style={{ fontSize: '0.8rem' }}
+          >
+            Open full grading page →
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GradebookView({ data, courseId, mastery }) {
+  const indexed = useMemo(() => indexMastery(mastery), [mastery]);
+  const [rubricModal, setRubricModal] = useState(null);
+
   if (!data || !data.assignments.length) {
     return <div className="card"><p className="text-muted">No assignments yet.</p></div>;
   }
@@ -429,6 +531,7 @@ function GradebookView({ data, courseId }) {
   const displayName = (s) => s.preferred_name_teacher || s.preferred_name || s.first_name;
 
   return (
+    <>
     <div className="card" style={{ overflowX: 'auto' }}>
       <table style={{ fontSize: '0.8rem' }}>
         <thead>
@@ -500,11 +603,18 @@ function GradebookView({ data, courseId }) {
                     </td>
                   );
                 }
-                // Aligned (summative) assignments don't get scale-aware labels —
-                // the meaningful display is the per-topic mastery rubric (shown
-                // on the assessment page; future: rubric icon hover here). For
-                // now, keep raw score for aligned and let the scale label drive
-                // formatives only.
+                // Aligned summatives show a mini rubric strip of the student's
+                // per-topic proficiency instead of a numeric score (#32).
+                // Rubric-locking exceptions (Excused/Incomplete/Missing) delete
+                // the scores in Schoology, so those cells keep the badge below.
+                const isRubricLocked = g.exception === 1 || g.exception === 2 || g.exception === 3;
+                const rubricTopics = (a.aligned && !isRubricLocked)
+                  ? buildAssignmentRubric(a.schoology_assignment_id, s.schoology_uid, indexed)
+                  : [];
+                const showStrip = rubricTopics.length > 0;
+
+                // Non-aligned cells (and aligned cells with no rubric data
+                // available) keep the scale-aware / numeric label.
                 const lbl = a.aligned
                   ? gradeLabel({ score: g.score, max_points: a.max_points, exception: g.exception, grading_scale_id: null, scales: null })
                   : gradeLabel({ score: g.score, max_points: a.max_points, exception: g.exception, grading_scale_id: a.grading_scale_id, scales: grading_scales });
@@ -519,9 +629,17 @@ function GradebookView({ data, courseId }) {
                   ...(g.resubmit_requested && { background: 'var(--badge-resubmit-bg)' }),
                   ...(g.resubmitted && { boxShadow: 'inset 0 0 0 2px var(--resubmit-ring)' }),
                 };
-                const inner = c
-                  ? <span style={{ background: c.bg, color: c.text, border: `1px solid ${c.border}`, padding: '0.1rem 0.4rem', borderRadius: 4, fontWeight: 500, display: 'inline-block', minWidth: 24 }}>{text}</span>
-                  : text;
+                const inner = showStrip
+                  ? <MiniRubricStrip
+                      topics={rubricTopics}
+                      onClick={() => setRubricModal({
+                        student: s, assignment: a, topics: rubricTopics,
+                        comment: g.grade_comment || '',
+                      })}
+                    />
+                  : (c
+                      ? <span style={{ background: c.bg, color: c.text, border: `1px solid ${c.border}`, padding: '0.1rem 0.4rem', borderRadius: 4, fontWeight: 500, display: 'inline-block', minWidth: 24 }}>{text}</span>
+                      : text);
                 const status = submissionStatus({
                   score: g.score, exception: g.exception, late: g.late, draft: g.draft,
                   submitted_at: g.submitted_at, due_date: a.due_date,
@@ -554,6 +672,17 @@ function GradebookView({ data, courseId }) {
         </tbody>
       </table>
     </div>
+    {rubricModal && (
+      <RubricModal
+        student={rubricModal.student}
+        assignment={rubricModal.assignment}
+        courseId={courseId}
+        topics={rubricModal.topics}
+        comment={rubricModal.comment}
+        onClose={() => setRubricModal(null)}
+      />
+    )}
+    </>
   );
 }
 

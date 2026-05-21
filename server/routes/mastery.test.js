@@ -24,6 +24,7 @@ vi.mock('../services/schoology.js', () => ({
 
 import router from './mastery.js';
 import { getDb } from '../db/index.js';
+import { getMasteryForCourse } from '../services/masterySync.js';
 
 function startServer() {
   const app = express();
@@ -245,5 +246,67 @@ describe('GET /api/mastery/login-status', () => {
     const { status, body } = await get('/api/mastery/login-status');
     expect(status).toBe(200);
     expect(body).toEqual({ loggedIn: false });
+  });
+});
+
+describe('GET /api/mastery/:courseId — alignments (#32)', () => {
+  let courseId;
+
+  beforeEach(() => {
+    const db = getDb();
+    db.exec(
+      'DELETE FROM mastery_alignments; DELETE FROM mastery_scores; ' +
+      'DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
+      'DELETE FROM assignments; DELETE FROM courses;'
+    );
+    getMasteryForCourse.mockReturnValue({ categories: [], topics: [], scores: [] });
+    courseId = db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-32', 'Course')`
+    ).run().lastInsertRowid;
+    db.prepare(
+      `INSERT INTO reporting_categories (id, course_id, external_id, title) VALUES ('cat-1', ?, 'RC.1', 'Creating')`
+    ).run(courseId);
+    db.prepare(
+      `INSERT INTO measurement_topics (id, category_id, course_id, external_id, title)
+       VALUES ('topic-1', 'cat-1', ?, 'RC.1.1', 'Generates media')`
+    ).run(courseId);
+    db.prepare(
+      `INSERT INTO assignments (course_id, schoology_assignment_id, title, published) VALUES (?, 'sa-1', 'Project', 1)`
+    ).run(courseId);
+  });
+
+  test('returns an empty alignments array when none exist', async () => {
+    const { status, body } = await get(`/api/mastery/${courseId}`);
+    expect(status).toBe(200);
+    expect(body.alignments).toEqual([]);
+  });
+
+  test('returns alignment rows with topic and category metadata', async () => {
+    getDb().prepare(
+      `INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id)
+       VALUES ('sa-1', 'topic-1', ?)`
+    ).run(courseId);
+    const { body } = await get(`/api/mastery/${courseId}`);
+    expect(body.alignments).toEqual([{
+      assignment_schoology_id: 'sa-1',
+      topic_id: 'topic-1',
+      topic_title: 'Generates media',
+      topic_external_id: 'RC.1.1',
+      category_id: 'cat-1',
+      category_title: 'Creating',
+      category_external_id: 'RC.1',
+    }]);
+  });
+
+  test('excludes alignments for unpublished assignments', async () => {
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO assignments (course_id, schoology_assignment_id, title, published) VALUES (?, 'sa-2', 'Draft', 0)`
+    ).run(courseId);
+    db.prepare(
+      `INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id) VALUES ('sa-2', 'topic-1', ?)`
+    ).run(courseId);
+    const { body } = await get(`/api/mastery/${courseId}`);
+    expect(body.alignments).toEqual([]);
   });
 });

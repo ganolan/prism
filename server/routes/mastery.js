@@ -73,7 +73,23 @@ router.get('/:courseId', (req, res) => {
       FROM mastery_rollups
       WHERE course_id = ?
     `).all(courseId);
-    res.json({ ...data, rollups });
+    // Authoritative assignment↔topic alignments, with topic/category metadata
+    // so the gradebook can render a mini rubric per cell (#32). Published
+    // assignments only — mirrors every other mastery query.
+    const alignments = db.prepare(`
+      SELECT ma.assignment_schoology_id, ma.topic_id,
+             mt.title              AS topic_title,
+             mt.external_id        AS topic_external_id,
+             mt.category_id        AS category_id,
+             rc.title              AS category_title,
+             rc.external_id        AS category_external_id
+      FROM mastery_alignments ma
+      JOIN measurement_topics  mt ON mt.id = ma.topic_id
+      JOIN reporting_categories rc ON rc.id = mt.category_id
+      JOIN assignments a ON a.schoology_assignment_id = ma.assignment_schoology_id
+      WHERE ma.course_id = ? AND a.published = 1
+    `).all(courseId);
+    res.json({ ...data, rollups, alignments });
   } catch (err) {
     console.error('[mastery] Error fetching mastery data:', err);
     res.status(500).json({ error: err.message });

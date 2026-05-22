@@ -92,6 +92,34 @@ describe('GET /api/courses/:id/gradebook — resubmitted', () => {
   });
 });
 
+describe('GET /api/courses/:id/gradebook — review_needed', () => {
+  test('cell review_needed is an empty array with no flag', async () => {
+    const { body } = await get(`/api/courses/${courseId}/gradebook`);
+    expect(body.grades[studentId][assignmentId].review_needed).toEqual([]);
+  });
+
+  test('an unresolved review_needed flag surfaces with its id and reason', async () => {
+    getDb().prepare(
+      `INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason)
+       VALUES (?, ?, 'review_needed', 'rescore Q3')`
+    ).run(studentId, assignmentId);
+    const { body } = await get(`/api/courses/${courseId}/gradebook`);
+    const reviews = body.grades[studentId][assignmentId].review_needed;
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0].flag_reason).toBe('rescore Q3');
+    expect(typeof reviews[0].id).toBe('number');
+  });
+
+  test('a resolved review_needed flag is excluded', async () => {
+    getDb().prepare(
+      `INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason, resolved)
+       VALUES (?, ?, 'review_needed', 'old note', 1)`
+    ).run(studentId, assignmentId);
+    const { body } = await get(`/api/courses/${courseId}/gradebook`);
+    expect(body.grades[studentId][assignmentId].review_needed).toEqual([]);
+  });
+});
+
 describe('GET /api/courses/:id/gradebook — individually assigned (#54)', () => {
   test('open-to-all assignments expose no assignees field', async () => {
     const { body } = await get(`/api/courses/${courseId}/gradebook`);

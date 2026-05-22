@@ -66,7 +66,7 @@ export default function SyncProgress({ reduced, mode, retryEnabled, onDone, onRe
     <div className="sync-progress">
       <div className={`sync-progress-head ${headingClass}`}>
         <h2>{running && <span className="sync-spinner" aria-hidden="true" />}{heading}</h2>
-        {running && <p className="text-muted text-sm">Please don't close Prism — this takes a minute.</p>}
+        {running && <p className="text-muted text-sm">Please don't close Prism — this takes a few minutes.</p>}
       </div>
 
       <div className="sync-bar">

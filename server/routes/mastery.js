@@ -564,6 +564,13 @@ router.post('/:courseId/write-comment', async (req, res) => {
     // also get cached locally — without this, the assessment page would
     // re-render with loadedDisplay=false and the toggle would appear unsaved
     // immediately after save.
+    //
+    // When the fresh Schoology lookup succeeded, also mirror score/exception/
+    // submission timestamp. Grading on the assessment page reaches this route
+    // (the comment write follows the rubric write), and `fresh` already holds
+    // the just-entered grade — without mirroring it the local row keeps a
+    // stale NULL score and the gradebook shows "Missing • Not Started" for
+    // graded work until the next full sync (#60).
     const studentRow = db.prepare(`
       SELECT s.id FROM students s
       JOIN enrolments e ON e.student_id = s.id
@@ -573,21 +580,48 @@ router.post('/:courseId/write-comment', async (req, res) => {
       SELECT id FROM assignments WHERE schoology_assignment_id = ?
     `).get(String(assignmentId));
     if (studentRow && assignmentRow) {
-      db.prepare(`
-        INSERT INTO grades (student_id, assignment_id, enrolment_id, grade_comment, comment_status, synced_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(student_id, assignment_id) DO UPDATE SET
-          grade_comment = excluded.grade_comment,
-          comment_status = excluded.comment_status,
-          synced_at = excluded.synced_at
-      `).run(
-        studentRow.id,
-        assignmentRow.id,
-        String(enrollmentId),
-        comment || '',
-        commentStatusInt,
-        new Date().toISOString(),
-      );
+      const now = new Date().toISOString();
+      if (fresh) {
+        db.prepare(`
+          INSERT INTO grades (student_id, assignment_id, enrolment_id, score, exception, submitted_at, grade_comment, comment_status, synced_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(student_id, assignment_id) DO UPDATE SET
+            score = excluded.score,
+            exception = excluded.exception,
+            submitted_at = excluded.submitted_at,
+            grade_comment = excluded.grade_comment,
+            comment_status = excluded.comment_status,
+            synced_at = excluded.synced_at
+        `).run(
+          studentRow.id,
+          assignmentRow.id,
+          String(enrollmentId),
+          fresh.grade ?? null,
+          fresh.exception ?? 0,
+          Number(fresh.timestamp) || 0,
+          comment || '',
+          commentStatusInt,
+          now,
+        );
+      } else {
+        // Schoology lookup failed — mirror the comment only. Touching score or
+        // submitted_at here would wipe a real grade to NULL.
+        db.prepare(`
+          INSERT INTO grades (student_id, assignment_id, enrolment_id, grade_comment, comment_status, synced_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+          ON CONFLICT(student_id, assignment_id) DO UPDATE SET
+            grade_comment = excluded.grade_comment,
+            comment_status = excluded.comment_status,
+            synced_at = excluded.synced_at
+        `).run(
+          studentRow.id,
+          assignmentRow.id,
+          String(enrollmentId),
+          comment || '',
+          commentStatusInt,
+          now,
+        );
+      }
     }
 
     res.json(result);

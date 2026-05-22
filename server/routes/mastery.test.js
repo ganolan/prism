@@ -25,9 +25,11 @@ vi.mock('../services/schoology.js', () => ({
 import router from './mastery.js';
 import { getDb } from '../db/index.js';
 import { getMasteryForCourse } from '../services/masterySync.js';
+import { getSectionGrades, pushGradeComments } from '../services/schoology.js';
 
 function startServer() {
   const app = express();
+  app.use(express.json());
   app.use('/api/mastery', router);
   const server = app.listen(0);
   return { server, port: server.address().port };
@@ -37,6 +39,20 @@ async function get(path) {
   const { server, port } = startServer();
   try {
     const res = await fetch(`http://localhost:${port}${path}`);
+    return { status: res.status, body: await res.json() };
+  } finally {
+    server.close();
+  }
+}
+
+async function post(path, body) {
+  const { server, port } = startServer();
+  try {
+    const res = await fetch(`http://localhost:${port}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
     return { status: res.status, body: await res.json() };
   } finally {
     server.close();
@@ -308,5 +324,88 @@ describe('GET /api/mastery/:courseId — alignments (#32)', () => {
     ).run(courseId);
     const { body } = await get(`/api/mastery/${courseId}`);
     expect(body.alignments).toEqual([]);
+  });
+});
+
+describe('POST /api/mastery/:courseId/write-comment — mirrors score to local DB (#60)', () => {
+  let courseId;
+  let studentId;
+  let assignmentId;
+
+  beforeEach(() => {
+    const db = getDb();
+    db.exec(
+      'DELETE FROM flags; DELETE FROM grades; DELETE FROM mastery_alignments; ' +
+      'DELETE FROM mastery_scores; DELETE FROM measurement_topics; ' +
+      'DELETE FROM reporting_categories; DELETE FROM assignment_assignees; ' +
+      'DELETE FROM enrolments; DELETE FROM assignments; ' +
+      'DELETE FROM students; DELETE FROM courses;'
+    );
+    courseId = db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-wc', 'Course')`
+    ).run().lastInsertRowid;
+    studentId = db.prepare(
+      `INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-wc', 'Ada', 'Lovelace')`
+    ).run().lastInsertRowid;
+    db.prepare(
+      `INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'enr-wc')`
+    ).run(studentId, courseId);
+    assignmentId = db.prepare(
+      `INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-wc', 'Project')`
+    ).run(courseId).lastInsertRowid;
+    pushGradeComments.mockResolvedValue({ status: 207 });
+  });
+
+  // The bug (#60): grading on the assessment page calls write-comment, which
+  // fetched the fresh Schoology grade but mirrored only the comment — leaving
+  // the local row's score NULL, so the gradebook showed "Missing • Not Started"
+  // for work that was actually graded.
+  test('mirrors the freshly-fetched score and submission timestamp into a stale grades row', async () => {
+    const db = getDb();
+    // Stale row: a full sync ran before the teacher graded, so score is NULL.
+    db.prepare(
+      `INSERT INTO grades (student_id, assignment_id, enrolment_id, score, submitted_at)
+       VALUES (?, ?, 'enr-wc', NULL, 0)`
+    ).run(studentId, assignmentId);
+    getSectionGrades.mockResolvedValue([
+      { assignment_id: 'sa-wc', enrollment_id: 'enr-wc', grade: 95, exception: 0, timestamp: 1779418446 },
+    ]);
+
+    const { status } = await post(`/api/mastery/${courseId}/write-comment`, {
+      enrollmentId: 'enr-wc',
+      assignmentId: 'sa-wc',
+      comment: 'Nice work',
+    });
+    expect(status).toBe(200);
+
+    const row = db.prepare(
+      'SELECT score, submitted_at, grade_comment FROM grades WHERE student_id = ? AND assignment_id = ?'
+    ).get(studentId, assignmentId);
+    expect(row.score).toBe(95);
+    expect(row.submitted_at).toBe(1779418446);
+    expect(row.grade_comment).toBe('Nice work');
+  });
+
+  test('does not wipe an existing score when the Schoology grade lookup fails', async () => {
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO grades (student_id, assignment_id, enrolment_id, score, submitted_at)
+       VALUES (?, ?, 'enr-wc', 88, 1779000000)`
+    ).run(studentId, assignmentId);
+    getSectionGrades.mockRejectedValue(new Error('Schoology down'));
+
+    const { status } = await post(`/api/mastery/${courseId}/write-comment`, {
+      enrollmentId: 'enr-wc',
+      assignmentId: 'sa-wc',
+      comment: 'Comment only',
+    });
+    expect(status).toBe(200);
+
+    const row = db.prepare(
+      'SELECT score, submitted_at, grade_comment FROM grades WHERE student_id = ? AND assignment_id = ?'
+    ).get(studentId, assignmentId);
+    expect(row.score).toBe(88);
+    expect(row.submitted_at).toBe(1779000000);
+    expect(row.grade_comment).toBe('Comment only');
   });
 });

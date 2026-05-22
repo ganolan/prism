@@ -519,11 +519,104 @@ function RubricModal({ student, assignment, courseId, topics, comment, onClose }
   );
 }
 
+// Schoology due dates arrive as 'YYYY-MM-DD HH:MM:SS' or ISO. Safari refuses
+// the space-separated form, so swap the space for a 'T' before parsing.
+function parseDue(due) {
+  if (!due) return null;
+  const d = new Date(due.includes('T') ? due : due.replace(' ', 'T'));
+  return isNaN(d) ? null : d;
+}
+
+// Compact gradebook column date, e.g. '05 Apr' (#37).
+function formatDueShort(due) {
+  const d = parseDue(due);
+  return d ? d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : null;
+}
+
+// Full due date for the hover popover, e.g. '12 Apr 2024 (Fri) at 11:59 PM'.
+function formatDueFull(due) {
+  const d = parseDue(due);
+  if (!d) return null;
+  const date = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  const weekday = d.toLocaleDateString('en-GB', { weekday: 'short' });
+  if (!/\d{1,2}:\d{2}/.test(due)) return `${date} (${weekday})`;
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return `${date} (${weekday}) at ${time}`;
+}
+
+// Compact segmented formative/summative indicator for the Assessment Type row
+// (#37) — a small rounded chip, not a circular badge, so columns scan quickly.
+function TypeChip({ summative }) {
+  return (
+    <span
+      style={{
+        display: 'inline-block', minWidth: 20, padding: '0.05rem 0.3rem',
+        borderRadius: 4, fontSize: '0.62rem', fontWeight: 700,
+        lineHeight: 1.5, textAlign: 'center', textTransform: 'none',
+        background: summative ? 'var(--summative-bg)' : 'var(--formative-bg)',
+        color: summative ? 'var(--summative-text)' : 'var(--formative-text)',
+        boxShadow: `inset 0 0 0 1px ${summative ? 'var(--summative-border)' : 'var(--formative-border)'}`,
+      }}
+    >
+      {summative ? 'S' : 'F'}
+    </span>
+  );
+}
+
+// Small circular '?' that reveals the formative/summative legend on hover.
+function HelpDot({ onShow, onHide }) {
+  return (
+    <span
+      onMouseEnter={onShow}
+      onMouseLeave={onHide}
+      aria-label="Assessment type legend"
+      style={{
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        width: 15, height: 15, borderRadius: '50%',
+        background: 'var(--accent-subtle)', color: 'var(--accent)',
+        fontSize: '0.62rem', fontWeight: 700, cursor: 'help',
+        textTransform: 'none',
+      }}
+    >
+      ?
+    </span>
+  );
+}
+
+// Diagonal column-boundary separator: a hairline rotated -45° from the bottom
+// edge of a header cell, defining each column's lane through the header (#37).
+const DIAG_LINE = {
+  position: 'absolute', left: 0, bottom: 0,
+  width: 300, height: 1, background: 'var(--border)',
+  transformOrigin: 'left bottom', transform: 'rotate(-45deg)',
+};
+
+// Formative/summative legend shown by the Assessment Type row's '?' (#37).
+const TYPE_LEGEND = (
+  <div style={{ display: 'grid', gap: '0.5rem' }}>
+    {[
+      [false, 'Formative', 'Supports ongoing learning and feedback.'],
+      [true, 'Summative', 'Assesses learning at key milestones.'],
+    ].map(([summative, label, desc]) => (
+      <div key={label} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+        <span style={{ marginTop: 1 }}><TypeChip summative={summative} /></span>
+        <div>
+          <div style={{ fontWeight: 700 }}>{label}</div>
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{desc}</div>
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
 function GradebookView({ data, courseId, mastery }) {
   const indexed = useMemo(() => indexMastery(mastery), [mastery]);
   const [rubricModal, setRubricModal] = useState(null);
   // Comment shown instantly on cell hover (#36): { text, top, left }.
   const [commentOverlay, setCommentOverlay] = useState(null);
+  // Floating header popover (#37): full assessment title, the formative/
+  // summative legend, or the full due date. { left, top, width, content }.
+  const [popover, setPopover] = useState(null);
 
   if (!data || !data.assignments.length) {
     return <div className="card"><p className="text-muted">No assignments yet.</p></div>;
@@ -534,77 +627,117 @@ function GradebookView({ data, courseId, mastery }) {
 
   return (
     <>
-    <div className="card" style={{ overflowX: 'auto' }}>
+    <div className="card" style={{ padding: 0, overflow: 'auto', maxHeight: '78vh' }}>
       <table style={{ fontSize: '0.8rem' }}>
-        <thead>
+        {/* The whole <thead> is sticky so the diagonal header keeps one
+            continuous backdrop — its cells stay transparent so a title
+            overflowing rightward isn't clipped by its neighbour (#37). */}
+        <thead style={{ position: 'sticky', top: 0, zIndex: 5, background: 'var(--table-header-bg)' }}>
+          {/* Region 1 — diagonal assessment titles. */}
           <tr>
-            <th style={{ position: 'sticky', left: 0, background: 'var(--table-header-bg)', zIndex: 1, verticalAlign: 'bottom' }}>Student</th>
-            {assignments.map(a => {
-              const isSummative = !!a.aligned;
+            <th style={{ position: 'sticky', left: 0, zIndex: 1, background: 'var(--table-header-bg)', verticalAlign: 'bottom' }}>Student</th>
+            {assignments.map((a, i) => {
+              const cleanTitle = a.title.replace(/\s*\((?:F|S)\)\s*$/i, '');
+              const isLast = i === assignments.length - 1;
               return (
                 <th
                   key={a.id}
                   style={{
                     position: 'relative',
                     height: 240, width: 38, minWidth: 38, padding: 0,
-                    verticalAlign: 'bottom',
-                    // Transparent so a later column's header doesn't paint over
-                    // the diagonal title overflowing from the column before it.
-                    background: 'transparent',
+                    verticalAlign: 'bottom', background: 'transparent',
                   }}
                 >
-                  {/* Diagonal guide line — runs parallel just under the title,
-                      starting from the column centre, so the eye can trace a
-                      column up to its label. Across columns the parallel lines
-                      frame each title in its own lane. */}
-                  <span
-                    aria-hidden="true"
-                    style={{
-                      position: 'absolute',
-                      bottom: 24, left: '50%',
-                      width: 250, height: 1,
-                      background: 'var(--border)',
-                      transformOrigin: 'left bottom',
-                      transform: 'rotate(-45deg)',
-                    }}
-                  />
-                  {/* Diagonal title (reads bottom-left → top-right) so column
-                      names stay compact; links to its grading page (#37). The
-                      title is absolutely positioned so its untransformed width
-                      doesn't stretch the column, and starts at the column
-                      centre (left: 50%). Long names clip with an ellipsis — the
-                      full name shows on hover. The redundant trailing (F)/(S)
-                      is dropped since the badge conveys it. */}
+                  {/* Diagonal boundary lines at the column edges — the last
+                      column also draws its right edge to close the lane. */}
+                  <span aria-hidden="true" style={DIAG_LINE} />
+                  {isLast && <span aria-hidden="true" style={{ ...DIAG_LINE, left: '100%' }} />}
+                  {/* Diagonal title — emerges from the column centre, clips with
+                      an ellipsis; the full title shows in a hover popover. The
+                      redundant trailing (F)/(S) is dropped — the type now lives
+                      in its own utility row below. */}
                   <Link
                     to={`/course/${courseId}/assessment/${a.schoology_assignment_id}`}
                     className="link"
-                    title={a.title}
                     style={{
-                      position: 'absolute',
-                      bottom: 30, left: '50%',
-                      transformOrigin: 'left bottom',
-                      transform: 'rotate(-45deg)',
-                      whiteSpace: 'nowrap',
-                      width: 260,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
+                      position: 'absolute', bottom: 12, left: '50%',
+                      transformOrigin: 'left bottom', transform: 'rotate(-45deg)',
+                      whiteSpace: 'nowrap', width: 250,
+                      overflow: 'hidden', textOverflow: 'ellipsis',
                       fontWeight: 500,
                     }}
+                    onMouseEnter={(e) => setPopover({
+                      left: Math.max(8, Math.min(e.clientX - 20, window.innerWidth - 290)),
+                      top: e.clientY + 18, width: 272,
+                      content: (
+                        <>
+                          <div style={{ fontWeight: 700, color: 'var(--accent)' }}>{cleanTitle}</div>
+                          {a.due_date && (
+                            <div style={{ marginTop: 3, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              Due {formatDueFull(a.due_date)}
+                            </div>
+                          )}
+                        </>
+                      ),
+                    })}
+                    onMouseLeave={() => setPopover(null)}
                   >
-                    {a.title.replace(/\s*\((?:F|S)\)\s*$/i, '')}
+                    {cleanTitle}
                   </Link>
-                  {/* S/F badge pinned at the bottom centre, next to the data. */}
-                  <span
-                    className={`badge ${isSummative ? 'badge-summative' : 'badge-formative'}`}
-                    style={{
-                      position: 'absolute', bottom: 5, left: '50%',
-                      transform: 'translateX(-50%)',
-                      fontSize: '0.6rem',
-                    }}
-                    title={isSummative ? 'Summative' : 'Formative'}
-                  >
-                    {isSummative ? 'S' : 'F'}
-                  </span>
+                </th>
+              );
+            })}
+          </tr>
+          {/* Region 2 — Assessment Type utility row. */}
+          <tr>
+            <th style={{ position: 'sticky', left: 0, zIndex: 1, background: 'var(--bg-subtle)', whiteSpace: 'nowrap', padding: '0.3rem 0.85rem' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                Assessment Type
+                <HelpDot
+                  onShow={(e) => {
+                    const r = e.currentTarget.getBoundingClientRect();
+                    setPopover({
+                      left: Math.max(8, r.left - 8), top: r.bottom + 8,
+                      width: 232, content: TYPE_LEGEND,
+                    });
+                  }}
+                  onHide={() => setPopover(null)}
+                />
+              </span>
+            </th>
+            {assignments.map(a => (
+              <th key={a.id} style={{ background: 'var(--bg-subtle)', textAlign: 'center', padding: '0.3rem 0.1rem', width: 38, minWidth: 38 }}>
+                <TypeChip summative={!!a.aligned} />
+              </th>
+            ))}
+          </tr>
+          {/* Region 3 — Due Date utility row. */}
+          <tr>
+            <th style={{ position: 'sticky', left: 0, zIndex: 1, background: 'var(--bg-subtle)', whiteSpace: 'nowrap', padding: '0.3rem 0.85rem', boxShadow: '0 5px 6px -3px rgba(0,0,0,0.1)' }}>Due Date</th>
+            {assignments.map(a => {
+              const short = formatDueShort(a.due_date);
+              return (
+                <th
+                  key={a.id}
+                  style={{
+                    background: 'var(--bg-subtle)', textAlign: 'center',
+                    padding: '0.3rem 0.1rem', width: 38, minWidth: 38,
+                    fontSize: '0.66rem', fontWeight: 600, whiteSpace: 'nowrap',
+                    textTransform: 'none', color: 'var(--text-muted)',
+                    cursor: short ? 'help' : 'default',
+                    boxShadow: '0 5px 6px -3px rgba(0,0,0,0.1)',
+                  }}
+                  onMouseEnter={short ? (e) => {
+                    const r = e.currentTarget.getBoundingClientRect();
+                    setPopover({
+                      left: Math.max(8, Math.min(r.left + r.width / 2 - 110, window.innerWidth - 228)),
+                      top: r.bottom + 8, width: 220,
+                      content: <span><strong>Due</strong> {formatDueFull(a.due_date)}</span>,
+                    });
+                  } : undefined}
+                  onMouseLeave={short ? () => setPopover(null) : undefined}
+                >
+                  {short || '—'}
                 </th>
               );
             })}
@@ -775,6 +908,20 @@ function GradebookView({ data, courseId, mastery }) {
       >
         <span style={{ fontWeight: 700, marginRight: 5 }}>Comment:</span>
         {commentOverlay.text}
+      </div>
+    )}
+    {popover && (
+      <div
+        style={{
+          position: 'fixed', left: popover.left, top: popover.top,
+          width: popover.width, zIndex: 1300,
+          background: 'var(--card-bg)', border: '1px solid var(--border)',
+          borderRadius: 8, boxShadow: '0 8px 28px rgba(0,0,0,0.18)',
+          padding: '0.55rem 0.7rem', fontSize: '0.78rem', color: 'var(--text)',
+          pointerEvents: 'none',
+        }}
+      >
+        {popover.content}
       </div>
     )}
     </>

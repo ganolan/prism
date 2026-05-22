@@ -9,6 +9,7 @@ import { masteryCodeForLevel } from '../lib/masteryLevels.js';
 import { groupAssignmentsByFolder } from '../lib/assessmentGroups.js';
 import { indexMastery, buildAssignmentRubric } from '../lib/gradebookMastery.js';
 import CompactRubric from '../components/CompactRubric.jsx';
+import SubmissionBadges from '../components/SubmissionBadges.jsx';
 
 const SHORT_BADGE = { late: 'L', draft: 'D', missing: 'M', 'not-started': 'NS', submitted: 'S' };
 
@@ -457,8 +458,18 @@ function MiniRubricStrip({ topics, onClick }) {
 
 // Modal opened from a MiniRubricStrip — the full rubric grid (shared
 // CompactRubric) plus the overall comment, matching the /student/ page.
-function RubricModal({ student, assignment, courseId, topics, comment, onClose }) {
+function RubricModal({ student, assignment, courseId, topics, comment, grade, onClose }) {
   const name = student.preferred_name_teacher || student.preferred_name || student.first_name;
+  // Submission state + flags, shown above the rubric — matching the /student/ page.
+  const status = submissionStatus({
+    score: grade.score, exception: grade.exception, late: grade.late,
+    draft: grade.draft, submitted_at: grade.submitted_at, due_date: assignment.due_date,
+  });
+  const flags = [
+    ...(grade.review_needed || []).map(f => ({ ...f, flag_type: 'review_needed' })),
+    ...(grade.resubmit_requested ? [{ id: 'resubmit', flag_type: 'resubmit_requested' }] : []),
+  ];
+  const hasBadges = status.length > 0 || flags.length > 0 || grade.resubmitted;
   return (
     <div
       style={{
@@ -491,6 +502,14 @@ function RubricModal({ student, assignment, courseId, topics, comment, onClose }
           <button className="ghost" onClick={onClose} aria-label="Close">✕</button>
         </div>
         <div style={{ padding: '1rem 1.1rem' }}>
+          {hasBadges && (
+            <div style={{
+              display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center',
+              marginBottom: '0.85rem',
+            }}>
+              <SubmissionBadges status={status} flags={flags} resubmitted={grade.resubmitted} />
+            </div>
+          )}
           <CompactRubric topics={topics} />
           {comment && (
             <div
@@ -837,7 +856,7 @@ function GradebookView({ data, courseId, mastery }) {
                       topics={rubricTopics}
                       onClick={() => setRubricModal({
                         student: s, assignment: a, topics: rubricTopics,
-                        comment: g.grade_comment || '',
+                        comment: g.grade_comment || '', grade: g,
                       })}
                     />
                   : (c
@@ -914,6 +933,7 @@ function GradebookView({ data, courseId, mastery }) {
         courseId={courseId}
         topics={rubricModal.topics}
         comment={rubricModal.comment}
+        grade={rubricModal.grade}
         onClose={() => setRubricModal(null)}
       />
     )}

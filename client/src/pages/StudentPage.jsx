@@ -6,13 +6,10 @@ import {
 } from '../services/api.js';
 import MasteryPerformanceSummary from '../components/MasteryPerformanceSummary.jsx';
 import CompactRubric from '../components/CompactRubric.jsx';
+import SubmissionBadges from '../components/SubmissionBadges.jsx';
 import { LEVEL_COLORS } from '../components/OverridePopup.jsx';
 import { gradeLabel, submissionStatus } from '../lib/gradeLabel.js';
 import { masteryCodeForLevel } from '../lib/masteryLevels.js';
-
-function formatFlagReason(flag) {
-  return flag?.flag_reason || '';
-}
 
 function CopyButton({ text, label }) {
   const [copied, setCopied] = useState(false);
@@ -46,7 +43,6 @@ function CopyButton({ text, label }) {
 }
 
 const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
-const TONE_CLASS = { red: 'badge-red', blue: 'badge-blue', amber: 'badge-pink', neutral: 'badge-gray' };
 
 function gradYearToLevel(gradYear) {
   if (!gradYear) return null;
@@ -139,43 +135,12 @@ export function CourseSection({ course, grades, flagsByAssignment, studentUid, s
                     {/* Due + flags row */}
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
                       <span className="text-xs text-muted">Due: {g.due_date || '—'}</span>
-                      {statusBadges.map(b => (
-                        <span key={b.kind} className={`badge ${TONE_CLASS[b.tone]}`} style={{ fontSize: '0.65rem' }}>{b.label}</span>
-                      ))}
-                      {assignmentFlags.map(flag => {
-                        const flagReason = formatFlagReason(flag);
-                        // Review flags use the same amber badge + "⚑ Review: …"
-                        // format as the assessment page.
-                        if (flag.flag_type === 'review_needed') {
-                          return (
-                            <span key={flag.id} className="badge badge-amber" style={{ fontSize: '0.68rem' }}>
-                              ⚑ Review: {flagReason}
-                            </span>
-                          );
-                        }
-                        if (flag.flag_type === 'resubmit_requested') {
-                          return (
-                            <span key={flag.id} className="badge badge-resubmit" style={{ fontSize: '0.68rem' }}>
-                              ⟳ Re-submit requested
-                            </span>
-                          );
-                        }
-                        const showReason = flagReason && flagReason !== g.assignment_title;
-                        return (
-                          <span key={flag.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
-                            <span className={`badge ${flag.resolved ? 'badge-green' : 'badge-red'}`} style={{ textTransform: 'capitalize' }}>
-                              {flag.flag_type.replace('_', ' ')}
-                            </span>
-                            {showReason && <span className="text-xs text-muted">{flagReason}</span>}
-                          </span>
-                        );
-                      })}
-                      {g.resubmitted && (
-                        <span className="badge badge-resubmitted" style={{ fontSize: '0.68rem' }}
-                              title="The student has submitted new work since this was last graded">
-                          ↩ Resubmitted
-                        </span>
-                      )}
+                      <SubmissionBadges
+                        status={statusBadges}
+                        flags={assignmentFlags}
+                        resubmitted={g.resubmitted}
+                        assignmentTitle={g.assignment_title}
+                      />
                     </div>
                   </div>
                 );

@@ -41,6 +41,11 @@ Props:
   `⚑ Review: <reason>`), `resubmit_requested` (`⟳ Re-submit requested`), and any
   other `flag_type` via the generic capitalized `badge-green`/`badge-red` badge.
 - `resubmitted` — boolean → `↩ Resubmitted` badge.
+- `assignmentTitle` — optional. Used only by the generic-flag branch to
+  suppress a reason that merely repeats the assignment title (StudentPage's
+  current `flagReason !== g.assignment_title` guard). StudentPage passes it; the
+  modal omits it (the modal's `flags` array only ever holds `review_needed` and
+  the synthetic `resubmit_requested`, so the generic branch never runs there).
 
 Behaviour:
 

@@ -583,13 +583,25 @@ function HelpDot({ onShow, onHide }) {
   );
 }
 
-// Diagonal column-boundary separator: a hairline rotated -45° from the bottom
-// edge of a header cell, defining each column's lane through the header (#37).
-const DIAG_LINE = {
-  position: 'absolute', left: 0, bottom: 0,
-  width: 300, height: 1, background: 'var(--border)',
-  transformOrigin: 'left bottom', transform: 'rotate(-45deg)',
-};
+// Diagonal column-boundary marker: a short vertical stem rising from the row
+// edge, then a hairline angled up at -45° to frame each column's lane (#37).
+const DIAG_STEM = 12;
+function DiagSeparator({ atRightEdge }) {
+  const x = atRightEdge ? '100%' : 0;
+  return (
+    <>
+      <span aria-hidden="true" style={{
+        position: 'absolute', left: x, bottom: 0,
+        width: 1, height: DIAG_STEM, background: 'var(--border)',
+      }} />
+      <span aria-hidden="true" style={{
+        position: 'absolute', left: x, bottom: DIAG_STEM,
+        width: 300, height: 1, background: 'var(--border)',
+        transformOrigin: 'left bottom', transform: 'rotate(-45deg)',
+      }} />
+    </>
+  );
+}
 
 // Formative/summative legend shown by the Assessment Type row's '?' (#37).
 const TYPE_LEGEND = (
@@ -625,10 +637,22 @@ function GradebookView({ data, courseId, mastery }) {
   const { assignments, students, grades, grading_scales } = data;
   const displayName = (s) => s.preferred_name_teacher || s.preferred_name || s.first_name;
 
+  // Fixed table layout keeps every assessment column an identical width so the
+  // diagonal headers stay uniform (#37); NAME_W must clear the longest name.
+  const COL_W = 78;
+  const NAME_W = 220;
+
   return (
     <>
     <div className="card" style={{ padding: 0, overflow: 'auto', maxHeight: '78vh' }}>
-      <table style={{ fontSize: '0.8rem' }}>
+      <table
+        className="gradebook-grid"
+        style={{ fontSize: '0.8rem', tableLayout: 'fixed', width: NAME_W + COL_W * assignments.length }}
+      >
+        <colgroup>
+          <col style={{ width: NAME_W }} />
+          {assignments.map(a => <col key={a.id} style={{ width: COL_W }} />)}
+        </colgroup>
         {/* The whole <thead> is sticky so the diagonal header keeps one
             continuous backdrop — its cells stay transparent so a title
             overflowing rightward isn't clipped by its neighbour (#37). */}
@@ -644,14 +668,14 @@ function GradebookView({ data, courseId, mastery }) {
                   key={a.id}
                   style={{
                     position: 'relative',
-                    height: 240, width: 38, minWidth: 38, padding: 0,
+                    height: 240, padding: 0,
                     verticalAlign: 'bottom', background: 'transparent',
                   }}
                 >
-                  {/* Diagonal boundary lines at the column edges — the last
+                  {/* Diagonal boundary markers at the column edges — the last
                       column also draws its right edge to close the lane. */}
-                  <span aria-hidden="true" style={DIAG_LINE} />
-                  {isLast && <span aria-hidden="true" style={{ ...DIAG_LINE, left: '100%' }} />}
+                  <DiagSeparator />
+                  {isLast && <DiagSeparator atRightEdge />}
                   {/* Diagonal title — emerges from the column centre, clips with
                       an ellipsis; the full title shows in a hover popover. The
                       redundant trailing (F)/(S) is dropped — the type now lives
@@ -660,7 +684,9 @@ function GradebookView({ data, courseId, mastery }) {
                     to={`/course/${courseId}/assessment/${a.schoology_assignment_id}`}
                     className="link"
                     style={{
-                      position: 'absolute', bottom: 12, left: '50%',
+                      // Nudged a few px right of centre so the rotated text
+                      // clears its column's boundary line (#37).
+                      position: 'absolute', bottom: 13, left: 'calc(50% + 6px)',
                       transformOrigin: 'left bottom', transform: 'rotate(-45deg)',
                       whiteSpace: 'nowrap', width: 250,
                       overflow: 'hidden', textOverflow: 'ellipsis',
@@ -673,7 +699,7 @@ function GradebookView({ data, courseId, mastery }) {
                         <>
                           <div style={{ fontWeight: 700, color: 'var(--accent)' }}>{cleanTitle}</div>
                           {a.due_date && (
-                            <div style={{ marginTop: 3, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                            <div style={{ marginTop: 3, fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                               Due {formatDueFull(a.due_date)}
                             </div>
                           )}
@@ -706,7 +732,7 @@ function GradebookView({ data, courseId, mastery }) {
               </span>
             </th>
             {assignments.map(a => (
-              <th key={a.id} style={{ background: 'var(--bg-subtle)', textAlign: 'center', padding: '0.3rem 0.1rem', width: 38, minWidth: 38 }}>
+              <th key={a.id} style={{ background: 'var(--bg-subtle)', textAlign: 'center', padding: '0.3rem 0.1rem' }}>
                 <TypeChip summative={!!a.aligned} />
               </th>
             ))}
@@ -721,7 +747,7 @@ function GradebookView({ data, courseId, mastery }) {
                   key={a.id}
                   style={{
                     background: 'var(--bg-subtle)', textAlign: 'center',
-                    padding: '0.3rem 0.1rem', width: 38, minWidth: 38,
+                    padding: '0.3rem 0.1rem',
                     fontSize: '0.66rem', fontWeight: 600, whiteSpace: 'nowrap',
                     textTransform: 'none', color: 'var(--text-muted)',
                     cursor: short ? 'help' : 'default',
@@ -730,9 +756,9 @@ function GradebookView({ data, courseId, mastery }) {
                   onMouseEnter={short ? (e) => {
                     const r = e.currentTarget.getBoundingClientRect();
                     setPopover({
-                      left: Math.max(8, Math.min(r.left + r.width / 2 - 110, window.innerWidth - 228)),
-                      top: r.bottom + 8, width: 220,
-                      content: <span><strong>Due</strong> {formatDueFull(a.due_date)}</span>,
+                      left: Math.max(8, Math.min(r.left + r.width / 2 - 125, window.innerWidth - 258)),
+                      top: r.bottom + 8, width: 250,
+                      content: <span style={{ whiteSpace: 'nowrap' }}><strong>Due</strong> {formatDueFull(a.due_date)}</span>,
                     });
                   } : undefined}
                   onMouseLeave={short ? () => setPopover(null) : undefined}

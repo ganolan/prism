@@ -406,6 +406,11 @@ th:last-child { border-radius: 0 8px 0 0; }
 tr:hover { background: var(--table-row-hover); }
 tr:last-child td { border-bottom: none; }
 
+/* The course gradebook uses fixed-width columns (#37); tighter body-cell
+   padding keeps each fixed column compact enough for the rubric strip. */
+.gradebook-grid td { padding: 0.5rem 0.3rem; }
+.gradebook-grid td:first-child { padding-left: 0.85rem; }
+
 /* ========================================================================
    BADGES
    ======================================================================== */

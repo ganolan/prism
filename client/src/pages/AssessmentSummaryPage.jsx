@@ -25,6 +25,24 @@ function displayName(student) {
   return `${student.preferred_name_teacher || student.preferred_name || student.first_name} ${student.last_name}`;
 }
 
+// Collapse soft line wraps from sources like PowerPoint text boxes into single
+// lines, while preserving real paragraph breaks (a blank line in the source).
+// PowerPoint emits \r\n for hard returns, \v (vertical tab) for soft breaks,
+// and litters zero-width spaces onto blank lines and paragraph ends — those
+// must be stripped first or blank lines won't register as paragraph breaks.
+// Runs of blank lines collapse to one break; blank leading/trailing paragraphs
+// are dropped.
+function normalizePastedText(text) {
+  return text
+    .replace(/\r\n?/g, '\n')
+    .replace(/\v/g, '\n')
+    .replace(/[\u200b\u200c\u200d\u2060\ufeff]/g, '')   // strip zero-width chars
+    .split(/\n[ \t\u00a0]*\n+/)                          // blank line -> paragraph break
+    .map(p => p.replace(/[ \t\u00a0]*\n[ \t\u00a0]*/g, ' ').trim())  // wrap -> space
+    .filter(Boolean)
+    .join('\n\n');
+}
+
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
 export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, onSaved }) {
@@ -115,6 +133,17 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
       clearDraft(storageKey);
     }
   }, [hasPendingChanges, pending, comment, display, storageKey, currentBaseline]);
+
+  // Apply a new comment value, auto-flipping the display toggle ON the first
+  // time a virgin record's comment goes empty → non-empty. Shared by the
+  // textarea's onChange and onPaste handlers.
+  function applyComment(next) {
+    if (autoFlipArmed && comment === '' && next !== '') {
+      setDisplay(true);
+      setAutoFlipArmed(false);
+    }
+    setComment(next);
+  }
 
   function selectLevel(topicId, level) {
     if (isRubricLocked) return;
@@ -514,16 +543,20 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         </label>
         <textarea
           value={comment}
-          onChange={e => {
-            const next = e.target.value;
-            // Auto-flip ON the first time the comment goes empty → non-empty
-            // for a virgin record. After firing once, autoFlipArmed is cleared
-            // so subsequent edits don't re-flip the toggle.
-            if (autoFlipArmed && comment === '' && next !== '') {
-              setDisplay(true);
-              setAutoFlipArmed(false);
-            }
-            setComment(next);
+          onChange={e => applyComment(e.target.value)}
+          onPaste={e => {
+            const raw = e.clipboardData.getData('text/plain');
+            if (!raw) return;
+            e.preventDefault();
+            const cleaned = normalizePastedText(raw);
+            const el = e.target;
+            const { selectionStart, selectionEnd } = el;
+            const next = comment.slice(0, selectionStart) + cleaned + comment.slice(selectionEnd);
+            applyComment(next);
+            requestAnimationFrame(() => {
+              const pos = selectionStart + cleaned.length;
+              el.setSelectionRange(pos, pos);
+            });
           }}
           rows={3}
           style={{ width: '100%', fontSize: '0.82rem', resize: 'vertical', boxSizing: 'border-box' }}

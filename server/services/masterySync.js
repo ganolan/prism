@@ -15,7 +15,11 @@
  * profile so no separate login is needed.
  */
 
-import { chromium } from 'playwright';
+// Playwright is loaded lazily inside the functions that actually launch a
+// browser (openPage, interactiveLogin). A top-level `import 'playwright'`
+// would run at server boot and pull in chromium's whole module graph for
+// every dev start — and on Node 25 the chromium ESM bridge can hang the
+// import indefinitely, blocking the Express server from binding its port.
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { getDb } from '../db/index.js';
@@ -48,6 +52,7 @@ const GRADE_TO_LABEL = {
  * lock issues and headed-vs-headless cookie mismatches.
  */
 async function openPage() {
+  const { chromium } = await import('playwright');
   const browser = await chromium.launch({ headless: true });
   const contextOpts = {};
   if (existsSync(STATE_FILE)) {
@@ -80,6 +85,7 @@ export async function interactiveLogin() {
   if (!existsSync(SESSION_DIR)) mkdirSync(SESSION_DIR, { recursive: true });
   console.log('[masterySync] Opening browser for Schoology login...');
 
+  const { chromium } = await import('playwright');
   const browser = await chromium.launch({ headless: false });
   const context = await browser.newContext();
   const page = await context.newPage();

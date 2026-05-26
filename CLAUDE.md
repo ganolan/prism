@@ -32,9 +32,9 @@ Playwright browser binaries are installed automatically via `postinstall`.
 
 ## Running
 
-If the dev server fails to restart (port already in use), kill stale processes first:
+If the dev server fails to restart (port already in use), kill stale processes first. Use `-sTCP:LISTEN` so the filter targets the dev-server listeners only — a plain `lsof -ti:5173` also returns any browser process with a tab open to the dev server, which SIGKILL'ing would take down the browser's network stack:
 ```bash
-lsof -ti:3001 | xargs kill -9; lsof -ti:5173 | xargs kill -9
+lsof -ti:3001 -sTCP:LISTEN | xargs kill -9 2>/dev/null; lsof -ti:5173 -sTCP:LISTEN | xargs kill -9 2>/dev/null
 ```
 
 ```bash

@@ -266,6 +266,26 @@ function RosterView({ students, mastery, courseId, displayName, onOverrideClick 
                 </button>
               </th>
             )}
+            {categories.length > 0 && (
+              <th
+                rowSpan={2}
+                style={{
+                  textAlign: 'center',
+                  borderLeft: '2px solid var(--accent)',
+                  background: 'var(--accent-subtle)',
+                  color: 'var(--accent)',
+                  fontWeight: 700,
+                  padding: '0.4rem 0.6rem',
+                  minWidth: 90,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  fontSize: '0.75rem',
+                }}
+                title="Letter grade derived from Schoology's reported reporting-category levels (including overrides)"
+              >
+                Schoology Letter Grade
+              </th>
+            )}
           </tr>
           {/* Row 2: computed / schoology sub-headers */}
           <tr>
@@ -307,6 +327,14 @@ function RosterView({ students, mastery, courseId, displayName, onOverrideClick 
               return avg != null ? pointsToLevel(avg) : null;
             });
             const letterGrade = computeLetterGrade(categoryLevels);
+            // Same formula applied to Schoology's per-category reported levels
+            // (honoring overrides) — directly comparable to letterGrade.
+            const schoologyCategoryLevels = categories.map(cat => {
+              const r = schoologyRollup(uid, cat.id);
+              const rVal = r ? (r.override_value != null ? r.override_value : r.grade_scaled_rounded) : null;
+              return rVal != null ? pointsToLevel(rVal) : null;
+            });
+            const schoologyLetterGrade = computeLetterGrade(schoologyCategoryLevels);
             return (
               <tr key={s.id}>
                 <td style={{ width: '40px', padding: '0.25rem 0.5rem' }}>
@@ -399,6 +427,23 @@ function RosterView({ students, mastery, courseId, displayName, onOverrideClick 
                     ? `Approximate letter grade from ${categoryLevels.filter(Boolean).join(' + ')}`
                     : 'Not enough data — at least one reporting category is missing a computed level'}>
                     {letterGrade || '—'}
+                  </td>
+                )}
+                {categories.length > 0 && (
+                  <td style={{
+                    borderLeft: '2px solid var(--accent)',
+                    background: 'var(--accent-subtle)',
+                    textAlign: 'center',
+                    padding: '0.4rem 0.6rem',
+                    fontWeight: 800,
+                    fontSize: '1.05rem',
+                    color: schoologyLetterGrade ? (LETTER_GRADE_COLORS[schoologyLetterGrade] || 'var(--text)') : 'var(--text-muted)',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title={schoologyLetterGrade
+                    ? `Letter grade from Schoology levels: ${schoologyCategoryLevels.filter(Boolean).join(' + ')}`
+                    : 'Not enough data — at least one reporting category is missing a Schoology level'}>
+                    {schoologyLetterGrade || '—'}
                   </td>
                 )}
               </tr>

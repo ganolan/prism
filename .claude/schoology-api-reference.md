@@ -3,6 +3,7 @@
 Complete reference for Schoology API behavior discovered during Prism development. Includes verified endpoints, known quirks, and standards-based grading (SBG) findings.
 
 Last full discovery scan: 2026-04-05 (110 endpoints tested, 48 working)
+Last live re-verification: 2026-05-30 — spot-checked the public REST inventory (44/51 probed endpoints OK, same 403/404/400 set as documented) and the internal `district_mastery` endpoints end-to-end (aligned-objectives, material-observations/search, alignments/search, outcomes/objectives rollup, iapi2 materials all 200) against a fresh browser session. No drift from this doc except the `building_id` constant fix below.
 
 **For Claude:** Comprehensive API testing has been completed. Before implementing any new API integration, check `scripts/api-discovery-results.json` for the full machine-readable results (endpoint status, response shapes, error codes). Discovery scripts in `scripts/` (`test-api-discovery.js`, `test-api-deepdive.js`) can be re-run to probe additional endpoints or verify behavior — they are well-commented and self-contained. This file captures the key findings; the JSON has the raw detail.
 
@@ -380,7 +381,8 @@ Prism exposes this as `POST /api/mastery/:courseId/override` (body `{ studentUid
 
 ### Key Constants
 
-- `building_id`: `94044023` (HKIS)
+- `building_id`: `97989879` (HKIS HS building) — this is what the internal `district_mastery` endpoints expect (matches the body examples above). **Not** `94044023`, which is the *school_id* (`/schools` `id`, also `/users/me.school_id`). Earlier revisions of this doc listed the school_id here by mistake.
+- `school_id`: `94044023` (HKIS)
 - `gradingScaleId`: `21337256` (General Academic Scale — used for ALL mastery writes)
 - Points mapping: ED=100, EX=75, D=50, EM=25, IE=0
 

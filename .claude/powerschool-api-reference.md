@@ -172,6 +172,16 @@ rather than storing a `grad_year` that silently goes stale at year rollover.
 - **Session fragility:** same as mastery sync — depends on the browser session; expires → re-login.
 - **In-session date:** must be derived per-section from `section_info.calenderDays`; a hardcoded "today" breaks on off days.
 
+### Student alerts & custom-alert popups (probed 2026-05-30, for #65)
+
+The per-student alert icons in the attendance grid (Siblings, MAP, Student Support Summary, Accommodation Plan/SPP, correspondence, absence) are **not** clean JSON — they come from PowerSchool's **MBA custom-alerts plugin** (`aet_customalert`):
+
+- `section_attendance`'s own `studentAlerts` field is a *different*, standard alert channel — it was `{}`/`[]` (empty) here, not the custom icons.
+- `POST /teachers/mba_alerts/queries/getStudentsInSection.json` (form-encoded `sectionIds={sectionDcid}`) returns the **roster only** — `{ ccid, sectionid, lastfirst, studentid, studentdcid }` — **not** the per-student alert set. No endpoint found that returns "which alerts fire per student" as JSON.
+- The alert **detail** is HTML-only: `GET /teachers/alerts/aet_customalert_custompopup.html?url=mbapop_{type}.html&frn=001{dcid}&studentid={studentId}` returns a small HTML `<table>` (e.g. siblings → rows linking to each sibling's `students/home.html?frn=...`). Confirmed for `mbapop_sibling.html`; the same wrapper serves `mbapop_nwea_map` (MAP), `mbapop_studentsupportsummary`, `mbapop_spp` (Accommodation Plan, field `X_SPP`), `mbapop_emailcorr` (`X_HomeEmail`), `mbapop_attendance`.
+
+**Implication:** surfacing Tier B (flag badges) or Tier C (detail) via this session path means **scraping HTML** and/or replicating alert-trigger logic — brittle, and the content is sensitive (SEN/test data). The clean alternative for these specific fields (`X_SPP`, `X_HomeEmail`, MAP results, demographics) is the **OAuth-2 `/ws/v1/` plugin API + PowerQuery** (still needs admin credentials). So Tier C strengthens the case for getting those credentials rather than scraping. Tier A (`onTrack`, `enrolled`, enrollment dates) remains the only clean win on the session path.
+
 ### Relevance to other issues
 
 - **#39 (attendance marking):** `section_info` + `section_attendance` are the attendance endpoints that issue

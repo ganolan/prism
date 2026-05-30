@@ -34,6 +34,7 @@ export const getCourse = (id) => request(`/courses/${id}`);
 export const getCourseStudents = (id) => request(`/courses/${id}/students`);
 export const getCourseAssignments = (id) => request(`/courses/${id}/assignments`);
 export const getGradebook = (id) => request(`/courses/${id}/gradebook`);
+export const getPastSections = () => request('/courses/past');
 
 // Students
 export const searchStudents = (q) => request(`/students${q ? `?q=${encodeURIComponent(q)}` : ''}`);

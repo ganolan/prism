@@ -99,6 +99,20 @@ Last live re-verification: 2026-05-30 — spot-checked the public REST inventory
 | GET | `/v1/sections/{id}/assignments/{aid}/comments` | 200 | Assignment-level discussion comments. |
 | POST | `/v1/sections/{id}/assignments/{aid}/comments` | 201 | Post assignment comment. |
 
+**⚠️ `lti_submission` (OneDrive / Google Drive) submission-status ambiguity.** For LTI dropbox
+assignments the revision array does not reliably reflect post-submit state. A `draft=1` revision means
+"opened, work in progress, not submitted", but an **empty `revision` array means *either* "never
+opened" *or* "submitted"** — Schoology's public API does not expose post-submit revisions for
+OneDrive/GDrive. `server/services/schoology.js` `getSubmissionStatus` disambiguates by grade-row
+presence, which leaves one case unresolved: **submitted + ungraded is indistinguishable from
+never-opened**. Same gap undercuts #49's resubmission auto-detect for LTI assignments — there is no
+visible post-submit revision to baseline against (`isResubmitted` / `latestRevisionAt`). Candidate
+internal sources that *may* carry the hidden submitted/ungraded signal (probe in progress — see "Three
+high-priority surfaces" #3): Schoology's own home reminders (`course_reminders_ajax` → "ungraded
+submissions" / "re-submitted assignments" + their `home/reminders_list/*` drill-downs) and the internal
+gradebook per-cell data (`/iapi/grades/grader_header_data/{sectionId}` + the uncaptured per-cell
+grade-data POST). Unverified until that probe lands — do not assume granularity.
+
 ### Course Endpoints
 
 | Method | Endpoint | Status | Notes |

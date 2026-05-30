@@ -1,33 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getCourses, getCoursesByView, getSyncStatus, toggleCourseVisibility, importCourse, updateCourseBlockNumber } from '../services/api.js';
-
-function parseGradingPeriod(gradingPeriod) {
-  if (!gradingPeriod) return { academicYear: 'Unknown', semester: 'Unknown' };
-  let semester = 'Full Year';
-  if (gradingPeriod.includes('Semester 1')) semester = 'Semester 1';
-  else if (gradingPeriod.includes('Semester 2')) semester = 'Semester 2';
-  const dateMatch = gradingPeriod.match(/(\d{2})\/(\d{2})\/(\d{2,4})/);
-  if (!dateMatch) return { academicYear: 'Unknown', semester };
-  const month = parseInt(dateMatch[1], 10);
-  const rawYear = parseInt(dateMatch[3], 10);
-  const year = rawYear < 100 ? 2000 + rawYear : rawYear;
-  const startYear = month >= 8 ? year : year - 1;
-  const academicYear = `${startYear}-${String(startYear + 1).slice(-2)}`;
-  return { academicYear, semester };
-}
-
-function groupByAcademicYear(courses) {
-  const groups = {};
-  for (const c of courses) {
-    const { academicYear } = parseGradingPeriod(c.grading_period);
-    if (!groups[academicYear]) groups[academicYear] = [];
-    groups[academicYear].push(c);
-  }
-  return Object.entries(groups)
-    .sort(([a], [b]) => b.localeCompare(a))
-    .map(([year, yearCourses]) => ({ year, courses: yearCourses }));
-}
+import { parseGradingPeriod, groupByAcademicYear } from '../lib/courseDisplay.js';
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('current');

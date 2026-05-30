@@ -46,7 +46,9 @@ describe('SyncConfig', () => {
     const onStart = vi.fn();
     renderConfig({ onStart });
     fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
-    expect(onStart).toHaveBeenCalledWith([1, 2]);
+    // onStart is called with the selected ids AND the include-hidden/archived
+    // options (both default false). See SyncConfig's "Start sync" handler.
+    expect(onStart).toHaveBeenCalledWith([1, 2], { includeHidden: false, includeArchived: false });
   });
 
   it('group select-all checkbox is indeterminate when only some are selected', () => {

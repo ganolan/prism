@@ -13,6 +13,7 @@ import {
   getSubmissionStatus,
 } from './schoology.js';
 import { runWithLimits } from './rateLimitedRunner.js';
+import { createSubmissionFetcher } from './graderSubmissions.js';
 import { getSyncConfig } from '../middleware/featureGate.js';
 
 // Issue #56: flip newly-discovered template sections to excluded=1. Same
@@ -190,7 +191,25 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   // "opened, work in progress, not submitted" — exactly the state we want
   // to surface in the UI. Empty revision array means either never-opened or
   // already-submitted (indistinguishable from this endpoint for OneDrive).
+  //
+  // #62/#55: the internal gradebook (grader_header_data) closes that gap. When
+  // a browser-session lookup is available (injected via opts.fetchSubmissionLookup),
+  // each (student, assignment) cell it covers is one of:
+  //   • submitted → record submission_type ("drop"/"assessment"); still call the
+  //     public API for late/draft/timing it does not carry (#62).
+  //   • not submitted (bare cell) → SKIP the rate-limited public call entirely (#55)
+  //     and clear status + type.
+  //   • not covered (e.g. outside the grading period grader_header_data returns)
+  //     → fall back to the public API and leave submission_type untouched.
   const dropboxAssignments = assignments.filter(a => a.allow_dropbox === '1' || a.allow_dropbox === 1);
+
+  // Best-effort: null when no session / fetch fails — sync then behaves exactly
+  // as before (public revisions API only).
+  let submissionLookup = null;
+  if (typeof opts.fetchSubmissionLookup === 'function' && dropboxAssignments.length) {
+    try { submissionLookup = await opts.fetchSubmissionLookup(sectionId); } catch { submissionLookup = null; }
+  }
+
   const upsertSubmissionStatus = db.prepare(`
     INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, exception, late, draft, latest_revision_at, synced_at)
     VALUES (?, ?, ?, NULL, ?, 0, ?, ?, ?, ?)
@@ -204,6 +223,24 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     UPDATE grades SET late = 0, draft = 0, latest_revision_at = 0, synced_at = ?
     WHERE student_id = ? AND assignment_id = ?
   `);
+  // #62: GHD says submitted. Upsert (insert the row if missing, so a
+  // submitted-but-ungraded OneDrive cell still surfaces) with submission_type.
+  const upsertSubmittedWithType = db.prepare(`
+    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, exception, late, draft, latest_revision_at, submission_type, synced_at)
+    VALUES (?, ?, ?, NULL, ?, 0, ?, ?, ?, ?, ?)
+    ON CONFLICT(student_id, assignment_id) DO UPDATE SET
+      late = excluded.late,
+      draft = excluded.draft,
+      latest_revision_at = excluded.latest_revision_at,
+      submission_type = excluded.submission_type,
+      synced_at = excluded.synced_at
+  `);
+  // #62: GHD says not submitted. UPDATE-only (never insert) so a never-touched
+  // cell keeps "no engagement" (no grades row / has_grade_row = 0); clears type.
+  const clearSubmissionWithType = db.prepare(`
+    UPDATE grades SET late = 0, draft = 0, latest_revision_at = 0, submission_type = NULL, synced_at = ?
+    WHERE student_id = ? AND assignment_id = ?
+  `);
 
   // Submission status phase: fetch with bounded concurrency + global rate cap;
   // per-assignment atomicity — if any cell in an assignment hits a transient
@@ -214,6 +251,7 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   let rateLimitHits = 0;
   let transientFailures = 0;
   let submissionAttempts = 0;
+  let submissionSkipped = 0; // #55: public calls skipped via the GHD pre-filter
 
   for (const a of dropboxAssignments) {
     if (failedAssignmentIds.length >= submissionAbandonAfter) {
@@ -232,6 +270,20 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
       assignmentResults = await runWithLimits(
         cells,
         async ({ e, studentRow }) => {
+          const ghd = submissionLookup ? submissionLookup.get(String(e.uid), String(a.id)) : undefined;
+          // #55 pre-filter: GHD definitively says "not submitted" → skip the
+          // rate-limited public revisions call entirely.
+          if (ghd && !ghd.submitted) {
+            submissionSkipped++;
+            return {
+              studentId: studentRow.id,
+              assignmentId: assignRow.id,
+              enrolmentId: String(e.id),
+              maxPoints: assignRow.max_points ?? null,
+              revision: null,
+              ghd: { resolved: true, submitted: false, type: null },
+            };
+          }
           submissionAttempts++;
           const revision = await getSubmissionStatus(sectionId, String(a.id), String(e.uid));
           return {
@@ -240,6 +292,7 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
             enrolmentId: String(e.id),
             maxPoints: assignRow.max_points ?? null,
             revision,
+            ghd: ghd ? { resolved: true, submitted: true, type: ghd.submissionType } : { resolved: false },
           };
         },
         { concurrency: submissionConcurrency, ratePerSec: submissionRatePerSec },
@@ -258,14 +311,28 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   let submissionCount = 0;
   const writeSubmissions = db.transaction((rows) => {
     for (const r of rows) {
-      if (r.revision) {
+      const g = r.ghd || { resolved: false };
+      const late = r.revision && r.revision.late ? 1 : 0;
+      const draft = r.revision && r.revision.draft ? 1 : 0;
+      const latestRevisionAt = (r.revision && r.revision.latestRevisionAt) || 0;
+      if (g.resolved && g.submitted) {
+        // #62: GHD reports a submission (incl. OneDrive/GDrive ungraded, where
+        // the public revisions API is blind). Persist the type + any late/draft/
+        // timing the public call also returned.
+        upsertSubmittedWithType.run(
+          r.studentId, r.assignmentId, r.enrolmentId, r.maxPoints,
+          late, draft, latestRevisionAt, g.type, now,
+        );
+        submissionCount++;
+      } else if (g.resolved && !g.submitted) {
+        // #55: GHD says not submitted — clear status + type (UPDATE-only).
+        clearSubmissionWithType.run(now, r.studentId, r.assignmentId);
+      } else if (r.revision) {
+        // GHD not covering this cell; public API has a revision → prior behavior
+        // (do not touch submission_type).
         upsertSubmissionStatus.run(
-          r.studentId, r.assignmentId, r.enrolmentId,
-          r.maxPoints,
-          r.revision.late ? 1 : 0,
-          r.revision.draft ? 1 : 0,
-          r.revision.latestRevisionAt || 0,
-          now,
+          r.studentId, r.assignmentId, r.enrolmentId, r.maxPoints,
+          late, draft, latestRevisionAt, now,
         );
         submissionCount++;
       } else {
@@ -283,6 +350,7 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     failedAssignmentIds,
     submissionAbandoned,
     submissionAttempts,
+    submissionSkipped,
     rateLimitHits,
     transientFailures,
   };
@@ -399,6 +467,10 @@ export async function fullSync(onProgress, { includeHidden = false, includeArchi
   ).run(now);
   const syncId = syncRow.lastInsertRowid;
 
+  // Declared outside the try so the finally-style cleanup below can always
+  // close the browser the GHD fetcher holds, even on error.
+  let submissionFetcher = null;
+
   try {
     // 1. Get teacher's user ID and sections
     log('Fetching user profile...');
@@ -406,6 +478,7 @@ export async function fullSync(onProgress, { includeHidden = false, includeArchi
     const startedAt = Date.now();
     const metrics = {
       submission_calls: 0,
+      submissions_skipped: 0, // #55: public calls skipped via the GHD pre-filter
       rate_limit_hits: 0,
       transient_failures: 0,
       retries_attempted: 0,
@@ -416,6 +489,11 @@ export async function fullSync(onProgress, { includeHidden = false, includeArchi
       failed_assignment_ids: [], // { sectionId, courseId, assignmentExtId }
     };
     const userId = await getMyUserId();
+
+    // #62/#55: best-effort browser-session reader for internal-gradebook
+    // submission state, reused across all sections. null when no saved session —
+    // the per-section sync then falls back to the public revisions API alone.
+    try { submissionFetcher = await createSubmissionFetcher(); } catch { submissionFetcher = null; }
 
     log('Fetching course sections...');
     const sections = await getMySections(userId);
@@ -496,8 +574,12 @@ export async function fullSync(onProgress, { includeHidden = false, includeArchi
       if (courseRow.archived && !includeArchived) { metrics.sections_skipped++; continue; }
 
       log(`Syncing "${sec.course_title}"...`);
-      const result = await syncSectionData(db, sectionId, courseRow.id, now, syncConfig);
+      const result = await syncSectionData(db, sectionId, courseRow.id, now, {
+        ...syncConfig,
+        fetchSubmissionLookup: submissionFetcher ? (sid) => submissionFetcher.fetch(sid) : undefined,
+      });
       metrics.submission_calls += result.submissionAttempts || 0;
+      metrics.submissions_skipped += result.submissionSkipped || 0;
       metrics.rate_limit_hits += result.rateLimitHits || 0;
       metrics.transient_failures += result.transientFailures || 0;
       if (result.submissionAbandoned) metrics.abandoned = 1;
@@ -549,6 +631,11 @@ export async function fullSync(onProgress, { includeHidden = false, includeArchi
       } catch { /* scales not available */ }
 
     }
+
+    // GHD reader is only needed during the section loop above (the retry pass
+    // uses the public API only). Close its browser now.
+    if (submissionFetcher) { await submissionFetcher.close().catch(() => {}); submissionFetcher = null; }
+    if (metrics.submissions_skipped > 0) log(`Skipped ${metrics.submissions_skipped} submission checks via gradebook pre-filter`);
 
     // Retry pass: one serial attempt for assignments that hit transient errors.
     // No rate limiter, no Retry-After honoring, no further retries on failure.
@@ -641,5 +728,7 @@ export async function fullSync(onProgress, { includeHidden = false, includeArchi
     db.prepare(`UPDATE sync_log SET status = 'error', error_message = ?, completed_at = ? WHERE id = ?`)
       .run(err.message, new Date().toISOString(), syncId);
     throw err;
+  } finally {
+    if (submissionFetcher) await submissionFetcher.close().catch(() => {});
   }
 }

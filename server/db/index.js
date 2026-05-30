@@ -40,6 +40,15 @@ const MIGRATIONS = [
   // auto-detect. Compared against submitted_at (the submission/grade-entry
   // time) at read time.
   `ALTER TABLE grades ADD COLUMN latest_revision_at INTEGER DEFAULT 0`,
+  // Issue #62: per-(student, assignment) submission existence + type, read from
+  // Schoology's internal gradebook (grader_header_data). NULL = no positive
+  // submission signal (never opened, or the assignment is outside the grading
+  // period grader_header_data returns); "drop" = file dropbox (OneDrive /
+  // GDrive / upload); "assessment" = Schoology assessment. This is the only
+  // surface that distinguishes submitted-but-ungraded OneDrive/GDrive from
+  // never-opened — the public revisions API is blind to post-submit LTI
+  // revisions. The submission badge treats a non-NULL value as "Submitted".
+  `ALTER TABLE grades ADD COLUMN submission_type TEXT`,
   // Issue #54: per-assignment individually-assigned targeting.
   `ALTER TABLE assignments ADD COLUMN num_assignees INTEGER`,
   // Issue #56: courses we never want to sync (e.g., template sections like

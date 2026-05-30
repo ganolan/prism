@@ -92,6 +92,11 @@ CREATE TABLE IF NOT EXISTS grades (
   exception INTEGER DEFAULT 0,
   late INTEGER DEFAULT 0,
   draft INTEGER DEFAULT 0,
+  -- #62: submission existence + type from the internal gradebook
+  -- (grader_header_data). NULL = no positive submission signal / outside the
+  -- returned grading period; "drop" = file dropbox (OneDrive/GDrive/upload);
+  -- "assessment" = Schoology assessment. Non-NULL ⇒ the badge shows "Submitted".
+  submission_type TEXT,
   synced_at TEXT,
   UNIQUE(student_id, assignment_id)
 );

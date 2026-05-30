@@ -43,7 +43,7 @@ router.get('/:id', (req, res) => {
   const grades = db.prepare(`
     SELECT
       g.id, g.score, g.max_score, g.grade_comment, g.comment_status,
-      g.exception, g.late, g.draft, g.submitted_at, g.latest_revision_at,
+      g.exception, g.late, g.draft, g.submitted_at, g.latest_revision_at, g.submission_type,
       a.id as assignment_id,
       a.title as assignment_title, a.due_date, a.max_points as assignment_max_points,
       a.grading_scale_id, a.display_weight, a.schoology_assignment_id,

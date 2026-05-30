@@ -16,6 +16,14 @@ vi.mock('./schoology.js', () => ({
   getSubmissionStatus: vi.fn(),
 }));
 
+// fullSync calls createSubmissionFetcher(), which would launch a headless
+// browser. Mock it to a no-op (returns null → public-API-only behavior), so
+// the suite never touches Playwright. syncSectionData GHD wiring is tested
+// directly below by injecting opts.fetchSubmissionLookup.
+vi.mock('./graderSubmissions.js', () => ({
+  createSubmissionFetcher: vi.fn().mockResolvedValue(null),
+}));
+
 import {
   getSectionEnrollments,
   getSectionAssignments,
@@ -275,6 +283,120 @@ describe('retrySubmissions (#55)', () => {
       SELECT g.* FROM grades g JOIN assignments a ON a.id = g.assignment_id WHERE a.schoology_assignment_id = 'RA1'
     `).all();
     expect(rows.length).toBe(0);
+  });
+});
+
+describe('syncSectionData — internal-gradebook submission state (#62/#55)', () => {
+  let db;
+  let courseId;
+
+  // Minimal stand-in for buildSubmissionLookup()'s return value — only .get()
+  // is consumed by syncSectionData. `cells` maps "uid:assignmentId" → cell.
+  function fakeLookup(cells) {
+    return { get: (uid, aid) => cells[`${uid}:${aid}`] };
+  }
+
+  beforeEach(() => {
+    db = new Database(':memory:');
+    migrate(db);
+    courseId = db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-G', 'Gradebook')`
+    ).run().lastInsertRowid;
+    getSectionEnrollments.mockReset();
+    getSectionAssignments.mockReset();
+    getSectionGrades.mockReset();
+    getSubmissionStatus.mockReset();
+    getSectionGrades.mockResolvedValue([]);
+    getSubmissionStatus.mockResolvedValue(null); // public API blind to OneDrive
+  });
+
+  function getGradeRow(uid, assignmentExtId) {
+    return db.prepare(`
+      SELECT g.* FROM grades g
+      JOIN assignments a ON a.id = g.assignment_id
+      JOIN students s ON s.id = g.student_id
+      WHERE a.schoology_assignment_id = ? AND s.schoology_uid = ?
+    `).get(assignmentExtId, uid);
+  }
+
+  test('GHD "submitted" sets submission_type even when the public API returns no revision (#62)', async () => {
+    getSectionEnrollments.mockResolvedValue([
+      { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
+    ]);
+    getSectionAssignments.mockResolvedValue([
+      { id: 'L1', title: 'OneDrive Essay', published: 1, allow_dropbox: '1', assignment_type: 'lti_submission' },
+    ]);
+
+    const result = await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
+      fetchSubmissionLookup: async () => fakeLookup({ '701:L1': { submitted: true, submissionType: 'drop' } }),
+    });
+
+    // Public API is still queried (GHD lacks late/draft/timing).
+    expect(getSubmissionStatus).toHaveBeenCalledWith('sec-G', 'L1', '701');
+    const row = getGradeRow('701', 'L1');
+    expect(row).toBeTruthy();
+    expect(row.submission_type).toBe('drop');
+    expect(result.submissionSkipped).toBe(0);
+  });
+
+  test('GHD "not submitted" skips the public revisions call (#55) and writes no row', async () => {
+    getSectionEnrollments.mockResolvedValue([
+      { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
+    ]);
+    getSectionAssignments.mockResolvedValue([
+      { id: 'L1', title: 'OneDrive Essay', published: 1, allow_dropbox: '1', assignment_type: 'lti_submission' },
+    ]);
+
+    const result = await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
+      fetchSubmissionLookup: async () => fakeLookup({ '701:L1': { submitted: false, submissionType: null } }),
+    });
+
+    expect(getSubmissionStatus).not.toHaveBeenCalled();
+    expect(result.submissionSkipped).toBe(1);
+    // UPDATE-only clear: a never-touched cell stays "no engagement" (no row).
+    expect(getGradeRow('701', 'L1')).toBeUndefined();
+  });
+
+  test('GHD "submitted" upgrades an existing graded row with the type, preserving the score', async () => {
+    getSectionEnrollments.mockResolvedValue([
+      { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
+    ]);
+    getSectionAssignments.mockResolvedValue([
+      { id: 'L1', title: 'OneDrive Essay', published: 1, allow_dropbox: '1', assignment_type: 'lti_submission', max_points: 16 },
+    ]);
+    // A graded row already exists from the grades phase.
+    getSectionGrades.mockResolvedValue([
+      { enrollment_id: '801', assignment_id: 'L1', grade: 14, max_points: 16, timestamp: 1000 },
+    ]);
+
+    await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
+      fetchSubmissionLookup: async () => fakeLookup({ '701:L1': { submitted: true, submissionType: 'drop' } }),
+    });
+
+    const row = getGradeRow('701', 'L1');
+    expect(row.score).toBe(14);            // score not clobbered
+    expect(row.submission_type).toBe('drop');
+  });
+
+  test('GHD-uncovered cell falls back to the public API and leaves submission_type null', async () => {
+    getSectionEnrollments.mockResolvedValue([
+      { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
+    ]);
+    getSectionAssignments.mockResolvedValue([
+      { id: 'N1', title: 'Native dropbox', published: 1, allow_dropbox: '1' },
+    ]);
+    getSubmissionStatus.mockResolvedValue({ revision_id: 1, late: 1, draft: 0, latestRevisionAt: 2000 });
+
+    const result = await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
+      // Lookup returns undefined for this (uid, assignment) → uncovered.
+      fetchSubmissionLookup: async () => fakeLookup({}),
+    });
+
+    expect(getSubmissionStatus).toHaveBeenCalledWith('sec-G', 'N1', '701');
+    const row = getGradeRow('701', 'N1');
+    expect(row.late).toBe(1);
+    expect(row.submission_type).toBeNull();
+    expect(result.submissionSkipped).toBe(0);
   });
 });
 

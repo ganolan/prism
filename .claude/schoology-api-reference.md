@@ -406,30 +406,34 @@ surface only — not exhaustive, and a *lower bound* (see grep-js caveat below).
 | `GET /course/administrators_info` | `{data:[]}` — course administrators. |
 | `GET /update_post/{id}/show_more/{hash}` | JSON — expands a truncated feed post. |
 | `GET /enrollments/edit/invite/course/{id}` | JSON — enrollment-invite data. |
-| `GET /enrollments/{enrollmentId}/limited_gradebook_session` | `{response_code, body:{can_edit, can_view, is_limited}}` — gradebook permission/limited-session bootstrap. Fired when the gradebook grid loads. |
-| `GET /gradebook/{sectionId}/visualization_data?enrollment_id={eid}` | `{response_code, body:{<enrollmentId>:{period:[{id,title,data:[{category_id, category_title, grade, max_points, pct}]}]}}}` — **per-student, per-grading-period, per-category grade breakdown with percentages** (the data behind the gradebook visualization chart). ⚠️ Returned **all** enrollments' data (5 keys) despite passing a single `enrollment_id` — the param appears ignored; it returns the whole section. A clean internal source for category-level (formative/summative) rollups per period. |
+| `GET /iapi/enrollment/member_enrollments/course/{sectionId}` | `{response_code, body:{<enrollmentId>:{id, uid, type, status, realm, realm_id, school_uid, school_nid, created, name_first, name_last, name_first_preferred, use_preferred_first_name, name, picture_fid, picture, …}}}` — section roster keyed by enrollment id. Includes `school_uid` (the PowerSchool join key `1_{dcid}`) and preferred-name fields. Fired when a course page loads. **Verified 200** (ACSS, 10 members). |
+| `GET /iapi/grades/grader_header_data/{sectionId}` | **Rich one-call gradebook bootstrap.** `{response_code, body:{ grade_item_nids[], uids[], grading_period, grading_periods[], grading_categories[], grading_groups[], grading_category_setting, user_data{<enrollmentId>:{enrollment_id, name, name_last_first, school_uid, picture, grades:{gp:{display,numeric,scaled}, overall:{display,numeric,scaled}, overall_override}}}, grade_item_data{<itemNid>:{id, title, category_title, scale_type, scale_title, max_points, grading_scale_id, grading_category_id, grading_period_id, use_district_mastery_grading, district_mastery_material_type, auto_publish_grades, …}}, grades{<enrollmentId>:{<itemNid>:{uid, grade_item_nid}}}, grading_scale{id, title, scale{0,12.5,37.5,62.5,87.5, averages{…}}, colors, description}, realm_settings, … }}` — per-student **overall + per-grading-period grade** (display/numeric/scaled), full assignment metadata incl. the district-mastery flags, and the grading-scale level map, in a single fetch. **Verified 200** (ACSS: 26 items × 10 students). |
+| `GET /iapi/grades/all_rubrics/course/{sectionId}` | **Classic-rubric criteria + ratings — a workaround for the 403-blocked public `grading_rubrics`.** `{response_code, body:{<rubricId>:{id, title, total_points, realm, realm_id, is_tracked, rows:[{id, title, description, is_published, guid, columns:[{id, points, title, description, is_full_credit}]}], num_assigned_gi, num_printed_gi}}}` — `rows[]` = criteria, `rows[].columns[]` = rating levels (point value + label + description). **Verified:** APCSP (`7899896088`) → **27 rubrics, populated**; the SBG/district-mastery sections (ACSS/AIML/MAD/Robotics) return `body:[]` (empty) because they grade via measurement topics, not classic rubrics. ⚠️ Section-id in the **path** (`/course/{id}`); the bare `/all_rubrics/{id}` form 500s. See SBG section for why this matters. |
 
 HTML app-shells also seen (data loaded via sub-XHRs, not isolated): `/grades/grades`,
 `/gradebook` routes, `/home/course-dashboard`, `/home/recent-activity`, `/messages/view/{id}`,
 `/resources`, `/course/{id}/materials`, `/courses/browse`, `/courses/mycourses/past`.
 
-**React-bundle literal-grep — negative finding (2026-05-30).** The crawler's `--grep-js` returns
-**0** because the React bundles live on cross-origin `asset-cdn.schoology.com`. Fetching them
-directly (public CDN, no auth) and grepping the 8 `react-common/*` + `common-*` bundles yielded
-~47 route-shaped literals (e.g. `/course/{id}/student_grades.json`, `/competencies/{id}/rubrics.json`,
-`/iapi2/sections/{id}/grade-data`, `/iapi/course/{id}/grades`, `/course/{id}/members.json`). **All
-16 probed returned 404** (`text/html` error pages) on this instance — they are **generic Schoology
-SDK route templates, not live HKIS routes** (assembled differently at runtime, or for other product
-tiers). Lesson: bundle-literal grep is a *weak* signal here; **driving the real page and capturing
-its XHRs** (how `visualization_data` / `limited_gradebook_session` above were found) is the reliable
-method. Session-depth was confirmed during the probe (documented `district_mastery/api/aligned-objectives`
-+ `/iapi/course/active` both 200), so the 404s are genuine route-absence, not session death.
+**React-bundle literal-grep (2026-05-30).** The crawler's `--grep-js` returns **0** because the
+React bundles live on cross-origin `asset-cdn.schoology.com` (the crawler only fetches same-origin
+JS). Fetching the bundles **directly** (public CDN, no auth) and grepping the `react-common/*` +
+`common-*` + the `s_grades_*` Drupal-Angular bundles yielded **~60 route literals** — and the
+`/iapi/...` / `/iapi2/...` ones are **mostly live**. Verified 200 from this grep: `/iapi/grades/all_rubrics/course/{id}`
+(the rubric workaround above), `/iapi/grades/grader_header_data/{id}`, `/iapi/grades/grader_grade_data/{id}`,
+`/iapi/enrollment/member_enrollments/course/{id}`, `/iapi/course/grading_groups/{id}`, `/iapi/course/active`.
+Other notable literals not yet probed: `/iapi/grades/rubric/`, `/iapi/library/rubric/`,
+`/iapi/grades/rubric_grade_info/{section}/{enrollment}` (500'd with a guessed enrollment id — needs the
+right id/headers), `/iapi/grades/assessment_component_submission_rubric_grade_info/`, the
+`/iapi2/common-assessments/*` family (common assessments / question banks), `/iapi2/learning-objectives`,
+`/iapi2/auto-export-*` (SFTP grade exports). Bare-`.json` SDK literals (e.g. `manifest.json`) are framework
+noise. **Net:** bundle grep here is a *strong* signal for `/iapi(2)/...` routes — pair it with a live
+shape-probe per route (some need POST/CSRF or specific ids). This is how the rubric/gradebook endpoints
+above were found.
 
-Still open: the gradebook **grade grid itself is server-rendered HTML** (no isolated JSON endpoint —
-consistent with grade data coming from public REST `/sections/{id}/grades`); and the rubric-criteria
-data blocked by public `grading_rubrics` (403) was **not** found on the internal web surface this pass
-(the `competencies/*/rubrics.json` literals 404'd) — the working internal rubric/mastery source remains
-`district_mastery/api/material-observations` + `outcomes/objectives` (above).
+Still open: the gradebook **grade grid HTML** wasn't reduced to its backing call (the per-cell grades
+live inside `grader_header_data.grades` + a separate grade-data POST not yet captured); the
+`/iapi/grades/rubric*` per-student rubric-score reads (need correct ids); the `/iapi2/common-assessments/*`
+and `/iapi2/learning-objectives` families.
 
 ## Standards-Based Grading (SBG) Findings
 

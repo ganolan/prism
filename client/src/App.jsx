@@ -4,6 +4,7 @@ import Dashboard from './pages/Dashboard.jsx';
 import CoursePage from './pages/CoursePage.jsx';
 import StudentPage from './pages/StudentPage.jsx';
 import SearchPage from './pages/SearchPage.jsx';
+import PeoplePage from './pages/PeoplePage.jsx';
 import ImportPage from './pages/ImportPage.jsx';
 import ToolsPage from './pages/ToolsPage.jsx';
 import AnalyticsPage from './pages/AnalyticsPage.jsx';
@@ -25,6 +26,7 @@ export default function App() {
           <div className="sidebar-section-label">Navigation</div>
           <NavLink to="/" end>Dashboard</NavLink>
           <NavLink to="/search">Search Students</NavLink>
+          <NavLink to="/people">Directory</NavLink>
           <div className="sidebar-section-label">Tools</div>
           <NavLink to="/feedback">Feedback Review</NavLink>
           <NavLink to="/tools">Class Tools</NavLink>
@@ -53,6 +55,7 @@ export default function App() {
             <Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} />
             <Route path="/student/:id" element={<StudentPage />} />
             <Route path="/search" element={<SearchPage />} />
+            <Route path="/people" element={<PeoplePage />} />
             <Route path="/feedback" element={<FeedbackPage />} />
             <Route path="/tools" element={<ToolsPage />} />
             <Route path="/import" element={<ImportPage />} />

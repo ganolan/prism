@@ -431,13 +431,16 @@ No JSON endpoint — parse the HTML. **Result-row structure (masked capture):**
 li.search-summary > div.item.user-list-item
   a[href="/user/{id}"] > … img.imagecache-profile_sm[src]      ← profile photo (may be a default/missing)
   div.item-title  > a[href="/user/{id}"]                        ← display name (text) + user id (href)
-  div.item-info   > span.item-type                              ← role label (e.g. Parent / Student / Staff)
+  div.item-info   > span.item-type                              ← entity-type label — observed "Person" for ALL rows
                   > span.item-school > a[href="/{schoolId}"]    ← school name (text) + school id (href)
   div.network-button-links > a.action-message[href="/messages/new/{id}"]
 ```
 
-Per result: user id from `.item-title a` href (`/user/(\d+)`), name from its text, role from `.item-type`, school from
-`.item-school a`. This is the only confirmed way to reach users outside your enrollments (public REST `/search` 403s;
+Per result: user id from `.item-title a` href (`/user/(\d+)`), name from its text, school from `.item-school a`.
+⚠️ `.item-type` is **not** the user's role — it is the generic entity type, and was **"Person" for every row** when
+verified live (an earlier draft of this doc guessed "Parent/Student/Staff" from a masked length — wrong; "Person" is also
+6 chars). The actual role (Parent/Student/Staff) is **not** in the search row — read it from the profile
+(`GET /v1/users/{uid}.role_id`) per user. This is the only confirmed way to reach users outside your enrollments (public REST `/search` 403s;
 `/users` multi-get ignores filters). Browser-session auth (same Playwright session as mastery sync), not OAuth. Each
 `/user/{id}` then joins to the documented public profile read (`GET /v1/users/{uid}`, 200 via OAuth).
 

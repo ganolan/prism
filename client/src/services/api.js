@@ -94,6 +94,11 @@ export async function runSync(
   flush(true);
 }
 
+// People search (school-wide directory — users outside your sections)
+export const searchPeople = (q, maxPages) =>
+  request(`/people/search?q=${encodeURIComponent(q)}${maxPages ? `&maxPages=${maxPages}` : ''}`);
+export const getPeopleSessionStatus = () => request('/people/session-status');
+
 // Features
 export const getFeatures = () => request('/features');
 

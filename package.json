@@ -24,6 +24,7 @@
     "express": "^4.21.2",
     "js-yaml": "^4.1.0",
     "multer": "^1.4.5-lts.1",
+    "node-html-parser": "^7.1.0",
     "oauth-1.0a": "^2.2.6",
     "playwright": "^1.60.0"
   },

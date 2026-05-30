@@ -7,6 +7,7 @@ features:
   feedback_inbox: true
   feedback_review: true
   revision_workflow: true
+  people_search: true
   schoology_writeback: false
 
 sync:

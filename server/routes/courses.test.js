@@ -3,8 +3,11 @@ import express from 'express';
 
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
+vi.mock('../services/pastCourses.js', () => ({ getPastSections: vi.fn() }));
+
 import router from './courses.js';
 import { getDb } from '../db/index.js';
+import { getPastSections } from '../services/pastCourses.js';
 
 function startServer() {
   const app = express();
@@ -184,5 +187,50 @@ describe('GET /api/courses/:id/students — individually-assigned aggregate (#54
     // applied, only the open-to-all 75/100 counts.
     expect(row.avg_pct).toBe(75);
     expect(row.graded_count).toBe(1);
+  });
+});
+
+describe('GET /api/courses/past', () => {
+  test('no session → { available: false }', async () => {
+    getPastSections.mockResolvedValue(null);
+    const { status, body } = await get('/api/courses/past');
+    expect(status).toBe(200);
+    expect(body).toEqual({ available: false, reason: 'no_session' });
+  });
+
+  test('annotates imported (already in DB) and noCourseCode', async () => {
+    // beforeEach already seeded a course with schoology_section_id 'sec-1'.
+    // Add one matching a discovered section so it reads as imported.
+    getDb().prepare(
+      `INSERT INTO courses (schoology_section_id, course_name, archived) VALUES ('7001', 'Digital Design 9', 1)`
+    ).run();
+    getPastSections.mockResolvedValue([
+      { courseId: '1001', courseTitle: 'Digital Design 9', courseCode: 'DSGN9', sectionId: '7001', sectionTitle: null },
+      { courseId: '1003', courseTitle: 'MASTER Art', courseCode: null, sectionId: '7004', sectionTitle: null },
+    ]);
+
+    const { status, body } = await get('/api/courses/past');
+    expect(status).toBe(200);
+    expect(body.available).toBe(true);
+
+    const imported = body.sections.find((s) => s.sectionId === '7001');
+    const master = body.sections.find((s) => s.sectionId === '7004');
+    expect(imported.imported).toBe(true);
+    expect(imported.noCourseCode).toBe(false);
+    expect(master.imported).toBe(false);
+    expect(master.noCourseCode).toBe(true);
+  });
+
+  test('unexpected rejection → 500', async () => {
+    getPastSections.mockRejectedValue(new Error('boom'));
+    const { status } = await get('/api/courses/past');
+    expect(status).toBe(500);
+  });
+
+  test('empty discovery → { available: true, sections: [] }', async () => {
+    getPastSections.mockResolvedValue([]);
+    const { status, body } = await get('/api/courses/past');
+    expect(status).toBe(200);
+    expect(body).toEqual({ available: true, sections: [] });
   });
 });

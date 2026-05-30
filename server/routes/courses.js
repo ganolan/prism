@@ -4,8 +4,35 @@ import { getGradingScalesMap } from '../db/scales.js';
 import { apiGet } from '../services/schoology.js';
 import { syncSectionData } from '../services/sync.js';
 import { isResubmitted } from '../lib/resubmission.js';
+import { getPastSections } from '../services/pastCourses.js';
 
 const router = Router();
+
+// GET /api/courses/past — enumerate past/archived sections by scraping
+// /courses/mycourses/past (browser session). Annotates each with whether it's
+// already imported and whether it lacks a course code. Registered before
+// `/:id` so Express doesn't treat "past" as an :id. See issue #5.
+router.get('/past', async (req, res) => {
+  let sections;
+  try {
+    sections = await getPastSections();
+  } catch {
+    return res.status(500).json({ error: 'Could not check for past courses' });
+  }
+  if (!sections) return res.json({ available: false, reason: 'no_session' });
+
+  const db = getDb();
+  // sectionId from the scraper / DB may be numeric or string — compare as strings.
+  const known = new Set(
+    db.prepare('SELECT schoology_section_id FROM courses').all().map((r) => String(r.schoology_section_id))
+  );
+  const annotated = sections.map((s) => ({
+    ...s,
+    imported: known.has(String(s.sectionId)),
+    noCourseCode: !s.courseCode,
+  }));
+  res.json({ available: true, sections: annotated });
+});
 
 // GET /api/courses — list all courses (non-archived and visible by default)
 router.get('/', (req, res) => {

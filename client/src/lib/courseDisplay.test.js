@@ -34,4 +34,8 @@ describe('formatLastSynced', () => {
   it('returns "never synced" for an unparseable string', () => {
     expect(formatLastSynced('not-a-date')).toBe('never synced');
   });
+  it('formats in UK/AU DD/MM/YYYY order', () => {
+    // noon UTC → same calendar day in all realistic timezones
+    expect(formatLastSynced('2026-05-20T12:00:00Z')).toBe('synced 20/05/2026');
+  });
 });

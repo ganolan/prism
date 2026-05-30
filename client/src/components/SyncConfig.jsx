@@ -1,4 +1,6 @@
 import { useState, useMemo } from 'react';
+import PastCoursesPanel from './PastCoursesPanel.jsx';
+import { formatLastSynced } from '../lib/courseDisplay.js';
 
 const GROUPS = [
   { key: 'visible',  label: 'Visible courses',  match: (c) => !c.hidden && !c.archived && !c.excluded },
@@ -143,14 +145,19 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
                   {!collapsed[group.key] && (
                     <div className="sync-course-list">
                       {group.courses.map((c) => (
-                        <label className="sync-course" key={c.id}>
-                          <input
-                            type="checkbox"
-                            checked={selected.has(c.id)}
-                            onChange={() => toggleCourse(c.id)}
-                          />
-                          <span>{c.course_name}</span>
-                        </label>
+                        <div className="sync-course-row" key={c.id}>
+                          <label className="sync-course">
+                            <input
+                              type="checkbox"
+                              checked={selected.has(c.id)}
+                              onChange={() => toggleCourse(c.id)}
+                            />
+                            <span>{c.course_name}</span>
+                          </label>
+                          {group.key === 'visible' && (
+                            <span className="text-muted text-sm">{formatLastSynced(c.synced_at)}</span>
+                          )}
+                        </div>
                       ))}
                     </div>
                   )}
@@ -160,6 +167,13 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
           </>
         )}
       </div>
+
+      <PastCoursesPanel
+        courses={courses}
+        loggedIn={loggedIn}
+        onLogin={onLogin}
+        busy={busy}
+      />
 
       <div className="sync-foot">
         <span className="text-muted text-sm">

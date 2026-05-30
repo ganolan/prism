@@ -29,11 +29,12 @@ export function groupByAcademicYear(courses) {
     .map(([year, yearCourses]) => ({ year, courses: yearCourses }));
 }
 
-// "synced 5/31/2026" / "never synced". synced_at is an ISO string, null, or
-// (defensively) a non-parseable value — all non-dates render as "never synced".
+// "synced 20/05/2026" (UK/AU DD/MM/YYYY) / "never synced". synced_at is an ISO
+// string, null, or (defensively) a non-parseable value — all non-dates render
+// as "never synced". (App is used in UK/AU date convention; en-GB pins the order.)
 export function formatLastSynced(syncedAt) {
   if (!syncedAt) return 'never synced';
   const d = new Date(syncedAt);
   if (Number.isNaN(d.getTime())) return 'never synced';
-  return `synced ${d.toLocaleDateString()}`;
+  return `synced ${d.toLocaleDateString('en-GB')}`;
 }

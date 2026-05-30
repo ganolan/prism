@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import SyncConfig from './SyncConfig.jsx';
 
 const COURSES = [
-  { id: 1, course_name: 'Biology 9', hidden: 0, archived: 0 },
+  { id: 1, course_name: 'Biology 9', hidden: 0, archived: 0, synced_at: '2026-05-20T12:00:00Z' },
   { id: 2, course_name: 'Chemistry 11', hidden: 0, archived: 0 },
   { id: 3, course_name: 'Old Physics', hidden: 1, archived: 0 },
   { id: 4, course_name: 'Archived Bio', hidden: 0, archived: 1 },
@@ -89,5 +89,16 @@ describe('SyncConfig', () => {
     expect(screen.getByLabelText('Biology 9')).toBeInTheDocument();
     fireEvent.click(screen.getByText(/Visible courses/));
     expect(screen.queryByLabelText('Biology 9')).not.toBeInTheDocument();
+  });
+
+  it('renders the Past courses panel', () => {
+    renderConfig();
+    expect(screen.getByText('Past courses')).toBeInTheDocument();
+  });
+
+  it('shows a last-synced line on a current course', () => {
+    renderConfig();
+    // Biology 9 is in the (expanded) visible group; its synced_at renders a line.
+    expect(screen.getByText(/synced 20\/05\/2026/)).toBeInTheDocument();
   });
 });

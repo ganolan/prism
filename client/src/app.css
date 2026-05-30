@@ -813,6 +813,7 @@ button.ghost.accent:hover { background: var(--accent-light); }
 }
 .sync-course-list { margin-left: 1.6rem; }
 .sync-course { display: flex; align-items: center; gap: 0.4rem; padding: 0.15rem 0; }
+.sync-course-row { display: flex; align-items: baseline; gap: 0.75rem; }
 
 .sync-foot {
   display: flex; justify-content: space-between; align-items: center;

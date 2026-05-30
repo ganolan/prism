@@ -250,10 +250,35 @@ rather than reusing one frame (a shared-frame loop failed 5/6 reads; per-navigat
 `POST /ws/schema/query/com.pearson.core.schools.grade_levels`, `POST /ws/pagecustomizations/insertions`,
 `POST /teachers/mba_alerts/queries/getStudentsInSection.json`.)
 
+**Shape-probed & confirmed working (2026-05-30, GET):**
+
+`GET /ws/pt/v1/attendance/getattendance_integration?sectionid={sectionDcid}&date={YYYY-MM-DD}` → **200**.
+Params learned from the app bundle (`method:"GET",params:["sectionid","date"]`) — note `sectionid`
+takes the **sectionDcid** (e.g. 49390), and `date` is a **single day** (not a range). Wrong param
+names 400 with a helpful `{"message":"Required request parameter 'sectionid'..."}`. This is a
+**richer, single-call attendance source than the legacy `/ws/attendance/section_attendance`** — it
+bundles the roster, the per-student codes, AND the code catalog. Masked response shape:
+
+```
+{
+  attendance_data: [{ ccid, studentsdcid, attendance: [{ ddaid, att_code, att_comment }] }],  // per-student marks for the date
+  students:        [{ studentid, studentsdcid, lastfirst, gender, grade_level, dob, enroll_status }],  // 25 rows; ⚠️ dob = date-of-birth (PII)
+  attendance_codes:[{ id, att_code, description, code_type, presence_status_cd }],  // 8 — the CODE CATALOG (what each code means; new vs legacy endpoint)
+  sections:        [{ ccid, psm_sectionid, sectionid, termid }],                    // section identity mapping
+  ddas: …, period_attendance_allowed: …
+}
+```
+
+Key wins over legacy: (1) `attendance_codes` catalog lets you interpret `att_code` values + their
+`presence_status_cd` without hardcoding; (2) `att_comment` per mark; (3) `students[].grade_level`
+(alt to the legacy roster). `studentsdcid` joins to Prism the same way (`school_uid = "1_" + dcid`).
+⚠️ `students[].dob` is new PII — exclude unless explicitly needed. Single-day only, so range tallies
+still need either the legacy `section_attendance` (server-summed `studentAbsentCount`) or a per-day loop.
+
+- `GET /ws/pt/v1/attendance/getattendanceformultisection?sectionid={dcid}&date={YYYY-MM-DD}` — same param shape (`sectionid`,`date`); multi-section variant, not separately shape-probed (likely same row schema across sections).
+- ⚠️ `POST /ws/pt/v1/attendance/saveattendance` and `/saveattendances` — attendance **writes** (the write path #39 needs; do **not** probe under the read-only policy).
+
 **Referenced in the app bundle but NOT exercised on load (candidates — string literals, not yet shape-probed):**
-- `GET /ws/pt/v1/attendance/getattendance_integration` — modern single-section attendance read
-- `GET /ws/pt/v1/attendance/getattendanceformultisection` — multi-section attendance read
-- ⚠️ `POST /ws/pt/v1/attendance/saveattendance` and `/saveattendances` — attendance **writes** (relevant to #39; do **not** probe under the read-only policy)
 - `/ws/pt/v1/student/...` — student data (PT v1; PII — probe carefully)
 - `/ws/pt/v1/seating_chart/config/integration`, `/ws/pt/v1/seatingchart/objects/layout_integration/...`
 - `/ws/seatingchart/config`, `/ws/seatingchart/objects/layout/...`, `/ws/seatingchart/section/attendance`, `/ws/seatingchart/section/multi_section_attendance`, `/ws/seatingchart/section/section_info`

@@ -414,6 +414,34 @@ HTML app-shells also seen (data loaded via sub-XHRs, not isolated): `/grades/gra
 `/gradebook` routes, `/home/course-dashboard`, `/home/recent-activity`, `/messages/view/{id}`,
 `/resources`, `/course/{id}/materials`, `/courses/browse`, `/courses/mycourses/past`.
 
+### Three high-priority surfaces (probed 2026-05-30 — structure only, content not parsed)
+
+Probed read-only for a teacher-workflow build. Verified signals (`/tmp` dump deleted; no PII recorded).
+⚠️ keyword signals are only trustworthy on isolated `{html}` *fragments* — full pages false-positive on nav chrome.
+
+**1. User search (find people NOT in your sections) — WORKS TODAY.**
+`GET /search/user?s={query}&page={n}` → **200 text/html**, ~**20** `/user/{id}` results per page. Pagination:
+`page` absent = first 20; `page=1` = next page (verified: `s=liu` → 20 on page 0 + 8 on page 1 = 28 total;
+`s=maia` → 6). No JSON endpoint — parse `/user/{id}` (+ surrounding name/role markup) from the HTML and loop
+`page` until a short page. This is the only confirmed way to reach users outside your enrollments (public REST
+`/search` 403s; `/users` multi-get ignores filters). Each `/user/{id}` then joins to the documented profile/enrollment reads.
+
+**2. Archived / past courses — partial (HTML works, clean JSON unconfirmed).**
+`GET /courses/mycourses/past` → **200 text/html** (~338 KB) containing **233 `/course/{id}` links** = the past-course
+list, server-rendered. So scraping that page yields the archived course inventory today. The page's only data XHR is
+`GET /iapi/course/active` (the *active*-courses JSON) — so past courses are likely either embedded in the page HTML or
+filtered client-side from a fuller payload; **a dedicated past-courses JSON endpoint was not found** (`/iapi/course/archived`
+and `/iapi/course/past` both 403 — wrong routes). Next: check whether `/iapi/course/active` actually includes past
+courses (a flag/param), else parse the HTML. Once you have a past `{course_id}`, the documented section-level reads should work against it.
+
+**3. Reminders pane (ungraded assignments + resubmissions) — SOURCE IDENTIFIED.**
+The home "Reminders" pane is `GET /home/course_reminders_ajax` → **200 JSON `{html}`** (~600-char fragment). On the
+isolated fragment, **both `resubmi*` and needs-grading keywords matched** (with 6 grade mentions) — i.e. this single
+fragment carries the ungraded-work + resubmission reminders the user wants to track. Companions: `GET /home/overdue_submissions_ajax`
+(`{html}`, empty when none), `GET /home/upcoming_submissions_ajax` (`{html}`, had an `/assignment/{id}` link). Next: parse
+the `course_reminders_ajax` fragment's structure (the reminder rows + their `/assignment/{id}` / `/course/{id}` links and
+counts) — content not yet captured (PII). This is a far cleaner signal than scraping the full `/home` page.
+
 **React-bundle literal-grep (2026-05-30).** The crawler's `--grep-js` returns **0** because the
 React bundles live on cross-origin `asset-cdn.schoology.com` (the crawler only fetches same-origin
 JS). Fetching the bundles **directly** (public CDN, no auth) and grepping the `react-common/*` +

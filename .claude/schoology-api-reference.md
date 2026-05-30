@@ -386,6 +386,37 @@ Prism exposes this as `POST /api/mastery/:courseId/override` (body `{ studentUid
 - `gradingScaleId`: `21337256` (General Academic Scale — used for ALL mastery writes)
 - Points mapping: ED=100, EX=75, D=50, EM=25, IE=0
 
+## Internal Web Endpoints — general (browser-session, 2026-05-30 crawl)
+
+A read-only crawl of the logged-in web UI (`scripts/crawl-schoology.mjs`, seeds
+`/home /courses /grades /messages /calendar`, 40 pages) surfaced internal AJAX endpoints on
+`schoology.hkis.edu.hk` beyond the `district_mastery`/`iapi2` set. All are browser-session-auth
+(same Playwright session as mastery sync), GET, 200. **Scope:** the home/course/calendar/feed
+surface only — not exhaustive, and a *lower bound* (see grep-js caveat below).
+
+| Endpoint | Returns |
+|---|---|
+| `GET /iapi/course/active` | JSON `{response_code, body:{courses:{courses[],sections[]}, permissions:{is_verified, can_browse_courses, can_join_courses, can_create_courses, school_has_grading_periods}}}` — the user's active courses+sections + capability flags. The cleanest JSON of the new set. |
+| `GET /home/upcoming_ajax`, `/home/upcoming_submissions_ajax`, `/home/overdue_submissions_ajax` | `{html:"…"}` rendered fragments — upcoming events / upcoming & overdue submissions (overdue empty when none). |
+| `GET /home/course_reminders_ajax`, `/course/{id}/course_reminders_ajax` | `{html}` reminder fragments (home-wide / per-course). |
+| `GET /home/feed`, `GET /user/{uid}/feed` | Recent-activity feed (Drupal AJAX-command JSON: `{output, js:{setting:{s_edge:{feed_url,…}}}}`). |
+| `GET /course/{id}/calendar_ajax` | JSON course-calendar payload. |
+| `GET /calendar/{uid}/{year}-{week}` | JSON calendar feed (e.g. `/calendar/114956593/2026-41`). |
+| `GET /alignment/browse` | `{html, data:[]}` — standards/objective alignment browser (data empty without query params). |
+| `GET /course/administrators_info` | `{data:[]}` — course administrators. |
+| `GET /update_post/{id}/show_more/{hash}` | JSON — expands a truncated feed post. |
+| `GET /enrollments/edit/invite/course/{id}` | JSON — enrollment-invite data. |
+
+HTML app-shells also seen (data loaded via sub-XHRs, not isolated): `/grades/grades`,
+`/gradebook` routes, `/home/course-dashboard`, `/home/recent-activity`, `/messages/view/{id}`,
+`/resources`, `/course/{id}/materials`, `/courses/browse`, `/courses/mycourses/past`.
+
+⚠️ **grep-js caveat:** the crawler's `--grep-js` returned **0** candidates this run — the React
+bundles are served from `asset-cdn.schoology.com` (cross-origin) and weren't fetched. Grepping
+those bundles for endpoint literals is unfinished (Frontier); the internal gradebook/rubric web
+routes (`/grades/*`, `/gradebook/*`) were **not** shape-probed and are an open question as a
+possible source for the rubric-criteria data the public `grading_rubrics` endpoint blocks (403).
+
 ## Standards-Based Grading (SBG) Findings
 
 ### How HKIS Uses Standards-Based Grading

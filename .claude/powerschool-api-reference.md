@@ -8,6 +8,7 @@ There are **two** independent ways into PowerSchool data:
 
 Last probed: 2026-04-05 (OAuth path, script: `test-powerschool-probe.js`)
 Session-auth path discovered: 2026-05-30 (via the Schoology "attendance" LTI app — resolves issue #43's "run a probe for this page" ask).
+Endpoint-discovery crawl: 2026-05-30 — captured the attendance LTI app's full `/ws/...` surface (incl. new `/ws/pt/v1/...` PowerTeacher API) and resolved #66; see "Endpoint-discovery crawl" below.
 
 ## Server Details
 
@@ -224,6 +225,60 @@ GET /teachers/alerts/aet_customalert_sf.html?frn=001{dcid}&mba_frn=001{dcid}&id=
 ⚠️ **Table-name gotcha:** the working table is **`U_DEF_EXT_STUDENTS`**, *not* the catalog's `student_field` prefix (`U_Students_Extension`) — the latter returns the icon but no value. Verified: Claire Tse (`frn=00138590`, `X_G2DECEASED`) → `1` (deceased Guardian 2 = true). Empty body = flag not set. Batch read also exists: `GET stuFieldValues.json?stuList={ids}&student_id={ids}&field1={f}&fieldTbl1={tbl}&table1={tbl}` (params per the plugin JS; finalize against a live call).
 
 **Implication (supersedes earlier "scrape HTML" framing):** most safeguarding/SEN flags are **structured `field: value` reads** (boolean-ish or short text), not brittle table-scraping. Only the `adv` popups (siblings/MAP/support-summary detail) are HTML tables. So the do-not-contact/deceased/divorced data (#66) is cleanly readable. Still session-auth (expires → re-login) and sensitive → human-implemented + feature-flagged (#65). OAuth `/ws/v1/` + PowerQuery remains the cleaner long-term source if credentials arrive. Tier A (`onTrack`, `enrolled`, enrollment dates, attendance tallies) needs none of this.
+
+### Endpoint-discovery crawl (2026-05-30): attendance-app surface + #66 resolution
+
+A read-only LTI-launch capture + grep of the attendance app's Angular bundle
+(`/scripts/sgy-att-scripts/main.*.js`, ~923 KB) surfaced the **full client-side endpoint
+surface of the Schoology→PowerSchool "attendance" LTI app**. Scope caveat: this is the
+*attendance integration's* surface only — a lower bound on PowerSchool's `/ws/`, not all of it.
+
+**Launch mechanism note:** the LTI run URL (`GET /apps/lti/4980125287/run/course/{sgySectionId}`)
+returns an auto-submitting form whose `action` is `https://powerschool.hkis.edu.hk/ltigw/launch`
+(`target=_self`). Under Playwright the inline auto-submit does **not** fire on `page.goto`; you
+must explicitly `document.forms[0].submit()`, then the top page navigates to PS and the app loads
+at `/integrations/attendance/index.html`. The embedded PS frame **detaches mid-loop** (playbook's
+iframe-fragility warning) — for multi-read sweeps, do an **independent `page.goto` per request**
+rather than reusing one frame (a shared-frame loop failed 5/6 reads; per-navigation got 6/6).
+
+**Confirmed firing on load (200, session-auth) — new this pass:**
+- `GET /ws/i18n/locale`, `GET /ws/i18n/formats`, `GET /ws/i18n/messageKeys?keys=...` — i18n bundles (low value)
+- `GET /ws/preferences/core/pref/{prefName}` — generic per-install preference read (seen: `gvu-teacherlogoff`)
+- `GET /public/pwteachers.html?redir=...` — teacher-portal entry; `GET /oidc/openid_connect_login` (302) — SSO hop
+
+(Plus already-documented: `/ws/attendance/section_info`, `/ws/attendance/section_attendance`,
+`POST /ws/schema/query/com.pearson.core.schools.grade_levels`, `POST /ws/pagecustomizations/insertions`,
+`POST /teachers/mba_alerts/queries/getStudentsInSection.json`.)
+
+**Referenced in the app bundle but NOT exercised on load (candidates — string literals, not yet shape-probed):**
+- `GET /ws/pt/v1/attendance/getattendance_integration` — modern single-section attendance read
+- `GET /ws/pt/v1/attendance/getattendanceformultisection` — multi-section attendance read
+- ⚠️ `POST /ws/pt/v1/attendance/saveattendance` and `/saveattendances` — attendance **writes** (relevant to #39; do **not** probe under the read-only policy)
+- `/ws/pt/v1/student/...` — student data (PT v1; PII — probe carefully)
+- `/ws/pt/v1/seating_chart/config/integration`, `/ws/pt/v1/seatingchart/objects/layout_integration/...`
+- `/ws/seatingchart/config`, `/ws/seatingchart/objects/layout/...`, `/ws/seatingchart/section/attendance`, `/ws/seatingchart/section/multi_section_attendance`, `/ws/seatingchart/section/section_info`
+- `GET /ws/preferences/core/user/pref/{prefName}` — per-user preference read
+- `GET /ws/session/last-hit`, `POST /ws/session/terminate-session` — session keep-alive / logout
+
+The `/ws/pt/v1/...` ("PowerTeacher v1") namespace is new here and is the modern read/write
+attendance API — likely a cleaner attendance source than the legacy `/ws/attendance/...` calls,
+pending shape probes.
+
+#### #66 resolution — "G1/G2 Correspondence" alerts are NOT per-guardian identities
+
+Verified via **GET-only** `aet_customalert_sf.html` reads (no POSTs): the three correspondence
+alerts — `G1 Correspondence` (32012479), `G2 Correspondence` (32012481), `G1&G2 Correspondence`
+(32012482) — **all reference the same single student-extension field, `X_HomeEmail`** (per the
+documented catalog above). They do **not** resolve distinct per-guardian identities; the
+G1/G2/G1&G2 distinction is encoded in each alert's trigger match against that one field's value,
+not via separate guardian records. Live reads of `U_DEF_EXT_STUDENTS.X_HomeEmail` (dcid 44467,
+2-guardian; dcid 38590 Claire Tse, G2 deceased) both returned 200 with a single, **heterogeneous,
+PII-bearing** value per student — so exact value decoding was left for a careful PII-safe pass.
+
+**Takeaway for Prism:** the genuinely *per-guardian* flags are the **paired** fields already in
+the catalog — `X_DNC_G1`/`X_DNC_G2` (do-not-contact) and `X_G1DECEASED`/`X_G2DECEASED` — not the
+Correspondence alerts. Distinct per-guardian *contact details* (names/emails) are not exposed by
+these alerts; they live in PowerSchool's guardian/contact tables (see Frontier).
 
 ### Relevance to other issues
 

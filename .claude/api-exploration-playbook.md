@@ -56,5 +56,10 @@ The same browser session from `mastery:login` authenticates B **and** D (shared 
 - The full set of internal Schoology `iapi`/`district_mastery` endpoints.
 - MBA `adv`-trigger alert detail popups (MAP, support summary) and the `stuFieldValues.json` batch read (params identified, not finalized).
 - Standard PowerSchool alerts (medical/health via `/ws/schema/query/...health...`).
+- **PowerSchool `/ws/pt/v1/...` (PowerTeacher v1) + `/ws/seatingchart/...`** — found as string literals in the attendance app bundle (2026-05-30 crawl); the modern attendance read API (`getattendance_integration`, `getattendanceformultisection`) and seating-chart endpoints are **not yet shape-probed**. `saveattendance(s)` are writes — out of scope. Also `/ws/pt/v1/student/...` (PII), `/ws/preferences/core/(user/)pref/{name}`, `/ws/session/*`.
+- **Schoology React bundles on `asset-cdn.schoology.com`** — the crawler's `--grep-js` fetched 0 (cross-origin); grepping these for endpoint literals is how the richer internal endpoints (gradebook/rubric/standards web routes) would surface. Not done.
+- **Schoology internal gradebook/rubric web routes** (`/grades/*`, `/gradebook/*` — currently only HTML shells observed) — not shape-probed; candidate alternative source for rubric criteria/ratings the public `grading_rubrics` (403) and `material-observations` cover.
+- **PowerSchool guardian/contact tables** — the per-guardian *identities/contact details* the #66 "Correspondence" alerts do NOT provide (those are a single `X_HomeEmail` field). `X_HomeEmail` value decoding also pending (PII-safe).
+- Other Schoology LTI apps beyond the attendance app (`/apps/...`); crawl pass 2 (course/section/groups/profile seeds) not run this session.
 
 When you extend any of these, append findings to the relevant `*-api-reference.md` and update the Frontier list here.

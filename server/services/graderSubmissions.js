@@ -18,14 +18,9 @@
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { buildSubmissionLookup } from '../lib/parseGraderHeaderData.js';
+import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
 
-const SCHOOLOGY_BASE = 'https://schoology.hkis.edu.hk';
 const STATE_FILE = join(process.cwd(), '.playwright-session', 'storage-state.json');
-
-function isLoggedInUrl(url) {
-  return url.includes('schoology.hkis.edu.hk') &&
-    !/\/login|\/saml|accounts\.google\.com|microsoftonline/.test(url);
-}
 
 /**
  * Create a submission-lookup fetcher backed by a single headless browser that

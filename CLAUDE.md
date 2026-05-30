@@ -65,6 +65,7 @@ npm run test:api   # Schoology API smoke test
 
 ## Key References
 
+- **How endpoints are discovered + the multi-surface architecture (read before any API spike)**: `.claude/api-exploration-playbook.md`. Core principle: a spike is a *lower bound*, not a conclusion — data visible in the UI is reachable, so if a probe didn't find it the wrong surface was tested. Scope every conclusion to the surface actually tested.
 - **Schoology API quirks, verified endpoints, and SBG findings**: `.claude/schoology-api-reference.md`
 - **PowerSchool API probe results and access plan**: `.claude/powerschool-api-reference.md`
 - **Build progress across all phases**: `.claude/build-progress.md`

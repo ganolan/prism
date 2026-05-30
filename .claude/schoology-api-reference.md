@@ -414,33 +414,63 @@ HTML app-shells also seen (data loaded via sub-XHRs, not isolated): `/grades/gra
 `/gradebook` routes, `/home/course-dashboard`, `/home/recent-activity`, `/messages/view/{id}`,
 `/resources`, `/course/{id}/materials`, `/courses/browse`, `/courses/mycourses/past`.
 
-### Three high-priority surfaces (probed 2026-05-30 — structure only, content not parsed)
+### Three high-priority surfaces (probed 2026-05-30; row structures parsed 2026-05-30 — PII-masked)
 
-Probed read-only for a teacher-workflow build. Verified signals (`/tmp` dump deleted; no PII recorded).
-⚠️ keyword signals are only trustworthy on isolated `{html}` *fragments* — full pages false-positive on nav chrome.
+Probed read-only for a teacher-workflow build. Captures are **value-masked** (tag/class/href skeletons only; no
+names/PII printed or persisted). ⚠️ keyword signals are only trustworthy on isolated `{html}` *fragments* — full
+pages false-positive on nav chrome.
 
-**1. User search (find people NOT in your sections) — WORKS TODAY.**
-`GET /search/user?s={query}&page={n}` → **200 text/html**, ~**20** `/user/{id}` results per page. Pagination:
-`page` absent = first 20; `page=1` = next page (verified: `s=liu` → 20 on page 0 + 8 on page 1 = 28 total;
-`s=maia` → 6). No JSON endpoint — parse `/user/{id}` (+ surrounding name/role markup) from the HTML and loop
-`page` until a short page. This is the only confirmed way to reach users outside your enrollments (public REST
-`/search` 403s; `/users` multi-get ignores filters). Each `/user/{id}` then joins to the documented profile/enrollment reads.
+**1. User search (find people NOT in your sections) — WORKS TODAY; row structure confirmed, buildable.**
+`GET /search/user?s={query}&page={n}` → **200 text/html**. **Page size = 10** results (`li.search-summary`) per page —
+*not* 20 (the earlier "20" was wrong). Pagination: `page` absent (or `page=0`) = first 10; `page=1` = next 10;
+out-of-range pages return **200 with 0 rows** (no error). Terminate when a page yields `< 10` rows. (Verified
+2026-05-30: `s=liu` → 10 + 4 = 14 total then page 2/3 empty; `s=chan` → 10/10/10/10 across pages 0–3, i.e. ≥40.)
+No JSON endpoint — parse the HTML. **Result-row structure (masked capture):**
 
-**2. Archived / past courses — partial (HTML works, clean JSON unconfirmed).**
-`GET /courses/mycourses/past` → **200 text/html** (~338 KB) containing **233 `/course/{id}` links** = the past-course
-list, server-rendered. So scraping that page yields the archived course inventory today. The page's only data XHR is
-`GET /iapi/course/active` (the *active*-courses JSON) — so past courses are likely either embedded in the page HTML or
-filtered client-side from a fuller payload; **a dedicated past-courses JSON endpoint was not found** (`/iapi/course/archived`
-and `/iapi/course/past` both 403 — wrong routes). Next: check whether `/iapi/course/active` actually includes past
-courses (a flag/param), else parse the HTML. Once you have a past `{course_id}`, the documented section-level reads should work against it.
+```
+li.search-summary > div.item.user-list-item
+  a[href="/user/{id}"] > … img.imagecache-profile_sm[src]      ← profile photo (may be a default/missing)
+  div.item-title  > a[href="/user/{id}"]                        ← display name (text) + user id (href)
+  div.item-info   > span.item-type                              ← role label (e.g. Parent / Student / Staff)
+                  > span.item-school > a[href="/{schoolId}"]    ← school name (text) + school id (href)
+  div.network-button-links > a.action-message[href="/messages/new/{id}"]
+```
 
-**3. Reminders pane (ungraded assignments + resubmissions) — SOURCE IDENTIFIED.**
-The home "Reminders" pane is `GET /home/course_reminders_ajax` → **200 JSON `{html}`** (~600-char fragment). On the
-isolated fragment, **both `resubmi*` and needs-grading keywords matched** (with 6 grade mentions) — i.e. this single
-fragment carries the ungraded-work + resubmission reminders the user wants to track. Companions: `GET /home/overdue_submissions_ajax`
-(`{html}`, empty when none), `GET /home/upcoming_submissions_ajax` (`{html}`, had an `/assignment/{id}` link). Next: parse
-the `course_reminders_ajax` fragment's structure (the reminder rows + their `/assignment/{id}` / `/course/{id}` links and
-counts) — content not yet captured (PII). This is a far cleaner signal than scraping the full `/home` page.
+Per result: user id from `.item-title a` href (`/user/(\d+)`), name from its text, role from `.item-type`, school from
+`.item-school a`. This is the only confirmed way to reach users outside your enrollments (public REST `/search` 403s;
+`/users` multi-get ignores filters). Browser-session auth (same Playwright session as mastery sync), not OAuth. Each
+`/user/{id}` then joins to the documented public profile read (`GET /v1/users/{uid}`, 200 via OAuth).
+
+**2. Archived / past courses — HTML parse confirmed; NO clean JSON exists; archived sections ARE API-readable.**
+`GET /courses/mycourses/past` → **200 text/html** (~338 KB). Verified structure: **45 `li.course-item.list-item`** rows
+(`id="course-{courseId}"`, `.course-title`, `.course-code`) containing **49 `div.section-item`**
+(`id="section-{sectionId}"` + view link `a[href="/course/{sectionId}"]`) — i.e. the archived inventory is
+**~45 courses / 49 sections**. (The earlier "233 `/course/{id}` links" was the *raw* action-link count — each section
+row carries ~5 admin links: edit / invite / members / link-existing / copy — not the course count.) **No JSON flag for
+past courses:** `GET /iapi/course/active` returns the *same* 9 courses / 10 sections under every variant tried
+(`?include_past=1`, `?past=1`, `?archived=1`, `?all=1`, `?show_past=1`) — so the active-courses JSON cannot be coaxed to
+include past courses; parse the HTML. **Section-level reads work on archived sections** (verified 2026-05-30, public
+OAuth): for 5 archived `{sectionId}` (all `active:0`), `GET /v1/sections/{id}`, `/assignments`, `/grades`,
+`/enrollments` all returned 200 with real data (one section: 12 assignments / 192 grades / 17 enrollments; an empty
+template section: 0 / 0 / 3). So once you scrape a past `{sectionId}`, all the normal Prism section reads apply (feeds #5).
+
+**3. Reminders pane (ungraded + resubmissions) — headline COUNTS captured; per-item drill-down deferred.**
+`GET /home/course_reminders_ajax` → **200 JSON `{html}`** (~598-byte fragment). Verified structure: two rows under
+`div.reminders-content`:
+- `div.ungraded-dropbox.reminder > span.reminder-link` — **ungraded work (#63)**; text is a headline count, observed
+  `"233 ungraded assignment submissions"`.
+- `div.ungraded-resubmissions.reminder > span.reminder-link` — **resubmissions (#49)**; observed `"29 re-submitted assignments"`.
+
+Each `span.reminder-link` has `href="home/reminders_list/{grade-item|resubmission}?get_selector=grade-item,resubmission"`
+(a click-to-open drill-in; `get_selector` is the static reminder-type list, **not** a per-row token). The reminder rows
+themselves carry **no** `/assignment/{id}` or `/course/{id}` links — just the count + the drill path. **Drill-down shape
+NOT parsed this pass:** `GET home/reminders_list/grade-item?get_selector=grade-item,resubmission` (and `…/resubmission`)
+returned **200 with a large non-`{html}` JSON payload** (28,386 / 6,730 top-level entries respectively — neither `{html}`
+nor `{output}`); its per-item shape (and any PII) was not characterized — capture it carefully in a dedicated pass before
+building the per-assignment breakdown. Companions: `GET /home/overdue_submissions_ajax` (`{html}`, empty body when none),
+`GET /home/upcoming_submissions_ajax` (`{html}`; `div.upcoming-event` rows with `a[href="/assignment/{id}"]` +
+`.event-title`). **Net for the build:** the two top-line counts are usable immediately from `course_reminders_ajax`; the
+per-assignment breakdown still needs the drill-down probe.
 
 **React-bundle literal-grep (2026-05-30).** The crawler's `--grep-js` returns **0** because the
 React bundles live on cross-origin `asset-cdn.schoology.com` (the crawler only fetches same-origin
@@ -461,7 +491,8 @@ above were found.
 Still open: the gradebook **grade grid HTML** wasn't reduced to its backing call (the per-cell grades
 live inside `grader_header_data.grades` + a separate grade-data POST not yet captured); the
 `/iapi/grades/rubric*` per-student rubric-score reads (need correct ids); the `/iapi2/common-assessments/*`
-and `/iapi2/learning-objectives` families.
+and `/iapi2/learning-objectives` families; the **`home/reminders_list/{grade-item,resubmission}` drill-down
+per-item shape** (large non-`{html}` JSON, 28k/6.7k entries — characterize before building the breakdown).
 
 ## Standards-Based Grading (SBG) Findings
 

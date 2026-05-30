@@ -13,3 +13,4 @@ data/imports/*.csv
 .playwright-mcp/
 scripts/*-capture.json
 .superpowers/
+_tmp_*.mjs

@@ -106,12 +106,20 @@ opened" *or* "submitted"** — Schoology's public API does not expose post-submi
 OneDrive/GDrive. `server/services/schoology.js` `getSubmissionStatus` disambiguates by grade-row
 presence, which leaves one case unresolved: **submitted + ungraded is indistinguishable from
 never-opened**. Same gap undercuts #49's resubmission auto-detect for LTI assignments — there is no
-visible post-submit revision to baseline against (`isResubmitted` / `latestRevisionAt`). Candidate
-internal sources that *may* carry the hidden submitted/ungraded signal (probe in progress — see "Three
-high-priority surfaces" #3): Schoology's own home reminders (`course_reminders_ajax` → "ungraded
-submissions" / "re-submitted assignments" + their `home/reminders_list/*` drill-downs) and the internal
-gradebook per-cell data (`/iapi/grades/grader_header_data/{sectionId}` + the uncaptured per-cell
-grade-data POST). Unverified until that probe lands — do not assume granularity.
+visible post-submit revision to baseline against (`isResubmitted` / `latestRevisionAt`).
+
+**RESOLVED (2026-05-30 probe): the internal gradebook bootstrap `GET /iapi/grades/grader_header_data/{sectionId}`
+exposes submission state per (student, assignment).** Each `body.grades[{enrollmentId}][{itemNid}]` cell carries an
+optional **`submission`** key: a non-null `submission` means a submission exists (**submitted** — present even for
+OneDrive/GDrive LTI, where the public revisions API is blind); a bare cell (`{uid, grade_item_nid}` only) means **not
+submitted / never opened**; a non-null `grade` means graded; `not_assigned` = individually not assigned (#54);
+`exception` = excused/missing/etc. Verified across 3 LTI-heavy sections that *submitted-but-ungraded* LTI cells genuinely
+occur (`submission` present, no `grade` — e.g. one APCSP LTI item had 18/28 cells in exactly that state; `hasGradeNull`
+was 0 everywhere, so "ungraded" = `grade` simply absent). `grade_item_data` carries `is_lti_assignment` + `option_dropbox`
+to isolate the dropbox/OneDrive items. The `submission` value is a short string whose exact meaning wasn't decoded
+(PII-safe pass) — presence vs absence is the reliable signal. The home reminders drill-down does **not** help here: it is
+per-assignment-with-counts only (no per-student rows — see "Three high-priority surfaces" #3). **One `grader_header_data`
+fetch per section is the clean fix** for the submitted-vs-never-opened display and for #49's LTI resubmission baseline.
 
 ### Course Endpoints
 
@@ -421,7 +429,7 @@ surface only — not exhaustive, and a *lower bound* (see grep-js caveat below).
 | `GET /update_post/{id}/show_more/{hash}` | JSON — expands a truncated feed post. |
 | `GET /enrollments/edit/invite/course/{id}` | JSON — enrollment-invite data. |
 | `GET /iapi/enrollment/member_enrollments/course/{sectionId}` | `{response_code, body:{<enrollmentId>:{id, uid, type, status, realm, realm_id, school_uid, school_nid, created, name_first, name_last, name_first_preferred, use_preferred_first_name, name, picture_fid, picture, …}}}` — section roster keyed by enrollment id. Includes `school_uid` (the PowerSchool join key `1_{dcid}`) and preferred-name fields. Fired when a course page loads. **Verified 200** (ACSS, 10 members). |
-| `GET /iapi/grades/grader_header_data/{sectionId}` | **Rich one-call gradebook bootstrap.** `{response_code, body:{ grade_item_nids[], uids[], grading_period, grading_periods[], grading_categories[], grading_groups[], grading_category_setting, user_data{<enrollmentId>:{enrollment_id, name, name_last_first, school_uid, picture, grades:{gp:{display,numeric,scaled}, overall:{display,numeric,scaled}, overall_override}}}, grade_item_data{<itemNid>:{id, title, category_title, scale_type, scale_title, max_points, grading_scale_id, grading_category_id, grading_period_id, use_district_mastery_grading, district_mastery_material_type, auto_publish_grades, …}}, grades{<enrollmentId>:{<itemNid>:{uid, grade_item_nid}}}, grading_scale{id, title, scale{0,12.5,37.5,62.5,87.5, averages{…}}, colors, description}, realm_settings, … }}` — per-student **overall + per-grading-period grade** (display/numeric/scaled), full assignment metadata incl. the district-mastery flags, and the grading-scale level map, in a single fetch. **Verified 200** (ACSS: 26 items × 10 students). |
+| `GET /iapi/grades/grader_header_data/{sectionId}` | **Rich one-call gradebook bootstrap.** `{response_code, body:{ grade_item_nids[], uids[], grading_period, grading_periods[], grading_categories[], grading_groups[], grading_category_setting, user_data{<enrollmentId>:{enrollment_id, name, name_last_first, school_uid, picture, grades:{gp:{display,numeric,scaled}, overall:{display,numeric,scaled}, overall_override}}}, grade_item_data{<itemNid>:{id, title, category_title, scale_type, scale_title, max_points, grading_scale_id, grading_category_id, grading_period_id, use_district_mastery_grading, district_mastery_material_type, auto_publish_grades, …}}, grades{<enrollmentId>:{<itemNid>:{uid, grade_item_nid, grade?, submission?, exception?, comment?, not_assigned?}}}, grading_scale{id, title, scale{0,12.5,37.5,62.5,87.5, averages{…}}, colors, description}, realm_settings, … }}` — per-student **overall + per-grading-period grade** (display/numeric/scaled), full assignment metadata incl. the district-mastery flags, and the grading-scale level map, in a single fetch. **Verified 200** (ACSS: 26 items × 10 students). **Per-cell submission state (verified 2026-05-30):** a non-null **`submission`** key = student has submitted (present even for OneDrive/GDrive LTI, where the public revisions API is blind); a bare `{uid, grade_item_nid}` cell = not submitted / never opened; non-null `grade` = graded; `not_assigned`/`exception` as named. `grade_item_data` also carries `is_lti_assignment`, `option_dropbox`, `status`, `has_assessment` — use these to isolate dropbox/OneDrive items. Together these close the public API's submitted-vs-never-opened gap (see the `lti_submission` note under Submissions & Comments). |
 | `GET /iapi/grades/all_rubrics/course/{sectionId}` | **Classic-rubric criteria + ratings — a workaround for the 403-blocked public `grading_rubrics`.** Verified shape (PII-free; rubric *definitions*): `{response_code, body:{<rubricId>:{id, created, created_by, title, total_points, realm, realm_id, is_tracked, rows:[{id, is_published, term_id, guid, title, description, columns:[{pts, description}], max_points, weight}], num_assigned_gi, num_printed_gi}}}` — `rows[]` = criteria, `rows[].columns[]` = rating levels (each just `{pts, description}` — the point value + the level's text; one APCSP rubric had 4 columns). **Verified:** APCSP (`7899896088`) → **27 rubrics, populated**; the SBG/district-mastery sections (ACSS/AIML/MAD/Robotics) return `body:[]` (empty) because they grade via measurement topics, not classic rubrics. ⚠️ Section-id in the **path** (`/course/{id}`); the bare `/all_rubrics/{id}` form 500s. See SBG section for why this matters. |
 
 HTML app-shells also seen (data loaded via sub-XHRs, not isolated): `/grades/grades`,
@@ -481,13 +489,18 @@ template section: 0 / 0 / 3). So once you scrape a past `{sectionId}`, all the n
 Each `span.reminder-link` has `href="home/reminders_list/{grade-item|resubmission}?get_selector=grade-item,resubmission"`
 (a click-to-open drill-in; `get_selector` is the static reminder-type list, **not** a per-row token). The reminder rows
 themselves carry **no** `/assignment/{id}` or `/course/{id}` links — just the count + the drill path. **Drill-down shape
-NOT parsed this pass:** `GET home/reminders_list/grade-item?get_selector=grade-item,resubmission` (and `…/resubmission`)
-returned **200 with a large non-`{html}` JSON payload** (28,386 / 6,730 top-level entries respectively — neither `{html}`
-nor `{output}`); its per-item shape (and any PII) was not characterized — capture it carefully in a dedicated pass before
-building the per-assignment breakdown. Companions: `GET /home/overdue_submissions_ajax` (`{html}`, empty body when none),
+(verified 2026-05-30):** `GET home/reminders_list/grade-item?get_selector=grade-item,resubmission` (and `…/resubmission`)
+returns **200 with a JSON-encoded HTML *string*** — a bare JSON string, not `{html}`/`{output}` (that's why an earlier
+pass mis-read its length, 28,386 / 6,730 chars, as "entries": `Object.keys()` on the parsed string gave char indices).
+Parsed, it is a **per-assignment list**: rows of `a.list-item-link[href="/assignment/{id}/info"]` →
+`span.reminder-list-count` (the count) + `.reminder-list-title` + course title. **No per-student rows** (0 `/user/` links,
+no data-student attrs) — so it yields assignment-level ungraded / resubmission counts (39 assignments ungraded, 9
+resubmitted at probe time), **not** which students. For per-student submission status use `grader_header_data` (see the
+`lti_submission` note under Submissions & Comments). Companions: `GET /home/overdue_submissions_ajax` (`{html}`, empty body when none),
 `GET /home/upcoming_submissions_ajax` (`{html}`; `div.upcoming-event` rows with `a[href="/assignment/{id}"]` +
-`.event-title`). **Net for the build:** the two top-line counts are usable immediately from `course_reminders_ajax`; the
-per-assignment breakdown still needs the drill-down probe.
+`.event-title`). **Net for the build:** `course_reminders_ajax` gives the two top-line counts and the drill-downs give
+per-assignment counts (feeds #63 / #49 at the assignment level); **per-student** submission status comes from
+`grader_header_data`'s per-cell `submission` key, not from these reminder fragments.
 
 **React-bundle literal-grep (2026-05-30).** The crawler's `--grep-js` returns **0** because the
 React bundles live on cross-origin `asset-cdn.schoology.com` (the crawler only fetches same-origin
@@ -505,11 +518,13 @@ noise. **Net:** bundle grep here is a *strong* signal for `/iapi(2)/...` routes 
 shape-probe per route (some need POST/CSRF or specific ids). This is how the rubric/gradebook endpoints
 above were found.
 
-Still open: the gradebook **grade grid HTML** wasn't reduced to its backing call (the per-cell grades
-live inside `grader_header_data.grades` + a separate grade-data POST not yet captured); the
-`/iapi/grades/rubric*` per-student rubric-score reads (need correct ids); the `/iapi2/common-assessments/*`
-and `/iapi2/learning-objectives` families; the **`home/reminders_list/{grade-item,resubmission}` drill-down
-per-item shape** (large non-`{html}` JSON, 28k/6.7k entries — characterize before building the breakdown).
+Now characterized (2026-05-30): `grader_header_data.grades` per-cell shape carries
+`grade`/`submission`/`exception`/`comment`/`not_assigned` (the gradebook per-cell state — a separate
+grade-data POST may add further detail, but the core state incl. submission presence is here); and the
+`home/reminders_list/{grade-item,resubmission}` drill-down is a JSON-string per-assignment count list.
+Still open: the `/iapi/grades/rubric*` per-student rubric-score reads (need correct ids); the
+`/iapi2/common-assessments/*` and `/iapi2/learning-objectives` families; decoding the `submission`
+string value (status/timestamp?) — presence/absence works today, but its contents would sharpen #49.
 
 ## Standards-Based Grading (SBG) Findings
 

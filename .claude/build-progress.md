@@ -136,6 +136,36 @@ Comprehensive probing of ~40+ Schoology API endpoint patterns. Key findings:
 - count_in_grade: does not affect mastery calculation which determines final grades
 - Folder grouping in UI: folder structure used only for ordering, not visual grouping
 
+## OneDrive/GDrive Submission Badges (#62) + Gradebook Pre-filter (#55) — COMPLETE (2026-05-31)
+
+The public revisions API (`/sections/{id}/submissions/{aid}/{uid}`) can't tell "submitted, awaiting
+grade" from "never opened" for `lti_submission` (OneDrive/GDrive) dropbox assignments — both return an
+empty revision array. Schoology's internal gradebook bootstrap closes the gap.
+
+- **Endpoint**: `GET /iapi/grades/grader_header_data/{sectionId}` (browser session, one call/section).
+  Verified shape (2026-05-31): `body.grades[{uid}][{gradeItemId}]` cells; a non-null `submission`
+  (enum `"drop"`/`"assessment"`) = submitted. Outer key = uid (= `enrollment.uid`); inner key =
+  grade-item id = public `assignment.id` (= `schoology_assignment_id`). See schoology-api-reference.md
+  (the keying there was corrected — it had said enrollmentId/itemNid).
+- **Parser**: `server/lib/parseGraderHeaderData.js` (pure, TDD — `parseGraderHeaderData` +
+  `buildSubmissionLookup`; 11 tests).
+- **Service**: `server/services/graderSubmissions.js` — `createSubmissionFetcher()` reuses one headless
+  browser across the sync; best-effort (returns null with no session → public-API-only fallback, never
+  throws into the sync).
+- **Schema**: `grades.submission_type TEXT` (NULL = no positive signal / outside the grading period
+  grader_header_data returns; `"drop"`/`"assessment"` = submitted). Migration + schema.sql.
+- **Sync wiring** (`syncSectionData`): GHD lookup injected via `opts.fetchSubmissionLookup`, created
+  once in `fullSync`. #62 — a GHD "submitted" cell upserts `submission_type` (inserting the row if
+  needed, so submitted-but-ungraded OneDrive surfaces). #55 — a GHD "not submitted" (bare) cell SKIPS
+  the rate-limited public revisions call (counted as `submissionSkipped`). Cells GHD doesn't cover fall
+  back to the public API and leave `submission_type` untouched.
+- **Badge**: `submissionStatus()` (client `gradeLabel.js`) treats `submission_type` as the authoritative
+  "Submitted" signal, with `submitted_at>0` as fallback. Exposed via `courses.js` gradebook +
+  `students.js`; CoursePage/StudentPage call sites pass it through. (4 sync tests + client
+  `gradeLabel.test.js`.)
+- **Still open**: #53 OneDrive resubmission *timing* — `submission` is a type enum with no timestamp;
+  the per-cell grade-data POST behind the grid remains the lead.
+
 ## UI Theme Redesign — COMPLETE (2026-04-04)
 
 Merged via PR #2.

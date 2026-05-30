@@ -508,7 +508,7 @@ function RubricModal({ student, assignment, courseId, topics, comment, grade, on
   // Submission state + flags, shown above the rubric — matching the /student/ page.
   const status = submissionStatus({
     score: grade.score, exception: grade.exception, late: grade.late,
-    draft: grade.draft, submitted_at: grade.submitted_at, due_date: assignment.due_date,
+    draft: grade.draft, submitted_at: grade.submitted_at, submission_type: grade.submission_type, due_date: assignment.due_date,
   });
   const flags = [
     ...(grade.review_needed || []).map(f => ({ ...f, flag_type: 'review_needed' })),
@@ -909,7 +909,7 @@ function GradebookView({ data, courseId, mastery }) {
                       : text);
                 const status = submissionStatus({
                   score: g.score, exception: g.exception, late: g.late, draft: g.draft,
-                  submitted_at: g.submitted_at, due_date: a.due_date,
+                  submitted_at: g.submitted_at, submission_type: g.submission_type, due_date: a.due_date,
                 });
                 // Don't double up exception text — gradeLabel already shows it.
                 const inlineBadges = status.filter(b => b.kind !== 'exception');

@@ -34,19 +34,24 @@ const EXCEPTION_LABELS = {
 //     "Not Started" when there is no submission revision (no grade row).
 //   - For ungraded future-due work: "Draft" alone if in progress, otherwise no badge.
 //
-// `submitted_at` is Schoology's grade-row timestamp (Unix seconds). It flips
-// from 0 to a real time when a submission/grade event occurs — empirically the
-// only signal that distinguishes "submitted, awaiting grade" from "never
-// opened" for OneDrive/GDrive lti_submission assignments where the
-// /submissions endpoint returns an empty revision array in both cases.
+// Submission signal, in order of authority:
+//   • `submission_type` (#62) — set from Schoology's internal gradebook
+//     (grader_header_data) when a submission exists. This is the ONLY reliable
+//     signal for OneDrive/GDrive (lti_submission) dropbox work, where the public
+//     /submissions endpoint returns an empty revision array whether the student
+//     submitted or never opened it. "drop" = file dropbox, "assessment" =
+//     Schoology assessment. Non-null ⇒ submitted.
+//   • `submitted_at` — Schoology's grade-row timestamp (Unix seconds); flips
+//     from 0 to a real time on a submission/grade event. Kept as a fallback for
+//     rows the internal gradebook didn't cover (e.g. outside its grading period).
 //
 // State table:
-//   score != null                                → graded
-//   submitted_at > 0 && score == null            → "Submitted" (awaiting grade)
-//   draft = 1                                    → "In Progress"
-//   submitted_at == 0 && !draft && past due      → "Missing • Not Started"
-//   submitted_at == 0 && !draft && !past due     → no badge
-export function submissionStatus({ score, exception, late, draft, submitted_at, due_date, today = new Date() }) {
+//   score != null                                          → graded
+//   (submission_type != null || submitted_at > 0) && !score → "Submitted" (awaiting grade)
+//   draft = 1                                               → "In Progress"
+//   not submitted && !draft && past due                    → "Missing • Not Started"
+//   not submitted && !draft && !past due                   → no badge
+export function submissionStatus({ score, exception, late, draft, submitted_at, submission_type, due_date, today = new Date() }) {
   const exLabel = EXCEPTION_LABELS[exception];
   if (exception && exception !== 4 && exLabel) {
     const tone = exception === 1 ? 'blue' : 'red';
@@ -58,7 +63,9 @@ export function submissionStatus({ score, exception, late, draft, submitted_at, 
   const past = isPastDue(due_date, today);
   const ungraded = score == null;
 
-  const submitted = Number(submitted_at) > 0;
+  // submission_type (internal gradebook, #62) is authoritative; submitted_at is
+  // the fallback for cells it didn't cover.
+  const submitted = !!submission_type || Number(submitted_at) > 0;
 
   if (ungraded && submitted) {
     badges.push({ kind: 'submitted', label: 'Submitted', tone: 'blue' });

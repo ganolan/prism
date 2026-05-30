@@ -192,15 +192,38 @@ rather than storing a `grad_year` that silently goes stale at year rollover.
 
 ### Student alerts & custom-alert popups (probed 2026-05-30, for #65)
 
-The per-student alert icons in the attendance grid (Siblings, MAP, Student Support Summary, Accommodation Plan/SPP, correspondence, absence) are **not** clean JSON — they come from PowerSchool's **MBA custom-alerts plugin** (`aet_customalert`):
+The per-student alert icons in the attendance grid come from PowerSchool's **MBA custom-alerts plugin** (`aet_customalert`), whose client API lives under `/teachers/mba_alerts/queries/`. (Note: `section_attendance.studentAlerts` is a *different*, standard alert channel — empty for these students — and `getStudentsInSection.json` returns only the roster.) The plugin JS (loaded via `/ws/pagecustomizations/insertions`) is the map.
 
-- `section_attendance`'s own `studentAlerts` field is a *different*, standard alert channel — it was `{}`/`[]` (empty) here, not the custom icons.
-- `POST /teachers/mba_alerts/queries/getStudentsInSection.json` (form-encoded `sectionIds={sectionDcid}`) returns the **roster only** — `{ ccid, sectionid, lastfirst, studentid, studentdcid }` — **not** the per-student alert set. No endpoint found that returns "which alerts fire per student" as JSON.
-- The alert **detail** is HTML-only: `GET /teachers/alerts/aet_customalert_custompopup.html?url=mbapop_{type}.html&frn=001{dcid}&studentid={studentId}` returns a small HTML `<table>` (e.g. siblings → rows linking to each sibling's `students/home.html?frn=...`). Confirmed for `mbapop_sibling.html`; the same wrapper serves `mbapop_nwea_map` (MAP), `mbapop_studentsupportsummary`, `mbapop_spp` (Accommodation Plan, field `X_SPP`), `mbapop_emailcorr` (`X_HomeEmail`), `mbapop_attendance`.
+**Full alert catalog — one call, no inference needed:**
+`POST /teachers/mba_alerts/queries/getAlertTypes.json` (form `disabled=0&student_schoolid=40`) returns the **complete catalog of every configured alert** (HS = school 40). Returned **31 definitions** (a trailing meta element is popped by the client). Each def: `id`, `name`, `trigger_type`, `student_field`, `ext_table_name`, `icon`, `stub_url`, operators, `sort_order`. Three trigger types:
+- `sf` (student-field-value, 20) — reads a field on the student extension table; **this is where the safeguarding flags live**.
+- `adv` (advanced query, 10) — e.g. Absence Alerts, MAP, Siblings, Student Support Summary (HTML popup templates `mba_*.html` / `*.html`).
+- `man` (manual, 1) — Early Dismissal.
 
-**Implication:** surfacing Tier B (flag badges) or Tier C (detail) via this session path means **scraping HTML** and/or replicating alert-trigger logic — brittle, and the content is sensitive (SEN/test/safeguarding data). The clean long-term alternative for these specific fields (`X_SPP`, `X_HomeEmail`, MAP results, demographics) is the **OAuth-2 `/ws/v1/` plugin API + PowerQuery** (still needs admin credentials).
+**High-value `sf` fields (the catalog):**
 
-**Product decision (#65):** scraping is nonetheless an **accepted opt-in fallback** despite the brittleness, because the data is high-value and changes rarely. The motivating case is **parent-contact guidance** — flags like deceased / divorced / "do not contact this parent" / custody situations, which are hard to determine via Schoology but very valuable neatly presented in Prism's consolidated student profile (directly serves #42). Plan: a new opt-in toggle on the Schoology sync feature that scrapes these popups, caches with a "last scraped" timestamp, and labels the data in-UI as unofficial/possibly-stale. Treat as human-implemented + feature-flagged given the safeguarding/SEN sensitivity. OAuth remains the cleaner path when credentials arrive; scraping is the pragmatic interim. Tier A (`onTrack`, `enrolled`, enrollment dates, attendance tallies) remains the clean win that needs no scraping.
+| Alert | Field | Alert id |
+|---|---|---|
+| Do Not Contact Guardian 1 / 2 | `X_DNC_G1` / `X_DNC_G2` | 10672509 / 10672510 |
+| Deceased Guardian 1 / 2 | `X_G1DECEASED` / `X_G2DECEASED` | 10593864 / 10733416 |
+| Divorced | `X_G1G2Relationship` | 10593857 |
+| G1 / G2 / G1&G2 Correspondence | `X_HomeEmail` | 32012479 / 32012481 / 32012482 |
+| Accommodation Plan (SPP) | `X_SPP` | 10593860 |
+| Individual Learning Plan | `X_ILP` | 10593859 |
+| Learning Support Level 1/2/3 | `X_LS_SUPPORT_LEVEL` | 10593862/61/63 |
+| Allergies / EpiPen / Missing Health Form | `X_ALLERGYCNF` / `X_ALLERGYEPI` / `X_MedicalConfirm` | — |
+| No Photo (publicity) | `X_PublicityNotice` | 10593856 |
+| Elevator / Library / AQHI | `X_ELEVATORALERT` / `X_LIBRARYALERT` / `X_APIABOVE100` | — |
+
+**Reading an `sf` field value (confirmed end-to-end):**
+```
+GET /teachers/alerts/aet_customalert_sf.html?frn=001{dcid}&mba_frn=001{dcid}&id={alertId}
+    &student_field=U_DEF_EXT_STUDENTS.{FIELD}&tableName=U_DEF_EXT_STUDENTS
+→ HTML: "{Student Name}  U_DEF_EXT_STUDENTS.{FIELD}: {value}"   (parse after the last ': ')
+```
+⚠️ **Table-name gotcha:** the working table is **`U_DEF_EXT_STUDENTS`**, *not* the catalog's `student_field` prefix (`U_Students_Extension`) — the latter returns the icon but no value. Verified: Claire Tse (`frn=00138590`, `X_G2DECEASED`) → `1` (deceased Guardian 2 = true). Empty body = flag not set. Batch read also exists: `GET stuFieldValues.json?stuList={ids}&student_id={ids}&field1={f}&fieldTbl1={tbl}&table1={tbl}` (params per the plugin JS; finalize against a live call).
+
+**Implication (supersedes earlier "scrape HTML" framing):** most safeguarding/SEN flags are **structured `field: value` reads** (boolean-ish or short text), not brittle table-scraping. Only the `adv` popups (siblings/MAP/support-summary detail) are HTML tables. So the do-not-contact/deceased/divorced data (#66) is cleanly readable. Still session-auth (expires → re-login) and sensitive → human-implemented + feature-flagged (#65). OAuth `/ws/v1/` + PowerQuery remains the cleaner long-term source if credentials arrive. Tier A (`onTrack`, `enrolled`, enrollment dates, attendance tallies) needs none of this.
 
 ### Relevance to other issues
 

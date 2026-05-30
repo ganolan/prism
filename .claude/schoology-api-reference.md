@@ -116,10 +116,16 @@ submitted / never opened**; a non-null `grade` means graded; `not_assigned` = in
 `exception` = excused/missing/etc. Verified across 3 LTI-heavy sections that *submitted-but-ungraded* LTI cells genuinely
 occur (`submission` present, no `grade` — e.g. one APCSP LTI item had 18/28 cells in exactly that state; `hasGradeNull`
 was 0 everywhere, so "ungraded" = `grade` simply absent). `grade_item_data` carries `is_lti_assignment` + `option_dropbox`
-to isolate the dropbox/OneDrive items. The `submission` value is a short string whose exact meaning wasn't decoded
-(PII-safe pass) — presence vs absence is the reliable signal. The home reminders drill-down does **not** help here: it is
-per-assignment-with-counts only (no per-student rows — see "Three high-priority surfaces" #3). **One `grader_header_data`
-fetch per section is the clean fix** for the submitted-vs-never-opened display and for #49's LTI resubmission baseline.
+to isolate the dropbox/OneDrive items. **The `submission` value is a short enum naming the submission *type*** — decoded
+2026-05-30 as `"drop"` (file dropbox: OneDrive / GDrive / upload) and `"assessment"` (Schoology assessment) — **not a
+timestamp**, so its *presence* (not its value) is the submitted signal. Note `submission` and `grade` are independent: a
+cell can carry a `grade` with **no** `submission` (manually-entered / non-dropbox grades — 41 / 40 / 2 such cells across
+the 3 sections). The home reminders drill-down does **not** help here: it is per-assignment-with-counts only (no
+per-student rows — see "Three high-priority surfaces" #3). **One `grader_header_data` fetch per section is the clean fix
+for the submitted-vs-never-opened display** (#62), and a bulk pre-filter to skip the expensive per-(assignment,student)
+submission-status calls for never-submitted cells (#55). ⚠️ It does **not** solve resubmission *timing*: `submission` has
+no timestamp, so #49/#53's OneDrive resubmission detection still needs a time-bearing source (the public revisions API
+hides post-submit OneDrive revisions; the uncaptured per-cell grade-data POST is the remaining lead).
 
 ### Course Endpoints
 
@@ -523,8 +529,10 @@ Now characterized (2026-05-30): `grader_header_data.grades` per-cell shape carri
 grade-data POST may add further detail, but the core state incl. submission presence is here); and the
 `home/reminders_list/{grade-item,resubmission}` drill-down is a JSON-string per-assignment count list.
 Still open: the `/iapi/grades/rubric*` per-student rubric-score reads (need correct ids); the
-`/iapi2/common-assessments/*` and `/iapi2/learning-objectives` families; decoding the `submission`
-string value (status/timestamp?) — presence/absence works today, but its contents would sharpen #49.
+`/iapi2/common-assessments/*` and `/iapi2/learning-objectives` families. (The `submission` value is now
+decoded — a type enum `drop`/`assessment`, **not** a timestamp — so it gives submission *existence* but
+no resubmission *timing*; OneDrive resubmission timing still needs another source, e.g. the uncaptured
+per-cell grade-data POST — see #53.)
 
 ## Standards-Based Grading (SBG) Findings
 

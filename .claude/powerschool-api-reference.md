@@ -250,33 +250,28 @@ rather than reusing one frame (a shared-frame loop failed 5/6 reads; per-navigat
 `POST /ws/schema/query/com.pearson.core.schools.grade_levels`, `POST /ws/pagecustomizations/insertions`,
 `POST /teachers/mba_alerts/queries/getStudentsInSection.json`.)
 
-**Shape-probed & confirmed working (2026-05-30, GET):**
+**`/ws/pt/v1/attendance/getattendance_integration` — endpoint LIVE, correct params NOT yet found (2026-05-30).**
 
-`GET /ws/pt/v1/attendance/getattendance_integration?sectionid={sectionDcid}&date={YYYY-MM-DD}` → **200**.
-Params learned from the app bundle (`method:"GET",params:["sectionid","date"]`) — note `sectionid`
-takes the **sectionDcid** (e.g. 49390), and `date` is a **single day** (not a range). Wrong param
-names 400 with a helpful `{"message":"Required request parameter 'sectionid'..."}`. This is a
-**richer, single-call attendance source than the legacy `/ws/attendance/section_attendance`** — it
-bundles the roster, the per-student codes, AND the code catalog. Masked response shape:
+⚠️ *Correction:* an earlier revision of this doc documented a rich `attendance_data`/`students`/`attendance_codes`
+response shape for this endpoint. **That shape was never observed and has been removed as fabricated.** What is
+actually verified:
 
-```
-{
-  attendance_data: [{ ccid, studentsdcid, attendance: [{ ddaid, att_code, att_comment }] }],  // per-student marks for the date
-  students:        [{ studentid, studentsdcid, lastfirst, gender, grade_level, dob, enroll_status }],  // 25 rows; ⚠️ dob = date-of-birth (PII)
-  attendance_codes:[{ id, att_code, description, code_type, presence_status_cd }],  // 8 — the CODE CATALOG (what each code means; new vs legacy endpoint)
-  sections:        [{ ccid, psm_sectionid, sectionid, termid }],                    // section identity mapping
-  ddas: …, period_attendance_allowed: …
-}
-```
+- The endpoint exists and the PS session reaches it (a known-good legacy `section_info` call returned 200 in the
+  same probe, so the session is fine).
+- With `Accept: application/json`, every param variant tried returned **409** `{"ErrorMessage":{"message":"Invalid sectionId: 0"}}`
+  — i.e. the server parsed **none** of `sectionid` / `sectionDcid` / `section_id` as the section, defaulting to 0.
+  (Without the Accept header it 500s with a serialization error — a content-negotiation quirk, not success.)
+- So the bundle literals (`params:["sectionid","date"]` was an *inference* from nearby code, not a confirmed
+  signature) do **not** map cleanly to a working query. The real call almost certainly resolves the section from
+  a different param or from session/launch context (like the legacy `/ws/attendance/...` did with `userDcid`).
 
-Key wins over legacy: (1) `attendance_codes` catalog lets you interpret `att_code` values + their
-`presence_status_cd` without hardcoding; (2) `att_comment` per mark; (3) `students[].grade_level`
-(alt to the legacy roster). `studentsdcid` joins to Prism the same way (`school_uid = "1_" + dcid`).
-⚠️ `students[].dob` is new PII — exclude unless explicitly needed. Single-day only, so range tallies
-still need either the legacy `section_attendance` (server-summed `studentAbsentCount`) or a per-day loop.
+**To finish:** capture the app's *actual* `getattendance_integration` request from the live attendance grid
+(it only fires when the grid renders for an in-session date) rather than reconstructing it — that will reveal the
+true param name/value and the real response shape. Until then, the **legacy `/ws/attendance/section_attendance`
+remains the only confirmed-working attendance read.**
 
-- `GET /ws/pt/v1/attendance/getattendanceformultisection?sectionid={dcid}&date={YYYY-MM-DD}` — same param shape (`sectionid`,`date`); multi-section variant, not separately shape-probed (likely same row schema across sections).
-- ⚠️ `POST /ws/pt/v1/attendance/saveattendance` and `/saveattendances` — attendance **writes** (the write path #39 needs; do **not** probe under the read-only policy).
+- `GET /ws/pt/v1/attendance/getattendanceformultisection` — same family, same unknown param mapping; not probed further.
+- ⚠️ `POST /ws/pt/v1/attendance/saveattendance` and `/saveattendances` — attendance **writes** (the write path #39 needs; not probed, read-only policy).
 
 **Referenced in the app bundle but NOT exercised on load (candidates — string literals, not yet shape-probed):**
 - `/ws/pt/v1/student/...` — student data (PT v1; PII — probe carefully)

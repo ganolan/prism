@@ -141,6 +141,24 @@ GET https://powerschool.hkis.edu.hk/ws/attendance/section_attendance
 Grade-level *definitions* (not per-student) come from
 `POST /ws/schema/query/com.pearson.core.schools.grade_levels` → `{ record: [{ grade_level, grade_text }] }`.
 
+### Attendance tallies (`studentAbsentCount` / `studentTardyCount`)
+
+Confirmed 2026-05-30. Both are per-student maps keyed by `studentId`, **scoped to the queried
+`startDate`..`endDate`** — PowerSchool sums them server-side, so a wide range returns per-student
+absence & tardy totals in a single call (no client-side aggregation):
+
+| Range | Meeting days | Absences (students / total) | Tardies (students / total) |
+|---|---|---|---|
+| single day | 1 | 3 / 3 | 0 / 0 |
+| spring term | 38 | 13 / 45 | 2 / 2 |
+| full year | 74 | 14 / 86 | 4 / 8 |
+
+Empty maps just mean zero-in-range (e.g. first week of school, or a single day with no tardies — which
+is what made an earlier single-day probe look "empty"). Per-day detail is in `meetingAttendance[].code`
+(`L`/`A`/`X` count as absences, `M1` does **not**, blank = present). These tallies are **per-section**
+(per class meeting) — the right scope for a per-course view; a whole-school-day total would need a
+different source.
+
 ### Step 4 — Join PowerSchool → Prism students
 
 **The join is deterministic.** Schoology's enrollment `school_uid` is literally `1_{PowerSchool dcid}`:

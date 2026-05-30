@@ -154,5 +154,10 @@ calling this once per selected section, sequentially, with a live progress count
 - A **server-side bulk import endpoint** (rejected — Approach A keeps import per-section
   for resilience and progress).
 - **Re-syncing** imported past courses (not needed — immutable).
+- **Mastery (SBG) sync for past courses.** Import pulls the public-API gradebook only
+  (`syncSectionData`); it does not run the browser-based mastery sync. Mastery remains
+  opt-in via the dialog's existing Step 2 "Archived courses" group for anyone who wants
+  it. (Caveat: whether Schoology's internal mastery API even returns data for
+  past/archived sections is **unverified** — not probed.)
 - **Removing the inert "Include archived" toggle** — confirmed effectively dead given
   `archived = past`, but treated as a separate follow-up cleanup, not bundled here.

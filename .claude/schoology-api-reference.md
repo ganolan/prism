@@ -406,16 +406,30 @@ surface only — not exhaustive, and a *lower bound* (see grep-js caveat below).
 | `GET /course/administrators_info` | `{data:[]}` — course administrators. |
 | `GET /update_post/{id}/show_more/{hash}` | JSON — expands a truncated feed post. |
 | `GET /enrollments/edit/invite/course/{id}` | JSON — enrollment-invite data. |
+| `GET /enrollments/{enrollmentId}/limited_gradebook_session` | `{response_code, body:{can_edit, can_view, is_limited}}` — gradebook permission/limited-session bootstrap. Fired when the gradebook grid loads. |
+| `GET /gradebook/{sectionId}/visualization_data?enrollment_id={eid}` | `{response_code, body:{<enrollmentId>:{period:[{id,title,data:[{category_id, category_title, grade, max_points, pct}]}]}}}` — **per-student, per-grading-period, per-category grade breakdown with percentages** (the data behind the gradebook visualization chart). ⚠️ Returned **all** enrollments' data (5 keys) despite passing a single `enrollment_id` — the param appears ignored; it returns the whole section. A clean internal source for category-level (formative/summative) rollups per period. |
 
 HTML app-shells also seen (data loaded via sub-XHRs, not isolated): `/grades/grades`,
 `/gradebook` routes, `/home/course-dashboard`, `/home/recent-activity`, `/messages/view/{id}`,
 `/resources`, `/course/{id}/materials`, `/courses/browse`, `/courses/mycourses/past`.
 
-⚠️ **grep-js caveat:** the crawler's `--grep-js` returned **0** candidates this run — the React
-bundles are served from `asset-cdn.schoology.com` (cross-origin) and weren't fetched. Grepping
-those bundles for endpoint literals is unfinished (Frontier); the internal gradebook/rubric web
-routes (`/grades/*`, `/gradebook/*`) were **not** shape-probed and are an open question as a
-possible source for the rubric-criteria data the public `grading_rubrics` endpoint blocks (403).
+**React-bundle literal-grep — negative finding (2026-05-30).** The crawler's `--grep-js` returns
+**0** because the React bundles live on cross-origin `asset-cdn.schoology.com`. Fetching them
+directly (public CDN, no auth) and grepping the 8 `react-common/*` + `common-*` bundles yielded
+~47 route-shaped literals (e.g. `/course/{id}/student_grades.json`, `/competencies/{id}/rubrics.json`,
+`/iapi2/sections/{id}/grade-data`, `/iapi/course/{id}/grades`, `/course/{id}/members.json`). **All
+16 probed returned 404** (`text/html` error pages) on this instance — they are **generic Schoology
+SDK route templates, not live HKIS routes** (assembled differently at runtime, or for other product
+tiers). Lesson: bundle-literal grep is a *weak* signal here; **driving the real page and capturing
+its XHRs** (how `visualization_data` / `limited_gradebook_session` above were found) is the reliable
+method. Session-depth was confirmed during the probe (documented `district_mastery/api/aligned-objectives`
++ `/iapi/course/active` both 200), so the 404s are genuine route-absence, not session death.
+
+Still open: the gradebook **grade grid itself is server-rendered HTML** (no isolated JSON endpoint —
+consistent with grade data coming from public REST `/sections/{id}/grades`); and the rubric-criteria
+data blocked by public `grading_rubrics` (403) was **not** found on the internal web surface this pass
+(the `competencies/*/rubrics.json` literals 404'd) — the working internal rubric/mastery source remains
+`district_mastery/api/material-observations` + `outcomes/objectives` (above).
 
 ## Standards-Based Grading (SBG) Findings
 

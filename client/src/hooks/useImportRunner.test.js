@@ -22,6 +22,7 @@ describe('useImportRunner', () => {
     expect(result.current.model.done).toBe(2);
     expect(result.current.model.rows.every((r) => r.status === 'done')).toBe(true);
     expect(result.current.model.log).toContain('Imported Robotics (2 students, 2 grades)');
+    expect(result.current.model.progress).toBe(1);
   });
 
   it('records a failure, continues the batch, and reports succeededIds', async () => {
@@ -63,6 +64,8 @@ describe('useImportRunner', () => {
     await waitFor(() => expect(result.current.model.failures).toHaveLength(0));
     expect(importer).toHaveBeenCalledTimes(1);
     expect(importer).toHaveBeenCalledWith('s1');
+    expect(result.current.model.status).toBe('done');
+    expect(result.current.model.failures).toHaveLength(0);
   });
 
   it('reset returns the model to idle', async () => {
@@ -70,5 +73,16 @@ describe('useImportRunner', () => {
     await act(async () => { await result.current.run([{ sectionId: 's1', title: 'X' }]); });
     act(() => { result.current.reset(); });
     expect(result.current.model.status).toBe('idle');
+  });
+
+  it('handles an empty target list as an immediate no-op completion', async () => {
+    const importer = vi.fn();
+    const onComplete = vi.fn();
+    const { result } = renderHook(() => useImportRunner({ importer, onComplete }));
+    await act(async () => { await result.current.run([]); });
+    expect(importer).not.toHaveBeenCalled();
+    expect(result.current.model.status).toBe('done');
+    expect(result.current.model.progress).toBe(1);
+    expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({ total: 0, succeeded: 0, succeededIds: [] }));
   });
 });

@@ -29,8 +29,9 @@ import {
   getSectionAssignments,
   getSectionGrades,
   getSubmissionStatus,
+  getUserProfile,
 } from './schoology.js';
-import { syncSectionData, retrySubmissions, fullSync } from './sync.js';
+import { syncSectionData, retrySubmissions, fullSync, enrichStudentProfiles } from './sync.js';
 
 describe('syncSectionData — assignee mapping (#54)', () => {
   let db;
@@ -506,5 +507,48 @@ describe('fullSync — course skip matrix (#56)', () => {
     const visited = getSectionEnrollments.mock.calls.map(c => c[0]).sort();
     expect(visited).toEqual(['sec-archived', 'sec-hidden', 'sec-visible']);
     expect(visited).not.toContain('sec-excluded');
+  });
+});
+
+describe('enrichStudentProfiles — reconcile guardians (#70)', () => {
+  let db;
+  let studentId;
+  beforeEach(() => {
+    db = new Database(':memory:');
+    migrate(db);
+    studentId = db.prepare(
+      `INSERT INTO students (schoology_uid, first_name, last_name, email) VALUES ('u-1','Ada','Lovelace','old@x.com')`
+    ).run().lastInsertRowid;
+    db.prepare(`INSERT INTO parents (student_id, schoology_uid, first_name, last_name, email) VALUES (?, 'p-1','Mara','Lovelace','mara@x.com')`).run(studentId);
+    db.prepare(`INSERT INTO parents (student_id, schoology_uid, first_name, last_name, email) VALUES (?, 'p-2','Stale','Guardian','stale@x.com')`).run(studentId);
+    getUserProfile.mockReset();
+  });
+
+  test('deletes a guardian Schoology no longer returns and updates email', async () => {
+    getUserProfile.mockResolvedValue({
+      primary_email: 'new@x.com',
+      parents: { parent: [{ id: 'p-1', name_first: 'Mara', name_last: 'Lovelace', primary_email: 'mara@x.com' }] },
+    });
+    await enrichStudentProfiles(db, [{ id: studentId, schoology_uid: 'u-1' }], new Date().toISOString());
+
+    const uids = db.prepare('SELECT schoology_uid FROM parents WHERE student_id = ? ORDER BY schoology_uid').all(studentId).map((r) => r.schoology_uid);
+    expect(uids).toEqual(['p-1']);
+    const email = db.prepare('SELECT email FROM students WHERE id = ?').get(studentId).email;
+    expect(email).toBe('new@x.com');
+  });
+
+  test('a failed profile fetch preserves existing guardians and the student', async () => {
+    getUserProfile.mockRejectedValue(new Error('403 inaccessible'));
+    await enrichStudentProfiles(db, [{ id: studentId, schoology_uid: 'u-1' }], new Date().toISOString());
+
+    const count = db.prepare('SELECT COUNT(*) n FROM parents WHERE student_id = ?').get(studentId).n;
+    expect(count).toBe(2);
+    expect(db.prepare('SELECT COUNT(*) n FROM students WHERE id = ?').get(studentId).n).toBe(1);
+  });
+
+  test('a student with no guardians in the profile has all guardians removed', async () => {
+    getUserProfile.mockResolvedValue({ primary_email: null, parents: { parent: [] } });
+    await enrichStudentProfiles(db, [{ id: studentId, schoology_uid: 'u-1' }], new Date().toISOString());
+    expect(db.prepare('SELECT COUNT(*) n FROM parents WHERE student_id = ?').get(studentId).n).toBe(0);
   });
 });

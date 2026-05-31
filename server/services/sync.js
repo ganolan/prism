@@ -456,6 +456,66 @@ export async function retrySubmissions(db, failedEntries, now, metrics) {
 }
 
 // Full sync: sections -> enrollments -> assignments -> grades
+// Refresh + RECONCILE one batch of students' profiles. For each student, fetch
+// the Schoology profile and: update email/grad_year/preferred-name; upsert the
+// guardians Schoology currently returns; and DELETE any stored guardian it no
+// longer returns. Reconciliation runs ONLY on a successful fetch — a failed
+// fetch leaves the student's data and contacts untouched (never wipe on error).
+// Students are never deleted. Safeguarding: a removed/changed parent contact
+// must not linger. `students` is a list of { id, schoology_uid }. Returns the
+// number of profiles successfully fetched. (#70)
+export async function enrichStudentProfiles(db, students, now) {
+  const upsertParent = db.prepare(`
+    INSERT INTO parents (student_id, schoology_uid, first_name, last_name, email, relationship)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(student_id, schoology_uid) DO UPDATE SET
+      first_name = excluded.first_name,
+      last_name = excluded.last_name,
+      email = excluded.email
+  `);
+  const updateStudent = db.prepare(`
+    UPDATE students SET
+      email = COALESCE(?, email),
+      preferred_name = COALESCE(preferred_name, ?),
+      grad_year = COALESCE(?, grad_year),
+      updated_at = ?
+    WHERE id = ?
+  `);
+  const deleteAllParents = db.prepare('DELETE FROM parents WHERE student_id = ?');
+  const reconcileParents = (studentId, keepUids) => {
+    if (keepUids.length === 0) { deleteAllParents.run(studentId); return; }
+    const placeholders = keepUids.map(() => '?').join(',');
+    db.prepare(
+      `DELETE FROM parents WHERE student_id = ? AND schoology_uid NOT IN (${placeholders})`
+    ).run(studentId, ...keepUids);
+  };
+
+  let profileCount = 0;
+  for (const s of students) {
+    try {
+      const profile = await getUserProfile(s.schoology_uid);
+      const email = profile.primary_email || null;
+      const prefName = (profile.name_first_preferred && profile.use_preferred_first_name === '1')
+        ? profile.name_first_preferred : null;
+      const gradYear = profile.grad_year ? parseInt(profile.grad_year) : null;
+      updateStudent.run(email, prefName, gradYear, now, s.id);
+
+      const parents = profile.parents?.parent || [];
+      const keepUids = [];
+      for (const p of parents) {
+        upsertParent.run(s.id, String(p.id), p.name_first || '', p.name_last || '', p.primary_email || null, null);
+        keepUids.push(String(p.id));
+      }
+      reconcileParents(s.id, keepUids);
+      profileCount++;
+    } catch {
+      // Non-fatal: profile inaccessible (e.g. a graduated student). Preserve
+      // last-known data + contacts; delete nothing.
+    }
+  }
+  return profileCount;
+}
+
 export async function fullSync(onProgress, { includeHidden = false, includeArchived = false } = {}) {
   const db = getDb();
   const log = (msg) => onProgress?.({ message: msg });
@@ -645,59 +705,13 @@ export async function fullSync(onProgress, { includeHidden = false, includeArchi
       metrics.failed_assignment_ids = await retrySubmissions(db, metrics.failed_assignment_ids, now, metrics);
     }
 
-    // 3. Fetch full profiles + parent data for all students
+    // 3. Refresh + reconcile every retained student's profile + guardians.
+    //    Runs for ALL students every sync (including those in no active course)
+    //    so student data never goes stale. See enrichStudentProfiles (#70).
     const allStudents = db.prepare('SELECT id, schoology_uid FROM students WHERE schoology_uid IS NOT NULL').all();
     log(`Fetching profiles for ${allStudents.length} students...`);
-
-    const upsertParent = db.prepare(`
-      INSERT INTO parents (student_id, schoology_uid, first_name, last_name, email, relationship)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(student_id, schoology_uid) DO UPDATE SET
-        first_name = excluded.first_name,
-        last_name = excluded.last_name,
-        email = excluded.email
-    `);
-
-    let profileCount = 0;
-    for (const s of allStudents) {
-      try {
-        const profile = await getUserProfile(s.schoology_uid);
-
-        // Update student email, preferred name, and grad_year from profile
-        const email = profile.primary_email || null;
-        const prefName = (profile.name_first_preferred && profile.use_preferred_first_name === '1')
-          ? profile.name_first_preferred : null;
-        const gradYear = profile.grad_year ? parseInt(profile.grad_year) : null;
-
-        db.prepare(`
-          UPDATE students SET
-            email = COALESCE(?, email),
-            preferred_name = COALESCE(preferred_name, ?),
-            grad_year = COALESCE(?, grad_year),
-            updated_at = ?
-          WHERE id = ?
-        `).run(email, prefName, gradYear, now, s.id);
-
-        const parents = profile.parents?.parent || [];
-
-        // Upsert parents
-        for (const p of parents) {
-          upsertParent.run(
-            s.id,
-            String(p.id),
-            p.name_first || '',
-            p.name_last || '',
-            p.primary_email || null,
-            null // Schoology doesn't provide relationship type
-          );
-        }
-        profileCount++;
-      } catch (err) {
-        // Non-fatal: some student profiles may be inaccessible
-        // Just skip and continue
-      }
-    }
-    log(`Fetched ${profileCount} profiles, synced parent contacts`);
+    const profileCount = await enrichStudentProfiles(db, allStudents, now);
+    log(`Fetched ${profileCount} profiles, reconciled parent contacts`);
     totalRecords += profileCount;
 
     const duration_ms = Date.now() - startedAt;

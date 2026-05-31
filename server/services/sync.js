@@ -780,11 +780,12 @@ export async function fullSync(onProgress, { includeHidden = false } = {}) {
       metrics.failed_assignment_ids = await retrySubmissions(db, metrics.failed_assignment_ids, now, metrics);
     }
 
-    // Auto-archive courses that have dropped off the active list this turn (#70).
-    await detectArchivedTransitions(db, new Set(sections.map((s) => String(s.id))), now);
-
     // One-time: finalise archived courses imported before #70 (capture mastery).
     await backfillUnfinalizedArchived(db, now);
+    // Auto-archive courses that dropped off the active list this turn (#70).
+    // Runs AFTER backfill so a course archived this turn isn't immediately
+    // re-finalised by backfill in the same pass.
+    await detectArchivedTransitions(db, new Set(sections.map((s) => String(s.id))), now);
 
     // 3. Refresh + reconcile every retained student's profile + guardians.
     //    Runs for ALL students every sync (including those in no active course)

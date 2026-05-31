@@ -251,6 +251,14 @@ describe('GET /api/courses/archived/discover', () => {
     expect(status).toBe(200);
     expect(body).toEqual({ available: true, sections: [] });
   });
+
+  test('passes gradingPeriod through to the response (#71)', async () => {
+    getArchivedSections.mockResolvedValue([
+      { courseId: '1', courseTitle: 'X', courseCode: 'X1', sectionId: '7777', sectionTitle: null, gradingPeriod: 'Semester 1: 08/14/2024 - 01/11/2025' },
+    ]);
+    const { body } = await get('/api/courses/archived/discover');
+    expect(body.sections[0].gradingPeriod).toBe('Semester 1: 08/14/2024 - 01/11/2025');
+  });
 });
 
 describe('POST /api/courses/import — finalise + enrich (#70)', () => {

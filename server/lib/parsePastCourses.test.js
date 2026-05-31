@@ -59,4 +59,30 @@ describe('parsePastCourses', () => {
     // each section keeps the code from its own row, not the first row's
     expect(out.find((r) => r.sectionId === '9002').courseCode).toBe('MATH7-S2');
   });
+
+  test('attaches the preceding grading-period header to each section (#71)', () => {
+    expect(rows.find((x) => x.sectionId === '7001').gradingPeriod).toContain('Semester 1: 08/14/2025 - 01/11/2026');
+    expect(rows.find((x) => x.sectionId === '7002').gradingPeriod).toContain('2024-2025: 08/13/24 - 06/15/25');
+    expect(rows.find((x) => x.sectionId === '7003').gradingPeriod).toContain('2024-2025: 08/13/24 - 06/15/25');
+    expect(rows.find((x) => x.sectionId === '7004').gradingPeriod).toContain('22-23 YR');
+  });
+
+  test('gradingPeriod is null when no header precedes a course (#71)', () => {
+    const out = parsePastCourses(`
+      <li class="course-item" id="course-9"><span class="course-title">No Term</span><span class="course-code">NT</span>
+        <div class="section-item" id="section-99"><a href="/course/99">S</a></div>
+      </li>`);
+    expect(out[0].gradingPeriod).toBeNull();
+  });
+
+  test('dedupes a section that appears more than once (#71)', () => {
+    const out = parsePastCourses(`
+      <h3>Semester 1: 08/14/2024 - 01/11/2025</h3>
+      <li class="course-item" id="course-9"><span class="course-title">Dup</span><span class="course-code">D</span>
+        <div class="section-item" id="section-50"><a href="/course/50">S</a></div>
+        <div class="section-item" id="section-50"><a href="/course/50">S again</a></div>
+      </li>`);
+    expect(out).toHaveLength(1);
+    expect(out[0].sectionId).toBe('50');
+  });
 });

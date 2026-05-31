@@ -497,13 +497,17 @@ export async function enrichStudentProfiles(db, students, now) {
       const email = profile.primary_email || null;
       const prefName = (profile.name_first_preferred && profile.use_preferred_first_name === '1')
         ? profile.name_first_preferred : null;
-      const gradYear = profile.grad_year ? parseInt(profile.grad_year) : null;
+      const gradYear = profile.grad_year ? parseInt(profile.grad_year, 10) : null;
       updateStudent.run(email, prefName, gradYear, now, s.id);
 
-      const parents = profile.parents?.parent || [];
+      // Schoology may return a lone guardian as an object rather than a
+      // 1-element array — normalise so a single-guardian student isn't skipped
+      // or wrongly reconciled away. (Same shape-quirk as parseAssignees.)
+      const rawParents = profile.parents?.parent ?? [];
+      const parents = Array.isArray(rawParents) ? rawParents : [rawParents];
       const keepUids = [];
       for (const p of parents) {
-        upsertParent.run(s.id, String(p.id), p.name_first || '', p.name_last || '', p.primary_email || null, null);
+        upsertParent.run(s.id, String(p.id), p.name_first || '', p.name_last || '', p.primary_email || null, null /* relationship: not provided by Schoology */);
         keepUids.push(String(p.id));
       }
       reconcileParents(s.id, keepUids);

@@ -551,4 +551,14 @@ describe('enrichStudentProfiles — reconcile guardians (#70)', () => {
     await enrichStudentProfiles(db, [{ id: studentId, schoology_uid: 'u-1' }], new Date().toISOString());
     expect(db.prepare('SELECT COUNT(*) n FROM parents WHERE student_id = ?').get(studentId).n).toBe(0);
   });
+
+  test('normalises a single guardian returned as an object (not array)', async () => {
+    getUserProfile.mockResolvedValue({
+      primary_email: 'new@x.com',
+      parents: { parent: { id: 'p-9', name_first: 'Solo', name_last: 'Guardian', primary_email: 'solo@x.com' } },
+    });
+    await enrichStudentProfiles(db, [{ id: studentId, schoology_uid: 'u-1' }], new Date().toISOString());
+    const uids = db.prepare('SELECT schoology_uid FROM parents WHERE student_id = ? ORDER BY schoology_uid').all(studentId).map((r) => r.schoology_uid);
+    expect(uids).toEqual(['p-9']); // single object handled; p-1 and p-2 reconciled away
+  });
 });

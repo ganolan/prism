@@ -645,4 +645,12 @@ describe('detectArchivedTransitions (#70)', () => {
     expect(getSection).not.toHaveBeenCalled();
     expect(db.prepare('SELECT archived FROM courses WHERE id = ?').get(id).archived).toBe(0);
   });
+
+  test('leaves a dropped course when getSection throws a non-404 error', async () => {
+    const id = seed('sec-error');
+    const err = new Error('Schoology API 500'); err.status = 500;
+    getSection.mockRejectedValue(err);
+    await detectArchivedTransitions(db, new Set([]), '2026-05-31T00:00:00Z');
+    expect(db.prepare('SELECT archived FROM courses WHERE id = ?').get(id).archived).toBe(0);
+  });
 });

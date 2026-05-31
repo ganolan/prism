@@ -30,14 +30,16 @@ describe('Dashboard — Archived tab', () => {
   it('shows the archived-course discovery surface', async () => {
     renderDashboard();
     fireEvent.click(await screen.findByText('Archived'));
-    const matches = await screen.findAllByText(/Check Schoology for archived courses/);
-    expect(matches.length).toBeGreaterThan(0);
+    expect(
+      await screen.findByRole('button', { name: /Check Schoology for archived courses/ })
+    ).toBeInTheDocument();
   });
 
   it('no longer renders the manual "Add an archived course" form', async () => {
     renderDashboard();
     fireEvent.click(await screen.findByText('Archived'));
-    await screen.findAllByText(/Check Schoology for archived courses/);
+    // wait for the panel (its button) to be present before asserting the form is gone
+    await screen.findByRole('button', { name: /Check Schoology for archived courses/ });
     expect(screen.queryByText('Add an archived course')).not.toBeInTheDocument();
     expect(screen.queryByText(/Section ID/)).not.toBeInTheDocument();
   });

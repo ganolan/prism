@@ -52,7 +52,7 @@ export default function ImportProgress({ model, onRetry, onDone }) {
             {model.rows.map((row) => <CourseRow key={row.sectionId} row={row} />)}
           </div>
 
-          {running && model.log.length > 0 && (
+          {model.log.length > 0 && (
             <div className="sync-log">
               {model.log.slice(-40).map((line, i) => (
                 <div key={Math.max(0, model.log.length - 40) + i}>{line}</div>

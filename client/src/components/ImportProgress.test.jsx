@@ -36,7 +36,7 @@ describe('ImportProgress', () => {
     render(<ImportProgress model={doneWithFailure} onRetry={onRetry} onDone={() => {}} />);
     expect(screen.getByText(/Import complete · 1 of 2/)).toBeInTheDocument();
     expect(screen.getByText(/1 failed/)).toBeInTheDocument();
-    expect(screen.getByText(/not accessible \(403\)/)).toBeInTheDocument();
+    expect(screen.getAllByText(/not accessible \(403\)/).length).toBeGreaterThanOrEqual(1);
     fireEvent.click(screen.getByRole('button', { name: /retry failed \(1\)/i }));
     expect(onRetry).toHaveBeenCalled();
   });

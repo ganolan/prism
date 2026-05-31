@@ -56,4 +56,16 @@ describe('ImportProgress', () => {
     fireEvent.click(done);
     expect(onDone).toHaveBeenCalled();
   });
+
+  it('renders a pending row with the pending icon', () => {
+    const model = {
+      status: 'running', total: 1, done: 0, progress: 0,
+      rows: [{ sectionId: 's1', title: 'Queued Course', status: 'pending' }],
+      log: [], failures: [],
+    };
+    render(<ImportProgress model={model} onRetry={() => {}} onDone={() => {}} />);
+    const row = screen.getByText('Queued Course').closest('.sync-phase');
+    expect(row.className).toContain('sync-phase-pending');
+    expect(row.textContent).toContain('○');
+  });
 });

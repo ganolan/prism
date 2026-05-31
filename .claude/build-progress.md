@@ -248,3 +248,48 @@ build clean. Backend unchanged.
   renders no dates now); (c) discovery rows still show repeated course names across terms with no year/term
   label (per-row term metadata not parsed); (d) "Import all" / bulk import still not exercised against a
   live multi-section run; (e) whether the internal mastery API serves archived sections is still unverified.
+
+## Archived-Course Parity + Always-Fresh Student Data (#70) — COMPLETE (2026-05-31)
+
+Spec `docs/superpowers/specs/2026-05-31-archived-parity-and-student-freshness-design.md`, plan
+`docs/superpowers/plans/2026-05-31-archived-parity-and-student-freshness.md`. Sub-project A of the #5/#69
+follow-up (sub-project B = #71). Backend-only; built via subagent-driven TDD with two-stage (spec +
+code-quality) review per task + a final holistic review. Server 135 / client 126 tests green; prod build
+clean. Resolves the prior entry's "not yet explored" (e) — **mastery for archived sections is confirmed
+(user-verified) and now captured automatically**.
+
+**Organising principle: immutability is per-data-type.** Gradebook + mastery freeze at archive time;
+**student data never freezes** (refreshed + reconciled every sync for every retained student).
+
+- **`enrichStudentProfiles(db, students, now)`** (`server/services/sync.js`) — extracted from `fullSync`'s
+  inline profile loop and upgraded to **reconcile guardians**: upsert the guardians `getUserProfile`
+  returns and **delete those it no longer returns — only on a successful fetch** (a failed fetch never
+  wipes contacts). Normalises Schoology's single-guardian-as-object quirk. Students are never deleted.
+  `fullSync` calls it for ALL students every sync (incl. students in no active course → no stale contacts).
+- **`finalizeArchivedCourse(db, { courseId, sectionId, now, runMastery })`** — an archived course's
+  IMMUTABLE snapshot: `syncSectionData` (gradebook, always) + `syncMasteryForCourse` (only when a browser
+  session exists). Sets `courses.finalized_at` when a session was present (mastery attempted) so backfill
+  doesn't retry forever; session-less leaves it null to retry next session-enabled sync.
+- **`detectArchivedTransitions(db, activeSectionIds, now)`** in `fullSync` — auto-archive a previously-
+  synced active course that dropped off `getMySections`, **confirmed via `getSection`**: `active:0` →
+  finalise + `archived=1`; still `active:1` → leave (transient); 404 → `archived=1` (keep last snapshot);
+  any other error → leave (no false-archive, explicitly tested).
+- **`backfillUnfinalizedArchived(db, now)`** in `fullSync` — finalises archived courses with
+  `finalized_at IS NULL` once (captures mastery for courses imported under the old flow). Runs **before**
+  transition detection so a course archived this turn isn't double-finalised the same pass.
+- **Import** (`POST /api/courses/import`) now finalises (gradebook + mastery) **and** enriches the
+  imported section's students — closing the gap where archived imports lacked email/contacts.
+- **Removed the redundant surfaces**: the inert **"Include archived" sync toggle** (+ its `includeArchived`
+  plumbing through api → `/sync` → orchestrator → `fullSync`) and the **Step 2 "Archived courses" mastery
+  group**. The recurring sync now **always skips archived** (immutable; never re-synced). Furthers #58.
+- **Migration** `ALTER TABLE courses ADD COLUMN finalized_at TEXT`.
+- **LIVE-VERIFIED 2026-05-31**: `finalized_at` column present in the real DB; the one existing archived
+  course (`MOBILE GAMES DEVELOPMENT`) is `finalized_at=NULL` → correctly backfill-eligible; the Sync dialog
+  no longer shows the "Include archived courses" toggle or the Step 2 "Archived courses" group. Did **not**
+  trigger a real sync (would run backfill/transition against Schoology + mutate the DB) — backend covered
+  by 135 server tests.
+- **Out of scope / not yet explored**: sub-project B (#71 — archived-import UX: year/semester grouping,
+  checkbox select-all/select-year, modal progress); PowerSchool safeguarding PII freshness (#66/#65 — the
+  refresh-and-reconcile principle is recorded there); sync perf of enriching all retained students every
+  sync as archived students accumulate (overlaps #55); a live end-to-end run of backfill + a real
+  current→archived transition (logic is unit-tested, not yet observed against live Schoology).

@@ -67,6 +67,8 @@ describe('ArchivedCoursesPanel', () => {
     // auto re-check surfaces the queue without another Check click
     await screen.findByText('Drama 8');
     expect(discoverArchivedCourses).toHaveBeenCalledTimes(2);
+    // and the login prompt is cleared once the session is confirmed
+    expect(screen.queryByText(/Log in to Schoology/)).not.toBeInTheDocument();
   });
 
   it('per-course Import removes the row from the queue and refreshes the Dashboard', async () => {

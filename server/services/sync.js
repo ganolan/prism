@@ -586,7 +586,7 @@ export async function backfillUnfinalizedArchived(db, now) {
     'SELECT id, schoology_section_id FROM courses WHERE archived = 1 AND excluded = 0 AND finalized_at IS NULL'
   ).all();
   for (const c of courses) {
-    await finalizeArchivedCourse(db, { courseId: c.id, sectionId: c.schoology_section_id, now });
+    await finalizeArchivedCourse(db, { courseId: c.id, sectionId: String(c.schoology_section_id), now });
   }
   return courses.length;
 }

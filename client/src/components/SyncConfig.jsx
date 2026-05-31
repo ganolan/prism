@@ -1,22 +1,11 @@
 import { useState, useMemo } from 'react';
 import { formatLastSynced } from '../lib/courseDisplay.js';
+import TriCheckbox from './TriCheckbox.jsx';
 
 const GROUPS = [
   { key: 'visible',  label: 'Visible courses',  match: (c) => !c.hidden && !c.archived && !c.excluded },
   { key: 'hidden',   label: 'Hidden courses',   match: (c) => c.hidden && !c.archived && !c.excluded },
 ];
-
-// Checkbox that supports the indeterminate (tri-state) visual.
-function TriCheckbox({ checked, indeterminate, ...rest }) {
-  return (
-    <input
-      type="checkbox"
-      checked={checked}
-      ref={(el) => { if (el) el.indeterminate = indeterminate; }}
-      {...rest}
-    />
-  );
-}
 
 export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel, onLogin }) {
   const groups = useMemo(

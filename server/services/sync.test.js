@@ -582,7 +582,8 @@ describe('finalizeArchivedCourse (#70)', () => {
     sch.getSectionAssignments.mockResolvedValue([]);
     sch.getSectionGrades.mockResolvedValue([]);
     sch.getSubmissionStatus.mockResolvedValue(null);
-    syncMasteryForCourse.mockClear();
+    syncMasteryForCourse.mockReset();
+    syncMasteryForCourse.mockResolvedValue({ scoresCount: 0 });
     hasMasterySession.mockReset();
   });
 

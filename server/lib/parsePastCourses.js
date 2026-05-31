@@ -9,7 +9,7 @@ const stripPrefix = (id, prefix) => {
 // each group of courses for that term (verified live 2026-05-31), e.g.
 // "Semester 1: 08/14/2025 - 01/11/2026", "2024-2025: …", "22-23 YR · …". A header
 // is an <h3> whose text carries a date, a year-range, or a term token.
-const TERM_HEADER = /\d{1,2}\/\d{2}\/\d{2,4}|\d{4}-\d{4}|\d{2}-\d{2}|semester|\bS[12]\b|\bYR\b|summer|full.?year/i;
+const TERM_HEADER = /\d{1,2}\/\d{2}\/\d{2,4}|\d{4}-\d{4}|semester|\bS[12]\b|\bYR\b|summer|full.?year/i;
 const collapse = (s) => (s || '').replace(/\s+/g, ' ').trim();
 
 function parseCourseItem(courseEl, gradingPeriod, seen, out) {
@@ -30,6 +30,13 @@ function parseCourseItem(courseEl, gradingPeriod, seen, out) {
   }
 }
 
+/**
+ * Parse Schoology's /courses/mycourses/past HTML into one row per section:
+ * { courseId, courseTitle, courseCode (null when the .course-code is empty —
+ * the MASTER-style "not taught" signal), sectionId, sectionTitle, gradingPeriod
+ * (the text of the most-recent <h3> term header above the course, or null) }.
+ * Sections are deduped by sectionId. Pure; never throws on malformed HTML.
+ */
 export function parsePastCourses(html) {
   const root = parse(html || '');
   const out = [];
@@ -45,7 +52,7 @@ export function parsePastCourses(html) {
       if (t && TERM_HEADER.test(t)) currentGradingPeriod = t;
       return; // headers contain no course-items
     }
-    if (tag === 'li' && (node.getAttribute('class') || '').includes('course-item')) {
+    if (tag === 'li' && /\bcourse-item\b/.test(node.getAttribute('class') || '')) {
       parseCourseItem(node, currentGradingPeriod, seen, out);
       return; // sections handled; don't double-walk children
     }

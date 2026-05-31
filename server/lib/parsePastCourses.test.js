@@ -84,5 +84,6 @@ describe('parsePastCourses', () => {
       </li>`);
     expect(out).toHaveLength(1);
     expect(out[0].sectionId).toBe('50');
+    expect(out[0].gradingPeriod).toContain('Semester 1');
   });
 });

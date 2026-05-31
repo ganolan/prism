@@ -293,3 +293,47 @@ clean. Resolves the prior entry's "not yet explored" (e) — **mastery for archi
   refresh-and-reconcile principle is recorded there); sync perf of enriching all retained students every
   sync as archived students accumulate (overlaps #55); a live end-to-end run of backfill + a real
   current→archived transition (logic is unit-tested, not yet observed against live Schoology).
+
+## Archived-Import UX — Year/Semester Grouping + Bulk Import (#71) — COMPLETE (2026-05-31)
+
+Spec `docs/superpowers/specs/2026-05-31-archived-import-ux-design.md`, plan
+`docs/superpowers/plans/2026-05-31-archived-import-ux.md`. Sub-project B of the #5/#69 follow-up (A = #70).
+Frontend + one server parser change; built via subagent-driven TDD with two-stage (spec + code-quality)
+review per task + a final holistic review. Server 139 / client 153 tests green; prod build clean. Depends
+on #70 (import already finalises gradebook + mastery + enriches — **no backend import-flow change here**).
+
+- **Live-probe finding (resolved the open question):** Schoology's `/courses/mycourses/past` page already
+  groups courses under `<h3>` grading-period headers (e.g. `Semester 1: 08/14/2025 - 01/11/2026`,
+  `2024-2025: …`, `22-23 YR · …`). So term metadata is obtained by **parsing the page in document order —
+  zero extra API calls** (the rejected alternative was a per-section `grading_periods` fetch).
+- **`parsePastCourses`** (`server/lib/parsePastCourses.js`) rewritten as a document-order DFS that carries
+  the most-recent term `<h3>` and attaches `gradingPeriod` to each section row (+ dedupe by sectionId).
+  The discover route passes it through unchanged (the existing `...s` spread).
+- **`parseGradingPeriod`** (`client/src/lib/courseDisplay.js`) hardened — prefers an explicit year range
+  (`2024-2025`/`22-23`), tolerates single-digit months, understands `S1`/`S2`/`YR`/`Summer`. This also
+  fixed the EXISTING card grouping, which silently bucketed those shapes under "Unknown". New
+  **`groupByYearAndSemester`** (year desc, Unknown last; semester order S1→S2→Summer→Full Year→Unknown;
+  accessor param serves both `c.grading_period` cards and `s.gradingPeriod` discovery rows).
+  `groupByAcademicYear` removed (Dashboard was its only consumer).
+- **Shared `TriCheckbox`** extracted from `SyncConfig` into its own component (used by both).
+- **`ArchivedImportList`** — grouped, tri-state-selectable discovery list: global "Select all" + per-year
+  tri-state + per-row checkboxes; per-year "Import all (k)" + a bottom "Import N selected". No-course-code
+  sections are excluded from bulk select/counts but individually tickable. Selection prunes as sections
+  drop out.
+- **`useImportRunner`** hook — runs imports SEQUENTIALLY (mastery uses one browser session at a time),
+  continue-on-error, exposes a render model (`rows`/`log`/`failures`/`progress`) + `retryFailed`/`reset`;
+  re-entrancy-guarded; ref-stable `onComplete`.
+- **`ImportProgress`** modal — mirrors `SyncProgress` (bar + per-course rows + scrolling log + Done),
+  non-dismissable while running, with "Retry failed (n)". No login-remedy banner (gradebook import is
+  OAuth-based; mastery is best-effort per #70, so a dead session silently skips mastery).
+- **`ArchivedCoursesPanel`** slimmed to an orchestrator: discovery + `ArchivedImportList` +
+  `useImportRunner` + `ImportProgress`; on completion it marks succeeded sections imported (drop from the
+  list without a re-scrape) and refreshes the Dashboard cards (only when something succeeded).
+- **Dashboard** archived cards now group **year → semester** (nested sub-headers), mirroring the discovery
+  list; the redundant per-card semester badge was dropped (the raw `grading_period` date-range line stays).
+- **Not yet explored / out of scope**: live UI verification of the grouped surfaces + a real multi-course
+  bulk import (logic covered by the automated suites + clean build, but not yet exercised against live
+  Schoology — the user's call); whether imported cards' stored `grading_period` strings group identically
+  to discovery headers on live data (both funnel through the same hardened parser, not yet compared live);
+  group collapse, parallel import, a skip-mastery-on-bulk toggle, and a configurable date/locale preference
+  + shared `formatDate` helper (all deliberately deferred).

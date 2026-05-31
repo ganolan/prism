@@ -64,8 +64,8 @@ export default function PastCoursesPanel({ courses, loggedIn, onLogin, busy }) {
     setBulk(null);
   }
 
-  const notImported = (discovered || []).filter((s) => !isImported(s));
-  const importAllCount = notImported.filter((s) => !s.noCourseCode).length;
+  const remaining = (discovered || []).filter((s) => !isImported(s));
+  const importAllCount = remaining.filter((s) => !s.noCourseCode).length;
 
   return (
     <div className="sync-step">
@@ -122,26 +122,30 @@ export default function PastCoursesPanel({ courses, loggedIn, onLogin, busy }) {
 
           {error && <div className="alert alert-warning">{error}</div>}
 
-          {discovered && notImported.length > 0 && (
+          {discovered && discovered.length > 0 && (
             <div className="sync-group">
               <div className="sync-group-name">
-                Found on Schoology — not yet imported ({notImported.length})
+                Found on Schoology ({discovered.length}) — {remaining.length} not yet imported
               </div>
               <div className="sync-course-list">
-                {notImported.map((s) => (
+                {discovered.map((s) => (
                   <div className="sync-course" key={s.sectionId}>
                     <span>
                       {s.courseTitle}
                       {s.noCourseCode && <span className="badge badge-gray"> no course code</span>}
                     </span>
-                    <button
-                      type="button"
-                      className="ghost"
-                      onClick={() => handleImport(s.sectionId)}
-                      disabled={importingId === s.sectionId || !!bulk}
-                    >
-                      {importingId === s.sectionId ? 'Importing…' : 'Import'}
-                    </button>
+                    {isImported(s) ? (
+                      <span className="text-muted text-sm">Imported ✓</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={() => handleImport(s.sectionId)}
+                        disabled={importingId === s.sectionId || !!bulk}
+                      >
+                        {importingId === s.sectionId ? 'Importing…' : 'Import'}
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -160,8 +164,8 @@ export default function PastCoursesPanel({ courses, loggedIn, onLogin, busy }) {
             </div>
           )}
 
-          {discovered && notImported.length === 0 && (
-            <p className="sync-step-desc">All discovered past courses are imported.</p>
+          {discovered && discovered.length === 0 && (
+            <p className="sync-step-desc">No past courses found on Schoology.</p>
           )}
         </>
       )}

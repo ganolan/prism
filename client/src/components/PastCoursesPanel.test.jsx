@@ -91,10 +91,11 @@ describe('PastCoursesPanel', () => {
     const dramaRow = screen.getByText('Drama 8').closest('.sync-course');
     fireEvent.click(within(dramaRow).getByText('Import'));
     await waitFor(() => expect(importCourse).toHaveBeenCalledWith('7005'));
-    // The row stays visible and flips to a confirmation rather than vanishing.
+    // The row stays visible and flips to a disabled "Imported ✓" button (not removed).
     const dramaRowAfter = screen.getByText('Drama 8').closest('.sync-course');
-    expect(within(dramaRowAfter).getByText(/Imported ✓/)).toBeInTheDocument();
-    expect(within(dramaRowAfter).queryByRole('button', { name: 'Import' })).not.toBeInTheDocument();
+    const doneBtn = within(dramaRowAfter).getByRole('button');
+    expect(doneBtn).toHaveTextContent('Imported ✓');
+    expect(doneBtn).toBeDisabled();
     // Drama 8 was the only code-bearing section → "Import all" disappears once it's imported.
     expect(screen.queryByText(/Import all/)).not.toBeInTheDocument();
   });
@@ -112,8 +113,9 @@ describe('PastCoursesPanel', () => {
     fireEvent.click(screen.getByText(/Check Schoology for past courses/));
     await screen.findByText('History 9');
     const historyRow = screen.getByText('History 9').closest('.sync-course');
-    expect(within(historyRow).getByText(/Imported ✓/)).toBeInTheDocument();
-    expect(within(historyRow).queryByRole('button', { name: 'Import' })).not.toBeInTheDocument();
+    const doneBtn = within(historyRow).getByRole('button');
+    expect(doneBtn).toHaveTextContent('Imported ✓');
+    expect(doneBtn).toBeDisabled();
     // The not-yet-imported one is still importable; Import all counts only it.
     expect(screen.getByText(/Import all \(1, excl\. no-code\)/)).toBeInTheDocument();
   });

@@ -127,19 +127,32 @@ export default function PastCoursesPanel({ courses, loggedIn, onLogin, busy }) {
               <div className="sync-group-name">
                 Found on Schoology ({discovered.length}) — {remaining.length} not yet imported
               </div>
+              {importAllCount > 0 && (
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={handleImportAll}
+                  disabled={!!bulk || importingId !== null}
+                  style={{ marginBottom: '0.6rem' }}
+                >
+                  {bulk
+                    ? `Importing ${bulk.done}/${bulk.total}…`
+                    : `Import all (${importAllCount}, excl. no-code)`}
+                </button>
+              )}
               <div className="sync-course-list">
                 {discovered.map((s) => (
-                  <div className="sync-course" key={s.sectionId}>
+                  <div className="sync-course past-discovery-row" key={s.sectionId}>
                     <span>
                       {s.courseTitle}
                       {s.noCourseCode && <span className="badge badge-gray"> no course code</span>}
                     </span>
                     {isImported(s) ? (
-                      <span className="text-muted text-sm">Imported ✓</span>
+                      <button type="button" className="secondary" disabled>Imported ✓</button>
                     ) : (
                       <button
                         type="button"
-                        className="ghost"
+                        className="secondary"
                         onClick={() => handleImport(s.sectionId)}
                         disabled={importingId === s.sectionId || !!bulk}
                       >
@@ -149,18 +162,6 @@ export default function PastCoursesPanel({ courses, loggedIn, onLogin, busy }) {
                   </div>
                 ))}
               </div>
-              {importAllCount > 0 && (
-                <button
-                  type="button"
-                  className="primary"
-                  onClick={handleImportAll}
-                  disabled={!!bulk || importingId !== null}
-                >
-                  {bulk
-                    ? `Importing ${bulk.done}/${bulk.total}…`
-                    : `Import all (${importAllCount}, excl. no-code)`}
-                </button>
-              )}
             </div>
           )}
 

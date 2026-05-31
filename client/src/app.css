@@ -813,7 +813,15 @@ button.ghost.accent:hover { background: var(--accent-light); }
 }
 .sync-course-list { margin-left: 1.6rem; }
 .sync-course { display: flex; align-items: center; gap: 0.4rem; padding: 0.15rem 0; }
-.sync-course-row { display: flex; align-items: baseline; gap: 0.75rem; }
+/* Course name on the left (wraps freely), the muted "synced …" note pinned right
+   and vertically centred so a wrapping title can't offset it. */
+.sync-course-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+/* Keep the "synced …" note on one line, pinned right, even when the title wraps. */
+.sync-course-synced { white-space: nowrap; flex-shrink: 0; }
+/* Discovery rows: the action sits right-aligned as a clear button, and the whole
+   row highlights on hover so it's obvious which course a button belongs to. */
+.past-discovery-row { justify-content: space-between; gap: 0.75rem; padding: 0.3rem 0.5rem; border-radius: 6px; transition: background 0.12s ease; }
+.past-discovery-row:hover { background: var(--bg-subtle); }
 
 .sync-foot {
   display: flex; justify-content: space-between; align-items: center;

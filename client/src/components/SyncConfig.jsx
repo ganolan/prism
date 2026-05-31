@@ -155,7 +155,7 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
                             <span>{c.course_name}</span>
                           </label>
                           {group.key === 'visible' && (
-                            <span className="text-muted text-sm">{formatLastSynced(c.synced_at)}</span>
+                            <span className="sync-course-synced text-muted text-sm">{formatLastSynced(c.synced_at)}</span>
                           )}
                         </div>
                       ))}

@@ -291,7 +291,7 @@ router.post('/import', async (req, res) => {
 
     const courseRow = db.prepare('SELECT * FROM courses WHERE schoology_section_id = ?').get(String(sec.id));
     const { studentsCount, assignmentsCount, gradesCount } =
-      await finalizeArchivedCourse(db, { courseId: courseRow.id, sectionId: sec.id, now, runMastery: true });
+      await finalizeArchivedCourse(db, { courseId: courseRow.id, sectionId: String(sec.id), now, runMastery: true });
     // Bring the imported section's students to full parity (email + guardians).
     const sectionStudents = db.prepare(`
       SELECT s.id, s.schoology_uid FROM students s

@@ -271,6 +271,6 @@ describe('POST /api/courses/import — finalise + enrich (#70)', () => {
       expect.anything(),
       expect.objectContaining({ sectionId: 'sec-9', runMastery: true }),
     );
-    expect(enrichStudentProfiles).toHaveBeenCalled();
+    expect(enrichStudentProfiles).toHaveBeenCalledWith(expect.anything(), expect.any(Array), expect.any(String));
   });
 });

@@ -577,6 +577,20 @@ export async function detectArchivedTransitions(db, activeSectionIds, now) {
   }
 }
 
+// One-time backfill: finalise archived courses that were never finalised
+// (imported under the old flow). Captures mastery when a session is present;
+// converges over session-enabled syncs and never re-runs once finalized_at is
+// set. Returns the number of courses processed. (#70)
+export async function backfillUnfinalizedArchived(db, now) {
+  const courses = db.prepare(
+    'SELECT id, schoology_section_id FROM courses WHERE archived = 1 AND excluded = 0 AND finalized_at IS NULL'
+  ).all();
+  for (const c of courses) {
+    await finalizeArchivedCourse(db, { courseId: c.id, sectionId: c.schoology_section_id, now });
+  }
+  return courses.length;
+}
+
 export async function fullSync(onProgress, { includeHidden = false } = {}) {
   const db = getDb();
   const log = (msg) => onProgress?.({ message: msg });
@@ -768,6 +782,9 @@ export async function fullSync(onProgress, { includeHidden = false } = {}) {
 
     // Auto-archive courses that have dropped off the active list this turn (#70).
     await detectArchivedTransitions(db, new Set(sections.map((s) => String(s.id))), now);
+
+    // One-time: finalise archived courses imported before #70 (capture mastery).
+    await backfillUnfinalizedArchived(db, now);
 
     // 3. Refresh + reconcile every retained student's profile + guardians.
     //    Runs for ALL students every sync (including those in no active course)

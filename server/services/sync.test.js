@@ -40,7 +40,7 @@ import {
   getSection,
 } from './schoology.js';
 import { syncMasteryForCourse, hasMasterySession } from './masterySync.js';
-import { syncSectionData, retrySubmissions, fullSync, enrichStudentProfiles, finalizeArchivedCourse, detectArchivedTransitions } from './sync.js';
+import { syncSectionData, retrySubmissions, fullSync, enrichStudentProfiles, finalizeArchivedCourse, detectArchivedTransitions, backfillUnfinalizedArchived } from './sync.js';
 
 describe('syncSectionData — assignee mapping (#54)', () => {
   let db;
@@ -419,13 +419,13 @@ describe('fullSync — course skip matrix (#56)', () => {
   function seedCourses() {
     const stmt = db.prepare(`
       INSERT INTO courses
-        (schoology_section_id, course_name, course_code, section_school_code, hidden, archived, excluded)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+        (schoology_section_id, course_name, course_code, section_school_code, hidden, archived, excluded, finalized_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    stmt.run('sec-visible',  'Visible Course',  'CSE101', 'S1', 0, 0, 0);
-    stmt.run('sec-hidden',   'Hidden Course',   'CSE102', 'S2', 1, 0, 0);
-    stmt.run('sec-archived', 'Archived Course', 'CSE103', 'S3', 0, 1, 0);
-    stmt.run('sec-excluded', 'MASTER Template', null,     null, 0, 0, 1);
+    stmt.run('sec-visible',  'Visible Course',  'CSE101', 'S1', 0, 0, 0, null);
+    stmt.run('sec-hidden',   'Hidden Course',   'CSE102', 'S2', 1, 0, 0, null);
+    stmt.run('sec-archived', 'Archived Course', 'CSE103', 'S3', 0, 1, 0, '2026-01-01T00:00:00Z');
+    stmt.run('sec-excluded', 'MASTER Template', null,     null, 0, 0, 1, null);
     return ['sec-visible', 'sec-hidden', 'sec-archived', 'sec-excluded'];
   }
 
@@ -652,5 +652,34 @@ describe('detectArchivedTransitions (#70)', () => {
     getSection.mockRejectedValue(err);
     await detectArchivedTransitions(db, new Set([]), '2026-05-31T00:00:00Z');
     expect(db.prepare('SELECT archived FROM courses WHERE id = ?').get(id).archived).toBe(0);
+  });
+});
+
+describe('backfillUnfinalizedArchived (#70)', () => {
+  let db;
+  beforeEach(async () => {
+    db = new Database(':memory:');
+    migrate(db);
+    const sch = await import('./schoology.js');
+    sch.getSectionEnrollments.mockResolvedValue([]);
+    sch.getSectionAssignments.mockResolvedValue([]);
+    sch.getSectionGrades.mockResolvedValue([]);
+    sch.getSubmissionStatus.mockResolvedValue(null);
+    hasMasterySession.mockReturnValue(true);
+    syncMasteryForCourse.mockReset();
+    syncMasteryForCourse.mockResolvedValue({ scoresCount: 0 });
+  });
+
+  test('finalises an unfinalised archived course once and skips finalised ones', async () => {
+    const a = db.prepare(`INSERT INTO courses (schoology_section_id, course_name, archived) VALUES ('a',?,1)`).run('A').lastInsertRowid;
+    const b = db.prepare(`INSERT INTO courses (schoology_section_id, course_name, archived, finalized_at) VALUES ('b',?,1,'2026-01-01T00:00:00Z')`).run('B').lastInsertRowid;
+
+    const n = await backfillUnfinalizedArchived(db, '2026-05-31T00:00:00Z');
+
+    expect(n).toBe(1);
+    expect(syncMasteryForCourse).toHaveBeenCalledTimes(1);
+    expect(syncMasteryForCourse).toHaveBeenCalledWith(a, expect.anything());
+    expect(db.prepare('SELECT finalized_at FROM courses WHERE id = ?').get(a).finalized_at).toBe('2026-05-31T00:00:00Z');
+    expect(db.prepare('SELECT finalized_at FROM courses WHERE id = ?').get(b).finalized_at).toBe('2026-01-01T00:00:00Z');
   });
 });

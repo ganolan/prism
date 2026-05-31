@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { getDb } from '../db/index.js';
 import { getGradingScalesMap } from '../db/scales.js';
 import { apiGet } from '../services/schoology.js';
-import { syncSectionData } from '../services/sync.js';
+import { finalizeArchivedCourse, enrichStudentProfiles } from '../services/sync.js';
 import { isResubmitted } from '../lib/resubmission.js';
 import { getArchivedSections } from '../services/archivedCourses.js';
 
@@ -290,7 +290,15 @@ router.post('/import', async (req, res) => {
     );
 
     const courseRow = db.prepare('SELECT * FROM courses WHERE schoology_section_id = ?').get(String(sec.id));
-    const { studentsCount, assignmentsCount, gradesCount } = await syncSectionData(db, String(sec.id), courseRow.id, now);
+    const { studentsCount, assignmentsCount, gradesCount } =
+      await finalizeArchivedCourse(db, { courseId: courseRow.id, sectionId: sec.id, now, runMastery: true });
+    // Bring the imported section's students to full parity (email + guardians).
+    const sectionStudents = db.prepare(`
+      SELECT s.id, s.schoology_uid FROM students s
+      JOIN enrolments e ON e.student_id = s.id
+      WHERE e.course_id = ? AND s.schoology_uid IS NOT NULL
+    `).all(courseRow.id);
+    await enrichStudentProfiles(db, sectionStudents, now);
 
     res.json({ course: courseRow, studentsCount, assignmentsCount, gradesCount });
   } catch (err) {

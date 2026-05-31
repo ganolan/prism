@@ -4,13 +4,21 @@ import express from 'express';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 vi.mock('../services/archivedCourses.js', () => ({ getArchivedSections: vi.fn() }));
+vi.mock('../services/schoology.js', () => ({ apiGet: vi.fn() }));
+vi.mock('../services/sync.js', () => ({
+  finalizeArchivedCourse: vi.fn().mockResolvedValue({ studentsCount: 1, assignmentsCount: 2, gradesCount: 3 }),
+  enrichStudentProfiles: vi.fn().mockResolvedValue(1),
+}));
 
 import router from './courses.js';
 import { getDb } from '../db/index.js';
 import { getArchivedSections } from '../services/archivedCourses.js';
+import { apiGet } from '../services/schoology.js';
+import { finalizeArchivedCourse, enrichStudentProfiles } from '../services/sync.js';
 
 function startServer() {
   const app = express();
+  app.use(express.json());
   app.use('/api/courses', router);
   const server = app.listen(0);
   return { server, port: server.address().port };
@@ -24,6 +32,16 @@ async function get(path) {
   } finally {
     server.close();
   }
+}
+
+async function post(path, body) {
+  const { server, port } = startServer();
+  try {
+    const res = await fetch(`http://localhost:${port}${path}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    return { status: res.status, body: await res.json() };
+  } finally { server.close(); }
 }
 
 let courseId;
@@ -232,5 +250,27 @@ describe('GET /api/courses/archived/discover', () => {
     const { status, body } = await get('/api/courses/archived/discover');
     expect(status).toBe(200);
     expect(body).toEqual({ available: true, sections: [] });
+  });
+});
+
+describe('POST /api/courses/import — finalise + enrich (#70)', () => {
+  test('imports an archived course, finalising (mastery) and enriching its students', async () => {
+    apiGet.mockReset();
+    apiGet.mockImplementation((p) =>
+      p.endsWith('/grading_periods')
+        ? Promise.resolve({ grading_period: [{ title: 'Semester 1: 08/14/2024 - 01/11/2025' }] })
+        : Promise.resolve({ id: 'sec-9', course_title: 'Old Bio', section_title: 'A', course_code: 'BIO', active: 0 }));
+    finalizeArchivedCourse.mockClear();
+    enrichStudentProfiles.mockClear();
+
+    const res = await post('/api/courses/import', { sectionId: 'sec-9' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ studentsCount: 1, assignmentsCount: 2, gradesCount: 3 });
+    expect(finalizeArchivedCourse).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ sectionId: 'sec-9', runMastery: true }),
+    );
+    expect(enrichStudentProfiles).toHaveBeenCalled();
   });
 });

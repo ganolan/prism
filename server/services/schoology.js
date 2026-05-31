@@ -81,6 +81,10 @@ export async function getMySections(userId) {
   return paginateGet(`/users/${userId}/sections`, 'section');
 }
 
+export async function getSection(sectionId) {
+  return apiGet(`/sections/${sectionId}`);
+}
+
 export async function getSectionEnrollments(sectionId) {
   return paginateGet(`/sections/${sectionId}/enrollments`, 'enrollment');
 }

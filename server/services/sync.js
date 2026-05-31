@@ -15,6 +15,7 @@ import {
 import { runWithLimits } from './rateLimitedRunner.js';
 import { createSubmissionFetcher } from './graderSubmissions.js';
 import { getSyncConfig } from '../middleware/featureGate.js';
+import { syncMasteryForCourse, hasMasterySession } from './masterySync.js';
 
 // Issue #56: flip newly-discovered template sections to excluded=1. Same
 // predicate as the boot-time backfill in db/index.js but called every sync
@@ -518,6 +519,28 @@ export async function enrichStudentProfiles(db, students, now) {
     }
   }
   return profileCount;
+}
+
+// Capture an archived course's IMMUTABLE snapshot: gradebook (always, public
+// OAuth via syncSectionData) + mastery (only when a browser session exists —
+// mastery can't change after archiving). Sets courses.finalized_at = now when a
+// session was present (mastery attempted, success or caught failure), so a
+// session-less call leaves it null and a later session-enabled sync retries.
+// Does NOT touch student data (that is enrichStudentProfiles' job). Returns the
+// gradebook counts plus { finalized }. (#70)
+export async function finalizeArchivedCourse(db, { courseId, sectionId, now, runMastery = true }) {
+  const counts = await syncSectionData(db, String(sectionId), courseId, now);
+  const sessionPresent = runMastery && hasMasterySession();
+  if (sessionPresent) {
+    try {
+      await syncMasteryForCourse(courseId, { allowInteractiveLogin: false });
+    } catch {
+      // Best-effort: a mastery failure still counts as "attempted with a
+      // session" so backfill doesn't retry forever; re-import is the escape hatch.
+    }
+    db.prepare('UPDATE courses SET finalized_at = ? WHERE id = ?').run(now, courseId);
+  }
+  return { ...counts, finalized: sessionPresent };
 }
 
 export async function fullSync(onProgress, { includeHidden = false, includeArchived = false } = {}) {

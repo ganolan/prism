@@ -24,6 +24,11 @@ vi.mock('./graderSubmissions.js', () => ({
   createSubmissionFetcher: vi.fn().mockResolvedValue(null),
 }));
 
+vi.mock('./masterySync.js', () => ({
+  syncMasteryForCourse: vi.fn().mockResolvedValue({ scoresCount: 0 }),
+  hasMasterySession: vi.fn(() => false),
+}));
+
 import {
   getSectionEnrollments,
   getSectionAssignments,
@@ -31,7 +36,8 @@ import {
   getSubmissionStatus,
   getUserProfile,
 } from './schoology.js';
-import { syncSectionData, retrySubmissions, fullSync, enrichStudentProfiles } from './sync.js';
+import { syncMasteryForCourse, hasMasterySession } from './masterySync.js';
+import { syncSectionData, retrySubmissions, fullSync, enrichStudentProfiles, finalizeArchivedCourse } from './sync.js';
 
 describe('syncSectionData — assignee mapping (#54)', () => {
   let db;
@@ -560,5 +566,37 @@ describe('enrichStudentProfiles — reconcile guardians (#70)', () => {
     await enrichStudentProfiles(db, [{ id: studentId, schoology_uid: 'u-1' }], new Date().toISOString());
     const uids = db.prepare('SELECT schoology_uid FROM parents WHERE student_id = ? ORDER BY schoology_uid').all(studentId).map((r) => r.schoology_uid);
     expect(uids).toEqual(['p-9']); // single object handled; p-1 and p-2 reconciled away
+  });
+});
+
+describe('finalizeArchivedCourse (#70)', () => {
+  let db; let courseId;
+  beforeEach(async () => {
+    db = new Database(':memory:');
+    migrate(db);
+    courseId = db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name, archived) VALUES ('sec-9','Old Bio',1)`
+    ).run().lastInsertRowid;
+    const sch = await import('./schoology.js');
+    sch.getSectionEnrollments.mockResolvedValue([]);
+    sch.getSectionAssignments.mockResolvedValue([]);
+    sch.getSectionGrades.mockResolvedValue([]);
+    sch.getSubmissionStatus.mockResolvedValue(null);
+    syncMasteryForCourse.mockClear();
+    hasMasterySession.mockReset();
+  });
+
+  test('runs mastery and sets finalized_at when a session is present', async () => {
+    hasMasterySession.mockReturnValue(true);
+    await finalizeArchivedCourse(db, { courseId, sectionId: 'sec-9', now: '2026-05-31T00:00:00Z' });
+    expect(syncMasteryForCourse).toHaveBeenCalledWith(courseId, expect.objectContaining({ allowInteractiveLogin: false }));
+    expect(db.prepare('SELECT finalized_at FROM courses WHERE id = ?').get(courseId).finalized_at).toBe('2026-05-31T00:00:00Z');
+  });
+
+  test('skips mastery and leaves finalized_at null when no session', async () => {
+    hasMasterySession.mockReturnValue(false);
+    await finalizeArchivedCourse(db, { courseId, sectionId: 'sec-9', now: '2026-05-31T00:00:00Z' });
+    expect(syncMasteryForCourse).not.toHaveBeenCalled();
+    expect(db.prepare('SELECT finalized_at FROM courses WHERE id = ?').get(courseId).finalized_at).toBeNull();
   });
 });

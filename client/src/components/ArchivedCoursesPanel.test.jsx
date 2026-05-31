@@ -59,6 +59,17 @@ describe('ArchivedCoursesPanel', () => {
     expect(screen.getByText(/Import all \(1, excl\. no-code\)/)).toBeInTheDocument();
   });
 
+  it('transforms the Check button in place into Import all once the queue appears', async () => {
+    discoverArchivedCourses.mockResolvedValue(DISCOVERED);
+    renderPanel();
+    expand();
+    fireEvent.click(screen.getByText(/Check Schoology for archived courses/));
+    await screen.findByText('Drama 8');
+    // Check is gone (no need to re-check); Import all takes its place.
+    expect(screen.queryByText(/Check Schoology for archived courses/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Import all \(1, excl\. no-code\)/)).toBeInTheDocument();
+  });
+
   it('Import all imports only code-bearing, not-yet-imported sections', async () => {
     discoverArchivedCourses.mockResolvedValue(DISCOVERED);
     importCourse.mockResolvedValue({});

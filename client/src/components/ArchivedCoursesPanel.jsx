@@ -117,10 +117,26 @@ export default function ArchivedCoursesPanel({ courses, loggedIn, onLogin, busy,
             ))
           )}
 
+          {/* One full-width slot: "Check Schoology" before a scan, then it
+              transforms in place into "Import all" once the queue is known —
+              re-checking isn't a useful next step. */}
           <div className="sync-step-toggles" style={{ marginTop: '0.75rem' }}>
-            <button type="button" className="secondary" onClick={handleCheck} disabled={checking || busy}>
-              {checking ? 'Checking…' : 'Check Schoology for archived courses'}
-            </button>
+            {discovered === null ? (
+              <button type="button" className="secondary" onClick={handleCheck} disabled={checking || busy}>
+                {checking ? 'Checking…' : 'Check Schoology for archived courses'}
+              </button>
+            ) : importAllCount > 0 ? (
+              <button
+                type="button"
+                className="primary"
+                onClick={handleImportAll}
+                disabled={!!bulk || importingId !== null}
+              >
+                {bulk
+                  ? `Importing ${bulk.done}/${bulk.total}…`
+                  : `Import all (${importAllCount}, excl. no-code)`}
+              </button>
+            ) : null}
           </div>
 
           {needLogin && (
@@ -137,20 +153,6 @@ export default function ArchivedCoursesPanel({ courses, loggedIn, onLogin, busy,
               <div className="sync-group-name">
                 Found on Schoology ({discovered.length}) — {remaining.length} not yet imported
               </div>
-              {importAllCount > 0 && (
-                <div className="sync-step-toggles">
-                  <button
-                    type="button"
-                    className="primary"
-                    onClick={handleImportAll}
-                    disabled={!!bulk || importingId !== null}
-                  >
-                    {bulk
-                      ? `Importing ${bulk.done}/${bulk.total}…`
-                      : `Import all (${importAllCount}, excl. no-code)`}
-                  </button>
-                </div>
-              )}
               <div className="sync-course-list">
                 {remaining.map((s) => (
                   <div className="sync-course archived-discovery-row" key={s.sectionId}>

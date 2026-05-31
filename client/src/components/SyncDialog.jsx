@@ -26,12 +26,6 @@ export default function SyncDialog({ onClose }) {
     return () => { cancelled = true; };
   }, []);
 
-  // Re-pull the course list after an archived-course import so the Archived
-  // panel's grouped-by-year section reflects the newly imported course.
-  async function refreshCourses() {
-    try { setCourses(await getCourses(true, true)); } catch { /* keep current list */ }
-  }
-
   const reduced = useMemo(() => reduceSyncEvents(events), [events]);
 
   // Fire-and-forget: startSync owns its error handling (failures surface as
@@ -88,7 +82,6 @@ export default function SyncDialog({ onClose }) {
             onStart={(ids, opts) => startSync(ids, opts)}
             onCancel={onClose}
             onLogin={handleLogin}
-            onImported={refreshCourses}
           />
         )}
 

@@ -90,12 +90,6 @@ describe('SyncConfig', () => {
     fireEvent.click(screen.getByText(/Visible courses/));
     expect(screen.queryByLabelText('Biology 9')).not.toBeInTheDocument();
   });
-
-  it('renders the Import archived courses panel', () => {
-    renderConfig();
-    expect(screen.getByText('Import archived courses')).toBeInTheDocument();
-  });
-
   it('shows a last-synced line on a current course', () => {
     renderConfig();
     // Biology 9 is in the (expanded) visible group; its synced_at renders a line.

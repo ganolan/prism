@@ -1,5 +1,4 @@
 import { useState, useMemo } from 'react';
-import ArchivedCoursesPanel from './ArchivedCoursesPanel.jsx';
 import { formatLastSynced } from '../lib/courseDisplay.js';
 
 const GROUPS = [
@@ -20,7 +19,7 @@ function TriCheckbox({ checked, indeterminate, ...rest }) {
   );
 }
 
-export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel, onLogin, onImported }) {
+export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel, onLogin }) {
   const groups = useMemo(
     () => GROUPS.map((g) => ({ ...g, courses: courses.filter(g.match) })).filter((g) => g.courses.length),
     [courses]
@@ -167,14 +166,6 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
           </>
         )}
       </div>
-
-      <ArchivedCoursesPanel
-        courses={courses}
-        loggedIn={loggedIn}
-        onLogin={onLogin}
-        busy={busy}
-        onImported={onImported}
-      />
 
       <div className="sync-foot">
         <span className="text-muted text-sm">

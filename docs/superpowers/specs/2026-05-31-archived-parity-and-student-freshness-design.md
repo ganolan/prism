@@ -1,7 +1,8 @@
 # Archived-Course Parity + Always-Fresh Student Data — Design
 
-**Issue:** (no dedicated issue yet — derived from the #5/#69 archived-course follow-ups;
-relates to #58 "Simplify Sync", #52 "mastery staleness", #66/#65 PowerSchool PII.)
+**Issue:** #70 (sub-project A). Follow-on UX is #71 (sub-project B). Derived from the
+#5/#69 archived-course follow-ups; relates to #58 "Simplify Sync", #52 "mastery
+staleness", #66/#65 PowerSchool PII.
 **Date:** 2026-05-31
 **Status:** Approved design, pending implementation plan
 **Scope:** **Sub-project A** of a two-part effort. Sub-project B (archived-import UX —

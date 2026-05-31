@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getCourses, getCoursesByView, getSyncStatus, toggleCourseVisibility, updateCourseBlockNumber } from '../services/api.js';
-import { parseGradingPeriod, groupByAcademicYear } from '../lib/courseDisplay.js';
+import { groupByYearAndSemester } from '../lib/courseDisplay.js';
 import ArchivedCoursesPanel from '../components/ArchivedCoursesPanel.jsx';
 
 export default function Dashboard() {
@@ -48,11 +48,10 @@ export default function Dashboard() {
 
   if (loading) return <div className="loading">Loading...</div>;
 
-  const yearGroups = groupByAcademicYear(courses);
+  const yearGroups = groupByYearAndSemester(courses);
 
   // Shared course card renderer
   function CourseCard({ c, showSemester = false }) {
-    const { semester } = parseGradingPeriod(c.grading_period);
     const isSettings = settingsCard === c.id;
 
     return (
@@ -76,7 +75,6 @@ export default function Dashboard() {
         {/* Bottom row: badges + cog / settings */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.75rem' }}>
           <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
-            {showSemester && <span className="badge badge-gray">{semester}</span>}
             {!!c.hidden && <span className="badge" style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }}>Hidden</span>}
           </div>
 
@@ -189,14 +187,19 @@ export default function Dashboard() {
               <p>No archived courses imported yet. Use the "Check Schoology for archived courses" action above to find and import them.</p>
             </div>
           ) : (
-            yearGroups.map(({ year, courses: groupCourses }) => (
+            yearGroups.map(({ year, semesters }) => (
               <div key={year} style={{ marginBottom: '2rem' }}>
                 <h3 style={{ marginBottom: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                   {year}
                 </h3>
-                <div className="grid-2">
-                  {groupCourses.map(c => <CourseCard key={c.id} c={c} showSemester />)}
-                </div>
+                {semesters.map(({ semester, courses: semCourses }) => (
+                  <div key={semester} style={{ marginBottom: '1rem' }}>
+                    <h4 className="archived-semester-subhead">{semester}</h4>
+                    <div className="grid-2">
+                      {semCourses.map(c => <CourseCard key={c.id} c={c} showSemester />)}
+                    </div>
+                  </div>
+                ))}
               </div>
             ))
           )}

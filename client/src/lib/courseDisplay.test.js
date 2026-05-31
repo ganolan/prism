@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseGradingPeriod, groupByAcademicYear, groupByYearAndSemester, formatLastSynced } from './courseDisplay.js';
+import { parseGradingPeriod, groupByYearAndSemester, formatLastSynced } from './courseDisplay.js';
 
 describe('parseGradingPeriod', () => {
   it('extracts academic year and Semester 1', () => {
@@ -34,16 +34,6 @@ describe('parseGradingPeriod', () => {
   });
   it('returns Unknown year (Full Year) for a string with no date/year/term', () => {
     expect(parseGradingPeriod('mystery')).toEqual({ academicYear: 'Unknown', semester: 'Full Year' });
-  });
-});
-
-describe('groupByAcademicYear', () => {
-  it('groups and sorts years descending', () => {
-    const groups = groupByAcademicYear([
-      { id: 1, grading_period: 'Semester 1: 08/14/2024 - 01/11/2025' },
-      { id: 2, grading_period: 'Semester 1: 08/14/2025 - 01/11/2026' },
-    ]);
-    expect(groups.map((g) => g.year)).toEqual(['2025-26', '2024-25']);
   });
 });
 

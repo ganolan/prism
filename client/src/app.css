@@ -911,3 +911,8 @@ button.ghost.accent:hover { background: var(--accent-light); }
   display: flex; align-items: center; gap: 0.5rem;
   padding: 0.2rem 0 0.2rem 0.5rem; cursor: pointer;
 }
+
+.archived-semester-subhead {
+  font-size: 0.78rem; color: var(--text-muted); font-weight: 500;
+  margin: 0.25rem 0 0.5rem; letter-spacing: 0.04em;
+}

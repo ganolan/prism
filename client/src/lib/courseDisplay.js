@@ -1,6 +1,5 @@
 // Course-card display helpers, shared by the Dashboard and the Sync dialog's
-// Past-courses panel. parseGradingPeriod/groupByAcademicYear were extracted
-// verbatim from Dashboard.jsx.
+// Past-courses panel.
 
 export function parseGradingPeriod(gradingPeriod) {
   if (!gradingPeriod) return { academicYear: 'Unknown', semester: 'Unknown' };
@@ -31,18 +30,6 @@ function parseAcademicYear(s) {
     return `${start}-${String(start + 1).slice(-2)}`;
   }
   return 'Unknown';
-}
-
-export function groupByAcademicYear(courses) {
-  const groups = {};
-  for (const c of courses) {
-    const { academicYear } = parseGradingPeriod(c.grading_period);
-    if (!groups[academicYear]) groups[academicYear] = [];
-    groups[academicYear].push(c);
-  }
-  return Object.entries(groups)
-    .sort(([a], [b]) => b.localeCompare(a))
-    .map(([year, yearCourses]) => ({ year, courses: yearCourses }));
 }
 
 const SEMESTER_ORDER = { 'Semester 1': 0, 'Semester 2': 1, 'Summer': 2, 'Full Year': 3, 'Unknown': 4 };

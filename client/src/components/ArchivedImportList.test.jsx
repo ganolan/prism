@@ -51,6 +51,14 @@ describe('ArchivedImportList', () => {
     expect(screen.getByLabelText('Photography').checked).toBe(true);
   });
 
+  it('a no-code row individually ticked is included in Import N selected', () => {
+    const onImport = vi.fn();
+    renderList({ onImport });
+    fireEvent.click(screen.getByLabelText('Photography'));
+    fireEvent.click(screen.getByRole('button', { name: /Import 1 selected/ }));
+    expect(onImport.mock.calls[0][0]).toContain('a3');
+  });
+
   it('Import all imports the year\'s coded sections only', () => {
     const onImport = vi.fn();
     renderList({ onImport });

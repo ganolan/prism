@@ -1,12 +1,14 @@
 import { useState } from 'react';
-import { getPastSections, importCourse } from '../services/api.js';
+import { discoverArchivedCourses, importCourse } from '../services/api.js';
 import { parseGradingPeriod, groupByAcademicYear, formatLastSynced } from '../lib/courseDisplay.js';
 
-// Import-once panel for past/archived courses, embedded in the Sync dialog.
-// Imported archived courses (already in the DB) render grouped by year; an
-// explicit "Check Schoology for past courses" scrape surfaces not-yet-imported
-// sections to import per-course or in bulk. Issue #5.
-export default function PastCoursesPanel({ courses, loggedIn, onLogin, busy }) {
+// Import-once panel for archived (past) courses, embedded in the Sync dialog.
+// Archived courses already in the DB render grouped by year; an explicit
+// "Check Schoology for archived courses" scrape of Schoology's /mycourses/past
+// source page surfaces not-yet-imported sections to import per-course or in
+// bulk. "Archived" is the app's canonical term; "past" only names Schoology's
+// source page (see CONTEXT.md). Issue #5.
+export default function ArchivedCoursesPanel({ courses, loggedIn, onLogin, busy }) {
   const [collapsed, setCollapsed] = useState(true);
   const [discovered, setDiscovered] = useState(null); // null until checked
   const [checking, setChecking] = useState(false);
@@ -25,7 +27,7 @@ export default function PastCoursesPanel({ courses, loggedIn, onLogin, busy }) {
   async function handleCheck() {
     setChecking(true); setError(null); setNeedLogin(false);
     try {
-      const res = await getPastSections();
+      const res = await discoverArchivedCourses();
       if (!res.available) { setNeedLogin(true); setDiscovered(null); }
       else setDiscovered(res.sections);
     } catch (e) {
@@ -74,18 +76,18 @@ export default function PastCoursesPanel({ courses, loggedIn, onLogin, busy }) {
           type="button"
           className="sync-caret"
           onClick={() => setCollapsed((c) => !c)}
-          aria-label={collapsed ? 'Expand past courses' : 'Collapse past courses'}
+          aria-label={collapsed ? 'Expand import archived courses' : 'Collapse import archived courses'}
         >
           {collapsed ? '▸' : '▾'}
         </button>
-        <span>Past courses</span>
+        <span>Import archived courses</span>
         <span className="sync-badge">Import once</span>
       </div>
 
       {!collapsed && (
         <>
           {yearGroups.length === 0 ? (
-            <p className="sync-step-desc">No past courses imported yet.</p>
+            <p className="sync-step-desc">No archived courses imported yet.</p>
           ) : (
             yearGroups.map(({ year, courses: yc }) => (
               <div className="sync-group" key={year}>
@@ -109,13 +111,13 @@ export default function PastCoursesPanel({ courses, loggedIn, onLogin, busy }) {
 
           <div className="sync-step-toggles" style={{ marginTop: '0.75rem' }}>
             <button type="button" className="secondary" onClick={handleCheck} disabled={checking || busy}>
-              {checking ? 'Checking…' : 'Check Schoology for past courses'}
+              {checking ? 'Checking…' : 'Check Schoology for archived courses'}
             </button>
           </div>
 
           {needLogin && (
             <div className="alert alert-warning sync-login-prompt">
-              <p>Finding past courses needs a Schoology browser session. Log in once to enable it.</p>
+              <p>Finding archived courses needs a Schoology browser session. Log in once to enable it.</p>
               <button type="button" className="secondary" onClick={onLogin} disabled={busy}>Log in to Schoology</button>
             </div>
           )}
@@ -128,27 +130,28 @@ export default function PastCoursesPanel({ courses, loggedIn, onLogin, busy }) {
                 Found on Schoology ({discovered.length}) — {remaining.length} not yet imported
               </div>
               {importAllCount > 0 && (
-                <button
-                  type="button"
-                  className="primary"
-                  onClick={handleImportAll}
-                  disabled={!!bulk || importingId !== null}
-                  style={{ marginBottom: '0.6rem' }}
-                >
-                  {bulk
-                    ? `Importing ${bulk.done}/${bulk.total}…`
-                    : `Import all (${importAllCount}, excl. no-code)`}
-                </button>
+                <div className="sync-step-toggles">
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={handleImportAll}
+                    disabled={!!bulk || importingId !== null}
+                  >
+                    {bulk
+                      ? `Importing ${bulk.done}/${bulk.total}…`
+                      : `Import all (${importAllCount}, excl. no-code)`}
+                  </button>
+                </div>
               )}
               <div className="sync-course-list">
                 {discovered.map((s) => (
-                  <div className="sync-course past-discovery-row" key={s.sectionId}>
+                  <div className="sync-course archived-discovery-row" key={s.sectionId}>
                     <span>
                       {s.courseTitle}
                       {s.noCourseCode && <span className="badge badge-gray"> no course code</span>}
                     </span>
                     {isImported(s) ? (
-                      <button type="button" className="secondary" disabled>Imported ✓</button>
+                      <span className="badge badge-green">Imported ✓</span>
                     ) : (
                       <button
                         type="button"
@@ -166,7 +169,7 @@ export default function PastCoursesPanel({ courses, loggedIn, onLogin, busy }) {
           )}
 
           {discovered && discovered.length === 0 && (
-            <p className="sync-step-desc">No past courses found on Schoology.</p>
+            <p className="sync-step-desc">No archived courses found on Schoology.</p>
           )}
         </>
       )}

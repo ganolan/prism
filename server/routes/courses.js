@@ -4,20 +4,21 @@ import { getGradingScalesMap } from '../db/scales.js';
 import { apiGet } from '../services/schoology.js';
 import { syncSectionData } from '../services/sync.js';
 import { isResubmitted } from '../lib/resubmission.js';
-import { getPastSections } from '../services/pastCourses.js';
+import { getArchivedSections } from '../services/archivedCourses.js';
 
 const router = Router();
 
-// GET /api/courses/past — enumerate past/archived sections by scraping
-// /courses/mycourses/past (browser session). Annotates each with whether it's
-// already imported and whether it lacks a course code. Registered before
-// `/:id` so Express doesn't treat "past" as an :id. See issue #5.
-router.get('/past', async (req, res) => {
+// GET /api/courses/archived/discover — enumerate archived (past) sections by
+// scraping Schoology's /courses/mycourses/past source page (browser session).
+// Annotates each with whether it's already imported and whether it lacks a
+// course code. The two-segment path can't be captured by `/:id`. "Archived" is
+// the app term; "past" only names Schoology's page (see CONTEXT.md). Issue #5.
+router.get('/archived/discover', async (req, res) => {
   let sections;
   try {
-    sections = await getPastSections();
+    sections = await getArchivedSections();
   } catch {
-    return res.status(500).json({ error: 'Could not check for past courses' });
+    return res.status(500).json({ error: 'Could not check for archived courses' });
   }
   if (!sections) return res.json({ available: false, reason: 'no_session' });
 

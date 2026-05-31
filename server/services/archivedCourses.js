@@ -1,10 +1,12 @@
 /**
- * pastCourses.js
+ * archivedCourses.js
  *
- * Best-effort reader for the teacher's past/archived course inventory via
- * Schoology's server-rendered page (GET /courses/mycourses/past, browser-session
- * auth — same saved Playwright session as the mastery sync). There is no JSON
- * endpoint, so the page HTML is scraped and parsed (parsePastCourses). Issue #5.
+ * Best-effort reader for the teacher's archived (past) course inventory via
+ * Schoology's server-rendered page (GET /courses/mycourses/past — Schoology's
+ * own name for the source page; "archived" is the app's term, see CONTEXT.md).
+ * Browser-session auth (same saved Playwright session as the mastery sync).
+ * There is no JSON endpoint, so the page HTML is scraped and parsed
+ * (parsePastCourses, named after Schoology's page). Issue #5.
  *
  * Everything is best-effort: no saved session / expired session / launch or
  * navigation failure → returns null, and the caller treats discovery as
@@ -18,10 +20,11 @@ import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
 const STATE_FILE = join(process.cwd(), '.playwright-session', 'storage-state.json');
 
 /**
- * Fetch the raw past-courses HTML via the saved browser session. Returns the
- * page HTML, or null when there is no session / it has expired / anything fails.
+ * Fetch the raw archived-courses HTML (Schoology's /mycourses/past page) via the
+ * saved browser session. Returns the page HTML, or null when there is no session
+ * / it has expired / anything fails.
  */
-export async function fetchPastCoursesHtml() {
+export async function fetchArchivedCoursesHtml() {
   if (!existsSync(STATE_FILE)) return null;
 
   let chromium;
@@ -50,14 +53,14 @@ export async function fetchPastCoursesHtml() {
 }
 
 /**
- * Enumerate past sections. `fetchHtml` is injectable for testing (defaults to
- * the real browser fetch). Returns the parsed section list, or null when the
+ * Enumerate archived sections. `fetchHtml` is injectable for testing (defaults
+ * to the real browser fetch). Returns the parsed section list, or null when the
  * HTML is unavailable (so the caller can report discovery as unavailable).
  *
  * @param {() => Promise<string|null>} [fetchHtml]
  * @returns {Promise<Array<object>|null>}
  */
-export async function getPastSections(fetchHtml = fetchPastCoursesHtml) {
+export async function getArchivedSections(fetchHtml = fetchArchivedCoursesHtml) {
   const html = await fetchHtml();
   if (!html) return null;
   try {

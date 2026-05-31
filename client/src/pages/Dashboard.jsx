@@ -208,7 +208,7 @@ export default function Dashboard() {
         <div>
           {yearGroups.length === 0 ? (
             <div className="card empty-state">
-              <p>No archived courses yet. Use the form below to add a past course.</p>
+              <p>No archived courses yet. Use the form below to add an archived course.</p>
             </div>
           ) : (
             yearGroups.map(({ year, courses: groupCourses }) => (
@@ -223,9 +223,9 @@ export default function Dashboard() {
             ))
           )}
 
-          {/* Add past course form */}
+          {/* Add archived course form */}
           <div style={{ marginTop: '2rem', borderTop: '1px solid var(--border)', paddingTop: '1.5rem' }}>
-            <h3 style={{ marginBottom: '0.25rem' }}>Add a past course</h3>
+            <h3 style={{ marginBottom: '0.25rem' }}>Add an archived course</h3>
             <p className="text-sm text-muted" style={{ marginBottom: '1rem' }}>
               Find the section ID in the Schoology URL:{' '}
               <code>schoology.hkis.edu.hk/course/<strong>[ID]</strong>/materials</code>

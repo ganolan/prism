@@ -91,9 +91,9 @@ describe('SyncConfig', () => {
     expect(screen.queryByLabelText('Biology 9')).not.toBeInTheDocument();
   });
 
-  it('renders the Past courses panel', () => {
+  it('renders the Import archived courses panel', () => {
     renderConfig();
-    expect(screen.getByText('Past courses')).toBeInTheDocument();
+    expect(screen.getByText('Import archived courses')).toBeInTheDocument();
   });
 
   it('shows a last-synced line on a current course', () => {

@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import PastCoursesPanel from './PastCoursesPanel.jsx';
+import ArchivedCoursesPanel from './ArchivedCoursesPanel.jsx';
 import { formatLastSynced } from '../lib/courseDisplay.js';
 
 const GROUPS = [
@@ -168,7 +168,7 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
         )}
       </div>
 
-      <PastCoursesPanel
+      <ArchivedCoursesPanel
         courses={courses}
         loggedIn={loggedIn}
         onLogin={onLogin}

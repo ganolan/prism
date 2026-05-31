@@ -185,15 +185,20 @@ green (server 121, client 123).
 - **Parser** `server/lib/parsePastCourses.js` (pure, TDD) — scrapes `GET /courses/mycourses/past` HTML
   (no JSON endpoint) into section-grained rows `{courseId, courseTitle, courseCode, sectionId, sectionTitle}`;
   empty `.course-code` → `null` (MASTER-style no-code signal).
-- **Service** `server/services/pastCourses.js` — best-effort one-shot browser-session fetch (mirrors
-  `graderSubmissions.js`; shared `server/lib/browserSession.js` now holds `SCHOOLOGY_BASE`/`isLoggedInUrl`),
-  `getPastSections(fetchHtml)` injectable, returns `null` when no/expired session (never throws).
-- **Endpoint** `GET /api/courses/past` (registered before `/:id`) — `{available:false, reason:'no_session'}`
-  or `{available:true, sections:[…+imported,+noCourseCode]}`; reuses existing `POST /api/courses/import`.
-- **UI** `client/src/components/PastCoursesPanel.jsx` in the Sync dialog — import-once panel: imported
-  archived courses grouped by year (via extracted `client/src/lib/courseDisplay.js`), explicit "Check
-  Schoology for past courses" scrape, per-course + "Import all (excl. no-code)" with live progress, login
-  prompt reused on no-session. Current courses got a `formatLastSynced` line (UK/AU `en-GB` DD/MM/YYYY).
+- **Service** `server/services/archivedCourses.js` — best-effort one-shot browser-session fetch (mirrors
+  `graderSubmissions.js`; shared `server/lib/browserSession.js` holds `SCHOOLOGY_BASE`/`isLoggedInUrl`),
+  `getArchivedSections(fetchHtml)` injectable, returns `null` when no/expired session (never throws).
+- **Endpoint** `GET /api/courses/archived/discover` (two-segment path, before `/:id`) —
+  `{available:false, reason:'no_session'}` or `{available:true, sections:[…+imported,+noCourseCode]}`;
+  reuses existing `POST /api/courses/import`.
+- **UI** `client/src/components/ArchivedCoursesPanel.jsx` ("Import archived courses" panel in the Sync
+  dialog) — import-once: imported archived courses grouped by year (via extracted
+  `client/src/lib/courseDisplay.js`), explicit "Check Schoology for archived courses" scrape, per-course
+  Import buttons + a full-width "Import all (excl. no-code)" with live progress; imported rows show a
+  green "Imported ✓" badge (non-actionable); login prompt reused on no-session. Current courses got a
+  `formatLastSynced` line (UK/AU `en-GB` DD/MM/YYYY).
+- **Terminology** (see `CONTEXT.md`): **"archived"** is the canonical app term for past/completed courses;
+  **"past"** is reserved for Schoology's `/mycourses/past` source page + its parser (`parsePastCourses`).
 - **LIVE-VERIFIED 2026-05-31** against the real page: it is **45 `course-item` rows = 19 distinct courses
   (a course recurs once per term, one id up to 6×) / 49 unique sections** (49 distinct `section-{id}`,
   **0 duplicate rows**, 2 no-code). Parser attributes title/code per-row, so recurrence is harmless; import

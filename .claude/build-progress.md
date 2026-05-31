@@ -175,3 +175,33 @@ Merged via PR #2.
 - [x] React Context + localStorage persistence via `useTheme.jsx`
 - [x] Theme switcher dots in sidebar
 - [x] All page components updated for theme variables
+
+## Past-Course Discovery & Import (#5) — COMPLETE (2026-05-31)
+
+Spec `docs/superpowers/specs/2026-05-31-past-course-discovery-design.md`, plan
+`docs/superpowers/plans/2026-05-31-past-course-discovery.md`. Built via subagent-driven TDD; all tests
+green (server 121, client 123).
+
+- **Parser** `server/lib/parsePastCourses.js` (pure, TDD) — scrapes `GET /courses/mycourses/past` HTML
+  (no JSON endpoint) into section-grained rows `{courseId, courseTitle, courseCode, sectionId, sectionTitle}`;
+  empty `.course-code` → `null` (MASTER-style no-code signal).
+- **Service** `server/services/pastCourses.js` — best-effort one-shot browser-session fetch (mirrors
+  `graderSubmissions.js`; shared `server/lib/browserSession.js` now holds `SCHOOLOGY_BASE`/`isLoggedInUrl`),
+  `getPastSections(fetchHtml)` injectable, returns `null` when no/expired session (never throws).
+- **Endpoint** `GET /api/courses/past` (registered before `/:id`) — `{available:false, reason:'no_session'}`
+  or `{available:true, sections:[…+imported,+noCourseCode]}`; reuses existing `POST /api/courses/import`.
+- **UI** `client/src/components/PastCoursesPanel.jsx` in the Sync dialog — import-once panel: imported
+  archived courses grouped by year (via extracted `client/src/lib/courseDisplay.js`), explicit "Check
+  Schoology for past courses" scrape, per-course + "Import all (excl. no-code)" with live progress, login
+  prompt reused on no-session. Current courses got a `formatLastSynced` line (UK/AU `en-GB` DD/MM/YYYY).
+- **LIVE-VERIFIED 2026-05-31** against the real page: it is **45 `course-item` rows = 19 distinct courses
+  (a course recurs once per term, one id up to 6×) / 49 unique sections** (49 distinct `section-{id}`,
+  **0 duplicate rows**, 2 no-code). Parser attributes title/code per-row, so recurrence is harmless; import
+  keys on the unique `sectionId`. Corrected the "~45 courses" claim in `schoology-api-reference.md`.
+- **Decisions**: import is **gradebook-only** (`syncSectionData`) — mastery (SBG) stays opt-in via Step 2's
+  Archived group; whether the internal mastery API serves past sections is **unverified**.
+- **Not yet explored**: (a) the inert "Include archived" sync toggle (archived=past ⇒ never in the active
+  batch) — flagged for a separate cleanup; (b) a configurable app-wide date-format/locale preference (asked
+  for; deferred — would need a shared `formatDate` helper across the app); (c) discovery rows show repeated
+  course names across terms with no year/term label (the scrape's per-row term metadata wasn't parsed);
+  (d) bulk import only unit-tested — not yet exercised against a live multi-section import run.

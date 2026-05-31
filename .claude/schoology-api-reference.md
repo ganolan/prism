@@ -480,8 +480,12 @@ verified live (an earlier draft of this doc guessed "Parent/Student/Staff" from 
 **2. Archived / past courses — HTML parse confirmed; NO clean JSON exists; archived sections ARE API-readable.**
 `GET /courses/mycourses/past` → **200 text/html** (~338 KB). Verified structure: **45 `li.course-item.list-item`** rows
 (`id="course-{courseId}"`, `.course-title`, `.course-code`) containing **49 `div.section-item`**
-(`id="section-{sectionId}"` + view link `a[href="/course/{sectionId}"]`) — i.e. the archived inventory is
-**~45 courses / 49 sections**. (The earlier "233 `/course/{id}` links" was the *raw* action-link count — each section
+(`id="section-{sectionId}"` + view link `a[href="/course/{sectionId}"]`) — i.e. **45 `course-item` rows / 49 sections**.
+⚠️ **Re-verified live 2026-05-31** (parsed via `server/lib/parsePastCourses.js`): those 45 `course-item` rows carry only
+**19 distinct `course-{id}` values** — a course recurs once per term, one id appearing up to 6× — while the 49
+`section-item`s have **49 distinct `section-{id}`s** (every importable section unique, **0 duplicate rows**; 2 are
+no-code/MASTER-style). So the archive is **19 distinct courses across 45 rows / 49 unique sections**, NOT "45 courses";
+import keys on the unique `sectionId`, so the recurrence is harmless. (The earlier "233 `/course/{id}` links" was the *raw* action-link count — each section
 row carries ~5 admin links: edit / invite / members / link-existing / copy — not the course count.) **No JSON flag for
 past courses:** `GET /iapi/course/active` returns the *same* 9 courses / 10 sections under every variant tried
 (`?include_past=1`, `?past=1`, `?archived=1`, `?all=1`, `?show_past=1`) — so the active-courses JSON cannot be coaxed to

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { getCourses, getCoursesByView, getSyncStatus, toggleCourseVisibility, importCourse, updateCourseBlockNumber } from '../services/api.js';
+import { getCourses, getCoursesByView, getSyncStatus, toggleCourseVisibility, updateCourseBlockNumber } from '../services/api.js';
 import { parseGradingPeriod, groupByAcademicYear } from '../lib/courseDisplay.js';
+import ArchivedCoursesPanel from '../components/ArchivedCoursesPanel.jsx';
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('current');
@@ -9,10 +10,6 @@ export default function Dashboard() {
   const [courses, setCourses] = useState([]);
   const [syncStatus, setSyncStatus] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [importId, setImportId] = useState('');
-  const [importing, setImporting] = useState(false);
-  const [importError, setImportError] = useState(null);
-  const [importSuccess, setImportSuccess] = useState(null);
   // editingBlock: courseId currently being edited, blockDraft: current input value
   const [settingsCard, setSettingsCard] = useState(null);
 
@@ -39,8 +36,6 @@ export default function Dashboard() {
   }
 
   useEffect(() => {
-    setImportError(null);
-    setImportSuccess(null);
     reload();
   }, [activeTab, showHidden]);
 
@@ -49,25 +44,6 @@ export default function Dashboard() {
     e.stopPropagation();
     await toggleCourseVisibility(courseId);
     reload();
-  }
-
-  async function handleImport(e) {
-    e.preventDefault();
-    const sid = importId.trim();
-    if (!sid) return;
-    setImporting(true);
-    setImportError(null);
-    setImportSuccess(null);
-    try {
-      const result = await importCourse(sid);
-      setImportSuccess(result);
-      setImportId('');
-      reload();
-    } catch (err) {
-      setImportError(err.message);
-    } finally {
-      setImporting(false);
-    }
   }
 
   if (loading) return <div className="loading">Loading...</div>;
@@ -206,9 +182,11 @@ export default function Dashboard() {
       {/* Archived tab */}
       {activeTab === 'archived' && (
         <div>
+          <ArchivedCoursesPanel onImported={reload} />
+
           {yearGroups.length === 0 ? (
             <div className="card empty-state">
-              <p>No archived courses yet. Use the form below to add an archived course.</p>
+              <p>No archived courses imported yet. Use the "Check Schoology for archived courses" action above to find and import them.</p>
             </div>
           ) : (
             yearGroups.map(({ year, courses: groupCourses }) => (
@@ -222,39 +200,6 @@ export default function Dashboard() {
               </div>
             ))
           )}
-
-          {/* Add archived course form */}
-          <div style={{ marginTop: '2rem', borderTop: '1px solid var(--border)', paddingTop: '1.5rem' }}>
-            <h3 style={{ marginBottom: '0.25rem' }}>Add an archived course</h3>
-            <p className="text-sm text-muted" style={{ marginBottom: '1rem' }}>
-              Find the section ID in the Schoology URL:{' '}
-              <code>schoology.hkis.edu.hk/course/<strong>[ID]</strong>/materials</code>
-            </p>
-            {importSuccess && (
-              <div className="alert alert-success" style={{ marginBottom: '1rem' }}>
-                Imported <strong>{importSuccess.course.course_name}</strong> — {importSuccess.studentsCount} students, {importSuccess.assignmentsCount} assignments
-              </div>
-            )}
-            {importError && (
-              <div className="alert alert-warning" style={{ marginBottom: '1rem' }}>{importError}</div>
-            )}
-            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end' }}>
-              <div style={{ flex: 1 }}>
-                <label className="text-sm" style={{ display: 'block', marginBottom: '0.25rem' }}>Section ID</label>
-                <input
-                  type="text"
-                  value={importId}
-                  onChange={e => setImportId(e.target.value)}
-                  placeholder="e.g. 7899907695"
-                  style={{ width: '100%' }}
-                  disabled={importing}
-                />
-              </div>
-              <button className="primary" onClick={handleImport} disabled={importing || !importId.trim()}>
-                {importing ? 'Importing...' : 'Import'}
-              </button>
-            </div>
-          </div>
         </div>
       )}
     </div>

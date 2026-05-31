@@ -11,6 +11,7 @@ import {
   getSectionGradingScales,
   getUserProfile,
   getSubmissionStatus,
+  getSection,
 } from './schoology.js';
 import { runWithLimits } from './rateLimitedRunner.js';
 import { createSubmissionFetcher } from './graderSubmissions.js';
@@ -543,6 +544,39 @@ export async function finalizeArchivedCourse(db, { courseId, sectionId, now, run
   return { ...counts, finalized: sessionPresent };
 }
 
+// Auto-archive: a previously-synced active course (archived=0, has synced_at)
+// that has dropped off the active-sections set has likely been archived on
+// Schoology. Confirm via a section read before archiving: active:0 → finalise
+// (gradebook + mastery if a session exists) + mark archived; still active:1 →
+// leave (transient/ambiguous); 404 → mark archived but keep the last snapshot.
+// `activeSectionIds` is a Set of the section ids returned by getMySections. (#70)
+export async function detectArchivedTransitions(db, activeSectionIds, now) {
+  const dropped = db.prepare(`
+    SELECT id, schoology_section_id FROM courses
+    WHERE archived = 0 AND excluded = 0 AND synced_at IS NOT NULL
+  `).all().filter((c) => !activeSectionIds.has(String(c.schoology_section_id)));
+
+  for (const c of dropped) {
+    const sectionId = String(c.schoology_section_id);
+    let sec;
+    try {
+      sec = await getSection(sectionId);
+    } catch (err) {
+      if (err?.status === 404) {
+        db.prepare('UPDATE courses SET archived = 1 WHERE id = ?').run(c.id);
+      }
+      continue; // transient/other error → leave for a later sync
+    }
+    if (Number(sec.active) === 0) {
+      const periods = await getSectionGradingPeriods(sectionId).catch(() => []);
+      const gradingPeriod = periods[0]?.title || null;
+      await finalizeArchivedCourse(db, { courseId: c.id, sectionId, now });
+      db.prepare('UPDATE courses SET archived = 1, grading_period = COALESCE(?, grading_period) WHERE id = ?')
+        .run(gradingPeriod, c.id);
+    }
+  }
+}
+
 export async function fullSync(onProgress, { includeHidden = false } = {}) {
   const db = getDb();
   const log = (msg) => onProgress?.({ message: msg });
@@ -731,6 +765,9 @@ export async function fullSync(onProgress, { includeHidden = false } = {}) {
       metrics.retries_attempted = metrics.failed_assignment_ids.length;
       metrics.failed_assignment_ids = await retrySubmissions(db, metrics.failed_assignment_ids, now, metrics);
     }
+
+    // Auto-archive courses that have dropped off the active list this turn (#70).
+    await detectArchivedTransitions(db, new Set(sections.map((s) => String(s.id))), now);
 
     // 3. Refresh + reconcile every retained student's profile + guardians.
     //    Runs for ALL students every sync (including those in no active course)

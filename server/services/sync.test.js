@@ -14,6 +14,7 @@ vi.mock('./schoology.js', () => ({
   getSectionGradingScales: vi.fn(),
   getUserProfile: vi.fn(),
   getSubmissionStatus: vi.fn(),
+  getSection: vi.fn(),
 }));
 
 // fullSync calls createSubmissionFetcher(), which would launch a headless
@@ -34,10 +35,12 @@ import {
   getSectionAssignments,
   getSectionGrades,
   getSubmissionStatus,
+  getSectionGradingPeriods,
   getUserProfile,
+  getSection,
 } from './schoology.js';
 import { syncMasteryForCourse, hasMasterySession } from './masterySync.js';
-import { syncSectionData, retrySubmissions, fullSync, enrichStudentProfiles, finalizeArchivedCourse } from './sync.js';
+import { syncSectionData, retrySubmissions, fullSync, enrichStudentProfiles, finalizeArchivedCourse, detectArchivedTransitions } from './sync.js';
 
 describe('syncSectionData — assignee mapping (#54)', () => {
   let db;
@@ -590,5 +593,56 @@ describe('finalizeArchivedCourse (#70)', () => {
     await finalizeArchivedCourse(db, { courseId, sectionId: 'sec-9', now: '2026-05-31T00:00:00Z' });
     expect(syncMasteryForCourse).not.toHaveBeenCalled();
     expect(db.prepare('SELECT finalized_at FROM courses WHERE id = ?').get(courseId).finalized_at).toBeNull();
+  });
+});
+
+describe('detectArchivedTransitions (#70)', () => {
+  let db;
+  beforeEach(async () => {
+    db = new Database(':memory:');
+    migrate(db);
+    const sch = await import('./schoology.js');
+    sch.getSectionEnrollments.mockResolvedValue([]);
+    sch.getSectionAssignments.mockResolvedValue([]);
+    sch.getSectionGrades.mockResolvedValue([]);
+    sch.getSubmissionStatus.mockResolvedValue(null);
+    sch.getSectionGradingPeriods.mockResolvedValue([{ title: 'Semester 1: 08/14/2024 - 01/11/2025' }]);
+    hasMasterySession.mockReturnValue(false); // gradebook-only finalise in this test
+    getSection.mockReset();
+  });
+
+  function seed(sectionId, archived = 0) {
+    return db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name, archived, excluded, synced_at) VALUES (?, ?, ?, 0, '2026-01-01T00:00:00Z')`
+    ).run(sectionId, sectionId, archived).lastInsertRowid;
+  }
+
+  test('archives a dropped course that the section read confirms is inactive', async () => {
+    const id = seed('sec-gone');
+    getSection.mockResolvedValue({ id: 'sec-gone', active: 0, course_title: 'Gone' });
+    await detectArchivedTransitions(db, new Set(['sec-active']), '2026-05-31T00:00:00Z');
+    expect(db.prepare('SELECT archived FROM courses WHERE id = ?').get(id).archived).toBe(1);
+  });
+
+  test('leaves a dropped course that is still active (transient drop)', async () => {
+    const id = seed('sec-blip');
+    getSection.mockResolvedValue({ id: 'sec-blip', active: 1 });
+    await detectArchivedTransitions(db, new Set(['sec-active']), '2026-05-31T00:00:00Z');
+    expect(db.prepare('SELECT archived FROM courses WHERE id = ?').get(id).archived).toBe(0);
+  });
+
+  test('archives (no data refresh) when the section read 404s', async () => {
+    const id = seed('sec-deleted');
+    const err = new Error('Schoology API 404'); err.status = 404;
+    getSection.mockRejectedValue(err);
+    await detectArchivedTransitions(db, new Set([]), '2026-05-31T00:00:00Z');
+    expect(db.prepare('SELECT archived FROM courses WHERE id = ?').get(id).archived).toBe(1);
+  });
+
+  test('ignores courses still in the active set', async () => {
+    const id = seed('sec-active');
+    await detectArchivedTransitions(db, new Set(['sec-active']), '2026-05-31T00:00:00Z');
+    expect(getSection).not.toHaveBeenCalled();
+    expect(db.prepare('SELECT archived FROM courses WHERE id = ?').get(id).archived).toBe(0);
   });
 });

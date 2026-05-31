@@ -110,4 +110,17 @@ describe('ArchivedCoursesPanel', () => {
     fireEvent.click(within(dramaRow).getByText('Import'));
     expect(await screen.findByText('Section not accessible')).toBeInTheDocument();
   });
+
+  it('keeps the login prompt and surfaces an error when login fails', async () => {
+    discoverArchivedCourses.mockResolvedValue({ available: false, reason: 'no_session' });
+    triggerMasteryLogin.mockRejectedValue(new Error('Login window closed'));
+    renderPanel();
+    fireEvent.click(screen.getByText(/Check Schoology for archived courses/));
+    await screen.findByText(/Log in to Schoology/);
+    fireEvent.click(screen.getByText(/Log in to Schoology/));
+    expect(await screen.findByText('Login window closed')).toBeInTheDocument();
+    // login failed → discovery was not re-run, and the prompt is still offered
+    expect(screen.getByText(/Log in to Schoology/)).toBeInTheDocument();
+    expect(discoverArchivedCourses).toHaveBeenCalledTimes(1);
+  });
 });

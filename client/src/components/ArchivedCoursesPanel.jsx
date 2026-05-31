@@ -40,8 +40,7 @@ export default function ArchivedCoursesPanel({ onImported }) {
     setLoggingIn(true); setError(null);
     try {
       await triggerMasteryLogin();
-      setNeedLogin(false);
-      await handleCheck(); // auto re-run discovery once logged in
+      await handleCheck(); // auto re-run discovery once logged in (owns the needLogin transition)
     } catch (e) {
       setError(e.message);
     } finally {

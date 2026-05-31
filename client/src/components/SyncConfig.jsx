@@ -20,7 +20,7 @@ function TriCheckbox({ checked, indeterminate, ...rest }) {
   );
 }
 
-export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel, onLogin }) {
+export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel, onLogin, onImported }) {
   const groups = useMemo(
     () => GROUPS.map((g) => ({ ...g, courses: courses.filter(g.match) })).filter((g) => g.courses.length),
     [courses]
@@ -173,6 +173,7 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
         loggedIn={loggedIn}
         onLogin={onLogin}
         busy={busy}
+        onImported={onImported}
       />
 
       <div className="sync-foot">

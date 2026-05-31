@@ -27,6 +27,7 @@ function renderPanel(props = {}) {
       courses={props.courses || ARCHIVED}
       loggedIn={props.loggedIn ?? true}
       onLogin={props.onLogin || (() => {})}
+      onImported={props.onImported || (() => {})}
       busy={false}
     />
   );
@@ -81,25 +82,26 @@ describe('ArchivedCoursesPanel', () => {
     expect(onLogin).toHaveBeenCalled();
   });
 
-  it('per-course Import marks the row Imported ✓ in place as a non-button badge', async () => {
+  it('per-course Import removes the row from the to-import queue and refreshes the dialog', async () => {
     discoverArchivedCourses.mockResolvedValue(DISCOVERED);
     importCourse.mockResolvedValue({});
-    renderPanel();
+    const onImported = vi.fn();
+    renderPanel({ onImported });
     expand();
     fireEvent.click(screen.getByText(/Check Schoology for archived courses/));
     await screen.findByText('Drama 8');
     const dramaRow = screen.getByText('Drama 8').closest('.sync-course');
     fireEvent.click(within(dramaRow).getByText('Import'));
     await waitFor(() => expect(importCourse).toHaveBeenCalledWith('7005'));
-    // The row stays visible and flips to a non-actionable "Imported ✓" badge.
-    const dramaRowAfter = screen.getByText('Drama 8').closest('.sync-course');
-    expect(within(dramaRowAfter).getByText('Imported ✓')).toBeInTheDocument();
-    expect(within(dramaRowAfter).queryByRole('button')).not.toBeInTheDocument();
-    // Drama 8 was the only code-bearing section → "Import all" disappears once it's imported.
+    // Drama 8 leaves the to-import queue (it now lives in the grouped section above).
+    await waitFor(() => expect(screen.queryByText('Drama 8')).not.toBeInTheDocument());
+    // and the panel asked the dialog to refetch its course list.
+    expect(onImported).toHaveBeenCalled();
+    // Drama 8 was the only code-bearing section → "Import all" is gone.
     expect(screen.queryByText(/Import all/)).not.toBeInTheDocument();
   });
 
-  it('renders an already-imported discovered section as an Imported ✓ badge (no button)', async () => {
+  it('excludes already-imported discovered sections from the to-import queue', async () => {
     discoverArchivedCourses.mockResolvedValue({
       available: true,
       sections: [
@@ -110,11 +112,11 @@ describe('ArchivedCoursesPanel', () => {
     renderPanel();
     expand();
     fireEvent.click(screen.getByText(/Check Schoology for archived courses/));
-    await screen.findByText('History 9');
-    const historyRow = screen.getByText('History 9').closest('.sync-course');
-    expect(within(historyRow).getByText('Imported ✓')).toBeInTheDocument();
-    expect(within(historyRow).queryByRole('button')).not.toBeInTheDocument();
-    // The not-yet-imported one is still importable; Import all counts only it.
+    await screen.findByText('Drama 8');
+    // History 9 is already imported → not shown in the to-import queue.
+    expect(screen.queryByText('History 9')).not.toBeInTheDocument();
+    // The header still reports the full found count vs. how many remain.
+    expect(screen.getByText(/Found on Schoology \(2\) — 1 not yet imported/)).toBeInTheDocument();
     expect(screen.getByText(/Import all \(1, excl\. no-code\)/)).toBeInTheDocument();
   });
 

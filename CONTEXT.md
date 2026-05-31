@@ -9,8 +9,9 @@ terminology or a cross-cutting decision changes.
 
 - **Archived** — the **canonical** term for a completed / past course (a previous
   year or semester). Backed by the `courses.archived` flag. Use it everywhere
-  user-facing (Dashboard **Archived** tab, the Sync dialog's **Import archived
-  courses** panel, the **Include archived courses** toggle) and in app-level code
+  user-facing (the Dashboard **Archived** tab — which hosts both the imported-course
+  cards and the **Import archived courses** discovery surface — and the Sync dialog's
+  **Include archived courses** toggle) and in app-level code
   (`server/services/archivedCourses.js`, `getArchivedSections`,
   `discoverArchivedCourses`, `GET /api/courses/archived/discover`,
   `ArchivedCoursesPanel`).
@@ -34,12 +35,12 @@ touches them — they are **import-once**.
   preference is a deferred follow-up (would want a shared `formatDate` helper that
   all dates funnel through — formatting is currently scattered).
 
-## Sync dialog surfaces (avoid label collisions)
+## Archived-course surfaces (avoid label collisions)
 
-The Sync dialog has two *different* archived-course surfaces — keep their labels
-distinct:
-- **Step 2 → "Archived courses"** group — selects already-imported archived
-  courses for the optional **mastery (SBG)** sync.
-- **"Import archived courses"** panel — discovers archived sections from Schoology
-  and imports them once (gradebook only; mastery stays opt-in via the Step 2
-  group).
+After #69 the **Sync dialog** has a single archived-course surface — the **Step 2 →
+"Archived courses"** group, which selects already-imported archived courses for the
+optional **mastery (SBG)** sync. The **Import archived courses** discovery surface
+(`ArchivedCoursesPanel`: discovers archived sections from Schoology and imports them
+once — gradebook only; mastery stays opt-in via the Step 2 group) now lives on the
+**Dashboard Archived tab**, above the imported-course cards. Keep these two labels
+distinct.

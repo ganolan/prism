@@ -210,3 +210,41 @@ green (server 121, client 123).
   for; deferred — would need a shared `formatDate` helper across the app); (c) discovery rows show repeated
   course names across terms with no year/term label (the scrape's per-row term metadata wasn't parsed);
   (d) bulk import only unit-tested — not yet exercised against a live multi-section import run.
+
+## Archived-Import Relocation (#69) — COMPLETE (2026-05-31)
+
+Spec `docs/superpowers/specs/2026-05-31-archived-import-relocation-design.md`, plan
+`docs/superpowers/plans/2026-05-31-archived-import-relocation.md`. Frontend-only; built via subagent-driven
+TDD with two-stage (spec + code-quality) review per task. All tests green (server 122, client 126); prod
+build clean. Backend unchanged.
+
+- **Relocation**: the archived-course discovery/import UI moved out of the **Sync dialog** onto the
+  **Dashboard Archived tab**, rendered **above** the year-grouped imported-course cards. `SyncConfig` no
+  longer renders the panel and `SyncDialog`'s `refreshCourses`/`onImported` wiring is gone (`loggedIn`/
+  `onLogin`/`busy` stay — they drive the Step 2 mastery login prompt).
+- **`ArchivedCoursesPanel` slimmed to discovery-only + self-contained**: dropped its internal
+  imported-courses-by-year list (the Dashboard's cards are now the sole imported view — the de-dup), so it
+  no longer needs `courses`/`courseDisplay` helpers; props are just `{ onImported }` (wired to the
+  Dashboard's `reload`). Removed the collapse caret + "Import once" badge (always visible now). Owns its
+  Schoology login: `triggerMasteryLogin` + local busy, and **auto-re-runs discovery** on login success
+  (`handleCheck` solely owns the `needLogin` transition). Kept: Check→"Import all (excl. no-code)"
+  transform-in-place, per-course Import, import-once, error display.
+- **Removed** the Dashboard's manual "Add an archived course" (Section-ID) import form and its dead state/
+  handler (`importId`/`importing`/`importError`/`importSuccess`/`handleImport`, the `importCourse` import).
+- **Restyle**: replaced the panel's `sync-*` chrome with a Dashboard-matched `.archived-import*` class set
+  in `app.css` (CSS variables only; uppercase-muted section header like the year groups). The login alert
+  keeps the neutral shared `sync-login-prompt` spacing helper.
+- **Tests**: rewrote `ArchivedCoursesPanel.test.jsx` (8 tests incl. login-failure path) and added
+  `Dashboard.test.jsx` (panel present above cards via button-role assertion; manual form gone); removed the
+  obsolete SyncConfig panel test. `CONTEXT.md` updated (the "Archived-course surfaces" section now notes the
+  dialog has a single archived surface — the Step 2 mastery group — and the discovery surface lives on the
+  Dashboard tab).
+- **LIVE-VERIFIED 2026-05-31**: loaded the running app (Dashboard → Archived tab) — the "Import archived
+  courses from Schoology" header + "Check Schoology for archived courses" button sit above the 2025-26 card
+  group (the kept MOBILE GAMES DEVELOPMENT test course, shown once); no manual form; only a benign
+  favicon.ico 404 in the console. Did **not** trigger the live Schoology scrape.
+- **Not yet explored** (carried forward): (a) the inert "Include archived" sync toggle cleanup; (b) a
+  configurable app-wide date-format/locale preference + shared `formatDate` helper (the relocated panel
+  renders no dates now); (c) discovery rows still show repeated course names across terms with no year/term
+  label (per-row term metadata not parsed); (d) "Import all" / bulk import still not exercised against a
+  live multi-section run; (e) whether the internal mastery API serves archived sections is still unverified.

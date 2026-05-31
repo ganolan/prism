@@ -20,7 +20,7 @@ export function parseGradingPeriod(gradingPeriod) {
 function parseAcademicYear(s) {
   let m = s.match(/(20\d{2})\s*-\s*20\d{2}/);
   if (m) { const start = Number(m[1]); return `${start}-${String(start + 1).slice(-2)}`; }
-  m = s.match(/\b(\d{2})-(\d{2})\b/);
+  m = s.match(/\b(\d{2})-\d{2}\b/);
   if (m) { const start = 2000 + Number(m[1]); return `${start}-${String(start + 1).slice(-2)}`; }
   m = s.match(/(\d{1,2})\/\d{1,2}\/(\d{2,4})/);
   if (m) {

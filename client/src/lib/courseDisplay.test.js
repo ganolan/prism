@@ -59,6 +59,8 @@ describe('groupByYearAndSemester', () => {
     const y2024 = groups.find((g) => g.year === '2024-25');
     expect(y2024.semesters.map((s) => s.semester)).toEqual(['Semester 1', 'Semester 2']);
     expect(y2024.semesters[0].courses.map((c) => c.id)).toEqual([2]);
+    const unknown = groups.find((g) => g.year === 'Unknown');
+    expect(unknown.semesters[0].courses.map((c) => c.id)).toEqual([4]);
   });
 
   it('accepts a getPeriod accessor for discovery rows', () => {

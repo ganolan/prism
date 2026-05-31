@@ -80,13 +80,15 @@ describe('ArchivedCoursesPanel', () => {
   it('shows a failed import in the modal with Retry failed', async () => {
     discoverArchivedCourses.mockResolvedValue(DISCOVERED);
     importCourse.mockRejectedValue(new Error('Section not accessible'));
-    renderPanel();
+    const onImported = vi.fn();
+    renderPanel({ onImported });
     fireEvent.click(screen.getByText(/Check Schoology for archived courses/));
     await screen.findByText('Drama 8');
     fireEvent.click(screen.getByLabelText('Drama 8'));
     fireEvent.click(screen.getByRole('button', { name: /Import 1 selected/ }));
     expect(await screen.findByText('Section not accessible')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /retry failed \(1\)/i })).toBeInTheDocument();
+    expect(onImported).not.toHaveBeenCalled();
   });
 
   it('logs in on demand and auto-re-runs discovery', async () => {

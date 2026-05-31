@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { importCourse } from '../services/api.js';
 
 // Drives a SEQUENTIAL archived-course import (mastery uses a single browser
@@ -11,6 +11,8 @@ export function useImportRunner({ onComplete, importer = importCourse } = {}) {
   const [model, setModel] = useState(EMPTY);
   const ref = useRef(EMPTY);
   const busy = useRef(false);
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => { onCompleteRef.current = onComplete; });
   const publish = (m) => { ref.current = m; setModel(m); };
 
   const runTargets = useCallback(async (targets, priorLog) => {
@@ -49,11 +51,11 @@ export function useImportRunner({ onComplete, importer = importCourse } = {}) {
 
       publish({ ...ref.current, status: 'done' });
       const succeededIds = rows.filter((r) => r.status === 'done').map((r) => r.sectionId);
-      onComplete?.({ total: ref.current.total, succeeded: succeededIds.length, succeededIds, failures });
+      onCompleteRef.current?.({ total: ref.current.total, succeeded: succeededIds.length, succeededIds, failures });
     } finally {
       busy.current = false;
     }
-  }, [importer, onComplete]);
+  }, [importer]);
 
   const run = useCallback((targets) => runTargets(targets, []), [runTargets]);
   const retryFailed = useCallback(() => {

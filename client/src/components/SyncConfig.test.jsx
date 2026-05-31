@@ -45,8 +45,8 @@ describe('SyncConfig', () => {
     const onStart = vi.fn();
     renderConfig({ onStart });
     fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
-    // onStart is called with the selected ids AND the include-hidden/archived
-    // options (both default false). See SyncConfig's "Start sync" handler.
+    // onStart is called with the selected ids AND the include-hidden option
+    // (default false). See SyncConfig's "Start sync" handler.
     expect(onStart).toHaveBeenCalledWith([1, 2], { includeHidden: false });
   });
 

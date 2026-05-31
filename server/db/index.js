@@ -61,6 +61,9 @@ const MIGRATIONS = [
   // hidden/archived without the matching opt-in toggle) for telemetry via
   // /api/sync/metrics.
   `ALTER TABLE sync_metrics ADD COLUMN sections_skipped INTEGER DEFAULT 0`,
+  // #70: marks an archived course as finalised (mastery attempted with a browser
+  // session present). Null = not yet captured → eligible for backfill.
+  `ALTER TABLE courses ADD COLUMN finalized_at TEXT`,
   // Indexes for issue #13 columns (must run after ALTER TABLEs above)
   `CREATE INDEX IF NOT EXISTS idx_assignments_folder ON assignments(folder_id)`,
   `CREATE INDEX IF NOT EXISTS idx_assignments_grading_category ON assignments(grading_category_id)`,

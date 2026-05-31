@@ -74,6 +74,15 @@ describe('migrate', () => {
   });
 });
 
+describe('migration: courses.finalized_at (#70)', () => {
+  test('adds a finalized_at column to courses', () => {
+    const db = new Database(':memory:');
+    migrate(db);
+    const cols = db.prepare('PRAGMA table_info(courses)').all().map((c) => c.name);
+    expect(cols).toContain('finalized_at');
+  });
+});
+
 describe('purgeStudentScopedFlags', () => {
   let db;
   let studentId;

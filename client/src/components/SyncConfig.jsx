@@ -4,7 +4,6 @@ import { formatLastSynced } from '../lib/courseDisplay.js';
 const GROUPS = [
   { key: 'visible',  label: 'Visible courses',  match: (c) => !c.hidden && !c.archived && !c.excluded },
   { key: 'hidden',   label: 'Hidden courses',   match: (c) => c.hidden && !c.archived && !c.excluded },
-  { key: 'archived', label: 'Archived courses', match: (c) =>  c.archived && !c.excluded },
 ];
 
 // Checkbox that supports the indeterminate (tri-state) visual.
@@ -32,17 +31,12 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
   // Selection is seeded once at mount. The parent (SyncDialog) only renders
   // SyncConfig after courses have loaded, so `courses` is stable on mount.
   const [selected, setSelected] = useState(() => new Set(visibleIds));
-  const [collapsed, setCollapsed] = useState({ visible: false, hidden: true, archived: true });
+  const [collapsed, setCollapsed] = useState({ visible: false, hidden: true });
 
   const [includeHidden, setIncludeHidden] = useState(false);
-  const [includeArchived, setIncludeArchived] = useState(false);
 
   const hiddenCount = useMemo(
     () => courses.filter((c) => c.hidden && !c.archived && !c.excluded).length,
-    [courses]
-  );
-  const archivedCount = useMemo(
-    () => courses.filter((c) => c.archived && !c.excluded).length,
     [courses]
   );
 
@@ -80,14 +74,6 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
               onChange={(e) => setIncludeHidden(e.target.checked)}
             />
             <span>Include hidden courses{hiddenCount > 0 ? ` (${hiddenCount})` : ''}</span>
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={includeArchived}
-              onChange={(e) => setIncludeArchived(e.target.checked)}
-            />
-            <span>Include archived courses{archivedCount > 0 ? ` (${archivedCount})` : ''}</span>
           </label>
         </div>
       </div>
@@ -176,7 +162,7 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
           <button
             type="button"
             className="primary"
-            onClick={() => onStart([...selected], { includeHidden, includeArchived })}
+            onClick={() => onStart([...selected], { includeHidden })}
             disabled={busy}
           >
             Start sync

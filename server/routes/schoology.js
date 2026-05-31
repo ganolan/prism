@@ -11,7 +11,6 @@ let syncInProgress = false;
 //   masteryCourseIds?: number[],
 //   skipSchoology?: boolean,
 //   includeHidden?: boolean,    // #56: opt in to syncing hidden courses
-//   includeArchived?: boolean,  // #56: opt in to syncing archived courses
 // }.
 // Note: if the client disconnects mid-stream the sync continues to completion
 // server-side; there is no cancellation on client disconnect.
@@ -25,13 +24,12 @@ router.post('/sync', async (req, res) => {
     masteryCourseIds = [],
     skipSchoology = false,
     includeHidden = false,
-    includeArchived = false,
   } = req.body || {};
   res.set('Content-Type', 'application/x-ndjson');
   res.flushHeaders();
   const write = (evt) => res.write(JSON.stringify(evt) + '\n');
   try {
-    await runUnifiedSync({ masteryCourseIds, skipSchoology, includeHidden, includeArchived }, write);
+    await runUnifiedSync({ masteryCourseIds, skipSchoology, includeHidden }, write);
   } catch (err) {
     console.error('[sync] Error:', err);
     write({ type: 'error', message: err.message });

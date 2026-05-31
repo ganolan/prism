@@ -23,11 +23,10 @@ function renderConfig(props = {}) {
 }
 
 describe('SyncConfig', () => {
-  it('renders the three course groups with counts', () => {
+  it('renders the visible and hidden course groups', () => {
     renderConfig();
     expect(screen.getByText(/Visible courses/)).toBeInTheDocument();
     expect(screen.getByText(/Hidden courses/)).toBeInTheDocument();
-    expect(screen.getByText(/Archived courses/)).toBeInTheDocument();
   });
 
   it('shows visible courses expanded and others collapsed by default', () => {
@@ -48,7 +47,7 @@ describe('SyncConfig', () => {
     fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
     // onStart is called with the selected ids AND the include-hidden/archived
     // options (both default false). See SyncConfig's "Start sync" handler.
-    expect(onStart).toHaveBeenCalledWith([1, 2], { includeHidden: false, includeArchived: false });
+    expect(onStart).toHaveBeenCalledWith([1, 2], { includeHidden: false });
   });
 
   it('group select-all checkbox is indeterminate when only some are selected', () => {

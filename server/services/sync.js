@@ -543,7 +543,7 @@ export async function finalizeArchivedCourse(db, { courseId, sectionId, now, run
   return { ...counts, finalized: sessionPresent };
 }
 
-export async function fullSync(onProgress, { includeHidden = false, includeArchived = false } = {}) {
+export async function fullSync(onProgress, { includeHidden = false } = {}) {
   const db = getDb();
   const log = (msg) => onProgress?.({ message: msg });
   const now = new Date().toISOString();
@@ -658,7 +658,7 @@ export async function fullSync(onProgress, { includeHidden = false, includeArchi
       if (!courseRow) continue;
       if (courseRow.excluded) { metrics.sections_skipped++; continue; }
       if (courseRow.hidden && !includeHidden) { metrics.sections_skipped++; continue; }
-      if (courseRow.archived && !includeArchived) { metrics.sections_skipped++; continue; }
+      if (courseRow.archived) { metrics.sections_skipped++; continue; }
 
       log(`Syncing "${sec.course_title}"...`);
       const result = await syncSectionData(db, sectionId, courseRow.id, now, {

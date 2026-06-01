@@ -236,6 +236,8 @@ flags
 
 **Goal:** Enable the approve/edit/revise workflow for AI-generated or externally-produced feedback.
 
+> **Update (2026-05-27):** Phase 4 shipped a standalone `/feedback` review page. The next iteration relocates the review UI onto `/assessment/:id` so suggested feedback sits next to the comment and rubric it describes — an uneditable "Suggested feedback (AI)" box with a Copy-to-comment button, and suggested proficiencies shown as a faded-yellow overlay on the rubric cells. The standalone `/feedback` page becomes legacy. See `docs/superpowers/specs/2026-05-27-feedback-on-assessment-page-design.md` and issue #64.
+
 **Inbox ingestion:**
 - On app launch (or via button), check `inbox/` folder for new JSON files
 - Validate against accepted schema

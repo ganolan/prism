@@ -112,10 +112,11 @@ export const deleteNote = (id) => request(`/notes/${id}`, { method: 'DELETE' });
 export const createFlag = (data) => request('/flags', { method: 'POST', body: JSON.stringify(data) });
 export const deleteFlag = (id) => request(`/flags/${id}`, { method: 'DELETE' });
 
-// Class tools
-export const getEmails = (courseId, type) => request(`/tools/emails/${courseId}?type=${type || 'student'}`);
-export const getRandomStudents = (courseId, count) => request(`/tools/random/${courseId}?count=${count || 1}`);
-export const getGroups = (courseId, count, balanced) => request(`/tools/groups/${courseId}?count=${count || 4}&balanced=${balanced || false}`);
+// Class tools — courseIds may be a single id or an array of ids (sent comma-separated)
+const courseList = (courseIds) => [].concat(courseIds).join(',');
+export const getEmails = (courseIds, type) => request(`/tools/emails/${courseList(courseIds)}?type=${type || 'student'}`);
+export const getRandomStudents = (courseIds, count) => request(`/tools/random/${courseList(courseIds)}?count=${count || 1}`);
+export const getGroups = (courseIds, count, balanced) => request(`/tools/groups/${courseList(courseIds)}?count=${count || 4}&balanced=${balanced || false}`);
 
 // Grading scales — global lookup map
 export const getGradingScales = () => request('/grading-scales');

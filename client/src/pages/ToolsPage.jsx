@@ -9,42 +9,78 @@ const GROUP_COLORS = [
 
 export default function ToolsPage() {
   const [courses, setCourses] = useState([]);
-  const [selectedCourse, setSelectedCourse] = useState('');
+  const [selectedCourses, setSelectedCourses] = useState([]);
 
   useEffect(() => {
-    getCourses().then(setCourses).catch(console.error);
+    // Include hidden courses so they're available here (flagged below), but not archived
+    getCourses(false, true).then(setCourses).catch(console.error);
   }, []);
+
+  function toggleCourse(id) {
+    setSelectedCourses(prev =>
+      prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]
+    );
+  }
+
+  // Drop the auto-excluded MASTER/template section and any course with no
+  // enrolments, then list real classes first and hidden ones below them.
+  const visibleCourses = courses
+    .filter(c => !c.excluded && c.student_count > 0)
+    .sort((a, b) => (a.hidden ? 1 : 0) - (b.hidden ? 1 : 0));
+
+  const allSelected = visibleCourses.length > 0 && selectedCourses.length === visibleCourses.length;
 
   return (
     <div className="fade-in">
       <h2 className="page-title">Class Tools</h2>
 
-      <div style={{ marginBottom: '1.5rem', maxWidth: '400px' }}>
-        <label className="text-sm" style={{ fontWeight: 600 }}>Select Course</label>
-        <select value={selectedCourse} onChange={e => setSelectedCourse(e.target.value)}>
-          <option value="">-- Choose a course --</option>
-          {courses.map(c => <option key={c.id} value={c.id}>{c.course_name}</option>)}
-        </select>
+      <div className="card" style={{ marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', gap: '1rem' }}>
+          <label className="text-sm" style={{ fontWeight: 600 }}>Select courses</label>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button className="ghost" onClick={() => setSelectedCourses(visibleCourses.map(c => c.id))} disabled={allSelected}>Select all</button>
+            <button className="ghost" onClick={() => setSelectedCourses([])} disabled={selectedCourses.length === 0}>Clear</button>
+          </div>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem 1.25rem' }}>
+          {visibleCourses.map(c => (
+            <label key={c.id} className="text-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', opacity: c.hidden ? 0.6 : 1 }}>
+              <input type="checkbox" checked={selectedCourses.includes(c.id)} onChange={() => toggleCourse(c.id)} />
+              {c.block_number && <span style={{ color: 'var(--accent)', fontWeight: 700 }}>[BK {c.block_number}]</span>}
+              {c.course_name}
+              {!!c.hidden && <span className="badge" style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }}>Hidden</span>}
+            </label>
+          ))}
+        </div>
       </div>
 
-      {selectedCourse && (
+      {selectedCourses.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <EmailTool courseId={selectedCourse} />
-          <RandomPicker courseId={selectedCourse} />
-          <GroupGenerator courseId={selectedCourse} />
+          <EmailTool courseIds={selectedCourses} />
+          <RandomPicker courseIds={selectedCourses} />
+          <GroupGenerator courseIds={selectedCourses} />
         </div>
       )}
     </div>
   );
 }
 
-function EmailTool({ courseId }) {
+function EmailTool({ courseIds }) {
   const [type, setType] = useState('student');
   const [result, setResult] = useState(null);
   const [copied, setCopied] = useState(false);
+  const textareaRef = useRef(null);
+
+  // Grow the textarea to fit the full list so it's all visible without dragging
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [result]);
 
   async function handleGenerate() {
-    const data = await getEmails(courseId, type);
+    const data = await getEmails(courseIds, type);
     setResult(data);
     setCopied(false);
   }
@@ -64,7 +100,7 @@ function EmailTool({ courseId }) {
           <select value={type} onChange={e => setType(e.target.value)} style={{ width: 'auto' }}>
             <option value="student">Student emails</option>
             <option value="parent">Parent emails</option>
-            <option value="both">Both</option>
+            <option value="both">Both (student + parent)</option>
           </select>
         </div>
         <button className="primary" onClick={handleGenerate}>Generate</button>
@@ -75,15 +111,15 @@ function EmailTool({ courseId }) {
         )}
       </div>
       {result && (
-        <textarea readOnly value={result.formatted} rows={3}
-          style={{ background: 'var(--bg-subtle)' }}
+        <textarea ref={textareaRef} readOnly value={result.formatted} rows={3}
+          style={{ background: 'var(--bg-subtle)', resize: 'vertical', overflow: 'hidden' }}
         />
       )}
     </div>
   );
 }
 
-function RandomPicker({ courseId }) {
+function RandomPicker({ courseIds }) {
   const [count, setCount] = useState(1);
   const [picked, setPicked] = useState([]);
   const [animating, setAnimating] = useState(false);
@@ -97,7 +133,7 @@ function RandomPicker({ courseId }) {
     setPicked([]);
     setDisplay(null);
 
-    const data = await getRandomStudents(courseId, count);
+    const data = await getRandomStudents(courseIds, count);
     const finalPicked = data.picked;
 
     let tick = 0;
@@ -145,7 +181,7 @@ function RandomPicker({ courseId }) {
   );
 }
 
-function GroupGenerator({ courseId }) {
+function GroupGenerator({ courseIds }) {
   const [groupCount, setGroupCount] = useState(4);
   const [balanced, setBalanced] = useState(false);
   const [groups, setGroups] = useState(null);
@@ -153,7 +189,7 @@ function GroupGenerator({ courseId }) {
   const displayName = (s) => `${s.preferred_name || s.first_name} ${s.last_name}`;
 
   async function handleGenerate() {
-    const data = await getGroups(courseId, groupCount, balanced);
+    const data = await getGroups(courseIds, groupCount, balanced);
     setGroups(data.groups);
   }
 
@@ -180,7 +216,7 @@ function GroupGenerator({ courseId }) {
         </div>
         <label className="text-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer' }}>
           <input type="checkbox" checked={balanced} onChange={e => setBalanced(e.target.checked)} />
-          Balance by grade
+          Balance by overall proficiency
         </label>
         <button className="primary" onClick={handleGenerate}>Generate</button>
         {groups && <button className="secondary" onClick={handleExportCSV}>Export CSV</button>}

@@ -40,16 +40,20 @@ router.get('/', (req, res) => {
   const db = getDb();
   const { view } = req.query;
 
+  // Each row carries student_count (enrolment count) so callers can hide empty
+  // shells like the master/template course without an extra round-trip.
+  const select = 'SELECT *, (SELECT COUNT(*) FROM enrolments WHERE course_id = courses.id) AS student_count FROM courses';
+
   let rows;
   if (view === 'current') {
-    rows = db.prepare('SELECT * FROM courses WHERE archived = 0 AND hidden = 0 ORDER BY course_name').all();
+    rows = db.prepare(`${select} WHERE archived = 0 AND hidden = 0 ORDER BY course_name`).all();
   } else if (view === 'archived') {
-    rows = db.prepare('SELECT * FROM courses WHERE archived = 1 AND hidden = 0 ORDER BY course_name').all();
+    rows = db.prepare(`${select} WHERE archived = 1 AND hidden = 0 ORDER BY course_name`).all();
   } else {
     // Legacy behaviour — keep for backwards compatibility
     const includeArchived = req.query.archived === 'true';
     const includeHidden = req.query.hidden === 'true';
-    let query = 'SELECT * FROM courses WHERE 1=1';
+    let query = `${select} WHERE 1=1`;
     if (!includeArchived) query += ' AND archived = 0';
     if (!includeHidden) query += ' AND hidden = 0';
     query += ' ORDER BY course_name';

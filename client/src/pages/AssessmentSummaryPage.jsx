@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getMasteryForAssignment, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, createFlag, deleteFlag } from '../services/api.js';
 import { draftKey, readDraft, writeDraft, clearDraft, draftBaseline } from '../lib/assessmentDraft.js';
@@ -45,7 +45,7 @@ function normalizePastedText(text) {
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
-export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, onSaved }) {
+export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, onSaved, onPendingChange, registerSaver, unregisterSaver }) {
   const loadedDisplay = student.comment_status === 1;
   const storageKey = draftKey(courseId, assignmentId, student.enrollment_id);
   // Signature of the synced Schoology values this card was rendered against.
@@ -134,6 +134,24 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     }
   }, [hasPendingChanges, pending, comment, display, storageKey, currentBaseline]);
 
+  // ── Page-level "Send all" wiring (#51) ──────────────────────────────────
+  // Report this card's pending state up so the page bar can count unsaved
+  // cards and enable/disable. Register an imperative saver the bar invokes.
+  // saveRef always points at the latest handleSave closure so the registered
+  // thunk saves current state, not a stale snapshot.
+  const saveRef = useRef(null);
+  saveRef.current = handleSave;
+
+  useEffect(() => {
+    onPendingChange?.(student.schoology_uid, hasPendingChanges);
+  }, [hasPendingChanges, student.schoology_uid, onPendingChange]);
+
+  useEffect(() => {
+    const uid = student.schoology_uid;
+    registerSaver?.(uid, () => saveRef.current());
+    return () => unregisterSaver?.(uid);
+  }, [student.schoology_uid, registerSaver, unregisterSaver]);
+
   // Apply a new comment value, auto-flipping the display toggle ON the first
   // time a virgin record's comment goes empty → non-empty. Shared by the
   // textarea's onChange and onPaste handlers.
@@ -206,14 +224,29 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           commentStatus: display,
         });
       }
+      // Build the post-save score map (pending merged over current) so the page
+      // can patch this one student in place — no full reload, no card unmount
+      // flash (#50). Mirrors the gradeInfo loop but keeps the DB's letter codes.
+      const newScores = {};
+      for (const t of topics) {
+        const level = pending[t.id] ?? student.scores[t.id]?.grade;
+        if (level == null) continue;
+        newScores[t.id] = { points: LEVEL_POINTS[level], grade: level };
+      }
       setSaveResult('saved');
       setPending({});
-      // Explicit clear: onSaved() triggers a page reload that unmounts this
-      // card, so the write effect above will not run to clear the key itself.
+      // Explicit clear: the card stays mounted now, but the write effect runs
+      // asynchronously — clear here so a fast bulk run can't race a stale key.
       clearDraft(storageKey);
-      onSaved?.();
+      onSaved?.(student.schoology_uid, {
+        scores: newScores,
+        grade_comment: comment,
+        comment_status: display ? 1 : null,
+      });
+      return true;
     } catch (err) {
       setSaveResult(`error: ${err.message}`);
+      return false;
     } finally {
       setSaving(false);
     }
@@ -303,6 +336,25 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         display: 'flex', alignItems: 'center', gap: '0.75rem',
         borderBottom: '1px solid var(--border)',
       }}>
+        {/* Student photo (#24) — mirrors the course-roster avatar pattern, with
+            an initials fallback when no picture has synced. */}
+        {student.picture_url ? (
+          <img
+            src={student.picture_url}
+            alt=""
+            style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', display: 'block', flexShrink: 0 }}
+            onError={e => { e.currentTarget.style.display = 'none'; }}
+          />
+        ) : (
+          <div style={{
+            width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+            background: 'var(--bg-subtle)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center',
+            fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600,
+          }}>
+            {(student.first_name?.[0] || '')}{(student.last_name?.[0] || '')}
+          </div>
+        )}
         <Link to={`/student/${student.id}`} className="link" style={{ fontWeight: 600, fontSize: '0.95rem' }}>
           {displayName(student)}
         </Link>
@@ -639,6 +691,63 @@ export default function AssessmentSummaryPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshResult, setRefreshResult] = useState(null);
 
+  // "Send all" bar state (#51). pendingByUid maps each card's uid → true while
+  // it has unsaved changes; saversRef holds each card's imperative save thunk.
+  const [pendingByUid, setPendingByUid] = useState({});
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [bulkResult, setBulkResult] = useState(null);
+  const saversRef = useRef({});
+
+  // Patch a single student in place after its card saves, instead of reloading
+  // the whole page (#50). Avoids the "Loading..." flash that unmounted every
+  // card on every save during a grading run.
+  const handleCardSaved = useCallback((uid, patch) => {
+    setData(prev => (prev ? {
+      ...prev,
+      students: prev.students.map(s => (s.schoology_uid === uid ? { ...s, ...patch } : s)),
+    } : prev));
+  }, []);
+
+  // Stable registry callbacks (empty deps) so the cards' effects don't churn.
+  // The no-op guard keeps a card reporting an unchanged pending state from
+  // triggering a re-render loop.
+  const handlePendingChange = useCallback((uid, has) => {
+    setPendingByUid(prev => {
+      if (!!prev[uid] === has) return prev;
+      const next = { ...prev };
+      if (has) next[uid] = true; else delete next[uid];
+      return next;
+    });
+  }, []);
+  const registerSaver = useCallback((uid, fn) => { saversRef.current[uid] = fn; }, []);
+  const unregisterSaver = useCallback((uid) => {
+    delete saversRef.current[uid];
+    setPendingByUid(prev => {
+      if (!prev[uid]) return prev;
+      const next = { ...prev }; delete next[uid]; return next;
+    });
+  }, []);
+
+  const totalPending = Object.keys(pendingByUid).length;
+
+  async function handleSendAll() {
+    const uids = Object.keys(pendingByUid);
+    if (uids.length === 0) return;
+    setBulkSaving(true);
+    setBulkResult(null);
+    let ok = 0, fail = 0;
+    for (const uid of uids) {
+      const save = saversRef.current[uid];
+      if (!save) continue;
+      // Sequential: each card writes to Schoology; avoid hammering the API and
+      // keep per-card Saved/error badges legible as they land.
+      const success = await save();
+      if (success) ok++; else fail++;
+    }
+    setBulkResult(`Sent ${ok} grade${ok !== 1 ? 's' : ''}${fail ? `, ${fail} failed` : ''}`);
+    setBulkSaving(false);
+  }
+
   function load() {
     setLoading(true);
     getMasteryForAssignment(courseId, assignmentId)
@@ -715,17 +824,52 @@ export default function AssessmentSummaryPage() {
           <p className="text-muted">No students found. Run a mastery sync for this course first.</p>
         </div>
       ) : (
-        students.map(student => (
-          <StudentRubricCard
-            key={student.schoology_uid}
-            student={student}
-            topics={alignedTopics}
-            courseId={courseId}
-            assignmentId={assignmentId}
-            assignmentRow={assignment}
-            onSaved={load}
-          />
-        ))
+        <>
+          {students.map(student => (
+            <StudentRubricCard
+              key={student.schoology_uid}
+              student={student}
+              topics={alignedTopics}
+              courseId={courseId}
+              assignmentId={assignmentId}
+              assignmentRow={assignment}
+              onSaved={handleCardSaved}
+              onPendingChange={handlePendingChange}
+              registerSaver={registerSaver}
+              unregisterSaver={unregisterSaver}
+            />
+          ))}
+
+          {/* Bulk send-all bar (#51) — sticky so it stays reachable during a
+              fast grading run. */}
+          <div style={{
+            position: 'sticky', bottom: 0, marginTop: '0.5rem',
+            padding: '0.75rem 1rem', background: 'var(--card-bg)',
+            borderTop: '1px solid var(--border)', borderRadius: 10,
+            boxShadow: '0 -2px 8px rgba(0,0,0,0.06)',
+            display: 'flex', alignItems: 'center', gap: '0.75rem',
+          }}>
+            <button
+              className="primary"
+              onClick={handleSendAll}
+              disabled={bulkSaving || totalPending === 0}
+            >
+              {bulkSaving
+                ? 'Sending...'
+                : totalPending > 0
+                  ? `Send all to Schoology (${totalPending})`
+                  : 'Send all to Schoology'}
+            </button>
+            {!bulkSaving && totalPending > 0 && (
+              <span className="text-sm text-muted">
+                {totalPending} student{totalPending !== 1 ? 's' : ''} with unsaved changes
+              </span>
+            )}
+            {bulkResult && (
+              <span className="text-sm text-muted">{bulkResult}</span>
+            )}
+          </div>
+        </>
       )}
     </div>
   );

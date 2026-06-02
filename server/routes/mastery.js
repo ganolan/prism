@@ -411,6 +411,7 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
   const targeted = assignmentRow && assignmentRow.num_assignees && assignmentRow.num_assignees > 0;
   const students = db.prepare(targeted ? `
     SELECT s.id, s.schoology_uid, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher,
+           s.picture_url,
            e.schoology_enrolment_id AS enrollment_id
     FROM students s
     JOIN enrolments e ON e.student_id = s.id
@@ -419,6 +420,7 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
     ORDER BY s.last_name, s.first_name
   ` : `
     SELECT s.id, s.schoology_uid, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher,
+           s.picture_url,
            e.schoology_enrolment_id AS enrollment_id
     FROM students s
     JOIN enrolments e ON e.student_id = s.id

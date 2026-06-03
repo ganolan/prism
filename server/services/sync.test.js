@@ -618,6 +618,7 @@ describe('finalizeArchivedCourse (#70)', () => {
     sch.getSectionEnrollments.mockResolvedValue([]);
     sch.getSectionAssignments.mockResolvedValue([]);
     sch.getSectionGrades.mockResolvedValue([]);
+    sch.getSubmissionStatus.mockReset(); // clear call history leaked from prior blocks (#72)
     sch.getSubmissionStatus.mockResolvedValue(null);
     syncMasteryForCourse.mockReset();
     syncMasteryForCourse.mockResolvedValue({ scoresCount: 0 });
@@ -636,6 +637,21 @@ describe('finalizeArchivedCourse (#70)', () => {
     await finalizeArchivedCourse(db, { courseId, sectionId: 'sec-9', now: '2026-05-31T00:00:00Z' });
     expect(syncMasteryForCourse).not.toHaveBeenCalled();
     expect(db.prepare('SELECT finalized_at FROM courses WHERE id = ?').get(courseId).finalized_at).toBeNull();
+  });
+
+  test('skips the per-cell submission loop (#72) — no public submissions call', async () => {
+    const sch = await import('./schoology.js');
+    sch.getSectionEnrollments.mockResolvedValue([
+      { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
+    ]);
+    sch.getSectionAssignments.mockResolvedValue([
+      { id: 'D1', title: 'Native dropbox', published: 1, allow_dropbox: '1' },
+    ]);
+    hasMasterySession.mockReturnValue(false);
+
+    await finalizeArchivedCourse(db, { courseId, sectionId: 'sec-9', now: '2026-05-31T00:00:00Z' });
+
+    expect(sch.getSubmissionStatus).not.toHaveBeenCalled();
   });
 });
 

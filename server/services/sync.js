@@ -538,7 +538,10 @@ export async function enrichStudentProfiles(db, students, now) {
 // Does NOT touch student data (that is enrichStudentProfiles' job). Returns the
 // gradebook counts plus { finalized }. (#70)
 export async function finalizeArchivedCourse(db, { courseId, sectionId, now, runMastery = true }) {
-  const counts = await syncSectionData(db, String(sectionId), courseId, now);
+  const c = db.prepare('SELECT course_name, grading_period FROM courses WHERE id = ?').get(courseId) || {};
+  const period = c.grading_period ? ` — ${c.grading_period}` : '';
+  console.log(`[archived] "${c.course_name || sectionId}"${period} (section ${sectionId}): skipped per-cell submission detection (frozen)`);
+  const counts = await syncSectionData(db, String(sectionId), courseId, now, { skipSubmissions: true });
   const sessionPresent = runMastery && hasMasterySession();
   if (sessionPresent) {
     try {

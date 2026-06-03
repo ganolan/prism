@@ -132,6 +132,8 @@ submission-status calls for never-submitted cells (#55). ⚠️ It does **not** 
 no timestamp, so #49/#53's OneDrive resubmission detection still needs a time-bearing source (the public revisions API
 hides post-submit OneDrive revisions; the uncaptured per-cell grade-data POST is the remaining lead).
 
+⚠️ **Limitation — archived/inactive sections:** `grader_header_data` is blind for archived/inactive sections. Probe (2026-06-01) of archived AP CSP section `7361043994` (75 assignments / 57 published in the DB): HTTP 200 but only 1 `grade_item`, 0 submissions, 0 grades (the 19-student roster loads); the `?grading_period=` param (`all` / a period id / `final` / `none`) had no effect. So the GHD submission pre-filter cannot help archived-course imports — which is why archived finalisation skips the per-cell submission loop entirely (#72) rather than pre-filtering it.
+
 ### Course Endpoints
 
 | Method | Endpoint | Status | Notes |

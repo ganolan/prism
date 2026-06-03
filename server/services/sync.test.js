@@ -664,6 +664,7 @@ describe('detectArchivedTransitions (#70)', () => {
     sch.getSectionEnrollments.mockResolvedValue([]);
     sch.getSectionAssignments.mockResolvedValue([]);
     sch.getSectionGrades.mockResolvedValue([]);
+    sch.getSubmissionStatus.mockReset(); // clear call history leaked from prior blocks (#72)
     sch.getSubmissionStatus.mockResolvedValue(null);
     sch.getSectionGradingPeriods.mockResolvedValue([{ title: 'Semester 1: 08/14/2024 - 01/11/2025' }]);
     hasMasterySession.mockReturnValue(false); // gradebook-only finalise in this test
@@ -712,6 +713,22 @@ describe('detectArchivedTransitions (#70)', () => {
     await detectArchivedTransitions(db, new Set([]), '2026-05-31T00:00:00Z');
     expect(db.prepare('SELECT archived FROM courses WHERE id = ?').get(id).archived).toBe(0);
   });
+
+  test('finalising a transitioned course skips the submission loop (#72)', async () => {
+    const sch = await import('./schoology.js');
+    sch.getSectionEnrollments.mockResolvedValue([
+      { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
+    ]);
+    sch.getSectionAssignments.mockResolvedValue([
+      { id: 'D1', title: 'Native dropbox', published: 1, allow_dropbox: '1' },
+    ]);
+    seed('sec-gone');
+    getSection.mockResolvedValue({ id: 'sec-gone', active: 0, course_title: 'Gone' });
+
+    await detectArchivedTransitions(db, new Set(['sec-active']), '2026-05-31T00:00:00Z');
+
+    expect(sch.getSubmissionStatus).not.toHaveBeenCalled();
+  });
 });
 
 describe('backfillUnfinalizedArchived (#70)', () => {
@@ -723,6 +740,7 @@ describe('backfillUnfinalizedArchived (#70)', () => {
     sch.getSectionEnrollments.mockResolvedValue([]);
     sch.getSectionAssignments.mockResolvedValue([]);
     sch.getSectionGrades.mockResolvedValue([]);
+    sch.getSubmissionStatus.mockReset(); // clear call history leaked from prior blocks (#72)
     sch.getSubmissionStatus.mockResolvedValue(null);
     hasMasterySession.mockReturnValue(true);
     syncMasteryForCourse.mockReset();
@@ -740,5 +758,20 @@ describe('backfillUnfinalizedArchived (#70)', () => {
     expect(syncMasteryForCourse).toHaveBeenCalledWith(a, expect.anything());
     expect(db.prepare('SELECT finalized_at FROM courses WHERE id = ?').get(a).finalized_at).toBe('2026-05-31T00:00:00Z');
     expect(db.prepare('SELECT finalized_at FROM courses WHERE id = ?').get(b).finalized_at).toBe('2026-01-01T00:00:00Z');
+  });
+
+  test('backfill finalisation skips the submission loop (#72)', async () => {
+    const sch = await import('./schoology.js');
+    sch.getSectionEnrollments.mockResolvedValue([
+      { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
+    ]);
+    sch.getSectionAssignments.mockResolvedValue([
+      { id: 'D1', title: 'Native dropbox', published: 1, allow_dropbox: '1' },
+    ]);
+    db.prepare(`INSERT INTO courses (schoology_section_id, course_name, archived) VALUES ('a','A',1)`).run();
+
+    await backfillUnfinalizedArchived(db, '2026-05-31T00:00:00Z');
+
+    expect(sch.getSubmissionStatus).not.toHaveBeenCalled();
   });
 });

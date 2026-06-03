@@ -337,3 +337,31 @@ on #70 (import already finalises gradebook + mastery + enriches — **no backend
   to discovery headers on live data (both funnel through the same hardened parser, not yet compared live);
   group collapse, parallel import, a skip-mastery-on-bulk toggle, and a configurable date/locale preference
   + shared `formatDate` helper (all deliberately deferred).
+
+## Archived-Import Submission-Skip (#72) — COMPLETE (2026-06-03)
+
+Import-side slice carved out of #55. Archived-course finalisation was slow for grade-heavy courses
+(e.g. AP CSP) because `finalizeArchivedCourse` called `syncSectionData` with no opts, running the
+public per-(assignment, student) `GET /sections/{id}/submissions/{aid}/{uid}` loop at concurrency 2.
+Built via brainstorm → spec → plan → subagent-driven TDD (per-task spec + code-quality review + a final
+holistic review). Server 150 tests green. Spec/plan at
+`docs/superpowers/{specs,plans}/2026-06-03-skip-archived-import-submission-detection*`.
+
+- **Determination (with the user):** imported archived courses are immutable (#70) and don't need per-cell
+  OneDrive/GDrive M/NS or resubmission detection — that's a live grading-workflow signal, frozen for
+  completed courses. The GHD pre-filter is also blind for archived/inactive sections (probed 2026-06-01),
+  so it can't rescue the import. So archived finalisation **skips the submission loop entirely**; the bulk
+  `GET /sections/{id}/grades` (one call) already provides scores.
+- **`syncSectionData`** gained a `skipSubmissions` opt that short-circuits the dropbox list to `[]`, making
+  the whole submission phase a clean no-op (the lookup fetch is `.length`-guarded, the loop never iterates,
+  `writeSubmissions([])` is a no-op, counters zero out). Minimal one-ternary diff.
+- **`finalizeArchivedCourse`** passes `{ skipSubmissions: true }` and logs
+  `[archived] "<name>" — <grading_period> (section <id>): skipping per-cell submission detection (frozen)`.
+  As the single chokepoint it covers all three archived paths — import, auto-archive transition, backfill.
+- **Active recurring sync (`fullSync`) is untouched** — never sets the opt; verified by review + scope grep.
+- **Frozen-state:** with the loop skipped, `late`/`draft`/`submission_type`/`latest_revision_at` come from
+  the grades INSERT alone; the `ON CONFLICT` doesn't touch them, so re-finalisation preserves (never wipes)
+  existing values. Accepted tradeoff: freshly-imported **native-dropbox** archived work won't get late/draft.
+- **Docs:** added the GHD archived-section blindness note to `.claude/schoology-api-reference.md`.
+- **Not yet done:** real before/after timing on a live archived import (hits live Schoology + mutates the
+  DB — the user's call); mastery (~20–40s/course) is the remaining archived-import floor, out of scope.

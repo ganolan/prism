@@ -396,7 +396,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             src={student.picture_url}
             alt=""
             style={{
-              width: 78, height: 78, borderRadius: '50%', objectFit: 'cover',
+              width: 70, height: 70, borderRadius: '50%', objectFit: 'cover',
               display: 'block', flexShrink: 0, marginTop: -28, marginBottom: -28,
               border: '3px solid var(--card-bg)', boxShadow: '0 2px 6px rgba(0,0,0,0.18)',
             }}
@@ -404,7 +404,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           />
         ) : (
           <div style={{
-            width: 78, height: 78, borderRadius: '50%', flexShrink: 0,
+            width: 70, height: 70, borderRadius: '50%', flexShrink: 0,
             marginTop: -28, marginBottom: -28,
             border: '3px solid var(--card-bg)', boxShadow: '0 2px 6px rgba(0,0,0,0.18)',
             background: 'var(--bg-subtle)', display: 'flex',

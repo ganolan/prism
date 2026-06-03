@@ -1,15 +1,16 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
-import { StudentRubricCard } from './AssessmentSummaryPage.jsx';
-import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment } from '../services/api.js';
+import AssessmentSummaryPage, { StudentRubricCard } from './AssessmentSummaryPage.jsx';
+import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment } from '../services/api.js';
 
 vi.mock('../services/api.js', () => ({
   getMasteryForAssignment: vi.fn(),
   syncMasteryForAssignment: vi.fn(),
   writeMasteryScores: vi.fn().mockResolvedValue({}),
   writeMasteryComment: vi.fn().mockResolvedValue({}),
+  sendAllGrades: vi.fn().mockResolvedValue({ results: [] }),
   createFlag: vi.fn().mockResolvedValue({ id: 99, flag_reason: 'Check citations' }),
   deleteFlag: vi.fn().mockResolvedValue({ success: true }),
 }));
@@ -77,9 +78,8 @@ describe('StudentRubricCard draft persistence', () => {
   });
 
   it('clears the stored draft after a successful save', async () => {
-    // The real page unmounts every card while it reloads after a save (it
-    // renders a global "Loading..." view). Reproduce that teardown here so
-    // the test exercises the production path.
+    // The card stays mounted after a save now (#50), but unmount it here anyway
+    // to prove the draft is cleared regardless of whether the card lives on.
     function SaveHarness() {
       const [mounted, setMounted] = useState(true);
       if (!mounted) return null;
@@ -365,5 +365,116 @@ describe('StudentRubricCard — re-submit requested toggle', () => {
   it('does not show the Resubmitted pill when student.resubmitted is false', () => {
     renderCard({ student: { ...makeStudent(), resubmitted: false } });
     expect(screen.queryByText(/^↩ Resubmitted$/)).not.toBeInTheDocument();
+  });
+});
+
+describe('StudentRubricCard — student photo (#24)', () => {
+  it('renders the student photo when picture_url is present', () => {
+    renderCard({ student: { ...makeStudent(), picture_url: 'https://schoology/p.jpg' } });
+    const img = document.querySelector('img');
+    expect(img).not.toBeNull();
+    expect(img.getAttribute('src')).toBe('https://schoology/p.jpg');
+  });
+
+  it('falls back to initials when there is no picture_url', () => {
+    renderCard(); // Ada Lovelace, no photo
+    expect(document.querySelector('img')).toBeNull();
+    expect(screen.getByText('AL')).toBeInTheDocument();
+  });
+});
+
+describe('StudentRubricCard — in-place save (#50)', () => {
+  it('reports saved values up via onSaved(uid, patch) instead of forcing a reload', async () => {
+    const onSaved = vi.fn();
+    renderCard({ onSaved });
+
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), {
+      target: { value: 'nice work' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Update Schoology' }));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    const [uid, patch] = onSaved.mock.calls[0];
+    expect(uid).toBe('uid-1');
+    expect(patch.scores.t1).toEqual({ points: 50, grade: 'D' });
+    expect(patch.grade_comment).toBe('nice work');
+    // Card stays mounted — the success badge is still on screen.
+    expect(await screen.findByText('Saved ✓')).toBeInTheDocument();
+  });
+});
+
+describe('AssessmentSummaryPage — Send all bar (#51)', () => {
+  function makeData() {
+    return {
+      assignment: { id: 50, schoology_assignment_id: '8', title: 'Quiz', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+      topics: TOPICS,
+      students: [
+        { ...makeStudent(), id: 1, schoology_uid: 'uid-1', last_name: 'Lovelace', enrollment_id: 'enr-1' },
+        { ...makeStudent(), id: 2, schoology_uid: 'uid-2', first_name: 'Alan', last_name: 'Turing', enrollment_id: 'enr-2' },
+      ],
+    };
+  }
+
+  function renderPage() {
+    return render(
+      <MemoryRouter initialEntries={['/course/4/assessment/8']}>
+        <Routes>
+          <Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+  }
+
+  it('disables Send all when no card has unsaved changes', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    renderPage();
+    const btn = await screen.findByRole('button', { name: /send all to schoology/i });
+    expect(btn).toBeDisabled();
+  });
+
+  it('counts pending cards and sends them in one batched request', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    sendAllGrades.mockResolvedValue({ results: [{ uid: 'uid-1', ok: true }] });
+    renderPage();
+    await screen.findByRole('button', { name: /send all to schoology/i });
+
+    // Make a pending change on the first card only.
+    fireEvent.click(screen.getAllByTitle('Set Topic 1 to Developing')[0]);
+
+    const btn = await screen.findByRole('button', { name: /send all to schoology \(1\)/i });
+    expect(btn).toBeEnabled();
+
+    fireEvent.click(btn);
+
+    // One batched call, not a per-card loop.
+    await waitFor(() => expect(sendAllGrades).toHaveBeenCalledTimes(1));
+    expect(writeMasteryScores).not.toHaveBeenCalled();
+    const [courseId, entries] = sendAllGrades.mock.calls[0];
+    expect(courseId).toBe('4');
+    expect(entries).toHaveLength(1);
+    expect(entries[0].uid).toBe('uid-1');
+    expect(entries[0].scores.gradeInfo.t1.grade).toBe('50');
+    expect(await screen.findByText(/Sent 1 grade/)).toBeInTheDocument();
+  });
+
+  it('batches multiple pending cards into a single request and marks each saved', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    sendAllGrades.mockResolvedValue({ results: [{ uid: 'uid-1', ok: true }, { uid: 'uid-2', ok: true }] });
+    renderPage();
+    await screen.findByRole('button', { name: /send all to schoology/i });
+
+    fireEvent.click(screen.getAllByTitle('Set Topic 1 to Developing')[0]);
+    fireEvent.click(screen.getAllByTitle('Set Topic 1 to Developing')[1]);
+
+    const btn = await screen.findByRole('button', { name: /send all to schoology \(2\)/i });
+    fireEvent.click(btn);
+
+    await waitFor(() => expect(sendAllGrades).toHaveBeenCalledTimes(1));
+    const [, entries] = sendAllGrades.mock.calls[0];
+    expect(entries).toHaveLength(2);
+    expect(await screen.findByText(/Sent 2 grades/)).toBeInTheDocument();
+    // Both cards show their per-card saved badge after the batch.
+    await waitFor(() => expect(screen.getAllByText('Saved ✓')).toHaveLength(2));
   });
 });

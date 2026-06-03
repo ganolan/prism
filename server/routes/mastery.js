@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
-import { hasMasterySession, syncMasteryForCourse, syncMasteryForAssignment, writeMasteryScores, writeMasteryOverride, getMasteryForCourse, getRubricScoresForStudent, interactiveLogin } from '../services/masterySync.js';
+import { hasMasterySession, syncMasteryForCourse, syncMasteryForAssignment, writeMasteryScores, writeMasteryScoresBatch, writeMasteryOverride, getMasteryForCourse, getRubricScoresForStudent, interactiveLogin } from '../services/masterySync.js';
 import { pushGradeComments, getSectionGrades } from '../services/schoology.js';
 import { isResubmitted } from '../lib/resubmission.js';
 
@@ -411,6 +411,7 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
   const targeted = assignmentRow && assignmentRow.num_assignees && assignmentRow.num_assignees > 0;
   const students = db.prepare(targeted ? `
     SELECT s.id, s.schoology_uid, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher,
+           s.picture_url,
            e.schoology_enrolment_id AS enrollment_id
     FROM students s
     JOIN enrolments e ON e.student_id = s.id
@@ -419,6 +420,7 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
     ORDER BY s.last_name, s.first_name
   ` : `
     SELECT s.id, s.schoology_uid, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher,
+           s.picture_url,
            e.schoology_enrolment_id AS enrollment_id
     FROM students s
     JOIN enrolments e ON e.student_id = s.id
@@ -628,6 +630,124 @@ router.post('/:courseId/write-comment', async (req, res) => {
   } catch (err) {
     console.error('[mastery write-comment] Error:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/mastery/:courseId/send-all — batched bulk send (#51).
+// Collapses the assessment-page "Send all" loop into one request: all rubric
+// score writes go through a single browser session (writeMasteryScoresBatch),
+// then a single fresh GET + one bulk comment PUT covers every comment. The
+// batch is all-or-nothing — any failure aborts before anything is mirrored
+// locally, and a retry is idempotent (observations replace; the comment PUT
+// echoes each fresh grade so it never wipes a score, see #46).
+router.post('/:courseId/send-all', async (req, res) => {
+  const { courseId } = req.params;
+  const { entries } = req.body;
+
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return res.status(400).json({ error: 'entries[] is required' });
+  }
+
+  const db = getDb();
+  const courseRow = db.prepare('SELECT schoology_section_id FROM courses WHERE id = ?').get(courseId);
+  if (!courseRow) return res.status(404).json({ error: 'Course not found' });
+  const sectionId = courseRow.schoology_section_id;
+
+  const scoreEntries = entries.filter(e => e.scores);
+  const commentEntries = entries.filter(e => e.comment);
+
+  try {
+    // 1. All rubric scores in one browser session.
+    if (scoreEntries.length > 0) {
+      await writeMasteryScoresBatch({
+        sectionId,
+        entries: scoreEntries.map(e => ({
+          enrollmentId: e.enrollmentId,
+          assignmentId: e.assignmentId,
+          gradeInfo: e.scores.gradeInfo,
+          gradingPeriodId: e.scores.gradingPeriodId,
+          gradingCategoryId: e.scores.gradingCategoryId,
+        })),
+      });
+    }
+
+    // 2. One fresh read of the section grades, reflecting the writes above, so
+    //    each comment PUT can echo the current grade/exception (#46 safety).
+    let freshByKey = new Map();
+    if (commentEntries.length > 0) {
+      const allGrades = await getSectionGrades(sectionId);
+      for (const g of allGrades) {
+        freshByKey.set(`${g.assignment_id}::${g.enrollment_id}`, g);
+      }
+
+      const payloads = commentEntries.map(e => {
+        const fresh = freshByKey.get(`${e.assignmentId}::${e.enrollmentId}`) || null;
+        const payload = {
+          assignment_id: String(e.assignmentId),
+          enrollment_id: String(e.enrollmentId),
+          comment: e.comment.comment || '',
+          comment_status: e.comment.commentStatus === false ? null : 1,
+        };
+        if (fresh && fresh.grade != null) payload.grade = String(fresh.grade);
+        if (fresh && fresh.exception != null) payload.exception = fresh.exception;
+        return payload;
+      });
+
+      await pushGradeComments(sectionId, payloads);
+    }
+
+    // 3. Mirror to the local DB — only now that every write above succeeded.
+    //    Scores → mastery_scores (like the single /write); comments → grades
+    //    with the echoed fresh score/exception/timestamp (like write-comment),
+    //    so the gradebook reflects the save without a full re-sync (#60).
+    const now = new Date().toISOString();
+    const POINTS_TO_LETTER = { 0: 'IE', 25: 'EM', 50: 'D', 75: 'EX', 100: 'ED' };
+    const upsertScore = db.prepare(`
+      INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade, synced_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(student_uid, assignment_schoology_id, topic_id) DO UPDATE SET
+        points = excluded.points, grade = excluded.grade, synced_at = excluded.synced_at
+    `);
+    const upsertGrade = db.prepare(`
+      INSERT INTO grades (student_id, assignment_id, enrolment_id, score, exception, submitted_at, grade_comment, comment_status, synced_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(student_id, assignment_id) DO UPDATE SET
+        score = excluded.score, exception = excluded.exception, submitted_at = excluded.submitted_at,
+        grade_comment = excluded.grade_comment, comment_status = excluded.comment_status, synced_at = excluded.synced_at
+    `);
+
+    for (const e of scoreEntries) {
+      const studentRow = db.prepare(
+        'SELECT s.schoology_uid FROM students s JOIN enrolments en ON en.student_id = s.id WHERE en.schoology_enrolment_id = ?'
+      ).get(String(e.enrollmentId));
+      if (!studentRow) continue;
+      for (const [topicId, info] of Object.entries(e.scores.gradeInfo)) {
+        const points = Number(info.grade);
+        upsertScore.run(studentRow.schoology_uid, String(e.assignmentId), topicId, points, POINTS_TO_LETTER[points] ?? null, now);
+      }
+    }
+
+    for (const e of commentEntries) {
+      const studentRow = db.prepare(
+        'SELECT s.id FROM students s JOIN enrolments en ON en.student_id = s.id WHERE en.schoology_enrolment_id = ?'
+      ).get(String(e.enrollmentId));
+      const assignmentRow = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(e.assignmentId));
+      if (!studentRow || !assignmentRow) continue;
+      const fresh = freshByKey.get(`${e.assignmentId}::${e.enrollmentId}`) || null;
+      const commentStatusInt = e.comment.commentStatus === false ? null : 1;
+      upsertGrade.run(
+        studentRow.id, assignmentRow.id, String(e.enrollmentId),
+        fresh ? (fresh.grade ?? null) : null,
+        fresh ? (fresh.exception ?? 0) : 0,
+        fresh ? (Number(fresh.timestamp) || 0) : 0,
+        e.comment.comment || '', commentStatusInt, now,
+      );
+    }
+
+    res.json({ results: entries.map(e => ({ uid: e.uid, ok: true })) });
+  } catch (err) {
+    console.error('[mastery send-all] Error:', err);
+    res.status(502).json({ error: err.message, results: entries.map(e => ({ uid: e.uid, ok: false })) });
   }
 });
 

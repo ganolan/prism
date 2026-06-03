@@ -540,7 +540,7 @@ export async function enrichStudentProfiles(db, students, now) {
 export async function finalizeArchivedCourse(db, { courseId, sectionId, now, runMastery = true }) {
   const c = db.prepare('SELECT course_name, grading_period FROM courses WHERE id = ?').get(courseId) || {};
   const period = c.grading_period ? ` — ${c.grading_period}` : '';
-  console.log(`[archived] "${c.course_name || sectionId}"${period} (section ${sectionId}): skipped per-cell submission detection (frozen)`);
+  console.log(`[archived] "${c.course_name || sectionId}"${period} (section ${sectionId}): skipping per-cell submission detection (frozen)`);
   const counts = await syncSectionData(db, String(sectionId), courseId, now, { skipSubmissions: true });
   const sessionPresent = runMastery && hasMasterySession();
   if (sessionPresent) {

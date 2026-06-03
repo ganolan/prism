@@ -410,6 +410,49 @@ describe('syncSectionData — internal-gradebook submission state (#62/#55)', ()
   });
 });
 
+describe('syncSectionData — skipSubmissions opt (#72)', () => {
+  let db;
+  let courseId;
+
+  beforeEach(() => {
+    db = new Database(':memory:');
+    migrate(db);
+    courseId = db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-S', 'Archived')`
+    ).run().lastInsertRowid;
+    getSectionEnrollments.mockReset();
+    getSectionAssignments.mockReset();
+    getSectionGrades.mockReset();
+    getSubmissionStatus.mockReset();
+    getSectionGrades.mockResolvedValue([]);
+    getSubmissionStatus.mockResolvedValue({ revision_id: 1, late: 1, draft: 0, latestRevisionAt: 2000 });
+    getSectionEnrollments.mockResolvedValue([
+      { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
+    ]);
+    getSectionAssignments.mockResolvedValue([
+      { id: 'D1', title: 'Native dropbox', published: 1, allow_dropbox: '1' },
+    ]);
+  });
+
+  test('skipSubmissions:true does not call the public submissions API and reports zero', async () => {
+    const result = await syncSectionData(db, 'sec-S', courseId, new Date().toISOString(), {
+      skipSubmissions: true,
+    });
+
+    expect(getSubmissionStatus).not.toHaveBeenCalled();
+    expect(result.submissionCount).toBe(0);
+    expect(result.submissionAttempts).toBe(0);
+    expect(result.submissionSkipped).toBe(0);
+    expect(result.failedAssignmentIds).toEqual([]);
+  });
+
+  test('without skipSubmissions the same setup DOES call the public submissions API (opt defaults off)', async () => {
+    await syncSectionData(db, 'sec-S', courseId, new Date().toISOString());
+
+    expect(getSubmissionStatus).toHaveBeenCalledWith('sec-S', 'D1', '701');
+  });
+});
+
 describe('fullSync — course skip matrix (#56)', () => {
   let db;
 

@@ -58,6 +58,7 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     submissionConcurrency = 2,
     submissionRatePerSec = 4,
     submissionAbandonAfter = 5,
+    skipSubmissions = false,
   } = opts;
 
   const upsertStudent = db.prepare(`
@@ -203,7 +204,14 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   //     and clear status + type.
   //   • not covered (e.g. outside the grading period grader_header_data returns)
   //     → fall back to the public API and leave submission_type untouched.
-  const dropboxAssignments = assignments.filter(a => a.allow_dropbox === '1' || a.allow_dropbox === 1);
+  // #72: archived finalisation freezes submission state — the per-cell loop is
+  // the wall-time dominator and yields nothing useful for immutable archived
+  // courses (GHD is blind for inactive sections). An empty list makes the
+  // submission phase a clean no-op (lookup fetch is guarded by .length, the
+  // loop doesn't iterate, writeSubmissions([]) is a no-op).
+  const dropboxAssignments = skipSubmissions
+    ? []
+    : assignments.filter(a => a.allow_dropbox === '1' || a.allow_dropbox === 1);
 
   // Best-effort: null when no session / fetch fails — sync then behaves exactly
   // as before (public revisions API only).

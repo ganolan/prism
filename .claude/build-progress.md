@@ -363,5 +363,9 @@ holistic review). Server 150 tests green. Spec/plan at
   the grades INSERT alone; the `ON CONFLICT` doesn't touch them, so re-finalisation preserves (never wipes)
   existing values. Accepted tradeoff: freshly-imported **native-dropbox** archived work won't get late/draft.
 - **Docs:** added the GHD archived-section blindness note to `.claude/schoology-api-reference.md`.
-- **Not yet done:** real before/after timing on a live archived import (hits live Schoology + mutates the
-  DB — the user's call); mastery (~20–40s/course) is the remaining archived-import floor, out of scope.
+- **Verified on real data (2026-06-03):** isolated before/after of the gradebook phase for **AI & MACHINE
+  LEARNING 2024-25** (section `7361043390`, 12 students × 35 OneDrive dropbox assignments = 420 cells), run
+  on a throwaway DB copy: **before = 96.2s** (420 per-cell submission GETs, `rateLimitHits=0`) → **after =
+  3.0s** (0 submission calls, bulk only) — **93.2s saved, ~32× faster**. A full AP CSP 2024-25 import
+  end-to-end measured **20.6s**, now dominated by mastery (gradebook loop off the critical path). Mastery
+  (~20–40s/course) is the remaining archived-import floor, out of scope (next lever = the #77 spike).

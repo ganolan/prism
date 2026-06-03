@@ -3,13 +3,14 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 import AssessmentSummaryPage, { StudentRubricCard } from './AssessmentSummaryPage.jsx';
-import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, getMasteryForAssignment } from '../services/api.js';
+import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment } from '../services/api.js';
 
 vi.mock('../services/api.js', () => ({
   getMasteryForAssignment: vi.fn(),
   syncMasteryForAssignment: vi.fn(),
   writeMasteryScores: vi.fn().mockResolvedValue({}),
   writeMasteryComment: vi.fn().mockResolvedValue({}),
+  sendAllGrades: vi.fn().mockResolvedValue({ results: [] }),
   createFlag: vi.fn().mockResolvedValue({ id: 99, flag_reason: 'Check citations' }),
   deleteFlag: vi.fn().mockResolvedValue({ success: true }),
 }));
@@ -432,8 +433,9 @@ describe('AssessmentSummaryPage — Send all bar (#51)', () => {
     expect(btn).toBeDisabled();
   });
 
-  it('counts pending cards and pushes each one on click', async () => {
+  it('counts pending cards and sends them in one batched request', async () => {
     getMasteryForAssignment.mockResolvedValue(makeData());
+    sendAllGrades.mockResolvedValue({ results: [{ uid: 'uid-1', ok: true }] });
     renderPage();
     await screen.findByRole('button', { name: /send all to schoology/i });
 
@@ -444,7 +446,35 @@ describe('AssessmentSummaryPage — Send all bar (#51)', () => {
     expect(btn).toBeEnabled();
 
     fireEvent.click(btn);
-    await waitFor(() => expect(writeMasteryScores).toHaveBeenCalledTimes(1));
+
+    // One batched call, not a per-card loop.
+    await waitFor(() => expect(sendAllGrades).toHaveBeenCalledTimes(1));
+    expect(writeMasteryScores).not.toHaveBeenCalled();
+    const [courseId, entries] = sendAllGrades.mock.calls[0];
+    expect(courseId).toBe('4');
+    expect(entries).toHaveLength(1);
+    expect(entries[0].uid).toBe('uid-1');
+    expect(entries[0].scores.gradeInfo.t1.grade).toBe('50');
     expect(await screen.findByText(/Sent 1 grade/)).toBeInTheDocument();
+  });
+
+  it('batches multiple pending cards into a single request and marks each saved', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    sendAllGrades.mockResolvedValue({ results: [{ uid: 'uid-1', ok: true }, { uid: 'uid-2', ok: true }] });
+    renderPage();
+    await screen.findByRole('button', { name: /send all to schoology/i });
+
+    fireEvent.click(screen.getAllByTitle('Set Topic 1 to Developing')[0]);
+    fireEvent.click(screen.getAllByTitle('Set Topic 1 to Developing')[1]);
+
+    const btn = await screen.findByRole('button', { name: /send all to schoology \(2\)/i });
+    fireEvent.click(btn);
+
+    await waitFor(() => expect(sendAllGrades).toHaveBeenCalledTimes(1));
+    const [, entries] = sendAllGrades.mock.calls[0];
+    expect(entries).toHaveLength(2);
+    expect(await screen.findByText(/Sent 2 grades/)).toBeInTheDocument();
+    // Both cards show their per-card saved badge after the batch.
+    await waitFor(() => expect(screen.getAllByText('Saved ✓')).toHaveLength(2));
   });
 });

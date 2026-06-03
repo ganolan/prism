@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getMasteryForAssignment, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, createFlag, deleteFlag } from '../services/api.js';
+import { getMasteryForAssignment, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag } from '../services/api.js';
 import { draftKey, readDraft, writeDraft, clearDraft, draftBaseline } from '../lib/assessmentDraft.js';
 
 const LEVELS = ['ED', 'EX', 'D', 'EM', 'IE'];
@@ -45,7 +45,7 @@ function normalizePastedText(text) {
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
-export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, onSaved, onPendingChange, registerSaver, unregisterSaver }) {
+export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, onSaved, onPendingChange, registerCard, unregisterCard }) {
   const loadedDisplay = student.comment_status === 1;
   const storageKey = draftKey(courseId, assignmentId, student.enrollment_id);
   // Signature of the synced Schoology values this card was rendered against.
@@ -136,11 +136,15 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
 
   // ── Page-level "Send all" wiring (#51) ──────────────────────────────────
   // Report this card's pending state up so the page bar can count unsaved
-  // cards and enable/disable. Register an imperative saver the bar invokes.
-  // saveRef always points at the latest handleSave closure so the registered
-  // thunk saves current state, not a stale snapshot.
-  const saveRef = useRef(null);
-  saveRef.current = handleSave;
+  // cards and enable/disable. Register two callbacks the page's batched
+  // "Send all" uses: getEntry() returns this card's request entry + in-place
+  // patch (or null when nothing is unsaved), and applyResult(ok) updates the
+  // card's own badge/pending state after the batch lands. The refs always point
+  // at the latest closures so the page reads current state, not a stale one.
+  const entryRef = useRef(null);
+  entryRef.current = buildSendEntry;
+  const applyRef = useRef(null);
+  applyRef.current = applySendResult;
 
   useEffect(() => {
     onPendingChange?.(student.schoology_uid, hasPendingChanges);
@@ -148,9 +152,12 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
 
   useEffect(() => {
     const uid = student.schoology_uid;
-    registerSaver?.(uid, () => saveRef.current());
-    return () => unregisterSaver?.(uid);
-  }, [student.schoology_uid, registerSaver, unregisterSaver]);
+    registerCard?.(uid, {
+      getEntry: () => entryRef.current(),
+      applyResult: (ok) => applyRef.current(ok),
+    });
+    return () => unregisterCard?.(uid);
+  }, [student.schoology_uid, registerCard, unregisterCard]);
 
   // Apply a new comment value, auto-flipping the display toggle ON the first
   // time a virgin record's comment goes empty → non-empty. Shared by the
@@ -180,28 +187,76 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     }
   }
 
+  // Schoology's /observations endpoint replaces the entire observation set for
+  // this enrollment+material — partial payloads wipe untouched topics. So build
+  // gradeInfo from every aligned topic, with pending changes merged over the
+  // current scores. Numeric grade strings ("100"/"75"/...) only: the DB stores
+  // letter codes, but Schoology silently drops them — always map via LEVEL_POINTS.
+  function buildGradeInfo() {
+    const gradeInfo = {};
+    for (const t of topics) {
+      const level = pending[t.id] ?? student.scores[t.id]?.grade;
+      if (level == null) continue;
+      const points = LEVEL_POINTS[level];
+      if (points == null) continue;
+      gradeInfo[t.id] = { grade: String(points), gradingScaleId: 21337256 };
+    }
+    return gradeInfo;
+  }
+
+  // Post-save score map (pending merged over current), keeping the DB's letter
+  // codes — used to patch this card in place after save, no reload/unmount (#50).
+  function buildSavedScores() {
+    const newScores = {};
+    for (const t of topics) {
+      const level = pending[t.id] ?? student.scores[t.id]?.grade;
+      if (level == null) continue;
+      newScores[t.id] = { points: LEVEL_POINTS[level], grade: level };
+    }
+    return newScores;
+  }
+
+  // This card's batched "Send all" entry + its in-place patch, or null when
+  // nothing is unsaved. Same writes as handleSave, expressed as data for the
+  // page to collapse into one request (#51).
+  function buildSendEntry() {
+    const hasScoreChanges = Object.keys(pending).length > 0;
+    const hasCommentChange = comment !== (student.grade_comment || '');
+    const hasDisplayChange = display !== loadedDisplay;
+    if (!hasScoreChanges && !hasCommentChange && !hasDisplayChange) return null;
+    return {
+      entry: {
+        uid: student.schoology_uid,
+        enrollmentId: student.enrollment_id,
+        assignmentId,
+        scores: (hasScoreChanges && assignmentRow) ? {
+          gradeInfo: buildGradeInfo(),
+          gradingPeriodId: assignmentRow.mastery_grading_period_id,
+          gradingCategoryId: assignmentRow.mastery_grading_category_id,
+        } : null,
+        comment: (hasCommentChange || hasDisplayChange) ? { comment, commentStatus: display } : null,
+      },
+      patch: { scores: buildSavedScores(), grade_comment: comment, comment_status: display ? 1 : null },
+    };
+  }
+
+  // Update this card's own UI after the page's batch lands. The page applies the
+  // in-place data patch itself (handleCardSaved) — here we only own the badge,
+  // pending reset, and draft clear (mirrors handleSave's success/error tail).
+  function applySendResult(ok) {
+    if (ok) {
+      setSaveResult('saved');
+      setPending({});
+      clearDraft(storageKey);
+    } else {
+      setSaveResult('error: send failed');
+    }
+  }
+
   async function handleSave() {
     setSaving(true);
     setSaveResult(null);
     try {
-      // Schoology's /observations endpoint replaces the entire observation set
-      // for this enrollment+material — partial payloads wipe untouched topics.
-      // Build gradeInfo from every aligned topic, with pending changes merged over
-      // the current scores.
-      const gradeInfo = {};
-      for (const t of topics) {
-        const pendingLevel = pending[t.id];
-        const currentGrade = student.scores[t.id]?.grade;
-        const level = pendingLevel ?? currentGrade;
-        if (level == null) continue;
-        // Schoology expects numeric grade strings ("100"/"75"/...). DB stores
-        // letter codes ("ED"/"EX"/...). Always map through LEVEL_POINTS so the
-        // payload is uniformly numeric — Schoology silently drops letter codes.
-        const points = LEVEL_POINTS[level];
-        if (points == null) continue;
-        gradeInfo[t.id] = { grade: String(points), gradingScaleId: 21337256 };
-      }
-
       const hasScoreChanges = Object.keys(pending).length > 0;
       const hasCommentChange = comment !== (student.grade_comment || '');
       const hasDisplayChange = display !== loadedDisplay;
@@ -210,7 +265,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         await writeMasteryScores(courseId, {
           enrollmentId: student.enrollment_id,
           assignmentId,
-          gradeInfo,
+          gradeInfo: buildGradeInfo(),
           gradingPeriodId: assignmentRow.mastery_grading_period_id,
           gradingCategoryId: assignmentRow.mastery_grading_category_id,
         });
@@ -224,22 +279,13 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           commentStatus: display,
         });
       }
-      // Build the post-save score map (pending merged over current) so the page
-      // can patch this one student in place — no full reload, no card unmount
-      // flash (#50). Mirrors the gradeInfo loop but keeps the DB's letter codes.
-      const newScores = {};
-      for (const t of topics) {
-        const level = pending[t.id] ?? student.scores[t.id]?.grade;
-        if (level == null) continue;
-        newScores[t.id] = { points: LEVEL_POINTS[level], grade: level };
-      }
       setSaveResult('saved');
       setPending({});
       // Explicit clear: the card stays mounted now, but the write effect runs
       // asynchronously — clear here so a fast bulk run can't race a stale key.
       clearDraft(storageKey);
       onSaved?.(student.schoology_uid, {
-        scores: newScores,
+        scores: buildSavedScores(),
         grade_comment: comment,
         comment_status: display ? 1 : null,
       });
@@ -327,7 +373,10 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
       border: bothSignals ? '1px solid var(--resubmit-ring)' : '1px solid var(--border)',
       boxShadow: bothSignals ? '0 0 0 2px var(--badge-resubmit-bg)' : 'none',
       borderRadius: 10,
-      background: 'var(--card-bg)', overflow: 'hidden',
+      // overflow visible so the oversized avatar can pop past the header band
+      // (top and bottom) without being clipped. Only the header has a corner-
+      // reaching background, so we round its top corners to keep the card edge.
+      background: 'var(--card-bg)', overflow: 'visible',
       marginBottom: '1rem',
     }}>
       {/* Student header */}
@@ -335,22 +384,32 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         padding: '0.6rem 1rem', background: 'var(--bg-subtle)',
         display: 'flex', alignItems: 'center', gap: '0.75rem',
         borderBottom: '1px solid var(--border)',
+        borderTopLeftRadius: 10, borderTopRightRadius: 10,
       }}>
         {/* Student photo (#24) — mirrors the course-roster avatar pattern, with
             an initials fallback when no picture has synced. */}
+        {/* Sized larger than the header band and given negative vertical margins
+            so the ring extrudes past the header's bottom border onto the card
+            body — the white border + shadow make the avatar pop. */}
         {student.picture_url ? (
           <img
             src={student.picture_url}
             alt=""
-            style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', display: 'block', flexShrink: 0 }}
+            style={{
+              width: 78, height: 78, borderRadius: '50%', objectFit: 'cover',
+              display: 'block', flexShrink: 0, marginTop: -28, marginBottom: -28,
+              border: '3px solid var(--card-bg)', boxShadow: '0 2px 6px rgba(0,0,0,0.18)',
+            }}
             onError={e => { e.currentTarget.style.display = 'none'; }}
           />
         ) : (
           <div style={{
-            width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+            width: 78, height: 78, borderRadius: '50%', flexShrink: 0,
+            marginTop: -28, marginBottom: -28,
+            border: '3px solid var(--card-bg)', boxShadow: '0 2px 6px rgba(0,0,0,0.18)',
             background: 'var(--bg-subtle)', display: 'flex',
             alignItems: 'center', justifyContent: 'center',
-            fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600,
+            fontSize: '1.5rem', color: 'var(--text-muted)', fontWeight: 600,
           }}>
             {(student.first_name?.[0] || '')}{(student.last_name?.[0] || '')}
           </div>
@@ -692,11 +751,12 @@ export default function AssessmentSummaryPage() {
   const [refreshResult, setRefreshResult] = useState(null);
 
   // "Send all" bar state (#51). pendingByUid maps each card's uid → true while
-  // it has unsaved changes; saversRef holds each card's imperative save thunk.
+  // it has unsaved changes; cardsRef holds each card's { getEntry, applyResult }
+  // so the batch can collect entries and report results back per card.
   const [pendingByUid, setPendingByUid] = useState({});
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkResult, setBulkResult] = useState(null);
-  const saversRef = useRef({});
+  const cardsRef = useRef({});
 
   // Patch a single student in place after its card saves, instead of reloading
   // the whole page (#50). Avoids the "Loading..." flash that unmounted every
@@ -719,9 +779,9 @@ export default function AssessmentSummaryPage() {
       return next;
     });
   }, []);
-  const registerSaver = useCallback((uid, fn) => { saversRef.current[uid] = fn; }, []);
-  const unregisterSaver = useCallback((uid) => {
-    delete saversRef.current[uid];
+  const registerCard = useCallback((uid, handlers) => { cardsRef.current[uid] = handlers; }, []);
+  const unregisterCard = useCallback((uid) => {
+    delete cardsRef.current[uid];
     setPendingByUid(prev => {
       if (!prev[uid]) return prev;
       const next = { ...prev }; delete next[uid]; return next;
@@ -735,17 +795,35 @@ export default function AssessmentSummaryPage() {
     if (uids.length === 0) return;
     setBulkSaving(true);
     setBulkResult(null);
-    let ok = 0, fail = 0;
+
+    // Collect each pending card's request entry + its in-place patch, then send
+    // the whole set in one batched request (#51) — one browser session for all
+    // score writes + one bulk comment PUT, instead of a per-card loop.
+    const items = [];
     for (const uid of uids) {
-      const save = saversRef.current[uid];
-      if (!save) continue;
-      // Sequential: each card writes to Schoology; avoid hammering the API and
-      // keep per-card Saved/error badges legible as they land.
-      const success = await save();
-      if (success) ok++; else fail++;
+      const built = cardsRef.current[uid]?.getEntry();
+      if (built) items.push({ uid, ...built });
     }
-    setBulkResult(`Sent ${ok} grade${ok !== 1 ? 's' : ''}${fail ? `, ${fail} failed` : ''}`);
-    setBulkSaving(false);
+    if (items.length === 0) { setBulkSaving(false); return; }
+
+    try {
+      const { results } = await sendAllGrades(courseId, items.map(i => i.entry));
+      const okByUid = new Map((results || []).map(r => [r.uid, r.ok]));
+      let ok = 0, fail = 0;
+      for (const i of items) {
+        const success = okByUid.get(i.uid) ?? false;
+        cardsRef.current[i.uid]?.applyResult(success);
+        if (success) { handleCardSaved(i.uid, i.patch); ok++; } else { fail++; }
+      }
+      setBulkResult(`Sent ${ok} grade${ok !== 1 ? 's' : ''}${fail ? `, ${fail} failed` : ''}`);
+    } catch (err) {
+      // All-or-nothing: a non-2xx (incl. the 502 abort) rejects here — mark every
+      // card failed and leave them pending so a retry is one click away.
+      for (const i of items) cardsRef.current[i.uid]?.applyResult(false);
+      setBulkResult(`Error: ${err.message}`);
+    } finally {
+      setBulkSaving(false);
+    }
   }
 
   function load() {
@@ -835,8 +913,8 @@ export default function AssessmentSummaryPage() {
               assignmentRow={assignment}
               onSaved={handleCardSaved}
               onPendingChange={handlePendingChange}
-              registerSaver={registerSaver}
-              unregisterSaver={unregisterSaver}
+              registerCard={registerCard}
+              unregisterCard={unregisterCard}
             />
           ))}
 

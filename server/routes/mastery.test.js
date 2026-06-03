@@ -12,6 +12,7 @@ vi.mock('../services/masterySync.js', () => ({
   syncMasteryForCourse: vi.fn(),
   syncMasteryForAssignment: vi.fn(),
   writeMasteryScores: vi.fn(),
+  writeMasteryScoresBatch: vi.fn(),
   writeMasteryOverride: vi.fn(),
   getMasteryForCourse: vi.fn(),
   getRubricScoresForStudent: vi.fn(),
@@ -24,7 +25,7 @@ vi.mock('../services/schoology.js', () => ({
 
 import router from './mastery.js';
 import { getDb } from '../db/index.js';
-import { getMasteryForCourse } from '../services/masterySync.js';
+import { getMasteryForCourse, writeMasteryScoresBatch } from '../services/masterySync.js';
 import { getSectionGrades, pushGradeComments } from '../services/schoology.js';
 
 function startServer() {
@@ -407,5 +408,159 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     expect(row.score).toBe(88);
     expect(row.submitted_at).toBe(1779000000);
     expect(row.grade_comment).toBe('Comment only');
+  });
+});
+
+describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () => {
+  let courseId;
+  let adaId, bobId;
+  let assignmentRowId;
+
+  beforeEach(() => {
+    const db = getDb();
+    db.exec(
+      'DELETE FROM flags; DELETE FROM grades; DELETE FROM mastery_alignments; ' +
+      'DELETE FROM mastery_scores; DELETE FROM measurement_topics; ' +
+      'DELETE FROM reporting_categories; DELETE FROM assignment_assignees; ' +
+      'DELETE FROM enrolments; DELETE FROM assignments; ' +
+      'DELETE FROM students; DELETE FROM courses;'
+    );
+    courseId = db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-sa', 'Course')`
+    ).run().lastInsertRowid;
+    adaId = db.prepare(
+      `INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-ada', 'Ada', 'Lovelace')`
+    ).run().lastInsertRowid;
+    bobId = db.prepare(
+      `INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-bob', 'Bob', 'Babbage')`
+    ).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'enr-ada')`).run(adaId, courseId);
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'enr-bob')`).run(bobId, courseId);
+    assignmentRowId = db.prepare(
+      `INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-1', 'Project')`
+    ).run(courseId).lastInsertRowid;
+    // Topic the score mirror references (FK: mastery_scores.topic_id → measurement_topics.id).
+    db.prepare(`INSERT INTO measurement_topics (id, course_id, external_id, title) VALUES ('t1', ?, 'ART.1.1', 'Topic 1')`).run(courseId);
+
+    writeMasteryScoresBatch.mockReset();
+    writeMasteryScoresBatch.mockResolvedValue(undefined);
+    pushGradeComments.mockReset();
+    pushGradeComments.mockResolvedValue({ status: 207 });
+    getSectionGrades.mockReset();
+    getSectionGrades.mockResolvedValue([
+      { assignment_id: 'sa-1', enrollment_id: 'enr-ada', grade: 95, exception: 0, timestamp: 1779418446 },
+      { assignment_id: 'sa-1', enrollment_id: 'enr-bob', grade: 80, exception: 0, timestamp: 1779418400 },
+    ]);
+  });
+
+  function entry(uid, enrollmentId, { scores = true, comment = true } = {}) {
+    return {
+      uid,
+      enrollmentId,
+      assignmentId: 'sa-1',
+      scores: scores ? { gradeInfo: { 't1': { grade: '100', gradingScaleId: 21337256 } }, gradingPeriodId: 1, gradingCategoryId: 2 } : null,
+      comment: comment ? { comment: `note ${uid}`, commentStatus: true } : null,
+    };
+  }
+
+  test('writes all students with one score-batch call and one comment PUT', async () => {
+    const { status } = await post(`/api/mastery/${courseId}/send-all`, {
+      entries: [entry('uid-ada', 'enr-ada'), entry('uid-bob', 'enr-bob')],
+    });
+    expect(status).toBe(200);
+
+    // One batched score write covering both students…
+    expect(writeMasteryScoresBatch).toHaveBeenCalledTimes(1);
+    const batchArg = writeMasteryScoresBatch.mock.calls[0][0];
+    expect(batchArg.sectionId).toBe('sec-sa');
+    expect(batchArg.entries).toHaveLength(2);
+
+    // …and one bulk comment PUT covering both students.
+    expect(getSectionGrades).toHaveBeenCalledTimes(1);
+    expect(pushGradeComments).toHaveBeenCalledTimes(1);
+    const [, comments] = pushGradeComments.mock.calls[0];
+    expect(comments).toHaveLength(2);
+  });
+
+  test('echoes each student\'s fresh grade into its comment payload (#46 safety)', async () => {
+    await post(`/api/mastery/${courseId}/send-all`, {
+      entries: [entry('uid-ada', 'enr-ada'), entry('uid-bob', 'enr-bob')],
+    });
+
+    const [, comments] = pushGradeComments.mock.calls[0];
+    const ada = comments.find(c => c.enrollment_id === 'enr-ada');
+    const bob = comments.find(c => c.enrollment_id === 'enr-bob');
+    // Grades come from the single getSectionGrades read (95 / 80), echoed so the
+    // full-record-replace PUT doesn't wipe the score.
+    expect(ada.grade).toBe('95');
+    expect(bob.grade).toBe('80');
+    expect(ada.comment_status).toBe(1);
+  });
+
+  test('mirrors scores and comments into the local DB on success', async () => {
+    const db = getDb();
+    const { status } = await post(`/api/mastery/${courseId}/send-all`, {
+      entries: [entry('uid-ada', 'enr-ada'), entry('uid-bob', 'enr-bob')],
+    });
+    expect(status).toBe(200);
+
+    // mastery_scores mirrored per topic (points → letter, like the single /write).
+    const score = db.prepare(
+      `SELECT points, grade FROM mastery_scores WHERE student_uid = 'uid-ada' AND assignment_schoology_id = 'sa-1' AND topic_id = 't1'`
+    ).get();
+    expect(score.points).toBe(100);
+    expect(score.grade).toBe('ED');
+
+    // grades row mirrored with the fresh score + comment (like the single write-comment).
+    const grade = db.prepare(
+      `SELECT score, grade_comment, comment_status, submitted_at FROM grades
+       WHERE student_id = ? AND assignment_id = ?`
+    ).get(adaId, assignmentRowId);
+    expect(grade.score).toBe(95);
+    expect(grade.grade_comment).toBe('note uid-ada');
+    expect(grade.comment_status).toBe(1);
+    expect(grade.submitted_at).toBe(1779418446);
+  });
+
+  test('all-or-nothing: a score-batch failure aborts before comments and mirrors nothing', async () => {
+    const db = getDb();
+    writeMasteryScoresBatch.mockRejectedValue(new Error('session stale'));
+
+    const { status, body } = await post(`/api/mastery/${courseId}/send-all`, {
+      entries: [entry('uid-ada', 'enr-ada'), entry('uid-bob', 'enr-bob')],
+    });
+
+    expect(status).toBe(502);
+    expect(body.results.every(r => r.ok === false)).toBe(true);
+    // No comment PUT, and nothing mirrored locally.
+    expect(pushGradeComments).not.toHaveBeenCalled();
+    const scores = db.prepare(`SELECT COUNT(*) AS n FROM mastery_scores`).get();
+    expect(scores.n).toBe(0);
+    const grades = db.prepare(`SELECT COUNT(*) AS n FROM grades`).get();
+    expect(grades.n).toBe(0);
+  });
+
+  test('all-or-nothing: a fresh-grade read failure skips the comment PUT (no #46 wipe)', async () => {
+    getSectionGrades.mockRejectedValue(new Error('Schoology down'));
+
+    const { status } = await post(`/api/mastery/${courseId}/send-all`, {
+      entries: [entry('uid-ada', 'enr-ada'), entry('uid-bob', 'enr-bob')],
+    });
+
+    expect(status).toBe(502);
+    expect(pushGradeComments).not.toHaveBeenCalled();
+  });
+
+  test('score-only entries are excluded from the comment PUT', async () => {
+    await post(`/api/mastery/${courseId}/send-all`, {
+      entries: [
+        entry('uid-ada', 'enr-ada', { comment: false }), // scores only
+        entry('uid-bob', 'enr-bob'),                      // scores + comment
+      ],
+    });
+
+    const [, comments] = pushGradeComments.mock.calls[0];
+    expect(comments).toHaveLength(1);
+    expect(comments[0].enrollment_id).toBe('enr-bob');
   });
 });

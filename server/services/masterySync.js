@@ -768,77 +768,135 @@ export async function writeMasteryScores({
   gradingPeriodId,
   gradingCategoryId,
 }) {
-  let { browser, page } = await openPage();
-
+  const { browser, page } = await openMasterySession(sectionId);
   try {
-    // Navigate to the course to establish session context
-    await page.goto(`${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery`, {
-      waitUntil: 'domcontentloaded',
+    return await postObservation(page, {
+      sectionId, enrollmentId, assignmentId, gradeInfo, gradingPeriodId, gradingCategoryId,
     });
-
-    // If session is stale we'll be on a login/SSO page — relogin then retry.
-    if (!checkLoggedIn(page)) {
-      console.log('[mastery write] session stale, opening browser for relogin');
-      await browser.close();
-      await interactiveLogin();
-      ({ browser, page } = await openPage());
-      await page.goto(`${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery`, {
-        waitUntil: 'domcontentloaded',
-      });
-      if (!checkLoggedIn(page)) {
-        throw new Error('Still not logged in after relogin. Please run `npm run mastery:login` manually.');
-      }
-    }
-
-    const url = `${SCHOOLOGY_BASE}/iapi2/district-mastery/course/${sectionId}/observations`;
-    const payload = {
-      enrollmentId: Number(enrollmentId),
-      gradeInfo,
-      gradeItemId: Number(assignmentId),
-      isGradebook: true,
-      materialId: Number(assignmentId),
-      materialType: 'ASSIGNMENT',
-      maxPoints: 100,
-      overrideGrade: null,
-      isCollectedOnly: false,
-      gradingPeriodId: Number(gradingPeriodId),
-      gradingCategoryId: Number(gradingCategoryId),
-    };
-
-    const topicCount = Object.keys(gradeInfo).length;
-    console.log(`[mastery write] enrollment=${enrollmentId} assignment=${assignmentId} topics=${topicCount}`);
-    console.log(`[mastery write] gradeInfo=${JSON.stringify(gradeInfo)}`);
-
-    const result = await page.evaluate(async ({ url, payload }) => {
-      const csrf = {
-        token: window.Drupal?.settings?.s_common?.csrf_token,
-        key: window.Drupal?.settings?.s_common?.csrf_key,
-      };
-      if (!csrf.token || !csrf.key) {
-        return { status: 0, ok: false, body: 'CSRF token/key missing from Drupal.settings.s_common' };
-      }
-      const res = await fetch(url, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-          'X-CSRF-Token': csrf.token,
-          'X-CSRF-Key': csrf.key,
-        },
-        body: JSON.stringify(payload),
-      });
-      const text = await res.text();
-      return { status: res.status, ok: res.ok, body: text };
-    }, { url, payload });
-
-    console.log(`[mastery write] response status=${result.status} body=${result.body.slice(0, 500)}`);
-    if (!result.ok) throw new Error(`HTTP ${result.status}: ${result.body}`);
-    return JSON.parse(result.body);
   } finally {
     await browser.close();
   }
+}
+
+/**
+ * Batched variant of {@link writeMasteryScores}: writes every entry's
+ * observation set through a *single* browser session — one Chromium launch and
+ * one navigation for the whole batch instead of per student. This is the
+ * dominant cost of the assessment-page "Send all", so collapsing N launches
+ * into one is the real win (the /observations endpoint is still posted
+ * per-enrollment; it is not known to accept multiple enrollments at once).
+ *
+ * Fail-fast / all-or-nothing: the first failed observation throws (after the
+ * browser is closed), and the caller treats the whole batch as failed so
+ * nothing downstream (comments, local mirror) runs. A retry is safe — the
+ * endpoint replaces the observation set for an enrollment.
+ *
+ * @param {object} params
+ * @param {string} params.sectionId — Schoology section ID
+ * @param {Array<{enrollmentId, assignmentId, gradeInfo, gradingPeriodId, gradingCategoryId}>} params.entries
+ */
+export async function writeMasteryScoresBatch({ sectionId, entries }) {
+  const { browser, page } = await openMasterySession(sectionId);
+  try {
+    const results = [];
+    for (const e of entries) {
+      const result = await postObservation(page, {
+        sectionId,
+        enrollmentId: e.enrollmentId,
+        assignmentId: e.assignmentId,
+        gradeInfo: e.gradeInfo,
+        gradingPeriodId: e.gradingPeriodId,
+        gradingCategoryId: e.gradingCategoryId,
+      });
+      results.push({ enrollmentId: e.enrollmentId, result });
+    }
+    return results;
+  } finally {
+    await browser.close();
+  }
+}
+
+/**
+ * Open a logged-in district-mastery page for a section. Navigates to the
+ * mastery gradebook to establish session + CSRF context; if the session is
+ * stale, runs an interactive relogin once and retries. Returns the live
+ * { browser, page } — the caller owns closing the browser.
+ */
+async function openMasterySession(sectionId) {
+  let { browser, page, context } = await openPage();
+  await page.goto(`${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery`, {
+    waitUntil: 'domcontentloaded',
+  });
+
+  // If session is stale we'll be on a login/SSO page — relogin then retry.
+  if (!checkLoggedIn(page)) {
+    console.log('[mastery write] session stale, opening browser for relogin');
+    await browser.close();
+    await interactiveLogin();
+    ({ browser, page, context } = await openPage());
+    await page.goto(`${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery`, {
+      waitUntil: 'domcontentloaded',
+    });
+    if (!checkLoggedIn(page)) {
+      throw new Error('Still not logged in after relogin. Please run `npm run mastery:login` manually.');
+    }
+  }
+  return { browser, page, context };
+}
+
+/**
+ * POST one enrollment's observation set to the district-mastery endpoint inside
+ * an already-logged-in page. The /observations call replaces the whole
+ * observation set for this enrollment+material, so callers must pass gradeInfo
+ * for every aligned topic. Throws on a non-OK response.
+ */
+async function postObservation(page, { sectionId, enrollmentId, assignmentId, gradeInfo, gradingPeriodId, gradingCategoryId }) {
+  const url = `${SCHOOLOGY_BASE}/iapi2/district-mastery/course/${sectionId}/observations`;
+  const payload = {
+    enrollmentId: Number(enrollmentId),
+    gradeInfo,
+    gradeItemId: Number(assignmentId),
+    isGradebook: true,
+    materialId: Number(assignmentId),
+    materialType: 'ASSIGNMENT',
+    maxPoints: 100,
+    overrideGrade: null,
+    isCollectedOnly: false,
+    gradingPeriodId: Number(gradingPeriodId),
+    gradingCategoryId: Number(gradingCategoryId),
+  };
+
+  const topicCount = Object.keys(gradeInfo).length;
+  console.log(`[mastery write] enrollment=${enrollmentId} assignment=${assignmentId} topics=${topicCount}`);
+  console.log(`[mastery write] gradeInfo=${JSON.stringify(gradeInfo)}`);
+
+  const result = await page.evaluate(async ({ url, payload }) => {
+    const csrf = {
+      token: window.Drupal?.settings?.s_common?.csrf_token,
+      key: window.Drupal?.settings?.s_common?.csrf_key,
+    };
+    if (!csrf.token || !csrf.key) {
+      return { status: 0, ok: false, body: 'CSRF token/key missing from Drupal.settings.s_common' };
+    }
+    const res = await fetch(url, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-CSRF-Token': csrf.token,
+        'X-CSRF-Key': csrf.key,
+      },
+      body: JSON.stringify(payload),
+    });
+    const text = await res.text();
+    return { status: res.status, ok: res.ok, body: text };
+  }, { url, payload });
+
+  console.log(`[mastery write] response status=${result.status} body=${result.body.slice(0, 500)}`);
+  if (!result.ok) throw new Error(`HTTP ${result.status}: ${result.body}`);
+  return JSON.parse(result.body);
 }
 
 /**

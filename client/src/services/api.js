@@ -151,6 +151,7 @@ export const syncMasteryForAssignment = (courseId, assignmentId) => request(`/ma
 export const writeMasteryScores = (courseId, data) => request(`/mastery/${courseId}/write`, { method: 'POST', body: JSON.stringify(data) });
 export const writeMasteryComment = (courseId, data) => request(`/mastery/${courseId}/write-comment`, { method: 'POST', body: JSON.stringify(data) });
 export const writeMasteryOverride = (courseId, data) => request(`/mastery/${courseId}/override`, { method: 'POST', body: JSON.stringify(data) });
+export const sendAllGrades = (courseId, entries) => request(`/mastery/${courseId}/send-all`, { method: 'POST', body: JSON.stringify({ entries }) });
 
 // Import
 export const uploadPowerSchoolCSV = (file) => {

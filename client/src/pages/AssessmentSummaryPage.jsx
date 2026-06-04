@@ -14,17 +14,10 @@ const LEVEL_LABELS = {
 };
 const LEVEL_POINTS = { ED: 100, EX: 75, D: 50, EM: 25, IE: 0 };
 const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
-const LEVEL_COLORS = {
-  ED: { bg: '#dbeafe', text: '#1e40af', border: '#93c5fd', activeBg: '#1d4ed8', activeText: '#fff' },
-  EX: { bg: '#dcfce7', text: '#166534', border: '#86efac', activeBg: '#16a34a', activeText: '#fff' },
-  D:  { bg: '#fef9c3', text: '#713f12', border: '#fde047', activeBg: '#ca8a04', activeText: '#fff' },
-  EM: { bg: '#ffedd5', text: '#9a3412', border: '#fed7aa', activeBg: '#ea580c', activeText: '#fff' },
-  IE: { bg: '#fee2e2', text: '#991b1b', border: '#fca5a5', activeBg: '#dc2626', activeText: '#fff' },
-};
 // PrisMCP cell language (spec §1). Header tint = final fill; cell text is always
 // black because descriptor text will later replace the level codes, so colour
 // cannot carry meaning in the text. Kept inline (deliberate local exception to
-// the app.css CSS-var convention) — consistent with LEVEL_COLORS above.
+// the app.css CSS-var convention).
 const CELL_COLORS = {
   ED: { headerFill: '#bfdbfe', draftFill: '#eff6ff', finalBorder: '#2563eb', draftBorder: '#93c5fd' },
   EX: { headerFill: '#bbf7d0', draftFill: '#f0fdf4', finalBorder: '#16a34a', draftBorder: '#86efac' },
@@ -728,7 +721,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
                             {l}
                           </span>
                         ) : null}
-                        {isSuggested && (
+                        {isSuggested && !stagedRemoval && (
                           <span style={{
                             position: 'absolute', top: 1, right: 3, fontSize: '0.58rem',
                             lineHeight: 1, color: SUGGEST.glyph,

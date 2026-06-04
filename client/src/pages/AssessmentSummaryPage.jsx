@@ -20,6 +20,22 @@ const LEVEL_COLORS = {
   EM: { bg: '#ffedd5', text: '#9a3412', border: '#fed7aa', activeBg: '#ea580c', activeText: '#fff' },
   IE: { bg: '#fee2e2', text: '#991b1b', border: '#fca5a5', activeBg: '#dc2626', activeText: '#fff' },
 };
+// PrisMCP cell language (spec §1). Header tint = final fill; cell text is always
+// black because descriptor text will later replace the level codes, so colour
+// cannot carry meaning in the text. Kept inline (deliberate local exception to
+// the app.css CSS-var convention) — consistent with LEVEL_COLORS above.
+const CELL_COLORS = {
+  ED: { headerFill: '#bfdbfe', draftFill: '#eff6ff', finalBorder: '#2563eb', draftBorder: '#93c5fd' },
+  EX: { headerFill: '#bbf7d0', draftFill: '#f0fdf4', finalBorder: '#16a34a', draftBorder: '#86efac' },
+  D:  { headerFill: '#fef08a', draftFill: '#fefce8', finalBorder: '#ca8a04', draftBorder: '#fcd34d' },
+  EM: { headerFill: '#fed7aa', draftFill: '#fff7ed', finalBorder: '#ea580c', draftBorder: '#fdba74' },
+  IE: { headerFill: '#fecaca', draftFill: '#fef2f2', finalBorder: '#dc2626', draftBorder: '#fca5a5' },
+};
+// Suggestion accent — deliberately violet, NOT yellow (Developing is already yellow).
+const SUGGEST = { fill: '#ede9fe', ring: '#a78bfa', glyph: '#8b5cf6' };
+const CELL_TEXT = '#1a1a1a';
+// Sentinel stored in pending[topicId] to stage a synced final for removal (Slice 2).
+const REMOVE = '__remove__';
 
 function displayName(student) {
   return `${student.preferred_name_teacher || student.preferred_name || student.first_name} ${student.last_name}`;

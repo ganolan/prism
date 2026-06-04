@@ -318,3 +318,4 @@ CREATE INDEX IF NOT EXISTS idx_completion_student ON completion(student_id);
 CREATE INDEX IF NOT EXISTS idx_completion_course ON completion(course_id);
 CREATE INDEX IF NOT EXISTS idx_grading_categories_course ON grading_categories(course_id);
 CREATE INDEX IF NOT EXISTS idx_assignment_assignees_uid ON assignment_assignees(schoology_uid);
+CREATE INDEX IF NOT EXISTS idx_assessment_analysis_assignment ON assessment_analysis(assignment_id);

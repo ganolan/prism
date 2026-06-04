@@ -3,10 +3,12 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 import AssessmentSummaryPage, { StudentRubricCard } from './AssessmentSummaryPage.jsx';
-import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment } from '../services/api.js';
+import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis } from '../services/api.js';
 
 vi.mock('../services/api.js', () => ({
   getMasteryForAssignment: vi.fn(),
+  getFeedbackForAssignment: vi.fn().mockResolvedValue({}),
+  getAssessmentAnalysis: vi.fn().mockResolvedValue(null),
   syncMasteryForAssignment: vi.fn(),
   writeMasteryScores: vi.fn().mockResolvedValue({}),
   writeMasteryComment: vi.fn().mockResolvedValue({}),
@@ -575,5 +577,84 @@ describe('AssessmentSummaryPage — Send all bar (#51)', () => {
     expect(await screen.findByText(/Sent 2 grades/)).toBeInTheDocument();
     // Both cards show their per-card saved badge after the batch.
     await waitFor(() => expect(screen.getAllByText('Saved ✓')).toHaveLength(2));
+  });
+});
+
+describe('AssessmentSummaryPage — feedback load (Slice 4)', () => {
+  function makeData() {
+    return {
+      assignment: { id: 50, schoology_assignment_id: '8', title: 'Quiz', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+      topics: [{ id: 't1', title: 'Topic 1', category_title: 'Cat', external_id: 'X1' }],
+      students: [{ ...makeStudent(), id: 1, schoology_uid: 'uid-1', enrollment_id: 'enr-1', scores: {} }],
+    };
+  }
+  function renderPage() {
+    return render(
+      <MemoryRouter initialEntries={['/course/4/assessment/8']}>
+        <Routes>
+          <Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+  }
+
+  it('fetches feedback + analysis for the assignment alongside mastery', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    renderPage();
+    await waitFor(() => expect(getFeedbackForAssignment).toHaveBeenCalledWith('8'));
+    expect(getAssessmentAnalysis).toHaveBeenCalledWith('8');
+  });
+
+  it('renders a suggestion overlay (✦) for a resolvable rubric_scores entry', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    getFeedbackForAssignment.mockResolvedValue({
+      1: { feedback_parsed: { rubric_scores: { X1: 'ED' }, narrative_feedback: 'nice' } },
+    });
+    renderPage();
+    const cell = await screen.findByTitle('Set Topic 1 to Exhibiting Depth'); // ED
+    await waitFor(() => expect(cell).toHaveTextContent('✦'));
+    expect(cell).toHaveStyle({ background: '#ede9fe' }); // violet wash, no teacher mark
+  });
+
+  it('does not throw or overlay for an unresolvable rubric_scores key', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    getFeedbackForAssignment.mockResolvedValue({
+      1: { feedback_parsed: { rubric_scores: { NOPE: 'ED' } } },
+    });
+    renderPage();
+    await screen.findByTitle('Set Topic 1 to Exhibiting Depth');
+    expect(screen.queryByText('✦')).not.toBeInTheDocument();
+  });
+
+  it('keeps the solid final border + dashed ring + ✦ when teacher mark and suggestion agree', async () => {
+    const data = makeData();
+    data.students[0].scores = { t1: { grade: 'ED', points: 100 } }; // teacher final on ED
+    getMasteryForAssignment.mockResolvedValue(data);
+    getFeedbackForAssignment.mockResolvedValue({
+      1: { feedback_parsed: { rubric_scores: { X1: 'ED' } } }, // suggestion also ED
+    });
+    renderPage();
+    const cell = await screen.findByTitle('Set Topic 1 to Exhibiting Depth');
+    await waitFor(() => expect(cell).toHaveTextContent('✦'));
+    expect(cell).toHaveStyle({
+      background: '#bfdbfe', border: '2px solid #2563eb',
+      outline: '1px dashed #a78bfa',
+    });
+  });
+
+  it('places teacher mark and suggestion on different cells side by side', async () => {
+    const data = makeData();
+    data.students[0].scores = { t1: { grade: 'ED', points: 100 } }; // final ED
+    getMasteryForAssignment.mockResolvedValue(data);
+    getFeedbackForAssignment.mockResolvedValue({
+      1: { feedback_parsed: { rubric_scores: { X1: 'EX' } } }, // suggestion EX
+    });
+    renderPage();
+    const finalCell = await screen.findByTitle('Set Topic 1 to Exhibiting Depth'); // ED
+    const suggCell = screen.getByTitle('Set Topic 1 to Exhibiting');             // EX
+    expect(finalCell).toHaveStyle({ background: '#bfdbfe' });   // final, no ✦
+    expect(finalCell).not.toHaveTextContent('✦');
+    expect(suggCell).toHaveStyle({ background: '#ede9fe' });    // violet wash + ✦
+    expect(suggCell).toHaveTextContent('✦');
   });
 });

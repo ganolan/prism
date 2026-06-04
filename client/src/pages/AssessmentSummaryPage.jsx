@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getMasteryForAssignment, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag } from '../services/api.js';
+import { getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag } from '../services/api.js';
 import { draftKey, readDraft, writeDraft, clearDraft, draftBaseline } from '../lib/assessmentDraft.js';
+import { resolveRubricScores } from '../lib/rubricSuggestions.js';
 
 const LEVELS = ['ED', 'EX', 'D', 'EM', 'IE'];
 const LEVEL_LABELS = {
@@ -61,12 +62,16 @@ function normalizePastedText(text) {
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
-export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, onSaved, onPendingChange, registerCard, unregisterCard }) {
+export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, onSaved, onPendingChange, registerCard, unregisterCard }) {
   const loadedDisplay = student.comment_status === 1;
   const storageKey = draftKey(courseId, assignmentId, student.enrollment_id);
   // Signature of the synced Schoology values this card was rendered against.
   // A stored draft is only valid while this is unchanged (#47).
   const currentBaseline = draftBaseline(student, topics);
+
+  // Reviewer rubric suggestions resolved to topic ids (spec §5). Best-effort:
+  // unresolved keys / out-of-set values are silently dropped by the resolver.
+  const suggestedByTopic = resolveRubricScores(feedbackRow?.feedback_parsed?.rubric_scores, topics);
 
   // Restore any unsaved draft for this card from localStorage (#47). Read once
   // on mount; a restored draft means the teacher already interacted with the
@@ -621,7 +626,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             {topics.map(t => {
               const currentGrade = student.scores[t.id]?.grade || null;
               const pendingGrade = pending[t.id] ?? null;
-              const suggestedLevel = null; // wired in Slice 4 (rubric suggestion overlay)
+              const suggestedLevel = suggestedByTopic[t.id] || null;
 
               return (
                 <tr key={t.id}>
@@ -827,6 +832,8 @@ export default function AssessmentSummaryPage() {
   const [error, setError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshResult, setRefreshResult] = useState(null);
+  const [feedbackByStudent, setFeedbackByStudent] = useState({});
+  const [analysis, setAnalysis] = useState(null);
 
   // "Send all" bar state (#51). pendingByUid maps each card's uid → true while
   // it has unsaved changes; cardsRef holds each card's { getEntry, applyResult }
@@ -906,8 +913,16 @@ export default function AssessmentSummaryPage() {
 
   function load() {
     setLoading(true);
-    getMasteryForAssignment(courseId, assignmentId)
-      .then(setData)
+    Promise.all([
+      getMasteryForAssignment(courseId, assignmentId),
+      getFeedbackForAssignment(assignmentId).catch(() => ({})),
+      getAssessmentAnalysis(assignmentId).catch(() => null),
+    ])
+      .then(([mastery, feedback, analysisRow]) => {
+        setData(mastery);
+        setFeedbackByStudent(feedback || {});
+        setAnalysis(analysisRow || null);
+      })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
   }
@@ -989,6 +1004,7 @@ export default function AssessmentSummaryPage() {
               courseId={courseId}
               assignmentId={assignmentId}
               assignmentRow={assignment}
+              feedbackRow={feedbackByStudent[student.id] || null}
               onSaved={handleCardSaved}
               onPendingChange={handlePendingChange}
               registerCard={registerCard}

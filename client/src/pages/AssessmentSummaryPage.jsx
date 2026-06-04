@@ -1015,7 +1015,11 @@ export default function AssessmentSummaryPage() {
 
   return (
     <div className="fade-in">
-      <div style={{ marginBottom: '1.25rem' }}>
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 5, background: 'var(--bg)',
+        marginBottom: '1.25rem', padding: '0.55rem 0',
+        borderBottom: '1px solid var(--border)',
+      }}>
         <Link to={`/course/${courseId}`} className="link" style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
           ← Back to course
         </Link>
@@ -1033,23 +1037,6 @@ export default function AssessmentSummaryPage() {
             <span className="text-sm text-muted" style={{ fontSize: '0.75rem' }}>{refreshResult}</span>
           )}
         </div>
-      </div>
-
-      {/* Proficiency level legend */}
-      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-        {LEVELS.map(l => (
-          <span key={l} style={{
-            display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
-            padding: '0.2rem 0.5rem', borderRadius: 6,
-            background: LEVEL_COLORS[l].bg, color: LEVEL_COLORS[l].text,
-            fontSize: '0.72rem', fontWeight: 600, border: `1px solid ${LEVEL_COLORS[l].border}`,
-          }}>
-            {l} — {LEVEL_LABELS[l]}
-          </span>
-        ))}
-        <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-muted)', alignSelf: 'center' }}>
-          Click a cell to change proficiency · green border = pending · solid green = current
-        </span>
       </div>
 
       {students.length === 0 ? (

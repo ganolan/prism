@@ -655,6 +655,91 @@ describe('StudentRubricCard — card chrome (Slice 5)', () => {
   });
 });
 
+describe('AssessmentSummaryPage — header + Reviewer Analysis (Slice 6)', () => {
+  function makeData() {
+    return {
+      assignment: { id: 50, schoology_assignment_id: '8', title: 'Quiz', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+      topics: [{ id: 't1', title: 'Topic 1', category_title: 'Cat', external_id: 'X1' }],
+      students: [{ ...makeStudent(), id: 1, schoology_uid: 'uid-1', enrollment_id: 'enr-1', scores: {} }],
+    };
+  }
+  function renderPage() {
+    return render(
+      <MemoryRouter initialEntries={['/course/4/assessment/8']}>
+        <Routes>
+          <Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+  }
+
+  it('removes the stale proficiency legend', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    renderPage();
+    await screen.findByText('Quiz');
+    expect(screen.queryByText(/green border = pending/)).not.toBeInTheDocument();
+  });
+
+  it('does not render the Reviewer Analysis button when no analysis exists', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    getFeedbackForAssignment.mockResolvedValue({});
+    getAssessmentAnalysis.mockResolvedValue(null);
+    renderPage();
+    await screen.findByText('Quiz');
+    expect(screen.queryByRole('button', { name: /reviewer analysis/i })).not.toBeInTheDocument();
+  });
+
+  it('renders the button when at least one feedback row exists', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    getFeedbackForAssignment.mockResolvedValue({ 1: { feedback_parsed: { rubric_scores: { X1: 'ED' } } } });
+    getAssessmentAnalysis.mockResolvedValue(null);
+    renderPage();
+    expect(await screen.findByRole('button', { name: /reviewer analysis/i })).toBeInTheDocument();
+  });
+
+  it('renders the button when an analysis record exists even without feedback rows', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    getFeedbackForAssignment.mockResolvedValue({});
+    getAssessmentAnalysis.mockResolvedValue({ analysis_parsed: { noticings: [] } });
+    renderPage();
+    expect(await screen.findByRole('button', { name: /reviewer analysis/i })).toBeInTheDocument();
+  });
+
+  it('opens the drawer with the not-student-facing tag and closes via ✕', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    getFeedbackForAssignment.mockResolvedValue({ 1: { feedback_parsed: { rubric_scores: { X1: 'ED' } } } });
+    getAssessmentAnalysis.mockResolvedValue({ analysis_parsed: { noticings: [] } });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /reviewer analysis/i }));
+    expect(screen.getByText('not student-facing')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /close reviewer analysis/i }));
+    await waitFor(() => expect(screen.queryByText('not student-facing')).not.toBeInTheDocument());
+  });
+
+  it('shows the proposed distribution computed from feedback and the noticings', async () => {
+    const data = makeData();
+    getMasteryForAssignment.mockResolvedValue(data);
+    getFeedbackForAssignment.mockResolvedValue({
+      1: { feedback_parsed: { rubric_scores: { X1: 'ED' } } },
+      2: { feedback_parsed: { rubric_scores: { X1: 'EX' } } },
+    });
+    getAssessmentAnalysis.mockResolvedValue({
+      analysis_parsed: {
+        noticings: [{ title: 'AI tool use', body: 'Half the class used AI.' }],
+        moderation_note: 'Worth a spot-check.',
+      },
+    });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /reviewer analysis/i }));
+
+    expect(screen.getByText(/From the reviewer's suggested grades/)).toBeInTheDocument();
+    expect(screen.getByText(/1 ED/)).toBeInTheDocument();
+    expect(screen.getByText('AI tool use')).toBeInTheDocument();
+    expect(screen.getByText('Half the class used AI.')).toBeInTheDocument();
+    expect(screen.getByText(/Worth a spot-check/)).toBeInTheDocument();
+  });
+});
+
 describe('AssessmentSummaryPage — feedback load (Slice 4)', () => {
   function makeData() {
     return {

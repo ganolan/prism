@@ -219,6 +219,8 @@ describe('StudentRubricCard — cell language (Slice 1)', () => {
     renderCard();
     const edHeader = screen.getByText('Exhibiting Depth').closest('th');
     expect(edHeader).toHaveStyle({ background: '#bfdbfe', color: '#1a1a1a' });
+    const ieHeader = screen.getByText('Insufficient Evidence').closest('th');
+    expect(ieHeader).toHaveStyle({ background: '#fecaca', color: '#1a1a1a' });
   });
 
   it('renders a synced final cell with its final fill, 2px final border, bold, black text', () => {

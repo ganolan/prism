@@ -614,12 +614,11 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
                   </td>
                   {LEVELS.map(l => {
                     const c = CELL_COLORS[l];
-                    const pendingVal = pendingGrade;                 // pending[t.id] || null (from outer scope)
-                    const stagedRemoval = pendingVal === REMOVE && l === currentGrade;
-                    const isDraft = pendingVal !== REMOVE && l === pendingVal;
+                    const stagedRemoval = pendingGrade === REMOVE && l === currentGrade;
+                    const isDraft = pendingGrade !== REMOVE && l === pendingGrade;
                     // A synced final shows ONLY when nothing is pending for this topic (a pending
                     // draft on another cell overrides it → that old final renders Empty; spec §2).
-                    const isFinal = l === currentGrade && pendingVal == null;
+                    const isFinal = l === currentGrade && pendingGrade == null;
                     // Suggestion overlay inputs arrive in Slice 4; null-safe until then.
                     const isSuggested = suggestedLevel != null && l === suggestedLevel;
                     const hasTeacherMark = isFinal || isDraft || stagedRemoval;
@@ -633,26 +632,27 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
                       transition: 'all 0.1s',
                       color: CELL_TEXT,
                       background: 'var(--card-bg)',
+                      position: 'relative',
                     };
 
                     if (isFinal) {
                       cellStyle = {
                         ...cellStyle, background: c.headerFill,
                         border: `2px solid ${c.finalBorder}`, fontWeight: 700,
-                        position: 'relative', zIndex: 2,
+                        zIndex: 2,
                       };
                     } else if (isDraft) {
                       cellStyle = {
                         ...cellStyle, background: c.draftFill,
                         border: `2px solid ${c.draftBorder}`,
-                        position: 'relative', zIndex: 2,
+                        zIndex: 2,
                       };
                     } else if (stagedRemoval) {
                       // Removal marker (Slice 2): default bg, red dashed ring + ✕ glyph.
                       cellStyle = {
                         ...cellStyle, background: 'var(--card-bg)',
                         outline: '1.5px dashed #ef4444', outlineOffset: '-3px',
-                        position: 'relative', zIndex: 2,
+                        zIndex: 2,
                       };
                     }
 
@@ -661,9 +661,10 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
                     if (isSuggested) {
                       cellStyle = {
                         ...cellStyle,
-                        outline: stagedRemoval ? cellStyle.outline : `1px dashed ${SUGGEST.ring}`,
-                        outlineOffset: '-3px',
-                        position: 'relative', zIndex: 2,
+                        ...(stagedRemoval
+                          ? { outline: cellStyle.outline, outlineOffset: cellStyle.outlineOffset }
+                          : { outline: `1px dashed ${SUGGEST.ring}`, outlineOffset: '-3px' }),
+                        zIndex: 2,
                         ...(hasTeacherMark ? {} : { background: SUGGEST.fill }),
                       };
                     }
@@ -678,7 +679,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
                         title={`Set ${t.title} to ${LEVEL_LABELS[l]}`}
                       >
                         {showCode ? (
-                          <span style={{ fontWeight: isFinal ? 700 : 400, fontSize: '0.75rem', color: CELL_TEXT }}>
+                          <span style={{ fontSize: '0.75rem', color: CELL_TEXT }}>
                             {l}
                           </span>
                         ) : null}

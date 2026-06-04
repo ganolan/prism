@@ -189,17 +189,34 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   function selectLevel(topicId, level) {
     if (isRubricLocked) return;
     const currentGrade = student.scores[topicId]?.grade;
-    if (level === currentGrade) {
-      // Clicking current — deselect pending
+    const pendingVal = pending[topicId];
+
+    // Re-clicking a drafted cell toggles it off (back to whatever is synced).
+    if (pendingVal != null && pendingVal !== REMOVE && level === pendingVal) {
       setPending(p => { const n = { ...p }; delete n[topicId]; return n; });
-    } else {
-      // Auto-flip ON the first time a real selection is made for a virgin
-      // record. Deselect clicks (level === currentGrade) don't count.
-      if (autoFlipArmed) {
-        setDisplay(true);
-        setAutoFlipArmed(false);
-      }
-      setPending(p => ({ ...p, [topicId]: level }));
+      return;
+    }
+    // Re-clicking the staged final cell unstages the removal.
+    if (pendingVal === REMOVE && level === currentGrade) {
+      setPending(p => { const n = { ...p }; delete n[topicId]; return n; });
+      return;
+    }
+    // Clicking the synced final with nothing pending stages it for removal.
+    if (pendingVal == null && level === currentGrade) {
+      armAutoFlip();
+      setPending(p => ({ ...p, [topicId]: REMOVE }));
+      return;
+    }
+    // Otherwise set/replace a draft on this level.
+    armAutoFlip();
+    setPending(p => ({ ...p, [topicId]: level }));
+  }
+
+  // Auto-flip the display toggle ON the first real selection for a virgin record.
+  function armAutoFlip() {
+    if (autoFlipArmed) {
+      setDisplay(true);
+      setAutoFlipArmed(false);
     }
   }
 

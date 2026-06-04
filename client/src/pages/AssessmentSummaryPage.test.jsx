@@ -448,6 +448,51 @@ describe('StudentRubricCard — in-place save (#50)', () => {
   });
 });
 
+describe('StudentRubricCard — rubric interaction (Slice 2)', () => {
+  it('clears a pending draft when its cell is clicked again', () => {
+    renderCard();
+    const cell = screen.getByTitle('Set Topic 1 to Developing');
+    fireEvent.click(cell);
+    expect(screen.getByText('1 pending change')).toBeInTheDocument();
+    fireEvent.click(cell);
+    expect(screen.queryByText(/pending change/)).not.toBeInTheDocument();
+  });
+
+  it('stages a synced final for removal on click, showing the red removal marker', () => {
+    const s = { ...makeStudent(), scores: { t1: { grade: 'ED', points: 100 } } };
+    renderCard({ student: s });
+    const finalCell = screen.getByTitle('Set Topic 1 to Exhibiting Depth'); // ED
+    fireEvent.click(finalCell);
+    expect(screen.getByText('1 pending change')).toBeInTheDocument();
+    expect(finalCell).toHaveStyle({ outline: '1.5px dashed #ef4444' });
+    expect(finalCell).toHaveTextContent('✕');
+  });
+
+  it('unstages a removal when the staged final cell is clicked again', () => {
+    const s = { ...makeStudent(), scores: { t1: { grade: 'ED', points: 100 } } };
+    renderCard({ student: s });
+    const finalCell = screen.getByTitle('Set Topic 1 to Exhibiting Depth');
+    fireEvent.click(finalCell); // stage removal
+    fireEvent.click(finalCell); // unstage
+    expect(screen.queryByText(/pending change/)).not.toBeInTheDocument();
+    expect(finalCell).toHaveStyle({ background: '#bfdbfe' }); // back to final fill
+  });
+
+  it('omits a removal-staged topic from the Schoology grade payload', async () => {
+    const s = { ...makeStudent(), scores: { t1: { grade: 'ED', points: 100 } } };
+    const onSaved = vi.fn();
+    renderCard({ student: s, onSaved });
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Exhibiting Depth')); // stage removal of ED
+    fireEvent.click(screen.getByRole('button', { name: 'Update Schoology' }));
+
+    await waitFor(() => expect(writeMasteryScores).toHaveBeenCalled());
+    const payload = writeMasteryScores.mock.calls[0][1];
+    expect(payload.gradeInfo.t1).toBeUndefined(); // topic cleared → not in the replace set
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(onSaved.mock.calls[0][1].scores.t1).toBeUndefined();
+  });
+});
+
 describe('AssessmentSummaryPage — Send all bar (#51)', () => {
   function makeData() {
     return {

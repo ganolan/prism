@@ -225,11 +225,14 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // gradeInfo from every aligned topic, with pending changes merged over the
   // current scores. Numeric grade strings ("100"/"75"/...) only: the DB stores
   // letter codes, but Schoology silently drops them — always map via LEVEL_POINTS.
+  // `t.id in pending` distinguishes a cleared draft (key deleted → fall back to
+  // synced) from a staged removal (REMOVE → omit so the /observations replace
+  // clears it in Schoology).
   function buildGradeInfo() {
     const gradeInfo = {};
     for (const t of topics) {
-      const level = pending[t.id] ?? student.scores[t.id]?.grade;
-      if (level == null) continue;
+      const level = (t.id in pending) ? pending[t.id] : student.scores[t.id]?.grade;
+      if (level == null || level === REMOVE) continue;
       const points = LEVEL_POINTS[level];
       if (points == null) continue;
       gradeInfo[t.id] = { grade: String(points), gradingScaleId: 21337256 };
@@ -242,8 +245,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   function buildSavedScores() {
     const newScores = {};
     for (const t of topics) {
-      const level = pending[t.id] ?? student.scores[t.id]?.grade;
-      if (level == null) continue;
+      const level = (t.id in pending) ? pending[t.id] : student.scores[t.id]?.grade;
+      if (level == null || level === REMOVE) continue;
       newScores[t.id] = { points: LEVEL_POINTS[level], grade: level };
     }
     return newScores;

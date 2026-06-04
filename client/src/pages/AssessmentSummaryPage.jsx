@@ -587,7 +587,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
               {LEVELS.map(l => (
                 <th key={l} style={{
                   padding: '0.3rem 0.5rem', textAlign: 'center', width: '12%',
-                  background: LEVEL_COLORS[l].bg, color: LEVEL_COLORS[l].text,
+                  background: CELL_COLORS[l].headerFill, color: CELL_TEXT,
                   border: '1px solid var(--border)', fontWeight: 600, fontSize: '0.72rem',
                   whiteSpace: 'nowrap',
                 }}>

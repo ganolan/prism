@@ -214,6 +214,14 @@ describe('StudentRubricCard draft persistence', () => {
   });
 });
 
+describe('StudentRubricCard — cell language (Slice 1)', () => {
+  it('renders each level header with its header-tint fill and black text', () => {
+    renderCard();
+    const edHeader = screen.getByText('Exhibiting Depth').closest('th');
+    expect(edHeader).toHaveStyle({ background: '#bfdbfe', color: '#1a1a1a' });
+  });
+});
+
 describe('StudentRubricCard review flag (#20)', () => {
   it('shows a "Flag for review" button when there is no review flag', () => {
     renderCard();

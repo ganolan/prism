@@ -601,6 +601,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             {topics.map(t => {
               const currentGrade = student.scores[t.id]?.grade || null;
               const pendingGrade = pending[t.id] || null;
+              const suggestedLevel = null; // wired in Slice 4 (rubric suggestion overlay)
 
               return (
                 <tr key={t.id}>
@@ -612,9 +613,16 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
                     <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', opacity: 0.7 }}>{t.category_title} · {t.external_id}</div>
                   </td>
                   {LEVELS.map(l => {
-                    const isCurrent = l === currentGrade;
-                    const isPending = l === pendingGrade;
-                    const c = LEVEL_COLORS[l];
+                    const c = CELL_COLORS[l];
+                    const pendingVal = pendingGrade;                 // pending[t.id] || null (from outer scope)
+                    const stagedRemoval = pendingVal === REMOVE && l === currentGrade;
+                    const isDraft = pendingVal !== REMOVE && l === pendingVal;
+                    // A synced final shows ONLY when nothing is pending for this topic (a pending
+                    // draft on another cell overrides it → that old final renders Empty; spec §2).
+                    const isFinal = l === currentGrade && pendingVal == null;
+                    // Suggestion overlay inputs arrive in Slice 4; null-safe until then.
+                    const isSuggested = suggestedLevel != null && l === suggestedLevel;
+                    const hasTeacherMark = isFinal || isDraft || stagedRemoval;
 
                     let cellStyle = {
                       padding: '0.25rem 0.4rem',
@@ -623,20 +631,44 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
                       cursor: 'pointer',
                       userSelect: 'none',
                       transition: 'all 0.1s',
+                      color: CELL_TEXT,
+                      background: 'var(--card-bg)',
                     };
 
-                    if (isCurrent && !pendingGrade) {
-                      // Currently awarded, no pending change → solid green fill
-                      cellStyle = { ...cellStyle, background: '#16a34a', border: '2px solid #15803d' };
-                    } else if (isPending) {
-                      // Pending selection → green border, light fill
-                      cellStyle = { ...cellStyle, background: c.bg, border: `2px solid #16a34a` };
-                    } else if (isCurrent && pendingGrade) {
-                      // Was current but overridden by a pending change → show dimmed
-                      cellStyle = { ...cellStyle, background: c.bg, opacity: 0.4 };
-                    } else {
-                      cellStyle = { ...cellStyle, background: 'var(--card-bg)' };
+                    if (isFinal) {
+                      cellStyle = {
+                        ...cellStyle, background: c.headerFill,
+                        border: `2px solid ${c.finalBorder}`, fontWeight: 700,
+                        position: 'relative', zIndex: 2,
+                      };
+                    } else if (isDraft) {
+                      cellStyle = {
+                        ...cellStyle, background: c.draftFill,
+                        border: `2px solid ${c.draftBorder}`,
+                        position: 'relative', zIndex: 2,
+                      };
+                    } else if (stagedRemoval) {
+                      // Removal marker (Slice 2): default bg, red dashed ring + ✕ glyph.
+                      cellStyle = {
+                        ...cellStyle, background: 'var(--card-bg)',
+                        outline: '1.5px dashed #ef4444', outlineOffset: '-3px',
+                        position: 'relative', zIndex: 2,
+                      };
                     }
+
+                    // Suggestion overlay (Slice 4) composes on top: dashed violet ring always;
+                    // violet wash only when there is no teacher mark in this cell (spec §2).
+                    if (isSuggested) {
+                      cellStyle = {
+                        ...cellStyle,
+                        outline: stagedRemoval ? cellStyle.outline : `1px dashed ${SUGGEST.ring}`,
+                        outlineOffset: '-3px',
+                        position: 'relative', zIndex: 2,
+                        ...(hasTeacherMark ? {} : { background: SUGGEST.fill }),
+                      };
+                    }
+
+                    const showCode = isFinal || isDraft || stagedRemoval || isSuggested;
 
                     return (
                       <td
@@ -645,14 +677,23 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
                         onClick={() => selectLevel(t.id, l)}
                         title={`Set ${t.title} to ${LEVEL_LABELS[l]}`}
                       >
-                        {(isCurrent || isPending) ? (
-                          <span style={{
-                            fontWeight: 700, fontSize: '0.75rem',
-                            color: isCurrent && !pendingGrade ? '#fff' : isPending ? '#16a34a' : c.text,
-                          }}>
+                        {showCode ? (
+                          <span style={{ fontWeight: isFinal ? 700 : 400, fontSize: '0.75rem', color: CELL_TEXT }}>
                             {l}
                           </span>
                         ) : null}
+                        {isSuggested && (
+                          <span style={{
+                            position: 'absolute', top: 1, right: 3, fontSize: '0.58rem',
+                            lineHeight: 1, color: SUGGEST.glyph,
+                          }}>✦</span>
+                        )}
+                        {stagedRemoval && (
+                          <span style={{
+                            position: 'absolute', top: 0, right: 2, fontSize: '0.6rem',
+                            lineHeight: 1, color: '#ef4444',
+                          }}>✕</span>
+                        )}
                       </td>
                     );
                   })}

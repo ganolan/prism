@@ -220,6 +220,40 @@ describe('StudentRubricCard — cell language (Slice 1)', () => {
     const edHeader = screen.getByText('Exhibiting Depth').closest('th');
     expect(edHeader).toHaveStyle({ background: '#bfdbfe', color: '#1a1a1a' });
   });
+
+  it('renders a synced final cell with its final fill, 2px final border, bold, black text', () => {
+    const s = { ...makeStudent(), scores: { t1: { grade: 'ED', points: 100 } } };
+    renderCard({ student: s });
+    const cell = screen.getByTitle('Set Topic 1 to Exhibiting Depth');
+    expect(cell).toHaveStyle({
+      background: '#bfdbfe', border: '2px solid #2563eb', color: '#1a1a1a', fontWeight: '700',
+    });
+    expect(cell).toHaveTextContent('ED');
+  });
+
+  it('renders a pending draft cell with its draft fill, 2px draft border, black text', () => {
+    renderCard(); // empty scores
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    const cell = screen.getByTitle('Set Topic 1 to Developing');
+    expect(cell).toHaveStyle({
+      background: '#fefce8', border: '2px solid #fcd34d', color: '#1a1a1a',
+    });
+  });
+
+  it('renders an empty cell with the default card background and no level code', () => {
+    renderCard();
+    const cell = screen.getByTitle('Set Topic 1 to Emerging');
+    expect(cell).toHaveStyle({ background: 'var(--card-bg)' });
+    expect(cell).toHaveTextContent('');
+  });
+
+  it('renders the overridden synced final as empty when a draft is pending on another cell', () => {
+    const s = { ...makeStudent(), scores: { t1: { grade: 'ED', points: 100 } } };
+    renderCard({ student: s });
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing')); // draft on D
+    const oldFinal = screen.getByTitle('Set Topic 1 to Exhibiting Depth'); // ED
+    expect(oldFinal).toHaveStyle({ background: 'var(--card-bg)' });
+  });
 });
 
 describe('StudentRubricCard review flag (#20)', () => {

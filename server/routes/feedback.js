@@ -13,6 +13,46 @@ router.get('/inbox-log', (req, res) => {
   res.json(rows);
 });
 
+// GET /api/feedback/for-assignment/:assignmentId — all draft/teacher_modified
+// feedback rows for one assignment, keyed by student_id, each with parsed JSON.
+// :assignmentId is the SCHOOLOGY assignment id (matches the assessment page URL
+// + the mastery route); resolved to the local assignment id internally.
+// Must be registered before GET /:id (catch-all). approved rows are excluded so
+// they stop re-surfacing as suggestions.
+router.get('/for-assignment/:assignmentId', (req, res) => {
+  const db = getDb();
+  const assignment = db.prepare(
+    'SELECT id FROM assignments WHERE schoology_assignment_id = ?'
+  ).get(req.params.assignmentId);
+  if (!assignment) return res.json({});
+  const rows = db.prepare(`
+    SELECT * FROM feedback
+    WHERE assignment_id = ? AND status IN ('draft', 'teacher_modified')
+  `).all(assignment.id);
+  const byStudent = {};
+  for (const row of rows) {
+    row.feedback_parsed = JSON.parse(row.feedback_json || '{}');
+    byStudent[row.student_id] = row;
+  }
+  res.json(byStudent);
+});
+
+// GET /api/feedback/analysis/:assignmentId — the assessment_analysis record for
+// one assignment (Schoology id), parsed, or null. Must precede GET /:id.
+router.get('/analysis/:assignmentId', (req, res) => {
+  const db = getDb();
+  const assignment = db.prepare(
+    'SELECT id FROM assignments WHERE schoology_assignment_id = ?'
+  ).get(req.params.assignmentId);
+  if (!assignment) return res.json(null);
+  const row = db.prepare(
+    'SELECT * FROM assessment_analysis WHERE assignment_id = ?'
+  ).get(assignment.id);
+  if (!row) return res.json(null);
+  row.analysis_parsed = JSON.parse(row.analysis_json || '{}');
+  res.json(row);
+});
+
 // GET /api/feedback — list feedback with filters
 router.get('/', (req, res) => {
   const db = getDb();

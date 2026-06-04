@@ -73,6 +73,10 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // unresolved keys / out-of-set values are silently dropped by the resolver.
   const suggestedByTopic = resolveRubricScores(feedbackRow?.feedback_parsed?.rubric_scores, topics);
 
+  const reviewerFlags = feedbackRow?.feedback_parsed?.reviewer_flags || null;
+  const narrativeSuggestion = feedbackRow?.feedback_parsed?.narrative_feedback || null;
+  const hasSuggestion = !!narrativeSuggestion || Object.keys(suggestedByTopic).length > 0;
+
   // Restore any unsaved draft for this card from localStorage (#47). Read once
   // on mount; a restored draft means the teacher already interacted with the
   // card, so auto-flip starts disarmed. A draft whose `base` no longer matches
@@ -592,6 +596,25 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           </span>
         )}
       </div>
+
+      {/* Reviewer flags strip — collapsed by default */}
+      {reviewerFlags && (
+        <details style={{
+          border: '1px solid #e6c98a', background: '#fffbef', borderRadius: 7,
+          margin: '0.75rem 1rem 0',
+        }}>
+          <summary style={{
+            cursor: 'pointer', listStyle: 'none', padding: '0.45rem 0.7rem',
+            fontSize: '0.72rem', fontWeight: 600, color: '#92740f',
+            display: 'flex', alignItems: 'center', gap: '0.45rem',
+          }}>
+            ⚑ Reviewer flags
+          </summary>
+          <div style={{ padding: '0 0.7rem 0.6rem', fontSize: '0.72rem', lineHeight: 1.5, color: '#5a4a1f' }}>
+            {reviewerFlags}
+          </div>
+        </details>
+      )}
 
       {/* Rubric grid */}
       <div style={{

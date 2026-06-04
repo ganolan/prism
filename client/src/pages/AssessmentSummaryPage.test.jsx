@@ -580,6 +580,24 @@ describe('AssessmentSummaryPage — Send all bar (#51)', () => {
   });
 });
 
+describe('StudentRubricCard — card chrome (Slice 5)', () => {
+  const withFeedback = (parsed) => ({ feedbackRow: { feedback_parsed: parsed } });
+
+  it('renders the reviewer-flags strip, collapsed by default, when reviewer_flags is present', () => {
+    renderCard(withFeedback({ reviewer_flags: 'No prototype link pasted.' }));
+    const summary = screen.getByText(/Reviewer flags/);
+    expect(summary).toBeInTheDocument();
+    const details = summary.closest('details');
+    expect(details).not.toHaveAttribute('open'); // collapsed by default
+    expect(details).toHaveTextContent('No prototype link pasted.');
+  });
+
+  it('does not render the flags strip when reviewer_flags is absent', () => {
+    renderCard(withFeedback({ narrative_feedback: 'x' }));
+    expect(screen.queryByText(/Reviewer flags/)).not.toBeInTheDocument();
+  });
+});
+
 describe('AssessmentSummaryPage — feedback load (Slice 4)', () => {
   function makeData() {
     return {

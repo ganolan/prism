@@ -916,15 +916,18 @@ function ReviewerAnalysisBody({ topics, feedbackRows, analysis }) {
                 overflow: 'hidden', border: '1px solid var(--border)',
                 background: 'var(--bg-subtle)',
               }}>
-                {total > 0 && LEVELS.filter(l => counts[l] > 0).map(l => (
-                  <div key={l} style={{
-                    flex: counts[l], display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '0.56rem', fontWeight: 700, color: CELL_TEXT,
-                    background: CELL_COLORS[l].headerFill,
-                  }}>
-                    {counts[l]} {l}
-                  </div>
-                ))}
+                {total > 0 && LEVELS.filter(l => counts[l] > 0).map(l => {
+                  const showLabel = counts[l] / total >= 0.12;
+                  return (
+                    <div key={l} title={`${counts[l]} ${l}`} style={{
+                      flex: counts[l], display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '0.56rem', fontWeight: 700, color: CELL_TEXT,
+                      background: CELL_COLORS[l].headerFill,
+                    }}>
+                      {showLabel ? `${counts[l]} ${l}` : counts[l]}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           );
@@ -1082,6 +1085,13 @@ export default function AssessmentSummaryPage() {
 
   useEffect(load, [courseId, assignmentId]);
 
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const onKey = (e) => { if (e.key === 'Escape') setDrawerOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [drawerOpen]);
+
   if (loading) return <div className="loading">Loading...</div>;
   if (error) return <div className="error-msg">{error}</div>;
   if (!data) return null;
@@ -1188,10 +1198,15 @@ export default function AssessmentSummaryPage() {
       {drawerOpen && (
         <>
           <div
+            aria-hidden="true"
             onClick={() => setDrawerOpen(false)}
             style={{ position: 'fixed', inset: 0, background: 'rgba(20,20,30,0.28)', zIndex: 40 }}
           />
-          <div style={{
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reviewer-analysis-title"
+            style={{
             position: 'fixed', top: 0, right: 0, height: '100%', width: 360,
             background: 'var(--card-bg)', boxShadow: '-6px 0 20px rgba(0,0,0,0.16)',
             zIndex: 50, overflowY: 'auto',
@@ -1202,7 +1217,7 @@ export default function AssessmentSummaryPage() {
               background: 'var(--bg-subtle)', position: 'sticky', top: 0,
             }}>
               <span style={{ color: '#8b5cf6' }}>✦</span>
-              <span style={{ fontWeight: 700, fontSize: '0.84rem' }}>Reviewer Analysis</span>
+              <span id="reviewer-analysis-title" style={{ fontWeight: 700, fontSize: '0.84rem' }}>Reviewer Analysis</span>
               <span style={{
                 fontSize: '0.58rem', background: 'var(--bg-subtle)', color: 'var(--text-muted)',
                 borderRadius: 5, padding: '1px 5px', fontWeight: 600,

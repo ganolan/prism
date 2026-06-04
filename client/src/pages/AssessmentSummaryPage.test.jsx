@@ -734,9 +734,23 @@ describe('AssessmentSummaryPage — header + Reviewer Analysis (Slice 6)', () =>
 
     expect(screen.getByText(/From the reviewer's suggested grades/)).toBeInTheDocument();
     expect(screen.getByText(/1 ED/)).toBeInTheDocument();
+    expect(screen.getByText(/1 EX/)).toBeInTheDocument();
     expect(screen.getByText('AI tool use')).toBeInTheDocument();
     expect(screen.getByText('Half the class used AI.')).toBeInTheDocument();
     expect(screen.getByText(/Worth a spot-check/)).toBeInTheDocument();
+  });
+
+  it('closes the drawer when the overlay scrim is clicked', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    getFeedbackForAssignment.mockResolvedValue({ 1: { feedback_parsed: { rubric_scores: { X1: 'ED' } } } });
+    getAssessmentAnalysis.mockResolvedValue({ analysis_parsed: { noticings: [] } });
+    const { container } = renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /reviewer analysis/i }));
+    expect(screen.getByText('not student-facing')).toBeInTheDocument();
+    // The scrim is the fixed full-screen overlay with aria-hidden.
+    const scrim = container.querySelector('[aria-hidden="true"]');
+    fireEvent.click(scrim);
+    await waitFor(() => expect(screen.queryByText('not student-facing')).not.toBeInTheDocument());
   });
 });
 

@@ -491,6 +491,16 @@ describe('StudentRubricCard — rubric interaction (Slice 2)', () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(onSaved.mock.calls[0][1].scores.t1).toBeUndefined();
   });
+
+  it('replaces a staged removal with a draft when a different cell is clicked', () => {
+    const s = { ...makeStudent(), scores: { t1: { grade: 'ED', points: 100 } } };
+    renderCard({ student: s });
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Exhibiting Depth')); // stage REMOVE on ED
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));        // new draft on D
+    expect(screen.getByText('1 pending change')).toBeInTheDocument();
+    const draftCell = screen.getByTitle('Set Topic 1 to Developing');
+    expect(draftCell).toHaveStyle({ background: '#fefce8' }); // D draftFill
+  });
 });
 
 describe('AssessmentSummaryPage — Send all bar (#51)', () => {

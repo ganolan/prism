@@ -620,7 +620,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           <tbody>
             {topics.map(t => {
               const currentGrade = student.scores[t.id]?.grade || null;
-              const pendingGrade = pending[t.id] || null;
+              const pendingGrade = pending[t.id] ?? null;
               const suggestedLevel = null; // wired in Slice 4 (rubric suggestion overlay)
 
               return (

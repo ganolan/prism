@@ -885,6 +885,12 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   );
 }
 
+// ── Reviewer Analysis drawer body ────────────────────────────────────────────
+
+function ReviewerAnalysisBody({ topics, feedbackRows, analysis }) {
+  return <div style={{ padding: '0.8rem' }} />;
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AssessmentSummaryPage() {
@@ -896,6 +902,7 @@ export default function AssessmentSummaryPage() {
   const [refreshResult, setRefreshResult] = useState(null);
   const [feedbackByStudent, setFeedbackByStudent] = useState({});
   const [analysis, setAnalysis] = useState(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   // "Send all" bar state (#51). pendingByUid maps each card's uid → true while
   // it has unsaved changes; cardsRef holds each card's { getEntry, applyResult }
@@ -1010,6 +1017,7 @@ export default function AssessmentSummaryPage() {
   if (!data) return null;
 
   const { assignment, topics, students } = data;
+  const hasAnalysis = Object.keys(feedbackByStudent).length > 0 || !!analysis;
 
   const alignedTopics = topics;
 
@@ -1035,6 +1043,20 @@ export default function AssessmentSummaryPage() {
           </button>
           {refreshResult && (
             <span className="text-sm text-muted" style={{ fontSize: '0.75rem' }}>{refreshResult}</span>
+          )}
+          {hasAnalysis && (
+            <button
+              onClick={() => setDrawerOpen(true)}
+              title="Reviewer Analysis — not student-facing"
+              style={{
+                marginLeft: 'auto', border: '1px solid #c4b5fd', background: '#ede9fe',
+                color: '#6d28d9', borderRadius: 7, padding: '0.32rem 0.7rem',
+                fontSize: '0.74rem', fontWeight: 700, cursor: 'pointer',
+                display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+              }}
+            >
+              ✦ Reviewer Analysis
+            </button>
           )}
         </div>
       </div>
@@ -1089,6 +1111,46 @@ export default function AssessmentSummaryPage() {
             {bulkResult && (
               <span className="text-sm text-muted">{bulkResult}</span>
             )}
+          </div>
+        </>
+      )}
+
+      {drawerOpen && (
+        <>
+          <div
+            onClick={() => setDrawerOpen(false)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(20,20,30,0.28)', zIndex: 40 }}
+          />
+          <div style={{
+            position: 'fixed', top: 0, right: 0, height: '100%', width: 360,
+            background: 'var(--card-bg)', boxShadow: '-6px 0 20px rgba(0,0,0,0.16)',
+            zIndex: 50, overflowY: 'auto',
+          }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '0.5rem',
+              padding: '0.65rem 0.85rem', borderBottom: '1px solid var(--border)',
+              background: 'var(--bg-subtle)', position: 'sticky', top: 0,
+            }}>
+              <span style={{ color: '#8b5cf6' }}>✦</span>
+              <span style={{ fontWeight: 700, fontSize: '0.84rem' }}>Reviewer Analysis</span>
+              <span style={{
+                fontSize: '0.58rem', background: 'var(--bg-subtle)', color: 'var(--text-muted)',
+                borderRadius: 5, padding: '1px 5px', fontWeight: 600,
+              }}>not student-facing</span>
+              <button
+                onClick={() => setDrawerOpen(false)}
+                aria-label="Close Reviewer Analysis"
+                style={{
+                  marginLeft: 'auto', cursor: 'pointer', color: 'var(--text-muted)',
+                  fontSize: '1.05rem', lineHeight: 1, border: 'none', background: 'none',
+                }}
+              >✕</button>
+            </div>
+            <ReviewerAnalysisBody
+              topics={topics}
+              feedbackRows={Object.values(feedbackByStudent)}
+              analysis={analysis?.analysis_parsed || null}
+            />
           </div>
         </>
       )}

@@ -647,6 +647,12 @@ describe('StudentRubricCard — card chrome (Slice 5)', () => {
     expect(ta).toHaveValue('Line one.\n\nLine two.'); // normalizePastedText applied
     expect(screen.getByRole('button', { name: 'Update Schoology' })).toBeEnabled();
   });
+
+  it('hides Use suggestion and the box when only rubric_scores exist (no narrative)', () => {
+    renderCard({ feedbackRow: { feedback_parsed: { rubric_scores: { X1: 'ED' } } } });
+    expect(screen.queryByRole('button', { name: /use suggestion/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('✦ Suggested feedback')).not.toBeInTheDocument();
+  });
 });
 
 describe('AssessmentSummaryPage — feedback load (Slice 4)', () => {

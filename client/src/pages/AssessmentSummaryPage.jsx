@@ -75,7 +75,6 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
 
   const reviewerFlags = feedbackRow?.feedback_parsed?.reviewer_flags || null;
   const narrativeSuggestion = feedbackRow?.feedback_parsed?.narrative_feedback || null;
-  const hasSuggestion = !!narrativeSuggestion || Object.keys(suggestedByTopic).length > 0;
 
   // Restore any unsaved draft for this card from localStorage (#47). Read once
   // on mount; a restored draft means the teacher already interacted with the
@@ -794,25 +793,19 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           </button>
 
           {/* Display-to-student: eye icon + switch, no text label */}
-          <span
+          <button
+            type="button"
             role="switch"
             aria-checked={display}
             aria-label="Display to student"
             title="Display to student"
-            tabIndex={0}
             onClick={() => { setDisplay(d => !d); setAutoFlipArmed(false); }}
-            onKeyDown={e => {
-              if (e.key === ' ' || e.key === 'Enter') {
-                e.preventDefault();
-                setDisplay(d => !d);
-                setAutoFlipArmed(false);
-              }
-            }}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
               border: '1px solid var(--border)', borderRadius: 7,
               padding: '0.18rem 0.4rem', background: 'var(--card-bg)',
               color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none',
+              font: 'inherit',
             }}
           >
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -829,7 +822,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
                 boxShadow: '0 1px 2px rgba(0,0,0,0.2)', transition: 'left 0.15s',
               }} />
             </span>
-          </span>
+          </button>
 
           {/* Discard — trash icon, always shown, disabled when nothing pending */}
           <button
@@ -855,9 +848,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             </svg>
           </button>
 
-          {hasSuggestion && narrativeSuggestion && (
+          {narrativeSuggestion && (
             <button
-              className="btn-violet"
               onClick={() => applyComment(normalizePastedText(narrativeSuggestion))}
               title="Copy the suggestion up into your comment"
               style={{

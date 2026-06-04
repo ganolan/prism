@@ -855,8 +855,39 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             </svg>
           </button>
 
-          {/* ↑ Use suggestion — added in Task 5.3 */}
+          {hasSuggestion && narrativeSuggestion && (
+            <button
+              className="btn-violet"
+              onClick={() => applyComment(normalizePastedText(narrativeSuggestion))}
+              title="Copy the suggestion up into your comment"
+              style={{
+                borderRadius: 7, padding: '0.4rem 0.75rem', fontSize: '0.74rem',
+                fontWeight: 600, cursor: 'pointer',
+                background: '#ede9fe', color: '#6d28d9', border: '1px solid #c4b5fd',
+              }}
+            >
+              ↑ Use suggestion
+            </button>
+          )}
         </div>
+
+        {narrativeSuggestion && (
+          <div style={{
+            marginTop: '0.55rem', border: '1px solid #e6e1f3', background: '#faf9fd',
+            borderRadius: 7, padding: '0.5rem 0.65rem',
+          }}>
+            <div style={{
+              fontSize: '0.63rem', fontWeight: 600, color: '#9a90b8',
+              letterSpacing: '0.03em', marginBottom: '0.28rem',
+              display: 'flex', alignItems: 'center', gap: '0.3rem',
+            }}>
+              ✦ Suggested feedback
+            </div>
+            <div style={{ fontSize: '0.72rem', lineHeight: 1.4, color: '#716b85', whiteSpace: 'pre-wrap' }}>
+              {narrativeSuggestion}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

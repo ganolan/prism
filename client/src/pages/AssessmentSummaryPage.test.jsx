@@ -624,6 +624,29 @@ describe('StudentRubricCard — card chrome (Slice 5)', () => {
     fireEvent.click(discard);
     expect(screen.queryByText(/pending change/)).not.toBeInTheDocument();
   });
+
+  const withFeedback2 = (parsed) => ({ feedbackRow: { feedback_parsed: parsed } });
+
+  it('shows the suggested-feedback box and Use suggestion only when a suggestion exists', () => {
+    renderCard(); // no feedbackRow
+    expect(screen.queryByText('✦ Suggested feedback')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /use suggestion/i })).not.toBeInTheDocument();
+  });
+
+  it('renders the suggestion box (read-only) and Use suggestion when narrative_feedback exists', () => {
+    renderCard(withFeedback2({ narrative_feedback: 'Excellent work, Ada!' }));
+    expect(screen.getByText('✦ Suggested feedback')).toBeInTheDocument();
+    expect(screen.getByText('Excellent work, Ada!')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /use suggestion/i })).toBeInTheDocument();
+  });
+
+  it('Use suggestion overwrites the comment with normalized text and arms pending changes', () => {
+    renderCard(withFeedback2({ narrative_feedback: 'Line one.\v\v​Line two.' }));
+    fireEvent.click(screen.getByRole('button', { name: /use suggestion/i }));
+    const ta = screen.getByPlaceholderText(/Teacher comment/i);
+    expect(ta).toHaveValue('Line one.\n\nLine two.'); // normalizePastedText applied
+    expect(screen.getByRole('button', { name: 'Update Schoology' })).toBeEnabled();
+  });
 });
 
 describe('AssessmentSummaryPage — feedback load (Slice 4)', () => {

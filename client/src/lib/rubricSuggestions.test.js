@@ -32,4 +32,10 @@ describe('distributionByTopic', () => {
     expect(dist.t1).toEqual({ ED: 2, EX: 0, D: 0, EM: 0, IE: 0 });
     expect(dist.t2).toEqual({ ED: 1, EX: 1, D: 0, EM: 0, IE: 0 });
   });
+
+  it('zero-initialises every topic for null or empty rows', () => {
+    const empty = { ED: 0, EX: 0, D: 0, EM: 0, IE: 0 };
+    expect(distributionByTopic(null, TOPICS)).toEqual({ t1: empty, t2: empty });
+    expect(distributionByTopic([], TOPICS)).toEqual({ t1: empty, t2: empty });
+  });
 });

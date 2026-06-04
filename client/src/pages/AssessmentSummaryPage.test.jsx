@@ -617,6 +617,7 @@ describe('AssessmentSummaryPage — feedback load (Slice 4)', () => {
   });
 
   it('does not throw or overlay for an unresolvable rubric_scores key', async () => {
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
     getMasteryForAssignment.mockResolvedValue(makeData());
     getFeedbackForAssignment.mockResolvedValue({
       1: { feedback_parsed: { rubric_scores: { NOPE: 'ED' } } },
@@ -624,6 +625,7 @@ describe('AssessmentSummaryPage — feedback load (Slice 4)', () => {
     renderPage();
     await screen.findByTitle('Set Topic 1 to Exhibiting Depth');
     expect(screen.queryByText('✦')).not.toBeInTheDocument();
+    debugSpy.mockRestore();
   });
 
   it('keeps the solid final border + dashed ring + ✦ when teacher mark and suggestion agree', async () => {

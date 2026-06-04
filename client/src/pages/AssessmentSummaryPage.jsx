@@ -686,9 +686,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
                     if (isSuggested) {
                       cellStyle = {
                         ...cellStyle,
-                        ...(stagedRemoval
-                          ? { outline: cellStyle.outline, outlineOffset: cellStyle.outlineOffset }
-                          : { outline: `1px dashed ${SUGGEST.ring}`, outlineOffset: '-3px' }),
+                        ...(stagedRemoval ? {} : { outline: `1px dashed ${SUGGEST.ring}`, outlineOffset: '-3px' }),
                         zIndex: 2,
                         ...(hasTeacherMark ? {} : { background: SUGGEST.fill }),
                       };

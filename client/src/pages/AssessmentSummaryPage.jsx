@@ -751,9 +751,9 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         </table>
       </div>
 
-      {/* Comment + update */}
+      {/* Overall Comment — the hero */}
       <div style={{ padding: '0.75rem 1rem' }}>
-        <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.3rem', color: 'var(--text-muted)' }}>
+        <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, margin: '0 0 0.35rem', color: '#333' }}>
           Overall Comment
         </label>
         <textarea
@@ -773,71 +773,89 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
               el.setSelectionRange(pos, pos);
             });
           }}
-          rows={3}
-          style={{ width: '100%', fontSize: '0.82rem', resize: 'vertical', boxSizing: 'border-box' }}
+          rows={4}
+          style={{
+            width: '100%', boxSizing: 'border-box', border: '1.5px solid var(--border)',
+            borderRadius: 8, padding: '0.6rem', fontSize: '0.84rem', lineHeight: 1.45,
+            fontFamily: 'inherit', resize: 'vertical', color: 'var(--text)',
+          }}
           placeholder="Teacher comment for this student on this assessment..."
         />
-        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.4rem', alignItems: 'center' }}>
+
+        {/* Control band — directly under the comment (creates the focus boundary) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.6rem' }}>
           <button
             className="primary"
             onClick={handleSave}
             disabled={saving || !hasPendingChanges}
+            title="Write scores & comment back to Schoology"
           >
             {saving ? 'Saving...' : 'Update Schoology'}
           </button>
-          {hasPendingChanges && !saving && (
-            <button className="ghost" onClick={() => {
+
+          {/* Display-to-student: eye icon + switch, no text label */}
+          <span
+            role="switch"
+            aria-checked={display}
+            aria-label="Display to student"
+            title="Display to student"
+            tabIndex={0}
+            onClick={() => { setDisplay(d => !d); setAutoFlipArmed(false); }}
+            onKeyDown={e => {
+              if (e.key === ' ' || e.key === 'Enter') {
+                e.preventDefault();
+                setDisplay(d => !d);
+                setAutoFlipArmed(false);
+              }
+            }}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+              border: '1px solid var(--border)', borderRadius: 7,
+              padding: '0.18rem 0.4rem', background: 'var(--card-bg)',
+              color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none',
+            }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" /><circle cx="12" cy="12" r="3" />
+            </svg>
+            <span style={{
+              position: 'relative', width: 28, height: 16, borderRadius: 9,
+              background: display ? 'var(--accent)' : 'var(--bg-subtle)',
+              border: '1px solid var(--border)', transition: 'background 0.15s',
+            }}>
+              <span style={{
+                position: 'absolute', top: 1, left: display ? 13 : 1,
+                width: 12, height: 12, borderRadius: '50%', background: '#fff',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.2)', transition: 'left 0.15s',
+              }} />
+            </span>
+          </span>
+
+          {/* Discard — trash icon, always shown, disabled when nothing pending */}
+          <button
+            onClick={() => {
               setPending({});
               setComment(student.grade_comment || '');
               setDisplay(loadedDisplay);
               setAutoFlipArmed(student.comment_status !== 1 && !student.grade_comment);
-            }}>
-              Discard Changes
-            </button>
-          )}
-          {!hasPendingChanges && (
-            <span className="text-sm text-muted">No changes</span>
-          )}
-          <label
-            style={{
-              marginLeft: 'auto', display: 'inline-flex', alignItems: 'center',
-              gap: '0.5rem', fontSize: '0.78rem', color: 'var(--text-muted)',
-              cursor: 'pointer', userSelect: 'none',
             }}
-            title="When ON, the student sees this assignment's grade, comment, and proficiencies on Schoology."
+            disabled={!hasPendingChanges}
+            aria-label="Discard changes"
+            title={hasPendingChanges ? 'Discard changes' : 'Discard changes (nothing to discard)'}
+            style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 30, height: 28, borderRadius: 7,
+              border: '1px solid var(--border)', background: 'var(--card-bg)',
+              color: hasPendingChanges ? 'var(--text-muted)' : 'var(--border)',
+              cursor: hasPendingChanges ? 'pointer' : 'default',
+            }}
           >
-            Display to student
-            <span
-              role="switch"
-              aria-checked={display}
-              aria-label="Display to student"
-              tabIndex={0}
-              onClick={() => {
-                setDisplay(d => !d);
-                setAutoFlipArmed(false);
-              }}
-              onKeyDown={e => {
-                if (e.key === ' ' || e.key === 'Enter') {
-                  e.preventDefault();
-                  setDisplay(d => !d);
-                  setAutoFlipArmed(false);
-                }
-              }}
-              style={{
-                position: 'relative', width: 36, height: 20,
-                background: display ? 'var(--accent)' : 'var(--bg-subtle)',
-                border: '1px solid var(--border)', borderRadius: 999,
-                transition: 'background 0.15s',
-              }}
-            >
-              <span style={{
-                position: 'absolute', top: 1, left: display ? 17 : 1,
-                width: 16, height: 16, borderRadius: '50%',
-                background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
-                transition: 'left 0.15s',
-              }} />
-            </span>
-          </label>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" />
+            </svg>
+          </button>
+
+          {/* ↑ Use suggestion — added in Task 5.3 */}
         </div>
       </div>
     </div>

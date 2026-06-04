@@ -596,6 +596,34 @@ describe('StudentRubricCard — card chrome (Slice 5)', () => {
     renderCard(withFeedback({ narrative_feedback: 'x' }));
     expect(screen.queryByText(/Reviewer flags/)).not.toBeInTheDocument();
   });
+
+  it('makes the comment the hero with a bold label and a larger textarea', () => {
+    renderCard();
+    const ta = screen.getByPlaceholderText(/Teacher comment/i);
+    expect(ta).toHaveStyle({ fontSize: '0.84rem' });
+  });
+
+  it('shows the display toggle as an eye-icon switch with no text label', () => {
+    renderCard();
+    const toggle = screen.getByRole('switch', { name: /display to student/i });
+    expect(toggle).toBeInTheDocument();
+    expect(screen.queryByText('Display to student')).not.toBeInTheDocument();
+  });
+
+  it('always shows the discard control, disabled when there are no pending changes', () => {
+    renderCard();
+    const discard = screen.getByRole('button', { name: /discard changes/i });
+    expect(discard).toBeDisabled();
+  });
+
+  it('enables discard once there is a pending change and clears it on click', () => {
+    renderCard();
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    const discard = screen.getByRole('button', { name: /discard changes/i });
+    expect(discard).toBeEnabled();
+    fireEvent.click(discard);
+    expect(screen.queryByText(/pending change/)).not.toBeInTheDocument();
+  });
 });
 
 describe('AssessmentSummaryPage — feedback load (Slice 4)', () => {

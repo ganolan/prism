@@ -3,10 +3,12 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 import AssessmentSummaryPage, { StudentRubricCard } from './AssessmentSummaryPage.jsx';
-import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment } from '../services/api.js';
+import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis } from '../services/api.js';
 
 vi.mock('../services/api.js', () => ({
   getMasteryForAssignment: vi.fn(),
+  getFeedbackForAssignment: vi.fn().mockResolvedValue({}),
+  getAssessmentAnalysis: vi.fn().mockResolvedValue(null),
   syncMasteryForAssignment: vi.fn(),
   writeMasteryScores: vi.fn().mockResolvedValue({}),
   writeMasteryComment: vi.fn().mockResolvedValue({}),
@@ -214,6 +216,50 @@ describe('StudentRubricCard draft persistence', () => {
   });
 });
 
+describe('StudentRubricCard — cell language (Slice 1)', () => {
+  it('renders each level header with its header-tint fill and black text', () => {
+    renderCard();
+    const edHeader = screen.getByText('Exhibiting Depth').closest('th');
+    expect(edHeader).toHaveStyle({ background: '#bfdbfe', color: '#1a1a1a' });
+    const ieHeader = screen.getByText('Insufficient Evidence').closest('th');
+    expect(ieHeader).toHaveStyle({ background: '#fecaca', color: '#1a1a1a' });
+  });
+
+  it('renders a synced final cell with its final fill, 2px final border, bold, black text', () => {
+    const s = { ...makeStudent(), scores: { t1: { grade: 'ED', points: 100 } } };
+    renderCard({ student: s });
+    const cell = screen.getByTitle('Set Topic 1 to Exhibiting Depth');
+    expect(cell).toHaveStyle({
+      background: '#bfdbfe', border: '2px solid #2563eb', color: '#1a1a1a', fontWeight: '700',
+    });
+    expect(cell).toHaveTextContent('ED');
+  });
+
+  it('renders a pending draft cell with its draft fill, 2px draft border, black text', () => {
+    renderCard(); // empty scores
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    const cell = screen.getByTitle('Set Topic 1 to Developing');
+    expect(cell).toHaveStyle({
+      background: '#fefce8', border: '2px solid #fcd34d', color: '#1a1a1a',
+    });
+  });
+
+  it('renders an empty cell with the default card background and no level code', () => {
+    renderCard();
+    const cell = screen.getByTitle('Set Topic 1 to Emerging');
+    expect(cell).toHaveStyle({ background: 'var(--card-bg)' });
+    expect(cell).toHaveTextContent('');
+  });
+
+  it('renders the overridden synced final as empty when a draft is pending on another cell', () => {
+    const s = { ...makeStudent(), scores: { t1: { grade: 'ED', points: 100 } } };
+    renderCard({ student: s });
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing')); // draft on D
+    const oldFinal = screen.getByTitle('Set Topic 1 to Exhibiting Depth'); // ED
+    expect(oldFinal).toHaveStyle({ background: 'var(--card-bg)' });
+  });
+});
+
 describe('StudentRubricCard review flag (#20)', () => {
   it('shows a "Flag for review" button when there is no review flag', () => {
     renderCard();
@@ -404,6 +450,61 @@ describe('StudentRubricCard — in-place save (#50)', () => {
   });
 });
 
+describe('StudentRubricCard — rubric interaction (Slice 2)', () => {
+  it('clears a pending draft when its cell is clicked again', () => {
+    renderCard();
+    const cell = screen.getByTitle('Set Topic 1 to Developing');
+    fireEvent.click(cell);
+    expect(screen.getByText('1 pending change')).toBeInTheDocument();
+    fireEvent.click(cell);
+    expect(screen.queryByText(/pending change/)).not.toBeInTheDocument();
+  });
+
+  it('stages a synced final for removal on click, showing the red removal marker', () => {
+    const s = { ...makeStudent(), scores: { t1: { grade: 'ED', points: 100 } } };
+    renderCard({ student: s });
+    const finalCell = screen.getByTitle('Set Topic 1 to Exhibiting Depth'); // ED
+    fireEvent.click(finalCell);
+    expect(screen.getByText('1 pending change')).toBeInTheDocument();
+    expect(finalCell).toHaveStyle({ outline: '1.5px dashed #ef4444' });
+    expect(finalCell).toHaveTextContent('✕');
+  });
+
+  it('unstages a removal when the staged final cell is clicked again', () => {
+    const s = { ...makeStudent(), scores: { t1: { grade: 'ED', points: 100 } } };
+    renderCard({ student: s });
+    const finalCell = screen.getByTitle('Set Topic 1 to Exhibiting Depth');
+    fireEvent.click(finalCell); // stage removal
+    fireEvent.click(finalCell); // unstage
+    expect(screen.queryByText(/pending change/)).not.toBeInTheDocument();
+    expect(finalCell).toHaveStyle({ background: '#bfdbfe' }); // back to final fill
+  });
+
+  it('omits a removal-staged topic from the Schoology grade payload', async () => {
+    const s = { ...makeStudent(), scores: { t1: { grade: 'ED', points: 100 } } };
+    const onSaved = vi.fn();
+    renderCard({ student: s, onSaved });
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Exhibiting Depth')); // stage removal of ED
+    fireEvent.click(screen.getByRole('button', { name: 'Update Schoology' }));
+
+    await waitFor(() => expect(writeMasteryScores).toHaveBeenCalled());
+    const payload = writeMasteryScores.mock.calls[0][1];
+    expect(payload.gradeInfo.t1).toBeUndefined(); // topic cleared → not in the replace set
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(onSaved.mock.calls[0][1].scores.t1).toBeUndefined();
+  });
+
+  it('replaces a staged removal with a draft when a different cell is clicked', () => {
+    const s = { ...makeStudent(), scores: { t1: { grade: 'ED', points: 100 } } };
+    renderCard({ student: s });
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Exhibiting Depth')); // stage REMOVE on ED
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));        // new draft on D
+    expect(screen.getByText('1 pending change')).toBeInTheDocument();
+    const draftCell = screen.getByTitle('Set Topic 1 to Developing');
+    expect(draftCell).toHaveStyle({ background: '#fefce8' }); // D draftFill
+  });
+});
+
 describe('AssessmentSummaryPage — Send all bar (#51)', () => {
   function makeData() {
     return {
@@ -476,5 +577,260 @@ describe('AssessmentSummaryPage — Send all bar (#51)', () => {
     expect(await screen.findByText(/Sent 2 grades/)).toBeInTheDocument();
     // Both cards show their per-card saved badge after the batch.
     await waitFor(() => expect(screen.getAllByText('Saved ✓')).toHaveLength(2));
+  });
+});
+
+describe('StudentRubricCard — card chrome (Slice 5)', () => {
+  const withFeedback = (parsed) => ({ feedbackRow: { feedback_parsed: parsed } });
+
+  it('renders the reviewer-flags strip, collapsed by default, when reviewer_flags is present', () => {
+    renderCard(withFeedback({ reviewer_flags: 'No prototype link pasted.' }));
+    const summary = screen.getByText(/Reviewer flags/);
+    expect(summary).toBeInTheDocument();
+    const details = summary.closest('details');
+    expect(details).not.toHaveAttribute('open'); // collapsed by default
+    expect(details).toHaveTextContent('No prototype link pasted.');
+  });
+
+  it('does not render the flags strip when reviewer_flags is absent', () => {
+    renderCard(withFeedback({ narrative_feedback: 'x' }));
+    expect(screen.queryByText(/Reviewer flags/)).not.toBeInTheDocument();
+  });
+
+  it('makes the comment the hero with a bold label and a larger textarea', () => {
+    renderCard();
+    const ta = screen.getByPlaceholderText(/Teacher comment/i);
+    expect(ta).toHaveStyle({ fontSize: '0.84rem' });
+  });
+
+  it('shows the display toggle as an eye-icon switch with no text label', () => {
+    renderCard();
+    const toggle = screen.getByRole('switch', { name: /display to student/i });
+    expect(toggle).toBeInTheDocument();
+    expect(screen.queryByText('Display to student')).not.toBeInTheDocument();
+  });
+
+  it('always shows the discard control, disabled when there are no pending changes', () => {
+    renderCard();
+    const discard = screen.getByRole('button', { name: /discard changes/i });
+    expect(discard).toBeDisabled();
+  });
+
+  it('enables discard once there is a pending change and clears it on click', () => {
+    renderCard();
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    const discard = screen.getByRole('button', { name: /discard changes/i });
+    expect(discard).toBeEnabled();
+    fireEvent.click(discard);
+    expect(screen.queryByText(/pending change/)).not.toBeInTheDocument();
+  });
+
+  const withFeedback2 = (parsed) => ({ feedbackRow: { feedback_parsed: parsed } });
+
+  it('shows the suggested-feedback box and Use suggestion only when a suggestion exists', () => {
+    renderCard(); // no feedbackRow
+    expect(screen.queryByText('✦ Suggested feedback')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /use suggestion/i })).not.toBeInTheDocument();
+  });
+
+  it('renders the suggestion box (read-only) and Use suggestion when narrative_feedback exists', () => {
+    renderCard(withFeedback2({ narrative_feedback: 'Excellent work, Ada!' }));
+    expect(screen.getByText('✦ Suggested feedback')).toBeInTheDocument();
+    expect(screen.getByText('Excellent work, Ada!')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /use suggestion/i })).toBeInTheDocument();
+  });
+
+  it('Use suggestion overwrites the comment with normalized text and arms pending changes', () => {
+    renderCard(withFeedback2({ narrative_feedback: 'Line one.\v\v​Line two.' }));
+    fireEvent.click(screen.getByRole('button', { name: /use suggestion/i }));
+    const ta = screen.getByPlaceholderText(/Teacher comment/i);
+    expect(ta).toHaveValue('Line one.\n\nLine two.'); // normalizePastedText applied
+    expect(screen.getByRole('button', { name: 'Update Schoology' })).toBeEnabled();
+  });
+
+  it('hides Use suggestion and the box when only rubric_scores exist (no narrative)', () => {
+    renderCard({ feedbackRow: { feedback_parsed: { rubric_scores: { X1: 'ED' } } } });
+    expect(screen.queryByRole('button', { name: /use suggestion/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('✦ Suggested feedback')).not.toBeInTheDocument();
+  });
+});
+
+describe('AssessmentSummaryPage — header + Reviewer Analysis (Slice 6)', () => {
+  function makeData() {
+    return {
+      assignment: { id: 50, schoology_assignment_id: '8', title: 'Quiz', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+      topics: [{ id: 't1', title: 'Topic 1', category_title: 'Cat', external_id: 'X1' }],
+      students: [{ ...makeStudent(), id: 1, schoology_uid: 'uid-1', enrollment_id: 'enr-1', scores: {} }],
+    };
+  }
+  function renderPage() {
+    return render(
+      <MemoryRouter initialEntries={['/course/4/assessment/8']}>
+        <Routes>
+          <Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+  }
+
+  it('removes the stale proficiency legend', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    renderPage();
+    await screen.findByText('Quiz');
+    expect(screen.queryByText(/green border = pending/)).not.toBeInTheDocument();
+  });
+
+  it('does not render the Reviewer Analysis button when no analysis exists', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    getFeedbackForAssignment.mockResolvedValue({});
+    getAssessmentAnalysis.mockResolvedValue(null);
+    renderPage();
+    await screen.findByText('Quiz');
+    expect(screen.queryByRole('button', { name: /reviewer analysis/i })).not.toBeInTheDocument();
+  });
+
+  it('renders the button when at least one feedback row exists', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    getFeedbackForAssignment.mockResolvedValue({ 1: { feedback_parsed: { rubric_scores: { X1: 'ED' } } } });
+    getAssessmentAnalysis.mockResolvedValue(null);
+    renderPage();
+    expect(await screen.findByRole('button', { name: /reviewer analysis/i })).toBeInTheDocument();
+  });
+
+  it('renders the button when an analysis record exists even without feedback rows', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    getFeedbackForAssignment.mockResolvedValue({});
+    getAssessmentAnalysis.mockResolvedValue({ analysis_parsed: { noticings: [] } });
+    renderPage();
+    expect(await screen.findByRole('button', { name: /reviewer analysis/i })).toBeInTheDocument();
+  });
+
+  it('opens the drawer with the not-student-facing tag and closes via ✕', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    getFeedbackForAssignment.mockResolvedValue({ 1: { feedback_parsed: { rubric_scores: { X1: 'ED' } } } });
+    getAssessmentAnalysis.mockResolvedValue({ analysis_parsed: { noticings: [] } });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /reviewer analysis/i }));
+    expect(screen.getByText('not student-facing')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /close reviewer analysis/i }));
+    await waitFor(() => expect(screen.queryByText('not student-facing')).not.toBeInTheDocument());
+  });
+
+  it('shows the proposed distribution computed from feedback and the noticings', async () => {
+    const data = makeData();
+    getMasteryForAssignment.mockResolvedValue(data);
+    getFeedbackForAssignment.mockResolvedValue({
+      1: { feedback_parsed: { rubric_scores: { X1: 'ED' } } },
+      2: { feedback_parsed: { rubric_scores: { X1: 'EX' } } },
+    });
+    getAssessmentAnalysis.mockResolvedValue({
+      analysis_parsed: {
+        noticings: [{ title: 'AI tool use', body: 'Half the class used AI.' }],
+        moderation_note: 'Worth a spot-check.',
+      },
+    });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /reviewer analysis/i }));
+
+    expect(screen.getByText(/From the reviewer's suggested grades/)).toBeInTheDocument();
+    expect(screen.getByText(/1 ED/)).toBeInTheDocument();
+    expect(screen.getByText(/1 EX/)).toBeInTheDocument();
+    expect(screen.getByText('AI tool use')).toBeInTheDocument();
+    expect(screen.getByText('Half the class used AI.')).toBeInTheDocument();
+    expect(screen.getByText(/Worth a spot-check/)).toBeInTheDocument();
+  });
+
+  it('closes the drawer when the overlay scrim is clicked', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    getFeedbackForAssignment.mockResolvedValue({ 1: { feedback_parsed: { rubric_scores: { X1: 'ED' } } } });
+    getAssessmentAnalysis.mockResolvedValue({ analysis_parsed: { noticings: [] } });
+    const { container } = renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /reviewer analysis/i }));
+    expect(screen.getByText('not student-facing')).toBeInTheDocument();
+    // The scrim is the fixed full-screen overlay with aria-hidden.
+    const scrim = container.querySelector('[aria-hidden="true"]');
+    fireEvent.click(scrim);
+    await waitFor(() => expect(screen.queryByText('not student-facing')).not.toBeInTheDocument());
+  });
+});
+
+describe('AssessmentSummaryPage — feedback load (Slice 4)', () => {
+  function makeData() {
+    return {
+      assignment: { id: 50, schoology_assignment_id: '8', title: 'Quiz', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+      topics: [{ id: 't1', title: 'Topic 1', category_title: 'Cat', external_id: 'X1' }],
+      students: [{ ...makeStudent(), id: 1, schoology_uid: 'uid-1', enrollment_id: 'enr-1', scores: {} }],
+    };
+  }
+  function renderPage() {
+    return render(
+      <MemoryRouter initialEntries={['/course/4/assessment/8']}>
+        <Routes>
+          <Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+  }
+
+  it('fetches feedback + analysis for the assignment alongside mastery', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    renderPage();
+    await waitFor(() => expect(getFeedbackForAssignment).toHaveBeenCalledWith('8'));
+    expect(getAssessmentAnalysis).toHaveBeenCalledWith('8');
+  });
+
+  it('renders a suggestion overlay (✦) for a resolvable rubric_scores entry', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    getFeedbackForAssignment.mockResolvedValue({
+      1: { feedback_parsed: { rubric_scores: { X1: 'ED' }, narrative_feedback: 'nice' } },
+    });
+    renderPage();
+    const cell = await screen.findByTitle('Set Topic 1 to Exhibiting Depth'); // ED
+    await waitFor(() => expect(cell).toHaveTextContent('✦'));
+    expect(cell).toHaveStyle({ background: '#ede9fe' }); // violet wash, no teacher mark
+  });
+
+  it('does not throw or overlay for an unresolvable rubric_scores key', async () => {
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    getFeedbackForAssignment.mockResolvedValue({
+      1: { feedback_parsed: { rubric_scores: { NOPE: 'ED' } } },
+    });
+    renderPage();
+    await screen.findByTitle('Set Topic 1 to Exhibiting Depth');
+    expect(screen.queryByText('✦')).not.toBeInTheDocument();
+    debugSpy.mockRestore();
+  });
+
+  it('keeps the solid final border + dashed ring + ✦ when teacher mark and suggestion agree', async () => {
+    const data = makeData();
+    data.students[0].scores = { t1: { grade: 'ED', points: 100 } }; // teacher final on ED
+    getMasteryForAssignment.mockResolvedValue(data);
+    getFeedbackForAssignment.mockResolvedValue({
+      1: { feedback_parsed: { rubric_scores: { X1: 'ED' } } }, // suggestion also ED
+    });
+    renderPage();
+    const cell = await screen.findByTitle('Set Topic 1 to Exhibiting Depth');
+    await waitFor(() => expect(cell).toHaveTextContent('✦'));
+    expect(cell).toHaveStyle({
+      background: '#bfdbfe', border: '2px solid #2563eb',
+      outline: '1px dashed #a78bfa',
+    });
+  });
+
+  it('places teacher mark and suggestion on different cells side by side', async () => {
+    const data = makeData();
+    data.students[0].scores = { t1: { grade: 'ED', points: 100 } }; // final ED
+    getMasteryForAssignment.mockResolvedValue(data);
+    getFeedbackForAssignment.mockResolvedValue({
+      1: { feedback_parsed: { rubric_scores: { X1: 'EX' } } }, // suggestion EX
+    });
+    renderPage();
+    const finalCell = await screen.findByTitle('Set Topic 1 to Exhibiting Depth'); // ED
+    const suggCell = screen.getByTitle('Set Topic 1 to Exhibiting');             // EX
+    expect(finalCell).toHaveStyle({ background: '#bfdbfe' });   // final, no ✦
+    expect(finalCell).not.toHaveTextContent('✦');
+    expect(suggCell).toHaveStyle({ background: '#ede9fe' });    // violet wash + ✦
+    expect(suggCell).toHaveTextContent('✦');
   });
 });

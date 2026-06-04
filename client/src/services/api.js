@@ -127,6 +127,8 @@ export const getCourseAnalytics = (id) => request(`/analytics/course/${id}`);
 // Feedback
 export const getFeedback = (params) => { const qs = new URLSearchParams(params).toString(); return request(`/feedback${qs ? `?${qs}` : ''}`); };
 export const getFeedbackItem = (id) => request(`/feedback/${id}`);
+export const getFeedbackForAssignment = (assignmentId) => request(`/feedback/for-assignment/${assignmentId}`);
+export const getAssessmentAnalysis = (assignmentId) => request(`/feedback/analysis/${assignmentId}`);
 export const updateFeedback = (id, data) => request(`/feedback/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const approveFeedback = (id) => request(`/feedback/${id}/approve`, { method: 'PUT' });
 export const requestRevision = (id, notes) => request(`/feedback/${id}/request-revision`, { method: 'PUT', body: JSON.stringify({ teacher_notes: notes }) });

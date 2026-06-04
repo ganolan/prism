@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getMasteryForAssignment, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag } from '../services/api.js';
+import { getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag } from '../services/api.js';
 import { draftKey, readDraft, writeDraft, clearDraft, draftBaseline } from '../lib/assessmentDraft.js';
+import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
 
 const LEVELS = ['ED', 'EX', 'D', 'EM', 'IE'];
 const LEVEL_LABELS = {
@@ -13,13 +14,22 @@ const LEVEL_LABELS = {
 };
 const LEVEL_POINTS = { ED: 100, EX: 75, D: 50, EM: 25, IE: 0 };
 const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
-const LEVEL_COLORS = {
-  ED: { bg: '#dbeafe', text: '#1e40af', border: '#93c5fd', activeBg: '#1d4ed8', activeText: '#fff' },
-  EX: { bg: '#dcfce7', text: '#166534', border: '#86efac', activeBg: '#16a34a', activeText: '#fff' },
-  D:  { bg: '#fef9c3', text: '#713f12', border: '#fde047', activeBg: '#ca8a04', activeText: '#fff' },
-  EM: { bg: '#ffedd5', text: '#9a3412', border: '#fed7aa', activeBg: '#ea580c', activeText: '#fff' },
-  IE: { bg: '#fee2e2', text: '#991b1b', border: '#fca5a5', activeBg: '#dc2626', activeText: '#fff' },
+// PrisMCP cell language (spec §1). Header tint = final fill; cell text is always
+// black because descriptor text will later replace the level codes, so colour
+// cannot carry meaning in the text. Kept inline (deliberate local exception to
+// the app.css CSS-var convention).
+const CELL_COLORS = {
+  ED: { headerFill: '#bfdbfe', draftFill: '#eff6ff', finalBorder: '#2563eb', draftBorder: '#93c5fd' },
+  EX: { headerFill: '#bbf7d0', draftFill: '#f0fdf4', finalBorder: '#16a34a', draftBorder: '#86efac' },
+  D:  { headerFill: '#fef08a', draftFill: '#fefce8', finalBorder: '#ca8a04', draftBorder: '#fcd34d' },
+  EM: { headerFill: '#fed7aa', draftFill: '#fff7ed', finalBorder: '#ea580c', draftBorder: '#fdba74' },
+  IE: { headerFill: '#fecaca', draftFill: '#fef2f2', finalBorder: '#dc2626', draftBorder: '#fca5a5' },
 };
+// Suggestion accent — deliberately violet, NOT yellow (Developing is already yellow).
+const SUGGEST = { fill: '#ede9fe', ring: '#a78bfa', glyph: '#8b5cf6' };
+const CELL_TEXT = '#1a1a1a';
+// Sentinel stored in pending[topicId] to stage a synced final for removal (Slice 2).
+const REMOVE = '__remove__';
 
 function displayName(student) {
   return `${student.preferred_name_teacher || student.preferred_name || student.first_name} ${student.last_name}`;
@@ -45,12 +55,19 @@ function normalizePastedText(text) {
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
-export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, onSaved, onPendingChange, registerCard, unregisterCard }) {
+export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, onSaved, onPendingChange, registerCard, unregisterCard }) {
   const loadedDisplay = student.comment_status === 1;
   const storageKey = draftKey(courseId, assignmentId, student.enrollment_id);
   // Signature of the synced Schoology values this card was rendered against.
   // A stored draft is only valid while this is unchanged (#47).
   const currentBaseline = draftBaseline(student, topics);
+
+  // Reviewer rubric suggestions resolved to topic ids (spec §5). Best-effort:
+  // unresolved keys / out-of-set values are silently dropped by the resolver.
+  const suggestedByTopic = resolveRubricScores(feedbackRow?.feedback_parsed?.rubric_scores, topics);
+
+  const reviewerFlags = feedbackRow?.feedback_parsed?.reviewer_flags || null;
+  const narrativeSuggestion = feedbackRow?.feedback_parsed?.narrative_feedback || null;
 
   // Restore any unsaved draft for this card from localStorage (#47). Read once
   // on mount; a restored draft means the teacher already interacted with the
@@ -173,17 +190,34 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   function selectLevel(topicId, level) {
     if (isRubricLocked) return;
     const currentGrade = student.scores[topicId]?.grade;
-    if (level === currentGrade) {
-      // Clicking current — deselect pending
+    const pendingVal = pending[topicId];
+
+    // Re-clicking a drafted cell toggles it off (back to whatever is synced).
+    if (pendingVal != null && pendingVal !== REMOVE && level === pendingVal) {
       setPending(p => { const n = { ...p }; delete n[topicId]; return n; });
-    } else {
-      // Auto-flip ON the first time a real selection is made for a virgin
-      // record. Deselect clicks (level === currentGrade) don't count.
-      if (autoFlipArmed) {
-        setDisplay(true);
-        setAutoFlipArmed(false);
-      }
-      setPending(p => ({ ...p, [topicId]: level }));
+      return;
+    }
+    // Re-clicking the staged final cell unstages the removal.
+    if (pendingVal === REMOVE && level === currentGrade) {
+      setPending(p => { const n = { ...p }; delete n[topicId]; return n; });
+      return;
+    }
+    // Clicking the synced final with nothing pending stages it for removal.
+    if (pendingVal == null && level === currentGrade) {
+      armAutoFlip();
+      setPending(p => ({ ...p, [topicId]: REMOVE }));
+      return;
+    }
+    // Otherwise set/replace a draft on this level.
+    armAutoFlip();
+    setPending(p => ({ ...p, [topicId]: level }));
+  }
+
+  // Auto-flip the display toggle ON the first real selection for a virgin record.
+  function armAutoFlip() {
+    if (autoFlipArmed) {
+      setDisplay(true);
+      setAutoFlipArmed(false);
     }
   }
 
@@ -192,11 +226,14 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // gradeInfo from every aligned topic, with pending changes merged over the
   // current scores. Numeric grade strings ("100"/"75"/...) only: the DB stores
   // letter codes, but Schoology silently drops them — always map via LEVEL_POINTS.
+  // `t.id in pending` distinguishes a cleared draft (key deleted → fall back to
+  // synced) from a staged removal (REMOVE → omit so the /observations replace
+  // clears it in Schoology).
   function buildGradeInfo() {
     const gradeInfo = {};
     for (const t of topics) {
-      const level = pending[t.id] ?? student.scores[t.id]?.grade;
-      if (level == null) continue;
+      const level = (t.id in pending) ? pending[t.id] : student.scores[t.id]?.grade;
+      if (level == null || level === REMOVE) continue;
       const points = LEVEL_POINTS[level];
       if (points == null) continue;
       gradeInfo[t.id] = { grade: String(points), gradingScaleId: 21337256 };
@@ -209,8 +246,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   function buildSavedScores() {
     const newScores = {};
     for (const t of topics) {
-      const level = pending[t.id] ?? student.scores[t.id]?.grade;
-      if (level == null) continue;
+      const level = (t.id in pending) ? pending[t.id] : student.scores[t.id]?.grade;
+      if (level == null || level === REMOVE) continue;
       newScores[t.id] = { points: LEVEL_POINTS[level], grade: level };
     }
     return newScores;
@@ -552,6 +589,25 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         )}
       </div>
 
+      {/* Reviewer flags strip — collapsed by default */}
+      {reviewerFlags && (
+        <details style={{
+          border: '1px solid #e6c98a', background: '#fffbef', borderRadius: 7,
+          margin: '0.75rem 1rem 0',
+        }}>
+          <summary style={{
+            cursor: 'pointer', listStyle: 'none', padding: '0.45rem 0.7rem',
+            fontSize: '0.72rem', fontWeight: 600, color: '#92740f',
+            display: 'flex', alignItems: 'center', gap: '0.45rem',
+          }}>
+            ⚑ Reviewer flags
+          </summary>
+          <div style={{ padding: '0 0.7rem 0.6rem', fontSize: '0.72rem', lineHeight: 1.5, color: '#5a4a1f' }}>
+            {reviewerFlags}
+          </div>
+        </details>
+      )}
+
       {/* Rubric grid */}
       <div style={{
         overflowX: 'auto', padding: '0.75rem 1rem 0',
@@ -571,7 +627,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
               {LEVELS.map(l => (
                 <th key={l} style={{
                   padding: '0.3rem 0.5rem', textAlign: 'center', width: '12%',
-                  background: LEVEL_COLORS[l].bg, color: LEVEL_COLORS[l].text,
+                  background: CELL_COLORS[l].headerFill, color: CELL_TEXT,
                   border: '1px solid var(--border)', fontWeight: 600, fontSize: '0.72rem',
                   whiteSpace: 'nowrap',
                 }}>
@@ -584,7 +640,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           <tbody>
             {topics.map(t => {
               const currentGrade = student.scores[t.id]?.grade || null;
-              const pendingGrade = pending[t.id] || null;
+              const pendingGrade = pending[t.id] ?? null;
+              const suggestedLevel = suggestedByTopic[t.id] || null;
 
               return (
                 <tr key={t.id}>
@@ -596,9 +653,15 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
                     <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', opacity: 0.7 }}>{t.category_title} · {t.external_id}</div>
                   </td>
                   {LEVELS.map(l => {
-                    const isCurrent = l === currentGrade;
-                    const isPending = l === pendingGrade;
-                    const c = LEVEL_COLORS[l];
+                    const c = CELL_COLORS[l];
+                    const stagedRemoval = pendingGrade === REMOVE && l === currentGrade;
+                    const isDraft = pendingGrade !== REMOVE && l === pendingGrade;
+                    // A synced final shows ONLY when nothing is pending for this topic (a pending
+                    // draft on another cell overrides it → that old final renders Empty; spec §2).
+                    const isFinal = l === currentGrade && pendingGrade == null;
+                    // Suggestion overlay inputs arrive in Slice 4; null-safe until then.
+                    const isSuggested = suggestedLevel != null && l === suggestedLevel;
+                    const hasTeacherMark = isFinal || isDraft || stagedRemoval;
 
                     let cellStyle = {
                       padding: '0.25rem 0.4rem',
@@ -607,20 +670,44 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
                       cursor: 'pointer',
                       userSelect: 'none',
                       transition: 'all 0.1s',
+                      color: CELL_TEXT,
+                      background: 'var(--card-bg)',
+                      position: 'relative',
                     };
 
-                    if (isCurrent && !pendingGrade) {
-                      // Currently awarded, no pending change → solid green fill
-                      cellStyle = { ...cellStyle, background: '#16a34a', border: '2px solid #15803d' };
-                    } else if (isPending) {
-                      // Pending selection → green border, light fill
-                      cellStyle = { ...cellStyle, background: c.bg, border: `2px solid #16a34a` };
-                    } else if (isCurrent && pendingGrade) {
-                      // Was current but overridden by a pending change → show dimmed
-                      cellStyle = { ...cellStyle, background: c.bg, opacity: 0.4 };
-                    } else {
-                      cellStyle = { ...cellStyle, background: 'var(--card-bg)' };
+                    if (isFinal) {
+                      cellStyle = {
+                        ...cellStyle, background: c.headerFill,
+                        border: `2px solid ${c.finalBorder}`, fontWeight: 700,
+                        zIndex: 2,
+                      };
+                    } else if (isDraft) {
+                      cellStyle = {
+                        ...cellStyle, background: c.draftFill,
+                        border: `2px solid ${c.draftBorder}`,
+                        zIndex: 2,
+                      };
+                    } else if (stagedRemoval) {
+                      // Removal marker (Slice 2): default bg, red dashed ring + ✕ glyph.
+                      cellStyle = {
+                        ...cellStyle, background: 'var(--card-bg)',
+                        outline: '1.5px dashed #ef4444', outlineOffset: '-3px',
+                        zIndex: 2,
+                      };
                     }
+
+                    // Suggestion overlay (Slice 4) composes on top: dashed violet ring always;
+                    // violet wash only when there is no teacher mark in this cell (spec §2).
+                    if (isSuggested) {
+                      cellStyle = {
+                        ...cellStyle,
+                        ...(stagedRemoval ? {} : { outline: `1px dashed ${SUGGEST.ring}`, outlineOffset: '-3px' }),
+                        zIndex: 2,
+                        ...(hasTeacherMark ? {} : { background: SUGGEST.fill }),
+                      };
+                    }
+
+                    const showCode = isFinal || isDraft || stagedRemoval || isSuggested;
 
                     return (
                       <td
@@ -629,14 +716,23 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
                         onClick={() => selectLevel(t.id, l)}
                         title={`Set ${t.title} to ${LEVEL_LABELS[l]}`}
                       >
-                        {(isCurrent || isPending) ? (
-                          <span style={{
-                            fontWeight: 700, fontSize: '0.75rem',
-                            color: isCurrent && !pendingGrade ? '#fff' : isPending ? '#16a34a' : c.text,
-                          }}>
+                        {showCode ? (
+                          <span style={{ fontSize: '0.75rem', color: CELL_TEXT }}>
                             {l}
                           </span>
                         ) : null}
+                        {isSuggested && !stagedRemoval && (
+                          <span style={{
+                            position: 'absolute', top: 1, right: 3, fontSize: '0.58rem',
+                            lineHeight: 1, color: SUGGEST.glyph,
+                          }}>✦</span>
+                        )}
+                        {stagedRemoval && (
+                          <span style={{
+                            position: 'absolute', top: 0, right: 2, fontSize: '0.6rem',
+                            lineHeight: 1, color: '#ef4444',
+                          }}>✕</span>
+                        )}
                       </td>
                     );
                   })}
@@ -647,9 +743,9 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         </table>
       </div>
 
-      {/* Comment + update */}
+      {/* Overall Comment — the hero */}
       <div style={{ padding: '0.75rem 1rem' }}>
-        <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.3rem', color: 'var(--text-muted)' }}>
+        <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, margin: '0 0 0.35rem', color: '#333' }}>
           Overall Comment
         </label>
         <textarea
@@ -669,73 +765,194 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
               el.setSelectionRange(pos, pos);
             });
           }}
-          rows={3}
-          style={{ width: '100%', fontSize: '0.82rem', resize: 'vertical', boxSizing: 'border-box' }}
+          rows={4}
+          style={{
+            width: '100%', boxSizing: 'border-box', border: '1.5px solid var(--border)',
+            borderRadius: 8, padding: '0.6rem', fontSize: '0.84rem', lineHeight: 1.45,
+            fontFamily: 'inherit', resize: 'vertical', color: 'var(--text)',
+          }}
           placeholder="Teacher comment for this student on this assessment..."
         />
-        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.4rem', alignItems: 'center' }}>
+
+        {/* Control band — directly under the comment (creates the focus boundary) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.6rem' }}>
           <button
             className="primary"
             onClick={handleSave}
             disabled={saving || !hasPendingChanges}
+            title="Write scores & comment back to Schoology"
           >
             {saving ? 'Saving...' : 'Update Schoology'}
           </button>
-          {hasPendingChanges && !saving && (
-            <button className="ghost" onClick={() => {
+
+          {/* Display-to-student: eye icon + switch, no text label */}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={display}
+            aria-label="Display to student"
+            title="Display to student"
+            onClick={() => { setDisplay(d => !d); setAutoFlipArmed(false); }}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+              border: '1px solid var(--border)', borderRadius: 7,
+              padding: '0.18rem 0.4rem', background: 'var(--card-bg)',
+              color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none',
+              font: 'inherit',
+            }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" /><circle cx="12" cy="12" r="3" />
+            </svg>
+            <span style={{
+              position: 'relative', width: 28, height: 16, borderRadius: 9,
+              background: display ? 'var(--accent)' : 'var(--bg-subtle)',
+              border: '1px solid var(--border)', transition: 'background 0.15s',
+            }}>
+              <span style={{
+                position: 'absolute', top: 1, left: display ? 13 : 1,
+                width: 12, height: 12, borderRadius: '50%', background: '#fff',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.2)', transition: 'left 0.15s',
+              }} />
+            </span>
+          </button>
+
+          {/* Discard — trash icon, always shown, disabled when nothing pending */}
+          <button
+            onClick={() => {
               setPending({});
               setComment(student.grade_comment || '');
               setDisplay(loadedDisplay);
               setAutoFlipArmed(student.comment_status !== 1 && !student.grade_comment);
-            }}>
-              Discard Changes
-            </button>
-          )}
-          {!hasPendingChanges && (
-            <span className="text-sm text-muted">No changes</span>
-          )}
-          <label
-            style={{
-              marginLeft: 'auto', display: 'inline-flex', alignItems: 'center',
-              gap: '0.5rem', fontSize: '0.78rem', color: 'var(--text-muted)',
-              cursor: 'pointer', userSelect: 'none',
             }}
-            title="When ON, the student sees this assignment's grade, comment, and proficiencies on Schoology."
+            disabled={!hasPendingChanges}
+            aria-label="Discard changes"
+            title={hasPendingChanges ? 'Discard changes' : 'Discard changes (nothing to discard)'}
+            style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 30, height: 28, borderRadius: 7,
+              border: '1px solid var(--border)', background: 'var(--card-bg)',
+              color: hasPendingChanges ? 'var(--text-muted)' : 'var(--border)',
+              cursor: hasPendingChanges ? 'pointer' : 'default',
+            }}
           >
-            Display to student
-            <span
-              role="switch"
-              aria-checked={display}
-              aria-label="Display to student"
-              tabIndex={0}
-              onClick={() => {
-                setDisplay(d => !d);
-                setAutoFlipArmed(false);
-              }}
-              onKeyDown={e => {
-                if (e.key === ' ' || e.key === 'Enter') {
-                  e.preventDefault();
-                  setDisplay(d => !d);
-                  setAutoFlipArmed(false);
-                }
-              }}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" />
+            </svg>
+          </button>
+
+          {narrativeSuggestion && (
+            <button
+              onClick={() => applyComment(normalizePastedText(narrativeSuggestion))}
+              title="Copy the suggestion up into your comment"
               style={{
-                position: 'relative', width: 36, height: 20,
-                background: display ? 'var(--accent)' : 'var(--bg-subtle)',
-                border: '1px solid var(--border)', borderRadius: 999,
-                transition: 'background 0.15s',
+                borderRadius: 7, padding: '0.4rem 0.75rem', fontSize: '0.74rem',
+                fontWeight: 600, cursor: 'pointer',
+                background: '#ede9fe', color: '#6d28d9', border: '1px solid #c4b5fd',
               }}
             >
-              <span style={{
-                position: 'absolute', top: 1, left: display ? 17 : 1,
-                width: 16, height: 16, borderRadius: '50%',
-                background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
-                transition: 'left 0.15s',
-              }} />
-            </span>
-          </label>
+              ↑ Use suggestion
+            </button>
+          )}
         </div>
+
+        {narrativeSuggestion && (
+          <div style={{
+            marginTop: '0.55rem', border: '1px solid #e6e1f3', background: '#faf9fd',
+            borderRadius: 7, padding: '0.5rem 0.65rem',
+          }}>
+            <div style={{
+              fontSize: '0.63rem', fontWeight: 600, color: '#9a90b8',
+              letterSpacing: '0.03em', marginBottom: '0.28rem',
+              display: 'flex', alignItems: 'center', gap: '0.3rem',
+            }}>
+              ✦ Suggested feedback
+            </div>
+            <div style={{ fontSize: '0.72rem', lineHeight: 1.4, color: '#716b85', whiteSpace: 'pre-wrap' }}>
+              {narrativeSuggestion}
+            </div>
+          </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+// ── Reviewer Analysis drawer body ────────────────────────────────────────────
+
+function ReviewerAnalysisBody({ topics, feedbackRows, analysis }) {
+  const dist = distributionByTopic(feedbackRows, topics);
+  const noticings = analysis?.noticings || [];
+  const moderationNote = analysis?.moderation_note || null;
+
+  return (
+    <div style={{ padding: '0.8rem' }}>
+      {/* Proposed score distribution */}
+      <div style={{ marginBottom: '0.9rem' }}>
+        <div style={{
+          fontSize: '0.62rem', textTransform: 'uppercase', letterSpacing: '0.04em',
+          color: 'var(--text-muted)', fontWeight: 700, marginBottom: '0.15rem',
+        }}>
+          ✦ Proposed score distribution
+        </div>
+        <div style={{ fontSize: '0.6rem', color: '#9a90b8', marginBottom: '0.4rem' }}>
+          From the reviewer's suggested grades — not final entered scores.
+        </div>
+        {topics.map(t => {
+          const counts = dist[t.id] || { ED: 0, EX: 0, D: 0, EM: 0, IE: 0 };
+          const total = LEVELS.reduce((sum, l) => sum + counts[l], 0);
+          return (
+            <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginBottom: '0.35rem' }}>
+              <div style={{ width: 70, fontSize: '0.64rem', fontWeight: 600, flexShrink: 0 }}>{t.title}</div>
+              <div style={{
+                flex: 1, display: 'flex', height: 18, borderRadius: 4,
+                overflow: 'hidden', border: '1px solid var(--border)',
+                background: 'var(--bg-subtle)',
+              }}>
+                {total > 0 && LEVELS.filter(l => counts[l] > 0).map(l => {
+                  const showLabel = counts[l] / total >= 0.12;
+                  return (
+                    <div key={l} title={`${counts[l]} ${l}`} style={{
+                      flex: counts[l], display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '0.56rem', fontWeight: 700, color: CELL_TEXT,
+                      background: CELL_COLORS[l].headerFill,
+                    }}>
+                      {showLabel ? `${counts[l]} ${l}` : counts[l]}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+        {moderationNote && (
+          <div style={{
+            fontSize: '0.62rem', color: '#92740f', background: '#fffbef',
+            border: '1px solid #f0dea8', borderRadius: 6, padding: '0.35rem 0.5rem',
+            marginTop: '0.45rem', lineHeight: 1.35,
+          }}>
+            ⚖️ {moderationNote}
+          </div>
+        )}
+      </div>
+
+      {/* Noticings */}
+      {noticings.length > 0 && (
+        <div>
+          <div style={{
+            fontSize: '0.62rem', textTransform: 'uppercase', letterSpacing: '0.04em',
+            color: 'var(--text-muted)', fontWeight: 700, marginBottom: '0.45rem',
+          }}>
+            Noticings
+          </div>
+          {noticings.map((n, i) => (
+            <div key={i} style={{ marginBottom: '0.55rem' }}>
+              <div style={{ fontWeight: 700, fontSize: '0.68rem', marginBottom: '0.12rem' }}>{n.title}</div>
+              <div style={{ fontSize: '0.66rem', lineHeight: 1.4, color: 'var(--text)' }}>{n.body}</div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -749,6 +966,9 @@ export default function AssessmentSummaryPage() {
   const [error, setError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshResult, setRefreshResult] = useState(null);
+  const [feedbackByStudent, setFeedbackByStudent] = useState({});
+  const [analysis, setAnalysis] = useState(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   // "Send all" bar state (#51). pendingByUid maps each card's uid → true while
   // it has unsaved changes; cardsRef holds each card's { getEntry, applyResult }
@@ -828,8 +1048,16 @@ export default function AssessmentSummaryPage() {
 
   function load() {
     setLoading(true);
-    getMasteryForAssignment(courseId, assignmentId)
-      .then(setData)
+    Promise.all([
+      getMasteryForAssignment(courseId, assignmentId),
+      getFeedbackForAssignment(assignmentId).catch(() => ({})),
+      getAssessmentAnalysis(assignmentId).catch(() => null),
+    ])
+      .then(([mastery, feedback, analysisRow]) => {
+        setData(mastery);
+        setFeedbackByStudent(feedback || {});
+        setAnalysis(analysisRow || null);
+      })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
   }
@@ -850,17 +1078,29 @@ export default function AssessmentSummaryPage() {
 
   useEffect(load, [courseId, assignmentId]);
 
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const onKey = (e) => { if (e.key === 'Escape') setDrawerOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [drawerOpen]);
+
   if (loading) return <div className="loading">Loading...</div>;
   if (error) return <div className="error-msg">{error}</div>;
   if (!data) return null;
 
   const { assignment, topics, students } = data;
+  const hasAnalysis = Object.keys(feedbackByStudent).length > 0 || !!analysis;
 
   const alignedTopics = topics;
 
   return (
     <div className="fade-in">
-      <div style={{ marginBottom: '1.25rem' }}>
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 5, background: 'var(--bg)',
+        marginBottom: '1.25rem', padding: '0.55rem 0',
+        borderBottom: '1px solid var(--border)',
+      }}>
         <Link to={`/course/${courseId}`} className="link" style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
           ← Back to course
         </Link>
@@ -877,24 +1117,21 @@ export default function AssessmentSummaryPage() {
           {refreshResult && (
             <span className="text-sm text-muted" style={{ fontSize: '0.75rem' }}>{refreshResult}</span>
           )}
+          {hasAnalysis && (
+            <button
+              onClick={() => setDrawerOpen(true)}
+              title="Reviewer Analysis — not student-facing"
+              style={{
+                marginLeft: 'auto', border: '1px solid #c4b5fd', background: '#ede9fe',
+                color: '#6d28d9', borderRadius: 7, padding: '0.32rem 0.7rem',
+                fontSize: '0.74rem', fontWeight: 700, cursor: 'pointer',
+                display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+              }}
+            >
+              ✦ Reviewer Analysis
+            </button>
+          )}
         </div>
-      </div>
-
-      {/* Proficiency level legend */}
-      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-        {LEVELS.map(l => (
-          <span key={l} style={{
-            display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
-            padding: '0.2rem 0.5rem', borderRadius: 6,
-            background: LEVEL_COLORS[l].bg, color: LEVEL_COLORS[l].text,
-            fontSize: '0.72rem', fontWeight: 600, border: `1px solid ${LEVEL_COLORS[l].border}`,
-          }}>
-            {l} — {LEVEL_LABELS[l]}
-          </span>
-        ))}
-        <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-muted)', alignSelf: 'center' }}>
-          Click a cell to change proficiency · green border = pending · solid green = current
-        </span>
       </div>
 
       {students.length === 0 ? (
@@ -911,6 +1148,7 @@ export default function AssessmentSummaryPage() {
               courseId={courseId}
               assignmentId={assignmentId}
               assignmentRow={assignment}
+              feedbackRow={feedbackByStudent[student.id] || null}
               onSaved={handleCardSaved}
               onPendingChange={handlePendingChange}
               registerCard={registerCard}
@@ -946,6 +1184,51 @@ export default function AssessmentSummaryPage() {
             {bulkResult && (
               <span className="text-sm text-muted">{bulkResult}</span>
             )}
+          </div>
+        </>
+      )}
+
+      {drawerOpen && (
+        <>
+          <div
+            aria-hidden="true"
+            onClick={() => setDrawerOpen(false)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(20,20,30,0.28)', zIndex: 40 }}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reviewer-analysis-title"
+            style={{
+            position: 'fixed', top: 0, right: 0, height: '100%', width: 360,
+            background: 'var(--card-bg)', boxShadow: '-6px 0 20px rgba(0,0,0,0.16)',
+            zIndex: 50, overflowY: 'auto',
+          }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '0.5rem',
+              padding: '0.65rem 0.85rem', borderBottom: '1px solid var(--border)',
+              background: 'var(--bg-subtle)', position: 'sticky', top: 0,
+            }}>
+              <span style={{ color: '#8b5cf6' }}>✦</span>
+              <span id="reviewer-analysis-title" style={{ fontWeight: 700, fontSize: '0.84rem' }}>Reviewer Analysis</span>
+              <span style={{
+                fontSize: '0.58rem', background: 'var(--bg-subtle)', color: 'var(--text-muted)',
+                borderRadius: 5, padding: '1px 5px', fontWeight: 600,
+              }}>not student-facing</span>
+              <button
+                onClick={() => setDrawerOpen(false)}
+                aria-label="Close Reviewer Analysis"
+                style={{
+                  marginLeft: 'auto', cursor: 'pointer', color: 'var(--text-muted)',
+                  fontSize: '1.05rem', lineHeight: 1, border: 'none', background: 'none',
+                }}
+              >✕</button>
+            </div>
+            <ReviewerAnalysisBody
+              topics={topics}
+              feedbackRows={Object.values(feedbackByStudent)}
+              analysis={analysis?.analysis_parsed || null}
+            />
           </div>
         </>
       )}

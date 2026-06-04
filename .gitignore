@@ -13,4 +13,7 @@ data/imports/*.csv
 .playwright-mcp/
 scripts/*-capture.json
 .superpowers/
+.claude/worktrees/
 _tmp_*.mjs
+# Contains real student data (mockups + grading sample) — kept local, not committed
+docs/ui-design/PrisMCP-update/

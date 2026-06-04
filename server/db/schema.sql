@@ -175,6 +175,16 @@ CREATE TABLE IF NOT EXISTS inbox_log (
   processed_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Assessment-level reviewer analysis (PrisMCP Project A). One row per assignment.
+-- analysis_json holds { noticings: [{title, body}], moderation_note?: string }.
+-- Populated by Project B / inbox ingestion (out of scope here); read-only in the UI.
+CREATE TABLE IF NOT EXISTS assessment_analysis (
+  assignment_id INTEGER PRIMARY KEY REFERENCES assignments(id),
+  analysis_json TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
 -- Folders (unit/topic structure)
 CREATE TABLE IF NOT EXISTS folders (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

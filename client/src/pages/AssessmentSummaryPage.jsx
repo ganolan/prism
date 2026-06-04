@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag } from '../services/api.js';
 import { draftKey, readDraft, writeDraft, clearDraft, draftBaseline } from '../lib/assessmentDraft.js';
-import { resolveRubricScores } from '../lib/rubricSuggestions.js';
+import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
 
 const LEVELS = ['ED', 'EX', 'D', 'EM', 'IE'];
 const LEVEL_LABELS = {
@@ -888,7 +888,77 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
 // ── Reviewer Analysis drawer body ────────────────────────────────────────────
 
 function ReviewerAnalysisBody({ topics, feedbackRows, analysis }) {
-  return <div style={{ padding: '0.8rem' }} />;
+  const dist = distributionByTopic(feedbackRows, topics);
+  const noticings = analysis?.noticings || [];
+  const moderationNote = analysis?.moderation_note || null;
+
+  return (
+    <div style={{ padding: '0.8rem' }}>
+      {/* Proposed score distribution */}
+      <div style={{ marginBottom: '0.9rem' }}>
+        <div style={{
+          fontSize: '0.62rem', textTransform: 'uppercase', letterSpacing: '0.04em',
+          color: 'var(--text-muted)', fontWeight: 700, marginBottom: '0.15rem',
+        }}>
+          ✦ Proposed score distribution
+        </div>
+        <div style={{ fontSize: '0.6rem', color: '#9a90b8', marginBottom: '0.4rem' }}>
+          From the reviewer's suggested grades — not final entered scores.
+        </div>
+        {topics.map(t => {
+          const counts = dist[t.id] || { ED: 0, EX: 0, D: 0, EM: 0, IE: 0 };
+          const total = LEVELS.reduce((sum, l) => sum + counts[l], 0);
+          return (
+            <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginBottom: '0.35rem' }}>
+              <div style={{ width: 70, fontSize: '0.64rem', fontWeight: 600, flexShrink: 0 }}>{t.title}</div>
+              <div style={{
+                flex: 1, display: 'flex', height: 18, borderRadius: 4,
+                overflow: 'hidden', border: '1px solid var(--border)',
+                background: 'var(--bg-subtle)',
+              }}>
+                {total > 0 && LEVELS.filter(l => counts[l] > 0).map(l => (
+                  <div key={l} style={{
+                    flex: counts[l], display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '0.56rem', fontWeight: 700, color: CELL_TEXT,
+                    background: CELL_COLORS[l].headerFill,
+                  }}>
+                    {counts[l]} {l}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+        {moderationNote && (
+          <div style={{
+            fontSize: '0.62rem', color: '#92740f', background: '#fffbef',
+            border: '1px solid #f0dea8', borderRadius: 6, padding: '0.35rem 0.5rem',
+            marginTop: '0.45rem', lineHeight: 1.35,
+          }}>
+            ⚖️ {moderationNote}
+          </div>
+        )}
+      </div>
+
+      {/* Noticings */}
+      {noticings.length > 0 && (
+        <div>
+          <div style={{
+            fontSize: '0.62rem', textTransform: 'uppercase', letterSpacing: '0.04em',
+            color: 'var(--text-muted)', fontWeight: 700, marginBottom: '0.45rem',
+          }}>
+            Noticings
+          </div>
+          {noticings.map((n, i) => (
+            <div key={i} style={{ marginBottom: '0.55rem' }}>
+              <div style={{ fontWeight: 700, fontSize: '0.68rem', marginBottom: '0.12rem' }}>{n.title}</div>
+              <div style={{ fontSize: '0.66rem', lineHeight: 1.4, color: 'var(--text)' }}>{n.body}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Page ─────────────────────────────────────────────────────────────────────

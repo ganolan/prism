@@ -3,8 +3,10 @@ import { Link } from 'react-router-dom';
 import { getCourses, getCoursesByView, getSyncStatus, toggleCourseVisibility, updateCourseBlockNumber } from '../services/api.js';
 import { groupByYearAndSemester } from '../lib/courseDisplay.js';
 import ArchivedCoursesPanel from '../components/ArchivedCoursesPanel.jsx';
+import { useDataVersion } from '../hooks/useDataVersion.jsx';
 
 export default function Dashboard() {
+  const dataVersion = useDataVersion();
   const [activeTab, setActiveTab] = useState('current');
   const [showHidden, setShowHidden] = useState(false);
   const [courses, setCourses] = useState([]);
@@ -37,7 +39,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     reload();
-  }, [activeTab, showHidden]);
+  }, [activeTab, showHidden, dataVersion]);
 
   async function handleToggleVisibility(e, courseId) {
     e.preventDefault();

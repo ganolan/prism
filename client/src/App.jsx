@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import Dashboard from './pages/Dashboard.jsx';
 import CoursePage from './pages/CoursePage.jsx';
 import StudentPage from './pages/StudentPage.jsx';
@@ -11,14 +11,19 @@ import AnalyticsPage from './pages/AnalyticsPage.jsx';
 import FeedbackPage from './pages/FeedbackPage.jsx';
 import AssessmentSummaryPage from './pages/AssessmentSummaryPage.jsx';
 import { useTheme } from './hooks/useTheme.jsx';
+import { DataVersionContext } from './hooks/useDataVersion.jsx';
 import SyncDialog from './components/SyncDialog.jsx';
 import './app.css';
 
 export default function App() {
   const [syncOpen, setSyncOpen] = useState(false);
+  // Bumped when a sync completes; data pages depend on it to re-fetch (#…).
+  const [dataVersion, setDataVersion] = useState(0);
+  const bumpDataVersion = useCallback(() => setDataVersion((v) => v + 1), []);
   const { theme, setTheme, themes } = useTheme();
 
   return (
+    <DataVersionContext.Provider value={dataVersion}>
     <BrowserRouter>
       <div className="app">
         <nav className="sidebar">
@@ -61,8 +66,14 @@ export default function App() {
             <Route path="/import" element={<ImportPage />} />
           </Routes>
         </main>
-        {syncOpen && <SyncDialog onClose={() => setSyncOpen(false)} />}
+        {syncOpen && (
+          <SyncDialog
+            onClose={() => setSyncOpen(false)}
+            onSyncComplete={bumpDataVersion}
+          />
+        )}
       </div>
     </BrowserRouter>
+    </DataVersionContext.Provider>
   );
 }

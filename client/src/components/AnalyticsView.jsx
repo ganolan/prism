@@ -4,8 +4,10 @@ import {
   Tooltip, Legend, ReferenceLine, LineChart,
 } from 'recharts';
 import { getCourseAnalytics } from '../services/api.js';
+import { useDataVersion } from '../hooks/useDataVersion.jsx';
 
 export default function AnalyticsView({ id }) {
+  const dataVersion = useDataVersion();
   const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -17,7 +19,7 @@ export default function AnalyticsView({ id }) {
       .finally(() => setLoading(false));
   }
 
-  useEffect(() => { reload(); }, [id]);
+  useEffect(() => { reload(); }, [id, dataVersion]);
 
   if (loading) return <div className="loading">Loading analytics...</div>;
 

@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag } from '../services/api.js';
 import { draftKey, readDraft, writeDraft, clearDraft, draftBaseline } from '../lib/assessmentDraft.js';
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
+import { useDataVersion } from '../hooks/useDataVersion.jsx';
 
 const LEVELS = ['ED', 'EX', 'D', 'EM', 'IE'];
 const LEVEL_LABELS = {
@@ -1092,6 +1093,7 @@ function ReviewerAnalysisBody({ topics, feedbackRows, analysis }) {
 
 export default function AssessmentSummaryPage() {
   const { id: courseId, assignmentId } = useParams();
+  const dataVersion = useDataVersion();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -1245,7 +1247,7 @@ export default function AssessmentSummaryPage() {
     }
   }
 
-  useEffect(load, [courseId, assignmentId]);
+  useEffect(load, [courseId, assignmentId, dataVersion]);
 
   useEffect(() => {
     if (!drawerOpen) return;

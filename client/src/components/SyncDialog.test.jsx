@@ -81,6 +81,29 @@ describe('SyncDialog', () => {
     await waitFor(() => expect(screen.getByText('Sync failed')).toBeInTheDocument());
   });
 
+  it('calls onSyncComplete after a sync run finishes so open pages can refresh', async () => {
+    vi.mocked(api.runSync).mockImplementation(async (opts, onEvent) => {
+      onEvent({ phase: 'schoology', status: 'done', records: 5 });
+      onEvent({ type: 'summary', schoology: { records: 5 }, mastery: [], elapsedMs: 1000 });
+    });
+    const onSyncComplete = vi.fn();
+    render(<SyncDialog onClose={() => {}} onSyncComplete={onSyncComplete} />);
+    await waitFor(() => screen.getByRole('button', { name: /start sync/i }));
+    fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
+    await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
+    expect(onSyncComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call onSyncComplete when the sync request fails outright', async () => {
+    vi.mocked(api.runSync).mockRejectedValue(new Error('network down'));
+    const onSyncComplete = vi.fn();
+    render(<SyncDialog onClose={() => {}} onSyncComplete={onSyncComplete} />);
+    await waitFor(() => screen.getByRole('button', { name: /start sync/i }));
+    fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
+    await waitFor(() => expect(screen.getByText('Sync failed')).toBeInTheDocument());
+    expect(onSyncComplete).not.toHaveBeenCalled();
+  });
+
   it('shows the abandoned banner when sync_metrics reports abandoned', async () => {
     vi.mocked(api.runSync).mockImplementation(async (opts, onEvent) => {
       onEvent({ phase: 'schoology', status: 'done', records: 5 });

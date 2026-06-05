@@ -8,6 +8,7 @@ import { gradeLabel, submissionStatus } from '../lib/gradeLabel.js';
 import { masteryCodeForLevel } from '../lib/masteryLevels.js';
 import { groupAssignmentsByFolder } from '../lib/assessmentGroups.js';
 import { indexMastery, buildAssignmentRubric } from '../lib/gradebookMastery.js';
+import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import CompactRubric from '../components/CompactRubric.jsx';
 import SubmissionBadges from '../components/SubmissionBadges.jsx';
 
@@ -24,6 +25,7 @@ function pointsToLevel(points) {
 
 export default function CoursePage() {
   const { id } = useParams();
+  const dataVersion = useDataVersion();
   const [course, setCourse] = useState(null);
   const [students, setStudents] = useState([]);
   const [gradebook, setGradebook] = useState(null);
@@ -40,7 +42,7 @@ export default function CoursePage() {
       .then(([c, s, g, m]) => { setCourse(c); setStudents(s); setGradebook(g); setMastery(m); })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, dataVersion]);
 
   async function refreshMastery() {
     const m = await getMasteryForCourse(id).catch(() => null);

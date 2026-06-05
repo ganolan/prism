@@ -2,14 +2,16 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getCourse } from '../services/api.js';
 import AnalyticsView from '../components/AnalyticsView.jsx';
+import { useDataVersion } from '../hooks/useDataVersion.jsx';
 
 export default function AnalyticsPage() {
   const { id } = useParams();
+  const dataVersion = useDataVersion();
   const [course, setCourse] = useState(null);
 
   useEffect(() => {
     getCourse(id).then(setCourse).catch(console.error);
-  }, [id]);
+  }, [id, dataVersion]);
 
   if (!course) return <div className="loading">Loading...</div>;
 

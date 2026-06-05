@@ -10,6 +10,7 @@ import SubmissionBadges from '../components/SubmissionBadges.jsx';
 import { LEVEL_COLORS } from '../components/OverridePopup.jsx';
 import { gradeLabel, submissionStatus } from '../lib/gradeLabel.js';
 import { masteryCodeForLevel } from '../lib/masteryLevels.js';
+import { useDataVersion } from '../hooks/useDataVersion.jsx';
 
 function CopyButton({ text, label }) {
   const [copied, setCopied] = useState(false);
@@ -271,6 +272,7 @@ function ParentCard({ parent, studentId, onUpdated }) {
 
 export default function StudentPage() {
   const { id } = useParams();
+  const dataVersion = useDataVersion();
   const [student, setStudent] = useState(null);
   const [editing, setEditing] = useState(false);
   const [preferredVal, setPreferredVal] = useState('');
@@ -298,7 +300,7 @@ export default function StudentPage() {
       .finally(() => setLoading(false));
   }
 
-  useEffect(() => { reload(); }, [id]);
+  useEffect(() => { reload(); }, [id, dataVersion]);
 
   async function handleSave() {
     const updated = await updateStudent(id, preferredVal.trim() || null);

@@ -623,11 +623,12 @@ describe('AssessmentSummaryPage — Send all bar (#51)', () => {
     expect(writeMasteryScores).not.toHaveBeenCalled();
   });
 
-  it('renders the distinct whole-class bar with a bulk show-all toggle', async () => {
+  it('renders a bulk show-all toggle on the whole-class bar', async () => {
     getMasteryForAssignment.mockResolvedValue(makeData());
     renderPage();
-    expect(await screen.findByText('Whole class')).toBeInTheDocument();
-    expect(screen.getByRole('switch', { name: /display all to students/i })).toBeInTheDocument();
+    const bulk = await screen.findByRole('switch', { name: /display all to students/i });
+    expect(bulk).toBeInTheDocument();
+    expect(bulk).toHaveTextContent('Hide all'); // both students start hidden
   });
 
   it('bulk show-all sets every card visible and marks them pending', async () => {

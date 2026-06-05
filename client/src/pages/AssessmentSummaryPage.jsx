@@ -1351,18 +1351,6 @@ export default function AssessmentSummaryPage() {
             borderRadius: 10, boxShadow: '0 -3px 14px rgba(0,0,0,0.12)',
             display: 'flex', alignItems: 'center', gap: '0.7rem', flexWrap: 'wrap',
           }}>
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
-              fontWeight: 700, fontSize: '0.78rem', color: 'var(--text)', whiteSpace: 'nowrap',
-            }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
-              </svg>
-              Whole class
-            </span>
-            <span style={{ width: 1, height: '1.7rem', background: 'var(--border)' }} />
-
             {/* Show-all-to-students toggle — same eye+switch visual as the per-card
                 control, with a label + aggregate state (all / none / mixed) so it
                 reads as the class-wide version. */}
@@ -1397,7 +1385,10 @@ export default function AssessmentSummaryPage() {
                   boxShadow: '0 1px 2px rgba(0,0,0,0.2)', transition: 'left 0.15s',
                 }} />
               </span>
-              {allVisible ? 'All shown' : noneVisible ? 'Show all' : 'Mixed'}
+              {/* Fixed-width label so switching text never shifts neighbours. */}
+              <span style={{ display: 'inline-block', width: '4.8rem', textAlign: 'left', whiteSpace: 'nowrap' }}>
+                {allVisible ? 'Display all' : noneVisible ? 'Hide all' : 'Mixed'}
+              </span>
             </button>
 
             <button

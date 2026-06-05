@@ -162,6 +162,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   entryRef.current = buildSendEntry;
   const applyRef = useRef(null);
   applyRef.current = applySendResult;
+  const discardRef = useRef(null);
+  discardRef.current = discardChanges;
 
   useEffect(() => {
     onPendingChange?.(student.schoology_uid, hasPendingChanges);
@@ -172,6 +174,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     registerCard?.(uid, {
       getEntry: () => entryRef.current(),
       applyResult: (ok) => applyRef.current(ok),
+      discard: () => discardRef.current(),
     });
     return () => unregisterCard?.(uid);
   }, [student.schoology_uid, registerCard, unregisterCard]);
@@ -225,6 +228,15 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
       setDisplay(true);
       setAutoFlipArmed(false);
     }
+  }
+
+  // Revert all of this card's unsaved changes back to the synced Schoology
+  // state. Shared by the per-card Discard button and the page-level Discard all.
+  function discardChanges() {
+    setPending({});
+    setComment(student.grade_comment || '');
+    setDisplay(loadedDisplay);
+    setAutoFlipArmed(student.comment_status !== 1 && !student.grade_comment);
   }
 
   // Schoology's /observations endpoint replaces the entire observation set for
@@ -830,14 +842,10 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           </button>
 
           {/* Discard — undo arrow + label, always shown, disabled when nothing pending.
-              A wider labelled target is easier to hit than the old icon-only button. */}
+              A wider labelled target is easier to hit than the old icon-only button.
+              Red accent when active so it reads as "revert / destructive". */}
           <button
-            onClick={() => {
-              setPending({});
-              setComment(student.grade_comment || '');
-              setDisplay(loadedDisplay);
-              setAutoFlipArmed(student.comment_status !== 1 && !student.grade_comment);
-            }}
+            onClick={discardChanges}
             disabled={!hasPendingChanges}
             aria-label="Discard changes"
             title={hasPendingChanges ? 'Discard changes' : 'Discard changes (nothing to discard)'}
@@ -845,8 +853,9 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
               display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
               alignSelf: 'stretch', boxSizing: 'border-box',
               padding: '0 0.7rem', borderRadius: 7,
-              border: '1px solid var(--border)', background: 'var(--card-bg)',
-              color: hasPendingChanges ? 'var(--text-muted)' : 'var(--border)',
+              border: `1px solid ${hasPendingChanges ? 'var(--danger)' : 'var(--border)'}`,
+              background: hasPendingChanges ? 'var(--danger-bg)' : 'var(--card-bg)',
+              color: hasPendingChanges ? 'var(--danger)' : 'var(--border)',
               cursor: hasPendingChanges ? 'pointer' : 'default',
               fontSize: '0.74rem', fontWeight: 600, fontFamily: 'inherit',
             }}
@@ -1052,7 +1061,7 @@ export default function AssessmentSummaryPage() {
         cardsRef.current[i.uid]?.applyResult(success);
         if (success) { handleCardSaved(i.uid, i.patch); ok++; } else { fail++; }
       }
-      setBulkResult(`Sent ${ok} grade${ok !== 1 ? 's' : ''}${fail ? `, ${fail} failed` : ''}`);
+      setBulkResult(`Published ${ok} grade${ok !== 1 ? 's' : ''}${fail ? `, ${fail} failed` : ''}`);
     } catch (err) {
       // All-or-nothing: a non-2xx (incl. the 502 abort) rejects here — mark every
       // card failed and leave them pending so a retry is one click away.
@@ -1061,6 +1070,16 @@ export default function AssessmentSummaryPage() {
     } finally {
       setBulkSaving(false);
     }
+  }
+
+  // Revert every card with unsaved changes back to its synced state (#51 sibling
+  // of Send all). Each pending card discards its own local draft; the cards'
+  // pending-change reports then clear pendingByUid.
+  function handleDiscardAll() {
+    const uids = Object.keys(pendingByUid);
+    if (uids.length === 0) return;
+    for (const uid of uids) cardsRef.current[uid]?.discard?.();
+    setBulkResult(null);
   }
 
   function load() {
@@ -1184,10 +1203,11 @@ export default function AssessmentSummaryPage() {
             />
           ))}
 
-          {/* Bulk send-all bar (#51) — sticky so it stays reachable during a
-              fast grading run. */}
+          {/* Bulk publish/discard bar (#51) — sticky so it stays reachable during
+              a fast grading run. zIndex sits above the rubric cells (z-index 2),
+              which would otherwise paint over this fixed bar while scrolling. */}
           <div style={{
-            position: 'sticky', bottom: 0, marginTop: '0.5rem',
+            position: 'sticky', bottom: 0, zIndex: 10, marginTop: '0.5rem',
             padding: '0.75rem 1rem', background: 'var(--card-bg)',
             borderTop: '1px solid var(--border)', borderRadius: 10,
             boxShadow: '0 -2px 8px rgba(0,0,0,0.06)',
@@ -1199,10 +1219,30 @@ export default function AssessmentSummaryPage() {
               disabled={bulkSaving || totalPending === 0}
             >
               {bulkSaving
-                ? 'Sending...'
+                ? 'Publishing...'
                 : totalPending > 0
-                  ? `Send all to Schoology (${totalPending})`
-                  : 'Send all to Schoology'}
+                  ? `Publish all to Schoology (${totalPending})`
+                  : 'Publish all to Schoology'}
+            </button>
+            <button
+              onClick={handleDiscardAll}
+              disabled={bulkSaving || totalPending === 0}
+              title="Discard all unsaved changes across every student"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+                padding: '0.4rem 0.75rem', borderRadius: 7,
+                border: `1px solid ${totalPending > 0 ? 'var(--danger)' : 'var(--border)'}`,
+                background: totalPending > 0 ? 'var(--danger-bg)' : 'var(--card-bg)',
+                color: totalPending > 0 ? 'var(--danger)' : 'var(--border)',
+                cursor: (totalPending > 0 && !bulkSaving) ? 'pointer' : 'default',
+                fontSize: '0.8rem', fontWeight: 600, fontFamily: 'inherit',
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="1 4 1 10 7 10" />
+                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+              </svg>
+              Discard all
             </button>
             {!bulkSaving && totalPending > 0 && (
               <span className="text-sm text-muted">

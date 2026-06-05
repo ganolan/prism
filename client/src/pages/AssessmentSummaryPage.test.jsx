@@ -546,7 +546,7 @@ describe('AssessmentSummaryPage — Send all bar (#51)', () => {
   it('disables Send all when no card has unsaved changes', async () => {
     getMasteryForAssignment.mockResolvedValue(makeData());
     renderPage();
-    const btn = await screen.findByRole('button', { name: /send all to schoology/i });
+    const btn = await screen.findByRole('button', { name: /publish all to schoology/i });
     expect(btn).toBeDisabled();
   });
 
@@ -554,12 +554,12 @@ describe('AssessmentSummaryPage — Send all bar (#51)', () => {
     getMasteryForAssignment.mockResolvedValue(makeData());
     sendAllGrades.mockResolvedValue({ results: [{ uid: 'uid-1', ok: true }] });
     renderPage();
-    await screen.findByRole('button', { name: /send all to schoology/i });
+    await screen.findByRole('button', { name: /publish all to schoology/i });
 
     // Make a pending change on the first card only.
     fireEvent.click(screen.getAllByTitle('Set Topic 1 to Developing')[0]);
 
-    const btn = await screen.findByRole('button', { name: /send all to schoology \(1\)/i });
+    const btn = await screen.findByRole('button', { name: /publish all to schoology \(1\)/i });
     expect(btn).toBeEnabled();
 
     fireEvent.click(btn);
@@ -572,27 +572,48 @@ describe('AssessmentSummaryPage — Send all bar (#51)', () => {
     expect(entries).toHaveLength(1);
     expect(entries[0].uid).toBe('uid-1');
     expect(entries[0].scores.gradeInfo.t1.grade).toBe('50');
-    expect(await screen.findByText(/Sent 1 grade/)).toBeInTheDocument();
+    expect(await screen.findByText(/Published 1 grade/)).toBeInTheDocument();
   });
 
   it('batches multiple pending cards into a single request and marks each saved', async () => {
     getMasteryForAssignment.mockResolvedValue(makeData());
     sendAllGrades.mockResolvedValue({ results: [{ uid: 'uid-1', ok: true }, { uid: 'uid-2', ok: true }] });
     renderPage();
-    await screen.findByRole('button', { name: /send all to schoology/i });
+    await screen.findByRole('button', { name: /publish all to schoology/i });
 
     fireEvent.click(screen.getAllByTitle('Set Topic 1 to Developing')[0]);
     fireEvent.click(screen.getAllByTitle('Set Topic 1 to Developing')[1]);
 
-    const btn = await screen.findByRole('button', { name: /send all to schoology \(2\)/i });
+    const btn = await screen.findByRole('button', { name: /publish all to schoology \(2\)/i });
     fireEvent.click(btn);
 
     await waitFor(() => expect(sendAllGrades).toHaveBeenCalledTimes(1));
     const [, entries] = sendAllGrades.mock.calls[0];
     expect(entries).toHaveLength(2);
-    expect(await screen.findByText(/Sent 2 grades/)).toBeInTheDocument();
+    expect(await screen.findByText(/Published 2 grades/)).toBeInTheDocument();
     // Both cards show their per-card saved badge after the batch.
     await waitFor(() => expect(screen.getAllByText('Saved ✓')).toHaveLength(2));
+  });
+
+  it('Discard all reverts every pending card without any Schoology write', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    renderPage();
+    await screen.findByRole('button', { name: /publish all to schoology/i });
+
+    fireEvent.click(screen.getAllByTitle('Set Topic 1 to Developing')[0]);
+    fireEvent.click(screen.getAllByTitle('Set Topic 1 to Developing')[1]);
+    await screen.findByRole('button', { name: /publish all to schoology \(2\)/i });
+
+    fireEvent.click(screen.getByRole('button', { name: /discard all/i }));
+
+    // Both cards return to no-changes; the bulk button drops its count and disables.
+    await waitFor(() =>
+      expect(screen.queryByText(/pending change/)).not.toBeInTheDocument()
+    );
+    const publishBtn = screen.getByRole('button', { name: /^publish all to schoology$/i });
+    expect(publishBtn).toBeDisabled();
+    expect(sendAllGrades).not.toHaveBeenCalled();
+    expect(writeMasteryScores).not.toHaveBeenCalled();
   });
 });
 

@@ -626,15 +626,15 @@ describe('AssessmentSummaryPage — Send all bar (#51)', () => {
   it('renders a bulk show-all toggle on the whole-class bar', async () => {
     getMasteryForAssignment.mockResolvedValue(makeData());
     renderPage();
-    const bulk = await screen.findByRole('switch', { name: /display all to students/i });
+    const bulk = await screen.findByRole('switch', { name: /grade visibility for all students/i });
     expect(bulk).toBeInTheDocument();
-    expect(bulk).toHaveTextContent('Hide all'); // both students start hidden
+    expect(bulk).toHaveTextContent('All hidden'); // both students start hidden
   });
 
   it('bulk show-all sets every card visible and marks them pending', async () => {
     getMasteryForAssignment.mockResolvedValue(makeData()); // both students start hidden
     renderPage();
-    const bulkToggle = await screen.findByRole('switch', { name: /display all to students/i });
+    const bulkToggle = await screen.findByRole('switch', { name: /grade visibility for all students/i });
     expect(bulkToggle).toHaveAttribute('aria-checked', 'false');
     expect(screen.getAllByRole('switch', { name: /^display to student$/i })).toHaveLength(2);
 
@@ -644,7 +644,7 @@ describe('AssessmentSummaryPage — Send all bar (#51)', () => {
       screen.getAllByRole('switch', { name: /^display to student$/i })
         .forEach(sw => expect(sw).toHaveAttribute('aria-checked', 'true'))
     );
-    expect(screen.getByRole('switch', { name: /display all to students/i }))
+    expect(screen.getByRole('switch', { name: /grade visibility for all students/i }))
       .toHaveAttribute('aria-checked', 'true');
     expect(screen.getAllByText(/pending change/)).toHaveLength(2);
   });

@@ -1358,8 +1358,8 @@ export default function AssessmentSummaryPage() {
               type="button"
               role="switch"
               aria-checked={allVisible ? 'true' : mixedVisible ? 'mixed' : 'false'}
-              aria-label="Display all to students"
-              title="Show or hide every student's grade & comment in Schoology"
+              aria-label="Grade visibility for all students"
+              title="Toggle whether every student sees their grade & comment in Schoology"
               onClick={() => handleSetAllVisible(!allVisible)}
               disabled={bulkSaving}
               style={{
@@ -1385,9 +1385,11 @@ export default function AssessmentSummaryPage() {
                   boxShadow: '0 1px 2px rgba(0,0,0,0.2)', transition: 'left 0.15s',
                 }} />
               </span>
-              {/* Fixed-width label so switching text never shifts neighbours. */}
-              <span style={{ display: 'inline-block', width: '4.8rem', textAlign: 'left', whiteSpace: 'nowrap' }}>
-                {allVisible ? 'Display all' : noneVisible ? 'Hide all' : 'Mixed'}
+              {/* Status label — describes the CURRENT class-wide visibility state
+                  (the switch position carries the on/off meaning). Fixed width so
+                  switching text never shifts neighbours. */}
+              <span style={{ display: 'inline-block', width: '4.6rem', textAlign: 'left', whiteSpace: 'nowrap' }}>
+                {allVisible ? 'All shown' : noneVisible ? 'All hidden' : 'Mixed'}
               </span>
             </button>
 

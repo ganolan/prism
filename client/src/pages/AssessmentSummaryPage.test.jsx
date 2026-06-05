@@ -68,12 +68,13 @@ describe('StudentRubricCard draft persistence', () => {
       target: { value: 'work in progress' },
     });
 
-    expect(screen.getByText('1 pending change')).toBeInTheDocument();
+    // Two distinct changes now count: the rubric draft + the comment edit.
+    expect(screen.getByText('2 pending changes')).toBeInTheDocument();
 
     unmount();
     renderCard();
 
-    expect(screen.getByText('1 pending change')).toBeInTheDocument();
+    expect(screen.getByText('2 pending changes')).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue(
       'work in progress'
     );
@@ -107,7 +108,7 @@ describe('StudentRubricCard draft persistence', () => {
       localStorage.getItem('prism:assessment-draft:4:8:enr-1')
     ).not.toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Update Schoology' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
 
     await waitFor(() => {
       expect(
@@ -240,7 +241,7 @@ describe('StudentRubricCard — cell language (Slice 1)', () => {
     fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
     const cell = screen.getByTitle('Set Topic 1 to Developing');
     expect(cell).toHaveStyle({
-      background: '#fefce8', border: '2px solid #fcd34d', color: '#1a1a1a',
+      background: '#fefce8', border: '2px dashed #fcd34d', color: '#1a1a1a',
     });
   });
 
@@ -369,13 +370,13 @@ describe('StudentRubricCard review flag (#20)', () => {
 describe('StudentRubricCard — re-submit requested toggle', () => {
   it('shows the ghost toggle when no resubmit flag is set', () => {
     renderCard();
-    expect(screen.getByRole('button', { name: /request re-submit/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /ask to resubmit/i })).toBeInTheDocument();
   });
 
   it('creates a resubmit_requested flag with no reason on click', async () => {
     createFlag.mockResolvedValueOnce({ id: 71, flag_type: 'resubmit_requested', flag_reason: null });
     renderCard();
-    fireEvent.click(screen.getByRole('button', { name: /request re-submit/i }));
+    fireEvent.click(screen.getByRole('button', { name: /ask to resubmit/i }));
     await waitFor(() => {
       expect(createFlag).toHaveBeenCalledWith({
         student_id: 1,
@@ -383,7 +384,7 @@ describe('StudentRubricCard — re-submit requested toggle', () => {
         flag_type: 'resubmit_requested',
       });
     });
-    expect(await screen.findByText(/re-submit requested/i)).toBeInTheDocument();
+    expect(await screen.findByText(/resubmission requested/i)).toBeInTheDocument();
   });
 
   it('clears the flag via the ✕ control', async () => {
@@ -395,7 +396,7 @@ describe('StudentRubricCard — re-submit requested toggle', () => {
   it('the flag write does not trigger a Schoology write', async () => {
     createFlag.mockResolvedValueOnce({ id: 71 });
     renderCard();
-    fireEvent.click(screen.getByRole('button', { name: /request re-submit/i }));
+    fireEvent.click(screen.getByRole('button', { name: /ask to resubmit/i }));
     await waitFor(() => expect(createFlag).toHaveBeenCalled());
     expect(writeMasteryScores).not.toHaveBeenCalled();
     expect(writeMasteryComment).not.toHaveBeenCalled();
@@ -403,14 +404,14 @@ describe('StudentRubricCard — re-submit requested toggle', () => {
 
   it('shows a read-only Resubmitted pill when student.resubmitted is true', () => {
     renderCard({ student: { ...makeStudent(), resubmitted: true } });
-    const pill = screen.getByText(/^↩ Resubmitted$/);
+    const pill = screen.getByText(/Ungraded resubmission/);
     expect(pill).toBeInTheDocument();
     expect(pill.tagName).not.toBe('BUTTON');
   });
 
   it('does not show the Resubmitted pill when student.resubmitted is false', () => {
     renderCard({ student: { ...makeStudent(), resubmitted: false } });
-    expect(screen.queryByText(/^↩ Resubmitted$/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Ungraded resubmission/)).not.toBeInTheDocument();
   });
 });
 
@@ -438,7 +439,7 @@ describe('StudentRubricCard — in-place save (#50)', () => {
     fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), {
       target: { value: 'nice work' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Update Schoology' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     const [uid, patch] = onSaved.mock.calls[0];
@@ -485,7 +486,7 @@ describe('StudentRubricCard — rubric interaction (Slice 2)', () => {
     const onSaved = vi.fn();
     renderCard({ student: s, onSaved });
     fireEvent.click(screen.getByTitle('Set Topic 1 to Exhibiting Depth')); // stage removal of ED
-    fireEvent.click(screen.getByRole('button', { name: 'Update Schoology' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
 
     await waitFor(() => expect(writeMasteryScores).toHaveBeenCalled());
     const payload = writeMasteryScores.mock.calls[0][1];
@@ -502,6 +503,22 @@ describe('StudentRubricCard — rubric interaction (Slice 2)', () => {
     expect(screen.getByText('1 pending change')).toBeInTheDocument();
     const draftCell = screen.getByTitle('Set Topic 1 to Developing');
     expect(draftCell).toHaveStyle({ background: '#fefce8' }); // D draftFill
+  });
+
+  it('reverts to the synced final in one click after stage-removal then a draft elsewhere', () => {
+    // Regression: final ED → click ED (stage removal) → click EX (draft) →
+    // click ED (the original final) must revert straight back to the synced
+    // final, NOT show ED as a draft.
+    const s = { ...makeStudent(), scores: { t1: { grade: 'ED', points: 100 } } };
+    renderCard({ student: s });
+    const edCell = screen.getByTitle('Set Topic 1 to Exhibiting Depth'); // ED (synced final)
+    fireEvent.click(edCell);                                              // stage removal
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Exhibiting'));      // draft EX
+    expect(screen.getByText('1 pending change')).toBeInTheDocument();
+    fireEvent.click(edCell);                                              // back to original final
+    // One click reverts: no pending change, ED renders as the solid final again.
+    expect(screen.queryByText(/pending change/)).not.toBeInTheDocument();
+    expect(edCell).toHaveStyle({ background: '#bfdbfe', border: '2px solid #2563eb' });
   });
 });
 
@@ -530,7 +547,7 @@ describe('AssessmentSummaryPage — Send all bar (#51)', () => {
   it('disables Send all when no card has unsaved changes', async () => {
     getMasteryForAssignment.mockResolvedValue(makeData());
     renderPage();
-    const btn = await screen.findByRole('button', { name: /send all to schoology/i });
+    const btn = await screen.findByRole('button', { name: /publish all to schoology/i });
     expect(btn).toBeDisabled();
   });
 
@@ -538,12 +555,12 @@ describe('AssessmentSummaryPage — Send all bar (#51)', () => {
     getMasteryForAssignment.mockResolvedValue(makeData());
     sendAllGrades.mockResolvedValue({ results: [{ uid: 'uid-1', ok: true }] });
     renderPage();
-    await screen.findByRole('button', { name: /send all to schoology/i });
+    await screen.findByRole('button', { name: /publish all to schoology/i });
 
     // Make a pending change on the first card only.
     fireEvent.click(screen.getAllByTitle('Set Topic 1 to Developing')[0]);
 
-    const btn = await screen.findByRole('button', { name: /send all to schoology \(1\)/i });
+    const btn = await screen.findByRole('button', { name: /publish all to schoology \(1\)/i });
     expect(btn).toBeEnabled();
 
     fireEvent.click(btn);
@@ -556,27 +573,80 @@ describe('AssessmentSummaryPage — Send all bar (#51)', () => {
     expect(entries).toHaveLength(1);
     expect(entries[0].uid).toBe('uid-1');
     expect(entries[0].scores.gradeInfo.t1.grade).toBe('50');
-    expect(await screen.findByText(/Sent 1 grade/)).toBeInTheDocument();
+    expect(await screen.findByText(/Published 1 grade/)).toBeInTheDocument();
   });
 
   it('batches multiple pending cards into a single request and marks each saved', async () => {
     getMasteryForAssignment.mockResolvedValue(makeData());
     sendAllGrades.mockResolvedValue({ results: [{ uid: 'uid-1', ok: true }, { uid: 'uid-2', ok: true }] });
     renderPage();
-    await screen.findByRole('button', { name: /send all to schoology/i });
+    await screen.findByRole('button', { name: /publish all to schoology/i });
 
     fireEvent.click(screen.getAllByTitle('Set Topic 1 to Developing')[0]);
     fireEvent.click(screen.getAllByTitle('Set Topic 1 to Developing')[1]);
 
-    const btn = await screen.findByRole('button', { name: /send all to schoology \(2\)/i });
+    const btn = await screen.findByRole('button', { name: /publish all to schoology \(2\)/i });
     fireEvent.click(btn);
 
     await waitFor(() => expect(sendAllGrades).toHaveBeenCalledTimes(1));
     const [, entries] = sendAllGrades.mock.calls[0];
     expect(entries).toHaveLength(2);
-    expect(await screen.findByText(/Sent 2 grades/)).toBeInTheDocument();
+    expect(await screen.findByText(/Published 2 grades/)).toBeInTheDocument();
     // Both cards show their per-card saved badge after the batch.
     await waitFor(() => expect(screen.getAllByText('Saved ✓')).toHaveLength(2));
+  });
+
+  it('Discard all reverts every pending card without any Schoology write', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    renderPage();
+    await screen.findByRole('button', { name: /publish all to schoology/i });
+
+    fireEvent.click(screen.getAllByTitle('Set Topic 1 to Developing')[0]);
+    fireEvent.click(screen.getAllByTitle('Set Topic 1 to Developing')[1]);
+    await screen.findByRole('button', { name: /publish all to schoology \(2\)/i });
+
+    // First click arms the confirm; nothing is discarded yet (both cards still
+    // show their own per-card pending badge).
+    fireEvent.click(screen.getByRole('button', { name: /^discard all$/i }));
+    expect(screen.getByRole('button', { name: /click again to confirm/i })).toBeInTheDocument();
+    expect(screen.getAllByText(/pending change/)).toHaveLength(2);
+    // Second click confirms and discards.
+    fireEvent.click(screen.getByRole('button', { name: /click again to confirm/i }));
+
+    // Both cards return to no-changes; the bulk button drops its count and disables.
+    await waitFor(() =>
+      expect(screen.queryByText(/pending change/)).not.toBeInTheDocument()
+    );
+    const publishBtn = screen.getByRole('button', { name: /^publish all to schoology$/i });
+    expect(publishBtn).toBeDisabled();
+    expect(sendAllGrades).not.toHaveBeenCalled();
+    expect(writeMasteryScores).not.toHaveBeenCalled();
+  });
+
+  it('renders a bulk show-all toggle on the whole-class bar', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    renderPage();
+    const bulk = await screen.findByRole('switch', { name: /grade visibility for all students/i });
+    expect(bulk).toBeInTheDocument();
+    expect(bulk).toHaveTextContent('All hidden'); // both students start hidden
+  });
+
+  it('bulk show-all sets every card visible and marks them pending', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData()); // both students start hidden
+    renderPage();
+    const bulkToggle = await screen.findByRole('switch', { name: /grade visibility for all students/i });
+    expect(bulkToggle).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getAllByRole('switch', { name: /^display to student$/i })).toHaveLength(2);
+
+    fireEvent.click(bulkToggle);
+
+    await waitFor(() =>
+      screen.getAllByRole('switch', { name: /^display to student$/i })
+        .forEach(sw => expect(sw).toHaveAttribute('aria-checked', 'true'))
+    );
+    expect(screen.getByRole('switch', { name: /grade visibility for all students/i }))
+      .toHaveAttribute('aria-checked', 'true');
+    expect(screen.getAllByText(/pending change/)).toHaveLength(2);
   });
 });
 
@@ -608,6 +678,12 @@ describe('StudentRubricCard — card chrome (Slice 5)', () => {
     const toggle = screen.getByRole('switch', { name: /display to student/i });
     expect(toggle).toBeInTheDocument();
     expect(screen.queryByText('Display to student')).not.toBeInTheDocument();
+  });
+
+  it('counts a visibility toggle as a pending change', () => {
+    renderCard();
+    fireEvent.click(screen.getByRole('switch', { name: /display to student/i }));
+    expect(screen.getByText('1 pending change')).toBeInTheDocument();
   });
 
   it('always shows the discard control, disabled when there are no pending changes', () => {
@@ -645,13 +721,40 @@ describe('StudentRubricCard — card chrome (Slice 5)', () => {
     fireEvent.click(screen.getByRole('button', { name: /use suggestion/i }));
     const ta = screen.getByPlaceholderText(/Teacher comment/i);
     expect(ta).toHaveValue('Line one.\n\nLine two.'); // normalizePastedText applied
-    expect(screen.getByRole('button', { name: 'Update Schoology' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled();
   });
 
   it('hides Use suggestion and the box when only rubric_scores exist (no narrative)', () => {
     renderCard({ feedbackRow: { feedback_parsed: { rubric_scores: { X1: 'ED' } } } });
     expect(screen.queryByRole('button', { name: /use suggestion/i })).not.toBeInTheDocument();
     expect(screen.queryByText('✦ Suggested feedback')).not.toBeInTheDocument();
+  });
+});
+
+describe('StudentRubricCard — comment publish indicator', () => {
+  it('shows "Published" with a green border when the comment matches the synced value', () => {
+    renderCard({ student: { ...makeStudent(), grade_comment: 'Nice work' } });
+    expect(screen.getByText(/Published to Schoology/)).toBeInTheDocument();
+    expect(screen.queryByText(/Unsaved/)).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Teacher comment/i).getAttribute('style'))
+      .toContain('var(--success)');
+  });
+
+  it('flips to "Unsaved" with an amber border once the comment is edited', () => {
+    renderCard({ student: { ...makeStudent(), grade_comment: 'Nice work' } });
+    fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), {
+      target: { value: 'Nice work!!' },
+    });
+    expect(screen.getByText(/Draft - not published/)).toBeInTheDocument();
+    expect(screen.queryByText(/Published to Schoology/)).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Teacher comment/i).getAttribute('style'))
+      .toContain('var(--warning)');
+  });
+
+  it('shows no publish indicator for an empty comment', () => {
+    renderCard();
+    expect(screen.queryByText(/Published to Schoology/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Unsaved/)).not.toBeInTheDocument();
   });
 });
 
@@ -747,8 +850,8 @@ describe('AssessmentSummaryPage — header + Reviewer Analysis (Slice 6)', () =>
     const { container } = renderPage();
     fireEvent.click(await screen.findByRole('button', { name: /reviewer analysis/i }));
     expect(screen.getByText('not student-facing')).toBeInTheDocument();
-    // The scrim is the fixed full-screen overlay with aria-hidden.
-    const scrim = container.querySelector('[aria-hidden="true"]');
+    // The scrim is the fixed full-screen overlay (data-testid set in the JSX).
+    const scrim = container.querySelector('[data-testid="reviewer-analysis-scrim"]');
     fireEvent.click(scrim);
     await waitFor(() => expect(screen.queryByText('not student-facing')).not.toBeInTheDocument());
   });

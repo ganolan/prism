@@ -201,12 +201,21 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // flag editable — Prism mirrors that. Late (4) does NOT lock the rubric.
   const isRubricLocked = student.exception === 1 || student.exception === 2 || student.exception === 3;
 
+  // Comment publish state, verified against the synced Schoology value mirrored
+  // in the local DB (grades.grade_comment → student.grade_comment). After a
+  // successful publish the card patches grade_comment to the new text, so:
+  //   published = current text is non-empty AND equal to the synced value;
+  //   dirty     = current text differs from the synced value (unsaved edit).
+  const syncedComment = student.grade_comment || '';
+  const commentDirty = comment !== syncedComment;
+  const commentPublished = comment.trim() !== '' && !commentDirty;
+
   // Count every distinct unsaved change: each changed rubric topic, plus the
-  // comment edit, plus the display-to-student toggle. Drives the "N pending
+  // comment edit, plus a manual display-to-student toggle. Drives the "N pending
   // change(s)" badge so a visibility flip or comment edit is reflected too.
   const pendingCount = (
     Object.keys(pending).length +
-    (comment !== (student.grade_comment || '') ? 1 : 0) +
+    (commentDirty ? 1 : 0) +
     ((displayTouched && display !== loadedDisplay) ? 1 : 0)
   );
   const hasPendingChanges = pendingCount > 0;
@@ -809,9 +818,22 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
 
       {/* Overall Comment — the hero */}
       <div style={{ padding: '0.75rem 1rem' }}>
-        <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, margin: '0 0 0.35rem', color: '#333' }}>
-          Overall Comment
-        </label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: '0 0 0.35rem' }}>
+          <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#333' }}>
+            Overall Comment
+          </label>
+          {/* Published-status indicator — verified against the synced DB value. */}
+          {commentPublished && (
+            <span style={{ fontSize: '0.66rem', fontWeight: 600, color: 'var(--success)' }}>
+              ✓ Published to Schoology
+            </span>
+          )}
+          {commentDirty && (
+            <span style={{ fontSize: '0.66rem', fontWeight: 600, color: 'var(--warning)' }}>
+              ● Unsaved — not yet published
+            </span>
+          )}
+        </div>
         <textarea
           value={comment}
           onChange={e => applyComment(e.target.value)}
@@ -831,7 +853,10 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           }}
           rows={4}
           style={{
-            width: '100%', boxSizing: 'border-box', border: '1.5px solid var(--border)',
+            width: '100%', boxSizing: 'border-box',
+            // Border encodes publish state: green = published (matches Schoology),
+            // amber = unsaved edit, grey = empty/clean.
+            border: `1.5px solid ${commentDirty ? 'var(--warning)' : commentPublished ? 'var(--success)' : 'var(--border)'}`,
             borderRadius: 8, padding: '0.6rem', fontSize: '0.84rem', lineHeight: 1.45,
             fontFamily: 'inherit', resize: 'vertical', color: 'var(--text)',
           }}

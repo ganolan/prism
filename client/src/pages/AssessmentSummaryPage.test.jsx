@@ -705,6 +705,33 @@ describe('StudentRubricCard — card chrome (Slice 5)', () => {
   });
 });
 
+describe('StudentRubricCard — comment publish indicator', () => {
+  it('shows "Published" with a green border when the comment matches the synced value', () => {
+    renderCard({ student: { ...makeStudent(), grade_comment: 'Nice work' } });
+    expect(screen.getByText(/Published to Schoology/)).toBeInTheDocument();
+    expect(screen.queryByText(/Unsaved/)).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Teacher comment/i).getAttribute('style'))
+      .toContain('var(--success)');
+  });
+
+  it('flips to "Unsaved" with an amber border once the comment is edited', () => {
+    renderCard({ student: { ...makeStudent(), grade_comment: 'Nice work' } });
+    fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), {
+      target: { value: 'Nice work!!' },
+    });
+    expect(screen.getByText(/Unsaved — not yet published/)).toBeInTheDocument();
+    expect(screen.queryByText(/Published to Schoology/)).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Teacher comment/i).getAttribute('style'))
+      .toContain('var(--warning)');
+  });
+
+  it('shows no publish indicator for an empty comment', () => {
+    renderCard();
+    expect(screen.queryByText(/Published to Schoology/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Unsaved/)).not.toBeInTheDocument();
+  });
+});
+
 describe('AssessmentSummaryPage — header + Reviewer Analysis (Slice 6)', () => {
   function makeData() {
     return {

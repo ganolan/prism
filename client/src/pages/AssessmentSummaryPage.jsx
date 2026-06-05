@@ -191,23 +191,29 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     if (isRubricLocked) return;
     const currentGrade = student.scores[topicId]?.grade;
     const pendingVal = pending[topicId];
+    const hasPending = topicId in pending; // a draft level OR the REMOVE sentinel
 
-    // Re-clicking a drafted cell toggles it off (back to whatever is synced).
+    // Clicking the cell whose level matches the synced final score.
+    if (level === currentGrade) {
+      if (hasPending) {
+        // A draft (on this or any other cell in the row) or a staged removal is
+        // active → clicking the original final reverts the whole topic straight
+        // back to its synced score, in one click (not a draft of the final).
+        setPending(p => { const n = { ...p }; delete n[topicId]; return n; });
+      } else {
+        // Nothing pending → stage this synced final for removal.
+        armAutoFlip();
+        setPending(p => ({ ...p, [topicId]: REMOVE }));
+      }
+      return;
+    }
+
+    // Re-clicking the active draft cell toggles it off (back to the synced score).
     if (pendingVal != null && pendingVal !== REMOVE && level === pendingVal) {
       setPending(p => { const n = { ...p }; delete n[topicId]; return n; });
       return;
     }
-    // Re-clicking the staged final cell unstages the removal.
-    if (pendingVal === REMOVE && level === currentGrade) {
-      setPending(p => { const n = { ...p }; delete n[topicId]; return n; });
-      return;
-    }
-    // Clicking the synced final with nothing pending stages it for removal.
-    if (pendingVal == null && level === currentGrade) {
-      armAutoFlip();
-      setPending(p => ({ ...p, [topicId]: REMOVE }));
-      return;
-    }
+
     // Otherwise set/replace a draft on this level.
     armAutoFlip();
     setPending(p => ({ ...p, [topicId]: level }));
@@ -682,9 +688,14 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
                         zIndex: 2,
                       };
                     } else if (isDraft) {
+                      // Draft reads as "tentative": a DASHED border (vs the final's
+                      // solid border) plus a very faint fill. The dashed style is the
+                      // distinct indicator that separates draft from final without
+                      // colliding with the violet/red dashed *outlines* used for
+                      // suggestions/removals (those are outline, not border).
                       cellStyle = {
                         ...cellStyle, background: c.draftFill,
-                        border: `2px solid ${c.draftBorder}`,
+                        border: `2px dashed ${c.draftBorder}`,
                         zIndex: 2,
                       };
                     } else if (stagedRemoval) {
@@ -780,9 +791,9 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             className="primary"
             onClick={handleSave}
             disabled={saving || !hasPendingChanges}
-            title="Write scores & comment back to Schoology"
+            title="Publish scores & comment to Schoology"
           >
-            {saving ? 'Saving...' : 'Update Schoology'}
+            {saving ? 'Publishing...' : 'Publish to Schoology'}
           </button>
 
           {/* Display-to-student: eye icon + switch, no text label */}
@@ -794,9 +805,10 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             title="Display to student"
             onClick={() => { setDisplay(d => !d); setAutoFlipArmed(false); }}
             style={{
-              display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+              display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+              alignSelf: 'stretch', boxSizing: 'border-box',
               border: '1px solid var(--border)', borderRadius: 7,
-              padding: '0.18rem 0.4rem', background: 'var(--card-bg)',
+              padding: '0 0.55rem', background: 'var(--card-bg)',
               color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none',
               font: 'inherit',
             }}
@@ -817,7 +829,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             </span>
           </button>
 
-          {/* Discard — trash icon, always shown, disabled when nothing pending */}
+          {/* Discard — undo arrow + label, always shown, disabled when nothing pending.
+              A wider labelled target is easier to hit than the old icon-only button. */}
           <button
             onClick={() => {
               setPending({});
@@ -829,16 +842,20 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             aria-label="Discard changes"
             title={hasPendingChanges ? 'Discard changes' : 'Discard changes (nothing to discard)'}
             style={{
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              width: 30, height: 28, borderRadius: 7,
+              display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+              alignSelf: 'stretch', boxSizing: 'border-box',
+              padding: '0 0.7rem', borderRadius: 7,
               border: '1px solid var(--border)', background: 'var(--card-bg)',
               color: hasPendingChanges ? 'var(--text-muted)' : 'var(--border)',
               cursor: hasPendingChanges ? 'pointer' : 'default',
+              fontSize: '0.74rem', fontWeight: 600, fontFamily: 'inherit',
             }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" />
+              <polyline points="1 4 1 10 7 10" />
+              <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
             </svg>
+            Discard Changes
           </button>
 
           {narrativeSuggestion && (
@@ -1111,7 +1128,18 @@ export default function AssessmentSummaryPage() {
           <p className="text-sm text-muted" style={{ margin: 0 }}>
             {students.length} students · {alignedTopics.length} measurement topics
           </p>
-          <button className="secondary" onClick={handleRefresh} disabled={refreshing} style={{ fontSize: '0.78rem' }}>
+          <button
+            className="primary"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            title="Re-pull scores & comments from Schoology"
+            style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="23 4 23 10 17 10" />
+              <polyline points="1 20 1 14 7 14" />
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+            </svg>
             {refreshing ? 'Refreshing...' : 'Refresh from Schoology'}
           </button>
           {refreshResult && (

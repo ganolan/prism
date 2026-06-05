@@ -107,7 +107,7 @@ describe('StudentRubricCard draft persistence', () => {
       localStorage.getItem('prism:assessment-draft:4:8:enr-1')
     ).not.toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Update Schoology' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
 
     await waitFor(() => {
       expect(
@@ -240,7 +240,7 @@ describe('StudentRubricCard — cell language (Slice 1)', () => {
     fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
     const cell = screen.getByTitle('Set Topic 1 to Developing');
     expect(cell).toHaveStyle({
-      background: '#fefce8', border: '2px solid #fcd34d', color: '#1a1a1a',
+      background: '#fefce8', border: '2px dashed #fcd34d', color: '#1a1a1a',
     });
   });
 
@@ -438,7 +438,7 @@ describe('StudentRubricCard — in-place save (#50)', () => {
     fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), {
       target: { value: 'nice work' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Update Schoology' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     const [uid, patch] = onSaved.mock.calls[0];
@@ -485,7 +485,7 @@ describe('StudentRubricCard — rubric interaction (Slice 2)', () => {
     const onSaved = vi.fn();
     renderCard({ student: s, onSaved });
     fireEvent.click(screen.getByTitle('Set Topic 1 to Exhibiting Depth')); // stage removal of ED
-    fireEvent.click(screen.getByRole('button', { name: 'Update Schoology' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
 
     await waitFor(() => expect(writeMasteryScores).toHaveBeenCalled());
     const payload = writeMasteryScores.mock.calls[0][1];
@@ -502,6 +502,22 @@ describe('StudentRubricCard — rubric interaction (Slice 2)', () => {
     expect(screen.getByText('1 pending change')).toBeInTheDocument();
     const draftCell = screen.getByTitle('Set Topic 1 to Developing');
     expect(draftCell).toHaveStyle({ background: '#fefce8' }); // D draftFill
+  });
+
+  it('reverts to the synced final in one click after stage-removal then a draft elsewhere', () => {
+    // Regression: final ED → click ED (stage removal) → click EX (draft) →
+    // click ED (the original final) must revert straight back to the synced
+    // final, NOT show ED as a draft.
+    const s = { ...makeStudent(), scores: { t1: { grade: 'ED', points: 100 } } };
+    renderCard({ student: s });
+    const edCell = screen.getByTitle('Set Topic 1 to Exhibiting Depth'); // ED (synced final)
+    fireEvent.click(edCell);                                              // stage removal
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Exhibiting'));      // draft EX
+    expect(screen.getByText('1 pending change')).toBeInTheDocument();
+    fireEvent.click(edCell);                                              // back to original final
+    // One click reverts: no pending change, ED renders as the solid final again.
+    expect(screen.queryByText(/pending change/)).not.toBeInTheDocument();
+    expect(edCell).toHaveStyle({ background: '#bfdbfe', border: '2px solid #2563eb' });
   });
 });
 
@@ -645,7 +661,7 @@ describe('StudentRubricCard — card chrome (Slice 5)', () => {
     fireEvent.click(screen.getByRole('button', { name: /use suggestion/i }));
     const ta = screen.getByPlaceholderText(/Teacher comment/i);
     expect(ta).toHaveValue('Line one.\n\nLine two.'); // normalizePastedText applied
-    expect(screen.getByRole('button', { name: 'Update Schoology' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled();
   });
 
   it('hides Use suggestion and the box when only rubric_scores exist (no narrative)', () => {

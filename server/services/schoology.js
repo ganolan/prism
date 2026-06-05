@@ -109,8 +109,10 @@ export async function getUserProfile(uid) {
 }
 
 export async function getSectionFolders(sectionId) {
-  const data = await apiGet(`/sections/${sectionId}/folders`);
-  return data?.folders || data?.folder || [];
+  // Paginate: Schoology pages this endpoint at 20 items by default, so a single
+  // un-paginated GET silently drops the 21st+ folder (and every assignment in
+  // it falls into the "Ungrouped" bucket). The list wrapper key is `folders`.
+  return paginateGet(`/sections/${sectionId}/folders`, 'folders');
 }
 
 export async function getSectionGradingCategories(sectionId) {

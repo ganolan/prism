@@ -370,13 +370,13 @@ describe('StudentRubricCard review flag (#20)', () => {
 describe('StudentRubricCard — re-submit requested toggle', () => {
   it('shows the ghost toggle when no resubmit flag is set', () => {
     renderCard();
-    expect(screen.getByRole('button', { name: /request re-submit/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /ask to resubmit/i })).toBeInTheDocument();
   });
 
   it('creates a resubmit_requested flag with no reason on click', async () => {
     createFlag.mockResolvedValueOnce({ id: 71, flag_type: 'resubmit_requested', flag_reason: null });
     renderCard();
-    fireEvent.click(screen.getByRole('button', { name: /request re-submit/i }));
+    fireEvent.click(screen.getByRole('button', { name: /ask to resubmit/i }));
     await waitFor(() => {
       expect(createFlag).toHaveBeenCalledWith({
         student_id: 1,
@@ -384,7 +384,7 @@ describe('StudentRubricCard — re-submit requested toggle', () => {
         flag_type: 'resubmit_requested',
       });
     });
-    expect(await screen.findByText(/re-submit requested/i)).toBeInTheDocument();
+    expect(await screen.findByText(/resubmission requested/i)).toBeInTheDocument();
   });
 
   it('clears the flag via the ✕ control', async () => {
@@ -396,7 +396,7 @@ describe('StudentRubricCard — re-submit requested toggle', () => {
   it('the flag write does not trigger a Schoology write', async () => {
     createFlag.mockResolvedValueOnce({ id: 71 });
     renderCard();
-    fireEvent.click(screen.getByRole('button', { name: /request re-submit/i }));
+    fireEvent.click(screen.getByRole('button', { name: /ask to resubmit/i }));
     await waitFor(() => expect(createFlag).toHaveBeenCalled());
     expect(writeMasteryScores).not.toHaveBeenCalled();
     expect(writeMasteryComment).not.toHaveBeenCalled();
@@ -404,14 +404,14 @@ describe('StudentRubricCard — re-submit requested toggle', () => {
 
   it('shows a read-only Resubmitted pill when student.resubmitted is true', () => {
     renderCard({ student: { ...makeStudent(), resubmitted: true } });
-    const pill = screen.getByText(/^↩ Resubmitted$/);
+    const pill = screen.getByText(/Ungraded resubmission/);
     expect(pill).toBeInTheDocument();
     expect(pill.tagName).not.toBe('BUTTON');
   });
 
   it('does not show the Resubmitted pill when student.resubmitted is false', () => {
     renderCard({ student: { ...makeStudent(), resubmitted: false } });
-    expect(screen.queryByText(/^↩ Resubmitted$/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Ungraded resubmission/)).not.toBeInTheDocument();
   });
 });
 
@@ -719,7 +719,7 @@ describe('StudentRubricCard — comment publish indicator', () => {
     fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), {
       target: { value: 'Nice work!!' },
     });
-    expect(screen.getByText(/Unsaved — not yet published/)).toBeInTheDocument();
+    expect(screen.getByText(/Draft - not published/)).toBeInTheDocument();
     expect(screen.queryByText(/Published to Schoology/)).not.toBeInTheDocument();
     expect(screen.getByPlaceholderText(/Teacher comment/i).getAttribute('style'))
       .toContain('var(--warning)');

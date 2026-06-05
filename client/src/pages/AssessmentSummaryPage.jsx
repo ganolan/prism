@@ -617,8 +617,10 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             onClick={() => setShowFlagInput(true)}
           />
         )}
-        {/* Re-submit requested (#49) — Prism-local pure toggle; never part of a
-            Schoology save. */}
+        {/* Resubmission flag (#49, Part A) — a Prism-local reminder that the
+            teacher has asked this student to resubmit. There's no agreed Schoology
+            channel for the request yet, so it's a teacher-to-student arrangement;
+            the flag just stops the teacher forgetting. Never part of a Schoology save. */}
         {resubmitFlag ? (
           <HeaderPill
             active
@@ -626,7 +628,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             activeBg="var(--badge-resubmit-bg)"
             activeText="var(--badge-resubmit-text)"
             icon="⟳"
-            label="Re-submit requested"
+            label="Resubmission requested"
             clearLabel="Clear re-submit request"
             onClick={handleClearResubmit}
             busy={resubmitBusy}
@@ -635,15 +637,26 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           <HeaderPill
             accent="var(--resubmit-ring)"
             icon="⟳"
-            label="Request re-submit"
+            label="Ask to resubmit"
             onClick={handleRequestResubmit}
             busy={resubmitBusy}
           />
         )}
+        {/* Detected resubmission (#49, Part B) — the student submitted new work
+            since this was last graded. Prominent + amber because it's an
+            actionable "regrade me" signal, distinct from the teacher's request. */}
         {student.resubmitted && (
-          <span className="badge badge-resubmitted" style={{ fontSize: '0.68rem' }}
-                title="The student has submitted new work since this was last graded">
-            ↩ Resubmitted
+          <span
+            title="The student submitted new work after this was last graded — review and update the grade."
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+              height: '1.8rem', boxSizing: 'border-box', padding: '0 0.7rem',
+              borderRadius: 999, fontSize: '0.8rem', fontWeight: 700, whiteSpace: 'nowrap',
+              background: 'var(--warning-light)', color: 'var(--warning)',
+              border: '2px solid var(--warning)',
+            }}
+          >
+            ⚠ Ungraded resubmission — review
           </span>
         )}
         {flagError && (
@@ -830,7 +843,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           )}
           {commentDirty && (
             <span style={{ fontSize: '0.66rem', fontWeight: 600, color: 'var(--warning)' }}>
-              ● Unsaved — not yet published
+              ● Draft - not published
             </span>
           )}
         </div>
@@ -865,15 +878,6 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
 
         {/* Control band — directly under the comment (creates the focus boundary) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.6rem' }}>
-          <button
-            className="primary"
-            onClick={handleSave}
-            disabled={saving || !hasPendingChanges}
-            title="Publish scores & comment to Schoology"
-          >
-            {saving ? 'Publishing...' : 'Publish to Schoology'}
-          </button>
-
           {/* Display-to-student: eye icon + switch, no text label */}
           <button
             type="button"
@@ -905,6 +909,15 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
                 boxShadow: '0 1px 2px rgba(0,0,0,0.2)', transition: 'left 0.15s',
               }} />
             </span>
+          </button>
+
+          <button
+            className="primary"
+            onClick={handleSave}
+            disabled={saving || !hasPendingChanges}
+            title="Publish scores & comment to Schoology"
+          >
+            {saving ? 'Publishing...' : 'Publish to Schoology'}
           </button>
 
           {/* Discard — undo arrow + label, always shown, disabled when nothing pending.

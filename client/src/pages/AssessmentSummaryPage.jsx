@@ -53,6 +53,69 @@ function normalizePastedText(text) {
     .join('\n\n');
 }
 
+// A header status pill for the per-submission review / resubmit flags (#20/#49).
+// Inactive: thin accent border, white background, neutral text, accent icon —
+// clicking activates. Active: thicker accent border + filled accent colours;
+// clicking clears it, and hovering swaps the icon/label to a ✕ "Clear"
+// affordance so it's obvious the click will remove the flag. Sized to match the
+// control-band buttons (0.85rem / 600).
+function HeaderPill({ active, accent, activeBg, activeText, icon, label, clearLabel, onClick, busy }) {
+  const [hover, setHover] = useState(false);
+  const base = {
+    display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+    borderRadius: 999, padding: '0 0.7rem', lineHeight: 1.2,
+    // Fixed height + border-box so the inactive (1.5px) and active (2.5px) border
+    // widths produce the SAME outer height — the header band never resizes when a
+    // pill activates.
+    height: '1.8rem', boxSizing: 'border-box', whiteSpace: 'nowrap',
+    fontSize: '0.85rem', fontWeight: 600, fontFamily: 'inherit',
+    cursor: busy ? 'default' : 'pointer', userSelect: 'none',
+    transition: 'background 0.12s, border-color 0.12s, color 0.12s',
+  };
+  // Fixed-width icon box so swapping the glyph (icon ↔ ✕) never resizes the pill.
+  const iconBox = { display: 'inline-block', width: '1em', textAlign: 'center', flexShrink: 0 };
+
+  if (!active) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={busy}
+        style={{ ...base, border: `1.5px solid ${accent}`, background: 'var(--card-bg)', color: 'var(--text-muted)' }}
+      >
+        <span aria-hidden="true" style={{ ...iconBox, color: accent }}>{icon}</span>
+        {label}
+      </button>
+    );
+  }
+
+  // Active: clicking clears. On hover we keep the SAME label text (and width) to
+  // avoid a resize-flicker loop — only the icon swaps to ✕, the label gets a
+  // strike-through, and the colours shift to the danger palette so it reads as
+  // "this click removes it".
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={busy}
+      aria-label={clearLabel}
+      title="Click to clear"
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onFocus={() => setHover(true)}
+      onBlur={() => setHover(false)}
+      style={{
+        ...base, border: `2.5px solid ${hover ? 'var(--danger)' : accent}`,
+        background: hover ? 'var(--danger-bg)' : activeBg,
+        color: hover ? 'var(--danger)' : activeText,
+      }}
+    >
+      <span aria-hidden="true" style={iconBox}>{hover ? '✕' : icon}</span>
+      <span style={{ textDecoration: hover ? 'line-through' : 'none' }}>{label}</span>
+    </button>
+  );
+}
+
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
 export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, onSaved, onPendingChange, registerCard, unregisterCard }) {
@@ -99,6 +162,13 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   const [display, setDisplay] = useState(
     () => restoredDraft?.display ?? loadedDisplay
   );
+  // Whether the teacher *manually* changed the visibility toggle. The auto-flip
+  // (turning visibility on when a virgin record is first graded) is a side
+  // effect of grading, not a separate action, so it must NOT inflate the pending
+  // count — only a manual toggle does. Persisted in the draft.
+  const [displayTouched, setDisplayTouched] = useState(
+    () => restoredDraft?.displayTouched ?? false
+  );
   const [autoFlipArmed, setAutoFlipArmed] = useState(() =>
     restoredDraft
       ? false
@@ -114,12 +184,10 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   const [flagReason, setFlagReason] = useState('');
   const [flagBusy, setFlagBusy] = useState(false);
   const [flagError, setFlagError] = useState(null);
-  const [flagControlHover, setFlagControlHover] = useState(false);
 
   // Re-submit requested flag (#49) — Prism-local, submission-scoped, pure toggle.
   const [resubmitFlag, setResubmitFlag] = useState(student.resubmit_flag || null);
   const [resubmitBusy, setResubmitBusy] = useState(false);
-  const [resubmitHover, setResubmitHover] = useState(false);
 
   // Exception (Excused/Incomplete/Missing) on the underlying grade locks the
   // rubric grid: setting one of these in Schoology deletes the score, so any
@@ -133,11 +201,15 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // flag editable — Prism mirrors that. Late (4) does NOT lock the rubric.
   const isRubricLocked = student.exception === 1 || student.exception === 2 || student.exception === 3;
 
-  const hasPendingChanges = (
-    Object.keys(pending).length > 0 ||
-    comment !== (student.grade_comment || '') ||
-    display !== loadedDisplay
+  // Count every distinct unsaved change: each changed rubric topic, plus the
+  // comment edit, plus the display-to-student toggle. Drives the "N pending
+  // change(s)" badge so a visibility flip or comment edit is reflected too.
+  const pendingCount = (
+    Object.keys(pending).length +
+    (comment !== (student.grade_comment || '') ? 1 : 0) +
+    ((displayTouched && display !== loadedDisplay) ? 1 : 0)
   );
+  const hasPendingChanges = pendingCount > 0;
 
   // Persist unsaved work to localStorage so it survives a page reload (#47).
   // The `base` signature lets a later mount detect if Schoology data changed
@@ -145,11 +217,11 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // no-changes state.
   useEffect(() => {
     if (hasPendingChanges) {
-      writeDraft(storageKey, { pending, comment, display, base: currentBaseline });
+      writeDraft(storageKey, { pending, comment, display, displayTouched, base: currentBaseline });
     } else {
       clearDraft(storageKey);
     }
-  }, [hasPendingChanges, pending, comment, display, storageKey, currentBaseline]);
+  }, [hasPendingChanges, pending, comment, display, displayTouched, storageKey, currentBaseline]);
 
   // ── Page-level "Send all" wiring (#51) ──────────────────────────────────
   // Report this card's pending state up so the page bar can count unsaved
@@ -236,6 +308,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     setPending({});
     setComment(student.grade_comment || '');
     setDisplay(loadedDisplay);
+    setDisplayTouched(false);
     setAutoFlipArmed(student.comment_status !== 1 && !student.grade_comment);
   }
 
@@ -472,46 +545,30 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         <Link to={`/student/${student.id}`} className="link" style={{ fontWeight: 600, fontSize: '0.95rem' }}>
           {displayName(student)}
         </Link>
-        {Object.keys(pending).length > 0 && (
-          <span className="badge" style={{ background: '#dbeafe', color: '#1e40af', fontSize: '0.68rem' }}>
-            {Object.keys(pending).length} pending change{Object.keys(pending).length !== 1 ? 's' : ''}
-          </span>
-        )}
         {saveResult === 'saved' && (
           <span className="badge badge-green" style={{ fontSize: '0.68rem' }}>Saved ✓</span>
         )}
         {saveResult?.startsWith('error') && (
           <span className="badge badge-red" style={{ fontSize: '0.68rem' }}>{saveResult}</span>
         )}
+        {/* Right-aligned control cluster — pins the review/resubmit pills to the
+            card's right edge so they sit on the same vertical plane across every
+            card regardless of student-name length. */}
+        <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
         {/* Review flag (#20) — Prism-local; never part of a Schoology save.
             Control and badge live together here in the card header. */}
         {reviewFlag ? (
-          <span
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
-            onMouseEnter={() => setFlagControlHover(true)}
-            onMouseLeave={() => setFlagControlHover(false)}
-          >
-            <span className="badge badge-amber" style={{ fontSize: '0.68rem' }}>
-              ⚑ Review: {reviewFlag.flag_reason}
-            </span>
-            <button
-              className="ghost danger"
-              onClick={handleClearReviewFlag}
-              onFocus={() => setFlagControlHover(true)}
-              onBlur={() => setFlagControlHover(false)}
-              disabled={flagBusy}
-              aria-label="Clear review flag"
-              title="Clear review flag"
-              style={{
-                fontSize: '0.9rem', fontWeight: 600, lineHeight: 1,
-                padding: '0.1rem 0.35rem',
-                opacity: flagControlHover ? 1 : 0,
-                transition: 'opacity 0.12s',
-              }}
-            >
-              ✕
-            </button>
-          </span>
+          <HeaderPill
+            active
+            accent="var(--badge-amber-text)"
+            activeBg="var(--badge-amber-bg)"
+            activeText="var(--badge-amber-text)"
+            icon="⚑"
+            label={`Review: ${reviewFlag.flag_reason}`}
+            clearLabel="Clear review flag"
+            onClick={handleClearReviewFlag}
+            busy={flagBusy}
+          />
         ) : showFlagInput ? (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
             <input
@@ -544,52 +601,35 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             </button>
           </span>
         ) : (
-          <button
-            className="ghost accent"
+          <HeaderPill
+            accent="var(--badge-amber-text)"
+            icon="⚑"
+            label="Flag for review"
             onClick={() => setShowFlagInput(true)}
-            style={{ fontSize: '0.7rem' }}
-          >
-            ⚑ Flag for review
-          </button>
+          />
         )}
         {/* Re-submit requested (#49) — Prism-local pure toggle; never part of a
             Schoology save. */}
         {resubmitFlag ? (
-          <span
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
-            onMouseEnter={() => setResubmitHover(true)}
-            onMouseLeave={() => setResubmitHover(false)}
-          >
-            <span className="badge badge-resubmit" style={{ fontSize: '0.68rem' }}>
-              ⟳ Re-submit requested
-            </span>
-            <button
-              className="ghost danger"
-              onClick={handleClearResubmit}
-              onFocus={() => setResubmitHover(true)}
-              onBlur={() => setResubmitHover(false)}
-              disabled={resubmitBusy}
-              aria-label="Clear re-submit request"
-              title="Clear re-submit request"
-              style={{
-                fontSize: '0.9rem', fontWeight: 600, lineHeight: 1,
-                padding: '0.1rem 0.35rem',
-                opacity: resubmitHover ? 1 : 0,
-                transition: 'opacity 0.12s',
-              }}
-            >
-              ✕
-            </button>
-          </span>
+          <HeaderPill
+            active
+            accent="var(--resubmit-ring)"
+            activeBg="var(--badge-resubmit-bg)"
+            activeText="var(--badge-resubmit-text)"
+            icon="⟳"
+            label="Re-submit requested"
+            clearLabel="Clear re-submit request"
+            onClick={handleClearResubmit}
+            busy={resubmitBusy}
+          />
         ) : (
-          <button
-            className="ghost accent"
+          <HeaderPill
+            accent="var(--resubmit-ring)"
+            icon="⟳"
+            label="Request re-submit"
             onClick={handleRequestResubmit}
-            disabled={resubmitBusy}
-            style={{ fontSize: '0.7rem' }}
-          >
-            ⟳ Request re-submit
-          </button>
+            busy={resubmitBusy}
+          />
         )}
         {student.resubmitted && (
           <span className="badge badge-resubmitted" style={{ fontSize: '0.68rem' }}
@@ -605,6 +645,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             {exceptionLabel} — rubric locked
           </span>
         )}
+        </div>
       </div>
 
       {/* Reviewer flags strip — collapsed by default */}
@@ -815,7 +856,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             aria-checked={display}
             aria-label="Display to student"
             title="Display to student"
-            onClick={() => { setDisplay(d => !d); setAutoFlipArmed(false); }}
+            onClick={() => { setDisplay(d => !d); setAutoFlipArmed(false); setDisplayTouched(true); }}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
               alignSelf: 'stretch', boxSizing: 'border-box',
@@ -857,15 +898,23 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
               background: hasPendingChanges ? 'var(--danger-bg)' : 'var(--card-bg)',
               color: hasPendingChanges ? 'var(--danger)' : 'var(--border)',
               cursor: hasPendingChanges ? 'pointer' : 'default',
-              fontSize: '0.74rem', fontWeight: 600, fontFamily: 'inherit',
+              fontSize: '0.85rem', fontWeight: 600, fontFamily: 'inherit',
             }}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <polyline points="1 4 1 10 7 10" />
               <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
             </svg>
             Discard Changes
           </button>
+
+          {/* Pending-change count — sits immediately right of Discard. Counts
+              rubric edits + comment + visibility toggle. */}
+          {pendingCount > 0 && (
+            <span className="badge" style={{ background: '#dbeafe', color: '#1e40af', fontSize: '0.72rem' }}>
+              {pendingCount} pending change{pendingCount !== 1 ? 's' : ''}
+            </span>
+          )}
 
           {narrativeSuggestion && (
             <button
@@ -1002,6 +1051,9 @@ export default function AssessmentSummaryPage() {
   const [pendingByUid, setPendingByUid] = useState({});
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkResult, setBulkResult] = useState(null);
+  // "Discard all" is destructive across every student, so it requires a second
+  // confirming click (armed → confirm). Disarms on mouse-leave or after firing.
+  const [discardAllArmed, setDiscardAllArmed] = useState(false);
   const cardsRef = useRef({});
 
   // Patch a single student in place after its card saves, instead of reloading
@@ -1073,12 +1125,14 @@ export default function AssessmentSummaryPage() {
   }
 
   // Revert every card with unsaved changes back to its synced state (#51 sibling
-  // of Send all). Each pending card discards its own local draft; the cards'
-  // pending-change reports then clear pendingByUid.
+  // of Send all). First click arms a confirm; the second click actually discards.
+  // Each pending card discards its own local draft; the cards' pending-change
+  // reports then clear pendingByUid.
   function handleDiscardAll() {
-    const uids = Object.keys(pendingByUid);
-    if (uids.length === 0) return;
-    for (const uid of uids) cardsRef.current[uid]?.discard?.();
+    if (Object.keys(pendingByUid).length === 0) return;
+    if (!discardAllArmed) { setDiscardAllArmed(true); return; }
+    setDiscardAllArmed(false);
+    for (const uid of Object.keys(pendingByUid)) cardsRef.current[uid]?.discard?.();
     setBulkResult(null);
   }
 
@@ -1226,14 +1280,15 @@ export default function AssessmentSummaryPage() {
             </button>
             <button
               onClick={handleDiscardAll}
+              onMouseLeave={() => setDiscardAllArmed(false)}
               disabled={bulkSaving || totalPending === 0}
               title="Discard all unsaved changes across every student"
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
                 padding: '0.4rem 0.75rem', borderRadius: 7,
                 border: `1px solid ${totalPending > 0 ? 'var(--danger)' : 'var(--border)'}`,
-                background: totalPending > 0 ? 'var(--danger-bg)' : 'var(--card-bg)',
-                color: totalPending > 0 ? 'var(--danger)' : 'var(--border)',
+                background: discardAllArmed ? 'var(--danger)' : (totalPending > 0 ? 'var(--danger-bg)' : 'var(--card-bg)'),
+                color: discardAllArmed ? '#fff' : (totalPending > 0 ? 'var(--danger)' : 'var(--border)'),
                 cursor: (totalPending > 0 && !bulkSaving) ? 'pointer' : 'default',
                 fontSize: '0.8rem', fontWeight: 600, fontFamily: 'inherit',
               }}
@@ -1242,7 +1297,7 @@ export default function AssessmentSummaryPage() {
                 <polyline points="1 4 1 10 7 10" />
                 <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
               </svg>
-              Discard all
+              {discardAllArmed ? 'Click again to confirm' : 'Discard all'}
             </button>
             {!bulkSaving && totalPending > 0 && (
               <span className="text-sm text-muted">
@@ -1260,6 +1315,7 @@ export default function AssessmentSummaryPage() {
         <>
           <div
             aria-hidden="true"
+            data-testid="reviewer-analysis-scrim"
             onClick={() => setDrawerOpen(false)}
             style={{ position: 'fixed', inset: 0, background: 'rgba(20,20,30,0.28)', zIndex: 40 }}
           />

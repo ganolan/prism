@@ -68,12 +68,13 @@ describe('StudentRubricCard draft persistence', () => {
       target: { value: 'work in progress' },
     });
 
-    expect(screen.getByText('1 pending change')).toBeInTheDocument();
+    // Two distinct changes now count: the rubric draft + the comment edit.
+    expect(screen.getByText('2 pending changes')).toBeInTheDocument();
 
     unmount();
     renderCard();
 
-    expect(screen.getByText('1 pending change')).toBeInTheDocument();
+    expect(screen.getByText('2 pending changes')).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue(
       'work in progress'
     );
@@ -604,7 +605,13 @@ describe('AssessmentSummaryPage — Send all bar (#51)', () => {
     fireEvent.click(screen.getAllByTitle('Set Topic 1 to Developing')[1]);
     await screen.findByRole('button', { name: /publish all to schoology \(2\)/i });
 
-    fireEvent.click(screen.getByRole('button', { name: /discard all/i }));
+    // First click arms the confirm; nothing is discarded yet (both cards still
+    // show their own per-card pending badge).
+    fireEvent.click(screen.getByRole('button', { name: /^discard all$/i }));
+    expect(screen.getByRole('button', { name: /click again to confirm/i })).toBeInTheDocument();
+    expect(screen.getAllByText(/pending change/)).toHaveLength(2);
+    // Second click confirms and discards.
+    fireEvent.click(screen.getByRole('button', { name: /click again to confirm/i }));
 
     // Both cards return to no-changes; the bulk button drops its count and disables.
     await waitFor(() =>
@@ -645,6 +652,12 @@ describe('StudentRubricCard — card chrome (Slice 5)', () => {
     const toggle = screen.getByRole('switch', { name: /display to student/i });
     expect(toggle).toBeInTheDocument();
     expect(screen.queryByText('Display to student')).not.toBeInTheDocument();
+  });
+
+  it('counts a visibility toggle as a pending change', () => {
+    renderCard();
+    fireEvent.click(screen.getByRole('switch', { name: /display to student/i }));
+    expect(screen.getByText('1 pending change')).toBeInTheDocument();
   });
 
   it('always shows the discard control, disabled when there are no pending changes', () => {
@@ -784,8 +797,8 @@ describe('AssessmentSummaryPage — header + Reviewer Analysis (Slice 6)', () =>
     const { container } = renderPage();
     fireEvent.click(await screen.findByRole('button', { name: /reviewer analysis/i }));
     expect(screen.getByText('not student-facing')).toBeInTheDocument();
-    // The scrim is the fixed full-screen overlay with aria-hidden.
-    const scrim = container.querySelector('[aria-hidden="true"]');
+    // The scrim is the fixed full-screen overlay (data-testid set in the JSX).
+    const scrim = container.querySelector('[data-testid="reviewer-analysis-scrim"]');
     fireEvent.click(scrim);
     await waitFor(() => expect(screen.queryByText('not student-facing')).not.toBeInTheDocument());
   });

@@ -118,7 +118,7 @@ function HeaderPill({ active, accent, activeBg, activeText, icon, label, clearLa
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
-export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, onSaved, onPendingChange, registerCard, unregisterCard }) {
+export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
   const loadedDisplay = student.comment_status === 1;
   const storageKey = draftKey(courseId, assignmentId, student.enrollment_id);
   // Signature of the synced Schoology values this card was rendered against.
@@ -245,10 +245,18 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   applyRef.current = applySendResult;
   const discardRef = useRef(null);
   discardRef.current = discardChanges;
+  const setDisplayRef = useRef(null);
+  setDisplayRef.current = applyDisplay;
 
   useEffect(() => {
     onPendingChange?.(student.schoology_uid, hasPendingChanges);
   }, [hasPendingChanges, student.schoology_uid, onPendingChange]);
+
+  // Report this card's current visibility up so the page bar's "show all to
+  // students" toggle can reflect the class-wide aggregate (all / none / mixed).
+  useEffect(() => {
+    onDisplayChange?.(student.schoology_uid, display);
+  }, [display, student.schoology_uid, onDisplayChange]);
 
   useEffect(() => {
     const uid = student.schoology_uid;
@@ -256,6 +264,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
       getEntry: () => entryRef.current(),
       applyResult: (ok) => applyRef.current(ok),
       discard: () => discardRef.current(),
+      setDisplay: (v) => setDisplayRef.current(v),
     });
     return () => unregisterCard?.(uid);
   }, [student.schoology_uid, registerCard, unregisterCard]);
@@ -319,6 +328,15 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     setDisplay(loadedDisplay);
     setDisplayTouched(false);
     setAutoFlipArmed(student.comment_status !== 1 && !student.grade_comment);
+  }
+
+  // Set the display-to-student visibility. Shared by the per-card switch and the
+  // page-level "show/hide all". Marks it a manual change so it counts as pending
+  // (the pendingCount guard ignores it when value already equals the synced one).
+  function applyDisplay(value) {
+    setDisplay(value);
+    setDisplayTouched(true);
+    setAutoFlipArmed(false);
   }
 
   // Schoology's /observations endpoint replaces the entire observation set for
@@ -885,7 +903,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             aria-checked={display}
             aria-label="Display to student"
             title="Display to student"
-            onClick={() => { setDisplay(d => !d); setAutoFlipArmed(false); setDisplayTouched(true); }}
+            onClick={() => applyDisplay(!display)}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
               alignSelf: 'stretch', boxSizing: 'border-box',
@@ -1087,6 +1105,9 @@ export default function AssessmentSummaryPage() {
   // it has unsaved changes; cardsRef holds each card's { getEntry, applyResult }
   // so the batch can collect entries and report results back per card.
   const [pendingByUid, setPendingByUid] = useState({});
+  // Per-card visibility (display-to-student) reported up so the bulk bar's
+  // "show all" toggle can reflect the class-wide aggregate.
+  const [displayByUid, setDisplayByUid] = useState({});
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkResult, setBulkResult] = useState(null);
   // "Discard all" is destructive across every student, so it requires a second
@@ -1115,6 +1136,9 @@ export default function AssessmentSummaryPage() {
       return next;
     });
   }, []);
+  const handleDisplayChange = useCallback((uid, vis) => {
+    setDisplayByUid(prev => (prev[uid] === vis ? prev : { ...prev, [uid]: vis }));
+  }, []);
   const registerCard = useCallback((uid, handlers) => { cardsRef.current[uid] = handlers; }, []);
   const unregisterCard = useCallback((uid) => {
     delete cardsRef.current[uid];
@@ -1122,9 +1146,26 @@ export default function AssessmentSummaryPage() {
       if (!prev[uid]) return prev;
       const next = { ...prev }; delete next[uid]; return next;
     });
+    setDisplayByUid(prev => {
+      if (!(uid in prev)) return prev;
+      const next = { ...prev }; delete next[uid]; return next;
+    });
   }, []);
 
   const totalPending = Object.keys(pendingByUid).length;
+
+  // Class-wide visibility aggregate for the bulk "show all to students" toggle.
+  const visUids = Object.keys(displayByUid);
+  const visibleCount = visUids.filter(u => displayByUid[u]).length;
+  const allVisible = visUids.length > 0 && visibleCount === visUids.length;
+  const noneVisible = visibleCount === 0;
+  const mixedVisible = !allVisible && !noneVisible;
+
+  // Push a visibility value to every card (each marks itself pending only if the
+  // value differs from its synced state). Used by the bulk toggle.
+  function handleSetAllVisible(value) {
+    for (const uid of Object.keys(cardsRef.current)) cardsRef.current[uid]?.setDisplay?.(value);
+  }
 
   async function handleSendAll() {
     const uids = Object.keys(pendingByUid);
@@ -1290,21 +1331,75 @@ export default function AssessmentSummaryPage() {
               feedbackRow={feedbackByStudent[student.id] || null}
               onSaved={handleCardSaved}
               onPendingChange={handlePendingChange}
+              onDisplayChange={handleDisplayChange}
               registerCard={registerCard}
               unregisterCard={unregisterCard}
             />
           ))}
 
-          {/* Bulk publish/discard bar (#51) — sticky so it stays reachable during
-              a fast grading run. zIndex sits above the rubric cells (z-index 2),
-              which would otherwise paint over this fixed bar while scrolling. */}
+          {/* Whole-class command bar (#51) — sticky so it stays reachable during
+              a fast grading run. Deliberately styled distinct from the white
+              per-card control bands (subtle surface + accent stripe + "Whole
+              class" label) so it can't be mistaken for a single card's buttons
+              when it sits just above one. zIndex sits above the rubric cells
+              (z-index 2), which would otherwise paint over it while scrolling. */}
           <div style={{
-            position: 'sticky', bottom: 0, zIndex: 10, marginTop: '0.5rem',
-            padding: '0.75rem 1rem', background: 'var(--card-bg)',
-            borderTop: '1px solid var(--border)', borderRadius: 10,
-            boxShadow: '0 -2px 8px rgba(0,0,0,0.06)',
-            display: 'flex', alignItems: 'center', gap: '0.75rem',
+            position: 'sticky', bottom: 0, zIndex: 10, marginTop: '0.85rem',
+            padding: '0.7rem 1rem 0.7rem 0.85rem',
+            background: 'var(--bg-subtle)',
+            border: '1px solid var(--border)', borderLeft: '4px solid var(--accent)',
+            borderRadius: 10, boxShadow: '0 -3px 14px rgba(0,0,0,0.12)',
+            display: 'flex', alignItems: 'center', gap: '0.7rem', flexWrap: 'wrap',
           }}>
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+              fontWeight: 700, fontSize: '0.78rem', color: 'var(--text)', whiteSpace: 'nowrap',
+            }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+              Whole class
+            </span>
+            <span style={{ width: 1, height: '1.7rem', background: 'var(--border)' }} />
+
+            {/* Show-all-to-students toggle — same eye+switch visual as the per-card
+                control, with a label + aggregate state (all / none / mixed) so it
+                reads as the class-wide version. */}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={allVisible ? 'true' : mixedVisible ? 'mixed' : 'false'}
+              aria-label="Display all to students"
+              title="Show or hide every student's grade & comment in Schoology"
+              onClick={() => handleSetAllVisible(!allVisible)}
+              disabled={bulkSaving}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+                boxSizing: 'border-box', height: '2rem',
+                border: '1px solid var(--border)', borderRadius: 7,
+                padding: '0 0.6rem', background: 'var(--card-bg)',
+                color: 'var(--text-muted)', cursor: bulkSaving ? 'default' : 'pointer',
+                userSelect: 'none', fontSize: '0.78rem', fontWeight: 600, fontFamily: 'inherit',
+              }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" /><circle cx="12" cy="12" r="3" />
+              </svg>
+              <span style={{
+                position: 'relative', width: 28, height: 16, borderRadius: 9,
+                background: allVisible ? 'var(--accent)' : mixedVisible ? 'var(--warning)' : 'var(--bg-subtle)',
+                border: '1px solid var(--border)', transition: 'background 0.15s',
+              }}>
+                <span style={{
+                  position: 'absolute', top: 1, left: allVisible ? 13 : mixedVisible ? 7 : 1,
+                  width: 12, height: 12, borderRadius: '50%', background: '#fff',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.2)', transition: 'left 0.15s',
+                }} />
+              </span>
+              {allVisible ? 'All shown' : noneVisible ? 'Show all' : 'Mixed'}
+            </button>
+
             <button
               className="primary"
               onClick={handleSendAll}

@@ -4,7 +4,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { getDb } from '../server/db/index.js';
 import { getAssessmentContext } from '../server/services/assessmentContext.js';
-import { writeStudentSuggestions } from '../server/services/suggestions.js';
+import { writeStudentSuggestions, upsertAssessmentAnalysis } from '../server/services/suggestions.js';
 import { listCourses, listAssignments } from './handlers.js';
 
 // <2KB tool-search hint (spec §3.4) so a client knows when to surface PrisMCP.
@@ -92,6 +92,23 @@ export function createServer() {
     },
     async ({ assignment_id, students }) => ({
       content: [{ type: 'text', text: JSON.stringify(writeStudentSuggestions(getDb(), { assignmentId: assignment_id, students })) }],
+    })
+  );
+
+  server.registerTool(
+    'write_assessment_analysis',
+    {
+      description:
+        'Write the assessment-wide reviewer analysis (noticings + optional moderation note) for an assignment, shown in the Reviewer Analysis drawer in Prism.',
+      inputSchema: {
+        course_id: z.union([z.number(), z.string()]).describe('Local Prism course id'),
+        assignment_id: z.union([z.number(), z.string()]).describe('Schoology or local assignment id'),
+        noticings: z.array(z.object({ title: z.string(), body: z.string() })).describe('Class-level observations'),
+        moderation_note: z.string().optional(),
+      },
+    },
+    async ({ assignment_id, noticings, moderation_note }) => ({
+      content: [{ type: 'text', text: JSON.stringify(upsertAssessmentAnalysis(getDb(), { assignmentId: assignment_id, noticings, moderation_note })) }],
     })
   );
 

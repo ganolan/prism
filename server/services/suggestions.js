@@ -104,3 +104,24 @@ export function writeStudentSuggestions(db, { assignmentId, students }) {
   const results = (students || []).map((s) => upsertStudentSuggestion(db, { assignmentId, ...s }));
   return { results };
 }
+
+// Upsert the single assessment-wide analysis row (PK assignment_id) in the
+// shape the Reviewer Analysis drawer reads: { noticings: [{title, body}],
+// moderation_note? } (spec §4). assignmentId accepts a Schoology or local id.
+export function upsertAssessmentAnalysis(db, { assignmentId, noticings, moderation_note }) {
+  const assignmentLocalId = resolveAssignmentId(db, assignmentId);
+  if (!assignmentLocalId) return { status: 'error', message: `Assignment not found: ${assignmentId}` };
+
+  const analysisJson = JSON.stringify({
+    noticings: noticings ?? [],
+    ...(moderation_note != null ? { moderation_note } : {}),
+  });
+  db.prepare(`
+    INSERT INTO assessment_analysis (assignment_id, analysis_json, created_at, updated_at)
+    VALUES (?, ?, datetime('now'), datetime('now'))
+    ON CONFLICT(assignment_id) DO UPDATE SET
+      analysis_json = excluded.analysis_json,
+      updated_at = datetime('now')
+  `).run(assignmentLocalId, analysisJson);
+  return { status: 'written', assignment_id: assignmentLocalId };
+}

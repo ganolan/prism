@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../db/index.js';
-import { upsertStudentSuggestion, writeStudentSuggestions } from './suggestions.js';
+import { upsertStudentSuggestion, writeStudentSuggestions, upsertAssessmentAnalysis } from './suggestions.js';
 
 // A course with one aligned measurement topic (ART.5.1 / "Generates media"),
 // an assignment (Schoology id 'sa-1'), and one enrolled student (uid-1).
@@ -19,9 +19,9 @@ function seed(db) {
 
 beforeEach(() => {
   getDb().exec(
-    'DELETE FROM feedback; DELETE FROM mastery_alignments; DELETE FROM mastery_scores; ' +
-    'DELETE FROM measurement_topics; DELETE FROM reporting_categories; DELETE FROM grades; ' +
-    'DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
+    'DELETE FROM assessment_analysis; DELETE FROM feedback; DELETE FROM mastery_alignments; ' +
+    'DELETE FROM mastery_scores; DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
+    'DELETE FROM grades; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
   );
 });
 
@@ -122,5 +122,32 @@ describe('writeStudentSuggestions', () => {
     expect(results[0]).toMatchObject({ student: 'uid-1', status: 'written' });
     expect(results[1]).toMatchObject({ student: 'uid-missing', status: 'error' });
     expect(results[1].message).toMatch(/not found/i);
+  });
+});
+
+describe('upsertAssessmentAnalysis', () => {
+  test('upserts the single assessment_analysis row in the UI shape (one row, moderation optional)', () => {
+    const db = getDb();
+    const { assignmentLocalId } = seed(db);
+
+    const r1 = upsertAssessmentAnalysis(db, {
+      assignmentId: 'sa-1',
+      noticings: [{ title: 'AI use', body: 'half the class leaned on it' }],
+      moderation_note: 'spot-check the borderline EX/D calls',
+    });
+    expect(r1).toMatchObject({ status: 'written', assignment_id: assignmentLocalId });
+    expect(JSON.parse(db.prepare('SELECT analysis_json FROM assessment_analysis WHERE assignment_id = ?').get(assignmentLocalId).analysis_json))
+      .toEqual({ noticings: [{ title: 'AI use', body: 'half the class leaned on it' }], moderation_note: 'spot-check the borderline EX/D calls' });
+
+    // Re-run upserts (PK is assignment_id → one row); moderation omitted when absent.
+    upsertAssessmentAnalysis(db, { assignmentId: 'sa-1', noticings: [{ title: 'Integrity', body: 'all original' }] });
+    const all = db.prepare('SELECT analysis_json FROM assessment_analysis WHERE assignment_id = ?').all(assignmentLocalId);
+    expect(all).toHaveLength(1);
+    expect(JSON.parse(all[0].analysis_json)).toEqual({ noticings: [{ title: 'Integrity', body: 'all original' }] });
+  });
+
+  test('reports an error for an unknown assignment', () => {
+    expect(upsertAssessmentAnalysis(getDb(), { assignmentId: 'no-such', noticings: [] }))
+      .toMatchObject({ status: 'error' });
   });
 });

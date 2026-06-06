@@ -59,19 +59,19 @@ The headless e2e proves the data path; this confirms the pixels.
    - [ ] the `✦ Reviewer Analysis` button → drawer with the proposed distribution + noticings (when `write_assessment_analysis` was called).
 5. **Concurrent check:** with the page open and the dev server running, run another `write_student_suggestions`; reload → the new ✦ appears (v1 has no live push, so a reload/refetch is expected).
 
-### 3. Cowork/Desktop prompt-picker spike (the one known-unknown)
+### 3. Cowork/Desktop prompt-picker spike — RESOLVED (2026-06-06, Claude Desktop)
 
-The server design doesn't depend on this, but the kickoff ergonomics do — Graham grades in Cowork. Connect PrisMCP in Cowork/Desktop and record:
+How PrisMCP surfaces in **Claude Desktop**: under the composer's **＋ → Connectors → Add from prism** submenu — **not** as `/` slash commands and **not** via `@`-mention (that's the Claude Code surface).
 
-- [ ] After connecting, does `grade-assignment` appear in a prompt/slash picker? What's it labelled, and where does it live?
-- [ ] How are the `assignment` and `assignment_type` arguments entered (a form, inline text, …)?
-- [ ] Do the `@prism:...` resources show up for `@`-mention (`prism://courses` and the templated `prism://course/{courseId}/assignments`, `prism://assignment/{courseId}/{assignmentId}/context`)?
-- [ ] Any behavioural difference between Cowork and Desktop?
+- **`grade-assignment` prompt** → listed as **"Grade an assignment (Prism)"** (chat-bubble icon). Selecting it inserts the orchestration message; the `assignment` / `assignment_type` args are given inline in the chat.
+- **`prism://courses` resource** → listed as **"Prism courses"** (document icon). The *templated* resources (`.../assignments`, `.../context`) do **not** appear as menu items — they need parameters, so the agent reaches that data through the `list_assignments` / `get_assignment_context` **tools** instead.
+- **`@`-mention does nothing** for resources in Desktop — resource attachment lives in the "Add from prism" menu, not `@`.
+- In practice the picker is optional: a plain instruction at the end of a grading run — *"upload the student feedback to prism"* — makes the agent call the write tools directly. **Confirmed end-to-end on a real grading run.**
 
-Capture findings here or in spec §9 once confirmed.
+Claude Code surfaces the same prompt as `/mcp__prism__grade-assignment` and resources as `@prism:...`.
 
-## Guardrails (confirm on review)
+## Guardrails (confirmed 2026-06-06)
 
-- [ ] The server contains **no** grading philosophy / rubric / extraction / output content, and **no** path outside the repo.
-- [ ] It never writes to Schoology and never reads submissions.
-- [ ] Writes target only the `feedback` and `assessment_analysis` tables — never `mastery_scores`, `grades`, or Schoology.
+- [x] The server contains **no** grading philosophy / rubric / extraction / output content, and **no** path outside the repo.
+- [x] It never writes to Schoology and never reads submissions.
+- [x] Writes target only the `feedback` and `assessment_analysis` tables — never `mastery_scores`, `grades`, or Schoology.

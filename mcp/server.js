@@ -136,6 +136,39 @@ export function createServer() {
     async (uri, { courseId, assignmentId }) => json(uri, getAssessmentContext(getDb(), { courseId, assignmentId }))
   );
 
+  // Thin, path-free orchestration kickoff (spec §3.3). Carries NO grading
+  // content — it only wires get-context → follow the in-context {type}
+  // instructions → write back → stop for teacher review. References instructions
+  // and submissions by role/type, never by absolute path, so it ships in-repo.
+  server.registerPrompt(
+    'grade-assignment',
+    {
+      title: 'Grade an assignment (Prism)',
+      description: 'Wire a grading run: load Prism context, follow your in-context grading instructions, write suggestions back for review.',
+      argsSchema: {
+        assignment: z.string().describe('Which assignment to grade (free text; resolved via list_assignments)'),
+        assignment_type: z.string().optional().describe('Grading-skill hint, e.g. "portfolio" / "essay" (default "portfolio")'),
+      },
+    },
+    ({ assignment, assignment_type }) => ({
+      messages: [
+        {
+          role: 'user',
+          content: {
+            type: 'text',
+            text:
+              `You are grading **${assignment}**. If the assignment is ambiguous, call \`list_assignments\` to resolve ` +
+              `it. Call \`get_assignment_context\` to load the roster, aligned measurement topics, and current grading ` +
+              `state. Then follow your **${assignment_type || 'portfolio'}** grading instructions (already provided in ` +
+              `this chat's context) to grade the submissions provided in this chat. When done, call ` +
+              `\`write_student_suggestions\` (whole class, one call) and \`write_assessment_analysis\`, then **stop and ` +
+              `hand back to the teacher to review in Prism**.`,
+          },
+        },
+      ],
+    })
+  );
+
   return server;
 }
 

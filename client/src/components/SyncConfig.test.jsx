@@ -100,14 +100,14 @@ describe('SyncConfig', () => {
   it('reveals the day stepper only when "recent submissions" is checked', () => {
     renderConfig();
     expect(screen.queryByLabelText(/day window/i)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText(/only check recent submissions/i));
+    fireEvent.click(screen.getByLabelText(/include only recent submissions/i));
     expect(screen.getByLabelText(/day window/i)).toBeInTheDocument();
   });
 
   it('passes recentOnly + recentDays on Start and persists them', () => {
     const onStart = vi.fn();
     renderConfig({ onStart });
-    fireEvent.click(screen.getByLabelText(/only check recent submissions/i));
+    fireEvent.click(screen.getByLabelText(/include only recent submissions/i));
     fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
     expect(onStart).toHaveBeenCalledWith([1, 2], { includeHidden: false, recentOnly: true, recentDays: 30 });
     expect(localStorage.getItem('prism:sync:recent-only')).toBe('true');

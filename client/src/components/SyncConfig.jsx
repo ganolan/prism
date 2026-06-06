@@ -9,6 +9,9 @@ const GROUPS = [
   { key: 'hidden',   label: 'Hidden courses',   match: (c) => c.hidden && !c.archived && !c.excluded },
 ];
 
+const RECENT_HELP =
+  'Skips submission checks for assignments with no due date and those due more than the chosen number of days ago. Courses, students, assignments, grades and mastery still sync fully.';
+
 export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel, onLogin }) {
   const groups = useMemo(
     () => GROUPS.map((g) => ({ ...g, courses: courses.filter(g.match) })).filter((g) => g.courses.length),
@@ -28,6 +31,15 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
   const initialPrefs = useState(getSyncPrefs)[0];
   const [recentOnly, setRecentOnly] = useState(initialPrefs.recentOnly);
   const [recentDays, setRecentDays] = useState(initialPrefs.recentDays);
+  // Instant help popover for the recent-only "?" (mirrors the gradebook
+  // HelpDot/popover). Positioned fixed from the dot's rect so the modal's
+  // overflow can't clip it.
+  const [helpPos, setHelpPos] = useState(null);
+  const showHelp = (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setHelpPos({ left: r.left + r.width / 2, top: r.bottom + 8 });
+  };
+  const hideHelp = () => setHelpPos(null);
 
   const hiddenCount = useMemo(
     () => courses.filter((c) => c.hidden && !c.archived && !c.excluded).length,
@@ -69,21 +81,26 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
             />
             <span>Include hidden courses{hiddenCount > 0 ? ` (${hiddenCount})` : ''}</span>
           </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={recentOnly}
-              onChange={(e) => setRecentOnly(e.target.checked)}
-            />
-            <span>Only check recent submissions</span>
+          <div className="sync-toggle-row">
+            <label>
+              <input
+                type="checkbox"
+                checked={recentOnly}
+                onChange={(e) => setRecentOnly(e.target.checked)}
+              />
+              <span>Include only recent submissions</span>
+            </label>
             <span
-              className="sync-help"
+              className="help-dot"
               role="img"
               tabIndex={0}
-              aria-label="Recent-only skips submission checks for assignments with no due date and those due more than N days ago. Courses, students, assignments, grades and mastery still sync fully."
-              title="Skips submission checks for assignments with no due date and those due more than N days ago. Courses, students, assignments, grades and mastery still sync fully."
+              aria-label={RECENT_HELP}
+              onMouseEnter={showHelp}
+              onMouseLeave={hideHelp}
+              onFocus={showHelp}
+              onBlur={hideHelp}
             >?</span>
-          </label>
+          </div>
           {recentOnly && (
             <div className="sync-recent-days">
               <span>Due within</span>
@@ -194,6 +211,12 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
           </button>
         </div>
       </div>
+
+      {helpPos && (
+        <div className="help-pop" role="tooltip" style={{ left: helpPos.left, top: helpPos.top }}>
+          {RECENT_HELP}
+        </div>
+      )}
     </div>
   );
 }

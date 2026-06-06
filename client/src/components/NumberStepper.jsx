@@ -6,7 +6,7 @@ export default function NumberStepper({ value, onChange, min = 1, max = 365, ...
   return (
     <span className="number-stepper">
       <button
-        type="button" className="ghost" aria-label="Decrease"
+        type="button" className="number-stepper__btn" aria-label="Decrease"
         onClick={() => emit(value - 1)} disabled={value <= min}
       >−</button>
       <input
@@ -15,7 +15,7 @@ export default function NumberStepper({ value, onChange, min = 1, max = 365, ...
         {...rest}
       />
       <button
-        type="button" className="ghost" aria-label="Increase"
+        type="button" className="number-stepper__btn" aria-label="Increase"
         onClick={() => emit(value + 1)} disabled={value >= max}
       >+</button>
     </span>

@@ -14,6 +14,7 @@ import {
   getSection,
 } from './schoology.js';
 import { runWithLimits } from './rateLimitedRunner.js';
+import { filterRecentAssignments } from './recentWindow.js';
 import { createSubmissionFetcher } from './graderSubmissions.js';
 import { getSyncConfig } from '../middleware/featureGate.js';
 import { syncMasteryForCourse, hasMasterySession } from './masterySync.js';
@@ -59,6 +60,8 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     submissionRatePerSec = 4,
     submissionAbandonAfter = 5,
     skipSubmissions = false,
+    recentOnly = false,
+    recentDays = 30,
   } = opts;
 
   const upsertStudent = db.prepare(`
@@ -209,9 +212,13 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   // courses (GHD is blind for inactive sections). An empty list makes the
   // submission phase a clean no-op (lookup fetch is guarded by .length, the
   // loop doesn't iterate, writeSubmissions([]) is a no-op).
-  const dropboxAssignments = skipSubmissions
+  const dropboxAll = skipSubmissions
     ? []
     : assignments.filter(a => a.allow_dropbox === '1' || a.allow_dropbox === 1);
+  // #55: when recentOnly, restrict the per-cell submission check to assignments
+  // due within recentDays or in the future; skip undated + clearly-old work.
+  const { target: dropboxAssignments, windowSkipped } =
+    filterRecentAssignments(dropboxAll, recentOnly, recentDays, now);
 
   // Best-effort: null when no session / fetch fails — sync then behaves exactly
   // as before (public revisions API only).
@@ -361,6 +368,7 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     submissionAbandoned,
     submissionAttempts,
     submissionSkipped,
+    windowSkipped,
     rateLimitHits,
     transientFailures,
   };
@@ -602,7 +610,7 @@ export async function backfillUnfinalizedArchived(db, now) {
   return courses.length;
 }
 
-export async function fullSync(onProgress, { includeHidden = false } = {}) {
+export async function fullSync(onProgress, { includeHidden = false, recentOnly = false, recentDays = 30 } = {}) {
   const db = getDb();
   const log = (msg) => onProgress?.({ message: msg });
   const now = new Date().toISOString();
@@ -722,6 +730,8 @@ export async function fullSync(onProgress, { includeHidden = false } = {}) {
       log(`Syncing "${sec.course_title}"...`);
       const result = await syncSectionData(db, sectionId, courseRow.id, now, {
         ...syncConfig,
+        recentOnly,
+        recentDays,
         fetchSubmissionLookup: submissionFetcher ? (sid) => submissionFetcher.fetch(sid) : undefined,
       });
       metrics.submission_calls += result.submissionAttempts || 0;

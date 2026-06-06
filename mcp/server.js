@@ -1,8 +1,9 @@
 import { pathToFileURL } from 'url';
+import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { getDb } from '../server/db/index.js';
-import { listCourses } from './handlers.js';
+import { listCourses, listAssignments } from './handlers.js';
 
 // <2KB tool-search hint (spec §3.4) so a client knows when to surface PrisMCP.
 export const INSTRUCTIONS =
@@ -33,6 +34,18 @@ export function createServer() {
     'list_courses',
     { description: 'List active (non-archived) Prism courses, to resolve which class to grade.' },
     async () => ({ content: [{ type: 'text', text: JSON.stringify(listCourses(getDb())) }] })
+  );
+
+  server.registerTool(
+    'list_assignments',
+    {
+      description:
+        "List a course's assignments (with aligned-topic + latest-submission hints) to resolve which assignment to grade.",
+      inputSchema: { course_id: z.union([z.number(), z.string()]).describe('Local Prism course id') },
+    },
+    async ({ course_id }) => ({
+      content: [{ type: 'text', text: JSON.stringify(listAssignments(getDb(), { course_id })) }],
+    })
   );
 
   return server;

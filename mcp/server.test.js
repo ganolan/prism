@@ -19,7 +19,10 @@ async function connect() {
 }
 
 beforeEach(() => {
-  getDb().exec('DELETE FROM courses;');
+  getDb().exec(
+    'DELETE FROM mastery_alignments; DELETE FROM grades; DELETE FROM assignments; ' +
+    'DELETE FROM students; DELETE FROM courses;'
+  );
 });
 
 describe('PrisMCP server', () => {
@@ -31,6 +34,18 @@ describe('PrisMCP server', () => {
     const res = await client.callTool({ name: 'list_courses', arguments: {} });
     const data = JSON.parse(res.content[0].text);
     expect(data.map((c) => c.course_name)).toEqual(['Robotics']);
+  });
+
+  test('exposes list_assignments scoped to the requested course', async () => {
+    const db = getDb();
+    const c1 = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s1', 'MAD')`).run().lastInsertRowid;
+    const c2 = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s2', 'ROB')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'a1', 'App Project')`).run(c1);
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'a2', 'Other Course Task')`).run(c2);
+    const client = await connect();
+    const res = await client.callTool({ name: 'list_assignments', arguments: { course_id: c1 } });
+    const data = JSON.parse(res.content[0].text);
+    expect(data.map((a) => a.title)).toEqual(['App Project']);
   });
 
   test('advertises the tool-search instructions to the client', async () => {

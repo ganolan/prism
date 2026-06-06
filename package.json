@@ -9,6 +9,7 @@
     "dev:server": "node --watch server/index.js",
     "dev:client": "cd client && npx vite",
     "mcp": "node mcp/server.js",
+    "mcp:e2e": "node scripts/prismcp-e2e.mjs",
     "build": "cd client && npx vite build",
     "test:api": "node test-api.js",
     "test:server": "vitest run",

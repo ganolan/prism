@@ -1,6 +1,6 @@
 import { pathToFileURL } from 'url';
 import { z } from 'zod';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { getDb } from '../server/db/index.js';
 import { getAssessmentContext } from '../server/services/assessmentContext.js';
@@ -110,6 +110,30 @@ export function createServer() {
     async ({ assignment_id, noticings, moderation_note }) => ({
       content: [{ type: 'text', text: JSON.stringify(upsertAssessmentAnalysis(getDb(), { assignmentId: assignment_id, noticings, moderation_note })) }],
     })
+  );
+
+  // Read-only @-mention mirror of the read tools (spec §3.2), so the teacher can
+  // inject Prism context into an ad-hoc chat without running the grade prompt.
+  const json = (uri, data) => ({ contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify(data) }] });
+
+  server.registerResource(
+    'courses', 'prism://courses',
+    { title: 'Prism courses', description: 'Active Prism courses', mimeType: 'application/json' },
+    async (uri) => json(uri, listCourses(getDb()))
+  );
+
+  server.registerResource(
+    'assignments',
+    new ResourceTemplate('prism://course/{courseId}/assignments', { list: undefined }),
+    { title: 'Course assignments', description: "A course's assignments", mimeType: 'application/json' },
+    async (uri, { courseId }) => json(uri, listAssignments(getDb(), { course_id: courseId }))
+  );
+
+  server.registerResource(
+    'assignment-context',
+    new ResourceTemplate('prism://assignment/{courseId}/{assignmentId}/context', { list: undefined }),
+    { title: 'Assignment context', description: 'Roster, topics, grades + suggestions for an assignment', mimeType: 'application/json' },
+    async (uri, { courseId, assignmentId }) => json(uri, getAssessmentContext(getDb(), { courseId, assignmentId }))
   );
 
   return server;

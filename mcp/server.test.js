@@ -127,3 +127,55 @@ describe('PrisMCP server', () => {
     expect(db.pragma('busy_timeout', { simple: true })).toBe(5000);
   });
 });
+
+describe('grade-assignment prompt', () => {
+  test('expands to the path-free orchestration message that wires the loop', async () => {
+    const client = await connect();
+    const { messages } = await client.getPrompt({
+      name: 'grade-assignment',
+      arguments: { assignment: 'the MAD app project', assignment_type: 'essay' },
+    });
+    const text = messages[0].content.text;
+    expect(text).toContain('the MAD app project');
+    expect(text).toContain('essay');
+    for (const tool of ['list_assignments', 'get_assignment_context', 'write_student_suggestions', 'write_assessment_analysis']) {
+      expect(text).toContain(tool);
+    }
+    expect(text).toMatch(/review in Prism/i);
+    // Path-free: no absolute paths leak into the shipped prompt.
+    expect(text).not.toMatch(/\/Users\//);
+  });
+
+  test('defaults assignment_type to portfolio when omitted', async () => {
+    const client = await connect();
+    const { messages } = await client.getPrompt({ name: 'grade-assignment', arguments: { assignment: 'X' } });
+    expect(messages[0].content.text).toContain('portfolio');
+  });
+});
+
+describe('PrisMCP resources (@-mention mirror)', () => {
+  test('prism://courses mirrors list_courses', async () => {
+    getDb().prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s1', 'Robotics')`).run();
+    const client = await connect();
+    const res = await client.readResource({ uri: 'prism://courses' });
+    expect(JSON.parse(res.contents[0].text).map((c) => c.course_name)).toEqual(['Robotics']);
+  });
+
+  test('prism://course/{courseId}/assignments mirrors list_assignments', async () => {
+    const db = getDb();
+    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s1', 'MAD')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'a1', 'App Project')`).run(courseId);
+    const client = await connect();
+    const res = await client.readResource({ uri: `prism://course/${courseId}/assignments` });
+    expect(JSON.parse(res.contents[0].text).map((a) => a.title)).toEqual(['App Project']);
+  });
+
+  test('prism://assignment/{courseId}/{assignmentId}/context mirrors get_assignment_context', async () => {
+    const db = getDb();
+    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s1', 'AIML')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-1', 'Project')`).run(courseId);
+    const client = await connect();
+    const res = await client.readResource({ uri: `prism://assignment/${courseId}/sa-1/context` });
+    expect(JSON.parse(res.contents[0].text).assignment.schoology_assignment_id).toBe('sa-1');
+  });
+});

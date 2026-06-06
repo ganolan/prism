@@ -62,6 +62,7 @@ npm run test:api   # Schoology API smoke test
 - **Page wrapper:** Add `className="fade-in"` to the top-level div of each page for entry animation.
 - **Sidebar width:** 240px (set in CSS), content margin-left matches.
 - **Adding new themes:** Add a `[data-theme="name"]` block in `app.css` with all CSS variables, add the theme key to `themes` in `useTheme.jsx`. No component changes needed.
+- **Design language & decisions:** `docs/design-language.md` is the running log of Prism's visual patterns and the rationale behind UI decisions (tracked by #80). Reuse the shared primitives documented there — e.g. `.help-dot` + `.help-pop` (the instant help-"?" popover) and `.number-stepper` — instead of re-inlining them. **Whenever you make a notable UI/visual decision, append it to that doc** so the language can later be unified.
 
 ## Key References
 

@@ -20,8 +20,9 @@ async function connect() {
 
 beforeEach(() => {
   getDb().exec(
-    'DELETE FROM mastery_alignments; DELETE FROM grades; DELETE FROM assignments; ' +
-    'DELETE FROM students; DELETE FROM courses;'
+    'DELETE FROM feedback; DELETE FROM mastery_alignments; DELETE FROM mastery_scores; ' +
+    'DELETE FROM measurement_topics; DELETE FROM reporting_categories; DELETE FROM grades; ' +
+    'DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
   );
 });
 
@@ -46,6 +47,24 @@ describe('PrisMCP server', () => {
     const res = await client.callTool({ name: 'list_assignments', arguments: { course_id: c1 } });
     const data = JSON.parse(res.content[0].text);
     expect(data.map((a) => a.title)).toEqual(['App Project']);
+  });
+
+  test('exposes get_assignment_context accepting a Schoology assignment id', async () => {
+    const db = getDb();
+    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s1', 'AIML')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO reporting_categories (id, course_id, external_id, title) VALUES ('cat-1', ?, 'ART.5', 'Creating')`).run(courseId);
+    db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES ('topic-1', 'cat-1', ?, 'ART.5.1', 'Generates media')`).run(courseId);
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-1', 'Project')`).run(courseId);
+    db.prepare(`INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id) VALUES ('sa-1', 'topic-1', ?)`).run(courseId);
+    const studentId = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-1', 'Ada', 'Lovelace')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'enr-1')`).run(studentId, courseId);
+
+    const client = await connect();
+    const res = await client.callTool({ name: 'get_assignment_context', arguments: { course_id: courseId, assignment_id: 'sa-1' } });
+    const ctx = JSON.parse(res.content[0].text);
+    expect(ctx.assignment.schoology_assignment_id).toBe('sa-1');
+    expect(ctx.topics.map((t) => t.external_id)).toEqual(['ART.5.1']);
+    expect(ctx.students.map((s) => s.schoology_uid)).toEqual(['uid-1']);
   });
 
   test('advertises the tool-search instructions to the client', async () => {

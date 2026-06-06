@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { getDb } from '../server/db/index.js';
+import { getAssessmentContext } from '../server/services/assessmentContext.js';
 import { listCourses, listAssignments } from './handlers.js';
 
 // <2KB tool-search hint (spec §3.4) so a client knows when to surface PrisMCP.
@@ -45,6 +46,23 @@ export function createServer() {
     },
     async ({ course_id }) => ({
       content: [{ type: 'text', text: JSON.stringify(listAssignments(getDb(), { course_id })) }],
+    })
+  );
+
+  server.registerTool(
+    'get_assignment_context',
+    {
+      description:
+        'Load an assignment\'s roster, aligned measurement topics (rubric skeleton), current finals/comments/display-status, and any existing AI suggestions, to grade against.',
+      inputSchema: {
+        course_id: z.union([z.number(), z.string()]).describe('Local Prism course id'),
+        assignment_id: z.union([z.number(), z.string()]).describe('Schoology or local assignment id'),
+      },
+    },
+    async ({ course_id, assignment_id }) => ({
+      content: [
+        { type: 'text', text: JSON.stringify(getAssessmentContext(getDb(), { courseId: course_id, assignmentId: assignment_id })) },
+      ],
     })
   );
 

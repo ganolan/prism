@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import SyncConfig from './SyncConfig.jsx';
 
@@ -23,6 +23,8 @@ function renderConfig(props = {}) {
 }
 
 describe('SyncConfig', () => {
+  beforeEach(() => localStorage.clear());
+
   it('renders the visible and hidden course groups', () => {
     renderConfig();
     expect(screen.getByText(/Visible courses/)).toBeInTheDocument();
@@ -47,7 +49,7 @@ describe('SyncConfig', () => {
     fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
     // onStart is called with the selected ids AND the include-hidden option
     // (default false). See SyncConfig's "Start sync" handler.
-    expect(onStart).toHaveBeenCalledWith([1, 2], { includeHidden: false });
+    expect(onStart).toHaveBeenCalledWith([1, 2], { includeHidden: false, recentOnly: false, recentDays: 30 });
   });
 
   it('group select-all checkbox is indeterminate when only some are selected', () => {
@@ -93,5 +95,21 @@ describe('SyncConfig', () => {
     renderConfig();
     // Biology 9 is in the (expanded) visible group; its synced_at renders a line.
     expect(screen.getByText(/synced 20\/05\/2026/)).toBeInTheDocument();
+  });
+
+  it('reveals the day stepper only when "recent submissions" is checked', () => {
+    renderConfig();
+    expect(screen.queryByLabelText(/day window/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText(/include only recent submissions/i));
+    expect(screen.getByLabelText(/day window/i)).toBeInTheDocument();
+  });
+
+  it('passes recentOnly + recentDays on Start and persists them', () => {
+    const onStart = vi.fn();
+    renderConfig({ onStart });
+    fireEvent.click(screen.getByLabelText(/include only recent submissions/i));
+    fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
+    expect(onStart).toHaveBeenCalledWith([1, 2], { includeHidden: false, recentOnly: true, recentDays: 30 });
+    expect(localStorage.getItem('prism:sync:recent-only')).toBe('true');
   });
 });

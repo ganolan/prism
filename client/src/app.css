@@ -799,6 +799,107 @@ button.ghost.accent:hover { background: var(--accent-light); }
 
 .sync-disclaimer, .sync-login-prompt { font-size: 0.8rem; margin: 0.6rem 0; }
 .sync-login-prompt button { margin-top: 0.5rem; }
+.sync-toggle-row { display: flex; align-items: center; gap: 0.4rem; }
+
+/* Reusable help affordance: a stand-out circular "?" with an INSTANT popover on
+   hover/focus (mirrors the gradebook HelpDot/popover). See docs/design-language.md. */
+.help-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent-subtle);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+  user-select: none;
+  vertical-align: middle;
+}
+.help-dot:hover,
+.help-dot:focus-visible {
+  background: var(--accent);
+  color: white;
+  outline: none;
+}
+.help-pop {
+  position: fixed;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 260px;
+  z-index: 1300;
+  background: var(--card-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+  padding: 0.55rem 0.7rem;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+.sync-recent-days {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.9em;
+  padding-left: 1.65rem;
+  margin-top: 0.1rem;
+  color: var(--text-muted);
+}
+
+/* Number stepper: prominent −/+ controls flanking a number that reads as plain
+   text until focused. Native spinners hidden. See docs/design-language.md. */
+.number-stepper {
+  display: inline-flex;
+  align-items: stretch;
+  height: 1.85rem;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--card-bg);
+}
+.number-stepper__btn {
+  border: none;
+  background: var(--bg-subtle);
+  color: var(--accent);
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1;
+  width: 1.9rem;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.number-stepper__btn:hover:not(:disabled) { background: var(--accent); color: white; }
+.number-stepper__btn:disabled { opacity: 0.4; cursor: default; }
+.number-stepper input[type="number"] {
+  width: 2.7rem;
+  text-align: center;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.92rem;
+  font-weight: 600;
+  padding: 0;
+  outline: none;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.number-stepper input[type="number"]::-webkit-outer-spin-button,
+.number-stepper input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.number-stepper input[type="number"]:focus { background: var(--bg-subtle); }
 
 .sync-group { margin: 0.25rem 0 0.25rem 0.5rem; }
 .sync-group-head { display: flex; align-items: center; gap: 0.4rem; }

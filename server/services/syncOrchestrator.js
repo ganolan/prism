@@ -20,7 +20,7 @@ export function classifyMasteryError(err) {
 //   { type:'log', message }
 //   { type:'summary', schoology, mastery, elapsedMs, fatal? }
 export async function runUnifiedSync(
-  { masteryCourseIds = [], skipSchoology = false, includeHidden = false },
+  { masteryCourseIds = [], skipSchoology = false, includeHidden = false, recentOnly = false, recentDays = 30 },
   onEvent
 ) {
   const emit = (evt) => onEvent?.(evt);
@@ -33,7 +33,7 @@ export async function runUnifiedSync(
     try {
       const result = await fullSync(
         (progress) => emit({ type: 'log', message: progress.message }),
-        { includeHidden }
+        { includeHidden, recentOnly, recentDays }
       );
       summary.schoology = { records: result.records };
       emit({ phase: 'schoology', status: 'done', records: result.records });

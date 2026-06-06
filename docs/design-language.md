@@ -131,6 +131,38 @@ so they compose without clashing with the border.
   badge — an actionable "regrade me" signal, distinct from the teacher's
   Prism-local "Ask to resubmit" flag.
 
+### Help affordance — `.help-dot` + instant popover (first shared extraction)
+A stand-out circular **?** that reveals an **instant** popover on hover/focus —
+no native-`title` delay. First built inline as the gradebook `HelpDot`
+(`CoursePage.jsx`); now extracted to reusable `app.css` classes and used by the
+Sync dialog's recent-only control (June 2026).
+- **`.help-dot`** — 16px circle, `var(--accent-subtle)` fill, `1px solid
+  var(--accent)` border, accent **?**, `cursor: help`. Hover/focus → fills
+  `var(--accent)` with a white glyph, so it reads as interactive and stands out
+  enough to be noticed.
+- **`.help-pop`** — `position: fixed` box placed from the dot's
+  `getBoundingClientRect()` (fixed so a modal's `overflow` can't clip it);
+  `var(--card-bg)` + `1px solid var(--border)` + `0 8px 28px rgba(0,0,0,.18)`
+  shadow, `pointer-events: none`. Appears the instant the dot is hovered/focused.
+- **A11y:** the dot carries the full explanation as `aria-label` (screen readers
+  don't need the popover) and sits *outside* the `<label>` so clicking it never
+  toggles the control.
+- Follow-up: migrate the gradebook's inline `HelpDot`/popover onto these classes.
+
+### Number stepper — `.number-stepper` (`[−] N [+]`)
+A bounded integer input that reads as a *value*, not a form field, until edited.
+- One bordered pill wraps prominent filled **`.number-stepper__btn`** −/+ controls
+  (`var(--bg-subtle)`, accent glyph, ~1.9rem hit target; hover fills accent/white)
+  flanking a borderless, transparent, centred number.
+- Native `type=number` spinner arrows are hidden (`appearance: textfield` +
+  `::-webkit-*-spin-button`) so digits never clip; the number gains a
+  `var(--bg-subtle)` wash only on `:focus` — "plain text until you click it."
+
+### Opt-in toggle phrasing
+Scope-narrowing checkboxes in the same cluster share a verb for parallelism:
+`Include hidden courses` / `Include only recent submissions` — not a mix of
+"Include…" and "Only check…".
+
 ---
 
 ## Open questions (resolve in the brainstorm)
@@ -165,3 +197,8 @@ so they compose without clashing with the border.
 control band, the comment publish indicator, and the whole-class command bar.
 `client/src/app.css` — the semantic CSS variables and the existing `.badge` /
 button classes.
+
+**First reusable extractions (Phase 2 started, June 2026):** `.help-dot` /
+`.help-pop` and `.number-stepper` (component: `client/src/components/NumberStepper.jsx`)
+now live as shared classes in `client/src/app.css` — used by the Sync dialog.
+New UI should reuse these rather than re-inlining a help "?" or a number spinner.

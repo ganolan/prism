@@ -1,11 +1,16 @@
 import { useState, useMemo } from 'react';
 import { formatLastSynced } from '../lib/courseDisplay.js';
 import TriCheckbox from './TriCheckbox.jsx';
+import { getSyncPrefs, setSyncPrefs } from '../lib/syncPrefs.js';
+import NumberStepper from './NumberStepper.jsx';
 
 const GROUPS = [
   { key: 'visible',  label: 'Visible courses',  match: (c) => !c.hidden && !c.archived && !c.excluded },
   { key: 'hidden',   label: 'Hidden courses',   match: (c) => c.hidden && !c.archived && !c.excluded },
 ];
+
+const RECENT_HELP =
+  'Skips submission checks for assignments with no due date and those due more than the chosen number of days ago. Courses, students, assignments, grades and mastery still sync fully.';
 
 export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel, onLogin }) {
   const groups = useMemo(
@@ -23,6 +28,18 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
   const [collapsed, setCollapsed] = useState({ visible: false, hidden: true });
 
   const [includeHidden, setIncludeHidden] = useState(false);
+  const initialPrefs = useState(getSyncPrefs)[0];
+  const [recentOnly, setRecentOnly] = useState(initialPrefs.recentOnly);
+  const [recentDays, setRecentDays] = useState(initialPrefs.recentDays);
+  // Instant help popover for the recent-only "?" (mirrors the gradebook
+  // HelpDot/popover). Positioned fixed from the dot's rect so the modal's
+  // overflow can't clip it.
+  const [helpPos, setHelpPos] = useState(null);
+  const showHelp = (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setHelpPos({ left: r.left + r.width / 2, top: r.bottom + 8 });
+  };
+  const hideHelp = () => setHelpPos(null);
 
   const hiddenCount = useMemo(
     () => courses.filter((c) => c.hidden && !c.archived && !c.excluded).length,
@@ -64,6 +81,39 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
             />
             <span>Include hidden courses{hiddenCount > 0 ? ` (${hiddenCount})` : ''}</span>
           </label>
+          <div className="sync-toggle-row">
+            <label>
+              <input
+                type="checkbox"
+                checked={recentOnly}
+                onChange={(e) => setRecentOnly(e.target.checked)}
+              />
+              <span>Include only recent submissions</span>
+            </label>
+            <span
+              className="help-dot"
+              role="img"
+              tabIndex={0}
+              aria-label={RECENT_HELP}
+              onMouseEnter={showHelp}
+              onMouseLeave={hideHelp}
+              onFocus={showHelp}
+              onBlur={hideHelp}
+            >?</span>
+          </div>
+          {recentOnly && (
+            <div className="sync-recent-days">
+              <span>Due within</span>
+              <NumberStepper
+                value={recentDays}
+                onChange={setRecentDays}
+                min={1}
+                max={365}
+                aria-label="Day window"
+              />
+              <span>days</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -151,13 +201,22 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
           <button
             type="button"
             className="primary"
-            onClick={() => onStart([...selected], { includeHidden })}
+            onClick={() => {
+              setSyncPrefs({ recentOnly, recentDays });
+              onStart([...selected], { includeHidden, recentOnly, recentDays });
+            }}
             disabled={busy}
           >
             Start sync
           </button>
         </div>
       </div>
+
+      {helpPos && (
+        <div className="help-pop" role="tooltip" style={{ left: helpPos.left, top: helpPos.top }}>
+          {RECENT_HELP}
+        </div>
+      )}
     </div>
   );
 }

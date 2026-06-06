@@ -14,6 +14,7 @@ import {
   getSection,
 } from './schoology.js';
 import { runWithLimits } from './rateLimitedRunner.js';
+import { filterRecentAssignments } from './recentWindow.js';
 import { createSubmissionFetcher } from './graderSubmissions.js';
 import { getSyncConfig } from '../middleware/featureGate.js';
 import { syncMasteryForCourse, hasMasterySession } from './masterySync.js';
@@ -59,6 +60,8 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     submissionRatePerSec = 4,
     submissionAbandonAfter = 5,
     skipSubmissions = false,
+    recentOnly = false,
+    recentDays = 30,
   } = opts;
 
   const upsertStudent = db.prepare(`
@@ -209,9 +212,13 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   // courses (GHD is blind for inactive sections). An empty list makes the
   // submission phase a clean no-op (lookup fetch is guarded by .length, the
   // loop doesn't iterate, writeSubmissions([]) is a no-op).
-  const dropboxAssignments = skipSubmissions
+  const dropboxAll = skipSubmissions
     ? []
     : assignments.filter(a => a.allow_dropbox === '1' || a.allow_dropbox === 1);
+  // #55: when recentOnly, restrict the per-cell submission check to assignments
+  // due within recentDays or in the future; skip undated + clearly-old work.
+  const { target: dropboxAssignments, windowSkipped } =
+    filterRecentAssignments(dropboxAll, recentOnly, recentDays, now);
 
   // Best-effort: null when no session / fetch fails — sync then behaves exactly
   // as before (public revisions API only).
@@ -361,6 +368,7 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     submissionAbandoned,
     submissionAttempts,
     submissionSkipped,
+    windowSkipped,
     rateLimitHits,
     transientFailures,
   };
@@ -602,7 +610,7 @@ export async function backfillUnfinalizedArchived(db, now) {
   return courses.length;
 }
 
-export async function fullSync(onProgress, { includeHidden = false } = {}) {
+export async function fullSync(onProgress, { includeHidden = false, recentOnly = false, recentDays = 30 } = {}) {
   const db = getDb();
   const log = (msg) => onProgress?.({ message: msg });
   const now = new Date().toISOString();
@@ -625,6 +633,7 @@ export async function fullSync(onProgress, { includeHidden = false } = {}) {
     const metrics = {
       submission_calls: 0,
       submissions_skipped: 0, // #55: public calls skipped via the GHD pre-filter
+      window_skipped: 0, // #55: assignments skipped by the recent-only due-date window
       rate_limit_hits: 0,
       transient_failures: 0,
       retries_attempted: 0,
@@ -722,10 +731,13 @@ export async function fullSync(onProgress, { includeHidden = false } = {}) {
       log(`Syncing "${sec.course_title}"...`);
       const result = await syncSectionData(db, sectionId, courseRow.id, now, {
         ...syncConfig,
+        recentOnly,
+        recentDays,
         fetchSubmissionLookup: submissionFetcher ? (sid) => submissionFetcher.fetch(sid) : undefined,
       });
       metrics.submission_calls += result.submissionAttempts || 0;
       metrics.submissions_skipped += result.submissionSkipped || 0;
+      metrics.window_skipped += result.windowSkipped || 0;
       metrics.rate_limit_hits += result.rateLimitHits || 0;
       metrics.transient_failures += result.transientFailures || 0;
       if (result.submissionAbandoned) metrics.abandoned = 1;
@@ -782,6 +794,9 @@ export async function fullSync(onProgress, { includeHidden = false } = {}) {
     // uses the public API only). Close its browser now.
     if (submissionFetcher) { await submissionFetcher.close().catch(() => {}); submissionFetcher = null; }
     if (metrics.submissions_skipped > 0) log(`Skipped ${metrics.submissions_skipped} submission checks via gradebook pre-filter`);
+    if (metrics.window_skipped > 0) {
+      log(`Recent-only window skipped ${metrics.window_skipped} assignment${metrics.window_skipped === 1 ? '' : 's'} (undated or due > the chosen window).`);
+    }
 
     // Retry pass: one serial attempt for assignments that hit transient errors.
     // No rate limiter, no Retry-After honoring, no further retries on failure.

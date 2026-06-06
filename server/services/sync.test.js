@@ -731,6 +731,47 @@ describe('detectArchivedTransitions (#70)', () => {
   });
 });
 
+describe('syncSectionData — recent-only submission window (#55)', () => {
+  let db;
+  let courseId;
+  const NOW = '2026-06-06T00:00:00.000Z'; // 30-day cutoff = 2026-05-07
+
+  beforeEach(() => {
+    db = new Database(':memory:');
+    migrate(db);
+    courseId = db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-w', 'Window')`
+    ).run().lastInsertRowid;
+    getSectionEnrollments.mockReset();
+    getSectionAssignments.mockReset();
+    getSectionGrades.mockReset();
+    getSubmissionStatus.mockReset();
+    getSectionGrades.mockResolvedValue([]);
+    getSubmissionStatus.mockResolvedValue(null);
+    getSectionEnrollments.mockResolvedValue([
+      { id: '900001', uid: '700001', name_first: 'Ada', name_last: 'Lovelace', admin: '0' },
+      { id: '900002', uid: '700002', name_first: 'Alan', name_last: 'Turing', admin: '0' },
+    ]);
+    getSectionAssignments.mockResolvedValue([
+      { id: '5001', title: 'Recent',  published: 1, allow_dropbox: '1', due: '2026-06-01' },
+      { id: '5002', title: 'Old',     published: 1, allow_dropbox: '1', due: '2026-01-01' },
+      { id: '5003', title: 'Undated', published: 1, allow_dropbox: '1', due: null },
+    ]);
+  });
+
+  test('recentOnly skips old + undated dropbox assignments', async () => {
+    const result = await syncSectionData(db, 'sec-w', courseId, NOW, { recentOnly: true, recentDays: 30 });
+    expect(getSubmissionStatus).toHaveBeenCalledTimes(2); // 1 recent assignment × 2 students
+    expect(result.windowSkipped).toBe(2);
+  });
+
+  test('recentOnly off checks every dropbox assignment (unchanged)', async () => {
+    const result = await syncSectionData(db, 'sec-w', courseId, NOW, { recentOnly: false });
+    expect(getSubmissionStatus).toHaveBeenCalledTimes(6); // 3 assignments × 2 students
+    expect(result.windowSkipped).toBe(0);
+  });
+});
+
 describe('backfillUnfinalizedArchived (#70)', () => {
   let db;
   beforeEach(async () => {

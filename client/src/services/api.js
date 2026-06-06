@@ -61,13 +61,13 @@ export const getSyncMetrics = () => request('/sync/metrics');
 // Run the unified sync. Streams newline-delimited JSON progress events from the
 // server; each parsed event is passed to onEvent. Resolves when the stream ends.
 export async function runSync(
-  { masteryCourseIds = [], skipSchoology = false, includeHidden = false },
+  { masteryCourseIds = [], skipSchoology = false, includeHidden = false, recentOnly = false, recentDays = 30 },
   onEvent
 ) {
   const res = await fetch(`${BASE}/sync`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ masteryCourseIds, skipSchoology, includeHidden }),
+    body: JSON.stringify({ masteryCourseIds, skipSchoology, includeHidden, recentOnly, recentDays }),
   });
   if (res.status === 409) throw new Error('A sync is already running.');
   if (!res.ok) {

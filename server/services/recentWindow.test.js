@@ -29,6 +29,19 @@ describe('filterRecentAssignments', () => {
     const { target } = filterRecentAssignments(all, true, 365, NOW);
     expect(target.map((a) => a.id)).toEqual(['r', 'o', 'f']); // old now inside 365d
   });
+
+  it('treats an invalid now timestamp as pass-through (no silent data loss)', () => {
+    const { target, windowSkipped } = filterRecentAssignments(all, true, 30, null);
+    expect(target).toBe(all);
+    expect(windowSkipped).toBe(0);
+  });
+
+  it('keeps an assignment due exactly at the cutoff and drops one just before', () => {
+    const atCutoff = { id: 'c', due: '2026-05-07T00:00:00.000Z' };
+    const justBefore = { id: 'b', due: '2026-05-06T23:59:59.999Z' };
+    const { target } = filterRecentAssignments([atCutoff, justBefore], true, 30, NOW);
+    expect(target.map((a) => a.id)).toEqual(['c']);
+  });
 });
 
 describe('clampDays', () => {

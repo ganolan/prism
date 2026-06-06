@@ -25,8 +25,9 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
   const [collapsed, setCollapsed] = useState({ visible: false, hidden: true });
 
   const [includeHidden, setIncludeHidden] = useState(false);
-  const [recentOnly, setRecentOnly] = useState(() => getSyncPrefs().recentOnly);
-  const [recentDays, setRecentDays] = useState(() => getSyncPrefs().recentDays);
+  const initialPrefs = useState(getSyncPrefs)[0];
+  const [recentOnly, setRecentOnly] = useState(initialPrefs.recentOnly);
+  const [recentDays, setRecentDays] = useState(initialPrefs.recentDays);
 
   const hiddenCount = useMemo(
     () => courses.filter((c) => c.hidden && !c.archived && !c.excluded).length,
@@ -78,7 +79,8 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
             <span
               className="sync-help"
               role="img"
-              aria-label="What recent-only skips"
+              tabIndex={0}
+              aria-label="Recent-only skips submission checks for assignments with no due date and those due more than N days ago. Courses, students, assignments, grades and mastery still sync fully."
               title="Skips submission checks for assignments with no due date and those due more than N days ago. Courses, students, assignments, grades and mastery still sync fully."
             >?</span>
           </label>

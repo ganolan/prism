@@ -12,6 +12,8 @@ let syncInProgress = false;
 //   masteryCourseIds?: number[],
 //   skipSchoology?: boolean,
 //   includeHidden?: boolean,    // #56: opt in to syncing hidden courses
+//   recentOnly?: boolean,       // #55: skip submissions outside the day window
+//   recentDays?: number,        // #55: window size, clamped 1..365 (default 30)
 // }.
 // Note: if the client disconnects mid-stream the sync continues to completion
 // server-side; there is no cancellation on client disconnect.
@@ -33,7 +35,7 @@ router.post('/sync', async (req, res) => {
   const write = (evt) => res.write(JSON.stringify(evt) + '\n');
   try {
     await runUnifiedSync(
-      { masteryCourseIds, skipSchoology, includeHidden, recentOnly: !!recentOnly, recentDays: clampDays(recentDays) },
+      { masteryCourseIds, skipSchoology, includeHidden: !!includeHidden, recentOnly: !!recentOnly, recentDays: clampDays(recentDays) },
       write,
     );
   } catch (err) {

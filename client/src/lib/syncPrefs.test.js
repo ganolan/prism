@@ -12,6 +12,16 @@ describe('getSyncPrefs', () => {
     setSyncPrefs({ recentOnly: true, recentDays: 9999 });
     expect(getSyncPrefs()).toEqual({ recentOnly: true, recentDays: 365 });
   });
+
+  it('falls back to the default day window when the stored value is non-numeric', () => {
+    localStorage.setItem('prism:sync:recent-days', 'corrupt');
+    expect(getSyncPrefs().recentDays).toBe(30);
+  });
+
+  it('reads recentOnly false back from a stored "false"', () => {
+    setSyncPrefs({ recentOnly: false, recentDays: 30 });
+    expect(getSyncPrefs().recentOnly).toBe(false);
+  });
 });
 
 describe('setSyncPrefs', () => {

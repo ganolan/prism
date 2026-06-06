@@ -3,6 +3,7 @@ import { join, basename } from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { getDb } from '../db/index.js';
+import { resolveStudentId, resolveAssignmentId } from './idResolvers.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const INBOX_DIR = process.env.INBOX_DIR || join(__dirname, '..', '..', 'inbox');
@@ -31,25 +32,6 @@ function validate(data, filename) {
     errors.push('suggestions must be an array');
   }
   return errors;
-}
-
-function resolveStudentId(db, rawId) {
-  // Try as internal ID first, then schoology_uid, then powerschool_id
-  let row = db.prepare('SELECT id FROM students WHERE id = ?').get(rawId);
-  if (row) return row.id;
-  row = db.prepare('SELECT id FROM students WHERE schoology_uid = ?').get(String(rawId));
-  if (row) return row.id;
-  row = db.prepare('SELECT id FROM students WHERE powerschool_id = ?').get(String(rawId));
-  if (row) return row.id;
-  return null;
-}
-
-function resolveAssignmentId(db, rawId) {
-  let row = db.prepare('SELECT id FROM assignments WHERE id = ?').get(rawId);
-  if (row) return row.id;
-  row = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(rawId));
-  if (row) return row.id;
-  return null;
 }
 
 function importFeedbackRecord(db, data, filename) {

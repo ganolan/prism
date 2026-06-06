@@ -3,6 +3,7 @@ import { getDb } from '../db/index.js';
 import { hasMasterySession, syncMasteryForCourse, syncMasteryForAssignment, writeMasteryScores, writeMasteryScoresBatch, writeMasteryOverride, getMasteryForCourse, getRubricScoresForStudent, interactiveLogin } from '../services/masterySync.js';
 import { pushGradeComments, getSectionGrades } from '../services/schoology.js';
 import { isResubmitted } from '../lib/resubmission.js';
+import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows } from '../services/assessmentContext.js';
 
 const router = Router();
 const syncsInProgress = new Set();
@@ -372,66 +373,19 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
   const { courseId, assignmentId } = req.params;
   const db = getDb();
 
-  // Aligned topics for THIS assignment, sourced from the authoritative
-  // mastery_alignments table. Falls back to topics that have any score for
-  // this assignment if alignments haven't been synced yet — so a freshly
-  // aligned assignment with no grades still renders its rubric.
-  let topics = db.prepare(`
-    SELECT DISTINCT mt.*, rc.title AS category_title, rc.external_id AS category_external_id
-    FROM measurement_topics mt
-    JOIN reporting_categories rc ON rc.id = mt.category_id
-    WHERE mt.id IN (
-      SELECT ma.topic_id FROM mastery_alignments ma
-      WHERE ma.assignment_schoology_id = ? AND ma.course_id = ?
-    )
-    ORDER BY rc.external_id, mt.external_id
-  `).all(assignmentId, courseId);
-
-  if (topics.length === 0) {
-    topics = db.prepare(`
-      SELECT DISTINCT mt.*, rc.title AS category_title, rc.external_id AS category_external_id
-      FROM measurement_topics mt
-      JOIN reporting_categories rc ON rc.id = mt.category_id
-      WHERE mt.id IN (
-        SELECT DISTINCT ms.topic_id FROM mastery_scores ms
-        WHERE ms.assignment_schoology_id = ?
-      )
-      ORDER BY rc.external_id, mt.external_id
-    `).all(assignmentId);
-  }
+  // Aligned topics, roster (honoring #54 targeting), scores, and grade-meta are
+  // shared with PrisMCP via server/services/assessmentContext.js. The topics
+  // query falls back to scored topics when alignments haven't synced yet.
+  const topics = getAlignedTopics(db, courseId, assignmentId);
 
   const assignmentRow = db.prepare(`
     SELECT * FROM assignments WHERE schoology_assignment_id = ? AND course_id = ?
   `).get(assignmentId, courseId);
 
-  // Hide students an individually-targeted assignment isn't assigned to —
-  // matches the student-page rule (#54). assignmentRow is undefined for an
-  // unknown assignment id; treat that as "no targeting" so the roster still
-  // renders.
-  const targeted = assignmentRow && assignmentRow.num_assignees && assignmentRow.num_assignees > 0;
-  const students = db.prepare(targeted ? `
-    SELECT s.id, s.schoology_uid, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher,
-           s.picture_url,
-           e.schoology_enrolment_id AS enrollment_id
-    FROM students s
-    JOIN enrolments e ON e.student_id = s.id
-    JOIN assignment_assignees aa ON aa.schoology_uid = s.schoology_uid AND aa.assignment_id = ?
-    WHERE e.course_id = ?
-    ORDER BY s.last_name, s.first_name
-  ` : `
-    SELECT s.id, s.schoology_uid, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher,
-           s.picture_url,
-           e.schoology_enrolment_id AS enrollment_id
-    FROM students s
-    JOIN enrolments e ON e.student_id = s.id
-    WHERE e.course_id = ?
-    ORDER BY s.last_name, s.first_name
-  `).all(...(targeted ? [assignmentRow.id, courseId] : [courseId]));
-
-  const scores = topics.length > 0 ? db.prepare(`
-    SELECT * FROM mastery_scores WHERE assignment_schoology_id = ?
-    AND topic_id IN (${topics.map(() => '?').join(',')})
-  `).all(assignmentId, ...topics.map(t => t.id)) : [];
+  // getRoster hides students an individually-targeted assignment isn't assigned
+  // to (#54); an undefined assignmentRow (unknown id) is treated as open-to-all.
+  const students = getRoster(db, courseId, assignmentRow);
+  const scoreMap = getScoreMap(db, assignmentId, topics.map(t => t.id));
 
   // Grade comments + exception + comment_status from the regular grades table.
   // Exception (1=Excused, 2=Incomplete, 3=Missing, 4=Late) deletes any
@@ -440,14 +394,7 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
   // comment_status drives the Display-to-student toggle (#34): integer 1 = visible,
   // null/missing = hidden. has_grade_row distinguishes "synced and got null"
   // from "never synced" so the client can arm auto-flip only for virgin rows.
-  const gradeRows = db.prepare(`
-    SELECT s.schoology_uid, g.score, g.submitted_at, g.latest_revision_at, g.grade_comment, g.exception, g.comment_status
-    FROM grades g
-    JOIN students s ON s.id = g.student_id
-    JOIN assignments a ON a.id = g.assignment_id
-    WHERE a.schoology_assignment_id = ?
-  `).all(assignmentId);
-
+  const gradeRows = getGradeMetaRows(db, assignmentId);
   const commentMap = {};
   const exceptionMap = {};
   const commentStatusMap = {};
@@ -459,12 +406,6 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
     commentStatusMap[c.schoology_uid] = c.comment_status ?? null;
     hasGradeRowMap[c.schoology_uid] = true;
     resubmittedMap[c.schoology_uid] = isResubmitted(c);
-  }
-
-  const scoreMap = {};
-  for (const sc of scores) {
-    if (!scoreMap[sc.student_uid]) scoreMap[sc.student_uid] = {};
-    scoreMap[sc.student_uid][sc.topic_id] = { points: sc.points, grade: sc.grade };
   }
 
   // Submission-scoped 'review needed' flags for this assignment (#20).

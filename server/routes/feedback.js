@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { getDb } from '../db/index.js';
 import { processInbox, importSingleFeedback } from '../services/inbox.js';
+import { getExistingSuggestions } from '../services/assessmentContext.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -25,16 +26,7 @@ router.get('/for-assignment/:assignmentId', (req, res) => {
     'SELECT id FROM assignments WHERE schoology_assignment_id = ?'
   ).get(req.params.assignmentId);
   if (!assignment) return res.json({});
-  const rows = db.prepare(`
-    SELECT * FROM feedback
-    WHERE assignment_id = ? AND status IN ('draft', 'teacher_modified')
-  `).all(assignment.id);
-  const byStudent = {};
-  for (const row of rows) {
-    row.feedback_parsed = JSON.parse(row.feedback_json || '{}');
-    byStudent[row.student_id] = row;
-  }
-  res.json(byStudent);
+  res.json(getExistingSuggestions(db, assignment.id));
 });
 
 // GET /api/feedback/analysis/:assignmentId — the assessment_analysis record for

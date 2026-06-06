@@ -67,6 +67,31 @@ describe('PrisMCP server', () => {
     expect(ctx.students.map((s) => s.schoology_uid)).toEqual(['uid-1']);
   });
 
+  test('write_student_suggestions writes drafts and returns a per-student summary', async () => {
+    const db = getDb();
+    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s1', 'AIML')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO reporting_categories (id, course_id, external_id, title) VALUES ('cat-1', ?, 'ART.5', 'Creating')`).run(courseId);
+    db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES ('topic-1', 'cat-1', ?, 'ART.5.1', 'Generates media')`).run(courseId);
+    const assignmentLocalId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-1', 'Project')`).run(courseId).lastInsertRowid;
+    db.prepare(`INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id) VALUES ('sa-1', 'topic-1', ?)`).run(courseId);
+    db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-1', 'Ada', 'Lovelace')`).run();
+
+    const client = await connect();
+    const res = await client.callTool({
+      name: 'write_student_suggestions',
+      arguments: {
+        course_id: courseId,
+        assignment_id: 'sa-1',
+        students: [{ student: 'uid-1', narrative_feedback: 'Strong work', rubric_scores: { 'ART.5.1': 'Exhibiting' } }],
+      },
+    });
+    const body = JSON.parse(res.content[0].text);
+    expect(body.results[0]).toMatchObject({ student: 'uid-1', status: 'written' });
+    const row = db.prepare('SELECT status, feedback_json FROM feedback WHERE assignment_id = ?').get(assignmentLocalId);
+    expect(row.status).toBe('draft');
+    expect(JSON.parse(row.feedback_json).rubric_scores).toEqual({ 'ART.5.1': 'EX' });
+  });
+
   test('advertises the tool-search instructions to the client', async () => {
     const client = await connect();
     expect(client.getInstructions()).toBe(INSTRUCTIONS);

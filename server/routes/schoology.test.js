@@ -108,3 +108,45 @@ describe('POST /api/sync', () => {
     }
   });
 });
+
+describe('POST /api/sync — recent-only params (#55)', () => {
+  let captured;
+  beforeEach(() => {
+    captured = null;
+    h.impl = async (opts, onEvent) => {
+      captured = opts;
+      onEvent({ type: 'summary', schoology: null, mastery: [], elapsedMs: 1 });
+    };
+  });
+
+  async function post(body) {
+    const { server, port } = startServer();
+    try {
+      const res = await fetch(`http://localhost:${port}/api/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      await res.text(); // drain the ndjson stream
+    } finally {
+      server.close();
+    }
+  }
+
+  test('defaults to recentOnly false / 30 days when omitted', async () => {
+    await post({ masteryCourseIds: [] });
+    expect(captured.recentOnly).toBe(false);
+    expect(captured.recentDays).toBe(30);
+  });
+
+  test('passes through recentOnly and clamps recentDays into 1..365', async () => {
+    await post({ recentOnly: true, recentDays: 9999 });
+    expect(captured.recentOnly).toBe(true);
+    expect(captured.recentDays).toBe(365);
+  });
+
+  test('coerces a non-numeric recentDays to the default', async () => {
+    await post({ recentOnly: true, recentDays: 'abc' });
+    expect(captured.recentDays).toBe(30);
+  });
+});

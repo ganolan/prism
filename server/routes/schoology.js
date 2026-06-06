@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
 import { runUnifiedSync } from '../services/syncOrchestrator.js';
+import { clampDays } from '../services/recentWindow.js';
 
 const router = Router();
 
@@ -24,12 +25,17 @@ router.post('/sync', async (req, res) => {
     masteryCourseIds = [],
     skipSchoology = false,
     includeHidden = false,
+    recentOnly = false,
+    recentDays = 30,
   } = req.body || {};
   res.set('Content-Type', 'application/x-ndjson');
   res.flushHeaders();
   const write = (evt) => res.write(JSON.stringify(evt) + '\n');
   try {
-    await runUnifiedSync({ masteryCourseIds, skipSchoology, includeHidden }, write);
+    await runUnifiedSync(
+      { masteryCourseIds, skipSchoology, includeHidden, recentOnly: !!recentOnly, recentDays: clampDays(recentDays) },
+      write,
+    );
   } catch (err) {
     console.error('[sync] Error:', err);
     write({ type: 'error', message: err.message });

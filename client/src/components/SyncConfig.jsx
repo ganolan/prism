@@ -1,6 +1,8 @@
 import { useState, useMemo } from 'react';
 import { formatLastSynced } from '../lib/courseDisplay.js';
 import TriCheckbox from './TriCheckbox.jsx';
+import { getSyncPrefs, setSyncPrefs } from '../lib/syncPrefs.js';
+import NumberStepper from './NumberStepper.jsx';
 
 const GROUPS = [
   { key: 'visible',  label: 'Visible courses',  match: (c) => !c.hidden && !c.archived && !c.excluded },
@@ -23,6 +25,8 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
   const [collapsed, setCollapsed] = useState({ visible: false, hidden: true });
 
   const [includeHidden, setIncludeHidden] = useState(false);
+  const [recentOnly, setRecentOnly] = useState(() => getSyncPrefs().recentOnly);
+  const [recentDays, setRecentDays] = useState(() => getSyncPrefs().recentDays);
 
   const hiddenCount = useMemo(
     () => courses.filter((c) => c.hidden && !c.archived && !c.excluded).length,
@@ -64,6 +68,33 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
             />
             <span>Include hidden courses{hiddenCount > 0 ? ` (${hiddenCount})` : ''}</span>
           </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={recentOnly}
+              onChange={(e) => setRecentOnly(e.target.checked)}
+            />
+            <span>Only check recent submissions</span>
+            <span
+              className="sync-help"
+              role="img"
+              aria-label="What recent-only skips"
+              title="Skips submission checks for assignments with no due date and those due more than N days ago. Courses, students, assignments, grades and mastery still sync fully."
+            >?</span>
+          </label>
+          {recentOnly && (
+            <div className="sync-recent-days">
+              <span>Due within</span>
+              <NumberStepper
+                value={recentDays}
+                onChange={setRecentDays}
+                min={1}
+                max={365}
+                aria-label="Day window"
+              />
+              <span>days</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -151,7 +182,10 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
           <button
             type="button"
             className="primary"
-            onClick={() => onStart([...selected], { includeHidden })}
+            onClick={() => {
+              setSyncPrefs({ recentOnly, recentDays });
+              onStart([...selected], { includeHidden, recentOnly, recentDays });
+            }}
             disabled={busy}
           >
             Start sync

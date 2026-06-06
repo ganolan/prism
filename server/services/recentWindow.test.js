@@ -52,6 +52,8 @@ describe('clampDays', () => {
     expect(clampDays(12.9)).toBe(12);
     expect(clampDays('abc')).toBe(30);
     expect(clampDays(undefined)).toBe(30);
+    expect(clampDays(null)).toBe(30);
+    expect(clampDays('')).toBe(30);
     expect(clampDays(50, 7)).toBe(50);
   });
 });

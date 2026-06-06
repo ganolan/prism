@@ -26,6 +26,7 @@ export function filterRecentAssignments(assignments, recentOnly, recentDays, now
 // non-finite values (NaN, ±Infinity, non-numbers) fall back to `fallback`.
 // Shared by the route (trust boundary) and syncSectionData.
 export function clampDays(value, fallback = 30) {
+  if (value == null || value === '') return fallback;
   const n = Math.floor(Number(value));
   if (!Number.isFinite(n)) return fallback;
   return Math.min(365, Math.max(1, n));

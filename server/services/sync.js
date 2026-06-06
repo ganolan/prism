@@ -633,6 +633,7 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
     const metrics = {
       submission_calls: 0,
       submissions_skipped: 0, // #55: public calls skipped via the GHD pre-filter
+      window_skipped: 0, // #55: assignments skipped by the recent-only due-date window
       rate_limit_hits: 0,
       transient_failures: 0,
       retries_attempted: 0,
@@ -736,6 +737,7 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
       });
       metrics.submission_calls += result.submissionAttempts || 0;
       metrics.submissions_skipped += result.submissionSkipped || 0;
+      metrics.window_skipped += result.windowSkipped || 0;
       metrics.rate_limit_hits += result.rateLimitHits || 0;
       metrics.transient_failures += result.transientFailures || 0;
       if (result.submissionAbandoned) metrics.abandoned = 1;
@@ -792,6 +794,9 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
     // uses the public API only). Close its browser now.
     if (submissionFetcher) { await submissionFetcher.close().catch(() => {}); submissionFetcher = null; }
     if (metrics.submissions_skipped > 0) log(`Skipped ${metrics.submissions_skipped} submission checks via gradebook pre-filter`);
+    if (metrics.window_skipped > 0) {
+      log(`Recent-only window skipped ${metrics.window_skipped} assignment${metrics.window_skipped === 1 ? '' : 's'} (undated or due > the chosen window).`);
+    }
 
     // Retry pass: one serial attempt for assignments that hit transient errors.
     // No rate limiter, no Retry-After honoring, no further retries on failure.

@@ -149,4 +149,9 @@ describe('POST /api/sync — recent-only params (#55)', () => {
     await post({ recentOnly: true, recentDays: 'abc' });
     expect(captured.recentDays).toBe(30);
   });
+
+  test('defaults an explicit null recentDays to 30', async () => {
+    await post({ recentOnly: true, recentDays: null });
+    expect(captured.recentDays).toBe(30);
+  });
 });

@@ -36,4 +36,22 @@ describe('NumberStepper', () => {
     fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '12' } });
     expect(onChange).toHaveBeenLastCalledWith(12);
   });
+
+  it('selects the current value on focus for quick replacement', () => {
+    setup(30);
+    const input = screen.getByRole('spinbutton');
+    const selectSpy = vi.spyOn(input, 'select');
+    fireEvent.focus(input);
+    expect(selectSpy).toHaveBeenCalled();
+  });
+
+  it('reverts to the previous value when cleared and blurred', () => {
+    const { onChange } = setup(30);
+    const input = screen.getByRole('spinbutton');
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.blur(input);
+    expect(input).toHaveValue(30);            // reverted to the committed value
+    expect(onChange).not.toHaveBeenCalledWith(0); // clearing never commits a bad value
+  });
 });

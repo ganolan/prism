@@ -231,7 +231,9 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   // Best-effort: null when no session / fetch fails — sync then behaves exactly
   // as before (public revisions API only).
   let submissionLookup = null;
-  if (typeof opts.fetchSubmissionLookup === 'function' && dropboxAssignments.length) {
+  // #62: the GHD lookup is only consumed by the native-dropbox per-cell loop
+  // below, so skip the per-section fetch when a section has only lti work.
+  if (typeof opts.fetchSubmissionLookup === 'function' && nativeDropboxAssignments.length) {
     try { submissionLookup = await opts.fetchSubmissionLookup(sectionId); } catch { submissionLookup = null; }
   }
 

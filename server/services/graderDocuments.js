@@ -25,7 +25,10 @@ export async function fetchAssignmentSubmissionState(context, assignmentId) {
       if (r.status !== 200) return null;
       try { return JSON.parse(await r.text()); } catch { return null; }
     }, `${SCHOOLOGY_BASE}/iapi2/assignments/${assignmentId}/${path}/`);
-    const [submitted, inProgress] = await Promise.all([get('submitted-documents'), get('in-progress-documents')]);
+    // Sequential, NOT Promise.all: two concurrent page.evaluate() calls on the
+    // same page race, and the in-progress fetch can silently drop (#62 e2e).
+    const submitted = await get('submitted-documents');
+    const inProgress = await get('in-progress-documents');
     if (submitted == null && inProgress == null) return null;
     return buildSubmissionStateMap(submitted, inProgress);
   } catch {

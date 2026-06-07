@@ -1,4 +1,5 @@
 import OAuth from 'oauth-1.0a';
+import { summarizeRevisions } from '../lib/submissionRevisions.js';
 
 const BASE = process.env.SCHOOLOGY_BASE_URL;
 const API = `${BASE}/v1`;
@@ -130,25 +131,31 @@ export async function getSectionCompletion(sectionId) {
   return data?.completion || [];
 }
 
-// Returns the latest revision (highest revision_id) or null if none.
-// For lti_submission (OneDrive/GDrive) assignments, a revision with draft=1
-// indicates the student opened the linked doc and has work in progress but
-// has not submitted. An empty array means either "never opened" or — for
-// OneDrive submitted state — "submitted" (the public API does not expose
-// post-submit revisions for OneDrive); use grade row presence to disambiguate.
-// The returned object also carries latestRevisionAt: the `created` time of the
-// latest non-draft revision (0 if none) — the baseline for #49 resubmit detection.
+// Bulk submission fetch (#55): ALL students' revisions for one assignment in a
+// single call — `{ revision: [{ revision_id, uid, created, num_items, late,
+// draft }], total, links }`. Follows links.next (Schoology pages this at ~20).
+// Native dropbox only — the public revisions API is blind to post-submit LTI
+// (those use the #62 document endpoints). Group the result with
+// groupRevisionsByUid to recover the per-student summary.
+export async function getAssignmentSubmissions(sectionId, assignmentId) {
+  let url = `/sections/${sectionId}/submissions/${assignmentId}?limit=100`;
+  const all = [];
+  // Safety cap: Schoology rosters are ~20; this guards a malformed links.next.
+  for (let page = 0; url && page < 100; page++) {
+    const data = await apiGet(url);
+    const revs = data?.revision || [];
+    all.push(...revs);
+    url = data?.links?.next || null;
+  }
+  return all;
+}
+
+// Returns the per-student revision summary { ...latestRevision, latestRevisionAt }
+// or null. latestRevisionAt is the newest non-draft `created` (the #49 resubmit
+// baseline). Shares summarizeRevisions with the bulk #55 path.
 export async function getSubmissionStatus(sectionId, assignmentId, userId) {
   const data = await apiGet(`/sections/${sectionId}/submissions/${assignmentId}/${userId}`);
-  const revisions = data?.revision || [];
-  if (!revisions.length) return null;
-  const latest = revisions.reduce((m, r) => (r.revision_id > m.revision_id ? r : m));
-  // Baseline for resubmission detection (#49): newest *non-draft* revision time.
-  // A draft revision is not a submission and must not seed the baseline.
-  const latestRevisionAt = revisions
-    .filter(r => Number(r.draft) !== 1)
-    .reduce((m, r) => Math.max(m, Number(r.created) || 0), 0);
-  return { ...latest, latestRevisionAt };
+  return summarizeRevisions(data?.revision || []);
 }
 
 export async function pushGradeComments(sectionId, gradeUpdates) {

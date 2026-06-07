@@ -53,3 +53,40 @@ describe('getSectionFolders', () => {
     expect(calls[0]).toMatch(/limit=100/);
   });
 });
+
+describe('getAssignmentSubmissions (bulk #55)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  test('returns the flat revision[] for one assignment in one call', async () => {
+    const { getAssignmentSubmissions } = await import('./schoology.js');
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      revision: [
+        { revision_id: 1, uid: '701', created: 1000, late: 0, draft: 0 },
+        { revision_id: 1, uid: '702', created: 2000, late: 1, draft: 0 },
+      ],
+      total: 2,
+    })));
+    const revs = await getAssignmentSubmissions('sec-1', 'A1');
+    expect(revs).toHaveLength(2);
+    expect(revs.map(r => r.uid).sort()).toEqual(['701', '702']);
+  });
+
+  test('follows links.next pagination and concatenates every page', async () => {
+    const { getAssignmentSubmissions } = await import('./schoology.js');
+    const page1 = {
+      revision: Array.from({ length: 20 }, (_, i) => ({ revision_id: 1, uid: String(i), created: 1, late: 0, draft: 0 })),
+      links: { next: 'https://api.schoology.com/v1/sections/sec-1/submissions/A1?start=20&limit=20' },
+    };
+    const page2 = {
+      revision: [{ revision_id: 1, uid: '99', created: 1, late: 0, draft: 0 }],
+    };
+    const calls = [];
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      calls.push(url);
+      return jsonResponse(url.includes('start=20') ? page2 : page1);
+    }));
+    const revs = await getAssignmentSubmissions('sec-1', 'A1');
+    expect(revs).toHaveLength(21);
+    expect(calls.some(u => u.includes('start=20'))).toBe(true);
+  });
+});

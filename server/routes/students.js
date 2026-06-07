@@ -43,9 +43,9 @@ router.get('/:id', (req, res) => {
   const grades = db.prepare(`
     SELECT
       g.id, g.score, g.max_score, g.grade_comment, g.comment_status,
-      g.exception, g.late, g.draft, g.submitted_at, g.latest_revision_at, g.submission_type,
+      g.exception, g.late, g.draft, g.submitted_at, g.latest_revision_at, g.submission_type, g.lti_submission_state,
       a.id as assignment_id,
-      a.title as assignment_title, a.due_date, a.max_points as assignment_max_points,
+      a.title as assignment_title, a.due_date, a.is_lti_submission, a.max_points as assignment_max_points,
       a.grading_scale_id, a.display_weight, a.schoology_assignment_id,
       c.course_name, c.id as course_id,
       CASE WHEN g.id IS NOT NULL THEN 1 ELSE 0 END as has_grade_row

@@ -1,5 +1,21 @@
 import { describe, test, expect } from 'vitest';
-import { summarizeRevisions, groupRevisionsByUid } from './submissionRevisions.js';
+import { summarizeRevisions, groupRevisionsByUid, deriveNativeSubmission } from './submissionRevisions.js';
+
+describe('deriveNativeSubmission', () => {
+  test('null summary → null (caller clears the cell)', () => {
+    expect(deriveNativeSubmission(null)).toBeNull();
+  });
+
+  test('non-draft revision → submitted: submission_type "drop" + late/draft/timing', () => {
+    const d = deriveNativeSubmission({ late: 1, draft: 0, latestRevisionAt: 2000 });
+    expect(d).toEqual({ late: 1, draft: 0, latestRevisionAt: 2000, submissionType: 'drop' });
+  });
+
+  test('draft-only revision (latestRevisionAt 0) → in progress: submission_type null, draft 1', () => {
+    const d = deriveNativeSubmission({ late: 0, draft: 1, latestRevisionAt: 0 });
+    expect(d).toEqual({ late: 0, draft: 1, latestRevisionAt: 0, submissionType: null });
+  });
+});
 
 describe('summarizeRevisions', () => {
   test('empty / non-array → null', () => {

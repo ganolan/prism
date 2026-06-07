@@ -16,6 +16,24 @@ export function summarizeRevisions(revisions) {
   return { ...latest, latestRevisionAt };
 }
 
+// Derive the native-dropbox grade columns from a per-student revision summary.
+// #55 cleanup (drop GHD): native dropbox is a file drop, so a non-draft revision
+// (latestRevisionAt > 0) means "submitted" and its type is always 'drop' — we
+// synthesize it from the bulk revision instead of the (removed) GHD lookup.
+// A draft-only summary (latestRevisionAt 0) is in-progress → submission_type null.
+// Returns null for no summary (caller clears the cell). late/draft come from the
+// latest revision; latestRevisionAt is the newest non-draft `created` (#49 timing).
+export function deriveNativeSubmission(summary) {
+  if (!summary) return null;
+  const latestRevisionAt = summary.latestRevisionAt || 0;
+  return {
+    late: summary.late ? 1 : 0,
+    draft: summary.draft ? 1 : 0,
+    latestRevisionAt,
+    submissionType: latestRevisionAt > 0 ? 'drop' : null,
+  };
+}
+
 // Group a flat revision array (the bulk GET /submissions/{aid} response) by uid,
 // summarizing each student's revisions. Returns Map<string uid, summary>.
 export function groupRevisionsByUid(revisions) {

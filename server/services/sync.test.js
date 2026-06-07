@@ -20,9 +20,10 @@ vi.mock('./schoology.js', () => ({
 }));
 
 // fullSync calls createSubmissionFetcher(), which would launch a headless
-// browser. Mock it to a no-op (returns null → public-API-only behavior), so
-// the suite never touches Playwright. syncSectionData GHD wiring is tested
-// directly below by injecting opts.fetchSubmissionLookup.
+// browser. Mock it to a no-op (returns null → public-bulk-only behavior), so
+// the suite never touches Playwright. The native submission path is tested
+// directly below by mocking getAssignmentSubmissions; the lti document path by
+// injecting opts.fetchDocuments.
 vi.mock('./graderSubmissions.js', () => ({
   createSubmissionFetcher: vi.fn().mockResolvedValue(null),
 }));
@@ -272,15 +273,9 @@ describe('retrySubmissions (#55)', () => {
   });
 });
 
-describe('syncSectionData — internal-gradebook submission state (#62/#55)', () => {
+describe('syncSectionData — submission state: native bulk + lti documents (#55/#62)', () => {
   let db;
   let courseId;
-
-  // Minimal stand-in for buildSubmissionLookup()'s return value — only .get()
-  // is consumed by syncSectionData. `cells` maps "uid:assignmentId" → cell.
-  function fakeLookup(cells) {
-    return { get: (uid, aid) => cells[`${uid}:${aid}`] };
-  }
 
   beforeEach(() => {
     db = new Database(':memory:');
@@ -291,10 +286,8 @@ describe('syncSectionData — internal-gradebook submission state (#62/#55)', ()
     getSectionEnrollments.mockReset();
     getSectionAssignments.mockReset();
     getSectionGrades.mockReset();
-    getSubmissionStatus.mockReset();
     getAssignmentSubmissions.mockReset();
     getSectionGrades.mockResolvedValue([]);
-    getSubmissionStatus.mockResolvedValue(null); // public API blind to OneDrive
     getAssignmentSubmissions.mockResolvedValue([]);
   });
 
@@ -307,11 +300,9 @@ describe('syncSectionData — internal-gradebook submission state (#62/#55)', ()
     `).get(assignmentExtId, uid);
   }
 
-  test('lti_submission assignment is excluded from the per-cell GHD walk (#62) — fetchDocuments path owns it', async () => {
-    // lti_submission assignments now go through the fetchDocuments path, NOT the
-    // per-cell GHD/public-API walk. With only fetchSubmissionLookup provided (no
-    // fetchDocuments), the lti pass is a no-op — the public revisions API is never
-    // called and submissionSkipped stays 0.
+  test('lti_submission assignment is excluded from the native bulk walk (#62) — fetchDocuments owns it', async () => {
+    // lti work goes through the fetchDocuments path, not the native bulk fetch.
+    // Without fetchDocuments the lti pass is a no-op and the bulk endpoint is never hit.
     getSectionEnrollments.mockResolvedValue([
       { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
     ]);
@@ -319,43 +310,14 @@ describe('syncSectionData — internal-gradebook submission state (#62/#55)', ()
       { id: 'L1', title: 'OneDrive Essay', published: 1, allow_dropbox: '1', assignment_type: 'lti_submission' },
     ]);
 
-    const result = await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
-      fetchSubmissionLookup: async () => fakeLookup({ '701:L1': { submitted: true, submissionType: 'drop' } }),
-    });
+    await syncSectionData(db, 'sec-G', courseId, new Date().toISOString());
 
-    // lti assignments are excluded from nativeDropboxAssignments, so neither the
-    // per-cell GHD lookup nor the public revisions API is invoked.
-    expect(getSubmissionStatus).not.toHaveBeenCalled();
     expect(getAssignmentSubmissions).not.toHaveBeenCalled();
-    expect(result.submissionSkipped).toBe(0);
     // Without fetchDocuments, no lti_submission_state row is written.
     expect(getGradeRow('701', 'L1')).toBeUndefined();
   });
 
-  test('lti_submission assignment is excluded from per-cell walk even for "not submitted" GHD (#55/#62)', async () => {
-    // Previously the GHD "not submitted" path skipped the public call and reported
-    // submissionSkipped. Now lti assignments bypass the per-cell loop entirely.
-    getSectionEnrollments.mockResolvedValue([
-      { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
-    ]);
-    getSectionAssignments.mockResolvedValue([
-      { id: 'L1', title: 'OneDrive Essay', published: 1, allow_dropbox: '1', assignment_type: 'lti_submission' },
-    ]);
-
-    const result = await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
-      fetchSubmissionLookup: async () => fakeLookup({ '701:L1': { submitted: false, submissionType: null } }),
-    });
-
-    expect(getSubmissionStatus).not.toHaveBeenCalled();
-    expect(getAssignmentSubmissions).not.toHaveBeenCalled();
-    expect(result.submissionSkipped).toBe(0);
-    // No row written — lti pass is no-op without fetchDocuments.
-    expect(getGradeRow('701', 'L1')).toBeUndefined();
-  });
-
   test('fetchDocuments upgrades an existing graded row with lti_submission_state, preserving score', async () => {
-    // Previously tested via GHD + submission_type. Now lti state is written by
-    // the fetchDocuments pass into lti_submission_state; score must not be clobbered.
     getSectionEnrollments.mockResolvedValue([
       { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
     ]);
@@ -376,7 +338,7 @@ describe('syncSectionData — internal-gradebook submission state (#62/#55)', ()
     expect(row.lti_submission_state).toBe('submitted');  // state written
   });
 
-  test('GHD-uncovered native cell uses the bulk revision and leaves submission_type null', async () => {
+  test('native cell with a non-draft revision → submission_type "drop" + late/timing (synthesized from bulk, #55)', async () => {
     getSectionEnrollments.mockResolvedValue([
       { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
     ]);
@@ -384,42 +346,53 @@ describe('syncSectionData — internal-gradebook submission state (#62/#55)', ()
       { id: 'N1', title: 'Native dropbox', published: 1, allow_dropbox: '1' },
     ]);
     getAssignmentSubmissions.mockResolvedValue([
-      { revision_id: 1, uid: '701', created: 2000, late: 1, draft: 0 },
+      { revision_id: 2, uid: '701', created: 3000, late: 1, draft: 0 },
     ]);
 
-    const result = await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
-      fetchSubmissionLookup: async () => fakeLookup({}), // uncovered
-    });
+    await syncSectionData(db, 'sec-G', courseId, new Date().toISOString());
 
     expect(getAssignmentSubmissions).toHaveBeenCalledWith('sec-G', 'N1');
     const row = getGradeRow('701', 'N1');
+    expect(row.submission_type).toBe('drop');     // synthesized, no GHD needed
     expect(row.late).toBe(1);
-    expect(row.submission_type).toBeNull();
-    expect(result.submissionSkipped).toBe(0);
+    expect(row.latest_revision_at).toBe(3000);
+    expect(row.score).toBeNull();                 // submitted-but-ungraded row inserted
   });
 
-  test('GHD-submitted native cell writes submission_type from GHD + late/timing from the bulk revision', async () => {
+  test('native cell with only a draft revision → in progress: submission_type null, draft 1', async () => {
     getSectionEnrollments.mockResolvedValue([
       { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
     ]);
     getSectionAssignments.mockResolvedValue([
-      { id: 'N2', title: 'Native dropbox', published: 1, allow_dropbox: '1' },
+      { id: 'N1', title: 'Native dropbox', published: 1, allow_dropbox: '1' },
     ]);
     getAssignmentSubmissions.mockResolvedValue([
-      { revision_id: 2, uid: '701', created: 3000, late: 0, draft: 0 },
+      { revision_id: 1, uid: '701', created: 1000, late: 0, draft: 1 },
     ]);
 
-    await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
-      fetchSubmissionLookup: async () => fakeLookup({ '701:N2': { submitted: true, submissionType: 'drop' } }),
-    });
+    await syncSectionData(db, 'sec-G', courseId, new Date().toISOString());
 
-    const row = getGradeRow('701', 'N2');
-    expect(row.submission_type).toBe('drop');
-    expect(row.late).toBe(0);
-    expect(row.latest_revision_at).toBe(3000);
+    const row = getGradeRow('701', 'N1');
+    expect(row.draft).toBe(1);
+    expect(row.submission_type).toBeNull();
+    expect(row.latest_revision_at).toBe(0);
   });
 
-  test('#62: lti assignment writes lti_submission_state via fetchDocuments and skips the per-cell walk', async () => {
+  test('native cell with no revision → no engagement: no row inserted', async () => {
+    getSectionEnrollments.mockResolvedValue([
+      { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
+    ]);
+    getSectionAssignments.mockResolvedValue([
+      { id: 'N1', title: 'Native dropbox', published: 1, allow_dropbox: '1' },
+    ]);
+    getAssignmentSubmissions.mockResolvedValue([]); // nobody submitted
+
+    await syncSectionData(db, 'sec-G', courseId, new Date().toISOString());
+
+    expect(getGradeRow('701', 'N1')).toBeUndefined();
+  });
+
+  test('#62: lti assignment writes lti_submission_state via fetchDocuments and skips the native bulk walk', async () => {
     getSectionEnrollments.mockResolvedValue([
       { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
       { id: '802', uid: '702', name_first: 'Bo', name_last: 'M', admin: '0' },
@@ -433,10 +406,7 @@ describe('syncSectionData — internal-gradebook submission state (#62/#55)', ()
       fetchDocuments: async (aid) => { docCalls.push(aid); return new Map([['701', 'submitted'], ['702', 'not_started']]); },
     });
 
-    // The per-assignment documents path is used; the per-cell public walk is NOT
-    // used for lti work (L1 is excluded from nativeDropboxAssignments).
     expect(docCalls).toEqual(['L1']);
-    expect(getSubmissionStatus).not.toHaveBeenCalled();
     expect(getAssignmentSubmissions).not.toHaveBeenCalled();
     expect(getGradeRow('701', 'L1').lti_submission_state).toBe('submitted');
     // A not_started cell inserts a row so the state reaches the gradebook.
@@ -474,7 +444,6 @@ describe('syncSectionData — skipSubmissions opt (#72)', () => {
     expect(getAssignmentSubmissions).not.toHaveBeenCalled();
     expect(result.submissionCount).toBe(0);
     expect(result.submissionAttempts).toBe(0);
-    expect(result.submissionSkipped).toBe(0);
     expect(result.failedAssignmentIds).toEqual([]);
   });
 

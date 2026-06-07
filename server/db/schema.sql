@@ -95,7 +95,9 @@ CREATE TABLE IF NOT EXISTS grades (
   -- #62: submission existence + type from the internal gradebook
   -- (grader_header_data). NULL = no positive submission signal / outside the
   -- returned grading period; "drop" = file dropbox (OneDrive/GDrive/upload);
-  -- "assessment" = Schoology assessment. Non-NULL ⇒ the badge shows "Submitted".
+  -- "assessment" = Schoology assessment. For NON-lti work non-NULL ⇒ "Submitted";
+  -- for lti_submission work the authoritative state is grades.lti_submission_state
+  -- (migration-added) — submission_type is only a corroborating GHD fallback.
   submission_type TEXT,
   synced_at TEXT,
   UNIQUE(student_id, assignment_id)

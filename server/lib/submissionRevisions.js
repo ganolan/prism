@@ -1,6 +1,9 @@
-// Pure helpers for Schoology submission revisions. Shared by the per-student
-// getSubmissionStatus and the bulk #55 native-dropbox path so both derive the
-// exact same per-student summary.
+// Pure helpers for Schoology submission revisions.
+// summarizeRevisions / groupRevisionsByUid power the bulk native-dropbox path
+// (#55); deriveNativeSubmission synthesizes submission_type from the summary
+// (#55 GHD cleanup). getSubmissionStatus (schoology.js) reuses summarizeRevisions
+// and remains as a per-student utility (used by scripts/parity-bulk-submissions.js),
+// though it is no longer called from the sync flow.
 
 // Reduce a student's revision array to { ...latestRevision, latestRevisionAt }.
 // latest = highest revision_id; latestRevisionAt = newest NON-draft `created`

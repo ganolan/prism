@@ -19,6 +19,7 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { buildSubmissionLookup } from '../lib/parseGraderHeaderData.js';
 import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
+import { fetchAssignmentSubmissionState } from './graderDocuments.js';
 
 const STATE_FILE = join(process.cwd(), '.playwright-session', 'storage-state.json');
 
@@ -83,6 +84,10 @@ export async function createSubmissionFetcher() {
       } finally {
         await page.close().catch(() => {});
       }
+    },
+    async fetchDocuments(assignmentId) {
+      if (sessionDead) return null;
+      return fetchAssignmentSubmissionState(context, assignmentId);
     },
     async close() {
       if (browser) await browser.close().catch(() => {});

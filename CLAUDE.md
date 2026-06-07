@@ -62,6 +62,7 @@ npm run test:api   # Schoology API smoke test
 - **Page wrapper:** Add `className="fade-in"` to the top-level div of each page for entry animation.
 - **Sidebar width:** 240px (set in CSS), content margin-left matches.
 - **Adding new themes:** Add a `[data-theme="name"]` block in `app.css` with all CSS variables, add the theme key to `themes` in `useTheme.jsx`. No component changes needed.
+- **Date formatting (UK/AU):** Render dates as `toLocaleDateString('en-GB')` → DD/MM/YYYY, never US M/D/YYYY (the user is Australian; Prism runs at HKIS). Formatting is currently scattered (`client/src/lib/courseDisplay.js` `formatLastSynced` uses `en-GB`; `CoursePage.jsx` still uses `en-US` for time-of-day). A configurable app-wide locale (one `config.yaml` setting + a single shared `formatDate()` helper all dates funnel through) is a deferred follow-up — scope that refactor if asked to "make dates configurable".
 - **Design language & decisions:** `docs/design-language.md` is the running log of Prism's visual patterns and the rationale behind UI decisions (tracked by #80). Reuse the shared primitives documented there — e.g. `.help-dot` + `.help-pop` (the instant help-"?" popover) and `.number-stepper` — instead of re-inlining them. **Whenever you make a notable UI/visual decision, append it to that doc** so the language can later be unified.
 
 ## Key References
@@ -79,6 +80,21 @@ npm run test:api   # Schoology API smoke test
 - Schema uses `CREATE TABLE IF NOT EXISTS` for safe idempotent creation via `getDb()`.
 - The school uses standards-based grading with measurement topics from PowerSchool. Per-topic ratings are NOT available via Schoology API — see `.claude/schoology-api-reference.md` for full details.
 - Phase 5 (Schoology write-back) is on hold pending a safe testing strategy.
+- **Prefer real automated tests over manual-only verification.** The user invests in durable test infra (server + client Vitest; client uses React Testing Library) even for small fixes — don't default to "skip tests, it's a small change." New backend logic → a `*.test.js` beside it; frontend → client tests. For API-shape changes, a live parity probe (`scripts/parity-*.js`) diffing old-vs-new against real data is the verification of choice (it has caught real bugs spikes missed).
+- **Permission autonomy — "wildcards within reason."** Broad dev wildcards (`node:*`, `npm run:*`, `gh issue:*`, project-scoped `Write`/`Edit`) are acceptable to keep friction low; still favour a fixed-capability helper script for the bulk of a repeated workflow where one fits naturally (e.g. `scripts/inspect.js`, the probe scripts). Avoid clearly catastrophic patterns (`rm -rf` of broad paths, `git push --force`); keep `curl`/`wget` localhost-only (network-exfiltration vector). Universal read-only command families live in user-level `~/.claude/settings.json`; project-specific grants in `.claude/settings.json` (committed) or `.claude/settings.local.json` (gitignored). Proactively offer to allow-list a safe read-only command that prompts repeatedly.
+
+## API Spikes & Probes
+
+Read `.claude/api-exploration-playbook.md` first — a spike is a *lower bound*, not a conclusion (if a probe didn't find data the UI shows, the wrong surface was tested). Operational gotchas that have silently produced false results:
+
+- **Run Playwright/probe scripts from the repo root, never `/tmp`** — elsewhere they can't resolve the repo's `node_modules` (`ERR_MODULE_NOT_FOUND` on `import 'playwright'`). Keep probes under `scripts/`.
+- **No `timeout` binary on macOS** — use the Bash tool's own `timeout` parameter, not `timeout 300 node …` (which no-ops).
+- **Confirm session liveness with one cheap authenticated request, not the cookie-expiry timestamp.** The Schoology Drupal session (and the PowerSchool session) can be valid server-side long after the Microsoft SSO cookies in `.playwright-session/storage-state.json` show "expired". Login only refreshes SSO.
+- **PowerSchool LTI launch:** the LTI run-URL form does NOT auto-submit under `page.goto` — call `document.forms[0].submit()`, then poll for the `powerschool.hkis.edu.hk` origin. The embedded PS iframe **detaches mid-loop**, so do an independent `page.goto` per request for multi-read sweeps (a shared-frame loop failed 5/6; per-nav got 6/6).
+- **`/ws/pt/v1/...` content negotiation:** always send `Accept: application/json` — without it these PowerSchool endpoints 500 ("no message body writer", a header quirk, not "broken"); with it you get the real status.
+- **Resolve ids before probing** — a 404 on a `null`/guessed id is not a missing route. Pull ids from a live session JSON (roster / LTI launch form), not a throwaway script whose `apiGet` returned `null` because `.env` wasn't loaded.
+- **Never document a response shape you didn't observe in tool output.** Fabricated shapes have been committed + posted publicly before; a documented shape must trace to a specific probe result. Re-read the actual JSON before each api-ref edit. (Pairs with "Preserve verified API intel" above.)
+- **Discovery method ranking:** driving the real page and capturing its XHRs is most reliable; grepping the cross-origin React/Angular bundles (`asset-cdn.schoology.com`, the PS attendance app bundle) for `/iapi(2)/` / `/ws/` literals is a strong second — then live-probe each literal.
 
 ## Agent skills
 

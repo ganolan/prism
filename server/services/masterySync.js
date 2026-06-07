@@ -24,7 +24,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { getDb } from '../db/index.js';
 import { getSectionGrades } from './schoology.js';
-import { groupObservationsByTopic } from '../lib/masteryObservations.js';
+import { groupObservationsByTopic, normalizeObservation } from '../lib/masteryObservations.js';
 
 const SCHOOLOGY_BASE = 'https://schoology.hkis.edu.hk';
 const GRADING_SCALE_ID = 21337256; // HKIS General Academic Scale
@@ -334,7 +334,10 @@ export async function syncMasteryForCourse(courseId, { onProgress, allowInteract
         section_id: Number(sectionId),
         objective_ids: allTopics.map(t => t.id).join(','),
       });
-      const allObs = obsResp.data || [];
+      // The POST shape differs from the per-topic GET (gradeable_material.material.id
+      // + string points) — normalize each row to the GET shape so the persist step
+      // (which reads gradeable_material.material_id + numeric points) is unchanged.
+      const allObs = (obsResp.data || []).map(normalizeObservation);
       observationsByTopic = groupObservationsByTopic(allObs, allTopics.map(t => t.id));
       for (const obs of allObs) {
         const mid = obs.gradeable_material?.material_id;

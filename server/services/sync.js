@@ -14,7 +14,7 @@ import {
   getSection,
 } from './schoology.js';
 import { filterRecentAssignments } from './recentWindow.js';
-import { groupRevisionsByUid } from '../lib/submissionRevisions.js';
+import { groupRevisionsByUid, deriveNativeSubmission } from '../lib/submissionRevisions.js';
 import { createSubmissionFetcher } from './graderSubmissions.js';
 import { getSyncConfig } from '../middleware/featureGate.js';
 import { syncMasteryForCourse, hasMasterySession } from './masterySync.js';
@@ -194,67 +194,34 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   });
   writeGrades(grades);
 
-  // Submission status sync: authoritative late/draft from
-  // /sections/{id}/submissions/{aid}/{uid}. Only runs for assignments with a
-  // dropbox; saves API calls on assignments students can't submit to.
-  // For OneDrive/GDrive (lti_submission), a revision with draft=1 means
-  // "opened, work in progress, not submitted" — exactly the state we want
-  // to surface in the UI. Empty revision array means either never-opened or
-  // already-submitted (indistinguishable from this endpoint for OneDrive).
-  //
-  // #62/#55: the internal gradebook (grader_header_data) closes that gap. When
-  // a browser-session lookup is available (injected via opts.fetchSubmissionLookup),
-  // each (student, assignment) cell it covers is one of:
-  //   • submitted → record submission_type ("drop"/"assessment"); still call the
-  //     public API for late/draft/timing it does not carry (#62).
-  //   • not submitted (bare cell) → SKIP the rate-limited public call entirely (#55)
-  //     and clear status + type.
-  //   • not covered (e.g. outside the grading period grader_header_data returns)
-  //     → fall back to the public API and leave submission_type untouched.
-  // #72: archived finalisation freezes submission state — the per-cell loop is
-  // the wall-time dominator and yields nothing useful for immutable archived
-  // courses (GHD is blind for inactive sections). An empty list makes the
-  // submission phase a clean no-op (lookup fetch is guarded by .length, the
-  // loop doesn't iterate, writeSubmissions([]) is a no-op).
+  // Submission status sync (native dropbox): authoritative late/draft/timing from
+  // ONE bulk GET /sections/{id}/submissions/{aid} per assignment (#55), grouped by
+  // uid. A non-draft revision means the student submitted a file → submission_type
+  // "drop" (synthesized from the revision; native dropbox is always a file drop).
+  // A draft-only revision is "opened, in progress, not submitted". No revision =
+  // no engagement → the cell is cleared (never inserted). The public revisions API
+  // is authoritative for native dropbox, so no browser-session/grader lookup is
+  // needed here (lti_submission is the blind case — handled separately below via
+  // the per-assignment document endpoints, #62).
+  // #72: archived finalisation freezes submission state — an empty list makes this
+  // phase a clean no-op (the loop doesn't iterate, writeSubmissions([]) is a no-op).
   const dropboxAll = skipSubmissions
     ? []
     : assignments.filter(a => a.allow_dropbox === '1' || a.allow_dropbox === 1);
-  // #55: when recentOnly, restrict the per-cell submission check to assignments
-  // due within recentDays or in the future; skip undated + clearly-old work.
+  // #55: when recentOnly, restrict the submission check to assignments due within
+  // recentDays or in the future; skip undated + clearly-old work.
   const { target: dropboxAssignments, windowSkipped } =
     filterRecentAssignments(dropboxAll, recentOnly, recentDays, now);
 
   // #62: lti_submission assignments use the per-assignment document endpoints
-  // (true state, whole roster in 2 calls); native dropbox keeps the per-cell
-  // public revisions walk below.
+  // (true state, whole roster in 2 calls); native dropbox uses the bulk
+  // submissions endpoint below.
   const ltiAssignments = dropboxAssignments.filter(a => a.assignment_type === 'lti_submission');
   const nativeDropboxAssignments = dropboxAssignments.filter(a => a.assignment_type !== 'lti_submission');
 
-  // Best-effort: null when no session / fetch fails — sync then behaves exactly
-  // as before (public revisions API only).
-  let submissionLookup = null;
-  // #62: the GHD lookup is only consumed by the native-dropbox per-cell loop
-  // below, so skip the per-section fetch when a section has only lti work.
-  if (typeof opts.fetchSubmissionLookup === 'function' && nativeDropboxAssignments.length) {
-    try { submissionLookup = await opts.fetchSubmissionLookup(sectionId); } catch { submissionLookup = null; }
-  }
-
-  const upsertSubmissionStatus = db.prepare(`
-    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, exception, late, draft, latest_revision_at, synced_at)
-    VALUES (?, ?, ?, NULL, ?, 0, ?, ?, ?, ?)
-    ON CONFLICT(student_id, assignment_id) DO UPDATE SET
-      late = excluded.late,
-      draft = excluded.draft,
-      latest_revision_at = excluded.latest_revision_at,
-      synced_at = excluded.synced_at
-  `);
-  const clearSubmissionStatus = db.prepare(`
-    UPDATE grades SET late = 0, draft = 0, latest_revision_at = 0, synced_at = ?
-    WHERE student_id = ? AND assignment_id = ?
-  `);
-  // #62: GHD says submitted. Upsert (insert the row if missing, so a
-  // submitted-but-ungraded OneDrive cell still surfaces) with submission_type.
-  const upsertSubmittedWithType = db.prepare(`
+  // Upsert native submission state (insert the row if missing so a submitted-but-
+  // ungraded cell still surfaces) — late/draft/timing + submission_type.
+  const upsertSubmissionWithType = db.prepare(`
     INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, exception, late, draft, latest_revision_at, submission_type, synced_at)
     VALUES (?, ?, ?, NULL, ?, 0, ?, ?, ?, ?, ?)
     ON CONFLICT(student_id, assignment_id) DO UPDATE SET
@@ -264,8 +231,8 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
       submission_type = excluded.submission_type,
       synced_at = excluded.synced_at
   `);
-  // #62: GHD says not submitted. UPDATE-only (never insert) so a never-touched
-  // cell keeps "no engagement" (no grades row / has_grade_row = 0); clears type.
+  // No revision → not submitted. UPDATE-only (never insert) so a never-touched
+  // cell keeps "no engagement" (no grades row); clears status + type.
   const clearSubmissionWithType = db.prepare(`
     UPDATE grades SET late = 0, draft = 0, latest_revision_at = 0, submission_type = NULL, synced_at = ?
     WHERE student_id = ? AND assignment_id = ?
@@ -282,7 +249,6 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   // #55: counts bulk fetches (one per native-dropbox assignment), not the old
   // per-(student) call count — fed into sync_metrics.submission_calls.
   let submissionAttempts = 0;
-  let submissionSkipped = 0; // #55: public calls skipped via the GHD pre-filter
 
   for (const a of nativeDropboxAssignments) {
     if (failedAssignmentIds.length >= submissionAbandonAfter) {
@@ -314,28 +280,12 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
       .filter((c) => c.studentRow);
 
     for (const { e, studentRow } of cells) {
-      const ghd = submissionLookup ? submissionLookup.get(String(e.uid), String(a.id)) : undefined;
-      // #55 pre-filter parity: GHD definitively says "not submitted" → record a
-      // cleared cell exactly as before (do not consult the bulk revision).
-      if (ghd && !ghd.submitted) {
-        submissionSkipped++;
-        acceptedResults.push({
-          studentId: studentRow.id,
-          assignmentId: assignRow.id,
-          enrolmentId: String(e.id),
-          maxPoints: assignRow.max_points ?? null,
-          revision: null,
-          ghd: { resolved: true, submitted: false, type: null },
-        });
-        continue;
-      }
       acceptedResults.push({
         studentId: studentRow.id,
         assignmentId: assignRow.id,
         enrolmentId: String(e.id),
         maxPoints: assignRow.max_points ?? null,
-        revision: byUid.get(String(e.uid)) || null,
-        ghd: ghd ? { resolved: true, submitted: true, type: ghd.submissionType } : { resolved: false },
+        summary: byUid.get(String(e.uid)) || null,
       });
     }
   }
@@ -343,32 +293,18 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   let submissionCount = 0;
   const writeSubmissions = db.transaction((rows) => {
     for (const r of rows) {
-      const g = r.ghd || { resolved: false };
-      const late = r.revision && r.revision.late ? 1 : 0;
-      const draft = r.revision && r.revision.draft ? 1 : 0;
-      const latestRevisionAt = (r.revision && r.revision.latestRevisionAt) || 0;
-      if (g.resolved && g.submitted) {
-        // #62: GHD reports a submission (incl. OneDrive/GDrive ungraded, where
-        // the public revisions API is blind). Persist the type + any late/draft/
-        // timing the public call also returned.
-        upsertSubmittedWithType.run(
+      // Bulk revisions are authoritative for native dropbox (#55): a non-draft
+      // revision → submitted (submission_type "drop"); a draft-only revision →
+      // in progress; no revision → cleared (no engagement).
+      const d = deriveNativeSubmission(r.summary);
+      if (d) {
+        upsertSubmissionWithType.run(
           r.studentId, r.assignmentId, r.enrolmentId, r.maxPoints,
-          late, draft, latestRevisionAt, g.type, now,
-        );
-        submissionCount++;
-      } else if (g.resolved && !g.submitted) {
-        // #55: GHD says not submitted — clear status + type (UPDATE-only).
-        clearSubmissionWithType.run(now, r.studentId, r.assignmentId);
-      } else if (r.revision) {
-        // GHD not covering this cell; public API has a revision → prior behavior
-        // (do not touch submission_type).
-        upsertSubmissionStatus.run(
-          r.studentId, r.assignmentId, r.enrolmentId, r.maxPoints,
-          late, draft, latestRevisionAt, now,
+          d.late, d.draft, d.latestRevisionAt, d.submissionType, now,
         );
         submissionCount++;
       } else {
-        clearSubmissionStatus.run(now, r.studentId, r.assignmentId);
+        clearSubmissionWithType.run(now, r.studentId, r.assignmentId);
       }
     }
   });
@@ -413,7 +349,6 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     failedAssignmentIds,
     submissionAbandoned,
     submissionAttempts,
-    submissionSkipped,
     windowSkipped,
     rateLimitHits,
     transientFailures,
@@ -430,17 +365,19 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
 export async function retrySubmissions(db, failedEntries, now, metrics) {
   const stillFailing = [];
 
-  const upsertSubmissionStatus = db.prepare(`
-    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, exception, late, draft, latest_revision_at, synced_at)
-    VALUES (?, ?, ?, NULL, ?, 0, ?, ?, ?, ?)
+  // Mirror the main native path: synthesize submission_type from the revision.
+  const upsertSubmissionWithType = db.prepare(`
+    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, exception, late, draft, latest_revision_at, submission_type, synced_at)
+    VALUES (?, ?, ?, NULL, ?, 0, ?, ?, ?, ?, ?)
     ON CONFLICT(student_id, assignment_id) DO UPDATE SET
       late = excluded.late,
       draft = excluded.draft,
       latest_revision_at = excluded.latest_revision_at,
+      submission_type = excluded.submission_type,
       synced_at = excluded.synced_at
   `);
-  const clearSubmissionStatus = db.prepare(`
-    UPDATE grades SET late = 0, draft = 0, latest_revision_at = 0, synced_at = ?
+  const clearSubmissionWithType = db.prepare(`
+    UPDATE grades SET late = 0, draft = 0, latest_revision_at = 0, submission_type = NULL, synced_at = ?
     WHERE student_id = ? AND assignment_id = ?
   `);
   const selectStudentByUid = db.prepare('SELECT id FROM students WHERE schoology_uid = ?');
@@ -479,24 +416,21 @@ export async function retrySubmissions(db, failedEntries, now, metrics) {
           assignmentId: assignRow.id,
           enrolmentId: String(e.id),
           maxPoints: assignRow.max_points ?? null,
-          revision: byUid.get(String(e.uid)) || null,
+          summary: byUid.get(String(e.uid)) || null,
         });
       }
 
       if (cellResults.length > 0) {
         const writeRetry = db.transaction((rows) => {
           for (const r of rows) {
-            if (r.revision) {
-              upsertSubmissionStatus.run(
-                r.studentId, r.assignmentId, r.enrolmentId,
-                r.maxPoints,
-                r.revision.late ? 1 : 0,
-                r.revision.draft ? 1 : 0,
-                r.revision.latestRevisionAt || 0,
-                now,
+            const d = deriveNativeSubmission(r.summary);
+            if (d) {
+              upsertSubmissionWithType.run(
+                r.studentId, r.assignmentId, r.enrolmentId, r.maxPoints,
+                d.late, d.draft, d.latestRevisionAt, d.submissionType, now,
               );
             } else {
-              clearSubmissionStatus.run(now, r.studentId, r.assignmentId);
+              clearSubmissionWithType.run(now, r.studentId, r.assignmentId);
             }
           }
         });
@@ -663,7 +597,7 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
   const syncId = syncRow.lastInsertRowid;
 
   // Declared outside the try so the finally-style cleanup below can always
-  // close the browser the GHD fetcher holds, even on error.
+  // close the browser the document fetcher holds, even on error.
   let submissionFetcher = null;
 
   try {
@@ -673,7 +607,6 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
     const startedAt = Date.now();
     const metrics = {
       submission_calls: 0,
-      submissions_skipped: 0, // #55: public calls skipped via the GHD pre-filter
       window_skipped: 0, // #55: assignments skipped by the recent-only due-date window
       rate_limit_hits: 0,
       transient_failures: 0,
@@ -686,9 +619,10 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
     };
     const userId = await getMyUserId();
 
-    // #62/#55: best-effort browser-session reader for internal-gradebook
-    // submission state, reused across all sections. null when no saved session —
-    // the per-section sync then falls back to the public revisions API alone.
+    // #62: best-effort browser-session reader for lti_submission document state
+    // (the submitted/in-progress per-assignment endpoints), reused across all
+    // sections. null when no saved session — lti badges then fall back gracefully.
+    // Native dropbox no longer needs a session (public bulk revisions, #55).
     try { submissionFetcher = await createSubmissionFetcher(); } catch { submissionFetcher = null; }
 
     log('Fetching course sections...');
@@ -774,11 +708,9 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
         ...syncConfig,
         recentOnly,
         recentDays,
-        fetchSubmissionLookup: submissionFetcher ? (sid) => submissionFetcher.fetch(sid) : undefined,
         fetchDocuments: submissionFetcher ? (aid) => submissionFetcher.fetchDocuments(aid) : undefined,
       });
       metrics.submission_calls += result.submissionAttempts || 0;
-      metrics.submissions_skipped += result.submissionSkipped || 0;
       metrics.window_skipped += result.windowSkipped || 0;
       metrics.rate_limit_hits += result.rateLimitHits || 0;
       metrics.transient_failures += result.transientFailures || 0;
@@ -832,10 +764,9 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
 
     }
 
-    // GHD reader is only needed during the section loop above (the retry pass
-    // uses the public API only). Close its browser now.
+    // The document fetcher (lti state) is only needed during the section loop
+    // above (the retry pass uses the public API only). Close its browser now.
     if (submissionFetcher) { await submissionFetcher.close().catch(() => {}); submissionFetcher = null; }
-    if (metrics.submissions_skipped > 0) log(`Skipped ${metrics.submissions_skipped} submission checks via gradebook pre-filter`);
     if (metrics.window_skipped > 0) {
       log(`Recent-only window skipped ${metrics.window_skipped} assignment${metrics.window_skipped === 1 ? '' : 's'} (undated or due > the chosen window).`);
     }

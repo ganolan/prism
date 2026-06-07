@@ -436,3 +436,23 @@ Schoology data — which caught two real shape bugs before merge (see below).
   shape corrections. **Related spikes filed:** #107 (capture all submission-file refs on-demand;
   bulk-latest drops non-latest files) + an LTI "Open" file-link finding (Schoology MS/Google LTI submission
   app → 302 → SharePoint/OneDrive `Doc.aspx?sourcedoc={GUID}`; per-student launch id needs one more capture).
+
+## GHD pre-filter cleanup — native submission path is now fully public-bulk (2026-06-08, branch `feat/drop-ghd-prefilter`)
+
+Follow-up to the #55 bulk-submissions win. The grader_header_data (GHD) per-cell
+**pre-filter** existed to skip expensive per-(student) submission calls for
+not-submitted native-dropbox cells; once #55 made native dropbox ONE bulk fetch
+per assignment, it saved zero calls and only supplied `submission_type`.
+
+- `submission_type` is now **synthesized from the bulk revision** (`deriveNativeSubmission`
+  in `server/lib/submissionRevisions.js`: a non-draft revision → `"drop"`, draft-only → null).
+- The native write collapses to 2 branches (has-revision → upsert with type; none → clear),
+  in both `syncSectionData` and `retrySubmissions` (retry now also carries `submission_type`).
+- `fullSync` stops passing `fetchSubmissionLookup`; `submissions_skipped` metric removed.
+- `graderSubmissions.js` slimmed to `fetchDocuments` (lti) only; **deleted** the dead
+  `server/lib/parseGraderHeaderData.js` + `buildSubmissionLookup`. GHD is no longer read by Prism.
+- Intended behavior change: `submission_type` now covers all grading periods (GHD was
+  current-period only), and the public bulk revisions endpoint is authoritative for native.
+  Live-verified on MAD: 4 bulk fetches (no browser session), 24/24 submitted cells →
+  `submission_type 'drop'`, 0 mismatches vs the bulk-derived expectation.
+- Net ~215 lines removed; 220 server tests green. api-ref GHD row marked NO-LONGER-USED.

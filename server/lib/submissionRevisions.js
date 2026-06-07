@@ -1,6 +1,9 @@
-// Pure helpers for Schoology submission revisions. Shared by the per-student
-// getSubmissionStatus and the bulk #55 native-dropbox path so both derive the
-// exact same per-student summary.
+// Pure helpers for Schoology submission revisions.
+// summarizeRevisions / groupRevisionsByUid power the bulk native-dropbox path
+// (#55); deriveNativeSubmission synthesizes submission_type from the summary
+// (#55 GHD cleanup). getSubmissionStatus (schoology.js) reuses summarizeRevisions
+// and remains as a per-student utility (used by scripts/parity-bulk-submissions.js),
+// though it is no longer called from the sync flow.
 
 // Reduce a student's revision array to { ...latestRevision, latestRevisionAt }.
 // latest = highest revision_id; latestRevisionAt = newest NON-draft `created`
@@ -14,6 +17,24 @@ export function summarizeRevisions(revisions) {
     .filter(r => Number(r.draft) !== 1)
     .reduce((m, r) => Math.max(m, Number(r.created) || 0), 0);
   return { ...latest, latestRevisionAt };
+}
+
+// Derive the native-dropbox grade columns from a per-student revision summary.
+// #55 cleanup (drop GHD): native dropbox is a file drop, so a non-draft revision
+// (latestRevisionAt > 0) means "submitted" and its type is always 'drop' — we
+// synthesize it from the bulk revision instead of the (removed) GHD lookup.
+// A draft-only summary (latestRevisionAt 0) is in-progress → submission_type null.
+// Returns null for no summary (caller clears the cell). late/draft come from the
+// latest revision; latestRevisionAt is the newest non-draft `created` (#49 timing).
+export function deriveNativeSubmission(summary) {
+  if (!summary) return null;
+  const latestRevisionAt = summary.latestRevisionAt || 0;
+  return {
+    late: summary.late ? 1 : 0,
+    draft: summary.draft ? 1 : 0,
+    latestRevisionAt,
+    submissionType: latestRevisionAt > 0 ? 'drop' : null,
+  };
 }
 
 // Group a flat revision array (the bulk GET /submissions/{aid} response) by uid,

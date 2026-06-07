@@ -104,3 +104,67 @@ describe('getAssignmentSubmissions (bulk #55)', () => {
     expect(calls.some(u => u.includes('start=20'))).toBe(true);
   });
 });
+
+describe('getUserProfilesBatch (POST /multiget #105)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  function multigetResponse(uids) {
+    const body = JSON.stringify({
+      response: uids.map(u => ({
+        location: `/v1/users/${u}`, response_code: 200,
+        body: { uid: String(u), primary_email: `u${u}@x.com`, parents: { parent: [] } },
+      })),
+    });
+    return { ok: true, status: 207, headers: { get: () => null }, text: async () => body, json: async () => JSON.parse(body) };
+  }
+
+  test('bundles uids into a /multiget POST and maps results by uid', async () => {
+    const { getUserProfilesBatch } = await import('./schoology.js');
+    const calls = [];
+    vi.stubGlobal('fetch', vi.fn(async (url, opts) => {
+      calls.push({ url, body: JSON.parse(opts.body) });
+      return multigetResponse(['701', '702']);
+    }));
+    const map = await getUserProfilesBatch(['701', '702']);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toMatch(/\/v1\/multiget$/);
+    expect(calls[0].body).toEqual({ request: ['/v1/users/701', '/v1/users/702'] });
+    expect(map.get('701').primary_email).toBe('u701@x.com');
+    expect(map.get('702')).toBeTruthy();
+  });
+
+  test('chunks at 50 requests per call', async () => {
+    const { getUserProfilesBatch } = await import('./schoology.js');
+    const uids = Array.from({ length: 120 }, (_, i) => String(i));
+    let posts = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url, opts) => {
+      posts++;
+      const chunk = JSON.parse(opts.body).request.map(p => p.split('/').pop());
+      return multigetResponse(chunk);
+    }));
+    const map = await getUserProfilesBatch(uids);
+    expect(posts).toBe(3);        // ceil(120/50)
+    expect(map.size).toBe(120);
+  });
+
+  test('skips per-entry non-200 response_codes', async () => {
+    const { getUserProfilesBatch } = await import('./schoology.js');
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true, status: 207, headers: { get: () => null },
+      text: async () => JSON.stringify({ response: [
+        { location: '/v1/users/701', response_code: 200, body: { uid: '701', primary_email: 'a@x.com' } },
+        { location: '/v1/users/702', response_code: 404, body: null },
+      ] }),
+    })));
+    const map = await getUserProfilesBatch(['701', '702']);
+    expect(map.has('701')).toBe(true);
+    expect(map.has('702')).toBe(false);
+  });
+
+  test('a failed chunk POST does not throw — those uids are simply absent', async () => {
+    const { getUserProfilesBatch } = await import('./schoology.js');
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network'); }));
+    const map = await getUserProfilesBatch(['701']);
+    expect(map.size).toBe(0);
+  });
+});

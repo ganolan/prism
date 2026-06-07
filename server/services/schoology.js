@@ -55,6 +55,20 @@ async function apiPut(path, body) {
   return { status: res.status, data };
 }
 
+async function apiPost(path, body) {
+  const url = `${API}${path}`;
+  const authHeader = oauth.toHeader(oauth.authorize({ url, method: 'POST' }, token));
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { ...authHeader, 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = text; }
+  return { status: res.status, data };
+}
+
 // Paginate through a Schoology list endpoint
 async function paginateGet(path, listKey) {
   let all = [];
@@ -107,6 +121,35 @@ export async function getSectionGradingPeriods(sectionId) {
 
 export async function getUserProfile(uid) {
   return apiGet(`/users/${uid}`);
+}
+
+// Batched profile fetch (#105): POST /v1/multiget bundles up to ~50 per-user
+// reads into one HTTP call. Each bundled `body` is the COMPLETE /users/{uid}
+// object (primary_email + parents.parent[]). Paths MUST carry the /v1 prefix.
+// Best-effort: a failed chunk (network/429) yields no entries for that chunk —
+// those students are absent from the map and the caller preserves them.
+// Returns Map<string uid, profile>.
+const MULTIGET_CHUNK = 50;
+export async function getUserProfilesBatch(uids) {
+  const out = new Map();
+  for (let i = 0; i < uids.length; i += MULTIGET_CHUNK) {
+    const chunk = uids.slice(i, i + MULTIGET_CHUNK);
+    let data;
+    try {
+      ({ data } = await apiPost('/multiget', { request: chunk.map(u => `/v1/users/${u}`) }));
+    } catch {
+      continue; // network error — preserve these students (caller skips them)
+    }
+    for (const entry of (data?.response || [])) {
+      const code = Number(entry.response_code);
+      if (code && code !== 200) continue;
+      const body = entry.body;
+      if (!body) continue;
+      const uid = String(body.uid || body.id || '');
+      if (uid) out.set(uid, body);
+    }
+  }
+  return out;
 }
 
 export async function getSectionFolders(sectionId) {
@@ -170,4 +213,4 @@ export async function pushGradeComments(sectionId, gradeUpdates) {
   });
 }
 
-export { apiGet, apiPut };
+export { apiGet, apiPut, apiPost };

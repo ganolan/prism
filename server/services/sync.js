@@ -11,10 +11,11 @@ import {
   getSectionGradingScales,
   getUserProfile,
   getSubmissionStatus,
+  getAssignmentSubmissions,
   getSection,
 } from './schoology.js';
-import { runWithLimits } from './rateLimitedRunner.js';
 import { filterRecentAssignments } from './recentWindow.js';
+import { groupRevisionsByUid } from '../lib/submissionRevisions.js';
 import { createSubmissionFetcher } from './graderSubmissions.js';
 import { getSyncConfig } from '../middleware/featureGate.js';
 import { syncMasteryForCourse, hasMasterySession } from './masterySync.js';
@@ -56,6 +57,8 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   const studentEnrollments = enrollments.filter(e => e.admin !== '1' && e.admin !== 1);
 
   const {
+    // submissionConcurrency/submissionRatePerSec retained for config compat; the
+    // #55 bulk path no longer rate-limits per cell.
     submissionConcurrency = 2,
     submissionRatePerSec = 4,
     submissionAbandonAfter = 5,
@@ -288,51 +291,52 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     const assignRow = selectAssignmentByExt.get(String(a.id));
     if (!assignRow) continue;
 
-    const cells = studentEnrollments
-      .map((e) => ({ e, studentRow: selectStudentByUid.get(String(e.uid)) }))
-      .filter((c) => c.studentRow);
-
-    let assignmentResults;
+    // #55: ONE bulk fetch per assignment (was O(students) per-cell calls).
+    // Per-assignment atomicity: a transient error discards this assignment and
+    // continues; non-transient aborts the sync (unchanged contract).
+    let revisions;
     try {
-      assignmentResults = await runWithLimits(
-        cells,
-        async ({ e, studentRow }) => {
-          const ghd = submissionLookup ? submissionLookup.get(String(e.uid), String(a.id)) : undefined;
-          // #55 pre-filter: GHD definitively says "not submitted" → skip the
-          // rate-limited public revisions call entirely.
-          if (ghd && !ghd.submitted) {
-            submissionSkipped++;
-            return {
-              studentId: studentRow.id,
-              assignmentId: assignRow.id,
-              enrolmentId: String(e.id),
-              maxPoints: assignRow.max_points ?? null,
-              revision: null,
-              ghd: { resolved: true, submitted: false, type: null },
-            };
-          }
-          submissionAttempts++;
-          const revision = await getSubmissionStatus(sectionId, String(a.id), String(e.uid));
-          return {
-            studentId: studentRow.id,
-            assignmentId: assignRow.id,
-            enrolmentId: String(e.id),
-            maxPoints: assignRow.max_points ?? null,
-            revision,
-            ghd: ghd ? { resolved: true, submitted: true, type: ghd.submissionType } : { resolved: false },
-          };
-        },
-        { concurrency: submissionConcurrency, ratePerSec: submissionRatePerSec },
-      );
+      revisions = await getAssignmentSubmissions(sectionId, String(a.id));
+      submissionAttempts++;
     } catch (err) {
       if (err && err.transient) {
         if (err.rateLimited) rateLimitHits++; else transientFailures++;
         failedAssignmentIds.push(String(a.id));
         continue;
       }
-      throw err; // non-transient errors abort the sync
+      throw err;
     }
-    acceptedResults.push(...assignmentResults);
+    const byUid = groupRevisionsByUid(revisions);
+
+    const cells = studentEnrollments
+      .map((e) => ({ e, studentRow: selectStudentByUid.get(String(e.uid)) }))
+      .filter((c) => c.studentRow);
+
+    for (const { e, studentRow } of cells) {
+      const ghd = submissionLookup ? submissionLookup.get(String(e.uid), String(a.id)) : undefined;
+      // #55 pre-filter parity: GHD definitively says "not submitted" → record a
+      // cleared cell exactly as before (do not consult the bulk revision).
+      if (ghd && !ghd.submitted) {
+        submissionSkipped++;
+        acceptedResults.push({
+          studentId: studentRow.id,
+          assignmentId: assignRow.id,
+          enrolmentId: String(e.id),
+          maxPoints: assignRow.max_points ?? null,
+          revision: null,
+          ghd: { resolved: true, submitted: false, type: null },
+        });
+        continue;
+      }
+      acceptedResults.push({
+        studentId: studentRow.id,
+        assignmentId: assignRow.id,
+        enrolmentId: String(e.id),
+        maxPoints: assignRow.max_points ?? null,
+        revision: byUid.get(String(e.uid)) || null,
+        ghd: ghd ? { resolved: true, submitted: true, type: ghd.submissionType } : { resolved: false },
+      });
+    }
   }
 
   let submissionCount = 0;

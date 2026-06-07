@@ -15,6 +15,8 @@ vi.mock('./schoology.js', () => ({
   getUserProfile: vi.fn(),
   getSubmissionStatus: vi.fn(),
   getSection: vi.fn(),
+  getUserProfilesBatch: vi.fn(),
+  getAssignmentSubmissions: vi.fn(),
 }));
 
 // fullSync calls createSubmissionFetcher(), which would launch a headless
@@ -35,6 +37,8 @@ import {
   getSectionAssignments,
   getSectionGrades,
   getSubmissionStatus,
+  getAssignmentSubmissions,
+  getUserProfilesBatch,
   getSectionGradingPeriods,
   getUserProfile,
   getSection,
@@ -174,11 +178,11 @@ describe('syncSectionData — per-assignment atomicity (#55)', () => {
     getSectionEnrollments.mockReset();
     getSectionAssignments.mockReset();
     getSectionGrades.mockReset();
-    getSubmissionStatus.mockReset();
+    getAssignmentSubmissions.mockReset();
     getSectionGrades.mockResolvedValue([]);
   });
 
-  test('one 429 in assignment A leaves all of A unwritten; B fully written', async () => {
+  test('one 429 on assignment A leaves all of A unwritten; B fully written', async () => {
     getSectionEnrollments.mockResolvedValue([
       { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
       { id: '802', uid: '702', name_first: 'Bob', name_last: 'M', admin: '0' },
@@ -187,51 +191,39 @@ describe('syncSectionData — per-assignment atomicity (#55)', () => {
       { id: 'A1', title: 'A', published: 1, allow_dropbox: '1' },
       { id: 'A2', title: 'B', published: 1, allow_dropbox: '1' },
     ]);
-    getSubmissionStatus.mockImplementation(async (sid, aid, uid) => {
-      if (aid === 'A1' && uid === '701') {
-        const err = new Error('429'); err.rateLimited = true; err.transient = true; throw err;
-      }
-      return { revision_id: 1, late: 0, draft: 0, latestRevisionAt: 1000 };
+    getAssignmentSubmissions.mockImplementation(async (sid, aid) => {
+      if (aid === 'A1') { const e = new Error('429'); e.rateLimited = true; e.transient = true; throw e; }
+      return [
+        { revision_id: 1, uid: '701', created: 1000, late: 0, draft: 0 },
+        { revision_id: 1, uid: '702', created: 1000, late: 0, draft: 0 },
+      ];
     });
 
     const result = await syncSectionData(db, 'sec-A', courseId, new Date().toISOString());
-
     expect(result.failedAssignmentIds).toEqual(['A1']);
 
-    const a1Rows = db.prepare(`
-      SELECT g.* FROM grades g
-      JOIN assignments a ON a.id = g.assignment_id
-      WHERE a.schoology_assignment_id = 'A1'
-    `).all();
-    expect(a1Rows.length).toBe(0);
-
-    const a2Rows = db.prepare(`
-      SELECT g.* FROM grades g
-      JOIN assignments a ON a.id = g.assignment_id
-      WHERE a.schoology_assignment_id = 'A2'
-    `).all();
-    expect(a2Rows.length).toBe(2);
+    const a1 = db.prepare(`SELECT g.* FROM grades g JOIN assignments a ON a.id=g.assignment_id WHERE a.schoology_assignment_id='A1'`).all();
+    expect(a1.length).toBe(0);
+    const a2 = db.prepare(`SELECT g.* FROM grades g JOIN assignments a ON a.id=g.assignment_id WHERE a.schoology_assignment_id='A2'`).all();
+    expect(a2.length).toBe(2);
   });
 
-  test('abandonAfter threshold short-circuits remaining submission fetches', async () => {
+  test('abandonAfter threshold short-circuits remaining bulk fetches', async () => {
     getSectionEnrollments.mockResolvedValue([
       { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
     ]);
-    const assignments = Array.from({ length: 10 }, (_, i) => ({
-      id: `T${i}`, title: `T${i}`, published: 1, allow_dropbox: '1',
-    }));
-    getSectionAssignments.mockResolvedValue(assignments);
+    getSectionAssignments.mockResolvedValue(
+      Array.from({ length: 10 }, (_, i) => ({ id: `T${i}`, title: `T${i}`, published: 1, allow_dropbox: '1' }))
+    );
     let callCount = 0;
-    getSubmissionStatus.mockImplementation(async () => {
-      callCount++;
-      const err = new Error('429'); err.rateLimited = true; err.transient = true; throw err;
+    getAssignmentSubmissions.mockImplementation(async () => {
+      callCount++; const e = new Error('429'); e.rateLimited = true; e.transient = true; throw e;
     });
 
     const result = await syncSectionData(
       db, 'sec-A', courseId, new Date().toISOString(),
-      { submissionConcurrency: 1, submissionRatePerSec: 100, submissionAbandonAfter: 3 }
+      { submissionAbandonAfter: 3 }
     );
-
     expect(result.failedAssignmentIds.length).toBe(3);
     expect(result.submissionAbandoned).toBe(true);
     expect(callCount).toBeLessThanOrEqual(3);
@@ -316,8 +308,10 @@ describe('syncSectionData — internal-gradebook submission state (#62/#55)', ()
     getSectionAssignments.mockReset();
     getSectionGrades.mockReset();
     getSubmissionStatus.mockReset();
+    getAssignmentSubmissions.mockReset();
     getSectionGrades.mockResolvedValue([]);
     getSubmissionStatus.mockResolvedValue(null); // public API blind to OneDrive
+    getAssignmentSubmissions.mockResolvedValue([]);
   });
 
   function getGradeRow(uid, assignmentExtId) {
@@ -348,6 +342,7 @@ describe('syncSectionData — internal-gradebook submission state (#62/#55)', ()
     // lti assignments are excluded from nativeDropboxAssignments, so neither the
     // per-cell GHD lookup nor the public revisions API is invoked.
     expect(getSubmissionStatus).not.toHaveBeenCalled();
+    expect(getAssignmentSubmissions).not.toHaveBeenCalled();
     expect(result.submissionSkipped).toBe(0);
     // Without fetchDocuments, no lti_submission_state row is written.
     expect(getGradeRow('701', 'L1')).toBeUndefined();
@@ -368,6 +363,7 @@ describe('syncSectionData — internal-gradebook submission state (#62/#55)', ()
     });
 
     expect(getSubmissionStatus).not.toHaveBeenCalled();
+    expect(getAssignmentSubmissions).not.toHaveBeenCalled();
     expect(result.submissionSkipped).toBe(0);
     // No row written — lti pass is no-op without fetchDocuments.
     expect(getGradeRow('701', 'L1')).toBeUndefined();
@@ -396,21 +392,22 @@ describe('syncSectionData — internal-gradebook submission state (#62/#55)', ()
     expect(row.lti_submission_state).toBe('submitted');  // state written
   });
 
-  test('GHD-uncovered cell falls back to the public API and leaves submission_type null', async () => {
+  test('GHD-uncovered native cell uses the bulk revision and leaves submission_type null', async () => {
     getSectionEnrollments.mockResolvedValue([
       { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
     ]);
     getSectionAssignments.mockResolvedValue([
       { id: 'N1', title: 'Native dropbox', published: 1, allow_dropbox: '1' },
     ]);
-    getSubmissionStatus.mockResolvedValue({ revision_id: 1, late: 1, draft: 0, latestRevisionAt: 2000 });
+    getAssignmentSubmissions.mockResolvedValue([
+      { revision_id: 1, uid: '701', created: 2000, late: 1, draft: 0 },
+    ]);
 
     const result = await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
-      // Lookup returns undefined for this (uid, assignment) → uncovered.
-      fetchSubmissionLookup: async () => fakeLookup({}),
+      fetchSubmissionLookup: async () => fakeLookup({}), // uncovered
     });
 
-    expect(getSubmissionStatus).toHaveBeenCalledWith('sec-G', 'N1', '701');
+    expect(getAssignmentSubmissions).toHaveBeenCalledWith('sec-G', 'N1');
     const row = getGradeRow('701', 'N1');
     expect(row.late).toBe(1);
     expect(row.submission_type).toBeNull();
@@ -435,6 +432,7 @@ describe('syncSectionData — internal-gradebook submission state (#62/#55)', ()
     // used for lti work (L1 is excluded from nativeDropboxAssignments).
     expect(docCalls).toEqual(['L1']);
     expect(getSubmissionStatus).not.toHaveBeenCalled();
+    expect(getAssignmentSubmissions).not.toHaveBeenCalled();
     expect(getGradeRow('701', 'L1').lti_submission_state).toBe('submitted');
     // A not_started cell inserts a row so the state reaches the gradebook.
     expect(getGradeRow('702', 'L1').lti_submission_state).toBe('not_started');
@@ -456,7 +454,8 @@ describe('syncSectionData — skipSubmissions opt (#72)', () => {
     getSectionGrades.mockReset();
     getSubmissionStatus.mockReset();
     getSectionGrades.mockResolvedValue([]);
-    getSubmissionStatus.mockResolvedValue({ revision_id: 1, late: 1, draft: 0, latestRevisionAt: 2000 });
+    getAssignmentSubmissions.mockReset();
+    getAssignmentSubmissions.mockResolvedValue([{ revision_id: 1, uid: '701', created: 2000, late: 1, draft: 0 }]);
     getSectionEnrollments.mockResolvedValue([
       { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
     ]);
@@ -465,22 +464,18 @@ describe('syncSectionData — skipSubmissions opt (#72)', () => {
     ]);
   });
 
-  test('skipSubmissions:true does not call the public submissions API and reports zero', async () => {
-    const result = await syncSectionData(db, 'sec-S', courseId, new Date().toISOString(), {
-      skipSubmissions: true,
-    });
-
-    expect(getSubmissionStatus).not.toHaveBeenCalled();
+  test('skipSubmissions:true does not fetch submissions and reports zero', async () => {
+    const result = await syncSectionData(db, 'sec-S', courseId, new Date().toISOString(), { skipSubmissions: true });
+    expect(getAssignmentSubmissions).not.toHaveBeenCalled();
     expect(result.submissionCount).toBe(0);
     expect(result.submissionAttempts).toBe(0);
     expect(result.submissionSkipped).toBe(0);
     expect(result.failedAssignmentIds).toEqual([]);
   });
 
-  test('without skipSubmissions the same setup DOES call the public submissions API (opt defaults off)', async () => {
+  test('without skipSubmissions the same setup DOES bulk-fetch submissions (opt defaults off)', async () => {
     await syncSectionData(db, 'sec-S', courseId, new Date().toISOString());
-
-    expect(getSubmissionStatus).toHaveBeenCalledWith('sec-S', 'D1', '701');
+    expect(getAssignmentSubmissions).toHaveBeenCalledWith('sec-S', 'D1');
   });
 });
 
@@ -651,6 +646,8 @@ describe('finalizeArchivedCourse (#70)', () => {
     sch.getSectionGrades.mockResolvedValue([]);
     sch.getSubmissionStatus.mockReset(); // clear call history leaked from prior blocks (#72)
     sch.getSubmissionStatus.mockResolvedValue(null);
+    sch.getAssignmentSubmissions.mockReset();
+    sch.getAssignmentSubmissions.mockResolvedValue([]);
     syncMasteryForCourse.mockReset();
     syncMasteryForCourse.mockResolvedValue({ scoresCount: 0 });
     hasMasterySession.mockReset();
@@ -682,7 +679,7 @@ describe('finalizeArchivedCourse (#70)', () => {
 
     await finalizeArchivedCourse(db, { courseId, sectionId: 'sec-9', now: '2026-05-31T00:00:00Z' });
 
-    expect(sch.getSubmissionStatus).not.toHaveBeenCalled();
+    expect(sch.getAssignmentSubmissions).not.toHaveBeenCalled();
   });
 });
 
@@ -697,6 +694,8 @@ describe('detectArchivedTransitions (#70)', () => {
     sch.getSectionGrades.mockResolvedValue([]);
     sch.getSubmissionStatus.mockReset(); // clear call history leaked from prior blocks (#72)
     sch.getSubmissionStatus.mockResolvedValue(null);
+    sch.getAssignmentSubmissions.mockReset();
+    sch.getAssignmentSubmissions.mockResolvedValue([]);
     sch.getSectionGradingPeriods.mockResolvedValue([{ title: 'Semester 1: 08/14/2024 - 01/11/2025' }]);
     hasMasterySession.mockReturnValue(false); // gradebook-only finalise in this test
     getSection.mockReset();
@@ -758,7 +757,7 @@ describe('detectArchivedTransitions (#70)', () => {
 
     await detectArchivedTransitions(db, new Set(['sec-active']), '2026-05-31T00:00:00Z');
 
-    expect(sch.getSubmissionStatus).not.toHaveBeenCalled();
+    expect(sch.getAssignmentSubmissions).not.toHaveBeenCalled();
   });
 });
 
@@ -776,9 +775,9 @@ describe('syncSectionData — recent-only submission window (#55)', () => {
     getSectionEnrollments.mockReset();
     getSectionAssignments.mockReset();
     getSectionGrades.mockReset();
-    getSubmissionStatus.mockReset();
+    getAssignmentSubmissions.mockReset();
     getSectionGrades.mockResolvedValue([]);
-    getSubmissionStatus.mockResolvedValue(null);
+    getAssignmentSubmissions.mockResolvedValue([]);
     getSectionEnrollments.mockResolvedValue([
       { id: '900001', uid: '700001', name_first: 'Ada', name_last: 'Lovelace', admin: '0' },
       { id: '900002', uid: '700002', name_first: 'Alan', name_last: 'Turing', admin: '0' },
@@ -792,13 +791,13 @@ describe('syncSectionData — recent-only submission window (#55)', () => {
 
   test('recentOnly skips old + undated dropbox assignments', async () => {
     const result = await syncSectionData(db, 'sec-w', courseId, NOW, { recentOnly: true, recentDays: 30 });
-    expect(getSubmissionStatus).toHaveBeenCalledTimes(2); // 1 recent assignment × 2 students
+    expect(getAssignmentSubmissions).toHaveBeenCalledTimes(1); // only the 1 recent assignment
     expect(result.windowSkipped).toBe(2);
   });
 
   test('recentOnly off checks every dropbox assignment (unchanged)', async () => {
     const result = await syncSectionData(db, 'sec-w', courseId, NOW, { recentOnly: false });
-    expect(getSubmissionStatus).toHaveBeenCalledTimes(6); // 3 assignments × 2 students
+    expect(getAssignmentSubmissions).toHaveBeenCalledTimes(3); // 3 assignments
     expect(result.windowSkipped).toBe(0);
   });
 });
@@ -814,6 +813,8 @@ describe('backfillUnfinalizedArchived (#70)', () => {
     sch.getSectionGrades.mockResolvedValue([]);
     sch.getSubmissionStatus.mockReset(); // clear call history leaked from prior blocks (#72)
     sch.getSubmissionStatus.mockResolvedValue(null);
+    sch.getAssignmentSubmissions.mockReset();
+    sch.getAssignmentSubmissions.mockResolvedValue([]);
     hasMasterySession.mockReturnValue(true);
     syncMasteryForCourse.mockReset();
     syncMasteryForCourse.mockResolvedValue({ scoresCount: 0 });
@@ -844,6 +845,6 @@ describe('backfillUnfinalizedArchived (#70)', () => {
 
     await backfillUnfinalizedArchived(db, '2026-05-31T00:00:00Z');
 
-    expect(sch.getSubmissionStatus).not.toHaveBeenCalled();
+    expect(sch.getAssignmentSubmissions).not.toHaveBeenCalled();
   });
 });

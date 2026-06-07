@@ -9,12 +9,12 @@ import {
   getSectionFolders,
   getSectionGradingCategories,
   getSectionGradingScales,
-  getUserProfile,
-  getSubmissionStatus,
+  getUserProfilesBatch,
+  getAssignmentSubmissions,
   getSection,
 } from './schoology.js';
-import { runWithLimits } from './rateLimitedRunner.js';
 import { filterRecentAssignments } from './recentWindow.js';
+import { groupRevisionsByUid } from '../lib/submissionRevisions.js';
 import { createSubmissionFetcher } from './graderSubmissions.js';
 import { getSyncConfig } from '../middleware/featureGate.js';
 import { syncMasteryForCourse, hasMasterySession } from './masterySync.js';
@@ -56,6 +56,8 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   const studentEnrollments = enrollments.filter(e => e.admin !== '1' && e.admin !== 1);
 
   const {
+    // submissionConcurrency/submissionRatePerSec retained for config compat; the
+    // #55 bulk path no longer rate-limits per cell.
     submissionConcurrency = 2,
     submissionRatePerSec = 4,
     submissionAbandonAfter = 5,
@@ -269,14 +271,16 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     WHERE student_id = ? AND assignment_id = ?
   `);
 
-  // Submission status phase: fetch with bounded concurrency + global rate cap;
-  // per-assignment atomicity — if any cell in an assignment hits a transient
-  // error, discard that assignment's in-memory results and continue.
+  // Submission status phase: one bulk fetch per native-dropbox assignment (#55);
+  // per-assignment atomicity — a transient error discards that assignment's
+  // results and continues.
   const acceptedResults = []; // committed at end of section in one transaction
   const failedAssignmentIds = [];
   let submissionAbandoned = false;
   let rateLimitHits = 0;
   let transientFailures = 0;
+  // #55: counts bulk fetches (one per native-dropbox assignment), not the old
+  // per-(student) call count — fed into sync_metrics.submission_calls.
   let submissionAttempts = 0;
   let submissionSkipped = 0; // #55: public calls skipped via the GHD pre-filter
 
@@ -288,51 +292,52 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     const assignRow = selectAssignmentByExt.get(String(a.id));
     if (!assignRow) continue;
 
-    const cells = studentEnrollments
-      .map((e) => ({ e, studentRow: selectStudentByUid.get(String(e.uid)) }))
-      .filter((c) => c.studentRow);
-
-    let assignmentResults;
+    // #55: ONE bulk fetch per assignment (was O(students) per-cell calls).
+    // Per-assignment atomicity: a transient error discards this assignment and
+    // continues; non-transient aborts the sync (unchanged contract).
+    let revisions;
     try {
-      assignmentResults = await runWithLimits(
-        cells,
-        async ({ e, studentRow }) => {
-          const ghd = submissionLookup ? submissionLookup.get(String(e.uid), String(a.id)) : undefined;
-          // #55 pre-filter: GHD definitively says "not submitted" → skip the
-          // rate-limited public revisions call entirely.
-          if (ghd && !ghd.submitted) {
-            submissionSkipped++;
-            return {
-              studentId: studentRow.id,
-              assignmentId: assignRow.id,
-              enrolmentId: String(e.id),
-              maxPoints: assignRow.max_points ?? null,
-              revision: null,
-              ghd: { resolved: true, submitted: false, type: null },
-            };
-          }
-          submissionAttempts++;
-          const revision = await getSubmissionStatus(sectionId, String(a.id), String(e.uid));
-          return {
-            studentId: studentRow.id,
-            assignmentId: assignRow.id,
-            enrolmentId: String(e.id),
-            maxPoints: assignRow.max_points ?? null,
-            revision,
-            ghd: ghd ? { resolved: true, submitted: true, type: ghd.submissionType } : { resolved: false },
-          };
-        },
-        { concurrency: submissionConcurrency, ratePerSec: submissionRatePerSec },
-      );
+      revisions = await getAssignmentSubmissions(sectionId, String(a.id));
+      submissionAttempts++;
     } catch (err) {
       if (err && err.transient) {
         if (err.rateLimited) rateLimitHits++; else transientFailures++;
         failedAssignmentIds.push(String(a.id));
         continue;
       }
-      throw err; // non-transient errors abort the sync
+      throw err;
     }
-    acceptedResults.push(...assignmentResults);
+    const byUid = groupRevisionsByUid(revisions);
+
+    const cells = studentEnrollments
+      .map((e) => ({ e, studentRow: selectStudentByUid.get(String(e.uid)) }))
+      .filter((c) => c.studentRow);
+
+    for (const { e, studentRow } of cells) {
+      const ghd = submissionLookup ? submissionLookup.get(String(e.uid), String(a.id)) : undefined;
+      // #55 pre-filter parity: GHD definitively says "not submitted" → record a
+      // cleared cell exactly as before (do not consult the bulk revision).
+      if (ghd && !ghd.submitted) {
+        submissionSkipped++;
+        acceptedResults.push({
+          studentId: studentRow.id,
+          assignmentId: assignRow.id,
+          enrolmentId: String(e.id),
+          maxPoints: assignRow.max_points ?? null,
+          revision: null,
+          ghd: { resolved: true, submitted: false, type: null },
+        });
+        continue;
+      }
+      acceptedResults.push({
+        studentId: studentRow.id,
+        assignmentId: assignRow.id,
+        enrolmentId: String(e.id),
+        maxPoints: assignRow.max_points ?? null,
+        revision: byUid.get(String(e.uid)) || null,
+        ghd: ghd ? { resolved: true, submitted: true, type: ghd.submissionType } : { resolved: false },
+      });
+    }
   }
 
   let submissionCount = 0;
@@ -452,34 +457,30 @@ export async function retrySubmissions(db, failedEntries, now, metrics) {
         continue;
       }
 
+      let revisions;
+      try {
+        metrics.submission_calls++;
+        revisions = await getAssignmentSubmissions(sid, assignmentExtId);
+      } catch (err) {
+        if (err && err.transient) {
+          if (err.rateLimited) metrics.rate_limit_hits++; else metrics.transient_failures++;
+          stillFailing.push(entry);
+          continue;
+        }
+        throw err;
+      }
+      const byUid = groupRevisionsByUid(revisions);
       const cellResults = [];
-      let assignmentFailed = false;
       for (const e of studentEnrollments) {
         const studentRow = selectStudentByUid.get(String(e.uid));
         if (!studentRow) continue;
-        metrics.submission_calls++;
-        try {
-          const revision = await getSubmissionStatus(sid, assignmentExtId, String(e.uid));
-          cellResults.push({
-            studentId: studentRow.id,
-            assignmentId: assignRow.id,
-            enrolmentId: String(e.id),
-            maxPoints: assignRow.max_points ?? null,
-            revision,
-          });
-        } catch (err) {
-          if (err && err.transient) {
-            if (err.rateLimited) metrics.rate_limit_hits++; else metrics.transient_failures++;
-            assignmentFailed = true;
-            break;
-          }
-          throw err;
-        }
-      }
-
-      if (assignmentFailed) {
-        stillFailing.push(entry);
-        continue;
+        cellResults.push({
+          studentId: studentRow.id,
+          assignmentId: assignRow.id,
+          enrolmentId: String(e.id),
+          maxPoints: assignRow.max_points ?? null,
+          revision: byUid.get(String(e.uid)) || null,
+        });
       }
 
       if (cellResults.length > 0) {
@@ -550,31 +551,30 @@ export async function enrichStudentProfiles(db, students, now) {
   };
 
   let profileCount = 0;
+  // #105: one POST /multiget per ≤50 students instead of N GET /users/{uid}.
+  // A student missing from the map = its fetch did not succeed → preserve its
+  // data + contacts (reconcile nothing), matching the old per-student catch.
+  const profiles = await getUserProfilesBatch(students.map(s => String(s.schoology_uid)));
   for (const s of students) {
-    try {
-      const profile = await getUserProfile(s.schoology_uid);
-      const email = profile.primary_email || null;
-      const prefName = (profile.name_first_preferred && profile.use_preferred_first_name === '1')
-        ? profile.name_first_preferred : null;
-      const gradYear = profile.grad_year ? parseInt(profile.grad_year, 10) : null;
-      updateStudent.run(email, prefName, gradYear, now, s.id);
+    const profile = profiles.get(String(s.schoology_uid));
+    if (!profile) continue;
+    const email = profile.primary_email || null;
+    const prefName = (profile.name_first_preferred && profile.use_preferred_first_name === '1')
+      ? profile.name_first_preferred : null;
+    const gradYear = profile.grad_year ? parseInt(profile.grad_year, 10) : null;
+    updateStudent.run(email, prefName, gradYear, now, s.id);
 
-      // Schoology may return a lone guardian as an object rather than a
-      // 1-element array — normalise so a single-guardian student isn't skipped
-      // or wrongly reconciled away. (Same shape-quirk as parseAssignees.)
-      const rawParents = profile.parents?.parent ?? [];
-      const parents = Array.isArray(rawParents) ? rawParents : [rawParents];
-      const keepUids = [];
-      for (const p of parents) {
-        upsertParent.run(s.id, String(p.id), p.name_first || '', p.name_last || '', p.primary_email || null, null /* relationship: not provided by Schoology */);
-        keepUids.push(String(p.id));
-      }
-      reconcileParents(s.id, keepUids);
-      profileCount++;
-    } catch {
-      // Non-fatal: profile inaccessible (e.g. a graduated student). Preserve
-      // last-known data + contacts; delete nothing.
+    // Schoology may return a lone guardian as an object rather than a 1-element
+    // array — normalise so a single-guardian student isn't reconciled away.
+    const rawParents = profile.parents?.parent ?? [];
+    const parents = Array.isArray(rawParents) ? rawParents : [rawParents];
+    const keepUids = [];
+    for (const p of parents) {
+      upsertParent.run(s.id, String(p.id), p.name_first || '', p.name_last || '', p.primary_email || null, null);
+      keepUids.push(String(p.id));
     }
+    reconcileParents(s.id, keepUids);
+    profileCount++;
   }
   return profileCount;
 }

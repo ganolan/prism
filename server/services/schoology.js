@@ -1,4 +1,5 @@
 import OAuth from 'oauth-1.0a';
+import { summarizeRevisions } from '../lib/submissionRevisions.js';
 
 const BASE = process.env.SCHOOLOGY_BASE_URL;
 const API = `${BASE}/v1`;
@@ -45,6 +46,20 @@ async function apiPut(path, body) {
   const authHeader = oauth.toHeader(oauth.authorize({ url, method: 'PUT' }, token));
   const res = await fetch(url, {
     method: 'PUT',
+    headers: { ...authHeader, 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = text; }
+  return { status: res.status, data };
+}
+
+async function apiPost(path, body) {
+  const url = `${API}${path}`;
+  const authHeader = oauth.toHeader(oauth.authorize({ url, method: 'POST' }, token));
+  const res = await fetch(url, {
+    method: 'POST',
     headers: { ...authHeader, 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),
   });
@@ -108,6 +123,35 @@ export async function getUserProfile(uid) {
   return apiGet(`/users/${uid}`);
 }
 
+// Batched profile fetch (#105): POST /v1/multiget bundles up to ~50 per-user
+// reads into one HTTP call. Each bundled `body` is the COMPLETE /users/{uid}
+// object (primary_email + parents.parent[]). Paths MUST carry the /v1 prefix.
+// Best-effort: a failed chunk (network/429) yields no entries for that chunk —
+// those students are absent from the map and the caller preserves them.
+// Returns Map<string uid, profile>.
+const MULTIGET_CHUNK = 50;
+export async function getUserProfilesBatch(uids) {
+  const out = new Map();
+  for (let i = 0; i < uids.length; i += MULTIGET_CHUNK) {
+    const chunk = uids.slice(i, i + MULTIGET_CHUNK);
+    let data;
+    try {
+      ({ data } = await apiPost('/multiget', { request: chunk.map(u => `/v1/users/${u}`) }));
+    } catch {
+      continue; // network error — preserve these students (caller skips them)
+    }
+    for (const entry of (data?.response || [])) {
+      const code = Number(entry.response_code);
+      if (code && code !== 200) continue;
+      const body = entry.body;
+      if (!body) continue;
+      const uid = String(body.uid || body.id || '');
+      if (uid) out.set(uid, body);
+    }
+  }
+  return out;
+}
+
 export async function getSectionFolders(sectionId) {
   // Paginate: Schoology pages this endpoint at 20 items by default, so a single
   // un-paginated GET silently drops the 21st+ folder (and every assignment in
@@ -130,25 +174,36 @@ export async function getSectionCompletion(sectionId) {
   return data?.completion || [];
 }
 
-// Returns the latest revision (highest revision_id) or null if none.
-// For lti_submission (OneDrive/GDrive) assignments, a revision with draft=1
-// indicates the student opened the linked doc and has work in progress but
-// has not submitted. An empty array means either "never opened" or — for
-// OneDrive submitted state — "submitted" (the public API does not expose
-// post-submit revisions for OneDrive); use grade row presence to disambiguate.
-// The returned object also carries latestRevisionAt: the `created` time of the
-// latest non-draft revision (0 if none) — the baseline for #49 resubmit detection.
+// Bulk submission fetch (#55): every student's LATEST revision for one
+// assignment in a single call — `{ revision: [{ revision_id, uid, created,
+// num_items, late, draft }], total, links }`. ⚠️ The bulk endpoint returns only
+// the latest revision per student, NOT the full revision history (verified
+// 2026-06-07 across MAD + AP CSP CPT projects — per-student showed [1,2,3…] where
+// bulk showed only the latest). That is sync-equivalent: the sync only needs the
+// latest revision's late/draft and the newest non-draft `created` (#49 resubmit
+// timing), and a genuine resubmit IS the latest. Follows links.next (Schoology
+// pages this at ~20). Native dropbox only — the public revisions API is blind to
+// post-submit LTI (those use the #62 document endpoints). Group the result with
+// groupRevisionsByUid to recover the per-student summary.
+export async function getAssignmentSubmissions(sectionId, assignmentId) {
+  let url = `/sections/${sectionId}/submissions/${assignmentId}?limit=100`;
+  const all = [];
+  // Safety cap: Schoology rosters are ~20; this guards a malformed links.next.
+  for (let page = 0; url && page < 100; page++) {
+    const data = await apiGet(url);
+    const revs = data?.revision || [];
+    all.push(...revs);
+    url = data?.links?.next || null;
+  }
+  return all;
+}
+
+// Returns the per-student revision summary { ...latestRevision, latestRevisionAt }
+// or null. latestRevisionAt is the newest non-draft `created` (the #49 resubmit
+// baseline). Shares summarizeRevisions with the bulk #55 path.
 export async function getSubmissionStatus(sectionId, assignmentId, userId) {
   const data = await apiGet(`/sections/${sectionId}/submissions/${assignmentId}/${userId}`);
-  const revisions = data?.revision || [];
-  if (!revisions.length) return null;
-  const latest = revisions.reduce((m, r) => (r.revision_id > m.revision_id ? r : m));
-  // Baseline for resubmission detection (#49): newest *non-draft* revision time.
-  // A draft revision is not a submission and must not seed the baseline.
-  const latestRevisionAt = revisions
-    .filter(r => Number(r.draft) !== 1)
-    .reduce((m, r) => Math.max(m, Number(r.created) || 0), 0);
-  return { ...latest, latestRevisionAt };
+  return summarizeRevisions(data?.revision || []);
 }
 
 export async function pushGradeComments(sectionId, gradeUpdates) {
@@ -158,4 +213,4 @@ export async function pushGradeComments(sectionId, gradeUpdates) {
   });
 }
 
-export { apiGet, apiPut };
+export { apiGet, apiPut, apiPost };

@@ -403,3 +403,36 @@ Spec/plan `docs/superpowers/{specs,plans}/2026-06-07-lti-submission-state-badges
   Maria = not_started, Brigid = submitted — exact ground-truth match. Caught a concurrency bug: the two
   document fetches ran via `Promise.all` (concurrent `page.evaluate` on one page) and the in-progress fetch
   silently dropped → fixed to sequential awaits.
+
+## Sync bulk-perf wins — #55 / #104 / #105 (2026-06-08, branch `feat/sync-bulk-perf`)
+
+Three independent, parity-exact bulk replacements for per-item sync loops. Each pairs unit TDD (pure
+helpers + fetchers) with a **live parity probe** (`scripts/parity-*.js`) diffing old-vs-new against real
+Schoology data — which caught two real shape bugs before merge (see below).
+
+- **#55 — native-dropbox submissions: O(N×M) → O(M).** Replaced the per-(assignment×student)
+  `getSubmissionStatus` walk with ONE `GET /sections/{sid}/submissions/{aid}` bulk fetch per native
+  assignment, grouped by uid (`server/lib/submissionRevisions.js`: `summarizeRevisions` +
+  `groupRevisionsByUid`; `schoology.js`: `getAssignmentSubmissions`). GHD wiring + all four
+  `writeSubmissions` branches kept byte-for-byte; only the per-cell `revision` source changed.
+  `retrySubmissions` converted too. **Parity probe finding:** the bulk endpoint returns only the
+  **latest revision per student**, NOT full history (the spike's "all revisions" claim was wrong) — but
+  it's **sync-equivalent** (the sync needs only the latest revision's late/draft + newest non-draft
+  `created`; a genuine resubmit IS the latest). 0 summary-mismatches across MAD + all AP CSP CPT projects
+  (heavy resubmission). Multi-file-across-revisions capture deferred to **#107** (lazy on-demand via
+  `…/{uid}?with_attachments=1`). Live e2e: MAD sync = 4 bulk fetches (was ~32 cell calls), correct
+  late/type/timing.
+- **#104 — mastery observations: N GETs/course → 1 POST.** `syncCourseMastery` replaced the per-topic
+  `material-observations/search` GET loop with one batched POST (`objective_ids` csv), regrouped by
+  `objective_id` (`server/lib/masteryObservations.js`). **Parity probe finding:** the POST shape differs
+  (`gradeable_material.material.id` + string `points`) — `normalizeObservation` maps it back to the GET
+  shape, else the persist would have written `assignment_schoology_id="undefined"`. Parity exact on
+  ACSS/AIML/AP CSP (212/314/439, 0 diff); live e2e re-sync wrote 212 ACSS scores, 0 bad assignment ids.
+- **#105 — student profiles: N GETs → ceil(N/50) POSTs.** `enrichStudentProfiles` sources profiles from
+  `getUserProfilesBatch` (`POST /v1/multiget`, chunk ≤50; `apiPost` mirrors `apiPut`). Preserve-on-failure
+  semantics intact (absent-from-map → skip, never wipe). Live parity verified across all 211 students
+  (email + preferred name + guardians; 0 mismatches).
+- **Tests:** 228 server green. Probes kept under `scripts/`. api-ref rows flipped to SHIPPED with the two
+  shape corrections. **Related spikes filed:** #107 (capture all submission-file refs on-demand;
+  bulk-latest drops non-latest files) + an LTI "Open" file-link finding (Schoology MS/Google LTI submission
+  app → 302 → SharePoint/OneDrive `Doc.aspx?sourcedoc={GUID}`; per-student launch id needs one more capture).

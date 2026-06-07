@@ -300,8 +300,17 @@ the catalog — `X_DNC_G1`/`X_DNC_G2` (do-not-contact) and `X_G1DECEASED`/`X_G2D
 Correspondence alerts. Distinct per-guardian *contact details* (names/emails) are not exposed by
 these alerts; they live in PowerSchool's guardian/contact tables (see Frontier).
 
+### Student home / postal address (#68 — wanted feature; feasibility, live probe pending)
+
+The user wants student **home / postal address** surfaced in Prism. Where it lives (2026-05-30 analysis; no live read yet — tracked in **#68**):
+
+- **Schoology cannot provide it.** `GET /v1/users/{uid}` exposes email / parents / names / photo / role but **no postal address** — Schoology is not the demographics system of record.
+- **PowerSchool is the source** (SIS — standard `students` street/city/state/zip). Reachable surface **unconfirmed**: the clean OAuth `GET /ws/v1/student/{id}?expansions=addresses` is blocked (needs admin `client_id`/`secret` — see "What's Needed to Get Access"); the near-term lead is the session-auth **`/ws/pt/v1/student/...`** namespace (or a `/ws/schema/query` named query), riding the mastery-sync browser session. The `/ws/pt/v1/student/...` literal is already listed under "Referenced in the app bundle but NOT exercised on load" above (PT v1; PII — probe carefully). Join is deterministic: `students.school_uid == "1_" + dcid`.
+- **Safeguarding-tier PII** — addresses for minors are highly sensitive. Probe PII-safe (masked / shape only; never commit a real address) and gate behind a feature flag + human implementation, exactly like the do-not-contact / deceased-guardian flags (#65). The clean long-term fix waits on PowerSchool OAuth `/ws/v1/` credentials.
+
 ### Relevance to other issues
 
+- **#68 (student home/postal address):** Schoology has none; PowerSchool is the source — see "Student home / postal address" above (session-auth `/ws/pt/v1/student` lead, safeguarding-tier PII, live probe pending).
 - **#39 (attendance marking):** `section_info` + `section_attendance` are the attendance endpoints that issue
   asks to probe; `section_attendance` is read here, and the same surface (`pss-integration-attendance-picker`)
   is what writes attendance codes. The "no page on non-timetabled dates" behavior #39 notes = the in-session-date

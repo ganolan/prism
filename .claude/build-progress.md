@@ -369,3 +369,37 @@ holistic review). Server 150 tests green. Spec/plan at
   3.0s** (0 submission calls, bulk only) — **93.2s saved, ~32× faster**. A full AP CSP 2024-25 import
   end-to-end measured **20.6s**, now dominated by mastery (gradebook loop off the critical path). Mastery
   (~20–40s/course) is the remaining archived-import floor, out of scope (next lever = the #77 spike).
+
+## #62 True submission-state badges for lti_submission work — COMPLETE (2026-06-07)
+
+Spec/plan `docs/superpowers/{specs,plans}/2026-06-07-lti-submission-state-badges*`. Built via subagent-driven TDD.
+
+- **The bug:** the "Not Started" / "Missing" badges asserted a submission state Prism couldn't verify for
+  OneDrive/GDrive (`lti_submission`) work — the public revisions API hides post-submit LTI revisions AND
+  auto-provisions an empty `draft=1` revision at distribution, so neither presence nor absence is a real
+  engagement signal; GHD's `submission` key gives *submitted* reliably but can't split in-progress from
+  never-opened.
+- **Spike (with the user):** driving the grader UI + grepping its React bundle found the endpoints behind
+  the grader's own "In Progress" / "Submitted" tabs — `GET /iapi2/assignments/{aid}/submitted-documents/`
+  and `/in-progress-documents/` (browser-session auth, per-assignment). In-progress entries carry a real
+  boolean **`revisionCreated`**: `true` = opened/created their copy (In Progress), `false` = never opened
+  (Not Started). Verified against teacher ground truth on Robotics Notebook 4. Recorded in
+  `.claude/schoology-api-reference.md`.
+- **Implementation:** new `assignments.is_lti_submission` (from Schoology's `assignment_type` field) +
+  `grades.lti_submission_state` (`submitted`/`in_progress`/`not_started`). `server/lib/parseGraderDocuments.js`
+  (pure parser) + `server/services/graderDocuments.js` (fetch via the existing single browser session, added
+  as `fetchDocuments` on the GHD fetcher). Sync partitions dropbox work: lti uses the 2-call documents path
+  (whole roster) and writes `lti_submission_state`; native dropbox keeps the per-cell public walk. This
+  **removes** per-cell calls for lti — cheaper, not costlier (helps #55).
+- **Badges (`gradeLabel.submissionStatus`):** one state machine, due-proximity tone ladder. lti: Submitted 🟢;
+  In Progress 🔵 before due / 🟡 overdue; Not Started ⚪ early / 🔴 from a week before due through overdue;
+  no-session fallback shows nothing before due, neutral "Ungraded" overdue (never a false Not Started).
+  Non-lti consolidates to 🟢 Submitted or 🔴 Missing (overdue only). Both `SubmissionBadges` (full) and the
+  gradebook compact badges updated; Submitted recoloured green per the user.
+- **Tests:** parser unit tests; full `submissionStatus` matrix (13 client tests); a sync test that lti uses
+  `fetchDocuments` and skips the per-cell walk. 195 server + 229 client green (the lone failing file,
+  `mcp/server.test.js`, is a pre-existing missing-`@modelcontextprotocol/sdk` env gap, unrelated).
+- **Live e2e (2026-06-07):** real Robotics sync → Notebook 4 `{in_progress:17, not_started:1, submitted:1}`,
+  Maria = not_started, Brigid = submitted — exact ground-truth match. Caught a concurrency bug: the two
+  document fetches ran via `Promise.all` (concurrent `page.evaluate` on one page) and the in-progress fetch
+  silently dropped → fixed to sequential awaits.

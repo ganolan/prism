@@ -53,7 +53,9 @@ for (const e of enr) {
   }
 }
 
-// Multi-revision coverage: confirm the bulk form returns ALL revisions per student.
+// Multi-revision note (informational): the bulk endpoint returns only the LATEST
+// revision per student (verified 2026-06-07), so this count is always 0 — the raw
+// revision-set check above is where truncation shows. Summary parity is the gate.
 const counts = {};
 for (const r of raw) counts[r.uid] = (counts[r.uid] || 0) + 1;
 const multi = Object.entries(counts).filter(([, n]) => n > 1);

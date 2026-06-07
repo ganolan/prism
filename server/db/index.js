@@ -64,6 +64,17 @@ const MIGRATIONS = [
   // #70: marks an archived course as finalised (mastery attempted with a browser
   // session present). Null = not yet captured → eligible for backfill.
   `ALTER TABLE courses ADD COLUMN finalized_at TEXT`,
+  // #62: the real OneDrive/GDrive marker — Schoology's public assignment
+  // `assignment_type` field === 'lti_submission'. Distinct from the overloaded
+  // `assignment_type` COLUMN (which masterySync/analytics use for
+  // formative/summative). Drives which submission-detection path sync takes and
+  // how the badge layer reads state.
+  `ALTER TABLE assignments ADD COLUMN is_lti_submission INTEGER DEFAULT 0`,
+  // #62: per-(student, assignment) true submission state for lti work, read from
+  // the grader's per-assignment in-progress/submitted document endpoints.
+  // 'submitted' | 'in_progress' | 'not_started'; NULL = non-lti or not covered
+  // (no browser session). Authoritative for lti badge display.
+  `ALTER TABLE grades ADD COLUMN lti_submission_state TEXT`,
   // Indexes for issue #13 columns (must run after ALTER TABLEs above)
   `CREATE INDEX IF NOT EXISTS idx_assignments_folder ON assignments(folder_id)`,
   `CREATE INDEX IF NOT EXISTS idx_assignments_grading_category ON assignments(grading_category_id)`,

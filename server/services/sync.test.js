@@ -40,7 +40,6 @@ import {
   getAssignmentSubmissions,
   getUserProfilesBatch,
   getSectionGradingPeriods,
-  getUserProfile,
   getSection,
 } from './schoology.js';
 import { syncMasteryForCourse, hasMasterySession } from './masterySync.js';
@@ -523,7 +522,7 @@ describe('fullSync — course skip matrix (#56)', () => {
     const { getMyUserId, getMySections, getSectionGradingPeriods,
             getSectionEnrollments, getSectionAssignments, getSectionGrades,
             getSectionFolders, getSectionGradingCategories,
-            getSectionGradingScales } = await import('./schoology.js');
+            getSectionGradingScales, getUserProfilesBatch } = await import('./schoology.js');
 
     getMyUserId.mockResolvedValue('user-1');
     getSectionGradingPeriods.mockResolvedValue([]);
@@ -536,6 +535,7 @@ describe('fullSync — course skip matrix (#56)', () => {
     getSectionFolders.mockResolvedValue([]);
     getSectionGradingCategories.mockResolvedValue([]);
     getSectionGradingScales.mockResolvedValue([]);
+    getUserProfilesBatch.mockResolvedValue(new Map());
 
     // getMySections returns sections matching the seeded course IDs. Order
     // matches seedCourses(). course_title is what fullSync logs but is
@@ -596,45 +596,41 @@ describe('enrichStudentProfiles — reconcile guardians (#70)', () => {
     ).run().lastInsertRowid;
     db.prepare(`INSERT INTO parents (student_id, schoology_uid, first_name, last_name, email) VALUES (?, 'p-1','Mara','Lovelace','mara@x.com')`).run(studentId);
     db.prepare(`INSERT INTO parents (student_id, schoology_uid, first_name, last_name, email) VALUES (?, 'p-2','Stale','Guardian','stale@x.com')`).run(studentId);
-    getUserProfile.mockReset();
+    getUserProfilesBatch.mockReset();
   });
 
   test('deletes a guardian Schoology no longer returns and updates email', async () => {
-    getUserProfile.mockResolvedValue({
+    getUserProfilesBatch.mockResolvedValue(new Map([['u-1', {
       primary_email: 'new@x.com',
       parents: { parent: [{ id: 'p-1', name_first: 'Mara', name_last: 'Lovelace', primary_email: 'mara@x.com' }] },
-    });
+    }]]));
     await enrichStudentProfiles(db, [{ id: studentId, schoology_uid: 'u-1' }], new Date().toISOString());
-
-    const uids = db.prepare('SELECT schoology_uid FROM parents WHERE student_id = ? ORDER BY schoology_uid').all(studentId).map((r) => r.schoology_uid);
+    const uids = db.prepare('SELECT schoology_uid FROM parents WHERE student_id = ? ORDER BY schoology_uid').all(studentId).map(r => r.schoology_uid);
     expect(uids).toEqual(['p-1']);
-    const email = db.prepare('SELECT email FROM students WHERE id = ?').get(studentId).email;
-    expect(email).toBe('new@x.com');
+    expect(db.prepare('SELECT email FROM students WHERE id = ?').get(studentId).email).toBe('new@x.com');
   });
 
-  test('a failed profile fetch preserves existing guardians and the student', async () => {
-    getUserProfile.mockRejectedValue(new Error('403 inaccessible'));
+  test('an unfetched profile (absent from the batch) preserves existing guardians and the student', async () => {
+    getUserProfilesBatch.mockResolvedValue(new Map()); // u-1 not fetched
     await enrichStudentProfiles(db, [{ id: studentId, schoology_uid: 'u-1' }], new Date().toISOString());
-
-    const count = db.prepare('SELECT COUNT(*) n FROM parents WHERE student_id = ?').get(studentId).n;
-    expect(count).toBe(2);
+    expect(db.prepare('SELECT COUNT(*) n FROM parents WHERE student_id = ?').get(studentId).n).toBe(2);
     expect(db.prepare('SELECT COUNT(*) n FROM students WHERE id = ?').get(studentId).n).toBe(1);
   });
 
   test('a student with no guardians in the profile has all guardians removed', async () => {
-    getUserProfile.mockResolvedValue({ primary_email: null, parents: { parent: [] } });
+    getUserProfilesBatch.mockResolvedValue(new Map([['u-1', { primary_email: null, parents: { parent: [] } }]]));
     await enrichStudentProfiles(db, [{ id: studentId, schoology_uid: 'u-1' }], new Date().toISOString());
     expect(db.prepare('SELECT COUNT(*) n FROM parents WHERE student_id = ?').get(studentId).n).toBe(0);
   });
 
   test('normalises a single guardian returned as an object (not array)', async () => {
-    getUserProfile.mockResolvedValue({
+    getUserProfilesBatch.mockResolvedValue(new Map([['u-1', {
       primary_email: 'new@x.com',
       parents: { parent: { id: 'p-9', name_first: 'Solo', name_last: 'Guardian', primary_email: 'solo@x.com' } },
-    });
+    }]]));
     await enrichStudentProfiles(db, [{ id: studentId, schoology_uid: 'u-1' }], new Date().toISOString());
-    const uids = db.prepare('SELECT schoology_uid FROM parents WHERE student_id = ? ORDER BY schoology_uid').all(studentId).map((r) => r.schoology_uid);
-    expect(uids).toEqual(['p-9']); // single object handled; p-1 and p-2 reconciled away
+    const uids = db.prepare('SELECT schoology_uid FROM parents WHERE student_id = ? ORDER BY schoology_uid').all(studentId).map(r => r.schoology_uid);
+    expect(uids).toEqual(['p-9']);
   });
 });
 

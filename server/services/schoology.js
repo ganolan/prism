@@ -131,11 +131,16 @@ export async function getSectionCompletion(sectionId) {
   return data?.completion || [];
 }
 
-// Bulk submission fetch (#55): ALL students' revisions for one assignment in a
-// single call — `{ revision: [{ revision_id, uid, created, num_items, late,
-// draft }], total, links }`. Follows links.next (Schoology pages this at ~20).
-// Native dropbox only — the public revisions API is blind to post-submit LTI
-// (those use the #62 document endpoints). Group the result with
+// Bulk submission fetch (#55): every student's LATEST revision for one
+// assignment in a single call — `{ revision: [{ revision_id, uid, created,
+// num_items, late, draft }], total, links }`. ⚠️ The bulk endpoint returns only
+// the latest revision per student, NOT the full revision history (verified
+// 2026-06-07 across MAD + AP CSP CPT projects — per-student showed [1,2,3…] where
+// bulk showed only the latest). That is sync-equivalent: the sync only needs the
+// latest revision's late/draft and the newest non-draft `created` (#49 resubmit
+// timing), and a genuine resubmit IS the latest. Follows links.next (Schoology
+// pages this at ~20). Native dropbox only — the public revisions API is blind to
+// post-submit LTI (those use the #62 document endpoints). Group the result with
 // groupRevisionsByUid to recover the per-student summary.
 export async function getAssignmentSubmissions(sectionId, assignmentId) {
   let url = `/sections/${sectionId}/submissions/${assignmentId}?limit=100`;

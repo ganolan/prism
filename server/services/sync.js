@@ -94,13 +94,14 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
 
   const assignments = await getSectionAssignments(sectionId);
   const upsertAssignment = db.prepare(`
-    INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, max_points, assignment_type, grading_category_id, grading_scale_id, folder_id, count_in_grade, published, display_weight, num_assignees, synced_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, max_points, assignment_type, is_lti_submission, grading_category_id, grading_scale_id, folder_id, count_in_grade, published, display_weight, num_assignees, synced_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(schoology_assignment_id) DO UPDATE SET
       title = excluded.title,
       due_date = excluded.due_date,
       max_points = excluded.max_points,
       assignment_type = excluded.assignment_type,
+      is_lti_submission = excluded.is_lti_submission,
       grading_category_id = excluded.grading_category_id,
       grading_scale_id = excluded.grading_scale_id,
       folder_id = excluded.folder_id,
@@ -121,6 +122,7 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
       upsertAssignment.run(
         courseId, String(a.id), a.title, a.due || null, a.max_points ?? null,
         a.type || 'assignment',
+        a.assignment_type === 'lti_submission' ? 1 : 0,
         a.grading_category ? String(a.grading_category) : null,
         a.grading_scale ? String(a.grading_scale) : null,
         a.folder_id ? String(a.folder_id) : null,

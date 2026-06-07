@@ -271,14 +271,16 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     WHERE student_id = ? AND assignment_id = ?
   `);
 
-  // Submission status phase: fetch with bounded concurrency + global rate cap;
-  // per-assignment atomicity — if any cell in an assignment hits a transient
-  // error, discard that assignment's in-memory results and continue.
+  // Submission status phase: one bulk fetch per native-dropbox assignment (#55);
+  // per-assignment atomicity — a transient error discards that assignment's
+  // results and continues.
   const acceptedResults = []; // committed at end of section in one transaction
   const failedAssignmentIds = [];
   let submissionAbandoned = false;
   let rateLimitHits = 0;
   let transientFailures = 0;
+  // #55: counts bulk fetches (one per native-dropbox assignment), not the old
+  // per-(student) call count — fed into sync_metrics.submission_calls.
   let submissionAttempts = 0;
   let submissionSkipped = 0; // #55: public calls skipped via the GHD pre-filter
 

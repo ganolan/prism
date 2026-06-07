@@ -71,6 +71,20 @@ describe('getAssignmentSubmissions (bulk #55)', () => {
     expect(revs.map(r => r.uid).sort()).toEqual(['701', '702']);
   });
 
+  test('terminates at the page-cap guard if links.next never clears', async () => {
+    const { getAssignmentSubmissions } = await import('./schoology.js');
+    let n = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      n++;
+      return jsonResponse({
+        revision: [{ revision_id: 1, uid: String(n), created: 1, late: 0, draft: 0 }],
+        links: { next: 'https://api.schoology.com/v1/sections/sec-1/submissions/A1?start=' + n },
+      });
+    }));
+    const revs = await getAssignmentSubmissions('sec-1', 'A1');
+    expect(revs.length).toBeLessThanOrEqual(100);
+  });
+
   test('follows links.next pagination and concatenates every page', async () => {
     const { getAssignmentSubmissions } = await import('./schoology.js');
     const page1 = {

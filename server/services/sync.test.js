@@ -399,6 +399,27 @@ describe('syncSectionData — internal-gradebook submission state (#62/#55)', ()
     expect(result.submissionSkipped).toBe(0);
   });
 
+  test('GHD-submitted native cell writes submission_type from GHD + late/timing from the bulk revision', async () => {
+    getSectionEnrollments.mockResolvedValue([
+      { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
+    ]);
+    getSectionAssignments.mockResolvedValue([
+      { id: 'N2', title: 'Native dropbox', published: 1, allow_dropbox: '1' },
+    ]);
+    getAssignmentSubmissions.mockResolvedValue([
+      { revision_id: 2, uid: '701', created: 3000, late: 0, draft: 0 },
+    ]);
+
+    await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
+      fetchSubmissionLookup: async () => fakeLookup({ '701:N2': { submitted: true, submissionType: 'drop' } }),
+    });
+
+    const row = getGradeRow('701', 'N2');
+    expect(row.submission_type).toBe('drop');
+    expect(row.late).toBe(0);
+    expect(row.latest_revision_at).toBe(3000);
+  });
+
   test('#62: lti assignment writes lti_submission_state via fetchDocuments and skips the per-cell walk', async () => {
     getSectionEnrollments.mockResolvedValue([
       { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },

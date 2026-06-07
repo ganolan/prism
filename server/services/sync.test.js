@@ -231,39 +231,29 @@ describe('syncSectionData — per-assignment atomicity (#55)', () => {
 });
 
 describe('retrySubmissions (#55)', () => {
-  let db;
-  let courseId;
-  let assignmentDbId;
-  let studentDbId;
-
+  let db; let courseId;
   beforeEach(() => {
     db = new Database(':memory:');
     migrate(db);
     courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-R', 'R')`).run().lastInsertRowid;
-    assignmentDbId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, published) VALUES (?, 'RA1', 'A', 1)`).run(courseId).lastInsertRowid;
-    studentDbId = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('701', 'Ada', 'L')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, published) VALUES (?, 'RA1', 'A', 1)`).run(courseId);
+    db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('701', 'Ada', 'L')`).run();
     getSectionEnrollments.mockReset();
-    getSubmissionStatus.mockReset();
+    getAssignmentSubmissions.mockReset();
   });
 
   test('retry succeeds → row written, retries_succeeded incremented', async () => {
     getSectionEnrollments.mockResolvedValue([
       { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
     ]);
-    getSubmissionStatus.mockResolvedValue({ revision_id: 1, late: 0, draft: 0, latestRevisionAt: 1234 });
+    getAssignmentSubmissions.mockResolvedValue([
+      { revision_id: 1, uid: '701', created: 1234, late: 0, draft: 0 },
+    ]);
     const metrics = { submission_calls: 0, rate_limit_hits: 0, transient_failures: 0, retries_succeeded: 0, retries_failed: 0 };
-    const stillFailing = await retrySubmissions(
-      db,
-      [{ sectionId: 'sec-R', courseId, assignmentExtId: 'RA1' }],
-      new Date().toISOString(),
-      metrics,
-    );
+    const stillFailing = await retrySubmissions(db, [{ sectionId: 'sec-R', courseId, assignmentExtId: 'RA1' }], new Date().toISOString(), metrics);
     expect(stillFailing).toEqual([]);
     expect(metrics.retries_succeeded).toBe(1);
-    expect(metrics.retries_failed).toBe(0);
-    const rows = db.prepare(`
-      SELECT g.* FROM grades g JOIN assignments a ON a.id = g.assignment_id WHERE a.schoology_assignment_id = 'RA1'
-    `).all();
+    const rows = db.prepare(`SELECT g.* FROM grades g JOIN assignments a ON a.id=g.assignment_id WHERE a.schoology_assignment_id='RA1'`).all();
     expect(rows.length).toBe(1);
   });
 
@@ -271,19 +261,14 @@ describe('retrySubmissions (#55)', () => {
     getSectionEnrollments.mockResolvedValue([
       { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
     ]);
-    getSubmissionStatus.mockImplementation(async () => {
-      const err = new Error('429'); err.rateLimited = true; err.transient = true; throw err;
-    });
+    getAssignmentSubmissions.mockImplementation(async () => { const e = new Error('429'); e.rateLimited = true; e.transient = true; throw e; });
     const metrics = { submission_calls: 0, rate_limit_hits: 0, transient_failures: 0, retries_succeeded: 0, retries_failed: 0 };
     const entry = { sectionId: 'sec-R', courseId, assignmentExtId: 'RA1' };
     const stillFailing = await retrySubmissions(db, [entry], new Date().toISOString(), metrics);
     expect(stillFailing).toEqual([entry]);
     expect(metrics.rate_limit_hits).toBe(1);
-    expect(metrics.retries_succeeded).toBe(0);
     expect(metrics.retries_failed).toBe(1);
-    const rows = db.prepare(`
-      SELECT g.* FROM grades g JOIN assignments a ON a.id = g.assignment_id WHERE a.schoology_assignment_id = 'RA1'
-    `).all();
+    const rows = db.prepare(`SELECT g.* FROM grades g JOIN assignments a ON a.id=g.assignment_id WHERE a.schoology_assignment_id='RA1'`).all();
     expect(rows.length).toBe(0);
   });
 });

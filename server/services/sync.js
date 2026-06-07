@@ -10,7 +10,6 @@ import {
   getSectionGradingCategories,
   getSectionGradingScales,
   getUserProfile,
-  getSubmissionStatus,
   getAssignmentSubmissions,
   getSection,
 } from './schoology.js';
@@ -456,34 +455,30 @@ export async function retrySubmissions(db, failedEntries, now, metrics) {
         continue;
       }
 
+      let revisions;
+      try {
+        metrics.submission_calls++;
+        revisions = await getAssignmentSubmissions(sid, assignmentExtId);
+      } catch (err) {
+        if (err && err.transient) {
+          if (err.rateLimited) metrics.rate_limit_hits++; else metrics.transient_failures++;
+          stillFailing.push(entry);
+          continue;
+        }
+        throw err;
+      }
+      const byUid = groupRevisionsByUid(revisions);
       const cellResults = [];
-      let assignmentFailed = false;
       for (const e of studentEnrollments) {
         const studentRow = selectStudentByUid.get(String(e.uid));
         if (!studentRow) continue;
-        metrics.submission_calls++;
-        try {
-          const revision = await getSubmissionStatus(sid, assignmentExtId, String(e.uid));
-          cellResults.push({
-            studentId: studentRow.id,
-            assignmentId: assignRow.id,
-            enrolmentId: String(e.id),
-            maxPoints: assignRow.max_points ?? null,
-            revision,
-          });
-        } catch (err) {
-          if (err && err.transient) {
-            if (err.rateLimited) metrics.rate_limit_hits++; else metrics.transient_failures++;
-            assignmentFailed = true;
-            break;
-          }
-          throw err;
-        }
-      }
-
-      if (assignmentFailed) {
-        stillFailing.push(entry);
-        continue;
+        cellResults.push({
+          studentId: studentRow.id,
+          assignmentId: assignRow.id,
+          enrolmentId: String(e.id),
+          maxPoints: assignRow.max_points ?? null,
+          revision: byUid.get(String(e.uid)) || null,
+        });
       }
 
       if (cellResults.length > 0) {

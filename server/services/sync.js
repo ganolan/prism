@@ -222,6 +222,12 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   const { target: dropboxAssignments, windowSkipped } =
     filterRecentAssignments(dropboxAll, recentOnly, recentDays, now);
 
+  // #62: lti_submission assignments use the per-assignment document endpoints
+  // (true state, whole roster in 2 calls); native dropbox keeps the per-cell
+  // public revisions walk below.
+  const ltiAssignments = dropboxAssignments.filter(a => a.assignment_type === 'lti_submission');
+  const nativeDropboxAssignments = dropboxAssignments.filter(a => a.assignment_type !== 'lti_submission');
+
   // Best-effort: null when no session / fetch fails — sync then behaves exactly
   // as before (public revisions API only).
   let submissionLookup = null;
@@ -272,7 +278,7 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   let submissionAttempts = 0;
   let submissionSkipped = 0; // #55: public calls skipped via the GHD pre-filter
 
-  for (const a of dropboxAssignments) {
+  for (const a of nativeDropboxAssignments) {
     if (failedAssignmentIds.length >= submissionAbandonAfter) {
       submissionAbandoned = true;
       break;
@@ -360,6 +366,37 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     }
   });
   writeSubmissions(acceptedResults);
+
+  // #62: lti_submission state pass. Two per-assignment reads (submitted +
+  // in-progress documents) give every assigned student's true state. Writes
+  // grades.lti_submission_state; inserts a row for un-graded cells so
+  // not_started / in_progress reach the gradebook. No-op without a session.
+  const upsertLtiState = db.prepare(`
+    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, lti_submission_state, synced_at)
+    VALUES (?, ?, ?, NULL, ?, ?, ?)
+    ON CONFLICT(student_id, assignment_id) DO UPDATE SET
+      lti_submission_state = excluded.lti_submission_state,
+      synced_at = excluded.synced_at
+  `);
+  if (typeof opts.fetchDocuments === 'function' && ltiAssignments.length) {
+    for (const a of ltiAssignments) {
+      const assignRow = selectAssignmentByExt.get(String(a.id));
+      if (!assignRow) continue;
+      let stateMap = null;
+      try { stateMap = await opts.fetchDocuments(String(a.id)); } catch { stateMap = null; }
+      if (!stateMap) continue; // no session / fetch failed → leave prior state
+      const writeStates = db.transaction(() => {
+        for (const { e, studentRow } of studentEnrollments
+          .map((e) => ({ e, studentRow: selectStudentByUid.get(String(e.uid)) }))
+          .filter((c) => c.studentRow)) {
+          const state = stateMap.get(String(e.uid));
+          if (!state) continue; // student not in either list → leave as-is
+          upsertLtiState.run(studentRow.id, assignRow.id, String(e.id), assignRow.max_points ?? null, state, now);
+        }
+      });
+      writeStates();
+    }
+  }
 
   return {
     studentsCount: studentEnrollments.length,
@@ -736,6 +773,7 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
         recentOnly,
         recentDays,
         fetchSubmissionLookup: submissionFetcher ? (sid) => submissionFetcher.fetch(sid) : undefined,
+        fetchDocuments: submissionFetcher ? (aid) => submissionFetcher.fetchDocuments(aid) : undefined,
       });
       metrics.submission_calls += result.submissionAttempts || 0;
       metrics.submissions_skipped += result.submissionSkipped || 0;

@@ -329,7 +329,11 @@ describe('syncSectionData — internal-gradebook submission state (#62/#55)', ()
     `).get(assignmentExtId, uid);
   }
 
-  test('GHD "submitted" sets submission_type even when the public API returns no revision (#62)', async () => {
+  test('lti_submission assignment is excluded from the per-cell GHD walk (#62) — fetchDocuments path owns it', async () => {
+    // lti_submission assignments now go through the fetchDocuments path, NOT the
+    // per-cell GHD/public-API walk. With only fetchSubmissionLookup provided (no
+    // fetchDocuments), the lti pass is a no-op — the public revisions API is never
+    // called and submissionSkipped stays 0.
     getSectionEnrollments.mockResolvedValue([
       { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
     ]);
@@ -341,15 +345,17 @@ describe('syncSectionData — internal-gradebook submission state (#62/#55)', ()
       fetchSubmissionLookup: async () => fakeLookup({ '701:L1': { submitted: true, submissionType: 'drop' } }),
     });
 
-    // Public API is still queried (GHD lacks late/draft/timing).
-    expect(getSubmissionStatus).toHaveBeenCalledWith('sec-G', 'L1', '701');
-    const row = getGradeRow('701', 'L1');
-    expect(row).toBeTruthy();
-    expect(row.submission_type).toBe('drop');
+    // lti assignments are excluded from nativeDropboxAssignments, so neither the
+    // per-cell GHD lookup nor the public revisions API is invoked.
+    expect(getSubmissionStatus).not.toHaveBeenCalled();
     expect(result.submissionSkipped).toBe(0);
+    // Without fetchDocuments, no lti_submission_state row is written.
+    expect(getGradeRow('701', 'L1')).toBeUndefined();
   });
 
-  test('GHD "not submitted" skips the public revisions call (#55) and writes no row', async () => {
+  test('lti_submission assignment is excluded from per-cell walk even for "not submitted" GHD (#55/#62)', async () => {
+    // Previously the GHD "not submitted" path skipped the public call and reported
+    // submissionSkipped. Now lti assignments bypass the per-cell loop entirely.
     getSectionEnrollments.mockResolvedValue([
       { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
     ]);
@@ -362,12 +368,14 @@ describe('syncSectionData — internal-gradebook submission state (#62/#55)', ()
     });
 
     expect(getSubmissionStatus).not.toHaveBeenCalled();
-    expect(result.submissionSkipped).toBe(1);
-    // UPDATE-only clear: a never-touched cell stays "no engagement" (no row).
+    expect(result.submissionSkipped).toBe(0);
+    // No row written — lti pass is no-op without fetchDocuments.
     expect(getGradeRow('701', 'L1')).toBeUndefined();
   });
 
-  test('GHD "submitted" upgrades an existing graded row with the type, preserving the score', async () => {
+  test('fetchDocuments upgrades an existing graded row with lti_submission_state, preserving score', async () => {
+    // Previously tested via GHD + submission_type. Now lti state is written by
+    // the fetchDocuments pass into lti_submission_state; score must not be clobbered.
     getSectionEnrollments.mockResolvedValue([
       { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
     ]);
@@ -380,12 +388,12 @@ describe('syncSectionData — internal-gradebook submission state (#62/#55)', ()
     ]);
 
     await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
-      fetchSubmissionLookup: async () => fakeLookup({ '701:L1': { submitted: true, submissionType: 'drop' } }),
+      fetchDocuments: async () => new Map([['701', 'submitted']]),
     });
 
     const row = getGradeRow('701', 'L1');
-    expect(row.score).toBe(14);            // score not clobbered
-    expect(row.submission_type).toBe('drop');
+    expect(row.score).toBe(14);                          // score not clobbered
+    expect(row.lti_submission_state).toBe('submitted');  // state written
   });
 
   test('GHD-uncovered cell falls back to the public API and leaves submission_type null', async () => {
@@ -407,6 +415,29 @@ describe('syncSectionData — internal-gradebook submission state (#62/#55)', ()
     expect(row.late).toBe(1);
     expect(row.submission_type).toBeNull();
     expect(result.submissionSkipped).toBe(0);
+  });
+
+  test('#62: lti assignment writes lti_submission_state via fetchDocuments and skips the per-cell walk', async () => {
+    getSectionEnrollments.mockResolvedValue([
+      { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
+      { id: '802', uid: '702', name_first: 'Bo', name_last: 'M', admin: '0' },
+    ]);
+    getSectionAssignments.mockResolvedValue([
+      { id: 'L1', title: 'OneDrive Essay', published: 1, allow_dropbox: '1', assignment_type: 'lti_submission' },
+    ]);
+
+    const docCalls = [];
+    await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
+      fetchDocuments: async (aid) => { docCalls.push(aid); return new Map([['701', 'submitted'], ['702', 'not_started']]); },
+    });
+
+    // The per-assignment documents path is used; the per-cell public walk is NOT
+    // used for lti work (L1 is excluded from nativeDropboxAssignments).
+    expect(docCalls).toEqual(['L1']);
+    expect(getSubmissionStatus).not.toHaveBeenCalled();
+    expect(getGradeRow('701', 'L1').lti_submission_state).toBe('submitted');
+    // A not_started cell inserts a row so the state reaches the gradebook.
+    expect(getGradeRow('702', 'L1').lti_submission_state).toBe('not_started');
   });
 });
 

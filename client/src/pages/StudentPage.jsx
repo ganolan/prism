@@ -120,6 +120,8 @@ export function CourseSection({ course, grades, flagsByAssignment, studentUid, s
                   draft: g.draft,
                   submitted_at: g.submitted_at,
                   submission_type: g.submission_type,
+                  is_lti_submission: g.is_lti_submission,
+                  lti_submission_state: g.lti_submission_state,
                   due_date: g.due_date,
                 });
                 const infoCell = (

@@ -12,7 +12,8 @@ import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import CompactRubric from '../components/CompactRubric.jsx';
 import SubmissionBadges from '../components/SubmissionBadges.jsx';
 
-const SHORT_BADGE = { late: 'L', draft: 'D', missing: 'M', 'not-started': 'NS', submitted: 'S' };
+const SHORT_BADGE = { late: 'L', draft: 'D', missing: 'M', 'not-started': 'NS', submitted: 'S', 'in-progress': 'IP', ungraded: '·' };
+const BADGE_TONE_CLASS = { red: 'badge-red', blue: 'badge-blue', amber: 'badge-pink', green: 'badge-green', yellow: 'badge-amber', neutral: 'badge-gray' };
 
 function pointsToLevel(points) {
   if (points == null) return null;
@@ -510,7 +511,9 @@ function RubricModal({ student, assignment, courseId, topics, comment, grade, on
   // Submission state + flags, shown above the rubric — matching the /student/ page.
   const status = submissionStatus({
     score: grade.score, exception: grade.exception, late: grade.late,
-    draft: grade.draft, submitted_at: grade.submitted_at, submission_type: grade.submission_type, due_date: assignment.due_date,
+    draft: grade.draft, submitted_at: grade.submitted_at, submission_type: grade.submission_type,
+    is_lti_submission: assignment.is_lti_submission, lti_submission_state: grade.lti_submission_state,
+    due_date: assignment.due_date,
   });
   const flags = [
     ...(grade.review_needed || []).map(f => ({ ...f, flag_type: 'review_needed' })),
@@ -853,17 +856,22 @@ function GradebookView({ data, courseId, mastery }) {
                 }
                 const g = grades[s.id]?.[a.id];
                 if (!g) {
-                  // No grade row exists — student is enrolled but Schoology has
-                  // recorded no activity for this assignment. Past-due → Missing.
+                  // No grade row — for lti this means the document pass found no
+                  // state (no session / not covered); for native dropbox, past-due
+                  // unsubmitted → Missing. Render via the shared badge logic.
                   const empty = submissionStatus({
-                    score: null, exception: 0, late: 0, draft: 0,
-                    submitted_at: 0, due_date: a.due_date,
+                    score: null, exception: 0, late: 0, draft: 0, submitted_at: 0,
+                    is_lti_submission: a.is_lti_submission, lti_submission_state: null,
+                    due_date: a.due_date,
                   });
                   if (!empty.length) return <td key={a.id} style={{ textAlign: 'center' }}>—</td>;
                   return (
-                    <td key={a.id} style={{ textAlign: 'center', whiteSpace: 'nowrap' }} title="Past due — student has not opened or submitted">
-                      <span className="badge badge-red" style={{ fontSize: '0.55rem' }}>M</span>
-                      <span className="badge badge-pink" style={{ fontSize: '0.55rem', marginLeft: 3 }}>NS</span>
+                    <td key={a.id} style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                      {empty.map(b => (
+                        <span key={b.kind} className={`badge ${BADGE_TONE_CLASS[b.tone]}`} style={{ fontSize: '0.55rem', marginLeft: 3 }} title={b.label}>
+                          {SHORT_BADGE[b.kind] || b.label[0]}
+                        </span>
+                      ))}
                     </td>
                   );
                 }
@@ -911,7 +919,9 @@ function GradebookView({ data, courseId, mastery }) {
                       : text);
                 const status = submissionStatus({
                   score: g.score, exception: g.exception, late: g.late, draft: g.draft,
-                  submitted_at: g.submitted_at, submission_type: g.submission_type, due_date: a.due_date,
+                  submitted_at: g.submitted_at, submission_type: g.submission_type,
+                  is_lti_submission: a.is_lti_submission, lti_submission_state: g.lti_submission_state,
+                  due_date: a.due_date,
                 });
                 // Don't double up exception text — gradeLabel already shows it.
                 const inlineBadges = status.filter(b => b.kind !== 'exception');
@@ -961,7 +971,7 @@ function GradebookView({ data, courseId, mastery }) {
                     )}
                     {inner}
                     {inlineBadges.map(b => (
-                      <span key={b.kind} className={`badge ${b.tone === 'red' ? 'badge-red' : b.tone === 'blue' ? 'badge-blue' : 'badge-pink'}`} style={{ fontSize: '0.55rem', marginLeft: 3 }} title={b.label}>
+                      <span key={b.kind} className={`badge ${BADGE_TONE_CLASS[b.tone] || 'badge-gray'}`} style={{ fontSize: '0.55rem', marginLeft: 3 }} title={b.label}>
                         {SHORT_BADGE[b.kind] || b.label[0]}
                       </span>
                     ))}

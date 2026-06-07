@@ -75,6 +75,7 @@ npm run test:api   # Schoology API smoke test
 ## Working Notes
 
 - Check `.claude/build-progress.md` before starting any new phase to avoid repeating work.
+- **Preserve verified API intel.** API findings are hard-won via fragile spikes (the playbook treats probes as lower bounds). When removing code that used a discovered API surface, keep its verified intel in `.claude/schoology-api-reference.md` / `.claude/powerschool-api-reference.md` — annotate the relevant row as superseded / no-longer-used (with date + why) but **never delete** the shape/keying/enum docs. Before deleting a parser, confirm everything it encoded is in the reference doc. (Example: `grader_header_data` was annotated "no longer consumed" — not removed — when the GHD pre-filter was dropped, 2026-06-08.)
 - Schema uses `CREATE TABLE IF NOT EXISTS` for safe idempotent creation via `getDb()`.
 - The school uses standards-based grading with measurement topics from PowerSchool. Per-topic ratings are NOT available via Schoology API — see `.claude/schoology-api-reference.md` for full details.
 - Phase 5 (Schoology write-back) is on hold pending a safe testing strategy.

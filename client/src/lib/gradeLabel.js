@@ -17,79 +17,67 @@ const EXCEPTION_LABELS = {
   4: 'Late',
 };
 
-// Derive submission-state badges for an assignment row.
-// Independent from gradeLabel — the grade label shows "what was scored",
-// while submission status shows "where is the student in the workflow"
-// (missing, in progress, late, etc). Both can render together.
+// Derive submission-state badges for an assignment row. Returns an array of
+// { kind, label, tone } badges; tone ∈ 'red' | 'blue' | 'amber' | 'green' |
+// 'yellow' | 'neutral'. Graded cells return [] (gradeLabel shows the score).
 //
-// Returns an array of { kind, label, tone } badges, in stable display order:
-//   tone: 'red' | 'blue' | 'amber' | 'neutral'
+// lti_submission work (#62): state comes from `lti_submission_state`
+// ('submitted' | 'in_progress' | 'not_started'), read from the grader's
+// per-assignment document endpoints — the only reliable signal. The public
+// `draft`/`submitted_at` are auto-provisioned noise for lti and are ignored.
+// Tones escalate by due-proximity (see the spec's matrix).
 //
-// Status precedence:
-//   - Teacher-set exceptions (Excused, Incomplete, Missing) take priority — those
-//     are explicit teacher decisions.
-//   - `late` (authoritative from /submissions endpoint) is shown when set.
-//   - For ungraded past-due work with no exception: "Missing" badge, with a
-//     secondary "Draft" qualifier when the student has in-progress work, or
-//     "Not Started" when there is no submission revision (no grade row).
-//   - For ungraded future-due work: "Draft" alone if in progress, otherwise no badge.
-//
-// Submission signal, in order of authority:
-//   • `submission_type` (#62) — set from Schoology's internal gradebook
-//     (grader_header_data) when a submission exists. This is the ONLY reliable
-//     signal for OneDrive/GDrive (lti_submission) dropbox work, where the public
-//     /submissions endpoint returns an empty revision array whether the student
-//     submitted or never opened it. "drop" = file dropbox, "assessment" =
-//     Schoology assessment. Non-null ⇒ submitted.
-//   • `submitted_at` — Schoology's grade-row timestamp (Unix seconds); flips
-//     from 0 to a real time on a submission/grade event. Kept as a fallback for
-//     rows the internal gradebook didn't cover (e.g. outside its grading period).
-//
-// State table:
-//   score != null                                          → graded
-//   (submission_type != null || submitted_at > 0) && !score → "Submitted" (awaiting grade)
-//   draft = 1                                               → "In Progress"
-//   not submitted && !draft && past due                    → "Missing • Not Started"
-//   not submitted && !draft && !past due                   → no badge
-export function submissionStatus({ score, exception, late, draft, submitted_at, submission_type, due_date, today = new Date() }) {
+// Non-lti work: only submitted-or-not is knowable, so it consolidates to
+// green "Submitted" or red "Missing" (overdue only); nothing before due.
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+function dueProximity(due_date, today) {
+  if (!due_date) return 'none';
+  const d = new Date(due_date);
+  if (isNaN(d)) return 'none';
+  if (today > d) return 'overdue';
+  if (today >= new Date(d.getTime() - WEEK_MS)) return 'soon';
+  return 'early';
+}
+
+function ltiBadges(state, submission_type, due_date, today) {
+  // GHD covered the cell but the document fetch didn't: trust "submitted".
+  if (state == null && submission_type) state = 'submitted';
+  const prox = dueProximity(due_date, today);
+  if (state === 'submitted') return [{ kind: 'submitted', label: 'Submitted', tone: 'green' }];
+  if (state === 'in_progress') {
+    return [{ kind: 'in-progress', label: 'In Progress', tone: prox === 'overdue' ? 'yellow' : 'blue' }];
+  }
+  if (state === 'not_started') {
+    const tone = (prox === 'soon' || prox === 'overdue') ? 'red' : 'neutral';
+    return [{ kind: 'not-started', label: 'Not Started', tone }];
+  }
+  // null/unknown (no session): low-noise fallback — nothing before due.
+  if (prox === 'overdue') return [{ kind: 'ungraded', label: 'Ungraded', tone: 'neutral' }];
+  return [];
+}
+
+function nonLtiBadges({ submission_type, submitted_at, late, due_date, today }) {
+  const badges = [];
+  if (late) badges.push({ kind: 'late', label: 'Late', tone: 'red' });
+  const submitted = !!submission_type || Number(submitted_at) > 0;
+  if (submitted) {
+    badges.push({ kind: 'submitted', label: 'Submitted', tone: 'green' });
+  } else if (dueProximity(due_date, today) === 'overdue') {
+    badges.push({ kind: 'missing', label: 'Missing', tone: 'red' });
+  }
+  return badges;
+}
+
+export function submissionStatus({ score, exception, late, draft, submitted_at, submission_type, is_lti_submission, lti_submission_state, due_date, today = new Date() }) {
   const exLabel = EXCEPTION_LABELS[exception];
   if (exception && exception !== 4 && exLabel) {
     const tone = exception === 1 ? 'blue' : 'red';
     return [{ kind: 'exception', label: exLabel, tone }];
   }
-  const badges = [];
-  if (late) badges.push({ kind: 'late', label: 'Late', tone: 'red' });
-
-  const past = isPastDue(due_date, today);
-  const ungraded = score == null;
-
-  // submission_type (internal gradebook, #62) is authoritative; submitted_at is
-  // the fallback for cells it didn't cover.
-  const submitted = !!submission_type || Number(submitted_at) > 0;
-
-  if (ungraded && submitted) {
-    badges.push({ kind: 'submitted', label: 'Submitted', tone: 'blue' });
-  } else if (ungraded && draft) {
-    if (past) {
-      badges.push({ kind: 'missing', label: 'Missing', tone: 'red' });
-      badges.push({ kind: 'draft', label: 'Draft', tone: 'blue' });
-    } else {
-      badges.push({ kind: 'draft', label: 'Draft', tone: 'blue' });
-    }
-  } else if (ungraded && past && !late) {
-    badges.push({ kind: 'missing', label: 'Missing', tone: 'red' });
-    badges.push({ kind: 'not-started', label: 'Not Started', tone: 'amber' });
-  }
-
-  return badges;
-}
-
-function isPastDue(due_date, today) {
-  if (!due_date) return false;
-  // due_date may be 'YYYY-MM-DD HH:MM:SS' or ISO; Date parser handles both.
-  const d = new Date(due_date);
-  if (isNaN(d)) return false;
-  return d < today;
+  if (score != null) return []; // graded — gradeLabel renders the score
+  if (is_lti_submission) return ltiBadges(lti_submission_state, submission_type, due_date, today);
+  return nonLtiBadges({ submission_type, submitted_at, late, due_date, today });
 }
 
 export function gradeLabel({ score, max_points, exception, grading_scale_id, scales }) {

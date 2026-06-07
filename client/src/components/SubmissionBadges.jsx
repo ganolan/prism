@@ -12,7 +12,7 @@
 //   assignmentTitle — optional; the generic-flag branch suppresses a reason
 //                    that merely repeats the assignment title
 
-const TONE_CLASS = { red: 'badge-red', blue: 'badge-blue', amber: 'badge-pink', neutral: 'badge-gray' };
+const TONE_CLASS = { red: 'badge-red', blue: 'badge-blue', amber: 'badge-pink', green: 'badge-green', yellow: 'badge-amber', neutral: 'badge-gray' };
 
 function formatFlagReason(flag) {
   return flag?.flag_reason || '';

@@ -5,8 +5,10 @@ import { apiGet } from '../services/schoology.js';
 import { finalizeArchivedCourse, enrichStudentProfiles } from '../services/sync.js';
 import { isResubmitted } from '../lib/resubmission.js';
 import { getArchivedSections } from '../services/archivedCourses.js';
+import { syncBlockNumbers } from '../services/blockNumberSync.js';
 
 const router = Router();
+let blockSyncInProgress = false;
 
 // GET /api/courses/archived/discover — enumerate archived (past) sections by
 // scraping Schoology's /courses/mycourses/past source page (browser session).
@@ -309,6 +311,30 @@ router.post('/import', async (req, res) => {
     if (err.message.includes('403')) return res.status(403).json({ error: 'Section not accessible — check the section ID and try again' });
     if (err.message.includes('404')) return res.status(404).json({ error: 'Section not found — check the section ID and try again' });
     res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/courses/sync-block-numbers — populate courses.block_number from
+// PowerSchool's attendance "Block N" (the period name) via the shared browser
+// session. Body: { courseIds?: number[] } to scope; default = current courses.
+router.post('/sync-block-numbers', async (req, res) => {
+  if (blockSyncInProgress) {
+    return res.status(409).json({ error: 'Block-number sync already in progress' });
+  }
+  blockSyncInProgress = true;
+  try {
+    const courseIds = Array.isArray(req.body?.courseIds) ? req.body.courseIds : undefined;
+    const summary = await syncBlockNumbers({
+      courseIds,
+      onProgress: (p) => console.log(`[block sync] ${p.message}`),
+    });
+    res.json(summary);
+  } catch (err) {
+    console.error('[block sync] Error:', err);
+    const login = /log in|mastery:login|not logged in/i.test(err.message);
+    res.status(login ? 401 : 500).json({ error: err.message });
+  } finally {
+    blockSyncInProgress = false;
   }
 });
 

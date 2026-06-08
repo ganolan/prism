@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric } from '../services/api.js';
+import { getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, reorderRubricCriteria } from '../services/api.js';
 import { draftKey, readDraft, writeDraft, clearDraft, draftBaseline } from '../lib/assessmentDraft.js';
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
@@ -120,7 +120,7 @@ function HeaderPill({ active, accent, activeBg, activeText, icon, label, clearLa
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
-export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, rubric = null, viewMode = 'descriptors', rubricPalette = {}, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
+export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, rubric = null, viewMode = 'descriptors', rubricPalette = {}, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard, onReorder }) {
   const loadedDisplay = student.comment_status === 1;
   const storageKey = draftKey(courseId, assignmentId, student.enrollment_id);
   // Signature of the synced Schoology values this card was rendered against.
@@ -750,6 +750,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             palette={rubricPalette}
             levelHeaderColors={Object.fromEntries(LEVELS.map(l => [l, CELL_COLORS[l].headerFill]))}
             levelBorderColors={Object.fromEntries(LEVELS.map(l => [l, CELL_COLORS[l].finalBorder]))}
+            onReorder={onReorder}
           />
         ) : (
         <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.8rem' }}>
@@ -1415,7 +1416,7 @@ export default function AssessmentSummaryPage() {
         </div>
       ) : (
         <>
-          {students.map(student => (
+          {students.map((student, idx) => (
             <StudentRubricCard
               key={student.schoology_uid}
               student={student}
@@ -1432,6 +1433,10 @@ export default function AssessmentSummaryPage() {
               onDisplayChange={handleDisplayChange}
               registerCard={registerCard}
               unregisterCard={unregisterCard}
+              onReorder={idx === 0 && rubricData ? async (orderedCriterionIds) => {
+                await reorderRubricCriteria(rubricData.rubric.id, orderedCriterionIds);
+                setRubricData(await getRubricForAssignment(assignmentId));
+              } : undefined}
             />
           ))}
 

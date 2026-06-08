@@ -24,7 +24,7 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { getDb } from '../db/index.js';
 import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
-import { pickBlockNumber, sectionDcidFromLaunchForm } from '../lib/psBlockNumber.js';
+import { pickBlockNumber, planBlockUpdate, sectionDcidFromLaunchForm } from '../lib/psBlockNumber.js';
 
 const PS_HOST = 'powerschool.hkis.edu.hk';
 const ATTENDANCE_APP_ID = '4980125287';
@@ -99,31 +99,53 @@ async function fetchSectionInfoFirst(page, sectionDcid) {
   }
 }
 
+// Count courses still awaiting their first block examination — the gate the
+// regular sync uses to decide whether to launch the browser at all. Exported so
+// the orchestrator can skip the whole phase (zero overhead) in steady state.
+export function countCoursesNeedingBlockSync(db) {
+  return db.prepare(
+    `SELECT COUNT(*) AS c FROM courses
+     WHERE archived = 0 AND excluded = 0 AND schoology_section_id IS NOT NULL
+       AND block_synced_at IS NULL AND (block_number IS NULL OR block_number = '')`
+  ).get().c;
+}
+
 /**
- * Sync block_number for the given courses (default: current, non-excluded
- * courses that have a Schoology section). Returns a summary:
- *   { processed, updated, unchanged, skipped, results: [{ courseId, courseName, blockNumber, reason, status }] }
- * reason: 'ok' | 'not-numbered' | 'no-block' | 'ambiguous' | 'no-section-dcid'
- *         | 'section-info-failed'
+ * Sync block_number from PowerSchool.
+ *
+ * @param {object}   [opts]
+ * @param {Function} [opts.onProgress]
+ * @param {number[]} [opts.courseIds] — restrict to these course ids.
+ * @param {boolean}  [opts.force] — re-examine every current course and overwrite
+ *   (the manual "Sync blocks" button). Default false = the cheap auto pass:
+ *   only courses never examined AND without a block (block_synced_at IS NULL and
+ *   block_number empty), filling without clobbering manual values.
+ *
+ * Either way, every examined course is stamped block_synced_at so non-numbered
+ * periods (PCG/Interim) and one-off failures are not re-fetched by the auto pass.
+ * Returns { processed, updated, unchanged, skipped, results:[{ courseId,
+ * courseName, blockNumber, blockName?, reason, status }] }.
+ * reason: 'ok' | 'not-numbered' | 'no-block' | 'ambiguous' | 'no-section-dcid' | 'section-info-failed'
  */
-export async function syncBlockNumbers({ onProgress, courseIds } = {}) {
+export async function syncBlockNumbers({ onProgress, courseIds, force = false } = {}) {
   const log = (message) => { console.log(`[blockNumberSync] ${message}`); onProgress?.({ message }); };
   const db = getDb();
 
-  const courses = (courseIds && courseIds.length
-    ? db.prepare(
-        `SELECT id, schoology_section_id, course_name, block_number FROM courses
-         WHERE id IN (${courseIds.map(() => '?').join(',')}) AND schoology_section_id IS NOT NULL`
-      ).all(...courseIds)
-    : db.prepare(
-        `SELECT id, schoology_section_id, course_name, block_number FROM courses
-         WHERE archived = 0 AND excluded = 0 AND schoology_section_id IS NOT NULL
-         ORDER BY course_name`
-      ).all());
+  const where = ['archived = 0', 'excluded = 0', 'schoology_section_id IS NOT NULL'];
+  const params = [];
+  if (!force) where.push("block_synced_at IS NULL AND (block_number IS NULL OR block_number = '')");
+  if (courseIds && courseIds.length) {
+    where.push(`id IN (${courseIds.map(() => '?').join(',')})`);
+    params.push(...courseIds);
+  }
+  const courses = db.prepare(
+    `SELECT id, schoology_section_id, course_name, block_number FROM courses
+     WHERE ${where.join(' AND ')} ORDER BY course_name`
+  ).all(...params);
 
   const summary = { processed: 0, updated: 0, unchanged: 0, skipped: 0, results: [] };
   if (courses.length === 0) {
-    log('No courses to process.');
+    log('No courses need a block sync.');
     return summary;
   }
 
@@ -132,7 +154,9 @@ export async function syncBlockNumbers({ onProgress, courseIds } = {}) {
   }
 
   const { browser, context, page } = await openPage();
-  const update = db.prepare('UPDATE courses SET block_number = ? WHERE id = ?');
+  // Always stamp an examined course; set block_number only when planned.
+  const stampOnly = db.prepare('UPDATE courses SET block_synced_at = ? WHERE id = ?');
+  const setAndStamp = db.prepare('UPDATE courses SET block_number = ?, block_synced_at = ? WHERE id = ?');
 
   try {
     log(`Establishing PowerSchool session (via ${courses[0].course_name})...`);
@@ -141,42 +165,48 @@ export async function syncBlockNumbers({ onProgress, courseIds } = {}) {
 
     for (const c of courses) {
       summary.processed++;
+      const now = new Date().toISOString();
+
+      // Resolve the section's block (or a failure pick) without throwing.
+      let pick;
       const sectionDcid = await fetchSectionDcid(context, c.schoology_section_id);
       if (!sectionDcid) {
-        summary.skipped++;
-        summary.results.push({ courseId: c.id, courseName: c.course_name, blockNumber: null, reason: 'no-section-dcid', status: 'skipped' });
-        log(`${c.course_name}: no PS sectionDcid (template/master) — skipped`);
-        continue;
+        pick = { blockNumber: null, blockName: null, reason: 'no-section-dcid' };
+      } else {
+        const { status, first } = await fetchSectionInfoFirst(page, sectionDcid);
+        pick = first
+          ? pickBlockNumber(first)
+          : { blockNumber: null, blockName: null, reason: `section-info-failed:${status}` };
       }
+      const reason = pick.reason.startsWith('section-info-failed') ? 'section-info-failed' : pick.reason;
 
-      const { status, first } = await fetchSectionInfoFirst(page, sectionDcid);
-      if (!first) {
-        summary.skipped++;
-        summary.results.push({ courseId: c.id, courseName: c.course_name, blockNumber: null, reason: 'section-info-failed', status: 'skipped' });
-        log(`${c.course_name}: section_info failed (HTTP ${status}) — skipped`);
-        continue;
+      const { setBlockNumber, stampSyncedAt } = planBlockUpdate(c, pick, { force });
+
+      if (setBlockNumber !== undefined) {
+        const changed = String(c.block_number ?? '') !== setBlockNumber;
+        setAndStamp.run(setBlockNumber, now, c.id);
+        if (changed) {
+          summary.updated++;
+          summary.results.push({ courseId: c.id, courseName: c.course_name, blockNumber: setBlockNumber, reason: 'ok', status: 'updated' });
+          log(`${c.course_name}: Block ${setBlockNumber} (set, was ${c.block_number || 'empty'})`);
+        } else {
+          summary.unchanged++;
+          summary.results.push({ courseId: c.id, courseName: c.course_name, blockNumber: setBlockNumber, reason: 'ok', status: 'unchanged' });
+          log(`${c.course_name}: Block ${setBlockNumber} (unchanged)`);
+        }
+      } else {
+        if (stampSyncedAt) stampOnly.run(now, c.id);
+        // 'ok' here means a numbered block resolved but we kept a manual value.
+        if (reason === 'ok') {
+          summary.unchanged++;
+          summary.results.push({ courseId: c.id, courseName: c.course_name, blockNumber: pick.blockNumber, reason: 'ok', status: 'unchanged' });
+          log(`${c.course_name}: Block ${pick.blockNumber} — kept manual value ${c.block_number}`);
+        } else {
+          summary.skipped++;
+          summary.results.push({ courseId: c.id, courseName: c.course_name, blockNumber: null, blockName: pick.blockName, reason, status: 'skipped' });
+          log(`${c.course_name}: no numbered block (${reason}${pick.blockName ? `: "${pick.blockName}"` : ''}) — marked checked`);
+        }
       }
-
-      const { blockNumber, blockName, reason } = pickBlockNumber(first);
-      if (blockNumber == null) {
-        // Don't clobber a manual value with a non-numbered / ambiguous period.
-        summary.skipped++;
-        summary.results.push({ courseId: c.id, courseName: c.course_name, blockNumber: null, blockName, reason, status: 'skipped' });
-        log(`${c.course_name}: no numbered block (${reason}${blockName ? `: "${blockName}"` : ''}) — left unchanged`);
-        continue;
-      }
-
-      if (String(c.block_number ?? '') === blockNumber) {
-        summary.unchanged++;
-        summary.results.push({ courseId: c.id, courseName: c.course_name, blockNumber, reason: 'ok', status: 'unchanged' });
-        log(`${c.course_name}: Block ${blockNumber} (unchanged)`);
-        continue;
-      }
-
-      update.run(blockNumber, c.id);
-      summary.updated++;
-      summary.results.push({ courseId: c.id, courseName: c.course_name, blockNumber, reason: 'ok', status: 'updated' });
-      log(`${c.course_name}: Block ${blockNumber} (set, was ${c.block_number ?? 'empty'})`);
     }
 
     log(`Done: ${summary.updated} updated, ${summary.unchanged} unchanged, ${summary.skipped} skipped (of ${summary.processed}).`);

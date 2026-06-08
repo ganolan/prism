@@ -79,6 +79,27 @@ export function pickBlockNumber(sectionInfoFirst) {
 }
 
 /**
+ * Decide the DB effect of examining one course, given the resolved pick and the
+ * sync mode. Returns { setBlockNumber, stampSyncedAt }:
+ *   - stampSyncedAt is ALWAYS true — an examined course is marked so the cheap
+ *     auto pass never re-fetches it (PCG/Interim/failures included). The manual
+ *     "force" refresh re-examines everything regardless of the marker.
+ *   - setBlockNumber is the digit only when a numbered block resolved (reason
+ *     'ok') AND it's safe to write: in force mode always; in auto mode only when
+ *     the course currently has no block_number (never clobber a manual value).
+ * `pick` may be a pickBlockNumber() result or any { reason } object (e.g. a
+ * fetch failure); null is treated as "no number".
+ */
+export function planBlockUpdate(course, pick, { force = false } = {}) {
+  let setBlockNumber;
+  if (pick && pick.reason === 'ok') {
+    const empty = course?.block_number == null || course.block_number === '';
+    if (force || empty) setBlockNumber = pick.blockNumber;
+  }
+  return { setBlockNumber, stampSyncedAt: true };
+}
+
+/**
  * Extract the PowerSchool sectionDcid from an LTI launch-form HTML response
  * (hidden input `custom_sectiondcid`). Returns null when absent or empty
  * (an empty value denotes a template/master course with no real PS section).

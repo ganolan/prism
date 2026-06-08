@@ -75,6 +75,14 @@ const MIGRATIONS = [
   // 'submitted' | 'in_progress' | 'not_started'; NULL = non-lti or not covered
   // (no browser session). Authoritative for lti badge display.
   `ALTER TABLE grades ADD COLUMN lti_submission_state TEXT`,
+  // #106: marks a course as having been examined for its PowerSchool block
+  // number. Set whenever the auto/regular sync looks at a course (whether or
+  // not it resolved a numbered "Block N"), so non-numbered periods (PCG →
+  // "Pastoral Care", Interim) and one-off failures are NOT re-fetched every
+  // sync. NULL = never examined → eligible for the cheap fill-once pass. The
+  // manual "Sync blocks from PowerSchool" button re-examines all courses
+  // (force) regardless of this marker.
+  `ALTER TABLE courses ADD COLUMN block_synced_at TEXT`,
   // Indexes for issue #13 columns (must run after ALTER TABLEs above)
   `CREATE INDEX IF NOT EXISTS idx_assignments_folder ON assignments(folder_id)`,
   `CREATE INDEX IF NOT EXISTS idx_assignments_grading_category ON assignments(grading_category_id)`,

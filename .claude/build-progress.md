@@ -480,3 +480,12 @@ Spike turned positive. The displayed "Block N" (teacher-confirmed ACSS = Block 3
 - **Live-validated (full sweep):** ACSS=3 (unchanged), AIML→8, APCSP→6, MAD→1, Robotics→4, TA→4 (set);
   PCG/Interim skipped gracefully (one Interim `section_info` 500'd — skipped, not fatal). 243 server +
   229 client tests green. Probes: `scripts/probe-ps-block-number.js`, `scripts/probe-ps-sectiondcid.js`.
+
+### #106 follow-up — block fill folded into the regular sync (2026-06-08, branch `feat/106-block-in-sync`)
+
+Auto-fill `block_number` during the regular sync, **fetch-once** so it stays cheap.
+- New column `courses.block_synced_at` (idempotent ALTER). Set whenever a course is *examined*, regardless of outcome — so non-numbered periods (PCG → "Pastoral Care", Interim) and one-off failures are **not re-fetched every sync**. This is the fix for "don't re-check PCG forever."
+- `syncBlockNumbers({ force })`: auto (default) = candidates where `block_synced_at IS NULL AND block_number empty`, fills without clobbering manual values; `force` (the manual button) = re-examine ALL current courses + overwrite (new-year / data-integrity safety valve). New pure helper `planBlockUpdate` (TDD) encodes the fill-vs-clobber + always-stamp policy.
+- Orchestrator (`runUnifiedSync`) runs a best-effort block phase **between schoology and mastery**, gated on `countCoursesNeedingBlockSync(db) > 0` so steady-state syncs launch **no browser**; a stale PS session logs an error but never aborts the sync.
+- Tests: `planBlockUpdate` (6), `countCoursesNeedingBlockSync` candidates (3), orchestrator block-phase (4, incl. gate + non-fatal). 255 server green.
+- Live-validated against the real DB: auto run examined only the 3 still-empty courses (PCG + 2 Interim), stamped them, left the 5 set ones untouched; pending→0; a second run was a no-op with no browser launch.

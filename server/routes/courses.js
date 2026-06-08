@@ -314,9 +314,12 @@ router.post('/import', async (req, res) => {
   }
 });
 
-// POST /api/courses/sync-block-numbers — populate courses.block_number from
+// POST /api/courses/sync-block-numbers — force-refresh courses.block_number from
 // PowerSchool's attendance "Block N" (the period name) via the shared browser
-// session. Body: { courseIds?: number[] } to scope; default = current courses.
+// session. This is the manual/authoritative path: it re-examines every current
+// course (ignoring block_synced_at) and overwrites with PowerSchool's value —
+// the safety valve for a new school year or a stale block. The cheap fill-only
+// pass runs automatically inside the regular sync. Body: { courseIds?: number[] }.
 router.post('/sync-block-numbers', async (req, res) => {
   if (blockSyncInProgress) {
     return res.status(409).json({ error: 'Block-number sync already in progress' });
@@ -326,6 +329,7 @@ router.post('/sync-block-numbers', async (req, res) => {
     const courseIds = Array.isArray(req.body?.courseIds) ? req.body.courseIds : undefined;
     const summary = await syncBlockNumbers({
       courseIds,
+      force: true,
       onProgress: (p) => console.log(`[block sync] ${p.message}`),
     });
     res.json(summary);

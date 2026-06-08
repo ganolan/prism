@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { featureGate, getRubricConfig } from '../middleware/featureGate.js';
 import { getDb } from '../db/index.js';
-import { listRubrics, saveRubric, getRubric, deleteRubric } from '../services/rubricStore.js';
+import { listRubrics, saveRubric, getRubric } from '../services/rubricStore.js';
 import { parseRubricCsv, templateCsv, exportRubricCsv } from '../services/rubricCsv.js';
 import { attachRubric, getAttachmentForAssignment, setMapping, reorderCriteria, detachAttachment } from '../services/rubricAttach.js';
 

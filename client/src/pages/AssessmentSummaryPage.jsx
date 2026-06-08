@@ -1381,9 +1381,11 @@ export default function AssessmentSummaryPage() {
               setRubricMsg('');
               try {
                 const { id } = await uploadRubricCsv(file.name.replace(/\.csv$/i, ''), file);
-                await attachRubric({ rubricId: id, courseId, assignmentId });
+                const { unmatched } = await attachRubric({ rubricId: id, courseId, assignmentId });
                 setRubricData(await getRubricForAssignment(assignmentId));
-                setRubricMsg('Rubric uploaded and attached.');
+                setRubricMsg(unmatched?.length
+                  ? `Attached — ${unmatched.length} criteria could not be matched to a topic (check the Standard column).`
+                  : 'Rubric uploaded and attached.');
               } catch (err) {
                 setRubricMsg(`Upload failed: ${err.message}`);
               } finally {

@@ -64,7 +64,8 @@ export function getRubric(db = getDb(), id) {
 export function listRubrics(db = getDb()) {
   return db.prepare(
     `SELECT r.id, r.name, r.source, r.updated_at,
-            (SELECT COUNT(*) FROM rubric_criteria c WHERE c.rubric_id = r.id) AS criteria_count
+            (SELECT COUNT(*) FROM rubric_criteria c WHERE c.rubric_id = r.id) AS criteria_count,
+            (SELECT COUNT(*) FROM rubric_attachments a WHERE a.rubric_id = r.id) AS attachment_count
      FROM rubrics r ORDER BY r.updated_at DESC, r.id DESC`
   ).all();
 }

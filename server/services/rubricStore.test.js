@@ -46,4 +46,13 @@ describe('rubricStore', () => {
     expect(listRubrics(db)).toEqual([]);
     expect(db.prepare(`SELECT COUNT(*) c FROM rubric_criteria`).get().c).toBe(0);
   });
+
+  test('listRubrics reports how many assignments each rubric is attached to', () => {
+    const id = saveRubric(db, CONTENT);
+    db.prepare(
+      `INSERT INTO rubric_attachments (rubric_id, assignment_schoology_id, course_id, created_at)
+       VALUES (?, '800', NULL, '2026-01-01')`
+    ).run(id);
+    expect(listRubrics(db)[0]).toMatchObject({ id, attachment_count: 1, criteria_count: 2 });
+  });
 });

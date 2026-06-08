@@ -48,11 +48,24 @@ export function getAttachmentForAssignment(db = getDb(), assignmentId) {
 }
 
 export function setMapping(db = getDb(), attachmentId, criterionId, topicId) {
-  db.prepare(
-    `INSERT INTO rubric_attachment_topics (attachment_id, criterion_id, topic_id)
-     VALUES (?, ?, ?)
-     ON CONFLICT(attachment_id, criterion_id) DO UPDATE SET topic_id = excluded.topic_id`
-  ).run(attachmentId, criterionId, topicId);
+  // Unmap: a null/empty topic removes this criterion's binding (`== null` catches null & undefined).
+  if (topicId == null || topicId === '') {
+    db.prepare(`DELETE FROM rubric_attachment_topics WHERE attachment_id = ? AND criterion_id = ?`)
+      .run(attachmentId, criterionId);
+    return;
+  }
+  // 1:1 move-semantics: free this topic from any OTHER criterion first, then bind it here.
+  const txn = db.transaction(() => {
+    db.prepare(
+      `DELETE FROM rubric_attachment_topics WHERE attachment_id = ? AND topic_id = ? AND criterion_id != ?`
+    ).run(attachmentId, topicId, criterionId);
+    db.prepare(
+      `INSERT INTO rubric_attachment_topics (attachment_id, criterion_id, topic_id)
+       VALUES (?, ?, ?)
+       ON CONFLICT(attachment_id, criterion_id) DO UPDATE SET topic_id = excluded.topic_id`
+    ).run(attachmentId, criterionId, topicId);
+  });
+  txn();
 }
 
 export function reorderCriteria(db = getDb(), rubricId, orderedCriterionIds) {

@@ -170,6 +170,7 @@ export const reorderRubricCriteria = (rubricId, orderedCriterionIds) =>
   request(`/rubrics/${rubricId}/reorder`, { method: 'PUT', body: JSON.stringify({ orderedCriterionIds }) });
 export const rubricTemplateUrl = () => '/api/rubrics/template';
 export const rubricExportUrl = (id) => `/api/rubrics/${id}/export`;
+export const deleteRubric = (id) => request(`/rubrics/${id}`, { method: 'DELETE' });
 
 // Multipart upload — must NOT set a JSON Content-Type (let the browser set the boundary).
 export const uploadRubricCsv = (name, file) => {

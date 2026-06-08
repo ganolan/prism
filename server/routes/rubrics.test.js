@@ -5,6 +5,7 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });   // set before getDb()
 
 import router from './rubrics.js';
 import { getDb } from '../db/index.js';
+import { saveRubric } from '../services/rubricStore.js';
 
 function startServer() {
   const app = express();
@@ -53,5 +54,19 @@ describe('rubrics route', () => {
   test('GET /config exposes the suggestion accent', async () => {
     const { body } = await call('GET', '/api/rubrics/config');
     expect(body.suggestionAccent).toBe('#e21ad6');
+  });
+
+  test('DELETE /:id removes the rubric and cascades to its attachments', async () => {
+    const id = saveRubric(getDb(), { name: 'Doomed', source: 'csv', criteria: [] });
+    // FK cascade relies on getDb() setting PRAGMA foreign_keys = ON (server/db/index.js:150).
+    getDb().prepare(
+      `INSERT INTO rubric_attachments (rubric_id, assignment_schoology_id, course_id, created_at)
+       VALUES (?, '800', NULL, '2026-01-01')`
+    ).run(id);
+    const del = await call('DELETE', `/api/rubrics/${id}`);
+    expect(del.status).toBe(200);
+    expect(del.body).toEqual({ ok: true });
+    expect((await call('GET', '/api/rubrics')).body).toEqual([]);
+    expect(getDb().prepare(`SELECT COUNT(*) c FROM rubric_attachments`).get().c).toBe(0);
   });
 });

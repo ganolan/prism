@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag } from '../services/api.js';
+import { getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric } from '../services/api.js';
 import { draftKey, readDraft, writeDraft, clearDraft, draftBaseline } from '../lib/assessmentDraft.js';
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
@@ -1142,6 +1142,15 @@ export default function AssessmentSummaryPage() {
   const [analysis, setAnalysis] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
+  // Attached rubric + reporting-category colour palette for this assignment (Task 13).
+  // rubricData: { id, rubric:{...criteria...}, topicByCriterion:[...] } | null.
+  // viewMode toggles the per-card grid between descriptor prose and the compact
+  // level table; defaults to Descriptors (the richer, student-language view).
+  const [rubricData, setRubricData] = useState(null);
+  const [rubricPalette, setRubricPalette] = useState({});
+  const [viewMode, setViewMode] = useState('descriptors');
+  const [rubricMsg, setRubricMsg] = useState('');
+
   // "Send all" bar state (#51). pendingByUid maps each card's uid → true while
   // it has unsaved changes; cardsRef holds each card's { getEntry, applyResult }
   // so the batch can collect entries and report results back per card.
@@ -1288,6 +1297,16 @@ export default function AssessmentSummaryPage() {
 
   useEffect(load, [courseId, assignmentId, dataVersion]);
 
+  // Load the attached rubric + the reporting-category colour palette (Task 13).
+  // Best-effort: a missing rubric / config failure leaves the page in compact-
+  // capable state with no descriptors, never blocking the grade grid.
+  useEffect(() => {
+    let active = true;
+    getRubricForAssignment(assignmentId).then(r => active && setRubricData(r)).catch(() => {});
+    getRubricConfig().then(c => active && setRubricPalette(c.reportingCategoryColors || {})).catch(() => {});
+    return () => { active = false; };
+  }, [assignmentId]);
+
   useEffect(() => {
     if (!drawerOpen) return;
     const onKey = (e) => { if (e.key === 'Escape') setDrawerOpen(false); };
@@ -1338,6 +1357,41 @@ export default function AssessmentSummaryPage() {
           {refreshResult && (
             <span className="text-sm text-muted" style={{ fontSize: '0.75rem' }}>{refreshResult}</span>
           )}
+
+          {/* Rubric view toggle (Task 13) — Descriptors (default) shows the
+              student-language descriptor prose per level; Compact falls back to
+              the dense level-code table. */}
+          <div role="group" aria-label="Rubric view" style={{ display: 'inline-flex', gap: '0.25rem' }}>
+            <button className={`filter-btn${viewMode === 'descriptors' ? ' active' : ''}`}
+              onClick={() => setViewMode('descriptors')}>Descriptors</button>
+            <button className={`filter-btn${viewMode === 'compact' ? ' active' : ''}`}
+              onClick={() => setViewMode('compact')}>Compact</button>
+          </div>
+
+          {/* Attach-rubric affordances — download the CSV template, or upload a
+              rubric CSV which is then attached to this assignment and reloaded. */}
+          <a className="ghost" href={rubricTemplateUrl()} download style={{ fontSize: '0.78rem' }}>Download template</a>
+          <label className="secondary" style={{ cursor: 'pointer', fontSize: '0.78rem' }}>
+            Upload rubric CSV
+            <input type="file" accept=".csv" style={{ display: 'none' }} onChange={async (e) => {
+              const file = e.target.files?.[0]; if (!file) return;
+              setRubricMsg('');
+              try {
+                const { id } = await uploadRubricCsv(file.name.replace(/\.csv$/i, ''), file);
+                await attachRubric({ rubricId: id, courseId, assignmentId });
+                setRubricData(await getRubricForAssignment(assignmentId));
+                setRubricMsg('Rubric uploaded and attached.');
+              } catch (err) {
+                setRubricMsg(`Upload failed: ${err.message}`);
+              } finally {
+                e.target.value = '';   // allow re-uploading the same filename
+              }
+            }} />
+          </label>
+          {rubricMsg && (
+            <span className="text-sm text-muted" style={{ fontSize: '0.75rem' }}>{rubricMsg}</span>
+          )}
+
           {hasAnalysis && (
             <button
               onClick={() => setDrawerOpen(true)}
@@ -1370,6 +1424,9 @@ export default function AssessmentSummaryPage() {
               assignmentId={assignmentId}
               assignmentRow={assignment}
               feedbackRow={feedbackByStudent[student.id] || null}
+              rubric={rubricData ? { ...rubricData.rubric, topicByCriterion: rubricData.topicByCriterion } : null}
+              viewMode={viewMode}
+              rubricPalette={rubricPalette}
               onSaved={handleCardSaved}
               onPendingChange={handlePendingChange}
               onDisplayChange={handleDisplayChange}

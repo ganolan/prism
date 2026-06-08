@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 import AssessmentSummaryPage, { StudentRubricCard } from './AssessmentSummaryPage.jsx';
-import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis } from '../services/api.js';
+import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric } from '../services/api.js';
 
 vi.mock('../services/api.js', () => ({
   getMasteryForAssignment: vi.fn(),
@@ -15,6 +15,11 @@ vi.mock('../services/api.js', () => ({
   sendAllGrades: vi.fn().mockResolvedValue({ results: [] }),
   createFlag: vi.fn().mockResolvedValue({ id: 99, flag_reason: 'Check citations' }),
   deleteFlag: vi.fn().mockResolvedValue({ success: true }),
+  getRubricForAssignment: vi.fn().mockResolvedValue(null),
+  getRubricConfig: vi.fn().mockResolvedValue({ reportingCategoryColors: {} }),
+  rubricTemplateUrl: vi.fn(() => '/api/rubrics/template'),
+  uploadRubricCsv: vi.fn().mockResolvedValue({ id: 1 }),
+  attachRubric: vi.fn().mockResolvedValue({ unmatched: [] }),
 }));
 
 const TOPICS = [
@@ -949,5 +954,35 @@ describe('AssessmentSummaryPage — feedback load (Slice 4)', () => {
     expect(finalCell).not.toHaveTextContent('✦');
     expect(suggCell).toHaveStyle({ background: '#ede9fe' });    // violet wash + ✦
     expect(suggCell).toHaveTextContent('✦');
+  });
+});
+
+describe('AssessmentSummaryPage — rubric view toggle (Task 13)', () => {
+  function renderPage() {
+    return render(
+      <MemoryRouter initialEntries={['/course/4/assessment/800']}>
+        <Routes>
+          <Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+  }
+
+  it('defaults to Descriptors view and toggles to Compact', async () => {
+    getMasteryForAssignment.mockResolvedValue({
+      assignment: { title: 'MAD Project' },
+      topics: [{ id: 't1', title: 'Select, analyze', category_title: 'HS Art: Produce', external_id: 'ART.5.1' }],
+      students: [makeStudent()],
+    });
+    getRubricForAssignment.mockResolvedValue({
+      id: 1, rubric: { id: 1, name: 'MAD', criteria: [{ id: 'c1', position: 1, criterion_name: 'UI/UX',
+        descriptors: { ED: 'Polished.', EX: 'Clear.', D: 'x', EM: 'y', IE: 'Insufficient Evidence' } }] },
+      topicByCriterion: [{ criterion_id: 'c1', topic_id: 't1' }],
+    });
+    getRubricConfig.mockResolvedValue({ reportingCategoryColors: { produce: '#B4A7D6' } });
+    renderPage();
+    expect(await screen.findByText('Polished.')).toBeInTheDocument();        // descriptors shown by default
+    fireEvent.click(screen.getByRole('button', { name: /compact/i }));
+    await waitFor(() => expect(screen.queryByText('Polished.')).not.toBeInTheDocument());
   });
 });

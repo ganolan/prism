@@ -1,6 +1,7 @@
 import { getDb } from '../db/index.js';
 import { fullSync } from './sync.js';
 import { syncMasteryForCourse } from './masterySync.js';
+import { syncBlockNumbers, countCoursesNeedingBlockSync } from './blockNumberSync.js';
 
 // Classify a mastery sync failure: 'login' means the Schoology browser session
 // is missing/expired (recoverable by re-login); 'other' is anything else.
@@ -26,7 +27,7 @@ export async function runUnifiedSync(
   const emit = (evt) => onEvent?.(evt);
   const db = getDb();
   const startedAt = Date.now();
-  const summary = { schoology: null, mastery: [] };
+  const summary = { schoology: null, blocks: null, mastery: [] };
 
   if (!skipSchoology) {
     emit({ phase: 'schoology', status: 'running' });
@@ -41,6 +42,25 @@ export async function runUnifiedSync(
       emit({ phase: 'schoology', status: 'error', message: err.message });
       emit({ type: 'summary', ...summary, elapsedMs: Date.now() - startedAt, fatal: true });
       return summary;
+    }
+  }
+
+  // #106: fill any course missing its PowerSchool block number, from the same
+  // shared browser session. Gated on a cheap count so steady-state syncs launch
+  // no browser (each course is examined once, then marked block_synced_at); the
+  // manual "Sync blocks" button is the force-refresh path. Best-effort: a stale
+  // PowerSchool session logs an error but never aborts the sync.
+  if (countCoursesNeedingBlockSync(db) > 0) {
+    emit({ phase: 'blocks', status: 'running' });
+    try {
+      const r = await syncBlockNumbers({
+        onProgress: (p) => emit({ type: 'log', message: `[blocks] ${p.message}` }),
+      });
+      summary.blocks = { updated: r.updated, skipped: r.skipped };
+      emit({ phase: 'blocks', status: 'done', records: r.updated });
+    } catch (err) {
+      summary.blocks = { error: err.message };
+      emit({ phase: 'blocks', status: 'error', message: err.message });
     }
   }
 

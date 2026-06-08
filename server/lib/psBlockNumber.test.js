@@ -4,6 +4,7 @@ import {
   resolveSectionBlock,
   pickBlockNumber,
   sectionDcidFromLaunchForm,
+  planBlockUpdate,
 } from './psBlockNumber.js';
 
 // Minimal section_info[0] fixtures built from the real shapes observed on
@@ -137,6 +138,48 @@ describe('pickBlockNumber', () => {
       ],
     };
     expect(pickBlockNumber(ambiguous)).toEqual({ blockNumber: null, blockName: null, reason: 'ambiguous' });
+  });
+});
+
+describe('planBlockUpdate', () => {
+  const ok = { blockNumber: '3', blockName: 'Block 3', reason: 'ok' };
+
+  test('auto fill: empty course gets the resolved block, and is stamped', () => {
+    expect(planBlockUpdate({ block_number: null }, ok, { force: false }))
+      .toEqual({ setBlockNumber: '3', stampSyncedAt: true });
+    expect(planBlockUpdate({ block_number: '' }, ok, { force: false }))
+      .toEqual({ setBlockNumber: '3', stampSyncedAt: true });
+  });
+
+  test('auto fill never clobbers a manual value, but still stamps', () => {
+    expect(planBlockUpdate({ block_number: '9' }, ok, { force: false }))
+      .toEqual({ setBlockNumber: undefined, stampSyncedAt: true });
+  });
+
+  test('force (button) overwrites a manual value', () => {
+    expect(planBlockUpdate({ block_number: '9' }, ok, { force: true }))
+      .toEqual({ setBlockNumber: '3', stampSyncedAt: true });
+  });
+
+  test('non-numbered period (PCG) never writes a number but is stamped (so it is not re-fetched)', () => {
+    const pcg = { blockNumber: null, blockName: 'Pastoral Care', reason: 'not-numbered' };
+    expect(planBlockUpdate({ block_number: '' }, pcg, { force: false }))
+      .toEqual({ setBlockNumber: undefined, stampSyncedAt: true });
+    // even forced, a non-numbered period writes no number
+    expect(planBlockUpdate({ block_number: '' }, pcg, { force: true }))
+      .toEqual({ setBlockNumber: undefined, stampSyncedAt: true });
+  });
+
+  test('fetch failures still stamp (fetch-once), never write a number', () => {
+    for (const reason of ['no-block', 'ambiguous', 'no-section-dcid', 'section-info-failed']) {
+      expect(planBlockUpdate({ block_number: '' }, { blockNumber: null, blockName: null, reason }, { force: false }))
+        .toEqual({ setBlockNumber: undefined, stampSyncedAt: true });
+    }
+  });
+
+  test('null pick stamps and writes nothing', () => {
+    expect(planBlockUpdate({ block_number: '' }, null, { force: false }))
+      .toEqual({ setBlockNumber: undefined, stampSyncedAt: true });
   });
 });
 

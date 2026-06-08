@@ -22,7 +22,9 @@ beforeEach(() => {
   getDb().exec(
     'DELETE FROM assessment_analysis; DELETE FROM feedback; DELETE FROM mastery_alignments; ' +
     'DELETE FROM mastery_scores; DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
-    'DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
+    'DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;' +
+    'DELETE FROM rubric_attachment_topics; DELETE FROM rubric_attachments; ' +
+    'DELETE FROM rubric_descriptors; DELETE FROM rubric_criteria; DELETE FROM rubrics; '
   );
 });
 
@@ -177,5 +179,34 @@ describe('PrisMCP resources (@-mention mirror)', () => {
     const client = await connect();
     const res = await client.readResource({ uri: `prism://assignment/${courseId}/sa-1/context` });
     expect(JSON.parse(res.contents[0].text).assignment.schoology_assignment_id).toBe('sa-1');
+  });
+});
+
+describe('PrisMCP rubric tools', () => {
+  const CRITERIA = [
+    { criterion_name: 'UI/UX', standard_title: 'Visual design', reporting_category: 'Produce',
+      descriptors: { ED: 'Polished', EX: 'Clear', D: 'Rough', EM: 'Weak' } },
+    { criterion_name: 'Code', standard_title: 'Programming', reporting_category: 'Produce',
+      descriptors: { ED: 'Clean', EX: 'Works', D: 'Messy', EM: 'Broken' } },
+  ];
+
+  test('write_rubric then read_rubric round-trips ordered criteria with no Prism ids', async () => {
+    const client = await connect();
+    await client.callTool({ name: 'write_rubric', arguments: { name: 'AIML U2', criteria: CRITERIA } });
+    const res = await client.callTool({ name: 'read_rubric', arguments: { name: 'AIML U2' } });
+    const r = JSON.parse(res.content[0].text);
+    expect(r.name).toBe('AIML U2');
+    expect(r.criteria.map((c) => c.criterion_name)).toEqual(['UI/UX', 'Code']); // order preserved
+    expect(r.criteria[0].descriptors.IE).toBe('Insufficient Evidence');         // IE defaulted
+    expect(JSON.stringify(r)).not.toMatch(/"id"/);                               // no ids leak
+  });
+
+  test('write_rubric upserts by name (no duplicate)', async () => {
+    const client = await connect();
+    await client.callTool({ name: 'write_rubric', arguments: { name: 'Dupe', criteria: CRITERIA } });
+    await client.callTool({ name: 'write_rubric', arguments: { name: 'Dupe', criteria: [CRITERIA[0]] } });
+    const list = JSON.parse((await client.callTool({ name: 'list_rubrics', arguments: {} })).content[0].text);
+    expect(list.filter((r) => r.name === 'Dupe')).toHaveLength(1);
+    expect(list[0]).not.toHaveProperty('id');
   });
 });

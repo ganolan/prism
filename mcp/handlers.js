@@ -3,6 +3,8 @@
 // callbacks. Kept separate so they unit-test directly against a :memory: DB,
 // mirroring the server/**/*.test.js pattern.
 
+import { listRubrics, getRubricByName, upsertRubricByName } from '../server/services/rubricStore.js';
+
 // Active courses = not archived, not excluded, not hidden. Mirrors the
 // 'current' view in server/routes/courses.js, plus the excluded filter (#56,
 // spec §3.1).
@@ -37,4 +39,39 @@ export function listAssignments(db, { course_id }) {
     // surface the latest as an ISO string, null when nobody has submitted.
     latest_submission_at: latest_submitted_at > 0 ? new Date(latest_submitted_at * 1000).toISOString() : null,
   }));
+}
+
+const LEVELS = ['ED', 'EX', 'D', 'EM', 'IE'];
+
+// Portable rubric shape — ordered criteria, per-level descriptors, NO Prism ids
+// (the JSON twin of exportRubricCsv; spec §6).
+function toPortable(rubric) {
+  return {
+    name: rubric.name,
+    criteria: rubric.criteria.map((c) => ({
+      criterion_name: c.criterion_name,
+      standard_title: c.standard_title,
+      reporting_category: c.reporting_category,
+      descriptors: Object.fromEntries(
+        LEVELS.map((l) => [l, c.descriptors?.[l] ?? (l === 'IE' ? 'Insufficient Evidence' : null)])
+      ),
+    })),
+  };
+}
+
+export function listRubricsTool(db) {
+  // Name is the agent's handle — drop the local id.
+  return listRubrics(db).map(({ name, source, criteria_count, updated_at }) =>
+    ({ name, source, criteria_count, updated_at }));
+}
+
+export function readRubric(db, { name }) {
+  const r = getRubricByName(db, name);
+  return r ? toPortable(r) : null;
+}
+
+export function writeRubric(db, { name, criteria }) {
+  const content = { name, source: 'mcp', criteria: criteria.map((c, i) => ({ ...c, position: i + 1 })) };
+  upsertRubricByName(db, content);
+  return { name, criteria_count: getRubricByName(db, name).criteria.length };
 }

@@ -55,4 +55,32 @@ describe('rubricAttach', () => {
     reorderCriteria(db, rubricId, [c2.id, c1.id]);
     expect(getAttachmentForAssignment(db, '800').rubric.criteria.map(c => c.id)).toEqual([c2.id, c1.id]);
   });
+
+  test('setMapping moves a topic off the criterion that previously held it (1:1)', () => {
+    attachRubric(db, { rubricId, courseId: 4, assignmentId: '800' });
+    const att = getAttachmentForAssignment(db, '800');
+    const [c1, c2] = att.rubric.criteria;            // c1→t1, c2→t2 from auto-match
+    setMapping(db, att.id, c2.id, 't1');             // give t1 (held by c1) to c2
+    const map = getAttachmentForAssignment(db, '800').topicByCriterion;
+    expect(map.find(m => m.criterion_id === c2.id).topic_id).toBe('t1');
+    expect(map.find(m => m.criterion_id === c1.id)).toBeUndefined(); // c1 freed
+  });
+
+  test('setMapping with a null topic unmaps the criterion', () => {
+    attachRubric(db, { rubricId, courseId: 4, assignmentId: '800' });
+    const att = getAttachmentForAssignment(db, '800');
+    const [c1] = att.rubric.criteria;
+    setMapping(db, att.id, c1.id, null);
+    expect(getAttachmentForAssignment(db, '800').topicByCriterion
+      .find(m => m.criterion_id === c1.id)).toBeUndefined();
+  });
+
+  test('setMapping with an empty-string topic also unmaps the criterion', () => {
+    attachRubric(db, { rubricId, courseId: 4, assignmentId: '800' });
+    const att = getAttachmentForAssignment(db, '800');
+    const [, c2] = att.rubric.criteria;
+    setMapping(db, att.id, c2.id, '');
+    expect(getAttachmentForAssignment(db, '800').topicByCriterion
+      .find(m => m.criterion_id === c2.id)).toBeUndefined();
+  });
 });

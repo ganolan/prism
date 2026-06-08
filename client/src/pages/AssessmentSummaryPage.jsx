@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, reorderRubricCriteria } from '../services/api.js';
+import { getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig } from '../services/api.js';
 import { draftKey, readDraft, writeDraft, clearDraft, draftBaseline } from '../lib/assessmentDraft.js';
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import RubricDescriptorGrid from '../components/RubricDescriptorGrid.jsx';
+import RubricManagerModal from '../components/RubricManagerModal.jsx';
 import AiSparkle from '../components/AiSparkle.jsx';
 
 const LEVELS = ['ED', 'EX', 'D', 'EM', 'IE'];
@@ -121,7 +122,7 @@ function HeaderPill({ active, accent, activeBg, activeText, icon, label, clearLa
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
-export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, rubric = null, viewMode = 'descriptors', rubricPalette = {}, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard, onReorder }) {
+export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, rubric = null, viewMode = 'descriptors', rubricPalette = {}, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
   const loadedDisplay = student.comment_status === 1;
   const storageKey = draftKey(courseId, assignmentId, student.enrollment_id);
   // Signature of the synced Schoology values this card was rendered against.
@@ -751,7 +752,6 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             palette={rubricPalette}
             levelHeaderColors={Object.fromEntries(LEVELS.map(l => [l, CELL_COLORS[l].headerFill]))}
             levelBorderColors={Object.fromEntries(LEVELS.map(l => [l, CELL_COLORS[l].finalBorder]))}
-            onReorder={onReorder}
           />
         ) : (
         <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.8rem' }}>
@@ -1152,7 +1152,8 @@ export default function AssessmentSummaryPage() {
   const [rubricData, setRubricData] = useState(null);
   const [rubricPalette, setRubricPalette] = useState({});
   const [viewMode, setViewMode] = useState('descriptors');
-  const [rubricMsg, setRubricMsg] = useState('');
+  const [rubricModalOpen, setRubricModalOpen] = useState(false);
+  const reloadRubric = async () => setRubricData(await getRubricForAssignment(assignmentId));
 
   // "Send all" bar state (#51). pendingByUid maps each card's uid → true while
   // it has unsaved changes; cardsRef holds each card's { getEntry, applyResult }
@@ -1371,31 +1372,9 @@ export default function AssessmentSummaryPage() {
               onClick={() => setViewMode('compact')}>Compact</button>
           </div>
 
-          {/* Attach-rubric affordances — download the CSV template, or upload a
-              rubric CSV which is then attached to this assignment and reloaded. */}
-          <a className="ghost" href={rubricTemplateUrl()} download style={{ fontSize: '0.78rem' }}>Download template</a>
-          <label className="secondary" style={{ cursor: 'pointer', fontSize: '0.78rem' }}>
-            Upload rubric CSV
-            <input type="file" accept=".csv" style={{ display: 'none' }} onChange={async (e) => {
-              const file = e.target.files?.[0]; if (!file) return;
-              setRubricMsg('');
-              try {
-                const { id } = await uploadRubricCsv(file.name.replace(/\.csv$/i, ''), file);
-                const { unmatched } = await attachRubric({ rubricId: id, courseId, assignmentId });
-                setRubricData(await getRubricForAssignment(assignmentId));
-                setRubricMsg(unmatched?.length
-                  ? `Attached — ${unmatched.length} criteria could not be matched to a topic (check the Standard column).`
-                  : 'Rubric uploaded and attached.');
-              } catch (err) {
-                setRubricMsg(`Upload failed: ${err.message}`);
-              } finally {
-                e.target.value = '';   // allow re-uploading the same filename
-              }
-            }} />
-          </label>
-          {rubricMsg && (
-            <span className="text-sm text-muted" style={{ fontSize: '0.75rem' }}>{rubricMsg}</span>
-          )}
+          {/* Single entry point to the rubric hub (attach existing / upload / map / reorder / delete). */}
+          <button className="secondary" style={{ fontSize: '0.78rem' }}
+            onClick={() => setRubricModalOpen(true)}>Manage rubrics…</button>
 
           {hasAnalysis && (
             <button
@@ -1421,7 +1400,7 @@ export default function AssessmentSummaryPage() {
         </div>
       ) : (
         <>
-          {students.map((student, idx) => (
+          {students.map((student) => (
             <StudentRubricCard
               key={student.schoology_uid}
               student={student}
@@ -1438,10 +1417,6 @@ export default function AssessmentSummaryPage() {
               onDisplayChange={handleDisplayChange}
               registerCard={registerCard}
               unregisterCard={unregisterCard}
-              onReorder={idx === 0 && rubricData ? async (orderedCriterionIds) => {
-                await reorderRubricCriteria(rubricData.rubric.id, orderedCriterionIds);
-                setRubricData(await getRubricForAssignment(assignmentId));
-              } : undefined}
             />
           ))}
 
@@ -1590,6 +1565,16 @@ export default function AssessmentSummaryPage() {
           </div>
         </>
       )}
+
+      <RubricManagerModal
+        open={rubricModalOpen}
+        onClose={() => setRubricModalOpen(false)}
+        courseId={courseId}
+        assignmentId={assignmentId}
+        topics={alignedTopics}
+        attachment={rubricData}
+        onChanged={reloadRubric}
+      />
     </div>
   );
 }

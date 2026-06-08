@@ -278,3 +278,19 @@ Descriptor cells themselves stay neutral (`--card-bg`). Keeping colour out of th
 descriptor columns ensures that the green selection border and the fuchsia suggestion
 wash both read clearly against a plain background — coloured descriptor cells would
 compete with both.
+
+### Rubric management modal + reorder (June 2026, branch `feat/rubric-binding-and-mcp`)
+
+- **Single rubric-editing hub.** All rubric editing for an assignment lives in one
+  tabbed modal — **Attach · Map criteria · Row order** (`RubricManagerModal.jsx`),
+  opened by a single "Manage rubrics…" toolbar button. The grading grid stays
+  grading-only (no edit affordances). Map/Row-order tabs enable only when a rubric
+  is attached.
+- **Destructive delete confirms in place.** Deleting a rubric attached to N
+  assignments shows "attached to N", and the 🗑 turns into "Click to confirm" on
+  first click (second click deletes) — per the existing confirm-in-place principle.
+- **`ReorderableList` (reusable).** Grip + ↑/↓ buttons (keyboard: ArrowUp/ArrowDown
+  on a focused row) + a `box-shadow: inset 0 2px 0 0 var(--accent)` top drop-target
+  highlight during drag. Use this for any future reorderable list rather than
+  re-inlining drag handlers.
+- Dates render `toLocaleDateString('en-GB')` (DD/MM/YYYY), per the date convention.

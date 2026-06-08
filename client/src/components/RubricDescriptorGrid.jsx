@@ -1,4 +1,3 @@
-import { useRef } from 'react';
 import AiSparkle from './AiSparkle.jsx';
 import { categoryColor } from '../lib/rubricColors.js';
 
@@ -7,20 +6,8 @@ const LEVEL_LABELS = {
 };
 
 export default function RubricDescriptorGrid({
-  rows, levels, cellState, onSelect, palette, levelHeaderColors, levelBorderColors, onReorder,
+  rows, levels, cellState, onSelect, palette, levelHeaderColors, levelBorderColors,
 }) {
-  const dragFrom = useRef(null);
-  const ids = rows.map(r => r.criterion?.id).filter(Boolean);
-  function handleDrop(toId) {
-    const fromId = dragFrom.current; dragFrom.current = null;
-    if (fromId == null || toId == null || fromId === toId || !onReorder) return;
-    const next = ids.slice();
-    const fromIdx = next.indexOf(fromId), toIdx = next.indexOf(toId);
-    if (fromIdx < 0 || toIdx < 0) return;
-    next.splice(fromIdx, 1);
-    next.splice(toIdx, 0, fromId);
-    onReorder(next);
-  }
   return (
     <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.8rem' }}>
       <thead>
@@ -37,16 +24,9 @@ export default function RubricDescriptorGrid({
       </thead>
       <tbody>
         {rows.map(({ topic, criterion }) => (
-          <tr key={topic.id}
-              draggable={!!onReorder && !!criterion}
-              onDragStart={() => { if (onReorder && criterion) dragFrom.current = criterion.id; }}
-              onDragOver={(e) => { if (onReorder) e.preventDefault(); }}
-              onDrop={() => { if (onReorder && criterion) handleDrop(criterion.id); }}>
+          <tr key={`${topic.id}-${criterion?.id ?? 'none'}`}>
             <td style={{ padding: '0.3rem 0.6rem', border: '1px solid var(--border)', color: '#202020',
               background: categoryColor(topic.category_title, palette), verticalAlign: 'top' }}>
-              {onReorder && criterion && (
-                <span aria-label="Drag to reorder" style={{ cursor: 'grab', color: '#7a7a7a', marginRight: 4, userSelect: 'none' }}>⋮⋮</span>
-              )}
               {criterion?.criterion_name && (
                 <div style={{ fontWeight: 700, fontSize: '0.82rem' }}>{criterion.criterion_name}</div>)}
               <div style={{ fontSize: '0.72rem', fontWeight: 600 }}>{topic.title}</div>
@@ -55,7 +35,9 @@ export default function RubricDescriptorGrid({
             </td>
             {levels.map(l => {
               const st = cellState(topic.id, l) || {};
-              const text = criterion?.descriptors?.[l] ?? '';
+              const raw = criterion?.descriptors?.[l] ?? '';
+              // Uncovered topics (no criterion) still name the IE floor explicitly.
+              const text = (l === 'IE' && !raw) ? 'Insufficient Evidence' : raw;
               const base = {
                 padding: '0.35rem 0.45rem', border: '1px solid var(--border)', verticalAlign: 'top',
                 background: '#fff', color: '#1a1a1a', cursor: 'pointer', position: 'relative',

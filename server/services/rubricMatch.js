@@ -1,7 +1,14 @@
 export function normalizeTitle(s) {
   return (s || '')
+    // framework code prefix, e.g. "VA:Cr1.1" / "MA:Pr5.1" — an ALL-CAPS subject, a
+    // colon, then a token containing a digit. Run before lowercasing so the uppercase
+    // prefix is detectable (distinguishes a real code from prose like "Note:2 ...").
+    .replace(/^\s*[A-Z]{1,5}:[A-Za-z]*\d[A-Za-z0-9.]*\s*[-–:.)]?\s*/, '')
     .toLowerCase()
-    .replace(/^\s*anchor standard\s*\d+\s*:\s*/i, '')
+    // "Anchor Standard 4:" / "Standard 2:" — the "anchor" word is optional
+    .replace(/^\s*(anchor\s+)?standard\s*\d+\s*:\s*/i, '')
+    // leading list numbering: "1." / "1)" / "1 -" / "1 –" (ASCII hyphen or en-dash)
+    .replace(/^\s*\d+\s*[.)–\-]\s*/, '')
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 }

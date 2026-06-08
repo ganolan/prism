@@ -64,11 +64,24 @@ export function getRubric(db = getDb(), id) {
 export function listRubrics(db = getDb()) {
   return db.prepare(
     `SELECT r.id, r.name, r.source, r.updated_at,
-            (SELECT COUNT(*) FROM rubric_criteria c WHERE c.rubric_id = r.id) AS criteria_count
+            (SELECT COUNT(*) FROM rubric_criteria c WHERE c.rubric_id = r.id) AS criteria_count,
+            (SELECT COUNT(*) FROM rubric_attachments a WHERE a.rubric_id = r.id) AS attachment_count
      FROM rubrics r ORDER BY r.updated_at DESC, r.id DESC`
   ).all();
 }
 
 export function deleteRubric(db = getDb(), id) {
   db.prepare(`DELETE FROM rubrics WHERE id = ?`).run(id);
+}
+
+export function getRubricByName(db = getDb(), name) {
+  const row = db.prepare(`SELECT id FROM rubrics WHERE name = ? ORDER BY updated_at DESC, id DESC LIMIT 1`).get(name);
+  return row ? getRubric(db, row.id) : null;
+}
+
+// Upsert by name: replace the newest rubric with this name, else create. Keeps the
+// library free of re-push duplicates (the MCP write contract, spec §6).
+export function upsertRubricByName(db = getDb(), content) {
+  const row = db.prepare(`SELECT id FROM rubrics WHERE name = ? ORDER BY updated_at DESC, id DESC LIMIT 1`).get(content.name);
+  return saveRubric(db, content, row?.id ?? null);
 }

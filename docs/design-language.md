@@ -202,3 +202,79 @@ button classes.
 `.help-pop` and `.number-stepper` (component: `client/src/components/NumberStepper.jsx`)
 now live as shared classes in `client/src/app.css` — used by the Sync dialog.
 New UI should reuse these rather than re-inlining a help "?" or a number spinner.
+
+---
+
+## Rubric-descriptor visual language (June 2026, branch `feat/rubric-descriptors`)
+
+> Added alongside the descriptor grid, compact-grid, and reviewer-analysis features.
+> Cross-references: spec `docs/superpowers/specs/2026-06-08-rubric-descriptors-design.md`,
+> plan `docs/superpowers/plans/2026-06-08-rubric-descriptors.md`, issue #80.
+
+### AI-suggestion accent (fuchsia)
+
+All AI / reviewer-suggestion surfaces share a single, unmistakable fuchsia accent so
+the teacher always knows at a glance what is machine-originated vs human-committed:
+
+- **Colour token `--ai-suggest: #e21ad6`** — defined in `client/src/app.css :root`.
+  Used for borders, glyphs, and text that identifies a suggestion.
+- **Wash token `--ai-suggest-wash: #fbe6fb`** — the very-light fuchsia background
+  applied to suggested cells, keeping the descriptor text readable while marking the
+  cell as "proposed, not confirmed."
+- **Glyph — `AiSparkle` component** (`client/src/components/AiSparkle.jsx`): a
+  3-star "AI magic" sparkle SVG with `fill: currentColor`, so callers control the
+  hue by setting `color` (e.g. `style={{ color: 'var(--ai-suggest)' }}`). A 17 px
+  corner sparkle appears in the descriptor grid's suggested cell; the compact grid
+  renders an analogous overlay.
+
+Surfaces that use this accent consistently (never mix it with another affordance):
+the descriptor-grid suggested cell (sparkle + wash), the compact-grid suggestion
+overlay, the "Reviewer Analysis" drawer button and its header, and the narrative
+"Suggested feedback / Use suggestion" block.
+
+The suggestion accent and the reporting-category palette are both configurable in
+`config.yaml` under `rubrics:` (server-side) and surfaced to the client via
+`GET /api/rubrics/config`.
+
+### Selection borders — inset / cell-hugging
+
+Rubric selection states sit **inside** the cell boundary so they never bleed into
+neighbouring cells regardless of layout engine. All three commitment levels use an
+inset technique:
+
+| State | Treatment |
+|---|---|
+| **Final** | `box-shadow: inset 0 0 0 2px <level-colour>` — solid, 2 px, fully inset |
+| **Draft** | `outline: 2px dashed <level-colour>; outline-offset: -1px` — dashed inset |
+| **Staged deletion** | `outline: 2px dotted #ef4444; outline-offset: -1px` + enlarged corner **×** glyph |
+
+The compact grid uses the analogous `CELL_COLORS` per-level fill treatment (header
+tint → final fill; faint tint → draft; etc.) rather than outline strokes, but the
+same solid-vs-dashed vs dotted vocabulary carries across both views.
+
+Key principle (extended from the earlier rubric-cell language): **solid = committed,
+dashed = tentative, dotted = pending removal**. Outline-based overlays (fuchsia
+suggestion, red deletion) compose without clashing because they sit on a different
+CSS property than the border used for level colour.
+
+### Level headers — full wording, colour-coded
+
+Level headers in the descriptor grid show the **complete proficiency-level label**
+(`Exhibiting Depth`, `Exhibiting`, `Developing`, `Emerging`, `Insufficient
+Evidence`) — never an abbreviation. Each header is colour-coded to its level using
+the same saturated tint as the rubric cell palette (`CELL_COLORS`), giving the
+teacher an immediate visual anchor before reading the descriptors.
+
+### Reporting-category colour — topic column only
+
+Category colour is applied to the **topic (first) column only**. The default palette
+for Art & Design is `#B4A7D6` (Produce) and `#9FC5E8` (Create / Respond / Connect),
+but the palette is config-driven and subject-agnostic: `client/src/lib/rubricColors.js`
+resolves a category title to a colour via a lowercase keyword-contains match against
+the `rubrics.categoryColors` map in `config.yaml`, falling back to `var(--bg-subtle)`
+for unknown categories.
+
+Descriptor cells themselves stay neutral (`--card-bg`). Keeping colour out of the
+descriptor columns ensures that the green selection border and the fuchsia suggestion
+wash both read clearly against a plain background — coloured descriptor cells would
+compete with both.

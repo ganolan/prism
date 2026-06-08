@@ -9,8 +9,16 @@ features:
   revision_workflow: true
   people_search: true
   schoology_writeback: false
+  rubric_descriptors: true
 
 sync:
   submissionConcurrency: 6
   submissionRatePerSec: 10
   submissionAbandonAfter: 5
+
+rubrics:
+  suggestionAccent: '#e21ad6'
+  suggestionWash: '#fbe6fb'
+  reportingCategoryColors:
+    produce: '#B4A7D6'
+    create: '#9FC5E8'

@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 import AssessmentSummaryPage, { StudentRubricCard } from './AssessmentSummaryPage.jsx';
-import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis } from '../services/api.js';
+import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric } from '../services/api.js';
 
 vi.mock('../services/api.js', () => ({
   getMasteryForAssignment: vi.fn(),
@@ -15,6 +15,11 @@ vi.mock('../services/api.js', () => ({
   sendAllGrades: vi.fn().mockResolvedValue({ results: [] }),
   createFlag: vi.fn().mockResolvedValue({ id: 99, flag_reason: 'Check citations' }),
   deleteFlag: vi.fn().mockResolvedValue({ success: true }),
+  getRubricForAssignment: vi.fn().mockResolvedValue(null),
+  getRubricConfig: vi.fn().mockResolvedValue({ reportingCategoryColors: {} }),
+  rubricTemplateUrl: vi.fn(() => '/api/rubrics/template'),
+  uploadRubricCsv: vi.fn().mockResolvedValue({ id: 1 }),
+  attachRubric: vi.fn().mockResolvedValue({ unmatched: [] }),
 }));
 
 const TOPICS = [
@@ -711,7 +716,7 @@ describe('StudentRubricCard — card chrome (Slice 5)', () => {
 
   it('renders the suggestion box (read-only) and Use suggestion when narrative_feedback exists', () => {
     renderCard(withFeedback2({ narrative_feedback: 'Excellent work, Ada!' }));
-    expect(screen.getByText('✦ Suggested feedback')).toBeInTheDocument();
+    expect(screen.getByText('Suggested feedback')).toBeInTheDocument();
     expect(screen.getByText('Excellent work, Ada!')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /use suggestion/i })).toBeInTheDocument();
   });
@@ -857,6 +862,20 @@ describe('AssessmentSummaryPage — header + Reviewer Analysis (Slice 6)', () =>
   });
 });
 
+describe('StudentRubricCard — descriptor view (Task 12)', () => {
+  it('renders descriptor prose when viewMode=descriptors and a rubric is attached', () => {
+    const rubric = {
+      id: 1, name: 'MAD',
+      criteria: [{ id: 'c1', position: 1, criterion_name: 'UI/UX',
+        descriptors: { ED: 'Polished.', EX: 'Clear.', D: 'Inconsistent.', EM: 'Lacks.', IE: 'Insufficient Evidence' } }],
+      topicByCriterion: [{ criterion_id: 'c1', topic_id: 't1' }],
+    };
+    renderCard({ viewMode: 'descriptors', rubric });
+    expect(screen.getByText('Polished.')).toBeInTheDocument();
+    expect(screen.getByText('Exhibiting Depth')).toBeInTheDocument();
+  });
+});
+
 describe('AssessmentSummaryPage — feedback load (Slice 4)', () => {
   function makeData() {
     return {
@@ -889,8 +908,8 @@ describe('AssessmentSummaryPage — feedback load (Slice 4)', () => {
     });
     renderPage();
     const cell = await screen.findByTitle('Set Topic 1 to Exhibiting Depth'); // ED
-    await waitFor(() => expect(cell).toHaveTextContent('✦'));
-    expect(cell).toHaveStyle({ background: '#ede9fe' }); // violet wash, no teacher mark
+    await waitFor(() => expect(cell.querySelector('svg')).toBeTruthy());
+    expect(cell).toHaveStyle({ background: 'var(--ai-suggest-wash)' }); // fuchsia wash, no teacher mark
   });
 
   it('does not throw or overlay for an unresolvable rubric_scores key', async () => {
@@ -914,10 +933,10 @@ describe('AssessmentSummaryPage — feedback load (Slice 4)', () => {
     });
     renderPage();
     const cell = await screen.findByTitle('Set Topic 1 to Exhibiting Depth');
-    await waitFor(() => expect(cell).toHaveTextContent('✦'));
+    await waitFor(() => expect(cell.querySelector('svg')).toBeTruthy());
     expect(cell).toHaveStyle({
       background: '#bfdbfe', border: '2px solid #2563eb',
-      outline: '1px dashed #a78bfa',
+      outline: '1px dashed var(--ai-suggest)',
     });
   });
 
@@ -931,9 +950,63 @@ describe('AssessmentSummaryPage — feedback load (Slice 4)', () => {
     renderPage();
     const finalCell = await screen.findByTitle('Set Topic 1 to Exhibiting Depth'); // ED
     const suggCell = screen.getByTitle('Set Topic 1 to Exhibiting');             // EX
-    expect(finalCell).toHaveStyle({ background: '#bfdbfe' });   // final, no ✦
+    expect(finalCell).toHaveStyle({ background: '#bfdbfe' });   // final, no sparkle
     expect(finalCell).not.toHaveTextContent('✦');
-    expect(suggCell).toHaveStyle({ background: '#ede9fe' });    // violet wash + ✦
-    expect(suggCell).toHaveTextContent('✦');
+    expect(suggCell).toHaveStyle({ background: 'var(--ai-suggest-wash)' });    // fuchsia wash + sparkle
+    expect(suggCell.querySelector('svg')).toBeTruthy();
+  });
+});
+
+describe('AssessmentSummaryPage — rubric view toggle (Task 13)', () => {
+  function renderPage() {
+    return render(
+      <MemoryRouter initialEntries={['/course/4/assessment/800']}>
+        <Routes>
+          <Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+  }
+
+  it('defaults to Descriptors view and toggles to Compact', async () => {
+    getMasteryForAssignment.mockResolvedValue({
+      assignment: { title: 'MAD Project' },
+      topics: [{ id: 't1', title: 'Select, analyze', category_title: 'HS Art: Produce', external_id: 'ART.5.1' }],
+      students: [makeStudent()],
+    });
+    getRubricForAssignment.mockResolvedValue({
+      id: 1, rubric: { id: 1, name: 'MAD', criteria: [{ id: 'c1', position: 1, criterion_name: 'UI/UX',
+        descriptors: { ED: 'Polished.', EX: 'Clear.', D: 'x', EM: 'y', IE: 'Insufficient Evidence' } }] },
+      topicByCriterion: [{ criterion_id: 'c1', topic_id: 't1' }],
+    });
+    getRubricConfig.mockResolvedValue({ reportingCategoryColors: { produce: '#B4A7D6' } });
+    renderPage();
+    expect(await screen.findByText('Polished.')).toBeInTheDocument();        // descriptors shown by default
+    fireEvent.click(screen.getByRole('button', { name: /compact/i }));
+    await waitFor(() => expect(screen.queryByText('Polished.')).not.toBeInTheDocument());
+  });
+});
+
+describe('AssessmentSummaryPage — Reviewer Analysis sparkle (Task 15)', () => {
+  function renderPage() {
+    return render(
+      <MemoryRouter initialEntries={['/course/4/assessment/8']}>
+        <Routes>
+          <Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+  }
+
+  it('uses the AiSparkle glyph (fuchsia) on the Reviewer Analysis button', async () => {
+    getMasteryForAssignment.mockResolvedValue({
+      assignment: { title: 'MAD Project' },
+      topics: [{ id: 't1', title: 'T', category_title: 'HS Art: Produce', external_id: 'ART.5.1' }],
+      students: [makeStudent()],
+    });
+    getAssessmentAnalysis.mockResolvedValue({ summary: 'something' }); // makes hasAnalysis true
+    renderPage();
+    const btn = await screen.findByRole('button', { name: /reviewer analysis/i });
+    expect(btn.querySelector('svg')).toBeTruthy();
   });
 });

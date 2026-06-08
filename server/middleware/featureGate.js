@@ -29,6 +29,16 @@ export function getSyncConfig() {
   };
 }
 
+export function getRubricConfig() {
+  if (!config) loadConfig();
+  return {
+    suggestionAccent: '#e21ad6',
+    suggestionWash: '#fbe6fb',
+    reportingCategoryColors: { produce: '#B4A7D6', create: '#9FC5E8' },
+    ...(config.rubrics || {}),
+  };
+}
+
 export function featureGate(featureName) {
   return (req, res, next) => {
     const features = getFeatures();

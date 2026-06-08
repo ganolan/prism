@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag } from '../services/api.js';
+import { getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, reorderRubricCriteria } from '../services/api.js';
 import { draftKey, readDraft, writeDraft, clearDraft, draftBaseline } from '../lib/assessmentDraft.js';
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
+import RubricDescriptorGrid from '../components/RubricDescriptorGrid.jsx';
+import AiSparkle from '../components/AiSparkle.jsx';
 
 const LEVELS = ['ED', 'EX', 'D', 'EM', 'IE'];
 const LEVEL_LABELS = {
@@ -26,8 +28,8 @@ const CELL_COLORS = {
   EM: { headerFill: '#fed7aa', draftFill: '#fff7ed', finalBorder: '#ea580c', draftBorder: '#fdba74' },
   IE: { headerFill: '#fecaca', draftFill: '#fef2f2', finalBorder: '#dc2626', draftBorder: '#fca5a5' },
 };
-// Suggestion accent — deliberately violet, NOT yellow (Developing is already yellow).
-const SUGGEST = { fill: '#ede9fe', ring: '#a78bfa', glyph: '#8b5cf6' };
+// Suggestion accent — fuchsia CSS tokens (matches descriptor grid's --ai-suggest).
+const SUGGEST = { fill: 'var(--ai-suggest-wash)', ring: 'var(--ai-suggest)', glyph: 'var(--ai-suggest)' };
 const CELL_TEXT = '#1a1a1a';
 // Sentinel stored in pending[topicId] to stage a synced final for removal (Slice 2).
 const REMOVE = '__remove__';
@@ -119,7 +121,7 @@ function HeaderPill({ active, accent, activeBg, activeText, icon, label, clearLa
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
-export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
+export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, rubric = null, viewMode = 'descriptors', rubricPalette = {}, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard, onReorder }) {
   const loadedDisplay = student.comment_status === 1;
   const storageKey = draftKey(courseId, assignmentId, student.enrollment_id);
   // Signature of the synced Schoology values this card was rendered against.
@@ -524,6 +526,32 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
 
   const bothSignals = !!resubmitFlag && !!student.resubmitted;
 
+  // Descriptor view: order rows by criterion.position → mapped topic; topics with
+  // no criterion fall after. Built only when a rubric is attached.
+  const topicById = Object.fromEntries(topics.map(t => [t.id, t]));
+  const critByTopic = Object.fromEntries((rubric?.topicByCriterion || []).map(m => [m.topic_id, m.criterion_id]));
+  const orderedCrit = (rubric?.criteria || []).slice().sort((a, b) => a.position - b.position);
+  const descriptorRows = [
+    ...orderedCrit.map(c => {
+      const m = (rubric?.topicByCriterion || []).find(x => x.criterion_id === c.id);
+      const tid = m?.topic_id;
+      return tid && topicById[tid] ? { topic: topicById[tid], criterion: c } : null;
+    }).filter(Boolean),
+    ...topics.filter(t => !critByTopic[t.id]).map(t => ({ topic: t, criterion: null })),
+  ];
+  const cellStateFor = (topicId, l) => {
+    const currentGrade = student.scores[topicId]?.grade || null;
+    const pendingGrade = pending[topicId] ?? null;
+    const suggestedLevel = suggestedByTopic[topicId] || null;
+    return {
+      final: l === currentGrade && pendingGrade == null,
+      draft: pendingGrade !== REMOVE && l === pendingGrade,
+      staged: pendingGrade === REMOVE && l === currentGrade,
+      suggested: suggestedLevel != null && l === suggestedLevel,
+    };
+  };
+  const showDescriptors = viewMode === 'descriptors' && !!rubric;
+
   return (
     <div style={{
       border: bothSignals ? '1px solid var(--resubmit-ring)' : '1px solid var(--border)',
@@ -714,6 +742,18 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         opacity: isRubricLocked ? 0.45 : 1,
         pointerEvents: isRubricLocked ? 'none' : 'auto',
       }}>
+        {showDescriptors ? (
+          <RubricDescriptorGrid
+            rows={descriptorRows}
+            levels={LEVELS}
+            cellState={cellStateFor}
+            onSelect={selectLevel}
+            palette={rubricPalette}
+            levelHeaderColors={Object.fromEntries(LEVELS.map(l => [l, CELL_COLORS[l].headerFill]))}
+            levelBorderColors={Object.fromEntries(LEVELS.map(l => [l, CELL_COLORS[l].finalBorder]))}
+            onReorder={onReorder}
+          />
+        ) : (
         <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.8rem' }}>
           <thead>
             <tr>
@@ -828,9 +868,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
                         ) : null}
                         {isSuggested && !stagedRemoval && (
                           <span style={{
-                            position: 'absolute', top: 1, right: 3, fontSize: '0.58rem',
-                            lineHeight: 1, color: SUGGEST.glyph,
-                          }}>✦</span>
+                            position: 'absolute', top: 1, right: 3, lineHeight: 1,
+                          }}><AiSparkle size={11} style={{ color: 'var(--ai-suggest)' }} /></span>
                         )}
                         {stagedRemoval && (
                           <span style={{
@@ -846,6 +885,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             })}
           </tbody>
         </table>
+        )}
       </div>
 
       {/* Overall Comment — the hero */}
@@ -980,7 +1020,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
               style={{
                 borderRadius: 7, padding: '0.4rem 0.75rem', fontSize: '0.74rem',
                 fontWeight: 600, cursor: 'pointer',
-                background: '#ede9fe', color: '#6d28d9', border: '1px solid #c4b5fd',
+                background: 'var(--ai-suggest-wash)', color: 'var(--ai-suggest)', border: '1px solid var(--ai-suggest)',
               }}
             >
               ↑ Use suggestion
@@ -998,7 +1038,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
               letterSpacing: '0.03em', marginBottom: '0.28rem',
               display: 'flex', alignItems: 'center', gap: '0.3rem',
             }}>
-              ✦ Suggested feedback
+              <AiSparkle size={12} style={{ color: 'var(--ai-suggest)' }} /> Suggested feedback
             </div>
             <div style={{ fontSize: '0.72rem', lineHeight: 1.4, color: '#716b85', whiteSpace: 'pre-wrap' }}>
               {narrativeSuggestion}
@@ -1024,8 +1064,10 @@ function ReviewerAnalysisBody({ topics, feedbackRows, analysis }) {
         <div style={{
           fontSize: '0.62rem', textTransform: 'uppercase', letterSpacing: '0.04em',
           color: 'var(--text-muted)', fontWeight: 700, marginBottom: '0.15rem',
+          display: 'flex', alignItems: 'center', gap: '0.3rem',
         }}>
-          ✦ Proposed score distribution
+          <AiSparkle size={11} style={{ color: 'var(--ai-suggest)' }} />
+          Proposed score distribution
         </div>
         <div style={{ fontSize: '0.6rem', color: '#9a90b8', marginBottom: '0.4rem' }}>
           From the reviewer's suggested grades — not final entered scores.
@@ -1102,6 +1144,15 @@ export default function AssessmentSummaryPage() {
   const [feedbackByStudent, setFeedbackByStudent] = useState({});
   const [analysis, setAnalysis] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Attached rubric + reporting-category colour palette for this assignment (Task 13).
+  // rubricData: { id, rubric:{...criteria...}, topicByCriterion:[...] } | null.
+  // viewMode toggles the per-card grid between descriptor prose and the compact
+  // level table; defaults to Descriptors (the richer, student-language view).
+  const [rubricData, setRubricData] = useState(null);
+  const [rubricPalette, setRubricPalette] = useState({});
+  const [viewMode, setViewMode] = useState('descriptors');
+  const [rubricMsg, setRubricMsg] = useState('');
 
   // "Send all" bar state (#51). pendingByUid maps each card's uid → true while
   // it has unsaved changes; cardsRef holds each card's { getEntry, applyResult }
@@ -1249,6 +1300,16 @@ export default function AssessmentSummaryPage() {
 
   useEffect(load, [courseId, assignmentId, dataVersion]);
 
+  // Load the attached rubric + the reporting-category colour palette (Task 13).
+  // Best-effort: a missing rubric / config failure leaves the page in compact-
+  // capable state with no descriptors, never blocking the grade grid.
+  useEffect(() => {
+    let active = true;
+    getRubricForAssignment(assignmentId).then(r => active && setRubricData(r)).catch(() => {});
+    getRubricConfig().then(c => active && setRubricPalette(c.reportingCategoryColors || {})).catch(() => {});
+    return () => { active = false; };
+  }, [assignmentId]);
+
   useEffect(() => {
     if (!drawerOpen) return;
     const onKey = (e) => { if (e.key === 'Escape') setDrawerOpen(false); };
@@ -1299,18 +1360,56 @@ export default function AssessmentSummaryPage() {
           {refreshResult && (
             <span className="text-sm text-muted" style={{ fontSize: '0.75rem' }}>{refreshResult}</span>
           )}
+
+          {/* Rubric view toggle (Task 13) — Descriptors (default) shows the
+              student-language descriptor prose per level; Compact falls back to
+              the dense level-code table. */}
+          <div role="group" aria-label="Rubric view" style={{ display: 'inline-flex', gap: '0.25rem' }}>
+            <button className={`filter-btn${viewMode === 'descriptors' ? ' active' : ''}`}
+              onClick={() => setViewMode('descriptors')}>Descriptors</button>
+            <button className={`filter-btn${viewMode === 'compact' ? ' active' : ''}`}
+              onClick={() => setViewMode('compact')}>Compact</button>
+          </div>
+
+          {/* Attach-rubric affordances — download the CSV template, or upload a
+              rubric CSV which is then attached to this assignment and reloaded. */}
+          <a className="ghost" href={rubricTemplateUrl()} download style={{ fontSize: '0.78rem' }}>Download template</a>
+          <label className="secondary" style={{ cursor: 'pointer', fontSize: '0.78rem' }}>
+            Upload rubric CSV
+            <input type="file" accept=".csv" style={{ display: 'none' }} onChange={async (e) => {
+              const file = e.target.files?.[0]; if (!file) return;
+              setRubricMsg('');
+              try {
+                const { id } = await uploadRubricCsv(file.name.replace(/\.csv$/i, ''), file);
+                const { unmatched } = await attachRubric({ rubricId: id, courseId, assignmentId });
+                setRubricData(await getRubricForAssignment(assignmentId));
+                setRubricMsg(unmatched?.length
+                  ? `Attached — ${unmatched.length} criteria could not be matched to a topic (check the Standard column).`
+                  : 'Rubric uploaded and attached.');
+              } catch (err) {
+                setRubricMsg(`Upload failed: ${err.message}`);
+              } finally {
+                e.target.value = '';   // allow re-uploading the same filename
+              }
+            }} />
+          </label>
+          {rubricMsg && (
+            <span className="text-sm text-muted" style={{ fontSize: '0.75rem' }}>{rubricMsg}</span>
+          )}
+
           {hasAnalysis && (
             <button
               onClick={() => setDrawerOpen(true)}
               title="Reviewer Analysis — not student-facing"
               style={{
-                marginLeft: 'auto', border: '1px solid #c4b5fd', background: '#ede9fe',
-                color: '#6d28d9', borderRadius: 7, padding: '0.32rem 0.7rem',
+                marginLeft: 'auto', border: '1px solid var(--ai-suggest)', background: 'var(--ai-suggest-wash)',
+                color: 'var(--ai-suggest)', borderRadius: 7, padding: '0.32rem 0.7rem',
                 fontSize: '0.74rem', fontWeight: 700, cursor: 'pointer',
                 display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
               }}
             >
-              ✦ Reviewer Analysis
+              <AiSparkle size={14} style={{ color: 'var(--ai-suggest)' }} />
+              Reviewer Analysis
             </button>
           )}
         </div>
@@ -1322,7 +1421,7 @@ export default function AssessmentSummaryPage() {
         </div>
       ) : (
         <>
-          {students.map(student => (
+          {students.map((student, idx) => (
             <StudentRubricCard
               key={student.schoology_uid}
               student={student}
@@ -1331,11 +1430,18 @@ export default function AssessmentSummaryPage() {
               assignmentId={assignmentId}
               assignmentRow={assignment}
               feedbackRow={feedbackByStudent[student.id] || null}
+              rubric={rubricData ? { ...rubricData.rubric, topicByCriterion: rubricData.topicByCriterion } : null}
+              viewMode={viewMode}
+              rubricPalette={rubricPalette}
               onSaved={handleCardSaved}
               onPendingChange={handlePendingChange}
               onDisplayChange={handleDisplayChange}
               registerCard={registerCard}
               unregisterCard={unregisterCard}
+              onReorder={idx === 0 && rubricData ? async (orderedCriterionIds) => {
+                await reorderRubricCriteria(rubricData.rubric.id, orderedCriterionIds);
+                setRubricData(await getRubricForAssignment(assignmentId));
+              } : undefined}
             />
           ))}
 
@@ -1461,7 +1567,7 @@ export default function AssessmentSummaryPage() {
               padding: '0.65rem 0.85rem', borderBottom: '1px solid var(--border)',
               background: 'var(--bg-subtle)', position: 'sticky', top: 0,
             }}>
-              <span style={{ color: '#8b5cf6' }}>✦</span>
+              <AiSparkle size={13} style={{ color: 'var(--ai-suggest)' }} />
               <span id="reviewer-analysis-title" style={{ fontWeight: 700, fontSize: '0.84rem' }}>Reviewer Analysis</span>
               <span style={{
                 fontSize: '0.58rem', background: 'var(--bg-subtle)', color: 'var(--text-muted)',

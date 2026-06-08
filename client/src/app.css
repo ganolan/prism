@@ -66,6 +66,8 @@
   --scrollbar-track: #f0ecf9;
   --scrollbar-thumb: #c4b5e3;
   --logo-gradient: linear-gradient(135deg, #a78bfa 0%, #ec4899 100%);
+  --ai-suggest: #e21ad6;       /* AI suggestion accent (fuchsia) */
+  --ai-suggest-wash: #fbe6fb;  /* suggestion cell wash */
 }
 
 /* ========================================================================

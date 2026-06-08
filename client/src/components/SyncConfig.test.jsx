@@ -49,15 +49,33 @@ describe('SyncConfig', () => {
     fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
     // onStart is called with the selected ids AND the include-hidden option
     // (default false). See SyncConfig's "Start sync" handler.
-    expect(onStart).toHaveBeenCalledWith([1, 2], { includeHidden: false, recentOnly: false, recentDays: 30, syncBlocks: true });
+    expect(onStart).toHaveBeenCalledWith([1, 2], expect.objectContaining({ includeHidden: false, recentOnly: false, recentDays: 30 }));
   });
 
-  it('unchecking "Sync block numbers" passes syncBlocks: false', () => {
+  it('defaults block sync OFF once a sync has happened (a course has synced_at)', () => {
     const onStart = vi.fn();
-    renderConfig({ onStart });
-    fireEvent.click(screen.getByLabelText(/sync block numbers from powerschool/i));
+    renderConfig({ onStart }); // COURSES includes a synced_at course
     fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
     expect(onStart).toHaveBeenCalledWith([1, 2], expect.objectContaining({ syncBlocks: false }));
+  });
+
+  it('defaults block sync ON for a first sync (no course synced yet)', () => {
+    const onStart = vi.fn();
+    const fresh = [{ id: 1, course_name: 'Biology 9', hidden: 0, archived: 0 }];
+    render(
+      <SyncConfig courses={fresh} loggedIn={true} busy={false}
+        onStart={onStart} onCancel={() => {}} onLogin={() => {}} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
+    expect(onStart).toHaveBeenCalledWith([1], expect.objectContaining({ syncBlocks: true }));
+  });
+
+  it('toggling the block-sync checkbox flips syncBlocks', () => {
+    const onStart = vi.fn();
+    renderConfig({ onStart }); // defaults OFF (COURSES has synced_at)
+    fireEvent.click(screen.getByLabelText(/sync block numbers from powerschool/i));
+    fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
+    expect(onStart).toHaveBeenCalledWith([1, 2], expect.objectContaining({ syncBlocks: true }));
   });
 
   it('group select-all checkbox is indeterminate when only some are selected', () => {
@@ -117,7 +135,7 @@ describe('SyncConfig', () => {
     renderConfig({ onStart });
     fireEvent.click(screen.getByLabelText(/include only recent submissions/i));
     fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
-    expect(onStart).toHaveBeenCalledWith([1, 2], { includeHidden: false, recentOnly: true, recentDays: 30, syncBlocks: true });
+    expect(onStart).toHaveBeenCalledWith([1, 2], expect.objectContaining({ includeHidden: false, recentOnly: true, recentDays: 30 }));
     expect(localStorage.getItem('prism:sync:recent-only')).toBe('true');
   });
 });

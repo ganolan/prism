@@ -27,10 +27,16 @@ describe('syncBlockNumbers — guard', () => {
     expect(s).toEqual({ processed: 0, updated: 0, unchanged: 0, skipped: 0, results: [] });
   });
 
-  test('only archived/excluded courses → still a no-op', async () => {
+  test('default (active) ignores archived/excluded courses → no-op', async () => {
     seed(h.db, 'old', { archived: 1 });
     seed(h.db, 'template', { excluded: 1 });
     const s = await syncBlockNumbers();
+    expect(s.processed).toBe(0);
+  });
+
+  test('courseIds excludes template/excluded courses → no-op (no browser)', async () => {
+    const id = seed(h.db, 'template', { excluded: 1 });
+    const s = await syncBlockNumbers({ courseIds: [id] });
     expect(s.processed).toBe(0);
   });
 });

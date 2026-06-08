@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { getCourses, getCoursesByView, getSyncStatus, toggleCourseVisibility, updateCourseBlockNumber } from '../services/api.js';
+import { getCourses, getCoursesByView, getSyncStatus, toggleCourseVisibility } from '../services/api.js';
 import { groupByYearAndSemester } from '../lib/courseDisplay.js';
 import ArchivedCoursesPanel from '../components/ArchivedCoursesPanel.jsx';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
@@ -82,18 +82,6 @@ export default function Dashboard() {
 
           {isSettings ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} onClick={e => { e.preventDefault(); e.stopPropagation(); }}>
-              <select
-                defaultValue={c.block_number || ''}
-                onChange={async e => {
-                  const val = e.target.value;
-                  await updateCourseBlockNumber(c.id, val || null);
-                  reload();
-                }}
-                style={{ fontSize: '0.8rem', padding: '0.2rem 0.3rem' }}
-              >
-                <option value="">No block</option>
-                {[1,2,3,4,5,6,7,8].map(n => <option key={n} value={String(n)}>Block {n}</option>)}
-              </select>
               <button
                 className="ghost"
                 style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}

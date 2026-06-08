@@ -9,12 +9,16 @@ vi.mock('../services/sync.js', () => ({
   finalizeArchivedCourse: vi.fn().mockResolvedValue({ studentsCount: 1, assignmentsCount: 2, gradesCount: 3 }),
   enrichStudentProfiles: vi.fn().mockResolvedValue(1),
 }));
+// Mock the Playwright-backed block service so the import test never launches a
+// browser / hits the network — and so we can assert block-on-import (#106).
+vi.mock('../services/blockNumberSync.js', () => ({ syncBlockNumbers: vi.fn().mockResolvedValue({ processed: 1, updated: 1, unchanged: 0, skipped: 0, results: [] }) }));
 
 import router from './courses.js';
 import { getDb } from '../db/index.js';
 import { getArchivedSections } from '../services/archivedCourses.js';
 import { apiGet } from '../services/schoology.js';
 import { finalizeArchivedCourse, enrichStudentProfiles } from '../services/sync.js';
+import { syncBlockNumbers } from '../services/blockNumberSync.js';
 
 function startServer() {
   const app = express();
@@ -270,6 +274,7 @@ describe('POST /api/courses/import — finalise + enrich (#70)', () => {
         : Promise.resolve({ id: 'sec-9', course_title: 'Old Bio', section_title: 'A', course_code: 'BIO', active: 0 }));
     finalizeArchivedCourse.mockClear();
     enrichStudentProfiles.mockClear();
+    syncBlockNumbers.mockClear();
 
     const res = await post('/api/courses/import', { sectionId: 'sec-9' });
 
@@ -280,5 +285,21 @@ describe('POST /api/courses/import — finalise + enrich (#70)', () => {
       expect.objectContaining({ sectionId: 'sec-9', runMastery: true }),
     );
     expect(enrichStudentProfiles).toHaveBeenCalledWith(expect.anything(), expect.any(Array), expect.any(String));
+    // #106: the import resolves the new course's block number (best-effort).
+    const imported = getDb().prepare("SELECT id FROM courses WHERE schoology_section_id = 'sec-9'").get();
+    expect(syncBlockNumbers).toHaveBeenCalledWith(expect.objectContaining({ courseIds: [imported.id] }));
+  });
+
+  test('a block-resolve failure does not fail the import (best-effort)', async () => {
+    apiGet.mockReset();
+    apiGet.mockImplementation((p) =>
+      p.endsWith('/grading_periods')
+        ? Promise.resolve({ grading_period: [{ title: 'S1' }] })
+        : Promise.resolve({ id: 'sec-x', course_title: 'Old X', section_title: 'A', course_code: 'X', active: 0 }));
+    syncBlockNumbers.mockRejectedValueOnce(new Error('PowerSchool session stale'));
+
+    const res = await post('/api/courses/import', { sectionId: 'sec-x' });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ studentsCount: 1 });
   });
 });

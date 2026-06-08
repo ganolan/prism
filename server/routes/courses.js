@@ -5,6 +5,7 @@ import { apiGet } from '../services/schoology.js';
 import { finalizeArchivedCourse, enrichStudentProfiles } from '../services/sync.js';
 import { isResubmitted } from '../lib/resubmission.js';
 import { getArchivedSections } from '../services/archivedCourses.js';
+import { syncBlockNumbers } from '../services/blockNumberSync.js';
 
 const router = Router();
 
@@ -304,7 +305,17 @@ router.post('/import', async (req, res) => {
     `).all(courseRow.id);
     await enrichStudentProfiles(db, sectionStudents, now);
 
-    res.json({ course: courseRow, studentsCount, assignmentsCount, gradesCount });
+    // #106: best-effort resolve this archived course's PowerSchool block number
+    // at import time (the regular sync only covers active courses). Only
+    // current-year sections resolve; prior-year ones skip. Never fails the import.
+    try {
+      await syncBlockNumbers({ courseIds: [courseRow.id] });
+    } catch (err) {
+      console.warn(`[import] block-number resolve failed for ${courseRow.course_name}: ${err.message}`);
+    }
+
+    const importedCourse = db.prepare('SELECT * FROM courses WHERE id = ?').get(courseRow.id);
+    res.json({ course: importedCourse, studentsCount, assignmentsCount, gradesCount });
   } catch (err) {
     if (err.message.includes('403')) return res.status(403).json({ error: 'Section not accessible — check the section ID and try again' });
     if (err.message.includes('404')) return res.status(404).json({ error: 'Section not found — check the section ID and try again' });
@@ -330,19 +341,6 @@ router.put('/:id/visibility', (req, res) => {
   const newState = course.hidden ? 0 : 1;
   db.prepare('UPDATE courses SET hidden = ? WHERE id = ?').run(newState, req.params.id);
   res.json({ ...course, hidden: newState });
-});
-
-// PUT /api/courses/:id — update editable course fields
-router.put('/:id', (req, res) => {
-  const db = getDb();
-  const course = db.prepare('SELECT * FROM courses WHERE id = ?').get(req.params.id);
-  if (!course) return res.status(404).json({ error: 'Course not found' });
-  const { block_number } = req.body;
-  db.prepare('UPDATE courses SET block_number = ? WHERE id = ?').run(
-    block_number !== undefined ? block_number : course.block_number,
-    req.params.id
-  );
-  res.json(db.prepare('SELECT * FROM courses WHERE id = ?').get(req.params.id));
 });
 
 export default router;

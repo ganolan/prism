@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 import AssessmentSummaryPage, { StudentRubricCard } from './AssessmentSummaryPage.jsx';
-import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric } from '../services/api.js';
+import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics } from '../services/api.js';
 
 vi.mock('../services/api.js', () => ({
   getMasteryForAssignment: vi.fn(),
@@ -20,6 +20,11 @@ vi.mock('../services/api.js', () => ({
   rubricTemplateUrl: vi.fn(() => '/api/rubrics/template'),
   uploadRubricCsv: vi.fn().mockResolvedValue({ id: 1 }),
   attachRubric: vi.fn().mockResolvedValue({ unmatched: [] }),
+  listRubrics: vi.fn().mockResolvedValue([]),
+  deleteRubric: vi.fn().mockResolvedValue({ ok: true }),
+  setRubricMapping: vi.fn().mockResolvedValue({ ok: true }),
+  reorderRubricCriteria: vi.fn().mockResolvedValue({ ok: true }),
+  rubricExportUrl: vi.fn((id) => `/api/rubrics/${id}/export`),
 }));
 
 const TOPICS = [
@@ -1008,5 +1013,40 @@ describe('AssessmentSummaryPage — Reviewer Analysis sparkle (Task 15)', () => 
     renderPage();
     const btn = await screen.findByRole('button', { name: /reviewer analysis/i });
     expect(btn.querySelector('svg')).toBeTruthy();
+  });
+});
+
+describe('AssessmentSummaryPage — Manage rubrics modal', () => {
+  // Mirror the existing "header + Reviewer Analysis" renderPage: real route
+  // (/course/:id/assessment/:assignmentId → courseId from useParams) + full mastery shape.
+  function makeData() {
+    return {
+      assignment: { id: 50, schoology_assignment_id: '8', title: 'Quiz', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+      topics: [{ id: 't1', title: 'Topic 1', category_title: 'Cat', external_id: 'X1' }],
+      students: [{ ...makeStudent(), id: 1, schoology_uid: 'uid-1', enrollment_id: 'enr-1', scores: {} }],
+    };
+  }
+  function renderPage() {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    return render(
+      <MemoryRouter initialEntries={['/course/4/assessment/8']}>
+        <Routes>
+          <Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+  }
+
+  it('opens the Manage rubrics modal from the toolbar button', async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage rubrics…' }));
+    expect(await screen.findByRole('dialog', { name: 'Manage rubrics' })).toBeInTheDocument();
+    expect(listRubrics).toHaveBeenCalled();
+  });
+
+  it('no longer renders the old inline "Upload rubric CSV" label', async () => {
+    renderPage();
+    await screen.findByRole('button', { name: 'Manage rubrics…' });
+    expect(screen.queryByText('Upload rubric CSV')).not.toBeInTheDocument();
   });
 });

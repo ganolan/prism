@@ -26,6 +26,10 @@ export function attachRubric(db = getDb(), { rubricId, courseId, assignmentId })
   return { attachmentId: txn(), unmatched };
 }
 
+export function detachAttachment(db = getDb(), attachmentId) {
+  db.prepare(`DELETE FROM rubric_attachments WHERE id = ?`).run(attachmentId);
+}
+
 export function getAttachmentForAssignment(db = getDb(), assignmentId) {
   const att = db.prepare(
     `SELECT * FROM rubric_attachments WHERE assignment_schoology_id = ?`

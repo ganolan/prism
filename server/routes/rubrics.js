@@ -4,7 +4,7 @@ import { featureGate, getRubricConfig } from '../middleware/featureGate.js';
 import { getDb } from '../db/index.js';
 import { listRubrics, saveRubric, getRubric, deleteRubric } from '../services/rubricStore.js';
 import { parseRubricCsv, templateCsv, exportRubricCsv } from '../services/rubricCsv.js';
-import { attachRubric, getAttachmentForAssignment, setMapping, reorderCriteria } from '../services/rubricAttach.js';
+import { attachRubric, getAttachmentForAssignment, setMapping, reorderCriteria, detachAttachment } from '../services/rubricAttach.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -35,7 +35,8 @@ router.get('/:id/export', (req, res) => {
   const rubric = getRubric(getDb(), Number(req.params.id));
   if (!rubric) return res.status(404).json({ error: 'Rubric not found' });
   res.setHeader('Content-Type', 'text/csv');
-  res.setHeader('Content-Disposition', `attachment; filename="${rubric.name}.csv"`);
+  const safeName = String(rubric.name).replace(/["\r\n]/g, '_');
+  res.setHeader('Content-Disposition', `attachment; filename="${safeName}.csv"`);
   res.send(exportRubricCsv(rubric));
 });
 
@@ -55,8 +56,12 @@ router.get('/assignment/:assignmentId', (req, res) => {
 
 router.put('/attachment/:attachmentId/mapping', (req, res) => {
   const { criterionId, topicId } = req.body;
-  setMapping(getDb(), Number(req.params.attachmentId), criterionId, topicId);
-  res.json({ ok: true });
+  try {
+    setMapping(getDb(), Number(req.params.attachmentId), criterionId, topicId);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 router.put('/:id/reorder', (req, res) => {
@@ -65,7 +70,7 @@ router.put('/:id/reorder', (req, res) => {
 });
 
 router.delete('/attachment/:attachmentId', (req, res) => {
-  getDb().prepare(`DELETE FROM rubric_attachments WHERE id = ?`).run(Number(req.params.attachmentId));
+  detachAttachment(getDb(), Number(req.params.attachmentId));
   res.json({ ok: true });
 });
 

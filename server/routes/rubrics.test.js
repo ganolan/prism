@@ -1,0 +1,57 @@
+import { describe, test, expect, beforeEach, vi } from 'vitest';
+import express from 'express';
+
+vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });   // set before getDb() is first called
+
+import router from './rubrics.js';
+import { getDb } from '../db/index.js';
+
+function startServer() {
+  const app = express();
+  app.use(express.json());
+  app.use('/api/rubrics', router);
+  const server = app.listen(0);
+  return { server, port: server.address().port };
+}
+async function call(method, path, body, isForm) {
+  const { server, port } = startServer();
+  try {
+    const opts = { method };
+    if (isForm) opts.body = body;
+    else if (body) { opts.headers = { 'Content-Type': 'application/json' }; opts.body = JSON.stringify(body); }
+    const res = await fetch(`http://localhost:${port}${path}`, opts);
+    const text = await res.text();
+    let parsed; try { parsed = JSON.parse(text); } catch { parsed = text; }
+    return { status: res.status, body: parsed };
+  } finally { server.close(); }
+}
+
+beforeEach(() => {
+  const db = getDb();
+  db.exec(`DELETE FROM rubric_descriptors; DELETE FROM rubric_criteria; DELETE FROM rubrics;`);
+});
+
+describe('rubrics route', () => {
+  test('GET /template returns the CSV header', async () => {
+    const { status, body } = await call('GET', '/api/rubrics/template');
+    expect(status).toBe(200);
+    expect(String(body)).toContain('Criteria,Reporting Category,Standard');
+  });
+
+  test('POST /upload then GET / lists the rubric', async () => {
+    const fd = new FormData();
+    fd.append('name', 'MAD');
+    fd.append('file', new Blob([
+      'Criteria,Reporting Category,Standard,Exhibiting Depth,Exhibiting,Developing,Emerging\nUI/UX,Produce,Select,a,b,c,d',
+    ], { type: 'text/csv' }), 'r.csv');
+    const up = await call('POST', '/api/rubrics/upload', fd, true);
+    expect(up.status).toBe(200);
+    const list = await call('GET', '/api/rubrics');
+    expect(list.body).toEqual([expect.objectContaining({ name: 'MAD', criteria_count: 1 })]);
+  });
+
+  test('GET /config exposes the suggestion accent', async () => {
+    const { body } = await call('GET', '/api/rubrics/config');
+    expect(body.suggestionAccent).toBe('#e21ad6');
+  });
+});

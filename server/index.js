@@ -16,6 +16,7 @@ import analyticsRouter from './routes/analytics.js';
 import feedbackRouter from './routes/feedback.js';
 import masteryRouter from './routes/mastery.js';
 import peopleRouter from './routes/people.js';
+import rubricsRouter from './routes/rubrics.js';
 import { getGradingScalesMap } from './db/scales.js';
 import { getFeatures } from './middleware/featureGate.js';
 
@@ -43,6 +44,7 @@ app.use('/api/analytics', analyticsRouter);
 app.use('/api/feedback', feedbackRouter);
 app.use('/api/mastery', masteryRouter);
 app.use('/api/people', peopleRouter);
+app.use('/api/rubrics', rubricsRouter);
 
 // Feature flags endpoint
 app.get('/api/features', (req, res) => {

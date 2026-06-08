@@ -500,3 +500,13 @@ Auto-fill `block_number` during the regular sync, **fetch-once** so it stays che
 - Tests: psBlockNumber pure lib (18), blockNumberSync no-active-courses guard (2), orchestrator block-phase by-default + opt-out + non-fatal (3). 243 server + 230 client green.
 - Live-validated through the orchestrator: blanked ACSS's block → one `runUnifiedSync` (blocks-only) refilled it to "3" (self-heal), PCG/Interim left untouched; block phase ~8.5s wall (the per-sync cost the perf issue tracks).
 - **Filed #108:** measure end-to-end sync wall time (now Schoology + PowerSchool blocks + mastery) and evaluate lazy/on-demand refresh. Unlock comments posted to #43 (year group), #65 (absence/tardy tallies), #39 (A/B-day meeting calendar + bell times).
+
+### #106 finalize — PowerSchool-only blocks; no manual editing; block-on-import for archived (2026-06-08, branch `feat/106-block-authoritative-only`)
+
+PowerSchool is the *only* source of block numbers — removed all manual entry.
+- **Removed** the per-card manual block `<select>` dropdown + `updateCourseBlockNumber` (client) + the `PUT /api/courses/:id` route (block_number was its only field). Teachers wait for PowerSchool; courses with no PS block never had one elsewhere anyway.
+- **Sync dialog checkbox default is now dynamic**: ON for a first sync (no course has `synced_at` → blocks need populating), OFF once a sync has happened (opt-in to refresh thereafter). Cuts the per-sync ~8.5s block pass to first-sync-only by default.
+- **Archived courses → block-on-import.** The regular sync covers active courses only; archived courses (imported straight from Schoology as archived) get their block best-effort during `POST /api/courses/import` (`syncBlockNumbers({ courseIds: [newId] })`, non-fatal). Chosen over a sync-dialog "include archived" toggle after a live finding: **archived block resolution only works for current-year sections** — `section_info` is current-year-scoped, so prior-year sections return `section-info-failed` (2/15 of the backlog resolved; the 2 current-year-archived ones, now backfilled; 13 prior-year unresolvable anywhere). See api-ref "Archived courses & past sections".
+- Service simplified to `syncBlockNumbers({ onProgress, courseIds })` — active by default, `courseIds` for import. Dropped the `scope`/`force`/marker machinery.
+- **Test-hygiene fix:** `courses.test.js` now mocks `blockNumberSync`, so the import test no longer launches a real browser / hits the network (server suite 6.4s → 2.6s).
+- 245 server + 232 client green. Live-validated: import path (`courseIds`) sets Block 4 for a current-year archived section, skips a prior-year one.

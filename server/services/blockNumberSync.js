@@ -106,35 +106,48 @@ async function fetchSectionInfoFirst(page, sectionDcid) {
 }
 
 /**
- * Resolve block_number from PowerSchool for ALL active courses (archived = 0,
- * excluded = 0, with a Schoology section). PowerSchool-authoritative: a course
+ * Resolve block_number from PowerSchool. PowerSchool-authoritative: a course
  * gets PowerSchool's numbered block ("Block N" → the digit), overwriting any
  * prior value; where PowerSchool resolves no numbered block (PCG → "Pastoral
  * Care", Interim, or a block not assigned yet at the start of the year) the
- * existing value is left untouched. Because it runs every sync, a course synced
- * before its block was published self-heals on the next sync — no manual step.
+ * existing value is left untouched.
+ *
+ * @param {object}   [opts]
+ * @param {Function} [opts.onProgress]
+ * @param {number[]} [opts.courseIds] — restrict to these course ids (any archive
+ *   state). Used by the archived-course import to resolve one course's block.
+ *   When omitted, resolves all ACTIVE courses (the regular sync's block pass,
+ *   which runs every sync so a course synced before its block was published
+ *   self-heals). Archived courses get their block only via courseIds (at import).
  *
  * `block_synced_at` is stamped on every examined course as an informational
- * "last resolved" timestamp (it no longer gates anything). Archived courses are
- * never touched.
+ * "last resolved" timestamp (it no longer gates anything). Excluded/template and
+ * section-less courses are never touched.
  *
  * Returns { processed, updated, unchanged, skipped, results:[{ courseId,
  * courseName, blockNumber, blockName?, reason, status }] }.
  * reason: 'ok' | 'not-numbered' | 'no-block' | 'ambiguous' | 'no-section-dcid' | 'section-info-failed'
  */
-export async function syncBlockNumbers({ onProgress } = {}) {
+export async function syncBlockNumbers({ onProgress, courseIds } = {}) {
   const log = (message) => { console.log(`[blockNumberSync] ${message}`); onProgress?.({ message }); };
   const db = getDb();
 
+  const where = ['excluded = 0', 'schoology_section_id IS NOT NULL'];
+  const params = [];
+  if (courseIds && courseIds.length) {
+    where.push(`id IN (${courseIds.map(() => '?').join(',')})`);
+    params.push(...courseIds);
+  } else {
+    where.push('archived = 0'); // regular sync: active courses only
+  }
   const courses = db.prepare(
     `SELECT id, schoology_section_id, course_name, block_number FROM courses
-     WHERE archived = 0 AND excluded = 0 AND schoology_section_id IS NOT NULL
-     ORDER BY course_name`
-  ).all();
+     WHERE ${where.join(' AND ')} ORDER BY course_name`
+  ).all(...params);
 
   const summary = { processed: 0, updated: 0, unchanged: 0, skipped: 0, results: [] };
   if (courses.length === 0) {
-    log('No active courses to sync blocks for.');
+    log('No courses to sync blocks for.');
     return summary; // returns before launching a browser
   }
 

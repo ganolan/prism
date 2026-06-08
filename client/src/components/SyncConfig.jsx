@@ -28,7 +28,11 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
   const [collapsed, setCollapsed] = useState({ visible: false, hidden: true });
 
   const [includeHidden, setIncludeHidden] = useState(false);
-  const [syncBlocks, setSyncBlocks] = useState(true);
+  // #106: block numbers come only from PowerSchool. Default the block sync ON for
+  // a first sync (nothing synced yet → blocks need populating) and OFF once a
+  // sync has happened — the teacher opts in to refresh blocks (e.g. a new year).
+  const hasSyncedBefore = useMemo(() => courses.some((c) => c.synced_at), [courses]);
+  const [syncBlocks, setSyncBlocks] = useState(() => !hasSyncedBefore);
   const initialPrefs = useState(getSyncPrefs)[0];
   const [recentOnly, setRecentOnly] = useState(initialPrefs.recentOnly);
   const [recentDays, setRecentDays] = useState(initialPrefs.recentDays);
@@ -88,7 +92,7 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
               checked={syncBlocks}
               onChange={(e) => setSyncBlocks(e.target.checked)}
             />
-            <span>Sync block numbers from PowerSchool</span>
+            <span>Sync block numbers from PowerSchool{!hasSyncedBefore ? ' (first sync)' : ''}</span>
           </label>
           <div className="sync-toggle-row">
             <label>

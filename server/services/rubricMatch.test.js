@@ -44,4 +44,34 @@ describe('rubricMatch', () => {
     expect(mapping).toEqual([{ criterion_id: 'c1', topic_id: 't2' }]);
     expect(unmatched).toEqual([]);
   });
+
+  test('normalizeTitle strips a bare "Standard N:" prefix to the plain title', () => {
+    expect(normalizeTitle('Standard 2: Develop and refine artistic techniques'))
+      .toBe('develop and refine artistic techniques');
+  });
+
+  test('normalizeTitle strips a framework code prefix like "VA:Cr1.1"', () => {
+    expect(normalizeTitle('VA:Cr1.1 Generate and conceptualize artistic ideas'))
+      .toBe(normalizeTitle('Generate and conceptualize artistic ideas'));
+  });
+
+  test('normalizeTitle strips leading list numbering "1." and "1)"', () => {
+    const target = normalizeTitle('Select, analyze, and interpret artistic work for presentation');
+    expect(normalizeTitle('1. Select, analyze, and interpret artistic work for presentation')).toBe(target);
+    expect(normalizeTitle('1) Select, analyze, and interpret artistic work for presentation')).toBe(target);
+  });
+
+  test('normalizeTitle does not strip a plain "Word: phrase" with no code digit', () => {
+    // "Critique:" is not a framework code — must survive (only its punctuation collapses)
+    expect(normalizeTitle('Critique: respond to art')).toBe('critique respond to art');
+  });
+
+  test('normalizeTitle does not strip a lowercase "word:digit" prose prefix', () => {
+    expect(normalizeTitle('Note:2 things to improve')).toBe('note 2 things to improve');
+  });
+
+  test('normalizeTitle strips list numbering with an en-dash separator', () => {
+    expect(normalizeTitle('1 – Select, analyze, and interpret artistic work'))
+      .toBe(normalizeTitle('Select, analyze, and interpret artistic work'));
+  });
 });

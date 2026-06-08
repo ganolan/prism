@@ -32,13 +32,13 @@ export default function SyncDialog({ onClose, onSyncComplete }) {
   // events). The running-mode overlay is intentionally non-dismissable —
   // there is no backdrop/Escape handler — so the stream always runs to
   // completion and needs no abort path.
-  async function startSync(masteryCourseIds, { skipSchoology = false, includeHidden = false, recentOnly = false, recentDays = 30 } = {}) {
+  async function startSync(masteryCourseIds, { skipSchoology = false, includeHidden = false, recentOnly = false, recentDays = 30, syncBlocks = true } = {}) {
     setEvents([]);
     setMetrics(null);
     setMode('running');
     let streamCompleted = false;
     try {
-      await runSync({ masteryCourseIds, skipSchoology, includeHidden, recentOnly, recentDays }, (evt) => {
+      await runSync({ masteryCourseIds, skipSchoology, includeHidden, recentOnly, recentDays, syncBlocks }, (evt) => {
         setEvents((prev) => [...prev, evt]);
       });
       streamCompleted = true;
@@ -72,7 +72,8 @@ export default function SyncDialog({ onClose, onSyncComplete }) {
 
   function handleRetry(courseIds) {
     setRetryEnabled(false);
-    startSync(courseIds, { skipSchoology: true });
+    // Retry is mastery-only — don't re-run the PowerSchool block pass.
+    startSync(courseIds, { skipSchoology: true, syncBlocks: false });
   }
 
   return (

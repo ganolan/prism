@@ -1,7 +1,7 @@
 import { getDb } from '../db/index.js';
 import { fullSync } from './sync.js';
 import { syncMasteryForCourse } from './masterySync.js';
-import { syncBlockNumbers, countCoursesNeedingBlockSync } from './blockNumberSync.js';
+import { syncBlockNumbers } from './blockNumberSync.js';
 
 // Classify a mastery sync failure: 'login' means the Schoology browser session
 // is missing/expired (recoverable by re-login); 'other' is anything else.
@@ -21,7 +21,7 @@ export function classifyMasteryError(err) {
 //   { type:'log', message }
 //   { type:'summary', schoology, mastery, elapsedMs, fatal? }
 export async function runUnifiedSync(
-  { masteryCourseIds = [], skipSchoology = false, includeHidden = false, recentOnly = false, recentDays = 30 },
+  { masteryCourseIds = [], skipSchoology = false, includeHidden = false, recentOnly = false, recentDays = 30, syncBlocks = true },
   onEvent
 ) {
   const emit = (evt) => onEvent?.(evt);
@@ -45,21 +45,23 @@ export async function runUnifiedSync(
     }
   }
 
-  // #106: fill any course missing its PowerSchool block number, from the same
-  // shared browser session. Gated on a cheap count so steady-state syncs launch
-  // no browser (each course is examined once, then marked block_synced_at); the
-  // manual "Sync blocks" button is the force-refresh path. Best-effort: a stale
-  // PowerSchool session logs an error but never aborts the sync.
-  if (countCoursesNeedingBlockSync(db) > 0) {
+  // #106: resolve every active course's PowerSchool block number from the same
+  // shared browser session (opt-out via the sync dialog's `syncBlocks`). Runs
+  // every sync so a course synced before its block was published self-heals;
+  // the service no-ops (no browser) when there are no active courses. Best-effort:
+  // a stale PowerSchool session logs an error but never aborts the sync. Wall
+  // time is measured for the sync-perf / lazy-refresh evaluation.
+  if (syncBlocks) {
     emit({ phase: 'blocks', status: 'running' });
+    const blocksStartedAt = Date.now();
     try {
       const r = await syncBlockNumbers({
         onProgress: (p) => emit({ type: 'log', message: `[blocks] ${p.message}` }),
       });
-      summary.blocks = { updated: r.updated, skipped: r.skipped };
-      emit({ phase: 'blocks', status: 'done', records: r.updated });
+      summary.blocks = { updated: r.updated, skipped: r.skipped, elapsedMs: Date.now() - blocksStartedAt };
+      emit({ phase: 'blocks', status: 'done', records: r.updated, elapsedMs: summary.blocks.elapsedMs });
     } catch (err) {
-      summary.blocks = { error: err.message };
+      summary.blocks = { error: err.message, elapsedMs: Date.now() - blocksStartedAt };
       emit({ phase: 'blocks', status: 'error', message: err.message });
     }
   }

@@ -489,3 +489,14 @@ Auto-fill `block_number` during the regular sync, **fetch-once** so it stays che
 - Orchestrator (`runUnifiedSync`) runs a best-effort block phase **between schoology and mastery**, gated on `countCoursesNeedingBlockSync(db) > 0` so steady-state syncs launch **no browser**; a stale PS session logs an error but never aborts the sync.
 - Tests: `planBlockUpdate` (6), `countCoursesNeedingBlockSync` candidates (3), orchestrator block-phase (4, incl. gate + non-fatal). 255 server green.
 - Live-validated against the real DB: auto run examined only the 3 still-empty courses (PCG + 2 Interim), stamped them, left the 5 set ones untouched; pending→0; a second run was a no-op with no browser launch.
+
+### #106 redesign — block sync is PowerSchool-authoritative, every-sync, opt-out (2026-06-08, branch `feat/106-block-sync-redesign`)
+
+**Supersedes the fetch-once marker design above.** The `block_synced_at` marker could not tell "PCG has no block" from "block not assigned *yet*", so a course synced at the start of the year froze empty until a manual refresh — a silent-stale trap. Fix: resolve blocks for **all active courses on every regular sync**, PowerSchool-authoritative.
+
+- `syncBlockNumbers()` now selects all active courses (archived=0, excluded=0, sectioned), overwrites `block_number` with PowerSchool's numbered block, and leaves non-numbered/unresolved courses untouched. Self-heals year-start (re-resolves each sync) and self-corrects changes. `block_synced_at` kept only as an informational "last resolved" timestamp (no longer a gate). Removed `force`/`countCoursesNeedingBlockSync`/`planBlockUpdate`.
+- Orchestrator runs the block phase between schoology and mastery, gated on a new `syncBlocks` flag (default true) from the sync dialog; best-effort (stale PS session logs, never aborts); emits `blocks` phase + `elapsedMs` for perf measurement. The service no-ops (no browser) when there are no active courses.
+- **Removed** the manual "Sync blocks from PowerSchool" Dashboard button + `POST /api/courses/sync-block-numbers` route + `api.syncBlockNumbers`. **Added** a "Sync block numbers from PowerSchool" checkbox (default on) to the sync dialog; the mastery-retry path passes `syncBlocks:false`.
+- Tests: psBlockNumber pure lib (18), blockNumberSync no-active-courses guard (2), orchestrator block-phase by-default + opt-out + non-fatal (3). 243 server + 230 client green.
+- Live-validated through the orchestrator: blanked ACSS's block → one `runUnifiedSync` (blocks-only) refilled it to "3" (self-heal), PCG/Interim left untouched; block phase ~8.5s wall (the per-sync cost the perf issue tracks).
+- **Filed #108:** measure end-to-end sync wall time (now Schoology + PowerSchool blocks + mastery) and evaluate lazy/on-demand refresh. Unlock comments posted to #43 (year group), #65 (absence/tardy tallies), #39 (A/B-day meeting calendar + bell times).

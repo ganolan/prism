@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { getCourses, getCoursesByView, getSyncStatus, toggleCourseVisibility, updateCourseBlockNumber, syncBlockNumbers } from '../services/api.js';
+import { getCourses, getCoursesByView, getSyncStatus, toggleCourseVisibility, updateCourseBlockNumber } from '../services/api.js';
 import { groupByYearAndSemester } from '../lib/courseDisplay.js';
 import ArchivedCoursesPanel from '../components/ArchivedCoursesPanel.jsx';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
@@ -14,8 +14,6 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   // editingBlock: courseId currently being edited, blockDraft: current input value
   const [settingsCard, setSettingsCard] = useState(null);
-  const [blockSyncing, setBlockSyncing] = useState(false);
-  const [blockSyncMsg, setBlockSyncMsg] = useState(null);
 
   async function reload() {
     try {
@@ -48,21 +46,6 @@ export default function Dashboard() {
     e.stopPropagation();
     await toggleCourseVisibility(courseId);
     reload();
-  }
-
-  async function handleSyncBlocks() {
-    setBlockSyncing(true);
-    setBlockSyncMsg(null);
-    try {
-      const s = await syncBlockNumbers();
-      setBlockSyncMsg({ type: 'success', text: `Blocks synced from PowerSchool: ${s.updated} updated, ${s.unchanged} unchanged, ${s.skipped} skipped.` });
-      await reload();
-    } catch (err) {
-      const needsLogin = /mastery:login|log in/i.test(err.message);
-      setBlockSyncMsg({ type: 'warning', text: needsLogin ? 'PowerSchool session expired — run `npm run mastery:login`, then try again.' : err.message });
-    } finally {
-      setBlockSyncing(false);
-    }
   }
 
   if (loading) return <div className="loading">Loading...</div>;
@@ -146,21 +129,7 @@ export default function Dashboard() {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <h2 className="page-title" style={{ marginBottom: 0 }}>Dashboard</h2>
-        <button
-          className="secondary"
-          onClick={handleSyncBlocks}
-          disabled={blockSyncing}
-          title="Populate each course's block from PowerSchool's attendance page"
-        >
-          {blockSyncing ? 'Syncing blocks…' : 'Sync blocks from PowerSchool'}
-        </button>
       </div>
-
-      {blockSyncMsg && (
-        <div className={`alert alert-${blockSyncMsg.type}`} style={{ marginBottom: '1rem' }}>
-          {blockSyncMsg.text}
-        </div>
-      )}
 
       {/* Sync status */}
       {syncStatus?.last && (

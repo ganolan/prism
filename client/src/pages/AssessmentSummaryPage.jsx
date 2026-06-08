@@ -5,6 +5,7 @@ import { draftKey, readDraft, writeDraft, clearDraft, draftBaseline } from '../l
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import RubricDescriptorGrid from '../components/RubricDescriptorGrid.jsx';
+import AiSparkle from '../components/AiSparkle.jsx';
 
 const LEVELS = ['ED', 'EX', 'D', 'EM', 'IE'];
 const LEVEL_LABELS = {
@@ -1064,8 +1065,10 @@ function ReviewerAnalysisBody({ topics, feedbackRows, analysis }) {
         <div style={{
           fontSize: '0.62rem', textTransform: 'uppercase', letterSpacing: '0.04em',
           color: 'var(--text-muted)', fontWeight: 700, marginBottom: '0.15rem',
+          display: 'flex', alignItems: 'center', gap: '0.3rem',
         }}>
-          ✦ Proposed score distribution
+          <AiSparkle size={11} style={{ color: 'var(--ai-suggest)' }} />
+          Proposed score distribution
         </div>
         <div style={{ fontSize: '0.6rem', color: '#9a90b8', marginBottom: '0.4rem' }}>
           From the reviewer's suggested grades — not final entered scores.
@@ -1398,13 +1401,14 @@ export default function AssessmentSummaryPage() {
               onClick={() => setDrawerOpen(true)}
               title="Reviewer Analysis — not student-facing"
               style={{
-                marginLeft: 'auto', border: '1px solid #c4b5fd', background: '#ede9fe',
-                color: '#6d28d9', borderRadius: 7, padding: '0.32rem 0.7rem',
+                marginLeft: 'auto', border: '1px solid var(--ai-suggest)', background: 'var(--ai-suggest-wash)',
+                color: 'var(--ai-suggest)', borderRadius: 7, padding: '0.32rem 0.7rem',
                 fontSize: '0.74rem', fontWeight: 700, cursor: 'pointer',
                 display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
               }}
             >
-              ✦ Reviewer Analysis
+              <AiSparkle size={14} style={{ color: 'var(--ai-suggest)' }} />
+              Reviewer Analysis
             </button>
           )}
         </div>
@@ -1562,7 +1566,7 @@ export default function AssessmentSummaryPage() {
               padding: '0.65rem 0.85rem', borderBottom: '1px solid var(--border)',
               background: 'var(--bg-subtle)', position: 'sticky', top: 0,
             }}>
-              <span style={{ color: '#8b5cf6' }}>✦</span>
+              <AiSparkle size={13} style={{ color: 'var(--ai-suggest)' }} />
               <span id="reviewer-analysis-title" style={{ fontWeight: 700, fontSize: '0.84rem' }}>Reviewer Analysis</span>
               <span style={{
                 fontSize: '0.58rem', background: 'var(--bg-subtle)', color: 'var(--text-muted)',

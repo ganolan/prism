@@ -986,3 +986,27 @@ describe('AssessmentSummaryPage — rubric view toggle (Task 13)', () => {
     await waitFor(() => expect(screen.queryByText('Polished.')).not.toBeInTheDocument());
   });
 });
+
+describe('AssessmentSummaryPage — Reviewer Analysis sparkle (Task 15)', () => {
+  function renderPage() {
+    return render(
+      <MemoryRouter initialEntries={['/course/4/assessment/8']}>
+        <Routes>
+          <Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+  }
+
+  it('uses the AiSparkle glyph (fuchsia) on the Reviewer Analysis button', async () => {
+    getMasteryForAssignment.mockResolvedValue({
+      assignment: { title: 'MAD Project' },
+      topics: [{ id: 't1', title: 'T', category_title: 'HS Art: Produce', external_id: 'ART.5.1' }],
+      students: [makeStudent()],
+    });
+    getAssessmentAnalysis.mockResolvedValue({ summary: 'something' }); // makes hasAnalysis true
+    renderPage();
+    const btn = await screen.findByRole('button', { name: /reviewer analysis/i });
+    expect(btn.querySelector('svg')).toBeTruthy();
+  });
+});

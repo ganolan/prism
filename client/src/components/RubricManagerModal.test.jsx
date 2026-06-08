@@ -100,4 +100,14 @@ describe('RubricManagerModal', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).toHaveBeenCalled();
   });
+
+  it('jumps to Map criteria and warns when attach leaves unmatched criteria', async () => {
+    attachRubric.mockResolvedValueOnce({ unmatched: ['c2'] });
+    open({ attachment: ATTACHMENT });
+    await screen.findByText('AIML U2'); // wait for rubric list to load
+    fireEvent.click(screen.getAllByRole('button', { name: 'Attach' })[0]);
+    expect(await screen.findByText(/couldn’t be auto-matched/)).toBeInTheDocument();
+    // switched to the Map tab — the criterion dropdown is visible
+    expect(screen.getByLabelText('Topic for Code')).toBeInTheDocument();
+  });
 });

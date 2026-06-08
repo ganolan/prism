@@ -31,8 +31,14 @@ export default function RubricManagerModal({ open, onClose, courseId, assignment
 
   async function doAttach(rubricId) {
     setMsg('');
-    try { await attachRubric({ rubricId, courseId, assignmentId }); await onChanged(); await refresh(); }
-    catch (e) { setMsg(`Attach failed: ${e.message}`); }
+    try {
+      const { unmatched } = await attachRubric({ rubricId, courseId, assignmentId });
+      await onChanged(); await refresh();
+      if (unmatched?.length) {
+        setTab('map');
+        setMsg(`${unmatched.length} ${unmatched.length === 1 ? 'criterion' : 'criteria'} couldn’t be auto-matched — pick a topic below.`);
+      }
+    } catch (e) { setMsg(`Attach failed: ${e.message}`); }
   }
   async function doDelete(r) {
     if (confirmId !== r.id && r.attachment_count > 0) { setConfirmId(r.id); return; }
@@ -79,6 +85,7 @@ export default function RubricManagerModal({ open, onClose, courseId, assignment
         </div>
 
         <div style={{ padding: '0.8rem 1rem' }}>
+          {msg && <p className="text-muted" style={{ fontSize: '0.75rem', marginTop: 6 }}>{msg}</p>}
           {tab === 'attach' && (
             <div>
               {rubrics.map((r) => (
@@ -106,7 +113,6 @@ export default function RubricManagerModal({ open, onClose, courseId, assignment
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) doUpload(f); e.target.value = ''; }} />
                 <a className="ghost" href={rubricTemplateUrl()} download style={{ fontSize: '0.8rem' }}>⬇ Download template</a>
               </div>
-              {msg && <p className="text-muted" style={{ fontSize: '0.75rem', marginTop: 6 }}>{msg}</p>}
             </div>
           )}
 

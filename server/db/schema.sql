@@ -320,3 +320,52 @@ CREATE INDEX IF NOT EXISTS idx_completion_student ON completion(student_id);
 CREATE INDEX IF NOT EXISTS idx_completion_course ON completion(course_id);
 CREATE INDEX IF NOT EXISTS idx_grading_categories_course ON grading_categories(course_id);
 CREATE INDEX IF NOT EXISTS idx_assignment_assignees_uid ON assignment_assignees(schoology_uid);
+
+-- Rubric descriptors (SBG): portable content (rubrics → criteria → descriptors)
+-- plus local binding (attachment → criterion↔topic map). See
+-- docs/superpowers/specs/2026-06-08-rubric-descriptors-design.md.
+CREATE TABLE IF NOT EXISTS rubrics (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  source TEXT,                    -- 'csv' | 'mcp' | 'manual'
+  notes TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS rubric_criteria (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  rubric_id INTEGER NOT NULL REFERENCES rubrics(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,      -- canonical, intentional row order (1..N)
+  criterion_name TEXT,            -- friendly label, e.g. "UI/UX"
+  standard_title TEXT,            -- measurement-topic title as written
+  reporting_category TEXT         -- as written, e.g. "Produce"
+);
+
+CREATE TABLE IF NOT EXISTS rubric_descriptors (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  criterion_id INTEGER NOT NULL REFERENCES rubric_criteria(id) ON DELETE CASCADE,
+  level TEXT NOT NULL,            -- 'ED' | 'EX' | 'D' | 'EM' | 'IE'
+  descriptor_text TEXT,
+  UNIQUE(criterion_id, level)
+);
+
+CREATE TABLE IF NOT EXISTS rubric_attachments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  rubric_id INTEGER NOT NULL REFERENCES rubrics(id) ON DELETE CASCADE,
+  assignment_schoology_id TEXT NOT NULL,
+  course_id INTEGER REFERENCES courses(id),
+  created_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(assignment_schoology_id)   -- one rubric per assignment
+);
+
+CREATE TABLE IF NOT EXISTS rubric_attachment_topics (
+  attachment_id INTEGER NOT NULL REFERENCES rubric_attachments(id) ON DELETE CASCADE,
+  criterion_id INTEGER NOT NULL REFERENCES rubric_criteria(id) ON DELETE CASCADE,
+  topic_id TEXT NOT NULL REFERENCES measurement_topics(id),
+  UNIQUE(attachment_id, criterion_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rubric_criteria_rubric ON rubric_criteria(rubric_id);
+CREATE INDEX IF NOT EXISTS idx_rubric_attach_assignment ON rubric_attachments(assignment_schoology_id);
+CREATE INDEX IF NOT EXISTS idx_rubric_attach_topics_topic ON rubric_attachment_topics(topic_id);

@@ -4,6 +4,7 @@ import { getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysi
 import { draftKey, readDraft, writeDraft, clearDraft, draftBaseline } from '../lib/assessmentDraft.js';
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
+import RubricDescriptorGrid from '../components/RubricDescriptorGrid.jsx';
 
 const LEVELS = ['ED', 'EX', 'D', 'EM', 'IE'];
 const LEVEL_LABELS = {
@@ -119,7 +120,7 @@ function HeaderPill({ active, accent, activeBg, activeText, icon, label, clearLa
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
-export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
+export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, rubric = null, viewMode = 'descriptors', rubricPalette = {}, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
   const loadedDisplay = student.comment_status === 1;
   const storageKey = draftKey(courseId, assignmentId, student.enrollment_id);
   // Signature of the synced Schoology values this card was rendered against.
@@ -524,6 +525,32 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
 
   const bothSignals = !!resubmitFlag && !!student.resubmitted;
 
+  // Descriptor view: order rows by criterion.position → mapped topic; topics with
+  // no criterion fall after. Built only when a rubric is attached.
+  const topicById = Object.fromEntries(topics.map(t => [t.id, t]));
+  const critByTopic = Object.fromEntries((rubric?.topicByCriterion || []).map(m => [m.topic_id, m.criterion_id]));
+  const orderedCrit = (rubric?.criteria || []).slice().sort((a, b) => a.position - b.position);
+  const descriptorRows = [
+    ...orderedCrit.map(c => {
+      const m = (rubric?.topicByCriterion || []).find(x => x.criterion_id === c.id);
+      const tid = m?.topic_id;
+      return tid && topicById[tid] ? { topic: topicById[tid], criterion: c } : null;
+    }).filter(Boolean),
+    ...topics.filter(t => !critByTopic[t.id]).map(t => ({ topic: t, criterion: null })),
+  ];
+  const cellStateFor = (topicId, l) => {
+    const currentGrade = student.scores[topicId]?.grade || null;
+    const pendingGrade = pending[topicId] ?? null;
+    const suggestedLevel = suggestedByTopic[topicId] || null;
+    return {
+      final: l === currentGrade && pendingGrade == null,
+      draft: pendingGrade !== REMOVE && l === pendingGrade,
+      staged: pendingGrade === REMOVE && l === currentGrade,
+      suggested: suggestedLevel != null && l === suggestedLevel,
+    };
+  };
+  const showDescriptors = viewMode === 'descriptors' && !!rubric;
+
   return (
     <div style={{
       border: bothSignals ? '1px solid var(--resubmit-ring)' : '1px solid var(--border)',
@@ -714,6 +741,17 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         opacity: isRubricLocked ? 0.45 : 1,
         pointerEvents: isRubricLocked ? 'none' : 'auto',
       }}>
+        {showDescriptors ? (
+          <RubricDescriptorGrid
+            rows={descriptorRows}
+            levels={LEVELS}
+            cellState={cellStateFor}
+            onSelect={selectLevel}
+            palette={rubricPalette}
+            levelHeaderColors={Object.fromEntries(LEVELS.map(l => [l, CELL_COLORS[l].headerFill]))}
+            levelBorderColors={Object.fromEntries(LEVELS.map(l => [l, CELL_COLORS[l].finalBorder]))}
+          />
+        ) : (
         <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.8rem' }}>
           <thead>
             <tr>
@@ -846,6 +884,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             })}
           </tbody>
         </table>
+        )}
       </div>
 
       {/* Overall Comment — the hero */}

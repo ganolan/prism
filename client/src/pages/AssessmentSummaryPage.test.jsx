@@ -857,6 +857,20 @@ describe('AssessmentSummaryPage — header + Reviewer Analysis (Slice 6)', () =>
   });
 });
 
+describe('StudentRubricCard — descriptor view (Task 12)', () => {
+  it('renders descriptor prose when viewMode=descriptors and a rubric is attached', () => {
+    const rubric = {
+      id: 1, name: 'MAD',
+      criteria: [{ id: 'c1', position: 1, criterion_name: 'UI/UX',
+        descriptors: { ED: 'Polished.', EX: 'Clear.', D: 'Inconsistent.', EM: 'Lacks.', IE: 'Insufficient Evidence' } }],
+      topicByCriterion: [{ criterion_id: 'c1', topic_id: 't1' }],
+    };
+    renderCard({ viewMode: 'descriptors', rubric });
+    expect(screen.getByText('Polished.')).toBeInTheDocument();
+    expect(screen.getByText('Exhibiting Depth')).toBeInTheDocument();
+  });
+});
+
 describe('AssessmentSummaryPage — feedback load (Slice 4)', () => {
   function makeData() {
     return {

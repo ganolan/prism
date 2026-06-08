@@ -30,12 +30,6 @@ export const updateCourseBlockNumber = (id, block_number) => request(`/courses/$
   method: 'PUT',
   body: JSON.stringify({ block_number }),
 });
-// Populate block_number from PowerSchool's attendance "Block N" (issue #106).
-// Uses the shared browser session; omit courseIds to sync current courses.
-export const syncBlockNumbers = (courseIds) => request('/courses/sync-block-numbers', {
-  method: 'POST',
-  body: JSON.stringify(courseIds ? { courseIds } : {}),
-});
 export const getCourse = (id) => request(`/courses/${id}`);
 export const getCourseStudents = (id) => request(`/courses/${id}/students`);
 export const getCourseAssignments = (id) => request(`/courses/${id}/assignments`);
@@ -67,13 +61,13 @@ export const getSyncMetrics = () => request('/sync/metrics');
 // Run the unified sync. Streams newline-delimited JSON progress events from the
 // server; each parsed event is passed to onEvent. Resolves when the stream ends.
 export async function runSync(
-  { masteryCourseIds = [], skipSchoology = false, includeHidden = false, recentOnly = false, recentDays = 30 },
+  { masteryCourseIds = [], skipSchoology = false, includeHidden = false, recentOnly = false, recentDays = 30, syncBlocks = true },
   onEvent
 ) {
   const res = await fetch(`${BASE}/sync`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ masteryCourseIds, skipSchoology, includeHidden, recentOnly, recentDays }),
+    body: JSON.stringify({ masteryCourseIds, skipSchoology, includeHidden, recentOnly, recentDays, syncBlocks }),
   });
   if (res.status === 409) throw new Error('A sync is already running.');
   if (!res.ok) {

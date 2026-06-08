@@ -14,6 +14,7 @@ let syncInProgress = false;
 //   includeHidden?: boolean,    // #56: opt in to syncing hidden courses
 //   recentOnly?: boolean,       // #55: skip submissions outside the day window
 //   recentDays?: number,        // #55: window size, clamped 1..365 (default 30)
+//   syncBlocks?: boolean,       // #106: resolve active courses' PowerSchool block numbers (default true)
 // }.
 // Note: if the client disconnects mid-stream the sync continues to completion
 // server-side; there is no cancellation on client disconnect.
@@ -29,13 +30,14 @@ router.post('/sync', async (req, res) => {
     includeHidden = false,
     recentOnly = false,
     recentDays = 30,
+    syncBlocks = true,
   } = req.body || {};
   res.set('Content-Type', 'application/x-ndjson');
   res.flushHeaders();
   const write = (evt) => res.write(JSON.stringify(evt) + '\n');
   try {
     await runUnifiedSync(
-      { masteryCourseIds, skipSchoology, includeHidden: !!includeHidden, recentOnly: !!recentOnly, recentDays: clampDays(recentDays) },
+      { masteryCourseIds, skipSchoology, includeHidden: !!includeHidden, recentOnly: !!recentOnly, recentDays: clampDays(recentDays), syncBlocks: syncBlocks !== false },
       write,
     );
   } catch (err) {

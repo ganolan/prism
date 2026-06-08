@@ -28,6 +28,7 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
   const [collapsed, setCollapsed] = useState({ visible: false, hidden: true });
 
   const [includeHidden, setIncludeHidden] = useState(false);
+  const [syncBlocks, setSyncBlocks] = useState(true);
   const initialPrefs = useState(getSyncPrefs)[0];
   const [recentOnly, setRecentOnly] = useState(initialPrefs.recentOnly);
   const [recentDays, setRecentDays] = useState(initialPrefs.recentDays);
@@ -80,6 +81,14 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
               onChange={(e) => setIncludeHidden(e.target.checked)}
             />
             <span>Include hidden courses{hiddenCount > 0 ? ` (${hiddenCount})` : ''}</span>
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={syncBlocks}
+              onChange={(e) => setSyncBlocks(e.target.checked)}
+            />
+            <span>Sync block numbers from PowerSchool</span>
           </label>
           <div className="sync-toggle-row">
             <label>
@@ -203,7 +212,7 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
             className="primary"
             onClick={() => {
               setSyncPrefs({ recentOnly, recentDays });
-              onStart([...selected], { includeHidden, recentOnly, recentDays });
+              onStart([...selected], { includeHidden, recentOnly, recentDays, syncBlocks });
             }}
             disabled={busy}
           >

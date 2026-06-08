@@ -9,6 +9,7 @@ There are **two** independent ways into PowerSchool data:
 Last probed: 2026-04-05 (OAuth path, script: `test-powerschool-probe.js`)
 Session-auth path discovered: 2026-05-30 (via the Schoology "attendance" LTI app — resolves issue #43's "run a probe for this page" ask).
 Endpoint-discovery crawl: 2026-05-30 — captured the attendance LTI app's full `/ws/...` surface (incl. new `/ws/pt/v1/...` PowerTeacher API) and resolved #66; see "Endpoint-discovery crawl" below.
+Block-number resolved: 2026-06-08 (#106) — the displayed "Block N" = `section_info.bellScheduleItems[].period.name`; see "Block number" below. Probes: `scripts/probe-ps-block-number.js`, `scripts/probe-ps-sectiondcid.js`.
 
 ## Server Details
 
@@ -114,8 +115,63 @@ year) return empty `sectionAttendances`. Pull the section's calendar and pick an
 
 ```
 GET https://powerschool.hkis.edu.hk/ws/attendance/section_info?sectionDcid={dcid}&multiSections=false&startDate={YYYY-MM-DD}&endDate={YYYY-MM-DD}
-→ [{ dcid, id, psmSectionId, courseName, expression ("8(A-B)"), term, calenderDays: { "2025-08-21": { inSession, cycleDay, ... }, ... } }]
+→ [{ dcid, id, psmSectionId, courseName, sectionNumber, expression ("2(A-B)"),
+     attendanceModeCode, attendanceTypeCode, yearId, term,
+     calenderDays: { "2025-08-21": { inSession, cycleDay: { letter:"A"|"B", ... }, ... }, ... },
+     inSessionDays: [...],
+     attendanceCodes: [...], attCodeToIdMap: {...},
+     bellScheduleItems: [ { periodId, period: { id, periodNumber, name, abbreviation, sortOrder }, bellSchedule, startTime, endTime, ... } ],
+     periodIdToPsmPeriodIdMap: { "<periodId>": "<psmPeriodId>" },
+     sectionMeetings: [ { periodNumber, cycleDayLetter:"A"|"B", meeting:"2(A)" } ],
+     maxEditablePastDate, maxEditableFutureDate }]
 ```
+⚠️ `calenderDays`/`inSessionDays` ignore the `startDate`/`endDate` params — `section_info` returns the **whole year's** calendar regardless of range (verified 2026-06-08). The date range only matters for the per-day roster (`section_attendance`), not for `section_info`'s calendar or bell-schedule fields.
+
+### Block number — the displayed "Block N" = `bellScheduleItems[].period.name` (#106, verified 2026-06-08)
+
+**Resolved.** The canonical block a teacher sees at the top of the attendance-code column (e.g. ACSS = "Block 3") is the PowerSchool **period name**, available directly from `section_info` — **no in-session date, no `userDcid`, no `getattendance_integration` needed.**
+
+```
+block = section_info[0].bellScheduleItems[].period.name
+        — filtered to periodId ∈ keys(periodIdToPsmPeriodIdMap)
+        — distinct across items (every bell-schedule variant maps the section to the same period)
+```
+
+`period` shape: `{ dcid, id, schoolId, yearId, periodNumber, name:"Block 3", abbreviation:"BK3", sortOrder }`.
+
+**⚠️ CRITICAL — `period.name` ≠ `periodNumber` ≠ the Schoology `expression`/`section_title` number.** This is exactly why Schoology's field (and even PowerSchool's `periodNumber`) is insufficient. Observed counter-examples:
+
+| Schoology expr | `periodNumber` | displayed `period.name` | `abbreviation` |
+|---|---|---|---|
+| `7(A-B)` (APCSP) | 7 | **Block 6** | BK6 |
+| `6(A-B)` (Robotics) | 6 | **Block 4** | BK4 |
+
+So you must read `period.name`, not derive a number from the expression or `periodNumber`.
+
+**Why it's stable per course:** `bellScheduleItems` contains one entry per bell-schedule variant the year uses (regular day, Early Release, Special Schedule, PCG Day, pilot schedules…) — **all 36 for ACSS carry the same `period` (id 4202 → "Block 3")**. Both `sectionMeetings` (A-day and B-day) carry the same `periodNumber`. So the block does not vary across A/B cycle days or schedule variants. Date-independent: `bellScheduleItems` is present even for an off-day (weekend) range.
+
+**Triple-confirmed for ACSS** (sectionDcid 49355 → periodId 4202):
+1. `section_info` resolution → `period.name` = "Block 3".
+2. Rendered grid DOM: `<th class="attendance-header">Block 3</th>`.
+3. The app's own `POST /ws/pagecustomizations/insertions` body → `parameters[0]` = `{ "att_period":"Block 3", "Period_ID":"4202", "sectionid":"49355" }`.
+
+**Block resolution across all of the API user's 2025-26 sections** (one PS session, `section_info` per `sectionDcid`; probe: `scripts/probe-ps-block-number.js`):
+
+| Section | sectionDcid | `period.name` | abbr | periodNumber | Schoology expr |
+|---|---|---|---|---|---|
+| Advanced Computer Science Studio | 49355 | **Block 3** | BK3 | 2 | 2(A-B) |
+| AI & Machine Learning | 49390 | **Block 8** | BK8 | 8 | 8(A-B) |
+| AP Computer Science Principles | 49354 | **Block 6** | BK6 | 7 | 7(A-B) |
+| Mobile App Development | 49386 | **Block 1** | BK1 | 1 | 1(A-B) |
+| PCG | 50210 | **Pastoral Care** | PCG | 11 | 11(A-B) |
+| Robotics | 49388 | **Block 4** | BK4 | 6 | 6(A-B) |
+| Teaching Assistant (Sem) | 49027 | **Block 4** | BK4 | 6 | 6(A-B) |
+| Interim B | 51066 | **Interim** | IM | 12 | 12(A-B) |
+| Interim A | 51067 | — | — | — | `section_info` → **500** (section-specific server error, not auth) |
+
+Note **not every period is a numbered "Block N"**: PCG → "Pastoral Care", Interim → "Interim". Prism's `courses.block_number` column stores just the digit (UI renders `[BK {n}]`), so the sync stores the integer parsed from `^Block (\d+)$` and leaves non-numbered / unresolved sections' existing value untouched (never clobbers a manual entry with a non-block).
+
+**Resolving Schoology section → `sectionDcid` for the sync** (verified 2026-06-08, probe `scripts/probe-ps-sectiondcid.js`): an authenticated `context.request.get(<LTI run URL>)` returns the launch-form HTML (HTTP 200, `text/html`, no JS redirect) — regex `name="custom_sectiondcid" value="(\d+)"`. Empty value = template/master course (skip). This is a **Schoology** fetch (carries the Schoology session cookie); it does not need the PowerSchool session.
 
 ### Step 3 — Fetch the roster with grade level
 
@@ -188,6 +244,9 @@ rather than storing a `grad_year` that silently goes stale at year rollover.
   not the LTI param. Stripping the `2_` prefix gives `10405`, which did **not** match the working `10005` —
   so don't assume `custom_userdcid` is the value to pass. Confirm by reading it from a session endpoint, or
   test whether the roster returns regardless of `userDcid` (it likely only scopes "attendance taken by").
+  *(Re-confirmed 2026-06-08: capturing the live attendance grid, the app's own `section_attendance` request
+  used `userDcid=10005` — same value, still distinct from the LTI `2_10405`. The block-number sync (#106)
+  sidesteps this entirely: `section_info` needs no `userDcid`.)*
 - **Session fragility:** same as mastery sync — depends on the browser session; expires → re-login.
 - **In-session date:** must be derived per-section from `section_info.calenderDays`; a hardcoded "today" breaks on off days.
 
@@ -269,6 +328,15 @@ actually verified:
 (it only fires when the grid renders for an in-session date) rather than reconstructing it — that will reveal the
 true param name/value and the real response shape. Until then, the **legacy `/ws/attendance/section_attendance`
 remains the only confirmed-working attendance read.**
+
+> **Update 2026-06-08 (#106):** captured the live ACSS attendance grid render. `getattendance_integration`
+> did **not** fire on this load — the grid rendered from `section_info` + `section_attendance` alone. Captured
+> `/ws/` calls on grid render: `i18n/*`, `preferences/core/pref/gvu-teacherlogoff`,
+> `schema/query/com.pearson.core.schools.grade_levels`, `attendance/section_info`,
+> `pagecustomizations/insertions` (carries `att_period`/`Period_ID`), `attendance/section_attendance`.
+> So `getattendance_integration`'s real signature is **still unresolved** (it must fire from a different
+> view/interaction, not the default grid render). It was **not needed** for block number — see
+> "Block number" above. The displayed "Block N" comes from `section_info.bellScheduleItems[].period.name`.
 
 - `GET /ws/pt/v1/attendance/getattendanceformultisection` — same family, same unknown param mapping; not probed further.
 - ⚠️ `POST /ws/pt/v1/attendance/saveattendance` and `/saveattendances` — attendance **writes** (the write path #39 needs; not probed, read-only policy).

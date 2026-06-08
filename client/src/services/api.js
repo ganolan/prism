@@ -30,6 +30,12 @@ export const updateCourseBlockNumber = (id, block_number) => request(`/courses/$
   method: 'PUT',
   body: JSON.stringify({ block_number }),
 });
+// Populate block_number from PowerSchool's attendance "Block N" (issue #106).
+// Uses the shared browser session; omit courseIds to sync current courses.
+export const syncBlockNumbers = (courseIds) => request('/courses/sync-block-numbers', {
+  method: 'POST',
+  body: JSON.stringify(courseIds ? { courseIds } : {}),
+});
 export const getCourse = (id) => request(`/courses/${id}`);
 export const getCourseStudents = (id) => request(`/courses/${id}/students`);
 export const getCourseAssignments = (id) => request(`/courses/${id}/assignments`);

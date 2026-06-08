@@ -456,3 +456,27 @@ per assignment, it saved zero calls and only supplied `submission_type`.
   Live-verified on MAD: 4 bulk fetches (no browser session), 24/24 submitted cells →
   `submission_type 'drop'`, 0 mismatches vs the bulk-derived expectation.
 - Net ~215 lines removed; 220 server tests green. api-ref GHD row marked NO-LONGER-USED.
+
+## #106 — auto-populate courses.block_number from PowerSchool (2026-06-08, branch `spike/106-ps-block-number`)
+
+Spike turned positive. The displayed "Block N" (teacher-confirmed ACSS = Block 3) is the PowerSchool
+**period name**, reachable from `section_info` alone — no in-session date, no `userDcid`, no
+`getattendance_integration` (which did NOT fire on the default grid render). Full intel in
+`.claude/powerschool-api-reference.md` "Block number".
+
+- **Resolution:** `section_info[0].bellScheduleItems[].period.name`, filtered to the section's periodId
+  (`keys(periodIdToPsmPeriodIdMap)`), de-duped. ⚠️ `period.name` ≠ `periodNumber` ≠ Schoology expression
+  number (APCSP: expr `7(A-B)`, periodNumber 7, but **Block 6**) — only `period.name` is correct.
+- **Sync linchpin:** Schoology section → PS `sectionDcid` via `context.request.get(<LTI run URL>)` → regex
+  `custom_sectiondcid` (Schoology fetch, no app load; empty = template → skip).
+- **Code:** pure lib `server/lib/psBlockNumber.js` (+ `.test.js`, 18 tests) — `blockNumberFromName`,
+  `resolveSectionBlock`, `pickBlockNumber`, `sectionDcidFromLaunchForm`. Playwright service
+  `server/services/blockNumberSync.js` (one PS session bootstrap, then per-course `section_info`).
+  Route `POST /api/courses/sync-block-numbers` (+ `courses.blockSync.test.js`, 5 tests, concurrency-guarded).
+  Client: `syncBlockNumbers()` + a Dashboard "Sync blocks from PowerSchool" button.
+- **Storage:** stores the parsed digit (matches the manual `[BK {n}]` UI). Non-numbered periods
+  (PCG → "Pastoral Care", Interim → "Interim") and unresolved sections are **left unchanged** (never
+  clobber a manual value).
+- **Live-validated (full sweep):** ACSS=3 (unchanged), AIML→8, APCSP→6, MAD→1, Robotics→4, TA→4 (set);
+  PCG/Interim skipped gracefully (one Interim `section_info` 500'd — skipped, not fatal). 243 server +
+  229 client tests green. Probes: `scripts/probe-ps-block-number.js`, `scripts/probe-ps-sectiondcid.js`.

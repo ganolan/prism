@@ -5,7 +5,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { getDb } from '../server/db/index.js';
 import { getAssessmentContext } from '../server/services/assessmentContext.js';
 import { writeStudentSuggestions, upsertAssessmentAnalysis } from '../server/services/suggestions.js';
-import { listCourses, listAssignments } from './handlers.js';
+import { listCourses, listAssignments, listRubricsTool, readRubric, writeRubric } from './handlers.js';
 
 // <2KB tool-search hint (spec §3.4) so a client knows when to surface PrisMCP.
 export const INSTRUCTIONS =
@@ -110,6 +110,41 @@ export function createServer() {
     async ({ assignment_id, noticings, moderation_note }) => ({
       content: [{ type: 'text', text: JSON.stringify(upsertAssessmentAnalysis(getDb(), { assignmentId: assignment_id, noticings, moderation_note })) }],
     })
+  );
+
+  server.registerTool(
+    'list_rubrics',
+    { description: 'List the reusable rubric library (name, source, criteria count, last updated) so an agent can pick or update a rubric by name.' },
+    async () => ({ content: [{ type: 'text', text: JSON.stringify(listRubricsTool(getDb())) }] })
+  );
+
+  server.registerTool(
+    'read_rubric',
+    {
+      description: 'Read a rubric by name in portable form — ordered criteria with per-level descriptors and no Prism ids (the JSON twin of the CSV export).',
+      inputSchema: { name: z.string().describe('Rubric name (as shown by list_rubrics)') },
+    },
+    async ({ name }) => ({ content: [{ type: 'text', text: JSON.stringify(readRubric(getDb(), { name })) }] })
+  );
+
+  server.registerTool(
+    'write_rubric',
+    {
+      description: 'Create or replace a rubric by name (upsert — re-using a name replaces it, never duplicates). Criteria are an ordered array; array order becomes row order. No Prism ids required.',
+      inputSchema: {
+        name: z.string().describe('Rubric name — the stable handle; re-using it replaces the rubric'),
+        criteria: z.array(z.object({
+          criterion_name: z.string().describe('Friendly label, e.g. "UI/UX"'),
+          standard_title: z.string().optional().describe('Measurement-topic title as written by the author'),
+          reporting_category: z.string().optional().describe('e.g. "Produce" / "Create"'),
+          descriptors: z.object({
+            ED: z.string().optional(), EX: z.string().optional(), D: z.string().optional(),
+            EM: z.string().optional(), IE: z.string().optional(),
+          }).describe('Per-level descriptor prose; IE defaults to "Insufficient Evidence" when omitted'),
+        })).describe('Ordered criteria — the array order is the row order'),
+      },
+    },
+    async ({ name, criteria }) => ({ content: [{ type: 'text', text: JSON.stringify(writeRubric(getDb(), { name, criteria })) }] })
   );
 
   // Read-only @-mention mirror of the read tools (spec §3.2), so the teacher can

@@ -158,3 +158,26 @@ export const uploadPowerSchoolCSV = (file) => {
   return fetch(`${BASE}/import/powerschool`, { method: 'POST', body: formData })
     .then(res => res.json());
 };
+
+// ── Rubrics (descriptors) ──────────────────────────────────────────────
+export const getRubricConfig = () => request('/rubrics/config');
+export const listRubrics = () => request('/rubrics');
+export const getRubricForAssignment = (assignmentId) => request(`/rubrics/assignment/${assignmentId}`);
+export const attachRubric = (body) => request('/rubrics/attach', { method: 'POST', body: JSON.stringify(body) });
+export const setRubricMapping = (attachmentId, criterionId, topicId) =>
+  request(`/rubrics/attachment/${attachmentId}/mapping`, { method: 'PUT', body: JSON.stringify({ criterionId, topicId }) });
+export const reorderRubricCriteria = (rubricId, orderedCriterionIds) =>
+  request(`/rubrics/${rubricId}/reorder`, { method: 'PUT', body: JSON.stringify({ orderedCriterionIds }) });
+export const rubricTemplateUrl = () => '/api/rubrics/template';
+export const rubricExportUrl = (id) => `/api/rubrics/${id}/export`;
+
+// Multipart upload — must NOT set a JSON Content-Type (let the browser set the boundary).
+export const uploadRubricCsv = (name, file) => {
+  const fd = new FormData();
+  fd.append('name', name);
+  fd.append('file', file);
+  return fetch('/api/rubrics/upload', { method: 'POST', body: fd }).then(async (res) => {
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Upload failed');
+    return res.json();
+  });
+};

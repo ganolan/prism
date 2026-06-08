@@ -28,8 +28,8 @@ const CELL_COLORS = {
   EM: { headerFill: '#fed7aa', draftFill: '#fff7ed', finalBorder: '#ea580c', draftBorder: '#fdba74' },
   IE: { headerFill: '#fecaca', draftFill: '#fef2f2', finalBorder: '#dc2626', draftBorder: '#fca5a5' },
 };
-// Suggestion accent — deliberately violet, NOT yellow (Developing is already yellow).
-const SUGGEST = { fill: '#ede9fe', ring: '#a78bfa', glyph: '#8b5cf6' };
+// Suggestion accent — fuchsia CSS tokens (matches descriptor grid's --ai-suggest).
+const SUGGEST = { fill: 'var(--ai-suggest-wash)', ring: 'var(--ai-suggest)', glyph: 'var(--ai-suggest)' };
 const CELL_TEXT = '#1a1a1a';
 // Sentinel stored in pending[topicId] to stage a synced final for removal (Slice 2).
 const REMOVE = '__remove__';
@@ -868,9 +868,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
                         ) : null}
                         {isSuggested && !stagedRemoval && (
                           <span style={{
-                            position: 'absolute', top: 1, right: 3, fontSize: '0.58rem',
-                            lineHeight: 1, color: SUGGEST.glyph,
-                          }}>✦</span>
+                            position: 'absolute', top: 1, right: 3, lineHeight: 1,
+                          }}><AiSparkle size={11} style={{ color: 'var(--ai-suggest)' }} /></span>
                         )}
                         {stagedRemoval && (
                           <span style={{
@@ -1021,7 +1020,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
               style={{
                 borderRadius: 7, padding: '0.4rem 0.75rem', fontSize: '0.74rem',
                 fontWeight: 600, cursor: 'pointer',
-                background: '#ede9fe', color: '#6d28d9', border: '1px solid #c4b5fd',
+                background: 'var(--ai-suggest-wash)', color: 'var(--ai-suggest)', border: '1px solid var(--ai-suggest)',
               }}
             >
               ↑ Use suggestion
@@ -1039,7 +1038,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
               letterSpacing: '0.03em', marginBottom: '0.28rem',
               display: 'flex', alignItems: 'center', gap: '0.3rem',
             }}>
-              ✦ Suggested feedback
+              <AiSparkle size={12} style={{ color: 'var(--ai-suggest)' }} /> Suggested feedback
             </div>
             <div style={{ fontSize: '0.72rem', lineHeight: 1.4, color: '#716b85', whiteSpace: 'pre-wrap' }}>
               {narrativeSuggestion}

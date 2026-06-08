@@ -716,7 +716,7 @@ describe('StudentRubricCard — card chrome (Slice 5)', () => {
 
   it('renders the suggestion box (read-only) and Use suggestion when narrative_feedback exists', () => {
     renderCard(withFeedback2({ narrative_feedback: 'Excellent work, Ada!' }));
-    expect(screen.getByText('✦ Suggested feedback')).toBeInTheDocument();
+    expect(screen.getByText('Suggested feedback')).toBeInTheDocument();
     expect(screen.getByText('Excellent work, Ada!')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /use suggestion/i })).toBeInTheDocument();
   });
@@ -908,8 +908,8 @@ describe('AssessmentSummaryPage — feedback load (Slice 4)', () => {
     });
     renderPage();
     const cell = await screen.findByTitle('Set Topic 1 to Exhibiting Depth'); // ED
-    await waitFor(() => expect(cell).toHaveTextContent('✦'));
-    expect(cell).toHaveStyle({ background: '#ede9fe' }); // violet wash, no teacher mark
+    await waitFor(() => expect(cell.querySelector('svg')).toBeTruthy());
+    expect(cell).toHaveStyle({ background: 'var(--ai-suggest-wash)' }); // fuchsia wash, no teacher mark
   });
 
   it('does not throw or overlay for an unresolvable rubric_scores key', async () => {
@@ -933,10 +933,10 @@ describe('AssessmentSummaryPage — feedback load (Slice 4)', () => {
     });
     renderPage();
     const cell = await screen.findByTitle('Set Topic 1 to Exhibiting Depth');
-    await waitFor(() => expect(cell).toHaveTextContent('✦'));
+    await waitFor(() => expect(cell.querySelector('svg')).toBeTruthy());
     expect(cell).toHaveStyle({
       background: '#bfdbfe', border: '2px solid #2563eb',
-      outline: '1px dashed #a78bfa',
+      outline: '1px dashed var(--ai-suggest)',
     });
   });
 
@@ -950,10 +950,10 @@ describe('AssessmentSummaryPage — feedback load (Slice 4)', () => {
     renderPage();
     const finalCell = await screen.findByTitle('Set Topic 1 to Exhibiting Depth'); // ED
     const suggCell = screen.getByTitle('Set Topic 1 to Exhibiting');             // EX
-    expect(finalCell).toHaveStyle({ background: '#bfdbfe' });   // final, no ✦
+    expect(finalCell).toHaveStyle({ background: '#bfdbfe' });   // final, no sparkle
     expect(finalCell).not.toHaveTextContent('✦');
-    expect(suggCell).toHaveStyle({ background: '#ede9fe' });    // violet wash + ✦
-    expect(suggCell).toHaveTextContent('✦');
+    expect(suggCell).toHaveStyle({ background: 'var(--ai-suggest-wash)' });    // fuchsia wash + sparkle
+    expect(suggCell.querySelector('svg')).toBeTruthy();
   });
 });
 

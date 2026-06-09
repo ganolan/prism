@@ -19,6 +19,7 @@ import peopleRouter from './routes/people.js';
 import rubricsRouter from './routes/rubrics.js';
 import { getGradingScalesMap } from './db/scales.js';
 import { getFeatures } from './middleware/featureGate.js';
+import { getScaleTable, schoologyScaleId } from './lib/proficiencyScale.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3001;
@@ -55,6 +56,11 @@ app.get('/api/features', (req, res) => {
 // labels (Complete, ED, etc.) anywhere a grade is shown.
 app.get('/api/grading-scales', (req, res) => {
   res.json(getGradingScalesMap());
+});
+
+// Proficiency scale — ordered levels array + Schoology scale ID for the client.
+app.get('/api/proficiency-scale', (req, res) => {
+  res.json({ levels: getScaleTable(), schoologyScaleId: schoologyScaleId() });
 });
 
 // SPA fallback — serve index.html for non-API routes

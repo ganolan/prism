@@ -33,6 +33,16 @@ beforeEach(() => {
   vi.mocked(api.getCourseStudents).mockReturnValue(pending());
   vi.mocked(api.getGradebook).mockReturnValue(pending());
   vi.mocked(api.getMasteryForCourse).mockReturnValue(pending());
+  vi.mocked(api.getProficiencyScale).mockResolvedValue({
+    schoologyScaleId: 21337256,
+    levels: [
+      { code: 'ED', label: 'Exhibiting Depth', points: 100, gradeScaled: '87.50' },
+      { code: 'EX', label: 'Exhibiting', points: 75, gradeScaled: '62.50' },
+      { code: 'D', label: 'Developing', points: 50, gradeScaled: '37.50' },
+      { code: 'EM', label: 'Emerging', points: 25, gradeScaled: '12.50' },
+      { code: 'IE', label: 'Insufficient Evidence', points: 0, gradeScaled: '0.00' },
+    ],
+  });
 });
 
 describe('CoursePage data refresh', () => {

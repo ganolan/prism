@@ -1,9 +1,6 @@
 import AiSparkle from './AiSparkle.jsx';
 import { categoryColor } from '../lib/rubricColors.js';
-
-const LEVEL_LABELS = {
-  ED: 'Exhibiting Depth', EX: 'Exhibiting', D: 'Developing', EM: 'Emerging', IE: 'Insufficient Evidence',
-};
+import { LEVEL_LABELS } from '../lib/masteryLevels.js';
 
 export default function RubricDescriptorGrid({
   rows, levels, cellState, onSelect, palette, levelHeaderColors, levelBorderColors,

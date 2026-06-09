@@ -218,4 +218,19 @@ describe('PrisMCP rubric tools', () => {
     const list = JSON.parse((await client.callTool({ name: 'list_rubrics', arguments: {} })).content[0].text);
     expect(list).toHaveLength(1); // no copy created
   });
+
+  test('attach_rubric binds a written rubric to an assignment', async () => {
+    const db = getDb();
+    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s1','AIML')`).run().lastInsertRowid;
+    const asgId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-7', 'Project')`).run(courseId).lastInsertRowid;
+    db.prepare(`INSERT INTO reporting_categories (id, course_id, external_id, title) VALUES ('rc1', ?, 'ART.5', 'Presenting')`).run(courseId);
+    db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES ('t1','rc1',?, 'ART.5.1','Visual design')`).run(courseId);
+    db.prepare(`INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id) VALUES ('sa-7','t1',?)`).run(courseId);
+    const client = await connect();
+    await client.callTool({ name: 'write_rubric', arguments: { name: 'Design', criteria: [
+      { criterion_name: 'UI/UX', standard_title: 'Visual design', reporting_category: 'Produce', descriptors: { ED: 'a' } },
+    ] } });
+    const res = await client.callTool({ name: 'attach_rubric', arguments: { rubric_name: 'Design', assignment_id: asgId } });
+    expect(JSON.parse(res.content[0].text)).toMatchObject({ attached_to: asgId, rubric: 'Design', unmatched_criteria: [] });
+  });
 });

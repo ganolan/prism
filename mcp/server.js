@@ -5,7 +5,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { getDb } from '../server/db/index.js';
 import { getAssessmentContext } from '../server/services/assessmentContext.js';
 import { writeStudentSuggestions, upsertAssessmentAnalysis } from '../server/services/suggestions.js';
-import { listCourses, listAssignments, listRubricsTool, readRubric, writeRubric } from './handlers.js';
+import { listCourses, listAssignments, listRubricsTool, readRubric, writeRubric, attachRubricTool } from './handlers.js';
 
 // <2KB tool-search hint (spec §3.4) so a client knows when to surface PrisMCP.
 export const INSTRUCTIONS =
@@ -147,6 +147,18 @@ export function createServer() {
       },
     },
     async ({ name, criteria, on_name_conflict }) => ({ content: [{ type: 'text', text: JSON.stringify(writeRubric(getDb(), { name, criteria, on_name_conflict })) }] })
+  );
+
+  server.registerTool(
+    'attach_rubric',
+    {
+      description: "Attach a library rubric (by name) to an assignment, auto-matching its criteria to the assignment's measurement topics. Returns { attached_to, rubric, unmatched_criteria } — finish any unmatched criteria in Prism's Map-criteria tab.",
+      inputSchema: {
+        rubric_name: z.string().describe('Rubric name (as shown by list_rubrics)'),
+        assignment_id: z.union([z.number(), z.string()]).describe('Local Prism assignment id (from list_assignments)'),
+      },
+    },
+    async ({ rubric_name, assignment_id }) => ({ content: [{ type: 'text', text: JSON.stringify(attachRubricTool(getDb(), { rubric_name, assignment_id })) }] })
   );
 
   // Read-only @-mention mirror of the read tools (spec §3.2), so the teacher can

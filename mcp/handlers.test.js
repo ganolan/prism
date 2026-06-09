@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../server/db/index.js';
-import { listCourses, listAssignments, writeRubric } from './handlers.js';
+import { listCourses, listAssignments, writeRubric, attachRubricTool } from './handlers.js';
 import { saveRubric, listRubrics, getRubricByName } from '../server/services/rubricStore.js';
 
 beforeEach(() => {
@@ -121,5 +121,38 @@ describe('writeRubric (dedup + conflict)', () => {
     const res = writeRubric(db, { name: 'Fresh', criteria: [C()] });
     expect(res).toMatchObject({ name: 'Fresh', match: 'created', criteria_count: 1 });
     expect(listRubrics(db)).toHaveLength(1);
+  });
+});
+
+describe('attachRubricTool', () => {
+  test('attaches a library rubric to an assignment and reports unmatched criteria by name', () => {
+    const db = getDb();
+    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s1','AIML')`).run().lastInsertRowid;
+    const asgId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-9', 'Project')`).run(courseId).lastInsertRowid;
+    db.prepare(`INSERT INTO reporting_categories (id, course_id, external_id, title) VALUES ('rc1', ?, 'ART.5', 'Presenting')`).run(courseId);
+    db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES ('t1','rc1',?, 'ART.5.1','Visual design')`).run(courseId);
+    db.prepare(`INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id) VALUES ('sa-9','t1',?)`).run(courseId);
+    saveRubric(db, { name: 'Design', source: 'csv', criteria: [
+      { position: 1, criterion_name: 'UI/UX', standard_title: 'Visual design', reporting_category: 'Produce', descriptors: { ED: 'a' } },
+      { position: 2, criterion_name: 'Code', standard_title: 'Programming', reporting_category: 'Produce', descriptors: { ED: 'b' } },
+    ] });
+
+    const res = attachRubricTool(db, { rubric_name: 'Design', assignment_id: asgId });
+    expect(res).toEqual({ attached_to: asgId, rubric: 'Design', unmatched_criteria: ['Code'] });
+  });
+
+  test('returns an error object when the rubric name is unknown', () => {
+    const db = getDb();
+    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s1','AIML')`).run().lastInsertRowid;
+    const asgId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-9', 'Project')`).run(courseId).lastInsertRowid;
+    expect(attachRubricTool(db, { rubric_name: 'Nope', assignment_id: asgId }).error).toMatch(/not found/);
+  });
+
+  test('returns an error object when the assignment id is unknown', () => {
+    const db = getDb();
+    saveRubric(db, { name: 'Design', source: 'csv', criteria: [
+      { position: 1, criterion_name: 'UI/UX', standard_title: 'Visual design', reporting_category: 'Produce', descriptors: { ED: 'a' } },
+    ] });
+    expect(attachRubricTool(db, { rubric_name: 'Design', assignment_id: 99999 }).error).toMatch(/not found/);
   });
 });

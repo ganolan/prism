@@ -3,9 +3,10 @@ import { useParams, Link } from 'react-router-dom';
 import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, triggerMasterySync, triggerMasteryLogin } from '../services/api.js';
 import AnalyticsView from '../components/AnalyticsView.jsx';
 import OverridePopup, { LEVEL_COLORS } from '../components/OverridePopup.jsx';
-import { computeLetterGrade, LetterGradePopup, LETTER_GRADE_COLORS } from '../components/MasteryPerformanceSummary.jsx';
+import { LetterGradePopup, LETTER_GRADE_COLORS } from '../components/MasteryPerformanceSummary.jsx';
 import { gradeLabel, submissionStatus } from '../lib/gradeLabel.js';
-import { masteryCodeForLevel } from '../lib/masteryLevels.js';
+import { masteryCodeForLevel, computeLetterGrade } from '../lib/masteryLevels.js';
+import { useProficiencyScale } from '../hooks/useProficiencyScale.js';
 import { groupAssignmentsByFolder } from '../lib/assessmentGroups.js';
 import { indexMastery, buildAssignmentRubric } from '../lib/gradebookMastery.js';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
@@ -14,15 +15,6 @@ import SubmissionBadges from '../components/SubmissionBadges.jsx';
 
 const SHORT_BADGE = { late: 'L', draft: 'D', missing: 'M', 'not-started': 'NS', submitted: 'S', 'in-progress': 'IP', ungraded: '·' };
 const BADGE_TONE_CLASS = { red: 'badge-red', blue: 'badge-blue', amber: 'badge-pink', green: 'badge-green', yellow: 'badge-amber', neutral: 'badge-gray' };
-
-function pointsToLevel(points) {
-  if (points == null) return null;
-  if (points >= 87.5) return 'ED';
-  if (points >= 62.5) return 'EX';
-  if (points >= 37.5) return 'D';
-  if (points >= 12.5) return 'EM';
-  return 'IE';
-}
 
 export default function CoursePage() {
   const { id } = useParams();
@@ -182,6 +174,7 @@ function levelCellStyle(level, extra = {}) {
 }
 
 function RosterView({ students, mastery, courseId, displayName, onOverrideClick }) {
+  const scale = useProficiencyScale();
   const [showGradeScale, setShowGradeScale] = useState(false);
   const categories = mastery?.categories || [];
   const topics = mastery?.topics || [];
@@ -323,11 +316,11 @@ function RosterView({ students, mastery, courseId, displayName, onOverrideClick 
           {students.map(s => {
             const uid = s.schoology_uid || s.uid;
             // Per-student approximate letter grade using the same formula as
-            // MasteryPerformanceSummary: pointsToLevel(flat category average)
+            // MasteryPerformanceSummary: scale.pointsToLevel(flat category average)
             // for each reporting category → computeLetterGrade().
             const categoryLevels = categories.map(cat => {
               const avg = categoryAvg(uid, cat.id);
-              return avg != null ? pointsToLevel(avg) : null;
+              return avg != null ? scale.pointsToLevel(avg) : null;
             });
             const letterGrade = computeLetterGrade(categoryLevels);
             // Same formula applied to Schoology's per-category reported levels
@@ -335,7 +328,7 @@ function RosterView({ students, mastery, courseId, displayName, onOverrideClick 
             const schoologyCategoryLevels = categories.map(cat => {
               const r = schoologyRollup(uid, cat.id);
               const rVal = r ? (r.override_value != null ? r.override_value : r.grade_scaled_rounded) : null;
-              return rVal != null ? pointsToLevel(rVal) : null;
+              return rVal != null ? scale.pointsToLevel(rVal) : null;
             });
             const schoologyLetterGrade = computeLetterGrade(schoologyCategoryLevels);
             return (
@@ -372,10 +365,10 @@ function RosterView({ students, mastery, courseId, displayName, onOverrideClick 
                 <td className="text-sm">{s.email || '-'}</td>
                 {categories.flatMap((cat, catIdx) => {
                   const avg = categoryAvg(uid, cat.id);
-                  const avgLevel = avg != null ? pointsToLevel(avg) : null;
+                  const avgLevel = avg != null ? scale.pointsToLevel(avg) : null;
                   const r = schoologyRollup(uid, cat.id);
                   const rVal = r ? (r.override_value != null ? r.override_value : r.grade_scaled_rounded) : null;
-                  const rLevel = rVal != null ? pointsToLevel(rVal) : null;
+                  const rLevel = rVal != null ? scale.pointsToLevel(rVal) : null;
                   const hasOverride = r?.override_value != null;
 
                   // Mismatch only when BOTH sides have a value and they differ.

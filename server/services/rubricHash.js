@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
-
-const LEVELS = ['ED', 'EX', 'D', 'EM', 'IE'];
+import { LEVELS } from '../lib/proficiencyScale.js';
 const norm = (s) => String(s ?? '').trim();
 
 // Canonical, name-independent representation of a rubric's content: ordered

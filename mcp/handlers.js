@@ -6,6 +6,7 @@
 import { listRubrics, getRubricByName, saveRubric, findRubricByContentHash } from '../server/services/rubricStore.js';
 import { hashRubricContent } from '../server/services/rubricHash.js';
 import { attachRubric } from '../server/services/rubricAttach.js';
+import { LEVELS } from '../server/lib/proficiencyScale.js';
 
 // Active courses = not archived, not excluded, not hidden. Mirrors the
 // 'current' view in server/routes/courses.js, plus the excluded filter (#56,
@@ -42,8 +43,6 @@ export function listAssignments(db, { course_id }) {
     latest_submission_at: latest_submitted_at > 0 ? new Date(latest_submitted_at * 1000).toISOString() : null,
   }));
 }
-
-const LEVELS = ['ED', 'EX', 'D', 'EM', 'IE'];
 
 // Portable rubric shape — ordered criteria, per-level descriptors, NO Prism ids
 // (the JSON twin of exportRubricCsv; spec §6).

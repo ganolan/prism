@@ -1,7 +1,6 @@
 import { getDb } from '../db/index.js';
 import { hashRubricContent } from './rubricHash.js';
-
-const LEVELS = ['ED', 'EX', 'D', 'EM', 'IE'];
+import { LEVELS } from '../lib/proficiencyScale.js';
 
 // Insert criteria + descriptors for a rubric id (assumes none exist yet).
 function insertCriteria(db, rubricId, criteria) {

@@ -1,4 +1,5 @@
 import { getDb } from '../db/index.js';
+import { hashRubricContent } from './rubricHash.js';
 
 const LEVELS = ['ED', 'EX', 'D', 'EM', 'IE'];
 
@@ -94,4 +95,15 @@ export function getRubricByName(db = getDb(), name) {
 export function upsertRubricByName(db = getDb(), content) {
   const row = db.prepare(`SELECT id FROM rubrics WHERE name = ? ORDER BY updated_at DESC, id DESC LIMIT 1`).get(content.name);
   return saveRubric(db, content, row?.id ?? null);
+}
+
+// Compute-on-read content dedup: hash each library rubric and return the first
+// (newest, per listRubrics order) whose content matches. A teacher's library is
+// tens of rubrics, so the O(n) getRubric sweep is negligible (spec §3, #110).
+export function findRubricByContentHash(db = getDb(), hash) {
+  for (const { id } of listRubrics(db)) {
+    const r = getRubric(db, id);
+    if (hashRubricContent(r) === hash) return { id: r.id, name: r.name };
+  }
+  return null;
 }

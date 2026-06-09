@@ -3,11 +3,14 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../server/db/index.js';
-import { listCourses, listAssignments } from './handlers.js';
+import { listCourses, listAssignments, writeRubric } from './handlers.js';
+import { saveRubric, listRubrics, getRubricByName } from '../server/services/rubricStore.js';
 
 beforeEach(() => {
   getDb().exec(
-    'DELETE FROM mastery_alignments; DELETE FROM measurement_topics; ' +
+    'DELETE FROM rubric_attachment_topics; DELETE FROM rubric_attachments; ' +
+    'DELETE FROM rubric_descriptors; DELETE FROM rubric_criteria; DELETE FROM rubrics; ' +
+    'DELETE FROM mastery_alignments; DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
     'DELETE FROM grades; DELETE FROM assignments; ' +
     'DELETE FROM students; DELETE FROM courses;'
   );
@@ -72,5 +75,51 @@ describe('listAssignments', () => {
     const byTitle = Object.fromEntries(listAssignments(db, { course_id: courseId }).map((a) => [a.title, a]));
     expect(byTitle.Submitted.latest_submission_at).toBe(new Date(1700000500 * 1000).toISOString());
     expect(byTitle.Untouched.latest_submission_at).toBeNull();
+  });
+});
+
+const C = (over = {}) => ({ criterion_name: 'UI/UX', standard_title: 'Visual', reporting_category: 'Produce', descriptors: { ED: 'a' }, ...over });
+
+describe('writeRubric (dedup + conflict)', () => {
+  test('reuses an existing rubric with identical content under a different name — no copy', () => {
+    const db = getDb();
+    saveRubric(db, { name: 'Design', source: 'csv', criteria: [{ position: 1, ...C() }] });
+    const res = writeRubric(db, { name: 'Weather App Design', criteria: [C()] });
+    expect(res).toEqual({ reused_existing: 'Design', match: 'exact', criteria_count: 1 });
+    expect(listRubrics(db)).toHaveLength(1);
+  });
+
+  test('prompts (conflict, no overwrite) on a same-name different-content write', () => {
+    const db = getDb();
+    saveRubric(db, { name: 'Design', source: 'csv', criteria: [{ position: 1, ...C({ descriptors: { ED: 'a' } }) }] });
+    const res = writeRubric(db, { name: 'Design', criteria: [C({ descriptors: { ED: 'CHANGED' } })] });
+    expect(res.conflict).toBe('name');
+    expect(res.existing).toBe('Design');
+    expect(listRubrics(db)).toHaveLength(1);
+    expect(getRubricByName(db, 'Design').criteria[0].descriptors.ED).toBe('a'); // unchanged
+  });
+
+  test("on_name_conflict:'update' replaces the existing rubric in place", () => {
+    const db = getDb();
+    saveRubric(db, { name: 'Design', source: 'csv', criteria: [{ position: 1, ...C({ descriptors: { ED: 'a' } }) }] });
+    const res = writeRubric(db, { name: 'Design', on_name_conflict: 'update', criteria: [C({ descriptors: { ED: 'NEW' } })] });
+    expect(res).toMatchObject({ name: 'Design', match: 'updated' });
+    expect(listRubrics(db)).toHaveLength(1);
+    expect(getRubricByName(db, 'Design').criteria[0].descriptors.ED).toBe('NEW');
+  });
+
+  test("on_name_conflict:'new' saves a separate same-name copy", () => {
+    const db = getDb();
+    saveRubric(db, { name: 'Design', source: 'csv', criteria: [{ position: 1, ...C({ descriptors: { ED: 'a' } }) }] });
+    const res = writeRubric(db, { name: 'Design', on_name_conflict: 'new', criteria: [C({ descriptors: { ED: 'b' } })] });
+    expect(res).toMatchObject({ name: 'Design', match: 'created_new' });
+    expect(listRubrics(db).filter((r) => r.name === 'Design')).toHaveLength(2);
+  });
+
+  test('creates a new rubric when nothing matches', () => {
+    const db = getDb();
+    const res = writeRubric(db, { name: 'Fresh', criteria: [C()] });
+    expect(res).toMatchObject({ name: 'Fresh', match: 'created', criteria_count: 1 });
+    expect(listRubrics(db)).toHaveLength(1);
   });
 });

@@ -130,9 +130,11 @@ export function createServer() {
   server.registerTool(
     'write_rubric',
     {
-      description: 'Create or replace a rubric by name (upsert — re-using a name replaces it, never duplicates). Criteria are an ordered array; array order becomes row order. No Prism ids required.',
+      description: 'Create or update a rubric by name. Dedup: if a rubric with identical content already exists (any name), it is reused (no copy) and the result reports { reused_existing, match: "exact" }. If a DIFFERENT rubric already has this name, the write is held back and returns { conflict: "name", ... } — ask the teacher, then re-call with on_name_conflict:"update" (replace it) or "new" (save a separate copy). Criteria are an ordered array (array order = row order). No Prism ids required.',
       inputSchema: {
-        name: z.string().describe('Rubric name — the stable handle; re-using it replaces the rubric'),
+        name: z.string().describe('Rubric name — the stable handle'),
+        on_name_conflict: z.enum(['prompt', 'update', 'new']).optional()
+          .describe('How to resolve a same-name-different-content collision: "prompt" (default, return a conflict), "update" (replace the existing), or "new" (save a separate copy)'),
         criteria: z.array(z.object({
           criterion_name: z.string().describe('Friendly label, e.g. "UI/UX"'),
           standard_title: z.string().optional().describe('Measurement-topic title as written by the author'),
@@ -144,7 +146,7 @@ export function createServer() {
         })).describe('Ordered criteria — the array order is the row order'),
       },
     },
-    async ({ name, criteria }) => ({ content: [{ type: 'text', text: JSON.stringify(writeRubric(getDb(), { name, criteria })) }] })
+    async ({ name, criteria, on_name_conflict }) => ({ content: [{ type: 'text', text: JSON.stringify(writeRubric(getDb(), { name, criteria, on_name_conflict })) }] })
   );
 
   // Read-only @-mention mirror of the read tools (spec §3.2), so the teacher can

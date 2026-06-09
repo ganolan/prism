@@ -201,12 +201,21 @@ describe('PrisMCP rubric tools', () => {
     expect(JSON.stringify(r)).not.toMatch(/"id"/);                               // no ids leak
   });
 
-  test('write_rubric upserts by name (no duplicate)', async () => {
+  test('write_rubric does NOT overwrite a same-name different-content rubric — returns a conflict', async () => {
     const client = await connect();
     await client.callTool({ name: 'write_rubric', arguments: { name: 'Dupe', criteria: CRITERIA } });
-    await client.callTool({ name: 'write_rubric', arguments: { name: 'Dupe', criteria: [CRITERIA[0]] } });
+    const res = await client.callTool({ name: 'write_rubric', arguments: { name: 'Dupe', criteria: [CRITERIA[0]] } });
+    expect(JSON.parse(res.content[0].text).conflict).toBe('name');
     const list = JSON.parse((await client.callTool({ name: 'list_rubrics', arguments: {} })).content[0].text);
-    expect(list.filter((r) => r.name === 'Dupe')).toHaveLength(1);
-    expect(list[0]).not.toHaveProperty('id');
+    expect(list.filter((r) => r.name === 'Dupe')).toHaveLength(1); // not duplicated, not replaced
+  });
+
+  test('write_rubric reuses an existing rubric with identical content under a different name', async () => {
+    const client = await connect();
+    await client.callTool({ name: 'write_rubric', arguments: { name: 'Design', criteria: CRITERIA } });
+    const res = await client.callTool({ name: 'write_rubric', arguments: { name: 'Weather Design', criteria: CRITERIA } });
+    expect(JSON.parse(res.content[0].text)).toMatchObject({ reused_existing: 'Design', match: 'exact' });
+    const list = JSON.parse((await client.callTool({ name: 'list_rubrics', arguments: {} })).content[0].text);
+    expect(list).toHaveLength(1); // no copy created
   });
 });

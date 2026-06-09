@@ -3,7 +3,8 @@
 // callbacks. Kept separate so they unit-test directly against a :memory: DB,
 // mirroring the server/**/*.test.js pattern.
 
-import { listRubrics, getRubricByName, upsertRubricByName } from '../server/services/rubricStore.js';
+import { listRubrics, getRubricByName, saveRubric, findRubricByContentHash } from '../server/services/rubricStore.js';
+import { hashRubricContent } from '../server/services/rubricHash.js';
 
 // Active courses = not archived, not excluded, not hidden. Mirrors the
 // 'current' view in server/routes/courses.js, plus the excluded filter (#56,
@@ -70,8 +71,25 @@ export function readRubric(db, { name }) {
   return r ? toPortable(r) : null;
 }
 
-export function writeRubric(db, { name, criteria }) {
+export function writeRubric(db, { name, criteria, on_name_conflict = 'prompt' }) {
   const content = { name, source: 'mcp', criteria: criteria.map((c, i) => ({ ...c, position: i + 1 })) };
-  upsertRubricByName(db, content);
-  return { name, criteria_count: getRubricByName(db, name).criteria.length };
+  const criteria_count = criteria.length;
+
+  const exact = findRubricByContentHash(db, hashRubricContent(content));
+  if (exact) return { reused_existing: exact.name, match: 'exact', criteria_count };
+
+  const named = getRubricByName(db, name);
+  if (named) {
+    if (on_name_conflict === 'update') { saveRubric(db, content, named.id); return { name, match: 'updated', criteria_count }; }
+    if (on_name_conflict === 'new')    { saveRubric(db, content);          return { name, match: 'created_new', criteria_count }; }
+    return {
+      conflict: 'name',
+      existing: name,
+      existing_criteria_count: named.criteria.length,
+      message: `A different rubric named "${name}" already exists. Re-call with on_name_conflict:"update" to replace it, or "new" to save a separate copy.`,
+    };
+  }
+
+  saveRubric(db, content);
+  return { name, match: 'created', criteria_count };
 }

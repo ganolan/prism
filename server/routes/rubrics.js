@@ -2,7 +2,8 @@ import { Router } from 'express';
 import multer from 'multer';
 import { featureGate, getRubricConfig } from '../middleware/featureGate.js';
 import { getDb } from '../db/index.js';
-import { listRubrics, saveRubric, getRubric, deleteRubric, renameRubric } from '../services/rubricStore.js';
+import { listRubrics, saveRubric, getRubric, deleteRubric, renameRubric, findRubricByContentHash } from '../services/rubricStore.js';
+import { hashRubricContent } from '../services/rubricHash.js';
 import { parseRubricCsv, templateCsv, exportRubricCsv } from '../services/rubricCsv.js';
 import { attachRubric, getAttachmentForAssignment, setMapping, reorderCriteria, detachAttachment } from '../services/rubricAttach.js';
 
@@ -24,8 +25,12 @@ router.post('/upload', upload.single('file'), (req, res) => {
   const name = (req.body.name || req.file.originalname || 'Untitled rubric').replace(/\.csv$/i, '');
   try {
     const content = parseRubricCsv(req.file.buffer.toString('utf-8'), { name });
+    const existing = findRubricByContentHash(getDb(), hashRubricContent(content));
+    if (existing) {
+      return res.json({ id: existing.id, name: existing.name, criteria_count: content.criteria.length, reused: true, match: 'exact' });
+    }
     const id = saveRubric(getDb(), content);
-    res.json({ id, name, criteria_count: content.criteria.length });
+    res.json({ id, name, criteria_count: content.criteria.length, reused: false });
   } catch (err) {
     res.status(400).json({ error: `CSV parse error: ${err.message}` });
   }

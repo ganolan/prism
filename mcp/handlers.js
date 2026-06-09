@@ -3,7 +3,9 @@
 // callbacks. Kept separate so they unit-test directly against a :memory: DB,
 // mirroring the server/**/*.test.js pattern.
 
-import { listRubrics, getRubricByName, upsertRubricByName } from '../server/services/rubricStore.js';
+import { listRubrics, getRubricByName, saveRubric, findRubricByContentHash } from '../server/services/rubricStore.js';
+import { hashRubricContent } from '../server/services/rubricHash.js';
+import { attachRubric } from '../server/services/rubricAttach.js';
 
 // Active courses = not archived, not excluded, not hidden. Mirrors the
 // 'current' view in server/routes/courses.js, plus the excluded filter (#56,
@@ -70,8 +72,39 @@ export function readRubric(db, { name }) {
   return r ? toPortable(r) : null;
 }
 
-export function writeRubric(db, { name, criteria }) {
+export function writeRubric(db, { name, criteria, on_name_conflict = 'prompt' }) {
   const content = { name, source: 'mcp', criteria: criteria.map((c, i) => ({ ...c, position: i + 1 })) };
-  upsertRubricByName(db, content);
-  return { name, criteria_count: getRubricByName(db, name).criteria.length };
+  const criteria_count = criteria.length;
+
+  const exact = findRubricByContentHash(db, hashRubricContent(content));
+  if (exact) return { reused_existing: exact.name, match: 'exact', criteria_count };
+
+  const named = getRubricByName(db, name);
+  if (named) {
+    if (on_name_conflict === 'update') { saveRubric(db, content, named.id); return { name, match: 'updated', criteria_count }; }
+    if (on_name_conflict === 'new')    { saveRubric(db, content);          return { name, match: 'created_new', criteria_count }; }
+    return {
+      conflict: 'name',
+      existing: name,
+      existing_criteria_count: named.criteria.length,
+      message: `A different rubric named "${name}" already exists. Re-call with on_name_conflict:"update" to replace it, or "new" to save a separate copy.`,
+    };
+  }
+
+  saveRubric(db, content);
+  return { name, match: 'created', criteria_count };
+}
+
+// Bind a library rubric (by name) to an assignment, auto-matching criteria to the
+// assignment's measurement topics (the same path the modal uses). Reports the
+// criteria that still need a topic so the agent can point the teacher at the
+// Map-criteria tab (there is no topic-mapping MCP tool).
+export function attachRubricTool(db, { rubric_name, assignment_id }) {
+  const rubric = getRubricByName(db, rubric_name);
+  if (!rubric) return { error: `rubric "${rubric_name}" not found` };
+  const asg = db.prepare(`SELECT schoology_assignment_id, course_id FROM assignments WHERE id = ?`).get(Number(assignment_id));
+  if (!asg) return { error: `assignment ${assignment_id} not found` };
+  const { unmatched } = attachRubric(db, { rubricId: rubric.id, courseId: asg.course_id, assignmentId: asg.schoology_assignment_id });
+  const nameById = Object.fromEntries(rubric.criteria.map((c) => [c.id, c.criterion_name]));
+  return { attached_to: Number(assignment_id), rubric: rubric_name, unmatched_criteria: unmatched.map((id) => nameById[id] ?? `<criterion id=${id}>`) };
 }

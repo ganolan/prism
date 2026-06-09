@@ -73,6 +73,33 @@ describe('rubrics route', () => {
     expect((await call('GET', '/api/rubrics')).body[0]).toMatchObject({ name: 'Keep' });
   });
 
+  test('POST /upload reuses an existing rubric on identical content (no new row)', async () => {
+    saveRubric(getDb(), { name: 'Existing', source: 'csv', criteria: [
+      { position: 1, criterion_name: 'UI/UX', standard_title: 'Select', reporting_category: 'Produce',
+        descriptors: { ED: 'a', EX: 'b', D: 'c', EM: 'd', IE: 'Insufficient Evidence' } },
+    ] });
+    const fd = new FormData();
+    fd.append('name', 'Re-upload');
+    fd.append('file', new Blob([
+      'Criteria,Reporting Category,Standard,Exhibiting Depth,Exhibiting,Developing,Emerging\nUI/UX,Produce,Select,a,b,c,d',
+    ], { type: 'text/csv' }), 'dupe.csv');
+    const up = await call('POST', '/api/rubrics/upload', fd, true);
+    expect(up.status).toBe(200);
+    expect(up.body).toMatchObject({ reused: true, match: 'exact', name: 'Existing' });
+    expect((await call('GET', '/api/rubrics')).body).toHaveLength(1); // no duplicate created
+  });
+
+  test('POST /upload creates a new rubric when content does not match (reused:false)', async () => {
+    const fd = new FormData();
+    fd.append('name', 'Novel');
+    fd.append('file', new Blob([
+      'Criteria,Reporting Category,Standard,Exhibiting Depth,Exhibiting,Developing,Emerging\nNovel,Produce,Brand new,z,y,x,w',
+    ], { type: 'text/csv' }), 'novel.csv');
+    const up = await call('POST', '/api/rubrics/upload', fd, true);
+    expect(up.body).toMatchObject({ reused: false });
+    expect((await call('GET', '/api/rubrics')).body).toHaveLength(1);
+  });
+
   test('DELETE /:id removes the rubric and cascades to its attachments', async () => {
     const id = saveRubric(getDb(), { name: 'Doomed', source: 'csv', criteria: [] });
     // FK cascade relies on getDb() setting PRAGMA foreign_keys = ON (server/db/index.js:150).

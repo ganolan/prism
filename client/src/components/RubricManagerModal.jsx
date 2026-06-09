@@ -31,15 +31,18 @@ export default function RubricManagerModal({ open, onClose, courseId, assignment
 
   if (!open) return null;
 
-  async function doAttach(rubricId) {
+  async function doAttach(rubricId, info) {
     setMsg('');
     try {
       const { unmatched } = await attachRubric({ rubricId, courseId, assignmentId });
       await onChanged(); await refresh();
+      const notes = [];
+      if (info) notes.push(info);
       if (unmatched?.length) {
         setTab('map');
-        setMsg(`${unmatched.length} ${unmatched.length === 1 ? 'criterion' : 'criteria'} couldn’t be auto-matched — pick a topic below.`);
+        notes.push(`${unmatched.length} ${unmatched.length === 1 ? 'criterion' : 'criteria'} couldn’t be auto-matched — pick a topic below.`);
       }
+      if (notes.length) setMsg(notes.join(' '));
     } catch (e) { setMsg(`Attach failed: ${e.message}`); }
   }
   async function doDelete(r) {
@@ -57,8 +60,10 @@ export default function RubricManagerModal({ open, onClose, courseId, assignment
   }
   async function doUpload(file) {
     setMsg('');
-    try { const { id } = await uploadRubricCsv(file.name.replace(/\.csv$/i, ''), file); await doAttach(id); }
-    catch (e) { setMsg(`Upload failed: ${e.message}`); }
+    try {
+      const { id, reused, name } = await uploadRubricCsv(file.name.replace(/\.csv$/i, ''), file);
+      await doAttach(id, reused ? `Identical to existing “${name}” — attached it, no copy created.` : undefined);
+    } catch (e) { setMsg(`Upload failed: ${e.message}`); }
   }
   async function doMap(criterionId, topicId) {
     try { await setRubricMapping(attachment.id, criterionId, topicId || null); await onChanged(); }

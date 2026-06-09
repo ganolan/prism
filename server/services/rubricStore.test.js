@@ -1,7 +1,8 @@
 import { describe, test, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { migrate } from '../db/index.js';
-import { saveRubric, getRubric, listRubrics, deleteRubric, getRubricByName, upsertRubricByName, renameRubric } from './rubricStore.js';
+import { saveRubric, getRubric, listRubrics, deleteRubric, getRubricByName, upsertRubricByName, renameRubric, findRubricByContentHash } from './rubricStore.js';
+import { hashRubricContent } from './rubricHash.js';
 
 let db;
 beforeEach(() => {
@@ -95,5 +96,12 @@ describe('rubricStore', () => {
     expect(getRubric(db, id).name).toBe('Trimmed');
     expect(() => renameRubric(db, id, '   ')).toThrow();
     expect(() => renameRubric(db, id, '')).toThrow();
+  });
+
+  test('findRubricByContentHash finds a rubric with identical content under a different name', () => {
+    const id = saveRubric(db, CONTENT);                       // name 'MAD Dev'
+    const hash = hashRubricContent(getRubric(db, id));
+    expect(findRubricByContentHash(db, hash)).toEqual({ id, name: 'MAD Dev' });
+    expect(findRubricByContentHash(db, 'deadbeef')).toBeNull();
   });
 });

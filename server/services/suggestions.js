@@ -6,20 +6,7 @@
 
 import { resolveStudentId, resolveAssignmentId } from './idResolvers.js';
 import { getAlignedTopics } from './assessmentContext.js';
-
-// Proficiency vocabulary (spec §4). Accept full names OR codes, case-insensitive;
-// normalize to the stored code. Anything else is reported, never written.
-const LEVEL_CODES = {
-  'exhibiting depth': 'ED', ed: 'ED',
-  exhibiting: 'EX', ex: 'EX',
-  developing: 'D', d: 'D',
-  emerging: 'EM', em: 'EM',
-  'insufficient evidence': 'IE', ie: 'IE',
-};
-
-export function normalizeLevel(raw) {
-  return LEVEL_CODES[String(raw).trim().toLowerCase()] ?? null;
-}
+import { normalizeLevel } from '../lib/proficiencyScale.js';
 
 // Upsert the single active suggestion for one (student, assignment). Normalizes
 // levels, resolves rubric keys against the assignment's aligned topics

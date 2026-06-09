@@ -2,6 +2,19 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 import { writeFileSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { getProficiencyScale } from './featureGate.js';
+
+describe('getProficiencyScale', () => {
+  test('returns the HKIS General Academic Scale with all five levels', () => {
+    const scale = getProficiencyScale();
+    expect(scale.schoologyScaleId).toBe(21337256);
+    expect(scale.levels.map((l) => l.code)).toEqual(['ED', 'EX', 'D', 'EM', 'IE']);
+    const ed = scale.levels.find((l) => l.code === 'ED');
+    expect(ed).toMatchObject({ label: 'Exhibiting Depth', points: 100, gradeScaled: '87.50' });
+    const ie = scale.levels.find((l) => l.code === 'IE');
+    expect(ie).toMatchObject({ label: 'Insufficient Evidence', points: 0, gradeScaled: '0.00' });
+  });
+});
 
 describe('getSyncConfig', () => {
   let path;

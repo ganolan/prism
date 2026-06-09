@@ -510,3 +510,20 @@ PowerSchool is the *only* source of block numbers — removed all manual entry.
 - Service simplified to `syncBlockNumbers({ onProgress, courseIds })` — active by default, `courseIds` for import. Dropped the `scope`/`force`/marker machinery.
 - **Test-hygiene fix:** `courses.test.js` now mocks `blockNumberSync`, so the import test no longer launches a real browser / hits the network (server suite 6.4s → 2.6s).
 - 245 server + 232 client green. Live-validated: import path (`courseIds`) sets Block 4 for a current-year archived section, skips a prior-year one.
+
+## Rubric library hygiene — modal polish (#109, #112) + content-dedup & agent attach (#110) — COMPLETE (2026-06-09)
+
+Follows the rubric-binding-and-mcp foundation (merged `9ae4d11`).
+
+### #109 + #112 — Manage-rubrics modal polish (`main` `55c25ba`)
+- **#112 rename:** ✎ inline-edit per Attach-tab row — swaps the name for an in-place input (Enter saves, Esc/blur cancels; the input's keydown **stops propagation** so Esc cancels the *edit*, not the modal). Backed by `renameRubric` (store — trims, rejects empty/whitespace, bumps `updated_at`), `PATCH /api/rubrics/:id` (400 on empty), and client `renameRubric(id, name)`. Name-only — leaves criteria/descriptors/attachments untouched.
+- **#109 one-step reassign:** the Map-criteria `<select>` now offers **every** topic; one held by another criterion is annotated `Title — now: {owner}`. Picking it reassigns in one step via the existing `setMapping` move-semantics (the freed criterion re-renders ⚠) — no unmap-then-pick dance. Replaced the old "exclude taken topics" test.
+- UI patterns logged in `docs/design-language.md` (#80).
+
+### #110 — exact-content dedup + agent attach (merged to `main` via `e296d51`, branch `feat/rubric-content-dedup`)
+- `server/services/rubricHash.js` `hashRubricContent` — sha256 of the **normalized portable shape** (ordered criteria → criterion_name + standard_title + reporting_category + ED/EX/D/EM/IE descriptors, IE defaulted; trims, collapses null/''; **excludes** name/source/ids/position/external_id, so identical content under different names hashes the same). `findRubricByContentHash` — **compute-on-read** (no stored column; a teacher's library is tens of rubrics).
+- MCP `write_rubric`: exact-content match (any name) → reuse, returns `{ reused_existing, match: 'exact' }`, **no copy**; same-name-but-different-content → `{ conflict: 'name', ... }` (**no silent overwrite** — revises the old blind `upsertRubricByName`), resolved by re-calling with `on_name_conflict: 'update'` (replace) or `'new'` (separate copy); else create. The exact-content check runs **before** the name check.
+- new MCP `attach_rubric({ rubric_name, assignment_id })` — resolves the local Prism assignment id → schoology id + course, attaches + auto-matches criteria→topics, returns `{ attached_to, rubric, unmatched_criteria }` (criterion **names**) so the agent can point the teacher at the Map-criteria tab.
+- CSV `POST /api/rubrics/upload` reuses on exact content match (no new row), `{ reused: true, match: 'exact' }`; the modal shows "Identical to existing '<name>' — attached it, no copy created."
+- **Decisions:** compute-on-read over a stored `content_hash` column (no migration/backfill/staleness); `write_rubric` stays library-only (attach is the separate `attach_rubric` tool); rubric master copies live outside Prism → update-on-confirm is low-risk. **Fuzzy near-match diff dialog deferred to #111** (now unblocked — its fingerprint plumbing landed here). Spec/plan: `docs/superpowers/specs|plans/2026-06-09-rubric-content-dedup*.md`.
+- Built via subagent-driven TDD (fresh implementer + spec-compliance + code-quality review per task; final whole-feature review). **303 server/MCP + 266 client tests green.**

@@ -80,11 +80,10 @@ export function createServer() {
             z.object({
               student: z.union([z.number(), z.string()]).describe('schoology_uid or local student id'),
               narrative_feedback: z.string().optional(),
-              rubric_scores: z.record(z.string(), z.string()).optional().describe('{ topic external_id|title: level code or full name }'),
+              rubric_scores: z.record(z.string(), z.string()).optional().describe('{ topic external_id|title: proficiency level code or name } — levels only; Prism owns the points conversion'),
               reviewer_flags: z.string().nullable().optional(),
               strengths: z.array(z.string()).optional(),
               suggestions: z.array(z.string()).optional(),
-              score: z.number().optional(),
             })
           )
           .describe('Whole-class batch, one entry per student'),

@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, triggerMasterySync, triggerMasteryLogin } from '../services/api.js';
 import AnalyticsView from '../components/AnalyticsView.jsx';
-import OverridePopup, { LEVEL_COLORS } from '../components/OverridePopup.jsx';
+import OverridePopup from '../components/OverridePopup.jsx';
+import { LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
 import { LetterGradePopup, LETTER_GRADE_COLORS } from '../components/MasteryPerformanceSummary.jsx';
 import { gradeLabel, submissionStatus } from '../lib/gradeLabel.js';
 import { masteryCodeForLevel, computeLetterGrade } from '../lib/masteryLevels.js';
@@ -161,8 +162,8 @@ export default function CoursePage() {
 function levelCellStyle(level, extra = {}) {
   const c = level ? LEVEL_COLORS[level] : null;
   return {
-    background: c ? c.bg : 'var(--bg-subtle)',
-    color: c ? c.text : 'var(--text-muted)',
+    background: c ? c.headerFill : 'var(--bg-subtle)',
+    color: c ? CELL_TEXT : 'var(--text-muted)',
     textAlign: 'center',
     fontWeight: 700,
     fontSize: '0.82rem',
@@ -489,7 +490,7 @@ function MiniRubricStrip({ topics, onClick }) {
         return (
           <span
             key={t.topic_id}
-            style={{ flex: 1, background: c ? c.bg : 'var(--bg-subtle)' }}
+            style={{ flex: 1, background: c ? c.headerFill : 'var(--bg-subtle)' }}
           />
         );
       })}
@@ -908,7 +909,7 @@ function GradebookView({ data, courseId, mastery }) {
                       })}
                     />
                   : (c
-                      ? <span style={{ background: c.bg, color: c.text, border: `1px solid ${c.border}`, padding: '0.1rem 0.4rem', borderRadius: 4, fontWeight: 500, display: 'inline-block', minWidth: 24 }}>{text}</span>
+                      ? <span style={{ background: c.headerFill, color: CELL_TEXT, border: `1px solid ${c.finalBorder}`, padding: '0.1rem 0.4rem', borderRadius: 4, fontWeight: 500, display: 'inline-block', minWidth: 24 }}>{text}</span>
                       : text);
                 const status = submissionStatus({
                   score: g.score, exception: g.exception, late: g.late, draft: g.draft,

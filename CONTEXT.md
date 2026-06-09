@@ -35,6 +35,20 @@ touches them — they are **import-once**.
   preference is a deferred follow-up (would want a shared `formatDate` helper that
   all dates funnel through — formatting is currently scattered).
 
+### Proficiency levels (standards-based grading)
+
+The five HKIS General Academic Scale levels and their codes, ordered best → worst:
+**Exhibiting Depth (ED) · Exhibiting (EX) · Developing (D) · Emerging (EM) ·
+Insufficient Evidence (IE)**.
+
+Prism owns the proficiency↔gradebook-score mapping. **Callers emit levels; teachers
+review and publish in levels; the gradebook number is derived downstream by Prism
+and is never a caller or teacher input.** The numeric mapping is configured once in
+`config.yaml` (`grading.proficiencyScale`) and derived through
+`server/lib/proficiencyScale.js` (server) and `client/src/lib/masteryLevels.js` +
+`useProficiencyScale()` (client, via `GET /api/proficiency-scale`). See
+`docs/adr/0001-prism-owns-proficiency-gradebook-mapping.md`.
+
 ## Archived-course surfaces (avoid label collisions)
 
 After #69 the **Sync dialog** has a single archived-course surface — the **Step 2 →

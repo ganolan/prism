@@ -64,10 +64,17 @@ These exist to keep the Tauri migration path open and the codebase clean:
   "suggestions": ["string array"],
   "narrative_feedback": "string",
   "rubric_scores": {
-    "criterion_name": "number"
+    "criterion_name": "<proficiency level code or name>"
   }
 }
 ```
+
+> **Levels-only.** `rubric_scores` carries proficiency levels (`ED/EX/D/EM/IE`), not
+> numbers — Prism derives any gradebook number from a single configurable scale
+> (`grading.proficiencyScale` in `config.yaml`). The MCP write path
+> `write_student_suggestions` enforces this (a numeric value is reported, never
+> stored), and the top-level `score` is no longer a caller input. See
+> `docs/adr/0001-prism-owns-proficiency-gradebook-mapping.md`.
 
 ---
 

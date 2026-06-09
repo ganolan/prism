@@ -25,9 +25,9 @@ import { join } from 'path';
 import { getDb } from '../db/index.js';
 import { getSectionGrades } from './schoology.js';
 import { groupObservationsByTopic, normalizeObservation } from '../lib/masteryObservations.js';
+import { pointsToLevel, levelToLabel, schoologyScaleId } from '../lib/proficiencyScale.js';
 
 const SCHOOLOGY_BASE = 'https://schoology.hkis.edu.hk';
-const GRADING_SCALE_ID = 21337256; // HKIS General Academic Scale
 const SESSION_DIR = join(process.cwd(), '.playwright-session');
 const STATE_FILE = join(SESSION_DIR, 'storage-state.json');
 
@@ -36,15 +36,6 @@ const STATE_FILE = join(SESSION_DIR, 'storage-state.json');
 export function hasMasterySession() {
   return existsSync(STATE_FILE);
 }
-
-const POINTS_TO_GRADE = { 100: 'ED', 75: 'EX', 50: 'D', 25: 'EM', 0: 'IE' };
-const GRADE_TO_LABEL = {
-  ED: 'Exhibiting Depth',
-  EX: 'Exhibiting',
-  D: 'Developing',
-  EM: 'Emerging',
-  IE: 'Insufficient Evidence',
-};
 
 /**
  * Launch a headless browser with saved Schoology session cookies.
@@ -478,7 +469,7 @@ export async function syncMasteryForCourse(courseId, { onProgress, allowInteract
           const uid = String(obs.student_uid);
           const assignId = String(obs.gradeable_material?.material_id);
           const points = obs.points ?? null;
-          const grade = points !== null ? (POINTS_TO_GRADE[points] ?? null) : null;
+          const grade = points !== null ? pointsToLevel(points) : null;
           upsertScore.run(uid, assignId, topic.id, points, grade, now);
           scoresCount++;
         }
@@ -571,7 +562,7 @@ export async function writeMasteryOverride({
   objectiveId,
   studentUid,
   gradeScaled,          // "87.50" | "62.50" | ... | null
-  gradingScaleId = GRADING_SCALE_ID,
+  gradingScaleId = schoologyScaleId(),
   gradingPeriodId = 0,
 }) {
   const { browser, page } = await openPage();
@@ -694,7 +685,7 @@ export async function syncMasteryForAssignment(courseId, assignmentId) {
         if (obsAssignment !== String(assignmentId)) continue;
         const uid = String(obs.student_uid);
         const points = obs.points ?? null;
-        const grade = points !== null ? (POINTS_TO_GRADE[points] ?? null) : null;
+        const grade = points !== null ? pointsToLevel(points) : null;
         if (points === null) {
           deleteScore.run(String(assignmentId), topicId, uid);
         } else {
@@ -995,4 +986,3 @@ export async function getRubricScoresForStudent({ sectionId, studentUid, assignm
   }
 }
 
-export { POINTS_TO_GRADE, GRADE_TO_LABEL, GRADING_SCALE_ID };

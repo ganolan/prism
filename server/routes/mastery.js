@@ -4,7 +4,7 @@ import { hasMasterySession, syncMasteryForCourse, syncMasteryForAssignment, writ
 import { pushGradeComments, getSectionGrades } from '../services/schoology.js';
 import { isResubmitted } from '../lib/resubmission.js';
 import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows } from '../services/assessmentContext.js';
-import { levelToGradeScaled, gradeScaledValues, pointsToLevel } from '../lib/proficiencyScale.js';
+import { levelToGradeScaled, gradeScaledValues, pointsToLevel, LEVELS } from '../lib/proficiencyScale.js';
 
 const router = Router();
 const syncsInProgress = new Set();
@@ -269,6 +269,12 @@ router.post('/:courseId/override', async (req, res) => {
   // Prefer a level (Prism owns the conversion); accept a raw gradeScaled transitionally.
   let gradeScaled = level != null ? levelToGradeScaled(level)
     : (rawScaled != null ? String(rawScaled) : null);
+  // A provided level that didn't resolve means a typo/invalid code — reject it
+  // explicitly so the route doesn't silently fall through to a clear operation.
+  // (A clear is level==null && rawScaled==null → gradeScaled null → allowed below.)
+  if (level != null && gradeScaled == null) {
+    return res.status(400).json({ error: `Unknown level "${level}" — expected one of ${LEVELS.join(', ')}` });
+  }
   const valid = gradeScaledValues();
   if (gradeScaled != null && !valid.has(gradeScaled)) {
     return res.status(400).json({ error: `Unknown level/grade — expected one of ${[...valid].join(', ')} or a level code` });

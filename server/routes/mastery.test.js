@@ -636,4 +636,17 @@ describe('POST /api/mastery/:courseId/override — level-based input', () => {
       expect.objectContaining({ gradeScaled: null })
     );
   });
+
+  test('override route returns 400 for an unrecognised level (typo), does not clear', async () => {
+    // A typo'd level (e.g. 'EXX') previously fell through to a clear because
+    // levelToGradeScaled returned null, which bypassed the valid.has check.
+    const { status, body } = await post(`/api/mastery/${COURSE}/override`, {
+      studentUid: UID,
+      objectiveId: OBJ,
+      level: 'EXX',
+    });
+    expect(status).toBe(400);
+    expect(body.error).toMatch(/Unknown level/);
+    expect(writeMasteryOverride).not.toHaveBeenCalled();
+  });
 });

@@ -1,15 +1,5 @@
 import { writeMasteryOverride } from '../services/api.js';
-
-const LEVELS = ['ED', 'EX', 'D', 'EM', 'IE'];
-const LEVEL_LABELS = { ED: 'Exhibiting Depth', EX: 'Exhibiting', D: 'Developing', EM: 'Emerging', IE: 'Insufficient Evidence' };
-const LEVEL_COLORS = {
-  ED: { bg: '#dbeafe', text: '#1e40af', border: '#93c5fd' },
-  EX: { bg: '#dcfce7', text: '#166534', border: '#86efac' },
-  D:  { bg: '#fef9c3', text: '#713f12', border: '#fde047' },
-  EM: { bg: '#ffedd5', text: '#9a3412', border: '#fed7aa' },
-  IE: { bg: '#fee2e2', text: '#991b1b', border: '#fca5a5' },
-};
-const SCALED_FOR_LEVEL = { ED: '87.50', EX: '62.50', D: '37.50', EM: '12.50', IE: '0.00' };
+import { LEVELS, LEVEL_LABELS, LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
 
 /**
  * Modal for setting/clearing Schoology's per-(student, objective) outcome override.
@@ -28,10 +18,10 @@ export default function OverridePopup({
   currentLevel, hasOverride,
   saving, setSaving, onClose, onSaved,
 }) {
-  async function save(gradeScaled) {
+  async function save(level) {
     setSaving(true);
     try {
-      await writeMasteryOverride(courseId, { studentUid, objectiveId, gradeScaled });
+      await writeMasteryOverride(courseId, { studentUid, objectiveId, level });
       await onSaved?.();
       onClose();
     } catch (err) {
@@ -75,12 +65,12 @@ export default function OverridePopup({
               <button
                 key={lvl}
                 disabled={saving}
-                onClick={() => save(SCALED_FOR_LEVEL[lvl])}
+                onClick={() => save(lvl)}
                 style={{
                   padding: '0.4rem 0.7rem',
                   borderRadius: 6,
-                  border: `2px solid ${active ? c.text : c.border}`,
-                  background: c.bg, color: c.text, fontWeight: 700,
+                  border: `2px solid ${active ? c.finalBorder : c.draftBorder}`,
+                  background: c.headerFill, color: CELL_TEXT, fontWeight: 700,
                   cursor: saving ? 'wait' : 'pointer',
                   fontSize: '0.85rem',
                 }}
@@ -118,5 +108,3 @@ export default function OverridePopup({
     </div>
   );
 }
-
-export { LEVELS, LEVEL_LABELS, LEVEL_COLORS, SCALED_FOR_LEVEL };

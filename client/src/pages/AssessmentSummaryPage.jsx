@@ -370,7 +370,16 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         uid: student.schoology_uid,
         enrollmentId: student.enrollment_id,
         assignmentId,
-        scores: (hasScoreChanges && assignmentRow) ? {
+        // Guard on scale.ready: if the scale hasn't loaded yet, levelToPoints
+        // returns null for every topic, so buildGradeInfo() produces {} (all
+        // topics skipped). Schoology's /observations write REPLACES the full
+        // observation set, so posting an empty gradeInfo would wipe all scores.
+        // Defer the score write instead of posting a destructive empty set.
+        // The per-card Save button uses the same discriminator (!scale.ready →
+        // disabled), so this mirrors that behaviour for the batch path.
+        // NOTE: an empty gradeInfo when scale.ready IS true is a valid "clear
+        // all topics" intent — do not use gradeInfo emptiness as the skip signal.
+        scores: (hasScoreChanges && assignmentRow && scale.ready) ? {
           gradeInfo: buildGradeInfo(),
           gradingPeriodId: assignmentRow.mastery_grading_period_id,
           gradingCategoryId: assignmentRow.mastery_grading_category_id,

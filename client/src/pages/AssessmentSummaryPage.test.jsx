@@ -680,6 +680,41 @@ describe('AssessmentSummaryPage — Send all bar (#51)', () => {
       .toHaveAttribute('aria-checked', 'true');
     expect(screen.getAllByText(/pending change/)).toHaveLength(2);
   });
+
+  it('buildSendEntry returns scores:null when scale is not yet loaded (guard against empty gradeInfo wipe)', async () => {
+    // When the scale promise never resolves, levelToPoints returns null for every
+    // topic and buildGradeInfo() produces {} — an empty gradeInfo. Schoology's
+    // /observations write REPLACES all scores, so posting {} would wipe the student.
+    // The fix gates the scores payload on scale.ready; this test verifies that.
+    getProficiencyScale.mockReturnValueOnce(new Promise(() => {})); // never resolves → scale not ready
+
+    const cardHandlers = {};
+    render(
+      <MemoryRouter>
+        <StudentRubricCard
+          student={makeStudent()}
+          topics={TOPICS}
+          courseId="4"
+          assignmentId="8"
+          assignmentRow={{ id: 50, mastery_grading_period_id: 1, mastery_grading_category_id: 2 }}
+          onSaved={() => {}}
+          registerCard={(uid, handlers) => { cardHandlers[uid] = handlers; }}
+          unregisterCard={() => {}}
+        />
+      </MemoryRouter>
+    );
+
+    // Stage a pending score change.
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    expect(screen.getByText('1 pending change')).toBeInTheDocument();
+
+    // The card registered itself synchronously; getEntry() must reflect the
+    // latest closure values (via entryRef).
+    const entry = cardHandlers['uid-1'].getEntry();
+    expect(entry).not.toBeNull(); // has pending changes → not null
+    // scores must be null — not {} — because scale is not ready.
+    expect(entry.entry.scores).toBeNull();
+  });
 });
 
 describe('StudentRubricCard — card chrome (Slice 5)', () => {

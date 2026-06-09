@@ -117,6 +117,9 @@ export const getGroups = (courseIds, count, balanced) => request(`/tools/groups/
 // Grading scales — global lookup map
 export const getGradingScales = () => request('/grading-scales');
 
+// Proficiency scale — config-derived 5-level mastery scale
+export const getProficiencyScale = () => request('/proficiency-scale');
+
 // Analytics
 export const getCourseAnalytics = (id) => request(`/analytics/course/${id}`);
 

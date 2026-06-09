@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import RubricManagerModal from './RubricManagerModal.jsx';
-import { listRubrics, attachRubric, deleteRubric, setRubricMapping, reorderRubricCriteria, renameRubric, rubricExportUrl } from '../services/api.js';
+import { listRubrics, attachRubric, deleteRubric, setRubricMapping, reorderRubricCriteria, renameRubric, uploadRubricCsv, rubricExportUrl } from '../services/api.js';
 
 vi.mock('../services/api.js', () => ({
   listRubrics: vi.fn(),
@@ -50,6 +50,15 @@ describe('RubricManagerModal', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Attach' })[1]); // "Old draft"
     await waitFor(() => expect(attachRubric).toHaveBeenCalledWith({ rubricId: 3, courseId: '4', assignmentId: '8' }));
     expect(onChanged).toHaveBeenCalled();
+  });
+
+  it('reuses an existing rubric on an identical CSV upload and says so', async () => {
+    uploadRubricCsv.mockResolvedValueOnce({ id: 9, reused: true, name: 'AIML U2' });
+    open();
+    await screen.findByText('AIML U2');
+    const fileInput = document.querySelector('input[type="file"]');
+    fireEvent.change(fileInput, { target: { files: [new File(['x'], 'dupe.csv', { type: 'text/csv' })] } });
+    expect(await screen.findByText((t) => t.includes('Identical to existing') && t.includes('AIML U2'))).toBeInTheDocument();
   });
 
   it('renames a rubric inline from the Attach tab on Enter', async () => {

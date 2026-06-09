@@ -116,12 +116,20 @@ table anymore.
 - **Endpoint:** `GET /api/proficiency-scale` → `{ ...getScaleTable(), schoologyScaleId }`.
 - **Client api:** `getProficiencyScale()` in `client/src/services/api.js`.
 - **Client hook:** `useProficiencyScale()` (mirrors `useFeatureFlags`) — fetch + cache.
-- **Client lib:** `client/src/lib/proficiencyScale.js` holds the pure display
-  functions that take the fetched table — `pointsToLevel(table, n)`,
-  `levelLabel(table, code)`, `levelToPoints(table, code)`,
-  `levelToGradeScaled(table, code)`, `computeLetterGrade(table, levels)` — plus the
-  single canonical `LEVEL_COLORS` (§9). Letter-grade logic stays client-only (the
+- **Client lib:** the existing `client/src/lib/masteryLevels.js` is **extended**
+  (not replaced) — it already holds `masteryCodeForLevel` (names→codes). It gains
+  `makeScaleHelpers(levels)` returning `pointsToLevel`, `levelToPoints`,
+  `levelToGradeScaled`, `levelLabel`, `computeLetterGrade` bound to the fetched
+  table, plus static `LEVELS`, `LEVEL_LABELS`, and the single canonical
+  `LEVEL_COLORS` / `CELL_TEXT` (§9). `useProficiencyScale()` fetches the table and
+  returns those helpers pre-bound. Letter-grade logic stays client-only (the
   server never renders it) but now reads the shared table, so it can't drift.
+
+  **Boundary:** config owns the *numeric* mapping (`points` / `gradeScaled` /
+  `schoologyScaleId` — the part that leaked and that schools re-weight). Level
+  *identity* (codes, labels, order, colors) is stable and lives as constants in
+  the server module + `masteryLevels.js`; a drift test pins client `LEVEL_LABELS`
+  == the server default labels.
 
 ## 5. Drift inventory — every copy collapses to the SSOT
 

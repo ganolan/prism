@@ -4,7 +4,7 @@ import { hasMasterySession, syncMasteryForCourse, syncMasteryForAssignment, writ
 import { pushGradeComments, getSectionGrades } from '../services/schoology.js';
 import { isResubmitted } from '../lib/resubmission.js';
 import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows } from '../services/assessmentContext.js';
-import { levelToGradeScaled, gradeScaledValues } from '../lib/proficiencyScale.js';
+import { levelToGradeScaled, gradeScaledValues, pointsToLevel } from '../lib/proficiencyScale.js';
 
 const router = Router();
 const syncsInProgress = new Set();
@@ -347,7 +347,6 @@ router.post('/:courseId/write', async (req, res) => {
       'SELECT s.schoology_uid FROM students s JOIN enrolments e ON e.student_id = s.id WHERE e.schoology_enrolment_id = ?'
     ).get(String(enrollmentId));
     if (studentRow) {
-      const POINTS_TO_LETTER = { 0: 'IE', 25: 'EM', 50: 'D', 75: 'EX', 100: 'ED' };
       const upsert = db.prepare(`
         INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade, synced_at)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -359,7 +358,7 @@ router.post('/:courseId/write', async (req, res) => {
       const now = new Date().toISOString();
       for (const [topicId, info] of Object.entries(gradeInfo)) {
         const points = Number(info.grade);
-        const letter = POINTS_TO_LETTER[points] ?? null;
+        const letter = pointsToLevel(points);
         upsert.run(studentRow.schoology_uid, String(assignmentId), topicId, points, letter, now);
       }
     }
@@ -647,7 +646,6 @@ router.post('/:courseId/send-all', async (req, res) => {
     //    with the echoed fresh score/exception/timestamp (like write-comment),
     //    so the gradebook reflects the save without a full re-sync (#60).
     const now = new Date().toISOString();
-    const POINTS_TO_LETTER = { 0: 'IE', 25: 'EM', 50: 'D', 75: 'EX', 100: 'ED' };
     const upsertScore = db.prepare(`
       INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade, synced_at)
       VALUES (?, ?, ?, ?, ?, ?)
@@ -669,7 +667,7 @@ router.post('/:courseId/send-all', async (req, res) => {
       if (!studentRow) continue;
       for (const [topicId, info] of Object.entries(e.scores.gradeInfo)) {
         const points = Number(info.grade);
-        upsertScore.run(studentRow.schoology_uid, String(e.assignmentId), topicId, points, POINTS_TO_LETTER[points] ?? null, now);
+        upsertScore.run(studentRow.schoology_uid, String(e.assignmentId), topicId, points, pointsToLevel(points), now);
       }
     }
 

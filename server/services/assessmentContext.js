@@ -135,7 +135,9 @@ export function getAssessmentContext(db, { assignmentId }) {
       first_name: st.first_name,
       last_name: st.last_name,
       preferred_name: st.preferred_name,
-      current_scores: scoreMap[st.schoology_uid] || {},
+      current_scores: Object.fromEntries(
+        Object.entries(scoreMap[st.schoology_uid] || {}).map(([topicId, sc]) => [topicId, { level: sc.grade }])
+      ),
       grade_comment: meta.grade_comment || '',
       display_to_student: (meta.comment_status ?? null) === 1,
       exception: meta.exception ?? 0,

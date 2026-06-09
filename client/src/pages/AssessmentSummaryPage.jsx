@@ -329,7 +329,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // this enrollment+material — partial payloads wipe untouched topics. So build
   // gradeInfo from every aligned topic, with pending changes merged over the
   // current scores. Numeric grade strings ("100"/"75"/...) only: the DB stores
-  // letter codes, but Schoology silently drops them — always map via LEVEL_POINTS.
+  // letter codes, but Schoology silently drops them — always map via scale.levelToPoints (the SSOT).
   // `t.id in pending` distinguishes a cleared draft (key deleted → fall back to
   // synced) from a staged removal (REMOVE → omit so the /observations replace
   // clears it in Schoology).

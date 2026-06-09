@@ -758,7 +758,7 @@ export async function syncMasteryForAssignment(courseId, assignmentId) {
  * @param {string} params.sectionId — Schoology section ID
  * @param {string|number} params.enrollmentId — Schoology enrollment ID (schoology_enrolment_id)
  * @param {string|number} params.assignmentId — Schoology assignment ID (materialId)
- * @param {object} params.gradeInfo — { [topicUUID]: { grade: "75.00", gradingScaleId: 21337256 } }
+ * @param {object} params.gradeInfo — { [topicUUID]: { grade: "75.00", gradingScaleId } } (gradingScaleId = the configured Schoology scale id; see server/lib/proficiencyScale.js)
  * @param {string|number} params.gradingPeriodId
  * @param {string|number} params.gradingCategoryId
  */

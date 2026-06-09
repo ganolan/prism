@@ -105,6 +105,28 @@ describe('upsertStudentSuggestion', () => {
     expect(db.prepare('SELECT score, grade_comment FROM grades WHERE student_id = ? AND assignment_id = ?').get(studentId, assignmentLocalId))
       .toEqual({ score: 88, grade_comment: 'teacher comment' });
   });
+
+  test('caller-supplied score is ignored (not written to feedback.score)', () => {
+    const db = getDb();
+    seed(db);
+    const res = upsertStudentSuggestion(db, {
+      assignmentId: 'sa-1', student: 'uid-1', rubric_scores: { 'ART.5.1': 'ED' }, score: 92,
+    });
+    expect(res.status).toBe('written');
+    const row = db.prepare('SELECT score FROM feedback WHERE id = ?').get(res.feedback_id);
+    expect(row.score).toBeNull();
+  });
+
+  test('numeric rubric_scores value is rejected with an instructive message', () => {
+    const db = getDb();
+    seed(db);
+    const res = upsertStudentSuggestion(db, {
+      assignmentId: 'sa-1', student: 'uid-1', rubric_scores: { 'ART.5.1': '75' },
+    });
+    expect(res.message).toMatch(/emit proficiency levels/i);
+    const row = db.prepare('SELECT feedback_json FROM feedback WHERE id = ?').get(res.feedback_id);
+    expect(JSON.parse(row.feedback_json).rubric_scores).toEqual({});
+  });
 });
 
 describe('writeStudentSuggestions', () => {

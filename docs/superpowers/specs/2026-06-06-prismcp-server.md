@@ -122,7 +122,7 @@ query and the feedback for-assignment query.
   "students": [{
     "id", "schoology_uid", "enrollment_id",
     "first_name", "last_name", "preferred_name",
-    "current_scores": { "<topic_id>": { "grade": "ED|EX|D|EM|IE", "points": 0 } }, // synced finals
+    "current_scores": { "<topic_id>": { "level": "ED|EX|D|EM|IE" } }, // synced finals — level only; Prism owns the points conversion (never a bare number)
     "grade_comment": "string",
     "display_to_student": true,                 // comment_status (1 = visible)
     "exception": 0,                             // 0=none,1=Excused,2=Incomplete,3=Missing,4=Late
@@ -147,8 +147,8 @@ Args:
     "narrative_feedback": "string?",
     "rubric_scores": { "<topic external_id | title>": "<level>" }?,  // level = code OR full name
     "reviewer_flags": "string?",
-    "strengths": ["..."]?, "suggestions": ["..."]?,
-    "score": number?                              // optional overall numeric; usually omitted for Model B
+    "strengths": ["..."]?, "suggestions": ["..."]?
+    // levels-only: no caller-supplied score — Prism owns the points conversion
   }]
 }
 ```

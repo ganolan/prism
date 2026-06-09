@@ -171,6 +171,8 @@ Phases 1-4 of the product spec are complete (sync, enrichment, analytics, feedba
 
 **Standards-based grading** (Issue #7) is the current priority. HKIS uses measurement topics from PowerSchool with the General Academic Scale (Exhibiting Depth → Insufficient Evidence). Per-topic ratings are visible in Schoology's UI but not accessible via the REST API. See `.claude/schoology-api-reference.md` for full API findings.
 
+Prism owns the proficiency↔gradebook-score mapping: grading callers and teachers work in proficiency levels (ED/EX/D/EM/IE); the numeric score is derived internally from a single configurable scale (`grading.proficiencyScale` in `config.yaml`) and is never a caller or teacher input. See `docs/adr/0001-prism-owns-proficiency-gradebook-mapping.md`.
+
 For detailed build progress, see `.claude/build-progress.md`.
 
 Good areas for improvement:

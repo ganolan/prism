@@ -39,6 +39,23 @@ export function getRubricConfig() {
   };
 }
 
+const DEFAULT_PROFICIENCY_SCALE = {
+  name: 'HKIS General Academic Scale',
+  schoologyScaleId: 21337256,
+  levels: [
+    { code: 'ED', label: 'Exhibiting Depth',      points: 100, gradeScaled: '87.50' },
+    { code: 'EX', label: 'Exhibiting',            points: 75,  gradeScaled: '62.50' },
+    { code: 'D',  label: 'Developing',            points: 50,  gradeScaled: '37.50' },
+    { code: 'EM', label: 'Emerging',              points: 25,  gradeScaled: '12.50' },
+    { code: 'IE', label: 'Insufficient Evidence', points: 0,   gradeScaled: '0.00'  },
+  ],
+};
+
+export function getProficiencyScale() {
+  if (!config) loadConfig();
+  return { ...DEFAULT_PROFICIENCY_SCALE, ...(config.grading?.proficiencyScale || {}) };
+}
+
 export function featureGate(featureName) {
   return (req, res, next) => {
     const features = getFeatures();

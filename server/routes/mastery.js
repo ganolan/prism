@@ -4,6 +4,7 @@ import { hasMasterySession, syncMasteryForCourse, syncMasteryForAssignment, writ
 import { pushGradeComments, getSectionGrades } from '../services/schoology.js';
 import { isResubmitted } from '../lib/resubmission.js';
 import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows } from '../services/assessmentContext.js';
+import { levelToGradeScaled, gradeScaledValues, pointsToLevel, LEVELS } from '../lib/proficiencyScale.js';
 
 const router = Router();
 const syncsInProgress = new Set();
@@ -255,18 +256,28 @@ router.get('/:courseId/rubric', async (req, res) => {
 });
 
 // POST /api/mastery/:courseId/override — set or clear a teacher override
-// for one (student, objective). Pass gradeScaled as "87.50"/"62.50"/...
-// to set, or null/undefined to clear. Objective can be a reporting-category
-// UUID or a measurement-topic UUID.
+// for one (student, objective). Pass a level code (e.g. 'EX') or a raw
+// gradeScaled string ('87.50'/'62.50'/...) to set, or omit both to clear.
+// Objective can be a reporting-category UUID or a measurement-topic UUID.
 router.post('/:courseId/override', async (req, res) => {
   const { courseId } = req.params;
-  const { studentUid, objectiveId, gradeScaled } = req.body;
+  const { studentUid, objectiveId, level, gradeScaled: rawScaled } = req.body;
 
   if (!studentUid || !objectiveId) {
     return res.status(400).json({ error: 'studentUid and objectiveId are required' });
   }
-  if (gradeScaled != null && !['0.00', '12.50', '37.50', '62.50', '87.50'].includes(String(gradeScaled))) {
-    return res.status(400).json({ error: 'gradeScaled must be one of "0.00","12.50","37.50","62.50","87.50" or null to clear' });
+  // Prefer a level (Prism owns the conversion); accept a raw gradeScaled transitionally.
+  let gradeScaled = level != null ? levelToGradeScaled(level)
+    : (rawScaled != null ? String(rawScaled) : null);
+  // A provided level that didn't resolve means a typo/invalid code — reject it
+  // explicitly so the route doesn't silently fall through to a clear operation.
+  // (A clear is level==null && rawScaled==null → gradeScaled null → allowed below.)
+  if (level != null && gradeScaled == null) {
+    return res.status(400).json({ error: `Unknown level "${level}" — expected one of ${LEVELS.join(', ')}` });
+  }
+  const valid = gradeScaledValues();
+  if (gradeScaled != null && !valid.has(gradeScaled)) {
+    return res.status(400).json({ error: `Unknown level/grade — expected one of ${[...valid].join(', ')} or a level code` });
   }
 
   const db = getDb();
@@ -278,7 +289,7 @@ router.post('/:courseId/override', async (req, res) => {
       sectionId: courseRow.schoology_section_id,
       studentUid,
       objectiveId,
-      gradeScaled: gradeScaled != null ? String(gradeScaled) : null,
+      gradeScaled,
     });
 
     // Mirror Schoology's response into mastery_rollups so the UI reflects
@@ -342,7 +353,6 @@ router.post('/:courseId/write', async (req, res) => {
       'SELECT s.schoology_uid FROM students s JOIN enrolments e ON e.student_id = s.id WHERE e.schoology_enrolment_id = ?'
     ).get(String(enrollmentId));
     if (studentRow) {
-      const POINTS_TO_LETTER = { 0: 'IE', 25: 'EM', 50: 'D', 75: 'EX', 100: 'ED' };
       const upsert = db.prepare(`
         INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade, synced_at)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -354,7 +364,7 @@ router.post('/:courseId/write', async (req, res) => {
       const now = new Date().toISOString();
       for (const [topicId, info] of Object.entries(gradeInfo)) {
         const points = Number(info.grade);
-        const letter = POINTS_TO_LETTER[points] ?? null;
+        const letter = pointsToLevel(points);
         upsert.run(studentRow.schoology_uid, String(assignmentId), topicId, points, letter, now);
       }
     }
@@ -642,7 +652,6 @@ router.post('/:courseId/send-all', async (req, res) => {
     //    with the echoed fresh score/exception/timestamp (like write-comment),
     //    so the gradebook reflects the save without a full re-sync (#60).
     const now = new Date().toISOString();
-    const POINTS_TO_LETTER = { 0: 'IE', 25: 'EM', 50: 'D', 75: 'EX', 100: 'ED' };
     const upsertScore = db.prepare(`
       INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade, synced_at)
       VALUES (?, ?, ?, ?, ?, ?)
@@ -664,7 +673,7 @@ router.post('/:courseId/send-all', async (req, res) => {
       if (!studentRow) continue;
       for (const [topicId, info] of Object.entries(e.scores.gradeInfo)) {
         const points = Number(info.grade);
-        upsertScore.run(studentRow.schoology_uid, String(e.assignmentId), topicId, points, POINTS_TO_LETTER[points] ?? null, now);
+        upsertScore.run(studentRow.schoology_uid, String(e.assignmentId), topicId, points, pointsToLevel(points), now);
       }
     }
 

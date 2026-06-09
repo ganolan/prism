@@ -7,7 +7,7 @@ import {
 import MasteryPerformanceSummary from '../components/MasteryPerformanceSummary.jsx';
 import CompactRubric from '../components/CompactRubric.jsx';
 import SubmissionBadges from '../components/SubmissionBadges.jsx';
-import { LEVEL_COLORS } from '../components/OverridePopup.jsx';
+import { LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
 import { gradeLabel, submissionStatus } from '../lib/gradeLabel.js';
 import { masteryCodeForLevel } from '../lib/masteryLevels.js';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
@@ -170,7 +170,7 @@ export function CourseSection({ course, grades, flagsByAssignment, studentUid, s
                               const c = code ? LEVEL_COLORS[code] : null;
                               const style = lbl.kind === 'mismatch' ? { color: 'var(--danger)' }
                                 : lbl.kind === 'pending' ? { color: 'var(--text-muted)' }
-                                : c ? { background: c.bg, color: c.text, border: `1px solid ${c.border}`, padding: '0.1rem 0.4rem', borderRadius: 4, fontWeight: 500, display: 'inline-block' }
+                                : c ? { background: c.headerFill, color: CELL_TEXT, border: `1px solid ${c.finalBorder}`, padding: '0.1rem 0.4rem', borderRadius: 4, fontWeight: 500, display: 'inline-block' }
                                 : null;
                               return <span className="text-sm" style={style} title={lbl.kind === 'mismatch' ? 'Score does not match any defined level on this grading scale — check Schoology' : undefined}>{lbl.text}</span>;
                             })()}

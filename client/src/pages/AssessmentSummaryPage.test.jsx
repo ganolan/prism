@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 import AssessmentSummaryPage, { StudentRubricCard } from './AssessmentSummaryPage.jsx';
-import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics } from '../services/api.js';
+import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale } from '../services/api.js';
 
 vi.mock('../services/api.js', () => ({
   getMasteryForAssignment: vi.fn(),
@@ -25,6 +25,16 @@ vi.mock('../services/api.js', () => ({
   setRubricMapping: vi.fn().mockResolvedValue({ ok: true }),
   reorderRubricCriteria: vi.fn().mockResolvedValue({ ok: true }),
   rubricExportUrl: vi.fn((id) => `/api/rubrics/${id}/export`),
+  getProficiencyScale: vi.fn().mockResolvedValue({
+    schoologyScaleId: 21337256,
+    levels: [
+      { code: 'ED', label: 'Exhibiting Depth', points: 100, gradeScaled: '87.50' },
+      { code: 'EX', label: 'Exhibiting', points: 75, gradeScaled: '62.50' },
+      { code: 'D', label: 'Developing', points: 50, gradeScaled: '37.50' },
+      { code: 'EM', label: 'Emerging', points: 25, gradeScaled: '12.50' },
+      { code: 'IE', label: 'Insufficient Evidence', points: 0, gradeScaled: '0.00' },
+    ],
+  }),
 }));
 
 const TOPICS = [
@@ -118,6 +128,10 @@ describe('StudentRubricCard draft persistence', () => {
       localStorage.getItem('prism:assessment-draft:4:8:enr-1')
     ).not.toBeNull();
 
+    // Wait for scale to be ready before the save button becomes enabled.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled()
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
 
     await waitFor(() => {
@@ -449,6 +463,10 @@ describe('StudentRubricCard — in-place save (#50)', () => {
     fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), {
       target: { value: 'nice work' },
     });
+    // Wait for scale to be ready before the save button becomes enabled.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled()
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
@@ -496,6 +514,10 @@ describe('StudentRubricCard — rubric interaction (Slice 2)', () => {
     const onSaved = vi.fn();
     renderCard({ student: s, onSaved });
     fireEvent.click(screen.getByTitle('Set Topic 1 to Exhibiting Depth')); // stage removal of ED
+    // Wait for scale to be ready before the save button becomes enabled.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled()
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
 
     await waitFor(() => expect(writeMasteryScores).toHaveBeenCalled());
@@ -658,6 +680,41 @@ describe('AssessmentSummaryPage — Send all bar (#51)', () => {
       .toHaveAttribute('aria-checked', 'true');
     expect(screen.getAllByText(/pending change/)).toHaveLength(2);
   });
+
+  it('buildSendEntry returns scores:null when scale is not yet loaded (guard against empty gradeInfo wipe)', async () => {
+    // When the scale promise never resolves, levelToPoints returns null for every
+    // topic and buildGradeInfo() produces {} — an empty gradeInfo. Schoology's
+    // /observations write REPLACES all scores, so posting {} would wipe the student.
+    // The fix gates the scores payload on scale.ready; this test verifies that.
+    getProficiencyScale.mockReturnValueOnce(new Promise(() => {})); // never resolves → scale not ready
+
+    const cardHandlers = {};
+    render(
+      <MemoryRouter>
+        <StudentRubricCard
+          student={makeStudent()}
+          topics={TOPICS}
+          courseId="4"
+          assignmentId="8"
+          assignmentRow={{ id: 50, mastery_grading_period_id: 1, mastery_grading_category_id: 2 }}
+          onSaved={() => {}}
+          registerCard={(uid, handlers) => { cardHandlers[uid] = handlers; }}
+          unregisterCard={() => {}}
+        />
+      </MemoryRouter>
+    );
+
+    // Stage a pending score change.
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    expect(screen.getByText('1 pending change')).toBeInTheDocument();
+
+    // The card registered itself synchronously; getEntry() must reflect the
+    // latest closure values (via entryRef).
+    const entry = cardHandlers['uid-1'].getEntry();
+    expect(entry).not.toBeNull(); // has pending changes → not null
+    // scores must be null — not {} — because scale is not ready.
+    expect(entry.entry.scores).toBeNull();
+  });
 });
 
 describe('StudentRubricCard — card chrome (Slice 5)', () => {
@@ -726,12 +783,15 @@ describe('StudentRubricCard — card chrome (Slice 5)', () => {
     expect(screen.getByRole('button', { name: /use suggestion/i })).toBeInTheDocument();
   });
 
-  it('Use suggestion overwrites the comment with normalized text and arms pending changes', () => {
+  it('Use suggestion overwrites the comment with normalized text and arms pending changes', async () => {
     renderCard(withFeedback2({ narrative_feedback: 'Line one.\v\v​Line two.' }));
     fireEvent.click(screen.getByRole('button', { name: /use suggestion/i }));
     const ta = screen.getByPlaceholderText(/Teacher comment/i);
     expect(ta).toHaveValue('Line one.\n\nLine two.'); // normalizePastedText applied
-    expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled();
+    // Scale loads async — wait for the button to become enabled once ready.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled()
+    );
   });
 
   it('hides Use suggestion and the box when only rubric_scores exist (no narrative)', () => {

@@ -193,8 +193,10 @@ Scope-narrowing checkboxes in the same cluster share a verb for parallelism:
 
 ## Source of truth (where the patterns live today)
 
-`client/src/pages/AssessmentSummaryPage.jsx` — `CELL_COLORS`, `HeaderPill`, the
-control band, the comment publish indicator, and the whole-class command bar.
+`client/src/pages/AssessmentSummaryPage.jsx` — `HeaderPill`, the control band, the
+comment publish indicator, and the whole-class command bar. (The proficiency-level
+palette, formerly `CELL_COLORS` here, is now the canonical `LEVEL_COLORS` in
+`client/src/lib/masteryLevels.js` — see "Canonical level palette" above.)
 `client/src/app.css` — the semantic CSS variables and the existing `.badge` /
 button classes.
 
@@ -262,8 +264,21 @@ CSS property than the border used for level colour.
 Level headers in the descriptor grid show the **complete proficiency-level label**
 (`Exhibiting Depth`, `Exhibiting`, `Developing`, `Emerging`, `Insufficient
 Evidence`) — never an abbreviation. Each header is colour-coded to its level using
-the same saturated tint as the rubric cell palette (`CELL_COLORS`), giving the
-teacher an immediate visual anchor before reading the descriptors.
+the canonical proficiency-level palette, giving the teacher an immediate visual
+anchor before reading the descriptors.
+
+**Canonical level palette (June 2026, `feat/proficiency-scale-ownership`).** The
+five-level colour palette — `LEVEL_COLORS` (`{ headerFill, draftFill, finalBorder,
+draftBorder }`) plus `CELL_TEXT = '#1a1a1a'` — has a single home in
+`client/src/lib/masteryLevels.js`, sourced from `AssessmentSummaryPage`'s palette
+(the richest of the former copies). Every level-coloured surface imports it: the
+gradebook + overall-mastery view (`CoursePage`, `MasteryPerformanceSummary`), the
+student profile (`StudentPage`), the override modal (`OverridePopup`), the rubric
+descriptor/compact grids, and `AssessmentSummaryPage` itself. Field convention:
+`headerFill` = cell background, `CELL_TEXT` = cell text (one dark tone for **all**
+levels, not per-level), `finalBorder` = committed border, `draftBorder` =
+tentative/draft. *Deferred:* migrate these hex values to CSS custom properties
+(`--level-ed-*` …) per the theming rule so theme-switching applies.
 
 ### Reporting-category colour — topic column only
 

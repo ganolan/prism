@@ -4,34 +4,15 @@ import { getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysi
 import { draftKey, readDraft, writeDraft, clearDraft, draftBaseline } from '../lib/assessmentDraft.js';
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
+import { LEVELS, LEVEL_LABELS, LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
+import { useProficiencyScale } from '../hooks/useProficiencyScale.js';
 import RubricDescriptorGrid from '../components/RubricDescriptorGrid.jsx';
 import RubricManagerModal from '../components/RubricManagerModal.jsx';
 import AiSparkle from '../components/AiSparkle.jsx';
 
-const LEVELS = ['ED', 'EX', 'D', 'EM', 'IE'];
-const LEVEL_LABELS = {
-  ED: 'Exhibiting Depth',
-  EX: 'Exhibiting',
-  D: 'Developing',
-  EM: 'Emerging',
-  IE: 'Insufficient Evidence',
-};
-const LEVEL_POINTS = { ED: 100, EX: 75, D: 50, EM: 25, IE: 0 };
 const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
-// PrisMCP cell language (spec §1). Header tint = final fill; cell text is always
-// black because descriptor text will later replace the level codes, so colour
-// cannot carry meaning in the text. Kept inline (deliberate local exception to
-// the app.css CSS-var convention).
-const CELL_COLORS = {
-  ED: { headerFill: '#bfdbfe', draftFill: '#eff6ff', finalBorder: '#2563eb', draftBorder: '#93c5fd' },
-  EX: { headerFill: '#bbf7d0', draftFill: '#f0fdf4', finalBorder: '#16a34a', draftBorder: '#86efac' },
-  D:  { headerFill: '#fef08a', draftFill: '#fefce8', finalBorder: '#ca8a04', draftBorder: '#fcd34d' },
-  EM: { headerFill: '#fed7aa', draftFill: '#fff7ed', finalBorder: '#ea580c', draftBorder: '#fdba74' },
-  IE: { headerFill: '#fecaca', draftFill: '#fef2f2', finalBorder: '#dc2626', draftBorder: '#fca5a5' },
-};
 // Suggestion accent — fuchsia CSS tokens (matches descriptor grid's --ai-suggest).
 const SUGGEST = { fill: 'var(--ai-suggest-wash)', ring: 'var(--ai-suggest)', glyph: 'var(--ai-suggest)' };
-const CELL_TEXT = '#1a1a1a';
 // Sentinel stored in pending[topicId] to stage a synced final for removal (Slice 2).
 const REMOVE = '__remove__';
 
@@ -123,6 +104,7 @@ function HeaderPill({ active, accent, activeBg, activeText, icon, label, clearLa
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
 export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, rubric = null, viewMode = 'descriptors', rubricPalette = {}, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
+  const scale = useProficiencyScale();
   const loadedDisplay = student.comment_status === 1;
   const storageKey = draftKey(courseId, assignmentId, student.enrollment_id);
   // Signature of the synced Schoology values this card was rendered against.
@@ -356,9 +338,9 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     for (const t of topics) {
       const level = (t.id in pending) ? pending[t.id] : student.scores[t.id]?.grade;
       if (level == null || level === REMOVE) continue;
-      const points = LEVEL_POINTS[level];
+      const points = scale.levelToPoints(level);
       if (points == null) continue;
-      gradeInfo[t.id] = { grade: String(points), gradingScaleId: 21337256 };
+      gradeInfo[t.id] = { grade: String(points), gradingScaleId: scale.schoologyScaleId };
     }
     return gradeInfo;
   }
@@ -370,7 +352,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     for (const t of topics) {
       const level = (t.id in pending) ? pending[t.id] : student.scores[t.id]?.grade;
       if (level == null || level === REMOVE) continue;
-      newScores[t.id] = { points: LEVEL_POINTS[level], grade: level };
+      newScores[t.id] = { points: scale.levelToPoints(level), grade: level };
     }
     return newScores;
   }
@@ -388,7 +370,16 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         uid: student.schoology_uid,
         enrollmentId: student.enrollment_id,
         assignmentId,
-        scores: (hasScoreChanges && assignmentRow) ? {
+        // Guard on scale.ready: if the scale hasn't loaded yet, levelToPoints
+        // returns null for every topic, so buildGradeInfo() produces {} (all
+        // topics skipped). Schoology's /observations write REPLACES the full
+        // observation set, so posting an empty gradeInfo would wipe all scores.
+        // Defer the score write instead of posting a destructive empty set.
+        // The per-card Save button uses the same discriminator (!scale.ready →
+        // disabled), so this mirrors that behaviour for the batch path.
+        // NOTE: an empty gradeInfo when scale.ready IS true is a valid "clear
+        // all topics" intent — do not use gradeInfo emptiness as the skip signal.
+        scores: (hasScoreChanges && assignmentRow && scale.ready) ? {
           gradeInfo: buildGradeInfo(),
           gradingPeriodId: assignmentRow.mastery_grading_period_id,
           gradingCategoryId: assignmentRow.mastery_grading_category_id,
@@ -750,8 +741,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             cellState={cellStateFor}
             onSelect={selectLevel}
             palette={rubricPalette}
-            levelHeaderColors={Object.fromEntries(LEVELS.map(l => [l, CELL_COLORS[l].headerFill]))}
-            levelBorderColors={Object.fromEntries(LEVELS.map(l => [l, CELL_COLORS[l].finalBorder]))}
+            levelHeaderColors={Object.fromEntries(LEVELS.map(l => [l, LEVEL_COLORS[l].headerFill]))}
+            levelBorderColors={Object.fromEntries(LEVELS.map(l => [l, LEVEL_COLORS[l].finalBorder]))}
           />
         ) : (
         <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.8rem' }}>
@@ -767,7 +758,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
               {LEVELS.map(l => (
                 <th key={l} style={{
                   padding: '0.3rem 0.5rem', textAlign: 'center', width: '12%',
-                  background: CELL_COLORS[l].headerFill, color: CELL_TEXT,
+                  background: LEVEL_COLORS[l].headerFill, color: CELL_TEXT,
                   border: '1px solid var(--border)', fontWeight: 600, fontSize: '0.72rem',
                   whiteSpace: 'nowrap',
                 }}>
@@ -793,7 +784,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
                     <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', opacity: 0.7 }}>{t.category_title} · {t.external_id}</div>
                   </td>
                   {LEVELS.map(l => {
-                    const c = CELL_COLORS[l];
+                    const c = LEVEL_COLORS[l];
                     const stagedRemoval = pendingGrade === REMOVE && l === currentGrade;
                     const isDraft = pendingGrade !== REMOVE && l === pendingGrade;
                     // A synced final shows ONLY when nothing is pending for this topic (a pending
@@ -973,7 +964,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           <button
             className="primary"
             onClick={handleSave}
-            disabled={saving || !hasPendingChanges}
+            disabled={saving || !hasPendingChanges || !scale.ready}
             title="Publish scores & comment to Schoology"
           >
             {saving ? 'Publishing...' : 'Publish to Schoology'}
@@ -1089,7 +1080,7 @@ function ReviewerAnalysisBody({ topics, feedbackRows, analysis }) {
                     <div key={l} title={`${counts[l]} ${l}`} style={{
                       flex: counts[l], display: 'flex', alignItems: 'center', justifyContent: 'center',
                       fontSize: '0.56rem', fontWeight: 700, color: CELL_TEXT,
-                      background: CELL_COLORS[l].headerFill,
+                      background: LEVEL_COLORS[l].headerFill,
                     }}>
                       {showLabel ? `${counts[l]} ${l}` : counts[l]}
                     </div>

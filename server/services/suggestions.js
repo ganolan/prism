@@ -6,20 +6,7 @@
 
 import { resolveStudentId, resolveAssignmentId } from './idResolvers.js';
 import { getAlignedTopics } from './assessmentContext.js';
-
-// Proficiency vocabulary (spec §4). Accept full names OR codes, case-insensitive;
-// normalize to the stored code. Anything else is reported, never written.
-const LEVEL_CODES = {
-  'exhibiting depth': 'ED', ed: 'ED',
-  exhibiting: 'EX', ex: 'EX',
-  developing: 'D', d: 'D',
-  emerging: 'EM', em: 'EM',
-  'insufficient evidence': 'IE', ie: 'IE',
-};
-
-export function normalizeLevel(raw) {
-  return LEVEL_CODES[String(raw).trim().toLowerCase()] ?? null;
-}
+import { normalizeLevel } from '../lib/proficiencyScale.js';
 
 // Upsert the single active suggestion for one (student, assignment). Normalizes
 // levels, resolves rubric keys against the assignment's aligned topics
@@ -27,7 +14,7 @@ export function normalizeLevel(raw) {
 // drops — unresolved keys and out-of-vocabulary levels. Always writes a fresh
 // status='draft' row, pushing any prior feedback_json to revision_history.
 export function upsertStudentSuggestion(db, {
-  assignmentId, student, narrative_feedback, rubric_scores, reviewer_flags, strengths, suggestions, score,
+  assignmentId, student, narrative_feedback, rubric_scores, reviewer_flags, strengths, suggestions,
 }) {
   const studentLocalId = resolveStudentId(db, student);
   if (!studentLocalId) return { student, status: 'error', message: `Student not found: ${student}` };
@@ -45,10 +32,15 @@ export function upsertStudentSuggestion(db, {
   const storedScores = {};
   const unresolvedTopics = [];
   const invalidLevels = {};
+  const numericLevels = [];
   for (const [key, rawLevel] of Object.entries(rubric_scores || {})) {
     if (!byKey.has(String(key).toLowerCase())) { unresolvedTopics.push(key); continue; }
     const code = normalizeLevel(rawLevel);
-    if (!code) { invalidLevels[key] = rawLevel; continue; }
+    if (!code) {
+      if (/^\s*\d+(\.\d+)?\s*$/.test(String(rawLevel))) numericLevels.push(key);
+      else invalidLevels[key] = rawLevel;
+      continue;
+    }
     storedScores[key] = code;
   }
 
@@ -81,21 +73,22 @@ export function upsertStudentSuggestion(db, {
       db.prepare(
         `UPDATE feedback SET status = 'draft', score = ?, feedback_json = ?,
            revision_history = ?, updated_at = datetime('now') WHERE id = ?`
-      ).run(score ?? null, feedbackJson, JSON.stringify(history), existing.id);
+      ).run(null, feedbackJson, JSON.stringify(history), existing.id);
       return existing.id;
     }
     return db.prepare(
       `INSERT INTO feedback (student_id, assignment_id, status, score, feedback_json)
        VALUES (?, ?, 'draft', ?, ?)`
-    ).run(studentLocalId, assignmentLocalId, score ?? null, feedbackJson).lastInsertRowid;
+    ).run(studentLocalId, assignmentLocalId, null, feedbackJson).lastInsertRowid;
   });
 
   const feedbackId = write();
   const result = { student, status: 'written', feedback_id: feedbackId };
   if (unresolvedTopics.length) result.unresolved_topics = unresolvedTopics;
-  if (Object.keys(invalidLevels).length) {
-    result.message = `Ignored out-of-vocabulary levels: ${JSON.stringify(invalidLevels)}`;
-  }
+  const notes = [];
+  if (numericLevels.length) notes.push(`Ignored numeric value(s) for ${numericLevels.join(', ')} — emit proficiency levels; Prism owns the points conversion.`);
+  if (Object.keys(invalidLevels).length) notes.push(`Ignored out-of-vocabulary levels: ${JSON.stringify(invalidLevels)}`);
+  if (notes.length) result.message = notes.join(' ');
   return result;
 }
 

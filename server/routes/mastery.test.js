@@ -25,7 +25,7 @@ vi.mock('../services/schoology.js', () => ({
 
 import router from './mastery.js';
 import { getDb } from '../db/index.js';
-import { getMasteryForCourse, writeMasteryScoresBatch } from '../services/masterySync.js';
+import { getMasteryForCourse, writeMasteryScoresBatch, writeMasteryOverride } from '../services/masterySync.js';
 import { getSectionGrades, pushGradeComments } from '../services/schoology.js';
 
 function startServer() {
@@ -562,5 +562,91 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
     const [, comments] = pushGradeComments.mock.calls[0];
     expect(comments).toHaveLength(1);
     expect(comments[0].enrollment_id).toBe('enr-bob');
+  });
+});
+
+describe('POST /api/mastery/:courseId/override — level-based input', () => {
+  let COURSE;
+  let UID;
+  let OBJ;
+
+  beforeEach(() => {
+    const db = getDb();
+    db.pragma('foreign_keys = OFF');
+    db.exec(
+      'DELETE FROM mastery_rollups; DELETE FROM mastery_scores; ' +
+      'DELETE FROM mastery_alignments; DELETE FROM measurement_topics; ' +
+      'DELETE FROM reporting_categories; DELETE FROM enrolments; ' +
+      'DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
+    );
+    db.pragma('foreign_keys = ON');
+    COURSE = db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-ov', 'Override Course')`
+    ).run().lastInsertRowid;
+    db.prepare(
+      `INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-ov', 'Over', 'Rider')`
+    ).run();
+    UID = 'uid-ov';
+    OBJ = 'obj-ov-1';
+
+    writeMasteryOverride.mockReset();
+    writeMasteryOverride.mockResolvedValue({ data: { outcome_override: { grade_scaled_rounded: 3 } } });
+  });
+
+  test('override route maps a level to grade_scaled', async () => {
+    const { status } = await post(`/api/mastery/${COURSE}/override`, {
+      studentUid: UID,
+      objectiveId: OBJ,
+      level: 'EX',
+    });
+    expect(status).toBe(200);
+    expect(writeMasteryOverride).toHaveBeenCalledWith(
+      expect.objectContaining({ gradeScaled: '62.50' })
+    );
+  });
+
+  test('override route rejects an out-of-scale value', async () => {
+    const { status } = await post(`/api/mastery/${COURSE}/override`, {
+      studentUid: UID,
+      objectiveId: OBJ,
+      gradeScaled: '50.00',
+    });
+    expect(status).toBe(400);
+  });
+
+  test('override route accepts a valid raw gradeScaled (transitional path)', async () => {
+    const { status } = await post(`/api/mastery/${COURSE}/override`, {
+      studentUid: UID,
+      objectiveId: OBJ,
+      gradeScaled: '87.50',
+    });
+    expect(status).toBe(200);
+    expect(writeMasteryOverride).toHaveBeenCalledWith(
+      expect.objectContaining({ gradeScaled: '87.50' })
+    );
+  });
+
+  test('override route clears an override when both level and gradeScaled are omitted', async () => {
+    const { status } = await post(`/api/mastery/${COURSE}/override`, {
+      studentUid: UID,
+      objectiveId: OBJ,
+    });
+    expect(status).toBe(200);
+    expect(writeMasteryOverride).toHaveBeenCalledWith(
+      expect.objectContaining({ gradeScaled: null })
+    );
+  });
+
+  test('override route returns 400 for an unrecognised level (typo), does not clear', async () => {
+    // A typo'd level (e.g. 'EXX') previously fell through to a clear because
+    // levelToGradeScaled returned null, which bypassed the valid.has check.
+    const { status, body } = await post(`/api/mastery/${COURSE}/override`, {
+      studentUid: UID,
+      objectiveId: OBJ,
+      level: 'EXX',
+    });
+    expect(status).toBe(400);
+    expect(body.error).toMatch(/Unknown level/);
+    expect(writeMasteryOverride).not.toHaveBeenCalled();
   });
 });

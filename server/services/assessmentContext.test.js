@@ -61,7 +61,7 @@ describe('getAssessmentContext', () => {
       display_to_student: true,
       exception: 0,
     });
-    expect(s.current_scores).toEqual({ 'topic-1': { grade: 'EX', points: 75 } });
+    expect(s.current_scores).toEqual({ 'topic-1': { level: 'EX' } });
     expect(s.existing_suggestion).toMatchObject({
       status: 'draft',
       narrative_feedback: 'Strong concept',
@@ -98,6 +98,17 @@ describe('getAssessmentContext', () => {
     db.prepare('UPDATE grades SET comment_status = NULL WHERE student_id = ?').run(studentId);
     const ctx = getAssessmentContext(db, { assignmentId: 'sa-1' });
     expect(ctx.students[0].display_to_student).toBe(false);
+  });
+
+  test('current_scores exposes level only — no bare points', () => {
+    const db = getDb();
+    seedContext(db);
+    const ctx = getAssessmentContext(db, { assignmentId: 'sa-1' });
+    const scored = ctx.students.find((s) => Object.keys(s.current_scores).length);
+    const entry = Object.values(scored.current_scores)[0];
+    expect(entry).toHaveProperty('level');
+    expect(entry).not.toHaveProperty('points');
+    expect(entry).not.toHaveProperty('grade');
   });
 
   test('returns null for an unknown assignment', () => {

@@ -2,19 +2,8 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getMasteryForStudent } from '../services/api.js';
 import OverridePopup from './OverridePopup.jsx';
-
-// ── Proficiency level helpers ────────────────────────────────────────────────
-
-const LEVELS = ['ED', 'EX', 'D', 'EM', 'IE'];
-const LEVEL_LABELS = { ED: 'Exhibiting Depth', EX: 'Exhibiting', D: 'Developing', EM: 'Emerging', IE: 'Insufficient Evidence' };
-const LEVEL_POINTS = { ED: 100, EX: 75, D: 50, EM: 25, IE: 0 };
-const LEVEL_COLORS = {
-  ED: { bg: '#dbeafe', text: '#1e40af', border: '#93c5fd' },
-  EX: { bg: '#dcfce7', text: '#166534', border: '#86efac' },
-  D:  { bg: '#fef9c3', text: '#713f12', border: '#fde047' },
-  EM: { bg: '#ffedd5', text: '#9a3412', border: '#fed7aa' },
-  IE: { bg: '#fee2e2', text: '#991b1b', border: '#fca5a5' },
-};
+import { LEVELS, LEVEL_LABELS, LEVEL_COLORS, CELL_TEXT, computeLetterGrade } from '../lib/masteryLevels.js';
+import { useProficiencyScale } from '../hooks/useProficiencyScale.js';
 
 // Match proficiency level order: A=ED(blue), B=EX(green), C=D(yellow),
 // D=EM(orange), F=IE(red). Text tones from LEVEL_COLORS[].text; +/- variants
@@ -25,15 +14,6 @@ export const LETTER_GRADE_COLORS = {
   'C+': '#854d0e', C: '#713f12',
   D: '#9a3412', F: '#991b1b',
 };
-
-function pointsToLevel(points) {
-  if (points == null) return null;
-  if (points >= 87.5) return 'ED';
-  if (points >= 62.5) return 'EX';
-  if (points >= 37.5) return 'D';
-  if (points >= 12.5) return 'EM';
-  return 'IE';
-}
 
 function modeOf(arr) {
   if (!arr.length) return null;
@@ -55,39 +35,6 @@ function average(arr) {
 function sentenceCase(str) {
   if (!str) return '';
   return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
-}
-
-// Approximate letter grade — based on HKIS General Academic Scale.
-// NOTE: this is an approximation of the full combination table.
-// See the letter grade popup for the authoritative HKIS scale.
-export function computeLetterGrade(categoryLevels) {
-  if (!categoryLevels.length || categoryLevels.some(l => l == null)) return null;
-  if (categoryLevels.includes('IE')) return 'F';
-
-  const n = categoryLevels.length;
-  const pts = categoryLevels.map(l => LEVEL_POINTS[l] || 0);
-  const avg = pts.reduce((a, b) => a + b, 0) / n;
-
-  if (n === 2) {
-    const sorted = [...categoryLevels].sort().join('+');
-    return ({
-      'ED+ED': 'A', 'ED+EX': 'A-', 'EX+EX': 'B+', 'D+ED': 'B+',
-      'D+EX': 'B', 'ED+EM': 'B', 'D+D': 'B-', 'EM+EX': 'B-',
-      'D+EM': 'C+', 'EM+EM': 'C',
-    })[sorted] || 'D';
-  }
-
-  // For 3–5 categories, use a scaled average approach
-  const scaled = avg / 25; // 0–4
-  if (scaled >= 3.75) return 'A';
-  if (scaled >= 3.25) return 'A-';
-  if (scaled >= 2.83) return 'B+';
-  if (scaled >= 2.33) return 'B';
-  if (scaled >= 2.0)  return 'B-';
-  if (scaled >= 1.75) return 'C+';
-  if (scaled >= 1.25) return 'C';
-  if (scaled >= 1.0)  return 'D';
-  return 'F';
 }
 
 // ── Letter grade scale popup ─────────────────────────────────────────────────
@@ -139,7 +86,7 @@ export function LetterGradePopup({ onClose, numCategories }) {
             <thead>
               <tr>
                 {LEVELS.map(l => (
-                  <th key={l} style={{ background: LEVEL_COLORS[l].bg, color: LEVEL_COLORS[l].text, padding: '0.3rem 0.5rem', textAlign: 'center' }}>
+                  <th key={l} style={{ background: LEVEL_COLORS[l].headerFill, color: CELL_TEXT, padding: '0.3rem 0.5rem', textAlign: 'center' }}>
                     {l} — {LEVEL_LABELS[l]}
                   </th>
                 ))}
@@ -202,7 +149,7 @@ function LevelCell({ grade, size = 'md', dim = false, pending = false }) {
   const c = LEVEL_COLORS[grade] || {};
   return (
     <td style={{
-      background: c.bg, color: c.text,
+      background: c.headerFill, color: CELL_TEXT,
       textAlign: 'center', fontWeight: 600,
       padding: size === 'sm' ? '0.2rem 0.3rem' : '0.35rem 0.5rem',
       fontSize: size === 'sm' ? '0.7rem' : '0.78rem',
@@ -216,6 +163,7 @@ function LevelCell({ grade, size = 'md', dim = false, pending = false }) {
 // ── Main component ───────────────────────────────────────────────────────────
 
 export default function MasteryPerformanceSummary({ courseId, studentUid, courseName }) {
+  const scale = useProficiencyScale();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showGradeScale, setShowGradeScale] = useState(false);
@@ -246,7 +194,7 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
     const r = rollupByObj[objId];
     if (!r) return null;
     const v = r.override_value != null ? r.override_value : r.grade_scaled_rounded;
-    return v != null ? pointsToLevel(v) : null;
+    return v != null ? scale.pointsToLevel(v) : null;
   };
   const rollupPct = (objId) => {
     const r = rollupByObj[objId];
@@ -336,7 +284,7 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
   }
 
   // Letter grade uses flat category averages
-  const categoryLevels = categories.map(cat => pointsToLevel(catFlatAvg[cat.id]));
+  const categoryLevels = categories.map(cat => scale.pointsToLevel(catFlatAvg[cat.id]));
   const letterGrade = computeLetterGrade(categoryLevels);
 
   const stickyCol = {
@@ -441,14 +389,14 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
             <td style={labelCellStyle}>Measurement Topic Mode</td>
             {categories.flatMap(cat =>
               cat.topics.map(t => {
-                const lvl = topicMode[t.id] != null ? pointsToLevel(topicMode[t.id]) : null;
+                const lvl = topicMode[t.id] != null ? scale.pointsToLevel(topicMode[t.id]) : null;
                 const c = lvl ? LEVEL_COLORS[lvl] : null;
                 return (
                   <td key={t.id} style={{
                     textAlign: 'center', fontWeight: 600, fontSize: '0.75rem',
                     padding: '0.25rem',
-                    background: c ? c.bg : 'var(--bg-subtle)',
-                    color: c ? c.text : 'var(--text-muted)',
+                    background: c ? c.headerFill : 'var(--bg-subtle)',
+                    color: c ? CELL_TEXT : 'var(--text-muted)',
                     border: '1px solid var(--border)',
                   }}>
                     {lvl || '—'}
@@ -462,14 +410,14 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
           <tr>
             <td style={labelCellStyle}>Reporting Category Mode<br /><span style={{ fontWeight: 400, fontSize: '0.65rem' }}>(of all proficiencies)</span></td>
             {categories.map(cat => {
-              const lvl = catFlatMode[cat.id] != null ? pointsToLevel(catFlatMode[cat.id]) : null;
+              const lvl = catFlatMode[cat.id] != null ? scale.pointsToLevel(catFlatMode[cat.id]) : null;
               const c = lvl ? LEVEL_COLORS[lvl] : null;
               return (
                 <td key={cat.id} colSpan={cat.topics.length} style={{
                   textAlign: 'center', fontWeight: 600, fontSize: '0.78rem',
                   padding: '0.25rem',
-                  background: c ? c.bg : 'var(--bg-subtle)',
-                  color: c ? c.text : 'var(--text-muted)',
+                  background: c ? c.headerFill : 'var(--bg-subtle)',
+                  color: c ? CELL_TEXT : 'var(--text-muted)',
                   border: '1px solid var(--border)',
                 }}>
                   {lvl || '—'}
@@ -483,14 +431,14 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
             <td style={labelCellStyle}>Measurement Topic Average</td>
             {categories.flatMap(cat =>
               cat.topics.map(t => {
-                const lvl = pointsToLevel(topicAvg[t.id]);
+                const lvl = scale.pointsToLevel(topicAvg[t.id]);
                 const c = lvl ? LEVEL_COLORS[lvl] : null;
                 return (
                   <td key={t.id} style={{
                     textAlign: 'center', fontWeight: 600, fontSize: '0.75rem',
                     padding: '0.25rem',
-                    background: c ? c.bg : 'var(--bg-subtle)',
-                    color: c ? c.text : 'var(--text-muted)',
+                    background: c ? c.headerFill : 'var(--bg-subtle)',
+                    color: c ? CELL_TEXT : 'var(--text-muted)',
                     border: '1px solid var(--border)',
                   }}>
                     {lvl || '—'}{topicAvg[t.id] != null ? ` (${topicAvg[t.id].toFixed(0)})` : ''}
@@ -505,14 +453,14 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
             <td style={labelCellStyle}>Reporting Category Average<br /><span style={{ fontWeight: 400, fontSize: '0.65rem' }}>(of all proficiencies)</span></td>
             {categories.map(cat => {
               const avg = catFlatAvg[cat.id];
-              const lvl = pointsToLevel(avg);
+              const lvl = scale.pointsToLevel(avg);
               const c = lvl ? LEVEL_COLORS[lvl] : null;
               return (
                 <td key={cat.id} colSpan={cat.topics.length} style={{
                   textAlign: 'center', fontWeight: 700, fontSize: '0.85rem',
                   padding: '0.3rem',
-                  background: c ? c.bg : 'var(--bg-subtle)',
-                  color: c ? c.text : 'var(--text-muted)',
+                  background: c ? c.headerFill : 'var(--bg-subtle)',
+                  color: c ? CELL_TEXT : 'var(--text-muted)',
                   border: '1px solid var(--border)',
                 }}>
                   {lvl || '—'}{avg != null ? ` (${avg.toFixed(1)})` : ''}
@@ -547,8 +495,8 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
                         style={{
                       textAlign: 'center', fontWeight: 600, fontSize: '0.75rem',
                       padding: '0.25rem',
-                      background: c ? c.bg : 'var(--bg-subtle)',
-                      color: c ? c.text : 'var(--text-muted)',
+                      background: c ? c.headerFill : 'var(--bg-subtle)',
+                      color: c ? CELL_TEXT : 'var(--text-muted)',
                       border: '1px solid var(--border)',
                       borderTop: '2px solid var(--accent)',
                     }}>
@@ -591,8 +539,8 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
                     style={{
                   textAlign: 'center', fontWeight: 700, fontSize: '0.85rem',
                   padding: '0.35rem',
-                  background: c ? c.bg : 'var(--bg-subtle)',
-                  color: c ? c.text : 'var(--text-muted)',
+                  background: c ? c.headerFill : 'var(--bg-subtle)',
+                  color: c ? CELL_TEXT : 'var(--text-muted)',
                   border: '1px solid var(--border)',
                   borderTop: '3px solid var(--accent)',
                   borderBottom: '3px solid var(--accent)',

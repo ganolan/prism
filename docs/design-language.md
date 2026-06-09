@@ -294,3 +294,19 @@ compete with both.
   highlight during drag. Use this for any future reorderable list rather than
   re-inlining drag handlers.
 - Dates render `toLocaleDateString('en-GB')` (DD/MM/YYYY), per the date convention.
+
+### Inline rename + one-step topic reassign (June 2026, #112 / #109)
+
+- **Inline rename (✎ → in-place input).** Library rows in the Attach tab carry a
+  `.ghost` ✎ button that swaps the name for an inline `<input>` (Enter commits via
+  `renameRubric` → `onChanged()`+refresh, Esc/blur cancels). The input's keydown
+  **stops propagation** so Esc cancels the *edit* without bubbling to the modal's
+  window-level Escape-to-close handler — a reusable rule for any in-modal inline
+  editor. Same lightweight, no-extra-chrome spirit as the confirm-in-place delete.
+- **Annotate, don't hide, taken options.** The Map-criteria `<select>` offers
+  **every** topic (1:1 is preserved by the server, not by filtering the UI). A topic
+  already held by another criterion is shown as `Title — now: {owner}` rather than
+  omitted, so picking it reassigns in one step (the server's `setMapping`
+  move-semantics frees the previous owner, which re-renders as ⚠). Prefer annotating
+  an option over removing it whenever the underlying action is safe — it keeps the
+  full choice set visible and the consequence legible.

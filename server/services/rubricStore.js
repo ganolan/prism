@@ -74,6 +74,16 @@ export function deleteRubric(db = getDb(), id) {
   db.prepare(`DELETE FROM rubrics WHERE id = ?`).run(id);
 }
 
+// Rename only: trims, rejects empty/whitespace-only, bumps updated_at. Leaves
+// criteria/descriptors/attachments untouched — binding is id-based, so a rename
+// never detaches a rubric or changes its content-hash dedup identity (#110).
+export function renameRubric(db = getDb(), id, name) {
+  const trimmed = String(name ?? '').trim();
+  if (!trimmed) throw new Error('Rubric name is required');
+  db.prepare(`UPDATE rubrics SET name = ?, updated_at = ? WHERE id = ?`)
+    .run(trimmed, new Date().toISOString(), id);
+}
+
 export function getRubricByName(db = getDb(), name) {
   const row = db.prepare(`SELECT id FROM rubrics WHERE name = ? ORDER BY updated_at DESC, id DESC LIMIT 1`).get(name);
   return row ? getRubric(db, row.id) : null;

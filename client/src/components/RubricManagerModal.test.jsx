@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import RubricManagerModal from './RubricManagerModal.jsx';
-import { listRubrics, attachRubric, deleteRubric, setRubricMapping, reorderRubricCriteria, rubricExportUrl } from '../services/api.js';
+import { listRubrics, attachRubric, deleteRubric, setRubricMapping, reorderRubricCriteria, renameRubric, rubricExportUrl } from '../services/api.js';
 
 vi.mock('../services/api.js', () => ({
   listRubrics: vi.fn(),
@@ -9,6 +9,7 @@ vi.mock('../services/api.js', () => ({
   deleteRubric: vi.fn().mockResolvedValue({ ok: true }),
   setRubricMapping: vi.fn().mockResolvedValue({ ok: true }),
   reorderRubricCriteria: vi.fn().mockResolvedValue({ ok: true }),
+  renameRubric: vi.fn().mockResolvedValue({ ok: true }),
   uploadRubricCsv: vi.fn().mockResolvedValue({ id: 7 }),
   rubricTemplateUrl: vi.fn(() => '/api/rubrics/template'),
   rubricExportUrl: vi.fn((id) => `/api/rubrics/${id}/export`),
@@ -51,6 +52,31 @@ describe('RubricManagerModal', () => {
     expect(onChanged).toHaveBeenCalled();
   });
 
+  it('renames a rubric inline from the Attach tab on Enter', async () => {
+    const onChanged = vi.fn();
+    open({ onChanged });
+    await screen.findByText('AIML U2');
+    fireEvent.click(screen.getAllByRole('button', { name: /Rename/ })[0]); // ✎ on AIML U2
+    const input = screen.getByLabelText('Rename rubric');
+    fireEvent.change(input, { target: { value: 'AIML Unit 2' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(renameRubric).toHaveBeenCalledWith(9, 'AIML Unit 2'));
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it('cancels an inline rename on Escape without calling the API or closing the modal', async () => {
+    const onClose = vi.fn();
+    open({ onClose });
+    await screen.findByText('AIML U2');
+    fireEvent.click(screen.getAllByRole('button', { name: /Rename/ })[0]);
+    const input = screen.getByLabelText('Rename rubric');
+    fireEvent.change(input, { target: { value: 'Discarded' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(renameRubric).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();                       // Esc cancels the edit, not the modal
+    expect(screen.getByText('AIML U2')).toBeInTheDocument();      // reverted to text
+  });
+
   it('confirms in place before deleting an attached rubric', async () => {
     open();
     await screen.findByText('AIML U2');
@@ -61,15 +87,33 @@ describe('RubricManagerModal', () => {
     await waitFor(() => expect(deleteRubric).toHaveBeenCalledWith(9));
   });
 
-  it('Map criteria tab persists a topic pick and excludes taken topics', async () => {
+  it('Map criteria tab offers all topics, annotating ones held by another criterion', async () => {
     open({ attachment: ATTACHMENT });
     fireEvent.click(screen.getByRole('tab', { name: /Map criteria/ }));
-    // c2 (unmapped) select should NOT offer t1 (taken by c1) but should offer t2 & t3
-    const select = screen.getByLabelText('Topic for Code');
-    const optionValues = [...select.querySelectorAll('option')].map(o => o.value);
-    expect(optionValues).toEqual(['', 't2', 't3']);   // "— none —" + unmapped only
-    fireEvent.change(select, { target: { value: 't2' } });
+    // c2 (unmapped) now sees ALL topics; t1 (held by c1 "UI/UX") is annotated with its current owner
+    const codeSelect = screen.getByLabelText('Topic for Code');
+    expect([...codeSelect.querySelectorAll('option')].map((o) => o.value)).toEqual(['', 't1', 't2', 't3']);
+    const taken = [...codeSelect.querySelectorAll('option')].find((o) => o.value === 't1');
+    expect(taken.textContent).toMatch(/Visual design.*now: UI\/UX/);
+    // c1's own select keeps t1 selected and shows it plainly (its own pick isn't "taken")
+    const uiSelect = screen.getByLabelText('Topic for UI/UX');
+    expect(uiSelect.value).toBe('t1');
+    expect([...uiSelect.querySelectorAll('option')].find((o) => o.value === 't1').textContent).toBe('Visual design');
+  });
+
+  it('Map criteria tab persists a free topic pick', async () => {
+    open({ attachment: ATTACHMENT });
+    fireEvent.click(screen.getByRole('tab', { name: /Map criteria/ }));
+    fireEvent.change(screen.getByLabelText('Topic for Code'), { target: { value: 't2' } }); // t2 is free
     await waitFor(() => expect(setRubricMapping).toHaveBeenCalledWith(55, 'c2', 't2'));
+  });
+
+  it('reassigns a topic held by another criterion in one step', async () => {
+    open({ attachment: ATTACHMENT });
+    fireEvent.click(screen.getByRole('tab', { name: /Map criteria/ }));
+    // pick t1 on c2 even though c1 holds it — server move-semantics frees c1
+    fireEvent.change(screen.getByLabelText('Topic for Code'), { target: { value: 't1' } });
+    await waitFor(() => expect(setRubricMapping).toHaveBeenCalledWith(55, 'c2', 't1'));
   });
 
   it('Row order tab reorders criteria', async () => {

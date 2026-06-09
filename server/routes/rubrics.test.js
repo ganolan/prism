@@ -56,6 +56,23 @@ describe('rubrics route', () => {
     expect(body.suggestionAccent).toBe('#e21ad6');
   });
 
+  test('PATCH /:id renames the rubric (name-only) and returns ok', async () => {
+    const id = saveRubric(getDb(), { name: 'Typo Naem', source: 'csv',
+      criteria: [{ position: 1, criterion_name: 'C1', standard_title: 'S', reporting_category: 'P', descriptors: {} }] });
+    const res = await call('PATCH', `/api/rubrics/${id}`, { name: 'Fixed Name' });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true });
+    const list = await call('GET', '/api/rubrics');
+    expect(list.body[0]).toMatchObject({ id, name: 'Fixed Name', criteria_count: 1 }); // renamed, criteria intact
+  });
+
+  test('PATCH /:id rejects an empty/whitespace name with 400 and leaves the name unchanged', async () => {
+    const id = saveRubric(getDb(), { name: 'Keep', source: 'csv', criteria: [] });
+    const res = await call('PATCH', `/api/rubrics/${id}`, { name: '   ' });
+    expect(res.status).toBe(400);
+    expect((await call('GET', '/api/rubrics')).body[0]).toMatchObject({ name: 'Keep' });
+  });
+
   test('DELETE /:id removes the rubric and cascades to its attachments', async () => {
     const id = saveRubric(getDb(), { name: 'Doomed', source: 'csv', criteria: [] });
     // FK cascade relies on getDb() setting PRAGMA foreign_keys = ON (server/db/index.js:150).

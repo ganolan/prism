@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { getRubricForAssignment, attachRubric, uploadRubricCsv } from './api.js';
+import { getRubricForAssignment, attachRubric, uploadRubricCsv, renameRubric } from './api.js';
 
 beforeEach(() => {
   global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ ok: true }) });
@@ -15,6 +15,13 @@ describe('rubric api', () => {
     const [url, opts] = fetch.mock.calls[0];
     expect(url).toBe('/api/rubrics/attach');
     expect(JSON.parse(opts.body)).toEqual({ rubricId: 1, courseId: 4, assignmentId: '800' });
+  });
+  it('renameRubric PATCHes the new name as JSON', async () => {
+    await renameRubric(7, 'New name');
+    const [url, opts] = fetch.mock.calls[0];
+    expect(url).toBe('/api/rubrics/7');
+    expect(opts.method).toBe('PATCH');
+    expect(JSON.parse(opts.body)).toEqual({ name: 'New name' });
   });
   it('uploadRubricCsv POSTs multipart without a JSON content-type', async () => {
     await uploadRubricCsv('MAD', new Blob(['x']));

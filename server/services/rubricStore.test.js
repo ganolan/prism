@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { migrate } from '../db/index.js';
-import { saveRubric, getRubric, listRubrics, deleteRubric, getRubricByName, upsertRubricByName } from './rubricStore.js';
+import { saveRubric, getRubric, listRubrics, deleteRubric, getRubricByName, upsertRubricByName, renameRubric } from './rubricStore.js';
 
 let db;
 beforeEach(() => {
@@ -69,5 +69,31 @@ describe('rubricStore', () => {
     const r = getRubricByName(db, 'MAD Dev');
     expect(r.criteria.map((c) => c.criterion_name)).toEqual(['UI/UX', 'Functionality']);
     expect(getRubricByName(db, 'nope')).toBeNull();
+  });
+
+  test('renameRubric changes only the name + updated_at, leaving criteria/descriptors/attachments intact', () => {
+    const id = saveRubric(db, CONTENT);
+    db.prepare(
+      `INSERT INTO rubric_attachments (rubric_id, assignment_schoology_id, course_id, created_at)
+       VALUES (?, '800', NULL, '2026-01-01')`
+    ).run(id);
+    db.prepare(`UPDATE rubrics SET updated_at = '2020-01-01T00:00:00Z' WHERE id = ?`).run(id);
+
+    renameRubric(db, id, 'MAD Dev v2');
+
+    const r = getRubric(db, id);
+    expect(r.name).toBe('MAD Dev v2');
+    expect(r.updated_at > '2020-01-01T00:00:00Z').toBe(true);   // bumped → jumps to top of updated_at DESC list
+    expect(r.criteria.map((c) => c.criterion_name)).toEqual(['UI/UX', 'Functionality']);  // criteria untouched
+    expect(r.criteria[0].descriptors.ED).toBe('a');                                       // descriptors untouched
+    expect(db.prepare(`SELECT COUNT(*) c FROM rubric_attachments WHERE rubric_id = ?`).get(id).c).toBe(1); // attachment survives
+  });
+
+  test('renameRubric trims the name and rejects empty/whitespace-only names', () => {
+    const id = saveRubric(db, CONTENT);
+    renameRubric(db, id, '  Trimmed  ');
+    expect(getRubric(db, id).name).toBe('Trimmed');
+    expect(() => renameRubric(db, id, '   ')).toThrow();
+    expect(() => renameRubric(db, id, '')).toThrow();
   });
 });

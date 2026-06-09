@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import ReorderableList from './ReorderableList.jsx';
 import {
   listRubrics, attachRubric, deleteRubric, setRubricMapping, reorderRubricCriteria,
-  uploadRubricCsv, rubricTemplateUrl, rubricExportUrl,
+  renameRubric, uploadRubricCsv, rubricTemplateUrl, rubricExportUrl,
 } from '../services/api.js';
 
 const fmtDate = (s) => (s ? new Date(s).toLocaleDateString('en-GB') : '');
@@ -11,13 +11,15 @@ export default function RubricManagerModal({ open, onClose, courseId, assignment
   const [tab, setTab] = useState('attach');
   const [rubrics, setRubrics] = useState([]);
   const [confirmId, setConfirmId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editName, setEditName] = useState('');
   const [msg, setMsg] = useState('');
   const fileRef = useRef(null);
   const hasAttachment = !!attachment;
 
   async function refresh() { setRubrics(await listRubrics()); }
   useEffect(() => {
-    if (open) { refresh(); setTab(hasAttachment ? tab : 'attach'); setConfirmId(null); setMsg(''); }
+    if (open) { refresh(); setTab(hasAttachment ? tab : 'attach'); setConfirmId(null); setEditingId(null); setMsg(''); }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps -- intentional: run on open; `tab` kept only to preserve current tab when an attachment exists
 
   useEffect(() => {
@@ -44,6 +46,14 @@ export default function RubricManagerModal({ open, onClose, courseId, assignment
     if (confirmId !== r.id && r.attachment_count > 0) { setConfirmId(r.id); return; }
     try { await deleteRubric(r.id); setConfirmId(null); await onChanged(); await refresh(); }
     catch (e) { setMsg(`Delete failed: ${e.message}`); }
+  }
+  function startRename(r) { setMsg(''); setEditingId(r.id); setEditName(r.name); }
+  function cancelRename() { setEditingId(null); setEditName(''); }
+  async function commitRename() {
+    const name = editName.trim();
+    if (!name || editingId == null) { cancelRename(); return; }
+    try { await renameRubric(editingId, name); cancelRename(); await onChanged(); await refresh(); }
+    catch (e) { setMsg(`Rename failed: ${e.message}`); }
   }
   async function doUpload(file) {
     setMsg('');
@@ -91,20 +101,34 @@ export default function RubricManagerModal({ open, onClose, courseId, assignment
               {rubrics.map((r) => (
                 <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem',
                   padding: '0.45rem 0', borderBottom: '1px solid var(--border)' }}>
-                  <span style={{ flex: 1 }}>
-                    {attachment?.rubric?.id === r.id && <span style={{ color: 'var(--success)' }}>✓ </span>}
-                    <strong>{r.name}</strong>
-                    <span className="text-muted" style={{ fontSize: '0.72rem', marginLeft: 6 }}>
-                      {r.criteria_count} criteria · {fmtDate(r.updated_at)}
-                      {r.attachment_count > 0 ? ` · attached to ${r.attachment_count}` : ''}
-                    </span>
-                  </span>
-                  <button className="secondary" onClick={() => doAttach(r.id)}>Attach</button>
-                  <a className="ghost" href={rubricExportUrl(r.id)} download>⬇ CSV</a>
-                  <button className="ghost danger" onClick={() => doDelete(r)}
-                    aria-label={confirmId === r.id ? `Click to confirm delete ${r.name}` : `Delete ${r.name}`}>
-                    {confirmId === r.id ? 'Click to confirm' : '🗑'}
-                  </button>
+                  {editingId === r.id ? (
+                    <input aria-label="Rename rubric" autoFocus value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); commitRename(); }
+                        else if (e.key === 'Escape') { e.stopPropagation(); cancelRename(); }
+                      }}
+                      onBlur={cancelRename}
+                      style={{ flex: 1, padding: '0.25rem 0.4rem' }} />
+                  ) : (
+                    <>
+                      <span style={{ flex: 1 }}>
+                        {attachment?.rubric?.id === r.id && <span style={{ color: 'var(--success)' }}>✓ </span>}
+                        <strong>{r.name}</strong>
+                        <span className="text-muted" style={{ fontSize: '0.72rem', marginLeft: 6 }}>
+                          {r.criteria_count} criteria · {fmtDate(r.updated_at)}
+                          {r.attachment_count > 0 ? ` · attached to ${r.attachment_count}` : ''}
+                        </span>
+                      </span>
+                      <button className="ghost" onClick={() => startRename(r)} aria-label={`Rename ${r.name}`}>✎</button>
+                      <button className="secondary" onClick={() => doAttach(r.id)}>Attach</button>
+                      <a className="ghost" href={rubricExportUrl(r.id)} download>⬇ CSV</a>
+                      <button className="ghost danger" onClick={() => doDelete(r)}
+                        aria-label={confirmId === r.id ? `Click to confirm delete ${r.name}` : `Delete ${r.name}`}>
+                        {confirmId === r.id ? 'Click to confirm' : '🗑'}
+                      </button>
+                    </>
+                  )}
                 </div>
               ))}
               <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', marginTop: '0.8rem' }}>
@@ -151,13 +175,17 @@ function topicTitle(topics, topicId) {
 }
 
 function MapTab({ attachment, topics, onMap }) {
-  const taken = new Set(attachment.topicByCriterion.map((m) => m.topic_id));
   const ordered = [...attachment.rubric.criteria].sort((a, b) => a.position - b.position);
+  // To keep the binding 1:1, every topic is offered everywhere; a topic already
+  // held by another criterion is annotated with its owner. Picking it reassigns
+  // in one step — the server frees the previous owner (setMapping move-semantics).
+  const nameById = Object.fromEntries(ordered.map((c) => [c.id, c.criterion_name]));
+  const ownerByTopic = {};
+  for (const m of attachment.topicByCriterion) ownerByTopic[m.topic_id] = nameById[m.criterion_id];
   return (
     <div>
       {ordered.map((c) => {
         const current = mappedTopic(attachment, c.id);
-        const options = topics.filter((t) => !taken.has(t.id) || t.id === current);
         return (
           <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0',
             borderBottom: '1px solid var(--border)' }}>
@@ -169,7 +197,11 @@ function MapTab({ attachment, topics, onMap }) {
             <select aria-label={`Topic for ${c.criterion_name}`} value={current}
               onChange={(e) => onMap(c.id, e.target.value)}>
               <option value="">— none —</option>
-              {options.map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
+              {topics.map((t) => {
+                const owner = ownerByTopic[t.id];
+                const annotate = owner && t.id !== current;   // held by someone else → show the owner
+                return <option key={t.id} value={t.id}>{annotate ? `${t.title} — now: ${owner}` : t.title}</option>;
+              })}
             </select>
           </div>
         );

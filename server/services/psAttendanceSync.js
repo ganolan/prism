@@ -31,7 +31,7 @@ import { join } from 'path';
 import { getDb } from '../db/index.js';
 import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
 import { pickBlockNumber, sectionDcidFromLaunchForm } from '../lib/psBlockNumber.js';
-import { currentSchoolYearEndYear, gradeLevelToGradYear } from '../lib/psGradeLevel.js';
+import { currentSchoolYearEndYear, gradeLevelToGradYear, pickInSessionDate, extractGradeLevels, userDcidFromLaunchForm } from '../lib/psGradeLevel.js';
 
 const PS_HOST = 'powerschool.hkis.edu.hk';
 const ATTENDANCE_APP_ID = '4980125287';
@@ -76,12 +76,31 @@ async function establishPsSession(page, schoologySectionId) {
   }
 }
 
-// Resolve Schoology section → PS sectionDcid from the LTI launch-form HTML.
-// Uses context.request (carries the Schoology session cookie, no app load).
-async function fetchSectionDcid(context, schoologySectionId) {
+// Resolve Schoology section → PS sectionDcid + teacher userDcid from the LTI
+// launch-form HTML. Uses context.request (carries the Schoology session cookie,
+// no app load). The userDcid feeds the section_attendance (grade-level) read.
+async function fetchLaunchIds(context, schoologySectionId) {
   const resp = await context.request.get(runUrlFor(schoologySectionId), { maxRedirects: 5 });
   const html = await resp.text();
-  return sectionDcidFromLaunchForm(html);
+  return {
+    sectionDcid: sectionDcidFromLaunchForm(html),
+    userDcid: userDcidFromLaunchForm(html),
+  };
+}
+
+// GET /ws/attendance/section_attendance for an in-session date, from the live PS
+// page (same-origin fetch). includeStudentAlerts=false keeps the PII surface
+// minimal (we only need the roster + gradeLevel). Returns parsed JSON or null.
+async function fetchSectionAttendance(page, sectionDcid, userDcid, date) {
+  const { status, text } = await page.evaluate(async ({ host, dcid, uid, d }) => {
+    const url = `https://${host}/ws/attendance/section_attendance`
+      + `?sectionDcid=${dcid}&userDcid=${uid}&startDate=${d}&endDate=${d}`
+      + `&includeStudentAlerts=false&multiSections=false&sortByFirstName=false`;
+    const res = await fetch(url, { credentials: 'include', headers: { Accept: 'application/json' } });
+    return { status: res.status, text: await res.text() };
+  }, { host: PS_HOST, dcid: sectionDcid, uid: userDcid, d: date });
+  if (status !== 200) return null;
+  try { return JSON.parse(text); } catch { return null; }
 }
 
 // GET /ws/attendance/section_info for a sectionDcid, from the live PS page
@@ -171,7 +190,7 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
      WHERE ${where.join(' AND ')} ORDER BY course_name`
   ).all(...params);
 
-  const summary = { processed: 0, updated: 0, unchanged: 0, skipped: 0, results: [] };
+  const summary = { processed: 0, updated: 0, unchanged: 0, skipped: 0, gradeLevels: { seen: 0, updated: 0 }, results: [] };
   if (courses.length === 0) {
     log('No courses to sync blocks for.');
     return summary; // returns before launching a browser
@@ -190,13 +209,16 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
     await establishPsSession(page, courses[0].schoology_section_id);
     log('PowerSchool session ready.');
 
+    const gradeByDcid = new Map(); // dcid → gradeLevel, accumulated across all sections
+    const todayIso = new Date().toISOString().slice(0, 10);
+
     for (const c of courses) {
       summary.processed++;
       const now = new Date().toISOString();
 
       // Resolve the section's block (or a failure pick) without throwing.
       let pick;
-      const sectionDcid = await fetchSectionDcid(context, c.schoology_section_id);
+      const { sectionDcid, userDcid } = await fetchLaunchIds(context, c.schoology_section_id);
       if (!sectionDcid) {
         pick = { blockNumber: null, blockName: null, reason: 'no-section-dcid' };
       } else {
@@ -204,6 +226,19 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
         pick = first
           ? pickBlockNumber(first)
           : { blockNumber: null, blockName: null, reason: `section-info-failed:${status}` };
+
+        // Grade level: pick an in-session day from the SAME section_info calendar
+        // and read the roster's per-student gradeLevel. Best-effort — a failure
+        // here never affects block resolution.
+        if (first && userDcid) {
+          const date = pickInSessionDate(first, todayIso);
+          if (date) {
+            const sa = await fetchSectionAttendance(page, sectionDcid, userDcid, date);
+            for (const { dcid, gradeLevel } of extractGradeLevels(sa || {})) {
+              gradeByDcid.set(dcid, gradeLevel);
+            }
+          }
+        }
       }
       const reason = pick.reason.startsWith('section-info-failed') ? 'section-info-failed' : pick.reason;
 
@@ -230,6 +265,9 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
       }
     }
 
+    summary.gradeLevels.seen = gradeByDcid.size;
+    summary.gradeLevels.updated = applyGradeLevels(db, gradeByDcid);
+    log(`Grade levels: ${summary.gradeLevels.updated} students updated (${gradeByDcid.size} seen).`);
     log(`Done: ${summary.updated} updated, ${summary.unchanged} unchanged, ${summary.skipped} skipped (of ${summary.processed}).`);
     return summary;
   } finally {

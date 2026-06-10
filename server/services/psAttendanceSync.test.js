@@ -24,7 +24,7 @@ describe('syncPsAttendance — guard', () => {
   // is safe to run without a Playwright session.)
   test('no active courses → processed 0, no browser launched', async () => {
     const s = await syncPsAttendance();
-    expect(s).toEqual({ processed: 0, updated: 0, unchanged: 0, skipped: 0, results: [] });
+    expect(s).toEqual({ processed: 0, updated: 0, unchanged: 0, skipped: 0, gradeLevels: { seen: 0, updated: 0 }, results: [] });
   });
 
   test('default (active) ignores archived/excluded courses → no-op', async () => {

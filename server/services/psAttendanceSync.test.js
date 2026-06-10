@@ -8,7 +8,7 @@ vi.mock('../db/index.js', async (importOriginal) => {
 });
 
 import { migrate } from '../db/index.js';
-import { syncPsAttendance } from './psAttendanceSync.js';
+import { syncPsAttendance, applyGradeLevels } from './psAttendanceSync.js';
 
 function seed(db, name, { archived = 0, excluded = 0 } = {}) {
   const id = db.prepare('INSERT INTO courses (schoology_section_id, course_name) VALUES (?, ?)').run(`sec-${name}`, name).lastInsertRowid;
@@ -38,5 +38,33 @@ describe('syncPsAttendance — guard', () => {
     const id = seed(h.db, 'template', { excluded: 1 });
     const s = await syncPsAttendance({ courseIds: [id] });
     expect(s.processed).toBe(0);
+  });
+});
+
+describe('applyGradeLevels', () => {
+  beforeEach(() => { h.db = new Database(':memory:'); migrate(h.db); });
+
+  function seedStudent(schoolUid, gradYear = null) {
+    const id = h.db.prepare(
+      'INSERT INTO students (first_name, last_name, school_uid, grad_year) VALUES (?, ?, ?, ?)'
+    ).run('First', 'Last', schoolUid, gradYear).lastInsertRowid;
+    return id;
+  }
+
+  test('sets grad_year for matched students and leaves unmatched ones untouched', () => {
+    const matched = seedStudent('1_42302', null);     // Gr 10 → 2028
+    const other = seedStudent('1_77777', 2099);        // not in the map → preserved
+    const map = new Map([['42302', 10], ['00000', 11]]); // 00000 has no matching student
+
+    const updated = applyGradeLevels(h.db, map, new Date('2026-01-15'));
+
+    expect(updated).toBe(1);
+    expect(h.db.prepare('SELECT grad_year FROM students WHERE id = ?').get(matched).grad_year).toBe(2028);
+    expect(h.db.prepare('SELECT grad_year FROM students WHERE id = ?').get(other).grad_year).toBe(2099);
+  });
+
+  test('empty map → no updates', () => {
+    seedStudent('1_42302', 2027);
+    expect(applyGradeLevels(h.db, new Map(), new Date('2026-01-15'))).toBe(0);
   });
 });

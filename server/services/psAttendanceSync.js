@@ -31,6 +31,7 @@ import { join } from 'path';
 import { getDb } from '../db/index.js';
 import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
 import { pickBlockNumber, sectionDcidFromLaunchForm } from '../lib/psBlockNumber.js';
+import { currentSchoolYearEndYear, gradeLevelToGradYear } from '../lib/psGradeLevel.js';
 
 const PS_HOST = 'powerschool.hkis.edu.hk';
 const ATTENDANCE_APP_ID = '4980125287';
@@ -103,6 +104,29 @@ async function fetchSectionInfoFirst(page, sectionDcid) {
   } catch {
     return { status, first: null };
   }
+}
+
+/**
+ * Apply a Map<dcid → gradeLevel> to the students table: set each matched
+ * student's grad_year (join: students.school_uid === '1_' + dcid). Stores the
+ * INVARIANT grad_year (computed from the current grade), never the raw grade.
+ * Students absent from the map are left untouched (never nulled). Returns the
+ * number of student rows updated.
+ */
+export function applyGradeLevels(db, gradeByDcid, now = new Date()) {
+  const yearEnd = currentSchoolYearEndYear(now);
+  const ts = now.toISOString();
+  const update = db.prepare('UPDATE students SET grad_year = ?, updated_at = ? WHERE school_uid = ?');
+  let updated = 0;
+  const tx = db.transaction((entries) => {
+    for (const [dcid, gradeLevel] of entries) {
+      const gradYear = gradeLevelToGradYear(gradeLevel, yearEnd);
+      if (gradYear == null) continue;
+      updated += update.run(gradYear, ts, `1_${dcid}`).changes;
+    }
+  });
+  tx([...gradeByDcid.entries()]);
+  return updated;
 }
 
 /**

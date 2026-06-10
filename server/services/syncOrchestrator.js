@@ -58,8 +58,9 @@ export async function runUnifiedSync(
       const r = await syncPsAttendance({
         onProgress: (p) => emit({ type: 'log', message: `[blocks] ${p.message}` }),
       });
-      summary.blocks = { updated: r.updated, skipped: r.skipped, elapsedMs: Date.now() - blocksStartedAt };
-      emit({ phase: 'blocks', status: 'done', records: r.updated, elapsedMs: summary.blocks.elapsedMs });
+      const gradeLevelsUpdated = r.gradeLevels?.updated ?? 0;
+      summary.blocks = { updated: r.updated, skipped: r.skipped, gradeLevelsUpdated, elapsedMs: Date.now() - blocksStartedAt };
+      emit({ phase: 'blocks', status: 'done', records: r.updated, gradeLevelsUpdated, elapsedMs: summary.blocks.elapsedMs });
     } catch (err) {
       summary.blocks = { error: err.message, elapsedMs: Date.now() - blocksStartedAt };
       emit({ phase: 'blocks', status: 'error', message: err.message });

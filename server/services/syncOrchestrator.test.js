@@ -105,7 +105,7 @@ describe('runUnifiedSync', () => {
 
   test('runs the block phase by default, between schoology and mastery', async () => {
     const cid = seedCourse(h.db, 'Bio 9');
-    syncPsAttendance.mockResolvedValue({ updated: 2, skipped: 1 });
+    syncPsAttendance.mockResolvedValue({ updated: 2, skipped: 1, gradeLevels: { seen: 30, updated: 28 } });
     const events = [];
     await runUnifiedSync({ masteryCourseIds: [cid] }, (e) => events.push(e));
 
@@ -117,6 +117,8 @@ describe('runUnifiedSync', () => {
       'mastery:running', 'mastery:done',
     ]);
     expect(events.find((e) => e.phase === 'blocks' && e.status === 'done')).toMatchObject({ records: 2 });
+    const blocksDone = events.find(e => e.phase === 'blocks' && e.status === 'done');
+    expect(blocksDone.gradeLevelsUpdated).toBe(28);
   });
 
   test('syncBlocks:false skips the block phase entirely (no browser launch)', async () => {

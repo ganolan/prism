@@ -59,12 +59,23 @@ describe('applyGradeLevels', () => {
     const updated = applyGradeLevels(h.db, map, new Date('2026-01-15'));
 
     expect(updated).toBe(1);
-    expect(h.db.prepare('SELECT grad_year FROM students WHERE id = ?').get(matched).grad_year).toBe(2028);
+    const row = h.db.prepare('SELECT grad_year, updated_at FROM students WHERE id = ?').get(matched);
+    expect(row.grad_year).toBe(2028);
+    expect(row.updated_at).toBe('2026-01-15T00:00:00.000Z'); // now stamped on the update
     expect(h.db.prepare('SELECT grad_year FROM students WHERE id = ?').get(other).grad_year).toBe(2099);
   });
 
   test('empty map → no updates', () => {
     seedStudent('1_42302', 2027);
     expect(applyGradeLevels(h.db, new Map(), new Date('2026-01-15'))).toBe(0);
+  });
+
+  // The rest of the sync layer threads `now` as a pre-serialised ISO string;
+  // applyGradeLevels must accept that form too (not just a Date).
+  test('accepts an ISO-string `now`', () => {
+    const matched = seedStudent('1_42302', null); // Gr 10 → 2028
+    const updated = applyGradeLevels(h.db, new Map([['42302', 10]]), '2026-01-15T00:00:00.000Z');
+    expect(updated).toBe(1);
+    expect(h.db.prepare('SELECT grad_year FROM students WHERE id = ?').get(matched).grad_year).toBe(2028);
   });
 });

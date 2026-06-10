@@ -111,11 +111,13 @@ async function fetchSectionInfoFirst(page, sectionDcid) {
  * student's grad_year (join: students.school_uid === '1_' + dcid). Stores the
  * INVARIANT grad_year (computed from the current grade), never the raw grade.
  * Students absent from the map are left untouched (never nulled). Returns the
- * number of student rows updated.
+ * number of student rows updated. `now` may be a Date or an ISO string (the rest
+ * of the sync layer threads `now` as a pre-serialised ISO string) — both work.
  */
 export function applyGradeLevels(db, gradeByDcid, now = new Date()) {
-  const yearEnd = currentSchoolYearEndYear(now);
-  const ts = now.toISOString();
+  const nowDate = typeof now === 'string' ? new Date(now) : now;
+  const yearEnd = currentSchoolYearEndYear(nowDate);
+  const ts = nowDate.toISOString();
   const update = db.prepare('UPDATE students SET grad_year = ?, updated_at = ? WHERE school_uid = ?');
   let updated = 0;
   const tx = db.transaction((entries) => {

@@ -197,6 +197,17 @@ GET https://powerschool.hkis.edu.hk/ws/attendance/section_attendance
   }
 ```
 
+**⚠️ Use a multi-day RANGE, not a single day, for full roster coverage (verified 2026-06-10, #43).**
+`section_attendance` returns a section's `studentAttendance` roster only for days that **section actually
+meets** (A/B block rotation) — a single `startDate==endDate` query returns an **empty** `sectionAttendances`
+for any section not meeting that exact day. So a sync that picks one school-in-session day captures only the
+blocks meeting that day (live: 18/108 students; only the 2 blocks meeting that date). Query a **range of
+~15 in-session days** instead: the response then contains one `sectionAttendances[]` entry per meeting day,
+each repeating the full roster — dedupe per student by `dcid` (`Map<dcid → gradeLevel>`). With the range,
+coverage hit 100% of every block-resolvable course (75/108; the rest are interim-only / archived). Grade
+level is the same per-student value on every day, so de-duplication is lossless. See `pickInSessionRange`
+in `server/lib/psGradeLevel.js`.
+
 Grade-level *definitions* (not per-student) come from
 `POST /ws/schema/query/com.pearson.core.schools.grade_levels` → `{ record: [{ grade_level, grade_text }] }`.
 

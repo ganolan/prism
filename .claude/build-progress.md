@@ -2,6 +2,15 @@
 
 Tracks implementation status across Prism's development phases. Check this before starting any new phase to avoid repeating work or missing spec items.
 
+## Grade level / graduating year (#43) — COMPLETE (2026-06-10)
+
+- Synced from **PowerSchool's attendance app** (`/ws/attendance/section_attendance` → per-student `gradeLevel` 9–12), session-auth via the same browser session as the mastery/block sync — no plugin credentials. Joined to Prism by `students.school_uid === '1_' + ps.dcid`.
+- Stored as the **invariant `grad_year`** (`= schoolYearEndYear + (12 − gradeLevel)`), not the raw grade — a departed/not-re-synced student's `grad_year` stays correct; the displayed current grade is derived on read (graduated → shows "Class of YYYY", no grade). No schema change (reused the existing `grad_year` column).
+- Architecture: generalized the block-number sync — `blockNumberSync.js` → **`psAttendanceSync.js`**, one PS pass resolving block (per-course) **+** grade level (per-student). Grade read is best-effort (try/catch; never aborts block sync). Helpers in `server/lib/psGradeLevel.js`; client helper `client/src/lib/gradeLevel.js`.
+- **Coverage gotcha (resolved):** `section_attendance` returns a roster only for days the section meets → query a **~15-in-session-day range** (`pickInSessionRange`), not one day, then dedupe per `dcid`. Live: single-day = 18/108 students; range = 75/75 of every block-resolvable course. See `.claude/powerschool-api-reference.md` Step 3.
+- Displayed on the student profile badge, the search page, and the class roster.
+- Follow-up: #116 (probe `/ws/pt/v1/student` as a cleaner date-free demographics/grade source).
+
 ## Phase 1 MVP — COMPLETE (2026-04-03)
 
 - [x] Project structure: Express backend + React/Vite frontend + SQLite
@@ -104,7 +113,7 @@ Comprehensive probing of ~40+ Schoology API endpoint patterns. Key findings:
 ### Sync Enhancements
 - Assignments now store `grading_category`, `grading_scale`, `folder_id`, `published`, `display_weight` from Schoology
 - Student `school_uid` stored from enrollment response
-- Student `grad_year`: column exists but **Schoology API does not return grad_year for student profiles** (only present on teacher/staff profiles). Needs PowerSchool API access.
+- Student `grad_year`: column exists but **Schoology API does not return grad_year for student profiles** (only present on teacher/staff profiles). ~~Needs PowerSchool API access.~~ **RESOLVED 2026-06-10 (#43)** — now populated from PowerSchool's attendance app (`/ws/attendance/section_attendance` `gradeLevel`, session-auth, no plugin credentials) via `psAttendanceSync`; stored as the invariant `grad_year` (= `Y + (12 − gradeLevel)`), displayed on the profile/search/roster. See "Grade level (#43)" below.
 - Late flag derived from Schoology exception code (exception=4)
 - Folders and grading categories synced per course (folder API key fixed: `data.folders` not `data.folder`)
 - Assignment ordering uses folder display_weight (primary) + assignment display_weight (secondary) to match Schoology page order
@@ -127,7 +136,7 @@ Comprehensive probing of ~40+ Schoology API endpoint patterns. Key findings:
 - Mastery topic derivation fixed: queries join through mastery_scores→assignments by course_id, not measurement_topics.course_id (fixes shared standards across courses — MAD now shows mastery)
 
 ### Known Issues
-- `grad_year` not available from Schoology API for students (needs PowerSchool credentials)
+- ~~`grad_year` not available from Schoology API for students (needs PowerSchool credentials)~~ **RESOLVED 2026-06-10 (#43)** — synced from PowerSchool's attendance app via `psAttendanceSync` (session-auth, no credentials). See below.
 - Robotics mastery: course has summative assignments but mastery sync needs to be run for it
 - Assignment ordering requires a fresh sync to populate the folders table (bug fixed: API returns `data.folders` not `data.folder`)
 

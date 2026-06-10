@@ -132,6 +132,12 @@ async function fetchSectionInfoFirst(page, sectionDcid) {
  * Students absent from the map are left untouched (never nulled). Returns the
  * number of student rows updated. `now` may be a Date or an ISO string (the rest
  * of the sync layer threads `now` as a pre-serialised ISO string) — both work.
+ *
+ * Assumes the synced gradeLevel is as-of the CURRENT school year — true whenever
+ * the in-session date (pickInSessionDate) falls in it. In the rare off-season
+ * case where the only in-session day is in a *future* year past an August
+ * boundary, grad_year could be off by one; it self-heals on the next in-session
+ * sync, so we don't reconcile the query date against `now` here.
  */
 export function applyGradeLevels(db, gradeByDcid, now = new Date()) {
   const nowDate = typeof now === 'string' ? new Date(now) : now;

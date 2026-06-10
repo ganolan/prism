@@ -228,14 +228,19 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
           : { blockNumber: null, blockName: null, reason: `section-info-failed:${status}` };
 
         // Grade level: pick an in-session day from the SAME section_info calendar
-        // and read the roster's per-student gradeLevel. Best-effort — a failure
-        // here never affects block resolution.
+        // and read the roster's per-student gradeLevel. Best-effort — wrapped so a
+        // page.evaluate rejection (the PS iframe can detach mid-loop — see the API
+        // playbook) is logged and skipped, never aborting the loop or block writes.
         if (first && userDcid) {
           const date = pickInSessionDate(first, todayIso);
           if (date) {
-            const sa = await fetchSectionAttendance(page, sectionDcid, userDcid, date);
-            for (const { dcid, gradeLevel } of extractGradeLevels(sa || {})) {
-              gradeByDcid.set(dcid, gradeLevel);
+            try {
+              const sa = await fetchSectionAttendance(page, sectionDcid, userDcid, date);
+              for (const { dcid, gradeLevel } of extractGradeLevels(sa || {})) {
+                gradeByDcid.set(dcid, gradeLevel);
+              }
+            } catch (err) {
+              log(`${c.course_name}: grade-level read failed (${err.message}) — skipped`);
             }
           }
         }

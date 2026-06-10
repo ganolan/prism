@@ -2,7 +2,7 @@ import { describe, test, expect } from 'vitest';
 import {
   currentSchoolYearEndYear,
   gradeLevelToGradYear,
-  pickInSessionDate,
+  pickInSessionRange,
   extractGradeLevels,
   userDcidFromLaunchForm,
 } from './psGradeLevel.js';
@@ -27,22 +27,28 @@ describe('gradeLevelToGradYear', () => {
   });
 });
 
-describe('pickInSessionDate', () => {
+describe('pickInSessionRange', () => {
   const cal = {
+    '2026-06-01': { inSession: true },
+    '2026-06-02': { inSession: true },
+    '2026-06-03': { inSession: false }, // weekend/holiday
+    '2026-06-04': { inSession: true },
+    '2026-06-05': { inSession: true },
     '2026-06-08': { inSession: true },
-    '2026-06-09': { inSession: true },
-    '2026-06-13': { inSession: false }, // weekend
-    '2026-06-15': { inSession: true },
   };
-  test('most recent in-session day on or before today', () => {
-    expect(pickInSessionDate({ calenderDays: cal }, '2026-06-10')).toBe('2026-06-09');
+  // in-session sorted: [06-01, 06-02, 06-04, 06-05, 06-08]
+  test('window ending at the most recent in-session day on or before today', () => {
+    expect(pickInSessionRange({ calenderDays: cal }, '2026-06-06', 3)).toEqual({ startDate: '2026-06-02', endDate: '2026-06-05' });
   });
-  test('earliest future in-session day when the year has not started', () => {
-    expect(pickInSessionDate({ calenderDays: cal }, '2026-06-01')).toBe('2026-06-08');
+  test('clamps to the earliest in-session day when the window is larger than history', () => {
+    expect(pickInSessionRange({ calenderDays: cal }, '2026-06-30', 10)).toEqual({ startDate: '2026-06-01', endDate: '2026-06-08' });
+  });
+  test('spans forward from the earliest in-session day when the year has not started', () => {
+    expect(pickInSessionRange({ calenderDays: cal }, '2026-05-01', 3)).toEqual({ startDate: '2026-06-01', endDate: '2026-06-04' });
   });
   test('null when no in-session days exist', () => {
-    expect(pickInSessionDate({ calenderDays: { '2026-06-13': { inSession: false } } }, '2026-06-10')).toBeNull();
-    expect(pickInSessionDate({}, '2026-06-10')).toBeNull();
+    expect(pickInSessionRange({ calenderDays: { '2026-06-03': { inSession: false } } }, '2026-06-10', 3)).toBeNull();
+    expect(pickInSessionRange({}, '2026-06-10', 3)).toBeNull();
   });
 });
 

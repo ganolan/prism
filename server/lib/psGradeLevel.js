@@ -27,23 +27,31 @@ export function gradeLevelToGradYear(gradeLevel, schoolYearEndYear) {
 }
 
 /**
- * Pick the date to query section_attendance for: the most recent in-session day
- * on or before `today` (ISO YYYY-MM-DD string); if none exist yet, the earliest
- * future in-session day; else null.
- *
- * `sectionInfo` is section_info[0]; its calendar lives under `calenderDays`
- * (PowerSchool's spelling) or `calendarDays`, each value carrying an `inSession`
- * boolean. ISO dates sort lexicographically so plain string comparison is safe.
+ * Pick a date RANGE to query section_attendance for: up to `windowDays` in-session
+ * days ending at the most recent in-session day on or before `today` (ISO
+ * YYYY-MM-DD). A single day misses sections not meeting that day (A/B block
+ * rotation), so we span a window — section_attendance returns a section's roster
+ * for any day it met within the range (the caller dedupes per student). If the
+ * year hasn't started (no in-session day <= today), span forward from the
+ * earliest in-session day. Returns { startDate, endDate } or null when the
+ * calendar has no in-session days. `sectionInfo` is section_info[0]; its calendar
+ * is `calenderDays` (PowerSchool's spelling) or `calendarDays`.
  */
-export function pickInSessionDate(sectionInfo, today) {
+export function pickInSessionRange(sectionInfo, today, windowDays = 15) {
   const cal = sectionInfo?.calenderDays || sectionInfo?.calendarDays || {};
   const inSession = Object.entries(cal)
     .filter(([, d]) => d && d.inSession)
     .map(([date]) => date)
     .sort();
   if (inSession.length === 0) return null;
-  const past = inSession.filter((d) => d <= today);
-  return past.length ? past[past.length - 1] : inSession[0];
+  const pastOrToday = inSession.filter((d) => d <= today);
+  if (pastOrToday.length) {
+    const endIdx = inSession.indexOf(pastOrToday[pastOrToday.length - 1]);
+    const startIdx = Math.max(0, endIdx - (windowDays - 1));
+    return { startDate: inSession[startIdx], endDate: inSession[endIdx] };
+  }
+  const endIdx = Math.min(inSession.length - 1, windowDays - 1);
+  return { startDate: inSession[0], endDate: inSession[endIdx] };
 }
 
 /**

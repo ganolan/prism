@@ -31,7 +31,7 @@ import { join } from 'path';
 import { getDb } from '../db/index.js';
 import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
 import { pickBlockNumber, sectionDcidFromLaunchForm } from '../lib/psBlockNumber.js';
-import { currentSchoolYearEndYear, gradeLevelToGradYear, pickInSessionDate, extractGradeLevels, userDcidFromLaunchForm } from '../lib/psGradeLevel.js';
+import { currentSchoolYearEndYear, gradeLevelToGradYear, pickInSessionRange, extractGradeLevels, userDcidFromLaunchForm } from '../lib/psGradeLevel.js';
 
 const PS_HOST = 'powerschool.hkis.edu.hk';
 const ATTENDANCE_APP_ID = '4980125287';
@@ -88,17 +88,17 @@ async function fetchLaunchIds(context, schoologySectionId) {
   };
 }
 
-// GET /ws/attendance/section_attendance for an in-session date, from the live PS
-// page (same-origin fetch). includeStudentAlerts=false keeps the PII surface
+// GET /ws/attendance/section_attendance for an in-session date range, from the live
+// PS page (same-origin fetch). includeStudentAlerts=false keeps the PII surface
 // minimal (we only need the roster + gradeLevel). Returns parsed JSON or null.
-async function fetchSectionAttendance(page, sectionDcid, userDcid, date) {
-  const { status, text } = await page.evaluate(async ({ host, dcid, uid, d }) => {
+async function fetchSectionAttendance(page, sectionDcid, userDcid, startDate, endDate) {
+  const { status, text } = await page.evaluate(async ({ host, dcid, uid, s, e }) => {
     const url = `https://${host}/ws/attendance/section_attendance`
-      + `?sectionDcid=${dcid}&userDcid=${uid}&startDate=${d}&endDate=${d}`
+      + `?sectionDcid=${dcid}&userDcid=${uid}&startDate=${s}&endDate=${e}`
       + `&includeStudentAlerts=false&multiSections=false&sortByFirstName=false`;
     const res = await fetch(url, { credentials: 'include', headers: { Accept: 'application/json' } });
     return { status: res.status, text: await res.text() };
-  }, { host: PS_HOST, dcid: sectionDcid, uid: userDcid, d: date });
+  }, { host: PS_HOST, dcid: sectionDcid, uid: userDcid, s: startDate, e: endDate });
   if (status !== 200) return null;
   try { return JSON.parse(text); } catch { return null; }
 }
@@ -134,7 +134,7 @@ async function fetchSectionInfoFirst(page, sectionDcid) {
  * of the sync layer threads `now` as a pre-serialised ISO string) — both work.
  *
  * Assumes the synced gradeLevel is as-of the CURRENT school year — true whenever
- * the in-session date (pickInSessionDate) falls in it. In the rare off-season
+ * the in-session date range (pickInSessionRange) falls in it. In the rare off-season
  * case where the only in-session day is in a *future* year past an August
  * boundary, grad_year could be off by one; it self-heals on the next in-session
  * sync, so we don't reconcile the query date against `now` here.
@@ -233,15 +233,17 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
           ? pickBlockNumber(first)
           : { blockNumber: null, blockName: null, reason: `section-info-failed:${status}` };
 
-        // Grade level: pick an in-session day from the SAME section_info calendar
-        // and read the roster's per-student gradeLevel. Best-effort — wrapped so a
-        // page.evaluate rejection (the PS iframe can detach mid-loop — see the API
-        // playbook) is logged and skipped, never aborting the loop or block writes.
+        // Grade level: pick an in-session date range from the SAME section_info
+        // calendar and read the roster's per-student gradeLevel. A range covers
+        // sections that don't meet on a single picked day (A/B block rotation —
+        // issue #43). Best-effort — wrapped so a page.evaluate rejection (the PS
+        // iframe can detach mid-loop — see the API playbook) is logged and skipped,
+        // never aborting the loop or block writes.
         if (first && userDcid) {
-          const date = pickInSessionDate(first, todayIso);
-          if (date) {
+          const range = pickInSessionRange(first, todayIso);
+          if (range) {
             try {
-              const sa = await fetchSectionAttendance(page, sectionDcid, userDcid, date);
+              const sa = await fetchSectionAttendance(page, sectionDcid, userDcid, range.startDate, range.endDate);
               for (const { dcid, gradeLevel } of extractGradeLevels(sa || {})) {
                 gradeByDcid.set(dcid, gradeLevel);
               }

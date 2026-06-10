@@ -11,6 +11,7 @@ import { LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
 import { gradeLabel, submissionStatus } from '../lib/gradeLabel.js';
 import { masteryCodeForLevel } from '../lib/masteryLevels.js';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
+import { formatGradeBadge } from '../lib/gradeLevel.js';
 
 function CopyButton({ text, label }) {
   const [copied, setCopied] = useState(false);
@@ -45,15 +46,6 @@ function CopyButton({ text, label }) {
 
 const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
 
-function gradYearToLevel(gradYear) {
-  if (!gradYear) return null;
-  const currentYear = new Date().getFullYear();
-  const currentMonth = new Date().getMonth(); // 0-indexed
-  // Academic year starts in August: if we're past August, grad year minus current year
-  const academicYear = currentMonth >= 7 ? currentYear + 1 : currentYear;
-  const grade = 12 - (gradYear - academicYear);
-  return grade >= 1 && grade <= 12 ? grade : null;
-}
 
 export function CourseSection({ course, grades, flagsByAssignment, studentUid, scales }) {
   const [expanded, setExpanded] = useState(true);
@@ -372,10 +364,10 @@ export default function StudentPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 700, lineHeight: 1.2 }}>{titleName}</h2>
                   {student.grad_year && (() => {
-                    const gradeLevel = gradYearToLevel(student.grad_year);
+                    const badge = formatGradeBadge(student.grad_year);
                     return (
                       <span className="badge badge-blue" title={`Graduating ${student.grad_year}`}>
-                        {gradeLevel ? `Grade ${gradeLevel}` : ''} (Class of {student.grad_year})
+                        {badge.label}
                       </span>
                     );
                   })()}

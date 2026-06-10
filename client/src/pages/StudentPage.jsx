@@ -46,7 +46,6 @@ function CopyButton({ text, label }) {
 
 const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
 
-
 export function CourseSection({ course, grades, flagsByAssignment, studentUid, scales }) {
   const [expanded, setExpanded] = useState(true);
 
@@ -365,6 +364,7 @@ export default function StudentPage() {
                   <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 700, lineHeight: 1.2 }}>{titleName}</h2>
                   {student.grad_year && (() => {
                     const badge = formatGradeBadge(student.grad_year);
+                    if (!badge) return null;
                     return (
                       <span className="badge badge-blue" title={`Graduating ${student.grad_year}`}>
                         {badge.label}

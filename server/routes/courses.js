@@ -5,7 +5,7 @@ import { apiGet } from '../services/schoology.js';
 import { finalizeArchivedCourse, enrichStudentProfiles } from '../services/sync.js';
 import { isResubmitted } from '../lib/resubmission.js';
 import { getArchivedSections } from '../services/archivedCourses.js';
-import { syncBlockNumbers } from '../services/blockNumberSync.js';
+import { syncPsAttendance } from '../services/psAttendanceSync.js';
 
 const router = Router();
 
@@ -309,7 +309,7 @@ router.post('/import', async (req, res) => {
     // at import time (the regular sync only covers active courses). Only
     // current-year sections resolve; prior-year ones skip. Never fails the import.
     try {
-      await syncBlockNumbers({ courseIds: [courseRow.id] });
+      await syncPsAttendance({ courseIds: [courseRow.id] });
     } catch (err) {
       console.warn(`[import] block-number resolve failed for ${courseRow.course_name}: ${err.message}`);
     }

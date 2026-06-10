@@ -1,7 +1,7 @@
 import { getDb } from '../db/index.js';
 import { fullSync } from './sync.js';
 import { syncMasteryForCourse } from './masterySync.js';
-import { syncBlockNumbers } from './blockNumberSync.js';
+import { syncPsAttendance } from './psAttendanceSync.js';
 
 // Classify a mastery sync failure: 'login' means the Schoology browser session
 // is missing/expired (recoverable by re-login); 'other' is anything else.
@@ -55,7 +55,7 @@ export async function runUnifiedSync(
     emit({ phase: 'blocks', status: 'running' });
     const blocksStartedAt = Date.now();
     try {
-      const r = await syncBlockNumbers({
+      const r = await syncPsAttendance({
         onProgress: (p) => emit({ type: 'log', message: `[blocks] ${p.message}` }),
       });
       summary.blocks = { updated: r.updated, skipped: r.skipped, elapsedMs: Date.now() - blocksStartedAt };

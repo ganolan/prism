@@ -1,5 +1,5 @@
 /**
- * blockNumberSync.js
+ * psAttendanceSync.js
  *
  * Populate courses.block_number from PowerSchool (issue #106). The block a
  * teacher sees on the attendance page (e.g. ACSS = "Block 3") is the PowerSchool
@@ -128,8 +128,8 @@ async function fetchSectionInfoFirst(page, sectionDcid) {
  * courseName, blockNumber, blockName?, reason, status }] }.
  * reason: 'ok' | 'not-numbered' | 'no-block' | 'ambiguous' | 'no-section-dcid' | 'section-info-failed'
  */
-export async function syncBlockNumbers({ onProgress, courseIds } = {}) {
-  const log = (message) => { console.log(`[blockNumberSync] ${message}`); onProgress?.({ message }); };
+export async function syncPsAttendance({ onProgress, courseIds } = {}) {
+  const log = (message) => { console.log(`[psAttendanceSync] ${message}`); onProgress?.({ message }); };
   const db = getDb();
 
   const where = ['excluded = 0', 'schoology_section_id IS NOT NULL'];

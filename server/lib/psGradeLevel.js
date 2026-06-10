@@ -68,6 +68,12 @@ export function extractGradeLevels(sectionAttendanceJson) {
  * Extract the teacher userDcid from the LTI launch-form HTML (hidden input
  * custom_userdcid, e.g. "2_10405"), stripping the realm prefix. Returns null
  * when the input is absent or its value is empty.
+ *
+ * NOTE: this value need NOT match section_attendance's own userDcid (the live
+ * grid used 10005, not the form's 10405). PowerSchool resolves the real user
+ * from the session and the param only scopes "attendance taken by", so a
+ * plausible value suffices and the roster returns regardless. See
+ * .claude/powerschool-api-reference.md ("userDcid" caveat).
  */
 export function userDcidFromLaunchForm(html) {
   if (!html || typeof html !== 'string') return null;

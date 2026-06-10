@@ -9,6 +9,7 @@ import { gradeLabel, submissionStatus } from '../lib/gradeLabel.js';
 import { masteryCodeForLevel, computeLetterGrade } from '../lib/masteryLevels.js';
 import { useProficiencyScale } from '../hooks/useProficiencyScale.js';
 import { groupAssignmentsByFolder } from '../lib/assessmentGroups.js';
+import { gradYearToLevel } from '../lib/gradeLevel.js';
 import { indexMastery, buildAssignmentRubric } from '../lib/gradebookMastery.js';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import CompactRubric from '../components/CompactRubric.jsx';
@@ -174,7 +175,7 @@ function levelCellStyle(level, extra = {}) {
   };
 }
 
-function RosterView({ students, mastery, courseId, displayName, onOverrideClick }) {
+export function RosterView({ students, mastery, courseId, displayName, onOverrideClick }) {
   const scale = useProficiencyScale();
   const [showGradeScale, setShowGradeScale] = useState(false);
   const categories = mastery?.categories || [];
@@ -222,6 +223,7 @@ function RosterView({ students, mastery, courseId, displayName, onOverrideClick 
             <th rowSpan={2}></th>
             <th rowSpan={2}>Name</th>
             <th rowSpan={2}>Email</th>
+            <th rowSpan={2}>Grade</th>
             {categories.map((cat, i) => (
               <th
                 key={cat.id}
@@ -364,6 +366,9 @@ function RosterView({ students, mastery, courseId, displayName, onOverrideClick 
                   )}
                 </td>
                 <td className="text-sm">{s.email || '-'}</td>
+                <td className="text-sm">
+                  {gradYearToLevel(s.grad_year) ? `Grade ${gradYearToLevel(s.grad_year)}` : '—'}
+                </td>
                 {categories.flatMap((cat, catIdx) => {
                   const avg = categoryAvg(uid, cat.id);
                   const avgLevel = avg != null ? scale.pointsToLevel(avg) : null;

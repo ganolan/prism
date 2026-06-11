@@ -1,5 +1,5 @@
 /**
- * blockNumberSync.js
+ * psAttendanceSync.js
  *
  * Populate courses.block_number from PowerSchool (issue #106). The block a
  * teacher sees on the attendance page (e.g. ACSS = "Block 3") is the PowerSchool
@@ -31,6 +31,7 @@ import { join } from 'path';
 import { getDb } from '../db/index.js';
 import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
 import { pickBlockNumber, sectionDcidFromLaunchForm } from '../lib/psBlockNumber.js';
+import { currentSchoolYearEndYear, gradeLevelToGradYear, pickInSessionRange, extractGradeLevels, userDcidFromLaunchForm } from '../lib/psGradeLevel.js';
 
 const PS_HOST = 'powerschool.hkis.edu.hk';
 const ATTENDANCE_APP_ID = '4980125287';
@@ -75,12 +76,31 @@ async function establishPsSession(page, schoologySectionId) {
   }
 }
 
-// Resolve Schoology section → PS sectionDcid from the LTI launch-form HTML.
-// Uses context.request (carries the Schoology session cookie, no app load).
-async function fetchSectionDcid(context, schoologySectionId) {
+// Resolve Schoology section → PS sectionDcid + teacher userDcid from the LTI
+// launch-form HTML. Uses context.request (carries the Schoology session cookie,
+// no app load). The userDcid feeds the section_attendance (grade-level) read.
+async function fetchLaunchIds(context, schoologySectionId) {
   const resp = await context.request.get(runUrlFor(schoologySectionId), { maxRedirects: 5 });
   const html = await resp.text();
-  return sectionDcidFromLaunchForm(html);
+  return {
+    sectionDcid: sectionDcidFromLaunchForm(html),
+    userDcid: userDcidFromLaunchForm(html),
+  };
+}
+
+// GET /ws/attendance/section_attendance for an in-session date range, from the live
+// PS page (same-origin fetch). includeStudentAlerts=false keeps the PII surface
+// minimal (we only need the roster + gradeLevel). Returns parsed JSON or null.
+async function fetchSectionAttendance(page, sectionDcid, userDcid, startDate, endDate) {
+  const { status, text } = await page.evaluate(async ({ host, dcid, uid, s, e }) => {
+    const url = `https://${host}/ws/attendance/section_attendance`
+      + `?sectionDcid=${dcid}&userDcid=${uid}&startDate=${s}&endDate=${e}`
+      + `&includeStudentAlerts=false&multiSections=false&sortByFirstName=false`;
+    const res = await fetch(url, { credentials: 'include', headers: { Accept: 'application/json' } });
+    return { status: res.status, text: await res.text() };
+  }, { host: PS_HOST, dcid: sectionDcid, uid: userDcid, s: startDate, e: endDate });
+  if (status !== 200) return null;
+  try { return JSON.parse(text); } catch { return null; }
 }
 
 // GET /ws/attendance/section_info for a sectionDcid, from the live PS page
@@ -106,6 +126,37 @@ async function fetchSectionInfoFirst(page, sectionDcid) {
 }
 
 /**
+ * Apply a Map<dcid → gradeLevel> to the students table: set each matched
+ * student's grad_year (join: students.school_uid === '1_' + dcid). Stores the
+ * INVARIANT grad_year (computed from the current grade), never the raw grade.
+ * Students absent from the map are left untouched (never nulled). Returns the
+ * number of student rows updated. `now` may be a Date or an ISO string (the rest
+ * of the sync layer threads `now` as a pre-serialised ISO string) — both work.
+ *
+ * Assumes the synced gradeLevel is as-of the CURRENT school year — true whenever
+ * the in-session date range (pickInSessionRange) falls in it. In the rare off-season
+ * case where the only in-session day is in a *future* year past an August
+ * boundary, grad_year could be off by one; it self-heals on the next in-session
+ * sync, so we don't reconcile the query date against `now` here.
+ */
+export function applyGradeLevels(db, gradeByDcid, now = new Date()) {
+  const nowDate = typeof now === 'string' ? new Date(now) : now;
+  const yearEnd = currentSchoolYearEndYear(nowDate);
+  const ts = nowDate.toISOString();
+  const update = db.prepare('UPDATE students SET grad_year = ?, updated_at = ? WHERE school_uid = ?');
+  let updated = 0;
+  const tx = db.transaction((entries) => {
+    for (const [dcid, gradeLevel] of entries) {
+      const gradYear = gradeLevelToGradYear(gradeLevel, yearEnd);
+      if (gradYear == null) continue;
+      updated += update.run(gradYear, ts, `1_${dcid}`).changes;
+    }
+  });
+  tx([...gradeByDcid.entries()]);
+  return updated;
+}
+
+/**
  * Resolve block_number from PowerSchool. PowerSchool-authoritative: a course
  * gets PowerSchool's numbered block ("Block N" → the digit), overwriting any
  * prior value; where PowerSchool resolves no numbered block (PCG → "Pastoral
@@ -128,8 +179,8 @@ async function fetchSectionInfoFirst(page, sectionDcid) {
  * courseName, blockNumber, blockName?, reason, status }] }.
  * reason: 'ok' | 'not-numbered' | 'no-block' | 'ambiguous' | 'no-section-dcid' | 'section-info-failed'
  */
-export async function syncBlockNumbers({ onProgress, courseIds } = {}) {
-  const log = (message) => { console.log(`[blockNumberSync] ${message}`); onProgress?.({ message }); };
+export async function syncPsAttendance({ onProgress, courseIds } = {}) {
+  const log = (message) => { console.log(`[psAttendanceSync] ${message}`); onProgress?.({ message }); };
   const db = getDb();
 
   const where = ['excluded = 0', 'schoology_section_id IS NOT NULL'];
@@ -145,7 +196,7 @@ export async function syncBlockNumbers({ onProgress, courseIds } = {}) {
      WHERE ${where.join(' AND ')} ORDER BY course_name`
   ).all(...params);
 
-  const summary = { processed: 0, updated: 0, unchanged: 0, skipped: 0, results: [] };
+  const summary = { processed: 0, updated: 0, unchanged: 0, skipped: 0, gradeLevels: { seen: 0, updated: 0 }, results: [] };
   if (courses.length === 0) {
     log('No courses to sync blocks for.');
     return summary; // returns before launching a browser
@@ -164,13 +215,16 @@ export async function syncBlockNumbers({ onProgress, courseIds } = {}) {
     await establishPsSession(page, courses[0].schoology_section_id);
     log('PowerSchool session ready.');
 
+    const gradeByDcid = new Map(); // dcid → gradeLevel, accumulated across all sections
+    const todayIso = new Date().toISOString().slice(0, 10);
+
     for (const c of courses) {
       summary.processed++;
       const now = new Date().toISOString();
 
       // Resolve the section's block (or a failure pick) without throwing.
       let pick;
-      const sectionDcid = await fetchSectionDcid(context, c.schoology_section_id);
+      const { sectionDcid, userDcid } = await fetchLaunchIds(context, c.schoology_section_id);
       if (!sectionDcid) {
         pick = { blockNumber: null, blockName: null, reason: 'no-section-dcid' };
       } else {
@@ -178,6 +232,26 @@ export async function syncBlockNumbers({ onProgress, courseIds } = {}) {
         pick = first
           ? pickBlockNumber(first)
           : { blockNumber: null, blockName: null, reason: `section-info-failed:${status}` };
+
+        // Grade level: pick an in-session date range from the SAME section_info
+        // calendar and read the roster's per-student gradeLevel. A range covers
+        // sections that don't meet on a single picked day (A/B block rotation —
+        // issue #43). Best-effort — wrapped so a page.evaluate rejection (the PS
+        // iframe can detach mid-loop — see the API playbook) is logged and skipped,
+        // never aborting the loop or block writes.
+        if (first && userDcid) {
+          const range = pickInSessionRange(first, todayIso);
+          if (range) {
+            try {
+              const sa = await fetchSectionAttendance(page, sectionDcid, userDcid, range.startDate, range.endDate);
+              for (const { dcid, gradeLevel } of extractGradeLevels(sa || {})) {
+                gradeByDcid.set(dcid, gradeLevel);
+              }
+            } catch (err) {
+              log(`${c.course_name}: grade-level read failed (${err.message}) — skipped`);
+            }
+          }
+        }
       }
       const reason = pick.reason.startsWith('section-info-failed') ? 'section-info-failed' : pick.reason;
 
@@ -204,6 +278,9 @@ export async function syncBlockNumbers({ onProgress, courseIds } = {}) {
       }
     }
 
+    summary.gradeLevels.seen = gradeByDcid.size;
+    summary.gradeLevels.updated = applyGradeLevels(db, gradeByDcid);
+    log(`Grade levels: ${summary.gradeLevels.updated} students updated (${gradeByDcid.size} seen).`);
     log(`Done: ${summary.updated} updated, ${summary.unchanged} unchanged, ${summary.skipped} skipped (of ${summary.processed}).`);
     return summary;
   } finally {

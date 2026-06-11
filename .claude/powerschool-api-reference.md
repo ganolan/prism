@@ -197,6 +197,17 @@ GET https://powerschool.hkis.edu.hk/ws/attendance/section_attendance
   }
 ```
 
+**⚠️ Use a multi-day RANGE, not a single day, for full roster coverage (verified 2026-06-10, #43).**
+`section_attendance` returns a section's `studentAttendance` roster only for days that **section actually
+meets** (A/B block rotation) — a single `startDate==endDate` query returns an **empty** `sectionAttendances`
+for any section not meeting that exact day. So a sync that picks one school-in-session day captures only the
+blocks meeting that day (live: 18/108 students; only the 2 blocks meeting that date). Query a **range of
+~15 in-session days** instead: the response then contains one `sectionAttendances[]` entry per meeting day,
+each repeating the full roster — dedupe per student by `dcid` (`Map<dcid → gradeLevel>`). With the range,
+coverage hit 100% of every block-resolvable course (75/108; the rest are interim-only / archived). Grade
+level is the same per-student value on every day, so de-duplication is lossless. See `pickInSessionRange`
+in `server/lib/psGradeLevel.js`.
+
 Grade-level *definitions* (not per-student) come from
 `POST /ws/schema/query/com.pearson.core.schools.grade_levels` → `{ record: [{ grade_level, grade_text }] }`.
 
@@ -235,9 +246,18 @@ live section. The `1_` prefix denotes the students realm; the teacher `custom_us
 
 `gradeLevel` is the **current** grade (9–12) — authoritative, not inferred from student ID. Graduating
 year is a clean function of it: for school year ending in calendar year `Y` (2025-26 → `Y = 2026`),
-`grad_year = Y + (12 − gradeLevel)` (G12→2026, G11→2027, G10→2028, G9→2029). Because the raw datum is
-*current grade*, prefer storing `grade_level` and deriving `grad_year` on read (or recompute each sync),
-rather than storing a `grad_year` that silently goes stale at year rollover.
+`grad_year = Y + (12 − gradeLevel)` (G12→2026, G11→2027, G10→2028, G9→2029).
+
+**Store the invariant, derive the display (corrected 2026-06-10, spike #43 — supersedes the earlier
+"store grade_level, derive grad_year" note).** Persist `grad_year` (compute it once per sync from the
+authoritative `gradeLevel`), and derive the *displayed* current grade on read. Rationale: `gradeLevel` is a
+**time-relative** datum — "Gr 12" only means anything paired with the year observed — while `grad_year` is
+**time-invariant** ("Class of 2026" forever). A student who leaves/graduates stops being re-synced, so their
+stored value freezes: a frozen `grad_year` stays correct indefinitely, but a frozen `gradeLevel` re-derived
+against the current year **drifts wrong** every rollover (a Gr-12 leaver reads as Gr-13 → grad_year 2027 the
+next year). For *active* students re-synced each cycle the two are equivalent; the distinction only bites for
+departed students — exactly when correctness matters. Prism uses the existing `students.grad_year` column;
+display derives current grade = `12 − (grad_year − Y)` and shows no grade once it exceeds 12 (graduated).
 
 ### Caveats / open items
 
@@ -254,7 +274,7 @@ rather than storing a `grad_year` that silently goes stale at year rollover.
 
 ### Student alerts & custom-alert popups (probed 2026-05-30, for #65)
 
-The per-student alert icons in the attendance grid come from PowerSchool's **MBA custom-alerts plugin** (`aet_customalert`), whose client API lives under `/teachers/mba_alerts/queries/`. (Note: `section_attendance.studentAlerts` is a *different*, standard alert channel — empty for these students — and `getStudentsInSection.json` returns only the roster.) The plugin JS (loaded via `/ws/pagecustomizations/insertions`) is the map.
+The per-student alert icons in the attendance grid come from PowerSchool's **MBA custom-alerts plugin** (`aet_customalert`), whose client API lives under `/teachers/mba_alerts/queries/`. (Note: `section_attendance.studentAlerts` is a *different*, standard alert channel — empty for these students — and `getStudentsInSection.json` returns only the roster — **verified shape 2026-06-10, spike #43**: `POST` body `sectionIds={sectionDcid}` (date-free; note the plural param), response is a flat array of `{ ccid, sectionid, lastfirst, studentid, studentdcid }` — **roster identity only, NO `gradeLevel`/demographics**, so it is *not* a date-free grade-level source. The only confirmed `gradeLevel` read stays `/ws/attendance/section_attendance` (needs an in-session date). The PT-v1 `/ws/pt/v1/student/...` namespace — a possible cleaner date-free demographics/grade source — did **not** fire on the grid render and is still unprobed (tracked for a follow-up probe).) The plugin JS (loaded via `/ws/pagecustomizations/insertions`) is the map.
 
 **Full alert catalog — one call, no inference needed:**
 `POST /teachers/mba_alerts/queries/getAlertTypes.json` (form `disabled=0&student_schoolid=40`) returns the **complete catalog of every configured alert** (HS = school 40). Returned **31 definitions** (a trailing meta element is popped by the client). Each def: `id`, `name`, `trigger_type`, `student_field`, `ext_table_name`, `icon`, `stub_url`, operators, `sort_order`. Three trigger types:

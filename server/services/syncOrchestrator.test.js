@@ -11,11 +11,11 @@ vi.mock('../db/index.js', async (importOriginal) => {
 });
 vi.mock('./sync.js', () => ({ fullSync: vi.fn() }));
 vi.mock('./masterySync.js', () => ({ syncMasteryForCourse: vi.fn() }));
-vi.mock('./blockNumberSync.js', () => ({ syncBlockNumbers: vi.fn() }));
+vi.mock('./psAttendanceSync.js', () => ({ syncPsAttendance: vi.fn() }));
 
 import { fullSync } from './sync.js';
 import { syncMasteryForCourse } from './masterySync.js';
-import { syncBlockNumbers } from './blockNumberSync.js';
+import { syncPsAttendance } from './psAttendanceSync.js';
 import { runUnifiedSync, classifyMasteryError } from './syncOrchestrator.js';
 
 function seedCourse(db, name) {
@@ -40,10 +40,10 @@ describe('runUnifiedSync', () => {
     migrate(h.db);
     fullSync.mockReset();
     syncMasteryForCourse.mockReset();
-    syncBlockNumbers.mockReset();
+    syncPsAttendance.mockReset();
     fullSync.mockResolvedValue({ success: true, records: 42 });
     syncMasteryForCourse.mockResolvedValue({ scoresCount: 7 });
-    syncBlockNumbers.mockResolvedValue({ updated: 0, skipped: 0 });
+    syncPsAttendance.mockResolvedValue({ updated: 0, skipped: 0 });
   });
 
   test('runs Schoology before mastery and emits ordered events', async () => {
@@ -105,11 +105,11 @@ describe('runUnifiedSync', () => {
 
   test('runs the block phase by default, between schoology and mastery', async () => {
     const cid = seedCourse(h.db, 'Bio 9');
-    syncBlockNumbers.mockResolvedValue({ updated: 2, skipped: 1 });
+    syncPsAttendance.mockResolvedValue({ updated: 2, skipped: 1, gradeLevels: { seen: 30, updated: 28 } });
     const events = [];
     await runUnifiedSync({ masteryCourseIds: [cid] }, (e) => events.push(e));
 
-    expect(syncBlockNumbers).toHaveBeenCalledOnce();
+    expect(syncPsAttendance).toHaveBeenCalledOnce();
     const order = events.filter((e) => e.phase).map((e) => `${e.phase}:${e.status}`);
     expect(order).toEqual([
       'schoology:running', 'schoology:done',
@@ -117,19 +117,21 @@ describe('runUnifiedSync', () => {
       'mastery:running', 'mastery:done',
     ]);
     expect(events.find((e) => e.phase === 'blocks' && e.status === 'done')).toMatchObject({ records: 2 });
+    const blocksDone = events.find(e => e.phase === 'blocks' && e.status === 'done');
+    expect(blocksDone.gradeLevelsUpdated).toBe(28);
   });
 
   test('syncBlocks:false skips the block phase entirely (no browser launch)', async () => {
     const cid = seedCourse(h.db, 'Bio 10');
     const events = [];
     await runUnifiedSync({ masteryCourseIds: [cid], syncBlocks: false }, (e) => events.push(e));
-    expect(syncBlockNumbers).not.toHaveBeenCalled();
+    expect(syncPsAttendance).not.toHaveBeenCalled();
     expect(events.some((e) => e.phase === 'blocks')).toBe(false);
   });
 
   test('a block-sync failure is non-fatal — mastery still runs', async () => {
     const cid = seedCourse(h.db, 'Bio 11');
-    syncBlockNumbers.mockRejectedValue(new Error('PowerSchool session stale'));
+    syncPsAttendance.mockRejectedValue(new Error('PowerSchool session stale'));
     const events = [];
     await runUnifiedSync({ masteryCourseIds: [cid] }, (e) => events.push(e));
 

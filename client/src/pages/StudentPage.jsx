@@ -12,6 +12,7 @@ import { gradeLabel, submissionStatus } from '../lib/gradeLabel.js';
 import { masteryCodeForLevel } from '../lib/masteryLevels.js';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import { formatGradeBadge } from '../lib/gradeLevel.js';
+import { preferredFirstName } from '../lib/studentNames.js';
 
 function CopyButton({ text, label }) {
   const [copied, setCopied] = useState(false);
@@ -321,8 +322,7 @@ export default function StudentPage() {
   if (loading) return <div className="loading">Loading...</div>;
   if (!student) return <div className="error-msg">Student not found</div>;
 
-  // Teacher-set preferred name wins, then Schoology preferred_name, then legal first_name
-  const displayName = student.preferred_name_teacher || student.preferred_name || student.first_name;
+  const displayName = preferredFirstName(student);
   const legalFullName = `${student.first_name} ${student.last_name}`;
   const displayedFullName = `${displayName} ${student.last_name}`;
   const showLegalName = legalFullName !== displayedFullName;

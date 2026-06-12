@@ -56,7 +56,11 @@ describe('getAssessmentContext', () => {
       schoology_uid: 'uid-1',
       enrollment_id: 'enr-1',
       first_name: 'Ada',
+      last_name: 'Lovelace',
       preferred_name: 'Ada',
+      // Resolved name the agent should address the student by (spec: name
+      // students correctly in suggested feedback).
+      preferred_first_name: 'Ada',
       grade_comment: 'Nice work',
       display_to_student: true,
       exception: 0,
@@ -68,6 +72,18 @@ describe('getAssessmentContext', () => {
       rubric_scores: { 'ART.5.1': 'ED' },
       reviewer_flags: 'check sources',
     });
+  });
+
+  test('resolves preferred_first_name from the teacher override, not the Schoology preferred name', () => {
+    const db = getDb();
+    seedContext(db);
+    // Teacher renamed Ada → "Lexi"; this override must win in the agent payload
+    // just as it does everywhere in the UI.
+    db.prepare(`UPDATE students SET preferred_name_teacher = 'Lexi' WHERE schoology_uid = 'uid-1'`).run();
+
+    const ctx = getAssessmentContext(db, { assignmentId: 'sa-1' });
+
+    expect(ctx.students[0].preferred_first_name).toBe('Lexi');
   });
 
   test('accepts a local assignment id as well as the Schoology id', () => {

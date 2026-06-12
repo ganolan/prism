@@ -54,7 +54,7 @@ export function createServer() {
     'get_assignment_context',
     {
       description:
-        'Load an assignment\'s roster, aligned measurement topics (rubric skeleton), current finals/comments/display-status, and any existing AI suggestions, to grade against.',
+        'Load an assignment\'s roster, aligned measurement topics (rubric skeleton), current finals/comments/display-status, and any existing AI suggestions, to grade against. Address each student in feedback by their roster `preferred_first_name` (the teacher-honored display name); `first_name`/`last_name` are the legal name, for matching submissions.',
       inputSchema: {
         course_id: z.union([z.number(), z.string()]).describe('Local Prism course id'),
         assignment_id: z.union([z.number(), z.string()]).describe('Schoology or local assignment id'),

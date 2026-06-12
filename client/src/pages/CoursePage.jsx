@@ -10,6 +10,7 @@ import { masteryCodeForLevel, computeLetterGrade } from '../lib/masteryLevels.js
 import { useProficiencyScale } from '../hooks/useProficiencyScale.js';
 import { groupAssignmentsByFolder } from '../lib/assessmentGroups.js';
 import { gradYearToLevel } from '../lib/gradeLevel.js';
+import { preferredFirstName } from '../lib/studentNames.js';
 import { indexMastery, buildAssignmentRubric } from '../lib/gradebookMastery.js';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import CompactRubric from '../components/CompactRubric.jsx';
@@ -71,7 +72,7 @@ export default function CoursePage() {
   if (loading) return <div className="loading">Loading...</div>;
   if (!course) return <div className="error-msg">Course not found</div>;
 
-  const displayName = (s) => s.preferred_name_teacher || s.preferred_name || s.first_name;
+  const displayName = (s) => preferredFirstName(s);
 
   return (
     <div className="fade-in">
@@ -506,7 +507,7 @@ function MiniRubricStrip({ topics, onClick }) {
 // Modal opened from a MiniRubricStrip — the full rubric grid (shared
 // CompactRubric) plus the overall comment, matching the /student/ page.
 function RubricModal({ student, assignment, courseId, topics, comment, grade, onClose }) {
-  const name = student.preferred_name_teacher || student.preferred_name || student.first_name;
+  const name = preferredFirstName(student);
   // Submission state + flags, shown above the rubric — matching the /student/ page.
   const status = submissionStatus({
     score: grade.score, exception: grade.exception, late: grade.late,
@@ -703,7 +704,7 @@ function GradebookView({ data, courseId, mastery }) {
   }
 
   const { assignments, students, grades, grading_scales } = data;
-  const displayName = (s) => s.preferred_name_teacher || s.preferred_name || s.first_name;
+  const displayName = (s) => preferredFirstName(s);
 
   // Fixed table layout keeps every assessment column an identical width so the
   // diagonal headers stay uniform (#37); NAME_W must clear the longest name.

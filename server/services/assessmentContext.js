@@ -7,6 +7,7 @@
 // them into the PrisMCP get_assignment_context shape (spec §3.1).
 
 import { resolveAssignmentId } from './idResolvers.js';
+import { preferredFirstName } from './studentNames.js';
 
 // Aligned measurement topics for an assignment (the rubric skeleton), from the
 // authoritative mastery_alignments table; falls back to topics that have any
@@ -135,6 +136,9 @@ export function getAssessmentContext(db, { assignmentId }) {
       first_name: st.first_name,
       last_name: st.last_name,
       preferred_name: st.preferred_name,
+      // Resolved name to address the student by in suggested feedback — honors
+      // the teacher's override (preferred_name_teacher), matching the UI.
+      preferred_first_name: preferredFirstName(st),
       current_scores: Object.fromEntries(
         Object.entries(scoreMap[st.schoology_uid] || {}).map(([topicId, sc]) => [topicId, { level: sc.grade }])
       ),

@@ -7,6 +7,7 @@ import {
   getCourseAssignments, getGradingScales,
 } from '../services/api.js';
 import { gradeLabel } from '../lib/gradeLabel.js';
+import { studentFullName } from '../lib/studentNames.js';
 
 const STATUS_COLORS = {
   draft: 'badge-gray',
@@ -126,7 +127,7 @@ export default function FeedbackPage() {
                 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Link to={`/student/${item.student_id}`} className="link text-sm" onClick={e => e.stopPropagation()}>
-                    {item.preferred_name || item.first_name} {item.last_name}
+                    {studentFullName(item)}
                   </Link>
                   <span className={`badge ${STATUS_COLORS[item.status] || 'badge-gray'}`}>{item.status.replace('_', ' ')}</span>
                 </div>
@@ -211,7 +212,7 @@ function FeedbackDetail({ item, scales, onApprove, onDelete, onUpdate }) {
           <div>
             <h3>
               <Link to={`/student/${item.student_id}`} className="link">
-                {item.preferred_name || item.first_name} {item.last_name}
+                {studentFullName(item)}
               </Link>
             </h3>
             <p className="text-sm text-muted">{item.assignment_title} — {item.course_name}</p>
@@ -440,7 +441,7 @@ function ManualEntry({ courses, onDone }) {
           <label className="text-sm">Student</label>
           <select value={form.student_id} onChange={e => setForm(f => ({ ...f, student_id: e.target.value }))} required>
             <option value="">Select...</option>
-            {students.map(s => <option key={s.id} value={s.id}>{s.preferred_name || s.first_name} {s.last_name}</option>)}
+            {students.map(s => <option key={s.id} value={s.id}>{studentFullName(s)}</option>)}
           </select>
         </div>
         <div>

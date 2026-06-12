@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { searchStudents } from '../services/api.js';
 import { gradYearToLevel } from '../lib/gradeLevel.js';
+import { preferredFirstName } from '../lib/studentNames.js';
 
 function matchesQuery(student, query) {
   if (!query.trim()) return true;
@@ -33,7 +34,7 @@ export default function SearchPage() {
 
   const results = allStudents.filter(s => matchesQuery(s, query));
 
-  const displayName = (s) => s.preferred_name_teacher || s.preferred_name || s.first_name;
+  const displayName = (s) => preferredFirstName(s);
 
   return (
     <div className="fade-in">

@@ -233,7 +233,10 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         { immediate: flushNextRef.current }
       );
     } else if (didDraftRef.current) {
-      saver.remove();
+      // Honor flushNextRef so a discrete clear (discard / toggle-off) deletes the
+      // server row immediately; a debounced remove could be lost on fast navigate
+      // (the unmount flush intentionally does not flush queued deletes).
+      saver.remove({ immediate: flushNextRef.current });
     }
     flushNextRef.current = false;
   }, [hasPendingChanges, pending, comment, display, displayTouched, currentBaseline]);
@@ -265,6 +268,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     let legacy = null;
     try { const raw = localStorage.getItem(legacyKey); legacy = raw ? JSON.parse(raw) : null; } catch { /* ignore */ }
     if (!legacy) return;
+    // Remove before the baseline check — a stale legacy draft should not persist either.
     try { localStorage.removeItem(legacyKey); } catch { /* ignore */ }
     if (legacy.base === currentBaseline) {
       flushNextRef.current = true;
@@ -369,6 +373,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // Revert all of this card's unsaved changes back to the synced Schoology
   // state. Shared by the per-card Discard button and the page-level Discard all.
   function discardChanges() {
+    flushNextRef.current = true;
     setPending({});
     setComment(student.grade_comment || '');
     setDisplay(loadedDisplay);

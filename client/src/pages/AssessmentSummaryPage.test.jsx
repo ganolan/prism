@@ -4,6 +4,7 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 import AssessmentSummaryPage, { StudentRubricCard } from './AssessmentSummaryPage.jsx';
 import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale } from '../services/api.js';
+import { draftBaseline } from '../lib/assessmentDraft.js';
 
 // Stub the DB saver so tests assert wiring, not I/O.
 let mockSaver;
@@ -87,6 +88,7 @@ function renderCard(extraProps = {}) {
 beforeEach(() => {
   localStorage.clear();
   vi.clearAllMocks();
+  mockSaver = undefined;
 });
 
 describe('StudentRubricCard draft persistence', () => {
@@ -105,7 +107,7 @@ describe('StudentRubricCard draft persistence', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
-    expect(mockSaver.remove).toHaveBeenCalled();
+    expect(mockSaver.remove).toHaveBeenCalledWith({ immediate: true });
   });
 
   it('does not call saver.save when there are no unsaved changes', () => {
@@ -114,7 +116,6 @@ describe('StudentRubricCard draft persistence', () => {
   });
 
   it('restores the display-to-student toggle from a draftRow prop', () => {
-    const { draftBaseline } = require('../lib/assessmentDraft.js');
     // Build a valid baseline for the student so the draft isn't treated as stale.
     // (draftBaseline is synchronously available from the non-mocked module.)
     const base = draftBaseline(makeStudent(), TOPICS);
@@ -125,7 +126,6 @@ describe('StudentRubricCard draft persistence', () => {
   });
 
   it('migrates a pre-DB localStorage draft when draftRow is null', () => {
-    const { draftBaseline } = require('../lib/assessmentDraft.js');
     const base = draftBaseline(makeStudent(), TOPICS);
     localStorage.setItem(
       'prism:assessment-draft:4:8:enr-1',
@@ -159,7 +159,6 @@ describe('StudentRubricCard draft persistence', () => {
 });
 
 // ── New: draftRow prop restore (DB-backed autosave, Task 6) ─────────────────
-import { draftBaseline } from '../lib/assessmentDraft.js';
 
 describe('StudentRubricCard draft restore', () => {
   it('restores pending changes from the draftRow prop (matching baseline)', () => {

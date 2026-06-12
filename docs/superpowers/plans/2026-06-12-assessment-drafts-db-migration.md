@@ -55,16 +55,16 @@ Append to the end of `server/db/schema.sql`:
 CREATE TABLE IF NOT EXISTS assessment_drafts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   assignment_id INTEGER NOT NULL REFERENCES assignments(id),
-  student_id    INTEGER NOT NULL REFERENCES students(id),
-  enrollment_id TEXT,
-  draft_json    TEXT NOT NULL,
-  updated_at    TEXT DEFAULT (datetime('now')),
+  student_id INTEGER NOT NULL REFERENCES students(id),
+  enrolment_id TEXT,
+  draft_json TEXT NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now')),
   UNIQUE(assignment_id, student_id)
 );
 CREATE INDEX IF NOT EXISTS idx_assessment_drafts_assignment ON assessment_drafts(assignment_id);
 ```
 
-(`enrollment_id` is `TEXT` — `getRoster` exposes `schoology_enrolment_id` which is a string like `'enr-1'`.)
+(`enrolment_id` is `TEXT` and British-spelled to match the DB convention — `grades.enrolment_id`, table `enrolments` — even though the roster/API boundary exposes it to the client as `enrollment_id`. `getRoster` aliases `schoology_enrolment_id AS enrollment_id`, a string like `'enr-1'`.)
 
 - [ ] **Step 2: Verify the table is created on a fresh DB**
 
@@ -224,11 +224,11 @@ router.post('/', (req, res) => {
   const localStudentId = resolveStudentId(db, student_id);
   if (!localStudentId) return res.status(404).json({ error: 'Student not found' });
   db.prepare(`
-    INSERT INTO assessment_drafts (assignment_id, student_id, enrollment_id, draft_json, updated_at)
+    INSERT INTO assessment_drafts (assignment_id, student_id, enrolment_id, draft_json, updated_at)
     VALUES (?, ?, ?, ?, datetime('now'))
     ON CONFLICT(assignment_id, student_id) DO UPDATE SET
       draft_json = excluded.draft_json,
-      enrollment_id = excluded.enrollment_id,
+      enrolment_id = excluded.enrolment_id,
       updated_at = datetime('now')
   `).run(localAssignmentId, localStudentId, enrollment_id ?? null, JSON.stringify(draft));
   res.json({ ok: true });
@@ -483,6 +483,8 @@ import { saveAssessmentDraft, deleteAssessmentDraft } from '../services/api.js';
 import { makeDraftSaver } from './assessmentDraftSaver.js';
 
 const target = { assignmentId: 'sa-1', studentId: 7, enrollmentId: 'enr-1' };
+// The route's snake_case wire contract that the saver maps the target into.
+const wire = (draft) => ({ assignment_id: 'sa-1', student_id: 7, enrollment_id: 'enr-1', draft });
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -500,7 +502,7 @@ describe('makeDraftSaver', () => {
     expect(saveAssessmentDraft).not.toHaveBeenCalled();
     vi.advanceTimersByTime(500);
     expect(saveAssessmentDraft).toHaveBeenCalledTimes(1);
-    expect(saveAssessmentDraft).toHaveBeenCalledWith({ ...target, draft: { comment: 'abc' } });
+    expect(saveAssessmentDraft).toHaveBeenCalledWith(wire({ comment: 'abc' }));
   });
 
   it('immediate save fires synchronously with no timer wait', () => {
@@ -529,7 +531,7 @@ describe('makeDraftSaver', () => {
     const s = makeDraftSaver(target, { delay: 500 });
     s.save({ comment: 'x' });
     s.flush();
-    expect(saveAssessmentDraft).toHaveBeenCalledWith({ ...target, draft: { comment: 'x' } }, { keepalive: true });
+    expect(saveAssessmentDraft).toHaveBeenCalledWith(wire({ comment: 'x' }), { keepalive: true });
   });
 
   it('flush() is a no-op when nothing is pending', () => {
@@ -544,7 +546,7 @@ describe('makeDraftSaver', () => {
     const s = makeDraftSaver(target, { delay: 500 });
     s.save({ comment: 'x' });
     s.flush({ beacon: true });
-    expect(beacon).toHaveBeenCalledWith('/api/assessment-drafts', JSON.stringify({ ...target, draft: { comment: 'x' } }));
+    expect(beacon).toHaveBeenCalledWith('/api/assessment-drafts', JSON.stringify(wire({ comment: 'x' })));
     expect(saveAssessmentDraft).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
@@ -569,17 +571,27 @@ Create `client/src/lib/assessmentDraftSaver.js`:
 import { saveAssessmentDraft, deleteAssessmentDraft, draftBeaconBody, DRAFTS_PATH } from '../services/api.js';
 
 export function makeDraftSaver(target, { delay = 500 } = {}) {
-  // target: { assignmentId, studentId, enrollmentId }
+  // target: { assignmentId, studentId, enrollmentId } (camelCase JS).
   let timer = null;
   let pendingDraft = null;   // latest draft object to POST, or null
   let pendingDelete = false; // latest intent is a delete
+
+  // Map the camelCase target to the route's snake_case wire contract.
+  function wireBody(draft) {
+    return {
+      assignment_id: target.assignmentId,
+      student_id: target.studentId,
+      enrollment_id: target.enrollmentId,
+      draft,
+    };
+  }
 
   function clearTimer() { if (timer) { clearTimeout(timer); timer = null; } }
 
   function send() {
     clearTimer();
     if (pendingDraft) {
-      const body = { ...target, draft: pendingDraft };
+      const body = wireBody(pendingDraft);
       pendingDraft = null;
       saveAssessmentDraft(body).catch(() => {});
     } else if (pendingDelete) {
@@ -610,7 +622,7 @@ export function makeDraftSaver(target, { delay = 500 } = {}) {
     flush({ beacon = false } = {}) {
       clearTimer();
       if (!pendingDraft) return;
-      const body = { ...target, draft: pendingDraft };
+      const body = wireBody(pendingDraft);
       pendingDraft = null;
       if (beacon && typeof navigator !== 'undefined' && navigator.sendBeacon) {
         navigator.sendBeacon(DRAFTS_PATH, draftBeaconBody(body));

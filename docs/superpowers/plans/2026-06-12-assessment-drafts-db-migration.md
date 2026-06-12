@@ -345,7 +345,7 @@ In `server/services/assessmentContext.js`, add these two helpers after `getExist
 // Teacher draft feedback (unpublished proficiency picks + comment + display
 // toggle) for an assignment (local id), keyed by student_id. The draft object
 // is stored verbatim; updated_at is attached for recency display.
-export function getDrafts(db, assignmentLocalId) {
+export function getAssessmentDrafts(db, assignmentLocalId) {
   const rows = db.prepare(
     'SELECT student_id, draft_json, updated_at FROM assessment_drafts WHERE assignment_id = ?'
   ).all(assignmentLocalId);
@@ -381,7 +381,7 @@ function buildDraftFeedback(draft) {
 Then, inside `getAssessmentContext`, read the drafts beside the suggestions (after line 124, `const suggestions = …`):
 
 ```js
-  const drafts = getDrafts(db, assignmentRow.id);
+  const drafts = getAssessmentDrafts(db, assignmentRow.id);
 ```
 
 And in the `roster.map` student object, add a `draft_feedback` field right after `existing_suggestion` (after line 155, inside the returned object). First capture the draft beside `const sug = suggestions[st.id];` (line 131):

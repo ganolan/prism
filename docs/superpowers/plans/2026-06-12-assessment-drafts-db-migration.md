@@ -218,7 +218,7 @@ router.get('/', (req, res) => {
 router.post('/', (req, res) => {
   const db = getDb();
   const { assignment_id, student_id, enrollment_id, draft } = req.body || {};
-  if (!assignment_id || !draft) return res.status(400).json({ error: 'assignment_id and draft are required' });
+  if (!assignment_id || !student_id || !draft) return res.status(400).json({ error: 'assignment_id, student_id, and draft are required' });
   const localAssignmentId = resolveAssignmentId(db, assignment_id);
   if (!localAssignmentId) return res.status(404).json({ error: 'Assignment not found' });
   const localStudentId = resolveStudentId(db, student_id);

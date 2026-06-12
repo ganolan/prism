@@ -378,10 +378,10 @@ CREATE INDEX IF NOT EXISTS idx_rubric_attach_topics_topic ON rubric_attachment_t
 CREATE TABLE IF NOT EXISTS assessment_drafts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   assignment_id INTEGER NOT NULL REFERENCES assignments(id),
-  student_id    INTEGER NOT NULL REFERENCES students(id),
-  enrollment_id TEXT,
-  draft_json    TEXT NOT NULL,
-  updated_at    TEXT DEFAULT (datetime('now')),
+  student_id INTEGER NOT NULL REFERENCES students(id),
+  enrolment_id TEXT,
+  draft_json TEXT NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now')),
   UNIQUE(assignment_id, student_id)
 );
 CREATE INDEX IF NOT EXISTS idx_assessment_drafts_assignment ON assessment_drafts(assignment_id);

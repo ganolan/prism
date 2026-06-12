@@ -820,7 +820,10 @@ Replace the localStorage persist effect (lines 214-220) with:
         { immediate: flushNextRef.current }
       );
     } else if (didDraftRef.current) {
-      saver.remove();
+      // Honor flushNextRef so a discrete clear (discard / toggle-off) deletes the
+      // server row immediately; a debounced remove could be lost on fast navigate
+      // (the unmount flush intentionally does not flush queued deletes).
+      saver.remove({ immediate: flushNextRef.current });
     }
     flushNextRef.current = false;
   }, [hasPendingChanges, pending, comment, display, displayTouched, currentBaseline]);
@@ -874,6 +877,12 @@ In `selectLevel` (line 270), set the immediate flag at the top of the function b
 ```
 
 In `applyDisplay` (line 323), add at the top:
+
+```js
+    flushNextRef.current = true;
+```
+
+In `discardChanges` (the per-card + page-level "discard all" revert), add at the top — so a discard deletes the server draft immediately rather than via the debounce (the autosave effect's remove branch reads `flushNextRef`):
 
 ```js
     flushNextRef.current = true;

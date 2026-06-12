@@ -109,7 +109,7 @@ export function getExistingSuggestions(db, assignmentLocalId) {
 // Teacher draft feedback (unpublished proficiency picks + comment + display
 // toggle) for an assignment (local id), keyed by student_id. The draft object
 // is stored verbatim; updated_at is attached for recency display.
-export function getDrafts(db, assignmentLocalId) {
+export function getAssessmentDrafts(db, assignmentLocalId) {
   const rows = db.prepare(
     'SELECT student_id, draft_json, updated_at FROM assessment_drafts WHERE assignment_id = ?'
   ).all(assignmentLocalId);
@@ -132,6 +132,7 @@ function buildDraftFeedback(draft) {
     if (level === '__remove__') removed_topics.push(topicId);
     else rubric_scores[topicId] = level;
   }
+  // displayTouched and base are UI-only draft state; intentionally omitted here.
   return {
     updated_at: draft.updated_at ?? null,
     rubric_scores,
@@ -157,7 +158,7 @@ export function getAssessmentContext(db, { assignmentId }) {
   const roster = getRoster(db, courseId, assignmentRow);
   const scoreMap = getScoreMap(db, schoolyId, topics.map((t) => t.id));
   const suggestions = getExistingSuggestions(db, assignmentRow.id);
-  const drafts = getDrafts(db, assignmentRow.id);
+  const drafts = getAssessmentDrafts(db, assignmentRow.id);
 
   const metaByUid = {};
   for (const g of getGradeMetaRows(db, schoolyId)) metaByUid[g.schoology_uid] = g;

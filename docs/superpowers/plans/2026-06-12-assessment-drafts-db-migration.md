@@ -664,17 +664,23 @@ Create `client/src/pages/AssessmentSummaryPage.test.jsx`:
 ```jsx
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 
 // The card persists via the saver; stub it so the test asserts wiring, not I/O.
 vi.mock('../lib/assessmentDraftSaver.js', () => ({
   makeDraftSaver: () => ({ save: vi.fn(), remove: vi.fn(), flush: vi.fn(), dispose: vi.fn() }),
 }));
-// A ready proficiency scale so the rubric renders.
+// A ready proficiency scale so the rubric renders (full helper surface).
 vi.mock('../hooks/useProficiencyScale.js', () => ({
   useProficiencyScale: () => ({
-    ready: true, schoologyScaleId: 'gs-1',
+    ready: true,
+    schoologyScaleId: 'gs-1',
+    table: [],
+    pointsToLevel: () => null,
     levelToPoints: (c) => ({ ED: 100, EX: 75, D: 50, EM: 25, IE: 0 }[c] ?? null),
+    levelToGradeScaled: () => null,
     levelLabel: (c) => c,
+    computeLetterGrade: () => null,
   }),
 }));
 
@@ -696,10 +702,12 @@ describe('StudentRubricCard draft restore', () => {
     const base = draftBaseline(student, topics);
     const draftRow = { pending: { 'topic-1': 'ED' }, comment: '', display: false, displayTouched: false, base };
     render(
-      <StudentRubricCard
-        student={student} topics={topics} courseId="4" assignmentId="sa-1"
-        assignmentRow={{ id: 1 }} feedbackRow={null} draftRow={draftRow} viewMode="descriptors"
-      />
+      <MemoryRouter>
+        <StudentRubricCard
+          student={student} topics={topics} courseId="4" assignmentId="sa-1"
+          assignmentRow={{ id: 1 }} feedbackRow={null} draftRow={draftRow} viewMode="descriptors"
+        />
+      </MemoryRouter>
     );
     // The pending-change badge reflects the restored draft.
     expect(screen.getByText(/pending change/i)).toBeInTheDocument();
@@ -708,10 +716,12 @@ describe('StudentRubricCard draft restore', () => {
   it('ignores a stale draftRow whose base no longer matches', () => {
     const draftRow = { pending: { 'topic-1': 'ED' }, comment: '', display: false, displayTouched: false, base: 'STALE' };
     render(
-      <StudentRubricCard
-        student={student} topics={topics} courseId="4" assignmentId="sa-1"
-        assignmentRow={{ id: 1 }} feedbackRow={null} draftRow={draftRow} viewMode="descriptors"
-      />
+      <MemoryRouter>
+        <StudentRubricCard
+          student={student} topics={topics} courseId="4" assignmentId="sa-1"
+          assignmentRow={{ id: 1 }} feedbackRow={null} draftRow={draftRow} viewMode="descriptors"
+        />
+      </MemoryRouter>
     );
     expect(screen.queryByText(/pending change/i)).not.toBeInTheDocument();
   });

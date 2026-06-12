@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig } from '../services/api.js';
 import { draftKey, readDraft, writeDraft, clearDraft, draftBaseline } from '../lib/assessmentDraft.js';
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
+import { studentFullName } from '../lib/studentNames.js';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import { LEVELS, LEVEL_LABELS, LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
 import { useProficiencyScale } from '../hooks/useProficiencyScale.js';
@@ -17,7 +18,7 @@ const SUGGEST = { fill: 'var(--ai-suggest-wash)', ring: 'var(--ai-suggest)', gly
 const REMOVE = '__remove__';
 
 function displayName(student) {
-  return `${student.preferred_name_teacher || student.preferred_name || student.first_name} ${student.last_name}`;
+  return studentFullName(student);
 }
 
 // Collapse soft line wraps from sources like PowerPoint text boxes into single

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
+import { preferredFirstName } from '../services/studentNames.js';
 
 const router = Router();
 
@@ -54,7 +55,7 @@ router.get('/emails/:courseId', (req, res) => {
 
   const fullName = (first, last) => [first, last].filter(Boolean).join(' ').trim();
   // Match the rest of the app: teacher override > Schoology preferred > first name
-  const studentName = (s) => fullName(s.preferred_name_teacher || s.preferred_name || s.first_name, s.last_name);
+  const studentName = (s) => fullName(preferredFirstName(s), s.last_name);
 
   const wantStudent = type === 'student' || type === 'both';
   const wantParent = type === 'parent' || type === 'both';
@@ -114,7 +115,7 @@ router.get('/random/:courseId', (req, res) => {
 
   // DISTINCT dedups students enrolled in more than one selected course
   const students = db.prepare(`
-    SELECT DISTINCT s.id, s.first_name, s.last_name, s.preferred_name
+    SELECT DISTINCT s.id, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher
     FROM students s
     JOIN enrolments e ON e.student_id = s.id
     WHERE e.course_id IN (${placeholders})
@@ -148,7 +149,7 @@ router.get('/groups/:courseId', (req, res) => {
   // use the synced grade_percentage. avg_pct is NULL when a student has no
   // proficiency data yet, and those students are placed randomly below.
   let students = db.prepare(`
-    SELECT DISTINCT s.id, s.first_name, s.last_name, s.preferred_name,
+    SELECT DISTINCT s.id, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher,
            (SELECT ROUND(AVG(mr.grade_percentage), 1)
             FROM mastery_rollups mr
             WHERE mr.student_uid = s.schoology_uid

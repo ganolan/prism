@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { getCourses, getEmails, getRandomStudents, getGroups } from '../services/api.js';
+import { studentFullName } from '../lib/studentNames.js';
 
 const GROUP_COLORS = [
   'var(--badge-blue-bg)', 'var(--badge-green-bg)', 'var(--warning-light)',
@@ -126,7 +127,7 @@ function RandomPicker({ courseIds }) {
   const [display, setDisplay] = useState(null);
   const intervalRef = useRef(null);
 
-  const displayName = (s) => `${s.preferred_name || s.first_name} ${s.last_name}`;
+  const displayName = (s) => studentFullName(s);
 
   async function handlePick() {
     setAnimating(true);
@@ -186,7 +187,7 @@ function GroupGenerator({ courseIds }) {
   const [balanced, setBalanced] = useState(false);
   const [groups, setGroups] = useState(null);
 
-  const displayName = (s) => `${s.preferred_name || s.first_name} ${s.last_name}`;
+  const displayName = (s) => studentFullName(s);
 
   async function handleGenerate() {
     const data = await getGroups(courseIds, groupCount, balanced);

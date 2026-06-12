@@ -369,3 +369,19 @@ CREATE TABLE IF NOT EXISTS rubric_attachment_topics (
 CREATE INDEX IF NOT EXISTS idx_rubric_criteria_rubric ON rubric_criteria(rubric_id);
 CREATE INDEX IF NOT EXISTS idx_rubric_attach_assignment ON rubric_attachments(assignment_schoology_id);
 CREATE INDEX IF NOT EXISTS idx_rubric_attach_topics_topic ON rubric_attachment_topics(topic_id);
+
+-- Draft teacher feedback for the /assessment/ page (unpublished proficiency
+-- picks, comment text, display-to-student toggle). One row per (assignment,
+-- student); the draft object is stored verbatim as JSON. Replaces the former
+-- per-browser localStorage draft so the MCP can read in-progress grading. See
+-- docs/superpowers/specs/2026-06-12-assessment-drafts-db-migration-design.md.
+CREATE TABLE IF NOT EXISTS assessment_drafts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  assignment_id INTEGER NOT NULL REFERENCES assignments(id),
+  student_id INTEGER NOT NULL REFERENCES students(id),
+  enrolment_id TEXT,
+  draft_json TEXT NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(assignment_id, student_id)
+);
+CREATE INDEX IF NOT EXISTS idx_assessment_drafts_assignment ON assessment_drafts(assignment_id);

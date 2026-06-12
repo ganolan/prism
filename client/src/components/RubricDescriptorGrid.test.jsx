@@ -2,6 +2,34 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import RubricDescriptorGrid from './RubricDescriptorGrid.jsx';
 
+// ── Draft cell colour test ────────────────────────────────────────────────────
+const draftRows = [{ topic: { id: 't1', title: 'Generates media', category_title: 'Creating', external_id: 'ART.5.1' }, criterion: null }];
+const draftLevels = ['ED', 'EX'];
+const draftHeaderColors = { ED: '#bfdbfe', EX: '#bbf7d0' };
+const draftBorderColors = { ED: '#2563eb', EX: '#16a34a' };
+const draftColorMap = { ED: '#eff6ff', EX: '#f0fdf4' };
+
+function renderDraftGrid(cellState) {
+  return render(
+    <RubricDescriptorGrid
+      rows={draftRows} levels={draftLevels} cellState={cellState} onSelect={() => {}}
+      palette={{}} levelHeaderColors={draftHeaderColors} levelBorderColors={draftBorderColors}
+      levelDraftColors={draftColorMap}
+    />
+  );
+}
+
+describe('RubricDescriptorGrid draft cell', () => {
+  it('fills a draft cell with the level draftFill, not grey', () => {
+    const { container } = renderDraftGrid((topicId, l) => (l === 'ED' ? { draft: true } : {}));
+    // First body row, first level cell (ED).
+    const cell = container.querySelectorAll('tbody td')[1];
+    // jsdom normalises hex to rgb: #eff6ff → rgb(239, 246, 255).
+    expect(cell.style.background).toContain('rgb(239, 246, 255)');
+  });
+});
+// ─────────────────────────────────────────────────────────────────────────────
+
 const rows = [{
   topic: { id: 't1', title: 'Select, analyze', category_title: 'HS Art: Produce', external_id: 'ART.5.1' },
   criterion: { id: 'c1', criterion_name: 'UI/UX', reporting_category: 'Produce',

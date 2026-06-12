@@ -4,11 +4,22 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 import AssessmentSummaryPage, { StudentRubricCard } from './AssessmentSummaryPage.jsx';
 import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale } from '../services/api.js';
+import { draftBaseline } from '../lib/assessmentDraft.js';
+
+// Stub the DB saver so tests assert wiring, not I/O.
+let mockSaver;
+vi.mock('../lib/assessmentDraftSaver.js', () => ({
+  makeDraftSaver: () => {
+    mockSaver = { save: vi.fn(), remove: vi.fn(), flush: vi.fn(), dispose: vi.fn() };
+    return mockSaver;
+  },
+}));
 
 vi.mock('../services/api.js', () => ({
   getMasteryForAssignment: vi.fn(),
   getFeedbackForAssignment: vi.fn().mockResolvedValue({}),
   getAssessmentAnalysis: vi.fn().mockResolvedValue(null),
+  getDraftsForAssignment: vi.fn().mockResolvedValue({}),
   syncMasteryForAssignment: vi.fn(),
   writeMasteryScores: vi.fn().mockResolvedValue({}),
   writeMasteryComment: vi.fn().mockResolvedValue({}),
@@ -77,144 +88,57 @@ function renderCard(extraProps = {}) {
 beforeEach(() => {
   localStorage.clear();
   vi.clearAllMocks();
+  mockSaver = undefined;
 });
 
 describe('StudentRubricCard draft persistence', () => {
-  it('restores pending rubric selection and comment text after a remount', () => {
-    const { unmount } = renderCard();
-
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
-    fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), {
-      target: { value: 'work in progress' },
-    });
-
-    // Two distinct changes now count: the rubric draft + the comment edit.
-    expect(screen.getByText('2 pending changes')).toBeInTheDocument();
-
-    unmount();
+  it('calls saver.save when there are pending changes', () => {
     renderCard();
-
-    expect(screen.getByText('2 pending changes')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue(
-      'work in progress'
-    );
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    expect(mockSaver.save).toHaveBeenCalled();
   });
 
-  it('clears the stored draft after a successful save', async () => {
-    // The card stays mounted after a save now (#50), but unmount it here anyway
-    // to prove the draft is cleared regardless of whether the card lives on.
-    function SaveHarness() {
-      const [mounted, setMounted] = useState(true);
-      if (!mounted) return null;
-      return (
-        <StudentRubricCard
-          student={makeStudent()}
-          topics={TOPICS}
-          courseId="4"
-          assignmentId="8"
-          assignmentRow={{ mastery_grading_period_id: 1, mastery_grading_category_id: 2 }}
-          onSaved={() => setMounted(false)}
-        />
-      );
-    }
-    render(
-      <MemoryRouter>
-        <SaveHarness />
-      </MemoryRouter>
-    );
-
+  it('calls saver.remove after a successful save', async () => {
+    const onSaved = vi.fn();
+    renderCard({ onSaved });
     fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
-    expect(
-      localStorage.getItem('prism:assessment-draft:4:8:enr-1')
-    ).not.toBeNull();
-
-    // Wait for scale to be ready before the save button becomes enabled.
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled()
     );
     fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
-
-    await waitFor(() => {
-      expect(
-        localStorage.getItem('prism:assessment-draft:4:8:enr-1')
-      ).toBeNull();
-    });
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(mockSaver.remove).toHaveBeenCalledWith({ immediate: true });
   });
 
-  it('does not write a draft when there are no unsaved changes', () => {
+  it('does not call saver.save when there are no unsaved changes', () => {
     renderCard();
-    expect(
-      localStorage.getItem('prism:assessment-draft:4:8:enr-1')
-    ).toBeNull();
+    expect(mockSaver.save).not.toHaveBeenCalled();
   });
 
-  it('restores the display-to-student toggle after a remount', () => {
-    const { unmount } = renderCard();
-
-    const toggle = screen.getByRole('switch', { name: /display to student/i });
-    expect(toggle).toHaveAttribute('aria-checked', 'false');
-
-    fireEvent.click(toggle);
-    expect(toggle).toHaveAttribute('aria-checked', 'true');
-
-    unmount();
-    renderCard();
-
+  it('restores the display-to-student toggle from a draftRow prop', () => {
+    // Build a valid baseline for the student so the draft isn't treated as stale.
+    // (draftBaseline is synchronously available from the non-mocked module.)
+    const base = draftBaseline(makeStudent(), TOPICS);
+    renderCard({ draftRow: { pending: {}, comment: '', display: true, displayTouched: true, base } });
     expect(
       screen.getByRole('switch', { name: /display to student/i })
     ).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('persists and restores a comment draft for a rubric-locked card', () => {
-    const lockedStudent = { ...makeStudent(), exception: 3 };
-
-    const { unmount } = renderCard({ student: lockedStudent });
-
-    fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), {
-      target: { value: 'locked but commented' },
-    });
-    expect(
-      localStorage.getItem('prism:assessment-draft:4:8:enr-1')
-    ).not.toBeNull();
-
-    unmount();
-    renderCard({ student: lockedStudent });
-
-    expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue(
-      'locked but commented'
+  it('migrates a pre-DB localStorage draft when draftRow is null', () => {
+    const base = draftBaseline(makeStudent(), TOPICS);
+    localStorage.setItem(
+      'prism:assessment-draft:4:8:enr-1',
+      JSON.stringify({ pending: { t1: 'D' }, comment: 'migrated', display: false, displayTouched: false, base })
     );
-  });
-
-  it('discards a stale draft when Schoology data changed (Schoology wins)', () => {
-    const { unmount } = renderCard();
-
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
-    fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), {
-      target: { value: 'my draft comment' },
-    });
-    expect(
-      localStorage.getItem('prism:assessment-draft:4:8:enr-1')
-    ).not.toBeNull();
-
-    unmount();
-
-    // Simulate Schoology holding newer data when the page next syncs.
-    const updatedStudent = { ...makeStudent(), grade_comment: 'published in schoology' };
-    renderCard({ student: updatedStudent });
-
-    // Schoology wins: the synced comment shows, the stale draft is gone.
-    expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue(
-      'published in schoology'
-    );
-    expect(screen.queryByText('1 pending change')).not.toBeInTheDocument();
-    expect(
-      localStorage.getItem('prism:assessment-draft:4:8:enr-1')
-    ).toBeNull();
+    renderCard(); // draftRow defaults to null
+    // Migration consumes the localStorage entry and seeds React state.
+    expect(localStorage.getItem('prism:assessment-draft:4:8:enr-1')).toBeNull();
+    expect(screen.getByText('2 pending changes')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue('migrated');
   });
 
   it('discards a legacy draft that has no base signature', () => {
-    // Drafts persisted before the staleness feature have no `base` key; they
-    // must be treated as stale and discarded.
     localStorage.setItem(
       'prism:assessment-draft:4:8:enr-1',
       JSON.stringify({ pending: { t1: 'D' }, comment: 'legacy draft', display: true })
@@ -225,19 +149,29 @@ describe('StudentRubricCard draft persistence', () => {
     expect(localStorage.getItem('prism:assessment-draft:4:8:enr-1')).toBeNull();
   });
 
-  it('clears the stored draft when changes are discarded', () => {
+  it('calls saver.remove when pending changes are discarded', () => {
     renderCard();
-
     fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
-    expect(
-      localStorage.getItem('prism:assessment-draft:4:8:enr-1')
-    ).not.toBeNull();
-
+    mockSaver.save.mockClear();
     fireEvent.click(screen.getByRole('button', { name: /discard changes/i }));
+    expect(mockSaver.remove).toHaveBeenCalled();
+  });
+});
 
-    expect(
-      localStorage.getItem('prism:assessment-draft:4:8:enr-1')
-    ).toBeNull();
+// ── New: draftRow prop restore (DB-backed autosave, Task 6) ─────────────────
+
+describe('StudentRubricCard draft restore', () => {
+  it('restores pending changes from the draftRow prop (matching baseline)', () => {
+    const base = draftBaseline(makeStudent(), TOPICS);
+    const draftRow = { pending: { t1: 'ED' }, comment: '', display: false, displayTouched: false, base };
+    renderCard({ draftRow });
+    expect(screen.getByText(/pending change/i)).toBeInTheDocument();
+  });
+
+  it('ignores a stale draftRow whose base no longer matches', () => {
+    const draftRow = { pending: { t1: 'ED' }, comment: '', display: false, displayTouched: false, base: 'STALE' };
+    renderCard({ draftRow });
+    expect(screen.queryByText(/pending change/i)).not.toBeInTheDocument();
   });
 });
 

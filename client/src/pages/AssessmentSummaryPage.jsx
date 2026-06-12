@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig } from '../services/api.js';
-import { draftKey, readDraft, writeDraft, clearDraft, draftBaseline } from '../lib/assessmentDraft.js';
+import { getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment } from '../services/api.js';
+import { draftBaseline } from '../lib/assessmentDraft.js';
+import { makeDraftSaver } from '../lib/assessmentDraftSaver.js';
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
 import { studentFullName } from '../lib/studentNames.js';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
@@ -104,10 +105,20 @@ function HeaderPill({ active, accent, activeBg, activeText, icon, label, clearLa
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
-export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, rubric = null, viewMode = 'descriptors', rubricPalette = {}, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
+export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
   const scale = useProficiencyScale();
   const loadedDisplay = student.comment_status === 1;
-  const storageKey = draftKey(courseId, assignmentId, student.enrollment_id);
+  // Per-card DB draft saver (replaces the former localStorage key). Created once.
+  const saverRef = useRef(null);
+  if (!saverRef.current) {
+    saverRef.current = makeDraftSaver(
+      { assignmentId, studentId: student.id, enrollmentId: student.enrollment_id },
+      { delay: 500 }
+    );
+  }
+  // Set true by discrete handlers (proficiency / display) so the next autosave
+  // flushes immediately instead of debouncing.
+  const flushNextRef = useRef(false);
   // Signature of the synced Schoology values this card was rendered against.
   // A stored draft is only valid while this is unchanged (#47).
   const currentBaseline = draftBaseline(student, topics);
@@ -125,14 +136,13 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // the synced data is stale — Schoology changed underneath it — so it is
   // discarded and the synced values (the source of truth) win.
   const [restoredDraft] = useState(() => {
-    const draft = readDraft(storageKey);
-    if (!draft) return null;
-    if (draft.base !== currentBaseline) {
-      clearDraft(storageKey);
-      return null;
-    }
-    return draft;
+    if (!draftRow) return null;
+    // Stale: Schoology changed underneath the draft (#47). Ignore it; the mount
+    // effect below deletes the orphaned server row.
+    if (draftRow.base !== currentBaseline) return null;
+    return draftRow;
   });
+  const draftWasStale = Boolean(draftRow && draftRow.base !== currentBaseline);
 
   // pending: { [topicId]: 'ED'|'EX'|'D'|'EM'|'IE' }
   const [pending, setPending] = useState(() => restoredDraft?.pending ?? {});
@@ -207,17 +217,69 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   );
   const hasPendingChanges = pendingCount > 0;
 
-  // Persist unsaved work to localStorage so it survives a page reload (#47).
-  // The `base` signature lets a later mount detect if Schoology data changed
-  // underneath the draft. Remove the entry the moment the card returns to a
-  // no-changes state.
+  // Track whether this card has ever held a draft, so an untouched card does NOT
+  // fire a spurious DELETE on first mount (only a real draft→clear transition does).
+  const didDraftRef = useRef(Boolean(restoredDraft));
+
+  // Mirror unsaved work to the DB. React state stays the instant UI source of
+  // truth; this autosave is fire-and-forget. Typing debounces (~500ms); a
+  // discrete proficiency/display change flushes immediately (flushNextRef).
   useEffect(() => {
+    const saver = saverRef.current;
     if (hasPendingChanges) {
-      writeDraft(storageKey, { pending, comment, display, displayTouched, base: currentBaseline });
-    } else {
-      clearDraft(storageKey);
+      didDraftRef.current = true;
+      saver.save(
+        { pending, comment, display, displayTouched, base: currentBaseline },
+        { immediate: flushNextRef.current }
+      );
+    } else if (didDraftRef.current) {
+      // Honor flushNextRef so a discrete clear (discard / toggle-off) deletes the
+      // server row immediately; a debounced remove could be lost on fast navigate
+      // (the unmount flush intentionally does not flush queued deletes).
+      saver.remove({ immediate: flushNextRef.current });
     }
-  }, [hasPendingChanges, pending, comment, display, displayTouched, storageKey, currentBaseline]);
+    flushNextRef.current = false;
+  }, [hasPendingChanges, pending, comment, display, displayTouched, currentBaseline]);
+
+  // Flush a pending save on tab-hide (sendBeacon) and on SPA unmount (keepalive);
+  // delete a stale server draft once on mount.
+  useEffect(() => {
+    const saver = saverRef.current;
+    if (draftWasStale) saver.remove({ immediate: true });
+    const onPageHide = () => saver.flush({ beacon: true });
+    const onVisibility = () => { if (document.visibilityState === 'hidden') saver.flush({ beacon: true }); };
+    window.addEventListener('pagehide', onPageHide);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('pagehide', onPageHide);
+      document.removeEventListener('visibilitychange', onVisibility);
+      saver.flush({ keepalive: true });
+      saver.dispose();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // One-time migration of a pre-DB localStorage draft for this card. If the
+  // browser still holds the old key and the server has no draft, seed React
+  // state from it (the autosave effect then persists it) and clear localStorage.
+  useEffect(() => {
+    if (draftRow) return;
+    const legacyKey = `prism:assessment-draft:${courseId}:${assignmentId}:${student.enrollment_id}`;
+    let legacy = null;
+    try { const raw = localStorage.getItem(legacyKey); legacy = raw ? JSON.parse(raw) : null; } catch { /* ignore */ }
+    if (!legacy) return;
+    // Remove before the baseline check — a stale legacy draft should not persist either.
+    try { localStorage.removeItem(legacyKey); } catch { /* ignore */ }
+    if (legacy.base === currentBaseline) {
+      flushNextRef.current = true;
+      setPending(legacy.pending ?? {});
+      setComment(legacy.comment ?? (student.grade_comment || ''));
+      setDisplay(legacy.display ?? loadedDisplay);
+      setDisplayTouched(legacy.displayTouched ?? false);
+      setAutoFlipArmed(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Page-level "Send all" wiring (#51) ──────────────────────────────────
   // Report this card's pending state up so the page bar can count unsaved
@@ -269,6 +331,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
 
   function selectLevel(topicId, level) {
     if (isRubricLocked) return;
+    flushNextRef.current = true;
     const currentGrade = student.scores[topicId]?.grade;
     const pendingVal = pending[topicId];
     const hasPending = topicId in pending; // a draft level OR the REMOVE sentinel
@@ -310,6 +373,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // Revert all of this card's unsaved changes back to the synced Schoology
   // state. Shared by the per-card Discard button and the page-level Discard all.
   function discardChanges() {
+    flushNextRef.current = true;
     setPending({});
     setComment(student.grade_comment || '');
     setDisplay(loadedDisplay);
@@ -321,6 +385,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // page-level "show/hide all". Marks it a manual change so it counts as pending
   // (the pendingCount guard ignores it when value already equals the synced one).
   function applyDisplay(value) {
+    flushNextRef.current = true;
     setDisplay(value);
     setDisplayTouched(true);
     setAutoFlipArmed(false);
@@ -398,7 +463,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     if (ok) {
       setSaveResult('saved');
       setPending({});
-      clearDraft(storageKey);
+      saverRef.current.remove({ immediate: true });
     } else {
       setSaveResult('error: send failed');
     }
@@ -434,7 +499,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
       setPending({});
       // Explicit clear: the card stays mounted now, but the write effect runs
       // asynchronously — clear here so a fast bulk run can't race a stale key.
-      clearDraft(storageKey);
+      saverRef.current.remove({ immediate: true });
       onSaved?.(student.schoology_uid, {
         scores: buildSavedScores(),
         grade_comment: comment,
@@ -744,6 +809,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             palette={rubricPalette}
             levelHeaderColors={Object.fromEntries(LEVELS.map(l => [l, LEVEL_COLORS[l].headerFill]))}
             levelBorderColors={Object.fromEntries(LEVELS.map(l => [l, LEVEL_COLORS[l].finalBorder]))}
+            levelDraftColors={Object.fromEntries(LEVELS.map(l => [l, LEVEL_COLORS[l].draftFill]))}
           />
         ) : (
         <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.8rem' }}>
@@ -1134,6 +1200,7 @@ export default function AssessmentSummaryPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshResult, setRefreshResult] = useState(null);
   const [feedbackByStudent, setFeedbackByStudent] = useState({});
+  const [draftByStudent, setDraftByStudent] = useState({});
   const [analysis, setAnalysis] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -1267,11 +1334,13 @@ export default function AssessmentSummaryPage() {
       getMasteryForAssignment(courseId, assignmentId),
       getFeedbackForAssignment(assignmentId).catch(() => ({})),
       getAssessmentAnalysis(assignmentId).catch(() => null),
+      getDraftsForAssignment(assignmentId).catch(() => ({})),
     ])
-      .then(([mastery, feedback, analysisRow]) => {
+      .then(([mastery, feedback, analysisRow, drafts]) => {
         setData(mastery);
         setFeedbackByStudent(feedback || {});
         setAnalysis(analysisRow || null);
+        setDraftByStudent(drafts || {});
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
@@ -1401,6 +1470,7 @@ export default function AssessmentSummaryPage() {
               assignmentId={assignmentId}
               assignmentRow={assignment}
               feedbackRow={feedbackByStudent[student.id] || null}
+              draftRow={draftByStudent[student.id] || null}
               rubric={rubricData ? { ...rubricData.rubric, topicByCriterion: rubricData.topicByCriterion } : null}
               viewMode={viewMode}
               rubricPalette={rubricPalette}

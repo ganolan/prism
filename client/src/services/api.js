@@ -141,6 +141,16 @@ export const uploadFeedbackJson = (file) => {
   return fetch(`${BASE}/feedback/upload`, { method: 'POST', body: formData }).then(r => r.json());
 };
 
+// Assessment drafts (DB-backed unpublished grading work). DRAFTS_PATH is the
+// absolute path used by navigator.sendBeacon on unload (request() prepends /api).
+export const DRAFTS_PATH = '/api/assessment-drafts';
+export const getDraftsForAssignment = (assignmentId) => request(`/assessment-drafts?assignment_id=${assignmentId}`);
+export const saveAssessmentDraft = (data, opts = {}) =>
+  request('/assessment-drafts', { method: 'POST', body: JSON.stringify(data), ...opts });
+export const deleteAssessmentDraft = ({ assignmentId, studentId }) =>
+  request(`/assessment-drafts?assignment_id=${assignmentId}&student_id=${studentId}`, { method: 'DELETE' });
+export const draftBeaconBody = (data) => new Blob([JSON.stringify(data)], { type: 'application/json' });
+
 // Mastery / SBG
 export const triggerMasteryLogin = () => request('/mastery/login', { method: 'POST' });
 export const getMasteryLoginStatus = () => request('/mastery/login-status');

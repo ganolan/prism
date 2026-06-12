@@ -325,3 +325,13 @@ compete with both.
   move-semantics frees the previous owner, which re-renders as ⚠). Prefer annotating
   an option over removing it whenever the underlying action is safe — it keeps the
   full choice set visible and the consequence legible.
+
+## Draft proficiency cell fill (assessment rubric)
+
+Selected-but-unpublished (draft) proficiency cells fill with the level's own
+`draftFill` (a pale tint of its final `headerFill`, e.g. ED `#eff6ff` under
+`#bfdbfe`) plus a dashed `finalBorder` outline — never the neutral
+`var(--bg-subtle)` grey, which reads as the AI-suggestion wash. The descriptor
+grid (`RubricDescriptorGrid`) takes a `levelDraftColors` prop so it matches the
+inline-table path. A draft is a tentative version of *this* score, so it should
+look like a lighter shade of the final colour, not a separate neutral state.

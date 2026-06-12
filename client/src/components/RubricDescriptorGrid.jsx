@@ -3,7 +3,7 @@ import { categoryColor } from '../lib/rubricColors.js';
 import { LEVEL_LABELS } from '../lib/masteryLevels.js';
 
 export default function RubricDescriptorGrid({
-  rows, levels, cellState, onSelect, palette, levelHeaderColors, levelBorderColors,
+  rows, levels, cellState, onSelect, palette, levelHeaderColors, levelBorderColors, levelDraftColors,
 }) {
   return (
     <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.8rem' }}>
@@ -43,7 +43,7 @@ export default function RubricDescriptorGrid({
               if (st.final) Object.assign(base, {
                 boxShadow: `inset 0 0 0 2px ${levelBorderColors[l]}`, background: levelHeaderColors[l], fontWeight: 600 });
               else if (st.draft) Object.assign(base, {
-                outline: `2px dashed ${levelBorderColors[l]}`, outlineOffset: '-1px', background: 'var(--bg-subtle)' });
+                outline: `2px dashed ${levelBorderColors[l]}`, outlineOffset: '-1px', background: levelDraftColors[l] });
               else if (st.staged) Object.assign(base, {
                 outline: '2px dotted #ef4444', outlineOffset: '-1px', background: '#fff' });
               else if (st.suggested) base.background = 'var(--ai-suggest-wash)';

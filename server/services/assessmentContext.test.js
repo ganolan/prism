@@ -28,12 +28,17 @@ function seedContext(db) {
     studentId, assignmentId,
     JSON.stringify({ narrative_feedback: 'Strong concept', rubric_scores: { 'ART.5.1': 'ED' }, reviewer_flags: 'check sources' })
   );
+  // Draft teacher feedback: one staged proficiency, one staged removal, a comment.
+  db.prepare(`INSERT INTO assessment_drafts (assignment_id, student_id, enrolment_id, draft_json) VALUES (?, ?, 'enr-1', ?)`).run(
+    assignmentId, studentId,
+    JSON.stringify({ pending: { 'topic-1': 'D', 'topic-9': '__remove__' }, comment: 'draft note', display: true, displayTouched: true, base: 'b1' })
+  );
   return { courseId, assignmentId, studentId };
 }
 
 beforeEach(() => {
   getDb().exec(
-    'DELETE FROM feedback; DELETE FROM mastery_alignments; DELETE FROM mastery_scores; ' +
+    'DELETE FROM assessment_drafts; DELETE FROM feedback; DELETE FROM mastery_alignments; DELETE FROM mastery_scores; ' +
     'DELETE FROM grades; DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
     'DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
   );
@@ -129,5 +134,25 @@ describe('getAssessmentContext', () => {
 
   test('returns null for an unknown assignment', () => {
     expect(getAssessmentContext(getDb(), { assignmentId: 'no-such' })).toBeNull();
+  });
+
+  test('surfaces the teacher draft as draft_feedback, splitting picks from removals', () => {
+    const db = getDb();
+    seedContext(db);
+    const ctx = getAssessmentContext(db, { assignmentId: 'sa-1' });
+    expect(ctx.students[0].draft_feedback).toMatchObject({
+      rubric_scores: { 'topic-1': 'D' },
+      removed_topics: ['topic-9'],
+      comment: 'draft note',
+      display_to_student: true,
+    });
+  });
+
+  test('draft_feedback is null when no draft row exists', () => {
+    const db = getDb();
+    seedContext(db);
+    db.prepare('DELETE FROM assessment_drafts').run();
+    const ctx = getAssessmentContext(db, { assignmentId: 'sa-1' });
+    expect(ctx.students[0].draft_feedback).toBeNull();
   });
 });

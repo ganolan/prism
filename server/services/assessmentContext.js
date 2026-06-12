@@ -106,6 +106,41 @@ export function getExistingSuggestions(db, assignmentLocalId) {
   return byStudent;
 }
 
+// Teacher draft feedback (unpublished proficiency picks + comment + display
+// toggle) for an assignment (local id), keyed by student_id. The draft object
+// is stored verbatim; updated_at is attached for recency display.
+export function getDrafts(db, assignmentLocalId) {
+  const rows = db.prepare(
+    'SELECT student_id, draft_json, updated_at FROM assessment_drafts WHERE assignment_id = ?'
+  ).all(assignmentLocalId);
+  const byStudent = {};
+  for (const row of rows) {
+    let parsed;
+    try { parsed = JSON.parse(row.draft_json || '{}'); } catch { parsed = {}; }
+    byStudent[row.student_id] = { ...parsed, updated_at: row.updated_at };
+  }
+  return byStudent;
+}
+
+// Project a stored draft into the agent-facing shape: separate real level picks
+// (rubric_scores) from staged removals (the '__remove__' sentinel → removed_topics).
+function buildDraftFeedback(draft) {
+  const pending = draft.pending || {};
+  const rubric_scores = {};
+  const removed_topics = [];
+  for (const [topicId, level] of Object.entries(pending)) {
+    if (level === '__remove__') removed_topics.push(topicId);
+    else rubric_scores[topicId] = level;
+  }
+  return {
+    updated_at: draft.updated_at ?? null,
+    rubric_scores,
+    removed_topics,
+    comment: draft.comment ?? '',
+    display_to_student: Boolean(draft.display),
+  };
+}
+
 // Compose the PrisMCP get_assignment_context shape (spec §3.1): assignment
 // meta + aligned topics + roster with current finals/comments/display-status +
 // any existing AI suggestion. assignmentId accepts a Schoology or local id.
@@ -122,6 +157,7 @@ export function getAssessmentContext(db, { assignmentId }) {
   const roster = getRoster(db, courseId, assignmentRow);
   const scoreMap = getScoreMap(db, schoolyId, topics.map((t) => t.id));
   const suggestions = getExistingSuggestions(db, assignmentRow.id);
+  const drafts = getDrafts(db, assignmentRow.id);
 
   const metaByUid = {};
   for (const g of getGradeMetaRows(db, schoolyId)) metaByUid[g.schoology_uid] = g;
@@ -129,6 +165,7 @@ export function getAssessmentContext(db, { assignmentId }) {
   const students = roster.map((st) => {
     const meta = metaByUid[st.schoology_uid] || {};
     const sug = suggestions[st.id];
+    const draft = drafts[st.id];
     return {
       id: st.id,
       schoology_uid: st.schoology_uid,
@@ -153,6 +190,7 @@ export function getAssessmentContext(db, { assignmentId }) {
             reviewer_flags: sug.feedback_parsed.reviewer_flags ?? null,
           }
         : null,
+      draft_feedback: draft ? buildDraftFeedback(draft) : null,
     };
   });
 

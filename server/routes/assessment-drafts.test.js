@@ -82,4 +82,14 @@ describe('assessment-drafts route', () => {
     const post = await call('POST', '/api/assessment-drafts', { student_id: studentId });
     expect(post.status).toBe(400);
   });
+
+  test('POST 400s when student_id is missing', async () => {
+    const post = await call('POST', '/api/assessment-drafts', { assignment_id: 'sa-1', draft: { pending: {} } });
+    expect(post.status).toBe(400);
+  });
+
+  test('GET 400s when assignment_id is missing', async () => {
+    const get = await call('GET', '/api/assessment-drafts');
+    expect(get.status).toBe(400);
+  });
 });

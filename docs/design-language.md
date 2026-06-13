@@ -358,8 +358,24 @@ external-link anchor.
   (the standard safe external-link combo). Schoology omits `web_url` on some
   assignments, so `SchoologyLink` renders **nothing** when `url` is falsy —
   callers pass `web_url` through unconditionally.
-- **Deliberately *not*** added to the gradebook grid's **diagonal column header**
-  (`GradebookView`): those titles are rotated −45° and ellipsis-clipped, so an
-  inline icon would clutter a dense header and fight the rotation. The outbound
-  link lives only where titles render horizontally (the Assessments list + the
-  modal) and at the top of the assessment page.
+- **Rotated-header placement.** The gradebook grid's **diagonal column titles**
+  (`GradebookView`) are rotated −45° and ellipsis-clipped — an inline icon would
+  fight the rotation and get cut off. So the icon is pinned **non-rotated at the
+  column's bottom-centre** (`position: absolute; bottom; left: 50%`), forming a
+  tidy horizontal band of links just above the "Assessment Type" row, one per
+  column. General rule: when a label is rotated/clipped, attach the affordance to
+  the column at a fixed, upright anchor rather than inline in the rotated text.
+- **Surfaces:** labelled at the top of the `/assessment/` page; icon-only beside
+  the title in the gradebook Assessments list, the gradebook grid header band,
+  and the submission-detail modal.
+
+### Domain: links resolve on the school's Schoology host
+
+Schoology's API returns `web_url` on the generic **`app.schoology.com`** host
+(two path shapes: `/assignments/{id}/info` and `/assignment/{id}`), which doesn't
+resolve to an SSO school tenant. The captured value is stored raw, and the
+**server rewrites the scheme+host onto the configured school web domain** at serve
+time (`server/lib/schoologyWebUrl.js`, host-only swap so both path shapes survive;
+domain from `config.yaml` → `schoology.webBaseUrl`, default `https://schoology.hkis.edu.hk`).
+Serve-time (not capture-time) keeps it config-live and fixes already-synced rows
+without a re-sync; the DB keeps the raw verified API value.

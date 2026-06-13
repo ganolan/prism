@@ -6,6 +6,8 @@ import { finalizeArchivedCourse, enrichStudentProfiles } from '../services/sync.
 import { isResubmitted } from '../lib/resubmission.js';
 import { getArchivedSections } from '../services/archivedCourses.js';
 import { syncPsAttendance } from '../services/psAttendanceSync.js';
+import { getSchoologyConfig } from '../middleware/featureGate.js';
+import { toSchoologyWebUrl } from '../lib/schoologyWebUrl.js';
 
 const router = Router();
 
@@ -198,6 +200,7 @@ router.get('/:id/gradebook', (req, res) => {
     if (!assigneesByAssignment[r.assignment_id]) assigneesByAssignment[r.assignment_id] = [];
     assigneesByAssignment[r.assignment_id].push(studentId);
   }
+  const { webBaseUrl } = getSchoologyConfig();
   const filteredAssignments = [];
   for (const a of assignments) {
     if (a.num_assignees && a.num_assignees > 0) {
@@ -206,6 +209,8 @@ router.get('/:id/gradebook', (req, res) => {
       a.assignees = list;
     }
     delete a.num_assignees;
+    // Rewrite the captured app.schoology.com host onto the school web domain (#76).
+    a.web_url = toSchoologyWebUrl(a.web_url, webBaseUrl);
     filteredAssignments.push(a);
   }
 

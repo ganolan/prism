@@ -16,6 +16,12 @@ sync:
   submissionRatePerSec: 10
   submissionAbandonAfter: 5
 
+schoology:
+  # School Schoology web domain (SSO vanity host). Outbound assignment links are
+  # rewritten onto this host — the API's web_url uses app.schoology.com, which
+  # doesn't resolve to the school tenant.
+  webBaseUrl: https://schoology.hkis.edu.hk
+
 rubrics:
   suggestionAccent: '#e21ad6'
   suggestionWash: '#fbe6fb'

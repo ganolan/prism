@@ -4,6 +4,8 @@ import { hasMasterySession, syncMasteryForCourse, syncMasteryForAssignment, writ
 import { pushGradeComments, getSectionGrades } from '../services/schoology.js';
 import { isResubmitted } from '../lib/resubmission.js';
 import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows } from '../services/assessmentContext.js';
+import { getSchoologyConfig } from '../middleware/featureGate.js';
+import { toSchoologyWebUrl } from '../lib/schoologyWebUrl.js';
 import { levelToGradeScaled, gradeScaledValues, pointsToLevel, LEVELS } from '../lib/proficiencyScale.js';
 
 const router = Router();
@@ -391,6 +393,10 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
   const assignmentRow = db.prepare(`
     SELECT * FROM assignments WHERE schoology_assignment_id = ? AND course_id = ?
   `).get(assignmentId, courseId);
+  // Rewrite the captured app.schoology.com host onto the school web domain (#76).
+  if (assignmentRow) {
+    assignmentRow.web_url = toSchoologyWebUrl(assignmentRow.web_url, getSchoologyConfig().webBaseUrl);
+  }
 
   // getRoster hides students an individually-targeted assignment isn't assigned
   // to (#54); an undefined assignmentRow (unknown id) is treated as open-to-all.

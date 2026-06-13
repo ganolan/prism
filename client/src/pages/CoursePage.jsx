@@ -693,7 +693,7 @@ const TYPE_LEGEND = (
   </div>
 );
 
-function GradebookView({ data, courseId, mastery }) {
+export function GradebookView({ data, courseId, mastery }) {
   const indexed = useMemo(() => indexMastery(mastery), [mastery]);
   const [rubricModal, setRubricModal] = useState(null);
   // Comment shown instantly on cell hover (#36): { text, top, left }.
@@ -782,6 +782,16 @@ function GradebookView({ data, courseId, mastery }) {
                   >
                     {cleanTitle}
                   </Link>
+                  {/* Outbound Schoology link (#76). Pinned non-rotated at the
+                      column's bottom-centre so it escapes the diagonal title's
+                      rotation + ellipsis clipping; only shown when a web_url
+                      exists. Renders nothing otherwise (SchoologyLink guards). */}
+                  <SchoologyLink
+                    url={a.web_url}
+                    ariaLabel={`View "${cleanTitle}" in Schoology`}
+                    size={13}
+                    style={{ position: 'absolute', bottom: 2, left: '50%', transform: 'translateX(-50%)', zIndex: 2 }}
+                  />
                 </th>
               );
             })}

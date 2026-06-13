@@ -126,15 +126,16 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — review and res
   // #76: the assignment-context response must carry the Schoology assignment
   // web_url so the /assessment/ page can link straight to Schoology. Guards the
   // SELECT * contract — a refactor to explicit columns that drops web_url would
-  // fail here.
-  test('assignment.web_url is served from the stored row (#76)', async () => {
+  // fail here. The stored app.schoology.com host is rewritten onto the school
+  // web domain so the link resolves to the right tenant.
+  test('assignment.web_url is served rewritten onto the school domain (#76)', async () => {
     const db = getDb();
     db.prepare(
-      `UPDATE assignments SET web_url = 'https://hkis.schoology.com/assignment/sa-1/info'
+      `UPDATE assignments SET web_url = 'https://app.schoology.com/assignments/sa-1/info'
        WHERE schoology_assignment_id = 'sa-1'`
     ).run();
     const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
-    expect(body.assignment.web_url).toBe('https://hkis.schoology.com/assignment/sa-1/info');
+    expect(body.assignment.web_url).toBe('https://schoology.hkis.edu.hk/assignments/sa-1/info');
   });
 
   test('assignment.web_url is null when the assignment has none (#76)', async () => {

@@ -39,6 +39,17 @@ export function getRubricConfig() {
   };
 }
 
+export function getSchoologyConfig() {
+  if (!config) loadConfig();
+  return {
+    // The school's Schoology web domain (SSO vanity host). Assignment links are
+    // rewritten onto this host — the API's web_url points at app.schoology.com,
+    // which doesn't resolve to the school tenant. See lib/schoologyWebUrl.js.
+    webBaseUrl: 'https://schoology.hkis.edu.hk',
+    ...(config.schoology || {}),
+  };
+}
+
 export const DEFAULT_PROFICIENCY_SCALE = {
   name: 'HKIS General Academic Scale',
   schoologyScaleId: 21337256,

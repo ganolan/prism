@@ -412,6 +412,13 @@ tr:last-child td { border-bottom: none; }
    padding keeps each fixed column compact enough for the rubric strip. */
 .gradebook-grid td { padding: 0.5rem 0.3rem; }
 .gradebook-grid td:first-child { padding-left: 0.85rem; }
+/* The sticky <thead> + the global `border-collapse: collapse` is a known Chrome
+   combo where the collapsed 1px row borders don't travel with the sticky header,
+   so scrolling body content bleeds through a sub-pixel seam between the header
+   rows. Separate borders (spacing 0) keep each header cell's own background
+   contiguous so nothing shows through. Cells carry only a bottom border, so
+   un-collapsing them doesn't double any borders. */
+.gradebook-grid { border-collapse: separate; border-spacing: 0; }
 
 /* ========================================================================
    BADGES

@@ -713,6 +713,11 @@ export function GradebookView({ data, courseId, mastery }) {
   // diagonal headers stay uniform (#37); NAME_W must clear the longest name.
   const COL_W = 78;
   const NAME_W = 220;
+  // The last diagonal title has no neighbour column to overflow onto, so it
+  // spills past the table's right edge onto the white card bg. A trailing spacer
+  // column (wider than the rotated title's ~250px box) extends the header
+  // background across that overflow. Body rows leave it empty (matches the body).
+  const TRAIL_W = 250;
 
   return (
     <>
@@ -724,6 +729,7 @@ export function GradebookView({ data, courseId, mastery }) {
         <colgroup>
           <col style={{ width: NAME_W }} />
           {assignments.map(a => <col key={a.id} style={{ width: COL_W }} />)}
+          <col style={{ width: TRAIL_W }} />
         </colgroup>
         {/* The whole <thead> is sticky so the diagonal header keeps one
             continuous backdrop — its cells stay transparent so a title
@@ -785,16 +791,22 @@ export function GradebookView({ data, courseId, mastery }) {
                   {/* Outbound Schoology link (#76). Pinned non-rotated at the
                       column's bottom-centre so it escapes the diagonal title's
                       rotation + ellipsis clipping; only shown when a web_url
-                      exists. Renders nothing otherwise (SchoologyLink guards). */}
+                      exists. Renders nothing otherwise (SchoologyLink guards).
+                      No z-index: it must clip behind the sticky Student column
+                      (z-index 1) when scrolled, exactly like the title text. */}
                   <SchoologyLink
                     url={a.web_url}
                     ariaLabel={`View "${cleanTitle}" in Schoology`}
                     size={13}
-                    style={{ position: 'absolute', bottom: 2, left: '50%', transform: 'translateX(-50%)', zIndex: 2 }}
+                    style={{ position: 'absolute', bottom: 2, left: '50%', transform: 'translateX(-50%)' }}
                   />
                 </th>
               );
             })}
+            {/* Trailing spacer — extends the header backdrop across the last
+                title's rightward overflow (#76). Transparent so the thead tint
+                shows through, like the other title cells. */}
+            <th data-testid="grid-header-spacer" aria-hidden="true" style={{ background: 'transparent', padding: 0 }} />
           </tr>
           {/* Region 2 — Assessment Type utility row. */}
           <tr>
@@ -818,6 +830,7 @@ export function GradebookView({ data, courseId, mastery }) {
                 <TypeChip summative={!!a.aligned} />
               </th>
             ))}
+            <th data-testid="grid-header-spacer" aria-hidden="true" style={{ background: 'var(--bg-subtle)' }} />
           </tr>
           {/* Region 3 — Due Date utility row. */}
           <tr>
@@ -849,6 +862,7 @@ export function GradebookView({ data, courseId, mastery }) {
                 </th>
               );
             })}
+            <th data-testid="grid-header-spacer" aria-hidden="true" style={{ background: 'var(--bg-subtle)', boxShadow: '0 5px 6px -3px rgba(0,0,0,0.1)' }} />
           </tr>
         </thead>
         <tbody>

@@ -365,6 +365,17 @@ external-link anchor.
   tidy horizontal band of links just above the "Assessment Type" row, one per
   column. General rule: when a label is rotated/clipped, attach the affordance to
   the column at a fixed, upright anchor rather than inline in the rotated text.
+  - **No z-index on the icon:** it must stay *below* the sticky Student column
+    (`z-index: 1`) so it clips behind it on horizontal scroll, exactly like the
+    rotated title text — an elevated z-index makes scrolled-under icons leak over
+    the frozen first column.
+  - **Trailing spacer column.** The last title has no neighbour to overflow onto,
+    so it spilled past the table edge onto the white card bg. A trailing spacer
+    `<col>` (~250px, wider than the rotated title box) plus a spacer `<th>` per
+    header row extends the header backdrop across that overflow; body rows leave
+    it empty so the body keeps its own background. Rule: a rotated/overflowing
+    header needs a trailing gutter the width of its overflow, carrying the header
+    background.
 - **Surfaces:** labelled at the top of the `/assessment/` page; icon-only beside
   the title in the gradebook Assessments list, the gradebook grid header band,
   and the submission-detail modal.

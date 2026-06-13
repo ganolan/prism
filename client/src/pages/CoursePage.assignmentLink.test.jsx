@@ -97,4 +97,12 @@ describe('GradebookView — Schoology link in the diagonal column header (#76)',
     renderGrid();
     expect(screen.queryByRole('link', { name: 'View "Quiz" in Schoology' })).not.toBeInTheDocument();
   });
+
+  // The diagonal titles overflow rightward by design; the last column has no
+  // neighbour to overflow onto, so a trailing spacer carries the header
+  // background across that overflow instead of exposing the white card bg.
+  it('renders a trailing header spacer in each of the three header rows', () => {
+    renderGrid();
+    expect(screen.getAllByTestId('grid-header-spacer')).toHaveLength(3);
+  });
 });

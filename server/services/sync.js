@@ -96,8 +96,8 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
 
   const assignments = await getSectionAssignments(sectionId);
   const upsertAssignment = db.prepare(`
-    INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, max_points, assignment_type, is_lti_submission, grading_category_id, grading_scale_id, folder_id, count_in_grade, published, display_weight, num_assignees, synced_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, max_points, assignment_type, is_lti_submission, grading_category_id, grading_scale_id, folder_id, count_in_grade, published, display_weight, num_assignees, web_url, synced_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(schoology_assignment_id) DO UPDATE SET
       title = excluded.title,
       due_date = excluded.due_date,
@@ -111,6 +111,7 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
       published = excluded.published,
       display_weight = excluded.display_weight,
       num_assignees = excluded.num_assignees,
+      web_url = excluded.web_url,
       synced_at = excluded.synced_at
   `);
   const deleteAssignees = db.prepare(`DELETE FROM assignment_assignees WHERE assignment_id = ?`);
@@ -132,6 +133,7 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
         a.published ?? 1,
         a.display_weight ?? 0,
         Number.isFinite(Number(a.num_assignees)) ? Number(a.num_assignees) : null,
+        a.web_url || null,
         now
       );
       const row = selectAssignment.get(String(a.id));

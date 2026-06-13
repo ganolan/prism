@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS assignments (
   published INTEGER DEFAULT 1,
   display_weight INTEGER DEFAULT 0,
   num_assignees INTEGER,
+  web_url TEXT,
   synced_at TEXT
 );
 

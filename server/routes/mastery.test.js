@@ -123,6 +123,25 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — review and res
     expect(body.students.every(s => s.review_flag === null)).toBe(true);
   });
 
+  // #76: the assignment-context response must carry the Schoology assignment
+  // web_url so the /assessment/ page can link straight to Schoology. Guards the
+  // SELECT * contract — a refactor to explicit columns that drops web_url would
+  // fail here.
+  test('assignment.web_url is served from the stored row (#76)', async () => {
+    const db = getDb();
+    db.prepare(
+      `UPDATE assignments SET web_url = 'https://hkis.schoology.com/assignment/sa-1/info'
+       WHERE schoology_assignment_id = 'sa-1'`
+    ).run();
+    const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
+    expect(body.assignment.web_url).toBe('https://hkis.schoology.com/assignment/sa-1/info');
+  });
+
+  test('assignment.web_url is null when the assignment has none (#76)', async () => {
+    const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
+    expect(body.assignment.web_url).toBeNull();
+  });
+
   test('resubmit_flag is null when the student has no resubmit flag', async () => {
     const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
     expect(body.students[0].resubmit_flag).toBeNull();

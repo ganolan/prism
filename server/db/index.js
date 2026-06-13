@@ -83,6 +83,10 @@ const MIGRATIONS = [
   // manual "Sync blocks from PowerSchool" button re-examines all courses
   // (force) regardless of this marker.
   `ALTER TABLE courses ADD COLUMN block_synced_at TEXT`,
+  // #76: the Schoology assignment page URL (the public `web_url` field on
+  // /v1/sections/{id}/assignments). Lets the UI link straight to the
+  // assignment in Schoology. NULL when Schoology omits it.
+  `ALTER TABLE assignments ADD COLUMN web_url TEXT`,
   // Indexes for issue #13 columns (must run after ALTER TABLEs above)
   `CREATE INDEX IF NOT EXISTS idx_assignments_folder ON assignments(folder_id)`,
   `CREATE INDEX IF NOT EXISTS idx_assignments_grading_category ON assignments(grading_category_id)`,

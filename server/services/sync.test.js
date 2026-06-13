@@ -92,6 +92,42 @@ describe('syncSectionData — assignee mapping (#54)', () => {
     expect(rows.map(r => r.schoology_uid)).toEqual(['700001', '700003']);
   });
 
+  test('captures the Schoology assignment web_url (#76)', async () => {
+    getSectionEnrollments.mockResolvedValue([
+      { id: '900001', uid: '700001', name_first: 'Ada', name_last: 'Lovelace', admin: '0' },
+    ]);
+    getSectionAssignments.mockResolvedValue([
+      {
+        id: '5004', title: 'Has a Schoology link', published: 1,
+        num_assignees: 0, assignees: '[]',
+        web_url: 'https://hkis.schoology.com/assignment/5004/info',
+      },
+    ]);
+
+    await syncSectionData(db, 'sec-1', courseId, new Date().toISOString());
+
+    const row = db.prepare(
+      `SELECT web_url FROM assignments WHERE schoology_assignment_id = '5004'`
+    ).get();
+    expect(row.web_url).toBe('https://hkis.schoology.com/assignment/5004/info');
+  });
+
+  test('web_url is null when Schoology omits it', async () => {
+    getSectionEnrollments.mockResolvedValue([
+      { id: '900001', uid: '700001', name_first: 'Ada', name_last: 'Lovelace', admin: '0' },
+    ]);
+    getSectionAssignments.mockResolvedValue([
+      { id: '5005', title: 'No link', published: 1, num_assignees: 0, assignees: '[]' },
+    ]);
+
+    await syncSectionData(db, 'sec-1', courseId, new Date().toISOString());
+
+    const row = db.prepare(
+      `SELECT web_url FROM assignments WHERE schoology_assignment_id = '5005'`
+    ).get();
+    expect(row.web_url).toBeNull();
+  });
+
   test('open-to-all assignment (empty assignees) writes no rows', async () => {
     getSectionEnrollments.mockResolvedValue([
       { id: '900001', uid: '700001', name_first: 'Ada', name_last: 'Lovelace', admin: '0' },

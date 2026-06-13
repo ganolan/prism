@@ -15,6 +15,7 @@ import { indexMastery, buildAssignmentRubric } from '../lib/gradebookMastery.js'
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import CompactRubric from '../components/CompactRubric.jsx';
 import SubmissionBadges from '../components/SubmissionBadges.jsx';
+import SchoologyLink from '../components/SchoologyLink.jsx';
 
 const SHORT_BADGE = { late: 'L', draft: 'D', missing: 'M', 'not-started': 'NS', submitted: 'S', 'in-progress': 'IP', ungraded: '·' };
 const BADGE_TONE_CLASS = { red: 'badge-red', blue: 'badge-blue', amber: 'badge-pink', green: 'badge-green', yellow: 'badge-amber', neutral: 'badge-gray' };
@@ -506,7 +507,7 @@ function MiniRubricStrip({ topics, onClick }) {
 
 // Modal opened from a MiniRubricStrip — the full rubric grid (shared
 // CompactRubric) plus the overall comment, matching the /student/ page.
-function RubricModal({ student, assignment, courseId, topics, comment, grade, onClose }) {
+export function RubricModal({ student, assignment, courseId, topics, comment, grade, onClose }) {
   const name = preferredFirstName(student);
   // Submission state + flags, shown above the rubric — matching the /student/ page.
   const status = submissionStatus({
@@ -544,9 +545,11 @@ function RubricModal({ student, assignment, courseId, topics, comment, grade, on
         }}>
           <div>
             <div style={{ fontWeight: 700 }}>{name} {student.last_name}</div>
-            <div className="text-sm text-muted" style={{ marginTop: 2 }}>
+            <div className="text-sm text-muted" style={{ marginTop: 2, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {assignment.title}
-              <span className="badge badge-summative" style={{ fontSize: '0.6rem', marginLeft: 6 }}>S</span>
+              <span className="badge badge-summative" style={{ fontSize: '0.6rem' }}>S</span>
+              {/* Jump out to the assignment's Schoology page (#76). */}
+              <SchoologyLink url={assignment.web_url} ariaLabel={`View "${assignment.title}" in Schoology`} />
             </div>
           </div>
           <button className="ghost" onClick={onClose} aria-label="Close">✕</button>
@@ -1071,7 +1074,7 @@ function TypeFilterToggle({ label, count, active, type, onClick }) {
   );
 }
 
-function AssessmentsView({ data, courseId }) {
+export function AssessmentsView({ data, courseId }) {
   const [showSummative, setShowSummative] = useState(true);
   const [showFormative, setShowFormative] = useState(true);
 
@@ -1137,13 +1140,17 @@ function AssessmentsView({ data, courseId }) {
                   >
                     {isSummative ? 'S' : 'F'}
                   </span>
-                  <Link
-                    to={`/course/${courseId}/assessment/${a.schoology_assignment_id}`}
-                    className="link"
-                    style={{ flex: 1 }}
-                  >
-                    {a.title}
-                  </Link>
+                  {/* Title + its outbound Schoology link travel together (#76);
+                      the group flexes so the due date stays right-aligned. */}
+                  <span style={{ flex: 1, display: 'inline-flex', alignItems: 'center', gap: '0.4rem', minWidth: 0 }}>
+                    <Link
+                      to={`/course/${courseId}/assessment/${a.schoology_assignment_id}`}
+                      className="link"
+                    >
+                      {a.title}
+                    </Link>
+                    <SchoologyLink url={a.web_url} ariaLabel={`View "${a.title}" in Schoology`} />
+                  </span>
                   {a.due_date && (
                     <span className="text-sm text-muted" style={{ flexShrink: 0 }}>
                       Due {a.due_date}

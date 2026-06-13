@@ -1044,3 +1044,38 @@ describe('AssessmentSummaryPage — Manage rubrics modal', () => {
     expect(screen.queryByText('Upload rubric CSV')).not.toBeInTheDocument();
   });
 });
+
+describe('AssessmentSummaryPage — View in Schoology header link (#76)', () => {
+  function makeData(web_url) {
+    return {
+      assignment: { id: 50, schoology_assignment_id: '8', title: 'Quiz', web_url, mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+      topics: TOPICS,
+      students: [{ ...makeStudent(), id: 1, schoology_uid: 'uid-1', enrollment_id: 'enr-1', scores: {} }],
+    };
+  }
+  function renderPage() {
+    return render(
+      <MemoryRouter initialEntries={['/course/4/assessment/8']}>
+        <Routes>
+          <Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+  }
+
+  it('links "View in Schoology" to the assignment web_url, opening in a new tab', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData('https://hkis.schoology.com/assignment/8/info'));
+    renderPage();
+    const link = await screen.findByRole('link', { name: /view in schoology/i });
+    expect(link).toHaveAttribute('href', 'https://hkis.schoology.com/assignment/8/info');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('omits the link when the assignment has no web_url', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData(null));
+    renderPage();
+    await screen.findByText('Quiz');
+    expect(screen.queryByRole('link', { name: /view in schoology/i })).not.toBeInTheDocument();
+  });
+});

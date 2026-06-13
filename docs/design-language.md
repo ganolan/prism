@@ -335,3 +335,31 @@ Selected-but-unpublished (draft) proficiency cells fill with the level's own
 grid (`RubricDescriptorGrid`) takes a `levelDraftColors` prop so it matches the
 inline-table path. A draft is a tentative version of *this* score, so it should
 look like a lighter shade of the final colour, not a separate neutral state.
+
+## Outbound "View in Schoology" link — `SchoologyLink` (June 2026, #76)
+
+A shared affordance for jumping out to a Schoology page (currently an
+assignment's public `web_url`). Component:
+`client/src/components/SchoologyLink.jsx`. Reuse it rather than re-inlining an
+external-link anchor.
+
+- **Glyph.** The Feather **external-link** SVG (box + out-arrow), `fill: none`,
+  `stroke: currentColor`, `strokeWidth 2` — so it inherits the `.link` colour and
+  tracks the active theme (no hardcoded hex, per the theming rule). It matches the
+  inline-SVG idiom already used for the header's Refresh icon.
+- **Two forms, one component.** A **labelled** form (icon + "View in Schoology"
+  text) is used where the link stands alone and prominent — the **top of the
+  `/assessment/` page** (issue ask: a clear way in). An **icon-only** form sits
+  *beside* an assignment title where the title is already the primary link — the
+  gradebook **Assessments list** and the submission-detail modal. Icon-only links
+  carry their name on `aria-label` (`View "{title}" in Schoology`); the SVG is
+  `aria-hidden` so it never doubles the accessible name.
+- **Safe + conditional.** Always `target="_blank" rel="noopener noreferrer"`
+  (the standard safe external-link combo). Schoology omits `web_url` on some
+  assignments, so `SchoologyLink` renders **nothing** when `url` is falsy —
+  callers pass `web_url` through unconditionally.
+- **Deliberately *not*** added to the gradebook grid's **diagonal column header**
+  (`GradebookView`): those titles are rotated −45° and ellipsis-clipped, so an
+  inline icon would clutter a dense header and fight the rotation. The outbound
+  link lives only where titles render horizontally (the Assessments list + the
+  modal) and at the top of the assessment page.

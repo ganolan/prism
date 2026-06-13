@@ -11,6 +11,7 @@ import { useProficiencyScale } from '../hooks/useProficiencyScale.js';
 import RubricDescriptorGrid from '../components/RubricDescriptorGrid.jsx';
 import RubricManagerModal from '../components/RubricManagerModal.jsx';
 import AiSparkle from '../components/AiSparkle.jsx';
+import SchoologyLink from '../components/SchoologyLink.jsx';
 
 const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
 // Suggestion accent — fuchsia CSS tokens (matches descriptor grid's --ai-suggest).
@@ -1405,6 +1406,13 @@ export default function AssessmentSummaryPage() {
           <p className="text-sm text-muted" style={{ margin: 0 }}>
             {students.length} students · {alignedTopics.length} measurement topics
           </p>
+          {/* Jump straight to this assignment's Schoology page (#76). Hidden when
+              Schoology didn't return a web_url for the assignment. */}
+          <SchoologyLink
+            url={assignment.web_url}
+            label="View in Schoology"
+            style={{ fontSize: '0.78rem' }}
+          />
           <button
             className="primary"
             onClick={handleRefresh}

@@ -187,6 +187,20 @@ describe('GET /api/courses/:id/gradebook — individually assigned (#54)', () =>
   });
 });
 
+describe('GET /api/courses/:id/gradebook — assignment web_url (#76)', () => {
+  test('exposes the Schoology web_url on each assignment when present', async () => {
+    getDb().prepare('UPDATE assignments SET web_url = ? WHERE id = ?')
+      .run('https://hkis.schoology.com/assignment/123/info', assignmentId);
+    const { body } = await get(`/api/courses/${courseId}/gradebook`);
+    expect(body.assignments[0].web_url).toBe('https://hkis.schoology.com/assignment/123/info');
+  });
+
+  test('web_url is null when Schoology omitted it', async () => {
+    const { body } = await get(`/api/courses/${courseId}/gradebook`);
+    expect(body.assignments[0].web_url).toBeNull();
+  });
+});
+
 describe('GET /api/courses/:id/students — individually-assigned aggregate (#54)', () => {
   test('an assignment individually targeted at others does not count toward this student\'s avg', async () => {
     const db = getDb();

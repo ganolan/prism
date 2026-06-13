@@ -1,0 +1,10 @@
+{
+  "_doc": "Canonical proficiency-level IDENTITY (codes + labels + order). Single source of truth shared across processes: the server's DEFAULT_PROFICIENCY_SCALE (server/middleware/featureGate.js) and the client's LEVELS + LEVEL_LABELS (client/src/lib/masteryLevels.js) are both pinned to this by cross-process drift-guard tests. Identity only — numeric points/gradeScaled are config-driven (per ADR docs/adr/0001-prism-owns-proficiency-gradebook-mapping.md) and intentionally NOT pinned here. See issue #115.",
+  "levels": [
+    { "code": "ED", "label": "Exhibiting Depth" },
+    { "code": "EX", "label": "Exhibiting" },
+    { "code": "D",  "label": "Developing" },
+    { "code": "EM", "label": "Emerging" },
+    { "code": "IE", "label": "Insufficient Evidence" }
+  ]
+}

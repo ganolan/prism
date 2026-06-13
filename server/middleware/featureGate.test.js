@@ -1,8 +1,19 @@
 import { describe, test, expect, beforeEach, vi } from 'vitest';
-import { writeFileSync, unlinkSync } from 'fs';
+import { writeFileSync, unlinkSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
-import { getProficiencyScale } from './featureGate.js';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import { getProficiencyScale, DEFAULT_PROFICIENCY_SCALE } from './featureGate.js';
+
+// Canonical cross-process identity fixture (shared with the client guard in
+// client/src/lib/masteryLevels.test.js). Pin codes + labels + order only —
+// numeric mapping is config-driven (ADR-0001). See issue #115.
+const CANONICAL_LEVELS = JSON.parse(
+  readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'shared', 'proficiency-levels.json'),
+    'utf-8',
+  ),
+).levels;
 
 describe('getProficiencyScale', () => {
   test('returns the HKIS General Academic Scale with all five levels', () => {
@@ -13,6 +24,19 @@ describe('getProficiencyScale', () => {
     expect(ed).toMatchObject({ label: 'Exhibiting Depth', points: 100, gradeScaled: '87.50' });
     const ie = scale.levels.find((l) => l.code === 'IE');
     expect(ie).toMatchObject({ label: 'Insufficient Evidence', points: 0, gradeScaled: '0.00' });
+  });
+
+  // Cross-process drift guard (server side). The sibling client guard pins
+  // LEVELS + LEVEL_LABELS to the same fixture; together they guarantee the
+  // server default identity and the client's hardcoded identity can't diverge
+  // silently. Fails here if a server default code/label/order edit lands
+  // without updating shared/proficiency-levels.json.
+  test('server default proficiency identity matches the canonical fixture', () => {
+    const serverIdentity = DEFAULT_PROFICIENCY_SCALE.levels.map((l) => ({
+      code: l.code,
+      label: l.label,
+    }));
+    expect(serverIdentity).toEqual(CANONICAL_LEVELS);
   });
 });
 

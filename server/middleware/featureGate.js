@@ -39,7 +39,7 @@ export function getRubricConfig() {
   };
 }
 
-const DEFAULT_PROFICIENCY_SCALE = {
+export const DEFAULT_PROFICIENCY_SCALE = {
   name: 'HKIS General Academic Scale',
   schoologyScaleId: 21337256,
   levels: [

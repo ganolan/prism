@@ -846,6 +846,19 @@ describe('AssessmentSummaryPage — header + Reviewer Analysis (Slice 6)', () =>
     expect(screen.getByText(/Worth a spot-check/)).toBeInTheDocument();
   });
 
+  it('titles the moderation note and renders a multi-line note as dot points', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    getFeedbackForAssignment.mockResolvedValue({ 1: { feedback_parsed: { rubric_scores: { X1: 'ED' } } } });
+    getAssessmentAnalysis.mockResolvedValue({
+      analysis_parsed: { noticings: [], moderation_note: '- Point one here\n- Point two here' },
+    });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /reviewer analysis/i }));
+    expect(screen.getByText(/Moderation note/)).toBeInTheDocument();
+    expect(screen.getByText('Point one here').tagName).toBe('LI');
+    expect(screen.getByText('Point two here').tagName).toBe('LI');
+  });
+
   it('closes the drawer when the overlay scrim is clicked', async () => {
     getMasteryForAssignment.mockResolvedValue(makeData());
     getFeedbackForAssignment.mockResolvedValue({ 1: { feedback_parsed: { rubric_scores: { X1: 'ED' } } } });

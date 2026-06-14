@@ -1265,6 +1265,12 @@ function ReviewerAnalysisBody({ topics, feedbackRows, analysis }) {
   const dist = distributionByTopic(feedbackRows, topics);
   const noticings = analysis?.noticings || [];
   const moderationNote = analysis?.moderation_note || null;
+  // Render the moderation note as dot points: split on newlines, strip a leading
+  // bullet marker. A single-line note (older data) becomes one item.
+  const moderationPoints = (moderationNote || '')
+    .split('\n')
+    .map(l => l.replace(/^\s*[-*•]\s+/, '').trim())
+    .filter(Boolean);
 
   return (
     <div style={{ padding: '0.8rem' }}>
@@ -1308,13 +1314,20 @@ function ReviewerAnalysisBody({ topics, feedbackRows, analysis }) {
             </div>
           );
         })}
-        {moderationNote && (
+        {moderationPoints.length > 0 && (
           <div style={{
             fontSize: '0.84rem', color: '#92740f', background: '#fffbef',
             border: '1px solid #f0dea8', borderRadius: 6, padding: '0.45rem 0.6rem',
             marginTop: '0.5rem', lineHeight: 1.45,
           }}>
-            ⚖️ {moderationNote}
+            <div style={{ fontWeight: 700, marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+              <span aria-hidden="true">⚖️</span> Moderation note
+            </div>
+            <ul style={{ margin: 0, paddingLeft: '1.1rem' }}>
+              {moderationPoints.map((p, i) => (
+                <li key={i} style={{ marginBottom: i < moderationPoints.length - 1 ? '0.25rem' : 0 }}>{p}</li>
+              ))}
+            </ul>
           </div>
         )}
       </div>

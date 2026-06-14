@@ -467,6 +467,10 @@ each colour standing for a *function* so the hierarchy reads at a glance.
   textarea — the suggested comment is previewed at the size it will publish at. The
   class-level **Reviewer Analysis drawer** prose (noticings + moderation note) was
   bumped to the same 0.84rem for readability; its distribution chart stays compact.
+  The moderation note is titled **⚖️ Moderation note** (the icon alone was unclear)
+  and rendered as a **dot-point list** — the grader emits one point per line, Prism
+  splits on newlines and strips a leading bullet marker rather than guessing
+  sentence breaks (single-line legacy notes degrade to one bullet).
 - **Block visibility:** the tray renders when any of narrative / flags / strengths /
   suggestions is present, so a flags-only row still shows its flags now that they no
   longer have an independent top-of-card home.

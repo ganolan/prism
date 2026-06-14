@@ -79,3 +79,23 @@ describe('pillTone / TONE_VARS', () => {
     });
   });
 });
+
+describe('studentMatchesPill (visibility + flag + resubmit)', () => {
+  const ctx = { assignment: LTI, topics: TOPICS };
+  it('visible matches comment_status === 1', () => {
+    expect(studentMatchesPill(stu({ comment_status: 1 }), 'visible', ctx)).toBe(true);
+    expect(studentMatchesPill(stu({ comment_status: 0 }), 'visible', ctx)).toBe(false);
+  });
+  it('not_visible matches comment_status !== 1', () => {
+    expect(studentMatchesPill(stu({ comment_status: 0 }), 'not_visible', ctx)).toBe(true);
+    expect(studentMatchesPill(stu({ comment_status: 1 }), 'not_visible', ctx)).toBe(false);
+  });
+  it('review matches a review_flag', () => {
+    expect(studentMatchesPill(stu({ review_flag: { id: 1 } }), 'review', ctx)).toBe(true);
+    expect(studentMatchesPill(stu(), 'review', ctx)).toBe(false);
+  });
+  it('resubmit matches a resubmit_flag', () => {
+    expect(studentMatchesPill(stu({ resubmit_flag: { id: 2 } }), 'resubmit', ctx)).toBe(true);
+    expect(studentMatchesPill(stu(), 'resubmit', ctx)).toBe(false);
+  });
+});

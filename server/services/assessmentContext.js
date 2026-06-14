@@ -81,7 +81,8 @@ export function getScoreMap(db, assignmentSchoologyId, topicIds) {
 export function getGradeMetaRows(db, assignmentSchoologyId) {
   return db.prepare(`
     SELECT s.schoology_uid, g.score, g.submitted_at, g.latest_revision_at,
-           g.grade_comment, g.exception, g.comment_status
+           g.grade_comment, g.exception, g.comment_status,
+           g.lti_submission_state, g.submission_type, g.late, g.draft
     FROM grades g
     JOIN students s ON s.id = g.student_id
     JOIN assignments a ON a.id = g.assignment_id

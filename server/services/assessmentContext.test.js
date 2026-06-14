@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../db/index.js';
-import { getAssessmentContext } from './assessmentContext.js';
+import { getAssessmentContext, getGradeMetaRows } from './assessmentContext.js';
 
 // Seed one fully-populated assignment context: a course, a reporting category +
 // aligned measurement topic, an assignment, a roster of one enrolled student
@@ -197,5 +197,26 @@ describe('getAssessmentContext', () => {
     db.prepare('DELETE FROM assessment_drafts').run();
     const ctx = getAssessmentContext(db, { assignmentId: 'sa-1' });
     expect(ctx.students[0].draft_feedback).toBeNull();
+  });
+});
+
+describe('getGradeMetaRows', () => {
+  test('selects the submission-status columns', () => {
+    const db = getDb();
+    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-g', 'ROB')`).run().lastInsertRowid;
+    const assignmentId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-g', 'Notebook')`).run(courseId).lastInsertRowid;
+    const studentId = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-g', 'Grace', 'Hopper')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'enr-g')`).run(studentId, courseId);
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, lti_submission_state, submission_type, late, draft, submitted_at)
+                VALUES (?, ?, 'in_progress', 'drop', 1, 0, 123)`).run(studentId, assignmentId);
+
+    const rows = getGradeMetaRows(db, 'sa-g');
+    expect(rows[0]).toMatchObject({
+      schoology_uid: 'uid-g',
+      lti_submission_state: 'in_progress',
+      submission_type: 'drop',
+      late: 1,
+      draft: 0,
+    });
   });
 });

@@ -15,6 +15,7 @@ import {
 } from './schoology.js';
 import { filterRecentAssignments } from './recentWindow.js';
 import { groupRevisionsByUid, deriveNativeSubmission } from '../lib/submissionRevisions.js';
+import { retryAsync } from '../lib/retryAsync.js';
 import { createSubmissionFetcher } from './graderSubmissions.js';
 import { getSyncConfig } from '../middleware/featureGate.js';
 import { syncMasteryForCourse, hasMasterySession } from './masterySync.js';
@@ -323,13 +324,28 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
       lti_submission_state = excluded.lti_submission_state,
       synced_at = excluded.synced_at
   `);
+  // #76: record the per-assignment fetch outcome so the gradebook can flag a
+  // genuine capture failure ('failed') vs a healthy read ('ok'). Assignments we
+  // never reach this loop for (non-lti, windowed-out, or no session) keep their
+  // prior value — so old work never false-flags and a good full sync self-clears.
+  const setLtiFetchStatus = db.prepare(`UPDATE assignments SET lti_fetch_status = ? WHERE id = ?`);
+  // The document fetch returns null on a transient browser-session hiccup (not a
+  // throw); a single retry recovers the common all-or-nothing per-assignment
+  // failure before we record it as 'failed'.
+  const ltiFetchBackoffMs = opts.ltiFetchBackoffMs ?? 750;
   if (typeof opts.fetchDocuments === 'function' && ltiAssignments.length) {
     for (const a of ltiAssignments) {
       const assignRow = selectAssignmentByExt.get(String(a.id));
       if (!assignRow) continue;
-      let stateMap = null;
-      try { stateMap = await opts.fetchDocuments(String(a.id)); } catch { stateMap = null; }
-      if (!stateMap) continue; // no session / fetch failed → leave prior state
+      const stateMap = await retryAsync(
+        () => opts.fetchDocuments(String(a.id)),
+        { attempts: 2, backoffMs: ltiFetchBackoffMs },
+      );
+      if (!stateMap) { // fetch failed after retry → record so the teacher can re-sync
+        setLtiFetchStatus.run('failed', assignRow.id);
+        continue;
+      }
+      setLtiFetchStatus.run('ok', assignRow.id);
       const writeStates = db.transaction(() => {
         for (const { e, studentRow } of studentEnrollments
           .map((e) => ({ e, studentRow: selectStudentByUid.get(String(e.uid)) }))

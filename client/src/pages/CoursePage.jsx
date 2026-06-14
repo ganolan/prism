@@ -5,7 +5,7 @@ import AnalyticsView from '../components/AnalyticsView.jsx';
 import OverridePopup from '../components/OverridePopup.jsx';
 import { LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
 import { LetterGradePopup, LETTER_GRADE_COLORS } from '../components/MasteryPerformanceSummary.jsx';
-import { gradeLabel, submissionStatus } from '../lib/gradeLabel.js';
+import { gradeLabel, submissionStatus, ltiStatusUnavailable } from '../lib/gradeLabel.js';
 import { masteryCodeForLevel, computeLetterGrade } from '../lib/masteryLevels.js';
 import { useProficiencyScale } from '../hooks/useProficiencyScale.js';
 import { groupAssignmentsByFolder } from '../lib/assessmentGroups.js';
@@ -17,7 +17,7 @@ import CompactRubric from '../components/CompactRubric.jsx';
 import SubmissionBadges from '../components/SubmissionBadges.jsx';
 import SchoologyLink from '../components/SchoologyLink.jsx';
 
-const SHORT_BADGE = { late: 'L', draft: 'D', missing: 'M', 'not-started': 'NS', submitted: 'S', 'in-progress': 'IP', ungraded: '·' };
+const SHORT_BADGE = { late: 'L', draft: 'D', missing: 'M', 'not-started': 'NS', submitted: 'S', 'in-progress': 'IP' };
 const BADGE_TONE_CLASS = { red: 'badge-red', blue: 'badge-blue', amber: 'badge-pink', green: 'badge-green', yellow: 'badge-amber', neutral: 'badge-gray' };
 
 export default function CoursePage() {
@@ -723,6 +723,35 @@ export function GradebookView({ data, courseId, mastery }) {
   const { assignments, students, grades, grading_scales } = data;
   const displayName = (s) => preferredFirstName(s);
 
+  // #76: cell marker for an lti_submission assignment whose document fetch
+  // failed at the last sync (assignment.lti_fetch_status === 'failed'). Replaces
+  // the old misleading "Ungraded" dot — Prism has no submission status here, so
+  // the teacher should re-sync. Hover explains via the shared header popover.
+  const unavailableMark = () => (
+    <span
+      className="lti-unavailable"
+      role="img"
+      aria-label="Submission status unavailable"
+      title="Submission status unavailable — re-sync to refresh"
+      onMouseEnter={(e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        setPopover({
+          left: Math.max(8, Math.min(r.left - 110, window.innerWidth - 270)),
+          top: r.bottom + 8, width: 250,
+          content: (
+            <span>
+              <strong style={{ color: 'var(--warning)' }}>Submission status unavailable.</strong>{' '}
+              Prism couldn't read OneDrive submissions for this assignment at the last sync
+              (it retried once). Re-sync to refresh; if your Schoology session has expired,
+              run <code>mastery:login</code> first.
+            </span>
+          ),
+        });
+      }}
+      onMouseLeave={() => setPopover(null)}
+    >⚠</span>
+  );
+
   // Fixed table layout keeps every assessment column an identical width so the
   // diagonal headers stay uniform (#37); NAME_W must clear the longest name.
   const COL_W = 78;
@@ -900,6 +929,10 @@ export function GradebookView({ data, courseId, mastery }) {
                   // No grade row — for lti this means the document pass found no
                   // state (no session / not covered); for native dropbox, past-due
                   // unsubmitted → Missing. Render via the shared badge logic.
+                  // #76: a recorded fetch failure shows the re-sync marker instead.
+                  if (ltiStatusUnavailable({ is_lti_submission: a.is_lti_submission, lti_fetch_status: a.lti_fetch_status, score: null, exception: 0 })) {
+                    return <td key={a.id} style={{ textAlign: 'center' }}>{unavailableMark()}</td>;
+                  }
                   const empty = submissionStatus({
                     score: null, exception: 0, late: 0, draft: 0, submitted_at: 0,
                     is_lti_submission: a.is_lti_submission, lti_submission_state: null,
@@ -966,6 +999,12 @@ export function GradebookView({ data, courseId, mastery }) {
                 });
                 // Don't double up exception text — gradeLabel already shows it.
                 const inlineBadges = status.filter(b => b.kind !== 'exception');
+                // #76: an ungraded cell whose lti document fetch failed shows the
+                // re-sync marker in place of the pending dash.
+                const ltiUnavailable = ltiStatusUnavailable({
+                  is_lti_submission: a.is_lti_submission, lti_fetch_status: a.lti_fetch_status,
+                  score: g.score, exception: g.exception,
+                });
                 // The grade comment is surfaced via the corner indicator + the
                 // instant hover overlay (#36); the native title is reserved for
                 // the resubmission / mismatch signals only.
@@ -1010,7 +1049,7 @@ export function GradebookView({ data, courseId, mastery }) {
                         }}
                       />
                     )}
-                    {inner}
+                    {ltiUnavailable ? unavailableMark() : inner}
                     {inlineBadges.map(b => (
                       <span key={b.kind} className={`badge ${BADGE_TONE_CLASS[b.tone] || 'badge-gray'}`} style={{ fontSize: '0.55rem', marginLeft: 3 }} title={b.label}>
                         {SHORT_BADGE[b.kind] || b.label[0]}

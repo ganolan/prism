@@ -87,6 +87,14 @@ const MIGRATIONS = [
   // /v1/sections/{id}/assignments). Lets the UI link straight to the
   // assignment in Schoology. NULL when Schoology omits it.
   `ALTER TABLE assignments ADD COLUMN web_url TEXT`,
+  // #76 follow-up: outcome of the per-assignment lti_submission document fetch
+  // at the last sync. 'ok' = the grader's submitted/in-progress lists were read
+  // (states are authoritative); 'failed' = both reads came back empty after a
+  // retry (a transient browser-session hiccup — the gradebook shows a per-cell
+  // "re-sync" warning); NULL = non-lti, or never attempted (no session / outside
+  // the sync window) → no warning. Left untouched when an assignment is skipped,
+  // so a good full sync self-clears a stale 'failed'.
+  `ALTER TABLE assignments ADD COLUMN lti_fetch_status TEXT`,
   // Indexes for issue #13 columns (must run after ALTER TABLEs above)
   `CREATE INDEX IF NOT EXISTS idx_assignments_folder ON assignments(folder_id)`,
   `CREATE INDEX IF NOT EXISTS idx_assignments_grading_category ON assignments(grading_category_id)`,

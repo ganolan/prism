@@ -442,6 +442,16 @@ tr:last-child td { border-bottom: none; }
 .badge-resubmitted { background: var(--card-bg); color: var(--resubmit-ring); box-shadow: inset 0 0 0 1.5px var(--resubmit-ring); }
 .badge-pink { background: var(--badge-pink-bg); color: var(--badge-pink-text); }
 
+/* #76: gradebook cell marker for an lti_submission assignment whose OneDrive
+   document fetch failed at the last sync — the teacher should re-sync. Amber
+   warning glyph; hover shows the explanation popover. */
+.lti-unavailable {
+  color: var(--warning);
+  cursor: help;
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
 /* Formative / summative assignment type coding. Summative (amber) deliberately
    carries more visual weight than formative (neutral). Used wherever F/S is
    shown — gradebook headers, the Assessments tab. */

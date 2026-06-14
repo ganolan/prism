@@ -52,8 +52,10 @@ function ltiBadges(state, submission_type, due_date, today) {
     const tone = (prox === 'soon' || prox === 'overdue') ? 'red' : 'neutral';
     return [{ kind: 'not-started', label: 'Not Started', tone }];
   }
-  // null/unknown (no session): low-noise fallback — nothing before due.
-  if (prox === 'overdue') return [{ kind: 'ungraded', label: 'Ungraded', tone: 'neutral' }];
+  // null/unknown: no per-cell badge. A genuine capture failure is surfaced at
+  // the cell via the assignment's persisted lti_fetch_status (see
+  // ltiStatusUnavailable) rather than guessing a misleading "Ungraded" here.
+  // (#76 follow-up)
   return [];
 }
 
@@ -78,6 +80,16 @@ export function submissionStatus({ score, exception, late, draft, submitted_at, 
   if (score != null) return []; // graded — gradeLabel renders the score
   if (is_lti_submission) return ltiBadges(lti_submission_state, submission_type, due_date, today);
   return nonLtiBadges({ submission_type, submitted_at, late, due_date, today });
+}
+
+// True when an lti_submission assignment's document fetch failed at the last
+// sync (assignment.lti_fetch_status === 'failed') and this cell is still
+// ungraded / non-excepted — Prism has no submission status for it and the
+// teacher should re-sync. Drives the cell-level amber "unavailable" marker
+// (#76 follow-up). Keyed on the persisted per-assignment outcome, not inferred
+// from sibling cells.
+export function ltiStatusUnavailable({ is_lti_submission, lti_fetch_status, score, exception }) {
+  return !!is_lti_submission && lti_fetch_status === 'failed' && score == null && !exception;
 }
 
 export function gradeLabel({ score, max_points, exception, grading_scale_id, scales }) {

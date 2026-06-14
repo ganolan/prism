@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { submissionStatus, gradeLabel } from './gradeLabel.js';
+import { submissionStatus, gradeLabel, ltiStatusUnavailable } from './gradeLabel.js';
 
 const PAST = '2020-01-01 00:00:00';
 const FUTURE = '2999-01-01 00:00:00';
@@ -26,9 +26,9 @@ describe('submissionStatus — lti true state (#62)', () => {
     expect(tone(lti('not_started', SOON), 'not-started')).toBe('red');
     expect(tone(lti('not_started', PAST), 'not-started')).toBe('red');
   });
-  it('null state (no session): nothing before due, neutral Ungraded once overdue', () => {
+  it('null state → no badge regardless of due date (a capture failure surfaces via lti_fetch_status, not a per-cell "Ungraded" dot)', () => {
     expect(lti(null, SOON)).toEqual([]);
-    expect(tone(lti(null, PAST), 'ungraded')).toBe('neutral');
+    expect(lti(null, PAST)).toEqual([]);
   });
   it('null state but GHD submission_type present → Submitted (green)', () => {
     const b = submissionStatus({ score: null, is_lti_submission: 1, lti_submission_state: null, submission_type: 'drop', due_date: PAST });
@@ -58,6 +58,26 @@ describe('submissionStatus — non-lti consolidated (#62)', () => {
   });
   it('graded → no status badge', () => {
     expect(submissionStatus({ score: 9, is_lti_submission: 0, due_date: PAST })).toEqual([]);
+  });
+});
+
+describe('ltiStatusUnavailable — whole-assignment fetch failure (#76 follow-up)', () => {
+  const base = { is_lti_submission: 1, lti_fetch_status: 'failed', score: null, exception: 0 };
+  it('failed fetch on an ungraded, non-excepted lti cell → true', () => {
+    expect(ltiStatusUnavailable(base)).toBe(true);
+  });
+  it("'ok' / null fetch status → false (we only flag a recorded failure)", () => {
+    expect(ltiStatusUnavailable({ ...base, lti_fetch_status: 'ok' })).toBe(false);
+    expect(ltiStatusUnavailable({ ...base, lti_fetch_status: null })).toBe(false);
+  });
+  it('graded cell → false even when the fetch failed', () => {
+    expect(ltiStatusUnavailable({ ...base, score: 12 })).toBe(false);
+  });
+  it('excepted cell → false even when the fetch failed', () => {
+    expect(ltiStatusUnavailable({ ...base, exception: 1 })).toBe(false);
+  });
+  it('non-lti assignment → false', () => {
+    expect(ltiStatusUnavailable({ ...base, is_lti_submission: 0 })).toBe(false);
   });
 });
 

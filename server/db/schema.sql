@@ -68,6 +68,9 @@ CREATE TABLE IF NOT EXISTS assignments (
   display_weight INTEGER DEFAULT 0,
   num_assignees INTEGER,
   web_url TEXT,
+  -- #76: outcome of the last lti_submission document fetch ('ok' | 'failed';
+  -- NULL = non-lti / never attempted). Drives the gradebook "re-sync" warning.
+  lti_fetch_status TEXT,
   synced_at TEXT
 );
 

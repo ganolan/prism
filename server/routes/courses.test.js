@@ -203,6 +203,20 @@ describe('GET /api/courses/:id/gradebook — assignment web_url (#76)', () => {
   });
 });
 
+describe('GET /api/courses/:id/gradebook — lti_fetch_status (#76)', () => {
+  test('serves the persisted lti_fetch_status so the grid can flag a failed fetch', async () => {
+    getDb().prepare('UPDATE assignments SET lti_fetch_status = ? WHERE id = ?')
+      .run('failed', assignmentId);
+    const { body } = await get(`/api/courses/${courseId}/gradebook`);
+    expect(body.assignments[0].lti_fetch_status).toBe('failed');
+  });
+
+  test('lti_fetch_status is null when never attempted', async () => {
+    const { body } = await get(`/api/courses/${courseId}/gradebook`);
+    expect(body.assignments[0].lti_fetch_status).toBeNull();
+  });
+});
+
 describe('GET /api/courses/:id/students — individually-assigned aggregate (#54)', () => {
   test('an assignment individually targeted at others does not count toward this student\'s avg', async () => {
     const db = getDb();

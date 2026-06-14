@@ -448,6 +448,74 @@ describe('syncSectionData — submission state: native bulk + lti documents (#55
     // A not_started cell inserts a row so the state reaches the gradebook.
     expect(getGradeRow('702', 'L1').lti_submission_state).toBe('not_started');
   });
+
+  function getFetchStatus(assignmentExtId) {
+    return db.prepare(`SELECT lti_fetch_status FROM assignments WHERE schoology_assignment_id = ?`)
+      .get(assignmentExtId)?.lti_fetch_status;
+  }
+
+  const oneLti = () => {
+    getSectionEnrollments.mockResolvedValue([
+      { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
+    ]);
+    getSectionAssignments.mockResolvedValue([
+      { id: 'L1', title: 'OneDrive Essay', published: 1, allow_dropbox: '1', assignment_type: 'lti_submission' },
+    ]);
+  };
+
+  test('#76: a successful lti document fetch records lti_fetch_status = "ok"', async () => {
+    oneLti();
+    await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
+      fetchDocuments: async () => new Map([['701', 'submitted']]),
+      ltiFetchBackoffMs: 0,
+    });
+    expect(getFetchStatus('L1')).toBe('ok');
+  });
+
+  test('#76: a fetch that fails every attempt records "failed" and retries once', async () => {
+    oneLti();
+    let calls = 0;
+    await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
+      fetchDocuments: async () => { calls++; return null; },
+      ltiFetchBackoffMs: 0,
+    });
+    expect(calls).toBe(2);                          // initial attempt + one retry
+    expect(getFetchStatus('L1')).toBe('failed');
+    expect(getGradeRow('701', 'L1')).toBeUndefined(); // no state stored
+  });
+
+  test('#76: a transient null that recovers on retry records "ok" and writes the state', async () => {
+    oneLti();
+    let calls = 0;
+    await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
+      fetchDocuments: async () => { calls++; return calls < 2 ? null : new Map([['701', 'submitted']]); },
+      ltiFetchBackoffMs: 0,
+    });
+    expect(calls).toBe(2);
+    expect(getFetchStatus('L1')).toBe('ok');
+    expect(getGradeRow('701', 'L1').lti_submission_state).toBe('submitted');
+  });
+
+  test('#76: an lti assignment synced without a fetcher leaves lti_fetch_status NULL (never attempted)', async () => {
+    oneLti();
+    await syncSectionData(db, 'sec-G', courseId, new Date().toISOString()); // no fetchDocuments
+    expect(getFetchStatus('L1')).toBeNull();
+  });
+
+  test('#76: a native (non-lti) assignment never touches lti_fetch_status', async () => {
+    getSectionEnrollments.mockResolvedValue([
+      { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
+    ]);
+    getSectionAssignments.mockResolvedValue([
+      { id: 'N1', title: 'Native dropbox', published: 1, allow_dropbox: '1' },
+    ]);
+    getAssignmentSubmissions.mockResolvedValue([]);
+    await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
+      fetchDocuments: async () => new Map(),
+      ltiFetchBackoffMs: 0,
+    });
+    expect(getFetchStatus('N1')).toBeNull();
+  });
 });
 
 describe('syncSectionData — skipSubmissions opt (#72)', () => {

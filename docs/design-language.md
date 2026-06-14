@@ -390,3 +390,33 @@ time (`server/lib/schoologyWebUrl.js`, host-only swap so both path shapes surviv
 domain from `config.yaml` → `schoology.webBaseUrl`, default `https://schoology.hkis.edu.hk`).
 Serve-time (not capture-time) keeps it config-live and fixes already-synced rows
 without a re-sync; the DB keeps the raw verified API value.
+
+## Gradebook: "submission status unavailable" vs. unknown (#76 follow-up)
+
+OneDrive (`lti_submission`) submission state is read best-effort, per assignment,
+from a browser-session document fetch that can transiently fail (all-or-nothing
+for the whole assignment). When it fails, Prism has **no** submission status — a
+state that must not be confused with a real one.
+
+- **Don't dress up "unknown" as a grading state.** The earlier behaviour rendered
+  an unknown overdue cell as a `·` dot labelled **"Ungraded"** — misleading, since
+  *every* unscored cell is ungraded and the cell's actual gap is *submission*, not
+  grading. That dot is gone; a cell with no captured state and no recorded failure
+  renders blank (`—`), claiming nothing.
+- **Flag a genuine *failure*, keyed on a persisted outcome — not inferred.** The
+  sync records each assignment's fetch result in `assignments.lti_fetch_status`
+  (`'ok'` | `'failed'`; `NULL` = non-lti / never attempted), retrying once before
+  recording `'failed'`. Only `'failed'` raises a warning, so windowed-out/old work
+  (left untouched) never false-flags, and a good full sync self-clears a stale
+  flag. Rule: when a signal is *missing because capture failed*, persist that fact
+  at capture time rather than guessing from absence at render time.
+- **Cell-level amber `⚠`, with a re-sync affordance.** A failed assignment shows
+  an amber `⚠` (`.lti-unavailable`, `var(--warning)`, `cursor: help`) on **every**
+  ungraded, non-excepted cell — so a whole-assignment failure is impossible to
+  miss — while graded/excepted cells stay clean. Hover reuses the shared grid
+  popover (`setPopover`) to explain and point at re-sync (and `mastery:login` if
+  the session expired). The marker carries its name on `aria-label`
+  ("Submission status unavailable"). Failure granularity is the assignment, but we
+  render per-cell for visibility, not as a column-header badge. Rule: surface a
+  data-capture failure where the missing data would have been, with an action, not
+  a dead end.

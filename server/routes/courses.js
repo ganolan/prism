@@ -149,7 +149,7 @@ router.get('/:id/gradebook', (req, res) => {
 
   const assignments = db.prepare(`
     SELECT a.id, a.title, a.max_points, a.due_date, a.grading_category_id, a.grading_scale_id, a.folder_id,
-           a.schoology_assignment_id, a.num_assignees, a.is_lti_submission, a.web_url,
+           a.schoology_assignment_id, a.num_assignees, a.is_lti_submission, a.web_url, a.lti_fetch_status,
            CASE WHEN EXISTS (
              SELECT 1 FROM mastery_alignments ma WHERE ma.assignment_schoology_id = a.schoology_assignment_id
              UNION

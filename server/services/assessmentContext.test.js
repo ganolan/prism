@@ -26,7 +26,7 @@ function seedContext(db) {
   db.prepare(`INSERT INTO grades (student_id, assignment_id, grade_comment, exception, comment_status) VALUES (?, ?, 'Nice work', 0, 1)`).run(studentId, assignmentId);
   db.prepare(`INSERT INTO feedback (student_id, assignment_id, status, feedback_json) VALUES (?, ?, 'draft', ?)`).run(
     studentId, assignmentId,
-    JSON.stringify({ narrative_feedback: 'Strong concept', rubric_scores: { 'ART.5.1': 'ED' }, reviewer_flags: 'check sources' })
+    JSON.stringify({ narrative_feedback: 'Strong concept', rubric_scores: { 'ART.5.1': 'ED' }, reviewer_flags: 'check sources', strengths: ['Clear concept', 'Good docs'], suggestions: ['Add tests', 'Tighten UI'] })
   );
   // Draft teacher feedback: one staged proficiency, one staged removal, a comment.
   db.prepare(`INSERT INTO assessment_drafts (assignment_id, student_id, enrolment_id, draft_json) VALUES (?, ?, 'enr-1', ?)`).run(
@@ -76,7 +76,23 @@ describe('getAssessmentContext', () => {
       narrative_feedback: 'Strong concept',
       rubric_scores: { 'ART.5.1': 'ED' },
       reviewer_flags: 'check sources',
+      strengths: ['Clear concept', 'Good docs'],
+      suggestions: ['Add tests', 'Tighten UI'],
     });
+  });
+
+  test('existing_suggestion defaults strengths/suggestions to [] when the feedback row omits them', () => {
+    const db = getDb();
+    const { assignmentId, studentId } = seedContext(db);
+    db.prepare('DELETE FROM feedback WHERE assignment_id = ?').run(assignmentId);
+    db.prepare(`INSERT INTO feedback (student_id, assignment_id, status, feedback_json) VALUES (?, ?, 'draft', ?)`).run(
+      studentId, assignmentId, JSON.stringify({ narrative_feedback: 'x', rubric_scores: {}, reviewer_flags: null })
+    );
+
+    const sug = getAssessmentContext(db, { assignmentId: 'sa-1' }).students[0].existing_suggestion;
+
+    expect(sug.strengths).toEqual([]);
+    expect(sug.suggestions).toEqual([]);
   });
 
   test('includes the class-level assessment_analysis (noticings + moderation_note) when present', () => {

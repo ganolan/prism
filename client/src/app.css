@@ -473,6 +473,61 @@ tr:last-child td { border-bottom: none; }
   margin-bottom: 1rem;
 }
 
+/* ========================================================================
+   COURSE PAGE HEADER — consolidated two-row band
+   Title row, then a meta+actions row, then the tab row. Replaces the old
+   four stacked blocks so the gradebook's tall diagonal column headers get
+   the vertical real estate back.
+   ======================================================================== */
+.course-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+.course-header__title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.course-header__meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  flex-wrap: wrap;
+}
+.course-header__meta {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+/* Dot separators between meta items — no trailing dot, faint by design. */
+.course-header__meta-item:not(:first-child)::before {
+  content: "·";
+  margin: 0 0.5rem;
+  color: var(--border);
+}
+.course-header__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.course-header__tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
 .text-muted { color: var(--text-muted); }
 .text-sm { font-size: 0.85rem; }
 .mb-1 { margin-bottom: 0.5rem; }

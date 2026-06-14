@@ -75,58 +75,72 @@ export default function CoursePage() {
 
   const displayName = (s) => preferredFirstName(s);
 
+  // Course meta collapses to a single dot-separated muted line (section ·
+  // students · school code) so the header is two tight rows, not four stacked
+  // blocks — the gradebook's diagonal column headers need the vertical room.
+  const metaItems = [
+    course.section_name,
+    `${course.studentCount} students`,
+    course.section_school_code,
+  ].filter(Boolean);
+
   return (
     <div className="fade-in">
-      <h2 className="page-title">{course.course_name}</h2>
-      {course.section_name && <p className="subtitle">{course.section_name}</p>}
-      <p className="text-sm text-muted mb-2">
-        {course.studentCount} students
-        {course.section_school_code && <span style={{ marginLeft: '0.75rem' }}>{course.section_school_code}</span>}
-      </p>
+      <header className="course-header">
+        <h2 className="course-header__title">{course.course_name}</h2>
 
-      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
-        <button className={`tab-btn ${view === 'roster' ? 'active' : ''}`} onClick={() => setView('roster')}>
-          Roster
-        </button>
-        <button className={`tab-btn ${view === 'gradebook' ? 'active' : ''}`} onClick={() => setView('gradebook')}>
-          Gradebook
-        </button>
-        <button className={`tab-btn ${view === 'assessments' ? 'active' : ''}`} onClick={() => setView('assessments')}>
-          Assessments
-        </button>
-        <button className={`tab-btn ${view === 'analytics' ? 'active' : ''}`} onClick={() => setView('analytics')}>
-          Analytics
-        </button>
+        <div className="course-header__meta-row">
+          <p className="course-header__meta">
+            {metaItems.map((item, i) => (
+              <span key={i} className="course-header__meta-item">{item}</span>
+            ))}
+          </p>
 
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          {masterySyncResult && (
-            <span className="text-sm" style={{ color: masterySyncResult.success ? 'var(--success)' : 'var(--danger)', maxWidth: 400 }}>
-              {masterySyncResult.success
-                ? (masterySyncResult.message || `Synced ${masterySyncResult.categoriesCount} categories, ${masterySyncResult.topicsCount} topics, ${masterySyncResult.scoresCount} scores`)
-                : masterySyncResult.error}
-            </span>
-          )}
-          {masterySyncResult?.needsLogin && (
-            <button className="primary" onClick={handleMasteryLogin} style={{ whiteSpace: 'nowrap' }}>
-              Log in to Schoology
-            </button>
-          )}
-          <button
-            className="secondary"
-            onClick={handleMasterySync}
-            disabled={masterySyncing}
-            title="Sync mastery (SBG) data from Schoology for this course"
-            style={{ whiteSpace: 'nowrap' }}
-          >
-            {masterySyncing ? (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
-                <span style={{ display: 'inline-block', width: 12, height: 12, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
-                Syncing Mastery…
+          <div className="course-header__actions">
+            {masterySyncResult && (
+              <span className="text-sm" style={{ color: masterySyncResult.success ? 'var(--success)' : 'var(--danger)', maxWidth: 400 }}>
+                {masterySyncResult.success
+                  ? (masterySyncResult.message || `Synced ${masterySyncResult.categoriesCount} categories, ${masterySyncResult.topicsCount} topics, ${masterySyncResult.scoresCount} scores`)
+                  : masterySyncResult.error}
               </span>
-            ) : 'Sync Mastery'}
+            )}
+            {masterySyncResult?.needsLogin && (
+              <button className="primary" onClick={handleMasteryLogin} style={{ whiteSpace: 'nowrap' }}>
+                Log in to Schoology
+              </button>
+            )}
+            <button
+              className="secondary"
+              onClick={handleMasterySync}
+              disabled={masterySyncing}
+              title="Sync mastery (SBG) data from Schoology for this course"
+              style={{ whiteSpace: 'nowrap' }}
+            >
+              {masterySyncing ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <span style={{ display: 'inline-block', width: 12, height: 12, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+                  Syncing Mastery…
+                </span>
+              ) : 'Sync Mastery'}
+            </button>
+          </div>
+        </div>
+
+        <div className="course-header__tabs">
+          <button className={`tab-btn ${view === 'roster' ? 'active' : ''}`} onClick={() => setView('roster')}>
+            Roster
+          </button>
+          <button className={`tab-btn ${view === 'gradebook' ? 'active' : ''}`} onClick={() => setView('gradebook')}>
+            Gradebook
+          </button>
+          <button className={`tab-btn ${view === 'assessments' ? 'active' : ''}`} onClick={() => setView('assessments')}>
+            Assessments
+          </button>
+          <button className={`tab-btn ${view === 'analytics' ? 'active' : ''}`} onClick={() => setView('analytics')}>
+            Analytics
           </button>
         </div>
-      </div>
+      </header>
 
       {view === 'roster' && (
         <RosterView
@@ -721,7 +735,7 @@ export function GradebookView({ data, courseId, mastery }) {
 
   return (
     <>
-    <div className="card" style={{ padding: 0, overflow: 'auto', maxHeight: '78vh' }}>
+    <div className="card" style={{ padding: 0, overflow: 'auto', maxHeight: '84vh' }}>
       <table
         className="gradebook-grid"
         style={{ fontSize: '0.8rem', tableLayout: 'fixed', width: NAME_W + COL_W * assignments.length }}

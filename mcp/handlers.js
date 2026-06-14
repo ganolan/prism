@@ -7,6 +7,7 @@ import { listRubrics, getRubricByName, saveRubric, findRubricByContentHash } fro
 import { hashRubricContent } from '../server/services/rubricHash.js';
 import { attachRubric } from '../server/services/rubricAttach.js';
 import { LEVELS } from '../server/lib/proficiencyScale.js';
+import { normalizeSubmissionStatus, gradingState } from '../server/services/assessmentContext.js';
 
 // Active courses = not archived, not excluded, not hidden. Mirrors the
 // 'current' view in server/routes/courses.js, plus the excluded filter (#56,
@@ -20,11 +21,50 @@ export function listCourses(db) {
   `).all();
 }
 
+// Per-assignment readiness rollup. Submission: LTI uses lti_submission_state,
+// non-LTI collapses to submitted/not_started. Grading: all aligned topics
+// levelled + a comment => complete; nothing => ungraded; otherwise partial
+// (excepted => complete). Computed in JS over the grade rows for clarity.
+function assignmentCounts(db, assignmentRow) {
+  const topicsCount = db.prepare(`
+    SELECT COUNT(*) AS n FROM mastery_alignments WHERE assignment_schoology_id = ? AND course_id = ?
+  `).get(assignmentRow.schoology_assignment_id, assignmentRow.course_id).n;
+  const scoredByUid = {};
+  for (const r of db.prepare(`SELECT student_uid, COUNT(*) AS n FROM mastery_scores WHERE assignment_schoology_id = ? GROUP BY student_uid`).all(assignmentRow.schoology_assignment_id)) {
+    scoredByUid[r.student_uid] = r.n;
+  }
+  const rows = db.prepare(`
+    SELECT s.schoology_uid, g.lti_submission_state, g.submission_type, g.submitted_at,
+           g.grade_comment, g.exception
+    FROM grades g JOIN students s ON s.id = g.student_id
+    WHERE g.assignment_id = ?
+  `).all(assignmentRow.id);
+  const submission = { submitted: 0, in_progress: 0, not_started: 0, unknown: 0, total: rows.length };
+  const grading = { ungraded: 0, partial: 0, complete: 0 };
+  for (const r of rows) {
+    const ss = normalizeSubmissionStatus({
+      is_lti_submission: assignmentRow.is_lti_submission,
+      lti_submission_state: r.lti_submission_state,
+      submission_type: r.submission_type,
+      submitted_at: r.submitted_at,
+    });
+    submission[ss] = (submission[ss] ?? 0) + 1;
+    const gs = gradingState({
+      scoredCount: scoredByUid[r.schoology_uid] || 0,
+      topicsCount,
+      hasComment: (r.grade_comment || '').trim().length > 0,
+      exception: r.exception ?? 0,
+    });
+    grading[gs === 'complete' ? 'complete' : gs === 'partial' ? 'partial' : 'ungraded'] += 1;
+  }
+  return { submission_counts: submission, grading_counts: grading };
+}
+
 // Assignments for a course (local course id), so a phrase like "the MAD
 // project I just collected" can resolve to a concrete assignment (spec §3.1).
 export function listAssignments(db, { course_id }) {
   const rows = db.prepare(`
-    SELECT a.id, a.schoology_assignment_id, a.title, a.due_date, a.assignment_type,
+    SELECT a.id, a.schoology_assignment_id, a.title, a.due_date, a.assignment_type, a.is_lti_submission, a.course_id,
            EXISTS (
              SELECT 1 FROM mastery_alignments ma
              WHERE ma.assignment_schoology_id = a.schoology_assignment_id
@@ -35,12 +75,13 @@ export function listAssignments(db, { course_id }) {
     WHERE a.course_id = ?
     ORDER BY a.due_date, a.id
   `).all(Number(course_id));
-  return rows.map(({ latest_submitted_at, ...r }) => ({
+  return rows.map(({ latest_submitted_at, course_id: _c, is_lti_submission, ...r }) => ({
     ...r,
     has_aligned_topics: !!r.has_aligned_topics,
-    // submitted_at is a Unix-seconds epoch (0 = never submitted, #13/#62);
+    // submitted_at is a Unix-seconds epoch (0 = never submitted);
     // surface the latest as an ISO string, null when nobody has submitted.
     latest_submission_at: latest_submitted_at > 0 ? new Date(latest_submitted_at * 1000).toISOString() : null,
+    ...assignmentCounts(db, { id: r.id, schoology_assignment_id: r.schoology_assignment_id, course_id: _c, is_lti_submission }),
   }));
 }
 

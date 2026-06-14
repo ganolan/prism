@@ -62,6 +62,25 @@ describe('listAssignments', () => {
     expect(byTitle.Bare.has_aligned_topics).toBe(false);
   });
 
+  test('returns submission_counts and grading_counts', () => {
+    const db = getDb();
+    const courseId = seedCourse(db);
+    const aId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, is_lti_submission, due_date) VALUES (?, 'sa-c', 'NB', 1, '2026-06-01')`).run(courseId).lastInsertRowid;
+    db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES ('t1', NULL, ?, 'T1', 'Topic')`).run(courseId);
+    db.prepare(`INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id) VALUES ('sa-c', 't1', ?)`).run(courseId);
+    const mk = (uid, state) => {
+      const sId = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES (?, 'F', 'L')`).run(uid).lastInsertRowid;
+      db.prepare(`INSERT INTO grades (student_id, assignment_id, lti_submission_state) VALUES (?, ?, ?)`).run(sId, aId, state);
+      return sId;
+    };
+    mk('u1', 'submitted'); mk('u2', 'in_progress'); mk('u3', 'not_started');
+
+    const rows = listAssignments(db, { course_id: courseId });
+    const nb = rows.find(r => r.schoology_assignment_id === 'sa-c');
+    expect(nb.submission_counts).toMatchObject({ submitted: 1, in_progress: 1, not_started: 1, total: 3 });
+    expect(nb.grading_counts).toMatchObject({ ungraded: 3, partial: 0, complete: 0 });
+  });
+
   test('latest_submission_at is the max submitted_at as ISO, null when never submitted', () => {
     const db = getDb();
     const courseId = seedCourse(db);

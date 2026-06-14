@@ -55,7 +55,7 @@ function assignmentCounts(db, assignmentRow) {
       hasComment: (r.grade_comment || '').trim().length > 0,
       exception: r.exception ?? 0,
     });
-    grading[gs === 'complete' ? 'complete' : gs === 'partial' ? 'partial' : 'ungraded'] += 1;
+    grading[gs] += 1; // gradingState returns exactly 'ungraded' | 'partial' | 'complete'
   }
   return { submission_counts: submission, grading_counts: grading };
 }

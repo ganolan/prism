@@ -9,6 +9,29 @@
 import { resolveAssignmentId } from './idResolvers.js';
 import { preferredFirstName } from './studentNames.js';
 
+// Normalized submission readiness (no colour/due-date logic — that is the
+// gradebook's client concern). LTI: the authoritative lti_submission_state, or
+// 'submitted' when only a corroborating submission_type exists (mirrors
+// gradeLabel.ltiBadges), else 'unknown'. Non-LTI: only submitted-or-not is
+// knowable.
+export function normalizeSubmissionStatus({ is_lti_submission, lti_submission_state, submission_type, submitted_at } = {}) {
+  if (is_lti_submission) {
+    const s = lti_submission_state || (submission_type ? 'submitted' : null);
+    return s || 'unknown';
+  }
+  return (submission_type || Number(submitted_at) > 0) ? 'submitted' : 'not_started';
+}
+
+// Grading completeness on the published finals. Excepted students (rubric
+// locked) count as handled → 'complete'. Complete = every aligned topic has a
+// level AND a comment is present. Empty = nothing entered. Otherwise partial.
+export function gradingState({ scoredCount, topicsCount, hasComment, exception } = {}) {
+  if (exception) return 'complete';
+  if (scoredCount === 0 && !hasComment) return 'ungraded';
+  if (topicsCount > 0 && scoredCount === topicsCount && hasComment) return 'complete';
+  return 'partial';
+}
+
 // Aligned measurement topics for an assignment (the rubric skeleton), from the
 // authoritative mastery_alignments table; falls back to topics that have any
 // score for the assignment when alignments haven't synced yet.

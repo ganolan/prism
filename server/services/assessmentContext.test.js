@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../db/index.js';
-import { getAssessmentContext, getGradeMetaRows } from './assessmentContext.js';
+import { getAssessmentContext, getGradeMetaRows, normalizeSubmissionStatus, gradingState } from './assessmentContext.js';
 
 // Seed one fully-populated assignment context: a course, a reporting category +
 // aligned measurement topic, an assignment, a roster of one enrolled student
@@ -218,5 +218,41 @@ describe('getGradeMetaRows', () => {
       late: 1,
       draft: 0,
     });
+  });
+});
+
+describe('normalizeSubmissionStatus', () => {
+  test('LTI uses lti_submission_state', () => {
+    expect(normalizeSubmissionStatus({ is_lti_submission: 1, lti_submission_state: 'in_progress' })).toBe('in_progress');
+    expect(normalizeSubmissionStatus({ is_lti_submission: 1, lti_submission_state: 'submitted' })).toBe('submitted');
+  });
+  test('LTI with no state but a submission_type counts as submitted', () => {
+    expect(normalizeSubmissionStatus({ is_lti_submission: 1, lti_submission_state: null, submission_type: 'drop' })).toBe('submitted');
+  });
+  test('LTI with nothing is unknown', () => {
+    expect(normalizeSubmissionStatus({ is_lti_submission: 1, lti_submission_state: null, submission_type: null })).toBe('unknown');
+  });
+  test('non-LTI is submitted vs not_started only', () => {
+    expect(normalizeSubmissionStatus({ is_lti_submission: 0, submission_type: 'drop' })).toBe('submitted');
+    expect(normalizeSubmissionStatus({ is_lti_submission: 0, submitted_at: 5 })).toBe('submitted');
+    expect(normalizeSubmissionStatus({ is_lti_submission: 0, submission_type: null, submitted_at: 0 })).toBe('not_started');
+  });
+});
+
+describe('gradingState', () => {
+  test('excepted is complete regardless of scores', () => {
+    expect(gradingState({ scoredCount: 0, topicsCount: 3, hasComment: false, exception: 3 })).toBe('complete');
+  });
+  test('all topics scored + comment is complete', () => {
+    expect(gradingState({ scoredCount: 3, topicsCount: 3, hasComment: true, exception: 0 })).toBe('complete');
+  });
+  test('nothing entered is ungraded', () => {
+    expect(gradingState({ scoredCount: 0, topicsCount: 3, hasComment: false, exception: 0 })).toBe('ungraded');
+  });
+  test('some topics missing a level is partial', () => {
+    expect(gradingState({ scoredCount: 2, topicsCount: 3, hasComment: true, exception: 0 })).toBe('partial');
+  });
+  test('all scored but no comment is partial', () => {
+    expect(gradingState({ scoredCount: 3, topicsCount: 3, hasComment: false, exception: 0 })).toBe('partial');
   });
 });

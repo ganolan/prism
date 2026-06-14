@@ -70,7 +70,7 @@ teacher's Overall Comment**.
 │   CAD Model D: the OnShape deliverable is a single custom flat aligner… │
 │ ─────────────────────────────────────────────────────────────────────  │
 │ ┄┄ expanded only ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
-│ Strengths  (teacher-facing — not published to student)                 │
+│ Strengths                                                              │
 │   • A genuinely non-trivial custom calendar …                          │
 │   • A warm, cohesive pastel theme …                                    │
 │ Suggestions                                                            │
@@ -94,9 +94,8 @@ Block structure, top to bottom:
    Keeps the existing warning/flag styling; no longer a `<details>` and no longer at the top
    of the card.
 3. **Strengths / Suggestions** (the "full analysis"): rendered **between the flags and the
-   narrative**, **only when expanded**. Each is a labelled `<ul>` of the array items. A small
-   muted note marks them **teacher-facing — not published to the student** (they are analysis,
-   unlike the narrative which is what publishes to Schoology).
+   narrative**, **only when expanded**. Each is a `<ul>` of the array items under a plain
+   "Strengths" / "Suggestions" heading — no extra label or note.
 4. **Narrative** (the suggested student comment) — always shown.
 5. **Footer** (right-aligned): `▾ Show full analysis` toggle + `↓ Use suggestion`.
 

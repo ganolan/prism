@@ -255,4 +255,10 @@ describe('gradingState', () => {
   test('all scored but no comment is partial', () => {
     expect(gradingState({ scoredCount: 3, topicsCount: 3, hasComment: false, exception: 0 })).toBe('partial');
   });
+  test('zero aligned topics with a comment is complete (nothing to score per-topic)', () => {
+    expect(gradingState({ scoredCount: 0, topicsCount: 0, hasComment: true, exception: 0 })).toBe('complete');
+  });
+  test('zero aligned topics with nothing entered is ungraded', () => {
+    expect(gradingState({ scoredCount: 0, topicsCount: 0, hasComment: false, exception: 0 })).toBe('ungraded');
+  });
 });

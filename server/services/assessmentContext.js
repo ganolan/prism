@@ -28,7 +28,8 @@ export function normalizeSubmissionStatus({ is_lti_submission, lti_submission_st
 export function gradingState({ scoredCount, topicsCount, hasComment, exception } = {}) {
   if (exception) return 'complete';
   if (scoredCount === 0 && !hasComment) return 'ungraded';
-  if (topicsCount > 0 && scoredCount === topicsCount && hasComment) return 'complete';
+  if (topicsCount === 0) return 'complete'; // no rubric topics to score; a comment/score-bearing row is handled
+  if (scoredCount === topicsCount && hasComment) return 'complete';
   return 'partial';
 }
 

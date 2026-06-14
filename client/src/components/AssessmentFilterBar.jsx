@@ -33,7 +33,7 @@ export default function AssessmentFilterBar({ students, assignment, topics, acti
       <span className="text-sm text-muted" style={{ marginRight: '0.1rem' }}>Filter:</span>
       {groups.map((g, gi) => (
         <span key={g.key} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
-          {gi > 0 && <span aria-hidden style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 0.2rem' }} />}
+          {gi > 0 && <span aria-hidden="true" style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 0.2rem' }} />}
           {g.pills.map(p => (
             <FilterPill key={p.id} label={p.label} count={countMatches(students, p.id, ctx)}
               active={active.has(p.id)} tone={pillTone(p.id, assignment)} onClick={() => onToggle(p.id)} />

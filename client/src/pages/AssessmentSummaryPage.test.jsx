@@ -488,6 +488,16 @@ describe('StudentRubricCard — rubric interaction (Slice 2)', () => {
   });
 });
 
+describe('StudentRubricCard submission-status pill', () => {
+  it('shows the submission status pill in the header', () => {
+    renderCard({
+      student: { ...makeStudent(), lti_submission_state: 'submitted', submission_type: null, late: 0, draft: 0, submitted_at: 0 },
+      assignmentRow: { id: 50, is_lti_submission: 1, due_date: '2026-06-01', lti_fetch_status: 'ok', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+    });
+    expect(screen.getByText('Submitted')).toBeInTheDocument();
+  });
+});
+
 describe('AssessmentSummaryPage — Send all bar (#51)', () => {
   function makeData() {
     return {

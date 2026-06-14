@@ -12,6 +12,7 @@ import RubricDescriptorGrid from '../components/RubricDescriptorGrid.jsx';
 import RubricManagerModal from '../components/RubricManagerModal.jsx';
 import AiSparkle from '../components/AiSparkle.jsx';
 import SchoologyLink from '../components/SchoologyLink.jsx';
+import SubmissionStatusPill from '../components/SubmissionStatusPill.jsx';
 
 const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
 // Suggestion accent — fuchsia CSS tokens (matches descriptor grid's --ai-suggest).
@@ -682,6 +683,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         <Link to={`/student/${student.id}`} className="link" style={{ fontWeight: 600, fontSize: '0.95rem' }}>
           {displayName(student)}
         </Link>
+        <SubmissionStatusPill student={student} assignment={assignmentRow} />
         {saveResult === 'saved' && (
           <span className="badge badge-green" style={{ fontSize: '0.68rem' }}>Saved ✓</span>
         )}

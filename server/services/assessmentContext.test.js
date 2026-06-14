@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../db/index.js';
-import { getAssessmentContext, getGradeMetaRows, normalizeSubmissionStatus, gradingState } from './assessmentContext.js';
+import { getAssessmentContext, getGradeMetaRows, normalizeSubmissionStatus, gradingState, getFlagsByStudent } from './assessmentContext.js';
 
 // Seed one fully-populated assignment context: a course, a reporting category +
 // aligned measurement topic, an assignment, a roster of one enrolled student
@@ -38,7 +38,7 @@ function seedContext(db) {
 
 beforeEach(() => {
   getDb().exec(
-    'DELETE FROM assessment_drafts; DELETE FROM assessment_analysis; DELETE FROM feedback; DELETE FROM mastery_alignments; DELETE FROM mastery_scores; ' +
+    'DELETE FROM flags; DELETE FROM assessment_drafts; DELETE FROM assessment_analysis; DELETE FROM feedback; DELETE FROM mastery_alignments; DELETE FROM mastery_scores; ' +
     'DELETE FROM grades; DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
     'DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
   );
@@ -236,6 +236,24 @@ describe('normalizeSubmissionStatus', () => {
     expect(normalizeSubmissionStatus({ is_lti_submission: 0, submission_type: 'drop' })).toBe('submitted');
     expect(normalizeSubmissionStatus({ is_lti_submission: 0, submitted_at: 5 })).toBe('submitted');
     expect(normalizeSubmissionStatus({ is_lti_submission: 0, submission_type: null, submitted_at: 0 })).toBe('not_started');
+  });
+});
+
+describe('getFlagsByStudent', () => {
+  test('groups review and resubmit flags by student_id, only unresolved', () => {
+    const db = getDb();
+    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-f', 'ROB')`).run().lastInsertRowid;
+    const assignmentId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-f', 'NB')`).run(courseId).lastInsertRowid;
+    const sId = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-f', 'Ada', 'L')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason, resolved) VALUES (?, ?, 'review_needed', 'check sources', 0)`).run(sId, assignmentId);
+    db.prepare(`INSERT INTO flags (student_id, assignment_id, flag_type, resolved) VALUES (?, ?, 'resubmit_requested', 0)`).run(sId, assignmentId);
+    db.prepare(`INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason, resolved) VALUES (?, ?, 'review_needed', 'old', 1)`).run(sId, assignmentId);
+
+    const byStudent = getFlagsByStudent(db, assignmentId);
+    expect(byStudent[sId]).toEqual({
+      review_needed: { reason: 'check sources' },
+      resubmit_requested: true,
+    });
   });
 });
 

@@ -114,6 +114,24 @@ export function getGradeMetaRows(db, assignmentSchoologyId) {
   `).all(assignmentSchoologyId);
 }
 
+// Unresolved Prism-local flags for an assignment (local id), grouped by
+// student_id. review_needed carries its reason; resubmit_requested is a boolean.
+export function getFlagsByStudent(db, assignmentLocalId) {
+  const rows = db.prepare(`
+    SELECT student_id, flag_type, flag_reason FROM flags
+    WHERE assignment_id = ? AND resolved = 0
+      AND flag_type IN ('review_needed', 'resubmit_requested')
+  `).all(assignmentLocalId);
+  const byStudent = {};
+  for (const r of rows) {
+    const entry = byStudent[r.student_id] || { review_needed: null, resubmit_requested: false };
+    if (r.flag_type === 'review_needed') entry.review_needed = { reason: r.flag_reason || '' };
+    if (r.flag_type === 'resubmit_requested') entry.resubmit_requested = true;
+    byStudent[r.student_id] = entry;
+  }
+  return byStudent;
+}
+
 // Existing AI suggestions (draft / teacher_modified) for an assignment (local
 // id), keyed by student_id, each with parsed feedback_json. Mirrors the
 // feedback for-assignment read; approved rows are excluded so they stop

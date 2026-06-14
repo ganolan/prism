@@ -13,6 +13,8 @@ import RubricManagerModal from '../components/RubricManagerModal.jsx';
 import AiSparkle from '../components/AiSparkle.jsx';
 import SchoologyLink from '../components/SchoologyLink.jsx';
 import SubmissionStatusPill from '../components/SubmissionStatusPill.jsx';
+import AssessmentFilterBar from '../components/AssessmentFilterBar.jsx';
+import { passesFilters } from '../lib/assessmentFilters.js';
 
 const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
 // Suggestion accent — fuchsia CSS tokens (matches descriptor grid's --ai-suggest).
@@ -1378,6 +1380,12 @@ export default function AssessmentSummaryPage() {
   const [rubricPalette, setRubricPalette] = useState({});
   const [viewMode, setViewMode] = useState('descriptors');
   const [rubricModalOpen, setRubricModalOpen] = useState(false);
+  const [activeFilters, setActiveFilters] = useState(() => new Set());
+  const toggleFilter = (id) => setActiveFilters(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
   const reloadRubric = async () => setRubricData(await getRubricForAssignment(assignmentId));
 
   // "Send all" bar state (#51). pendingByUid maps each card's uid → true while
@@ -1553,6 +1561,7 @@ export default function AssessmentSummaryPage() {
   const hasAnalysis = Object.keys(feedbackByStudent).length > 0 || !!analysis;
 
   const alignedTopics = topics;
+  const visibleStudents = students.filter(s => passesFilters(s, activeFilters, { assignment, topics: alignedTopics }));
 
   return (
     <div className="fade-in">
@@ -1626,6 +1635,13 @@ export default function AssessmentSummaryPage() {
             </button>
           )}
         </div>
+        <AssessmentFilterBar
+          students={students}
+          assignment={assignment}
+          topics={alignedTopics}
+          active={activeFilters}
+          onToggle={toggleFilter}
+        />
       </div>
 
       {students.length === 0 ? (
@@ -1634,7 +1650,10 @@ export default function AssessmentSummaryPage() {
         </div>
       ) : (
         <>
-          {students.map((student) => (
+          {visibleStudents.length === 0 && (
+            <div className="card"><p className="text-muted">No students match the current filters.</p></div>
+          )}
+          {visibleStudents.map((student) => (
             <StudentRubricCard
               key={student.schoology_uid}
               student={student}

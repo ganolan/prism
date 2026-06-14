@@ -1222,3 +1222,36 @@ describe('StudentRubricCard — Reviewer notes collapse', () => {
     expect(screen.getByRole('button', { name: /show reviewer notes/i })).toBeInTheDocument();
   });
 });
+
+// AssessmentSummaryPage import uses MemoryRouter/Routes/Route already imported at top.
+// Alias to avoid name conflicts with card-level render helpers.
+import { MemoryRouter as MR, Routes as Rs, Route as Rt } from 'react-router-dom';
+
+function renderPage(mastery) {
+  getMasteryForAssignment.mockResolvedValue(mastery);
+  return render(
+    <MR initialEntries={['/course/4/assessment/8']}>
+      <Rs><Rt path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} /></Rs>
+    </MR>
+  );
+}
+
+describe('AssessmentSummaryPage filtering', () => {
+  const mastery = {
+    assignment: { title: 'Notebook 4', is_lti_submission: 1, due_date: '2026-06-01', lti_fetch_status: 'ok' },
+    topics: [{ id: 't1', title: 'T1', category_title: 'C', external_id: 'X1' }],
+    students: [
+      { id: 1, schoology_uid: 'u1', first_name: 'Ada', last_name: 'L', scores: {}, grade_comment: '', exception: 0, comment_status: 0, lti_submission_state: 'submitted', submission_type: null, late: 0, draft: 0, submitted_at: 0, review_flag: null, resubmit_flag: null },
+      { id: 2, schoology_uid: 'u2', first_name: 'Bob', last_name: 'M', scores: {}, grade_comment: '', exception: 0, comment_status: 0, lti_submission_state: 'not_started', submission_type: null, late: 0, draft: 0, submitted_at: 0, review_flag: null, resubmit_flag: null },
+    ],
+  };
+
+  it('filters the roster to submitted students when the Submitted pill is active', async () => {
+    renderPage(mastery);
+    await waitFor(() => expect(screen.getByText('Ada L')).toBeInTheDocument());
+    expect(screen.getByText('Bob M')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Submitted1/ }));
+    expect(screen.queryByText('Bob M')).toBeNull();
+    expect(screen.getByText('Ada L')).toBeInTheDocument();
+  });
+});

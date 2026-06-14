@@ -484,7 +484,7 @@ each colour standing for a *function* so the hierarchy reads at a glance.
   gradebook cell.
 - Below the header button row, a **grouped filter row** of themed toggle pills
   (mirroring the Summative / Formative `TypeFilterToggle`): submission status
-  (3 pills for LTI / just *Submitted* for non-LTI), grading completeness
+  (3 pills for LTI / *Submitted* + *Unsubmitted* for non-LTI), grading completeness
   (*Ungraded / Partially graded / Graded*), visibility (*Visible / Not visible*),
   *Flag for review*, *Ask to resubmit*. Semantics: **OR within a group, AND
   across groups**; selection is in-memory (resets each visit, like the

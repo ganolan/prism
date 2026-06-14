@@ -41,7 +41,15 @@ const STATUS_PILLS_LTI = [
   { id: 'in_progress', label: 'In Progress' },
   { id: 'not_started', label: 'Not Started' },
 ];
-const STATUS_PILLS_NONLTI = [{ id: 'submitted', label: 'Submitted' }];
+// Non-LTI (dropbox) work: we can't tell in-progress from not-started, but we DO
+// know submitted-or-not — so offer Submitted + Unsubmitted. "Unsubmitted" reuses
+// the not_started id (normalizedSubmissionState returns 'not_started' for any
+// non-LTI student without a submission), which also gives it the gradebook's
+// due-date-aware tone (neutral, red once overdue) for free.
+const STATUS_PILLS_NONLTI = [
+  { id: 'submitted', label: 'Submitted' },
+  { id: 'not_started', label: 'Unsubmitted' },
+];
 
 export function filterGroups(assignment) {
   return [

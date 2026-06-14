@@ -17,11 +17,11 @@ describe('AssessmentFilterBar', () => {
     expect(screen.getByRole('button', { name: /In Progress/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Not Started/ })).toBeInTheDocument();
   });
-  it('renders only the Submitted status pill for a non-LTI assignment', () => {
+  it('renders Submitted + Unsubmitted status pills for a non-LTI assignment', () => {
     render(<AssessmentFilterBar students={students} assignment={NON_LTI} topics={TOPICS} active={new Set()} onToggle={() => {}} />);
-    expect(screen.getByRole('button', { name: /Submitted/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Submitted/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Unsubmitted/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /In Progress/ })).toBeNull();
-    expect(screen.queryByRole('button', { name: /Not Started/ })).toBeNull();
   });
   it('shows a per-pill count', () => {
     render(<AssessmentFilterBar students={students} assignment={LTI} topics={TOPICS} active={new Set()} onToggle={() => {}} />);

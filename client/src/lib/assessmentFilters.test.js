@@ -55,8 +55,25 @@ describe('passesFilters (OR within group, AND across groups)', () => {
 describe('filterGroups', () => {
   it('LTI assignment has three status pills', () =>
     expect(filterGroups(LTI)[0].pills.map(p => p.id)).toEqual(['submitted', 'in_progress', 'not_started']));
-  it('non-LTI assignment has only the Submitted status pill', () =>
-    expect(filterGroups(NON_LTI)[0].pills.map(p => p.id)).toEqual(['submitted']));
+  it('non-LTI assignment has Submitted + Unsubmitted status pills', () => {
+    const pills = filterGroups(NON_LTI)[0].pills;
+    expect(pills.map(p => p.id)).toEqual(['submitted', 'not_started']);
+    expect(pills.map(p => p.label)).toEqual(['Submitted', 'Unsubmitted']);
+  });
+});
+
+describe('non-LTI Unsubmitted filter', () => {
+  const ctx = { assignment: NON_LTI, topics: TOPICS };
+  const submitted = stu({ submission_type: 'drop' });
+  const unsubmitted = stu();
+  it("the Unsubmitted pill (id 'not_started') matches an unsubmitted non-LTI student", () => {
+    expect(studentMatchesPill(unsubmitted, 'not_started', ctx)).toBe(true);
+    expect(studentMatchesPill(submitted, 'not_started', ctx)).toBe(false);
+  });
+  it('filtering to Unsubmitted hides submitted students', () => {
+    expect(passesFilters(unsubmitted, new Set(['not_started']), ctx)).toBe(true);
+    expect(passesFilters(submitted, new Set(['not_started']), ctx)).toBe(false);
+  });
 });
 
 describe('countMatches', () => {

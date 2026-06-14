@@ -109,7 +109,7 @@ groups, not a flat blob):
 | Group | Pills | Notes |
 |---|---|---|
 | Status (LTI assignment) | `Submitted` · `In Progress` · `Not Started` | three pills |
-| Status (non-LTI assignment) | `Submitted` only | we cannot know started/not-started without the LTI signal, so only submitted-or-not is offered |
+| Status (non-LTI assignment) | `Submitted` · `Unsubmitted` | can't split in-progress from not-started without the LTI signal, but submitted-or-not IS knowable — so offer both; `Unsubmitted` reuses the `not_started` id |
 | Grading | `Ungraded` · `Partially graded` · `Graded` | completeness, defined below |
 | Visibility | `Visible` · `Not visible` | the display-to-student state (`comment_status`) |
 | Flag | `Flag for review` | teacher-set `review_flag` (the `review_needed` flag) |
@@ -142,7 +142,8 @@ ungraded" — the ROB Notebook 4 question — which independent show/hide toggle
 - Normalized status for filtering: `submissionState(s, assignment)` →
   - LTI: `lti_submission_state` (`submitted` / `in_progress` / `not_started`), else `unknown`.
   - non-LTI: `submitted` if `submission_type || submitted_at > 0`, else `not_started`
-    (only the `Submitted` pill is shown, so `not_started`/`unknown` simply fail it).
+    (the `Submitted` and `Unsubmitted` pills — the latter labelled over the `not_started`
+    id — match these two states).
 - Grading: `Ungraded` / `Partially graded` / `Graded` per the completeness rule above.
 - Visibility: `Visible` = `s.comment_status === 1`; `Not visible` = otherwise.
 - Flag for review: `s.review_flag != null`. Ask to resubmit: `s.resubmit_flag != null`.
@@ -247,5 +248,6 @@ The repo expects real automated tests (server Vitest; client RTL).
 ## Out of scope (YAGNI)
 
 - No saved/named filter presets; no cross-device filter sync (in-memory only).
-- No per-student "Not Started"/"In Progress" inference for non-LTI work — not knowable.
+- No in-progress/not-started split for non-LTI work — not knowable (only
+  submitted-vs-unsubmitted is offered there).
 - No bulk actions from the filtered view (e.g. flag-all) — display + triage only here.

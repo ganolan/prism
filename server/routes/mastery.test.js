@@ -172,6 +172,20 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — review and res
     const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
     expect(body.students[0].resubmitted).toBe(false);
   });
+
+  test('per-student payload carries raw submission-status fields', async () => {
+    const db = getDb();
+    db.prepare(`UPDATE assignments SET is_lti_submission = 1, due_date = '2026-06-01' WHERE schoology_assignment_id = 'sa-1'`).run();
+    db.prepare(
+      `INSERT INTO grades (student_id, assignment_id, lti_submission_state, submission_type, late, draft)
+       VALUES (?, ?, 'in_progress', 'drop', 1, 0)`
+    ).run(studentId, assignmentInternalId);
+
+    const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
+    const s = body.students.find(x => x.schoology_uid === 'uid-1');
+    expect(s).toMatchObject({ lti_submission_state: 'in_progress', submission_type: 'drop', late: 1, draft: 0 });
+    expect(body.assignment).toMatchObject({ is_lti_submission: 1, due_date: '2026-06-01' });
+  });
 });
 
 describe('GET /api/mastery/:courseId/assignment/:assignmentId — individually assigned (#54)', () => {

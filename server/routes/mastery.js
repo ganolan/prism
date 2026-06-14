@@ -416,12 +416,22 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
   const commentStatusMap = {};
   const hasGradeRowMap = {};
   const resubmittedMap = {};
+  const ltiStateMap = {};
+  const submissionTypeMap = {};
+  const lateMap = {};
+  const draftMap = {};
+  const submittedAtMap = {};
   for (const c of gradeRows) {
     commentMap[c.schoology_uid] = c.grade_comment || '';
     exceptionMap[c.schoology_uid] = c.exception ?? 0;
     commentStatusMap[c.schoology_uid] = c.comment_status ?? null;
     hasGradeRowMap[c.schoology_uid] = true;
     resubmittedMap[c.schoology_uid] = isResubmitted(c);
+    ltiStateMap[c.schoology_uid] = c.lti_submission_state ?? null;
+    submissionTypeMap[c.schoology_uid] = c.submission_type ?? null;
+    lateMap[c.schoology_uid] = c.late ?? 0;
+    draftMap[c.schoology_uid] = c.draft ?? 0;
+    submittedAtMap[c.schoology_uid] = c.submitted_at ?? 0;
   }
 
   // Submission-scoped 'review needed' flags for this assignment (#20).
@@ -463,6 +473,11 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
       review_flag: reviewFlagMap[s.id] || null,
       resubmit_flag: resubmitFlagMap[s.id] || null,
       resubmitted: resubmittedMap[s.schoology_uid] === true,
+      lti_submission_state: ltiStateMap[s.schoology_uid] ?? null,
+      submission_type: submissionTypeMap[s.schoology_uid] ?? null,
+      late: lateMap[s.schoology_uid] ?? 0,
+      draft: draftMap[s.schoology_uid] ?? 0,
+      submitted_at: submittedAtMap[s.schoology_uid] ?? 0,
     })),
   });
 });

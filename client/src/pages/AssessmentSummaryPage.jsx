@@ -936,26 +936,32 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         )}
       </div>
 
-      {/* Consolidated AI suggestion block: reviewer flags (uncollapsed) →
-          expandable Strengths/Suggestions analysis → narrative → footer actions.
-          Placed between the rubric grid and the Overall Comment. */}
+      {/* Consolidated AI suggestion area — a neutral master tray grouping three
+          colour-coded sub-blocks: amber reviewer flags (QA), an expandable seam
+          for teacher-facing Strengths/Suggestions (plain black-on-white), and the
+          violet "Suggested feedback" narrative (the publishable AI comment) with
+          its own Use-suggestion action. Sits between the rubric and Overall Comment. */}
       {hasSuggestionBlock && (
         <div style={{
-          margin: '0.75rem 1rem 0', border: '1px solid #e6e1f3', background: '#faf9fd',
-          borderRadius: 7, padding: '0.5rem 0.65rem',
+          margin: '0.75rem 1rem 0', border: '1px solid var(--border)', background: 'var(--card-bg)',
+          borderRadius: 8, padding: '0.6rem',
+          display: 'flex', flexDirection: 'column', gap: '0.55rem',
         }}>
+          {/* Master label — names the whole AI reviewer bundle (kept distinct from
+              the class-level "Reviewer Analysis" drawer). */}
           <div style={{
-            fontSize: '0.63rem', fontWeight: 600, color: '#9a90b8',
-            letterSpacing: '0.03em', marginBottom: '0.4rem',
+            fontSize: '0.63rem', fontWeight: 600, color: 'var(--text-muted)',
+            letterSpacing: '0.03em',
             display: 'flex', alignItems: 'center', gap: '0.3rem',
           }}>
-            <AiSparkle size={12} style={{ color: 'var(--ai-suggest)' }} /> Suggested feedback
+            <AiSparkle size={12} style={{ color: 'var(--ai-suggest)' }} /> Reviewer notes
           </div>
 
+          {/* Reviewer flags — amber QA sub-block (unchanged) */}
           {reviewerFlags && (
             <div style={{
               border: '1px solid #e6c98a', background: '#fffbef', borderRadius: 7,
-              padding: '0.45rem 0.6rem', marginBottom: '0.5rem',
+              padding: '0.45rem 0.6rem',
             }}>
               <div style={{
                 fontSize: '0.72rem', fontWeight: 600, color: '#92740f',
@@ -963,74 +969,87 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
               }}>
                 ⚑ Reviewer flags
               </div>
-              <div style={{ fontSize: '0.72rem', lineHeight: 1.5, color: '#5a4a1f', whiteSpace: 'pre-wrap' }}>
+              <div style={{ fontSize: '0.84rem', lineHeight: 1.5, color: '#5a4a1f', whiteSpace: 'pre-wrap' }}>
                 {reviewerFlags}
               </div>
             </div>
           )}
 
-          {showFullAnalysis && hasAnalysis && (
-            <div style={{ marginBottom: '0.5rem' }}>
-              {strengths.length > 0 && (
-                <div style={{ marginBottom: suggestions.length > 0 ? '0.4rem' : 0 }}>
-                  <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#716b85', marginBottom: '0.2rem' }}>
-                    Strengths
-                  </div>
-                  <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.72rem', lineHeight: 1.45, color: '#716b85' }}>
-                    {strengths.map((s, i) => <li key={i}>{s}</li>)}
-                  </ul>
-                </div>
-              )}
-              {suggestions.length > 0 && (
-                <div>
-                  <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#716b85', marginBottom: '0.2rem' }}>
-                    Suggestions
-                  </div>
-                  <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.72rem', lineHeight: 1.45, color: '#716b85' }}>
-                    {suggestions.map((s, i) => <li key={i}>{s}</li>)}
-                  </ul>
+          {/* Expandable seam — centred toggle between rules; reveals the
+              teacher-facing analysis in place, as plain black text on white. */}
+          {hasAnalysis && (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <span style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                <button
+                  type="button"
+                  onClick={() => setShowFullAnalysis(v => !v)}
+                  style={{
+                    borderRadius: 6, padding: '0.2rem 0.55rem', fontSize: '0.7rem',
+                    fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+                    background: 'var(--card-bg)', color: 'var(--text-muted)', border: '1px solid var(--border)',
+                  }}
+                >
+                  {showFullAnalysis ? '▴ Hide full analysis' : '▾ Show full analysis'}
+                </button>
+                <span style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+              </div>
+
+              {showFullAnalysis && (
+                <div style={{ marginTop: '0.5rem', color: '#1a1a1a' }}>
+                  {strengths.length > 0 && (
+                    <div style={{ marginBottom: suggestions.length > 0 ? '0.45rem' : 0 }}>
+                      <div style={{ fontSize: '0.68rem', fontWeight: 700, marginBottom: '0.2rem' }}>Strengths</div>
+                      <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.84rem', lineHeight: 1.45 }}>
+                        {strengths.map((s, i) => <li key={i}>{s}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                  {suggestions.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: '0.68rem', fontWeight: 700, marginBottom: '0.2rem' }}>Suggestions</div>
+                      <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.84rem', lineHeight: 1.45 }}>
+                        {suggestions.map((s, i) => <li key={i}>{s}</li>)}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           )}
 
+          {/* Narrative — the publishable AI suggestion: violet wash + border (the
+              former Use-suggestion button styling) with black body text, its own
+              header, and the Use-suggestion action scoped inside it. */}
           {narrativeSuggestion && (
-            <div style={{ fontSize: '0.72rem', lineHeight: 1.4, color: '#716b85', whiteSpace: 'pre-wrap' }}>
-              {narrativeSuggestion}
+            <div style={{
+              border: '1px solid var(--ai-suggest)', background: 'var(--ai-suggest-wash)',
+              borderRadius: 7, padding: '0.5rem 0.65rem',
+            }}>
+              <div style={{
+                fontSize: '0.63rem', fontWeight: 600, color: 'var(--ai-suggest)',
+                letterSpacing: '0.03em', marginBottom: '0.35rem',
+              }}>
+                Suggested feedback
+              </div>
+              <div style={{ fontSize: '0.84rem', lineHeight: 1.45, color: '#1a1a1a', whiteSpace: 'pre-wrap' }}>
+                {narrativeSuggestion}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button
+                  onClick={() => applyComment(normalizePastedText(narrativeSuggestion))}
+                  title="Copy the suggestion down into your comment"
+                  style={{
+                    borderRadius: 7, padding: '0.4rem 0.75rem', fontSize: '0.74rem',
+                    fontWeight: 600, cursor: 'pointer',
+                    background: 'var(--ai-suggest)', color: '#fff', border: '1px solid var(--ai-suggest)',
+                  }}
+                >
+                  ↓ Use suggestion
+                </button>
+              </div>
             </div>
           )}
-
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-            gap: '0.5rem', marginTop: '0.55rem',
-          }}>
-            {hasAnalysis && (
-              <button
-                type="button"
-                onClick={() => setShowFullAnalysis(v => !v)}
-                style={{
-                  borderRadius: 7, padding: '0.35rem 0.6rem', fontSize: '0.72rem',
-                  fontWeight: 600, cursor: 'pointer',
-                  background: 'var(--card-bg)', color: 'var(--text-muted)', border: '1px solid var(--border)',
-                }}
-              >
-                {showFullAnalysis ? '▴ Hide full analysis' : '▾ Show full analysis'}
-              </button>
-            )}
-            {narrativeSuggestion && (
-              <button
-                onClick={() => applyComment(normalizePastedText(narrativeSuggestion))}
-                title="Copy the suggestion down into your comment"
-                style={{
-                  borderRadius: 7, padding: '0.4rem 0.75rem', fontSize: '0.74rem',
-                  fontWeight: 600, cursor: 'pointer',
-                  background: 'var(--ai-suggest-wash)', color: 'var(--ai-suggest)', border: '1px solid var(--ai-suggest)',
-                }}
-              >
-                ↓ Use suggestion
-              </button>
-            )}
-          </div>
         </div>
       )}
 

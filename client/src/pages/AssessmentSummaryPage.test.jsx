@@ -1089,10 +1089,12 @@ describe('StudentRubricCard — consolidated Suggested Feedback block', () => {
     expect(document.querySelector('details')).toBeNull();
   });
 
-  it('renders the block (with flags) even when there is no narrative, and shows no Use suggestion', () => {
+  it('renders flags even with no narrative — no Suggested feedback header, no Use suggestion', () => {
     renderCard(withFb({ reviewer_flags: 'Flag only.' }));
-    expect(screen.getByText('Suggested feedback')).toBeInTheDocument();
     expect(screen.getByText('Flag only.')).toBeInTheDocument();
+    expect(screen.getByText(/Reviewer flags/)).toBeInTheDocument();
+    // The "Suggested feedback" header belongs to the narrative sub-block, absent here.
+    expect(screen.queryByText('Suggested feedback')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /use suggestion/i })).not.toBeInTheDocument();
   });
 

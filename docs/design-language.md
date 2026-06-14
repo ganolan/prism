@@ -421,25 +421,38 @@ state that must not be confused with a real one.
   data-capture failure where the missing data would have been, with an action, not
   a dead end.
 
-## Suggested Feedback block — consolidated AI suggestion (June 2026, branch `feat/suggested-feedback-block`)
+## Reviewer notes block — colour-coded AI sub-blocks (June 2026, branch `feat/suggested-feedback-block`)
 
-The `/assessment/` card's AI output is one block between the rubric grid and the
-Overall Comment, titled "Suggested feedback" (violet `AiSparkle` accent). It
-replaces two earlier, separated pieces: the collapsed reviewer-flags `<details>`
-strip at the top of the card and the read-only narrative box at the bottom.
+The `/assessment/` card's AI output is one **neutral master tray** ("Reviewer
+notes", muted `AiSparkle` label, white `--card-bg` + hairline `--border`) sitting
+between the rubric grid and the Overall Comment. It replaces two earlier, separated
+pieces — the collapsed reviewer-flags `<details>` at the top of the card and the
+violet narrative box at the bottom — and groups three **colour-coded sub-blocks**,
+each colour standing for a *function* so the hierarchy reads at a glance.
 
-- **Flags inline and uncollapsed.** Reviewer flags (when present) render expanded
-  at the top of the block, above the narrative — QA signal the teacher should see
-  without a click. The old top-of-card collapsed `<details>` is gone.
-- **Teacher-facing analysis is opt-in detail.** `strengths`/`suggestions`
-  (`feedback_json`, distinct from `reviewer_flags` and `narrative_feedback`) render
-  as plain dot-point lists *between the flags and the narrative*, hidden by default
-  behind a `▾ Show full analysis` footer toggle. The toggle is omitted entirely
-  when both arrays are empty — no affordance that reveals nothing.
-- **Actions live in the block footer, right-aligned.** `▾ Show full analysis` and
-  `↓ Use suggestion` sit in the footer. "Use suggestion" copies the narrative
-  *down* into the Overall Comment below it (hence the down arrow — source above,
-  destination below), unchanged in behaviour from its former control-band spot.
-- **Block visibility:** rendered when any of narrative / flags / strengths /
-  suggestions is present, so a flags-only row still shows its flags now that they
-  no longer have an independent top-of-card home.
+- **Neutral master, coloured children.** The tray itself is white so the amber and
+  violet sub-blocks are the only colour and the expanded analysis reads as genuine
+  black-on-white. A faint-grey tray was rejected because it would tint that "white"
+  away. Drop the hairline border if it ever reads as box-in-a-box.
+- **Reviewer flags — amber QA sub-block, uncollapsed.** Flags (when present) render
+  expanded at the top; QA signal the teacher should see without a click. The old
+  top-of-card collapsed `<details>` is gone.
+- **Expandable seam.** `strengths`/`suggestions` (`feedback_json`, distinct from
+  `reviewer_flags` and `narrative_feedback`) are teacher-facing analysis, hidden by
+  default behind a **centred `▾ Show full analysis` toggle flanked by two rules** —
+  a seam that visibly "opens". It expands *in place, between the flags and the
+  narrative*, as plain black dot-points on the white tray. The seam is omitted
+  entirely when both arrays are empty — no affordance that reveals nothing.
+- **Narrative — the publishable suggestion, scoped action inside.** The
+  "Suggested feedback" narrative sits in a violet box reusing the AI-suggest accent
+  (`--ai-suggest-wash` fill + `--ai-suggest` border) with **black body text**, just
+  like the rubric's suggested cells. Its **`↓ Use suggestion`** button lives *inside
+  this box* (solid `--ai-suggest` fill + white text, so it stands out against the
+  wash it sits on) — making it obvious the action applies to this text; it copies
+  the narrative *down* into the Overall Comment below.
+- **Match the size of what it becomes.** The narrative (and the flags + analysis)
+  render at **0.84rem**, the same size as the Overall Comment textarea — the
+  suggested comment is previewed at the size it will publish at.
+- **Block visibility:** the tray renders when any of narrative / flags / strengths /
+  suggestions is present, so a flags-only row still shows its flags now that they no
+  longer have an independent top-of-card home.

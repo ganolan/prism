@@ -654,13 +654,12 @@ describe('AssessmentSummaryPage — Send all bar (#51)', () => {
 describe('StudentRubricCard — card chrome (Slice 5)', () => {
   const withFeedback = (parsed) => ({ feedbackRow: { feedback_parsed: parsed } });
 
-  it('renders the reviewer-flags strip, collapsed by default, when reviewer_flags is present', () => {
+  it('renders reviewer flags uncollapsed (no <details>) when reviewer_flags is present', () => {
     renderCard(withFeedback({ reviewer_flags: 'No prototype link pasted.' }));
-    const summary = screen.getByText(/Reviewer flags/);
-    expect(summary).toBeInTheDocument();
-    const details = summary.closest('details');
-    expect(details).not.toHaveAttribute('open'); // collapsed by default
-    expect(details).toHaveTextContent('No prototype link pasted.');
+    expect(screen.getByText(/Reviewer flags/)).toBeInTheDocument();
+    // Flags are shown expanded now — visible text, not hidden behind a closed <details>.
+    expect(screen.getByText('No prototype link pasted.')).toBeInTheDocument();
+    expect(document.querySelector('details')).toBeNull();
   });
 
   it('does not render the flags strip when reviewer_flags is absent', () => {
@@ -1077,5 +1076,68 @@ describe('AssessmentSummaryPage — View in Schoology header link (#76)', () => 
     renderPage();
     await screen.findByText('Quiz');
     expect(screen.queryByRole('link', { name: /view in schoology/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('StudentRubricCard — consolidated Suggested Feedback block', () => {
+  const withFb = (parsed) => ({ feedbackRow: { feedback_parsed: parsed } });
+
+  it('shows reviewer flags uncollapsed alongside the narrative, with no <details>', () => {
+    renderCard(withFb({ reviewer_flags: 'Check the CAD deliverable.', narrative_feedback: 'Great work, Ada!' }));
+    expect(screen.getByText('Check the CAD deliverable.')).toBeInTheDocument();
+    expect(screen.getByText('Great work, Ada!')).toBeInTheDocument();
+    expect(document.querySelector('details')).toBeNull();
+  });
+
+  it('renders the block (with flags) even when there is no narrative, and shows no Use suggestion', () => {
+    renderCard(withFb({ reviewer_flags: 'Flag only.' }));
+    expect(screen.getByText('Suggested feedback')).toBeInTheDocument();
+    expect(screen.getByText('Flag only.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /use suggestion/i })).not.toBeInTheDocument();
+  });
+
+  it('hides strengths/suggestions by default and reveals them via Show full analysis', () => {
+    renderCard(withFb({
+      narrative_feedback: 'Nice!',
+      strengths: ['Strong calendar feature'],
+      suggestions: ['Add an edit flow'],
+    }));
+    expect(screen.queryByText('Strong calendar feature')).not.toBeInTheDocument();
+    expect(screen.queryByText('Add an edit flow')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /show full analysis/i }));
+    expect(screen.getByText('Strengths')).toBeInTheDocument();
+    expect(screen.getByText('Suggestions')).toBeInTheDocument();
+    expect(screen.getByText('Strong calendar feature')).toBeInTheDocument();
+    expect(screen.getByText('Add an edit flow')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /hide full analysis/i }));
+    expect(screen.queryByText('Strong calendar feature')).not.toBeInTheDocument();
+  });
+
+  it('orders flags → analysis → narrative when expanded', () => {
+    renderCard(withFb({
+      reviewer_flags: 'FLAGTEXT',
+      narrative_feedback: 'NARRATIVETEXT',
+      strengths: ['STRENGTHTEXT'],
+    }));
+    fireEvent.click(screen.getByRole('button', { name: /show full analysis/i }));
+    const html = document.body.innerHTML;
+    expect(html.indexOf('FLAGTEXT')).toBeLessThan(html.indexOf('STRENGTHTEXT'));
+    expect(html.indexOf('STRENGTHTEXT')).toBeLessThan(html.indexOf('NARRATIVETEXT'));
+  });
+
+  it('omits the Show full analysis button when strengths and suggestions are both empty', () => {
+    renderCard(withFb({ narrative_feedback: 'Nice!', strengths: [], suggestions: [] }));
+    expect(screen.queryByRole('button', { name: /full analysis/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the Show full analysis button when only suggestions are present', () => {
+    renderCard(withFb({ narrative_feedback: 'Nice!', suggestions: ['Add tests'] }));
+    expect(screen.getByRole('button', { name: /show full analysis/i })).toBeInTheDocument();
+  });
+
+  it('keeps Use suggestion in the block footer and copies the narrative into the comment', () => {
+    renderCard(withFb({ narrative_feedback: 'Excellent, Ada!' }));
+    fireEvent.click(screen.getByRole('button', { name: /use suggestion/i }));
+    expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue('Excellent, Ada!');
   });
 });

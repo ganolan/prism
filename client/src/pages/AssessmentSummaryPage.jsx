@@ -130,6 +130,14 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
 
   const reviewerFlags = feedbackRow?.feedback_parsed?.reviewer_flags || null;
   const narrativeSuggestion = feedbackRow?.feedback_parsed?.narrative_feedback || null;
+  // Teacher-facing dot-point analysis (grader signal; never published to the
+  // student). Lives in feedback_json.strengths/.suggestions, distinct from the
+  // narrative and the reviewer flags. Surfaced via the "Show full analysis" toggle.
+  const strengths = feedbackRow?.feedback_parsed?.strengths || [];
+  const suggestions = feedbackRow?.feedback_parsed?.suggestions || [];
+  const hasAnalysis = strengths.length > 0 || suggestions.length > 0;
+  const hasSuggestionBlock = Boolean(narrativeSuggestion || reviewerFlags || hasAnalysis);
+  const [showFullAnalysis, setShowFullAnalysis] = useState(false);
 
   // Restore any unsaved draft for this card from localStorage (#47). Read once
   // on mount; a restored draft means the teacher already interacted with the
@@ -776,25 +784,6 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         </div>
       </div>
 
-      {/* Reviewer flags strip — collapsed by default */}
-      {reviewerFlags && (
-        <details style={{
-          border: '1px solid #e6c98a', background: '#fffbef', borderRadius: 7,
-          margin: '0.75rem 1rem 0',
-        }}>
-          <summary style={{
-            cursor: 'pointer', listStyle: 'none', padding: '0.45rem 0.7rem',
-            fontSize: '0.72rem', fontWeight: 600, color: '#92740f',
-            display: 'flex', alignItems: 'center', gap: '0.45rem',
-          }}>
-            ⚑ Reviewer flags
-          </summary>
-          <div style={{ padding: '0 0.7rem 0.6rem', fontSize: '0.72rem', lineHeight: 1.5, color: '#5a4a1f' }}>
-            {reviewerFlags}
-          </div>
-        </details>
-      )}
-
       {/* Rubric grid */}
       <div style={{
         overflowX: 'auto', padding: '0.75rem 1rem 0',
@@ -947,6 +936,104 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         )}
       </div>
 
+      {/* Consolidated AI suggestion block: reviewer flags (uncollapsed) →
+          expandable Strengths/Suggestions analysis → narrative → footer actions.
+          Placed between the rubric grid and the Overall Comment. */}
+      {hasSuggestionBlock && (
+        <div style={{
+          margin: '0.75rem 1rem 0', border: '1px solid #e6e1f3', background: '#faf9fd',
+          borderRadius: 7, padding: '0.5rem 0.65rem',
+        }}>
+          <div style={{
+            fontSize: '0.63rem', fontWeight: 600, color: '#9a90b8',
+            letterSpacing: '0.03em', marginBottom: '0.4rem',
+            display: 'flex', alignItems: 'center', gap: '0.3rem',
+          }}>
+            <AiSparkle size={12} style={{ color: 'var(--ai-suggest)' }} /> Suggested feedback
+          </div>
+
+          {reviewerFlags && (
+            <div style={{
+              border: '1px solid #e6c98a', background: '#fffbef', borderRadius: 7,
+              padding: '0.45rem 0.6rem', marginBottom: '0.5rem',
+            }}>
+              <div style={{
+                fontSize: '0.72rem', fontWeight: 600, color: '#92740f',
+                display: 'flex', alignItems: 'center', gap: '0.45rem', marginBottom: '0.25rem',
+              }}>
+                ⚑ Reviewer flags
+              </div>
+              <div style={{ fontSize: '0.72rem', lineHeight: 1.5, color: '#5a4a1f', whiteSpace: 'pre-wrap' }}>
+                {reviewerFlags}
+              </div>
+            </div>
+          )}
+
+          {showFullAnalysis && hasAnalysis && (
+            <div style={{ marginBottom: '0.5rem' }}>
+              {strengths.length > 0 && (
+                <div style={{ marginBottom: suggestions.length > 0 ? '0.4rem' : 0 }}>
+                  <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#716b85', marginBottom: '0.2rem' }}>
+                    Strengths
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.72rem', lineHeight: 1.45, color: '#716b85' }}>
+                    {strengths.map((s, i) => <li key={i}>{s}</li>)}
+                  </ul>
+                </div>
+              )}
+              {suggestions.length > 0 && (
+                <div>
+                  <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#716b85', marginBottom: '0.2rem' }}>
+                    Suggestions
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.72rem', lineHeight: 1.45, color: '#716b85' }}>
+                    {suggestions.map((s, i) => <li key={i}>{s}</li>)}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {narrativeSuggestion && (
+            <div style={{ fontSize: '0.72rem', lineHeight: 1.4, color: '#716b85', whiteSpace: 'pre-wrap' }}>
+              {narrativeSuggestion}
+            </div>
+          )}
+
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+            gap: '0.5rem', marginTop: '0.55rem',
+          }}>
+            {hasAnalysis && (
+              <button
+                type="button"
+                onClick={() => setShowFullAnalysis(v => !v)}
+                style={{
+                  borderRadius: 7, padding: '0.35rem 0.6rem', fontSize: '0.72rem',
+                  fontWeight: 600, cursor: 'pointer',
+                  background: 'var(--card-bg)', color: 'var(--text-muted)', border: '1px solid var(--border)',
+                }}
+              >
+                {showFullAnalysis ? '▴ Hide full analysis' : '▾ Show full analysis'}
+              </button>
+            )}
+            {narrativeSuggestion && (
+              <button
+                onClick={() => applyComment(normalizePastedText(narrativeSuggestion))}
+                title="Copy the suggestion down into your comment"
+                style={{
+                  borderRadius: 7, padding: '0.4rem 0.75rem', fontSize: '0.74rem',
+                  fontWeight: 600, cursor: 'pointer',
+                  background: 'var(--ai-suggest-wash)', color: 'var(--ai-suggest)', border: '1px solid var(--ai-suggest)',
+                }}
+              >
+                ↓ Use suggestion
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Overall Comment — the hero */}
       <div style={{ padding: '0.75rem 1rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: '0 0 0.35rem' }}>
@@ -1072,38 +1159,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             </span>
           )}
 
-          {narrativeSuggestion && (
-            <button
-              onClick={() => applyComment(normalizePastedText(narrativeSuggestion))}
-              title="Copy the suggestion up into your comment"
-              style={{
-                borderRadius: 7, padding: '0.4rem 0.75rem', fontSize: '0.74rem',
-                fontWeight: 600, cursor: 'pointer',
-                background: 'var(--ai-suggest-wash)', color: 'var(--ai-suggest)', border: '1px solid var(--ai-suggest)',
-              }}
-            >
-              ↑ Use suggestion
-            </button>
-          )}
         </div>
-
-        {narrativeSuggestion && (
-          <div style={{
-            marginTop: '0.55rem', border: '1px solid #e6e1f3', background: '#faf9fd',
-            borderRadius: 7, padding: '0.5rem 0.65rem',
-          }}>
-            <div style={{
-              fontSize: '0.63rem', fontWeight: 600, color: '#9a90b8',
-              letterSpacing: '0.03em', marginBottom: '0.28rem',
-              display: 'flex', alignItems: 'center', gap: '0.3rem',
-            }}>
-              <AiSparkle size={12} style={{ color: 'var(--ai-suggest)' }} /> Suggested feedback
-            </div>
-            <div style={{ fontSize: '0.72rem', lineHeight: 1.4, color: '#716b85', whiteSpace: 'pre-wrap' }}>
-              {narrativeSuggestion}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

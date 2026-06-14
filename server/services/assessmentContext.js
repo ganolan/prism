@@ -202,6 +202,7 @@ export function getAssessmentContext(db, { assignmentId }) {
   const scoreMap = getScoreMap(db, schoolyId, topics.map((t) => t.id));
   const suggestions = getExistingSuggestions(db, assignmentRow.id);
   const drafts = getAssessmentDrafts(db, assignmentRow.id);
+  const flagsByStudent = getFlagsByStudent(db, assignmentRow.id);
   // Class-level reviewer analysis (the grader's run-time observations), written via
   // write_assessment_analysis. Surfaced read-only so the review-task-and-rubric
   // skill can use noticings/moderation_note as direct evidence rather than
@@ -216,6 +217,15 @@ export function getAssessmentContext(db, { assignmentId }) {
     const meta = metaByUid[st.schoology_uid] || {};
     const sug = suggestions[st.id];
     const draft = drafts[st.id];
+    const currentScores = Object.fromEntries(
+      Object.entries(scoreMap[st.schoology_uid] || {}).map(([topicId, sc]) => [topicId, { level: sc.grade }])
+    );
+    const grading_state = gradingState({
+      scoredCount: Object.keys(currentScores).length,
+      topicsCount: topics.length,
+      hasComment: (meta.grade_comment || '').trim().length > 0,
+      exception: meta.exception ?? 0,
+    });
     return {
       id: st.id,
       schoology_uid: st.schoology_uid,
@@ -226,12 +236,20 @@ export function getAssessmentContext(db, { assignmentId }) {
       // Resolved name to address the student by in suggested feedback — honors
       // the teacher's override (preferred_name_teacher), matching the UI.
       preferred_first_name: preferredFirstName(st),
-      current_scores: Object.fromEntries(
-        Object.entries(scoreMap[st.schoology_uid] || {}).map(([topicId, sc]) => [topicId, { level: sc.grade }])
-      ),
+      current_scores: currentScores,
       grade_comment: meta.grade_comment || '',
       display_to_student: (meta.comment_status ?? null) === 1,
       exception: meta.exception ?? 0,
+      submission_status: normalizeSubmissionStatus({
+        is_lti_submission: assignmentRow.is_lti_submission,
+        lti_submission_state: meta.lti_submission_state,
+        submission_type: meta.submission_type,
+        submitted_at: meta.submitted_at,
+      }),
+      grading_state,
+      is_lti: !!assignmentRow.is_lti_submission,
+      due_date: assignmentRow.due_date ?? null,
+      flags: flagsByStudent[st.id] || { review_needed: null, resubmit_requested: false },
       existing_suggestion: sug
         ? {
             status: sug.status,

@@ -198,6 +198,23 @@ describe('getAssessmentContext', () => {
     const ctx = getAssessmentContext(db, { assignmentId: 'sa-1' });
     expect(ctx.students[0].draft_feedback).toBeNull();
   });
+
+  test('per-student includes submission_status, grading_state, is_lti, due_date, and flags', () => {
+    const db = getDb();
+    const { courseId, assignmentId, studentId } = seedContext(db);
+    // Make the assignment LTI with a due date and a submitted state for the student.
+    db.prepare(`UPDATE assignments SET is_lti_submission = 1, due_date = '2026-06-01' WHERE id = ?`).run(assignmentId);
+    db.prepare(`UPDATE grades SET lti_submission_state = 'submitted' WHERE student_id = ? AND assignment_id = ?`).run(studentId, assignmentId);
+    db.prepare(`INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason, resolved) VALUES (?, ?, 'review_needed', 'verify build', 0)`).run(studentId, assignmentId);
+
+    const ctx = getAssessmentContext(db, { courseId, assignmentId: 'sa-1' });
+    const s = ctx.students[0];
+    expect(s.submission_status).toBe('submitted');
+    expect(s.grading_state).toBe('complete'); // one aligned topic scored + comment present
+    expect(s.is_lti).toBe(true);
+    expect(s.due_date).toBe('2026-06-01');
+    expect(s.flags).toEqual({ review_needed: { reason: 'verify build' }, resubmit_requested: false });
+  });
 });
 
 describe('getGradeMetaRows', () => {

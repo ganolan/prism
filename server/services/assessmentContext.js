@@ -159,6 +159,12 @@ export function getAssessmentContext(db, { assignmentId }) {
   const scoreMap = getScoreMap(db, schoolyId, topics.map((t) => t.id));
   const suggestions = getExistingSuggestions(db, assignmentRow.id);
   const drafts = getAssessmentDrafts(db, assignmentRow.id);
+  // Class-level reviewer analysis (the grader's run-time observations), written via
+  // write_assessment_analysis. Surfaced read-only so the review-task-and-rubric
+  // skill can use noticings/moderation_note as direct evidence rather than
+  // re-deriving the whole picture from score deviations.
+  const analysisRow = db.prepare('SELECT analysis_json FROM assessment_analysis WHERE assignment_id = ?').get(assignmentRow.id);
+  const analysis = analysisRow ? JSON.parse(analysisRow.analysis_json || '{}') : null;
 
   const metaByUid = {};
   for (const g of getGradeMetaRows(db, schoolyId)) metaByUid[g.schoology_uid] = g;
@@ -211,5 +217,9 @@ export function getAssessmentContext(db, { assignmentId }) {
       category_external_id: t.category_external_id,
     })),
     students,
+    // Class-level grader analysis for this assignment (null when none written).
+    assessment_analysis: analysis
+      ? { noticings: analysis.noticings ?? [], moderation_note: analysis.moderation_note ?? null }
+      : null,
   };
 }

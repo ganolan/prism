@@ -38,7 +38,7 @@ function seedContext(db) {
 
 beforeEach(() => {
   getDb().exec(
-    'DELETE FROM assessment_drafts; DELETE FROM feedback; DELETE FROM mastery_alignments; DELETE FROM mastery_scores; ' +
+    'DELETE FROM assessment_drafts; DELETE FROM assessment_analysis; DELETE FROM feedback; DELETE FROM mastery_alignments; DELETE FROM mastery_scores; ' +
     'DELETE FROM grades; DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
     'DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
   );
@@ -77,6 +77,33 @@ describe('getAssessmentContext', () => {
       rubric_scores: { 'ART.5.1': 'ED' },
       reviewer_flags: 'check sources',
     });
+  });
+
+  test('includes the class-level assessment_analysis (noticings + moderation_note) when present', () => {
+    const db = getDb();
+    const { assignmentId } = seedContext(db);
+    db.prepare(
+      `INSERT INTO assessment_analysis (assignment_id, analysis_json, created_at, updated_at) VALUES (?, ?, '2026-06-14', '2026-06-14')`
+    ).run(
+      assignmentId,
+      JSON.stringify({
+        noticings: [{ title: 'AI use', body: 'Half the class used AI.' }],
+        moderation_note: '- Graded from slides\n- Distribution is generous',
+      })
+    );
+
+    const ctx = getAssessmentContext(db, { assignmentId: 'sa-1' });
+
+    expect(ctx.assessment_analysis).toEqual({
+      noticings: [{ title: 'AI use', body: 'Half the class used AI.' }],
+      moderation_note: '- Graded from slides\n- Distribution is generous',
+    });
+  });
+
+  test('assessment_analysis is null when no analysis row exists', () => {
+    const db = getDb();
+    seedContext(db);
+    expect(getAssessmentContext(db, { assignmentId: 'sa-1' }).assessment_analysis).toBeNull();
   });
 
   test('resolves preferred_first_name from the teacher override, not the Schoology preferred name', () => {

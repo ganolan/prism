@@ -1142,4 +1142,60 @@ describe('StudentRubricCard — consolidated Suggested Feedback block', () => {
     fireEvent.click(screen.getByRole('button', { name: /use suggestion/i }));
     expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue('Excellent, Ada!');
   });
+
+  it('renders strengths and suggestions side by side when expanded', () => {
+    renderCard(withFb({ strengths: ['S-one'], suggestions: ['G-one'], narrative_feedback: 'n' }));
+    fireEvent.click(screen.getByRole('button', { name: /show full analysis/i }));
+    // Each heading's column container owns only its own list — two distinct columns.
+    const strengthsCol = screen.getByText('Strengths').parentElement;
+    const suggestionsCol = screen.getByText('Suggestions').parentElement;
+    expect(strengthsCol).not.toBe(suggestionsCol);
+    expect(strengthsCol).toHaveTextContent('S-one');
+    expect(strengthsCol).not.toHaveTextContent('G-one');
+    expect(suggestionsCol).toHaveTextContent('G-one');
+  });
+});
+
+describe('StudentRubricCard — Reviewer notes collapse', () => {
+  const withFb = (parsed) => ({ feedbackRow: { feedback_parsed: parsed } });
+
+  it('is expanded by default and collapses via Hide into a compact bar', () => {
+    renderCard(withFb({ reviewer_flags: 'Flag X', narrative_feedback: 'Visible narrative' }));
+    expect(screen.getByText('Visible narrative')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /hide reviewer notes/i }));
+    expect(screen.queryByText('Visible narrative')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /show reviewer notes/i })).toBeInTheDocument();
+  });
+
+  it('persists the collapsed state across remount', () => {
+    const { unmount } = renderCard(withFb({ narrative_feedback: 'Persist me' }));
+    fireEvent.click(screen.getByRole('button', { name: /hide reviewer notes/i }));
+    unmount();
+    renderCard(withFb({ narrative_feedback: 'Persist me' }));
+    expect(screen.queryByText('Persist me')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /show reviewer notes/i })).toBeInTheDocument();
+  });
+
+  it('shows a prominent flag chip on the collapsed bar when flags are present', () => {
+    renderCard(withFb({ reviewer_flags: 'Important', narrative_feedback: 'x' }));
+    fireEvent.click(screen.getByRole('button', { name: /hide reviewer notes/i }));
+    expect(screen.getByRole('button', { name: /show reviewer notes/i })).toHaveTextContent(/Flag/);
+  });
+
+  it('shows no flag chip on the collapsed bar when there are no flags', () => {
+    renderCard(withFb({ narrative_feedback: 'no flags' }));
+    fireEvent.click(screen.getByRole('button', { name: /hide reviewer notes/i }));
+    expect(screen.getByRole('button', { name: /show reviewer notes/i })).not.toHaveTextContent(/Flag/);
+  });
+
+  it('auto-collapses after publishing to Schoology', async () => {
+    renderCard(withFb({ narrative_feedback: 'Collapse on publish' }));
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled()
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+    await waitFor(() => expect(screen.queryByText('Collapse on publish')).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /show reviewer notes/i })).toBeInTheDocument();
+  });
 });

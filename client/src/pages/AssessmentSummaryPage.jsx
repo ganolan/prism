@@ -138,6 +138,18 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   const hasAnalysis = strengths.length > 0 || suggestions.length > 0;
   const hasSuggestionBlock = Boolean(narrativeSuggestion || reviewerFlags || hasAnalysis);
   const [showFullAnalysis, setShowFullAnalysis] = useState(false);
+  // Whole "Reviewer notes" block collapse. Expanded by default; persists per
+  // student+assignment in localStorage so a deliberate collapse survives reloads,
+  // and auto-collapses once the grade is published. (The inner "full analysis"
+  // seam keeps its own showFullAnalysis state and stays collapsed by default.)
+  const notesKey = `prism:reviewer-notes-collapsed:${assignmentId}:${student.enrollment_id ?? student.id}`;
+  const [notesCollapsed, setNotesCollapsedState] = useState(() => {
+    try { return localStorage.getItem(notesKey) === '1'; } catch { return false; }
+  });
+  const setNotesCollapsed = (v) => {
+    setNotesCollapsedState(v);
+    try { localStorage.setItem(notesKey, v ? '1' : '0'); } catch { /* ignore */ }
+  };
 
   // Restore any unsaved draft for this card from localStorage (#47). Read once
   // on mount; a restored draft means the teacher already interacted with the
@@ -473,6 +485,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
       setSaveResult('saved');
       setPending({});
       saverRef.current.remove({ immediate: true });
+      setNotesCollapsed(true); // published via bulk → tuck the reviewer notes away
     } else {
       setSaveResult('error: send failed');
     }
@@ -514,6 +527,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         grade_comment: comment,
         comment_status: display ? 1 : null,
       });
+      setNotesCollapsed(true); // published → tuck the reviewer notes away
       return true;
     } catch (err) {
       setSaveResult(`error: ${err.message}`);
@@ -936,28 +950,75 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         )}
       </div>
 
-      {/* Consolidated AI suggestion area — a neutral master tray grouping three
-          colour-coded sub-blocks: amber reviewer flags (QA), an expandable seam
-          for teacher-facing Strengths/Suggestions (plain black-on-white), and the
-          violet "Suggested feedback" narrative (the publishable AI comment) with
-          its own Use-suggestion action. Sits between the rubric and Overall Comment. */}
-      {hasSuggestionBlock && (
+      {/* Reviewer notes — collapsible AI bundle. Collapsed: a compact bar (amber +
+          ⚑ when flags exist, so it stays easy to spot while scrolling). Expanded
+          (default): a neutral tray grouping amber flags, an expandable two-column
+          Strengths(+)/Suggestions(−) seam, and the violet Suggested feedback
+          narrative. Collapse persists per student and auto-collapses on publish. */}
+      {hasSuggestionBlock && notesCollapsed && (
+        <div style={{ margin: '0.75rem 1rem 0' }}>
+          <button
+            type="button"
+            onClick={() => setNotesCollapsed(false)}
+            aria-label="Show reviewer notes"
+            style={{
+              width: '100%', boxSizing: 'border-box',
+              display: 'flex', alignItems: 'center', gap: '0.5rem',
+              borderRadius: 8, padding: '0.45rem 0.6rem', cursor: 'pointer',
+              font: 'inherit', fontSize: '0.72rem', fontWeight: 600, textAlign: 'left',
+              border: `1px solid ${reviewerFlags ? '#e6c98a' : 'var(--border)'}`,
+              background: reviewerFlags ? '#fffbef' : 'var(--card-bg)',
+              color: reviewerFlags ? '#92740f' : 'var(--text-muted)',
+            }}
+          >
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+              <AiSparkle size={12} style={{ color: 'var(--ai-suggest)' }} /> Reviewer notes
+            </span>
+            {reviewerFlags && (
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.2rem',
+                borderRadius: 5, padding: '0.05rem 0.4rem',
+                background: '#f3d692', color: '#7a5f0c', fontWeight: 700,
+              }}>
+                ⚑ Flag
+              </span>
+            )}
+            <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontWeight: 600 }}>▸ Show</span>
+          </button>
+        </div>
+      )}
+
+      {hasSuggestionBlock && !notesCollapsed && (
         <div style={{
           margin: '0.75rem 1rem 0', border: '1px solid var(--border)', background: 'var(--card-bg)',
           borderRadius: 8, padding: '0.6rem',
           display: 'flex', flexDirection: 'column', gap: '0.55rem',
         }}>
-          {/* Master label — names the whole AI reviewer bundle (kept distinct from
-              the class-level "Reviewer Analysis" drawer). */}
-          <div style={{
-            fontSize: '0.63rem', fontWeight: 600, color: 'var(--text-muted)',
-            letterSpacing: '0.03em',
-            display: 'flex', alignItems: 'center', gap: '0.3rem',
-          }}>
-            <AiSparkle size={12} style={{ color: 'var(--ai-suggest)' }} /> Reviewer notes
+          {/* Header — master label + Hide control (kept distinct from the
+              class-level "Reviewer Analysis" drawer). */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{
+              fontSize: '0.63rem', fontWeight: 600, color: 'var(--text-muted)',
+              letterSpacing: '0.03em',
+              display: 'flex', alignItems: 'center', gap: '0.3rem',
+            }}>
+              <AiSparkle size={12} style={{ color: 'var(--ai-suggest)' }} /> Reviewer notes
+            </div>
+            <button
+              type="button"
+              onClick={() => setNotesCollapsed(true)}
+              aria-label="Hide reviewer notes"
+              style={{
+                borderRadius: 6, padding: '0.15rem 0.45rem', fontSize: '0.68rem',
+                fontWeight: 600, cursor: 'pointer',
+                background: 'var(--card-bg)', color: 'var(--text-muted)', border: '1px solid var(--border)',
+              }}
+            >
+              ▾ Hide
+            </button>
           </div>
 
-          {/* Reviewer flags — amber QA sub-block (unchanged) */}
+          {/* Reviewer flags — amber QA sub-block */}
           {reviewerFlags && (
             <div style={{
               border: '1px solid #e6c98a', background: '#fffbef', borderRadius: 7,
@@ -975,8 +1036,9 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             </div>
           )}
 
-          {/* Expandable seam — centred toggle between rules; reveals the
-              teacher-facing analysis in place, as plain black text on white. */}
+          {/* Expandable seam — centred toggle between two rules; reveals two-column
+              Strengths (green +) / Suggestions (red −) as black-on-white, closed off
+              by a second rule so it reads as a fully opened seam. */}
           {hasAnalysis && (
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
@@ -996,31 +1058,44 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
               </div>
 
               {showFullAnalysis && (
-                <div style={{ marginTop: '0.5rem', color: '#1a1a1a' }}>
-                  {strengths.length > 0 && (
-                    <div style={{ marginBottom: suggestions.length > 0 ? '0.45rem' : 0 }}>
-                      <div style={{ fontSize: '0.68rem', fontWeight: 700, marginBottom: '0.2rem' }}>Strengths</div>
-                      <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.84rem', lineHeight: 1.45 }}>
-                        {strengths.map((s, i) => <li key={i}>{s}</li>)}
-                      </ul>
-                    </div>
-                  )}
-                  {suggestions.length > 0 && (
-                    <div>
-                      <div style={{ fontSize: '0.68rem', fontWeight: 700, marginBottom: '0.2rem' }}>Suggestions</div>
-                      <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.84rem', lineHeight: 1.45 }}>
-                        {suggestions.map((s, i) => <li key={i}>{s}</li>)}
-                      </ul>
-                    </div>
-                  )}
-                </div>
+                <>
+                  <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem', color: '#1a1a1a' }}>
+                    {strengths.length > 0 && (
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '0.72rem', fontWeight: 700, marginBottom: '0.25rem' }}>Strengths</div>
+                        <ul style={{ listStyle: 'none', margin: 0, padding: 0, fontSize: '0.84rem', lineHeight: 1.45 }}>
+                          {strengths.map((s, i) => (
+                            <li key={i} style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.25rem' }}>
+                              <span style={{ color: 'var(--success)', fontWeight: 700, flexShrink: 0 }}>+</span>
+                              <span>{s}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {suggestions.length > 0 && (
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '0.72rem', fontWeight: 700, marginBottom: '0.25rem' }}>Suggestions</div>
+                        <ul style={{ listStyle: 'none', margin: 0, padding: 0, fontSize: '0.84rem', lineHeight: 1.45 }}>
+                          {suggestions.map((s, i) => (
+                            <li key={i} style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.25rem' }}>
+                              <span style={{ color: 'var(--danger)', fontWeight: 700, flexShrink: 0 }}>−</span>
+                              <span>{s}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ height: 1, background: 'var(--border)', marginTop: '0.5rem' }} />
+                </>
               )}
             </div>
           )}
 
-          {/* Narrative — the publishable AI suggestion: violet wash + border (the
-              former Use-suggestion button styling) with black body text, its own
-              header, and the Use-suggestion action scoped inside it. */}
+          {/* Narrative — the publishable AI suggestion: violet wash + border with
+              black body text, its own header, and the Use-suggestion action (solid
+              fuchsia, to stand out against the wash) scoped inside it. */}
           {narrativeSuggestion && (
             <div style={{
               border: '1px solid var(--ai-suggest)', background: 'var(--ai-suggest-wash)',
@@ -1235,9 +1310,9 @@ function ReviewerAnalysisBody({ topics, feedbackRows, analysis }) {
         })}
         {moderationNote && (
           <div style={{
-            fontSize: '0.62rem', color: '#92740f', background: '#fffbef',
-            border: '1px solid #f0dea8', borderRadius: 6, padding: '0.35rem 0.5rem',
-            marginTop: '0.45rem', lineHeight: 1.35,
+            fontSize: '0.84rem', color: '#92740f', background: '#fffbef',
+            border: '1px solid #f0dea8', borderRadius: 6, padding: '0.45rem 0.6rem',
+            marginTop: '0.5rem', lineHeight: 1.45,
           }}>
             ⚖️ {moderationNote}
           </div>
@@ -1254,9 +1329,9 @@ function ReviewerAnalysisBody({ topics, feedbackRows, analysis }) {
             Noticings
           </div>
           {noticings.map((n, i) => (
-            <div key={i} style={{ marginBottom: '0.55rem' }}>
-              <div style={{ fontWeight: 700, fontSize: '0.68rem', marginBottom: '0.12rem' }}>{n.title}</div>
-              <div style={{ fontSize: '0.66rem', lineHeight: 1.4, color: 'var(--text)' }}>{n.body}</div>
+            <div key={i} style={{ marginBottom: '0.6rem' }}>
+              <div style={{ fontWeight: 700, fontSize: '0.84rem', marginBottom: '0.15rem' }}>{n.title}</div>
+              <div style={{ fontSize: '0.84rem', lineHeight: 1.45, color: 'var(--text)' }}>{n.body}</div>
             </div>
           ))}
         </div>

@@ -430,6 +430,15 @@ pieces — the collapsed reviewer-flags `<details>` at the top of the card and t
 violet narrative box at the bottom — and groups three **colour-coded sub-blocks**,
 each colour standing for a *function* so the hierarchy reads at a glance.
 
+- **Collapsible, persistent, auto-tucking.** The whole tray collapses to a compact
+  bar via a `▾ Hide` control; the bar carries a **prominent amber `⚑ Flag` chip when
+  reviewer flags exist** (plus an amber tint) so a flagged student stays easy to spot
+  while scrolling. Expanded by default; a deliberate collapse **persists per
+  student+assignment in `localStorage`** (`prism:reviewer-notes-collapsed:…`), and
+  the block **auto-collapses once the grade is published** (single or bulk) — the
+  notes have done their job, so they get out of the way. (Flag *presence* is already
+  per-student in the page data via `feedback_parsed.reviewer_flags`, so a future
+  "has flags" roster filter needs no backend work.)
 - **Neutral master, coloured children.** The tray itself is white so the amber and
   violet sub-blocks are the only colour and the expanded analysis reads as genuine
   black-on-white. A faint-grey tray was rejected because it would tint that "white"
@@ -437,12 +446,15 @@ each colour standing for a *function* so the hierarchy reads at a glance.
 - **Reviewer flags — amber QA sub-block, uncollapsed.** Flags (when present) render
   expanded at the top; QA signal the teacher should see without a click. The old
   top-of-card collapsed `<details>` is gone.
-- **Expandable seam.** `strengths`/`suggestions` (`feedback_json`, distinct from
-  `reviewer_flags` and `narrative_feedback`) are teacher-facing analysis, hidden by
-  default behind a **centred `▾ Show full analysis` toggle flanked by two rules** —
-  a seam that visibly "opens". It expands *in place, between the flags and the
-  narrative*, as plain black dot-points on the white tray. The seam is omitted
-  entirely when both arrays are empty — no affordance that reveals nothing.
+- **Expandable seam, two columns.** `strengths`/`suggestions` (`feedback_json`,
+  distinct from `reviewer_flags` and `narrative_feedback`) are teacher-facing
+  analysis, hidden by default behind a **centred `▾ Show full analysis` toggle
+  flanked by two rules** — a seam that visibly "opens". It expands *in place,
+  between the flags and the narrative*, as **two side-by-side columns** — Strengths
+  (green `+` markers) left, Suggestions (red `−`) right, scannable at a glance —
+  black-on-white, **closed off by a second rule below** so it reads as a fully
+  opened seam. The seam is omitted entirely when both arrays are empty — no
+  affordance that reveals nothing.
 - **Narrative — the publishable suggestion, scoped action inside.** The
   "Suggested feedback" narrative sits in a violet box reusing the AI-suggest accent
   (`--ai-suggest-wash` fill + `--ai-suggest` border) with **black body text**, just
@@ -450,9 +462,11 @@ each colour standing for a *function* so the hierarchy reads at a glance.
   this box* (solid `--ai-suggest` fill + white text, so it stands out against the
   wash it sits on) — making it obvious the action applies to this text; it copies
   the narrative *down* into the Overall Comment below.
-- **Match the size of what it becomes.** The narrative (and the flags + analysis)
-  render at **0.84rem**, the same size as the Overall Comment textarea — the
-  suggested comment is previewed at the size it will publish at.
+- **Match the size of what it becomes.** The narrative, flags and strengths/
+  suggestions items all render at **0.84rem**, the same size as the Overall Comment
+  textarea — the suggested comment is previewed at the size it will publish at. The
+  class-level **Reviewer Analysis drawer** prose (noticings + moderation note) was
+  bumped to the same 0.84rem for readability; its distribution chart stays compact.
 - **Block visibility:** the tray renders when any of narrative / flags / strengths /
   suggestions is present, so a flags-only row still shows its flags now that they no
   longer have an independent top-of-card home.

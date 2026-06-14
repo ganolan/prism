@@ -474,3 +474,24 @@ each colour standing for a *function* so the hierarchy reads at a glance.
 - **Block visibility:** the tray renders when any of narrative / flags / strengths /
   suggestions is present, so a flags-only row still shows its flags now that they no
   longer have an independent top-of-card home.
+
+## Assessment summary page: submission-status pill + filter row (June 2026, branch `feat/assessment-submission-status-pill-filters`)
+
+- Each student card header shows a **prominent submission-status pill** computed
+  from the same `gradeLabel.submissionStatus` rule (and colours / due-date
+  proximity) as the gradebook grid, so the two never drift. A failed LTI fetch
+  surfaces the same amber "status unavailable — re-sync" affordance as the
+  gradebook cell.
+- Below the header button row, a **grouped filter row** of themed toggle pills
+  (mirroring the Summative / Formative `TypeFilterToggle`): submission status
+  (3 pills for LTI / just *Submitted* for non-LTI), grading completeness
+  (*Ungraded / Partially graded / Graded*), visibility (*Visible / Not visible*),
+  *Flag for review*, *Ask to resubmit*. Semantics: **OR within a group, AND
+  across groups**; selection is in-memory (resets each visit, like the
+  Summative/Formative toggles). Status-pill colour follows the assignment's
+  due-date proximity, so the pills shift as a deadline nears/passes.
+- The same submission / grading / flag state is exposed to the MCP for the
+  grading agent: per-student `submission_status` + `grading_state` + `flags` on
+  `get_assignment_context`, and `submission_counts` + `grading_counts` on
+  `list_assignments` — so the agent can tell who actually submitted (vs. who only
+  *looks* ready in the synced folder) before grading.

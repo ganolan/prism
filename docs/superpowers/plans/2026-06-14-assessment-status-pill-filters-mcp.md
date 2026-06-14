@@ -724,7 +724,8 @@ export function gradingStateOf(student, topics) {
   const scoredCount = topics.filter(t => scores[t.id] != null).length;
   const hasComment = (student.grade_comment || '').trim().length > 0;
   if (scoredCount === 0 && !hasComment) return 'ungraded';
-  if (topics.length > 0 && scoredCount === topics.length && hasComment) return 'complete';
+  if (topics.length === 0) return 'complete'; // no rubric topics to score; a comment-bearing row is handled (matches server gradingState)
+  if (scoredCount === topics.length && hasComment) return 'complete';
   return 'partial';
 }
 

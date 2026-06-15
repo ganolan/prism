@@ -252,11 +252,14 @@ export function getAssessmentContext(db, { assignmentId }) {
         submission_type: meta.submission_type,
         submitted_at: meta.submitted_at,
       }),
-      // Submission timestamps (ISO). Reliable for native/dropbox submissions; for
-      // LTI/OneDrive Schoology auto-provisions revision rows (noise), so these are
-      // null for LTI — use submission_status there.
-      submitted_at: isLti ? null : epochToIso(meta.submitted_at),
-      latest_revision_at: isLti ? null : epochToIso(meta.latest_revision_at),
+      // Submission timestamps (ISO). For native/dropbox these come from the public
+      // revisions API. For LTI/OneDrive, sync (#125) captures the grader's
+      // authoritative submission time (submissionDate) into the same columns —
+      // overwriting the auto-provisioned public-path noise — so both paths flow
+      // through uniformly. Null when no submission time is captured (e.g. an
+      // in_progress/not_started LTI cell); use submission_status as the signal there.
+      submitted_at: epochToIso(meta.submitted_at),
+      latest_revision_at: epochToIso(meta.latest_revision_at),
       grading_state,
       is_lti: isLti,
       due_date: assignmentRow.due_date ?? null,

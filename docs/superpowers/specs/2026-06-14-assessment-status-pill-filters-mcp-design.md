@@ -191,10 +191,13 @@ per-student object (`:176-205`):
   (e.g. "email list of students who haven't submitted yet"). Added to the shared `getRoster`
   SELECT, so it also reaches the assessment-page route payload.
 - `submitted_at` / `latest_revision_at` (ISO strings) — submission timestamps for time-window
-  queries ("submitted in the last X hours"). Reliable for native/dropbox submissions only;
-  **null for LTI**, where Schoology auto-provisions revision rows (noise) and the reliable
-  signal is `submission_status`. ("Submitted but not yet graded" needs no new field — it's
-  `submission_status === 'submitted'` AND `grading_state !== 'complete'`.)
+  queries ("submitted in the last X hours"). For native/dropbox these come from the public
+  revisions API. **For LTI/OneDrive, captured since #125** (2026-06-15): sync parses the
+  grader's authoritative `submissionDate` (from `submitted-documents`) into the same columns —
+  overwriting the auto-provisioned public-path noise — and decodes `submissionTiming` into
+  `grades.late`, so LTI flows through uniformly with dropbox. Null only when no submission time
+  is captured (an `in_progress`/`not_started` LTI cell). ("Submitted but not yet graded" needs
+  no new field — it's `submission_status === 'submitted'` AND `grading_state !== 'complete'`.)
 
 **`list_assignments`** (`mcp/handlers.js`). Add per-assignment counts so the agent can see
 readiness at a glance before drilling in:

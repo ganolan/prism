@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { buildSubmissionStateMap } from './parseGraderDocuments.js';
+import { buildSubmissionStateMap, buildSubmissionDetailMap, buildSubmissionResult } from './parseGraderDocuments.js';
+
+// Expected epoch (seconds) for a wall-clock, computed runtime-local — mirrors
+// the parser, so these assertions hold on any CI timezone (#125 decision).
+const localEpoch = (y, monthIndex, d, h, min) =>
+  Math.floor(new Date(y, monthIndex, d, h, min).getTime() / 1000);
 
 const submitted = { data: [{ id: 11862763, revisionCreated: true }] };
 const inProgress = { data: [
@@ -32,5 +37,68 @@ describe('buildSubmissionStateMap', () => {
   it('keys are string uids', () => {
     const m = buildSubmissionStateMap({ data: [{ id: 42, revisionCreated: true }] }, { data: [] });
     expect([...m.keys()]).toEqual(['42']);
+  });
+});
+
+describe('buildSubmissionDetailMap', () => {
+  it('parses a well-formed submissionDate to a runtime-local epoch', () => {
+    const m = buildSubmissionDetailMap({
+      data: [{ id: 55454030, submissionTiming: 1, submissionDate: 'Tuesday, June 9, 2026 at 3:27 pm' }],
+    });
+    expect(m.get('55454030').submittedAt).toBe(localEpoch(2026, 5, 9, 15, 27));
+  });
+
+  it('decodes submissionTiming: 2 → late, 0/1 → on-time', () => {
+    const m = buildSubmissionDetailMap({ data: [
+      { id: 1, submissionTiming: 2, submissionDate: 'Monday, June 15, 2026 at 4:18 am' }, // late
+      { id: 2, submissionTiming: 1, submissionDate: 'Tuesday, June 9, 2026 at 3:27 pm' }, // on-time
+      { id: 3, submissionTiming: 0, submissionDate: '' },                                  // none
+    ] });
+    expect(m.get('1').late).toBe(1);
+    expect(m.get('2').late).toBe(0);
+    expect(m.get('3').late).toBe(0);
+  });
+
+  it('handles 12am (midnight) and 12pm (noon)', () => {
+    const m = buildSubmissionDetailMap({ data: [
+      { id: 1, submissionTiming: 1, submissionDate: 'Monday, June 15, 2026 at 12:50 am' }, // 00:50
+      { id: 2, submissionTiming: 1, submissionDate: 'Monday, June 15, 2026 at 12:10 pm' }, // 12:10
+    ] });
+    expect(m.get('1').submittedAt).toBe(localEpoch(2026, 5, 15, 0, 50));
+    expect(m.get('2').submittedAt).toBe(localEpoch(2026, 5, 15, 12, 10));
+  });
+
+  it('guards an empty or unparseable submissionDate to null (late still decoded)', () => {
+    const m = buildSubmissionDetailMap({ data: [
+      { id: 1, submissionTiming: 2, submissionDate: '' },
+      { id: 2, submissionTiming: 2, submissionDate: 'not a date' },
+      { id: 3, submissionTiming: 1 }, // missing entirely
+    ] });
+    expect(m.get('1')).toEqual({ submittedAt: null, late: 1 });
+    expect(m.get('2')).toEqual({ submittedAt: null, late: 1 });
+    expect(m.get('3')).toEqual({ submittedAt: null, late: 0 });
+  });
+
+  it('keys by string uid and returns an empty map for missing payload', () => {
+    const m = buildSubmissionDetailMap({ data: [{ id: 42, submissionTiming: 1, submissionDate: 'Friday, May 22, 2026 at 2:29 pm' }] });
+    expect([...m.keys()]).toEqual(['42']);
+    expect(buildSubmissionDetailMap(null).size).toBe(0);
+  });
+});
+
+describe('buildSubmissionResult', () => {
+  it('returns null when BOTH payloads are null (total fetch failure)', () => {
+    expect(buildSubmissionResult(null, null)).toBeNull();
+  });
+
+  it('assembles { states, details } from the two payloads', () => {
+    const submitted = { data: [{ id: 7, revisionCreated: true, submissionTiming: 2, submissionDate: 'Sunday, June 14, 2026 at 7:40 pm' }] };
+    const inProgress = { data: [{ id: 9, revisionCreated: false }] };
+    const r = buildSubmissionResult(submitted, inProgress);
+    expect(r.states.get('7')).toBe('submitted');
+    expect(r.states.get('9')).toBe('not_started');
+    expect(r.details.get('7')).toEqual({ submittedAt: localEpoch(2026, 5, 14, 19, 40), late: 1 });
+    // in-progress students carry no submission detail.
+    expect(r.details.has('9')).toBe(false);
   });
 });

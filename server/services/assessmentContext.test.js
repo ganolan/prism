@@ -224,7 +224,7 @@ describe('getAssessmentContext', () => {
     expect(ctx.students[0].email).toBe('ada@hkis.edu.hk');
   });
 
-  test('per-student carries submission timestamps (ISO) for non-LTI, null for LTI', () => {
+  test('per-student carries submission timestamps (ISO) for both non-LTI and LTI (#125)', () => {
     const db = getDb();
     const { courseId, assignmentId, studentId } = seedContext(db);
     db.prepare(`UPDATE grades SET submitted_at = 1700000000, latest_revision_at = 1700000500 WHERE student_id = ? AND assignment_id = ?`).run(studentId, assignmentId);
@@ -234,9 +234,22 @@ describe('getAssessmentContext', () => {
     expect(s.submitted_at).toBe(new Date(1700000000 * 1000).toISOString());
     expect(s.latest_revision_at).toBe(new Date(1700000500 * 1000).toISOString());
 
-    // LTI: revision timestamps are auto-provisioned noise → null (status is the signal)
+    // LTI: since #125 the timestamps are the grader's authoritative submissionDate
+    // (sync overwrites the public-path noise), so they flow through like dropbox.
     db.prepare(`UPDATE assignments SET is_lti_submission = 1 WHERE id = ?`).run(assignmentId);
     s = getAssessmentContext(db, { courseId, assignmentId: 'sa-1' }).students[0];
+    expect(s.submitted_at).toBe(new Date(1700000000 * 1000).toISOString());
+    expect(s.latest_revision_at).toBe(new Date(1700000500 * 1000).toISOString());
+  });
+
+  test('LTI with no captured submission time still surfaces null timestamps (#125)', () => {
+    const db = getDb();
+    const { courseId, assignmentId, studentId } = seedContext(db);
+    // not_started/in_progress lti cell: state but no submitted_at (stays 0)
+    db.prepare(`UPDATE assignments SET is_lti_submission = 1 WHERE id = ?`).run(assignmentId);
+    db.prepare(`UPDATE grades SET lti_submission_state = 'not_started', submitted_at = 0, latest_revision_at = 0 WHERE student_id = ? AND assignment_id = ?`).run(studentId, assignmentId);
+
+    const s = getAssessmentContext(db, { courseId, assignmentId: 'sa-1' }).students[0];
     expect(s.submitted_at).toBeNull();
     expect(s.latest_revision_at).toBeNull();
   });

@@ -324,6 +324,23 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
       lti_submission_state = excluded.lti_submission_state,
       synced_at = excluded.synced_at
   `);
+  // #125: for a SUBMITTED lti student we also have the grader's authoritative
+  // submission time + late flag (parsed from submitted-documents). Write the
+  // epoch into BOTH submitted_at and latest_revision_at — the grader exposes one
+  // timestamp per lti submission, so equal values mean "no resubmit signal"
+  // (safe), and overwrite the unreliable public-path timestamp (noise). late is
+  // Schoology's own on-time/late determination. Unparseable date → submittedAt
+  // null → 0 here (epochToIso(0) → null in the MCP), but late is still recorded.
+  const upsertLtiStateWithTime = db.prepare(`
+    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, lti_submission_state, submitted_at, latest_revision_at, late, synced_at)
+    VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(student_id, assignment_id) DO UPDATE SET
+      lti_submission_state = excluded.lti_submission_state,
+      submitted_at = excluded.submitted_at,
+      latest_revision_at = excluded.latest_revision_at,
+      late = excluded.late,
+      synced_at = excluded.synced_at
+  `);
   // #76: record the per-assignment fetch outcome so the gradebook can flag a
   // genuine capture failure ('failed') vs a healthy read ('ok'). Assignments we
   // never reach this loop for (non-lti, windowed-out, or no session) keep their
@@ -337,22 +354,33 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     for (const a of ltiAssignments) {
       const assignRow = selectAssignmentByExt.get(String(a.id));
       if (!assignRow) continue;
-      const stateMap = await retryAsync(
+      const result = await retryAsync(
         () => opts.fetchDocuments(String(a.id)),
         { attempts: 2, backoffMs: ltiFetchBackoffMs },
       );
-      if (!stateMap) { // fetch failed after retry → record so the teacher can re-sync
+      if (!result) { // fetch failed after retry → record so the teacher can re-sync
         setLtiFetchStatus.run('failed', assignRow.id);
         continue;
       }
       setLtiFetchStatus.run('ok', assignRow.id);
+      const { states: stateMap, details: detailMap } = result;
       const writeStates = db.transaction(() => {
         for (const { e, studentRow } of studentEnrollments
           .map((e) => ({ e, studentRow: selectStudentByUid.get(String(e.uid)) }))
           .filter((c) => c.studentRow)) {
           const state = stateMap.get(String(e.uid));
           if (!state) continue; // student not in either list → leave as-is
-          upsertLtiState.run(studentRow.id, assignRow.id, String(e.id), assignRow.max_points ?? null, state, now);
+          // #125: a submitted student also carries submittedAt/late — persist them
+          // (consistent with the native dropbox path) via the timestamped upsert.
+          const detail = detailMap?.get(String(e.uid));
+          if (detail) {
+            upsertLtiStateWithTime.run(
+              studentRow.id, assignRow.id, String(e.id), assignRow.max_points ?? null, state,
+              detail.submittedAt ?? 0, detail.submittedAt ?? 0, detail.late ?? 0, now,
+            );
+          } else {
+            upsertLtiState.run(studentRow.id, assignRow.id, String(e.id), assignRow.max_points ?? null, state, now);
+          }
         }
       });
       writeStates();

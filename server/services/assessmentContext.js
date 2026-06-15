@@ -9,6 +9,10 @@
 import { resolveAssignmentId } from './idResolvers.js';
 import { preferredFirstName } from './studentNames.js';
 
+// Epoch-seconds → ISO string (null when 0/missing). Mirrors the list_assignments
+// timestamp convention so agents get a parseable submission time.
+const epochToIso = (secs) => (Number(secs) > 0 ? new Date(secs * 1000).toISOString() : null);
+
 // Normalized submission readiness (no colour/due-date logic — that is the
 // gradebook's client concern). LTI: the authoritative lti_submission_state, or
 // 'submitted' when only a corroborating submission_type exists (mirrors
@@ -70,7 +74,7 @@ export function getRoster(db, courseId, assignmentRow) {
   const targeted = assignmentRow && assignmentRow.num_assignees && assignmentRow.num_assignees > 0;
   return db.prepare(targeted ? `
     SELECT s.id, s.schoology_uid, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher,
-           s.picture_url, e.schoology_enrolment_id AS enrollment_id
+           s.email, s.picture_url, e.schoology_enrolment_id AS enrollment_id
     FROM students s
     JOIN enrolments e ON e.student_id = s.id
     JOIN assignment_assignees aa ON aa.schoology_uid = s.schoology_uid AND aa.assignment_id = ?
@@ -78,7 +82,7 @@ export function getRoster(db, courseId, assignmentRow) {
     ORDER BY s.last_name, s.first_name
   ` : `
     SELECT s.id, s.schoology_uid, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher,
-           s.picture_url, e.schoology_enrolment_id AS enrollment_id
+           s.email, s.picture_url, e.schoology_enrolment_id AS enrollment_id
     FROM students s
     JOIN enrolments e ON e.student_id = s.id
     WHERE e.course_id = ?
@@ -226,10 +230,12 @@ export function getAssessmentContext(db, { assignmentId }) {
       hasComment: (meta.grade_comment || '').trim().length > 0,
       exception: meta.exception ?? 0,
     });
+    const isLti = !!assignmentRow.is_lti_submission;
     return {
       id: st.id,
       schoology_uid: st.schoology_uid,
       enrollment_id: st.enrollment_id,
+      email: st.email ?? null,
       first_name: st.first_name,
       last_name: st.last_name,
       preferred_name: st.preferred_name,
@@ -246,8 +252,13 @@ export function getAssessmentContext(db, { assignmentId }) {
         submission_type: meta.submission_type,
         submitted_at: meta.submitted_at,
       }),
+      // Submission timestamps (ISO). Reliable for native/dropbox submissions; for
+      // LTI/OneDrive Schoology auto-provisions revision rows (noise), so these are
+      // null for LTI — use submission_status there.
+      submitted_at: isLti ? null : epochToIso(meta.submitted_at),
+      latest_revision_at: isLti ? null : epochToIso(meta.latest_revision_at),
       grading_state,
-      is_lti: !!assignmentRow.is_lti_submission,
+      is_lti: isLti,
       due_date: assignmentRow.due_date ?? null,
       flags: flagsByStudent[st.id] || { review_needed: null, resubmit_requested: false },
       existing_suggestion: sug

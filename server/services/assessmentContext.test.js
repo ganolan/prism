@@ -215,6 +215,31 @@ describe('getAssessmentContext', () => {
     expect(s.due_date).toBe('2026-06-01');
     expect(s.flags).toEqual({ review_needed: { reason: 'verify build' }, resubmit_requested: false });
   });
+
+  test('per-student includes the student email (for roster / email-list use cases)', () => {
+    const db = getDb();
+    const { courseId, studentId } = seedContext(db);
+    db.prepare(`UPDATE students SET email = 'ada@hkis.edu.hk' WHERE id = ?`).run(studentId);
+    const ctx = getAssessmentContext(db, { courseId, assignmentId: 'sa-1' });
+    expect(ctx.students[0].email).toBe('ada@hkis.edu.hk');
+  });
+
+  test('per-student carries submission timestamps (ISO) for non-LTI, null for LTI', () => {
+    const db = getDb();
+    const { courseId, assignmentId, studentId } = seedContext(db);
+    db.prepare(`UPDATE grades SET submitted_at = 1700000000, latest_revision_at = 1700000500 WHERE student_id = ? AND assignment_id = ?`).run(studentId, assignmentId);
+
+    // non-LTI: surfaces as ISO strings
+    let s = getAssessmentContext(db, { courseId, assignmentId: 'sa-1' }).students[0];
+    expect(s.submitted_at).toBe(new Date(1700000000 * 1000).toISOString());
+    expect(s.latest_revision_at).toBe(new Date(1700000500 * 1000).toISOString());
+
+    // LTI: revision timestamps are auto-provisioned noise → null (status is the signal)
+    db.prepare(`UPDATE assignments SET is_lti_submission = 1 WHERE id = ?`).run(assignmentId);
+    s = getAssessmentContext(db, { courseId, assignmentId: 'sa-1' }).students[0];
+    expect(s.submitted_at).toBeNull();
+    expect(s.latest_revision_at).toBeNull();
+  });
 });
 
 describe('getGradeMetaRows', () => {

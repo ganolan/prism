@@ -187,6 +187,14 @@ per-student object (`:176-205`):
 - `flags`: `{ review_needed: { reason } | null, resubmit_requested: boolean }` — currently
   invisible to the agent. The MCP must add a flags query (reuse the route's `flags` SELECTs,
   keyed by `student_id`).
+- `email` (from `students.email`, synced from Schoology) — for roster/contact use cases
+  (e.g. "email list of students who haven't submitted yet"). Added to the shared `getRoster`
+  SELECT, so it also reaches the assessment-page route payload.
+- `submitted_at` / `latest_revision_at` (ISO strings) — submission timestamps for time-window
+  queries ("submitted in the last X hours"). Reliable for native/dropbox submissions only;
+  **null for LTI**, where Schoology auto-provisions revision rows (noise) and the reliable
+  signal is `submission_status`. ("Submitted but not yet graded" needs no new field — it's
+  `submission_status === 'submitted'` AND `grading_state !== 'complete'`.)
 
 **`list_assignments`** (`mcp/handlers.js`). Add per-assignment counts so the agent can see
 readiness at a glance before drilling in:

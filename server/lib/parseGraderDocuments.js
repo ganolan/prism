@@ -73,6 +73,23 @@ export function buildSubmissionDetailMap(submittedPayload) {
 }
 
 /**
+ * Assemble the fetcher's result from the two grader payloads. Returns null when
+ * BOTH are null (a total fetch failure — the caller records 'failed' + retries);
+ * otherwise `{ states, details }` where `states` is the per-uid 3-way state and
+ * `details` carries submittedAt/late for the submitted students only.
+ * @param {object|null} submittedPayload
+ * @param {object|null} inProgressPayload
+ * @returns {{ states: Map, details: Map } | null}
+ */
+export function buildSubmissionResult(submittedPayload, inProgressPayload) {
+  if (submittedPayload == null && inProgressPayload == null) return null;
+  return {
+    states: buildSubmissionStateMap(submittedPayload, inProgressPayload),
+    details: buildSubmissionDetailMap(submittedPayload),
+  };
+}
+
+/**
  * @param {object|null} submittedPayload   submitted-documents response
  * @param {object|null} inProgressPayload  in-progress-documents response
  * @returns {Map<string, 'submitted'|'in_progress'|'not_started'>} keyed by string uid

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildSubmissionStateMap, buildSubmissionDetailMap } from './parseGraderDocuments.js';
+import { buildSubmissionStateMap, buildSubmissionDetailMap, buildSubmissionResult } from './parseGraderDocuments.js';
 
 // Expected epoch (seconds) for a wall-clock, computed runtime-local — mirrors
 // the parser, so these assertions hold on any CI timezone (#125 decision).
@@ -83,5 +83,22 @@ describe('buildSubmissionDetailMap', () => {
     const m = buildSubmissionDetailMap({ data: [{ id: 42, submissionTiming: 1, submissionDate: 'Friday, May 22, 2026 at 2:29 pm' }] });
     expect([...m.keys()]).toEqual(['42']);
     expect(buildSubmissionDetailMap(null).size).toBe(0);
+  });
+});
+
+describe('buildSubmissionResult', () => {
+  it('returns null when BOTH payloads are null (total fetch failure)', () => {
+    expect(buildSubmissionResult(null, null)).toBeNull();
+  });
+
+  it('assembles { states, details } from the two payloads', () => {
+    const submitted = { data: [{ id: 7, revisionCreated: true, submissionTiming: 2, submissionDate: 'Sunday, June 14, 2026 at 7:40 pm' }] };
+    const inProgress = { data: [{ id: 9, revisionCreated: false }] };
+    const r = buildSubmissionResult(submitted, inProgress);
+    expect(r.states.get('7')).toBe('submitted');
+    expect(r.states.get('9')).toBe('not_started');
+    expect(r.details.get('7')).toEqual({ submittedAt: localEpoch(2026, 5, 14, 19, 40), late: 1 });
+    // in-progress students carry no submission detail.
+    expect(r.details.has('9')).toBe(false);
   });
 });

@@ -30,7 +30,7 @@ const STATE_FILE = join(process.cwd(), '.playwright-session', 'storage-state.jso
  * across all sections in a sync (one browser launch; a fresh page per request).
  *
  * @returns {Promise<null | {
- *   fetchDocuments: (assignmentId: string) => Promise<Map<string,string>|null>,
+ *   fetchDocuments: (assignmentId: string) => Promise<{ states: Map<string,string>, details: Map<string,{submittedAt:number|null, late:0|1}> }|null>,
  *   close: () => Promise<void>,
  * }>}
  *   Returns `null` immediately when no saved session exists, so the caller can

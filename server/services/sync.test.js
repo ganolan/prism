@@ -366,7 +366,7 @@ describe('syncSectionData — submission state: native bulk + lti documents (#55
     ]);
 
     await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
-      fetchDocuments: async () => new Map([['701', 'submitted']]),
+      fetchDocuments: async () => ({ states: new Map([['701', 'submitted']]), details: new Map() }),
     });
 
     const row = getGradeRow('701', 'L1');
@@ -439,7 +439,7 @@ describe('syncSectionData — submission state: native bulk + lti documents (#55
 
     const docCalls = [];
     await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
-      fetchDocuments: async (aid) => { docCalls.push(aid); return new Map([['701', 'submitted'], ['702', 'not_started']]); },
+      fetchDocuments: async (aid) => { docCalls.push(aid); return { states: new Map([['701', 'submitted'], ['702', 'not_started']]), details: new Map() }; },
     });
 
     expect(docCalls).toEqual(['L1']);
@@ -447,6 +447,53 @@ describe('syncSectionData — submission state: native bulk + lti documents (#55
     expect(getGradeRow('701', 'L1').lti_submission_state).toBe('submitted');
     // A not_started cell inserts a row so the state reaches the gradebook.
     expect(getGradeRow('702', 'L1').lti_submission_state).toBe('not_started');
+  });
+
+  test('#125: a submitted lti student persists submitted_at, latest_revision_at and late from the document detail', async () => {
+    getSectionEnrollments.mockResolvedValue([
+      { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },   // submitted, late
+      { id: '802', uid: '702', name_first: 'Bo', name_last: 'M', admin: '0' },     // not_started
+    ]);
+    getSectionAssignments.mockResolvedValue([
+      { id: 'L1', title: 'OneDrive Essay', published: 1, allow_dropbox: '1', assignment_type: 'lti_submission' },
+    ]);
+
+    await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
+      fetchDocuments: async () => ({
+        states: new Map([['701', 'submitted'], ['702', 'not_started']]),
+        details: new Map([['701', { submittedAt: 1747895340, late: 1 }]]),
+      }),
+    });
+
+    const submitted = getGradeRow('701', 'L1');
+    expect(submitted.submitted_at).toBe(1747895340);
+    expect(submitted.latest_revision_at).toBe(1747895340); // only timestamp we have → both equal (no resubmit signal)
+    expect(submitted.late).toBe(1);
+    // A not_started cell has no detail → timestamps stay 0 (epochToIso → null in the MCP).
+    const notStarted = getGradeRow('702', 'L1');
+    expect(notStarted.submitted_at).toBe(0);
+    expect(notStarted.latest_revision_at).toBe(0);
+  });
+
+  test('#125: a submitted lti student with an unparseable date still records late, timestamps stay 0', async () => {
+    getSectionEnrollments.mockResolvedValue([
+      { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
+    ]);
+    getSectionAssignments.mockResolvedValue([
+      { id: 'L1', title: 'OneDrive Essay', published: 1, allow_dropbox: '1', assignment_type: 'lti_submission' },
+    ]);
+
+    await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
+      fetchDocuments: async () => ({
+        states: new Map([['701', 'submitted']]),
+        details: new Map([['701', { submittedAt: null, late: 0 }]]),
+      }),
+    });
+
+    const row = getGradeRow('701', 'L1');
+    expect(row.lti_submission_state).toBe('submitted');
+    expect(row.submitted_at).toBe(0);
+    expect(row.late).toBe(0);
   });
 
   function getFetchStatus(assignmentExtId) {
@@ -466,7 +513,7 @@ describe('syncSectionData — submission state: native bulk + lti documents (#55
   test('#76: a successful lti document fetch records lti_fetch_status = "ok"', async () => {
     oneLti();
     await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
-      fetchDocuments: async () => new Map([['701', 'submitted']]),
+      fetchDocuments: async () => ({ states: new Map([['701', 'submitted']]), details: new Map() }),
       ltiFetchBackoffMs: 0,
     });
     expect(getFetchStatus('L1')).toBe('ok');
@@ -488,7 +535,7 @@ describe('syncSectionData — submission state: native bulk + lti documents (#55
     oneLti();
     let calls = 0;
     await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
-      fetchDocuments: async () => { calls++; return calls < 2 ? null : new Map([['701', 'submitted']]); },
+      fetchDocuments: async () => { calls++; return calls < 2 ? null : { states: new Map([['701', 'submitted']]), details: new Map() }; },
       ltiFetchBackoffMs: 0,
     });
     expect(calls).toBe(2);
@@ -511,7 +558,7 @@ describe('syncSectionData — submission state: native bulk + lti documents (#55
     ]);
     getAssignmentSubmissions.mockResolvedValue([]);
     await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
-      fetchDocuments: async () => new Map(),
+      fetchDocuments: async () => ({ states: new Map(), details: new Map() }),
       ltiFetchBackoffMs: 0,
     });
     expect(getFetchStatus('N1')).toBeNull();

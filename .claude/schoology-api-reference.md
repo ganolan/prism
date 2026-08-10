@@ -377,6 +377,7 @@ Pass **category UUIDs** (parent objectives) for per-reporting-category rollups, 
 - `grade_scaled_rounded` is the level boundary: `87.50 → ED`, `62.50 → EX`, `37.50 → D`, `12.50 → EM`, `0.00 → IE`.
 - `grade_percentage` is the raw averaged percent.
 - `outcome_override` is populated when a teacher has manually overridden the rollup in the UI. Exact shape is **not yet confirmed** — observed values are all `null`; an override capture pass is required to document the structure and find the write-back endpoint.
+- ⚠️ **Objective UUIDs are DISTRICT-GLOBAL — the SAME `objective_id` is returned across every section aligned to that standard** (verified 2026-06-17: the reporting-category/topic UUIDs for the adapted Media-Arts standards appear identically in MAD, MGD, Robotics, ACSS, etc.). So a rollup is identified by **(student_uid, objective_id, section)** — a student in several of the teacher's courses has a *distinct* rollup per course for the same objective. This is why `mastery_rollups` is keyed `(student_uid, objective_id, course_id)` and why `reporting_categories`/`measurement_topics` are stored once per UUID (their `course_id` is a non-authoritative "owning course"). Keying rollups without `course_id` collapsed multi-course students to one row and blanked their proficiency on other course pages (#127). Affected ~17 students before the fix.
 
 ### Writing mastery overrides
 

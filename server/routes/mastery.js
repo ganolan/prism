@@ -301,7 +301,7 @@ router.post('/:courseId/override', async (req, res) => {
     db.prepare(`
       INSERT INTO mastery_rollups (student_uid, objective_id, course_id, is_category, grade_percentage, grade_scaled_rounded, override_value, synced_at)
       VALUES (?, ?, ?, 0, NULL, NULL, ?, ?)
-      ON CONFLICT(student_uid, objective_id) DO UPDATE SET
+      ON CONFLICT(student_uid, objective_id, course_id) DO UPDATE SET
         override_value = excluded.override_value,
         synced_at = excluded.synced_at
     `).run(String(studentUid), String(objectiveId), Number(courseId), overrideVal, new Date().toISOString());

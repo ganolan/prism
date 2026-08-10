@@ -518,27 +518,10 @@ export async function syncMasteryForCourse(courseId, { onProgress, allowInteract
       alignmentsCount++;
     }
 
-    // Persist Schoology rollups. Clear this course's rollups first so
-    // students who no longer have a rollup (e.g. unenrolled) don't linger.
-    const upsertRollup = db.prepare(`
-      INSERT INTO mastery_rollups (student_uid, objective_id, course_id, is_category, grade_percentage, grade_scaled_rounded, override_value, synced_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(student_uid, objective_id) DO UPDATE SET
-        course_id = excluded.course_id,
-        is_category = excluded.is_category,
-        grade_percentage = excluded.grade_percentage,
-        grade_scaled_rounded = excluded.grade_scaled_rounded,
-        override_value = excluded.override_value,
-        synced_at = excluded.synced_at
-    `);
-    let rollupsCount = 0;
-    for (const r of rollupRows) {
-      upsertRollup.run(
-        r.student_uid, r.objective_id, courseId, r.is_category,
-        r.grade_percentage, r.grade_scaled_rounded, r.override_value, now
-      );
-      rollupsCount++;
-    }
+    // Persist Schoology rollups for this course (clears this course's rollups
+    // first so a student who no longer has one doesn't linger). Per-course
+    // keyed — see persistRollups + #127.
+    const rollupsCount = persistRollups(db, courseId, rollupRows, now);
 
     log(`Done: ${categoriesCount} categories, ${topicsCount} topics, ${scoresCount} scores, ${rollupsCount} rollups, ${alignmentsCount} alignments`);
     return { categoriesCount, topicsCount, scoresCount, rollupsCount, alignmentsCount, materialsCount: allMaterialIds.size };
@@ -899,6 +882,47 @@ async function postObservation(page, { sectionId, enrollmentId, assignmentId, gr
   console.log(`[mastery write] response status=${result.status} body=${result.body.slice(0, 500)}`);
   if (!result.ok) throw new Error(`HTTP ${result.status}: ${result.body}`);
   return JSON.parse(result.body);
+}
+
+/**
+ * Persist Schoology's per-(student, objective) rollups for ONE course.
+ *
+ * Rollups are keyed per course (#127): objective UUIDs are district-global
+ * (shared across the teacher's sections), so a student enrolled in several of
+ * the teacher's courses has a DISTINCT rollup per course for the same objective.
+ * Clears this course's rollups first — so a student who no longer has one
+ * (dropped the class, or had the score cleared in Schoology) doesn't linger —
+ * then upserts the fresh set. The delete+insert run in a single transaction so
+ * a concurrent read never sees a half-synced (empty) rollup set for the course.
+ * Other courses' rollups are never touched.
+ *
+ * @returns {number} rollups written
+ */
+export function persistRollups(db, courseId, rollupRows, now) {
+  const cid = Number(courseId);
+  const tx = db.transaction(() => {
+    db.prepare(`DELETE FROM mastery_rollups WHERE course_id = ?`).run(cid);
+    const upsert = db.prepare(`
+      INSERT INTO mastery_rollups (student_uid, objective_id, course_id, is_category, grade_percentage, grade_scaled_rounded, override_value, synced_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(student_uid, objective_id, course_id) DO UPDATE SET
+        is_category = excluded.is_category,
+        grade_percentage = excluded.grade_percentage,
+        grade_scaled_rounded = excluded.grade_scaled_rounded,
+        override_value = excluded.override_value,
+        synced_at = excluded.synced_at
+    `);
+    let count = 0;
+    for (const r of rollupRows) {
+      upsert.run(
+        r.student_uid, r.objective_id, cid, r.is_category,
+        r.grade_percentage, r.grade_scaled_rounded, r.override_value, now
+      );
+      count++;
+    }
+    return count;
+  });
+  return tx();
 }
 
 /**

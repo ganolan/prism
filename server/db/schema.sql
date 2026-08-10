@@ -240,9 +240,19 @@ CREATE TABLE IF NOT EXISTS grading_scales (
 
 -- Mastery / Standards-Based Grading tables
 
+-- Reporting categories and measurement topics are DISTRICT-GLOBAL objectives:
+-- the same Schoology UUID is shared across every section aligned to it (e.g.
+-- "HS ART: PRODUCE" appears identically in MAD, MGD, Robotics, …). They are
+-- therefore stored once per UUID. The `course_id`/`category_id` columns record
+-- an arbitrary owning course (whichever section first synced the objective) and
+-- are NON-AUTHORITATIVE — NEVER filter a mastery read by reporting_categories
+-- .course_id or measurement_topics.course_id. The per-course relationship is
+-- carried by mastery_scores / mastery_alignments (keyed via assignment, which
+-- is per-course) and mastery_rollups (keyed with course_id, below). Reads reach
+-- these tables through those joins, never by their own course_id. See #127.
 CREATE TABLE IF NOT EXISTS reporting_categories (
-  id TEXT PRIMARY KEY,           -- Schoology UUID
-  course_id INTEGER REFERENCES courses(id),
+  id TEXT PRIMARY KEY,           -- Schoology UUID (district-global; shared across sections)
+  course_id INTEGER REFERENCES courses(id),  -- non-authoritative owning course; do not filter by it
   external_id TEXT,              -- e.g. "ART.5"
   title TEXT,
   weight INTEGER,
@@ -250,9 +260,9 @@ CREATE TABLE IF NOT EXISTS reporting_categories (
 );
 
 CREATE TABLE IF NOT EXISTS measurement_topics (
-  id TEXT PRIMARY KEY,           -- Schoology UUID
+  id TEXT PRIMARY KEY,           -- Schoology UUID (district-global; shared across sections)
   category_id TEXT REFERENCES reporting_categories(id),
-  course_id INTEGER REFERENCES courses(id),
+  course_id INTEGER REFERENCES courses(id),  -- non-authoritative owning course; do not filter by it
   external_id TEXT,              -- e.g. "ART.5.1"
   title TEXT,
   weight INTEGER,
@@ -286,16 +296,24 @@ CREATE TABLE IF NOT EXISTS mastery_alignments (
 -- gradebook UI. objective_id refers to a topic UUID when is_category=0 and a
 -- reporting category UUID when is_category=1. grade_scaled_rounded is one of
 -- 87.50/62.50/37.50/12.50/0.00 (ED/EX/D/EM/IE).
+--
+-- course_id is PART OF THE PRIMARY KEY (#127). Schoology computes a separate
+-- rollup per section, and objective UUIDs are district-global (shared across a
+-- teacher's courses), so a student enrolled in several of the teacher's courses
+-- has a DISTINCT rollup per course for the same objective. Keying without
+-- course_id collapsed them to one row — whichever course synced last won, and
+-- the proficiency columns went blank on that student's other course pages.
+-- course_id is NOT NULL: a rollup with no course is meaningless.
 CREATE TABLE IF NOT EXISTS mastery_rollups (
   student_uid TEXT NOT NULL,
   objective_id TEXT NOT NULL,
-  course_id INTEGER REFERENCES courses(id),
+  course_id INTEGER NOT NULL REFERENCES courses(id),
   is_category INTEGER NOT NULL DEFAULT 0,
   grade_percentage REAL,
   grade_scaled_rounded REAL,
   override_value REAL,
   synced_at TEXT,
-  PRIMARY KEY (student_uid, objective_id)
+  PRIMARY KEY (student_uid, objective_id, course_id)
 );
 
 -- Indexes for common queries

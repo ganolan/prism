@@ -139,6 +139,52 @@ export function backfillExcludedCourses(database) {
   `);
 }
 
+// #127: mastery_rollups must be keyed per course. The original PK
+// (student_uid, objective_id) collapsed a student's rollup across every course
+// that shares a district objective UUID — so a student enrolled in several of
+// the teacher's courses kept only the last-synced course's rollup, blanking the
+// proficiency columns on their other course pages. A PK change can't be done
+// with ALTER TABLE in SQLite, so rebuild the table with course_id in the key.
+// Idempotent: only rebuilds when the live PK still lacks course_id. Nothing
+// references mastery_rollups by foreign key, so the rebuild is safe; FK
+// enforcement is toggled off across the swap purely as belt-and-braces.
+export function migrateMasteryRollupsPk(database) {
+  const cols = database.prepare(`PRAGMA table_info(mastery_rollups)`).all();
+  if (cols.length === 0) return; // table not created yet
+  const courseIdCol = cols.find((c) => c.name === 'course_id');
+  if (courseIdCol && courseIdCol.pk > 0) return; // already keyed per course
+
+  const fkWasOn = database.pragma('foreign_keys', { simple: true });
+  database.pragma('foreign_keys = OFF');
+  try {
+    database.exec(`
+      CREATE TABLE mastery_rollups_new (
+        student_uid TEXT NOT NULL,
+        objective_id TEXT NOT NULL,
+        course_id INTEGER NOT NULL REFERENCES courses(id),
+        is_category INTEGER NOT NULL DEFAULT 0,
+        grade_percentage REAL,
+        grade_scaled_rounded REAL,
+        override_value REAL,
+        synced_at TEXT,
+        PRIMARY KEY (student_uid, objective_id, course_id)
+      );
+      -- OR IGNORE drops any pre-fix row with a NULL course_id (meaningless, and
+      -- would violate the NOT NULL); production has none (writers always set it).
+      INSERT OR IGNORE INTO mastery_rollups_new
+        (student_uid, objective_id, course_id, is_category, grade_percentage, grade_scaled_rounded, override_value, synced_at)
+      SELECT student_uid, objective_id, course_id, is_category, grade_percentage, grade_scaled_rounded, override_value, synced_at
+      FROM mastery_rollups;
+      DROP TABLE mastery_rollups;
+      ALTER TABLE mastery_rollups_new RENAME TO mastery_rollups;
+      CREATE INDEX IF NOT EXISTS idx_mastery_rollups_student ON mastery_rollups(student_uid);
+      CREATE INDEX IF NOT EXISTS idx_mastery_rollups_course ON mastery_rollups(course_id);
+    `);
+  } finally {
+    if (fkWasOn) database.pragma('foreign_keys = ON');
+  }
+}
+
 // Build the schema, apply incremental migrations, and run data purges on an
 // open database. Exported so tests can drive it against an in-memory database.
 export function migrate(database) {
@@ -148,6 +194,9 @@ export function migrate(database) {
   for (const sql of MIGRATIONS) {
     try { database.exec(sql); } catch { /* column already exists */ }
   }
+
+  // Structural migration that ALTER TABLE can't express (PK change).
+  migrateMasteryRollupsPk(database);
 
   // Data purges — independent of each other; order does not matter.
   purgeLegacyAutoFlags(database);

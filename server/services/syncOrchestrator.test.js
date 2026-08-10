@@ -121,6 +121,27 @@ describe('runUnifiedSync', () => {
     expect(blocksDone.gradeLevelsUpdated).toBe(28);
   });
 
+  test('the blocks done event counts section-info-failed courses as notReady (#126)', async () => {
+    const cid = seedCourse(h.db, 'Bio 9b');
+    syncPsAttendance.mockResolvedValue({
+      updated: 0,
+      skipped: 3,
+      gradeLevels: { seen: 0, updated: 0 },
+      results: [
+        { courseId: 1, courseName: 'AI & Machine Learning', reason: 'section-info-failed', status: 'skipped' },
+        { courseId: 2, courseName: 'PCG', reason: 'not-numbered', status: 'skipped' },
+        { courseId: 3, courseName: 'Robotics', reason: 'section-info-failed', status: 'skipped' },
+      ],
+    });
+    const events = [];
+    await runUnifiedSync({ masteryCourseIds: [cid] }, (e) => events.push(e));
+
+    const blocksDone = events.find((e) => e.phase === 'blocks' && e.status === 'done');
+    // 2 section-info-failed rows count toward notReady; the not-numbered PCG
+    // row (expected/normal, not a PowerSchool-not-ready case) does not.
+    expect(blocksDone.notReady).toBe(2);
+  });
+
   test('syncBlocks:false skips the block phase entirely (no browser launch)', async () => {
     const cid = seedCourse(h.db, 'Bio 10');
     const events = [];

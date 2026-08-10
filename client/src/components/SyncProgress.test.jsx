@@ -111,6 +111,43 @@ describe('SyncProgress', () => {
     expect(onRetry).toHaveBeenCalledWith([1]);
   });
 
+  it('shows an informational banner when courses are waiting on PowerSchool (#126)', () => {
+    const reduced = {
+      ...RUNNING,
+      phases: [
+        ...RUNNING.phases,
+        { key: 'blocks', kind: 'blocks', label: 'PowerSchool blocks', status: 'done', records: 0, notReady: 2 },
+      ],
+    };
+    render(<SyncProgress reduced={reduced} mode="done" onDone={noop} onRetry={noop} onLogin={noop} />);
+    expect(screen.getByText(/2 courses don't have a PowerSchool block number yet/)).toBeInTheDocument();
+    expect(screen.getByText(/resolves automatically on a later sync/)).toBeInTheDocument();
+  });
+
+  it('uses singular phrasing for exactly one course waiting on PowerSchool', () => {
+    const reduced = {
+      ...RUNNING,
+      phases: [
+        ...RUNNING.phases,
+        { key: 'blocks', kind: 'blocks', label: 'PowerSchool blocks', status: 'done', records: 0, notReady: 1 },
+      ],
+    };
+    render(<SyncProgress reduced={reduced} mode="done" onDone={noop} onRetry={noop} onLogin={noop} />);
+    expect(screen.getByText(/1 course doesn't have a PowerSchool block number yet/)).toBeInTheDocument();
+  });
+
+  it('shows no PowerSchool-pending banner when every course resolved', () => {
+    const reduced = {
+      ...RUNNING,
+      phases: [
+        ...RUNNING.phases,
+        { key: 'blocks', kind: 'blocks', label: 'PowerSchool blocks', status: 'done', records: 5, notReady: 0 },
+      ],
+    };
+    render(<SyncProgress reduced={reduced} mode="done" onDone={noop} onRetry={noop} onLogin={noop} />);
+    expect(screen.queryByText(/PowerSchool block number/)).not.toBeInTheDocument();
+  });
+
   it('shows no remedy banner for a Schoology-phase failure (no courseId)', () => {
     const reduced = {
       ...RUNNING,

@@ -59,8 +59,15 @@ export async function runUnifiedSync(
         onProgress: (p) => emit({ type: 'log', message: `[blocks] ${p.message}` }),
       });
       const gradeLevelsUpdated = r.gradeLevels?.updated ?? 0;
-      summary.blocks = { updated: r.updated, skipped: r.skipped, gradeLevelsUpdated, elapsedMs: Date.now() - blocksStartedAt };
-      emit({ phase: 'blocks', status: 'done', records: r.updated, gradeLevelsUpdated, elapsedMs: summary.blocks.elapsedMs });
+      // A course whose reason is 'section-info-failed' means PowerSchool didn't
+      // answer section_info for it — most commonly because the new school
+      // year's term/schedule isn't published there yet (#126). Distinct from
+      // 'not-numbered' (PCG/Interim — expected, not an error) and
+      // 'no-section-dcid' (template course — also expected), so the UI can
+      // explain this specific case instead of a generic "N skipped".
+      const notReady = (r.results || []).filter((row) => row.reason === 'section-info-failed').length;
+      summary.blocks = { updated: r.updated, skipped: r.skipped, notReady, gradeLevelsUpdated, elapsedMs: Date.now() - blocksStartedAt };
+      emit({ phase: 'blocks', status: 'done', records: r.updated, skipped: r.skipped, notReady, gradeLevelsUpdated, elapsedMs: summary.blocks.elapsedMs });
     } catch (err) {
       summary.blocks = { error: err.message, elapsedMs: Date.now() - blocksStartedAt };
       emit({ phase: 'blocks', status: 'error', message: err.message });

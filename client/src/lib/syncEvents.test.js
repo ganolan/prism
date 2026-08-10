@@ -58,6 +58,15 @@ describe('reduceSyncEvents', () => {
     });
   });
 
+  it('builds a blocks phase and carries notReady through (#126)', () => {
+    const { phases } = reduceSyncEvents([
+      { phase: 'blocks', status: 'running' },
+      { phase: 'blocks', status: 'done', records: 2, skipped: 3, notReady: 2 },
+    ]);
+    expect(phases).toHaveLength(1);
+    expect(phases[0]).toMatchObject({ kind: 'blocks', label: 'PowerSchool blocks', status: 'done', records: 2, notReady: 2 });
+  });
+
   it('handles log lines interleaved with multiple phases', () => {
     const { phases, logLines } = reduceSyncEvents([
       { phase: 'schoology', status: 'running' },

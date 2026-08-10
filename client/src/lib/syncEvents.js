@@ -22,6 +22,13 @@ export function reduceSyncEvents(events) {
       p.status = evt.status;
       if (evt.records != null) p.records = evt.records;
       if (evt.message) p.message = evt.message;
+    } else if (evt.phase === 'blocks') {
+      let p = find('blocks');
+      if (!p) { p = { key: 'blocks', kind: 'blocks', label: 'PowerSchool blocks' }; phases.push(p); }
+      p.status = evt.status;
+      if (evt.records != null) p.records = evt.records;
+      if (evt.notReady != null) p.notReady = evt.notReady;
+      if (evt.message) p.message = evt.message;
     } else if (evt.phase === 'mastery') {
       const key = `mastery:${evt.courseId}`;
       let p = find(key);

@@ -15,6 +15,23 @@ function PhaseRow({ phase }) {
   );
 }
 
+// Informational (not an error/warning) — 'section-info-failed' courses just
+// haven't had their PowerSchool schedule published yet, most commonly right
+// after the new-school-year rollover. Nothing to retry; it self-heals on a
+// later sync once PowerSchool has the term set up.
+function BlocksPendingBanner({ count }) {
+  const singular = count === 1;
+  return (
+    <div className="alert alert-info sync-remedy">
+      <p>
+        {count} course{singular ? '' : 's'} {singular ? "doesn't" : "don't"} have a PowerSchool
+        block number yet — PowerSchool hasn't published {singular ? 'its' : 'their'} schedule for
+        the new school year. This resolves automatically on a later sync.
+      </p>
+    </div>
+  );
+}
+
 function RemedyBanner({ failure, retryEnabled, onLogin, onRetry }) {
   const isLogin = failure.errorKind === 'login';
   return (
@@ -53,6 +70,7 @@ function RemedyBanner({ failure, retryEnabled, onLogin, onRetry }) {
 export default function SyncProgress({ reduced, mode, retryEnabled, onDone, onRetry, onLogin }) {
   const { phases, logLines, failures, progress, summary, fatal } = reduced;
   const running = mode === 'running';
+  const blocksPhase = phases.find((p) => p.kind === 'blocks');
 
   let heading = 'Syncing…';
   let headingClass = '';
@@ -83,6 +101,10 @@ export default function SyncProgress({ reduced, mode, retryEnabled, onDone, onRe
             <div key={Math.max(0, logLines.length - 40) + i}>{line}</div>
           ))}
         </div>
+      )}
+
+      {mode === 'done' && blocksPhase?.notReady > 0 && (
+        <BlocksPendingBanner count={blocksPhase.notReady} />
       )}
 
       {mode === 'done' && failures.filter((f) => f.courseId != null).map((f) => (

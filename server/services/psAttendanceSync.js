@@ -21,6 +21,14 @@
  * on the next sync. Archived courses are never touched. The cost of re-resolving
  * every sync is tracked in the sync-perf measurement issue (lazy/on-demand TBD).
  *
+ * Timeouts (#126, fixed 2026-08-07): a brand-new school year's not-yet-scheduled
+ * sections can cause PowerSchool's section_info/section_attendance to stall
+ * instead of erroring. Playwright's page.evaluate has no built-in timeout (unlike
+ * page.goto/waitForURL), so those two fetches previously hung the whole sync
+ * indefinitely. Both now carry PS_FETCH_TIMEOUT_MS via AbortSignal.timeout(), and
+ * LOOP_TIME_BUDGET_MS bounds the per-course loop as a safety net if every section
+ * stalls.
+ *
  * See .claude/powerschool-api-reference.md "Block number".
  */
 
@@ -30,13 +38,28 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { getDb } from '../db/index.js';
 import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
-import { pickBlockNumber, sectionDcidFromLaunchForm } from '../lib/psBlockNumber.js';
+import { pickBlockNumber, sectionDcidFromLaunchForm, loopTimeBudgetExceeded } from '../lib/psBlockNumber.js';
 import { currentSchoolYearEndYear, gradeLevelToGradYear, pickInSessionRange, extractGradeLevels, userDcidFromLaunchForm } from '../lib/psGradeLevel.js';
 
 const PS_HOST = 'powerschool.hkis.edu.hk';
 const ATTENDANCE_APP_ID = '4980125287';
 const SESSION_DIR = join(process.cwd(), '.playwright-session');
 const STATE_FILE = join(SESSION_DIR, 'storage-state.json');
+
+// Per-call timeout for the section_info / section_attendance fetches issued
+// from inside the PS page (page.evaluate). Unlike page.goto/waitForURL, Play-
+// wright's page.evaluate has NO built-in timeout, so a stalling PowerSchool
+// response (observed: a brand-new school year whose term/bell-schedule isn't
+// published yet) previously hung the sync forever instead of failing fast.
+// AbortSignal.timeout() runs in the browser context, aborting the fetch itself.
+const PS_FETCH_TIMEOUT_MS = 20000;
+
+// Wall-clock safety net for the whole per-course loop, started once the PS
+// session is established. Not a normal operating constraint (a healthy sync
+// finishes well under this) — only guards the pathological case where every
+// remaining course times out, so the sync still terminates instead of paying
+// PS_FETCH_TIMEOUT_MS per course indefinitely.
+const LOOP_TIME_BUDGET_MS = 3 * 60 * 1000;
 
 const runUrlFor = (schoologySectionId) =>
   `${SCHOOLOGY_BASE}/apps/lti/${ATTENDANCE_APP_ID}/run/course/${schoologySectionId}`;
@@ -91,14 +114,20 @@ async function fetchLaunchIds(context, schoologySectionId) {
 // GET /ws/attendance/section_attendance for an in-session date range, from the live
 // PS page (same-origin fetch). includeStudentAlerts=false keeps the PII surface
 // minimal (we only need the roster + gradeLevel). Returns parsed JSON or null.
+// A stalled fetch aborts after PS_FETCH_TIMEOUT_MS and rejects — the caller
+// (the grade-level pass in the main loop) already catches this per-course.
 async function fetchSectionAttendance(page, sectionDcid, userDcid, startDate, endDate) {
-  const { status, text } = await page.evaluate(async ({ host, dcid, uid, s, e }) => {
+  const { status, text } = await page.evaluate(async ({ host, dcid, uid, s, e, timeoutMs }) => {
     const url = `https://${host}/ws/attendance/section_attendance`
       + `?sectionDcid=${dcid}&userDcid=${uid}&startDate=${s}&endDate=${e}`
       + `&includeStudentAlerts=false&multiSections=false&sortByFirstName=false`;
-    const res = await fetch(url, { credentials: 'include', headers: { Accept: 'application/json' } });
+    const res = await fetch(url, {
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
     return { status: res.status, text: await res.text() };
-  }, { host: PS_HOST, dcid: sectionDcid, uid: userDcid, s: startDate, e: endDate });
+  }, { host: PS_HOST, dcid: sectionDcid, uid: userDcid, s: startDate, e: endDate, timeoutMs: PS_FETCH_TIMEOUT_MS });
   if (status !== 200) return null;
   try { return JSON.parse(text); } catch { return null; }
 }
@@ -108,13 +137,28 @@ async function fetchSectionAttendance(page, sectionDcid, userDcid, startDate, en
 // schedule config is independent of the queried date range (verified 2026-06-08:
 // returned in full even for an off-day weekend), so "today" — what the
 // attendance app itself queries — keeps this robust across school years.
+//
+// Never throws: a stalled fetch aborts after PS_FETCH_TIMEOUT_MS and is caught
+// here, surfacing as status "error:<name>" (e.g. "error:TimeoutError") so the
+// caller's existing `section-info-failed:${status}` reason bucket covers it —
+// no separate reason category needed. This is the fix for the sync hanging
+// indefinitely on a brand-new school year's not-yet-scheduled sections.
 async function fetchSectionInfoFirst(page, sectionDcid) {
   const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-  const { status, text } = await page.evaluate(async ({ host, dcid, date }) => {
-    const url = `https://${host}/ws/attendance/section_info?sectionDcid=${dcid}&multiSections=false&startDate=${date}&endDate=${date}`;
-    const res = await fetch(url, { credentials: 'include', headers: { Accept: 'application/json' } });
-    return { status: res.status, text: await res.text() };
-  }, { host: PS_HOST, dcid: sectionDcid, date: today });
+  let status, text;
+  try {
+    ({ status, text } = await page.evaluate(async ({ host, dcid, date, timeoutMs }) => {
+      const url = `https://${host}/ws/attendance/section_info?sectionDcid=${dcid}&multiSections=false&startDate=${date}&endDate=${date}`;
+      const res = await fetch(url, {
+        credentials: 'include',
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      return { status: res.status, text: await res.text() };
+    }, { host: PS_HOST, dcid: sectionDcid, date: today, timeoutMs: PS_FETCH_TIMEOUT_MS }));
+  } catch (err) {
+    return { status: `error:${err.name || 'unknown'}`, first: null };
+  }
   if (status !== 200) return { status, first: null };
   try {
     const parsed = JSON.parse(text);
@@ -217,8 +261,16 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
 
     const gradeByDcid = new Map(); // dcid → gradeLevel, accumulated across all sections
     const todayIso = new Date().toISOString().slice(0, 10);
+    const loopStartedAt = Date.now();
 
     for (const c of courses) {
+      // Safety net (see LOOP_TIME_BUDGET_MS): if PowerSchool is stalling on
+      // every section, stop instead of paying PS_FETCH_TIMEOUT_MS per
+      // remaining course — they're picked up on the next sync.
+      if (loopTimeBudgetExceeded(loopStartedAt, LOOP_TIME_BUDGET_MS)) {
+        log(`Time budget (${LOOP_TIME_BUDGET_MS / 1000}s) exceeded — stopping with ${courses.length - summary.processed} course(s) left for the next sync.`);
+        break;
+      }
       summary.processed++;
       const now = new Date().toISOString();
 

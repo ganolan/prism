@@ -4,6 +4,7 @@ import {
   resolveSectionBlock,
   pickBlockNumber,
   sectionDcidFromLaunchForm,
+  loopTimeBudgetExceeded,
 } from './psBlockNumber.js';
 
 // Minimal section_info[0] fixtures built from the real shapes observed on
@@ -155,5 +156,22 @@ describe('sectionDcidFromLaunchForm', () => {
     expect(sectionDcidFromLaunchForm('<html><body>Sign in</body></html>')).toBe(null);
     expect(sectionDcidFromLaunchForm('')).toBe(null);
     expect(sectionDcidFromLaunchForm(null)).toBe(null);
+  });
+});
+
+describe('loopTimeBudgetExceeded', () => {
+  test('false while under budget', () => {
+    expect(loopTimeBudgetExceeded(1000, 5000, 1000)).toBe(false);
+    expect(loopTimeBudgetExceeded(1000, 5000, 5999)).toBe(false);
+  });
+
+  test('true once elapsed reaches or exceeds the budget', () => {
+    expect(loopTimeBudgetExceeded(1000, 5000, 6000)).toBe(true);
+    expect(loopTimeBudgetExceeded(1000, 5000, 9000)).toBe(true);
+  });
+
+  test('defaults `now` to Date.now() when omitted', () => {
+    const startedAt = Date.now() - 10;
+    expect(loopTimeBudgetExceeded(startedAt, 100_000)).toBe(false);
   });
 });

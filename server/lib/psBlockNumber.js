@@ -59,6 +59,19 @@ export function resolveSectionBlock(sectionInfoFirst) {
 }
 
 /**
+ * True once `now` has passed `startedAt + budgetMs`. Used by psAttendanceSync's
+ * course loop to bail out early if PowerSchool is stalling on every section
+ * (e.g. a brand-new school year whose term/bell-schedule isn't published yet
+ * causes section_info/section_attendance to time out repeatedly rather than
+ * fail fast) instead of grinding through the whole course list one per-call
+ * timeout at a time. A safety net, not a normal operating constraint — set
+ * budgetMs generously so it never fires during ordinary syncs.
+ */
+export function loopTimeBudgetExceeded(startedAt, budgetMs, now = Date.now()) {
+  return now - startedAt >= budgetMs;
+}
+
+/**
  * Decide the value to store in courses.block_number for a section.
  * Returns { blockNumber, blockName, reason }:
  *   - reason 'ok'           → exactly one numbered block; blockNumber is the digit

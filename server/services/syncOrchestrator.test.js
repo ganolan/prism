@@ -161,4 +161,28 @@ describe('runUnifiedSync', () => {
     expect(events.at(-1)).toMatchObject({ type: 'summary' });
     expect(events.at(-1).fatal).toBeUndefined();
   });
+
+  // A stale/expired Schoology session is the same shared browser session used
+  // by mastery — classify it the same way so the sync UI can offer the same
+  // "log in and retry" remedy for the blocks phase (#126 follow-up: this
+  // failure mode was previously an unclassified, easy-to-miss phase error).
+  test('a blocks-phase login failure is classified errorKind:login', async () => {
+    const cid = seedCourse(h.db, 'Bio 12');
+    syncPsAttendance.mockRejectedValue(new Error('Not logged in to Schoology — run `npm run mastery:login` and retry.'));
+    const events = [];
+    await runUnifiedSync({ masteryCourseIds: [cid] }, (e) => events.push(e));
+
+    const blocksErr = events.find((e) => e.phase === 'blocks' && e.status === 'error');
+    expect(blocksErr.errorKind).toBe('login');
+  });
+
+  test('a non-login blocks-phase failure is classified errorKind:other', async () => {
+    const cid = seedCourse(h.db, 'Bio 13');
+    syncPsAttendance.mockRejectedValue(new Error('PowerSchool attendance app did not load'));
+    const events = [];
+    await runUnifiedSync({ masteryCourseIds: [cid] }, (e) => events.push(e));
+
+    const blocksErr = events.find((e) => e.phase === 'blocks' && e.status === 'error');
+    expect(blocksErr.errorKind).toBe('other');
+  });
 });

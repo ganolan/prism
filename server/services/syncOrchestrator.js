@@ -69,8 +69,14 @@ export async function runUnifiedSync(
       summary.blocks = { updated: r.updated, skipped: r.skipped, notReady, gradeLevelsUpdated, elapsedMs: Date.now() - blocksStartedAt };
       emit({ phase: 'blocks', status: 'done', records: r.updated, skipped: r.skipped, notReady, gradeLevelsUpdated, elapsedMs: summary.blocks.elapsedMs });
     } catch (err) {
-      summary.blocks = { error: err.message, elapsedMs: Date.now() - blocksStartedAt };
-      emit({ phase: 'blocks', status: 'error', message: err.message });
+      // classifyMasteryError's string matching is generic to the shared
+      // browser-session login error ("Not logged in to Schoology..."), not
+      // mastery-specific — reused here so a stale session on the blocks pass
+      // gets the same actionable "log in and retry" treatment instead of
+      // surfacing as an opaque, unclassified phase failure.
+      const errorKind = classifyMasteryError(err);
+      summary.blocks = { error: err.message, errorKind, elapsedMs: Date.now() - blocksStartedAt };
+      emit({ phase: 'blocks', status: 'error', errorKind, message: err.message });
     }
   }
 

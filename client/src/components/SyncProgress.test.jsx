@@ -148,6 +148,27 @@ describe('SyncProgress', () => {
     expect(screen.queryByText(/PowerSchool block number/)).not.toBeInTheDocument();
   });
 
+  it('shows a login remedy banner for a blocks-phase login failure, and retries via onRetryBlocks (#126)', () => {
+    const onRetryBlocks = vi.fn();
+    const reduced = {
+      ...RUNNING,
+      phases: [
+        ...RUNNING.phases,
+        { key: 'blocks', kind: 'blocks', label: 'PowerSchool blocks', status: 'error', errorKind: 'login', message: 'Not logged in to Schoology' },
+      ],
+      failures: [{ key: 'blocks', kind: 'blocks', label: 'PowerSchool blocks', errorKind: 'login', message: 'Not logged in to Schoology' }],
+      retryEnabled: true,
+    };
+    render(
+      <SyncProgress reduced={reduced} mode="done" retryEnabled={true}
+        onDone={noop} onRetry={noop} onRetryBlocks={onRetryBlocks} onLogin={noop} />
+    );
+    const banner = screen.getByTestId('remedy-blocks');
+    expect(banner.className).toMatch(/alert-warning/);
+    fireEvent.click(within(banner).getByRole('button', { name: /retry/i }));
+    expect(onRetryBlocks).toHaveBeenCalled();
+  });
+
   it('shows no remedy banner for a Schoology-phase failure (no courseId)', () => {
     const reduced = {
       ...RUNNING,

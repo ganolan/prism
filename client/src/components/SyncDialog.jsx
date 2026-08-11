@@ -76,6 +76,12 @@ export default function SyncDialog({ onClose, onSyncComplete }) {
     startSync(courseIds, { skipSchoology: true, syncBlocks: false });
   }
 
+  function handleRetryBlocks() {
+    setRetryEnabled(false);
+    // Retry is blocks-only — no mastery courses requested, don't re-run Schoology.
+    startSync([], { skipSchoology: true, syncBlocks: true });
+  }
+
   return (
     <div className="modal-overlay">
       <div className="modal-content sync-dialog">
@@ -109,6 +115,7 @@ export default function SyncDialog({ onClose, onSyncComplete }) {
               retryEnabled={retryEnabled}
               onDone={onClose}
               onRetry={handleRetry}
+              onRetryBlocks={handleRetryBlocks}
               onLogin={handleLogin}
             />
           </>

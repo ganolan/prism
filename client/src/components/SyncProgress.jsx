@@ -32,6 +32,9 @@ function BlocksPendingBanner({ count }) {
   );
 }
 
+// onRetry is a bound, zero-arg callback — the caller decides what "retry"
+// means for this failure (re-run one mastery course vs. re-run the whole
+// blocks pass), so this banner stays agnostic to which phase it's for.
 function RemedyBanner({ failure, retryEnabled, onLogin, onRetry }) {
   const isLogin = failure.errorKind === 'login';
   return (
@@ -57,7 +60,7 @@ function RemedyBanner({ failure, retryEnabled, onLogin, onRetry }) {
         <button
           type="button"
           className="secondary"
-          onClick={() => onRetry([failure.courseId])}
+          onClick={onRetry}
           disabled={isLogin && !retryEnabled}
         >
           Retry
@@ -67,10 +70,11 @@ function RemedyBanner({ failure, retryEnabled, onLogin, onRetry }) {
   );
 }
 
-export default function SyncProgress({ reduced, mode, retryEnabled, onDone, onRetry, onLogin }) {
+export default function SyncProgress({ reduced, mode, retryEnabled, onDone, onRetry, onRetryBlocks, onLogin }) {
   const { phases, logLines, failures, progress, summary, fatal } = reduced;
   const running = mode === 'running';
   const blocksPhase = phases.find((p) => p.kind === 'blocks');
+  const blocksFailure = failures.find((f) => f.kind === 'blocks');
 
   let heading = 'Syncing…';
   let headingClass = '';
@@ -107,13 +111,22 @@ export default function SyncProgress({ reduced, mode, retryEnabled, onDone, onRe
         <BlocksPendingBanner count={blocksPhase.notReady} />
       )}
 
+      {mode === 'done' && blocksFailure && (
+        <RemedyBanner
+          failure={blocksFailure}
+          retryEnabled={retryEnabled}
+          onLogin={onLogin}
+          onRetry={onRetryBlocks}
+        />
+      )}
+
       {mode === 'done' && failures.filter((f) => f.courseId != null).map((f) => (
         <RemedyBanner
           key={f.key}
           failure={f}
           retryEnabled={retryEnabled}
           onLogin={onLogin}
-          onRetry={onRetry}
+          onRetry={() => onRetry([f.courseId])}
         />
       ))}
 

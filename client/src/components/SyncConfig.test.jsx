@@ -3,9 +3,9 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import SyncConfig from './SyncConfig.jsx';
 
 const COURSES = [
-  { id: 1, course_name: 'Biology 9', hidden: 0, archived: 0, synced_at: '2026-05-20T12:00:00Z' },
-  { id: 2, course_name: 'Chemistry 11', hidden: 0, archived: 0 },
-  { id: 3, course_name: 'Old Physics', hidden: 1, archived: 0 },
+  { id: 1, course_name: 'Biology 9', hidden: 0, archived: 0, synced_at: '2026-05-20T12:00:00Z', block_synced_at: '2026-05-20T12:00:00Z' },
+  { id: 2, course_name: 'Chemistry 11', hidden: 0, archived: 0, block_synced_at: '2026-05-20T12:00:00Z' },
+  { id: 3, course_name: 'Old Physics', hidden: 1, archived: 0, block_synced_at: '2026-05-20T12:00:00Z' },
   { id: 4, course_name: 'Archived Bio', hidden: 0, archived: 1 },
 ];
 
@@ -52,14 +52,14 @@ describe('SyncConfig', () => {
     expect(onStart).toHaveBeenCalledWith([1, 2], expect.objectContaining({ includeHidden: false, recentOnly: false, recentDays: 30 }));
   });
 
-  it('defaults block sync OFF once a sync has happened (a course has synced_at)', () => {
+  it('defaults block sync OFF once every active course has had a block pass (block_synced_at set)', () => {
     const onStart = vi.fn();
-    renderConfig({ onStart }); // COURSES includes a synced_at course
+    renderConfig({ onStart }); // COURSES: every active course has block_synced_at
     fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
     expect(onStart).toHaveBeenCalledWith([1, 2], expect.objectContaining({ syncBlocks: false }));
   });
 
-  it('defaults block sync ON for a first sync (no course synced yet)', () => {
+  it('defaults block sync ON for a first block pass (no active course synced yet)', () => {
     const onStart = vi.fn();
     const fresh = [{ id: 1, course_name: 'Biology 9', hidden: 0, archived: 0 }];
     render(
@@ -70,9 +70,26 @@ describe('SyncConfig', () => {
     expect(onStart).toHaveBeenCalledWith([1], expect.objectContaining({ syncBlocks: true }));
   });
 
+  // Regression: right after the yearly rollover, new active courses get
+  // routine Schoology data (synced_at) well before anyone runs a block pass
+  // for them. The default must key off block_synced_at, not synced_at, or the
+  // checkbox silently defaults OFF and blocks/grade-levels never populate.
+  it('defaults block sync ON when courses have synced_at but no block_synced_at yet (new-year rollover)', () => {
+    const onStart = vi.fn();
+    const newYear = [
+      { id: 1, course_name: 'AI & Machine Learning', hidden: 0, archived: 0, synced_at: '2026-08-10T12:00:00Z' },
+    ];
+    render(
+      <SyncConfig courses={newYear} loggedIn={true} busy={false}
+        onStart={onStart} onCancel={() => {}} onLogin={() => {}} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
+    expect(onStart).toHaveBeenCalledWith([1], expect.objectContaining({ syncBlocks: true }));
+  });
+
   it('toggling the block-sync checkbox flips syncBlocks', () => {
     const onStart = vi.fn();
-    renderConfig({ onStart }); // defaults OFF (COURSES has synced_at)
+    renderConfig({ onStart }); // defaults OFF (every active COURSES row has block_synced_at)
     fireEvent.click(screen.getByLabelText(/sync block numbers from powerschool/i));
     fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
     expect(onStart).toHaveBeenCalledWith([1, 2], expect.objectContaining({ syncBlocks: true }));

@@ -67,6 +67,15 @@ describe('reduceSyncEvents', () => {
     expect(phases[0]).toMatchObject({ kind: 'blocks', label: 'PowerSchool blocks', status: 'done', records: 2, notReady: 2 });
   });
 
+  it('a blocks-phase error carries errorKind into failures (#126)', () => {
+    const { failures } = reduceSyncEvents([
+      { phase: 'blocks', status: 'running' },
+      { phase: 'blocks', status: 'error', errorKind: 'login', message: 'Not logged in to Schoology' },
+    ]);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({ kind: 'blocks', errorKind: 'login', message: 'Not logged in to Schoology' });
+  });
+
   it('handles log lines interleaved with multiple phases', () => {
     const { phases, logLines } = reduceSyncEvents([
       { phase: 'schoology', status: 'running' },

@@ -28,11 +28,23 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
   const [collapsed, setCollapsed] = useState({ visible: false, hidden: true });
 
   const [includeHidden, setIncludeHidden] = useState(false);
-  // #106: block numbers come only from PowerSchool. Default the block sync ON for
-  // a first sync (nothing synced yet → blocks need populating) and OFF once a
-  // sync has happened — the teacher opts in to refresh blocks (e.g. a new year).
-  const hasSyncedBefore = useMemo(() => courses.some((c) => c.synced_at), [courses]);
-  const [syncBlocks, setSyncBlocks] = useState(() => !hasSyncedBefore);
+  // #106 (revised 2026-08-11, #126 follow-up): default the block sync ON when
+  // an active course has never had a block PASS run, OFF once every active
+  // course has. Originally this checked `synced_at` (any Schoology data ever
+  // synced) as a "first sync" proxy — but that's routinely true well before a
+  // course has ever had a block pass: right after the yearly rollover (#70
+  // auto-archives old courses), the new active courses get their roster/grades
+  // synced on ordinary syncs long before the teacher gets to a sync where block
+  // syncing matters. That silently defaulted the checkbox OFF for courses that
+  // had NEVER been through a block pass, so blocks/grade-levels never
+  // populated at the start of a school year. block_synced_at is stamped on
+  // every active course a block pass examines (even a skip), so its absence is
+  // the correct "needs a first pass" signal.
+  const needsFirstBlockSync = useMemo(
+    () => courses.some((c) => !c.archived && !c.excluded && !c.block_synced_at),
+    [courses]
+  );
+  const [syncBlocks, setSyncBlocks] = useState(() => needsFirstBlockSync);
   const initialPrefs = useState(getSyncPrefs)[0];
   const [recentOnly, setRecentOnly] = useState(initialPrefs.recentOnly);
   const [recentDays, setRecentDays] = useState(initialPrefs.recentDays);
@@ -92,7 +104,7 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
               checked={syncBlocks}
               onChange={(e) => setSyncBlocks(e.target.checked)}
             />
-            <span>Sync block numbers from PowerSchool{!hasSyncedBefore ? ' (first sync)' : ''}</span>
+            <span>Sync block numbers from PowerSchool{needsFirstBlockSync ? ' (first sync)' : ''}</span>
           </label>
           <div className="sync-toggle-row">
             <label>

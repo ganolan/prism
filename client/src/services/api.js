@@ -27,7 +27,10 @@ export const importCourse = (sectionId) => request('/courses/import', {
 export const toggleArchiveCourse = (id) => request(`/courses/${id}/archive`, { method: 'PUT' });
 export const toggleCourseVisibility = (id) => request(`/courses/${id}/visibility`, { method: 'PUT' });
 export const getCourse = (id) => request(`/courses/${id}`);
-export const getCourseStudents = (id) => request(`/courses/${id}/students`);
+// includeDropped pulls students who have left the course too (#128), each
+// tagged with `dropped_at`, so the roster can offer its show-dropped toggle.
+export const getCourseStudents = (id, { includeDropped = false } = {}) =>
+  request(`/courses/${id}/students${includeDropped ? '?includeDropped=true' : ''}`);
 export const getCourseAssignments = (id) => request(`/courses/${id}/assignments`);
 export const getGradebook = (id) => request(`/courses/${id}/gradebook`);
 export const discoverArchivedCourses = () => request('/courses/archived/discover');

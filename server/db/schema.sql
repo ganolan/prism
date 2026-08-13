@@ -49,6 +49,13 @@ CREATE TABLE IF NOT EXISTS enrolments (
   student_id INTEGER NOT NULL REFERENCES students(id),
   course_id INTEGER NOT NULL REFERENCES courses(id),
   schoology_enrolment_id TEXT,
+  -- Raw Schoology enrollment `status` ('1' = active, '5' = dropped; see #128).
+  -- Stored verbatim so an unfamiliar code stays diagnosable.
+  status TEXT,
+  -- ISO timestamp of the sync that first saw this enrolment as inactive.
+  -- NULL = currently enrolled. Soft delete: the row (and the student's grades,
+  -- notes and feedback) survives a drop.
+  dropped_at TEXT,
   UNIQUE(student_id, course_id)
 );
 

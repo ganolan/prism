@@ -16,6 +16,7 @@ import {
 import { filterRecentAssignments } from './recentWindow.js';
 import { groupRevisionsByUid, deriveNativeSubmission } from '../lib/submissionRevisions.js';
 import { retryAsync } from '../lib/retryAsync.js';
+import { isActiveEnrolment } from '../lib/enrolmentStatus.js';
 import { createSubmissionFetcher } from './graderSubmissions.js';
 import { getSyncConfig } from '../middleware/featureGate.js';
 import { syncMasteryForCourse, hasMasterySession } from './masterySync.js';
@@ -79,10 +80,24 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
       updated_at = excluded.updated_at
   `);
   const upsertEnrolment = db.prepare(`
-    INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id)
-    VALUES (?, ?, ?)
+    INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id, status, dropped_at)
+    VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(student_id, course_id) DO UPDATE SET
-      schoology_enrolment_id = excluded.schoology_enrolment_id
+      schoology_enrolment_id = excluded.schoology_enrolment_id,
+      status = excluded.status,
+      -- Keep the FIRST drop date once set, so the roster shows when they
+      -- actually left rather than the most recent sync. Clears on re-enrol.
+      dropped_at = CASE
+        WHEN excluded.dropped_at IS NULL THEN NULL
+        ELSE COALESCE(enrolments.dropped_at, excluded.dropped_at)
+      END
+  `);
+  // Defensive: Schoology retains dropped rows (status 5) today, but a row that
+  // disappears from the response outright must not linger on the roster either.
+  const markMissingDropped = db.prepare(`
+    UPDATE enrolments SET dropped_at = COALESCE(dropped_at, ?)
+    WHERE course_id = ? AND dropped_at IS NULL
+      AND schoology_enrolment_id NOT IN (SELECT value FROM json_each(?))
   `);
 
   const selectStudent = db.prepare('SELECT id FROM students WHERE schoology_uid = ?');
@@ -90,8 +105,15 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     for (const e of rows) {
       upsertStudent.run(String(e.uid), e.name_first, e.name_last, e.primary_email || null, e.picture_url || null, e.school_uid ? String(e.school_uid) : null, now);
       const studentRow = selectStudent.get(String(e.uid));
-      if (studentRow) upsertEnrolment.run(studentRow.id, courseId, String(e.id));
+      if (studentRow) {
+        upsertEnrolment.run(
+          studentRow.id, courseId, String(e.id),
+          e.status == null ? null : String(e.status),
+          isActiveEnrolment(e) ? null : now
+        );
+      }
     }
+    markMissingDropped.run(now, courseId, JSON.stringify(rows.map(e => String(e.id))));
   });
   writeEnrollments(studentEnrollments);
 

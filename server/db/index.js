@@ -95,6 +95,17 @@ const MIGRATIONS = [
   // the sync window) → no warning. Left untouched when an assignment is skipped,
   // so a good full sync self-clears a stale 'failed'.
   `ALTER TABLE assignments ADD COLUMN lti_fetch_status TEXT`,
+  // #128: enrolment lifecycle. Schoology keeps returning a dropped student from
+  // /sections/{id}/enrollments with `status: "5"` (active is `"1"`) rather than
+  // omitting the row, and sync only ever filtered on `admin` — so dropped
+  // students were re-inserted every sync and never left the roster. `status`
+  // holds the raw Schoology value (unknown codes stay diagnosable);
+  // `dropped_at` is the ISO time of the sync that first saw it inactive.
+  // NULL dropped_at = currently enrolled — that is the filter every read path
+  // applies. Soft delete, so a dropped student's grades/notes/feedback survive
+  // and re-enrolment just clears the marker.
+  `ALTER TABLE enrolments ADD COLUMN status TEXT`,
+  `ALTER TABLE enrolments ADD COLUMN dropped_at TEXT`,
   // Indexes for issue #13 columns (must run after ALTER TABLEs above)
   `CREATE INDEX IF NOT EXISTS idx_assignments_folder ON assignments(folder_id)`,
   `CREATE INDEX IF NOT EXISTS idx_assignments_grading_category ON assignments(grading_category_id)`,

@@ -333,3 +333,52 @@ describe('POST /api/courses/import — finalise + enrich (#70)', () => {
     expect(res.body).toMatchObject({ studentsCount: 1 });
   });
 });
+
+// ── Dropped students (#128) ──
+// Schoology keeps returning a dropped student from /sections/{id}/enrollments
+// with status "5"; sync soft-flags those via enrolments.dropped_at. Every
+// roster read must honour that flag, or the student never leaves the course.
+describe('dropped students are hidden from course reads (#128)', () => {
+  let droppedStudentId;
+
+  beforeEach(() => {
+    const db = getDb();
+    droppedStudentId = db.prepare(
+      `INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-2', 'Alan', 'Turing')`
+    ).run().lastInsertRowid;
+    db.prepare(`
+      INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id, status, dropped_at)
+      VALUES (?, ?, 'enr-2', '5', '2026-08-13T00:00:00Z')
+    `).run(droppedStudentId, courseId);
+  });
+
+  test('roster omits them by default', async () => {
+    const { body } = await get(`/api/courses/${courseId}/students`);
+    expect(body.map(s => s.id)).toEqual([studentId]);
+  });
+
+  test('?includeDropped=true appends them with their drop date', async () => {
+    const { body } = await get(`/api/courses/${courseId}/students?includeDropped=true`);
+    expect(body.map(s => s.id)).toEqual([studentId, droppedStudentId]);
+    expect(body.find(s => s.id === droppedStudentId).dropped_at).toBe('2026-08-13T00:00:00Z');
+    // Active students must still report a null marker so the client can split
+    // the list on it without a separate request.
+    expect(body.find(s => s.id === studentId).dropped_at).toBe(null);
+  });
+
+  test('gradebook omits them', async () => {
+    const { body } = await get(`/api/courses/${courseId}/gradebook`);
+    expect(body.students.map(s => s.id)).toEqual([studentId]);
+  });
+
+  test('course detail counts them separately from the active roster', async () => {
+    const { body } = await get(`/api/courses/${courseId}`);
+    expect(body.studentCount).toBe(1);
+    expect(body.droppedCount).toBe(1);
+  });
+
+  test('course list student_count excludes them', async () => {
+    const { body } = await get('/api/courses');
+    expect(body.find(c => c.id === courseId).student_count).toBe(1);
+  });
+});

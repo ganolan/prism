@@ -35,7 +35,9 @@ export default function CoursePage() {
   const [overrideSaving, setOverrideSaving] = useState(false);
 
   useEffect(() => {
-    Promise.all([getCourse(id), getCourseStudents(id), getGradebook(id), getMasteryForCourse(id).catch(() => null)])
+    // includeDropped so RosterView can show the "N dropped" toggle without a
+    // second request; it splits the list on `dropped_at` (#128).
+    Promise.all([getCourse(id), getCourseStudents(id, { includeDropped: true }), getGradebook(id), getMasteryForCourse(id).catch(() => null)])
       .then(([c, s, g, m]) => { setCourse(c); setStudents(s); setGradebook(g); setMastery(m); })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -194,6 +196,7 @@ function levelCellStyle(level, extra = {}) {
 export function RosterView({ students, mastery, courseId, displayName, onOverrideClick }) {
   const scale = useProficiencyScale();
   const [showGradeScale, setShowGradeScale] = useState(false);
+  const [showDropped, setShowDropped] = useState(false);
   const categories = mastery?.categories || [];
   const topics = mastery?.topics || [];
   const scores = mastery?.scores || [];
@@ -230,8 +233,26 @@ export function RosterView({ students, mastery, courseId, displayName, onOverrid
   // Mismatch marker — a thick amber top+bottom border around the cell pair
   const MISMATCH_BORDER = '2px solid rgba(234, 179, 8, 0.85)';
 
+  // #128: students who dropped keep their row (and their grades/notes) but sit
+  // behind a toggle, sorted to the bottom, so the default roster is the live
+  // class while a departure is still visible rather than silently vanishing.
+  const activeStudents = students.filter(s => !s.dropped_at);
+  const droppedStudents = students.filter(s => s.dropped_at);
+  const visibleStudents = showDropped ? [...activeStudents, ...droppedStudents] : activeStudents;
+
   return (
     <div className="card" style={{ overflowX: 'auto' }}>
+      {droppedStudents.length > 0 && (
+        <div style={{ marginBottom: '0.75rem' }}>
+          <button
+            className="ghost"
+            onClick={() => setShowDropped(v => !v)}
+            aria-expanded={showDropped}
+          >
+            {droppedStudents.length} dropped {showDropped ? '— hide' : '— show'}
+          </button>
+        </div>
+      )}
       <table style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
         <thead>
           {/* Row 1: category group headers — use full title to match mastery summary */}
@@ -332,7 +353,7 @@ export function RosterView({ students, mastery, courseId, displayName, onOverrid
           </tr>
         </thead>
         <tbody>
-          {students.map(s => {
+          {visibleStudents.map(s => {
             const uid = s.schoology_uid || s.uid;
             // Per-student approximate letter grade using the same formula as
             // MasteryPerformanceSummary: scale.pointsToLevel(flat category average)
@@ -351,7 +372,7 @@ export function RosterView({ students, mastery, courseId, displayName, onOverrid
             });
             const schoologyLetterGrade = computeLetterGrade(schoologyCategoryLevels);
             return (
-              <tr key={s.id}>
+              <tr key={s.id} style={s.dropped_at ? { opacity: 0.55 } : undefined}>
                 <td style={{ width: '40px', padding: '0.25rem 0.5rem' }}>
                   {s.picture_url ? (
                     <img
@@ -378,6 +399,11 @@ export function RosterView({ students, mastery, courseId, displayName, onOverrid
                   {displayName(s) !== s.first_name && (
                     <span className="text-sm text-muted" style={{ marginLeft: '0.5rem' }}>
                       ({s.first_name})
+                    </span>
+                  )}
+                  {s.dropped_at && (
+                    <span className="text-sm text-muted" style={{ marginLeft: '0.5rem' }}>
+                      dropped {new Date(s.dropped_at).toLocaleDateString('en-GB')}
                     </span>
                   )}
                 </td>

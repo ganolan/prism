@@ -78,14 +78,14 @@ export function getRoster(db, courseId, assignmentRow) {
     FROM students s
     JOIN enrolments e ON e.student_id = s.id
     JOIN assignment_assignees aa ON aa.schoology_uid = s.schoology_uid AND aa.assignment_id = ?
-    WHERE e.course_id = ?
+    WHERE e.course_id = ? AND e.dropped_at IS NULL
     ORDER BY s.last_name, s.first_name
   ` : `
     SELECT s.id, s.schoology_uid, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher,
            s.email, s.picture_url, e.schoology_enrolment_id AS enrollment_id
     FROM students s
     JOIN enrolments e ON e.student_id = s.id
-    WHERE e.course_id = ?
+    WHERE e.course_id = ? AND e.dropped_at IS NULL
     ORDER BY s.last_name, s.first_name
   `).all(...(targeted ? [assignmentRow.id, courseId] : [courseId]));
 }

@@ -45,7 +45,7 @@ router.get('/', (req, res) => {
 
   // Each row carries student_count (enrolment count) so callers can hide empty
   // shells like the master/template course without an extra round-trip.
-  const select = 'SELECT *, (SELECT COUNT(*) FROM enrolments WHERE course_id = courses.id) AS student_count FROM courses';
+  const select = 'SELECT *, (SELECT COUNT(*) FROM enrolments WHERE course_id = courses.id AND dropped_at IS NULL) AS student_count FROM courses';
 
   let rows;
   if (view === 'current') {
@@ -72,22 +72,31 @@ router.get('/:id', (req, res) => {
   const course = db.prepare('SELECT * FROM courses WHERE id = ?').get(req.params.id);
   if (!course) return res.status(404).json({ error: 'Course not found' });
 
-  const studentCount = db.prepare(
-    'SELECT COUNT(*) as count FROM enrolments WHERE course_id = ?'
-  ).get(req.params.id).count;
+  const { studentCount, droppedCount } = db.prepare(`
+    SELECT COUNT(*) FILTER (WHERE dropped_at IS NULL) AS studentCount,
+           COUNT(*) FILTER (WHERE dropped_at IS NOT NULL) AS droppedCount
+    FROM enrolments WHERE course_id = ?
+  `).get(req.params.id);
 
-  res.json({ ...course, studentCount });
+  res.json({ ...course, studentCount, droppedCount });
 });
 
 // GET /api/courses/:id/students — students enrolled with their grades summary
+//
+// Students who have dropped (enrolments.dropped_at set — see #128) are omitted
+// by default. `?includeDropped=true` appends them, each carrying `dropped_at`,
+// so the roster can render its "N dropped — show" toggle without a second
+// round-trip. Every other consumer keeps the active-only default.
 router.get('/:id/students', (req, res) => {
   const db = getDb();
+  const includeDropped = req.query.includeDropped === 'true';
   const students = db.prepare(`
-    SELECT s.*, e.id as enrolment_id
+    SELECT s.*, e.id as enrolment_id, e.dropped_at
     FROM students s
     JOIN enrolments e ON e.student_id = s.id
     WHERE e.course_id = ?
-    ORDER BY s.last_name, s.first_name
+      ${includeDropped ? '' : 'AND e.dropped_at IS NULL'}
+    ORDER BY e.dropped_at IS NOT NULL, s.last_name, s.first_name
   `).all(req.params.id);
 
   // Get grade summary per student for this course (published assignments
@@ -174,7 +183,7 @@ router.get('/:id/gradebook', (req, res) => {
     SELECT s.id, s.schoology_uid, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher
     FROM students s
     JOIN enrolments e ON e.student_id = s.id
-    WHERE e.course_id = ?
+    WHERE e.course_id = ? AND e.dropped_at IS NULL
     ORDER BY s.last_name, s.first_name
   `).all(req.params.id);
 
@@ -306,7 +315,7 @@ router.post('/import', async (req, res) => {
     const sectionStudents = db.prepare(`
       SELECT s.id, s.schoology_uid FROM students s
       JOIN enrolments e ON e.student_id = s.id
-      WHERE e.course_id = ? AND s.schoology_uid IS NOT NULL
+      WHERE e.course_id = ? AND s.schoology_uid IS NOT NULL AND e.dropped_at IS NULL
     `).all(courseRow.id);
     await enrichStudentProfiles(db, sectionStudents, now);
 

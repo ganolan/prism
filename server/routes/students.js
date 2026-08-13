@@ -33,7 +33,7 @@ router.get('/:id', (req, res) => {
     SELECT c.*, e.id as enrolment_id
     FROM courses c
     JOIN enrolments e ON e.course_id = c.id
-    WHERE e.student_id = ?
+    WHERE e.student_id = ? AND e.dropped_at IS NULL
     ORDER BY c.course_name
   `).all(req.params.id);
 
@@ -55,7 +55,7 @@ router.get('/:id', (req, res) => {
     LEFT JOIN grades g ON g.student_id = e.student_id AND g.assignment_id = a.id
     LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
     LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
-    WHERE e.student_id = ?
+    WHERE e.student_id = ? AND e.dropped_at IS NULL
       AND (
         a.num_assignees IS NULL OR a.num_assignees = 0
         OR EXISTS (

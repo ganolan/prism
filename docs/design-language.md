@@ -495,3 +495,25 @@ each colour standing for a *function* so the hierarchy reads at a glance.
   `get_assignment_context`, and `submission_counts` + `grading_counts` on
   `list_assignments` — so the agent can tell who actually submitted (vs. who only
   *looks* ready in the synced folder) before grading.
+
+## Roster: dropped students behind a disclosure toggle (August 2026, #128)
+
+- Students who have left a course are **hidden from the roster by default but never
+  silently removed**. When any exist, a `.ghost` button sits above the table reading
+  **"N dropped — show"** (toggling to "— hide", with `aria-expanded`). This is the
+  general pattern for *soft-deleted rows the teacher may still care about*: keep the
+  default view clean, but always show a **count**, so a disappearance is announced
+  rather than inferred from a roster that quietly shrank.
+- Revealed rows are **sorted to the bottom** of the table, rendered at `opacity: 0.55`,
+  and annotated in the name cell with a muted `dropped DD/MM/YYYY`
+  (`toLocaleDateString('en-GB')` — never US M/D/YYYY). Greying rather than
+  strikethrough: the student's grades and notes are still live and clickable, they're
+  just no longer in the class.
+- The API supports this in one request — `GET /api/courses/:id/students?includeDropped=true`
+  returns both groups, each row carrying `dropped_at` (null for active). The client
+  splits on that field, so the toggle costs no extra round-trip and the count is
+  always accurate. The unparameterised endpoint stays active-only, so other consumers
+  can't accidentally reintroduce dropped students.
+- Counts are kept **separate, not merged**: `GET /api/courses/:id` returns
+  `studentCount` (active) alongside `droppedCount`. Anywhere a single number is shown
+  ("10 students"), it means *currently enrolled*.

@@ -24,7 +24,7 @@ router.get('/emails/:courseId', (req, res) => {
            s.email, s.parent_email
     FROM students s
     JOIN enrolments e ON e.student_id = s.id
-    WHERE e.course_id IN (${placeholders})
+    WHERE e.course_id IN (${placeholders}) AND e.dropped_at IS NULL
     ORDER BY s.last_name, s.first_name
   `).all(...courseIds);
 
@@ -42,7 +42,8 @@ router.get('/emails/:courseId', (req, res) => {
     SELECT DISTINCT p.student_id, p.first_name, p.last_name, p.email
     FROM parents p
     JOIN enrolments e ON e.student_id = p.student_id
-    WHERE e.course_id IN (${placeholders}) AND p.email IS NOT NULL AND p.email != ''
+    WHERE e.course_id IN (${placeholders}) AND e.dropped_at IS NULL
+      AND p.email IS NOT NULL AND p.email != ''
     ORDER BY p.last_name, p.first_name
   `).all(...courseIds);
 
@@ -118,7 +119,7 @@ router.get('/random/:courseId', (req, res) => {
     SELECT DISTINCT s.id, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher
     FROM students s
     JOIN enrolments e ON e.student_id = s.id
-    WHERE e.course_id IN (${placeholders})
+    WHERE e.course_id IN (${placeholders}) AND e.dropped_at IS NULL
   `).all(...courseIds);
 
   // Fisher-Yates shuffle, take first N
@@ -158,7 +159,7 @@ router.get('/groups/:courseId', (req, res) => {
               AND mr.grade_percentage IS NOT NULL) AS avg_pct
     FROM students s
     JOIN enrolments e ON e.student_id = s.id
-    WHERE e.course_id IN (${placeholders})
+    WHERE e.course_id IN (${placeholders}) AND e.dropped_at IS NULL
   `).all(...courseIds, ...courseIds);
 
   if (balanced && students.some(s => s.avg_pct != null)) {

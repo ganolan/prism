@@ -970,3 +970,108 @@ describe('backfillUnfinalizedArchived (#70)', () => {
     expect(sch.getAssignmentSubmissions).not.toHaveBeenCalled();
   });
 });
+
+// ── Dropped-enrolment lifecycle (#128) ──
+//
+// Schoology does NOT remove a dropped student from /sections/{id}/enrollments —
+// it keeps returning the row with `status: "5"` instead of `"1"` (verified
+// 2026-08-13 against AP CSP 8458134140 and AIML: 115 rows status "1", 2 status
+// "5", zero rows disappeared). Sync previously filtered only on `admin`, so a
+// dropped student was re-inserted on every sync and never left the roster.
+describe('syncSectionData — dropped enrolments (#128)', () => {
+  let db;
+  let courseId;
+
+  const active = { id: '900001', uid: '700001', name_first: 'Ada', name_last: 'Lovelace', admin: '0', status: '1' };
+  const dropped = { id: '900002', uid: '700002', name_first: 'Alan', name_last: 'Turing', admin: '0', status: '5' };
+
+  const enrolmentFor = (uid) => db.prepare(`
+    SELECT e.status, e.dropped_at
+    FROM enrolments e JOIN students s ON s.id = e.student_id
+    WHERE e.course_id = ? AND s.schoology_uid = ?
+  `).get(courseId, uid);
+
+  beforeEach(() => {
+    db = new Database(':memory:');
+    migrate(db);
+    courseId = db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-D', 'Algebra')`
+    ).run().lastInsertRowid;
+    getSectionEnrollments.mockReset();
+    getSectionAssignments.mockReset();
+    getSectionGrades.mockReset();
+    getSubmissionStatus.mockReset();
+    getSectionAssignments.mockResolvedValue([]);
+    getSectionGrades.mockResolvedValue([]);
+    getSubmissionStatus.mockResolvedValue(null);
+  });
+
+  test('flags a status-5 enrolment as dropped, keeping the row', async () => {
+    getSectionEnrollments.mockResolvedValue([active, dropped]);
+
+    await syncSectionData(db, 'sec-D', courseId, '2026-08-13T00:00:00Z');
+
+    // The row survives (soft delete) so grades/notes/feedback stay reachable.
+    expect(enrolmentFor('700002')).toMatchObject({ status: '5', dropped_at: '2026-08-13T00:00:00Z' });
+    expect(enrolmentFor('700001')).toMatchObject({ status: '1', dropped_at: null });
+  });
+
+  test('re-syncing preserves the ORIGINAL drop date', async () => {
+    getSectionEnrollments.mockResolvedValue([dropped]);
+    await syncSectionData(db, 'sec-D', courseId, '2026-08-13T00:00:00Z');
+    await syncSectionData(db, 'sec-D', courseId, '2026-09-01T00:00:00Z');
+
+    expect(enrolmentFor('700002').dropped_at).toBe('2026-08-13T00:00:00Z');
+  });
+
+  test('clears dropped_at when a student re-enrols', async () => {
+    getSectionEnrollments.mockResolvedValue([dropped]);
+    await syncSectionData(db, 'sec-D', courseId, '2026-08-13T00:00:00Z');
+    expect(enrolmentFor('700002').dropped_at).toBe('2026-08-13T00:00:00Z');
+
+    getSectionEnrollments.mockResolvedValue([{ ...dropped, status: '1' }]);
+    await syncSectionData(db, 'sec-D', courseId, '2026-09-01T00:00:00Z');
+
+    expect(enrolmentFor('700002')).toMatchObject({ status: '1', dropped_at: null });
+  });
+
+  test('flags a stored enrolment that vanishes from the API response entirely', async () => {
+    getSectionEnrollments.mockResolvedValue([active, { ...dropped, status: '1' }]);
+    await syncSectionData(db, 'sec-D', courseId, '2026-08-13T00:00:00Z');
+    expect(enrolmentFor('700002').dropped_at).toBe(null);
+
+    // Schoology retains dropped rows today, but a hard-removed enrolment must
+    // not linger either.
+    getSectionEnrollments.mockResolvedValue([active]);
+    await syncSectionData(db, 'sec-D', courseId, '2026-09-01T00:00:00Z');
+
+    expect(enrolmentFor('700002').dropped_at).toBe('2026-09-01T00:00:00Z');
+    expect(enrolmentFor('700001').dropped_at).toBe(null);
+  });
+
+  test('a dropped enrolment in ANOTHER course is untouched', async () => {
+    const otherCourse = db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-E', 'Physics')`
+    ).run().lastInsertRowid;
+    getSectionEnrollments.mockResolvedValue([active]);
+    await syncSectionData(db, 'sec-E', otherCourse, '2026-08-13T00:00:00Z');
+
+    // Syncing sec-D (where Ada is absent) must not drop her sec-E enrolment.
+    getSectionEnrollments.mockResolvedValue([dropped]);
+    await syncSectionData(db, 'sec-D', courseId, '2026-09-01T00:00:00Z');
+
+    const other = db.prepare(`
+      SELECT e.dropped_at FROM enrolments e JOIN students s ON s.id = e.student_id
+      WHERE e.course_id = ? AND s.schoology_uid = '700001'
+    `).get(otherCourse);
+    expect(other.dropped_at).toBe(null);
+  });
+
+  test('treats a missing status field as active (fail-safe for unknown shapes)', async () => {
+    getSectionEnrollments.mockResolvedValue([{ ...active, status: undefined }]);
+
+    await syncSectionData(db, 'sec-D', courseId, '2026-08-13T00:00:00Z');
+
+    expect(enrolmentFor('700001').dropped_at).toBe(null);
+  });
+});

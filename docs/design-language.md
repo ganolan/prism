@@ -535,3 +535,22 @@ each colour standing for a *function* so the hierarchy reads at a glance.
 - Current-tab cards stay at full opacity with no per-card grading-period line;
   the archived cards keep their dimmed (0.75) treatment and period text, so
   "archived" still reads at a glance without a badge.
+
+## Dashboard: enrolment count on course cards (August 2026)
+
+- Every course card carries a muted `.badge-gray` reading **"N students"**, placed
+  as the **first item in the card's bottom-left badge group** — the same row that
+  holds the red `Hidden` badge, so adding it shifts nothing vertically and the ⚙
+  stays anchored right. Grey, not a coloured badge: the count is *metadata*, and
+  a saturated chip next to `Hidden` would read as a status alert.
+- The badge is **omitted entirely when the count is 0 or absent**, rather than
+  rendering "0 students". Empty shells (the master/template course) are the case
+  this protects — the list endpoint carries `student_count` precisely so callers
+  can spot them, and a zero badge is noise on a card the teacher never opens.
+- Wording matches the CoursePage header's `${course.studentCount} students`, and
+  singularises to **"1 student"**. Both surfaces count *active enrolments only*
+  (`dropped_at IS NULL`), consistent with "anywhere a single number is shown, it
+  means currently enrolled" from the dropped-students entry above.
+- Shown on **both tabs**. Archived cards are already dimmed to 0.75, which carries
+  the badge with them, so "archived" still reads at a glance while the roster size
+  stays visible for past-year courses.

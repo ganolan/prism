@@ -78,6 +78,15 @@ export default function Dashboard() {
         {/* Bottom row: badges + cog / settings */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.75rem' }}>
           <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            {/* student_count comes from the course list endpoint (active enrolments
+                only — dropped students are excluded there, see #128). Empty shells
+                like the master/template course report 0; they get no badge rather
+                than a noisy "0 students". */}
+            {c.student_count > 0 && (
+              <span className="badge badge-gray">
+                {c.student_count} student{c.student_count === 1 ? '' : 's'}
+              </span>
+            )}
             {!!c.hidden && <span className="badge" style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }}>Hidden</span>}
           </div>
 

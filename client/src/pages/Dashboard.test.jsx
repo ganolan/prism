@@ -54,6 +54,53 @@ describe('Dashboard — Current tab', () => {
   });
 });
 
+describe('Dashboard — enrolled-student count badge', () => {
+  it('shows the enrolment count on a current course card', async () => {
+    api.getCoursesByView.mockResolvedValue([
+      { id: 1, course_name: 'AI & Machine Learning', student_count: 24 },
+    ]);
+    renderDashboard();
+    expect(await screen.findByText('24 students')).toBeInTheDocument();
+  });
+
+  it('says "1 student" when a single student is enrolled', async () => {
+    api.getCoursesByView.mockResolvedValue([
+      { id: 1, course_name: 'Robotics', student_count: 1 },
+    ]);
+    renderDashboard();
+    expect(await screen.findByText('1 student')).toBeInTheDocument();
+  });
+
+  it('omits the badge for empty course shells rather than showing "0 students"', async () => {
+    api.getCoursesByView.mockResolvedValue([
+      { id: 1, course_name: 'Master Template', student_count: 0 },
+    ]);
+    renderDashboard();
+    await screen.findByText('Master Template');
+    expect(screen.queryByText(/student/)).not.toBeInTheDocument();
+  });
+
+  it('omits the badge when the course carries no student_count at all', async () => {
+    api.getCoursesByView.mockResolvedValue([
+      { id: 1, course_name: 'Mobile App Development' },
+    ]);
+    renderDashboard();
+    await screen.findByText('Mobile App Development');
+    expect(screen.queryByText(/student/)).not.toBeInTheDocument();
+  });
+
+  it('shows the enrolment count on archived course cards too', async () => {
+    api.getCoursesByView.mockImplementation(view =>
+      Promise.resolve(view === 'archived'
+        ? [{ id: 9, course_name: 'AP CS A', grading_period: '2023-2024: 08/14/2023 - 06/01/2024', student_count: 12 }]
+        : [])
+    );
+    renderDashboard();
+    fireEvent.click(await screen.findByText('Archived'));
+    expect(await screen.findByText('12 students')).toBeInTheDocument();
+  });
+});
+
 describe('Dashboard — Archived tab', () => {
   it('shows the archived-course discovery surface', async () => {
     renderDashboard();

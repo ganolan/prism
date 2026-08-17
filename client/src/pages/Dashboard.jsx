@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getCourses, getCoursesByView, getSyncStatus, toggleCourseVisibility } from '../services/api.js';
-import { groupByYearAndSemester } from '../lib/courseDisplay.js';
+import { groupBySemester, groupByYearAndSemester } from '../lib/courseDisplay.js';
 import ArchivedCoursesPanel from '../components/ArchivedCoursesPanel.jsx';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
 
@@ -50,6 +50,7 @@ export default function Dashboard() {
 
   if (loading) return <div className="loading">Loading...</div>;
 
+  const semesterGroups = groupBySemester(courses);
   const yearGroups = groupByYearAndSemester(courses);
 
   // Shared course card renderer
@@ -161,9 +162,14 @@ export default function Dashboard() {
             <p>No courses synced yet. Click <strong>Sync Schoology</strong> in the sidebar to pull your courses.</p>
           </div>
         ) : (
-          <div className="grid-2">
-            {courses.map(c => <CourseCard key={c.id} c={c} />)}
-          </div>
+          semesterGroups.map(({ semester, courses: semCourses }) => (
+            <div key={semester} style={{ marginBottom: '1.5rem' }}>
+              <h4 className="semester-subhead">{semester}</h4>
+              <div className="grid-2">
+                {semCourses.map(c => <CourseCard key={c.id} c={c} />)}
+              </div>
+            </div>
+          ))
         )
       )}
 
@@ -184,7 +190,7 @@ export default function Dashboard() {
                 </h3>
                 {semesters.map(({ semester, courses: semCourses }) => (
                   <div key={semester} style={{ marginBottom: '1rem' }}>
-                    <h4 className="archived-semester-subhead">{semester}</h4>
+                    <h4 className="semester-subhead">{semester}</h4>
                     <div className="grid-2">
                       {semCourses.map(c => <CourseCard key={c.id} c={c} showSemester />)}
                     </div>

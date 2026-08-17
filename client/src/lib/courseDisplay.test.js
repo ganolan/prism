@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseGradingPeriod, groupByYearAndSemester, formatLastSynced } from './courseDisplay.js';
+import { parseGradingPeriod, groupBySemester, groupByYearAndSemester, formatLastSynced } from './courseDisplay.js';
 
 describe('parseGradingPeriod', () => {
   it('extracts academic year and Semester 1', () => {
@@ -37,6 +37,39 @@ describe('parseGradingPeriod', () => {
   });
 });
 
+describe('groupBySemester', () => {
+  it('orders Full Year first, then Semester 1, then Semester 2', () => {
+    const groups = groupBySemester([
+      { id: 1, grading_period: 'Semester 2: 01/06/2026 - 06/15/2026' },
+      { id: 2, grading_period: '2025-2026: 08/14/2025 - 06/01/2026' }, // Full Year
+      { id: 3, grading_period: 'Semester 1: 08/14/2025 - 01/11/2026' },
+    ]);
+    expect(groups.map((g) => g.semester)).toEqual(['Full Year', 'Semester 1', 'Semester 2']);
+    expect(groups.map((g) => g.courses.map((c) => c.id))).toEqual([[2], [3], [1]]);
+  });
+
+  it('keeps Summer and Unknown after the numbered semesters', () => {
+    const groups = groupBySemester([
+      { id: 1, grading_period: '' },                                     // Unknown
+      { id: 2, grading_period: '25-26 Summer · 6/06/26 - 6/20/26' },
+      { id: 3, grading_period: 'Semester 2: 01/06/2026 - 06/15/2026' },
+    ]);
+    expect(groups.map((g) => g.semester)).toEqual(['Semester 2', 'Summer', 'Unknown']);
+  });
+
+  it('accepts a getPeriod accessor', () => {
+    const groups = groupBySemester(
+      [{ sectionId: 'x', gradingPeriod: '22-23 YR · 8/07/22 - 6/14/23' }],
+      (s) => s.gradingPeriod,
+    );
+    expect(groups[0].semester).toBe('Full Year');
+  });
+
+  it('returns [] for no courses', () => {
+    expect(groupBySemester([])).toEqual([]);
+  });
+});
+
 describe('groupByYearAndSemester', () => {
   it('groups by year (desc, Unknown last) then ordered semesters', () => {
     const groups = groupByYearAndSemester([
@@ -44,11 +77,12 @@ describe('groupByYearAndSemester', () => {
       { id: 2, grading_period: 'Semester 1: 08/14/2024 - 01/11/2025' }, // 2024-25 S1
       { id: 3, grading_period: 'Semester 1: 08/14/2025 - 01/11/2026' }, // 2025-26 S1
       { id: 4, grading_period: 'mystery' },                              // Unknown / Full Year
+      { id: 5, grading_period: '2024-2025: 08/13/24 - 06/15/25' },       // 2024-25 Full Year
     ]);
     expect(groups.map((g) => g.year)).toEqual(['2025-26', '2024-25', 'Unknown']);
     const y2024 = groups.find((g) => g.year === '2024-25');
-    expect(y2024.semesters.map((s) => s.semester)).toEqual(['Semester 1', 'Semester 2']);
-    expect(y2024.semesters[0].courses.map((c) => c.id)).toEqual([2]);
+    expect(y2024.semesters.map((s) => s.semester)).toEqual(['Full Year', 'Semester 1', 'Semester 2']);
+    expect(y2024.semesters[0].courses.map((c) => c.id)).toEqual([5]);
     const unknown = groups.find((g) => g.year === 'Unknown');
     expect(unknown.semesters[0].courses.map((c) => c.id)).toEqual([4]);
   });

@@ -32,10 +32,25 @@ function parseAcademicYear(s) {
   return 'Unknown';
 }
 
-const SEMESTER_ORDER = { 'Semester 1': 0, 'Semester 2': 1, 'Summer': 2, 'Full Year': 3, 'Unknown': 4 };
+// Full Year leads (it spans the others), then the terms in calendar order.
+const SEMESTER_ORDER = { 'Full Year': 0, 'Semester 1': 1, 'Semester 2': 2, 'Summer': 3, 'Unknown': 4 };
+
+// Group courses by semester only — used by the Dashboard's Current tab, where
+// every course belongs to the running academic year and a year heading would
+// just be noise. Same ordering as the per-year groups below.
+// → [{ semester, courses: [...] }]
+export function groupBySemester(courses, getPeriod = (c) => c.grading_period) {
+  const semesters = {};
+  for (const c of courses) {
+    const { semester } = parseGradingPeriod(getPeriod(c));
+    if (!semesters[semester]) semesters[semester] = [];
+    semesters[semester].push(c);
+  }
+  return sortSemesters(Object.keys(semesters)).map((semester) => ({ semester, courses: semesters[semester] }));
+}
 
 // Group courses by academic year (descending, "Unknown" last), then by semester
-// (Semester 1 → Semester 2 → Summer → Full Year → Unknown). `getPeriod` reads the
+// (Full Year → Semester 1 → Semester 2 → Summer → Unknown). `getPeriod` reads the
 // grading-period string from each item — cards use the default (grading_period),
 // discovery rows pass (s) => s.gradingPeriod. (#71)
 // → [{ year, semesters: [{ semester, courses: [...] }] }]
@@ -55,10 +70,13 @@ export function groupByYearAndSemester(courses, getPeriod = (c) => c.grading_per
     })
     .map((year) => ({
       year,
-      semesters: Object.keys(years[year])
-        .sort((a, b) => (SEMESTER_ORDER[a] ?? 99) - (SEMESTER_ORDER[b] ?? 99))
+      semesters: sortSemesters(Object.keys(years[year]))
         .map((semester) => ({ semester, courses: years[year][semester] })),
     }));
+}
+
+function sortSemesters(names) {
+  return names.sort((a, b) => (SEMESTER_ORDER[a] ?? 99) - (SEMESTER_ORDER[b] ?? 99));
 }
 
 // "synced 20/05/2026" (UK/AU DD/MM/YYYY) / "never synced". synced_at is an ISO

@@ -517,3 +517,21 @@ each colour standing for a *function* so the hierarchy reads at a glance.
 - Counts are kept **separate, not merged**: `GET /api/courses/:id` returns
   `studentCount` (active) alongside `droppedCount`. Anywhere a single number is shown
   ("10 students"), it means *currently enrolled*.
+
+## Dashboard: semester grouping on both tabs (August 2026)
+
+- The **Current** tab now groups its course cards by semester, matching the Archived
+  tab's second-level grouping. Headings use the shared `.semester-subhead` class
+  (renamed from `.archived-semester-subhead`, since it's no longer archive-specific).
+- Only the Archived tab carries an academic-year heading above the semester
+  subheads — current courses are all in the running year, so a year label there
+  would be redundant chrome. `groupBySemester()` (semester only) and
+  `groupByYearAndSemester()` (year → semester) in `client/src/lib/courseDisplay.js`
+  share one `SEMESTER_ORDER` so the two tabs can never drift apart.
+- Canonical semester order is **Full Year → Semester 1 → Semester 2 → Summer →
+  Unknown**. Full Year leads because it *spans* the terms below it (a teacher's
+  year-long courses are the standing context), then the terms run in calendar
+  order. This order also drives the sync dialog's archived-course discovery list.
+- Current-tab cards stay at full opacity with no per-card grading-period line;
+  the archived cards keep their dimmed (0.75) treatment and period text, so
+  "archived" still reads at a glance without a badge.

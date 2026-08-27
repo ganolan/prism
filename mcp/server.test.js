@@ -118,6 +118,20 @@ describe('PrisMCP server', () => {
     });
   });
 
+  test('exposes list_students returning the course roster, independent of any assignment', async () => {
+    const db = getDb();
+    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s1', 'AIML')`).run().lastInsertRowid;
+    const s1 = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-1', 'Ada', 'Lovelace')`).run().lastInsertRowid;
+    const s2 = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-2', 'Grace', 'Hopper')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'e1')`).run(s1, courseId);
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id, dropped_at) VALUES (?, ?, 'e2', '2026-01-01T00:00:00.000Z')`).run(s2, courseId);
+
+    const client = await connect();
+    const res = await client.callTool({ name: 'list_students', arguments: { course_id: courseId } });
+    const data = JSON.parse(res.content[0].text);
+    expect(data.map((s) => s.schoology_uid)).toEqual(['uid-1']); // dropped student excluded
+  });
+
   test('advertises the tool-search instructions to the client', async () => {
     const client = await connect();
     expect(client.getInstructions()).toBe(INSTRUCTIONS);
@@ -179,6 +193,16 @@ describe('PrisMCP resources (@-mention mirror)', () => {
     const client = await connect();
     const res = await client.readResource({ uri: `prism://assignment/${courseId}/sa-1/context` });
     expect(JSON.parse(res.contents[0].text).assignment.schoology_assignment_id).toBe('sa-1');
+  });
+
+  test('prism://course/{courseId}/roster mirrors list_students', async () => {
+    const db = getDb();
+    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s1', 'AIML')`).run().lastInsertRowid;
+    const studentId = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-1', 'Ada', 'Lovelace')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'e1')`).run(studentId, courseId);
+    const client = await connect();
+    const res = await client.readResource({ uri: `prism://course/${courseId}/roster` });
+    expect(JSON.parse(res.contents[0].text).map((s) => s.schoology_uid)).toEqual(['uid-1']);
   });
 });
 

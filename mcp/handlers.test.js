@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../server/db/index.js';
-import { listCourses, listAssignments, writeRubric, attachRubricTool } from './handlers.js';
+import { listCourses, listAssignments, listStudents, writeRubric, attachRubricTool } from './handlers.js';
 import { saveRubric, listRubrics, getRubricByName } from '../server/services/rubricStore.js';
 
 beforeEach(() => {
@@ -11,7 +11,7 @@ beforeEach(() => {
     'DELETE FROM rubric_attachment_topics; DELETE FROM rubric_attachments; ' +
     'DELETE FROM rubric_descriptors; DELETE FROM rubric_criteria; DELETE FROM rubrics; ' +
     'DELETE FROM mastery_alignments; DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
-    'DELETE FROM grades; DELETE FROM assignments; ' +
+    'DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; ' +
     'DELETE FROM students; DELETE FROM courses;'
   );
 });
@@ -94,6 +94,41 @@ describe('listAssignments', () => {
     const byTitle = Object.fromEntries(listAssignments(db, { course_id: courseId }).map((a) => [a.title, a]));
     expect(byTitle.Submitted.latest_submission_at).toBe(new Date(1700000500 * 1000).toISOString());
     expect(byTitle.Untouched.latest_submission_at).toBeNull();
+  });
+});
+
+describe('listStudents', () => {
+  test('returns the roster with preferred_first_name resolved (teacher override beats synced preferred name)', () => {
+    const db = getDb();
+    const courseId = seedCourse(db);
+    const s1 = db.prepare(
+      `INSERT INTO students (schoology_uid, first_name, last_name, preferred_name, preferred_name_teacher, email)
+       VALUES ('u1', 'Pingye', 'Yuan', 'Ping', 'Kevin', 'k@x.com')`
+    ).run().lastInsertRowid;
+    const s2 = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u2', 'Ada', 'Lovelace')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'e1')`).run(s1, courseId);
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'e2')`).run(s2, courseId);
+
+    const rows = listStudents(db, { course_id: courseId });
+    expect(rows.map((r) => r.last_name)).toEqual(['Lovelace', 'Yuan']); // ordered by last name
+    expect(rows.find((r) => r.schoology_uid === 'u1')).toMatchObject({
+      first_name: 'Pingye', last_name: 'Yuan', preferred_name: 'Ping', preferred_first_name: 'Kevin', email: 'k@x.com',
+    });
+    expect(rows.find((r) => r.schoology_uid === 'u2')).toMatchObject({ preferred_first_name: 'Ada', email: null });
+  });
+
+  test('excludes dropped enrolments and other courses', () => {
+    const db = getDb();
+    const courseId = seedCourse(db);
+    const otherCourseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s2', 'Other')`).run().lastInsertRowid;
+    const active = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u1', 'A', 'One')`).run().lastInsertRowid;
+    const dropped = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u2', 'B', 'Two')`).run().lastInsertRowid;
+    const elsewhere = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u3', 'C', 'Three')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'e1')`).run(active, courseId);
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id, dropped_at) VALUES (?, ?, 'e2', '2026-01-01T00:00:00.000Z')`).run(dropped, courseId);
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'e3')`).run(elsewhere, otherCourseId);
+
+    expect(listStudents(db, { course_id: courseId }).map((r) => r.schoology_uid)).toEqual(['u1']);
   });
 });
 

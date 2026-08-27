@@ -5,7 +5,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { getDb } from '../server/db/index.js';
 import { getAssessmentContext } from '../server/services/assessmentContext.js';
 import { writeStudentSuggestions, upsertAssessmentAnalysis } from '../server/services/suggestions.js';
-import { listCourses, listAssignments, listRubricsTool, readRubric, writeRubric, attachRubricTool } from './handlers.js';
+import { listCourses, listAssignments, listStudents, listRubricsTool, readRubric, writeRubric, attachRubricTool } from './handlers.js';
 
 // <2KB tool-search hint (spec §3.4) so a client knows when to surface PrisMCP.
 export const INSTRUCTIONS =
@@ -47,6 +47,18 @@ export function createServer() {
     },
     async ({ course_id }) => ({
       content: [{ type: 'text', text: JSON.stringify(listAssignments(getDb(), { course_id })) }],
+    })
+  );
+
+  server.registerTool(
+    'list_students',
+    {
+      description:
+        "List a course's current roster (non-dropped enrolments), independent of any assignment — e.g. to check a meeting attendance list against who's enrolled.",
+      inputSchema: { course_id: z.union([z.number(), z.string()]).describe('Local Prism course id') },
+    },
+    async ({ course_id }) => ({
+      content: [{ type: 'text', text: JSON.stringify(listStudents(getDb(), { course_id })) }],
     })
   );
 
@@ -175,6 +187,13 @@ export function createServer() {
     new ResourceTemplate('prism://course/{courseId}/assignments', { list: undefined }),
     { title: 'Course assignments', description: "A course's assignments", mimeType: 'application/json' },
     async (uri, { courseId }) => json(uri, listAssignments(getDb(), { course_id: courseId }))
+  );
+
+  server.registerResource(
+    'roster',
+    new ResourceTemplate('prism://course/{courseId}/roster', { list: undefined }),
+    { title: 'Course roster', description: "A course's current roster", mimeType: 'application/json' },
+    async (uri, { courseId }) => json(uri, listStudents(getDb(), { course_id: courseId }))
   );
 
   server.registerResource(

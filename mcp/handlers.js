@@ -7,7 +7,8 @@ import { listRubrics, getRubricByName, saveRubric, findRubricByContentHash } fro
 import { hashRubricContent } from '../server/services/rubricHash.js';
 import { attachRubric } from '../server/services/rubricAttach.js';
 import { LEVELS } from '../server/lib/proficiencyScale.js';
-import { normalizeSubmissionStatus, gradingState } from '../server/services/assessmentContext.js';
+import { normalizeSubmissionStatus, gradingState, getRoster } from '../server/services/assessmentContext.js';
+import { preferredFirstName } from '../server/services/studentNames.js';
 
 // Active courses = not archived, not excluded, not hidden. Mirrors the
 // 'current' view in server/routes/courses.js, plus the excluded filter (#56,
@@ -82,6 +83,22 @@ export function listAssignments(db, { course_id }) {
     // surface the latest as an ISO string, null when nobody has submitted.
     latest_submission_at: latest_submitted_at > 0 ? new Date(latest_submitted_at * 1000).toISOString() : null,
     ...assignmentCounts(db, { id: r.id, schoology_assignment_id: r.schoology_assignment_id, course_id: _c, is_lti_submission }),
+  }));
+}
+
+// Course roster (current, non-dropped enrolments), independent of any
+// assignment — so a class-list check (e.g. against a meeting attendance log)
+// doesn't require resolving an assignment first. Reuses the same getRoster
+// query get_assignment_context composes into its per-assignment roster.
+export function listStudents(db, { course_id }) {
+  return getRoster(db, Number(course_id)).map((st) => ({
+    id: st.id,
+    schoology_uid: st.schoology_uid,
+    first_name: st.first_name,
+    last_name: st.last_name,
+    preferred_name: st.preferred_name,
+    preferred_first_name: preferredFirstName(st),
+    email: st.email ?? null,
   }));
 }
 

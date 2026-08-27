@@ -15,6 +15,7 @@ import SchoologyLink from '../components/SchoologyLink.jsx';
 import SubmissionStatusPill from '../components/SubmissionStatusPill.jsx';
 import AssessmentFilterBar from '../components/AssessmentFilterBar.jsx';
 import { passesFilters } from '../lib/assessmentFilters.js';
+import { useStickyTab } from '../hooks/useStickyTab.js';
 
 const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
 // Suggestion accent — fuchsia CSS tokens (matches descriptor grid's --ai-suggest).
@@ -1378,7 +1379,7 @@ export default function AssessmentSummaryPage() {
   // level table; defaults to Descriptors (the richer, student-language view).
   const [rubricData, setRubricData] = useState(null);
   const [rubricPalette, setRubricPalette] = useState({});
-  const [viewMode, setViewMode] = useState('descriptors');
+  const [viewMode, setViewMode] = useStickyTab('assessment-view', 'descriptors', { param: 'view' });
   const [rubricModalOpen, setRubricModalOpen] = useState(false);
   const [activeFilters, setActiveFilters] = useState(() => new Set());
   const toggleFilter = (id) => setActiveFilters(prev => {

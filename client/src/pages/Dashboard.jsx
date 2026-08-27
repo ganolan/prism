@@ -4,10 +4,11 @@ import { getCourses, getCoursesByView, getSyncStatus, toggleCourseVisibility } f
 import { groupBySemester, groupByYearAndSemester } from '../lib/courseDisplay.js';
 import ArchivedCoursesPanel from '../components/ArchivedCoursesPanel.jsx';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
+import { useStickyTab } from '../hooks/useStickyTab.js';
 
 export default function Dashboard() {
   const dataVersion = useDataVersion();
-  const [activeTab, setActiveTab] = useState('current');
+  const [activeTab, setActiveTab] = useStickyTab('dashboard', 'current');
   const [showHidden, setShowHidden] = useState(false);
   const [courses, setCourses] = useState([]);
   const [syncStatus, setSyncStatus] = useState(null);

@@ -13,6 +13,7 @@ import { gradYearToLevel } from '../lib/gradeLevel.js';
 import { preferredFirstName } from '../lib/studentNames.js';
 import { indexMastery, buildAssignmentRubric } from '../lib/gradebookMastery.js';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
+import { useStickyTab } from '../hooks/useStickyTab.js';
 import CompactRubric from '../components/CompactRubric.jsx';
 import SubmissionBadges from '../components/SubmissionBadges.jsx';
 import SchoologyLink from '../components/SchoologyLink.jsx';
@@ -27,7 +28,7 @@ export default function CoursePage() {
   const [students, setStudents] = useState([]);
   const [gradebook, setGradebook] = useState(null);
   const [mastery, setMastery] = useState(null);
-  const [view, setView] = useState('roster');
+  const [view, setView] = useStickyTab('course', 'roster');
   const [loading, setLoading] = useState(true);
   const [masterySyncing, setMasterySyncing] = useState(false);
   const [masterySyncResult, setMasterySyncResult] = useState(null);

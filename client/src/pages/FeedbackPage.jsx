@@ -8,6 +8,7 @@ import {
 } from '../services/api.js';
 import { gradeLabel } from '../lib/gradeLabel.js';
 import { studentFullName } from '../lib/studentNames.js';
+import { useStickyTab } from '../hooks/useStickyTab.js';
 
 const STATUS_COLORS = {
   draft: 'badge-gray',
@@ -19,7 +20,7 @@ const STATUS_COLORS = {
 
 export default function FeedbackPage() {
   const [items, setItems] = useState([]);
-  const [filter, setFilter] = useState('');
+  const [filter, setFilter] = useStickyTab('feedback-status', '', { param: 'status' });
   const [courseFilter, setCourseFilter] = useState('');
   const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);

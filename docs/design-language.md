@@ -554,3 +554,33 @@ each colour standing for a *function* so the hierarchy reads at a glance.
 - Shown on **both tabs**. Archived cards are already dimmed to 0.75, which carries
   the badge with them, so "archived" still reads at a glance while the roster size
   stays visible for past-year courses.
+
+## Tab and filter state survives navigation (August 2026)
+
+- **Every tab bar / filter selector remembers itself.** Dashboard (Current /
+  Archived), CoursePage (Roster / Gradebook / Assessments / Analytics),
+  FeedbackPage's status filter, and AssessmentSummaryPage's Descriptors /
+  Compact toggle all go through `client/src/hooks/useStickyTab.js`. Previously
+  each held plain `useState`, so React Router unmounting the page on navigation
+  reset it — clicking from Gradebook into an assessment and pressing Back landed
+  you on Roster.
+- **The active tab lives in the URL** as a query param: `?tab=` for the two tab
+  bars, `?status=` on Feedback, `?view=` on the assessment summary. This makes a
+  tab **linkable and refresh-safe** ("here's the gradebook" is now a URL you can
+  paste), and it is what the browser Back button restores — the page's history
+  entry already carries the param.
+- **Tab clicks `replace` the history entry rather than pushing one.** Otherwise
+  Back would step backwards through every tab you tried instead of leaving the
+  page.
+- **A `sessionStorage` sidecar (`prism.tab.<key>`) covers the other way back.**
+  In-app "← Back to course" links point at a bare path with no query string, so
+  the URL alone can't restore the tab there. Reads prefer the URL and fall back
+  to storage; writes update both. Storage access is wrapped in try/catch — a
+  forgotten tab beats a page that crashes in Safari private mode.
+- **Keys are per page-type, not per-course.** `course`, not `course-5`: pick
+  Gradebook in one course and the next course you open also starts on Gradebook.
+  A teacher moving between courses is usually doing the *same task*, so carrying
+  the mode across is the helpful behaviour, and it keeps the key space small.
+- An empty param is a real choice, not a missing one — `?status=` selects
+  Feedback's "All", which is why the hook uses `??` (not `||`) between the URL
+  value and the fallback.

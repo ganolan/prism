@@ -87,6 +87,9 @@ function renderCard(extraProps = {}) {
 
 beforeEach(() => {
   localStorage.clear();
+  // The Descriptors/Compact toggle is sticky (useStickyTab), so a test that
+  // clicks Compact would otherwise set the opening view for every test after it.
+  sessionStorage.clear();
   vi.clearAllMocks();
   mockSaver = undefined;
 });
@@ -1253,5 +1256,48 @@ describe('AssessmentSummaryPage filtering', () => {
     fireEvent.click(screen.getByRole('button', { name: /Submitted1/ }));
     expect(screen.queryByText('Bob M')).toBeNull();
     expect(screen.getByText('Ada L')).toBeInTheDocument();
+  });
+});
+
+// The Descriptors/Compact toggle is sticky (?view=…) so it survives stepping
+// out to a student page and back. Mechanism: src/hooks/useStickyTab.test.jsx.
+describe('AssessmentSummaryPage sticky view mode', () => {
+  const mastery = {
+    assignment: { title: 'Notebook 4', is_lti_submission: 1, due_date: '2026-06-01', lti_fetch_status: 'ok' },
+    topics: [{ id: 't1', title: 'T1', category_title: 'C', external_id: 'X1' }],
+    students: [
+      { id: 1, schoology_uid: 'u1', first_name: 'Ada', last_name: 'L', scores: {}, grade_comment: '', exception: 0, comment_status: 0, lti_submission_state: 'submitted', submission_type: null, late: 0, draft: 0, submitted_at: 0, review_flag: null, resubmit_flag: null },
+    ],
+  };
+
+  function renderAt(entry) {
+    getMasteryForAssignment.mockResolvedValue(mastery);
+    return render(
+      <MR initialEntries={[entry]}>
+        <Rs><Rt path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} /></Rs>
+      </MR>
+    );
+  }
+
+  const modeBtn = (name) => screen.getByRole('button', { name });
+
+  it('opens in Compact when the URL says so', async () => {
+    renderAt('/course/4/assessment/8?view=compact');
+    await waitFor(() => expect(modeBtn('Compact')).toHaveClass('active'));
+    expect(modeBtn('Descriptors')).not.toHaveClass('active');
+  });
+
+  it('opens in Descriptors by default', async () => {
+    renderAt('/course/4/assessment/8');
+    await waitFor(() => expect(modeBtn('Descriptors')).toHaveClass('active'));
+  });
+
+  it('reopens in the mode last used when returning without a param', async () => {
+    const first = renderAt('/course/4/assessment/8');
+    fireEvent.click(await screen.findByRole('button', { name: 'Compact' }));
+    first.unmount();
+
+    renderAt('/course/4/assessment/8');
+    await waitFor(() => expect(modeBtn('Compact')).toHaveClass('active'));
   });
 });

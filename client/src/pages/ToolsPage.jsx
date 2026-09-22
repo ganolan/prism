@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { getCourses, getEmails, getRandomStudents, getGroups } from '../services/api.js';
+import { getCourses, getEmails, getRandomStudents, getGroups, getRoster } from '../services/api.js';
 import { studentFullName } from '../lib/studentNames.js';
+import { NAME_FORMATS, SEPARATORS, SAMPLE_STUDENT, formatName, formatClassList } from '../lib/nameFormats.js';
 
 const GROUP_COLORS = [
   'var(--badge-blue-bg)', 'var(--badge-green-bg)', 'var(--warning-light)',
@@ -57,10 +58,96 @@ export default function ToolsPage() {
 
       {selectedCourses.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <ClassListTool courseIds={selectedCourses} />
           <EmailTool courseIds={selectedCourses} />
           <RandomPicker courseIds={selectedCourses} />
           <GroupGenerator courseIds={selectedCourses} />
         </div>
+      )}
+    </div>
+  );
+}
+
+const SORT_OPTIONS = [
+  { id: 'last', label: 'Last name' },
+  { id: 'first', label: 'First name' },
+];
+
+function ClassListTool({ courseIds }) {
+  const [format, setFormat] = useState('first-last');
+  const [separator, setSeparator] = useState('newline');
+  const [sort, setSort] = useState('last');
+  const [roster, setRoster] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const textareaRef = useRef(null);
+
+  const text = roster ? formatClassList(roster, { format, separator, sort }) : '';
+
+  // Changing the course selection invalidates whatever was generated — clear it
+  // rather than leave a list on screen that no longer matches the tick boxes.
+  useEffect(() => {
+    setRoster(null);
+    setCopied(false);
+  }, [courseIds]);
+
+  // Grow the textarea to fit the full list so it's all visible without dragging
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [text]);
+
+  async function handleGenerate() {
+    const data = await getRoster(courseIds);
+    setRoster(data.students);
+    setCopied(false);
+  }
+
+  function handleCopy() {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div className="card" data-testid="class-list-tool">
+      <h3 style={{ marginBottom: '0.75rem' }}>Class List</h3>
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+        <div>
+          <label className="text-sm" htmlFor="class-list-format">Format</label>
+          <select id="class-list-format" value={format} onChange={e => setFormat(e.target.value)} style={{ width: 'auto' }}>
+            {NAME_FORMATS.map(f => (
+              <option key={f.id} value={f.id}>{f.label} — {formatName(SAMPLE_STUDENT, f.id)}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="text-sm" htmlFor="class-list-separator">Separate by</label>
+          <select id="class-list-separator" value={separator} onChange={e => setSeparator(e.target.value)} style={{ width: 'auto' }}>
+            {SEPARATORS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-sm" htmlFor="class-list-sort">Sort by</label>
+          <select id="class-list-sort" value={sort} onChange={e => setSort(e.target.value)} style={{ width: 'auto' }}>
+            {SORT_OPTIONS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+        </div>
+        <button className="primary" onClick={handleGenerate}>Generate</button>
+        {roster && roster.length > 0 && (
+          <button className="primary" onClick={handleCopy} style={{ background: copied ? 'var(--success)' : undefined }}>
+            {copied ? 'Copied!' : `Copy ${roster.length} names`}
+          </button>
+        )}
+      </div>
+      {roster && roster.length === 0 && (
+        <div className="alert alert-warning">No students enrolled in the selected course(s).</div>
+      )}
+      {roster && roster.length > 0 && (
+        <textarea ref={textareaRef} readOnly value={text} rows={3}
+          style={{ background: 'var(--bg-subtle)', resize: 'vertical', overflow: 'hidden' }}
+        />
       )}
     </div>
   );

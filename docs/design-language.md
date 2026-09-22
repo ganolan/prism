@@ -584,3 +584,28 @@ each colour standing for a *function* so the hierarchy reads at a glance.
 - An empty param is a real choice, not a missing one — `?status=` selects
   Feedback's "All", which is why the hook uses `??` (not `||`) between the URL
   value and the fallback.
+
+## Class List tool — format pickers preview themselves (September 2026)
+
+- **Each format option carries a worked example**: the Format dropdown reads
+  `First Last — Alex Chen`, `Last, First — Chen, Alex`, `First L. — Alex C.`
+  rather than the bare label. A teacher picking a name format is choosing a
+  *shape*, and the label alone ("First L.") makes them generate the list to find
+  out what it does. The sample (`SAMPLE_STUDENT` in
+  `client/src/lib/nameFormats.js`) deliberately has three different given names —
+  legal `Alexander`, Schoology-preferred `Al`, teacher override `Alex` — so
+  `Legal first + Last` visibly differs from the rest instead of looking redundant.
+- **Formatting is client-side; the fetch is not.** `GET /api/tools/roster/:ids`
+  returns raw name fields and the card renders them through
+  `formatClassList()`. Changing format, separator or sort order is instant and
+  costs no round trip — which matters because trying formats is exactly how a
+  teacher decides which one they want. The server stays the single source of
+  *who* is enrolled; the client owns *how they read*.
+- **Sorting always keys off the displayed (preferred) given name**, whatever
+  format is selected — including `Legal first + Last`. Order on screen should
+  match the order the names read in, top to bottom.
+- **Changing the course selection clears a generated list** rather than leaving
+  stale names above freshly-ticked boxes. The sibling tools on this page don't
+  do this yet; when one of them is next touched, it should.
+- **An empty roster says so** (`.alert.alert-warning`) instead of rendering an
+  empty textarea, which reads as a broken button.

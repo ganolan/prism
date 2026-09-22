@@ -115,6 +115,7 @@ export const deleteFlag = (id) => request(`/flags/${id}`, { method: 'DELETE' });
 const courseList = (courseIds) => [].concat(courseIds).join(',');
 export const getEmails = (courseIds, type) => request(`/tools/emails/${courseList(courseIds)}?type=${type || 'student'}`);
 export const getRandomStudents = (courseIds, count) => request(`/tools/random/${courseList(courseIds)}?count=${count || 1}`);
+export const getRoster = (courseIds) => request(`/tools/roster/${courseList(courseIds)}`);
 export const getGroups = (courseIds, count, balanced) => request(`/tools/groups/${courseList(courseIds)}?count=${count || 4}&balanced=${balanced || false}`);
 
 // Grading scales — global lookup map

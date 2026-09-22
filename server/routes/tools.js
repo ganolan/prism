@@ -203,4 +203,24 @@ router.get('/groups/:courseId', (req, res) => {
   }
 });
 
+// GET /api/tools/roster/:courseId — plain student roster for the class-list tool
+// :courseId is a comma-separated list of course IDs. Returns the raw name fields
+// rather than a rendered name: the client owns the formatting (see
+// client/src/lib/nameFormats.js) so switching format needs no round trip.
+router.get('/roster/:courseId', (req, res) => {
+  const db = getDb();
+  const [courseIds, placeholders] = parseCourseIds(req.params.courseId);
+
+  // DISTINCT dedups students enrolled in more than one selected course.
+  const students = db.prepare(`
+    SELECT DISTINCT s.id, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher
+    FROM students s
+    JOIN enrolments e ON e.student_id = s.id
+    WHERE e.course_id IN (${placeholders}) AND e.dropped_at IS NULL
+    ORDER BY s.last_name, s.first_name
+  `).all(...courseIds);
+
+  res.json({ students, count: students.length });
+});
+
 export default router;

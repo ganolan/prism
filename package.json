@@ -1,7 +1,7 @@
 {
   "name": "prism",
   "version": "0.1.0",
-  "description": "Student dashboard — local-first Schoology + PowerSchool viewer",
+  "description": "Student dashboard \u2014 local-first Schoology + PowerSchool viewer",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,6 +13,8 @@
     "build": "cd client && npx vite build",
     "test:api": "node test-api.js",
     "test:server": "vitest run",
+    "db:backup": "node scripts/db-backup.js",
+    "db:restore": "node scripts/db-restore.js",
     "postinstall": "npx playwright install chromium",
     "mastery:login": "node -e \"import('./server/services/masterySync.js').then(m => m.interactiveLogin())\"",
     "mastery:capture": "node scripts/capture-mastery-xhr.js"

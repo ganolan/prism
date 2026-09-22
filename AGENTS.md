@@ -80,9 +80,11 @@ npm run test:api   # Schoology API smoke test
 - **PowerSchool API probe results and access plan**: `.claude/powerschool-api-reference.md`
 - **Build progress across all phases**: `.claude/build-progress.md`
 - **Product spec and roadmap**: `product-spec.md`
+- **Hosting + deploy topology — decided 2026-09-23, NOT yet built**: `docs/adr/0003-prism-served-from-a-home-server-over-tailscale.md` and `docs/superpowers/specs/2026-09-23-prism-hosting-and-deploy-design.md`. Until it ships, Prism runs as a hand-started dev server — don't write code or docs that assume prod exists. `CONTEXT.md` holds the vocabulary (prod / release / dev clone / snapshot).
 
 ## Working Notes
 
+- **Never run Prism from a cloud-synced folder** (#121). The live SQLite trio (`.db` + `-wal` + `-shm`) tears under sync, and `.git` can arrive incomplete — observed 2026-09-22: the OneDrive clone was missing 8 objects and could not read its own HEAD tree, while `git status` still reported clean. This includes OneDrive **and** macOS `~/Documents` when Desktop & Documents sync is enabled. `npm run db:backup` (SQLite backup API) is the only safe way to copy the database; `db:restore` must clear stale `-wal`/`-shm` first or a foreign WAL can be replayed over the restored file.
 - Check `.claude/build-progress.md` before starting any new phase to avoid repeating work.
 - **Preserve verified API intel.** API findings are hard-won via fragile spikes (the playbook treats probes as lower bounds). When removing code that used a discovered API surface, keep its verified intel in `.claude/schoology-api-reference.md` / `.claude/powerschool-api-reference.md` — annotate the relevant row as superseded / no-longer-used (with date + why) but **never delete** the shape/keying/enum docs. Before deleting a parser, confirm everything it encoded is in the reference doc. (Example: `grader_header_data` was annotated "no longer consumed" — not removed — when the GHD pre-filter was dropped, 2026-06-08.)
 - Schema uses `CREATE TABLE IF NOT EXISTS` for safe idempotent creation via `getDb()`. Columns added to an existing table go in the `MIGRATIONS` array in `server/db/index.js` **as well as** `server/db/schema.sql`, or existing local databases silently miss them.

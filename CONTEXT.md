@@ -58,3 +58,41 @@ optional **mastery (SBG)** sync. The **Import archived courses** discovery surfa
 once — gradebook only; mastery stays opt-in via the Step 2 group) now lives on the
 **Dashboard Archived tab**, above the imported-course cards. Keep these two labels
 distinct.
+
+## Deployment topology and its vocabulary
+
+**Status: decided 2026-09-23, not yet built.** See
+`docs/adr/0003-prism-served-from-a-home-server-over-tailscale.md` and
+`docs/superpowers/specs/2026-09-23-prism-hosting-and-deploy-design.md`. Until it
+is built, Prism runs the way it always has — a dev server started by hand. Do not
+write code or docs that assume the topology below already exists.
+
+Once built, these terms are canonical:
+
+- **prod** — the single always-on instance on the home Mac mini, serving
+  `~/prism/current` on loopback and published to the tailnet by `tailscale serve`.
+  It holds the **one authoritative database** at `~/prism/data/students.db`.
+- **release** — a deployed checkout under `~/prism/releases/<date>-<sha>/`.
+  `current` is a symlink to the active one; the previous release is retained so
+  rollback is a symlink swap. Releases are **machine-owned**: deploys write them,
+  humans never edit them.
+- **dev clone** — any other checkout (`~/repos/prism`, the same path on every
+  machine), running against a **disposable** database. Never a master; its data
+  is a snapshot copy that may be overwritten at any time.
+- **snapshot** — a consistent single-file copy written by `npm run db:backup`
+  via SQLite's backup API, into `PRISM_BACKUP_DIR`. Snapshots are the **only**
+  form in which the database is ever copied or synced. The live
+  `.db`/`-wal`/`-shm` trio is never handed to a syncing tool.
+
+Two rules follow, and both have already been violated once:
+
+- **The database never lives in a cloud-synced folder** (#121). This now includes
+  `~/Documents`: macOS Desktop & Documents sync is one setting away, and on a
+  school-managed Mac OneDrive Known Folder Move redirects it outright. Clones
+  live at `~/repos/`, which neither can reach. Check a new machine with
+  `readlink ~/Documents` — any output means redirected.
+- **A process that touches student data must declare which database it opens.**
+  PrisMCP reads SQLite directly and loads no dotenv, so a launch without an
+  explicit `DB_PATH` silently opens whatever sits beside the code — on a dev
+  clone, a throwaway copy. Processes run where the data is; they do not reach
+  across a network to it.

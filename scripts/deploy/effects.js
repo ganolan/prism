@@ -1,0 +1,164 @@
+/**
+ * The deploy's side effects, kept apart from its logic so tests can replace
+ * them. Everything here shells out to a real tool. Only parseCiRuns and
+ * healthCheck are unit-tested; the rest is exercised by the live bring-up.
+ */
+import { execFileSync, spawnSync } from 'node:child_process';
+import { closeSync, copyFileSync, mkdirSync, openSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { LABELS, paths } from './lib.js';
+
+export const REPO_SLUG = process.env.PRISM_REPO || 'ganolan/prism';
+export const CI_WORKFLOW = 'ci.yml';
+export const VERSION_URL = 'http://127.0.0.1:3001/api/version';
+
+const run = (cmd, args, opts = {}) =>
+  execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...opts }).trim();
+
+export function fetchMain(repoDir) {
+  run('git', ['-C', repoDir, 'fetch', '--quiet', 'origin', 'main']);
+  return run('git', ['-C', repoDir, 'rev-parse', 'origin/main']);
+}
+
+/** Write the tree at `sha` into `dest`: no .git, no untracked files, no .env. */
+export function exportTree(repoDir, sha, dest) {
+  mkdirSync(dest, { recursive: true });
+  execFileSync(
+    '/bin/bash',
+    ['-o', 'pipefail', '-c', 'git -C "$1" archive "$2" | tar -x -C "$3"', 'bash', repoDir, sha, dest],
+    { stdio: ['ignore', 'pipe', 'pipe'] },
+  );
+}
+
+/** npm ci (root and client) and the client build; output goes to `logFile`. */
+export function install(dir, logFile) {
+  const fd = openSync(logFile, 'a');
+  try {
+    const opts = { cwd: dir, stdio: ['ignore', fd, fd] };
+    execFileSync('npm', ['ci'], opts);
+    execFileSync('npm', ['ci'], { ...opts, cwd: join(dir, 'client') });
+    execFileSync('npm', ['run', 'build'], opts);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * One word from GET /repos/{slug}/actions/workflows/{file}/runs?head_sha=.
+ * Shape observed 2026-09-23: { total_count, workflow_runs: [{ id, name, event,
+ * status, conclusion, head_sha, head_branch, created_at, run_number }] }.
+ */
+export function parseCiRuns(payload, sha) {
+  const runs = (payload?.workflow_runs ?? [])
+    .filter((r) => r.head_sha === sha && r.event === 'push')
+    .sort((a, b) => b.run_number - a.run_number);
+  const latest = runs[0];
+  if (!latest) return 'missing';
+  if (latest.status !== 'completed') return 'pending';
+  return latest.conclusion || 'failure';
+}
+
+export function ciStatus(sha) {
+  const out = run('gh', ['api', `repos/${REPO_SLUG}/actions/workflows/${CI_WORKFLOW}/runs?head_sha=${sha}&per_page=20`]);
+  return parseCiRuns(JSON.parse(out), sha);
+}
+
+/** Poll /api/version until `expectSha` is the commit answering, or give up. */
+export async function healthCheck(expectSha, { url = VERSION_URL, timeoutMs = 30_000, intervalMs = 500 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  do {
+    try {
+      const res = await fetch(url);
+      if (res.ok && (await res.json()).sha === expectSha) return true;
+    } catch {
+      // not listening yet
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  } while (Date.now() < deadline);
+  return false;
+}
+
+// ---- launchd ----
+const domain = () => `gui/${process.getuid()}`;
+
+export function launchAgentPath(label, home = homedir()) {
+  return join(home, 'Library', 'LaunchAgents', `${label}.plist`);
+}
+
+export function isLoaded(label) {
+  return spawnSync('launchctl', ['print', `${domain()}/${label}`], { stdio: 'ignore' }).status === 0;
+}
+
+export function load(label) {
+  if (!isLoaded(label)) run('launchctl', ['bootstrap', domain(), launchAgentPath(label)]);
+}
+
+export function unload(label) {
+  if (isLoaded(label)) run('launchctl', ['bootout', `${domain()}/${label}`]);
+}
+
+export function restartServer() {
+  load(LABELS.server);
+  run('launchctl', ['kickstart', '-k', `${domain()}/${LABELS.server}`]);
+}
+
+// ---- tailnet ----
+function tailscaleStatus() {
+  try {
+    return JSON.parse(run('tailscale', ['status', '--json']));
+  } catch {
+    return {};
+  }
+}
+
+export function certDomains() {
+  return tailscaleStatus().CertDomains ?? [];
+}
+
+/**
+ * The node's key expiry, or null. Both shapes observed 2026-09-23: enabled →
+ * Self.KeyExpiry = "2027-03-12T15:11:00Z"; disabled → the field is absent.
+ */
+export function keyExpiry() {
+  const value = tailscaleStatus().Self?.KeyExpiry;
+  return typeof value === 'string' && !Number.isNaN(Date.parse(value)) ? value : null;
+}
+
+export function sshListening() {
+  return spawnSync('lsof', ['-nP', '-iTCP:22', '-sTCP:LISTEN'], { stdio: 'ignore' }).status === 0;
+}
+
+export function serve(port = 3001) {
+  run('tailscale', ['serve', '--bg', String(port)]);
+}
+
+// ---- bundles ----
+export function deployEffects(root) {
+  const p = paths(root);
+  return {
+    fetchMain: () => fetchMain(p.repo),
+    ciStatus,
+    exportTree: (sha, dest) => exportTree(p.repo, sha, dest),
+    install: (dir) => install(dir, join(p.logs, 'deploy.log')),
+    restart: restartServer,
+    healthCheck: (sha) => healthCheck(sha),
+  };
+}
+
+export function cutoverEffects(root) {
+  const p = paths(root);
+  return {
+    certDomains,
+    keyExpiry,
+    sshListening,
+    stopServer: () => unload(LABELS.server),
+    startServer: () => load(LABELS.server),
+    healthCheck: (sha) => healthCheck(sha),
+    loadBackupAgent: () => {
+      copyFileSync(join(p.launchd, `${LABELS.backup}.plist`), launchAgentPath(LABELS.backup));
+      load(LABELS.backup);
+    },
+    serve: () => serve(3001),
+  };
+}

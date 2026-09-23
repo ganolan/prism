@@ -101,6 +101,7 @@ export const getPeopleSessionStatus = () => request('/people/session-status');
 
 // Features
 export const getFeatures = () => request('/features');
+export const getVersion = () => request('/version');
 
 // Notes
 export const createNote = (data) => request('/notes', { method: 'POST', body: JSON.stringify(data) });

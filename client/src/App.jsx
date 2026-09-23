@@ -13,6 +13,7 @@ import AssessmentSummaryPage from './pages/AssessmentSummaryPage.jsx';
 import { useTheme } from './hooks/useTheme.jsx';
 import { DataVersionContext } from './hooks/useDataVersion.jsx';
 import SyncDialog from './components/SyncDialog.jsx';
+import VersionBadge from './components/VersionBadge.jsx';
 import './app.css';
 
 export default function App() {
@@ -51,6 +52,7 @@ export default function App() {
               />
             ))}
           </div>
+          <VersionBadge />
         </nav>
         <main className="content">
           <Routes>

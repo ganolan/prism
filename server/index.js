@@ -22,6 +22,7 @@ import { getGradingScalesMap } from './db/scales.js';
 import { getFeatures } from './middleware/featureGate.js';
 import { getScaleTable, schoologyScaleId } from './lib/proficiencyScale.js';
 import { resolveHost, resolvePort } from './lib/listenConfig.js';
+import { resolveVersion } from './lib/version.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = resolvePort();
@@ -54,6 +55,11 @@ app.use('/api/assessment-drafts', assessmentDraftsRouter);
 // Feature flags endpoint
 app.get('/api/features', (req, res) => {
   res.json(getFeatures());
+});
+
+// What build is answering — the deployed SHA and build time, or dev.
+app.get('/api/version', (req, res) => {
+  res.json(resolveVersion());
 });
 
 // Grading scales — global lookup map for the client to render scale-aware

@@ -15,5 +15,8 @@ scripts/*-capture.json
 .superpowers/
 .claude/worktrees/
 _tmp_*.mjs
+# Written by a deploy into the release it creates; never committed — a checked-in
+# copy would make every clone report itself as that release (see /api/version).
+release.json
 # Contains real student data (mockups + grading sample) — kept local, not committed
 docs/ui-design/PrisMCP-update/

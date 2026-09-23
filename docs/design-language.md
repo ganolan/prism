@@ -609,3 +609,19 @@ each colour standing for a *function* so the hierarchy reads at a glance.
   do this yet; when one of them is next touched, it should.
 - **An empty roster says so** (`.alert.alert-warning`) instead of rendering an
   empty textarea, which reads as a broken button.
+
+## Version badge — the sidebar names the backend (September 2026)
+
+- **The badge reports what `/api` answered, not what the page was built from.**
+  A short SHA means a deployed release; `dev` means a clone with no
+  `release.json`. This is deliberate: when a local Vite client proxies `/api`
+  at the server, the only question worth answering is which backend is
+  serving the data, and a build-time constant baked into the bundle would
+  answer the wrong one.
+- **Quiet by default, legible on hover** — `opacity: 0.55` rising to `0.9`,
+  monospace, 0.7rem, `var(--sidebar-text)`. It is reference information, not
+  navigation, and should never compete with the nav links above it.
+- **It renders nothing when the request fails.** A server that cannot be
+  reached already shows itself everywhere else in the UI; an error chip in
+  the sidebar would be noise on top of noise.
+- **The build time is a `title`, in `en-GB`** — `Built 23/09/2026 09:06`.

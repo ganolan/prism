@@ -30,7 +30,7 @@ SCHOOLOGY_CONSUMER_KEY=...
 SCHOOLOGY_CONSUMER_SECRET=...
 ```
 
-The SQLite database lives at `server/db/students.db` (gitignored). PowerSchool CSV drops go in `data/imports/`. Optional local overrides: `PORT`, `DB_PATH` (default `server/db/students.db`), `INBOX_DIR`, `CONFIG_PATH`.
+The SQLite database lives at `server/db/students.db` (gitignored). PowerSchool CSV drops go in `data/imports/`. Optional local overrides: `PORT`, `HOST` (default `127.0.0.1`), `DB_PATH` (default `server/db/students.db`), `PRISM_SESSION_DIR`, `INBOX_DIR`, `CONFIG_PATH`, `PRISM_SKIP_BROWSERS`. PrisMCP additionally **requires** an absolute `DB_PATH` and is configured per machine — see `docs/prismcp-install-and-verify.md`.
 
 Mastery sync (SBG data from Schoology's internal API) requires a one-time browser login:
 ```bash
@@ -80,7 +80,7 @@ npm run test:api   # Schoology API smoke test
 - **PowerSchool API probe results and access plan**: `.claude/powerschool-api-reference.md`
 - **Build progress across all phases**: `.claude/build-progress.md`
 - **Product spec and roadmap**: `product-spec.md`
-- **Hosting + deploy topology — decided 2026-09-23, NOT yet built**: `docs/adr/0003-prism-served-from-a-home-server-over-tailscale.md` and `docs/superpowers/specs/2026-09-23-prism-hosting-and-deploy-design.md`. Until it ships, Prism runs as a hand-started dev server — don't write code or docs that assume prod exists. `CONTEXT.md` holds the vocabulary (prod / release / dev clone / snapshot).
+- **Hosting + deploy — built 2026-09-23, pre-cutover**: `docs/deploy.md` (operations), `docs/adr/0003-prism-served-from-a-home-server-over-tailscale.md` and `docs/superpowers/specs/2026-09-23-prism-hosting-and-deploy-design.md` (design). The pipeline runs on the Mac mini — push to `main` deploys — but until cutover prod's database is empty and unpublished and the **laptop is still master**. Don't write code or docs that assume the mini holds the real data yet. `CONTEXT.md` holds the vocabulary (prod / release / dev clone / snapshot / cutover).
 
 ## Working Notes
 

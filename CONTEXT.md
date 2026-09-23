@@ -61,13 +61,14 @@ distinct.
 
 ## Deployment topology and its vocabulary
 
-**Status: decided 2026-09-23, not yet built.** See
+**Status: built 2026-09-23, cutover pending.** See `docs/deploy.md`,
 `docs/adr/0003-prism-served-from-a-home-server-over-tailscale.md` and
-`docs/superpowers/specs/2026-09-23-prism-hosting-and-deploy-design.md`. Until it
-is built, Prism runs the way it always has — a dev server started by hand. Do not
-write code or docs that assume the topology below already exists.
+`docs/superpowers/specs/2026-09-23-prism-hosting-and-deploy-design.md`. The
+pipeline runs on the mini, but until cutover prod's database is empty and
+unpublished and the laptop remains master. Do not write code or docs that assume
+the mini holds the real data yet.
 
-Once built, these terms are canonical:
+These terms are canonical (the pipeline is built; cutover has not happened yet):
 
 - **prod** — the single always-on instance on the home Mac mini, serving
   `~/prism/current` on loopback and published to the tailnet by `tailscale serve`.
@@ -83,6 +84,11 @@ Once built, these terms are canonical:
   via SQLite's backup API, into `PRISM_BACKUP_DIR`. Snapshots are the **only**
   form in which the database is ever copied or synced. The live
   `.db`/`-wal`/`-shm` trio is never handed to a syncing tool.
+- **cutover** — the one-time step that makes prod the master: the laptop's
+  writers stop, it takes a fresh snapshot, and `scripts/deploy/cutover.js`
+  restores exactly that snapshot into prod, verifies it, and publishes prod on
+  the tailnet. Before cutover the laptop is master; after it, the laptop's copy
+  is a disposable dev clone.
 
 Two rules follow, and both have already been violated once:
 

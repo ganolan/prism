@@ -1,7 +1,7 @@
 # Prism hosting + deploy pipeline — design
 
 **Date:** 2026-09-23
-**Status:** Approved, not yet implemented
+**Status:** Built 2026-09-23 up to cutover (see `docs/deploy.md`); cutover pending
 **Tracks:** #121 (move Prism out of OneDrive)
 **Decision record:** `docs/adr/0003-prism-served-from-a-home-server-over-tailscale.md`
 
@@ -90,7 +90,7 @@ and a plist that silently resolves `DB_PATH` to a relative path is the
 open-the-wrong-database failure this design is trying to eliminate.
 
 An agent rather than a daemon, deliberately: mastery re-login needs a real GUI
-session for headed Chromium. The mini therefore needs auto-login and
+session for headed Chromium. *(Auto-login turned out unnecessary — see Provisioning status.)* The mini therefore needs auto-login and
 `pmset` configured never to sleep — one decision serving both.
 
 ### Network
@@ -279,9 +279,13 @@ Claude, the grading plugin and the prompts all stay on the laptop; only the
 database-touching process moves. Writes land in prod. PrisMCP never touches
 Express, so **grading works while prod is down or mid-deploy**.
 
-Configure this **user-scoped on the laptop**, not by editing the committed
-`.mcp.json` — that file is the correct default for a clone running beside its own
-database, and rewriting it would make a session on the mini SSH to itself.
+Configure this **user-scoped on the laptop**. *(Revised 2026-09-23: the
+original text said to leave a committed `.mcp.json` as the clone default. That
+cannot work — Claude Code ranks project scope above user scope, so a committed
+`prism` entry would silently beat the user-scoped SSH route inside the repo.
+The committed `.mcp.json` is gone, every machine configures `prism` once,
+user-scoped, and PrisMCP refuses a relative `DB_PATH`. See
+`docs/prismcp-install-and-verify.md`.)*
 
 Costs: ~1s spawn latency; a tailnet drop kills the MCP server and needs a
 restart; `DB_PATH` must be explicit in the command.
@@ -293,9 +297,8 @@ outcome in this design and deserves a guard rather than a convention.
 
 ## Prerequisite code changes
 
-Items 1–6 shipped 2026-09-23 (branch `feat/hosting-prereqs`; see
-`.claude/build-progress.md`). Items 7–8 are still outstanding — they need the
-mini provisioned and the two open items below decided.
+All eight shipped 2026-09-23 — items 1–6 on `feat/hosting-prereqs`, 7–8 on
+`feat/deploy-pipeline` (see `.claude/build-progress.md`).
 
 | # | Change | Why | Status |
 |---|---|---|---|
@@ -305,8 +308,8 @@ mini provisioned and the two open items below decided.
 | 4 | `package.json`: `db:refresh`; `PRISM_SKIP_BROWSERS` guard in `postinstall` | Dev refresh ergonomics; CI speed | **Done** 2026-09-23 |
 | 5 | `GET /api/version` + UI surface | Know what is live | **Done** 2026-09-23 — `release.json` is gitignored |
 | 6 | `mcp/server.js`: explicit-`DB_PATH` startup guard | Prevent silent writes to a scratch DB | **Done** 2026-09-23 — committed `.mcp.json` now declares the path |
-| 7 | `.github/workflows/ci.yml` | The test gate | Outstanding — pin `setup-node` to **Node 25** (the mini runs v25.9.0, npm 11.12.1) |
-| 8 | `scripts/deploy.sh` + launchd plists (server, deploy poller, nightly backup) | The pipeline | Outstanding |
+| 7 | `.github/workflows/ci.yml` | The test gate | **Done** 2026-09-23 — Node 25; `PRISM_SKIP_BROWSERS`; the file name is the gate's lookup key |
+| 8 | `scripts/deploy.sh` + launchd plists (server, deploy poller, nightly backup) | The pipeline | **Done** 2026-09-23 — in Node, not shell: `scripts/deploy/*.js` (deploy, rollback, install, cutover), testable with Vitest against a throwaway git repo |
 
 ## Deferred
 
@@ -324,35 +327,39 @@ mini provisioned and the two open items below decided.
 
 ## Provisioning status (checked on the mini, 2026-09-23)
 
-- **Tailnet: up.** `macmini.swordtail-everest.ts.net`, `100.93.66.60`. Key
-  expiry still needs disabling on that node.
+- **Tailnet: up.** `macmini.swordtail-everest.ts.net`, `100.93.66.60`.
+  **HTTPS Certificates enabled** and **key expiry disabled** by the owner on
+  2026-09-23 (observed: `CertDomains` lists the node; `Self.KeyExpiry` is absent
+  once expiry is off).
 - **Never sleeps.** `pmset`: `sleep 0`, `disksleep 0`, `standby 0`.
 - **`gh` is authenticated** as `ganolan`, scopes `repo`, `workflow`,
-  `read:org`, `gist`; rate limit 5000/hr against the poller's 120. The CD
-  section's authentication prerequisite is satisfied.
-- **Node v25.9.0, npm 11.12.1** — pin `setup-node` to this major.
-- **No auto-login, and not planned.** FileVault stays on; the owner accepts a
-  manual unlock after a restart. This contradicts "the mini therefore needs
-  auto-login" in Section 1: a launchd **agent** only runs once someone logs in,
-  so after an unattended reboot prod stays down until the machine is unlocked.
-  Decide in Half 2 whether that is acceptable (it probably is — reboots are
-  rare and the laptop's dev copy is the documented fallback) or whether the
-  server half moves to a daemon with only mastery login left to an agent.
+  `read:org`, `gist`; rate limit 5000/hr against the poller's 120.
+- **Node v25.9.0, npm 11.12.1.** `/usr/local/bin/node` is a Homebrew link into
+  `Cellar/node/25.9.0_2`; plists use the link, never `process.execPath`.
+- **No auto-login — and none needed.** FileVault is on (arm64). Nothing runs
+  until someone types the password at startup, and that unlock logs them in, so
+  an **agent** starts exactly as soon as a daemon could. Planned restarts:
+  `sudo fdesetup authrestart`.
+- **Remote Login is off.** It is the one prerequisite left before cutover: the
+  laptop reaches PrisMCP over SSH.
+
+## Found while building (2026-09-23)
+
+- **Every CLI entry guard was symlink-blind.** `import.meta.url ===
+  pathToFileURL(process.argv[1]).href` compares a resolved path with an
+  unresolved one, so through `~/prism/current` the deploy poller, the nightly
+  backup and PrisMCP would have exited 0 having done nothing. Fixed with
+  `server/lib/isMain.js`; a test keeps the old form out.
+- **`INBOX_DIR` and `.env` would have lived inside the release.** The inbox
+  now points at `~/prism/data/inbox`; `.env` lives at `~/prism/data/.env` and
+  each release gets a relative link to it.
+- **Project-scope `.mcp.json` outranks user scope** — see §4's revision.
+- **The backup agent cannot be installed before cutover.** Anything in
+  `~/Library/LaunchAgents` loads at the next login, and an empty pre-cutover
+  snapshot would become the newest file the laptop's `db:restore` picks. It is
+  staged in `~/prism/launchd/` and cutover loads it.
 
 ## Open items
 
-- Production root path: `~/prism/` (assumed), `~/services/prism/`, or
-  `/usr/local/var/prism`.
-- `PRISM_BACKUP_DIR` on the mini: OneDrive (preferred) or local + Time Machine,
-  depending on whether OneDrive is signed in there.
-- Whether the server runs as a launchd agent (needs a logged-in session) or a
-  daemon — see the auto-login note above.
-- **At cutover, PrisMCP must move to user-scoped config** (§4's SSH command,
-  absolute `DB_PATH`). The committed `.mcp.json` sets a *relative*
-  `DB_PATH=server/db/students.db`, which resolves against whatever directory
-  the client launched it from. That is correct while a clone is its own
-  database, and becomes the silent-write-to-a-scratch-copy failure the guard
-  exists to prevent the moment the mini holds the authoritative one. PrisMCP
-  logs its resolved absolute database path to stderr at startup, which makes
-  the mistake diagnosable but not impossible. Consider having the guard reject
-  relative paths outright once the server exists.
+- None blocking the build. Before cutover: turn on Remote Login.
+- Log rotation for `~/prism/logs/*` is not set up.

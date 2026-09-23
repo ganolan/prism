@@ -21,9 +21,11 @@ import assessmentDraftsRouter from './routes/assessment-drafts.js';
 import { getGradingScalesMap } from './db/scales.js';
 import { getFeatures } from './middleware/featureGate.js';
 import { getScaleTable, schoologyScaleId } from './lib/proficiencyScale.js';
+import { resolveHost, resolvePort } from './lib/listenConfig.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PORT = process.env.PORT || 3001;
+const PORT = resolvePort();
+const HOST = resolveHost();
 
 const app = express();
 app.use(cors());
@@ -77,6 +79,6 @@ app.get('*', (req, res) => {
 getDb();
 console.log('Database initialized');
 
-app.listen(PORT, () => {
-  console.log(`Prism server running on http://localhost:${PORT}`);
+app.listen(PORT, HOST, () => {
+  console.log(`Prism server running on http://${HOST}:${PORT}`);
 });

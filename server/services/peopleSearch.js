@@ -16,12 +16,10 @@
  * every row (rate-limit friendly).
  */
 import { existsSync } from 'fs';
-import { join } from 'path';
 import { parseUserSearchResults, PAGE_SIZE } from '../lib/parseUserSearch.js';
+import { sessionStateFile } from '../lib/sessionPaths.js';
 
 const SCHOOLOGY_BASE = 'https://schoology.hkis.edu.hk';
-const SESSION_DIR = join(process.cwd(), '.playwright-session');
-const STATE_FILE = join(SESSION_DIR, 'storage-state.json');
 
 // Bound a single search: 5 pages × 10 = up to 50 results. Broad queries
 // (e.g. a common surname) have many more; when we hit this cap the result is
@@ -30,7 +28,7 @@ export const DEFAULT_MAX_PAGES = 5;
 
 // Best-effort: a saved session file exists. Does not prove it is still valid.
 export function hasSession() {
-  return existsSync(STATE_FILE);
+  return existsSync(sessionStateFile());
 }
 
 /**
@@ -66,7 +64,7 @@ export async function paginatePeopleSearch(getPage, query, { maxPages = DEFAULT_
 async function openPage() {
   const { chromium } = await import('playwright');
   const browser = await chromium.launch({ headless: true });
-  const contextOpts = existsSync(STATE_FILE) ? { storageState: STATE_FILE } : {};
+  const contextOpts = existsSync(sessionStateFile()) ? { storageState: sessionStateFile() } : {};
   const context = await browser.newContext(contextOpts);
   const page = await context.newPage();
   return { browser, page };

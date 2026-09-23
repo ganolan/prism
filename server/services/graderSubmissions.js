@@ -20,10 +20,9 @@
  * It never throws into the sync.
  */
 import { existsSync } from 'fs';
-import { join } from 'path';
 import { fetchAssignmentSubmissionState } from './graderDocuments.js';
+import { sessionStateFile } from '../lib/sessionPaths.js';
 
-const STATE_FILE = join(process.cwd(), '.playwright-session', 'storage-state.json');
 
 /**
  * Create a document-state fetcher backed by a single headless browser reused
@@ -37,7 +36,7 @@ const STATE_FILE = join(process.cwd(), '.playwright-session', 'storage-state.jso
  *   skip the document pass entirely without launching a browser.
  */
 export async function createSubmissionFetcher() {
-  if (!existsSync(STATE_FILE)) return null;
+  if (!existsSync(sessionStateFile())) return null;
 
   let chromium;
   try {
@@ -50,7 +49,7 @@ export async function createSubmissionFetcher() {
   let context;
   try {
     browser = await chromium.launch({ headless: true });
-    context = await browser.newContext({ storageState: STATE_FILE });
+    context = await browser.newContext({ storageState: sessionStateFile() });
   } catch {
     if (browser) await browser.close().catch(() => {});
     return null;

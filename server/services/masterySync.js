@@ -20,21 +20,20 @@
 // would run at server boot and pull in chromium's whole module graph for
 // every dev start — and on Node 25 the chromium ESM bridge can hang the
 // import indefinitely, blocking the Express server from binding its port.
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { getDb } from '../db/index.js';
 import { getSectionGrades } from './schoology.js';
 import { groupObservationsByTopic, normalizeObservation } from '../lib/masteryObservations.js';
 import { pointsToLevel, levelToLabel, schoologyScaleId } from '../lib/proficiencyScale.js';
+import { sessionStateFile, ensureSessionDir } from '../lib/sessionPaths.js';
 
 const SCHOOLOGY_BASE = 'https://schoology.hkis.edu.hk';
-const SESSION_DIR = join(process.cwd(), '.playwright-session');
-const STATE_FILE = join(SESSION_DIR, 'storage-state.json');
 
 // True if a saved Schoology browser session file exists on disk. Best-effort:
 // the session may still be expired — this only reports presence, not validity.
 export function hasMasterySession() {
-  return existsSync(STATE_FILE);
+  return existsSync(sessionStateFile());
 }
 
 /**
@@ -47,8 +46,8 @@ async function openPage() {
   const { chromium } = await import('playwright');
   const browser = await chromium.launch({ headless: true });
   const contextOpts = {};
-  if (existsSync(STATE_FILE)) {
-    contextOpts.storageState = STATE_FILE;
+  if (existsSync(sessionStateFile())) {
+    contextOpts.storageState = sessionStateFile();
   }
   const context = await browser.newContext(contextOpts);
   const page = await context.newPage();
@@ -74,7 +73,7 @@ function checkLoggedIn(page) {
  * No manual close needed.
  */
 export async function interactiveLogin() {
-  if (!existsSync(SESSION_DIR)) mkdirSync(SESSION_DIR, { recursive: true });
+  ensureSessionDir();
   console.log('[masterySync] Opening browser for Schoology login...');
 
   const { chromium } = await import('playwright');
@@ -106,7 +105,7 @@ export async function interactiveLogin() {
 
   // Save cookies + localStorage to a portable JSON file
   const state = await context.storageState();
-  writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+  writeFileSync(sessionStateFile(), JSON.stringify(state, null, 2));
 
   await browser.close();
   console.log('[masterySync] Login complete. Session saved.');

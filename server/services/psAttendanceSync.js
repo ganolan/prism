@@ -40,11 +40,10 @@ import { getDb } from '../db/index.js';
 import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
 import { pickBlockNumber, sectionDcidFromLaunchForm, loopTimeBudgetExceeded } from '../lib/psBlockNumber.js';
 import { currentSchoolYearEndYear, gradeLevelToGradYear, pickInSessionRange, extractGradeLevels, userDcidFromLaunchForm } from '../lib/psGradeLevel.js';
+import { sessionStateFile } from '../lib/sessionPaths.js';
 
 const PS_HOST = 'powerschool.hkis.edu.hk';
 const ATTENDANCE_APP_ID = '4980125287';
-const SESSION_DIR = join(process.cwd(), '.playwright-session');
-const STATE_FILE = join(SESSION_DIR, 'storage-state.json');
 
 // Per-call timeout for the section_info / section_attendance fetches issued
 // from inside the PS page (page.evaluate). Unlike page.goto/waitForURL, Play-
@@ -67,7 +66,7 @@ const runUrlFor = (schoologySectionId) =>
 async function openPage() {
   const { chromium } = await import('playwright');
   const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext(existsSync(STATE_FILE) ? { storageState: STATE_FILE } : {});
+  const context = await browser.newContext(existsSync(sessionStateFile()) ? { storageState: sessionStateFile() } : {});
   const page = await context.newPage();
   return { browser, context, page };
 }
@@ -246,7 +245,7 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
     return summary; // returns before launching a browser
   }
 
-  if (!existsSync(STATE_FILE)) {
+  if (!existsSync(sessionStateFile())) {
     throw new Error('No Schoology browser session — run `npm run mastery:login` first.');
   }
 

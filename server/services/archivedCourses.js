@@ -13,11 +13,10 @@
  * unavailable. It never throws.
  */
 import { existsSync } from 'fs';
-import { join } from 'path';
 import { parsePastCourses } from '../lib/parsePastCourses.js';
 import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
+import { sessionStateFile } from '../lib/sessionPaths.js';
 
-const STATE_FILE = join(process.cwd(), '.playwright-session', 'storage-state.json');
 
 /**
  * Fetch the raw archived-courses HTML (Schoology's /mycourses/past page) via the
@@ -25,7 +24,7 @@ const STATE_FILE = join(process.cwd(), '.playwright-session', 'storage-state.jso
  * / it has expired / anything fails.
  */
 export async function fetchArchivedCoursesHtml() {
-  if (!existsSync(STATE_FILE)) return null;
+  if (!existsSync(sessionStateFile())) return null;
 
   let chromium;
   try {
@@ -37,7 +36,7 @@ export async function fetchArchivedCoursesHtml() {
   let browser;
   try {
     browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext({ storageState: STATE_FILE });
+    const context = await browser.newContext({ storageState: sessionStateFile() });
     const page = await context.newPage();
     await page.goto(`${SCHOOLOGY_BASE}/courses/mycourses/past`, {
       waitUntil: 'domcontentloaded',

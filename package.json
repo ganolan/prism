@@ -15,7 +15,8 @@
     "test:server": "vitest run",
     "db:backup": "node scripts/db-backup.js",
     "db:restore": "node scripts/db-restore.js",
-    "postinstall": "npx playwright install chromium",
+    "db:refresh": "node scripts/db-restore.js --force",
+    "postinstall": "node scripts/postinstall.js",
     "mastery:login": "node -e \"import('./server/services/masterySync.js').then(m => m.interactiveLogin())\"",
     "mastery:capture": "node scripts/capture-mastery-xhr.js"
   },

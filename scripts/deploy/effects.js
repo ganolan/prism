@@ -64,6 +64,15 @@ export function ciStatus(sha) {
   return parseCiRuns(JSON.parse(out), sha);
 }
 
+/** True if anything answers /api/version at all — the watchdog's liveness check. */
+export async function serverAnswers({ url = VERSION_URL, timeoutMs = 5000 } = {}) {
+  try {
+    return (await fetch(url, { signal: AbortSignal.timeout(timeoutMs) })).ok;
+  } catch {
+    return false;
+  }
+}
+
 /** Poll /api/version until `expectSha` is the commit answering, or give up. */
 export async function healthCheck(expectSha, { url = VERSION_URL, timeoutMs = 30_000, intervalMs = 500 } = {}) {
   const deadline = Date.now() + timeoutMs;
@@ -94,13 +103,32 @@ export function load(label) {
   if (!isLoaded(label)) run('launchctl', ['bootstrap', domain(), launchAgentPath(label)]);
 }
 
+/** Unload and wait until launchd has let go — bootout can return before it has. */
 export function unload(label) {
-  if (isLoaded(label)) run('launchctl', ['bootout', `${domain()}/${label}`]);
+  if (!isLoaded(label)) return;
+  run('launchctl', ['bootout', `${domain()}/${label}`]);
+  for (let i = 0; i < 50 && isLoaded(label); i++) spawnSync('sleep', ['0.2']);
+}
+
+/**
+ * Load and start. The start is an explicit kickstart because, while the GUI
+ * domain is in on-demand-only mode (observed on the mini, 2026-09-23), launchd
+ * holds back RunAtLoad, KeepAlive and timer launches — only demand starts a job.
+ */
+export function start(label) {
+  load(label);
+  run('launchctl', ['kickstart', `${domain()}/${label}`]);
 }
 
 export function restartServer() {
   load(LABELS.server);
   run('launchctl', ['kickstart', '-k', `${domain()}/${LABELS.server}`]);
+}
+
+export const backupLoaded = () => isLoaded(LABELS.backup);
+
+export function startBackup() {
+  run('launchctl', ['kickstart', `${domain()}/${LABELS.backup}`]);
 }
 
 // ---- tailnet ----

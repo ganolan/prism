@@ -13,7 +13,7 @@
  * and publishes nothing until the restored server answers.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -150,6 +150,9 @@ export async function cutover({ root, snapshotPath, allowOld = false, dryRun = f
     throw new Error('A deploy is running. Wait for it to finish (tail ~/prism/logs/deploy.log), then re-run.');
   }
   try {
+    // Keeps the watchdog from restarting the server while the database is being
+    // replaced — and afterwards, if anything below fails and leaves it stopped.
+    writeFileSync(p.hold, `cutover started ${now().toISOString()}\n`);
     log('stopping the prod server');
     fx.stopServer();
     const restored = await restore({ dbPath: p.db, snapshotFile: snapshotPath, force: true });
@@ -170,7 +173,13 @@ export async function cutover({ root, snapshotPath, allowOld = false, dryRun = f
     log('nightly backup agent loaded');
     fx.serve();
     log('published on the tailnet');
+    rmSync(p.hold, { force: true });
     return { restored: restored.snapshot, warnings, mcp: mcpCommands() };
+  } catch (err) {
+    err.message +=
+      `\nThe watchdog will not restart the server while ${p.hold} exists. ` +
+      'Remove it once the database is known to be good.';
+    throw err;
   } finally {
     releaseLock(root);
   }

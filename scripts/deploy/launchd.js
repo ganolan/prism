@@ -4,6 +4,13 @@
  * Agents, not daemons: FileVault is on, so nothing runs until someone unlocks
  * the disk at startup — and that unlock logs them in, which starts the agents.
  * A daemon would start no sooner, and mastery re-login needs the GUI session.
+ *
+ * No agent depends on a launchd timer or on KeepAlive: while the GUI domain is
+ * in on-demand-only mode (observed on the mini, 2026-09-23 — "pending spawn,
+ * domain in on-demand-only mode") launchd holds those back and starts a job only
+ * on explicit demand. The deploy watcher (watch.js) is the one long-running
+ * process; it deploys, restarts the server when it stops answering, and starts
+ * the nightly backup — each by kickstart, which is demand.
  */
 import { join } from 'node:path';
 import { LABELS, paths } from './lib.js';
@@ -58,11 +65,13 @@ export function agents({ home, node: nodeBin = NODE_BIN }) {
     },
     deploy: {
       Label: LABELS.deploy,
-      ProgramArguments: [nodeBin, join(p.current, 'scripts', 'deploy', 'deploy.js')],
+      // The watcher: long-running; runs tick.js from `current` every 30s.
+      ProgramArguments: [nodeBin, join(p.current, 'scripts', 'deploy', 'watch.js')],
       WorkingDirectory: p.root,
       EnvironmentVariables: { PATH: PATH_ENV, PRISM_ROOT: p.root },
-      StartInterval: 30,
       RunAtLoad: true,
+      KeepAlive: true,
+      ThrottleInterval: 10,
       StandardOutPath: log('deploy.log'),
       StandardErrorPath: log('deploy.log'),
     },
@@ -72,7 +81,7 @@ export function agents({ home, node: nodeBin = NODE_BIN }) {
       // PRISM_BACKUP_DIR comes from data/.env, reached through the release's .env link.
       WorkingDirectory: p.current,
       EnvironmentVariables: { PATH: PATH_ENV, DB_PATH: p.db },
-      StartCalendarInterval: { Hour: 2, Minute: 0 },
+      // No schedule here: the watcher kickstarts it once a day from 02:00.
       StandardOutPath: log('backup.log'),
       StandardErrorPath: log('backup.log'),
     },

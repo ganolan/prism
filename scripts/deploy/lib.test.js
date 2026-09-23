@@ -32,6 +32,8 @@ describe('paths / LABELS', () => {
     expect(p.db).toBe('/Users/x/prism/data/students.db');
     expect(p.env).toBe('/Users/x/prism/data/.env');
     expect(p.current).toBe('/Users/x/prism/current');
+    expect(p.hold).toBe('/Users/x/prism/server.hold');
+    expect(p.watchState).toBe('/Users/x/prism/watch-state.json');
     expect(LABELS.server).toBe('com.prism.server');
   });
 });

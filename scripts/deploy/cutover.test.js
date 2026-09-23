@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { deploy } from './deploy.js';
@@ -151,6 +151,24 @@ describe('cutover and the deploy poller', () => {
     expect(lockedDuringRestore).toBe(true);
     expect(acquireLock(f.root)).toBe(true);
     releaseLock(f.root);
+  });
+});
+
+describe('cutover and the watchdog', () => {
+  it('holds the server stopped for the watchdog while it works, and lifts the hold on success', async () => {
+    const snap = snapshotAt(new Date('2026-09-23T06:20:00Z'));
+    let heldDuringRestore;
+    const fx = { ...cfx(), stopServer: () => { heldDuringRestore = existsSync(f.p.hold); } };
+    await cutover({ root: f.root, snapshotPath: snap, now: () => NOW, fx, log: f.log });
+    expect(heldDuringRestore).toBe(true);
+    expect(existsSync(f.p.hold)).toBe(false);
+  });
+
+  it('leaves the hold in place when it fails, and says how to lift it', async () => {
+    f.healthy = () => false;
+    const snap = snapshotAt(new Date('2026-09-23T06:20:00Z'));
+    await expect(go({ snapshotPath: snap })).rejects.toThrow(/server\.hold/);
+    expect(existsSync(f.p.hold)).toBe(true);
   });
 });
 

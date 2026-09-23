@@ -10,7 +10,8 @@ Vocabulary: `CONTEXT.md`.
 2. GitHub Actions runs `.github/workflows/ci.yml` — server, MCP, script and
    client tests, then the client build. **The file name matters**: the mini
    asks GitHub for *that workflow's* verdict on the exact commit.
-3. Every 30s the `com.prism.deploy` agent fetches `origin/main`. A new,
+3. Every 30s the deploy watcher (`com.prism.deploy`, `watch.js`) runs a tick
+   from the live release, which fetches `origin/main`. A new,
    CI-green commit is exported into `~/prism/releases/<UTC stamp>-<sha7>/`,
    gets `npm ci` (root + client) and a client build, and only then becomes
    `~/prism/current`. The server agent restarts, and the new commit must
@@ -22,6 +23,26 @@ Vocabulary: `CONTEXT.md`.
    next tick — `~/prism/deploy-state.json` records it before anything moves.
 
 The sidebar badge shows the short sha that is answering `/api`.
+
+## The watcher, and why launchd isn't trusted to supervise
+
+Observed on the mini (2026-09-23): while it sits unattended, launchd puts the
+GUI domain in **on-demand-only mode** (`log show … | grep "on-demand-only"`).
+In that mode it holds back `RunAtLoad`, `KeepAlive` restarts and timer launches,
+and starts a job only on explicit demand. So nothing here relies on those:
+
+- the watcher is the one long-running process; each 30s tick deploys, then
+  **restarts the server if `/api/version` stops answering**, then (after
+  cutover) starts the nightly backup once a day from 02:00 — every launch a
+  `launchctl kickstart`, which is demand;
+- the watchdog keeps its hands off while a deploy or cutover holds
+  `~/prism/deploy.lock`, and while `~/prism/server.hold` exists (cutover writes
+  it and removes it only on success).
+
+If the watcher itself is not running, nothing deploys or restarts:
+`launchctl kickstart gui/$(id -u)/com.prism.deploy`. Changes to `watch.js`
+take effect at the next login or `npm run prism:install`; everything a tick
+does (`tick.js`, `deploy.js`) updates with each deploy.
 
 A commit that fails CI is re-checked each tick (a re-run can turn it green).
 A commit that fails to build, fails its health check, or is rolled back is
@@ -55,7 +76,9 @@ is itself broken, every release has its own copy:
 | `~/prism/data/.env` | Schoology keys + `PRISM_BACKUP_DIR`, mode 600; linked into each release |
 | `~/prism/data/.playwright-session` | Schoology browser session (`PRISM_SESSION_DIR`) |
 | `~/prism/logs/{server,deploy,backup}.log` | logs; not rotated yet |
-| `~/prism/deploy-state.json` | the poller's memory: last deploy, any rejection or pause |
+| `~/prism/deploy-state.json` | the deploy's memory: history, last deploy, any rejection or pause, an interrupted deploy |
+| `~/prism/watch-state.json` | the watcher's memory: server down?, last backup date |
+| `~/prism/server.hold` | while present, the watchdog will not restart the server |
 | `~/Library/LaunchAgents/com.prism.{server,deploy}.plist` | the agents |
 | `~/prism/launchd/com.prism.backup.plist` | staged; cutover installs it |
 
@@ -68,6 +91,7 @@ started without `PORT` on the mini would be proxying to **prod**.
 
 ```bash
 launchctl print gui/$(id -u)/com.prism.server | head -20   # state, pid, last exit
+launchctl print gui/$(id -u)/com.prism.deploy | grep -E "state|pid"  # the watcher is alive
 launchctl kickstart -k gui/$(id -u)/com.prism.server       # restart prod
 curl -s 127.0.0.1:3001/api/version                          # what is live
 tail -f ~/prism/logs/deploy.log

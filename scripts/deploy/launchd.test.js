@@ -60,13 +60,17 @@ describe('agents', () => {
     expect(a.server.KeepAlive).toBe(true);
   });
 
-  it('polls every 30 seconds from the live release', () => {
-    expect(a.deploy.StartInterval).toBe(30);
-    expect(a.deploy.ProgramArguments[1]).toBe(`${HOME}/prism/current/scripts/deploy/deploy.js`);
+  // launchd holds back timer launches while the GUI domain is on-demand-only
+  // (observed on the mini, 2026-09-23), so no agent may depend on one.
+  it('runs the watcher from the live release as a long-lived process, not a timer', () => {
+    expect(a.deploy.ProgramArguments[1]).toBe(`${HOME}/prism/current/scripts/deploy/watch.js`);
+    expect(a.deploy.KeepAlive).toBe(true);
+    expect(a.deploy.StartInterval).toBeUndefined();
   });
 
-  it('backs up nightly from the live release', () => {
-    expect(a.backup.StartCalendarInterval).toEqual({ Hour: 2, Minute: 0 });
+  it('backs up from the live release when the watcher starts it — never on a launchd timer', () => {
+    expect(a.backup.StartCalendarInterval).toBeUndefined();
+    expect(a.backup.RunAtLoad).toBeUndefined();
     expect(a.backup.EnvironmentVariables.DB_PATH).toBe(`${HOME}/prism/data/students.db`);
   });
 });

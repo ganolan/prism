@@ -36,6 +36,10 @@ export function paths(root) {
     launchd: join(root, 'launchd'),
     state: join(root, 'deploy-state.json'),
     lock: join(root, 'deploy.lock'),
+    // The watcher's own memory, apart from deploy-state.json (which a deploy rewrites whole).
+    watchState: join(root, 'watch-state.json'),
+    // Present while the server must stay down (a cutover in progress, or one that failed).
+    hold: join(root, 'server.hold'),
   };
 }
 

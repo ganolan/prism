@@ -340,6 +340,15 @@ All eight shipped 2026-09-23 — items 1–6 on `feat/hosting-prereqs`, 7–8 on
   until someone types the password at startup, and that unlock logs them in, so
   an **agent** starts exactly as soon as a daemon could. Planned restarts:
   `sudo fdesetup authrestart`.
+- **launchd supervises nothing while the mini is unattended.** Observed at
+  bring-up: `pending spawn, domain in on-demand-only mode` for both agents — the
+  deploy agent's `runs` stayed 0 with `RunAtLoad` + `StartInterval 30`, and ran
+  only when kickstarted. KeepAlive restarts and calendar timers are held back the
+  same way. Redesigned (owner's choice): one long-running watcher (`watch.js`)
+  runs a tick from `current` every 30s — deploy, then a watchdog that kickstarts
+  the server if `/api/version` stops answering, then the nightly backup — so
+  every launch is on demand. Residual risk: if the watcher itself dies while the
+  domain is on-demand-only, nothing restarts it until the next login.
 - **Remote Login is off.** It is the one prerequisite left before cutover: the
   laptop reaches PrisMCP over SSH.
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import http from 'node:http';
-import { parseCiRuns, healthCheck } from './effects.js';
+import { parseCiRuns, healthCheck, serverAnswers } from './effects.js';
 
 const SHA = 'c'.repeat(40);
 
@@ -58,6 +58,15 @@ describe('healthCheck', () => {
 
   it('fails while a different commit is still answering', async () => {
     expect(await healthCheck(SHA, { url, timeoutMs: 300, intervalMs: 50 })).toBe(false);
+  });
+
+  it('serverAnswers is true for any answer and false for none', async () => {
+    expect(await serverAnswers({ url, timeoutMs: 500 })).toBe(true);
+    const closed = url;
+    await new Promise((resolve) => server.close(resolve));
+    server = http.createServer();
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    expect(await serverAnswers({ url: closed, timeoutMs: 500 })).toBe(false);
   });
 
   it('fails when nothing is listening', async () => {

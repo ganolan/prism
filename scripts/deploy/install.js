@@ -17,7 +17,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { isMain } from '../../server/lib/isMain.js';
 import { deploy } from './deploy.js';
-import { REPO_SLUG, deployEffects, load, unload } from './effects.js';
+import { REPO_SLUG, deployEffects, start, unload } from './effects.js';
 import { installPlan } from './launchd.js';
 import { currentRelease, LABELS, paths } from './lib.js';
 
@@ -56,11 +56,13 @@ async function main() {
     if (r.action !== 'deployed') throw new Error(`The first deploy did not complete: ${JSON.stringify(r)}`);
   } else {
     unload(LABELS.server);
-    load(LABELS.server);
+    start(LABELS.server);
   }
 
+  // Started explicitly: while the GUI domain is on-demand-only, launchd holds
+  // back RunAtLoad and would leave the watcher loaded but never running.
   unload(LABELS.deploy);
-  load(LABELS.deploy);
+  start(LABELS.deploy);
 
   log(
     `\nprod is up on http://127.0.0.1:3001 (loopback only) serving ${currentRelease(root)}` +

@@ -75,11 +75,13 @@ describe('runTickProcess', () => {
         `setTimeout(() => {}, 60_000);\n`,
     );
     const logs = [];
-    await expect(runTickProcess(script, { cwd: tmp, timeoutMs: 800, log: (m) => logs.push(m) })).rejects.toThrow(/SIGKILL/);
+    // Long enough for the child to start and spawn its grandchild on a slow CI
+    // runner (800ms was not, on GitHub's ubuntu-latest), short enough to be a test.
+    await expect(runTickProcess(script, { cwd: tmp, timeoutMs: 5000, log: (m) => logs.push(m) })).rejects.toThrow(/SIGKILL/);
     expect(existsSync(pidFile)).toBe(true);
     const grandchild = Number(readFileSync(pidFile, 'utf8'));
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(() => process.kill(grandchild, 0)).toThrow();
     expect(logs.join('\n')).toMatch(/killing it/);
-  });
+  }, 20_000);
 });

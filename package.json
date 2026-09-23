@@ -16,6 +16,7 @@
     "db:backup": "node scripts/db-backup.js",
     "db:restore": "node scripts/db-restore.js",
     "db:refresh": "node scripts/db-restore.js --force",
+    "prism:install": "node scripts/deploy/install.js",
     "postinstall": "node scripts/postinstall.js",
     "mastery:login": "node -e \"import('./server/services/masterySync.js').then(m => m.interactiveLogin())\"",
     "mastery:capture": "node scripts/capture-mastery-xhr.js"

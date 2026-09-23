@@ -293,16 +293,20 @@ outcome in this design and deserves a guard rather than a convention.
 
 ## Prerequisite code changes
 
-| # | Change | Why |
-|---|---|---|
-| 1 | `server/index.js`: `HOST` env, default `127.0.0.1` | Tailnet becomes the only route in |
-| 2 | `masterySync.js:31`: `PRISM_SESSION_DIR` env | Session currently resolves via `process.cwd()`, so it lives inside a release and is lost on every deploy |
-| 3 | `scripts/db-restore.js`: remove stale `-wal`/`-shm` before copy, with a test | Foreign-WAL corruption |
-| 4 | `package.json`: `db:refresh`; `PRISM_SKIP_BROWSERS` guard in `postinstall` | Dev refresh ergonomics; CI speed |
-| 5 | `GET /api/version` + UI surface | Know what is live |
-| 6 | `mcp/server.js`: explicit-`DB_PATH` startup guard | Prevent silent writes to a scratch DB |
-| 7 | `.github/workflows/ci.yml` | The test gate |
-| 8 | `scripts/deploy.sh` + launchd plists (server, deploy poller, nightly backup) | The pipeline |
+Items 1–6 shipped 2026-09-23 (branch `feat/hosting-prereqs`; see
+`.claude/build-progress.md`). Items 7–8 are still outstanding — they need the
+mini provisioned and the two open items below decided.
+
+| # | Change | Why | Status |
+|---|---|---|---|
+| 1 | `server/index.js`: `HOST` env, default `127.0.0.1` | Tailnet becomes the only route in | **Done** 2026-09-23 |
+| 2 | `masterySync.js:31`: `PRISM_SESSION_DIR` env | Session currently resolves via `process.cwd()`, so it lives inside a release and is lost on every deploy | **Done** 2026-09-23 — **five** services had the hardcode, not just the one named here (`psAttendanceSync`, `archivedCourses`, `graderSubmissions`, `peopleSearch` too); a guard test now fails if a sixth appears |
+| 3 | `scripts/db-restore.js`: remove stale `-wal`/`-shm` before copy, with a test | Foreign-WAL corruption | **Done** 2026-09-23 (#130) — the safety copy had the same bug in reverse and was fixed with it |
+| 4 | `package.json`: `db:refresh`; `PRISM_SKIP_BROWSERS` guard in `postinstall` | Dev refresh ergonomics; CI speed | **Done** 2026-09-23 |
+| 5 | `GET /api/version` + UI surface | Know what is live | **Done** 2026-09-23 — `release.json` is gitignored |
+| 6 | `mcp/server.js`: explicit-`DB_PATH` startup guard | Prevent silent writes to a scratch DB | **Done** 2026-09-23 — committed `.mcp.json` now declares the path |
+| 7 | `.github/workflows/ci.yml` | The test gate | Outstanding — pin `setup-node` to **Node 25** (the mini runs v25.9.0, npm 11.12.1) |
+| 8 | `scripts/deploy.sh` + launchd plists (server, deploy poller, nightly backup) | The pipeline | Outstanding |
 
 ## Deferred
 
@@ -318,9 +322,28 @@ outcome in this design and deserves a guard rather than a convention.
 - Application-level auth. Not needed while the tailnet is the perimeter.
   Revisit only if Prism is ever reachable from outside it.
 
+## Provisioning status (checked on the mini, 2026-09-23)
+
+- **Tailnet: up.** `macmini.swordtail-everest.ts.net`, `100.93.66.60`. Key
+  expiry still needs disabling on that node.
+- **Never sleeps.** `pmset`: `sleep 0`, `disksleep 0`, `standby 0`.
+- **`gh` is authenticated** as `ganolan`, scopes `repo`, `workflow`,
+  `read:org`, `gist`; rate limit 5000/hr against the poller's 120. The CD
+  section's authentication prerequisite is satisfied.
+- **Node v25.9.0, npm 11.12.1** — pin `setup-node` to this major.
+- **No auto-login, and not planned.** FileVault stays on; the owner accepts a
+  manual unlock after a restart. This contradicts "the mini therefore needs
+  auto-login" in Section 1: a launchd **agent** only runs once someone logs in,
+  so after an unattended reboot prod stays down until the machine is unlocked.
+  Decide in Half 2 whether that is acceptable (it probably is — reboots are
+  rare and the laptop's dev copy is the documented fallback) or whether the
+  server half moves to a daemon with only mastery login left to an agent.
+
 ## Open items
 
 - Production root path: `~/prism/` (assumed), `~/services/prism/`, or
   `/usr/local/var/prism`.
 - `PRISM_BACKUP_DIR` on the mini: OneDrive (preferred) or local + Time Machine,
   depending on whether OneDrive is signed in there.
+- Whether the server runs as a launchd agent (needs a logged-in session) or a
+  daemon — see the auto-login note above.

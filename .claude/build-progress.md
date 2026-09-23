@@ -536,3 +536,54 @@ Follows the rubric-binding-and-mcp foundation (merged `9ae4d11`).
 - CSV `POST /api/rubrics/upload` reuses on exact content match (no new row), `{ reused: true, match: 'exact' }`; the modal shows "Identical to existing '<name>' — attached it, no copy created."
 - **Decisions:** compute-on-read over a stored `content_hash` column (no migration/backfill/staleness); `write_rubric` stays library-only (attach is the separate `attach_rubric` tool); rubric master copies live outside Prism → update-on-confirm is low-risk. **Fuzzy near-match diff dialog deferred to #111** (now unblocked — its fingerprint plumbing landed here). Spec/plan: `docs/superpowers/specs|plans/2026-06-09-rubric-content-dedup*.md`.
 - Built via subagent-driven TDD (fresh implementer + spec-compliance + code-quality review per task; final whole-feature review). **303 server/MCP + 266 client tests green.**
+
+## Hosting prerequisites — the six code changes the Mac mini deploy needs (2026-09-23, branch `feat/hosting-prereqs`)
+
+Half 1 of `docs/superpowers/specs/2026-09-23-prism-hosting-and-deploy-design.md`
+(items 1–6 of its prerequisite table). Half 2 — CI workflow, deploy script,
+launchd plists — is **not** built: it needs the mini provisioned and two open
+items decided (production root path, `PRISM_BACKUP_DIR` there).
+
+- **Loopback by default.** `server/lib/listenConfig.js` (`resolveHost`,
+  `resolvePort`); `app.listen(PORT, HOST)` with `HOST` defaulting to
+  `127.0.0.1`. The app has no auth, so ADR 0003 makes the tailnet the
+  perimeter — which only holds if Express is not on every interface. Verified
+  live: `lsof` shows `TCP 127.0.0.1:3099 (LISTEN)`, and the machine's own LAN
+  address is refused.
+- **`PRISM_SESSION_DIR`, across five services not one.** The spec named
+  `masterySync.js:31`; `psAttendanceSync`, `archivedCourses`,
+  `graderSubmissions` and `peopleSearch` had the same `process.cwd()`
+  hardcode. On the server that is the *release* directory, so a session saved
+  under it is swapped away by the next deploy. New `server/lib/sessionPaths.js`
+  resolves per call (not at module load), and a guard test fails if any
+  `server/services/*.js` ever contains the literal again.
+- **#130 — db-restore left a foreign WAL.** Two bugs, one root cause
+  (file-copying a WAL-mode database). Reproduced the old behaviour before
+  fixing: the restore left the database reading the *local* row instead of the
+  snapshot's — a restore that printed success and silently kept the old data —
+  and the old `copyFileSync` safety copy was **unreadable** (`no such table`),
+  having captured a main file with nothing checkpointed into it. Now: safety
+  copy via SQLite's backup API *first* (while the old WAL is intact), then
+  sidecars removed, then the snapshot lands. Script became a module + CLI
+  mirroring `db-backup.js`; 10 tests.
+- **`db:refresh` + `PRISM_SKIP_BROWSERS`.** `db:restore`'s mtime guard is right
+  for a two-machine handoff and wrong for a disposable dev clone, where it
+  fires every time; `db:refresh` skips it. `postinstall` became
+  `scripts/postinstall.js` so CI can skip the ~150MB chromium download —
+  `--ignore-scripts` is not an option because better-sqlite3 needs its install
+  script for the native binary.
+- **`GET /api/version` + sidebar badge.** Reads `PRISM_GIT_SHA` or a
+  deploy-written `release.json`, else reports `dev`; never throws on a
+  half-written marker (verified live: HTTP 200 with `dev`, not a 500). The
+  badge names the *backend*, which is the question worth answering when a local
+  client proxies `/api` at a server. `release.json` is gitignored — a committed
+  copy would make every clone claim to be that release.
+- **PrisMCP requires an explicit `DB_PATH`.** It writes student data straight to
+  SQLite and loads no dotenv, so from a dev clone it opened the *disposable*
+  database, reported every write as a success, and lost them at the next
+  refresh. The guard sits in `main()` only, so tests and `mcp:e2e` (which
+  already passes `DB_PATH`) are untouched. Committed `.mcp.json` now declares
+  `server/db/students.db` — the path it always used.
+
+508 server/MCP + 436 client tests green; client production build clean;
+`npm run mcp:e2e` PASS. UI decision logged in `docs/design-language.md`.

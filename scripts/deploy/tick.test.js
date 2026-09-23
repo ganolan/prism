@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { superviseTick, backupDue, localDate, BACKUP_HOUR } from './tick.js';
+import { superviseTick, backupDue, localDate, BACKUP_HOUR, MISSES_BEFORE_RESTART } from './tick.js';
 import { acquireLock, paths, releaseLock } from './lib.js';
 
 let root, calls, logs, fx, answers, backupLoaded;
@@ -18,7 +18,10 @@ beforeEach(() => {
       calls.push('deploy');
       return { action: 'noop' };
     },
-    serverAnswers: async () => answers,
+    serverAnswers: async () => {
+      calls.push('probe');
+      return answers;
+    },
     restartServer: () => calls.push('restart'),
     backupLoaded: () => backupLoaded,
     startBackup: () => calls.push('backup'),
@@ -40,10 +43,16 @@ describe('superviseTick — deploy', () => {
     fx.deploy = async () => {
       throw new Error('git fetch exploded');
     };
-    answers = false;
     const result = await tick();
-    expect(result.server).toBe('restarted');
+    expect(result.server).toBe('up');
     expect(logs.join('\n')).toMatch(/git fetch exploded/);
+  });
+
+  // A deploy that hangs on a stalled network is killed by the watcher before
+  // anything after it runs — so the watchdog goes first.
+  it('checks on the server before it deploys', async () => {
+    await tick();
+    expect(calls.indexOf('probe')).toBeLessThan(calls.indexOf('deploy'));
   });
 });
 
@@ -55,20 +64,36 @@ describe('superviseTick — watchdog', () => {
 
   // launchd's KeepAlive is held back while the domain is on-demand-only;
   // an explicit kickstart is the only restart that happens.
-  it('restarts a server that stopped answering, and says so once', async () => {
+  // A long sync can block the server's event loop past one probe; restarting
+  // on a single miss would kill the teacher's sync mid-run.
+  it(`restarts only after ${MISSES_BEFORE_RESTART} missed probes in a row, and says so once`, async () => {
+    expect(MISSES_BEFORE_RESTART).toBe(3);
     answers = false;
+    expect((await tick()).server).toBe('down');
+    expect((await tick()).server).toBe('down');
     expect((await tick()).server).toBe('restarted');
     expect((await tick()).server).toBe('restarted');
     expect(calls.filter((c) => c === 'restart')).toHaveLength(2);
     expect(logs.filter((m) => /not answering/.test(m))).toHaveLength(1);
   });
 
-  it('notes when the server answers again', async () => {
+  it('forgets earlier misses once the server answers', async () => {
     answers = false;
+    await tick();
     await tick();
     answers = true;
     await tick();
-    expect(logs.at(-1)).toMatch(/answering again/);
+    answers = false;
+    expect((await tick()).server).toBe('down');
+    expect(calls).not.toContain('restart');
+  });
+
+  it('notes when the server answers again', async () => {
+    answers = false;
+    for (let i = 0; i < MISSES_BEFORE_RESTART; i++) await tick();
+    answers = true;
+    await tick();
+    expect(logs.join('\n')).toMatch(/answering again/);
   });
 
   it('keeps its hands off while a deploy or cutover holds the lock', async () => {

@@ -8,6 +8,7 @@
  * 30 seconds. Rollback therefore pins whatever origin/main is now; the poller
  * leaves it alone until a new commit lands or someone runs deploy --force.
  */
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { isMain } from '../../server/lib/isMain.js';
@@ -17,6 +18,12 @@ import {
 } from './lib.js';
 
 export async function rollback({ root, fx, now = () => new Date(), log = () => {} }) {
+  if (existsSync(paths(root).hold)) {
+    throw new Error(
+      `The server is on hold (${paths(root).hold}) — a cutover stopped it and did not finish. ` +
+        'Find out why before starting anything; remove the file once the database is known to be good.',
+    );
+  }
   if (!acquireLock(root)) throw new Error('A deploy is running. Try again in a minute.');
   try {
     const state = readState(root);

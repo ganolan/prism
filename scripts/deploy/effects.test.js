@@ -69,6 +69,20 @@ describe('healthCheck', () => {
     expect(await serverAnswers({ url: closed, timeoutMs: 500 })).toBe(false);
   });
 
+  // A server that accepts the connection and never answers must not hang the check.
+  it('gives up on a server that never replies', async () => {
+    const silent = http.createServer(() => {});
+    await new Promise((resolve) => silent.listen(0, '127.0.0.1', resolve));
+    const started = Date.now();
+    const ok = await healthCheck(SHA, {
+      url: `http://127.0.0.1:${silent.address().port}/api/version`, timeoutMs: 300, intervalMs: 50,
+    });
+    silent.closeAllConnections();
+    await new Promise((resolve) => silent.close(resolve));
+    expect(ok).toBe(false);
+    expect(Date.now() - started).toBeLessThan(3000);
+  });
+
   it('fails when nothing is listening', async () => {
     const closed = url;
     await new Promise((resolve) => server.close(resolve));

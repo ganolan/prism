@@ -17,9 +17,23 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { isMain } from '../../server/lib/isMain.js';
 import { deploy } from './deploy.js';
-import { REPO_SLUG, deployEffects, start, unload } from './effects.js';
+import { REPO_SLUG, deployEffects, isRunning, start, unload } from './effects.js';
 import { installPlan } from './launchd.js';
 import { currentRelease, LABELS, paths } from './lib.js';
+
+/**
+ * Why the deploy watcher cannot be installed yet, or null. The agent runs
+ * current/scripts/deploy/watch.js; with a live release from before the watcher
+ * it would exit at once, and launchd — starting jobs on demand only — would
+ * never retry it.
+ */
+export function watcherProblem(root) {
+  if (existsSync(join(paths(root).current, 'scripts', 'deploy', 'watch.js'))) return null;
+  return (
+    'The live release predates the deploy watcher (no scripts/deploy/watch.js). Deploy this commit first: ' +
+    'launchctl kickstart gui/$(id -u)/com.prism.deploy, wait for "deployed" in ~/prism/logs/deploy.log, then re-run install.'
+  );
+}
 
 async function main() {
   const home = homedir();
@@ -59,10 +73,18 @@ async function main() {
     start(LABELS.server);
   }
 
+  const problem = watcherProblem(root);
+  if (problem) throw new Error(problem);
+
   // Started explicitly: while the GUI domain is on-demand-only, launchd holds
   // back RunAtLoad and would leave the watcher loaded but never running.
   unload(LABELS.deploy);
   start(LABELS.deploy);
+  for (let i = 0; i < 25 && !isRunning(LABELS.deploy); i++) await new Promise((r) => setTimeout(r, 200));
+  if (!isRunning(LABELS.deploy)) {
+    throw new Error('The deploy watcher did not stay running — see ~/prism/logs/deploy.log.');
+  }
+  log('deploy watcher running');
 
   log(
     `\nprod is up on http://127.0.0.1:3001 (loopback only) serving ${currentRelease(root)}` +

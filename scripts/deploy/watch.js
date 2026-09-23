@@ -13,7 +13,8 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { isMain } from '../../server/lib/isMain.js';
 import { paths } from './lib.js';
 import { NODE_BIN } from './launchd.js';
@@ -21,8 +22,16 @@ import { NODE_BIN } from './launchd.js';
 export const TICK_MS = 30_000;
 export const TICK_TIMEOUT_MS = 10 * 60_000;
 
-export function tickScript(root) {
-  return join(paths(root).current, 'scripts', 'deploy', 'tick.js');
+/** This watcher's own tick.js — the stand-in when the live release has none. */
+export const OWN_TICK = join(dirname(fileURLToPath(import.meta.url)), 'tick.js');
+
+/**
+ * The live release's tick.js, resolved afresh each time. A rollback to a release
+ * from before the watcher existed would otherwise end supervision.
+ */
+export function tickScript(root, fallback = OWN_TICK) {
+  const live = join(paths(root).current, 'scripts', 'deploy', 'tick.js');
+  return existsSync(live) ? live : fallback;
 }
 
 export async function watch({ runTick, sleep, log, iterations = Infinity }) {
@@ -36,14 +45,23 @@ export async function watch({ runTick, sleep, log, iterations = Infinity }) {
   }
 }
 
-function runTickProcess(root, log) {
+/**
+ * Run one tick as its own process group, so a tick that overruns is killed
+ * together with its npm and vite children — they would otherwise keep writing
+ * into a release directory the next tick deletes.
+ */
+export function runTickProcess(script, { cwd, timeoutMs = TICK_TIMEOUT_MS, log = () => {} } = {}) {
   return new Promise((resolve, reject) => {
     const node = existsSync(NODE_BIN) ? NODE_BIN : process.execPath;
-    const child = spawn(node, [tickScript(root)], { cwd: root, env: process.env, stdio: 'inherit' });
+    const child = spawn(node, [script], { cwd, env: process.env, stdio: 'inherit', detached: true });
     const timer = setTimeout(() => {
-      log(`tick exceeded ${TICK_TIMEOUT_MS / 60_000} minutes — killing it`);
-      child.kill('SIGKILL');
-    }, TICK_TIMEOUT_MS);
+      log(`tick exceeded ${Math.round(timeoutMs / 1000)}s — killing it`);
+      try {
+        process.kill(-child.pid, 'SIGKILL');
+      } catch {
+        child.kill('SIGKILL');
+      }
+    }, timeoutMs);
     child.on('error', (err) => {
       clearTimeout(timer);
       reject(err);
@@ -61,7 +79,7 @@ if (isMain(import.meta.url)) {
   const log = (message) => console.log(`${new Date().toISOString()} ${message}`);
   log('deploy watcher started');
   await watch({
-    runTick: () => runTickProcess(root, log),
+    runTick: () => runTickProcess(tickScript(root), { cwd: root, log }),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     log,
   });

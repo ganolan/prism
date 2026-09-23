@@ -10,7 +10,7 @@
  *
  * Logs only transitions, so a quiet tick costs one line of nothing.
  */
-import { rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { isMain } from '../../server/lib/isMain.js';
@@ -20,6 +20,9 @@ import {
 } from './lib.js';
 
 const firstLine = (err) => String(err?.message ?? err).split('\n')[0];
+
+/** A commit whose build is interrupted this many times is not retried automatically. */
+export const MAX_INTERRUPTIONS = 2;
 
 export async function deploy({ root, force = false, now = () => new Date(), fx, log = () => {} }) {
   if (!acquireLock(root)) return { action: 'locked' };
@@ -33,6 +36,17 @@ export async function deploy({ root, force = false, now = () => new Date(), fx, 
 async function tick({ root, force, now, fx, log }) {
   const p = paths(root);
   let state = readState(root);
+
+  // A cutover that stopped the server and did not finish leaves it on hold:
+  // deploying would restart it on a database nobody has vouched for.
+  if (existsSync(p.hold)) {
+    const note = `held: the server is on hold (${p.hold}); not deploying`;
+    if (state.lastNote !== note) {
+      log(note);
+      writeState(root, { ...state, lastNote: note });
+    }
+    return { action: 'held' };
+  }
 
   // A deploy that was interrupted (reboot, bootout, Ctrl-C, a crash) is
   // finished or cleaned up before anything else — otherwise a release that
@@ -143,9 +157,18 @@ async function resumePending({ root, state, fx, now, log }) {
     return verify({ root, state, fx, now, log, ...pending });
   }
   // Interrupted before the swap: that directory was never live.
-  rmSync(join(paths(root).releases, pending.id), { recursive: true, force: true });
-  writeState(root, { ...state, pending: null });
-  log(`discarded ${pending.id}, left behind by an interrupted deploy`);
+  rmSync(join(paths(root).releases, pending.id), { recursive: true, force: true, maxRetries: 3 });
+  // A build too slow for the watcher's tick limit would otherwise be killed,
+  // discarded and restarted forever.
+  const count = (state.interrupted?.sha === pending.sha ? state.interrupted.count : 0) + 1;
+  const next = { ...state, pending: null, interrupted: { sha: pending.sha, count } };
+  if (count >= MAX_INTERRUPTIONS) {
+    next.rejected = { sha: pending.sha, stage: 'build', at: now().toISOString() };
+    log(`build of ${pending.sha.slice(0, 7)} interrupted ${count} times; not retrying — deploy --force to try again`);
+  } else {
+    log(`discarded ${pending.id}, left behind by an interrupted deploy`);
+  }
+  writeState(root, next);
   return null;
 }
 

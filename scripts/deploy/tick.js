@@ -3,8 +3,8 @@
  * One supervision tick, run every 30s by watch.js as a fresh process from
  * ~/prism/current — so the logic here is always the live release's.
  *
- *   1. deploy    — one deploy.js tick (CI-gated build, swap, health check).
- *   2. watchdog  — if /api/version stops answering, kickstart the server.
+ *   1. watchdog  — if /api/version misses three probes in a row, kickstart the server.
+ *   2. deploy    — one deploy.js tick (CI-gated build, swap, health check).
  *   3. backup    — once a day from 02:00, kickstart the nightly backup.
  *
  * launchd does none of this itself: while the GUI domain is in on-demand-only
@@ -44,20 +44,19 @@ function writeWatchState(root, state) {
   writeFileSync(paths(root).watchState, `${JSON.stringify(state, null, 2)}\n`);
 }
 
+/** Missed probes in a row before a restart: a long sync can block one. */
+export const MISSES_BEFORE_RESTART = 3;
+
 /**
  * fx: { deploy, serverAnswers, restartServer, backupLoaded, startBackup }.
  * Never throws: the watcher that calls it is not restarted by launchd.
+ *
+ * The watchdog goes first: a deploy stuck on a stalled network is killed by
+ * the watcher, and nothing after it in the tick would run.
  */
 export async function superviseTick({ root, now = () => new Date(), fx, log = () => {} }) {
   const state = readWatchState(root);
   const result = {};
-
-  try {
-    result.deploy = await fx.deploy();
-  } catch (err) {
-    result.deploy = { action: 'error' };
-    log(`deploy tick crashed: ${firstLine(err)}`);
-  }
 
   // The lock keeps the watchdog out of a deploy's own restart and out of a
   // cutover that has stopped the server on purpose.
@@ -71,15 +70,21 @@ export async function superviseTick({ root, now = () => new Date(), fx, log = ()
         result.server = 'up';
         if (state.serverDown) log('server answering again');
         state.serverDown = false;
+        state.misses = 0;
       } else {
-        if (!state.serverDown) log('server not answering — restarting it');
-        state.serverDown = true;
-        try {
-          fx.restartServer();
-        } catch (err) {
-          log(`server restart failed: ${firstLine(err)}`);
+        state.misses = (state.misses ?? 0) + 1;
+        if (state.misses < MISSES_BEFORE_RESTART) {
+          result.server = 'down';
+        } else {
+          if (!state.serverDown) log(`server not answering (${state.misses} probes) — restarting it`);
+          state.serverDown = true;
+          try {
+            fx.restartServer();
+          } catch (err) {
+            log(`server restart failed: ${firstLine(err)}`);
+          }
+          result.server = 'restarted';
         }
-        result.server = 'restarted';
       }
     } catch (err) {
       result.server = 'error';
@@ -87,6 +92,13 @@ export async function superviseTick({ root, now = () => new Date(), fx, log = ()
     } finally {
       releaseLock(root);
     }
+  }
+
+  try {
+    result.deploy = await fx.deploy();
+  } catch (err) {
+    result.deploy = { action: 'error' };
+    log(`deploy tick crashed: ${firstLine(err)}`);
   }
 
   const today = now();

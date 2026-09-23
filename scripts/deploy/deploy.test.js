@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { deploy } from './deploy.js';
-import { acquireLock, currentRelease, readState, releaseId, releaseLock, swapSymlink, writeState } from './lib.js';
+import { acquireLock, currentRelease, paths, readState, releaseId, releaseLock, swapSymlink, writeState } from './lib.js';
 import { exportTree } from './effects.js';
 import { git, makeFixture } from './testing.js';
 
@@ -189,6 +189,44 @@ describe('deploy', () => {
     expect(await run()).toMatchObject({ action: 'deployed', id });
     expect(readState(f.root).history).toEqual([first.id, id]);
     expect(readState(f.root).pending).toBe(null);
+  });
+
+  // A cutover that failed verification leaves the server stopped on purpose;
+  // a push must not deploy onto — and restart — a suspect database.
+  it('deploys nothing and restarts nothing while the server is on hold', async () => {
+    await run();
+    f.commit('next');
+    writeFileSync(paths(f.root).hold, 'integrity_check failed');
+    f.calls = [];
+    expect((await run()).action).toBe('held');
+    expect(f.calls).toEqual([]);
+  });
+
+  // A build too slow for the watcher's tick limit is killed, discarded and
+  // restarted — without a limit on that, it loops forever.
+  it('stops retrying a commit whose build keeps being interrupted', async () => {
+    const first = await run();
+    const next = f.commit('slow build');
+    const interruptBuild = () => {
+      const id = releaseId(next, f.now());
+      mkdirSync(join(f.p.releases, id));
+      writeState(f.root, {
+        ...readState(f.root),
+        pending: { id, sha: next, previousId: first.id, previousSha: readState(f.root).deployed.sha },
+      });
+    };
+    // CI held at pending so no tick builds anything itself: only the
+    // interruptions can produce the rejection.
+    f.ci = 'pending';
+    interruptBuild();
+    await run();
+    expect(readState(f.root).rejected ?? null).toBe(null);
+    interruptBuild();
+    await run();
+    expect(readState(f.root).rejected).toMatchObject({ sha: next, stage: 'build' });
+    f.ci = 'success';
+    expect((await run()).action).toBe('noop');
+    expect(f.count('install')).toBe(1);
   });
 
   it('discards a release left half-built by a deploy interrupted before the swap', async () => {

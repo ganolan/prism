@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { deploy } from './deploy.js';
 import { rollback } from './rollback.js';
-import { currentRelease, readState, releaseSha } from './lib.js';
+import { currentRelease, paths, readState, releaseSha } from './lib.js';
+import { writeFileSync } from 'node:fs';
 import { makeFixture } from './testing.js';
 
 let f;
@@ -82,6 +83,14 @@ describe('rollback', () => {
 
     expect(result.pinned).toBe(b);
     expect(readState(f.root).rejected).toMatchObject({ sha: b, stage: 'rollback' });
+  });
+
+  it('refuses while the server is on hold after a failed cutover', async () => {
+    await run();
+    f.commit('b');
+    await run();
+    writeFileSync(paths(f.root).hold, 'integrity_check failed');
+    await expect(back()).rejects.toThrow(/server\.hold/);
   });
 
   it('refuses when there is nothing older', async () => {

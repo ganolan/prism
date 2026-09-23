@@ -35,11 +35,16 @@ and starts a job only on explicit demand. So nothing here relies on those:
   **restarts the server if `/api/version` stops answering**, then (after
   cutover) starts the nightly backup once a day from 02:00 — every launch a
   `launchctl kickstart`, which is demand;
+- the watchdog restarts only after **three missed probes in a row** (~90s): a
+  long sync can block the server for one, and restarting would kill it;
 - the watchdog keeps its hands off while a deploy or cutover holds
   `~/prism/deploy.lock`, and while `~/prism/server.hold` exists (cutover writes
-  it and removes it only on success).
+  it and removes it only on success). **Deploys and rollbacks refuse while the
+  hold exists, too** — it means the database has not been vouched for.
+- a tick that runs past ten minutes is killed with its whole process tree; a
+  build interrupted twice is not retried until a new commit or `--force`.
 
-If the watcher itself is not running, nothing deploys or restarts:
+**If the watcher is not running**, nothing deploys or restarts:
 `launchctl kickstart gui/$(id -u)/com.prism.deploy`. Changes to `watch.js`
 take effect at the next login or `npm run prism:install`; everything a tick
 does (`tick.js`, `deploy.js`) updates with each deploy.
@@ -121,7 +126,15 @@ From a dev clone on the mini, with `origin/main` CI-green:
 npm run prism:install -- --env-from ~/repos/prism/.env
 ```
 
-Re-runnable. It brings prod up on an **empty** database, loopback only.
+Re-runnable. It brings prod up on an **empty** database, loopback only, and
+fails loudly if the deploy watcher does not stay running.
+
+**Upgrading an install from before the watcher** (a live release with no
+`scripts/deploy/watch.js`): first let the old agent deploy the new commit —
+`launchctl kickstart gui/$(id -u)/com.prism.deploy`, wait for `deployed` in
+`~/prism/logs/deploy.log` and the new sha from `curl -s 127.0.0.1:3001/api/version`
+— then re-run install from a dev clone at that same commit. Install refuses
+until the live release has the watcher.
 
 ## Cutover
 
@@ -129,6 +142,11 @@ Makes the mini the master. Until then the laptop is master and the mini's
 prod database is empty and unpublished.
 
 **Once, beforehand:**
+- **Prove the mini comes back on its own:** `sudo fdesetup authrestart`, then
+  after it is back check `launchctl print gui/$(id -u)/com.prism.deploy` and
+  `…/com.prism.server` both say `state = running`, and `curl` answers. If either
+  is not running after the restart, stop — see "If the watcher is not running"
+  above — and fix that before cutover.
 - Tailscale admin console → DNS → enable **HTTPS Certificates**. *(Done 2026-09-23.)*
 - Tailscale admin console → Machines → macmini → **Disable key expiry**. *(Done 2026-09-23.)*
 - On the mini: System Settings → General → Sharing → **Remote Login** on (the

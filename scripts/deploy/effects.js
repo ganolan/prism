@@ -12,12 +12,14 @@ import { LABELS, paths } from './lib.js';
 export const REPO_SLUG = process.env.PRISM_REPO || 'ganolan/prism';
 export const CI_WORKFLOW = 'ci.yml';
 export const VERSION_URL = 'http://127.0.0.1:3001/api/version';
+/** Bound on every network call a tick makes, so a stalled connection cannot hang it. */
+export const NET_TIMEOUT_MS = 60_000;
 
 const run = (cmd, args, opts = {}) =>
   execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...opts }).trim();
 
 export function fetchMain(repoDir) {
-  run('git', ['-C', repoDir, 'fetch', '--quiet', 'origin', 'main']);
+  run('git', ['-C', repoDir, 'fetch', '--quiet', 'origin', 'main'], { timeout: NET_TIMEOUT_MS });
   return run('git', ['-C', repoDir, 'rev-parse', 'origin/main']);
 }
 
@@ -60,12 +62,14 @@ export function parseCiRuns(payload, sha) {
 }
 
 export function ciStatus(sha) {
-  const out = run('gh', ['api', `repos/${REPO_SLUG}/actions/workflows/${CI_WORKFLOW}/runs?head_sha=${sha}&per_page=20`]);
+  const out = run('gh', ['api', `repos/${REPO_SLUG}/actions/workflows/${CI_WORKFLOW}/runs?head_sha=${sha}&per_page=20`], {
+    timeout: NET_TIMEOUT_MS,
+  });
   return parseCiRuns(JSON.parse(out), sha);
 }
 
 /** True if anything answers /api/version at all — the watchdog's liveness check. */
-export async function serverAnswers({ url = VERSION_URL, timeoutMs = 5000 } = {}) {
+export async function serverAnswers({ url = VERSION_URL, timeoutMs = 10_000 } = {}) {
   try {
     return (await fetch(url, { signal: AbortSignal.timeout(timeoutMs) })).ok;
   } catch {
@@ -78,7 +82,10 @@ export async function healthCheck(expectSha, { url = VERSION_URL, timeoutMs = 30
   const deadline = Date.now() + timeoutMs;
   do {
     try {
-      const res = await fetch(url);
+      // Each request is bounded too: a server that accepts and never replies
+      // would otherwise hold this past its deadline.
+      const signal = AbortSignal.timeout(Math.max(250, Math.min(5000, deadline - Date.now())));
+      const res = await fetch(url, { signal });
       if (res.ok && (await res.json()).sha === expectSha) return true;
     } catch {
       // not listening yet
@@ -126,6 +133,11 @@ export function restartServer() {
 }
 
 export const backupLoaded = () => isLoaded(LABELS.backup);
+
+export function isRunning(label) {
+  const r = spawnSync('launchctl', ['print', `${domain()}/${label}`], { encoding: 'utf8' });
+  return r.status === 0 && /\bstate = running\b/.test(r.stdout);
+}
 
 export function startBackup() {
   run('launchctl', ['kickstart', `${domain()}/${LABELS.backup}`]);
@@ -181,7 +193,8 @@ export function cutoverEffects(root) {
     keyExpiry,
     sshListening,
     stopServer: () => unload(LABELS.server),
-    startServer: () => load(LABELS.server),
+    // A bare bootstrap never starts a job while the domain is on-demand-only.
+    startServer: () => start(LABELS.server),
     healthCheck: (sha) => healthCheck(sha),
     loadBackupAgent: () => {
       copyFileSync(join(p.launchd, `${LABELS.backup}.plist`), launchAgentPath(LABELS.backup));

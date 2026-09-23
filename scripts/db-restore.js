@@ -26,7 +26,7 @@
  */
 import Database from 'better-sqlite3';
 import { copyFileSync, existsSync, renameSync, rmSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { listSnapshots, snapshotName } from './db-backup.js';
 
 export const SIDECAR_SUFFIXES = ['-wal', '-shm'];
@@ -90,12 +90,21 @@ export async function safetyCopy(dbPath, dest) {
   }
 }
 
-export async function restore({ dbPath, srcDir, force = false, now = new Date(), onSafetyCopy }) {
-  if (!srcDir) throw new Error('Set PRISM_BACKUP_DIR in .env first.');
-
-  const [newest] = listSnapshots(srcDir);
-  if (!newest) throw new Error(`No snapshots found in ${srcDir}. Run: npm run db:backup`);
-  const src = join(srcDir, newest);
+export async function restore({ dbPath, srcDir, snapshotFile, force = false, now = new Date(), onSafetyCopy }) {
+  let newest;
+  let src;
+  if (snapshotFile) {
+    // Named explicitly — cutover must restore the snapshot taken at cutover,
+    // never whatever happens to be newest in a synced folder.
+    if (!existsSync(snapshotFile)) throw new Error(`Snapshot not found: ${snapshotFile}`);
+    src = snapshotFile;
+    newest = basename(snapshotFile);
+  } else {
+    if (!srcDir) throw new Error('Set PRISM_BACKUP_DIR in .env first.');
+    [newest] = listSnapshots(srcDir);
+    if (!newest) throw new Error(`No snapshots found in ${srcDir}. Run: npm run db:backup`);
+    src = join(srcDir, newest);
+  }
 
   if (existsSync(dbPath) && !force) {
     const localMs = newestMtime(dbPath);

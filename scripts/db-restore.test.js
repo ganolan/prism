@@ -275,3 +275,19 @@ describe('the newer-than-snapshot guard', () => {
     await expect(restore({ dbPath, srcDir: snapDir })).rejects.toThrow(/Refusing to restore/);
   });
 });
+
+describe('restoring a named snapshot', () => {
+  it('uses the file it is given, not the newest in the folder', async () => {
+    const chosen = writeSnapshot('students-20260101T000000Z.db', ['chosen']);
+    writeSnapshot('students-20260301T000000Z.db', ['newer']);
+
+    const result = await restore({ dbPath, snapshotFile: chosen, force: true });
+
+    expect(result.snapshot).toBe('students-20260101T000000Z.db');
+    expect(readRows(dbPath)).toEqual(['chosen']);
+  });
+
+  it('says so when the file does not exist', async () => {
+    await expect(restore({ dbPath, snapshotFile: join(dir, 'nope.db'), force: true })).rejects.toThrow(/Snapshot not found/);
+  });
+});

@@ -1,4 +1,4 @@
-import { pathToFileURL } from 'url';
+import { isMain } from '../server/lib/isMain.js';
 import { z } from 'zod';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -251,7 +251,7 @@ async function main() {
   await server.connect(new StdioServerTransport());
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isMain(import.meta.url)) {
   main().catch((err) => {
     console.error('[prismcp] fatal:', err);
     process.exit(1);

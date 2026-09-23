@@ -142,9 +142,9 @@ export async function restore({ dbPath, srcDir, force = false, now = new Date(),
 }
 
 // ---- CLI ----
-import { pathToFileURL } from 'node:url';
+import { isMain } from '../server/lib/isMain.js';
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isMain(import.meta.url)) {
   const { config } = await import('dotenv');
   config();
 

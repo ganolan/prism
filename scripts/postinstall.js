@@ -8,7 +8,7 @@
  * so the opt-out is PRISM_SKIP_BROWSERS, read here.
  */
 import { spawnSync } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
+import { isMain } from '../server/lib/isMain.js';
 
 const MEANS_FALSE = new Set(['', '0', 'false', 'no']);
 
@@ -18,7 +18,7 @@ export function shouldInstallBrowsers(env = process.env) {
   return MEANS_FALSE.has(String(raw).trim().toLowerCase());
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isMain(import.meta.url)) {
   if (!shouldInstallBrowsers()) {
     console.log('PRISM_SKIP_BROWSERS set — skipping `playwright install chromium`.');
     process.exit(0);

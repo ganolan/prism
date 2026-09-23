@@ -65,9 +65,9 @@ export async function backup({ dbPath, destDir, keep = DEFAULT_KEEP, now = new D
 }
 
 // ---- CLI ----
-import { pathToFileURL } from 'node:url';
+import { isMain } from '../server/lib/isMain.js';
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isMain(import.meta.url)) {
   const { config } = await import('dotenv');
   config();
   const dbPath = process.env.DB_PATH || 'server/db/students.db';

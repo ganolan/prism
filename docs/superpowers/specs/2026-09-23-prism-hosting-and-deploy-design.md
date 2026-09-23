@@ -104,11 +104,29 @@ session for headed Chromium. The mini therefore needs auto-login and
 
 ### Cutover
 
-First deploy restores the verified snapshot
-(`_prism-data/students-20260922T054106Z.db`, `integrity_check` ok, SHA-256
-verified) into `~/prism/data/students.db`. From that moment the mini is master,
-the laptop copy demotes to disposable dev data, and the OneDrive master on the
-work laptop can be retired — the last unticked box on #121.
+The work laptop stays master until this step, and work carries on there as
+normal in the meantime (decided 2026-09-23): code changes, syncs, grading. So
+the database the mini starts from must be taken **at cutover**, not before:
+
+1. Stop everything on the laptop that writes to the database: the dev server
+   and any Claude session with the `prism` MCP server loaded.
+2. Run `npm run db:backup` in `~/repos/prism` on the laptop.
+3. Restore *that* snapshot into `~/prism/data/students.db` on the mini. Check
+   that `PRAGMA integrity_check` returns `ok` and that the SHA-256 matches the
+   snapshot. A fresh `data/` has no `-wal`/`-shm` files; if it isn't fresh,
+   prerequisite 3 (clear stale WAL on restore) must land first.
+4. From then on the mini is master and the laptop copy is disposable dev data.
+
+**Do not restore `_prism-data/students-20260922T054106Z.db`**, the snapshot
+verified while this design was written. It was correct on 2026-09-22 and went
+stale as soon as the laptop recorded anything new. Restoring it would drop every
+sync, flag, note and grading suggestion made since, and nothing would warn you:
+the file is internally consistent, so `integrity_check` still says `ok`. The
+risk is divergence, not corruption.
+
+The laptop's copy already moved out of OneDrive to `~/repos/prism` on
+2026-09-23, ahead of cutover (#121). The old OneDrive clone is retired and must
+not be run: it would start a second database that drifts away from the real one.
 
 ### Backups
 

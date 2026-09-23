@@ -5,10 +5,19 @@
  * and the next `db:refresh` would erase it. Silent, and unrecoverable.
  *
  * So: declare the database or do not start.
+ *
+ * A *relative* DB_PATH is still accepted — the committed `.mcp.json` uses one,
+ * and a clone running beside its own database is the correct default today —
+ * but it is resolved to an absolute path and returned, so the caller can report
+ * which database was actually opened rather than leaving it to inference.
  */
+import { isAbsolute, resolve } from 'node:path';
+
 export function assertExplicitDbPath(env = process.env) {
   const dbPath = String(env.DB_PATH ?? '').trim();
-  if (dbPath) return dbPath;
+  // `:memory:` and other SQLite URIs are not filesystem paths; pass them through.
+  if (dbPath === ':memory:' || dbPath.startsWith('file:')) return dbPath;
+  if (dbPath) return isAbsolute(dbPath) ? dbPath : resolve(process.cwd(), dbPath);
 
   throw new Error(
     'PrisMCP will not start without an explicit DB_PATH.\n' +

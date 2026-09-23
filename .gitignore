@@ -18,5 +18,8 @@ _tmp_*.mjs
 # Written by a deploy into the release it creates; never committed — a checked-in
 # copy would make every clone report itself as that release (see /api/version).
 release.json
+# Pre-restore safety copies of the live database — real student data.
+# `db:refresh` mints one per run; none of them may ever be committed.
+*.before-restore-*
 # Contains real student data (mockups + grading sample) — kept local, not committed
 docs/ui-design/PrisMCP-update/

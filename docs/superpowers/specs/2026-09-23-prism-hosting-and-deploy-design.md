@@ -347,3 +347,12 @@ mini provisioned and the two open items below decided.
   depending on whether OneDrive is signed in there.
 - Whether the server runs as a launchd agent (needs a logged-in session) or a
   daemon — see the auto-login note above.
+- **At cutover, PrisMCP must move to user-scoped config** (§4's SSH command,
+  absolute `DB_PATH`). The committed `.mcp.json` sets a *relative*
+  `DB_PATH=server/db/students.db`, which resolves against whatever directory
+  the client launched it from. That is correct while a clone is its own
+  database, and becomes the silent-write-to-a-scratch-copy failure the guard
+  exists to prevent the moment the mini holds the authoritative one. PrisMCP
+  logs its resolved absolute database path to stderr at startup, which makes
+  the mistake diagnosable but not impossible. Consider having the guard reject
+  relative paths outright once the server exists.

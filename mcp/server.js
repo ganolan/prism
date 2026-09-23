@@ -244,7 +244,8 @@ export function createServer() {
 // DB_PATH) and serve over stdio. Guarded so importing this module in tests
 // does not boot a server.
 async function main() {
-  assertExplicitDbPath();
+  // stderr, never stdout — stdout is the MCP protocol channel.
+  console.error(`[prismcp] database: ${assertExplicitDbPath()}`);
   connectDb();
   const server = createServer();
   await server.connect(new StdioServerTransport());

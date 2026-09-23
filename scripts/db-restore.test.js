@@ -7,11 +7,13 @@ import {
   writeFileSync,
   copyFileSync,
   utimesSync,
+  statSync,
+  readFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { removeSidecars, safetyCopy, restore, SIDECAR_SUFFIXES } from './db-restore.js';
+import { removeSidecars, safetyCopy, restore, newestMtime, SIDECAR_SUFFIXES } from './db-restore.js';
 
 let dir, dbPath, snapDir;
 beforeEach(() => {
@@ -170,5 +172,106 @@ describe('restore', () => {
   it('explains itself when there is nowhere to restore from', async () => {
     await expect(restore({ dbPath, srcDir: '' })).rejects.toThrow(/PRISM_BACKUP_DIR/);
     await expect(restore({ dbPath, srcDir: snapDir })).rejects.toThrow(/npm run db:backup/);
+  });
+});
+
+// ---- Findings from the whole-branch review of this change ----
+
+describe('a restore that cannot complete leaves the database alone', () => {
+  it('does not remove the live WAL until the snapshot has been read', async () => {
+    mkdirSync(snapDir, { recursive: true });
+    // A snapshot that passes listSnapshots but cannot be copied. In the field
+    // this is a dehydrated OneDrive placeholder, an unreadable file, or ENOSPC
+    // part-way through — PRISM_BACKUP_DIR is documented as a CloudStorage path.
+    mkdirSync(join(snapDir, 'students-20260301T000000Z.db'));
+    makeTrio(dbPath, ['committed-only-in-wal']);
+
+    await expect(restore({ dbPath, srcDir: snapDir, force: true })).rejects.toThrow();
+
+    expect(existsSync(`${dbPath}-wal`)).toBe(true);
+    expect(readRows(dbPath)).toEqual(['committed-only-in-wal']);
+  });
+
+  it('names the safety copy on the error, so a failure never hides it', async () => {
+    mkdirSync(snapDir, { recursive: true });
+    mkdirSync(join(snapDir, 'students-20260301T000000Z.db'));
+    makeTrio(dbPath, ['local-row']);
+
+    const err = await restore({ dbPath, srcDir: snapDir, force: true }).catch((e) => e);
+
+    expect(err.safety).toMatch(/\.before-restore-/);
+    expect(readRows(err.safety)).toEqual(['local-row']);
+  });
+
+  it('leaves no half-written incoming file behind', async () => {
+    mkdirSync(snapDir, { recursive: true });
+    mkdirSync(join(snapDir, 'students-20260301T000000Z.db'));
+    makeTrio(dbPath, ['local-row']);
+
+    await restore({ dbPath, srcDir: snapDir, force: true }).catch(() => {});
+
+    expect(existsSync(`${dbPath}.restore-incoming`)).toBe(false);
+  });
+});
+
+// db:restore is what you reach for *because* the database is broken. Opening it
+// with SQLite to take the safety copy made a corrupt database refuse to restore.
+describe('restoring over a corrupt database', () => {
+  it('completes, falling back to a raw byte copy for the safety copy', async () => {
+    writeSnapshot('students-20260301T000000Z.db', ['snapshot-row']);
+    writeFileSync(dbPath, 'this is not a database at all');
+    writeFileSync(`${dbPath}-wal`, 'garbage wal');
+
+    const result = await restore({ dbPath, srcDir: snapDir, force: true });
+
+    // Sidecars first: readRows() opens the database, and any WAL-mode open
+    // re-creates -wal/-shm, which would mask whether the restore removed them.
+    expect(existsSync(`${dbPath}-wal`)).toBe(false);
+    expect(result.safetyMode).toBe('raw');
+    expect(readFileSync(result.safety, 'utf8')).toBe('this is not a database at all');
+    expect(readRows(dbPath)).toEqual(['snapshot-row']);
+  });
+
+  it('keeps the corrupt database sidecars with the raw safety copy', async () => {
+    writeSnapshot('students-20260301T000000Z.db', ['snapshot-row']);
+    writeFileSync(dbPath, 'not a database');
+    writeFileSync(`${dbPath}-wal`, 'garbage wal');
+
+    const result = await restore({ dbPath, srcDir: snapDir, force: true });
+
+    expect(readFileSync(`${result.safety}-wal`, 'utf8')).toBe('garbage wal');
+  });
+});
+
+// A WAL-mode database's main file does not move while writes land in the -wal,
+// so statting it alone reports an actively-written database as stale — the
+// guard passed exactly when the local work was newest.
+describe('newestMtime', () => {
+  it('reports the newest of the database and its sidecars', () => {
+    writeFileSync(dbPath, 'db');
+    writeFileSync(`${dbPath}-wal`, 'wal');
+    const old = new Date('2020-01-01T00:00:00Z');
+    utimesSync(dbPath, old, old);
+
+    expect(newestMtime(dbPath)).toBe(statSync(`${dbPath}-wal`).mtimeMs);
+  });
+
+  it('is 0 when there is no database', () => {
+    expect(newestMtime(dbPath)).toBe(0);
+  });
+});
+
+describe('the newer-than-snapshot guard', () => {
+  it('sees work that lives only in the WAL', async () => {
+    const snap = writeSnapshot('students-20260301T000000Z.db', ['snapshot-row']);
+    writeFileSync(dbPath, 'db');
+    writeFileSync(`${dbPath}-wal`, 'wal');
+    // Main file older than the snapshot, WAL newer — the shape of a database
+    // being actively written by a running Prism server.
+    const old = new Date('2020-01-01T00:00:00Z');
+    utimesSync(dbPath, old, old);
+    utimesSync(snap, new Date('2021-01-01T00:00:00Z'), new Date('2021-01-01T00:00:00Z'));
+
+    await expect(restore({ dbPath, srcDir: snapDir })).rejects.toThrow(/Refusing to restore/);
   });
 });

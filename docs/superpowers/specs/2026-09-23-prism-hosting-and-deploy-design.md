@@ -370,5 +370,5 @@ All eight shipped 2026-09-23 — items 1–6 on `feat/hosting-prereqs`, 7–8 on
 
 ## Open items
 
-- None blocking the build. Before cutover: turn on Remote Login.
+- None blocking the build. Before cutover: turn on Remote Login, and run `sudo fdesetup authrestart` to confirm both agents come back after a reboot (unobserved so far).
 - Log rotation for `~/prism/logs/*` is not set up.

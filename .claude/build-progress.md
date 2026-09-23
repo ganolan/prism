@@ -612,6 +612,11 @@ plan `docs/superpowers/plans/2026-09-23-prism-deploy-pipeline.md`; operations in
   so the committed entry is gone and PrisMCP requires an absolute `DB_PATH`.
 - **Verified live on the mini:** install in 28s; prod on `127.0.0.1:3001` only (LAN refused); backup
   staged, not loaded; watcher ticks unaided every ~30s; **`kill -9` of prod → watchdog restored it in 81s**.
+  **Unattended push → live in ~4½ min** (push 12:53:15Z; CI green 12:56:58Z; deploying 12s later;
+  live 12:57:40Z). **Rollback sticks**: 100s of watcher ticks after `rollback.js`, prod stayed on the
+  older release with one `rejected at rollback` log line; `deploy.js --force` restored main and cleared
+  the pause. **Cutover dry run** on real facts refused with exactly the true blockers (snapshot 12h old,
+  Remote Login off) and changed nothing.
 - Two whole-branch reviews + fix passes (14 Important/Critical findings fixed test-first). 646 server +
   438 client tests.
 - **Not yet:** cutover. Remaining prerequisite: Remote Login on the mini, and an `authrestart` to prove

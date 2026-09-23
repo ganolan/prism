@@ -3,7 +3,10 @@
     "prism": {
       "type": "stdio",
       "command": "node",
-      "args": ["mcp/server.js"]
+      "args": ["mcp/server.js"],
+      "env": {
+        "DB_PATH": "server/db/students.db"
+      }
     }
   }
 }

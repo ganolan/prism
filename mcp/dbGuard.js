@@ -1,0 +1,21 @@
+/**
+ * PrisMCP writes grading suggestions straight into SQLite and loads no dotenv,
+ * so an unset DB_PATH resolves beside the code — on a dev clone, a throwaway
+ * copy. Every write would then report success into a database nobody meant,
+ * and the next `db:refresh` would erase it. Silent, and unrecoverable.
+ *
+ * So: declare the database or do not start.
+ */
+export function assertExplicitDbPath(env = process.env) {
+  const dbPath = String(env.DB_PATH ?? '').trim();
+  if (dbPath) return dbPath;
+
+  throw new Error(
+    'PrisMCP will not start without an explicit DB_PATH.\n' +
+      'It writes grading suggestions straight into SQLite, and an unset DB_PATH\n' +
+      'resolves to whatever database sits beside the code — on a dev clone that is\n' +
+      'a disposable copy, and the writes would be lost at the next db:refresh.\n' +
+      'Declare it in your MCP client config, e.g.\n' +
+      '  DB_PATH=/Users/you/prism/data/students.db node mcp/server.js',
+  );
+}

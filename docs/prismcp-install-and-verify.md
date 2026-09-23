@@ -4,34 +4,71 @@ Operational guide for the PrisMCP server (spec: `docs/superpowers/specs/2026-06-
 
 Surface: tools `list_courses`, `list_assignments`, `get_assignment_context`, `write_student_suggestions`, `write_assessment_analysis`; `@`-mention resources `prism://courses`, `prism://course/{courseId}/assignments`, `prism://assignment/{courseId}/{assignmentId}/context`; and the `grade-assignment` prompt.
 
+## `DB_PATH` is required (since 2026-09-23)
+
+**PrisMCP refuses to start unless `DB_PATH` is set.** It writes grading
+suggestions straight into SQLite and loads no dotenv, so an unset `DB_PATH`
+used to resolve to whatever database sat beside the code. Launched from a dev
+clone that is a **disposable** copy: every write would report success, and the
+next `npm run db:refresh` would erase the lot. Silent and unrecoverable — so
+the server declares its database or does not start.
+
+Without it you get a non-zero exit and a message naming the fix. `npm run mcp`
+fails the same way by design; set `DB_PATH` in the environment when using it.
+
 ## Install
 
-### Claude Code (committed, zero-config)
+### Claude Code (committed)
 
-The project-scoped `.mcp.json` at the repo root is committed, so on clone Claude Code offers to connect the `prism` server. Approve it once (the trust prompt, or `claude mcp`). It then surfaces:
+The project-scoped `.mcp.json` at the repo root is committed, so on clone Claude
+Code offers to connect the `prism` server. Approve it once (the trust prompt, or
+`claude mcp`). It then surfaces:
 
 - prompt → `/mcp__prism__grade-assignment`
 - resources → `@prism:...`
 
-No paths to configure — the server resolves `students.db` relative to its own file (`mcp/server.js` → `../server/db/students.db`).
+It sets `DB_PATH=server/db/students.db` — the path it always used, now declared
+rather than inferred. That is the correct default for **a clone running beside
+its own database**.
+
+To grade against a *server's* database, configure that **user-scoped**, never by
+editing the committed file — rewriting `.mcp.json` would also make a session
+running on the server SSH to itself. The shape the hosting design settled on
+(`docs/superpowers/specs/2026-09-23-prism-hosting-and-deploy-design.md` §4),
+**not yet operational** — the server does not exist yet:
+
+```json
+{
+  "command": "ssh",
+  "args": ["<host>", "cd ~/prism/current && DB_PATH=$HOME/prism/data/students.db node mcp/server.js"]
+}
+```
+
+MCP is a stdio protocol and does not care that the pipe runs through SSH. Only
+the database-touching process moves; Claude, the grading plugin and the prompts
+stay local. Unlike a launchd plist, this command runs through a login shell, so
+`~` and `$HOME` do expand.
 
 ### Claude Desktop / Cowork (absolute path)
 
-Desktop/Cowork spawn the server with an **absolute** command. Add to the Desktop MCP config (Settings → Developer → Edit Config, or the connector UI), then **restart Desktop**:
+Desktop/Cowork spawn the server with an **absolute** command. Add to the Desktop
+MCP config (Settings → Developer → Edit Config, or the connector UI), then
+**restart Desktop**:
 
 ```json
 {
   "mcpServers": {
     "prism": {
       "command": "node",
-      "args": ["/Users/gnolan/Library/CloudStorage/OneDrive-HongKongInternationalSchool/_repos/prism/mcp/server.js"]
+      "args": ["/Users/gnolan/repos/prism/mcp/server.js"],
+      "env": { "DB_PATH": "/Users/gnolan/repos/prism/server/db/students.db" }
     }
   }
 }
 ```
 
-- The DB resolves automatically (relative to the server file). Only add `"env": { "DB_PATH": "/abs/path/to/students.db" }` if your DB lives elsewhere.
-- The path contains spaces — keep it as a single array element (shown above); don't split it.
+- Both paths are absolute, and `DB_PATH` is mandatory (see above).
+- If a path contains spaces, keep it as a single array element; don't split it.
 
 ## Verify
 

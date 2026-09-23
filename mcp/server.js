@@ -6,6 +6,7 @@ import { getDb } from '../server/db/index.js';
 import { getAssessmentContext } from '../server/services/assessmentContext.js';
 import { writeStudentSuggestions, upsertAssessmentAnalysis } from '../server/services/suggestions.js';
 import { listCourses, listAssignments, listStudents, listRubricsTool, readRubric, writeRubric, attachRubricTool } from './handlers.js';
+import { assertExplicitDbPath } from './dbGuard.js';
 
 // <2KB tool-search hint (spec §3.4) so a client knows when to surface PrisMCP.
 export const INSTRUCTIONS =
@@ -243,6 +244,7 @@ export function createServer() {
 // DB_PATH) and serve over stdio. Guarded so importing this module in tests
 // does not boot a server.
 async function main() {
+  assertExplicitDbPath();
   connectDb();
   const server = createServer();
   await server.connect(new StdioServerTransport());

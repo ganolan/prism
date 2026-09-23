@@ -11,6 +11,7 @@ import {
 import { basename, join } from 'node:path';
 
 export const KEEP_RELEASES = 3;
+export const HISTORY_MAX = 20;
 
 export const LABELS = {
   server: 'com.prism.server',
@@ -112,17 +113,37 @@ export function decide({ deployedSha, remoteSha, rejected, ci }) {
 }
 
 /**
- * Release ids to delete: all but the newest `keep`, and never the live release
- * or the one before it (the rollback target) — which after a rollback are not
- * among the newest.
+ * Where a rollback from `currentId` goes: the release that was live before it,
+ * per the deploy history — never merely the previous directory by name, which
+ * may be a release that failed its health check or was itself rolled back.
+ * When the live release is not in the history, the newest one that is.
  */
-export function planPrune(releases, currentId, keep = KEEP_RELEASES) {
-  const sorted = [...releases].sort();
-  const keepers = new Set(sorted.slice(-keep));
+export function rollbackTarget(history = [], currentId) {
+  const i = history.lastIndexOf(currentId);
+  if (i > 0) return history[i - 1];
+  if (i === -1 && history.length) return history[history.length - 1];
+  return null;
+}
+
+/** Record `id` as the newest release that went live and answered healthy. */
+export function appendHistory(history = [], id) {
+  return [...history.filter((h) => h !== id), id].slice(-HISTORY_MAX);
+}
+
+/**
+ * Release ids to delete. Keeps the live release, its rollback target, and the
+ * newest `keep` releases that were ever live and healthy; everything else goes,
+ * including directories that never became live (a build interrupted by a crash,
+ * a release that failed its health check). Deciding by history rather than by
+ * name is what stops a run of failed deploys from pruning away the last release
+ * that actually worked.
+ */
+export function planPrune(releases, { currentId, history = [], keep = KEEP_RELEASES }) {
+  const keepers = new Set(history.slice(-keep));
   keepers.add(currentId);
-  const i = sorted.indexOf(currentId);
-  if (i > 0) keepers.add(sorted[i - 1]);
-  return sorted.filter((r) => !keepers.has(r));
+  const target = rollbackTarget(history, currentId);
+  if (target) keepers.add(target);
+  return [...releases].sort().filter((r) => !keepers.has(r));
 }
 
 export function readState(root) {

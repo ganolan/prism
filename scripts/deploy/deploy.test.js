@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, readFileSync, readdirSync, readlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { deploy } from './deploy.js';
-import { acquireLock, currentRelease, readState, releaseLock } from './lib.js';
+import { acquireLock, currentRelease, readState, releaseId, releaseLock, swapSymlink, writeState } from './lib.js';
+import { exportTree } from './effects.js';
 import { git, makeFixture } from './testing.js';
 
 let f;
@@ -113,4 +114,95 @@ describe('deploy', () => {
     expect(f.calls).toEqual([]);
     releaseLock(f.root);
   });
+
+  // ---- Findings from the whole-branch review ----
+
+  it('deletes a release that failed its health check, so rollback can never land on it', async () => {
+    await run();
+    const bad = f.commit('boots but crashes');
+    f.healthy = (sha) => sha !== bad;
+    await run();
+    expect(readdirSync(f.p.releases).some((id) => id.endsWith(bad.slice(0, 7)))).toBe(false);
+  });
+
+  it('keeps the last healthy release even after repeated health failures', async () => {
+    const good = await run();
+    for (const name of ['bad1', 'bad2']) {
+      const bad = f.commit(name);
+      f.healthy = (sha) => sha !== bad;
+      await run();
+    }
+    f.healthy = () => true;
+    f.commit('fix');
+    await run();
+    expect(readdirSync(f.p.releases)).toContain(good.id);
+  });
+
+  it('reverts when restarting onto the new release throws', async () => {
+    const first = await run();
+    f.commit('next');
+    const fx = f.fx();
+    let restarts = 0;
+    const restart = fx.restart;
+    fx.restart = () => {
+      restarts += 1;
+      if (restarts === 1) throw new Error('Bootstrap failed: 5: Input/output error');
+      restart();
+    };
+
+    const result = await deploy({ root: f.root, fx, now: f.now, log: f.log });
+
+    expect(result).toMatchObject({ action: 'rolled-back', to: first.id });
+    expect(currentRelease(f.root)).toBe(first.id);
+  });
+
+  // A deploy killed after the swap (reboot, bootout, Ctrl-C) must not leave an
+  // unchecked release that the next tick mistakes for "up to date".
+  function interruptedAfterSwap(sha, previousId, previousSha) {
+    const id = releaseId(sha, f.now());
+    const dir = join(f.p.releases, id);
+    exportTree(f.p.repo, sha, dir);
+    writeFileSync(join(dir, 'release.json'), JSON.stringify({ sha }));
+    writeState(f.root, { ...readState(f.root), pending: { id, sha, previousId, previousSha } });
+    swapSymlink(f.p.current, join('releases', id));
+    return id;
+  }
+
+  it('finishes checking a deploy interrupted after the swap — and reverts an unhealthy one', async () => {
+    const first = await run();
+    const next = f.commit('next');
+    git(f.p.repo, 'fetch', '-q', 'origin', 'main');
+    const id = interruptedAfterSwap(next, first.id, readState(f.root).deployed.sha);
+    f.healthy = (sha) => sha !== next;
+
+    expect(await run()).toMatchObject({ action: 'rolled-back', to: first.id });
+    expect(currentRelease(f.root)).toBe(first.id);
+    expect(existsSync(join(f.p.releases, id))).toBe(false);
+  });
+
+  it('finishes checking a deploy interrupted after the swap — and keeps a healthy one', async () => {
+    const first = await run();
+    const next = f.commit('next');
+    git(f.p.repo, 'fetch', '-q', 'origin', 'main');
+    const id = interruptedAfterSwap(next, first.id, readState(f.root).deployed.sha);
+
+    expect(await run()).toMatchObject({ action: 'deployed', id });
+    expect(readState(f.root).history).toEqual([first.id, id]);
+    expect(readState(f.root).pending).toBe(null);
+  });
+
+  it('discards a release left half-built by a deploy interrupted before the swap', async () => {
+    const first = await run();
+    const next = f.commit('next');
+    const orphan = join(f.p.releases, releaseId(next, f.now()));
+    mkdirSync(orphan);
+    writeState(f.root, {
+      ...readState(f.root),
+      pending: { id: orphan.split('/').pop(), sha: next, previousId: first.id, previousSha: readState(f.root).deployed.sha },
+    });
+
+    expect((await run()).action).toBe('deployed');
+    expect(existsSync(orphan)).toBe(false);
+  });
 });
+

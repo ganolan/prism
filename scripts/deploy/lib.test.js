@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   paths, releaseId, listReleases, currentRelease, releaseSha, swapSymlink, decide,
-  planPrune, readState, writeState, acquireLock, releaseLock, KEEP_RELEASES, LABELS,
+  planPrune, rollbackTarget, appendHistory, readState, writeState, acquireLock, releaseLock,
+  KEEP_RELEASES, HISTORY_MAX, LABELS,
 } from './lib.js';
 
 const SHA_A = 'a'.repeat(40);
@@ -138,18 +139,48 @@ describe('decide', () => {
   });
 });
 
+describe('rollbackTarget', () => {
+  it('is the release that was live before the current one', () => {
+    expect(rollbackTarget(['a', 'b', 'c'], 'c')).toBe('b');
+  });
+
+  it('has nothing before the first release', () => {
+    expect(rollbackTarget(['a'], 'a')).toBe(null);
+    expect(rollbackTarget([], 'a')).toBe(null);
+  });
+
+  it('is the newest healthy release when the live one is not in the history', () => {
+    expect(rollbackTarget(['a', 'b'], 'x')).toBe('b');
+  });
+});
+
+describe('appendHistory', () => {
+  it('moves a redeployed id to the end and caps the length', () => {
+    expect(appendHistory(['a', 'b'], 'a')).toEqual(['b', 'a']);
+    const long = Array.from({ length: HISTORY_MAX }, (_, i) => `r${i}`);
+    expect(appendHistory(long, 'new')).toHaveLength(HISTORY_MAX);
+    expect(appendHistory(long, 'new').at(-1)).toBe('new');
+  });
+});
+
 describe('planPrune', () => {
-  it('keeps the newest three by default', () => {
+  it('keeps the newest three that were ever live', () => {
     expect(KEEP_RELEASES).toBe(3);
-    expect(planPrune(['r1', 'r2', 'r3', 'r4', 'r5'], 'r5')).toEqual(['r1', 'r2']);
+    const all = ['r1', 'r2', 'r3', 'r4', 'r5'];
+    expect(planPrune(all, { currentId: 'r5', history: all })).toEqual(['r1', 'r2']);
   });
 
   it('never deletes the live release or its rollback target, even after a rollback', () => {
-    expect(planPrune(['r1', 'r2', 'r3', 'r4', 'r5', 'r6'], 'r3')).toEqual(['r1']);
+    const history = ['r1', 'r2', 'r4', 'r5', 'r6'];
+    expect(planPrune(['r1', 'r2', 'r3', 'r4', 'r5', 'r6'], { currentId: 'r2', history })).toEqual(['r3']);
+  });
+
+  it('deletes directories that never became live — interrupted builds, failed health checks', () => {
+    expect(planPrune(['r1', 'r2', 'r3'], { currentId: 'r3', history: ['r1', 'r3'] })).toEqual(['r2']);
   });
 
   it('has nothing to do with fewer releases than it keeps', () => {
-    expect(planPrune(['r1', 'r2'], 'r2')).toEqual([]);
+    expect(planPrune(['r1', 'r2'], { currentId: 'r2', history: ['r1', 'r2'] })).toEqual([]);
   });
 });
 

@@ -20,7 +20,7 @@ import Database from 'better-sqlite3';
 import { isMain } from '../../server/lib/isMain.js';
 import { SNAPSHOT_RE } from '../db-backup.js';
 import { restore } from '../db-restore.js';
-import { currentRelease, paths, releaseSha } from './lib.js';
+import { acquireLock, currentRelease, paths, releaseLock, releaseSha } from './lib.js';
 
 export const MAX_SNAPSHOT_AGE_MS = 6 * 60 * 60 * 1000;
 
@@ -143,27 +143,37 @@ export async function cutover({ root, snapshotPath, allowOld = false, dryRun = f
     };
   }
 
-  log('stopping the prod server');
-  fx.stopServer();
-  const restored = await restore({ dbPath: p.db, snapshotFile: snapshotPath, force: true });
-  if (sha256(p.db) !== sha256(snapshotPath)) {
-    throw new Error('The restored database does not match the snapshot byte for byte. The server is left STOPPED.');
+  // Hold the deploy lock for the whole replacement: a push landing mid-cutover
+  // would otherwise restart the server this just stopped, possibly while the
+  // database file is being swapped, or swap `current` under the health check.
+  if (!acquireLock(root)) {
+    throw new Error('A deploy is running. Wait for it to finish (tail ~/prism/logs/deploy.log), then re-run.');
   }
-  const ic = integrity(p.db);
-  if (ic !== 'ok') throw new Error(`integrity_check returned "${ic}". The server is left STOPPED.`);
-  log(`restored ${restored.snapshot}; sha-256 and integrity_check ok`);
+  try {
+    log('stopping the prod server');
+    fx.stopServer();
+    const restored = await restore({ dbPath: p.db, snapshotFile: snapshotPath, force: true });
+    if (sha256(p.db) !== sha256(snapshotPath)) {
+      throw new Error('The restored database does not match the snapshot byte for byte. The server is left STOPPED.');
+    }
+    const ic = integrity(p.db);
+    if (ic !== 'ok') throw new Error(`integrity_check returned "${ic}". The server is left STOPPED.`);
+    log(`restored ${restored.snapshot}; sha-256 and integrity_check ok`);
 
-  log('starting the prod server');
-  fx.startServer();
-  if (!(await fx.healthCheck(liveSha))) {
-    throw new Error('The server did not come back healthy after the restore. Nothing was published. See ~/prism/logs/server.log.');
+    log('starting the prod server');
+    fx.startServer();
+    if (!(await fx.healthCheck(liveSha))) {
+      throw new Error('The server did not come back healthy after the restore. Nothing was published. See ~/prism/logs/server.log.');
+    }
+
+    fx.loadBackupAgent();
+    log('nightly backup agent loaded');
+    fx.serve();
+    log('published on the tailnet');
+    return { restored: restored.snapshot, warnings, mcp: mcpCommands() };
+  } finally {
+    releaseLock(root);
   }
-
-  fx.loadBackupAgent();
-  log('nightly backup agent loaded');
-  fx.serve();
-  log('published on the tailnet');
-  return { restored: restored.snapshot, warnings, mcp: mcpCommands() };
 }
 
 if (isMain(import.meta.url)) {

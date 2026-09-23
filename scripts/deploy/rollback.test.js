@@ -96,4 +96,47 @@ describe('rollback', () => {
     f.healthy = () => false;
     expect((await back()).healthy).toBe(false);
   });
+
+  // ---- Findings from the whole-branch review ----
+
+  it('keeps main pinned across a second rollback made while GitHub is unreachable', async () => {
+    await run();
+    f.commit('b');
+    await run();
+    const c = f.commit('c');
+    await run();
+    await back();
+    const offline = { ...f.fx(), fetchMain: () => { throw new Error('offline'); } };
+
+    const result = await rollback({ root: f.root, fx: offline, now: f.now, log: f.log });
+
+    expect(result.pinned).toBe(c);
+    expect((await run()).action).toBe('noop');
+  });
+
+  it('never rolls back onto a release that failed its health check', async () => {
+    const a = await run();
+    const bad = f.commit('bad');
+    f.healthy = (sha) => sha !== bad;
+    await run();
+    f.healthy = () => true;
+    f.commit('fix');
+    await run();
+
+    expect((await back()).to).toBe(a.id);
+  });
+
+  it('skips a release that was itself rolled back from', async () => {
+    await run();
+    f.commit('b');
+    const b = await run();
+    f.commit('c');
+    await run();
+    await back();
+    f.commit('d');
+    await run();
+
+    expect((await back()).to).toBe(b.id);
+  });
 });
+

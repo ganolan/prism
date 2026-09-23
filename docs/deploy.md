@@ -15,7 +15,11 @@ Vocabulary: `CONTEXT.md`.
    gets `npm ci` (root + client) and a client build, and only then becomes
    `~/prism/current`. The server agent restarts, and the new commit must
    answer `GET /api/version` within 30s — otherwise `current` swaps back.
-4. The three newest releases are kept, plus the live one and its predecessor.
+4. A release that fails its health check is deleted, like one that fails to
+   build. The three newest releases that went live healthy are kept, plus the
+   live one and its rollback target.
+5. A deploy interrupted part-way (reboot, crash) is finished or undone by the
+   next tick — `~/prism/deploy-state.json` records it before anything moves.
 
 The sidebar badge shows the short sha that is answering `/api`.
 
@@ -33,7 +37,9 @@ node ~/prism/current/scripts/deploy/deploy.js --force
 node ~/prism/current/scripts/deploy/rollback.js
 ```
 
-Points `current` at the previous release and restarts it (~2s, no rebuild).
+Points `current` at the release that was live before this one — per the
+deploy history, so never one that failed its health check or was itself rolled
+back from — and restarts it (~2s, no rebuild).
 It also **pauses auto-deploy** at whatever `main` is, so the poller does not
 redeploy what you just rolled back. The pause lifts when a new commit lands
 on `main`, or with `deploy.js --force`. If `rollback.js` in the live release
@@ -54,7 +60,9 @@ is itself broken, every release has its own copy:
 | `~/prism/launchd/com.prism.backup.plist` | staged; cutover installs it |
 
 The server binds `127.0.0.1:3001`. A dev clone on the mini must use another
-port: `PORT=3002 npm run dev`.
+port: `PORT=3002 npm run dev` — the Vite proxy follows `PORT`, so that UI talks
+to its own API. If the dev API ever fails with `EADDRINUSE`, stop: a dev UI
+started without `PORT` on the mini would be proxying to **prod**.
 
 ## Everyday commands
 

@@ -13,32 +13,50 @@ import { join } from 'node:path';
 import { isMain } from '../../server/lib/isMain.js';
 import {
   acquireLock, currentRelease, listReleases, paths, readState, releaseLock,
-  releaseSha, swapSymlink, writeState,
+  releaseSha, rollbackTarget, swapSymlink, writeState,
 } from './lib.js';
 
 export async function rollback({ root, fx, now = () => new Date(), log = () => {} }) {
   if (!acquireLock(root)) throw new Error('A deploy is running. Try again in a minute.');
   try {
-    const releases = listReleases(root);
+    const state = readState(root);
+    const history = state.history ?? [];
     const from = currentRelease(root);
-    const i = releases.indexOf(from);
     if (!from) throw new Error('Nothing is deployed.');
-    if (i <= 0) throw new Error(`No release older than ${from} to roll back to.`);
-    const to = releases[i - 1];
 
+    // The release that was live before this one — never a directory that
+    // failed its health check or was itself rolled back from.
+    let to = rollbackTarget(history, from);
+    if (!to && history.length === 0) {
+      // No deploy history (state lost): fall back to directory order.
+      const releases = listReleases(root);
+      const i = releases.indexOf(from);
+      to = i > 0 ? releases[i - 1] : null;
+      if (to) log('WARNING: no deploy history; rolling back to the previous directory by name');
+    }
+    if (!to) throw new Error(`No release older than ${from} to roll back to.`);
+
+    // Pin what main is now. Offline, keep an existing rollback pin — a second
+    // rollback must not unpin the commit the first one rolled away from.
     let pinned;
     try {
       pinned = fx.fetchMain();
     } catch {
-      pinned = releaseSha(root, from);
+      pinned = state.rejected?.stage === 'rollback' ? state.rejected.sha : releaseSha(root, from);
     }
 
     swapSymlink(paths(root).current, join('releases', to));
-    fx.restart();
-    const healthy = await fx.healthCheck(releaseSha(root, to));
+    let healthy = false;
+    try {
+      fx.restart();
+      healthy = await fx.healthCheck(releaseSha(root, to));
+    } catch (err) {
+      log(`restart failed: ${String(err?.message ?? err).split('\n')[0]}`);
+    }
 
     writeState(root, {
-      ...readState(root),
+      ...state,
+      history: history.filter((id) => id !== from),
       lastNote: null,
       rejected: { sha: pinned, stage: 'rollback', at: now().toISOString() },
     });

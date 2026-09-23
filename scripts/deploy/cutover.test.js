@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { deploy } from './deploy.js';
 import { cutover, cutoverProblems, snapshotTime, mcpCommands, MAX_SNAPSHOT_AGE_MS } from './cutover.js';
-import { releaseSha, currentRelease } from './lib.js';
+import { acquireLock, releaseLock, releaseSha, currentRelease } from './lib.js';
 import { snapshotName } from '../db-backup.js';
 import { makeFixture } from './testing.js';
 
@@ -131,6 +131,26 @@ describe('cutover', () => {
     const snap = snapshotAt(new Date('2026-09-23T06:20:00Z'));
     const result = await go({ snapshotPath: snap, dryRun: true });
     expect(result.warnings.join(' ')).toMatch(/2027-03-12/);
+  });
+});
+
+describe('cutover and the deploy poller', () => {
+  it('refuses while a deploy holds the lock', async () => {
+    const snap = snapshotAt(new Date('2026-09-23T06:20:00Z'));
+    expect(acquireLock(f.root)).toBe(true);
+    await expect(go({ snapshotPath: snap })).rejects.toThrow(/deploy is running/);
+    expect(steps()).toEqual([]);
+    releaseLock(f.root);
+  });
+
+  it('holds the deploy lock while it replaces the database, and releases it after', async () => {
+    const snap = snapshotAt(new Date('2026-09-23T06:20:00Z'));
+    let lockedDuringRestore;
+    const fx = { ...cfx(), stopServer: () => { lockedDuringRestore = !acquireLock(f.root); } };
+    await cutover({ root: f.root, snapshotPath: snap, now: () => NOW, fx, log: f.log });
+    expect(lockedDuringRestore).toBe(true);
+    expect(acquireLock(f.root)).toBe(true);
+    releaseLock(f.root);
   });
 });
 

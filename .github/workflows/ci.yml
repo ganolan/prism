@@ -1,0 +1,52 @@
+# The deploy gate. The mini's poller (scripts/deploy/deploy.js) deploys a
+# commit only when this workflow's run for that exact sha concluded `success`,
+# and it looks the workflow up by this FILE NAME — rename it and deploys stop.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Every commit on main gets its own verdict; the poller needs one per sha.
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Every external service is mocked; CI never launches a browser.
+      PRISM_SKIP_BROWSERS: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25 # the mini runs v25.9.0
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            client/package-lock.json
+
+      - name: Install (server)
+        run: npm ci
+
+      - name: Install (client)
+        run: npm ci
+        working-directory: client
+
+      - name: Server, MCP and script tests
+        run: npx vitest run
+
+      - name: Client tests
+        run: npx vitest run
+        working-directory: client
+
+      - name: Client build
+        run: npm run build

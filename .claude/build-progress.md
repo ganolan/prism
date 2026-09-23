@@ -587,3 +587,32 @@ items decided (production root path, `PRISM_BACKUP_DIR` there).
 
 508 server/MCP + 436 client tests green; client production build clean;
 `npm run mcp:e2e` PASS. UI decision logged in `docs/design-language.md`.
+
+## Deploy pipeline (hosting Half 2) — built and running on the Mac mini, pre-cutover (2026-09-23)
+
+Spec rows 7–8 of `docs/superpowers/specs/2026-09-23-prism-hosting-and-deploy-design.md`;
+plan `docs/superpowers/plans/2026-09-23-prism-deploy-pipeline.md`; operations in `docs/deploy.md`.
+
+- **CI** (`.github/workflows/ci.yml`) is the deploy gate; the mini deploys a commit only when that
+  workflow's run for the exact sha is `success`. First Linux run green in 2m30s.
+- **Deploy logic in Node, not shell** (`scripts/deploy/*.js`), tested with Vitest against a throwaway
+  git repo: CI-gated export → `npm ci` + build → atomic `current` swap → the new sha must answer
+  `/api/version` or it swaps back. Rollback and prune follow a **deploy history** (never a release that
+  failed its health check or was rolled back from); an interrupted deploy is finished or undone by the
+  next tick; rollback pauses auto-deploy so it sticks.
+- **Found at bring-up: launchd supervises nothing while the mini is unattended.** Its log said
+  `pending spawn, domain in on-demand-only mode`: the deploy agent's `RunAtLoad` + `StartInterval`
+  never fired, and after `kill -9` the server's `KeepAlive` restart was held back too
+  (`pended nondemand spawn = inefficient`). Redesigned (owner's choice) as **one long-running watcher**
+  (`watch.js`) that runs `tick.js` from `current` every 30s: watchdog first (kickstart the server after
+  three missed probes), then deploy, then — after cutover — the nightly backup. Every launch is on demand.
+- **Also found:** every CLI entry guard (`import.meta.url === pathToFileURL(argv[1])`) silently no-oped
+  through a symlink — the poller, backup and PrisMCP would have exited 0 doing nothing (`isMain()`);
+  `INBOX_DIR`/`.env` would have lived inside the release; project-scope `.mcp.json` outranks user scope,
+  so the committed entry is gone and PrisMCP requires an absolute `DB_PATH`.
+- **Verified live on the mini:** install in 28s; prod on `127.0.0.1:3001` only (LAN refused); backup
+  staged, not loaded; watcher ticks unaided every ~30s; **`kill -9` of prod → watchdog restored it in 81s**.
+- Two whole-branch reviews + fix passes (14 Important/Critical findings fixed test-first). 646 server +
+  438 client tests.
+- **Not yet:** cutover. Remaining prerequisite: Remote Login on the mini, and an `authrestart` to prove
+  both agents come back after a reboot.

@@ -4,50 +4,56 @@ Operational guide for the PrisMCP server (spec: `docs/superpowers/specs/2026-06-
 
 Surface: tools `list_courses`, `list_assignments`, `get_assignment_context`, `write_student_suggestions`, `write_assessment_analysis`; `@`-mention resources `prism://courses`, `prism://course/{courseId}/assignments`, `prism://assignment/{courseId}/{assignmentId}/context`; and the `grade-assignment` prompt.
 
-## `DB_PATH` is required (since 2026-09-23)
+## `DB_PATH` is required, and must be absolute (since 2026-09-23)
 
-**PrisMCP refuses to start unless `DB_PATH` is set.** It writes grading
-suggestions straight into SQLite and loads no dotenv, so an unset `DB_PATH`
-used to resolve to whatever database sat beside the code. Launched from a dev
-clone that is a **disposable** copy: every write would report success, and the
-next `npm run db:refresh` would erase the lot. Silent and unrecoverable — so
-the server declares its database or does not start.
+**PrisMCP refuses to start unless `DB_PATH` is set to an absolute path.** It
+writes grading suggestions straight into SQLite and loads no dotenv, so the
+path it is given *is* the database every write lands in — and every write
+reports success. A wrong path is silent; on a disposable dev clone the work is
+erased at the next `npm run db:refresh`.
 
-Without it you get a non-zero exit and a message naming the fix. `npm run mcp`
-fails the same way by design; set `DB_PATH` in the environment when using it.
+A relative path is refused because it resolves against whichever directory
+the client launched from. `:memory:` and `file:` URIs are accepted.
 
 ## Install
 
-### Claude Code (committed)
+### Claude Code — once per machine, user-scoped
 
-The project-scoped `.mcp.json` at the repo root is committed, so on clone Claude
-Code offers to connect the `prism` server. Approve it once (the trust prompt, or
-`claude mcp`). It then surfaces:
+There is **no committed `.mcp.json`**. Claude Code ranks project scope
+(`.mcp.json`) above user scope, so a committed `prism` entry would silently
+override the route to the server's database on every machine. Configure it
+once per machine instead:
 
-- prompt → `/mcp__prism__grade-assignment`
-- resources → `@prism:...`
+**Before cutover** — the laptop is master and grades against its own clone:
 
-It sets `DB_PATH=server/db/students.db` — the path it always used, now declared
-rather than inferred. That is the correct default for **a clone running beside
-its own database**.
-
-To grade against a *server's* database, configure that **user-scoped**, never by
-editing the committed file — rewriting `.mcp.json` would also make a session
-running on the server SSH to itself. The shape the hosting design settled on
-(`docs/superpowers/specs/2026-09-23-prism-hosting-and-deploy-design.md` §4),
-**not yet operational** — the server does not exist yet:
-
-```json
-{
-  "command": "ssh",
-  "args": ["<host>", "cd ~/prism/current && DB_PATH=$HOME/prism/data/students.db node mcp/server.js"]
-}
+```bash
+claude mcp add prism -s user -e DB_PATH="$HOME/repos/prism/server/db/students.db" -- /usr/local/bin/node "$HOME/repos/prism/mcp/server.js"
 ```
 
-MCP is a stdio protocol and does not care that the pipe runs through SSH. Only
-the database-touching process moves; Claude, the grading plugin and the prompts
-stay local. Unlike a launchd plist, this command runs through a login shell, so
-`~` and `$HOME` do expand.
+**After cutover** — the cutover script prints both of these:
+
+```bash
+# on the mini: straight at prod
+claude mcp remove prism -s user
+claude mcp add prism -s user -e DB_PATH=/Users/gnolan/prism/data/students.db -- /usr/local/bin/node /Users/gnolan/prism/current/mcp/server.js
+
+# on the laptop: over SSH to the mini (needs Remote Login on the mini)
+claude mcp remove prism -s user
+claude mcp add prism -s user -- ssh gnolan@macmini 'cd ~/prism/current && DB_PATH=$HOME/prism/data/students.db /usr/local/bin/node mcp/server.js'
+```
+
+The SSH command is single-quoted so `~` and `$HOME` expand **on the mini**.
+`/usr/local/bin/node` is spelled out because a non-interactive SSH session's
+`PATH` is `/usr/bin:/bin:/usr/sbin:/sbin`. MCP is a stdio protocol and does
+not care that the pipe runs through SSH; Claude, the grading plugin and the
+prompts stay on the laptop.
+
+Check with `claude mcp list`. **Local scope outranks user scope**, so if an old
+per-project entry exists, remove it: `claude mcp remove prism -s local`.
+PrisMCP logs the database it opened to stderr at startup
+(`[prismcp] database: …`).
+
+A machine with no `prism` entry simply has no prism tools — visible, not silent.
 
 ### Claude Desktop / Cowork (absolute path)
 
@@ -88,7 +94,7 @@ The headless e2e proves the data path; this confirms the pixels.
 
 1. `npm run dev` (Express :3001 + Vite :5173).
 2. Open a real assignment in the app and note its **course id** and **Schoology assignment id** (the assessment page URL / the mastery route uses the Schoology id).
-3. From **Claude Code** (where PrisMCP is connected via `.mcp.json`), run the real workflow against that assignment — `/mcp__prism__grade-assignment`, or call `write_student_suggestions` + `write_assessment_analysis` directly with one or two students.
+3. From **Claude Code** (with `prism` configured per machine — see Install), run the real workflow against that assignment — `/mcp__prism__grade-assignment`, or call `write_student_suggestions` + `write_assessment_analysis` directly with one or two students.
 4. Reload `/assessment/:id` and confirm:
    - [ ] violet ✦ dashed ring on the suggested rubric cell(s), **coexisting** with any teacher mark on the same row (agree-case = solid border + dashed ring + ✦);
    - [ ] the `✦ Suggested feedback` box + `↑ Use suggestion`;

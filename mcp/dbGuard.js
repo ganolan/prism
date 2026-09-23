@@ -1,30 +1,36 @@
 /**
- * PrisMCP writes grading suggestions straight into SQLite and loads no dotenv,
- * so an unset DB_PATH resolves beside the code — on a dev clone, a throwaway
- * copy. Every write would then report success into a database nobody meant,
- * and the next `db:refresh` would erase it. Silent, and unrecoverable.
+ * PrisMCP writes grading suggestions straight into SQLite and loads no dotenv.
+ * Whatever DB_PATH it is given is the database every write lands in, and each
+ * write reports success — so a wrong one is silent, and on a disposable clone
+ * the work is erased at the next db:refresh.
  *
- * So: declare the database or do not start.
- *
- * A *relative* DB_PATH is still accepted — the committed `.mcp.json` uses one,
- * and a clone running beside its own database is the correct default today —
- * but it is resolved to an absolute path and returned, so the caller can report
- * which database was actually opened rather than leaving it to inference.
+ * Hence DB_PATH must be declared, and it must be ABSOLUTE. A relative path
+ * means "whichever directory the client launched me from" — the inference this
+ * guard exists to remove. And Claude Code's project scope (.mcp.json) outranks
+ * user scope, so a relative entry committed to the repo would silently beat a
+ * correctly configured route to the server's database.
  */
-import { isAbsolute, resolve } from 'node:path';
+import { isAbsolute } from 'node:path';
+
+const HOW =
+  'Configure it once per machine, user-scoped, e.g.\n' +
+  '  claude mcp add prism -s user -e DB_PATH=/Users/you/prism/data/students.db -- /usr/local/bin/node /Users/you/prism/current/mcp/server.js\n' +
+  'See docs/prismcp-install-and-verify.md.';
 
 export function assertExplicitDbPath(env = process.env) {
   const dbPath = String(env.DB_PATH ?? '').trim();
-  // `:memory:` and other SQLite URIs are not filesystem paths; pass them through.
+  // SQLite's in-memory database and URI filenames are not filesystem paths.
   if (dbPath === ':memory:' || dbPath.startsWith('file:')) return dbPath;
-  if (dbPath) return isAbsolute(dbPath) ? dbPath : resolve(process.cwd(), dbPath);
-
-  throw new Error(
-    'PrisMCP will not start without an explicit DB_PATH.\n' +
-      'It writes grading suggestions straight into SQLite, and an unset DB_PATH\n' +
-      'resolves to whatever database sits beside the code — on a dev clone that is\n' +
-      'a disposable copy, and the writes would be lost at the next db:refresh.\n' +
-      'Declare it in your MCP client config, e.g.\n' +
-      '  DB_PATH=/Users/you/prism/data/students.db node mcp/server.js',
-  );
+  if (!dbPath) {
+    throw new Error(`PrisMCP will not start without an explicit DB_PATH.\n${HOW}`);
+  }
+  if (!isAbsolute(dbPath)) {
+    throw new Error(
+      `PrisMCP needs an ABSOLUTE DB_PATH, got "${dbPath}".\n` +
+        'A relative path resolves against whichever directory the client launched it from,\n' +
+        'so the database it writes to would depend on where Claude happened to start.\n' +
+        HOW,
+    );
+  }
+  return dbPath;
 }

@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest';
-import { resolve } from 'node:path';
 import { assertExplicitDbPath } from './dbGuard.js';
 
 describe('assertExplicitDbPath', () => {
@@ -23,14 +22,16 @@ describe('assertExplicitDbPath', () => {
     expect(() => assertExplicitDbPath({})).toThrow(/DB_PATH=/);
   });
 
-  // A *relative* DB_PATH still means "whichever directory I was launched from"
-  // — the implicitness this guard exists to remove. It stays allowed, because
-  // the committed .mcp.json uses one and a clone beside its own database is the
-  // correct default today, but the process resolves and reports the absolute
-  // path so which database it opened is never left to inference.
-  it('resolves a relative path against the working directory', () => {
-    expect(assertExplicitDbPath({ DB_PATH: 'server/db/students.db' }))
-      .toBe(resolve(process.cwd(), 'server/db/students.db'));
+  // A relative path means "whichever directory the client launched me from",
+  // and a committed project-scope entry outranks the user's own route to the
+  // server's database. Both make the target database an accident of context.
+  it('refuses a relative path', () => {
+    expect(() => assertExplicitDbPath({ DB_PATH: 'server/db/students.db' })).toThrow(/ABSOLUTE DB_PATH/);
+    expect(() => assertExplicitDbPath({ DB_PATH: './students.db' })).toThrow(/ABSOLUTE DB_PATH/);
+  });
+
+  it('accepts a SQLite file: URI', () => {
+    expect(assertExplicitDbPath({ DB_PATH: 'file:/tmp/x.db?mode=ro' })).toBe('file:/tmp/x.db?mode=ro');
   });
 
   it('leaves an absolute path alone', () => {

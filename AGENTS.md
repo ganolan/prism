@@ -80,7 +80,7 @@ npm run test:api   # Schoology API smoke test
 - **PowerSchool API probe results and access plan**: `.claude/powerschool-api-reference.md`
 - **Build progress across all phases**: `.claude/build-progress.md`
 - **Product spec and roadmap**: `product-spec.md`
-- **Hosting + deploy — live since cutover on 2026-09-24**: `docs/deploy.md` (operations), `docs/adr/0003-prism-served-from-a-home-server-over-tailscale.md` and `docs/superpowers/specs/2026-09-23-prism-hosting-and-deploy-design.md` (design). **Prod is the Mac mini** (`https://macmini.swordtail-everest.ts.net`, tailnet only) and holds the one authoritative database; push to `main` deploys it once CI is green. Every other clone — the laptop included — is a disposable dev clone: never run `db:backup` from one, and never point PrisMCP at one for real grading. `CONTEXT.md` holds the vocabulary (prod / release / dev clone / snapshot / cutover).
+- **Hosting + deploy — live since cutover on 2026-09-24**: `docs/deploy.md` (operations), `docs/adr/0003-prism-served-from-a-home-server-over-tailscale.md` and `docs/superpowers/specs/2026-09-23-prism-hosting-and-deploy-design.md` (design). **Prod is the Mac mini** (`https://prism.swordtail-everest.ts.net`, tailnet only — a Tailscale Service; the mini itself is `macmini`, tagged `tag:server`) and holds the one authoritative database; push to `main` deploys it once CI is green. Every other clone — the laptop included — is a disposable dev clone: never run `db:backup` from one, and never point PrisMCP at one for real grading. `CONTEXT.md` holds the vocabulary (prod / release / dev clone / snapshot / cutover).
 
 ## Working Notes
 

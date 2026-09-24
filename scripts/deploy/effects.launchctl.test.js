@@ -40,3 +40,12 @@ describe('network calls are bounded', () => {
     expect(opts.timeout).toBeGreaterThan(0);
   });
 });
+
+// Prism is published as its own Tailscale Service (prism.<tailnet>.ts.net) since
+// 2026-09-25, not on the machine's name — a rebuild must recreate that.
+describe('publishing on the tailnet', () => {
+  it('serves prod as the prism Tailscale Service', () => {
+    cutoverEffects('/tmp/prism-fixture').serve();
+    expect(commands()).toContain('tailscale serve --service=svc:prism --https=443 127.0.0.1:3001');
+  });
+});

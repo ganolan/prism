@@ -139,7 +139,7 @@ export async function cutover({ root, snapshotPath, allowOld = false, dryRun = f
       dryRun: true,
       warnings,
       steps: ['stop the server', `restore ${basename(snapshotPath)} into ${p.db}`, 'verify sha-256 and integrity_check',
-        'start the server and wait for it to answer', 'load the nightly backup agent', 'tailscale serve --bg 3001'],
+        'start the server and wait for it to answer', 'load the nightly backup agent', 'tailscale serve --service=svc:prism --https=443 127.0.0.1:3001'],
     };
   }
 

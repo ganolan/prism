@@ -92,6 +92,25 @@ port: `PORT=3002 npm run dev` — the Vite proxy follows `PORT`, so that UI talk
 to its own API. If the dev API ever fails with `EADDRINUSE`, stop: a dev UI
 started without `PORT` on the mini would be proxying to **prod**.
 
+## The address: a Tailscale Service
+
+Prod is published as **`https://prism.swordtail-everest.ts.net`** — a Tailscale
+Service with its own tailnet address, not the machine's own name (since
+2026-09-25). What that rests on, all in the Tailscale admin console:
+
+- the mini is a **tagged** device (`tag:server`) — Services can only be hosted
+  by tagged devices. (Consequence: Taildrop to the mini no longer works.)
+- the policy file has `"tag:server": ["autogroup:admin"]` in `tagOwners`, and
+  grants `autogroup:member` → `svc:prism` on 443 and → `tag:server` on `*`
+  (the second keeps SSH to the mini working for PrisMCP from the laptop);
+- the `prism` service is defined (Services → Advertise → Define a Service,
+  port `tcp:443`) and macmini is **approved** as its host.
+
+On the mini: `tailscale serve --service=svc:prism --https=443 127.0.0.1:3001`
+(`tailscale serve status` shows it). Prism has **no login**: whoever is on the
+tailnet can see student data, so never add other users or share the mini, and
+never `tailscale funnel` it.
+
 ## Everyday commands
 
 ```bash
@@ -161,7 +180,7 @@ rebuild onto new hardware.
    node ~/prism/current/scripts/deploy/cutover.js           --snapshot ~/Library/CloudStorage/OneDrive-HongKongInternationalSchool/_prism-data/students-<stamp>.db
    ```
 4. Run the two `claude mcp` commands it prints — one on the mini, one on the laptop.
-5. From then on: open `https://macmini.swordtail-everest.ts.net`, and **never run
+5. From then on: open `https://prism.swordtail-everest.ts.net`, and **never run
    `db:backup` on the laptop again** — its copy is disposable dev data, refreshed
    with `npm run db:refresh`.
 

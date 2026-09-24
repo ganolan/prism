@@ -189,8 +189,16 @@ export function sshListening() {
   return portAccepts(22);
 }
 
+/** The Tailscale Service prod is published as: https://prism.<tailnet>.ts.net. */
+export const TAILNET_SERVICE = 'svc:prism';
+
+/**
+ * Publish prod on the tailnet as its own Tailscale Service (since 2026-09-25),
+ * not on the machine's own name. Needs the host tagged (tag:server) and the
+ * service defined + the host approved in the admin console — see docs/deploy.md.
+ */
 export function serve(port = 3001) {
-  run('tailscale', ['serve', '--bg', String(port)]);
+  run('tailscale', ['serve', `--service=${TAILNET_SERVICE}`, '--https=443', `127.0.0.1:${port}`]);
 }
 
 // ---- bundles ----

@@ -634,3 +634,12 @@ plan `docs/superpowers/plans/2026-09-23-prism-deploy-pipeline.md`; operations in
   snapshot): restored, sha-256 + `integrity_check` ok, restarted, nightly backup agent loaded, published.
   Prod now holds 23 courses / 212 students; `https://macmini.swordtail-everest.ts.net` answers over HTTPS
   (the first request waits on certificate provisioning). PrisMCP on the mini: user scope, prod `DB_PATH`.
+
+### Prism gets its own name on the tailnet (2026-09-25)
+
+`https://prism.swordtail-everest.ts.net` — a **Tailscale Service** (own TailVIP `100.108.202.164`), not the
+machine's name. Services can only be hosted by tagged devices, so the mini is now `tag:server` (owner's
+call; Taildrop to it no longer works). Policy: `tag:server` in `tagOwners`; grants `autogroup:member` →
+`svc:prism:443` and → `tag:server:*` (keeps SSH for laptop PrisMCP). The tailnet still has the default
+allow-all grant — fine while the tailnet is only the owner's devices, since Prism has no login.
+`serve()` (used by cutover/rebuilds) now publishes the service. Verified from the mini: API + page over HTTPS.

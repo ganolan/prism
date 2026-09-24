@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import http from 'node:http';
-import { parseCiRuns, healthCheck, serverAnswers } from './effects.js';
+import net from 'node:net';
+import { parseCiRuns, healthCheck, serverAnswers, portAccepts } from './effects.js';
 
 const SHA = 'c'.repeat(40);
 
@@ -89,5 +90,25 @@ describe('healthCheck', () => {
     server = http.createServer();
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
     expect(await healthCheck(SHA, { url: closed, timeoutMs: 300, intervalMs: 50 })).toBe(false);
+  });
+});
+
+// macOS starts sshd on demand from launchd, which runs as root: an unprivileged
+// `lsof` never sees that socket, so it reported Remote Login "off" while it was
+// on (observed 2026-09-24). Only a real connection tells the truth.
+describe('portAccepts', () => {
+  it('is true when something accepts connections on the port', async () => {
+    const server = net.createServer((s) => s.end());
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    expect(await portAccepts(server.address().port)).toBe(true);
+    await new Promise((resolve) => server.close(resolve));
+  });
+
+  it('is false when nothing is listening', async () => {
+    const server = net.createServer();
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address();
+    await new Promise((resolve) => server.close(resolve));
+    expect(await portAccepts(port, '127.0.0.1', 500)).toBe(false);
   });
 });

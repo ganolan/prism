@@ -121,7 +121,7 @@ export async function cutover({ root, snapshotPath, allowOld = false, dryRun = f
     allowOld,
     prodCourseCount: countCourses(p.db),
     certDomains: fx.certDomains(),
-    sshListening: fx.sshListening(),
+    sshListening: await fx.sshListening(),
   });
   const warnings = cutoverWarnings({ keyExpiry: fx.keyExpiry() });
   if (problems.length) {

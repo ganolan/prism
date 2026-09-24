@@ -5,6 +5,7 @@
  */
 import { execFileSync, spawnSync } from 'node:child_process';
 import { closeSync, copyFileSync, mkdirSync, openSync } from 'node:fs';
+import net from 'node:net';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { LABELS, paths } from './lib.js';
@@ -165,8 +166,27 @@ export function keyExpiry() {
   return typeof value === 'string' && !Number.isNaN(Date.parse(value)) ? value : null;
 }
 
+/** True if something on `host` accepts a TCP connection on `port`. */
+export function portAccepts(port, host = '127.0.0.1', timeoutMs = 2000) {
+  return new Promise((resolve) => {
+    const socket = net.connect({ port, host });
+    const done = (ok) => {
+      socket.destroy();
+      resolve(ok);
+    };
+    socket.setTimeout(timeoutMs, () => done(false));
+    socket.once('connect', () => done(true));
+    socket.once('error', () => done(false));
+  });
+}
+
+/**
+ * Is Remote Login (sshd) on? Checked with a real connection: launchd starts
+ * sshd on demand as root, and an unprivileged `lsof` never sees that socket —
+ * it reported "off" while Remote Login was on (observed 2026-09-24).
+ */
 export function sshListening() {
-  return spawnSync('lsof', ['-nP', '-iTCP:22', '-sTCP:LISTEN'], { stdio: 'ignore' }).status === 0;
+  return portAccepts(22);
 }
 
 export function serve(port = 3001) {

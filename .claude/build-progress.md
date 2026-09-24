@@ -621,3 +621,16 @@ plan `docs/superpowers/plans/2026-09-23-prism-deploy-pipeline.md`; operations in
   438 client tests.
 - **Not yet:** cutover. Remaining prerequisite: Remote Login on the mini, and an `authrestart` to prove
   both agents come back after a reboot.
+
+### Cutover (2026-09-24) — the mini is master
+
+- **Reboot verified first:** after `sudo fdesetup authrestart`, both agents came back at login on their
+  own (`runs = 1`), prod answered, the backup agent stayed unloaded. Two network blips in the log each
+  cost one tick (`git fetch` failure, `ETIMEDOUT` at the 60s bound) — the watcher carried on.
+- **Found at cutover:** the Remote Login precondition used an unprivileged `lsof`, which cannot see the
+  root-owned socket launchd holds for sshd — it said "off" while it was on. Now a real TCP connection
+  (`portAccepts`), deployed through the pipeline before cutover ran.
+- **Cutover** from `students-20260923T005328Z.db` with `--allow-old` (owner: Prism unused since that
+  snapshot): restored, sha-256 + `integrity_check` ok, restarted, nightly backup agent loaded, published.
+  Prod now holds 23 courses / 212 students; `https://macmini.swordtail-everest.ts.net` answers over HTTPS
+  (the first request waits on certificate provisioning). PrisMCP on the mini: user scope, prod `DB_PATH`.

@@ -61,12 +61,10 @@ distinct.
 
 ## Deployment topology and its vocabulary
 
-**Status: built 2026-09-23, cutover pending.** See `docs/deploy.md`,
+**Status: live — cutover done 2026-09-24; the mini is master.** See `docs/deploy.md`,
 `docs/adr/0003-prism-served-from-a-home-server-over-tailscale.md` and
-`docs/superpowers/specs/2026-09-23-prism-hosting-and-deploy-design.md`. The
-pipeline runs on the mini, but until cutover prod's database is empty and
-unpublished and the laptop remains master. Do not write code or docs that assume
-the mini holds the real data yet.
+`docs/superpowers/specs/2026-09-23-prism-hosting-and-deploy-design.md`.  Prod
+runs on the mini and holds the authoritative database; the laptop is a dev clone.
 
 These terms are canonical (the pipeline is built; cutover has not happened yet):
 

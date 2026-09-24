@@ -24,7 +24,7 @@ There is **no committed `.mcp.json`**. Claude Code ranks project scope
 override the route to the server's database on every machine. Configure it
 once per machine instead:
 
-**Before cutover** — the laptop is master and grades against its own clone:
+**Before cutover** *(historical — cutover was 2026-09-24; use the After-cutover commands)* — the laptop was master and graded against its own clone:
 
 ```bash
 claude mcp add prism -s user -e DB_PATH="$HOME/repos/prism/server/db/students.db" -- /usr/local/bin/node "$HOME/repos/prism/mcp/server.js"

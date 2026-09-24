@@ -138,8 +138,8 @@ until the live release has the watcher.
 
 ## Cutover
 
-Makes the mini the master. Until then the laptop is master and the mini's
-prod database is empty and unpublished.
+**Done 2026-09-24.** The mini is master. Kept here as a record, and for a
+rebuild onto new hardware.
 
 **Once, beforehand:**
 - **Prove the mini comes back on its own:** `sudo fdesetup authrestart`, then

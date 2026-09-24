@@ -1,7 +1,7 @@
 # Prism hosting + deploy pipeline — design
 
 **Date:** 2026-09-23
-**Status:** Built 2026-09-23 up to cutover (see `docs/deploy.md`); cutover pending
+**Status:** Live — built 2026-09-23, cut over 2026-09-24 (see `docs/deploy.md`)
 **Tracks:** #121 (move Prism out of OneDrive)
 **Decision record:** `docs/adr/0003-prism-served-from-a-home-server-over-tailscale.md`
 
@@ -370,5 +370,5 @@ All eight shipped 2026-09-23 — items 1–6 on `feat/hosting-prereqs`, 7–8 on
 
 ## Open items
 
-- None blocking the build. Before cutover: turn on Remote Login, and run `sudo fdesetup authrestart` to confirm both agents come back after a reboot (unobserved so far).
+- None. Reboot verified 2026-09-24 (`authrestart`: both agents came back at login, `runs = 1`). Cutover done 2026-09-24 from `students-20260923T005328Z.db` with `--allow-old` — the owner confirmed Prism was unused since that snapshot.
 - Log rotation for `~/prism/logs/*` is not set up.

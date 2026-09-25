@@ -724,3 +724,118 @@ Probe: `scripts/probe-assignment-write.js`. All probe assignments were unpublish
 | `type: "assessment"` on POST | **Ignored**; creates a plain assignment. Tests and quizzes cannot be created by this API. |
 | Learning-objective alignment, rubrics | Not in the public API (`/alignments`, `/rubric` sub-resources just echo the assignment). |
 | `grading_category` reads `0` on many copied assignments | The edit form still showed "Evidence of Learning - Summative" for CPT 2 while the API said `0`. Most likely the required dropdown just displays its first option when unset (not verified). Setting it by PUT works and the API then reports the id. |
+
+## Uploading images into rich-text fields (browser session, proven 2026-09-25)
+
+The public API cannot upload images into a description. The web editor can, and it can be driven
+from Claude's built-in browser (already signed in to Schoology) with no file picker:
+
+- Editor: TinyMCE 3.5.8, `tinymce.editors[0]`, `file_upload_url` = `/file/upload-service`.
+- Toolbar **Insert** button (`#<editor-id>_insert_content`) > **Image/Media** opens "Insert Media".
+  Its Upload Media tab adds a Plupload (moxie html5) `<input type=file>` inside
+  `fieldset.featured-image-upload`.
+- Build a `File` in the page, put it on that input with a `DataTransfer`, dispatch `change`. The
+  upload finishes in a few seconds, the dialog closes and a `<p><img src=".../system/files/
+  attachments/page_embeds/m/YYYY-MM/<name>_<hash>.png"></p>` is inserted at the cursor.
+- Then save the edit form once (Save Changes), so the upload is attached to a saved item and is not
+  treated as an orphaned temporary file. After that the URL can be reused in any HTML pushed
+  through the API, in any section.
+- Full assignment edit page: `/assignment/edit/{section}/{assignment}/basic`.
+- Getting the bytes into the page: an SVG source can be rebuilt in the page and rasterised on a
+  canvas (proven). A raster file on disk has no proven route yet; see the `schoology-images` skill.
+
+## Aligning a task to measurement topics (browser session, proven 2026-09-25)
+
+The public API cannot align. The edit form can, and the picker UI is not needed:
+
+- Edit page `/assignment/edit/{section}/{assignment}/basic` has ONE hidden field,
+  `district-mastery-aligned-objectives`, holding JSON `[{"id":"<topic uuid>","title":"<topic>"}]`.
+  Save Changes submits it; the server replaces the task's alignment with exactly that list.
+  Setting the field in JS and clicking Save once works (proven on AP CSP CPT 2, section 8458134135).
+- Catalogue (read-only, session cookie): `GET /iapi2/district-mastery/school/94044023/api/objectives?status=PUBLISHED`
+  lists the 64 reporting categories (`data[]`: id, title, grading_scale_id). `GET .../objectives/{categoryId}`
+  returns the category with `child_objectives[]` (the measurement topics you align to).
+- The picker (Align button `#s-alignment-align-button`, React mastery-ui) is what Graham uses by hand:
+  category > tick topics > Align; chips have `.delete-btn`.
+- Verify by re-fetching the edit page and parsing the hidden field. Double-clicking Save submits twice
+  (harmless, identical data).
+
+Topic ids for Graham's categories (2026-09-25; re-fetch the catalogue if one is missing):
+
+| Reporting category (scale id) | Measurement topic | id |
+|---|---|---|
+| AP CS: Computational Thinking Practices (21337256) | Responsible Solution Design | a6b7e1aa-795d-437d-be6b-830d4af323ec |
+| | Algorithms | 0510eb43-ea2b-4d7b-bbb4-902b2892e7c9 |
+| | Abstraction | 664d196a-6663-4377-9341-bc03ffce6c86 |
+| | Code Analysis | 8e15a856-7dfe-4028-bf62-a6d4e5b58df9 |
+| | Computing Innovations | a500fe81-a6d3-4471-86b5-acfbb2d2bf73 |
+| AP CS: Content Knowledge (21337256) | General Computer Science Knowledge | c3a3c687-4593-4614-a6db-20dc94f2d3e8 |
+| Tech: Learner and Constructor (21337256) | Empowered Learner | daa2c5f5-f706-481e-be74-e44e88ac3727 |
+| | Digital Citizen | 0a643017-f43b-467a-9ae9-808f3182d8e4 |
+| | Knowledge Constructor | c052d6bb-c86d-4f1f-a398-c4cc5bc23097 |
+| Tech: Designer and Thinker (21337256) | Innovative Designer | 28c9ec00-6955-4ce3-a5b5-c4af82f3acba |
+| | Computational Thinker | 9aeee5fb-12e2-414a-8ec8-0241d4654c41 |
+| Tech: Communicator and Collaborator (21337256) | Creative Communicator | 438a5a0e-28ff-4221-ace9-b5aaa422d8be |
+| | Global Collaborator | a22d4144-df81-4ff3-8a6c-c5e134966b4f |
+| Approaches to Learning (25951428) | Collaboration | 9a6d80f5-b1b9-4fe9-8835-a83c3dd0cff1 |
+| | Respect and Responsibility | 313973c3-1836-4149-b51f-f81de7709ef2 |
+| | Self-Motivated Learning | 888ae081-fc56-40da-813e-7ca0bbc7d0f2 |
+
+## Assigning a task to individual students (browser session, proven 2026-09-25)
+
+The public API cannot do this. The edit form can, without the autocomplete UI:
+
+- Full edit page `/assignment/edit/{section}/{assignment}/basic` (works for assignments and online
+  tests/quizzes; the materials-page popup is the same form with `?topic=true`).
+- Hidden field `selected_eids` = comma-separated **enrolment ids** of the students to assign.
+  Empty = the whole section. (`selected_gg_ids` is the same for grading groups; leave empty.)
+  Save Changes posts it; the server replaces the assignee list with exactly that set.
+- Roster with enrolment ids: `GET /iapi2/{section}/possible-assignees` →
+  `{"data": {"<eid>": {"eid", "name", "picture", "type": "enr"}}}`. The key equals `eid`.
+- The UI Graham uses: the person icon `#ind-assign-wrapper` ("Individually assign"), type a name in
+  `#edit-assigned-users`, pick from the list; chips have an "X" (`.delete-selected`).
+- Verify by re-fetching the edit page and reading `selected_eids`; the form also shows "Assign to: <names>".
+- Proven on AP CSP Episode 1 theory test (section 8458134140, assignment 8544307924): assigned to one
+  student, verified, cleared back to the whole section, verified.
+- Side fact: `grading_scale_id=0` on a test is the "Numeric" scale.
+
+## Moving an item into a folder (browser session, proven 2026-09-25)
+
+The public API cannot move materials between folders (it reports `folder_id`, read-only). Two web routes:
+
+- **Move dialog (use this).** `GET /course/{section}/materials/move/{itemId}` returns the form
+  `s_course_materials_folders_move_item_form` with a `destination_folder` select (every folder in the
+  section, nested ones included; `0` = "(None)", the top level) and fresh `form_build_id` /
+  `form_token`. `POST` the same URL (urlencoded) with `destination_folder`, `op=Move`,
+  `form_build_id`, `form_token`, `form_id`. Response redirects to the materials page.
+  Proven on section 8458134140 item 8544308682: into folder 1037545588 and back to 0; confirmed with
+  the API `get` (`folder_id`).
+- **Drag and drop** posts `/course/{section}/materials/reorder` with the full order of one level
+  (`updates[0][n-<item>]=<pos>`, `updates[0][f-<folder>]=<pos>`, `root_fid`, `dropped_item_id`).
+  It rewrites every position at that level; do not script it.
+
+## Tests and quizzes: pages, copying, settings, deleting (browser session, proven 2026-09-25)
+
+Pages of a test `{id}` (type `assessment` in the API):
+`/assignment/{id}/assessment_questions` (list; `edit_question/{qid}`, `add_question/{type}`,
+`import` = "Import Test/Quiz", `/assignment/{id}/import_from_bank`), `/assignment/{id}/assessment_settings`,
+`/assignment/{id}/assessment_preview`, `/assignment/{id}/assessment_results`, `/assessment/{id}/export_csv`.
+Item actions: `/assignment/{id}/copy`, `/assignment/delete/{id}`, `/course/materials/{id}/mod/publish`.
+
+- **API works on tests for title, published, category, points** (`update --title` proven on a test copy).
+- **Copy (extra-time copies).** `GET /assignment/{id}/copy` = form `addl_courses[<section>][...]` with
+  `enabled`, `destination_folder`, `due][due_date][date|time]`, `grading_category_nid`,
+  `grading_scale_id`, `grading_period_id`, `no_rubric_copy`, one block per section Graham teaches.
+  POST all of the form's fields back with `addl_courses[<section>][enabled]=1` for the target
+  section only and `op=Copy`. Copying into the same section makes a duplicate with all questions and
+  settings; it keeps the source's published state (find the new id with the API `list --match`).
+- **Settings.** `/assignment/{id}/assessment_settings` form `s_assessment_settings_form`: `availability`
+  (Submissions; 0 = Disable), `availability_start/end`, `has_time_limit` + `time_limit` (minutes),
+  `attempts`, `attempts_scoring`, `randomize_order`, `paging`, `review`, `resumable`, `student_view`
+  (View Submissions), `instructions`, `short_answer_lines`, etc. Change the field in the loaded page
+  and click Save Changes once; verify by re-fetching the form.
+- **Delete.** `GET /assignment/delete/{id}` = confirm form `s_grade_item_delete_form`; POST its fields.
+  Goes to the course Recycle Bin. Deletes grades too: only for items with no student work.
+- Proven 25 Sep 2026 on section 8458134140: copied 8544307938 (Ep 1 reassessment, 12 questions,
+  50 min) to 8585091703, renamed with ` *` by API, time limit 63, verified, deleted.
+- LockDown Browser is NOT on the settings form: it is a course app (Respondus, sidebar link).

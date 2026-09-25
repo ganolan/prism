@@ -6,6 +6,8 @@
 //   items, learning-objective alignment, rubrics. Those still need the Schoology web UI.
 //
 // Usage (from ~/repos/prism, credentials by reference only):
+//   node --env-file=.env scripts/schoology-assignment.mjs sections           (Graham's active sections)
+//   node --env-file=.env scripts/schoology-assignment.mjs list   --section S [--match TEXT]
 //   node --env-file=.env scripts/schoology-assignment.mjs get    --section S --id A
 //   node --env-file=.env scripts/schoology-assignment.mjs create --section S --title T [options]
 //   node --env-file=.env scripts/schoology-assignment.mjs update --section S --id A [options]
@@ -28,7 +30,7 @@ for (let i = 0; i < rest.length; i++) {
   else if (rest[i].startsWith('--')) opt[rest[i].slice(2)] = rest[++i];
 }
 const die = (m) => { console.error('ERROR: ' + m); process.exit(1); };
-if (!opt.section) die('--section is required');
+if (cmd !== 'sections' && !opt.section) die('--section is required');
 
 const TITLE_RULE = /^[A-Z][A-Za-z&+ ]*: .+ \((S|F)\)( .*)?$/;   // "AP CSP: CPT 2 - NFT Marketplace (S)"
 
@@ -72,7 +74,20 @@ function summary(a) {
     description_chars: (a.description || '').length };
 }
 
-if (cmd === 'get') {
+if (cmd === 'sections') {
+  const me = await apiGet('/users/me');
+  const secs = (await apiGet(`/users/${me.id || me.uid}/sections`)).section || [];
+  for (const x of secs) console.log(x.id, '|', x.course_title, '|', x.section_title);
+} else if (cmd === 'list') {
+  let all = [], start = 0;
+  for (;;) {
+    const r = await apiGet(`/sections/${opt.section}/assignments?start=${start}&limit=200`);
+    all = all.concat(r.assignment || []);
+    if (!r.links || !r.links.next) break; start += 200;
+  }
+  const m = opt.match ? all.filter(a => a.title.toLowerCase().includes(opt.match.toLowerCase())) : all;
+  for (const a of m) console.log(a.id, '|', a.title, '| due', a.due || '-', '| published', a.published);
+} else if (cmd === 'get') {
   if (!opt.id) die('--id is required');
   const a = await apiGet(`/sections/${opt.section}/assignments/${opt.id}?richtext=1`);
   console.log(JSON.stringify(summary(a), null, 2));
@@ -101,5 +116,5 @@ if (cmd === 'get') {
   const after = await apiGet(`/sections/${opt.section}/assignments/${opt.id}`);
   console.log('updated', JSON.stringify(summary(after)), '| backup:', bak);
 } else {
-  die('command must be get, create or update');
+  die('command must be sections, list, get, create or update');
 }

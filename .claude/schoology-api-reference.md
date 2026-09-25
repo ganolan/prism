@@ -707,3 +707,20 @@ This is exactly the data we need but returns 403 with two-legged OAuth. The 403 
 | Counselor | 293908 | Yes |
 | School Admin | 279440 | Yes |
 | Student TA | 896373 | No |
+
+## Writing assignments (probed live 2026-09-25, AP CSP section 8458134135)
+
+Tool: `scripts/schoology-assignment.mjs` (get / create / update, backup before every update).
+Probe: `scripts/probe-assignment-write.js`. All probe assignments were unpublished and deleted (204).
+
+| Action | Result |
+|---|---|
+| `POST /v1/sections/{id}/assignments` | **201.** Creates the assignment. `title`, `description`, `due` (`YYYY-MM-DD HH:MM:SS`), `grading_scale`, `grading_category`, `max_points`, `published` all stick. |
+| `PUT /v1/sections/{id}/assignments/{aid}` | **204, partial update**: fields omitted from the body are kept (verified: due, scale, category, points unchanged after a description-only PUT). Unlike the grades PUT, it is not destructive. |
+| Description HTML | **Kept, including inline styles** (`<h2 style=...>`, tables, spans). A plain GET strips the HTML; **read with `?richtext=1`** to get it back. |
+| `DELETE /v1/sections/{id}/assignments/{aid}` | 204. |
+| `folder_id` on POST or PUT | **Ignored** (stays 0). Folder placement needs the web UI. |
+| `assignees: [uid]` on PUT | **Ignored** (num_assignees stays 0). Individual assignment needs the web UI (shape not exhaustively tried). |
+| `type: "assessment"` on POST | **Ignored**; creates a plain assignment. Tests and quizzes cannot be created by this API. |
+| Learning-objective alignment, rubrics | Not in the public API (`/alignments`, `/rubric` sub-resources just echo the assignment). |
+| `grading_category` reads `0` on many copied assignments | The edit form still showed "Evidence of Learning - Summative" for CPT 2 while the API said `0`. Most likely the required dropdown just displays its first option when unset (not verified). Setting it by PUT works and the API then reports the id. |

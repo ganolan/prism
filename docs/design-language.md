@@ -681,6 +681,9 @@ each colour standing for a *function* so the hierarchy reads at a glance.
 - **The favicon is generated from the same geometry.**
   `node scripts/render-favicons.mjs` writes `client/public/favicon.svg` and
   renders `favicon-32.png` and a full-bleed 180×180 `apple-touch-icon.png`.
+  - The favicon's square crop is **centred on the prism** (its bounding box),
+    and the beams run off the tile's edges. An earlier crop was centred on
+    the whole mark, which left the prism off to one side.
   - The favicon is a square crop of the mark, with beams 1.5× heavier and a
     heavier outline so it survives 16px. It sits on a rounded tile in the
     Prism theme's sidebar purple (`#2d1b69` → `#1e1145`).

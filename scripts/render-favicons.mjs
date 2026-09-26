@@ -11,7 +11,7 @@ import { writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  APEX, BASE_Y, RIDGE_X, SHADED_FACE, TRIANGLE, beamShapes, exitBeam, polygon,
+  APEX, BASE_LEFT, BASE_RIGHT, BASE_Y, RIDGE_X, SHADED_FACE, TRIANGLE, beamShapes, exitBeam, polygon,
 } from '../client/src/lib/prismLogoGeometry.js';
 
 const pub = join(dirname(fileURLToPath(import.meta.url)), '..', 'client', 'public');
@@ -22,8 +22,12 @@ const COLOURS = { teal: '#14d3a6', blue: '#1ea7fd', violet: '#8b55e0' };
 const TILE_TOP = '#2d1b69';
 const TILE_BOTTOM = '#1e1145';
 
-// A square crop of the logo's mark, in the concept art's pixel coordinates.
-const TILE = { x: 180, y: 185, size: 590 };
+// A square crop of the logo's mark, in the concept art's pixel coordinates,
+// centred on the prism itself (its bounding box). The beams simply run off
+// the tile's edges.
+const TILE_SIZE = 590;
+const PRISM_CENTRE = { x: (BASE_LEFT.x + BASE_RIGHT.x) / 2, y: (APEX.y + BASE_Y) / 2 };
+export const TILE = { x: PRISM_CENTRE.x - TILE_SIZE / 2, y: PRISM_CENTRE.y - TILE_SIZE / 2, size: TILE_SIZE };
 const WEIGHT = 1.5; // heavier beams, so they survive 16px
 // The beam out is white tinted towards cosmic cobalt: all the colours
 // combined. At favicon size the logo's gradient underline is too short to read

@@ -37,7 +37,7 @@ claude mcp add prism -s user -e DB_PATH="$HOME/repos/prism/server/db/students.db
 claude mcp remove prism -s user
 claude mcp add prism -s user -e DB_PATH=/Users/gnolan/prism/data/students.db -- /usr/local/bin/node /Users/gnolan/prism/current/mcp/server.js
 
-# on the laptop: over SSH to the mini (needs Remote Login on the mini)
+# on the laptop: over SSH to the mini (needs Remote Login on the mini + the Keychain setup below)
 claude mcp remove prism -s user
 claude mcp add prism -s user -- ssh gnolan@macmini 'cd ~/prism/current && DB_PATH=$HOME/prism/data/students.db /usr/local/bin/node mcp/server.js'
 ```
@@ -48,6 +48,49 @@ The SSH command is single-quoted so `~` and `$HOME` expand **on the mini**.
 not care that the pipe runs through SSH; Claude, the grading plugin and the
 prompts stay on the laptop.
 
+### Laptop → mini SSH: passwordless, via the Keychain (set up 2026-09-26)
+
+Claude launches `ssh` with no terminal, so it cannot type a password or a key
+passphrase. If SSH needs either, the server fails to connect. Claude Desktop's
+log (`~/Library/Logs/Claude/mcp-server-prism.log`) then shows `Permission
+denied, please try again` twice, followed by `Too many authentication failures`.
+The laptop's key (`~/.ssh/id_ed25519`, `gnolan@Mr-Nolan.local`) is already in
+the mini's `~/.ssh/authorized_keys`. It has a passphrase, so that passphrase
+lives in the macOS Keychain. Once per laptop:
+
+```bash
+# 1. Only if the mini doesn't trust this key yet (asks for the mini password once)
+ssh-copy-id -i ~/.ssh/id_ed25519.pub gnolan@macmini
+
+# 2. Store the key's passphrase in the Keychain (asks for it one last time)
+ssh-add --apple-use-keychain ~/.ssh/id_ed25519
+
+# 3. Always use that key, and the Keychain, for the mini
+cat >> ~/.ssh/config <<'EOF'
+
+Host macmini
+  User gnolan
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes
+  AddKeysToAgent yes
+  UseKeychain yes
+EOF
+
+# 4. Must return at once, with no prompt of any kind
+ssh macmini true
+```
+
+Here is what each of those `~/.ssh/config` lines does:
+
+- `IdentitiesOnly` offers the mini only this one key. Offering every key the
+  agent holds is what trips the server's `Too many authentication failures`
+  limit.
+- `UseKeychain` and `AddKeysToAgent` unlock the key from the Keychain, and the
+  setting survives a reboot.
+
+Check the key the mini trusts with `ssh-keygen -lf ~/.ssh/id_ed25519.pub`. It
+should print `SHA256:k82FEDC9l/K1H4k8k1G8EYwfPy5rJyXioZw44hb9vGg`.
+
 Check with `claude mcp list`. **Local scope outranks user scope**, so if an old
 per-project entry exists, remove it: `claude mcp remove prism -s local`.
 PrisMCP logs the database it opened to stderr at startup
@@ -55,26 +98,45 @@ PrisMCP logs the database it opened to stderr at startup
 
 A machine with no `prism` entry simply has no prism tools — visible, not silent.
 
-### Claude Desktop / Cowork (absolute path)
+### Claude Desktop / Cowork (absolute paths)
 
-Desktop/Cowork spawn the server with an **absolute** command. Add to the Desktop
-MCP config (Settings → Developer → Edit Config, or the connector UI), then
-**restart Desktop**:
+Desktop/Cowork spawn the server with an **absolute** command. The config lives
+at `~/Library/Application Support/Claude/claude_desktop_config.json`.
+
+**Quit Desktop (Cmd-Q) before you edit it.** Desktop keeps the config in memory
+and can write that copy back over the file when it quits, so an edit made while
+Desktop is running can vanish on restart. The safe order is: quit, then
+`open -a TextEdit ~/Library/Application\ Support/Claude/claude_desktop_config.json`,
+then save, then reopen. Add the entry inside the existing `"mcpServers"` block
+and leave the rest of the file alone.
+
+**On the mini**, run the server directly against prod:
 
 ```json
-{
-  "mcpServers": {
-    "prism": {
-      "command": "node",
-      "args": ["/Users/gnolan/repos/prism/mcp/server.js"],
-      "env": { "DB_PATH": "/Users/gnolan/repos/prism/server/db/students.db" }
-    }
-  }
+"prism": {
+  "command": "/usr/local/bin/node",
+  "args": ["/Users/gnolan/prism/current/mcp/server.js"],
+  "env": { "DB_PATH": "/Users/gnolan/prism/data/students.db" }
 }
 ```
 
-- Both paths are absolute, and `DB_PATH` is mandatory (see above).
+**On the laptop**, go over SSH to the mini. This needs the Keychain setup
+above; the `Host macmini` block supplies the user and the key:
+
+```json
+"prism": {
+  "command": "/usr/bin/ssh",
+  "args": [
+    "macmini",
+    "cd ~/prism/current && DB_PATH=$HOME/prism/data/students.db /usr/local/bin/node mcp/server.js"
+  ]
+}
+```
+
+- All paths are absolute, and `DB_PATH` is mandatory (see above).
 - If a path contains spaces, keep it as a single array element; don't split it.
+- Check it: **＋ → Connectors** lists **prism**. The log above ends with
+  `[prismcp] database: /Users/gnolan/prism/data/students.db`.
 
 ## Verify
 

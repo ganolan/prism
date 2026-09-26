@@ -169,7 +169,8 @@ rebuild onto new hardware.
 - Tailscale admin console → DNS → enable **HTTPS Certificates**. *(Done 2026-09-23.)*
 - Tailscale admin console → Machines → macmini → **Disable key expiry**. *(Done 2026-09-23.)*
 - On the mini: System Settings → General → Sharing → **Remote Login** on (the
-  laptop reaches PrisMCP over SSH).
+  laptop reaches PrisMCP over SSH; its key's passphrase must be in the
+  Keychain — see `docs/prismcp-install-and-verify.md`).
 
 **On the day:**
 1. Laptop: stop the dev server and every Claude session with `prism` loaded.

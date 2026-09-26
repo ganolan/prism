@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getCourses, getCoursesByView, getSyncStatus, toggleCourseVisibility } from '../services/api.js';
 import { groupBySemester, groupByYearAndSemester } from '../lib/courseDisplay.js';
+import { formatDateTime } from '../lib/formatDate.js';
 import ArchivedCoursesPanel from '../components/ArchivedCoursesPanel.jsx';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import { useStickyTab } from '../hooks/useStickyTab.js';
@@ -133,7 +134,7 @@ export default function Dashboard() {
       {/* Sync status */}
       {syncStatus?.last && (
         <p className="text-sm text-muted mb-2">
-          Last sync: {new Date(syncStatus.last.completed_at || syncStatus.last.started_at).toLocaleString()}
+          Last sync: {formatDateTime(syncStatus.last.completed_at || syncStatus.last.started_at)}
           {' — '}{syncStatus.last.status}
           {syncStatus.last.records_synced ? ` (${syncStatus.last.records_synced} records)` : ''}
         </p>

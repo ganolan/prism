@@ -646,6 +646,9 @@ each colour standing for a *function* so the hierarchy reads at a glance.
   - the prism's internal 3-D edge line is dropped, because it turns to mush
     at sidebar size
   - the navy wordmark would be invisible on every theme's (dark) sidebar
+  - the wordmark sat awkwardly far from the prism, because the prism narrows
+    toward its apex and so leaves a wedge of empty space beside the letters;
+    the "P" now starts just past the base corner
 - **Colours are variables.** The beams use `--brand-blue`, `--brand-teal` and
   `--brand-violet`, which are theme-independent: the identity doesn't change
   with the theme. The glass and the wordmark use `--logo-glass`,
@@ -662,8 +665,9 @@ each colour standing for a *function* so the hierarchy reads at a glance.
   gradient and clip ids via `useId()`.
 - **The favicon is its own drawing, not a scaled-down lockup.**
   `client/public/favicon.svg` is the mark alone: heavier strokes, the three
-  beams and a stubby exit beam, on a rounded `--brand-ink` tile so it reads on
-  light and dark bookmark bars alike.
+  beams and a stubby exit beam. It sits on a rounded tile in the Prism
+  theme's sidebar purple (`#2d1b69` → `#1e1145`), so the browser tab matches
+  the app, and it reads on light and dark bookmark bars alike.
   - PNG fallbacks for Safari and iOS (`favicon-32.png`, and a full-bleed
     180×180 `apple-touch-icon.png`, because iOS does its own corner rounding)
     are rendered from the SVG by `node scripts/render-favicons.mjs`. Re-run it

@@ -1,5 +1,6 @@
 import { Fragment, useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { formatDate } from '../lib/formatDate.js';
 import {
   getStudent, updateStudent, updateParentPhone,
   createNote, updateNote, deleteNote,
@@ -499,7 +500,7 @@ export default function StudentPage() {
                   <>
                     <p className="text-sm" style={{ whiteSpace: 'pre-wrap' }}>{n.content}</p>
                     <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.3rem', alignItems: 'center' }}>
-                      <span className="text-sm text-muted">{new Date(n.created_at).toLocaleDateString()}</span>
+                      <span className="text-sm text-muted">{formatDate(n.created_at)}</span>
                       {n.course_id && <span className="badge badge-blue">{student.courses.find(c => c.id === n.course_id)?.course_name || 'Course'}</span>}
                       <button onClick={() => { setEditingNoteId(n.id); setEditNoteText(n.content); }} className="ghost accent">Edit</button>
                       <button onClick={() => handleDeleteNote(n.id)} className="ghost danger">Delete</button>

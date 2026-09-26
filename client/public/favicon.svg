@@ -1,9 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- Prism's mark, simplified for 16-32px: three beams in, one out, on an ink
+  <!-- Prism's mark, simplified for 16-32px: three beams in, one out, on a Prism-purple
        tile so it reads on light and dark bookmark bars alike. Same idea as
        client/src/components/PrismLogo.jsx. PNGs: node scripts/render-favicons.mjs -->
   <defs>
     <clipPath id="tile"><rect width="64" height="64" rx="14"/></clipPath>
+    <!-- The Prism theme's sidebar, so the tab icon and the app match. -->
+    <linearGradient id="bg" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#2d1b69"/>
+      <stop offset="1" stop-color="#1e1145"/>
+    </linearGradient>
     <linearGradient id="out" x1="0" x2="1">
       <stop offset="0" stop-color="#1ea7fd"/>
       <stop offset="0.5" stop-color="#14d3a6"/>
@@ -11,7 +16,7 @@
     </linearGradient>
   </defs>
   <g clip-path="url(#tile)">
-    <rect width="64" height="64" fill="#0b1733"/>
+    <rect width="64" height="64" fill="url(#bg)"/>
     <g fill="none" stroke-width="4.5">
       <path d="M-4 12 L21.9 26" stroke="#1ea7fd"/>
       <path d="M-4 33 L18.1 34" stroke="#14d3a6"/>

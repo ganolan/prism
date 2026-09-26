@@ -19,7 +19,7 @@ const BEAMS = [
   { colour: 'var(--brand-violet)', from: [-10, 52], entry: [24.5, 42] },
 ];
 
-export default function PrismLogo({ width = 182, className, title = 'Prism' }) {
+export default function PrismLogo({ width = 174, className, title = 'Prism' }) {
   const id = useId();
   const clip = `${id}-clip`;
   const underline = `${id}-underline`;
@@ -28,7 +28,7 @@ export default function PrismLogo({ width = 182, className, title = 'Prism' }) {
     <svg
       className={className}
       width={width}
-      viewBox="0 0 182 60"
+      viewBox="0 0 174 60"
       role="img"
       aria-label={title}
       focusable="false"
@@ -36,7 +36,7 @@ export default function PrismLogo({ width = 182, className, title = 'Prism' }) {
       <defs>
         {/* Squares every beam off at the same left edge. */}
         <clipPath id={clip}>
-          <rect x="2" y="0" width="180" height="60" />
+          <rect x="2" y="0" width="172" height="60" />
         </clipPath>
         <linearGradient id={underline} x1="0" x2="1" y1="0" y2="0">
           <stop offset="0" style={{ stopColor: 'var(--brand-blue)' }} />
@@ -63,10 +63,10 @@ export default function PrismLogo({ width = 182, className, title = 'Prism' }) {
       />
 
       {/* The single beam out, which becomes the underline. */}
-      <path d={`M${EXIT.x} ${EXIT.y - 1.75} H178 V${EXIT.y + 1.75} H${EXIT.x + 1.9} Z`} fill={`url(#${underline})`} />
+      <path d={`M${EXIT.x} ${EXIT.y - 1.75} H170 V${EXIT.y + 1.75} H${EXIT.x + 1.9} Z`} fill={`url(#${underline})`} />
 
       <text
-        x="77"
+        x="69"
         y="39"
         style={{ fill: 'var(--logo-text)', fontFamily: 'var(--logo-font)', fontWeight: 600, letterSpacing: '1.2px' }}
       >

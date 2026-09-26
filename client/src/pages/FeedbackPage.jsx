@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { formatDate, formatDateTime } from '../lib/formatDate.js';
 import {
   getFeedback, getFeedbackItem, updateFeedback, approveFeedback,
   requestRevision, batchApproveFeedback, processInbox, deleteFeedback,
@@ -139,7 +140,7 @@ export default function FeedbackPage() {
                     return <span className="text-sm" style={lbl.kind === 'mismatch' ? { color: 'var(--danger)' } : null} title={lbl.kind === 'mismatch' ? 'Score does not match any defined level on this grading scale — check Schoology' : undefined}>Score: {lbl.text}</span>;
                   })()}
                   {item.flag_for_review ? <span className="badge badge-red">Flagged</span> : null}
-                  <span className="text-sm text-muted" style={{ marginLeft: 'auto' }}>{new Date(item.created_at).toLocaleDateString()}</span>
+                  <span className="text-sm text-muted" style={{ marginLeft: 'auto' }}>{formatDate(item.created_at)}</span>
                 </div>
               </div>
             ))}
@@ -345,7 +346,7 @@ function FeedbackDetail({ item, scales, onApprove, onDelete, onUpdate }) {
               <div key={i} style={{ padding: '0.5rem', background: 'var(--bg-subtle)', borderRadius: 8, marginBottom: '0.5rem', border: '1px solid var(--border)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
                   <span className="text-sm text-muted">Version {i + 1} — {h.status}</span>
-                  <span className="text-sm text-muted">{new Date(h.changed_at).toLocaleString()}</span>
+                  <span className="text-sm text-muted">{formatDateTime(h.changed_at)}</span>
                 </div>
                 {h.score != null && (() => {
                   const lbl = gradeLabel({ score: h.score, max_points: item.max_points, grading_scale_id: item.grading_scale_id, scales });

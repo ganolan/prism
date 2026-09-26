@@ -25,6 +25,8 @@ const TILE_BOTTOM = '#1e1145';
 // A square crop of the logo's mark, in the concept art's pixel coordinates.
 const TILE = { x: 180, y: 185, size: 590 };
 const WEIGHT = 1.5; // heavier beams, so they survive 16px
+// The beam out is white: all the colours combined. At favicon size the logo's
+// gradient underline is too short to read as anything but one colour.
 
 export function faviconSvg({ rounded = true } = {}) {
   const { x, y, size } = TILE;
@@ -52,7 +54,7 @@ ${beams
     <path d="${SHADED_FACE}" fill="#140832" fill-opacity="0.22"/>
     <line x1="${RIDGE_X}" y1="${APEX.y}" x2="${RIDGE_X}" y2="${BASE_Y}" stroke="#ffffff" stroke-opacity="0.45" stroke-width="10"/>
     <path d="${TRIANGLE}" fill="none" stroke="#ffffff" stroke-width="22" stroke-linejoin="round"/>
-    <path d="${polygon(exitBeam({ weight: WEIGHT, endX: x + size + 10 }))}" fill="${COLOURS.teal}"/>
+    <path d="${polygon(exitBeam({ weight: WEIGHT * 1.6, endX: x + size + 10 }))}" fill="#ffffff"/>
   </g>
 </svg>
 `;

@@ -684,5 +684,9 @@ each colour standing for a *function* so the hierarchy reads at a glance.
   - The favicon is a square crop of the mark, with beams 1.5× heavier and a
     heavier outline so it survives 16px. It sits on a rounded tile in the
     Prism theme's sidebar purple (`#2d1b69` → `#1e1145`).
+  - The favicon's exit beam is **white**, meaning all the colours combined.
+    At 16–32px the logo's gradient is too short to read as a gradient. It
+    is also 1.6× thicker than the favicon's other beams, so it doesn't
+    vanish at 16px.
   - Its hex values live in the script, because a favicon can't see CSS
     variables.

@@ -20,6 +20,6 @@
     <path d="M502.0 284.0 L717.4 666.0 L502.0 666.0 Z" fill="#140832" fill-opacity="0.22"/>
     <line x1="502" y1="284" x2="502" y2="666" stroke="#ffffff" stroke-opacity="0.45" stroke-width="10"/>
     <path d="M502.0 284.0 L717.4 666.0 L286.6 666.0 Z" fill="none" stroke="#ffffff" stroke-width="22" stroke-linejoin="round"/>
-    <rect x="687.8" y="600.8" width="92.22789999999998" height="25.5" fill="#14d3a6"/>
+    <path d="M694.6 600.8 L780.0 600.8 L780.0 626.3 L709.0 626.3 Z" fill="#14d3a6"/>
   </g>
 </svg>

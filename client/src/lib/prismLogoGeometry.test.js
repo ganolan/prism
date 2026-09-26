@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  APEX, BASE_LEFT, BASE_RIGHT, BEAMS, EXIT, RIDGE_X, TEXT, UNDERLINE, beamShapes, leftFaceX,
+  APEX, BASE_LEFT, BASE_RIGHT, BEAMS, EXIT, RIDGE_X, TEXT, UNDERLINE, beamShapes, exitBeam, leftFaceX, rightFaceX,
 } from './prismLogoGeometry.js';
 
 const shapes = beamShapes();
@@ -44,7 +44,17 @@ describe('Prism logo geometry (measured from the concept art)', () => {
     }
   });
 
+  // Starting on the face would lay the beam across the glass's white edge.
+  it('starts the beam out just clear of the far face, cut parallel to it', () => {
+    const [top, , , bottom] = exitBeam();
+    const clearance = (p) => p.x - rightFaceX(p.y);
+    expect(clearance(top)).toBeGreaterThan(11 / 2); // wider than half the outline
+    expect(clearance(bottom)).toBeCloseTo(clearance(top), 6);
+    expect((top.y + bottom.y) / 2).toBe(EXIT.y);
+  });
+
   it('ends the underline where the wordmark ends', () => {
     expect(TEXT.x + TEXT.length).toBe(UNDERLINE.endX);
+    expect(exitBeam()[1].x).toBe(UNDERLINE.endX);
   });
 });

@@ -36,6 +36,9 @@ export const BEAMS = [
 const THICK_LEFT = 54;
 const THICK_RIDGE = 28;
 const ENTRY_GAP = 14; // the beam stops this far short of the glass, as in the art
+// The beam out starts this far clear of the far face, mirroring the way in, so
+// it reads as leaving the glass rather than lying across its edge.
+const EXIT_GAP = 14;
 
 const lerp = (a, b, t) => a + (b - a) * t;
 const leftFaceX = (y) => APEX.x - (y - APEX.y) * TAN;
@@ -81,4 +84,22 @@ export function beamShapes({ weight = 1 } = {}) {
 export const polygon = (pts) => `M${pts.map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' L')} Z`;
 export const TRIANGLE = polygon([APEX, BASE_RIGHT, BASE_LEFT]);
 export const SHADED_FACE = polygon([APEX, BASE_RIGHT, { x: RIDGE_X, y: BASE_Y }]);
-export { leftFaceX };
+const rightFaceX = (y) => APEX.x + (y - APEX.y) * TAN;
+
+/**
+ * The single beam out: from just clear of the far face (its left end cut
+ * parallel to the face) to `endX`.
+ */
+export function exitBeam({ weight = 1, endX = UNDERLINE.endX } = {}) {
+  const h = (UNDERLINE.height * weight) / 2;
+  const top = EXIT.y - h;
+  const bottom = EXIT.y + h;
+  return [
+    { x: rightFaceX(top) + EXIT_GAP, y: top },
+    { x: endX, y: top },
+    { x: endX, y: bottom },
+    { x: rightFaceX(bottom) + EXIT_GAP, y: bottom },
+  ];
+}
+
+export { leftFaceX, rightFaceX };

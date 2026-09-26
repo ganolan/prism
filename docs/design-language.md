@@ -665,7 +665,9 @@ each colour standing for a *function* so the hierarchy reads at a glance.
 - **Changed from the art:**
   - it is vector, on a transparent background
   - the wordmark is light (`--logo-text`), for the dark sidebar
-  - the underline starts at the exit point, with no kink
+  - the beam out starts 14 px clear of the far face, its end cut parallel
+    to the face. This mirrors the gap on the way in, so it reads as leaving
+    the glass. Starting it on the face laid it across the white edge.
 - **Colours are variables.** The beams use `--brand-blue`, `--brand-teal` and
   `--brand-violet`, which don't change with the theme. The glass and the
   wordmark use `--logo-glass`, `--logo-glass-shade`, `--logo-glass-edge` and

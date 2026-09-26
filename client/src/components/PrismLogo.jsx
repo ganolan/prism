@@ -1,7 +1,7 @@
 import { useId } from 'react';
 import {
-  BASE_Y, EXIT, RIDGE_X, APEX, SHADED_FACE, TEXT, TRIANGLE, UNDERLINE,
-  beamShapes, polygon,
+  BASE_Y, RIDGE_X, APEX, SHADED_FACE, TEXT, TRIANGLE,
+  beamShapes, exitBeam, polygon,
 } from '../lib/prismLogoGeometry.js';
 
 // Prism's identity: three separate streams (Schoology, PowerSchool, your own
@@ -17,6 +17,7 @@ import {
 
 const VIEW = { x: 100, y: 270, w: 1320, h: 410 };
 const BEAMS = beamShapes();
+const EXIT_BEAM = exitBeam();
 
 export default function PrismLogo({ width = 196, className, title = 'Prism' }) {
   const underline = `${useId()}-underline`;
@@ -57,13 +58,7 @@ export default function PrismLogo({ width = 196, className, title = 'Prism' }) {
       <path d={TRIANGLE} fill="none" strokeWidth="11" strokeLinejoin="round" style={{ stroke: 'var(--logo-glass-edge)' }} />
 
       {/* The one beam out, which becomes the underline. */}
-      <rect
-        x={EXIT.x.toFixed(1)}
-        y={UNDERLINE.y}
-        width={(UNDERLINE.endX - EXIT.x).toFixed(1)}
-        height={UNDERLINE.height}
-        fill={`url(#${underline})`}
-      />
+      <path d={polygon(EXIT_BEAM)} fill={`url(#${underline})`} />
 
       <text
         x={TEXT.x}

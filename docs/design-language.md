@@ -681,20 +681,15 @@ each colour standing for a *function* so the hierarchy reads at a glance.
 - **The favicon is generated from the same geometry.**
   `node scripts/render-favicons.mjs` writes `client/public/favicon.svg` and
   renders `favicon-32.png` and a full-bleed 180×180 `apple-touch-icon.png`.
-  - The favicon is a square crop of the mark, with beams 1.5× heavier so
-    they survive 16px.
-  - **It sits on a light tile, like the concept art's page, not the dark
-    sidebar colour.** Its exit beam is **cosmic cobalt** (`#2e2d88`), and on
-    the purple tile that beam vanished. The tile runs white to `#eceef9`,
-    with a faint `#cfd3ec` rim so it doesn't dissolve into a white bookmark
-    bar.
-  - The glass is pale and laid over the beams inside it, which turns them
-    pastel as in the art.
-  - The outline is a mid blue-grey (`#7f93c4`): dark enough to hold the
-    shape at 16px, light enough that the cobalt beam stays the strongest
-    element. A cobalt outline was crisper, but it competed with the beam.
-  - The exit beam is 1.6× the other beams' weight, so it reads as the one
-    combined beam. (A white exit beam on the purple tile was tried first,
-    27/09/2026, and replaced.)
+  - The favicon is a square crop of the mark, with beams 1.5× heavier and a
+    heavier outline so it survives 16px. It sits on a rounded tile in the
+    Prism theme's sidebar purple (`#2d1b69` → `#1e1145`).
+  - The favicon's exit beam is **white tinted towards cosmic cobalt**
+    (`#c8cbff`), meaning all the colours combined. A solid cobalt beam on a
+    light tile was tried on 27/09/2026 and rejected: the dark purple tile
+    with a light beam looked better.
+    At 16–32px the logo's gradient is too short to read as a gradient. It
+    is also 1.6× thicker than the favicon's other beams, so it doesn't
+    vanish at 16px.
   - Its hex values live in the script, because a favicon can't see CSS
     variables.

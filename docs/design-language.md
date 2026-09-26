@@ -689,7 +689,9 @@ each colour standing for a *function* so the hierarchy reads at a glance.
     light tile was tried on 27/09/2026 and rejected: the dark purple tile
     with a light beam looked better.
     At 16–32px the logo's gradient is too short to read as a gradient. It
-    is also 1.6× thicker than the favicon's other beams, so it doesn't
-    vanish at 16px.
+    is **finer than the three beams** going in, because it leaves after they
+    converge: the light is focused. The favicon draws every beam 1.5×
+    heavier, and the exit beam scales with them. A thicker exit beam was
+    tried and rejected on 27/09/2026.
   - Its hex values live in the script, because a favicon can't see CSS
     variables.

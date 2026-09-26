@@ -53,6 +53,18 @@ describe('Prism logo geometry (measured from the concept art)', () => {
     expect((top.y + bottom.y) / 2).toBe(EXIT.y);
   });
 
+  // The beam out leaves after the three converge: focused, so finer than any of them.
+  it('makes the beam out finer than every beam going in, at any weight', () => {
+    for (const weight of [1, 1.5]) {
+      const [top, , , bottom] = exitBeam({ weight });
+      const out = bottom.y - top.y;
+      for (const { inside } of beamShapes({ weight })) {
+        expect(out).toBeLessThan(inside[4].y - inside[1].y); // thickness at the ridge
+        expect(inside[3].y - inside[2].y).toBeCloseTo(out, 6); // they taper to meet it
+      }
+    }
+  });
+
   it('ends the underline where the wordmark ends', () => {
     expect(TEXT.x + TEXT.length).toBe(UNDERLINE.endX);
     expect(exitBeam()[1].x).toBe(UNDERLINE.endX);

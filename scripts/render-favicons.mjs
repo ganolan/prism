@@ -56,7 +56,7 @@ ${beams
     <path d="${SHADED_FACE}" fill="#140832" fill-opacity="0.22"/>
     <line x1="${RIDGE_X}" y1="${APEX.y}" x2="${RIDGE_X}" y2="${BASE_Y}" stroke="#ffffff" stroke-opacity="0.45" stroke-width="10"/>
     <path d="${TRIANGLE}" fill="none" stroke="#ffffff" stroke-width="22" stroke-linejoin="round"/>
-    <path d="${polygon(exitBeam({ weight: WEIGHT * 1.6, endX: x + size + 10 }))}" fill="${EXIT_TINT}"/>
+    <path d="${polygon(exitBeam({ weight: WEIGHT, endX: x + size + 10 }))}" fill="${EXIT_TINT}"/>
   </g>
 </svg>
 `;

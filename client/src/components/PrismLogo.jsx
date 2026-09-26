@@ -1,25 +1,36 @@
 import { useId } from 'react';
+import { tracePrism } from '../lib/prismOptics.js';
 
 // Prism's identity: three coloured beams (the sources — Schoology, PowerSchool,
 // your own notes) enter the prism and leave it as one beam, which runs on as
-// the underline of the wordmark. Vector rebuild of
-// client/src/assets/prism-logo-colour.png; the favicon (client/public/favicon.svg)
-// is the same mark, simplified for 16px.
+// the underline of the wordmark. The beam paths are ray-traced (see
+// lib/prismOptics.js), not drawn by eye. The concept art is
+// client/src/assets/prism-logo-colour.png; the favicon is generated from the
+// same trace by scripts/render-favicons.mjs.
 //
 // Beam colours are the theme-independent --brand-* variables; the glass and the
-// wordmark follow --logo-glass / --logo-text so the lockup reads on every
-// theme's sidebar. See docs/design-language.md → "Logo & favicon".
+// wordmark follow the --logo-* variables. See docs/design-language.md →
+// "Logo & favicon".
 
-// Triangle: apex (44,6), base (18,54)–(70,54). Every beam converges on EXIT,
-// a point on the right face level with the underline.
-const EXIT = { x: 65.67, y: 46 };
-const BEAMS = [
-  { colour: 'var(--brand-blue)', from: [-10, 4], entry: [34.25, 24] },
-  { colour: 'var(--brand-teal)', from: [-10, 28], entry: [29.38, 33] },
-  { colour: 'var(--brand-violet)', from: [-10, 52], entry: [24.5, 42] },
-];
+const LEFT_EDGE = 2;
+const { triangle, exit, beams } = tracePrism({ apex: { x: 66, y: 4 }, height: 50, exitY: 40, leftX: LEFT_EDGE });
 
-export default function PrismLogo({ width = 174, className, title = 'Prism' }) {
+const TEXT_X = 87; // just clear of the right face at the baseline
+const TEXT_END = 189; // measured getBBox() end of "PRISM" in Montserrat 600
+const VIEW_W = 192;
+const VIEW_H = 66;
+const BEAM_W = 5;
+const UNDERLINE_W = 4.5;
+
+const pt = (p) => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`;
+
+// Extends a beam past the left cut, so the clip (not the line cap) squares it off.
+function beyondEdge(start, entry, by = 6) {
+  const slope = (start.y - entry.y) / (entry.x - start.x);
+  return { x: start.x - by, y: start.y + by * slope };
+}
+
+export default function PrismLogo({ width = VIEW_W, className, title = 'Prism' }) {
   const id = useId();
   const clip = `${id}-clip`;
   const underline = `${id}-underline`;
@@ -28,46 +39,52 @@ export default function PrismLogo({ width = 174, className, title = 'Prism' }) {
     <svg
       className={className}
       width={width}
-      viewBox="0 0 174 60"
+      viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
       role="img"
       aria-label={title}
       focusable="false"
     >
       <defs>
-        {/* Squares every beam off at the same left edge. */}
         <clipPath id={clip}>
-          <rect x="2" y="0" width="172" height="60" />
+          <rect x={LEFT_EDGE} y="0" width={VIEW_W - LEFT_EDGE} height={VIEW_H} />
         </clipPath>
+        {/* Same order, top to bottom, as the beams that merge into it. */}
         <linearGradient id={underline} x1="0" x2="1" y1="0" y2="0">
-          <stop offset="0" style={{ stopColor: 'var(--brand-blue)' }} />
-          <stop offset="0.5" style={{ stopColor: 'var(--brand-teal)' }} />
+          <stop offset="0" style={{ stopColor: 'var(--brand-teal)' }} />
+          <stop offset="0.5" style={{ stopColor: 'var(--brand-blue)' }} />
           <stop offset="1" style={{ stopColor: 'var(--brand-violet)' }} />
         </linearGradient>
       </defs>
 
-      <g clipPath={`url(#${clip})`} fill="none" strokeWidth="4.5" strokeLinejoin="round">
-        {BEAMS.map(({ colour, from, entry }) => (
-          <g key={colour} style={{ stroke: colour }}>
-            <line x1={from[0]} y1={from[1]} x2={entry[0]} y2={entry[1]} />
-            {/* Inside the glass: fainter, and narrowing to the exit point. */}
-            <line x1={entry[0]} y1={entry[1]} x2={EXIT.x} y2={EXIT.y} strokeOpacity="0.55" strokeWidth="3" />
+      <g clipPath={`url(#${clip})`} fill="none">
+        {beams.map(({ colour, start, entry }) => (
+          <g key={colour} data-beam={colour} style={{ stroke: `var(--brand-${colour})` }}>
+            <path d={`M${pt(beyondEdge(start, entry))} L${pt(entry)}`} strokeWidth={BEAM_W} />
+            {/* Inside the glass: fainter, converging on the exit point. */}
+            <path d={`M${pt(entry)} L${pt(exit)}`} strokeWidth={BEAM_W * 0.7} strokeOpacity="0.6" />
           </g>
         ))}
       </g>
 
       <path
-        d="M44 6 L70 54 L18 54 Z"
-        strokeWidth="1.75"
+        d={`M${triangle.map(pt).join(' L')} Z`}
+        strokeWidth="2"
         strokeLinejoin="round"
         style={{ fill: 'var(--logo-glass)', stroke: 'var(--logo-glass-edge)' }}
       />
 
       {/* The single beam out, which becomes the underline. */}
-      <path d={`M${EXIT.x} ${EXIT.y - 1.75} H170 V${EXIT.y + 1.75} H${EXIT.x + 1.9} Z`} fill={`url(#${underline})`} />
+      <rect
+        x={exit.x.toFixed(2)}
+        y={(exit.y - UNDERLINE_W / 2).toFixed(2)}
+        width={(TEXT_END - exit.x).toFixed(2)}
+        height={UNDERLINE_W}
+        fill={`url(#${underline})`}
+      />
 
       <text
-        x="69"
-        y="39"
+        x={TEXT_X}
+        y="33"
         style={{ fill: 'var(--logo-text)', fontFamily: 'var(--logo-font)', fontWeight: 600, letterSpacing: '1.2px' }}
       >
         <tspan fontSize="34">P</tspan>

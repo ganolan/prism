@@ -10,9 +10,11 @@ describe('PrismLogo', () => {
 
   it('draws three beams in, each converging on the one beam out', () => {
     const { container } = render(<PrismLogo />);
-    const inside = [...container.querySelectorAll('line')].filter((l) => l.getAttribute('stroke-opacity'));
+    const beams = container.querySelectorAll('[data-beam]');
+    expect([...beams].map((b) => b.dataset.beam)).toEqual(['teal', 'blue', 'violet']);
+    const inside = [...container.querySelectorAll('path[stroke-opacity]')];
     expect(inside).toHaveLength(3);
-    const exits = new Set(inside.map((l) => `${l.getAttribute('x2')},${l.getAttribute('y2')}`));
+    const exits = new Set(inside.map((p) => p.getAttribute('d').split(' L')[1]));
     expect(exits.size).toBe(1);
   });
 

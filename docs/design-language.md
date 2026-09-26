@@ -630,47 +630,59 @@ each colour standing for a *function* so the hierarchy reads at a glance.
 
 - **The idea: many sources in, one clear view out.** Three coloured beams
   (Schoology, PowerSchool, the teacher's own notes) enter the prism and leave
-  it as a single beam, which runs on as the wordmark's underline. This is the
-  reverse of textbook dispersion, and deliberately so: it's what Prism does.
-  The original artwork is `client/src/assets/prism-logo-colour.png`
-  (a raster concept, kept as the source reference); the app uses
-  `client/src/components/PrismLogo.jsx`.
-- **Rebuilt as vector, and corrected along the way.** The raster was a
-  1 MB 1536×1024 PNG on an off-white box, which can't sit on a dark sidebar.
-  Its fixes:
-  - the exit beam and the underline were two shapes with a kink between them;
-    they are now one shape, leaving the prism exactly where the beams converge
+  it as a single beam, which runs on as the wordmark's underline. This is a
+  rainbow split run in reverse, and optics allows it: light paths are
+  reversible. The concept art is `client/src/assets/prism-logo-colour.png`;
+  the app uses `client/src/components/PrismLogo.jsx`.
+- **The beams obey physics, because they are ray-traced**
+  (`client/src/lib/prismOptics.js`, with Snell's-law tests beside it).
+  - With an apex-up prism, light is always deviated towards the base. The
+    outgoing beam is horizontal (it becomes the underline), so every incoming
+    beam must rise from the lower left. The higher its refractive index, the
+    steeper it climbs: violet the most, then blue, then teal.
+  - The concept art had the top beam coming *down* into the prism, which is
+    impossible. The first vector redraw copied that mistake. Fixed 27/09/2026.
+  - The indices (teal 1.15, blue 1.22, violet 1.30) are exaggerated so the
+    colours visibly separate; real glass disperses by about 1°.
+  - The prism is equilateral, the classic dispersing-prism shape.
+  - To change the look, change the trace inputs (apex, height, exit height,
+    indices). Never hand-edit coordinates.
+- **Other fixes to the concept art:**
+  - it was a raster PNG on an off-white box, so it couldn't sit on a dark
+    sidebar
+  - the exit beam and the underline had a kink between them; they are now one
+    shape, leaving the prism at the point where the beams converge
   - the beam ends had uneven cuts; they are now clipped to one shared left edge
-  - the underline's gradient order (teal → blue → violet) didn't match the
-    beams (blue, teal, violet top to bottom); it now does
-  - the prism's internal 3-D edge line is dropped, because it turns to mush
-    at sidebar size
-  - the navy wordmark would be invisible on every theme's (dark) sidebar
-  - the wordmark sat awkwardly far from the prism, because the prism narrows
-    toward its apex and so leaves a wedge of empty space beside the letters;
-    the "P" now starts just past the base corner
-- **Colours are variables.** The beams use `--brand-blue`, `--brand-teal` and
-  `--brand-violet`, which are theme-independent: the identity doesn't change
-  with the theme. The glass and the wordmark use `--logo-glass`,
-  `--logo-glass-edge` and `--logo-text`, which default to light-on-dark. A
-  future theme with a light sidebar overrides those four `--logo-*` variables
-  and nothing else. `--brand-ink` (#0b1733) is the original wordmark navy, for
-  any light-background use.
-- **The wordmark is live text, not paths.** It uses Montserrat 600 (loaded
-  alongside Inter), with a larger cap "P" and caps "RISM", matching the
-  original's small-caps look. It is text in an inline SVG, so the page's web
-  font applies. The underline ends where the "M" ends (measured with
-  `getBBox()`); if the font or letter-spacing changes, re-measure it.
-  Screen readers hear "Prism" (`role="img"`), and each instance gets its own
-  gradient and clip ids via `useId()`.
-- **The favicon is its own drawing, not a scaled-down lockup.**
-  `client/public/favicon.svg` is the mark alone: heavier strokes, the three
-  beams and a stubby exit beam. It sits on a rounded tile in the Prism
-  theme's sidebar purple (`#2d1b69` → `#1e1145`), so the browser tab matches
-  the app, and it reads on light and dark bookmark bars alike.
-  - PNG fallbacks for Safari and iOS (`favicon-32.png`, and a full-bleed
-    180×180 `apple-touch-icon.png`, because iOS does its own corner rounding)
-    are rendered from the SVG by `node scripts/render-favicons.mjs`. Re-run it
-    after editing the SVG.
-  - Hex values are allowed in the favicon SVG: it is a standalone file that
-    cannot see the app's CSS variables.
+  - the underline's gradient now runs in the beams' top-to-bottom order
+    (teal, blue, violet)
+  - the prism's internal 3-D edge line is gone, because it turns to mush at
+    sidebar size
+  - the navy wordmark is now light, so it shows on the dark sidebar
+- **Weights.** The beams are 5 units wide outside the glass and 70% of that,
+  at 60% opacity, inside it. The glass outline is 2 and the underline 4.5.
+  A thinner pass looked weak beside the wordmark.
+- **The wordmark starts just clear of the prism's right face at the baseline.**
+  The prism narrows towards its apex, so a wedge of space beside the letters
+  is unavoidable; don't widen it.
+- **Colours are variables.** The beams use `--brand-teal`, `--brand-blue` and
+  `--brand-violet`, which don't change with the theme: the identity stays
+  fixed. The glass and the wordmark use `--logo-glass`, `--logo-glass-edge`
+  and `--logo-text`, which default to light-on-dark for the sidebar.
+  `--brand-ink` (#0b1733) is the concept art's navy, for use on light
+  backgrounds.
+- **The wordmark is live text.** It is Montserrat 600, with a larger cap "P"
+  and caps "RISM", in an inline SVG, so the page's web font applies. The
+  underline ends where the "M" ends, measured with `getBBox()`; if the font,
+  size or position changes, re-measure it. Screen readers hear "Prism"
+  (`role="img"`), and each instance gets its own ids via `useId()`.
+- **The favicon is generated, not drawn.** `node scripts/render-favicons.mjs`
+  writes `client/public/favicon.svg` from the same ray-trace. It then renders
+  `favicon-32.png`, and `apple-touch-icon.png` at 180×180, full-bleed because
+  iOS rounds the corners itself.
+  - The favicon is the mark alone, with heavier strokes, on a rounded tile in
+    the Prism theme's sidebar purple (`#2d1b69` → `#1e1145`), so the browser
+    tab matches the app.
+  - Its exit sits higher on the prism than the logo's does (there's no text to
+    line up with), which gives the beams room at 16px.
+  - Its hex values live in the script, because a favicon can't see CSS
+    variables. Keep them in step with `app.css`.

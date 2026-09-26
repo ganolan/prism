@@ -14,6 +14,7 @@ import { useTheme } from './hooks/useTheme.jsx';
 import { DataVersionContext } from './hooks/useDataVersion.jsx';
 import SyncDialog from './components/SyncDialog.jsx';
 import VersionBadge from './components/VersionBadge.jsx';
+import PrismLogo from './components/PrismLogo.jsx';
 import './app.css';
 
 export default function App() {
@@ -28,7 +29,7 @@ export default function App() {
     <BrowserRouter>
       <div className="app">
         <nav className="sidebar">
-          <h1 className="logo">Prism</h1>
+          <h1 className="logo"><PrismLogo /></h1>
           <div className="sidebar-section-label">Navigation</div>
           <NavLink to="/" end>Dashboard</NavLink>
           <NavLink to="/search">Search Students</NavLink>

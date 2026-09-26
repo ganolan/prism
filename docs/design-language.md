@@ -625,3 +625,48 @@ each colour standing for a *function* so the hierarchy reads at a glance.
   reached already shows itself everywhere else in the UI; an error chip in
   the sidebar would be noise on top of noise.
 - **The build time is a `title`, in `en-GB`** — `Built 23/09/2026 09:06`.
+
+## Logo & favicon — Prism's identity (September 2026)
+
+- **The idea: many sources in, one clear view out.** Three coloured beams
+  (Schoology, PowerSchool, the teacher's own notes) enter the prism and leave
+  it as a single beam, which runs on as the wordmark's underline. This is the
+  reverse of textbook dispersion, and deliberately so: it's what Prism does.
+  The original artwork is `client/src/assets/prism-logo-colour.png`
+  (a raster concept, kept as the source reference); the app uses
+  `client/src/components/PrismLogo.jsx`.
+- **Rebuilt as vector, and corrected along the way.** The raster was a
+  1 MB 1536×1024 PNG on an off-white box, which can't sit on a dark sidebar.
+  Its fixes:
+  - the exit beam and the underline were two shapes with a kink between them;
+    they are now one shape, leaving the prism exactly where the beams converge
+  - the beam ends had uneven cuts; they are now clipped to one shared left edge
+  - the underline's gradient order (teal → blue → violet) didn't match the
+    beams (blue, teal, violet top to bottom); it now does
+  - the prism's internal 3-D edge line is dropped, because it turns to mush
+    at sidebar size
+  - the navy wordmark would be invisible on every theme's (dark) sidebar
+- **Colours are variables.** The beams use `--brand-blue`, `--brand-teal` and
+  `--brand-violet`, which are theme-independent: the identity doesn't change
+  with the theme. The glass and the wordmark use `--logo-glass`,
+  `--logo-glass-edge` and `--logo-text`, which default to light-on-dark. A
+  future theme with a light sidebar overrides those four `--logo-*` variables
+  and nothing else. `--brand-ink` (#0b1733) is the original wordmark navy, for
+  any light-background use.
+- **The wordmark is live text, not paths.** It uses Montserrat 600 (loaded
+  alongside Inter), with a larger cap "P" and caps "RISM", matching the
+  original's small-caps look. It is text in an inline SVG, so the page's web
+  font applies. The underline ends where the "M" ends (measured with
+  `getBBox()`); if the font or letter-spacing changes, re-measure it.
+  Screen readers hear "Prism" (`role="img"`), and each instance gets its own
+  gradient and clip ids via `useId()`.
+- **The favicon is its own drawing, not a scaled-down lockup.**
+  `client/public/favicon.svg` is the mark alone: heavier strokes, the three
+  beams and a stubby exit beam, on a rounded `--brand-ink` tile so it reads on
+  light and dark bookmark bars alike.
+  - PNG fallbacks for Safari and iOS (`favicon-32.png`, and a full-bleed
+    180×180 `apple-touch-icon.png`, because iOS does its own corner rounding)
+    are rendered from the SVG by `node scripts/render-favicons.mjs`. Re-run it
+    after editing the SVG.
+  - Hex values are allowed in the favicon SVG: it is a standalone file that
+    cannot see the app's CSS variables.

@@ -1,6 +1,23 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 /* ========================================================================
+   BRAND — Prism's identity (PrismLogo.jsx, public/favicon.svg). The beam
+   colours are the same on every theme; the glass and wordmark are tuned for
+   the sidebar, which is dark on every theme so far. A theme with a light
+   sidebar overrides the --logo-* four in its own block.
+   ======================================================================== */
+:root {
+  --brand-blue: #1ea7fd;
+  --brand-teal: #14d3a6;
+  --brand-violet: #8b55e0;
+  --brand-ink: #0b1733;
+  --logo-text: #f5f3ff;
+  --logo-glass: rgba(255, 255, 255, 0.14);
+  --logo-glass-edge: rgba(255, 255, 255, 0.7);
+  --logo-font: 'Montserrat', 'Inter', system-ui, sans-serif;
+}
+
+/* ========================================================================
    THEME: Prism (default) — light mode, blues/pinks/purples with gradients
    ======================================================================== */
 :root,
@@ -247,15 +264,15 @@ body {
 }
 
 .sidebar .logo {
-  font-size: 1.4rem;
-  font-weight: 800;
-  margin-bottom: 1.75rem;
-  padding: 0 0.75rem;
-  background: var(--logo-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  letter-spacing: 0.04em;
+  margin: 0 0 1.5rem;
+  padding: 0 0.25rem;
+  line-height: 0;
+}
+
+.sidebar .logo svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
 }
 
 .sidebar a {

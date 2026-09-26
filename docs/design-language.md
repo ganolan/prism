@@ -628,61 +628,59 @@ each colour standing for a *function* so the hierarchy reads at a glance.
 
 ## Logo & favicon — Prism's identity (September 2026)
 
-- **The idea: many sources in, one clear view out.** Three coloured beams
-  (Schoology, PowerSchool, the teacher's own notes) enter the prism and leave
-  it as a single beam, which runs on as the wordmark's underline. This is a
-  rainbow split run in reverse, and optics allows it: light paths are
-  reversible. The concept art is `client/src/assets/prism-logo-colour.png`;
-  the app uses `client/src/components/PrismLogo.jsx`.
-- **The beams obey physics, because they are ray-traced**
-  (`client/src/lib/prismOptics.js`, with Snell's-law tests beside it).
-  - With an apex-up prism, light is always deviated towards the base. The
-    outgoing beam is horizontal (it becomes the underline), so every incoming
-    beam must rise from the lower left. The higher its refractive index, the
-    steeper it climbs: violet the most, then blue, then teal.
-  - The concept art had the top beam coming *down* into the prism, which is
-    impossible. The first vector redraw copied that mistake. Fixed 27/09/2026.
-  - The indices (teal 1.15, blue 1.22, violet 1.30) are exaggerated so the
-    colours visibly separate; real glass disperses by about 1°.
-  - The prism is equilateral, the classic dispersing-prism shape.
-  - To change the look, change the trace inputs (apex, height, exit height,
-    indices). Never hand-edit coordinates.
-- **Other fixes to the concept art:**
-  - it was a raster PNG on an off-white box, so it couldn't sit on a dark
-    sidebar
-  - the exit beam and the underline had a kink between them; they are now one
-    shape, leaving the prism at the point where the beams converge
-  - the beam ends had uneven cuts; they are now clipped to one shared left edge
-  - the underline's gradient now runs in the beams' top-to-bottom order
-    (teal, blue, violet)
-  - the prism's internal 3-D edge line is gone, because it turns to mush at
-    sidebar size
-  - the navy wordmark is now light, so it shows on the dark sidebar
-- **Weights.** The beams are 5 units wide outside the glass and 70% of that,
-  at 60% opacity, inside it. The glass outline is 2 and the underline 4.5.
-  A thinner pass looked weak beside the wordmark.
-- **The wordmark starts just clear of the prism's right face at the baseline.**
-  The prism narrows towards its apex, so a wedge of space beside the letters
-  is unavoidable; don't widen it.
-- **Colours are variables.** The beams use `--brand-teal`, `--brand-blue` and
-  `--brand-violet`, which don't change with the theme: the identity stays
-  fixed. The glass and the wordmark use `--logo-glass`, `--logo-glass-edge`
-  and `--logo-text`, which default to light-on-dark for the sidebar.
-  `--brand-ink` (#0b1733) is the concept art's navy, for use on light
-  backgrounds.
-- **The wordmark is live text.** It is Montserrat 600, with a larger cap "P"
-  and caps "RISM", in an inline SVG, so the page's web font applies. The
-  underline ends where the "M" ends, measured with `getBBox()`; if the font,
-  size or position changes, re-measure it. Screen readers hear "Prism"
-  (`role="img"`), and each instance gets its own ids via `useId()`.
-- **The favicon is generated, not drawn.** `node scripts/render-favicons.mjs`
-  writes `client/public/favicon.svg` from the same ray-trace. It then renders
-  `favicon-32.png`, and `apple-touch-icon.png` at 180×180, full-bleed because
-  iOS rounds the corners itself.
-  - The favicon is the mark alone, with heavier strokes, on a rounded tile in
-    the Prism theme's sidebar purple (`#2d1b69` → `#1e1145`), so the browser
-    tab matches the app.
-  - Its exit sits higher on the prism than the logo's does (there's no text to
-    line up with), which gives the beams room at 16px.
+- **The idea: separate streams in, one unified source out.** Three coloured
+  beams (Schoology, PowerSchool, the teacher's own notes) arrive at *very
+  different angles*: blue falls, teal runs nearly level, violet rises. They
+  pass straight through the prism's front face, bend at its centre ridge,
+  converge on one point on the far face, and leave as a single beam, which
+  becomes the wordmark's underline. The wide fan of angles carries the
+  meaning, so the logo deliberately disobeys optics. **Visual balance beats
+  physics here.**
+- **The concept art is the source of truth**
+  (`client/src/assets/prism-logo-colour.png`). The geometry in
+  `client/src/lib/prismLogoGeometry.js` was measured from it, in the art's
+  own pixels:
+  - each beam's centre line and slope
+  - thickness: 54 px at the left edge, 28 px at the ridge
+  - the prism's apex and base
+  - the underline's height and its extent
+  - the wordmark's stem-to-edge run
+
+  The SVG uses those pixels directly as its viewBox, so an overlay on the
+  PNG lines up. Tests pin the composition: a wide fan, straight on entry, a
+  bend at the ridge, one exit.
+- **The bend happens at the ridge, not on entry.** The vertical ridge line (the
+  prism's front edge, which makes it read as 3-D) is where each beam kinks
+  downwards towards the exit. Without that line the bend has no reason and
+  looks like a mistake. Keep it.
+- **Tried and rejected on 27/09/2026: physically correct refraction.** Snell's
+  law with an apex-up prism and a horizontal exit forces every beam to rise
+  from below, which collapses the fan. It lost the symbolism and looked
+  worse.
+- **Kept from the art:**
+  - each beam stops just short of the glass (a 14 px gap) and is paler
+    inside it
+  - the prism's right-hand face is shaded
+  - the beams taper from the left edge to the ridge
+- **Changed from the art:**
+  - it is vector, on a transparent background
+  - the wordmark is light (`--logo-text`), for the dark sidebar
+  - the underline starts at the exit point, with no kink
+- **Colours are variables.** The beams use `--brand-blue`, `--brand-teal` and
+  `--brand-violet`, which don't change with the theme. The glass and the
+  wordmark use `--logo-glass`, `--logo-glass-shade`, `--logo-glass-edge` and
+  `--logo-text`, which default to light-on-dark. `--brand-ink` (#0b1733) is
+  the art's navy, for use on light backgrounds.
+- **The wordmark is live text**: Montserrat 600, with a larger cap "P" and caps
+  "RISM". Montserrat is broader than the art's typeface, so the sizes are
+  about 7% smaller and `textLength` pins the run to the art's width. The
+  underline therefore ends exactly where the "M" ends. Screen readers hear
+  "Prism" (`role="img"`), and `useId()` keeps two instances' ids apart.
+- **The favicon is generated from the same geometry.**
+  `node scripts/render-favicons.mjs` writes `client/public/favicon.svg` and
+  renders `favicon-32.png` and a full-bleed 180×180 `apple-touch-icon.png`.
+  - The favicon is a square crop of the mark, with beams 1.5× heavier and a
+    heavier outline so it survives 16px. It sits on a rounded tile in the
+    Prism theme's sidebar purple (`#2d1b69` → `#1e1145`).
   - Its hex values live in the script, because a favicon can't see CSS
-    variables. Keep them in step with `app.css`.
+    variables.

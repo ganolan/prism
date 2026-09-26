@@ -8,14 +8,11 @@ describe('PrismLogo', () => {
     expect(screen.getByRole('img', { name: 'Prism' })).toBeTruthy();
   });
 
-  it('draws three beams in, each converging on the one beam out', () => {
+  it('draws the three beams, blue, teal and violet, each outside and through the glass', () => {
     const { container } = render(<PrismLogo />);
-    const beams = container.querySelectorAll('[data-beam]');
-    expect([...beams].map((b) => b.dataset.beam)).toEqual(['teal', 'blue', 'violet']);
-    const inside = [...container.querySelectorAll('path[stroke-opacity]')];
-    expect(inside).toHaveLength(3);
-    const exits = new Set(inside.map((p) => p.getAttribute('d').split(' L')[1]));
-    expect(exits.size).toBe(1);
+    const beams = [...container.querySelectorAll('[data-beam]')];
+    expect(beams.map((b) => b.dataset.beam)).toEqual(['blue', 'teal', 'violet']);
+    for (const b of beams) expect(b.querySelectorAll('path')).toHaveLength(2);
   });
 
   // Theme-aware: colours come from CSS variables, never hard-coded hex.
@@ -25,9 +22,9 @@ describe('PrismLogo', () => {
     expect(container.innerHTML).toMatch(/var\(--logo-text\)/);
   });
 
-  // Two logos on one page must not share gradient/clip ids, or one would
+  // Two logos on one page must not share gradient ids, or one would
   // silently borrow the other's.
-  it('gives each instance its own gradient and clip ids', () => {
+  it('gives each instance its own gradient id', () => {
     const { container } = render(
       <>
         <PrismLogo />

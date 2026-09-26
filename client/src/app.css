@@ -4,7 +4,7 @@
    BRAND — Prism's identity (PrismLogo.jsx, public/favicon.svg). The beam
    colours are the same on every theme; the glass and wordmark are tuned for
    the sidebar, which is dark on every theme so far. A theme with a light
-   sidebar overrides the --logo-* four in its own block.
+   sidebar overrides the --logo-* variables in its own block.
    ======================================================================== */
 :root {
   --brand-blue: #1ea7fd;
@@ -14,6 +14,7 @@
   --logo-text: #f5f3ff;
   --logo-glass: rgba(255, 255, 255, 0.14);
   --logo-glass-edge: rgba(255, 255, 255, 0.7);
+  --logo-glass-shade: rgba(20, 8, 50, 0.22);
   --logo-font: 'Montserrat', 'Inter', system-ui, sans-serif;
 }
 

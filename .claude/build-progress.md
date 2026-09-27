@@ -643,3 +643,15 @@ call; Taildrop to it no longer works). Policy: `tag:server` in `tagOwners`; gran
 `svc:prism:443` and → `tag:server:*` (keeps SSH for laptop PrisMCP). The tailnet still has the default
 allow-all grant — fine while the tailnet is only the owner's devices, since Prism has no login.
 `serve()` (used by cutover/rebuilds) now publishes the service. Verified from the mini: API + page over HTTPS.
+
+## Phone-friendly shell — step 1 of mobile support (2026-09-27, branch `mobile-shell`)
+
+Below 768px the sidebar is a drawer behind a top-bar menu button; content takes the full width; wide
+tables scroll inside themselves; bigger tap targets; 16px form fields (no iOS focus zoom). CSS lives in one
+`PHONE LAYOUT` block at the end of `app.css`; `App.jsx` split into `App` (providers + router) and `Shell`
+(needs `useLocation` to close the drawer on navigation). Tests: `client/src/App.test.jsx` (menu state),
+`npm run check:mobile` (real browser, phone + desktop). Desktop pixel-diffed against `main` at 1440/1024/800:
+no layout change. **Next (deferred until core pages settle):** page-level phone layouts for Dashboard,
+Student, Directory and Search, which means moving their inline styles into classes. See
+`docs/design-language.md` → "Phone layout".
+

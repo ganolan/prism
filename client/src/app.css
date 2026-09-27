@@ -303,6 +303,10 @@ body {
 
 .sidebar-spacer { flex: 1; }
 
+/* Phone-only shell pieces (App.jsx) — hidden on desktop; see PHONE LAYOUT. */
+.mobile-topbar,
+.nav-backdrop { display: none; }
+
 .sidebar-section-label {
   font-size: 0.65rem;
   text-transform: uppercase;
@@ -1116,4 +1120,99 @@ button.ghost.accent:hover { background: var(--accent-light); }
 
 .version-badge:hover {
   opacity: 0.9;
+}
+
+/* ========================================================================
+   PHONE LAYOUT
+   Below 768px the fixed sidebar becomes a drawer behind a top-bar menu
+   button. Every phone rule lives in this one block, so desktop rendering is
+   untouched. Pages keep their desktop layout; wide content scrolls sideways
+   inside its table rather than widening the page.
+   ======================================================================== */
+@media (max-width: 768px) {
+  .app { flex-direction: column; }
+
+  .mobile-topbar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.75rem;
+    background: var(--sidebar-bg);
+    border-bottom: 1px solid var(--sidebar-border);
+  }
+  .mobile-topbar-logo { display: block; height: auto; }
+
+  .menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    color: var(--sidebar-text-hover);
+    cursor: pointer;
+  }
+  .menu-btn:hover,
+  .menu-btn[aria-expanded="true"] { background: rgba(255, 255, 255, 0.08); }
+
+  /* Closed: off-screen and `visibility: hidden`, which also takes the links
+     out of the tab order. Visibility flips only after the slide finishes. */
+  .sidebar {
+    width: min(280px, 85vw);
+    z-index: 950;
+    overflow-y: auto;
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform 0.2s ease, visibility 0s linear 0.2s;
+  }
+  .app.nav-open .sidebar {
+    transform: none;
+    visibility: visible;
+    transition: transform 0.2s ease;
+  }
+
+  .app.nav-open .nav-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 940;
+    background: rgba(0, 0, 0, 0.45);
+    animation: fadeIn 0.2s ease;
+  }
+
+  /* Tap targets: 44px is the usual minimum for a fingertip. */
+  .sidebar a { padding: 0.75rem; font-size: 0.95rem; min-height: 44px; }
+  .sync-btn { padding: 0.8rem 0.75rem; font-size: 0.9rem; }
+  .theme-switcher { gap: 0.75rem; }
+  .theme-dot { width: 28px; height: 28px; }
+  .tab-btn { min-height: 40px; }
+  .filter-btn { min-height: 36px; }
+
+  .content {
+    margin-left: 0;
+    padding: 1rem;
+    max-width: none;
+  }
+
+  .grid-2,
+  .grid-3 { grid-template-columns: 1fr; }
+
+  /* A table wider than the screen scrolls inside itself. The gradebook is
+     excluded: it already scrolls in its own card and relies on a sticky
+     header and first column that a block-level table would break. */
+  table:not(.gradebook-grid) {
+    display: block;
+    overflow-x: auto;
+  }
+
+  /* iOS zooms the page into any focused field under 16px. */
+  input[type="text"],
+  input[type="search"],
+  input[type="email"],
+  input[type="number"],
+  select,
+  textarea { font-size: 16px; }
 }

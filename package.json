@@ -11,6 +11,7 @@
     "mcp": "node mcp/server.js",
     "mcp:e2e": "node scripts/prismcp-e2e.mjs",
     "build": "cd client && npx vite build",
+    "check:mobile": "node scripts/check-mobile-layout.mjs",
     "test:api": "node test-api.js",
     "test:server": "vitest run",
     "db:backup": "node scripts/db-backup.js",

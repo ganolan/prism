@@ -698,3 +698,35 @@ each colour standing for a *function* so the hierarchy reads at a glance.
     tried and rejected on 27/09/2026.
   - Its hex values live in the script, because a favicon can't see CSS
     variables.
+
+## Phone layout — the shell adapts, pages don't yet (September 2026)
+
+- **One breakpoint, one block.** Below 768px (so iPad portrait too) the fixed
+  240px sidebar becomes a slide-in drawer, opened by a menu button in a thin
+  top bar that repeats the logo. All phone rules live in the `PHONE LAYOUT`
+  `@media` block at the end of `app.css`. Desktop has no top bar and no
+  backdrop (`display: none`), so desktop rendering is unchanged: verified by
+  pixel-diffing every page against `main` at 1440, 1024 and 800px.
+- **The top bar uses the sidebar's own background**, so the light-on-dark logo
+  works there without a second colour set, and the bar reads as the sidebar
+  folded away.
+- **The top bar scrolls away rather than sticking.** Pages already have their
+  own sticky bars at `top: 0` (the assessment summary, the gradebook header);
+  a sticky top bar would cover them.
+- **The drawer closes on navigation, a backdrop tap, Escape, or Sync.** When
+  closed it is `visibility: hidden` as well as off-screen, so its links leave
+  the tab order. Visibility flips only after the slide finishes.
+- **Wide tables scroll inside themselves** (`display: block; overflow-x:
+  auto`) instead of widening the page. The gradebook is excluded: it already
+  scrolls inside its card and depends on a sticky header and first column.
+- **Tap targets are about 44px** in the drawer (links, Sync, theme dots) and
+  the menu button. Tab and filter buttons get a smaller bump.
+- **Form fields are 16px on phones**, because iOS zooms into any focused field
+  under 16px.
+- **Deferred: page-level layouts.** Pages keep their desktop layout at phone
+  width. Their inline `style={{…}}` blocks can't be overridden by a media
+  query, so adapting a page means moving its styles into classes first. The
+  candidates are the quick-lookup pages (Dashboard, Student, Directory,
+  Search). The grading-heavy pages (assessment summary, rubric manager,
+  import, sync config) stay desktop tools.
+

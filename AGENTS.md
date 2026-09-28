@@ -40,10 +40,10 @@ Playwright browser binaries are installed automatically via `postinstall`.
 
 ## Running
 
-If the dev server fails to restart (port already in use), kill stale processes first. Use `-sTCP:LISTEN` so the filter targets the dev-server listeners only — a plain `lsof -ti:5173` also returns any browser process with a tab open to the dev server, which SIGKILL'ing would take down the browser's network stack:
-```bash
-lsof -ti:3001 -sTCP:LISTEN | xargs kill -9 2>/dev/null; lsof -ti:5173 -sTCP:LISTEN | xargs kill -9 2>/dev/null
-```
+**Prod may be listening on this machine.** Prod runs on the Mac mini at `127.0.0.1:3001` (launchd `com.prism.server`, cwd `~/prism/releases/…`), and dev clones live on the mini too — check `hostname` (`macmini.local`) before assuming you're on a laptop. So:
+
+- **Never kill by port** (`lsof -ti:3001 | xargs kill`). On the mini that kills **prod** (it happened 2026-09-28; the watchdog restarted it). To stop a stale dev server use `npm run dev:stop`, which only stops listeners whose working directory is inside this clone and reports anything else it leaves alone.
+- `npm run dev` / `dev:server` run a preflight (`scripts/dev-ports.js check`) that **refuses to start** if the API port is taken, naming the holder. If it says the holder is not this clone, don't kill it — start the dev copy on its own port: `PORT=3002 npm run dev` (the Vite proxy follows `PORT`). Never bypass the preflight: a dev API that loses the port race leaves the dev UI proxying to prod's real data.
 
 ```bash
 npm run dev        # Express + Vite

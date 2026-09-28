@@ -5,9 +5,12 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "node scripts/dev-ports.js check",
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "predev:server": "node scripts/dev-ports.js check",
     "dev:server": "node --watch server/index.js",
     "dev:client": "cd client && npx vite",
+    "dev:stop": "node scripts/dev-ports.js stop",
     "mcp": "node mcp/server.js",
     "mcp:e2e": "node scripts/prismcp-e2e.mjs",
     "build": "cd client && npx vite build",

@@ -219,13 +219,12 @@ This usually means the API is returning a login page instead of data. Two common
 
 ### Server won't start — port already in use
 
-If `npm run dev` fails because the ports are already taken (e.g. after a crash), kill the stale processes first:
+`npm run dev` checks the API port before starting and says who holds it.
 
-```bash
-lsof -ti:3001 | xargs kill -9; lsof -ti:5173 | xargs kill -9
-```
+- **A stale dev server from this clone** (e.g. after a crash): `npm run dev:stop`, then `npm run dev` again. It only stops processes running from this clone.
+- **Anything else — on the Mac mini, that's prod:** don't kill it. Run the dev copy on its own port: `PORT=3002 npm run dev`.
 
-Then run `npm run dev` again.
+Don't kill by port (`lsof -ti:3001 | xargs kill`): on the mini that kills prod.
 
 ### Frontend loads but data does not appear
 

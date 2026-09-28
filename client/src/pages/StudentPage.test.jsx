@@ -70,3 +70,15 @@ describe('CourseSection review flag badge', () => {
     expect(screen.queryByText(/↩ Resubmitted/)).not.toBeInTheDocument();
   });
 });
+
+describe('CourseSection assignment title link', () => {
+  it('links an unaligned (e.g. Completion-scale) assignment to its /assessment/ page, like the gradebook does', () => {
+    renderCourseSection({}, { grading_scale_id: '7165818', score: 100, mastery: null });
+    expect(screen.getByRole('link', { name: 'Computer Vision Project' })).toHaveAttribute('href', '/course/1/assessment/sa-10');
+  });
+
+  it('still links an aligned assignment', () => {
+    renderCourseSection({}, { mastery: { topics: [{ topic_id: 't1', title: 'Topic 1', grade: 'EX' }] } });
+    expect(screen.getByRole('link', { name: 'Computer Vision Project' })).toHaveAttribute('href', '/course/1/assessment/sa-10');
+  });
+});

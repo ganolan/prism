@@ -119,15 +119,13 @@ export function CourseSection({ course, grades, flagsByAssignment, studentUid, s
                 });
                 const infoCell = (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                    {/* Name (link only when aligned) */}
+                    {/* Name → the assignment's /assessment/ page, for every
+                        assignment (as in the gradebook + Assessments tab):
+                        unaligned work is graded there too (#41). */}
                     <div>
-                      {aligned ? (
-                        <Link to={assessmentHref} className="link" style={{ fontWeight: 600 }}>
-                          {g.assignment_title}
-                        </Link>
-                      ) : (
-                        <span style={{ fontWeight: 600 }}>{g.assignment_title}</span>
-                      )}
+                      <Link to={assessmentHref} className="link" style={{ fontWeight: 600 }}>
+                        {g.assignment_title}
+                      </Link>
                     </div>
                     {/* Due + flags row */}
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>

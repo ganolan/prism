@@ -49,6 +49,22 @@ and is never a caller or teacher input.** The numeric mapping is configured once
 `useProficiencyScale()` (client, via `GET /api/proficiency-scale`). See
 `docs/adr/0001-prism-owns-proficiency-gradebook-mapping.md`.
 
+### Valid feedback scales (teacher decision, 2026-09-29)
+
+- **Summative feedback**: **General Academic Scale (aligned)** only, meaning levels
+  against measurement topics in the mastery gradebook.
+- **Formative feedback**: **Completion**, **Approaches to Learning** (Consistent ·
+  Inconsistent · Seldom) and **General Academic Scale (Unaligned)** (the GAS levels
+  with no measurement topic) only. Prism grades these as score scales
+  (`config.yaml` `grading.scoreScales`, #41).
+- **Numeric scores are data, not feedback.** A quiz's numeric result isn't graded
+  in Prism. To give standards feedback on a quiz, the teacher makes a **second
+  assessment** named with a **"- Result"** suffix (e.g. the AP CSP quiz results) and
+  aligns that to one or more standards on the aligned GAS.
+- **Letter-grade scales (HS Letter Grade, HKIS Grade Scale) are vestigial.** They are
+  never used; don't build grading support for them or for numeric scales.
+- Every scale renders **best on the left → worst on the right**.
+
 ## Archived-course surfaces (avoid label collisions)
 
 After #69 the **Sync dialog** has a single archived-course surface — the **Step 2 →

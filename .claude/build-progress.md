@@ -19,8 +19,10 @@ Tracks implementation status across Prism's development phases. Check this befor
   `score_scale` + `current_scale_level`; `list_assignments` exposes `score_scale`. On the page:
   violet ✦ ring + evidence line, class-bar "✦ Accept all suggestions (N)" (stages only).
   Verified over real stdio against the dev DB.
-- **Not done (rest of #41):** numeric / letter scales (HS Letter Grade, HKIS Grade Scale), legacy
-  empty-level "Completion" variants, inline grading from the gradebook / student page.
+- **Out of scope by teacher decision (2026-09-29):** letter-grade and numeric scales. Letter grades
+  are vestigial; numeric is data only (see `CONTEXT.md` "Valid feedback scales"). Inline grading
+  from the gradebook / student page remains a possible follow-up; the student page's assignment
+  titles now link to `/assessment/` for every assignment (was aligned-only).
 
 ## OneDrive student-work links on /assessment/ (#120, part) — COMPLETE (2026-09-28)
 

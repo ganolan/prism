@@ -50,6 +50,16 @@ export function getSchoologyConfig() {
   };
 }
 
+export function getMicrosoftConfig() {
+  if (!config) loadConfig();
+  return {
+    // The school's SharePoint "my" host — where teachers' OneDrives live, and so
+    // where the Schoology Microsoft app keeps OneDrive submission copies (#120).
+    sharepointHost: 'https://hkis-my.sharepoint.com',
+    ...(config.microsoft || {}),
+  };
+}
+
 export const DEFAULT_PROFICIENCY_SCALE = {
   name: 'HKIS General Academic Scale',
   schoologyScaleId: 21337256,

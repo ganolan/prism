@@ -22,6 +22,13 @@ schoology:
   # doesn't resolve to the school tenant.
   webBaseUrl: https://schoology.hkis.edu.hk
 
+microsoft:
+  # School SharePoint "my" host (teachers' OneDrives). The Schoology Microsoft
+  # app keeps OneDrive submission copies in the teacher's OneDrive here; the
+  # /assessment/ page links to them (#120). The teacher's own drive is
+  # discovered from the signed-in session, so only the tenant host is set here.
+  sharepointHost: https://hkis-my.sharepoint.com
+
 rubrics:
   suggestionAccent: '#e21ad6'
   suggestionWash: '#fbe6fb'

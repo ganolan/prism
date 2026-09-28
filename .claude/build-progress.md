@@ -2,6 +2,22 @@
 
 Tracks implementation status across Prism's development phases. Check this before starting any new phase to avoid repeating work or missing spec items.
 
+## OneDrive student-work links on /assessment/ (#120, part) — COMPLETE (2026-09-28)
+
+- "Open" link beside each student's submission-status pill on the `/assessment/` page for
+  **OneDrive** `lti_submission` assignments — in-progress and submitted copies alike.
+- Source: the teacher's own OneDrive (the Schoology Microsoft app keeps every student copy
+  there, in folders keyed `… - {sectionId}/… - {assignmentId}`), read on demand through
+  SharePoint REST in the saved Playwright session — **not** the LTI launch chain from #107.
+  Teacher's drive discovered via `GetMyProperties.PersonalUrl`; tenant host is
+  `config.yaml` `microsoft.sharepointHost`. Verified shapes: `.claude/schoology-api-reference.md`.
+- `GET /api/mastery/:courseId/assignment/:assignmentId/submission-links[?refresh=1]`
+  (`server/services/oneDriveLinks.js` browser + 5-min in-memory cache; pure matching in
+  `server/lib/oneDriveSubmissions.js`). Files are keyed to students by the filename's leading
+  name; a name two students share links neither. First load ~7 s.
+- **Not done (rest of #120):** Google Drive assignments (storage unknown), native-dropbox
+  file links, the gradebook submission modal.
+
 ## Grade level / graduating year (#43) — COMPLETE (2026-06-10)
 
 - Synced from **PowerSchool's attendance app** (`/ws/attendance/section_attendance` → per-student `gradeLevel` 9–12), session-auth via the same browser session as the mastery/block sync — no plugin credentials. Joined to Prism by `students.school_uid === '1_' + ps.dcid`.

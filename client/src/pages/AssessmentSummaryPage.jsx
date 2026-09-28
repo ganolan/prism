@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment } from '../services/api.js';
+import { getMasteryForAssignment, getSubmissionLinks, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 import { makeDraftSaver } from '../lib/assessmentDraftSaver.js';
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
@@ -16,6 +16,7 @@ import SubmissionStatusPill from '../components/SubmissionStatusPill.jsx';
 import AssessmentFilterBar from '../components/AssessmentFilterBar.jsx';
 import { passesFilters } from '../lib/assessmentFilters.js';
 import { useStickyTab } from '../hooks/useStickyTab.js';
+import { formatDateTime } from '../lib/formatDate.js';
 
 const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
 // Suggestion accent — fuchsia CSS tokens (matches descriptor grid's --ai-suggest).
@@ -110,7 +111,7 @@ function HeaderPill({ active, accent, activeBg, activeText, icon, label, clearLa
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
-export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
+export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
   const scale = useProficiencyScale();
   const loadedDisplay = student.comment_status === 1;
   // Per-card DB draft saver (replaces the former localStorage key). Created once.
@@ -687,6 +688,16 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           {displayName(student)}
         </Link>
         <SubmissionStatusPill student={student} assignment={assignmentRow} />
+        {/* The student's own OneDrive copy — in progress or submitted (#120). */}
+        {submissionLink && (
+          <SchoologyLink
+            url={submissionLink.url}
+            label="Open"
+            ariaLabel={`Open ${displayName(student)}'s work in OneDrive`}
+            title={`Open ${displayName(student)}'s work in OneDrive — last edited ${formatDateTime(submissionLink.modifiedAt)}`}
+            style={{ fontSize: '0.78rem', fontWeight: 600 }}
+          />
+        )}
         {saveResult === 'saved' && (
           <span className="badge badge-green" style={{ fontSize: '0.68rem' }}>Saved ✓</span>
         )}
@@ -1372,6 +1383,13 @@ export default function AssessmentSummaryPage() {
   const [draftByStudent, setDraftByStudent] = useState({});
   const [analysis, setAnalysis] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Per-student OneDrive work links for lti_submission assignments (#120).
+  // Loaded after the page (the server drives a browser, so it takes seconds).
+  const [workLinks, setWorkLinks] = useState({ status: null, links: {} });
+  // Bumped per lookup; a response for a superseded lookup (e.g. the teacher
+  // moved to another assignment mid-fetch) is dropped, so a card can never
+  // link to a different assignment's file.
+  const workLinksReq = useRef(0);
 
   // Attached rubric + reporting-category colour palette for this assignment (Task 13).
   // rubricData: { id, rubric:{...criteria...}, topicByCriterion:[...] } | null.
@@ -1521,9 +1539,19 @@ export default function AssessmentSummaryPage() {
       .finally(() => setLoading(false));
   }
 
+  function loadWorkLinks({ refresh = false } = {}) {
+    const req = ++workLinksReq.current;
+    const settle = (next) => { if (req === workLinksReq.current) setWorkLinks(next); };
+    setWorkLinks(prev => ({ ...prev, status: 'loading' }));
+    getSubmissionLinks(courseId, assignmentId, { refresh })
+      .then(r => settle({ status: r.status, links: r.links || {} }))
+      .catch(() => settle({ status: 'error', links: {} }));
+  }
+
   async function handleRefresh() {
     setRefreshing(true);
     setRefreshResult(null);
+    if (data?.assignment?.is_lti_submission) loadWorkLinks({ refresh: true });
     try {
       const result = await syncMasteryForAssignment(courseId, assignmentId);
       setRefreshResult(`Synced ${result.scoresCount ?? 0} scores across ${result.topicsCount ?? 0} topics${result.commentsCount ? `, ${result.commentsCount} comments` : ''}`);
@@ -1536,6 +1564,13 @@ export default function AssessmentSummaryPage() {
   }
 
   useEffect(load, [courseId, assignmentId, dataVersion]);
+
+  const isLti = !!data?.assignment?.is_lti_submission;
+  useEffect(() => {
+    workLinksReq.current++;
+    setWorkLinks({ status: null, links: {} });
+    if (isLti) loadWorkLinks();
+  }, [courseId, assignmentId, isLti]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load the attached rubric + the reporting-category colour palette (Task 13).
   // Best-effort: a missing rubric / config failure leaves the page in compact-
@@ -1605,6 +1640,15 @@ export default function AssessmentSummaryPage() {
           {refreshResult && (
             <span className="text-sm text-muted" style={{ fontSize: '0.75rem' }}>{refreshResult}</span>
           )}
+          {workLinks.status === 'loading' && (
+            <span className="text-sm text-muted" style={{ fontSize: '0.75rem' }}>Finding OneDrive files…</span>
+          )}
+          {['no_session', 'sso_failed', 'error'].includes(workLinks.status) && (
+            <span className="text-sm text-muted" style={{ fontSize: '0.75rem' }}
+              title="Prism couldn't read your OneDrive through the saved Schoology session. Refresh to retry; if it keeps failing, log in again (npm run mastery:login).">
+              OneDrive links unavailable
+            </span>
+          )}
 
           {/* Rubric view toggle (Task 13) — Descriptors (default) shows the
               student-language descriptor prose per level; Compact falls back to
@@ -1667,6 +1711,7 @@ export default function AssessmentSummaryPage() {
               rubric={rubricData ? { ...rubricData.rubric, topicByCriterion: rubricData.topicByCriterion } : null}
               viewMode={viewMode}
               rubricPalette={rubricPalette}
+              submissionLink={workLinks.links[student.schoology_uid] || null}
               onSaved={handleCardSaved}
               onPendingChange={handlePendingChange}
               onDisplayChange={handleDisplayChange}

@@ -730,3 +730,30 @@ each colour standing for a *function* so the hierarchy reads at a glance.
   Search). The grading-heavy pages (assessment summary, rubric manager,
   import, sync config) stay desktop tools.
 
+
+## Student work link — "Open" beside the status pill (September 2026, #120)
+
+On the `/assessment/` page, each card for a OneDrive (`lti_submission`)
+assignment shows a small **"Open"** link immediately after the
+submission-status pill. It opens the student's own OneDrive copy, in progress
+or submitted, in PowerPoint/Word Online.
+
+- **Reuses `SchoologyLink`** (external-link glyph + label, new tab,
+  `noopener noreferrer`), even though the target is SharePoint, not Schoology.
+  The glyph means "leaves Prism"; one affordance for every outbound link keeps
+  the language consistent. The component gained an optional `title`, and an
+  explicit `ariaLabel` now overrides a visible label. Keep the visible label
+  as the start of the accessible name ("Open" → "Open {student}'s work in
+  OneDrive") so voice-control users can say what they see.
+- **Beside the pill, not in the right-hand cluster.** The status pill answers
+  "what state is their work in?"; the link answers "show me it". They belong
+  together at the start of the card header. The right-hand cluster is for
+  Prism actions (flags, resubmit).
+- **Short label, detail on hover.** The link says only "Open". The tooltip
+  adds the last-edited time (`formatDateTime`, day-first), which tells you at
+  a glance whether an in-progress student has touched the file recently.
+- **Nothing rather than a dead link.** A card with no matched file shows no
+  link. The lookup runs after the page loads because it takes a few seconds,
+  so the header shows a muted "Finding OneDrive files…" while it runs and
+  "OneDrive links unavailable" (with a tooltip on how to fix it) if it fails.
+  It never shows a per-card error.

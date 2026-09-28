@@ -22,11 +22,14 @@ vi.mock('../services/schoology.js', () => ({
   pushGradeComments: vi.fn(),
   getSectionGrades: vi.fn(),
 }));
+// The OneDrive lookup drives a real browser — never launch one in tests (#120).
+vi.mock('../services/oneDriveLinks.js', () => ({ getAssignmentFiles: vi.fn() }));
 
 import router from './mastery.js';
 import { getDb } from '../db/index.js';
 import { getMasteryForCourse, writeMasteryScoresBatch, writeMasteryOverride } from '../services/masterySync.js';
 import { getSectionGrades, pushGradeComments } from '../services/schoology.js';
+import { getAssignmentFiles } from '../services/oneDriveLinks.js';
 
 function startServer() {
   const app = express();
@@ -755,5 +758,80 @@ describe('rollups are per-course for a multi-course student (#127)', () => {
       { course_id: courseMad, override_value: 87.5 },
       { course_id: courseRob, override_value: 62.5 },
     ]);
+  });
+});
+
+describe('GET /api/mastery/:courseId/assignment/:assignmentId/submission-links (#120)', () => {
+  const ORIGIN = 'https://hkis-my.sharepoint.com';
+  const DIR = '/personal/t/Documents/Schoology Microsoft OneDrive Assignments/C - sec-L/Launch - sa-lti';
+  const spFile = (name, extra = {}) => ({
+    Name: name,
+    ServerRelativeUrl: `${DIR}/${name}`,
+    LinkingUrl: `${ORIGIN}${DIR}/${name}?d=wabc`,
+    TimeLastModified: '2026-09-28T06:27:25Z',
+    ...extra,
+  });
+  let courseId;
+
+  beforeEach(() => {
+    vi.mocked(getAssignmentFiles).mockReset();
+    const db = getDb();
+    db.exec(
+      'DELETE FROM mastery_rollups; DELETE FROM mastery_scores; DELETE FROM mastery_alignments; ' +
+      'DELETE FROM measurement_topics; DELETE FROM reporting_categories; DELETE FROM assignment_assignees; ' +
+      'DELETE FROM flags; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; ' +
+      'DELETE FROM students; DELETE FROM courses;'
+    );
+    courseId = db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-L', 'Course')`
+    ).run().lastInsertRowid;
+    for (const [uid, first, last] of [['uid-A', 'Alison', 'Cheng'], ['uid-G', 'Garmin', 'Ho']]) {
+      const sid = db.prepare('INSERT INTO students (schoology_uid, first_name, last_name) VALUES (?, ?, ?)').run(uid, first, last).lastInsertRowid;
+      db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, ?)`).run(sid, courseId, `e-${uid}`);
+    }
+    db.prepare(
+      `INSERT INTO assignments (course_id, schoology_assignment_id, title, is_lti_submission) VALUES (?, 'sa-lti', 'Launch', 1)`
+    ).run(courseId);
+    db.prepare(
+      `INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-native', 'Essay')`
+    ).run(courseId);
+  });
+
+  test('keys the OneDrive files to roster students by name', async () => {
+    vi.mocked(getAssignmentFiles).mockResolvedValue({
+      status: 'ok',
+      origin: ORIGIN,
+      files: [spFile('Alison Cheng - Launch - 4299333.pptx'), spFile('Stranger Danger - Launch - 1.pptx')],
+    });
+    const { status, body } = await get(`/api/mastery/${courseId}/assignment/sa-lti/submission-links`);
+    expect(status).toBe(200);
+    expect(body.status).toBe('ok');
+    expect(Object.keys(body.links)).toEqual(['uid-A']);
+    expect(body.links['uid-A'].url).toBe(`${ORIGIN}${DIR}/Alison Cheng - Launch - 4299333.pptx?d=wabc`);
+    expect(getAssignmentFiles).toHaveBeenCalledWith({ sectionId: 'sec-L', assignmentId: 'sa-lti', refresh: false });
+  });
+
+  test('?refresh=1 bypasses the cache', async () => {
+    vi.mocked(getAssignmentFiles).mockResolvedValue({ status: 'ok', origin: ORIGIN, files: [] });
+    await get(`/api/mastery/${courseId}/assignment/sa-lti/submission-links?refresh=1`);
+    expect(getAssignmentFiles).toHaveBeenCalledWith(expect.objectContaining({ refresh: true }));
+  });
+
+  test('non-lti assignments never touch OneDrive', async () => {
+    const { body } = await get(`/api/mastery/${courseId}/assignment/sa-native/submission-links`);
+    expect(body).toEqual({ status: 'not_lti', links: {} });
+    expect(getAssignmentFiles).not.toHaveBeenCalled();
+  });
+
+  test('a lookup failure passes its status through with no links', async () => {
+    vi.mocked(getAssignmentFiles).mockResolvedValue({ status: 'sso_failed' });
+    const { status, body } = await get(`/api/mastery/${courseId}/assignment/sa-lti/submission-links`);
+    expect(status).toBe(200);
+    expect(body).toEqual({ status: 'sso_failed', links: {} });
+  });
+
+  test('404 for an unknown course', async () => {
+    const { status } = await get('/api/mastery/999999/assignment/sa-lti/submission-links');
+    expect(status).toBe(404);
   });
 });

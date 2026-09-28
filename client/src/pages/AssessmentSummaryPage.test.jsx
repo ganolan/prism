@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 import AssessmentSummaryPage, { StudentRubricCard } from './AssessmentSummaryPage.jsx';
-import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale } from '../services/api.js';
+import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 
 // Stub the DB saver so tests assert wiring, not I/O.
@@ -17,6 +17,7 @@ vi.mock('../lib/assessmentDraftSaver.js', () => ({
 
 vi.mock('../services/api.js', () => ({
   getMasteryForAssignment: vi.fn(),
+  getSubmissionLinks: vi.fn().mockResolvedValue({ status: 'not_lti', links: {} }),
   getFeedbackForAssignment: vi.fn().mockResolvedValue({}),
   getAssessmentAnalysis: vi.fn().mockResolvedValue(null),
   getDraftsForAssignment: vi.fn().mockResolvedValue({}),
@@ -498,6 +499,94 @@ describe('StudentRubricCard submission-status pill', () => {
       assignmentRow: { id: 50, is_lti_submission: 1, due_date: '2026-06-01', lti_fetch_status: 'ok', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
     });
     expect(screen.getByText('Submitted')).toBeInTheDocument();
+  });
+});
+
+describe('StudentRubricCard — OneDrive work link (#120)', () => {
+  const LINK = {
+    url: 'https://hkis-my.sharepoint.com/personal/t/Documents/x/Ada%20Lovelace%20-%20Launch%20-%201.pptx?d=wabc',
+    fileName: 'Ada Lovelace - Launch - 1.pptx',
+    modifiedAt: '2026-09-28T06:27:25Z',
+  };
+
+  it('renders an "Open" link to the student\'s OneDrive file beside the status pill', () => {
+    renderCard({
+      student: { ...makeStudent(), lti_submission_state: 'in_progress', late: 0, draft: 0, submitted_at: 0 },
+      assignmentRow: { id: 50, is_lti_submission: 1, lti_fetch_status: 'ok', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+      submissionLink: LINK,
+    });
+    const link = screen.getByRole('link', { name: /open ada lovelace's work in onedrive/i });
+    expect(link).toHaveAttribute('href', LINK.url);
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(link).toHaveTextContent('Open');
+    // Tooltip carries the last-edited time, day-first.
+    expect(link.getAttribute('title')).toMatch(/last edited 28\/09\/2026/);
+  });
+
+  it('renders no work link when there is no file for the student', () => {
+    renderCard();
+    expect(screen.queryByRole('link', { name: /onedrive/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('AssessmentSummaryPage — OneDrive work links (#120)', () => {
+  function makeData(assignmentExtra = {}) {
+    return {
+      assignment: { id: 50, schoology_assignment_id: '8', title: 'Launch', mastery_grading_period_id: 1, mastery_grading_category_id: 2, ...assignmentExtra },
+      topics: TOPICS,
+      students: [{ ...makeStudent(), lti_submission_state: 'in_progress' }],
+    };
+  }
+  function renderPage() {
+    return render(
+      <MemoryRouter initialEntries={['/course/4/assessment/8']}>
+        <Routes>
+          <Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+  }
+
+  it('fetches links for an lti_submission assignment and puts each on its student\'s card', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData({ is_lti_submission: 1 }));
+    getSubmissionLinks.mockResolvedValue({
+      status: 'ok',
+      links: { 'uid-1': { url: 'https://hkis-my.sharepoint.com/f.pptx?d=wabc', fileName: 'f.pptx', modifiedAt: '2026-09-28T06:27:25Z' } },
+    });
+    renderPage();
+    const link = await screen.findByRole('link', { name: /open ada lovelace's work in onedrive/i });
+    expect(link).toHaveAttribute('href', 'https://hkis-my.sharepoint.com/f.pptx?d=wabc');
+    expect(getSubmissionLinks).toHaveBeenCalledWith('4', '8', { refresh: false });
+  });
+
+  it('drops a late response from an earlier lookup (never another assignment\'s file)', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData({ is_lti_submission: 1 }));
+    let resolveFirst;
+    getSubmissionLinks
+      .mockImplementationOnce(() => new Promise(r => { resolveFirst = r; }))
+      .mockResolvedValueOnce({ status: 'ok', links: {} });
+    renderPage();
+    await waitFor(() => expect(getSubmissionLinks).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: /refresh from schoology/i }));
+    await waitFor(() => expect(getSubmissionLinks).toHaveBeenCalledTimes(2));
+    resolveFirst({ status: 'ok', links: { 'uid-1': { url: 'https://stale.example/f', fileName: 'f', modifiedAt: '2026-09-01T00:00:00Z' } } });
+    await new Promise(r => setTimeout(r, 0));
+    expect(screen.queryByRole('link', { name: /work in onedrive/i })).not.toBeInTheDocument();
+  });
+
+  it('does not look up OneDrive for a non-lti assignment', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData({ is_lti_submission: 0 }));
+    renderPage();
+    await screen.findByText('Launch');
+    expect(getSubmissionLinks).not.toHaveBeenCalled();
+  });
+
+  it('says so in the header when the OneDrive lookup fails', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData({ is_lti_submission: 1 }));
+    getSubmissionLinks.mockResolvedValue({ status: 'sso_failed', links: {} });
+    renderPage();
+    expect(await screen.findByText(/onedrive links unavailable/i)).toBeInTheDocument();
   });
 });
 

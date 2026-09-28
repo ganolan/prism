@@ -7,6 +7,8 @@ import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows } from '../s
 import { getSchoologyConfig } from '../middleware/featureGate.js';
 import { toSchoologyWebUrl } from '../lib/schoologyWebUrl.js';
 import { levelToGradeScaled, gradeScaledValues, pointsToLevel, LEVELS } from '../lib/proficiencyScale.js';
+import { getAssignmentFiles } from '../services/oneDriveLinks.js';
+import { matchFilesToRoster } from '../lib/oneDriveSubmissions.js';
 
 const router = Router();
 const syncsInProgress = new Set();
@@ -376,6 +378,33 @@ router.post('/:courseId/write', async (req, res) => {
     console.error('[mastery write] Error:', err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// GET /api/mastery/:courseId/assignment/:assignmentId/submission-links[?refresh=1]
+// On-demand links to each student's OneDrive copy of an lti_submission
+// assignment — in progress or submitted (#120). Lists the teacher's OneDrive via
+// the browser session (a few seconds; cached briefly) and keys files to students
+// by the name leading each filename. → { status, links: { [uid]: { url, fileName,
+// modifiedAt } } }; status 'ok' | 'not_lti' | 'no_folder' | 'no_session' |
+// 'sso_failed' | 'error'. Anything but 'ok' carries no links.
+router.get('/:courseId/assignment/:assignmentId/submission-links', async (req, res) => {
+  const { courseId, assignmentId } = req.params;
+  const db = getDb();
+  const course = db.prepare('SELECT schoology_section_id FROM courses WHERE id = ?').get(courseId);
+  if (!course) return res.status(404).json({ error: 'Course not found' });
+  const assignmentRow = db.prepare(
+    'SELECT * FROM assignments WHERE schoology_assignment_id = ? AND course_id = ?'
+  ).get(assignmentId, courseId);
+  if (!assignmentRow?.is_lti_submission) return res.json({ status: 'not_lti', links: {} });
+
+  const result = await getAssignmentFiles({
+    sectionId: course.schoology_section_id,
+    assignmentId,
+    refresh: req.query.refresh === '1',
+  });
+  if (result.status !== 'ok') return res.json({ status: result.status, links: {} });
+  const roster = getRoster(db, courseId, assignmentRow);
+  res.json({ status: 'ok', links: matchFilesToRoster(result.files, roster, result.origin) });
 });
 
 // GET /api/mastery/:courseId/assignment/:assignmentId

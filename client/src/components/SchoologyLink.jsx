@@ -1,10 +1,11 @@
-// A compact "open this in Schoology" affordance: an external-link glyph with an
-// optional visible label, linking out to a Schoology `web_url`. Renders nothing
+// A compact "open this outside Prism" affordance: an external-link glyph with an
+// optional visible label, linking out to a Schoology `web_url` (or, for #120, a
+// student's OneDrive file — the defaults below are Schoology's). Renders nothing
 // when no url is available — Schoology omits `web_url` on some assignments, so
 // callers can pass it through unconditionally. Always opens in a new tab with
 // rel="noopener noreferrer" (the safe external-link combo); inherits its colour
 // from the `.link` class so it tracks the active theme.
-export default function SchoologyLink({ url, label, ariaLabel, size = 14, style }) {
+export default function SchoologyLink({ url, label, ariaLabel, title, size = 14, style }) {
   if (!url) return null;
   return (
     <a
@@ -12,10 +13,12 @@ export default function SchoologyLink({ url, label, ariaLabel, size = 14, style 
       target="_blank"
       rel="noopener noreferrer"
       className="link"
-      // When there's a visible label the label IS the accessible name; icon-only
-      // links carry the name on aria-label instead.
-      aria-label={label ? undefined : (ariaLabel || 'View in Schoology')}
-      title={ariaLabel || label || 'View in Schoology'}
+      // When there's a visible label the label IS the accessible name, unless an
+      // explicit ariaLabel extends it (it should begin with the visible label,
+      // e.g. "Open" → "Open Ada's work in OneDrive"); icon-only links carry the
+      // name on aria-label.
+      aria-label={ariaLabel || (label ? undefined : 'View in Schoology')}
+      title={title || ariaLabel || label || 'View in Schoology'}
       style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', flexShrink: 0, ...style }}
     >
       <ExternalLinkIcon size={size} />

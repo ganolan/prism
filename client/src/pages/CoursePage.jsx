@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, triggerMasterySync, triggerMasteryLogin } from '../services/api.js';
+import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, triggerMasterySync, triggerMasteryLogin, getSubmissionLinks } from '../services/api.js';
 import AnalyticsView from '../components/AnalyticsView.jsx';
 import OverridePopup from '../components/OverridePopup.jsx';
 import { LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
@@ -17,6 +17,7 @@ import { useStickyTab } from '../hooks/useStickyTab.js';
 import CompactRubric from '../components/CompactRubric.jsx';
 import SubmissionBadges from '../components/SubmissionBadges.jsx';
 import SchoologyLink from '../components/SchoologyLink.jsx';
+import { formatDateTime } from '../lib/formatDate.js';
 
 const SHORT_BADGE = { late: 'L', draft: 'D', missing: 'M', 'not-started': 'NS', submitted: 'S', 'in-progress': 'IP' };
 const BADGE_TONE_CLASS = { red: 'badge-red', blue: 'badge-blue', amber: 'badge-pink', green: 'badge-green', yellow: 'badge-amber', neutral: 'badge-gray' };
@@ -550,6 +551,18 @@ function MiniRubricStrip({ topics, onClick }) {
 // CompactRubric) plus the overall comment, matching the /student/ page.
 export function RubricModal({ student, assignment, courseId, topics, comment, grade, onClose }) {
   const name = preferredFirstName(student);
+  const fullName = `${name} ${student.last_name}`;
+  // The student's own OneDrive copy (#120), looked up when the modal opens —
+  // the whole assignment's links come back (cached server-side), keep ours.
+  const [workLink, setWorkLink] = useState(null);
+  useEffect(() => {
+    if (!assignment.is_lti_submission) return;
+    let active = true;
+    getSubmissionLinks(courseId, assignment.schoology_assignment_id)
+      .then(r => { if (active) setWorkLink(r.links?.[student.schoology_uid] || null); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [courseId, assignment.schoology_assignment_id, assignment.is_lti_submission, student.schoology_uid]);
   // Submission state + flags, shown above the rubric — matching the /student/ page.
   const status = submissionStatus({
     score: grade.score, exception: grade.exception, late: grade.late,
@@ -561,7 +574,7 @@ export function RubricModal({ student, assignment, courseId, topics, comment, gr
     ...(grade.review_needed || []).map(f => ({ ...f, flag_type: 'review_needed' })),
     ...(grade.resubmit_requested ? [{ id: 'resubmit', flag_type: 'resubmit_requested' }] : []),
   ];
-  const hasBadges = status.length > 0 || flags.length > 0 || grade.resubmitted;
+  const hasBadges = status.length > 0 || flags.length > 0 || grade.resubmitted || !!workLink;
   return (
     <div
       style={{
@@ -585,12 +598,10 @@ export function RubricModal({ student, assignment, courseId, topics, comment, gr
           padding: '0.85rem 1.1rem', borderBottom: '1px solid var(--border)',
         }}>
           <div>
-            <div style={{ fontWeight: 700 }}>{name} {student.last_name}</div>
+            <div style={{ fontWeight: 700 }}>{fullName}</div>
             <div className="text-sm text-muted" style={{ marginTop: 2, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {assignment.title}
               <span className="badge badge-summative" style={{ fontSize: '0.6rem' }}>S</span>
-              {/* Jump out to the assignment's Schoology page (#76). */}
-              <SchoologyLink url={assignment.web_url} ariaLabel={`View "${assignment.title}" in Schoology`} />
             </div>
           </div>
           <button className="ghost" onClick={onClose} aria-label="Close">✕</button>
@@ -602,6 +613,17 @@ export function RubricModal({ student, assignment, courseId, topics, comment, gr
               marginBottom: '0.85rem',
             }}>
               <SubmissionBadges status={status} flags={flags} resubmitted={grade.resubmitted} />
+              {/* The student's own work — in progress or submitted (#120). The
+                  assignment's Schoology page is on the gradebook column header. */}
+              {workLink && (
+                <SchoologyLink
+                  url={workLink.url}
+                  label="Open"
+                  ariaLabel={`Open ${fullName}'s work in OneDrive`}
+                  title={`Open ${fullName}'s work in OneDrive — last edited ${formatDateTime(workLink.modifiedAt)}`}
+                  style={{ fontSize: '0.78rem', fontWeight: 600 }}
+                />
+              )}
             </div>
           )}
           <CompactRubric topics={topics} />

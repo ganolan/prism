@@ -351,7 +351,8 @@ external-link anchor.
   text) is used where the link stands alone and prominent — the **top of the
   `/assessment/` page** (issue ask: a clear way in). An **icon-only** form sits
   *beside* an assignment title where the title is already the primary link — the
-  gradebook **Assessments list** and the submission-detail modal. Icon-only links
+  gradebook **Assessments list** (and, until #120, the submission-detail modal —
+  see "Student work link" below). Icon-only links
   carry their name on `aria-label` (`View "{title}" in Schoology`); the SVG is
   `aria-hidden` so it never doubles the accessible name.
 - **Safe + conditional.** Always `target="_blank" rel="noopener noreferrer"`
@@ -757,3 +758,12 @@ or submitted, in PowerPoint/Word Online.
   so the header shows a muted "Finding OneDrive files…" while it runs and
   "OneDrive links unavailable" (with a tooltip on how to fix it) if it fails.
   It never shows a per-card error.
+
+**Gradebook submission modal (September 2026, #120).** The modal is about one
+student's work, so its outbound link is that student's own file: the same
+"Open" link, placed after the submission badges. It **replaces** the
+assignment's Schoology link that sat beside the modal title (#76). That link
+stays on the gradebook column header, which is the assignment-level place for
+it. The modal fetches the assignment's links when it opens (instant within the
+5-minute server cache) and shows nothing while loading or when the student has
+no file.

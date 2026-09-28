@@ -14,6 +14,11 @@ Tracks implementation status across Prism's development phases. Check this befor
 - Write = bulk `PUT /sections/{id}/grades` with `grade` + echoed comment/status/exception
   (`points` on `write-comment` / `send-all`; server rejects off-scale values and stops if the
   fresh read fails). Live-verified on the teacher's ATL test task (re-save identical; I→C round trip).
+- **Agent suggestions (PrisMCP):** `write_student_suggestions` takes `scale_level` (code or label,
+  validated against the assignment's scale) + `evidence`; `get_assignment_context` exposes
+  `score_scale` + `current_scale_level`; `list_assignments` exposes `score_scale`. On the page:
+  violet ✦ ring + evidence line, class-bar "✦ Accept all suggestions (N)" (stages only).
+  Verified over real stdio against the dev DB.
 - **Not done (rest of #41):** numeric / letter scales (HS Letter Grade, HKIS Grade Scale), legacy
   empty-level "Completion" variants, inline grading from the gradebook / student page.
 

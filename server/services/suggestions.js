@@ -5,7 +5,8 @@
 // grade the teacher entered (spec §5).
 
 import { resolveStudentId, resolveAssignmentId } from './idResolvers.js';
-import { getAlignedTopics } from './assessmentContext.js';
+import { getAlignedTopics, scoreScaleFor } from './assessmentContext.js';
+import { normalizeScaleLevel } from '../lib/scoreScales.js';
 import { normalizeLevel } from '../lib/proficiencyScale.js';
 
 // Upsert the single active suggestion for one (student, assignment). Normalizes
@@ -15,14 +16,29 @@ import { normalizeLevel } from '../lib/proficiencyScale.js';
 // status='draft' row, pushing any prior feedback_json to revision_history.
 export function upsertStudentSuggestion(db, {
   assignmentId, student, narrative_feedback, rubric_scores, reviewer_flags, strengths, suggestions,
+  scale_level, evidence,
 }) {
   const studentLocalId = resolveStudentId(db, student);
   if (!studentLocalId) return { student, status: 'error', message: `Student not found: ${student}` };
   const assignmentLocalId = resolveAssignmentId(db, assignmentId);
   if (!assignmentLocalId) return { student, status: 'error', message: `Assignment not found: ${assignmentId}` };
 
-  const assignmentRow = db.prepare('SELECT schoology_assignment_id, course_id FROM assignments WHERE id = ?').get(assignmentLocalId);
+  const assignmentRow = db.prepare('SELECT schoology_assignment_id, course_id, grading_scale_id FROM assignments WHERE id = ?').get(assignmentLocalId);
   const topics = getAlignedTopics(db, assignmentRow.course_id, assignmentRow.schoology_assignment_id);
+
+  // Score-scale suggestion for an unaligned assignment (#41), e.g. an agent
+  // that checked a third-party platform suggesting "Completed". Validated
+  // against the assignment's own scale; anything else is reported, not stored.
+  const scoreScale = scoreScaleFor(assignmentRow, topics.length);
+  let storedScaleLevel = null;
+  let scaleNote = null;
+  if (scale_level != null) {
+    if (!scoreScale) scaleNote = `Ignored scale_level: this assignment is not graded on a scale (use rubric_scores).`;
+    else {
+      storedScaleLevel = normalizeScaleLevel(scoreScale, scale_level);
+      if (!storedScaleLevel) scaleNote = `Ignored scale_level ${JSON.stringify(scale_level)} — ${scoreScale.name} levels are ${scoreScale.levels.map(l => l.label).join(', ')}.`;
+    }
+  }
   const byKey = new Map();
   for (const t of topics) {
     if (t.external_id) byKey.set(String(t.external_id).toLowerCase(), t);
@@ -50,6 +66,8 @@ export function upsertStudentSuggestion(db, {
     reviewer_flags: reviewer_flags ?? null,
     strengths: strengths ?? [],
     suggestions: suggestions ?? [],
+    scale_level: storedScaleLevel,
+    evidence: evidence ?? null,
   });
 
   const write = db.transaction(() => {
@@ -88,6 +106,7 @@ export function upsertStudentSuggestion(db, {
   const notes = [];
   if (numericLevels.length) notes.push(`Ignored numeric value(s) for ${numericLevels.join(', ')} — emit proficiency levels; Prism owns the points conversion.`);
   if (Object.keys(invalidLevels).length) notes.push(`Ignored out-of-vocabulary levels: ${JSON.stringify(invalidLevels)}`);
+  if (scaleNote) notes.push(scaleNote);
   if (notes.length) result.message = notes.join(' ');
   return result;
 }

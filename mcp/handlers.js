@@ -7,7 +7,7 @@ import { listRubrics, getRubricByName, saveRubric, findRubricByContentHash } fro
 import { hashRubricContent } from '../server/services/rubricHash.js';
 import { attachRubric } from '../server/services/rubricAttach.js';
 import { LEVELS } from '../server/lib/proficiencyScale.js';
-import { normalizeSubmissionStatus, gradingState, getRoster } from '../server/services/assessmentContext.js';
+import { normalizeSubmissionStatus, gradingState, getRoster, scoreScaleFor } from '../server/services/assessmentContext.js';
 import { preferredFirstName } from '../server/services/studentNames.js';
 
 // Active courses = not archived, not excluded, not hidden. Mirrors the
@@ -65,7 +65,7 @@ function assignmentCounts(db, assignmentRow) {
 // project I just collected" can resolve to a concrete assignment (spec §3.1).
 export function listAssignments(db, { course_id }) {
   const rows = db.prepare(`
-    SELECT a.id, a.schoology_assignment_id, a.title, a.due_date, a.assignment_type, a.is_lti_submission, a.course_id,
+    SELECT a.id, a.schoology_assignment_id, a.title, a.due_date, a.assignment_type, a.is_lti_submission, a.course_id, a.grading_scale_id,
            EXISTS (
              SELECT 1 FROM mastery_alignments ma
              WHERE ma.assignment_schoology_id = a.schoology_assignment_id
@@ -76,9 +76,12 @@ export function listAssignments(db, { course_id }) {
     WHERE a.course_id = ?
     ORDER BY a.due_date, a.id
   `).all(Number(course_id));
-  return rows.map(({ latest_submitted_at, course_id: _c, is_lti_submission, ...r }) => ({
+  return rows.map(({ latest_submitted_at, course_id: _c, is_lti_submission, grading_scale_id, ...r }) => ({
     ...r,
     has_aligned_topics: !!r.has_aligned_topics,
+    // Scale an unaligned assignment is graded on (#41) — grade those by
+    // write_student_suggestions `scale_level`. null for rubric/other assignments.
+    score_scale: scoreScaleFor({ grading_scale_id }, r.has_aligned_topics ? 1 : 0)?.name ?? null,
     // submitted_at is a Unix-seconds epoch (0 = never submitted);
     // surface the latest as an ISO string, null when nobody has submitted.
     latest_submission_at: latest_submitted_at > 0 ? new Date(latest_submitted_at * 1000).toISOString() : null,

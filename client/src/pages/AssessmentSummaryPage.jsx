@@ -328,6 +328,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   setDisplayRef.current = applyDisplay;
   const stageRef = useRef(null);
   stageRef.current = stageScaleLevel;
+  const acceptRef = useRef(null);
+  acceptRef.current = acceptScaleSuggestion;
 
   useEffect(() => {
     onPendingChange?.(student.schoology_uid, hasPendingChanges);
@@ -347,6 +349,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
       discard: () => discardRef.current(),
       setDisplay: (v) => setDisplayRef.current(v),
       stageScaleLevel: (code) => stageRef.current(code),
+      acceptScaleSuggestion: () => acceptRef.current(),
     });
     return () => unregisterCard?.(uid);
   }, [student.schoology_uid, registerCard, unregisterCard]);
@@ -425,6 +428,18 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   }
 
   const scalePointsFor = (code) => scoreScale?.levels.find(l => l.code === code)?.points ?? null;
+
+  // An agent's scale-level suggestion (PrisMCP write_student_suggestions
+  // scale_level, #41) + its evidence note. Accepting only stages it.
+  const suggestedScale = scoreScale ? (feedbackRow?.feedback_parsed?.scale_level ?? null) : null;
+  const suggestedScaleLabel = scoreScale?.levels.find(l => l.code === suggestedScale)?.label ?? null;
+  const scaleEvidence = suggestedScale ? (feedbackRow?.feedback_parsed?.evidence ?? null) : null;
+  function acceptScaleSuggestion() {
+    if (!suggestedScaleLabel || isRubricLocked) return false;
+    if (suggestedScale === student.scale_level || pending[SCALE] != null) return false;
+    selectScaleLevel(suggestedScale);
+    return true;
+  }
 
   // Revert all of this card's unsaved changes back to the synced Schoology
   // state. Shared by the per-card Discard button and the page-level Discard all.
@@ -891,13 +906,22 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         pointerEvents: isRubricLocked ? 'none' : 'auto',
       }}>
         {scoreScale ? (
-          <ScaleLevelPicker
-            scale={scoreScale}
-            syncedCode={student.scale_level ?? null}
-            pendingCode={pending[SCALE] ?? null}
-            locked={isRubricLocked}
-            onSelect={selectScaleLevel}
-          />
+          <>
+            <ScaleLevelPicker
+              scale={scoreScale}
+              syncedCode={student.scale_level ?? null}
+              pendingCode={pending[SCALE] ?? null}
+              suggestedCode={suggestedScaleLabel ? suggestedScale : null}
+              locked={isRubricLocked}
+              onSelect={selectScaleLevel}
+            />
+            {/* What the agent checked to suggest this level (teacher-facing). */}
+            {suggestedScaleLabel && scaleEvidence && (
+              <div style={{ marginTop: '0.4rem', fontSize: '0.75rem', color: 'var(--ai-suggest)' }}>
+                {`✦ Suggested ${suggestedScaleLabel}: ${scaleEvidence}`}
+              </div>
+            )}
+          </>
         ) : showDescriptors ? (
           <RubricDescriptorGrid
             rows={descriptorRows}
@@ -1603,6 +1627,16 @@ export default function AssessmentSummaryPage() {
       : `Every shown student already has a grade`);
   }
 
+  // Stage every shown card's agent scale suggestion (#41, PrisMCP scale_level)
+  // that differs from its grade. Staging only — the teacher still publishes.
+  function handleAcceptAllSuggestions() {
+    let staged = 0;
+    for (const card of Object.values(cardsRef.current)) {
+      if (card?.acceptScaleSuggestion?.()) staged++;
+    }
+    setBulkResult(`Accepted ${staged} suggestion${staged !== 1 ? 's' : ''} — review, then publish`);
+  }
+
   // Revert every card with unsaved changes back to its synced state (#51 sibling
   // of Send all). First click arms a confirm; the second click actually discards.
   // Each pending card discards its own local draft; the cards' pending-change
@@ -1690,6 +1724,11 @@ export default function AssessmentSummaryPage() {
   const { assignment, topics, students } = data;
   const scoreScale = data.scoreScale || null;
   const bulkLevel = scoreScale?.bulkLevel ? scoreScale.levels.find(l => l.code === scoreScale.bulkLevel) : null;
+  // Agent scale suggestions still open: differ from the grade, on an unlocked student.
+  const openScaleSuggestions = scoreScale ? students.filter(s => {
+    const lv = feedbackByStudent[s.id]?.feedback_parsed?.scale_level;
+    return lv && lv !== s.scale_level && ![1, 2, 3].includes(s.exception);
+  }).length : 0;
   const hasAnalysis = Object.keys(feedbackByStudent).length > 0 || !!analysis;
 
   const alignedTopics = topics;
@@ -1876,6 +1915,17 @@ export default function AssessmentSummaryPage() {
               </span>
             </button>
 
+            {openScaleSuggestions > 0 && (
+              <button
+                className="secondary"
+                onClick={handleAcceptAllSuggestions}
+                disabled={bulkSaving}
+                title="Select each agent-suggested level for review. Nothing is sent until you publish."
+                style={{ color: 'var(--ai-suggest)', borderColor: 'var(--ai-suggest)' }}
+              >
+                ✦ Accept all suggestions ({openScaleSuggestions})
+              </button>
+            )}
             {bulkLevel && (
               <button
                 className="secondary"

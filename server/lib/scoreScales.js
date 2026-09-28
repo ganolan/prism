@@ -34,3 +34,10 @@ export function isScalePoints(scale, points) {
   const n = Number(points);
   return !Number.isNaN(n) && scale.levels.some(l => l.points === n);
 }
+
+/** A level given as its code or label (any case) → the scale's level code, or null. */
+export function normalizeScaleLevel(scale, raw) {
+  if (raw == null) return null;
+  const v = String(raw).trim().toLowerCase();
+  return scale.levels.find(l => l.code.toLowerCase() === v || l.label.toLowerCase() === v)?.code ?? null;
+}

@@ -621,6 +621,13 @@ describe('StudentRubricCard — score-scale grading (#41)', () => {
     expect(writeMasteryScores).not.toHaveBeenCalled();
   });
 
+  it('shows an agent\'s suggested level with its evidence note', () => {
+    renderCard({ topics: [], scoreScale: COMPLETION_SCALE, assignmentRow: ROW,
+      feedbackRow: { feedback_parsed: { scale_level: 'C', evidence: 'Codecademy: lesson 4 done 26/09' } } });
+    expect(screen.getByRole('button', { name: /completed.*suggested/i })).toBeInTheDocument();
+    expect(screen.getByText(/Codecademy: lesson 4 done 26\/09/)).toBeInTheDocument();
+  });
+
   it('locks the picker while an exception is set', () => {
     renderCard({ topics: [], scoreScale: COMPLETION_SCALE, assignmentRow: ROW,
       student: { ...makeStudent(), exception: 3 } });
@@ -650,6 +657,22 @@ describe('AssessmentSummaryPage — score-scale class tools (#41)', () => {
       </MemoryRouter>
     );
   }
+
+  it('"Accept all suggestions" stages each agent suggestion that differs from the grade, then publishes them in one batch', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    getFeedbackForAssignment.mockResolvedValue({
+      1: { feedback_parsed: { scale_level: 'C', evidence: 'done' } },   // differs from synced I → counts
+      2: { feedback_parsed: { scale_level: 'C', evidence: 'done' } },   // ungraded → counts
+      3: { feedback_parsed: { scale_level: 'C', evidence: 'done' } },   // Excused → locked, skipped
+    });
+    sendAllGrades.mockResolvedValue({ results: [{ uid: 'uid-1', ok: true }, { uid: 'uid-2', ok: true }] });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /accept all suggestions/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /publish all to schoology \(2\)/i }));
+    await waitFor(() => expect(sendAllGrades).toHaveBeenCalledTimes(1));
+    const [, entries] = sendAllGrades.mock.calls[0];
+    expect(entries.map(e => [e.uid, e.grade?.points])).toEqual([['uid-1', 100], ['uid-2', 100]]);
+  });
 
   it('names the scale in the header instead of counting measurement topics', async () => {
     getMasteryForAssignment.mockResolvedValue(makeData());

@@ -97,6 +97,18 @@ describe('listAssignments', () => {
   });
 });
 
+describe('listAssignments — score scale (#41)', () => {
+  test('names the scale an unaligned assignment can be graded on, null otherwise', () => {
+    const db = getDb();
+    const courseId = seedCourse(db);
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, grading_scale_id) VALUES (?, 'hw', 'Homework', '7165818')`).run(courseId);
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, grading_scale_id) VALUES (?, 'lt', 'Letter', '1293963')`).run(courseId);
+    const byTitle = Object.fromEntries(listAssignments(db, { course_id: courseId }).map((a) => [a.title, a]));
+    expect(byTitle.Homework.score_scale).toBe('Completion Scale');
+    expect(byTitle.Letter.score_scale).toBeNull();
+  });
+});
+
 describe('listStudents', () => {
   test('returns the roster with preferred_first_name resolved (teacher override beats synced preferred name)', () => {
     const db = getDb();

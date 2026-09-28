@@ -43,7 +43,7 @@ export function createServer() {
     'list_assignments',
     {
       description:
-        "List a course's assignments (with aligned-topic + latest-submission hints) to resolve which assignment to grade.",
+        "List a course's assignments (with aligned-topic + latest-submission hints) to resolve which assignment to grade. `score_scale` names the Schoology scale an unaligned assignment is graded on (e.g. \"Completion Scale\"), null for rubric-graded ones.",
       inputSchema: { course_id: z.union([z.number(), z.string()]).describe('Local Prism course id') },
     },
     async ({ course_id }) => ({
@@ -67,7 +67,7 @@ export function createServer() {
     'get_assignment_context',
     {
       description:
-        'Load an assignment\'s roster, aligned measurement topics (rubric skeleton), current finals/comments/display-status, any existing AI suggestions, and the teacher\'s in-progress unpublished draft (draft_feedback: their staged proficiency picks, removed topics, comment, and display-to-student toggle), to grade against. Address each student in feedback by their roster `preferred_first_name` (the teacher-honored display name); `first_name`/`last_name` are the legal name, for matching submissions.',
+        'Load an assignment\'s roster, aligned measurement topics (rubric skeleton) — or, for an unaligned assignment, its `score_scale` (levels best → worst) and each student\'s `current_scale_level` — current finals/comments/display-status, any existing AI suggestions, and the teacher\'s in-progress unpublished draft (draft_feedback: their staged proficiency picks, removed topics, comment, and display-to-student toggle), to grade against. Address each student in feedback by their roster `preferred_first_name` (the teacher-honored display name); `first_name`/`last_name` are the legal name, for matching submissions.',
       inputSchema: {
         course_id: z.union([z.number(), z.string()]).describe('Local Prism course id'),
         assignment_id: z.union([z.number(), z.string()]).describe('Schoology or local assignment id'),
@@ -84,7 +84,7 @@ export function createServer() {
     'write_student_suggestions',
     {
       description:
-        'Write AI grading suggestions (narrative + per-topic levels + reviewer flags) for a whole class in one batched call. Upserts one draft suggestion per student for teacher review in Prism; never writes to Schoology.',
+        'Write AI grading suggestions (narrative + per-topic levels + reviewer flags) for a whole class in one batched call. For an assignment with a `score_scale` (Completion, General Academic Scale (Unaligned), Approaches to Learning), send `scale_level` instead of rubric_scores — e.g. after checking a third-party platform, "Completed" plus an `evidence` note saying what you checked. Upserts one draft suggestion per student for teacher review in Prism (the teacher accepts and publishes); never writes to Schoology.',
       inputSchema: {
         course_id: z.union([z.number(), z.string()]).describe('Local Prism course id'),
         assignment_id: z.union([z.number(), z.string()]).describe('Schoology or local assignment id'),
@@ -97,6 +97,8 @@ export function createServer() {
               reviewer_flags: z.string().nullable().optional(),
               strengths: z.array(z.string()).optional(),
               suggestions: z.array(z.string()).optional(),
+              scale_level: z.string().optional().describe('Score-scale assignments only: a level code or label from get_assignment_context score_scale, e.g. "Completed"'),
+              evidence: z.string().optional().describe('Teacher-facing note on what backs scale_level, e.g. "Codecademy: lesson 4 complete 26/09"'),
             })
           )
           .describe('Whole-class batch, one entry per student'),

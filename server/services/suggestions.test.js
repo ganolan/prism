@@ -173,3 +173,35 @@ describe('upsertAssessmentAnalysis', () => {
       .toMatchObject({ status: 'error' });
   });
 });
+
+describe('scale-level suggestions for unaligned assignments (#41)', () => {
+  function seedCompletion(db) {
+    const { courseId } = seed(db);
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, grading_scale_id) VALUES (?, 'sa-C', 'Homework', '7165818')`).run(courseId);
+  }
+  const fj = (db, id) => JSON.parse(db.prepare('SELECT feedback_json FROM feedback WHERE id = ?').get(id).feedback_json);
+
+  test('stores a label or code as the scale\'s level code, with the evidence note', () => {
+    const db = getDb();
+    seedCompletion(db);
+    const r = upsertStudentSuggestion(db, { assignmentId: 'sa-C', student: 'uid-1', scale_level: 'Completed', evidence: 'Codecademy: lesson 4 done 26/09' });
+    expect(r.status).toBe('written');
+    expect(fj(db, r.feedback_id)).toMatchObject({ scale_level: 'C', evidence: 'Codecademy: lesson 4 done 26/09' });
+  });
+
+  test('reports (never stores) a level outside the assignment\'s scale', () => {
+    const db = getDb();
+    seedCompletion(db);
+    const r = upsertStudentSuggestion(db, { assignmentId: 'sa-C', student: 'uid-1', scale_level: 'Done' });
+    expect(fj(db, r.feedback_id).scale_level).toBeNull();
+    expect(r.message).toMatch(/Completed, Incomplete/);
+  });
+
+  test('reports a scale_level sent for an assignment that is not graded on a scale', () => {
+    const db = getDb();
+    seed(db);
+    const r = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', scale_level: 'Completed' });
+    expect(fj(db, r.feedback_id).scale_level).toBeNull();
+    expect(r.message).toMatch(/not graded on a scale/i);
+  });
+});

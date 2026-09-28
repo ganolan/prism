@@ -163,6 +163,10 @@ The headless e2e proves the data path; this confirms the pixels.
    - [ ] the `⚑ Reviewer flags` strip (when `reviewer_flags` was written);
    - [ ] the `✦ Reviewer Analysis` button → drawer with the proposed distribution + noticings (when `write_assessment_analysis` was called).
 5. **Concurrent check:** with the page open and the dev server running, run another `write_student_suggestions`; reload → the new ✦ appears (v1 has no live push, so a reload/refetch is expected).
+6. **Score-scale suggestions (#41):** for an unaligned assignment (`list_assignments` shows a `score_scale`, e.g. "Completion Scale"), `get_assignment_context` returns `score_scale.levels` (best → worst) and each student's `current_scale_level`. Write `scale_level` (code or label) plus a teacher-facing `evidence` note instead of `rubric_scores`. This is the path for an agent that checks a third-party platform and marks work Completed. Reload `/assessment/:id` and confirm:
+   - [ ] the suggested level shows the violet ring and a `✦ Suggested` tag, with `✦ Suggested <level>: <evidence>` under the level buttons;
+   - [ ] the class bar shows `✦ Accept all suggestions (N)` (N = suggestions that differ from the current grade, on unlocked students). It only **stages** them; `Publish all` is still the teacher's step;
+   - [ ] a level outside the assignment's scale is rejected with a message naming the valid levels (verified 2026-09-28 over stdio: "Great" → rejected; "Consistent" / "i" → C / I).
 
 ### 3. Cowork/Desktop prompt-picker spike — RESOLVED (2026-06-06, Claude Desktop)
 

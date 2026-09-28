@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { findScoreScale, levelForScore, isScalePoints } from './scoreScales.js';
+import { findScoreScale, levelForScore, isScalePoints, normalizeScaleLevel } from './scoreScales.js';
 
 const COMPLETION = {
   schoologyScaleId: 7165818, name: 'Completion Scale', bulkLevel: 'C',
@@ -59,5 +59,19 @@ describe('isScalePoints', () => {
     expect(isScalePoints(GAS, 80)).toBe(false);
     expect(isScalePoints(COMPLETION, 100)).toBe(true);
     expect(isScalePoints(COMPLETION, 'abc')).toBe(false);
+  });
+});
+
+describe('normalizeScaleLevel', () => {
+  test('accepts a level code or label, case-insensitively, returning the code', () => {
+    expect(normalizeScaleLevel(COMPLETION, 'Completed')).toBe('C');
+    expect(normalizeScaleLevel(COMPLETION, 'c')).toBe('C');
+    expect(normalizeScaleLevel(GAS, ' exhibiting depth ')).toBe('ED');
+    expect(normalizeScaleLevel(GAS, 'em')).toBe('EM');
+  });
+  test('null for anything outside the scale', () => {
+    expect(normalizeScaleLevel(COMPLETION, 'Done')).toBeNull();
+    expect(normalizeScaleLevel(COMPLETION, '100')).toBeNull();
+    expect(normalizeScaleLevel(COMPLETION, null)).toBeNull();
   });
 });

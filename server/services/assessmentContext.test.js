@@ -335,3 +335,29 @@ describe('gradingState', () => {
     expect(gradingState({ scoredCount: 0, topicsCount: 0, hasComment: false, exception: 0 })).toBe('ungraded');
   });
 });
+
+describe('getAssessmentContext — score-scale assignments (#41)', () => {
+  test('exposes the scale (best → worst), each student\'s current level, and a scale suggestion', () => {
+    const db = getDb();
+    const { courseId, studentId } = seedContext(db);
+    const aid = db.prepare(
+      `INSERT INTO assignments (course_id, schoology_assignment_id, title, max_points, grading_scale_id) VALUES (?, 'sa-C', 'Homework', 100, '7165818')`
+    ).run(courseId).lastInsertRowid;
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, score) VALUES (?, ?, 100)`).run(studentId, aid);
+    db.prepare(`INSERT INTO feedback (student_id, assignment_id, status, feedback_json) VALUES (?, ?, 'draft', ?)`).run(
+      studentId, aid, JSON.stringify({ narrative_feedback: '', rubric_scores: {}, scale_level: 'C', evidence: 'done on platform' })
+    );
+    const ctx = getAssessmentContext(db, { assignmentId: 'sa-C' });
+    expect(ctx.score_scale).toEqual({ name: 'Completion Scale', levels: [{ code: 'C', label: 'Completed' }, { code: 'I', label: 'Incomplete' }] });
+    expect(ctx.students[0].current_scale_level).toBe('C');
+    expect(ctx.students[0].existing_suggestion).toMatchObject({ scale_level: 'C', evidence: 'done on platform' });
+  });
+
+  test('score_scale is null (and current_scale_level null) for an aligned assignment', () => {
+    const db = getDb();
+    seedContext(db);
+    const ctx = getAssessmentContext(db, { assignmentId: 'sa-1' });
+    expect(ctx.score_scale).toBeNull();
+    expect(ctx.students[0].current_scale_level).toBeNull();
+  });
+});

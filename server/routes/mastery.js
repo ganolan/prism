@@ -3,7 +3,7 @@ import { getDb } from '../db/index.js';
 import { hasMasterySession, syncMasteryForCourse, syncMasteryForAssignment, writeMasteryScores, writeMasteryScoresBatch, writeMasteryOverride, getMasteryForCourse, getRubricScoresForStudent, interactiveLogin } from '../services/masterySync.js';
 import { pushGradeComments, getSectionGrades } from '../services/schoology.js';
 import { isResubmitted } from '../lib/resubmission.js';
-import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows } from '../services/assessmentContext.js';
+import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows, scoreScaleFor } from '../services/assessmentContext.js';
 import { getSchoologyConfig, getScoreScales } from '../middleware/featureGate.js';
 import { findScoreScale, levelForScore, isScalePoints } from '../lib/scoreScales.js';
 import { toSchoologyWebUrl } from '../lib/schoologyWebUrl.js';
@@ -508,9 +508,7 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
   // An unaligned assignment on a Schoology scale Prism can grade (#41) is one
   // plain gradebook grade: ship the scale (levels best → worst) and each
   // student's current level, read from the stored score by cutoff.
-  const scoreScale = (topics.length === 0 && assignmentRow)
-    ? findScoreScale(getScoreScales(), assignmentRow.grading_scale_id)
-    : null;
+  const scoreScale = scoreScaleFor(assignmentRow, topics.length);
 
   res.json({
     assignment: assignmentRow || { schoology_assignment_id: assignmentId, title: 'Unknown Assignment' },

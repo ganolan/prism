@@ -46,6 +46,12 @@ describe('ScaleLevelPicker', () => {
     expect(screen.getByText('about EX')).toBeInTheDocument();
   });
 
+  it('marks an agent-suggested level so it reads apart from the teacher\'s own marks', () => {
+    render(<ScaleLevelPicker scale={COMPLETION} suggestedCode="C" onSelect={() => {}} />);
+    expect(screen.getByRole('button', { name: /completed.*suggested/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /incomplete/i })).not.toHaveAccessibleName(/suggested/i);
+  });
+
   it('is inert while locked', () => {
     const onSelect = vi.fn();
     render(<ScaleLevelPicker scale={COMPLETION} locked onSelect={onSelect} />);

@@ -6,6 +6,8 @@
 // Each helper takes an open better-sqlite3 db. getAssessmentContext composes
 // them into the PrisMCP get_assignment_context shape (spec §3.1).
 
+import { getScoreScales } from '../middleware/featureGate.js';
+import { findScoreScale, levelForScore } from '../lib/scoreScales.js';
 import { resolveAssignmentId } from './idResolvers.js';
 import { preferredFirstName } from './studentNames.js';
 
@@ -189,6 +191,13 @@ function buildDraftFeedback(draft) {
   };
 }
 
+// The Schoology scale an UNALIGNED assignment is graded on (#41), or null: an
+// assignment with measurement topics is graded by rubric, never by scale.
+export function scoreScaleFor(assignmentRow, topicCount) {
+  if (!assignmentRow || topicCount > 0) return null;
+  return findScoreScale(getScoreScales(), assignmentRow.grading_scale_id);
+}
+
 // Compose the PrisMCP get_assignment_context shape (spec §3.1): assignment
 // meta + aligned topics + roster with current finals/comments/display-status +
 // any existing AI suggestion. assignmentId accepts a Schoology or local id.
@@ -202,6 +211,7 @@ export function getAssessmentContext(db, { assignmentId }) {
   const schoolyId = assignmentRow.schoology_assignment_id;
 
   const topics = getAlignedTopics(db, courseId, schoolyId);
+  const scoreScale = scoreScaleFor(assignmentRow, topics.length);
   const roster = getRoster(db, courseId, assignmentRow);
   const scoreMap = getScoreMap(db, schoolyId, topics.map((t) => t.id));
   const suggestions = getExistingSuggestions(db, assignmentRow.id);
@@ -243,6 +253,8 @@ export function getAssessmentContext(db, { assignmentId }) {
       // the teacher's override (preferred_name_teacher), matching the UI.
       preferred_first_name: preferredFirstName(st),
       current_scores: currentScores,
+      // Level on the assignment's score scale (#41), read from the stored score; null when not a scale assignment or ungraded.
+      current_scale_level: scoreScale ? levelForScore(scoreScale, meta.score) : null,
       grade_comment: meta.grade_comment || '',
       display_to_student: (meta.comment_status ?? null) === 1,
       exception: meta.exception ?? 0,
@@ -274,6 +286,9 @@ export function getAssessmentContext(db, { assignmentId }) {
             // re-grade and review-task-and-rubric see what a prior run noted.
             strengths: sug.feedback_parsed.strengths ?? [],
             suggestions: sug.feedback_parsed.suggestions ?? [],
+            // Score-scale suggestion (#41) + the agent's evidence note.
+            scale_level: sug.feedback_parsed.scale_level ?? null,
+            evidence: sug.feedback_parsed.evidence ?? null,
           }
         : null,
       draft_feedback: draft ? buildDraftFeedback(draft) : null,
@@ -288,6 +303,11 @@ export function getAssessmentContext(db, { assignmentId }) {
       max_points: assignmentRow.max_points,
       grading_scale: assignmentRow.grading_scale_id ?? null,
     },
+    // When set, grade this assignment by scale level (write_student_suggestions
+    // `scale_level`), not by topic. Levels best → worst.
+    score_scale: scoreScale
+      ? { name: scoreScale.name, levels: scoreScale.levels.map(l => ({ code: l.code, label: l.label })) }
+      : null,
     topics: topics.map((t) => ({
       id: t.id,
       external_id: t.external_id,

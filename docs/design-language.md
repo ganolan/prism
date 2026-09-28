@@ -792,3 +792,13 @@ uses the same two-click confirm as Discard all ("Click again to mark all
 Completed"). It only touches shown students with no grade, no pending choice
 and no locking exception, then reports how many it marked. Publishing is still
 the teacher's separate "Publish all" step.
+
+**Agent scale suggestions (September 2026, #41).** A PrisMCP `scale_level`
+suggestion uses the same violet language as rubric suggestions. The level
+button gets a `var(--ai-suggest)` ring and a `✦ Suggested` tag. The agent's
+evidence note sits under the row as `✦ Suggested <level>: <evidence>`, so you
+can see *why* before accepting. The class bar's `✦ Accept all suggestions (N)`
+is outlined violet to match. Like "Mark all Completed", it only stages;
+publishing stays the teacher's step. The suggestion ring coexists with the
+synced and pending states, so "agent agrees with the current grade" is visible
+at a glance.

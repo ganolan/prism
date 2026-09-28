@@ -590,6 +590,93 @@ describe('AssessmentSummaryPage — OneDrive work links (#120)', () => {
   });
 });
 
+const COMPLETION_SCALE = {
+  schoologyScaleId: 7165818, name: 'Completion Scale', bulkLevel: 'C',
+  levels: [{ code: 'C', label: 'Completed', points: 100 }, { code: 'I', label: 'Incomplete', points: 0 }],
+};
+
+describe('StudentRubricCard — score-scale grading (#41)', () => {
+  const ROW = { id: 50, mastery_grading_period_id: 1, mastery_grading_category_id: 2 };
+
+  it('shows the scale\'s level picker instead of a topic rubric', () => {
+    renderCard({ topics: [], scoreScale: COMPLETION_SCALE, assignmentRow: ROW });
+    expect(screen.getByRole('group', { name: 'Completion Scale' })).toBeInTheDocument();
+    expect(screen.queryByText('Measurement Topic')).not.toBeInTheDocument();
+  });
+
+  it('marks the synced level', () => {
+    renderCard({ topics: [], scoreScale: COMPLETION_SCALE, assignmentRow: ROW,
+      student: { ...makeStudent(), score: 100, scale_level: 'C' } });
+    expect(screen.getByRole('button', { name: /^completed/i })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('publishes the level as a grade + comment in one write, never a mastery write', async () => {
+    renderCard({ topics: [], scoreScale: COMPLETION_SCALE, assignmentRow: ROW });
+    fireEvent.click(screen.getByRole('button', { name: /incomplete/i }));
+    fireEvent.click(screen.getByRole('button', { name: /publish to schoology/i }));
+    await waitFor(() => expect(writeMasteryComment).toHaveBeenCalledTimes(1));
+    expect(writeMasteryComment).toHaveBeenCalledWith('4', {
+      enrollmentId: 'enr-1', assignmentId: '8', comment: '', commentStatus: true, points: 0,
+    });
+    expect(writeMasteryScores).not.toHaveBeenCalled();
+  });
+
+  it('locks the picker while an exception is set', () => {
+    renderCard({ topics: [], scoreScale: COMPLETION_SCALE, assignmentRow: ROW,
+      student: { ...makeStudent(), exception: 3 } });
+    expect(screen.getByRole('button', { name: /incomplete/i })).toBeDisabled();
+  });
+});
+
+describe('AssessmentSummaryPage — score-scale class tools (#41)', () => {
+  function makeData() {
+    return {
+      assignment: { id: 50, schoology_assignment_id: '8', title: 'Homework', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+      topics: [],
+      scoreScale: COMPLETION_SCALE,
+      students: [
+        { ...makeStudent(), id: 1, schoology_uid: 'uid-1', enrollment_id: 'enr-1', score: 0, scale_level: 'I' },
+        { ...makeStudent(), id: 2, schoology_uid: 'uid-2', first_name: 'Alan', last_name: 'Turing', enrollment_id: 'enr-2' },
+        { ...makeStudent(), id: 3, schoology_uid: 'uid-3', first_name: 'Grace', last_name: 'Hopper', enrollment_id: 'enr-3', exception: 1 },
+      ],
+    };
+  }
+  function renderPage() {
+    return render(
+      <MemoryRouter initialEntries={['/course/4/assessment/8']}>
+        <Routes>
+          <Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+  }
+
+  it('names the scale in the header instead of counting measurement topics', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    renderPage();
+    expect(await screen.findByText(/3 students · Completion Scale/)).toBeInTheDocument();
+    // The Descriptors/Compact rubric toggle has nothing to switch here.
+    expect(screen.queryByRole('group', { name: 'Rubric view' })).not.toBeInTheDocument();
+  });
+
+  it('"Mark all Completed" (after a confirm click) stages only ungraded, unlocked students, then publishes them in one batch', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    sendAllGrades.mockResolvedValue({ results: [{ uid: 'uid-2', ok: true }] });
+    renderPage();
+    const mark = await screen.findByRole('button', { name: /mark all completed/i });
+    fireEvent.click(mark);
+    expect(sendAllGrades).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /click again to mark all completed/i }));
+
+    const publish = await screen.findByRole('button', { name: /publish all to schoology \(1\)/i });
+    fireEvent.click(publish);
+    await waitFor(() => expect(sendAllGrades).toHaveBeenCalledTimes(1));
+    const [, entries] = sendAllGrades.mock.calls[0];
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ uid: 'uid-2', grade: { points: 100 }, scores: null, comment: { comment: '' } });
+  });
+});
+
 describe('AssessmentSummaryPage — Send all bar (#51)', () => {
   function makeData() {
     return {

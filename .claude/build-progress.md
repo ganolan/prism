@@ -2,6 +2,21 @@
 
 Tracks implementation status across Prism's development phases. Check this before starting any new phase to avoid repeating work or missing spec items.
 
+## Score-scale grading for unaligned assignments (#41, part) — COMPLETE (2026-09-28)
+
+- `/assessment/` grades unaligned assignments on **Completion**, **General Academic Scale
+  (Unaligned)** and **Approaches to Learning**: a one-row `ScaleLevelPicker` (levels best →
+  worst), the same pending/draft/publish/Send-all mechanics, plus a class-bar "Mark all
+  Completed" (stages only; two-click confirm).
+- Scales in `config.yaml` `grading.scoreScales` (points = the level's Schoology average, cutoff
+  for reading; GAS descriptors = the school's official wording). ATL verified as a *plain*
+  gradebook scale, not district mastery (see api-ref "Plain-scale grades").
+- Write = bulk `PUT /sections/{id}/grades` with `grade` + echoed comment/status/exception
+  (`points` on `write-comment` / `send-all`; server rejects off-scale values and stops if the
+  fresh read fails). Live-verified on the teacher's ATL test task (re-save identical; I→C round trip).
+- **Not done (rest of #41):** numeric / letter scales (HS Letter Grade, HKIS Grade Scale), legacy
+  empty-level "Completion" variants, inline grading from the gradebook / student page.
+
 ## OneDrive student-work links on /assessment/ (#120, part) — COMPLETE (2026-09-28)
 
 - "Open" link beside each student's submission-status pill on the `/assessment/` page for

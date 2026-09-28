@@ -594,6 +594,25 @@ per-cell grade-data POST — see #53.)
 
 Full scale level names: Insufficient Evidence (IE), Emerging (EM), Developing (D), Exhibiting (EX), Exhibiting Depth (ED).
 
+**Plain-scale grades: Completion, GAS (Unaligned), ATL. Verified 2026-09-28 (#41).**
+- **ATL is a plain gradebook scale, not a mastery one**, even though the synced level names read "See Mastery Gradebook (S/I/C)". Evidence from the teacher's ATL test task (`8588091358`, section `8458134359`):
+  - `grader_header_data.grade_item_data` has `use_district_mastery_grading: false` and `district_mastery_material_type: ""`. For contrast, an aligned GAS item in the same section has `true` / `"ASSIGNMENT"`.
+  - `district_mastery/api/observations/search` returned **0 observations** for the graded student.
+  - The grade exists only in the public `GET /sections/{id}/grades`: `grade: 100, max_points: 100, scale_id: 25951428`.
+
+  The HS assessment agreements confirm the levels are **Seldom / Inconsistent / Consistent**, with no further per-level descriptors.
+- **How scores are stored.** All three are out of 100 (`max_points` 100), and a level is written as its scale **average**:
+  - Completion: Completed 100, Incomplete 0.
+  - GAS (Unaligned): ED 100, EX 75, D 50, EM 25, IE 0.
+  - ATL: C 100, I 60, S 0.
+
+  Prod history also holds legacy off-average GAS values (87.5, 90, 95, 80, 62.5), which Schoology buckets by **cutoff** (the highest cutoff ≤ score). Read by cutoff, write the average.
+- **Write path.** The same bulk `PUT /sections/{id}/grades` as comments, with `grade` set to the level's points and `comment` / `comment_status` / `exception` echoed from a fresh read (the #46 rule above). Verified live on the ATL test task:
+  - Re-saving 100 left the record byte-identical: `{grade:100, exception:0, comment:"", comment_status:null}`.
+  - Writing 60, then 100, produced the expected record at each step and restored the original exactly.
+
+  Prism: `config.yaml` `grading.scoreScales`, `server/lib/scoreScales.js`, and the `points` option on `/api/mastery/:courseId/write-comment` and `send-all`.
+
 ### Grade Value Encoding
 
 Each measurement topic maps to a 0-4 point scale: IE=0, EM=1, D=2, EX=3, ED=4.

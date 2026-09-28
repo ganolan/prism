@@ -26,6 +26,12 @@ describe('normalizedSubmissionState', () => {
 });
 
 describe('gradingStateOf', () => {
+  it('no topics (unaligned, #41): a plain score counts as graded, nothing as ungraded', () => {
+    expect(gradingStateOf(stu({ score: 0 }), [])).toBe('complete');
+    expect(gradingStateOf(stu({ score: 100 }), [])).toBe('complete');
+    expect(gradingStateOf(stu({ score: null }), [])).toBe('ungraded');
+    expect(gradingStateOf(stu({ grade_comment: 'note' }), [])).toBe('complete');
+  });
   it('all topics + comment is complete', () =>
     expect(gradingStateOf(stu({ scores: { t1: { grade: 'EX' }, t2: { grade: 'D' } }, grade_comment: 'x' }), TOPICS)).toBe('complete'));
   it('nothing is ungraded', () => expect(gradingStateOf(stu(), TOPICS)).toBe('ungraded'));

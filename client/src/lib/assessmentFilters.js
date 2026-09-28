@@ -30,8 +30,9 @@ export function gradingStateOf(student, topics) {
   const scores = student.scores || {};
   const scoredCount = topics.filter(t => scores[t.id] != null).length;
   const hasComment = (student.grade_comment || '').trim().length > 0;
+  // No rubric topics (unaligned, #41): the plain score is the grade.
+  if (topics.length === 0) return (student.score != null || hasComment) ? 'complete' : 'ungraded';
   if (scoredCount === 0 && !hasComment) return 'ungraded';
-  if (topics.length === 0) return 'complete'; // no rubric topics: any entry (comment or score) counts as complete (matches server gradingState)
   if (scoredCount === topics.length && hasComment) return 'complete';
   return 'partial';
 }

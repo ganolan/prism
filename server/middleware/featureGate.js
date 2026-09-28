@@ -60,6 +60,13 @@ export function getMicrosoftConfig() {
   };
 }
 
+// Schoology scales Prism grades unaligned assignments against (#41), levels
+// best → worst. See config.yaml `grading.scoreScales` + lib/scoreScales.js.
+export function getScoreScales() {
+  if (!config) loadConfig();
+  return config.grading?.scoreScales || [];
+}
+
 export const DEFAULT_PROFICIENCY_SCALE = {
   name: 'HKIS General Academic Scale',
   schoologyScaleId: 21337256,

@@ -13,6 +13,7 @@ import RubricManagerModal from '../components/RubricManagerModal.jsx';
 import AiSparkle from '../components/AiSparkle.jsx';
 import SchoologyLink from '../components/SchoologyLink.jsx';
 import SubmissionStatusPill from '../components/SubmissionStatusPill.jsx';
+import ScaleLevelPicker from '../components/ScaleLevelPicker.jsx';
 import AssessmentFilterBar from '../components/AssessmentFilterBar.jsx';
 import { passesFilters } from '../lib/assessmentFilters.js';
 import { useStickyTab } from '../hooks/useStickyTab.js';
@@ -23,6 +24,9 @@ const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late
 const SUGGEST = { fill: 'var(--ai-suggest-wash)', ring: 'var(--ai-suggest)', glyph: 'var(--ai-suggest)' };
 // Sentinel stored in pending[topicId] to stage a synced final for removal (Slice 2).
 const REMOVE = '__remove__';
+// pending key for a score-scale grade (#41): an unaligned assignment graded on
+// a plain Schoology scale has one level for the whole assignment, not per topic.
+const SCALE = '__scale__';
 
 function displayName(student) {
   return studentFullName(student);
@@ -111,7 +115,7 @@ function HeaderPill({ active, accent, activeBg, activeText, icon, label, clearLa
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
-export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
+export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, scoreScale = null, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
   const scale = useProficiencyScale();
   const loadedDisplay = student.comment_status === 1;
   // Per-card DB draft saver (replaces the former localStorage key). Created once.
@@ -322,6 +326,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   discardRef.current = discardChanges;
   const setDisplayRef = useRef(null);
   setDisplayRef.current = applyDisplay;
+  const stageRef = useRef(null);
+  stageRef.current = stageScaleLevel;
 
   useEffect(() => {
     onPendingChange?.(student.schoology_uid, hasPendingChanges);
@@ -340,6 +346,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
       applyResult: (ok) => applyRef.current(ok),
       discard: () => discardRef.current(),
       setDisplay: (v) => setDisplayRef.current(v),
+      stageScaleLevel: (code) => stageRef.current(code),
     });
     return () => unregisterCard?.(uid);
   }, [student.schoology_uid, registerCard, unregisterCard]);
@@ -395,6 +402,29 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
       setAutoFlipArmed(false);
     }
   }
+
+  // Score-scale level click (#41). Clicking the synced level (or the pending
+  // one) drops the pending choice; there is no "clear the grade" from Prism.
+  function selectScaleLevel(code) {
+    if (isRubricLocked) return;
+    flushNextRef.current = true;
+    if (code === student.scale_level || code === pending[SCALE]) {
+      setPending(p => { const n = { ...p }; delete n[SCALE]; return n; });
+      return;
+    }
+    armAutoFlip();
+    setPending(p => ({ ...p, [SCALE]: code }));
+  }
+
+  // Whole-class "Mark all …" (#41): stage `code` only on a card with no grade,
+  // no pending choice and no locking exception. Returns whether it staged.
+  function stageScaleLevel(code) {
+    if (!scoreScale || isRubricLocked || student.scale_level != null || pending[SCALE] != null) return false;
+    selectScaleLevel(code);
+    return true;
+  }
+
+  const scalePointsFor = (code) => scoreScale?.levels.find(l => l.code === code)?.points ?? null;
 
   // Revert all of this card's unsaved changes back to the synced Schoology
   // state. Shared by the per-card Discard button and the page-level Discard all.
@@ -453,10 +483,28 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // nothing is unsaved. Same writes as handleSave, expressed as data for the
   // page to collapse into one request (#51).
   function buildSendEntry() {
-    const hasScoreChanges = Object.keys(pending).length > 0;
+    const scaleCode = scoreScale ? (pending[SCALE] ?? null) : null;
+    const hasScoreChanges = !scoreScale && Object.keys(pending).length > 0;
     const hasCommentChange = comment !== (student.grade_comment || '');
     const hasDisplayChange = display !== loadedDisplay;
-    if (!hasScoreChanges && !hasCommentChange && !hasDisplayChange) return null;
+    if (!hasScoreChanges && !scaleCode && !hasCommentChange && !hasDisplayChange) return null;
+    if (scoreScale) {
+      // One PUT carries grade + comment + visibility, so the comment always rides along.
+      return {
+        entry: {
+          uid: student.schoology_uid,
+          enrollmentId: student.enrollment_id,
+          assignmentId,
+          scores: null,
+          grade: scaleCode ? { points: scalePointsFor(scaleCode) } : null,
+          comment: { comment, commentStatus: display },
+        },
+        patch: {
+          ...(scaleCode ? { score: scalePointsFor(scaleCode), scale_level: scaleCode } : {}),
+          grade_comment: comment, comment_status: display ? 1 : null,
+        },
+      };
+    }
     return {
       entry: {
         uid: student.schoology_uid,
@@ -500,9 +548,31 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     setSaving(true);
     setSaveResult(null);
     try {
-      const hasScoreChanges = Object.keys(pending).length > 0;
+      const scaleCode = scoreScale ? (pending[SCALE] ?? null) : null;
+      const hasScoreChanges = !scoreScale && Object.keys(pending).length > 0;
       const hasCommentChange = comment !== (student.grade_comment || '');
       const hasDisplayChange = display !== loadedDisplay;
+
+      if (scoreScale) {
+        // Score-scale grade (#41): grade + comment + visibility in one write.
+        await writeMasteryComment(courseId, {
+          enrollmentId: student.enrollment_id,
+          assignmentId,
+          comment,
+          commentStatus: display,
+          ...(scaleCode ? { points: scalePointsFor(scaleCode) } : {}),
+        });
+        setSaveResult('saved');
+        setPending({});
+        saverRef.current.remove({ immediate: true });
+        onSaved?.(student.schoology_uid, {
+          ...(scaleCode ? { score: scalePointsFor(scaleCode), scale_level: scaleCode } : {}),
+          grade_comment: comment,
+          comment_status: display ? 1 : null,
+        });
+        setNotesCollapsed(true);
+        return true;
+      }
 
       if (hasScoreChanges && assignmentRow) {
         await writeMasteryScores(courseId, {
@@ -820,7 +890,15 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         opacity: isRubricLocked ? 0.45 : 1,
         pointerEvents: isRubricLocked ? 'none' : 'auto',
       }}>
-        {showDescriptors ? (
+        {scoreScale ? (
+          <ScaleLevelPicker
+            scale={scoreScale}
+            syncedCode={student.scale_level ?? null}
+            pendingCode={pending[SCALE] ?? null}
+            locked={isRubricLocked}
+            onSelect={selectScaleLevel}
+          />
+        ) : showDescriptors ? (
           <RubricDescriptorGrid
             rows={descriptorRows}
             levels={LEVELS}
@@ -1229,7 +1307,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           <button
             className="primary"
             onClick={handleSave}
-            disabled={saving || !hasPendingChanges || !scale.ready}
+            disabled={saving || !hasPendingChanges || (!scoreScale && !scale.ready)}
             title="Publish scores & comment to Schoology"
           >
             {saving ? 'Publishing...' : 'Publish to Schoology'}
@@ -1419,6 +1497,8 @@ export default function AssessmentSummaryPage() {
   // "Discard all" is destructive across every student, so it requires a second
   // confirming click (armed → confirm). Disarms on mouse-leave or after firing.
   const [discardAllArmed, setDiscardAllArmed] = useState(false);
+  // "Mark all <level>" for a score-scale assignment (#41) — also a two-click confirm.
+  const [markAllArmed, setMarkAllArmed] = useState(false);
   const cardsRef = useRef({});
 
   // Patch a single student in place after its card saves, instead of reloading
@@ -1509,6 +1589,20 @@ export default function AssessmentSummaryPage() {
     }
   }
 
+  // Stage the scale's bulk level (e.g. Completed) on every shown card with no
+  // grade yet (#41). Nothing is written: the teacher reviews, then publishes.
+  function handleMarkAll(level) {
+    if (!markAllArmed) { setMarkAllArmed(true); return; }
+    setMarkAllArmed(false);
+    let staged = 0;
+    for (const card of Object.values(cardsRef.current)) {
+      if (card?.stageScaleLevel?.(level.code)) staged++;
+    }
+    setBulkResult(staged
+      ? `Marked ${staged} student${staged !== 1 ? 's' : ''} ${level.label} — review, then publish`
+      : `Every shown student already has a grade`);
+  }
+
   // Revert every card with unsaved changes back to its synced state (#51 sibling
   // of Send all). First click arms a confirm; the second click actually discards.
   // Each pending card discards its own local draft; the cards' pending-change
@@ -1594,6 +1688,8 @@ export default function AssessmentSummaryPage() {
   if (!data) return null;
 
   const { assignment, topics, students } = data;
+  const scoreScale = data.scoreScale || null;
+  const bulkLevel = scoreScale?.bulkLevel ? scoreScale.levels.find(l => l.code === scoreScale.bulkLevel) : null;
   const hasAnalysis = Object.keys(feedbackByStudent).length > 0 || !!analysis;
 
   const alignedTopics = topics;
@@ -1614,7 +1710,7 @@ export default function AssessmentSummaryPage() {
         </h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
           <p className="text-sm text-muted" style={{ margin: 0 }}>
-            {students.length} students · {alignedTopics.length} measurement topics
+            {students.length} students · {scoreScale ? scoreScale.name : `${alignedTopics.length} measurement topics`}
           </p>
           {/* Jump straight to this assignment's Schoology page (#76). Hidden when
               Schoology didn't return a web_url for the assignment. */}
@@ -1652,13 +1748,16 @@ export default function AssessmentSummaryPage() {
 
           {/* Rubric view toggle (Task 13) — Descriptors (default) shows the
               student-language descriptor prose per level; Compact falls back to
-              the dense level-code table. */}
-          <div role="group" aria-label="Rubric view" style={{ display: 'inline-flex', gap: '0.25rem' }}>
-            <button className={`filter-btn${viewMode === 'descriptors' ? ' active' : ''}`}
-              onClick={() => setViewMode('descriptors')}>Descriptors</button>
-            <button className={`filter-btn${viewMode === 'compact' ? ' active' : ''}`}
-              onClick={() => setViewMode('compact')}>Compact</button>
-          </div>
+              the dense level-code table. Hidden for a score scale (#41), whose
+              one-row picker has no compact form. */}
+          {!scoreScale && (
+            <div role="group" aria-label="Rubric view" style={{ display: 'inline-flex', gap: '0.25rem' }}>
+              <button className={`filter-btn${viewMode === 'descriptors' ? ' active' : ''}`}
+                onClick={() => setViewMode('descriptors')}>Descriptors</button>
+              <button className={`filter-btn${viewMode === 'compact' ? ' active' : ''}`}
+                onClick={() => setViewMode('compact')}>Compact</button>
+            </div>
+          )}
 
           {/* Single entry point to the rubric hub (attach existing / upload / map / reorder / delete). */}
           <button className="secondary" style={{ fontSize: '0.78rem' }}
@@ -1712,6 +1811,7 @@ export default function AssessmentSummaryPage() {
               viewMode={viewMode}
               rubricPalette={rubricPalette}
               submissionLink={workLinks.links[student.schoology_uid] || null}
+              scoreScale={scoreScale}
               onSaved={handleCardSaved}
               onPendingChange={handlePendingChange}
               onDisplayChange={handleDisplayChange}
@@ -1776,6 +1876,17 @@ export default function AssessmentSummaryPage() {
               </span>
             </button>
 
+            {bulkLevel && (
+              <button
+                className="secondary"
+                onClick={() => handleMarkAll(bulkLevel)}
+                onMouseLeave={() => setMarkAllArmed(false)}
+                disabled={bulkSaving}
+                title={`Select ${bulkLevel.label} for every shown student without a grade. Nothing is sent until you publish.`}
+              >
+                {markAllArmed ? `Click again to mark all ${bulkLevel.label}` : `Mark all ${bulkLevel.label}`}
+              </button>
+            )}
             <button
               className="primary"
               onClick={handleSendAll}

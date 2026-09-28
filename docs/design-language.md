@@ -767,3 +767,28 @@ stays on the gradebook column header, which is the assignment-level place for
 it. The modal fetches the assignment's links when it opens (instant within the
 5-minute server cache) and shows nothing while loading or when the student has
 no file.
+
+## Level order: best on the left (September 2026, #41)
+
+Every grading scale renders its levels **best → worst, left → right**. That
+holds for the General Academic Scale (ED | EX | D | EM | IE, as the rubric
+already did), Completion (**Completed | Incomplete**) and Approaches to
+Learning (**Consistent | Inconsistent | Seldom**). Config lists levels in that
+order (`config.yaml` `grading.scoreScales`), and components render them in the
+order given. Never sort them.
+
+**Score-scale picker (`ScaleLevelPicker`).** An unaligned assignment graded on
+one of those plain scales gets a single row of level buttons in place of the
+topic rubric. It follows the rubric's visual states: the synced grade is a
+filled cell with a solid border; a pending choice is a light fill with a dashed
+border. Descriptor text shows under the label when the scale has any (GAS
+does). Colours come from the shared 5-level palette: GAS codes keep their own
+colour, and other scales map by rank (best green, middle yellow, worst red), so
+"good" reads the same everywhere. The Descriptors/Compact toggle is hidden on
+these pages because there is nothing to switch.
+
+**Class-bar "Mark all Completed".** A bulk *staging* action, not a write. It
+uses the same two-click confirm as Discard all ("Click again to mark all
+Completed"). It only touches shown students with no grade, no pending choice
+and no locking exception, then reports how many it marked. Publishing is still
+the teacher's separate "Publish all" step.

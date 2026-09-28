@@ -4,7 +4,8 @@ import { hasMasterySession, syncMasteryForCourse, syncMasteryForAssignment, writ
 import { pushGradeComments, getSectionGrades } from '../services/schoology.js';
 import { isResubmitted } from '../lib/resubmission.js';
 import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows } from '../services/assessmentContext.js';
-import { getSchoologyConfig } from '../middleware/featureGate.js';
+import { getSchoologyConfig, getScoreScales } from '../middleware/featureGate.js';
+import { findScoreScale, levelForScore, isScalePoints } from '../lib/scoreScales.js';
 import { toSchoologyWebUrl } from '../lib/schoologyWebUrl.js';
 import { levelToGradeScaled, gradeScaledValues, pointsToLevel, LEVELS } from '../lib/proficiencyScale.js';
 import { getAssignmentFiles } from '../services/oneDriveLinks.js';
@@ -12,6 +13,19 @@ import { matchFilesToRoster } from '../lib/oneDriveSubmissions.js';
 
 const router = Router();
 const syncsInProgress = new Set();
+
+// Why `points` can't be written as a scale grade on this assignment, or null
+// when it can: the assignment must be on a configured score scale (#41) and
+// `points` must be exactly one of that scale's level values.
+function scalePointsError(db, courseId, assignmentId, points) {
+  const row = db.prepare(
+    'SELECT grading_scale_id FROM assignments WHERE schoology_assignment_id = ? AND course_id = ?'
+  ).get(String(assignmentId), courseId);
+  const scale = row ? findScoreScale(getScoreScales(), row.grading_scale_id) : null;
+  if (!scale) return `Assignment ${assignmentId} is not on a scale Prism can grade`;
+  if (!isScalePoints(scale, points)) return `${points} is not a level of ${scale.name}`;
+  return null;
+}
 
 // POST /api/mastery/login — open a visible browser window for Schoology login
 let loginInProgress = false;
@@ -450,7 +464,9 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
   const lateMap = {};
   const draftMap = {};
   const submittedAtMap = {};
+  const scoreValueMap = {};
   for (const c of gradeRows) {
+    scoreValueMap[c.schoology_uid] = c.score ?? null;
     commentMap[c.schoology_uid] = c.grade_comment || '';
     exceptionMap[c.schoology_uid] = c.exception ?? 0;
     commentStatusMap[c.schoology_uid] = c.comment_status ?? null;
@@ -489,9 +505,17 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
     resubmitFlagMap[r.student_id] = { id: r.id };
   }
 
+  // An unaligned assignment on a Schoology scale Prism can grade (#41) is one
+  // plain gradebook grade: ship the scale (levels best → worst) and each
+  // student's current level, read from the stored score by cutoff.
+  const scoreScale = (topics.length === 0 && assignmentRow)
+    ? findScoreScale(getScoreScales(), assignmentRow.grading_scale_id)
+    : null;
+
   res.json({
     assignment: assignmentRow || { schoology_assignment_id: assignmentId, title: 'Unknown Assignment' },
     topics,
+    scoreScale,
     students: students.map(s => ({
       ...s,
       scores: scoreMap[s.schoology_uid] || {},
@@ -507,6 +531,8 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
       late: lateMap[s.schoology_uid] ?? 0,
       draft: draftMap[s.schoology_uid] ?? 0,
       submitted_at: submittedAtMap[s.schoology_uid] ?? 0,
+      score: scoreValueMap[s.schoology_uid] ?? null,
+      scale_level: scoreScale ? levelForScore(scoreScale, scoreValueMap[s.schoology_uid]) : null,
     })),
   });
 });
@@ -514,7 +540,7 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
 // POST /api/mastery/:courseId/write-comment — write grade comment back to Schoology
 router.post('/:courseId/write-comment', async (req, res) => {
   const { courseId } = req.params;
-  const { enrollmentId, assignmentId, comment, commentStatus } = req.body;
+  const { enrollmentId, assignmentId, comment, commentStatus, points } = req.body;
 
   if (!enrollmentId || !assignmentId) {
     return res.status(400).json({ error: 'enrollmentId and assignmentId are required' });
@@ -523,6 +549,14 @@ router.post('/:courseId/write-comment', async (req, res) => {
   const db = getDb();
   const courseRow = db.prepare('SELECT schoology_section_id FROM courses WHERE id = ?').get(courseId);
   if (!courseRow) return res.status(404).json({ error: 'Course not found' });
+
+  // Optional scale grade for an unaligned assignment (#41), written in the same
+  // PUT. Only a level value of the assignment's own configured scale is allowed.
+  const hasPoints = points != null;
+  if (hasPoints) {
+    const scaleError = scalePointsError(db, courseId, assignmentId, points);
+    if (scaleError) return res.status(400).json({ error: scaleError });
+  }
 
   // Public OAuth API uses integer 1 = visible, null = hidden.
   // Map the boolean from the client; default to 1 when omitted so existing
@@ -541,6 +575,7 @@ router.post('/:courseId/write-comment', async (req, res) => {
   // for brand-new students it may have no row at all. Echoing the stale/null
   // grade reproduced the original #46 wipe — see commit history.
   let fresh = null;
+  let lookupFailed = false;
   try {
     const allGrades = await getSectionGrades(courseRow.schoology_section_id);
     fresh = allGrades.find(g =>
@@ -548,7 +583,13 @@ router.post('/:courseId/write-comment', async (req, res) => {
       String(g.enrollment_id) === String(enrollmentId)
     ) || null;
   } catch (err) {
+    lookupFailed = true;
     console.warn(`[mastery write-comment] fresh grade lookup failed: ${err.message}`);
+  }
+  // Writing a grade without the fresh record could drop an exception (e.g.
+  // Late) the PUT must echo — stop rather than write blind.
+  if (hasPoints && lookupFailed) {
+    return res.status(502).json({ error: 'Could not read the current Schoology grade — nothing was saved. Try again.' });
   }
 
   const payload = {
@@ -558,6 +599,7 @@ router.post('/:courseId/write-comment', async (req, res) => {
     comment_status: commentStatusInt,
   };
   if (fresh && fresh.grade != null) payload.grade = String(fresh.grade);
+  if (hasPoints) payload.grade = String(Number(points));
   if (fresh && fresh.exception != null) payload.exception = fresh.exception;
 
   try {
@@ -584,7 +626,7 @@ router.post('/:courseId/write-comment', async (req, res) => {
     `).get(String(assignmentId));
     if (studentRow && assignmentRow) {
       const now = new Date().toISOString();
-      if (fresh) {
+      if (fresh || hasPoints) {
         db.prepare(`
           INSERT INTO grades (student_id, assignment_id, enrolment_id, score, exception, submitted_at, grade_comment, comment_status, synced_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -599,9 +641,9 @@ router.post('/:courseId/write-comment', async (req, res) => {
           studentRow.id,
           assignmentRow.id,
           String(enrollmentId),
-          fresh.grade ?? null,
-          fresh.exception ?? 0,
-          Number(fresh.timestamp) || 0,
+          hasPoints ? Number(points) : (fresh.grade ?? null),
+          fresh?.exception ?? 0,
+          Number(fresh?.timestamp) || 0,
           comment || '',
           commentStatusInt,
           now,
@@ -657,6 +699,15 @@ router.post('/:courseId/send-all', async (req, res) => {
   const scoreEntries = entries.filter(e => e.scores);
   const commentEntries = entries.filter(e => e.comment);
 
+  // Scale grades (#41) ride the comment PUT; validate them all before writing
+  // anything, so one bad entry can't leave the batch half-sent.
+  for (const e of entries.filter(e => e.grade)) {
+    const scaleError = !e.comment
+      ? 'a scale grade must be sent with its comment'
+      : scalePointsError(db, courseId, e.assignmentId, e.grade.points);
+    if (scaleError) return res.status(400).json({ error: scaleError, results: entries.map(x => ({ uid: x.uid, ok: false })) });
+  }
+
   try {
     // 1. All rubric scores in one browser session.
     if (scoreEntries.length > 0) {
@@ -690,6 +741,7 @@ router.post('/:courseId/send-all', async (req, res) => {
           comment_status: e.comment.commentStatus === false ? null : 1,
         };
         if (fresh && fresh.grade != null) payload.grade = String(fresh.grade);
+        if (e.grade) payload.grade = String(Number(e.grade.points));
         if (fresh && fresh.exception != null) payload.exception = fresh.exception;
         return payload;
       });
@@ -737,7 +789,7 @@ router.post('/:courseId/send-all', async (req, res) => {
       const commentStatusInt = e.comment.commentStatus === false ? null : 1;
       upsertGrade.run(
         studentRow.id, assignmentRow.id, String(e.enrollmentId),
-        fresh ? (fresh.grade ?? null) : null,
+        e.grade ? Number(e.grade.points) : (fresh ? (fresh.grade ?? null) : null),
         fresh ? (fresh.exception ?? 0) : 0,
         fresh ? (Number(fresh.timestamp) || 0) : 0,
         e.comment.comment || '', commentStatusInt, now,

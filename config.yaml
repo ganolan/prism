@@ -46,3 +46,53 @@ grading:
       - { code: D,  label: Developing,            points: 50,  gradeScaled: '37.50' }
       - { code: EM, label: Emerging,              points: 25,  gradeScaled: '12.50' }
       - { code: IE, label: Insufficient Evidence, points: 0,   gradeScaled: '0.00'  }
+
+  # Schoology grading scales Prism can grade an UNALIGNED assignment against
+  # (#41) — a plain gradebook grade, no measurement topics. Written through the
+  # public PUT /sections/{id}/grades as `points` (the level's Schoology average);
+  # read back by bucketing the stored score with `cutoff` (highest cutoff ≤
+  # score, so legacy 90/95 still read as Exhibiting Depth). Points + cutoffs are
+  # the synced grading_scales values. Levels are listed BEST → WORST, which is
+  # also the left → right order they render in.
+  # `bulkLevel` adds a whole-class "Mark all <label>" to the /assessment/ page.
+  scoreScales:
+    - schoologyScaleId: 7165818
+      name: Completion Scale
+      bulkLevel: C
+      levels:
+        - { code: C, label: Completed,  points: 100, cutoff: 80 }
+        - { code: I, label: Incomplete, points: 0,   cutoff: 0 }
+    - schoologyScaleId: 23495360
+      name: General Academic Scale (Unaligned)
+      levels:
+        - code: ED
+          label: Exhibiting Depth
+          points: 100
+          cutoff: 87.5
+          descriptor: The student exhibits depth in the standard. The student is able to transfer learning to authentic or atypical situations. The student can draw upon their conceptual understanding to solve real problems that show a level of creativity and sophistication.
+        - code: EX
+          label: Exhibiting
+          points: 75
+          cutoff: 62.5
+          descriptor: The student exhibits proficiency in the standard. The student demonstrates the targeted understanding of knowledge and skills.
+        - code: D
+          label: Developing
+          points: 50
+          cutoff: 37.5
+          descriptor: The student demonstrates developing proficiency in the standard. The student demonstrates the foundational knowledge and skills required to exhibit the standard but is not yet exhibiting proficiency in the standard.
+        - code: EM
+          label: Emerging
+          points: 25
+          cutoff: 12.5
+          descriptor: The student demonstrates emerging proficiency in the standard. The student is beginning to demonstrate foundational knowledge and skills.
+        - code: IE
+          label: Insufficient Evidence
+          points: 0
+          cutoff: 0
+          descriptor: There is no evidence at all to assess against the standard. It signals the student to follow up with the teacher or resubmit.
+    - schoologyScaleId: 25951428
+      name: Approaches to Learning
+      levels:
+        - { code: C, label: Consistent,   points: 100, cutoff: 80 }
+        - { code: I, label: Inconsistent, points: 60,  cutoff: 40 }
+        - { code: S, label: Seldom,       points: 0,   cutoff: 0 }

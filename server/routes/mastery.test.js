@@ -835,3 +835,114 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId/submission-links (
     expect(status).toBe(404);
   });
 });
+
+describe('Score-scale grading for unaligned assignments (#41)', () => {
+  let courseId;
+  let studentA;
+
+  beforeEach(() => {
+    vi.mocked(pushGradeComments).mockReset().mockResolvedValue({});
+    vi.mocked(getSectionGrades).mockReset();
+    const db = getDb();
+    db.exec(
+      'DELETE FROM mastery_rollups; DELETE FROM mastery_scores; DELETE FROM mastery_alignments; ' +
+      'DELETE FROM measurement_topics; DELETE FROM reporting_categories; DELETE FROM assignment_assignees; ' +
+      'DELETE FROM flags; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; ' +
+      'DELETE FROM students; DELETE FROM courses;'
+    );
+    courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-S', 'Course')`).run().lastInsertRowid;
+    studentA = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-A', 'Ada', 'A')`).run().lastInsertRowid;
+    const studentB = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-B', 'Bob', 'B')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'eA')`).run(studentA, courseId);
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'eB')`).run(studentB, courseId);
+    const completion = db.prepare(
+      `INSERT INTO assignments (course_id, schoology_assignment_id, title, grading_scale_id) VALUES (?, 'sa-C', 'Homework', '7165818')`
+    ).run(courseId).lastInsertRowid;
+    db.prepare(
+      `INSERT INTO assignments (course_id, schoology_assignment_id, title, grading_scale_id) VALUES (?, 'sa-L', 'Letter', '1293963')`
+    ).run(courseId);
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, score) VALUES (?, ?, 100)`).run(studentA, completion);
+  });
+
+  test('GET ships the assignment\'s scale (best → worst) and each student\'s current level', async () => {
+    const { body } = await get(`/api/mastery/${courseId}/assignment/sa-C`);
+    expect(body.scoreScale.name).toBe('Completion Scale');
+    expect(body.scoreScale.levels.map(l => l.code)).toEqual(['C', 'I']);
+    const byUid = Object.fromEntries(body.students.map(s => [s.schoology_uid, s]));
+    expect(byUid['uid-A']).toMatchObject({ score: 100, scale_level: 'C' });
+    expect(byUid['uid-B']).toMatchObject({ score: null, scale_level: null });
+  });
+
+  test('GET: no scoreScale for a scale Prism does not grade', async () => {
+    const { body } = await get(`/api/mastery/${courseId}/assignment/sa-L`);
+    expect(body.scoreScale).toBeNull();
+  });
+
+  test('write-comment with points writes the grade + comment in one PUT, echoing the exception', async () => {
+    vi.mocked(getSectionGrades).mockResolvedValue([
+      { assignment_id: 'sa-C', enrollment_id: 'eB', grade: null, exception: 4, timestamp: '1700000000' },
+    ]);
+    const { status } = await post(`/api/mastery/${courseId}/write-comment`, {
+      enrollmentId: 'eB', assignmentId: 'sa-C', points: 100, comment: 'Done', commentStatus: true,
+    });
+    expect(status).toBe(200);
+    expect(pushGradeComments).toHaveBeenCalledWith('sec-S', [{
+      assignment_id: 'sa-C', enrollment_id: 'eB', comment: 'Done', comment_status: 1, grade: '100', exception: 4,
+    }]);
+    const row = getDb().prepare(
+      `SELECT g.score, g.grade_comment FROM grades g JOIN students s ON s.id = g.student_id WHERE s.schoology_uid = 'uid-B'`
+    ).get();
+    expect(row).toEqual({ score: 100, grade_comment: 'Done' });
+  });
+
+  test('write-comment refuses points that are not one of the scale\'s levels', async () => {
+    const { status } = await post(`/api/mastery/${courseId}/write-comment`, {
+      enrollmentId: 'eB', assignmentId: 'sa-C', points: 80, comment: '', commentStatus: true,
+    });
+    expect(status).toBe(400);
+    expect(pushGradeComments).not.toHaveBeenCalled();
+  });
+
+  test('write-comment refuses points on an assignment Prism does not grade by scale', async () => {
+    const { status } = await post(`/api/mastery/${courseId}/write-comment`, {
+      enrollmentId: 'eB', assignmentId: 'sa-L', points: 100, comment: '', commentStatus: true,
+    });
+    expect(status).toBe(400);
+    expect(pushGradeComments).not.toHaveBeenCalled();
+  });
+
+  test('write-comment with points stops if the current Schoology grade cannot be read', async () => {
+    vi.mocked(getSectionGrades).mockRejectedValue(new Error('network'));
+    const { status } = await post(`/api/mastery/${courseId}/write-comment`, {
+      enrollmentId: 'eB', assignmentId: 'sa-C', points: 100, comment: '', commentStatus: true,
+    });
+    expect(status).toBe(502);
+    expect(pushGradeComments).not.toHaveBeenCalled();
+  });
+
+  test('send-all carries a scale grade into the PUT payload and mirrors the score', async () => {
+    vi.mocked(getSectionGrades).mockResolvedValue([
+      { assignment_id: 'sa-C', enrollment_id: 'eB', grade: null, exception: 0, timestamp: '0' },
+    ]);
+    const { status, body } = await post(`/api/mastery/${courseId}/send-all`, {
+      entries: [{ uid: 'uid-B', enrollmentId: 'eB', assignmentId: 'sa-C', scores: null,
+        grade: { points: 0 }, comment: { comment: '', commentStatus: false } }],
+    });
+    expect(status).toBe(200);
+    expect(body.results).toEqual([{ uid: 'uid-B', ok: true }]);
+    expect(pushGradeComments).toHaveBeenCalledWith('sec-S', [expect.objectContaining({ grade: '0', comment_status: null })]);
+    const row = getDb().prepare(
+      `SELECT g.score FROM grades g JOIN students s ON s.id = g.student_id WHERE s.schoology_uid = 'uid-B'`
+    ).get();
+    expect(row.score).toBe(0);
+  });
+
+  test('send-all rejects an off-scale grade before writing anything', async () => {
+    const { status } = await post(`/api/mastery/${courseId}/send-all`, {
+      entries: [{ uid: 'uid-B', enrollmentId: 'eB', assignmentId: 'sa-C', scores: null,
+        grade: { points: 55 }, comment: { comment: '', commentStatus: true } }],
+    });
+    expect(status).toBe(400);
+    expect(pushGradeComments).not.toHaveBeenCalled();
+  });
+});

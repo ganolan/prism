@@ -22,5 +22,8 @@ export function draftBaseline(student, topics) {
     comment_status: student.comment_status ?? null,
     exception: student.exception ?? null,
     scores,
+    // No topics = an unaligned assignment, whose grade is the plain score (#41).
+    // Only added there, so drafts on aligned assignments keep their signature.
+    ...(topics.length === 0 ? { score: student.score ?? null } : {}),
   });
 }

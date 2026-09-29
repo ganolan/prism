@@ -510,7 +510,14 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
   // student's current level, read from the stored score by cutoff.
   const scoreScale = scoreScaleFor(assignmentRow, topics.length);
 
+  // Which class this is — the page names it (block + course) so sections of
+  // the same course can't be confused.
+  const course = db.prepare(
+    'SELECT id, course_name, section_name, block_number FROM courses WHERE id = ?'
+  ).get(courseId) || null;
+
   res.json({
+    course,
     assignment: assignmentRow || { schoology_assignment_id: assignmentId, title: 'Unknown Assignment' },
     topics,
     scoreScale,

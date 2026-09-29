@@ -38,6 +38,9 @@ export default function ScaleLevelPicker({ scale, syncedCode = null, pendingCode
             onClick={() => { if (!locked) onSelect(level.code); }}
             title={isSynced ? 'Current grade in Schoology' : isPending ? 'Not yet published' : undefined}
             style={{
+              // Column flex pins the label to the top: a bare <button> centres its
+              // content, so levels with shorter descriptors drifted down (#41).
+              display: 'flex', flexDirection: 'column', justifyContent: 'flex-start',
               textAlign: 'left', padding: '0.45rem 0.6rem', borderRadius: 6, cursor: locked ? 'default' : 'pointer',
               color: CELL_TEXT, font: 'inherit', fontSize: '0.78rem',
               background: isSynced ? c.headerFill : isPending ? c.draftFill : 'var(--card-bg)',

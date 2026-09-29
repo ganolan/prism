@@ -83,6 +83,8 @@ export default function CoursePage() {
   // students · school code) so the header is two tight rows, not four stacked
   // blocks — the gradebook's diagonal column headers need the vertical room.
   const metaItems = [
+    // Block first: the Schoology section ("4(A-B)") reads like a block number but isn't one.
+    course.block_number ? `Block ${course.block_number}` : null,
     course.section_name,
     `${course.studentCount} students`,
     course.section_school_code,

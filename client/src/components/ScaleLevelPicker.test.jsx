@@ -46,6 +46,13 @@ describe('ScaleLevelPicker', () => {
     expect(screen.getByText('about EX')).toBeInTheDocument();
   });
 
+  it('top-aligns each level so labels line up whatever the descriptor length', () => {
+    render(<ScaleLevelPicker scale={GAS} onSelect={() => {}} />);
+    for (const b of screen.getAllByRole('button')) {
+      expect(b).toHaveStyle({ display: 'flex', flexDirection: 'column', justifyContent: 'flex-start' });
+    }
+  });
+
   it('marks an agent-suggested level so it reads apart from the teacher\'s own marks', () => {
     render(<ScaleLevelPicker scale={COMPLETION} suggestedCode="C" onSelect={() => {}} />);
     expect(screen.getByRole('button', { name: /completed.*suggested/i })).toBeInTheDocument();

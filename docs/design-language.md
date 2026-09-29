@@ -802,3 +802,15 @@ is outlined violet to match. Like "Mark all Completed", it only stages;
 publishing stays the teacher's step. The suggestion ring coexists with the
 synced and pending states, so "agent agrees with the current grade" is visible
 at a glance.
+
+## Naming the class: block first (September 2026)
+
+A Schoology section name like "4(A-B)" reads like a block number but isn't one
+(AP CSP 4(A-B) is block 7). So wherever Prism names a class, the **block**
+leads:
+
+- **`/assessment/` breadcrumb:** "← [BK 7] AP COMPUTER SCIENCE PRINCIPLES"
+  replaces "← Back to course". It reuses the Dashboard card's `[BK n]` label,
+  so the class reads the same on both pages.
+- **Course page meta line:** "Block 7 · 4(A-B) · 19 students · …", with the
+  block ahead of the section.

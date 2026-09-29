@@ -68,3 +68,16 @@ describe('CoursePage data refresh', () => {
     expect(api.getGradebook).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('CoursePage header — block', () => {
+  it('names the block in the meta line, ahead of the Schoology section', async () => {
+    vi.mocked(api.getCourse).mockResolvedValue({ id: 5, course_name: 'AP COMPUTER SCIENCE PRINCIPLES', section_name: '4(A-B)', block_number: 7, studentCount: 19 });
+    vi.mocked(api.getCourseStudents).mockResolvedValue([]);
+    vi.mocked(api.getGradebook).mockResolvedValue({ assignments: [], students: [], grades: {}, folders: [], grading_scales: {} });
+    vi.mocked(api.getMasteryForCourse).mockResolvedValue({ topics: [], scores: [], rollups: [], alignments: [] });
+    const { findByText, container } = render(tree(0));
+    await findByText('Block 7');
+    const items = [...container.querySelectorAll('.course-header__meta-item')].map(e => e.textContent);
+    expect(items.slice(0, 2)).toEqual(['Block 7', '4(A-B)']);
+  });
+});

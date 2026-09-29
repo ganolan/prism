@@ -1741,8 +1741,12 @@ export default function AssessmentSummaryPage() {
         marginBottom: '1.25rem', padding: '0.55rem 0',
         borderBottom: '1px solid var(--border)',
       }}>
+        {/* Breadcrumb back to the class, named with its block (the Dashboard's
+            [BK n] label) — sections of the same course look identical otherwise. */}
         <Link to={`/course/${courseId}`} className="link" style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-          ← Back to course
+          ← {data.course
+            ? `${data.course.block_number ? `[BK ${data.course.block_number}] ` : ''}${data.course.course_name}`
+            : 'Back to course'}
         </Link>
         <h2 style={{ margin: '0.3rem 0 0.2rem', fontSize: '1.3rem', fontWeight: 700 }}>
           {assignment.title || assignmentId}

@@ -674,6 +674,13 @@ describe('AssessmentSummaryPage — score-scale class tools (#41)', () => {
     expect(entries.map(e => [e.uid, e.grade?.points])).toEqual([['uid-1', 100], ['uid-2', 100]]);
   });
 
+  it('names the class — block + course — in the back link', async () => {
+    getMasteryForAssignment.mockResolvedValue({ ...makeData(), course: { id: 4, course_name: 'AP COMPUTER SCIENCE PRINCIPLES', section_name: '4(A-B)', block_number: 7 } });
+    renderPage();
+    const back = await screen.findByRole('link', { name: /\[BK 7\] AP COMPUTER SCIENCE PRINCIPLES/ });
+    expect(back).toHaveAttribute('href', '/course/4');
+  });
+
   it('names the scale in the header instead of counting measurement topics', async () => {
     getMasteryForAssignment.mockResolvedValue(makeData());
     renderPage();

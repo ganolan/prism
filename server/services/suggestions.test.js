@@ -205,3 +205,21 @@ describe('scale-level suggestions for unaligned assignments (#41)', () => {
     expect(r.message).toMatch(/not graded on a scale/i);
   });
 });
+
+describe('reviewer_flags_brief — flags at a glance', () => {
+  test('stores the agent\'s short flag lines beside the full reviewer_flags', () => {
+    const db = getDb();
+    seed(db);
+    const r = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1',
+      reviewer_flags: 'Long detail one. More.\nLong detail two.', reviewer_flags_brief: ['Detail one', 'Detail two'] });
+    const fj = JSON.parse(db.prepare('SELECT feedback_json FROM feedback WHERE id = ?').get(r.feedback_id).feedback_json);
+    expect(fj.reviewer_flags_brief).toEqual(['Detail one', 'Detail two']);
+  });
+
+  test('defaults to [] when omitted', () => {
+    const db = getDb();
+    seed(db);
+    const r = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', reviewer_flags: 'x' });
+    expect(JSON.parse(db.prepare('SELECT feedback_json FROM feedback WHERE id = ?').get(r.feedback_id).feedback_json).reviewer_flags_brief).toEqual([]);
+  });
+});

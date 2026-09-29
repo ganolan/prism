@@ -814,3 +814,26 @@ leads:
   so the class reads the same on both pages.
 - **Course page meta line:** "Block 7 · 4(A-B) · 19 students · …", with the
   block ahead of the section.
+
+## Reviewer notes: glance first, detail on demand (September 2026)
+
+In practice the long flag paragraphs went unread, while the short
+Strengths/Suggestions lists were quick to judge. So the expanded notes now read
+top to bottom:
+
+1. **⚑ Reviewer flags as short bullet lines.** These are the agent's
+   `reviewer_flags_brief`, or else the first sentence of each flag paragraph,
+   trimmed at ~140 characters with "…".
+2. **Strengths / Suggestions**, shown by default (they used to be hidden).
+3. **"▾ Show detailed flags"**, the full flag text in the same amber, behind
+   the centred seam toggle. It's offered only when the full text says more
+   than the bullets.
+4. **Suggested feedback.**
+
+**"Use suggestion" folds the box.** After use it becomes a dashed one-line
+"✓ Suggestion used, now in your comment below · ▸ Show again". That signals the
+text now lives in the comment, so you don't read it twice. The used state is
+stored per suggestion text, so an agent's **revised** suggestion shows in full
+again, tagged **✦ Revised**. The whole notes block works the same way: its
+collapsed state remembers *which* notes were collapsed, so new notes from an
+agent re-run reopen it on their own.

@@ -18,6 +18,7 @@ import AssessmentFilterBar from '../components/AssessmentFilterBar.jsx';
 import { passesFilters } from '../lib/assessmentFilters.js';
 import { useStickyTab } from '../hooks/useStickyTab.js';
 import { formatDateTime } from '../lib/formatDate.js';
+import { briefFlags, textSignature } from '../lib/reviewerFlags.js';
 
 const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
 // Suggestion accent — fuchsia CSS tokens (matches descriptor grid's --ai-suggest).
@@ -146,19 +147,42 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   const suggestions = feedbackRow?.feedback_parsed?.suggestions || [];
   const hasAnalysis = strengths.length > 0 || suggestions.length > 0;
   const hasSuggestionBlock = Boolean(narrativeSuggestion || reviewerFlags || hasAnalysis);
+  // Flags at a glance: the agent's brief lines, or the first sentence of each
+  // flag; the full text sits behind "Show detailed flags" (showFullAnalysis).
+  const { items: flagBrief, hasMore: flagsHaveMore } = briefFlags(reviewerFlags, feedbackRow?.feedback_parsed?.reviewer_flags_brief);
   const [showFullAnalysis, setShowFullAnalysis] = useState(false);
   // Whole "Reviewer notes" block collapse. Expanded by default; persists per
   // student+assignment in localStorage so a deliberate collapse survives reloads,
-  // and auto-collapses once the grade is published. (The inner "full analysis"
-  // seam keeps its own showFullAnalysis state and stays collapsed by default.)
+  // and auto-collapses once the grade is published. The stored value is the
+  // signature of the notes that were collapsed, so NEW notes (an agent re-run)
+  // reopen the block by themselves. A legacy '1' stays collapsed.
   const notesKey = `prism:reviewer-notes-collapsed:${assignmentId}:${student.enrollment_id ?? student.id}`;
-  const [notesCollapsed, setNotesCollapsedState] = useState(() => {
-    try { return localStorage.getItem(notesKey) === '1'; } catch { return false; }
+  const notesSig = textSignature(JSON.stringify(feedbackRow?.feedback_parsed ?? {}));
+  const [notesStored, setNotesStored] = useState(() => {
+    try { return localStorage.getItem(notesKey); } catch { return null; }
   });
+  const notesCollapsed = notesStored === '1' || notesStored === notesSig;
   const setNotesCollapsed = (v) => {
-    setNotesCollapsedState(v);
-    try { localStorage.setItem(notesKey, v ? '1' : '0'); } catch { /* ignore */ }
+    const value = v ? notesSig : '0';
+    setNotesStored(value);
+    try { localStorage.setItem(notesKey, value); } catch { /* ignore */ }
   };
+  // "Use suggestion" marks THAT suggestion text used: the box folds to a one-line
+  // note. A revised suggestion (different text) shows in full again, tagged.
+  const usedKey = `prism:suggestion-used:${assignmentId}:${student.enrollment_id ?? student.id}`;
+  const narrativeSig = narrativeSuggestion ? textSignature(narrativeSuggestion) : null;
+  const [usedSig, setUsedSig] = useState(() => {
+    try { return localStorage.getItem(usedKey); } catch { return null; }
+  });
+  const [showUsedAgain, setShowUsedAgain] = useState(false);
+  const suggestionUsed = narrativeSig != null && usedSig === narrativeSig;
+  const suggestionRevised = narrativeSig != null && usedSig != null && usedSig !== narrativeSig;
+  function applySuggestion() {
+    applyComment(normalizePastedText(narrativeSuggestion));
+    setUsedSig(narrativeSig);
+    setShowUsedAgain(false);
+    try { localStorage.setItem(usedKey, narrativeSig); } catch { /* ignore */ }
+  }
 
   // Restore any unsaved draft for this card from localStorage (#47). Read once
   // on mount; a restored draft means the teacher already interacted with the
@@ -1136,7 +1160,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             </button>
           </div>
 
-          {/* Reviewer flags — amber QA sub-block */}
+          {/* Reviewer flags — amber QA sub-block, at a glance: one short line per
+              flag. The full text is behind "Show detailed flags" below. */}
           {reviewerFlags && (
             <div style={{
               border: '1px solid #e6c98a', background: '#fffbef', borderRadius: 7,
@@ -1148,16 +1173,47 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
               }}>
                 ⚑ Reviewer flags
               </div>
-              <div style={{ fontSize: '0.84rem', lineHeight: 1.5, color: '#5a4a1f', whiteSpace: 'pre-wrap' }}>
-                {reviewerFlags}
-              </div>
+              <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.84rem', lineHeight: 1.45, color: '#5a4a1f' }}>
+                {flagBrief.map((f, i) => <li key={i} style={{ marginBottom: '0.1rem' }}>{f}</li>)}
+              </ul>
             </div>
           )}
 
-          {/* Expandable seam — centred toggle between two rules; reveals two-column
-              Strengths (green +) / Suggestions (red −) as black-on-white, closed off
-              by a second rule so it reads as a fully opened seam. */}
+          {/* Strengths (green +) / Suggestions (red −), shown by default: quick to judge. */}
           {hasAnalysis && (
+            <div style={{ display: 'flex', gap: '1rem', color: '#1a1a1a' }}>
+              {strengths.length > 0 && (
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 700, marginBottom: '0.25rem' }}>Strengths</div>
+                  <ul style={{ listStyle: 'none', margin: 0, padding: 0, fontSize: '0.84rem', lineHeight: 1.45 }}>
+                    {strengths.map((st, i) => (
+                      <li key={i} style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.25rem' }}>
+                        <span style={{ color: 'var(--success)', fontWeight: 700, flexShrink: 0 }}>+</span>
+                        <span>{st}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {suggestions.length > 0 && (
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 700, marginBottom: '0.25rem' }}>Suggestions</div>
+                  <ul style={{ listStyle: 'none', margin: 0, padding: 0, fontSize: '0.84rem', lineHeight: 1.45 }}>
+                    {suggestions.map((sg, i) => (
+                      <li key={i} style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.25rem' }}>
+                        <span style={{ color: 'var(--danger)', fontWeight: 700, flexShrink: 0 }}>−</span>
+                        <span>{sg}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Detailed flags — the full reviewer text behind a centred seam toggle,
+              only when it says more than the brief lines above. */}
+          {reviewerFlags && flagsHaveMore && (
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                 <span style={{ flex: 1, height: 1, background: 'var(--border)' }} />
@@ -1170,43 +1226,17 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
                     background: 'var(--card-bg)', color: 'var(--text-muted)', border: '1px solid var(--border)',
                   }}
                 >
-                  {showFullAnalysis ? '▴ Hide full analysis' : '▾ Show full analysis'}
+                  {showFullAnalysis ? '▴ Hide detailed flags' : '▾ Show detailed flags'}
                 </button>
                 <span style={{ flex: 1, height: 1, background: 'var(--border)' }} />
               </div>
-
               {showFullAnalysis && (
-                <>
-                  <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem', color: '#1a1a1a' }}>
-                    {strengths.length > 0 && (
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: '0.72rem', fontWeight: 700, marginBottom: '0.25rem' }}>Strengths</div>
-                        <ul style={{ listStyle: 'none', margin: 0, padding: 0, fontSize: '0.84rem', lineHeight: 1.45 }}>
-                          {strengths.map((s, i) => (
-                            <li key={i} style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.25rem' }}>
-                              <span style={{ color: 'var(--success)', fontWeight: 700, flexShrink: 0 }}>+</span>
-                              <span>{s}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {suggestions.length > 0 && (
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: '0.72rem', fontWeight: 700, marginBottom: '0.25rem' }}>Suggestions</div>
-                        <ul style={{ listStyle: 'none', margin: 0, padding: 0, fontSize: '0.84rem', lineHeight: 1.45 }}>
-                          {suggestions.map((s, i) => (
-                            <li key={i} style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.25rem' }}>
-                              <span style={{ color: 'var(--danger)', fontWeight: 700, flexShrink: 0 }}>−</span>
-                              <span>{s}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ height: 1, background: 'var(--border)', marginTop: '0.5rem' }} />
-                </>
+                <div style={{
+                  marginTop: '0.5rem', border: '1px solid #e6c98a', background: '#fffbef', borderRadius: 7,
+                  padding: '0.45rem 0.6rem', fontSize: '0.84rem', lineHeight: 1.5, color: '#5a4a1f', whiteSpace: 'pre-wrap',
+                }}>
+                  {reviewerFlags}
+                </div>
               )}
             </div>
           )}
@@ -1214,7 +1244,28 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           {/* Narrative — the publishable AI suggestion: violet wash + border with
               black body text, its own header, and the Use-suggestion action (solid
               fuchsia, to stand out against the wash) scoped inside it. */}
-          {narrativeSuggestion && (
+          {narrativeSuggestion && suggestionUsed && !showUsedAgain && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '0.5rem',
+              border: '1px dashed var(--ai-suggest)', borderRadius: 7, padding: '0.35rem 0.65rem',
+              fontSize: '0.74rem', color: 'var(--ai-suggest)', fontWeight: 600,
+            }}>
+              ✓ Suggestion used, now in your comment below
+              <button
+                type="button"
+                onClick={() => setShowUsedAgain(true)}
+                aria-label="Show suggestion again"
+                style={{
+                  marginLeft: 'auto', borderRadius: 6, padding: '0.15rem 0.45rem', fontSize: '0.68rem',
+                  fontWeight: 600, cursor: 'pointer', background: 'var(--card-bg)',
+                  color: 'var(--text-muted)', border: '1px solid var(--border)',
+                }}
+              >
+                ▸ Show again
+              </button>
+            </div>
+          )}
+          {narrativeSuggestion && (!suggestionUsed || showUsedAgain) && (
             <div style={{
               border: '1px solid var(--ai-suggest)', background: 'var(--ai-suggest-wash)',
               borderRadius: 7, padding: '0.5rem 0.65rem',
@@ -1222,15 +1273,24 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
               <div style={{
                 fontSize: '0.63rem', fontWeight: 600, color: 'var(--ai-suggest)',
                 letterSpacing: '0.03em', marginBottom: '0.35rem',
+                display: 'flex', alignItems: 'center', gap: '0.4rem',
               }}>
                 Suggested feedback
+                {suggestionRevised && (
+                  <span style={{
+                    borderRadius: 5, padding: '0.05rem 0.35rem', fontWeight: 700,
+                    background: 'var(--ai-suggest)', color: '#fff',
+                  }}>
+                    ✦ Revised
+                  </span>
+                )}
               </div>
               <div style={{ fontSize: '0.84rem', lineHeight: 1.45, color: '#1a1a1a', whiteSpace: 'pre-wrap' }}>
                 {narrativeSuggestion}
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
                 <button
-                  onClick={() => applyComment(normalizePastedText(narrativeSuggestion))}
+                  onClick={applySuggestion}
                   title="Copy the suggestion down into your comment"
                   style={{
                     borderRadius: 7, padding: '0.4rem 0.75rem', fontSize: '0.74rem',

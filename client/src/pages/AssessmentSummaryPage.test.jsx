@@ -1313,78 +1313,86 @@ describe('AssessmentSummaryPage — View in Schoology header link (#76)', () => 
 
 describe('StudentRubricCard — consolidated Suggested Feedback block', () => {
   const withFb = (parsed) => ({ feedbackRow: { feedback_parsed: parsed } });
+  const FLAGS = 'Abstraction reassessed: EX confirmed. Why not D: a long explanation.\nCreativity suggested EX, which matches your draft.';
 
-  it('shows reviewer flags uncollapsed alongside the narrative, with no <details>', () => {
-    renderCard(withFb({ reviewer_flags: 'Check the CAD deliverable.', narrative_feedback: 'Great work, Ada!' }));
-    expect(screen.getByText('Check the CAD deliverable.')).toBeInTheDocument();
-    expect(screen.getByText('Great work, Ada!')).toBeInTheDocument();
+  it('shows flags at a glance — one short line each — with the detail behind a toggle', () => {
+    renderCard(withFb({ reviewer_flags: FLAGS, narrative_feedback: 'Great work, Ada!' }));
+    expect(screen.getByText('Abstraction reassessed: EX confirmed.')).toBeInTheDocument();
+    expect(screen.getByText('Creativity suggested EX, which matches your draft.')).toBeInTheDocument();
+    expect(screen.queryByText(/a long explanation/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /show detailed flags/i }));
+    expect(screen.getByText(/Why not D: a long explanation/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /hide detailed flags/i }));
+    expect(screen.queryByText(/a long explanation/)).not.toBeInTheDocument();
     expect(document.querySelector('details')).toBeNull();
+  });
+
+  it('uses the agent-written brief lines when present', () => {
+    renderCard(withFb({ reviewer_flags: FLAGS, reviewer_flags_brief: ['Abstraction: EX confirmed', 'Creativity agrees'] }));
+    expect(screen.getByText('Abstraction: EX confirmed')).toBeInTheDocument();
+    expect(screen.getByText('Creativity agrees')).toBeInTheDocument();
+  });
+
+  it('offers no detail toggle when the flags are already one sentence each', () => {
+    renderCard(withFb({ reviewer_flags: 'Check the CAD deliverable.' }));
+    expect(screen.getByText('Check the CAD deliverable.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /detailed flags/i })).not.toBeInTheDocument();
   });
 
   it('renders flags even with no narrative — no Suggested feedback header, no Use suggestion', () => {
     renderCard(withFb({ reviewer_flags: 'Flag only.' }));
     expect(screen.getByText('Flag only.')).toBeInTheDocument();
     expect(screen.getByText(/Reviewer flags/)).toBeInTheDocument();
-    // The "Suggested feedback" header belongs to the narrative sub-block, absent here.
     expect(screen.queryByText('Suggested feedback')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /use suggestion/i })).not.toBeInTheDocument();
   });
 
-  it('hides strengths/suggestions by default and reveals them via Show full analysis', () => {
-    renderCard(withFb({
-      narrative_feedback: 'Nice!',
-      strengths: ['Strong calendar feature'],
-      suggestions: ['Add an edit flow'],
-    }));
-    expect(screen.queryByText('Strong calendar feature')).not.toBeInTheDocument();
-    expect(screen.queryByText('Add an edit flow')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /show full analysis/i }));
-    expect(screen.getByText('Strengths')).toBeInTheDocument();
-    expect(screen.getByText('Suggestions')).toBeInTheDocument();
-    expect(screen.getByText('Strong calendar feature')).toBeInTheDocument();
-    expect(screen.getByText('Add an edit flow')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /hide full analysis/i }));
-    expect(screen.queryByText('Strong calendar feature')).not.toBeInTheDocument();
-  });
-
-  it('orders flags → analysis → narrative when expanded', () => {
-    renderCard(withFb({
-      reviewer_flags: 'FLAGTEXT',
-      narrative_feedback: 'NARRATIVETEXT',
-      strengths: ['STRENGTHTEXT'],
-    }));
-    fireEvent.click(screen.getByRole('button', { name: /show full analysis/i }));
-    const html = document.body.innerHTML;
-    expect(html.indexOf('FLAGTEXT')).toBeLessThan(html.indexOf('STRENGTHTEXT'));
-    expect(html.indexOf('STRENGTHTEXT')).toBeLessThan(html.indexOf('NARRATIVETEXT'));
-  });
-
-  it('omits the Show full analysis button when strengths and suggestions are both empty', () => {
-    renderCard(withFb({ narrative_feedback: 'Nice!', strengths: [], suggestions: [] }));
-    expect(screen.queryByRole('button', { name: /full analysis/i })).not.toBeInTheDocument();
-  });
-
-  it('shows the Show full analysis button when only suggestions are present', () => {
-    renderCard(withFb({ narrative_feedback: 'Nice!', suggestions: ['Add tests'] }));
-    expect(screen.getByRole('button', { name: /show full analysis/i })).toBeInTheDocument();
-  });
-
-  it('keeps Use suggestion in the block footer and copies the narrative into the comment', () => {
-    renderCard(withFb({ narrative_feedback: 'Excellent, Ada!' }));
-    fireEvent.click(screen.getByRole('button', { name: /use suggestion/i }));
-    expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue('Excellent, Ada!');
-  });
-
-  it('renders strengths and suggestions side by side when expanded', () => {
+  it('shows strengths and suggestions by default, side by side', () => {
     renderCard(withFb({ strengths: ['S-one'], suggestions: ['G-one'], narrative_feedback: 'n' }));
-    fireEvent.click(screen.getByRole('button', { name: /show full analysis/i }));
-    // Each heading's column container owns only its own list — two distinct columns.
     const strengthsCol = screen.getByText('Strengths').parentElement;
     const suggestionsCol = screen.getByText('Suggestions').parentElement;
     expect(strengthsCol).not.toBe(suggestionsCol);
     expect(strengthsCol).toHaveTextContent('S-one');
     expect(strengthsCol).not.toHaveTextContent('G-one');
     expect(suggestionsCol).toHaveTextContent('G-one');
+  });
+
+  it('orders brief flags → strengths/suggestions → detailed flags → narrative', () => {
+    renderCard(withFb({ reviewer_flags: 'FLAGBRIEF. FLAGDETAIL', narrative_feedback: 'NARRATIVETEXT', strengths: ['STRENGTHTEXT'] }));
+    fireEvent.click(screen.getByRole('button', { name: /show detailed flags/i }));
+    const html = document.body.innerHTML;
+    expect(html.indexOf('FLAGBRIEF')).toBeLessThan(html.indexOf('STRENGTHTEXT'));
+    expect(html.indexOf('STRENGTHTEXT')).toBeLessThan(html.indexOf('FLAGDETAIL'));
+    expect(html.indexOf('FLAGDETAIL')).toBeLessThan(html.indexOf('NARRATIVETEXT'));
+  });
+
+  it('Use suggestion copies the narrative into the comment and collapses the suggestion box', () => {
+    renderCard(withFb({ narrative_feedback: 'Excellent, Ada!' }));
+    fireEvent.click(screen.getByRole('button', { name: /use suggestion/i }));
+    expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue('Excellent, Ada!');
+    expect(screen.queryByText('Excellent, Ada!', { selector: 'div' })).not.toBeInTheDocument();
+    expect(screen.getByText(/Suggestion used/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /show suggestion again/i }));
+    expect(screen.getByRole('button', { name: /use suggestion/i })).toBeInTheDocument();
+  });
+
+  it('remembers a used suggestion across remount', () => {
+    const { unmount } = renderCard(withFb({ narrative_feedback: 'Used once' }));
+    fireEvent.click(screen.getByRole('button', { name: /use suggestion/i }));
+    unmount();
+    renderCard(withFb({ narrative_feedback: 'Used once' }));
+    expect(screen.getByText(/Suggestion used/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /use suggestion/i })).not.toBeInTheDocument();
+  });
+
+  it('a revised suggestion pops the box back open, tagged Revised', () => {
+    const { unmount } = renderCard(withFb({ narrative_feedback: 'First draft' }));
+    fireEvent.click(screen.getByRole('button', { name: /use suggestion/i }));
+    unmount();
+    renderCard(withFb({ narrative_feedback: 'Second, revised draft' }));
+    expect(screen.getByText('Second, revised draft')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /use suggestion/i })).toBeInTheDocument();
+    expect(screen.getByText(/Revised/)).toBeInTheDocument();
   });
 });
 
@@ -1406,6 +1414,15 @@ describe('StudentRubricCard — Reviewer notes collapse', () => {
     renderCard(withFb({ narrative_feedback: 'Persist me' }));
     expect(screen.queryByText('Persist me')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /show reviewer notes/i })).toBeInTheDocument();
+  });
+
+  it('reopens by itself when the agent writes new notes', () => {
+    const { unmount } = renderCard(withFb({ narrative_feedback: 'Old notes' }));
+    fireEvent.click(screen.getByRole('button', { name: /hide reviewer notes/i }));
+    unmount();
+    renderCard(withFb({ narrative_feedback: 'New notes from a re-run' }));
+    expect(screen.getByText('New notes from a re-run')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /show reviewer notes/i })).not.toBeInTheDocument();
   });
 
   it('shows a prominent flag chip on the collapsed bar when flags are present', () => {

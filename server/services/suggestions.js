@@ -16,7 +16,7 @@ import { normalizeLevel } from '../lib/proficiencyScale.js';
 // status='draft' row, pushing any prior feedback_json to revision_history.
 export function upsertStudentSuggestion(db, {
   assignmentId, student, narrative_feedback, rubric_scores, reviewer_flags, strengths, suggestions,
-  scale_level, evidence,
+  scale_level, evidence, reviewer_flags_brief,
 }) {
   const studentLocalId = resolveStudentId(db, student);
   if (!studentLocalId) return { student, status: 'error', message: `Student not found: ${student}` };
@@ -64,6 +64,9 @@ export function upsertStudentSuggestion(db, {
     narrative_feedback: narrative_feedback ?? '',
     rubric_scores: storedScores,
     reviewer_flags: reviewer_flags ?? null,
+    // One short line per flag, shown at a glance on /assessment/; reviewer_flags
+    // holds the detail behind "Show detailed flags".
+    reviewer_flags_brief: reviewer_flags_brief ?? [],
     strengths: strengths ?? [],
     suggestions: suggestions ?? [],
     scale_level: storedScaleLevel,

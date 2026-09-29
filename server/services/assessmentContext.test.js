@@ -361,3 +361,13 @@ describe('getAssessmentContext — score-scale assignments (#41)', () => {
     expect(ctx.students[0].current_scale_level).toBeNull();
   });
 });
+
+describe('getAssessmentContext — reviewer_flags_brief', () => {
+  test('existing_suggestion carries the brief flag lines ([] when absent)', () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedContext(db);
+    expect(getAssessmentContext(db, { assignmentId: 'sa-1' }).students[0].existing_suggestion.reviewer_flags_brief).toEqual([]);
+    db.prepare(`UPDATE feedback SET feedback_json = json_set(feedback_json, '$.reviewer_flags_brief', json('["Short"]')) WHERE student_id = ? AND assignment_id = ?`).run(studentId, assignmentId);
+    expect(getAssessmentContext(db, { assignmentId: 'sa-1' }).students[0].existing_suggestion.reviewer_flags_brief).toEqual(['Short']);
+  });
+});

@@ -17,7 +17,8 @@ export const INSTRUCTIONS =
   'and current grades, and write AI grading suggestions back into Prism for ' +
   'teacher review. Use when grading student work for a course managed in Prism. ' +
   'Also triage: which students are approaching an academic-office referral for ' +
-  'late summative work, which assessments have waited longest for feedback ' +
+  'late summative work, which assessments have waited longest for feedback, ' +
+  'which students missed a Schoology test and must sit a make-up test ' +
   '(all in school days), and school-calendar arithmetic.';
 
 // Open the shared Prism DB (resolved relative to server/db, honoring DB_PATH)
@@ -188,15 +189,19 @@ export function createServer() {
     'get_triage',
     {
       description:
-        "Late-work referral watch + feedback owed, exactly as Prism's dashboard shows them. lateWork: summative work " +
+        "Late-work referral watch, feedback owed and make-up tests, exactly as Prism's dashboard shows them. lateWork: summative work " +
         'that takes Schoology submissions, not submitted (or submitted after crossing the limit), with daysLate in SCHOOL days and tone green/amber/red ' +
         '(red = at the referral limit). feedbackOwed: per assessment, how many submissions are ungraded and the oldest ' +
-        'wait in school days (paper/no-dropbox work counts the whole roster as handed in on the due date). ' +
+        'wait in school days (paper/no-dropbox work counts the whole roster as handed in on the due date; a Schoology test ' +
+        'whose attempts were read counts only the takers). makeUps: students who missed a summative Schoology test ' +
+        '(no attempt, no score, not excused) and must sit it (or their * copy) ASAP — daysSince the test in school days, ' +
+        'tone green on the day / amber / red per the makeUpAmberDays/makeUpRedDays settings; clears itself once an attempt ' +
+        'syncs. makeUpsUnchecked: past tests whose attempts could not be read (unknown, NOT missed — suggest a re-sync). ' +
         'Rows carry courseName + blockNumber (sections of one course share a name) and extension ({ id, lessons, until, note } or null; dueDate stays the original). Includes the limits (settings), calendar source (approx = weekday fallback) and lastSyncAt — ' +
-        'say when data may be stale. Use for "who is close to referral?" or "what should I grade first?".',
+        'say when data may be stale. Use for "who is close to referral?", "what should I grade first?" or "who still has to sit the test?".',
       inputSchema: {
         course: z.union([z.number(), z.string()]).optional().describe('Course id (list_courses) or a name/code fragment; omit for all current courses'),
-        student: z.union([z.number(), z.string()]).optional().describe('Student id or name fragment to filter lateWork'),
+        student: z.union([z.number(), z.string()]).optional().describe('Student id or name fragment to filter lateWork and makeUps'),
         include_formative: z.boolean().optional().describe('Include formative work in feedbackOwed (default: the teacher setting)'),
       },
     },
@@ -254,10 +259,10 @@ export function createServer() {
   server.registerTool(
     'extend_deadline',
     {
-      description: "Give one student more time on a summative assignment: extend its due date by N lessons (lessons = SCHOOL days, the referral limit's unit). ONLY call when the teacher explicitly asks. The student is off the late-work list until the extended date (`until`) passes, then counts late from it. Allowed any time (before or after the due date), for summative work in a current course that targets the student. Extending the same pair again replaces lessons/note. Returns the stored extension.",
+      description: "Give one student more time on a summative assignment: extend its due date by N lessons (lessons = SCHOOL days, the referral limit's unit). ONLY call when the teacher explicitly asks. The student is off the late-work list until the extended date (`until`) passes, then counts late from it. Allowed any time (before or after the due date), for summative work in a current course that targets the student. Also for make-up tests (a makeUps row): the make-up clock then counts from the extended date — e.g. sitting the make-up on Thursday. Extending the same pair again replaces lessons/note. Returns the stored extension.",
       inputSchema: {
-        student_id: z.number().describe('Student id (lateWork[].studentId or list_students)'),
-        assignment_id: z.number().describe('Assignment id (lateWork[].assignmentId or list_assignments)'),
+        student_id: z.number().describe('Student id (lateWork[]/makeUps[].studentId or list_students)'),
+        assignment_id: z.number().describe('Assignment id (lateWork[]/makeUps[].assignmentId or list_assignments)'),
         lessons: z.number().int().min(1).max(60).describe('Extension in lessons (school days), 1–60'),
         note: z.string().optional().describe('Optional reason, e.g. "sick for a week"'),
       },

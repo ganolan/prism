@@ -207,10 +207,13 @@ export function getTriageTool(db, { course, student, include_formative } = {}) {
   const t = getTriage(db, { courseId: resolveCourseRef(db, course), includeFormative: include_formative });
   if (student != null && student !== '') {
     t.lateWork = t.lateWork.filter((r) => matchesStudent(r, student));
-    // Recompute the referral-limit count over the filtered list, not the whole
+    t.makeUps = t.makeUps.filter((r) => matchesStudent(r, student));
+    // Recompute the per-student counts over the filtered lists, not the whole
     // class — otherwise an agent asking about one student sees everyone's count.
-    // feedbackOwed/historyCount stay class-wide: they're per-assessment/class data.
+    // feedbackOwed/historyCount/makeUpsUnchecked stay class-wide: they're
+    // per-assessment/class data.
     t.counts.atReferralLimit = t.lateWork.filter((r) => r.tone === 'red').length;
+    t.counts.makeUpsOverdue = t.makeUps.filter((r) => r.tone === 'red').length;
     t.studentFilter = String(student);
   }
   return t;

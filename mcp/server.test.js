@@ -275,12 +275,24 @@ describe('PrisMCP rubric tools', () => {
 });
 
 describe('PrisMCP triage tools', () => {
-  test('get_triage is exposed and returns both lists', async () => {
+  test('get_triage is exposed and returns all three lists', async () => {
     const client = await connect();
     const res = await client.callTool({ name: 'get_triage', arguments: {} });
     const data = JSON.parse(res.content[0].text);
     expect(data).toHaveProperty('lateWork');
     expect(data).toHaveProperty('feedbackOwed');
+    expect(data).toHaveProperty('makeUps');
+    expect(data).toHaveProperty('makeUpsUnchecked');
+  });
+
+  test('make-up tests are advertised: instructions, get_triage and extend_deadline', async () => {
+    const client = await connect();
+    const tools = (await client.listTools()).tools;
+    const desc = (name) => tools.find((t) => t.name === name).description;
+    expect(INSTRUCTIONS).toMatch(/make-up tests?/i);
+    expect(desc('get_triage')).toMatch(/makeUps/);
+    expect(desc('get_triage')).toMatch(/makeUpsUnchecked/);
+    expect(desc('extend_deadline')).toMatch(/make-up/i);
   });
 
   test('lists all seven triage tools', async () => {

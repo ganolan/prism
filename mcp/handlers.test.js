@@ -314,6 +314,24 @@ describe('triage tools', () => {
     expect(filtered.studentFilter).toBe('maya');
   });
 
+  test('get_triage includes make-up tests (filtered + counted per student) and the unchecked count', () => {
+    const db = getDb();
+    const { courseId } = seedLate(db);
+    const zed = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u2', 'Zed', 'Young')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id) VALUES (?, ?)`).run(zed, courseId);
+    // A summative Schoology test long past (weekday fallback → red), attempts read OK; nobody took it.
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, accepts_submissions, is_test, test_fetch_status)
+      VALUES (?, 'q1', 'Unit 1 test', '2020-01-06 14:00:00', 0, 1, 'ok'), (?, 'q2', 'Unit 2 test', '2020-01-07 14:00:00', 0, 1, 'failed')`).run(courseId, courseId);
+    db.prepare(`INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id) VALUES ('q1', 't1', ?), ('q2', 't1', ?)`).run(courseId, courseId);
+    const all = getTriageTool(db, {});
+    expect(all.makeUps.map((r) => [r.studentName, r.title, r.tone])).toEqual([['Maya Chen', 'Unit 1 test', 'red'], ['Zed Young', 'Unit 1 test', 'red']]);
+    expect(all.counts.makeUpsOverdue).toBe(2);
+    expect(all.makeUpsUnchecked).toBe(1);
+    const maya = getTriageTool(db, { student: 'maya' });
+    expect(maya.makeUps.map((r) => r.studentName)).toEqual(['Maya Chen']);
+    expect(maya.counts.makeUpsOverdue).toBe(1);
+  });
+
   test('record → list → undo through the tools (source mcp)', () => {
     const db = getDb();
     const { studentId, assignmentId } = seedLate(db);

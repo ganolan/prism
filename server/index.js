@@ -19,6 +19,7 @@ import peopleRouter from './routes/people.js';
 import rubricsRouter from './routes/rubrics.js';
 import assessmentDraftsRouter from './routes/assessment-drafts.js';
 import settingsRouter from './routes/settings.js';
+import triageRouter from './routes/triage.js';
 import { getGradingScalesMap } from './db/scales.js';
 import { getFeatures } from './middleware/featureGate.js';
 import { getScaleTable, schoologyScaleId } from './lib/proficiencyScale.js';
@@ -53,6 +54,7 @@ app.use('/api/people', peopleRouter);
 app.use('/api/rubrics', rubricsRouter);
 app.use('/api/assessment-drafts', assessmentDraftsRouter);
 app.use('/api/settings', settingsRouter);
+app.use('/api/triage', triageRouter);
 
 // Feature flags endpoint
 app.get('/api/features', (req, res) => {

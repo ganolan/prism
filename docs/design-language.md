@@ -880,3 +880,10 @@ phone block. Actions appear only where the teacher must act (red rows: Mark refe
 swaps the row's action cell, in place, for a `NumberStepper` (lessons, 1–60, default 3), a note input
 (`.triage-note`) and Save / Cancel — no modal. An extended row carries a grey tag
 "ext +N → DD/MM/YYYY". Reuse this swap-the-action-cell pattern for any other small per-row edit.
+
+**Make-up tests panel (2026-10-02).** The "Make-up tests" panel sits **full-width above** the
+late-work / feedback-owed grid (most urgent first: a missed test can be invalidated), using the same
+`.triage-row` grid, urgency meter and shared `ExtendEditor`. A whole-test action ("Ignore this quiz")
+swaps the action cell for an inline confirm ("Ignore <title> for all students?" Yes / Cancel) rather
+than a modal. On the Assessments tab a per-test setting is a click-to-flip badge button
+(`.makeup-chip`, "Make-ups: tracked / ignored", `aria-pressed`).

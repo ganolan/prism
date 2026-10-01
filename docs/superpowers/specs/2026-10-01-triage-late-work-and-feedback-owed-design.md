@@ -29,7 +29,8 @@ teachers/schools.
 | Placement | **Dashboard** shows both lists across all current courses (option A); each **course page** shows the same lists filtered to that course, and the Assessments tab gains wait bars (option C). No separate Triage page. |
 | Calendar source | **PowerSchool** `section_info` calendar, stored locally; validated against the 26-27 Master Plan. Weekday fallback, labelled "approx". Calendar-file import is a later, pluggable source — not built now. |
 | Settings | New **Settings** page; values stored **server-side** (SQLite), so laptop, phone, prod and PrisMCP all agree. |
-| PrisMCP | Read tools **and** `record_referral` / `extend_deadline` / undo. |
+| PrisMCP | Read tools **and** `record_referral` / `extend_deadline` / `set_makeup_tracking` / undo. |
+| Make-up tests (added 2026-10-02) | A student who missed a Schoology test/quiz must sit it (or their `*` copy) ASAP — its own short clock and panel, not late work. Green on the test day, amber from **1**, red from **3** school days (settings). **Every** Schoology test/quiz, any alignment (the user's quizzes are unaligned; the mastery grade sits on a separate gradebook-only "… - Result" item). Per-test **Ignore** switch for noise (e.g. formative quizzes). |
 
 ## Rules (exact semantics)
 
@@ -81,8 +82,47 @@ An extension gives one student `N` more **lessons** (= school days, 1–60) on o
 
 Rows carry `extension: { id, lessons, until: effDue, note } | null`; `dueDate` stays the original. An
 extension can be granted any time (before or after the due date, any tone) for a summative assignment
-in a current course that targets the student; one per (student, assignment) — re-extending replaces
-`lessons`/`note`. A pair can be extended and later referred (its `days_late` counts from `effDue`).
+in a current course that targets the student (or, since 2026-10-02, any Schoology test/quiz — a
+make-up); one per (student, assignment) — re-extending replaces `lessons`/`note`/`source` and stamps
+`updated_at`. A pair can be extended and later referred (its `days_late` counts from `effDue`).
+
+### Make-up tests (added 2026-10-02)
+
+A missed Schoology test is **not** late work and not on the referral clock: the student must sit the
+same test (or the extra-time `*` copy they were individually assigned) ASAP after everyone else, or
+the test may be invalidated for them. The signal is the gradebook's attempt flag
+(`grader_grade_data`, Verification results 11), stored as `grades.submission_type = 'assessment'`.
+
+A (student, test) pair is a **make-up** when all hold:
+
+- the assignment is a Schoology test/quiz (`is_test = 1`), published, in a current course, **any
+  alignment or grading category**, and not ignored (`makeup_ignored = 0`);
+- its attempts were read successfully (`test_fetch_status = 'ok'`) — a failed or never-run read is
+  **unknown**, never "missed";
+- the test is over: the full local `due_date` `'YYYY-MM-DD HH:MM:SS'` ≤ the local now (a same-day
+  test counts once it has ended);
+- the student is targeted (assignees rule) and active, not Excused (1), has **no attempt**
+  (`submission_type ≠ 'assessment'`) and **no score** (a hand-entered or mastery score = sat on
+  paper; Missing (3) with score 0.0 still counts as no score).
+
+`daysSince = schoolDaysBetween(due, today)` (0 on the test day). An extension moves the date the same
+way as for late work (`effDue = addSchoolDays(due, N)`) — how a teacher records "sitting it
+Thursday"; the row stays visible (green, `daysSince` 0) until then. Tone: green if
+`daysSince < makeUpAmberDays`, amber if `< makeUpRedDays`, else red.
+
+Rows: `studentId, studentUid, studentName, courseId, courseName, blockNumber, assignmentId,
+schoologyAssignmentId, title, dueDate, daysSince, tone, approx, extension`, sorted by `daysSince`
+desc. The payload adds `counts.makeUpsOverdue` (red), `makeUpsUnchecked` (past-due, not-ignored tests
+whose read is not `'ok'` → "Couldn't check N tests — re-sync.") and `makeUpsIgnored` (past-due
+ignored tests → "N quizzes ignored"). A row clears itself once an attempt syncs.
+
+**Ignore** (`assignments.makeup_ignored`, Prism-owned, default tracked): the teacher can ignore one
+test/quiz for **all** students (make-up row "Ignore this quiz" with an inline confirm, the
+Assessments-tab chip "Make-ups: tracked / ignored", or PrisMCP `set_makeup_tracking`). Only a
+Schoology test in a current course (else `NOT_ELIGIBLE`).
+
+Feedback owed on a test whose attempts were read counts **only the takers** as handed in (the
+`accepts_submissions = 0` whole-roster rule still applies to other paper work and to unread tests).
 
 ### Feedback owed
 
@@ -133,23 +173,40 @@ functions, so the agent sees exactly the numbers on the dashboard.
 - **`referrals`** — `id, student_id, assignment_id, course_id, action ('referred'; the CHECK still
   admits legacy 'exempt', which the app no longer writes), note TEXT, days_late INTEGER, source
   ('app'|'mcp'), created_at`. `UNIQUE(student_id, assignment_id)`. Undo = delete the row.
-- **`extensions`** (new table, schema.sql only) — `id, student_id, assignment_id, course_id,
-  lessons INTEGER NOT NULL, note TEXT, source ('app'|'mcp'), created_at`. `UNIQUE(student_id,
-  assignment_id)` (upsert). Undo = delete the row.
+- **`extensions`** (new table) — `id, student_id, assignment_id, course_id,
+  lessons INTEGER NOT NULL, note TEXT, source ('app'|'mcp'), created_at, updated_at`. `UNIQUE(student_id,
+  assignment_id)` (upsert; re-extending overwrites `lessons`/`note`/`source` and stamps `updated_at`;
+  history order and `since` use `COALESCE(updated_at, created_at)`). Undo = delete the row.
+  `updated_at` is also in `MIGRATIONS` (dev databases already had the table).
+- **Make-up tests** (columns on `assignments`, schema.sql **and** `MIGRATIONS`): `is_test INTEGER`
+  (1 when the Schoology REST `type === 'assessment'`, written every sync — not `assignment_type`,
+  which `masterySync` overwrites); `test_fetch_status TEXT` (`'ok'` | `'failed'` | NULL, modelled on
+  `lti_fetch_status`: a test the sync never reaches keeps its previous value); `makeup_ignored INTEGER
+  NOT NULL DEFAULT 0` (Prism-owned; the sync's upsert never writes it). Settings keys
+  `triage.makeUpAmberDays` = 1 (0–30) and `triage.makeUpRedDays` = 3 (1–30); amber is clamped to red.
 - **First-submission time** — `grades.first_submitted_at INTEGER` = earliest submission time
   observed (running minimum; see Verification results 1).
 
 ### Server units
 
 - **`server/lib/schoolDays.js`** — pure. `makeCalendar(rows)` → `{ between(from, to) → { days, approx },
-  isSchoolDay(date), cycleLetter(date), stats() }`. No DB access; trivially unit-testable.
-- **`server/services/triage.js`** — `getTriage(db, { courseId?, studentUid?, includeFormative?, today })`
-  → `{ lateWork: [...], feedbackOwed: [...], settings, calendar: { source, schoolDays, approx },
-  lastSyncAt }`; `listReferrals(db, filters)`; `recordReferral(db, {...})`; `undoReferral(db, id)`.
-  `today` is injected (tests, and the HK-date rule).
-- **`server/services/settings.js`** — `getSettings(db)`, `updateSettings(db, patch)` with clamping.
+  addSchoolDays(from, n) → { date, approx } (the n-th school day after from; extensions), isSchoolDay(date),
+  info(date), covers(date) }`; `todayLocal()`, `nowLocal()` (`'YYYY-MM-DD HH:MM:SS'`, compares with
+  Schoology `due_date`), `epochToLocalDate()`. No DB access; trivially unit-testable.
+- **`server/services/triage.js`** — `getTriage(db, { courseId?, studentId?, includeFormative?, today, now? })`
+  → `{ lateWork, feedbackOwed, makeUps, makeUpsUnchecked, makeUpsIgnored, counts, settings, calendar,
+  lastSyncAt, historyCount }`; `listReferrals` / `recordReferral` / `undoReferral`; `listExtensions` /
+  `recordExtension` / `undoExtension`; `setMakeUpIgnored(db, assignmentId, ignored)`. `today` / `now`
+  are injected (tests, and the HK-date rule).
+- **`server/services/settings.js`** — `getTriageSettings(db)`, `updateTriageSettings(db, patch)` with clamping.
+- **Sync** (`server/services/sync.js`) — one `grader_grade_data` read per section for the tests in the
+  sync window (`opts.fetchTestAttempts`, browser session via `graderSubmissions.createSubmissionFetcher`
+  → `graderTestAttempts.js`, parsed by `server/lib/parseTestAttempts.js`), retried once.
 - **Routes:** `GET /api/triage?courseId=&includeFormative=`, `GET /api/triage/referrals`,
-  `POST /api/triage/referrals`, `DELETE /api/triage/referrals/:id`, `GET/PUT /api/settings`.
+  `POST /api/triage/referrals`, `DELETE /api/triage/referrals/:id`, `GET /api/triage/extensions`,
+  `POST /api/triage/extensions` (`{ studentId, assignmentId, lessons, note? }`),
+  `DELETE /api/triage/extensions/:id`, `PUT /api/triage/makeup-ignore/:assignmentId`
+  (`{ ignored: boolean }`), `GET/PUT /api/settings`.
 
 ### Client units
 
@@ -158,12 +215,20 @@ functions, so the agent sees exactly the numbers on the dashboard.
   Rows: name, task, progress meter, day count, action (**Mark referred** on red rows, or "N left"; **Extend** on
   every row — a `NumberStepper` 1–60, default 3, + note), and an "ext +N → DD/MM/YYYY" tag when extended.
   Feedback rows link to the existing `AssessmentSummaryPage`.
+- **`MakeUpPanel`** — "Make-up tests", full-width **above** the two panels (the most urgent list):
+  red-count badge, subtitle "Missed Schoology tests and quizzes · school days since the test · sit by
+  day {red}", rows (course chip, student, test, meter against `makeUpRedDays`, day count, extension tag,
+  **Extend**, **Ignore this quiz** with an inline confirm), "No missed tests.", the unchecked note and
+  "N quizzes ignored". The Extend editor is shared (`ExtendEditor`) and pre-fills a re-extend.
 - **Dashboard** — panels above the course cards (two columns on desktop); course cards gain chips
-  ("1 at limit", "7 to grade · 8d"); header shows "School day N of M · Cycle day X" when known.
-- **CoursePage** — the two panels at the top; Assessments tab rows gain "x/y ungraded" + wait meter.
+  ("N make-ups" — red when any is red, "1 at limit", "7 to grade · 8d"); header shows "School day N of
+  M · Cycle day X" when known.
+- **CoursePage** — the panels at the top; Assessments tab rows gain "x/y ungraded" + wait meter, and
+  each Schoology test/quiz a click-to-flip "Make-ups: tracked / ignored" chip.
 - **Referred / extended history** — "Referred / extended (N) ›" (`historyCount` = referrals + extensions)
   opens a simple list of both, newest first, with undo.
-- **SettingsPage** (`/settings`, sidebar under Tools) — the four values via the existing
+- **SettingsPage** (`/settings`, sidebar under Tools) — the four values plus the make-up amber/red
+  days via the existing
   `NumberStepper`, plus calendar status ("PowerSchool · 164 school days · synced 01/10/2026"), or
   "Weekday approximation — run a PowerSchool sync" when empty.
 - Colours via existing tokens only (`--success`, `--warning`, `--danger`, `--badge-*`); no hex.
@@ -174,11 +239,12 @@ functions, so the agent sees exactly the numbers on the dashboard.
 
 | Tool | Kind | Input | Returns |
 |---|---|---|---|
-| `get_triage` | read | `course?` (id or name), `student?`, `include_formative?` | the `getTriage` payload, incl. settings, calendar source/approx and `lastSyncAt` so the agent can flag stale data |
+| `get_triage` | read | `course?` (id or name), `student?`, `include_formative?` | the `getTriage` payload (incl. `makeUps`, `makeUpsUnchecked`, `makeUpsIgnored`), settings, calendar source/approx and `lastSyncAt` so the agent can flag stale data; `student` filters `lateWork` and `makeUps` and recounts their red counts |
 | `list_referrals` | read | `course?`, `student?`, `since?` | `{ referrals, extensions }` history with dates and notes |
 | `school_calendar` | read | `from`, `to?` | school days between dates, `isSchoolDay`, cycle letter, approx flag |
 | `record_referral` | write | `student`, `assignment`, `action` (`referred`), `note?` | the stored record (`source: 'mcp'`); rejects a pair not currently on the late-work list, or not yet red |
-| `extend_deadline` | write | `student_id`, `assignment_id`, `lessons` (1–60), `note?` | the stored extension with `until` |
+| `extend_deadline` | write | `student_id`, `assignment_id`, `lessons` (1–60), `note?` | the stored extension with `until` (also moves a make-up's clock — "sitting it Thursday") |
+| `set_makeup_tracking` | write | `assignment_id`, `tracked` (boolean) | `{ assignmentId, title, ignored }`; only a Schoology test in a current course |
 | `undo_extension` | write | `id` | confirmation |
 | `undo_referral` | write | `id` | confirmation |
 
@@ -258,6 +324,18 @@ explicit request; descriptions say so.
     student) evaluated it over that student alone, so a row the dashboard showed was rejected with
     `NOT_ON_LIST`. Covered by a service test (one student submitted, another outstanding at the
     limit → `recordReferral` for the outstanding student succeeds).
+
+11. **Did the student take the test? — `grader_grade_data`** (read-only spike, 2026-10-02;
+    `.claude/schoology-api-reference.md` "Tests and quizzes > Did the student take the test?").
+    `GET /iapi/grades/grader_grade_data/{sectionId}/all?uids={csv}&grade_item_nids={csv}` (browser
+    session) returns one cell per (uid, test): `submission: "assessment"` = took it; `has_assessment:
+    true` with no submission = assigned, not taken; `not_assigned: true` = on the other copy. It
+    matched the results page 15/15 with no false positives. The public REST API is blind to attempts
+    (`allow_dropbox` 0, no revisions), and a public grade's timestamp is the grade-write time, not the
+    attempt. Consequences built in: one read per section per sync; a payload without a `grades` object,
+    or a test with no cells at all, is recorded `'failed'` (unknown), never "missed". Not yet seen live:
+    a non-taker whose classmates sat the test, an unsubmitted attempt, multiple attempts, a non-taker
+    with a hand-entered score, an excused cell.
 
 ## Out of scope (now)
 

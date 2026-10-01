@@ -768,5 +768,17 @@ the original 56-day gap and the fixed/re-verified result are in `.claude/powersc
   Also fixed: the `accepts_submissions = NULL` fallback is decided over the whole targeted roster, so a
   student-filtered `recordReferral` agrees with the dashboard (spec Verification results 10).
 
-**Tests:** 824 server + 531 client Vitest tests pass; `npm run build` succeeds (2026-10-02).
+- **Make-up tests (2026-10-02):** a student who missed a Schoology test/quiz must sit it (or their `*`
+  copy) ASAP — its own panel ("Make-up tests", full-width above late work / feedback owed) and clock
+  (green on the day, amber from `triage.makeUpAmberDays` = 1, red from `triage.makeUpRedDays` = 3 school
+  days). Signal: one browser-session `grader_grade_data` read per section per sync
+  (`server/services/graderTestAttempts.js`, `server/lib/parseTestAttempts.js`) →
+  `grades.submission_type = 'assessment'`; `assignments.is_test` / `test_fetch_status` ('ok' | 'failed',
+  unknown never reads as missed). Every test/quiz, any alignment; per-test Prism-owned
+  `assignments.makeup_ignored` ("Ignore this quiz", Assessments-tab chip, PrisMCP `set_makeup_tracking`,
+  `PUT /api/triage/makeup-ignore/:id`). Extensions move the make-up clock. Feedback owed on a read test
+  counts only takers. Also: re-extend pre-fills the editor and stamps `extensions.updated_at`; the
+  history loads referrals/extensions independently. Spec "Make-up tests" + Verification results 11.
+
+**Tests:** 868 server + 549 client Vitest tests pass; `npm run build` succeeds (2026-10-02).
 

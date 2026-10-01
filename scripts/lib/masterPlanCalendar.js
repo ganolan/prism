@@ -54,7 +54,11 @@ export function compareCalendars(psRows, plan) {
 
   const onlyInPs = [];
   const onlyInPlan = [];
-  const letterByParity = {};
+  // Keyed by the Master Plan's cycle-day number (1-8), not odd/even parity: the
+  // school's actual A/B letter pairs up by cycle-day number (e.g. days 1-2 = A,
+  // 3-4 = B, ...), it doesn't alternate day-to-day, so a parity model produced
+  // spurious mismatches every quarter-cycle (observed live 2026-10-01/02).
+  const letterByCycleDay = {};
   const letterMismatches = [];
   const planDatesSet = new Set(planDates);
   let planSchoolDays = 0;
@@ -68,16 +72,16 @@ export function compareCalendars(psRows, plan) {
     if (planSchool && !psSchool) onlyInPlan.push(p.date);
     if (!planSchool && psSchool) onlyInPs.push(p.date);
     if (planSchool && psSchool && row.cycle_letter) {
-      const parity = p.cycleDay % 2;
-      if (!(parity in letterByParity)) letterByParity[parity] = row.cycle_letter;
-      else if (letterByParity[parity] !== row.cycle_letter) letterMismatches.push({ date: p.date, cycleDay: p.cycleDay, letter: row.cycle_letter });
+      const key = p.cycleDay;
+      if (!(key in letterByCycleDay)) letterByCycleDay[key] = row.cycle_letter;
+      else if (letterByCycleDay[key] !== row.cycle_letter) letterMismatches.push({ date: p.date, cycleDay: p.cycleDay, letter: row.cycle_letter });
     }
   }
   for (const r of psRows) {
     if (inRange(r.date) && r.in_session && !planDatesSet.has(r.date)) onlyInPs.push(r.date);
   }
   const psSchoolDays = psRows.filter((r) => inRange(r.date) && r.in_session).length;
-  return { overlap: { from, to }, planSchoolDays, psSchoolDays, onlyInPs: onlyInPs.sort(), onlyInPlan, letterByParity, letterMismatches };
+  return { overlap: { from, to }, planSchoolDays, psSchoolDays, onlyInPs: onlyInPs.sort(), onlyInPlan: onlyInPlan.sort(), letterByCycleDay, letterMismatches };
 }
 
 export function readSheetFromXlsx(file, nameFragment) {

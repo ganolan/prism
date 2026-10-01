@@ -7,12 +7,14 @@ describe('extractCalendarDays', () => {
       calenderDays: {
         '2026-10-05': { inSession: true, cycleDay: { letter: 'B' } },
         '2026-10-01': { inSession: false },
+        '2026-11-26': { inSession: true, cycleDay: null, type: 'PH' },
         notADate: { inSession: true },
       },
     });
     expect(days).toEqual([
       { date: '2026-10-05', inSession: true, cycleLetter: 'B', raw: '{"inSession":true,"cycleDay":{"letter":"B"}}' },
       { date: '2026-10-01', inSession: false, cycleLetter: null, raw: '{"inSession":false}' },
+      { date: '2026-11-26', inSession: false, cycleLetter: null, raw: '{"inSession":true,"cycleDay":null,"type":"PH"}' },
     ]);
   });
 

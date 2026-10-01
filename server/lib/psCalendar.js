@@ -7,7 +7,13 @@ export function extractCalendarDays(sectionInfo) {
     .filter(([date]) => /^\d{4}-\d{2}-\d{2}$/.test(date))
     .map(([date, d]) => ({
       date,
-      inSession: !!d?.inSession,
+      // PowerSchool's `inSession` means "the school year is active", not "classes
+      // meet": it's true on public holidays (type "PH"), Professional Development
+      // days ("PD"), interims ("O") and Winter Break ("H"), all of which carry
+      // cycleDay: null. A day only counts as a school day when BOTH inSession is
+      // true AND cycleDay is present — verified live 2026-10-01/02 against the
+      // Master Plan (see .claude/powerschool-api-reference.md, section_info note).
+      inSession: !!d?.inSession && d?.cycleDay != null,
       cycleLetter: d?.cycleDay?.letter ?? null,
       raw: JSON.stringify(d ?? null),
     }));

@@ -22,7 +22,7 @@ if (!ps.length) {
 const r = compareCalendars(ps, plan);
 console.log(`Overlap ${r.overlap.from} → ${r.overlap.to}`);
 console.log(`School days: Master Plan ${r.planSchoolDays}, PowerSchool ${r.psSchoolDays}`);
-console.log(`Cycle-day parity → PowerSchool letter: ${JSON.stringify(r.letterByParity)}`);
+console.log(`Cycle-day → PowerSchool letter: ${JSON.stringify(r.letterByCycleDay)}`);
 console.log(`Only in PowerSchool (${r.onlyInPs.length}): ${r.onlyInPs.join(', ') || '—'}`);
 console.log(`Only in Master Plan (${r.onlyInPlan.length}): ${r.onlyInPlan.join(', ') || '—'}`);
 console.log(`Letter mismatches (${r.letterMismatches.length}): ${r.letterMismatches.map((m) => `${m.date} day ${m.cycleDay}=${m.letter}`).join(', ') || '—'}`);

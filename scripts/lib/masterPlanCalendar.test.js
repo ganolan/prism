@@ -34,35 +34,41 @@ describe('Master Plan parsing', () => {
 });
 
 describe('compareCalendars', () => {
+  // cycleDay 2 repeats (10-05 and 10-09) so the per-cycle-day-number mapping has
+  // something to learn from and later check against — the school's actual cycle
+  // pairs letters by cycle-day number, not by odd/even parity.
   const plan = [
     { date: '2026-10-05', cycleDay: 2 },
     { date: '2026-10-06', cycleDay: 3 },
     { date: '2026-10-07', cycleDay: 4 },
     { date: '2026-10-08', cycleDay: null },
+    { date: '2026-10-09', cycleDay: 2 },
   ];
 
-  test('identical → no differences; parity→letter mapping learned', () => {
+  test('identical → no differences; cycle-day→letter mapping learned', () => {
     const ps = [
       { date: '2026-10-05', in_session: 1, cycle_letter: 'B' },
       { date: '2026-10-06', in_session: 1, cycle_letter: 'A' },
       { date: '2026-10-07', in_session: 1, cycle_letter: 'B' },
       { date: '2026-10-08', in_session: 0, cycle_letter: null },
+      { date: '2026-10-09', in_session: 1, cycle_letter: 'B' },
     ];
     const r = compareCalendars(ps, plan);
-    expect(r).toMatchObject({ onlyInPs: [], onlyInPlan: [], letterMismatches: [], planSchoolDays: 3, psSchoolDays: 3 });
-    expect(r.letterByParity).toEqual({ 0: 'B', 1: 'A' });
+    expect(r).toMatchObject({ onlyInPs: [], onlyInPlan: [], letterMismatches: [], planSchoolDays: 4, psSchoolDays: 4 });
+    expect(r.letterByCycleDay).toEqual({ 2: 'B', 3: 'A', 4: 'B' });
   });
 
-  test('reports differing dates and broken alternation', () => {
+  test('reports differing dates and a cycle-day letter mismatch', () => {
     const ps = [
       { date: '2026-10-05', in_session: 1, cycle_letter: 'B' },
       { date: '2026-10-06', in_session: 0, cycle_letter: null },
       { date: '2026-10-07', in_session: 1, cycle_letter: 'A' },
       { date: '2026-10-08', in_session: 1, cycle_letter: 'B' },
+      { date: '2026-10-09', in_session: 1, cycle_letter: 'A' },
     ];
     const r = compareCalendars(ps, plan);
     expect(r.onlyInPlan).toEqual(['2026-10-06']);
     expect(r.onlyInPs).toEqual(['2026-10-08']);
-    expect(r.letterMismatches).toEqual([{ date: '2026-10-07', cycleDay: 4, letter: 'A' }]);
+    expect(r.letterMismatches).toEqual([{ date: '2026-10-09', cycleDay: 2, letter: 'A' }]);
   });
 });

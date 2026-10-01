@@ -1,8 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, triggerMasterySync, triggerMasteryLogin, getSubmissionLinks } from '../services/api.js';
+import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, triggerMasterySync, triggerMasteryLogin, getSubmissionLinks, getTriage } from '../services/api.js';
 import AnalyticsView from '../components/AnalyticsView.jsx';
 import OverridePopup from '../components/OverridePopup.jsx';
+import TriageSection from '../components/triage/TriageSection.jsx';
+import UrgencyMeter from '../components/triage/UrgencyMeter.jsx';
+import { waitsByAssignment } from '../lib/triage.js';
 import { LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
 import { LetterGradePopup, LETTER_GRADE_COLORS } from '../components/MasteryPerformanceSummary.jsx';
 import { gradeLabel, submissionStatus, ltiStatusUnavailable } from '../lib/gradeLabel.js';
@@ -35,6 +38,7 @@ export default function CoursePage() {
   const [masterySyncResult, setMasterySyncResult] = useState(null);
   const [overrideTarget, setOverrideTarget] = useState(null); // { studentUid, category, currentLevel, hasOverride }
   const [overrideSaving, setOverrideSaving] = useState(false);
+  const [triageWaits, setTriageWaits] = useState({ waits: {}, feedbackLimit: 10 });
 
   useEffect(() => {
     // includeDropped so RosterView can show the "N dropped" toggle without a
@@ -43,6 +47,17 @@ export default function CoursePage() {
       .then(([c, s, g, m]) => { setCourse(c); setStudents(s); setGradebook(g); setMastery(m); })
       .catch(console.error)
       .finally(() => setLoading(false));
+  }, [id, dataVersion]);
+
+  // Assessments-tab wait column: every assignment still owed feedback (incl.
+  // formative). Async + try so an automocked/absent API is a silent no-op.
+  useEffect(() => {
+    (async () => {
+      try {
+        const t = await getTriage({ courseId: id, includeFormative: true });
+        if (t) setTriageWaits({ waits: waitsByAssignment(t), feedbackLimit: t.settings.feedbackLimitDays });
+      } catch { /* triage is optional on this page */ }
+    })();
   }, [id, dataVersion]);
 
   async function refreshMastery() {
@@ -148,6 +163,8 @@ export default function CoursePage() {
         </div>
       </header>
 
+      <TriageSection courseId={Number(id)} />
+
       {view === 'roster' && (
         <RosterView
           students={students}
@@ -174,7 +191,7 @@ export default function CoursePage() {
         />
       )}
       {view === 'gradebook' && <GradebookView data={gradebook} courseId={id} mastery={mastery} />}
-      {view === 'assessments' && <AssessmentsView data={gradebook} courseId={id} />}
+      {view === 'assessments' && <AssessmentsView data={gradebook} courseId={id} waits={triageWaits.waits} feedbackLimit={triageWaits.feedbackLimit} />}
       {view === 'analytics' && <AnalyticsView id={id} />}
     </div>
   );
@@ -1202,7 +1219,7 @@ function TypeFilterToggle({ label, count, active, type, onClick }) {
   );
 }
 
-export function AssessmentsView({ data, courseId }) {
+export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10 }) {
   const [showSummative, setShowSummative] = useState(true);
   const [showFormative, setShowFormative] = useState(true);
 
@@ -1279,6 +1296,16 @@ export function AssessmentsView({ data, courseId }) {
                     </Link>
                     <SchoologyLink url={a.web_url} ariaLabel={`View "${a.title}" in Schoology`} />
                   </span>
+                  {waits[a.schoology_assignment_id] && (() => {
+                    const w = waits[a.schoology_assignment_id];
+                    return (
+                      <span className="triage-wait" title={`Oldest submission has waited ${w.oldestWaitDays} school days`}>
+                        <span className="text-sm">{w.owed}/{w.submittedTotal} ungraded</span>
+                        <UrgencyMeter days={w.oldestWaitDays} limit={feedbackLimit} tone={w.tone} />
+                        <span className={`triage-days triage-days--${w.tone}`}>{w.oldestWaitDays}</span>
+                      </span>
+                    );
+                  })()}
                   {a.due_date && (
                     <span className="text-sm text-muted" style={{ flexShrink: 0 }}>
                       Due {a.due_date}

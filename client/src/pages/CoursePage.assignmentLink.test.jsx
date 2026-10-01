@@ -78,3 +78,23 @@ describe('GradebookView — Schoology link in the diagonal column header (#76)',
     expect(screen.getAllByTestId('grid-header-spacer')).toHaveLength(3);
   });
 });
+
+describe('AssessmentsView — feedback wait column (triage)', () => {
+  it('shows ungraded count + wait for assignments that owe feedback', () => {
+    const assignments = [
+      { id: 1, title: 'CP1', aligned: 1, schoology_assignment_id: 'a1', due_date: '2026-09-17' },
+      { id: 2, title: 'Quiz', aligned: 1, schoology_assignment_id: 'a2', due_date: '2026-09-02' },
+    ];
+    render(
+      <MemoryRouter>
+        <AssessmentsView
+          data={{ assignments, folders: [] }} courseId="5" feedbackLimit={10}
+          waits={{ a1: { owed: 7, submittedTotal: 24, oldestWaitDays: 8, tone: 'amber' } }}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('7/24 ungraded')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: '8 of 10 school days' })).toBeInTheDocument();
+    expect(screen.getAllByText(/ungraded/)).toHaveLength(1);
+  });
+});

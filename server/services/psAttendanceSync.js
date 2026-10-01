@@ -40,6 +40,8 @@ import { getDb } from '../db/index.js';
 import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
 import { pickBlockNumber, sectionDcidFromLaunchForm, loopTimeBudgetExceeded } from '../lib/psBlockNumber.js';
 import { currentSchoolYearEndYear, gradeLevelToGradYear, pickInSessionRange, extractGradeLevels, userDcidFromLaunchForm } from '../lib/psGradeLevel.js';
+import { extractCalendarDays, mergeCalendarDays } from '../lib/psCalendar.js';
+import { storeSchoolDays } from './schoolCalendar.js';
 import { sessionStateFile } from '../lib/sessionPaths.js';
 
 const PS_HOST = 'powerschool.hkis.edu.hk';
@@ -259,6 +261,7 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
     log('PowerSchool session ready.');
 
     const gradeByDcid = new Map(); // dcid → gradeLevel, accumulated across all sections
+    const calendarByDate = new Map(); // date → merged school day (triage calendar)
     const todayIso = new Date().toISOString().slice(0, 10);
     const loopStartedAt = Date.now();
 
@@ -280,6 +283,7 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
         pick = { blockNumber: null, blockName: null, reason: 'no-section-dcid' };
       } else {
         const { status, first } = await fetchSectionInfoFirst(page, sectionDcid);
+        if (first) mergeCalendarDays(calendarByDate, extractCalendarDays(first));
         pick = first
           ? pickBlockNumber(first)
           : { blockNumber: null, blockName: null, reason: `section-info-failed:${status}` };
@@ -329,6 +333,10 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
       }
     }
 
+    summary.schoolDays = storeSchoolDays(db, [...calendarByDate.values()]);
+    log(summary.schoolDays
+      ? `School calendar: ${summary.schoolDays} days stored.`
+      : 'School calendar: none returned — kept the stored calendar.');
     summary.gradeLevels.seen = gradeByDcid.size;
     summary.gradeLevels.updated = applyGradeLevels(db, gradeByDcid);
     log(`Grade levels: ${summary.gradeLevels.updated} students updated (${gradeByDcid.size} seen).`);

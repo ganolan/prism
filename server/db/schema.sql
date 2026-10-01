@@ -415,3 +415,16 @@ CREATE TABLE IF NOT EXISTS assessment_drafts (
   UNIQUE(assignment_id, student_id)
 );
 CREATE INDEX IF NOT EXISTS idx_assessment_drafts_assignment ON assessment_drafts(assignment_id);
+
+-- Triage school-day calendar, from PowerSchool section_info `calenderDays`
+-- (PowerSchool's spelling). One row per date in the current school year,
+-- merged across synced sections; in_session drives school-day counting.
+-- `raw` keeps the calenderDays entry verbatim so later fields need no re-probe.
+CREATE TABLE IF NOT EXISTS school_days (
+  date TEXT PRIMARY KEY,                -- 'YYYY-MM-DD'
+  in_session INTEGER NOT NULL DEFAULT 0,
+  cycle_letter TEXT,                    -- cycleDay.letter ('A'/'B')
+  raw TEXT,
+  source TEXT NOT NULL DEFAULT 'powerschool',
+  synced_at TEXT
+);

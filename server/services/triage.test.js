@@ -282,6 +282,16 @@ describe('getTriage — assignments without a submission channel', () => {
     grade(a, id, { submission_type: 'drop', first_submitted_at: epoch('2026-10-05'), late: 0 });
     expect(getTriage(db, { today: TODAY }).lateWork.map((r) => [r.studentName, r.kind])).toEqual([['Bo M', 'outstanding']]);
   });
+
+  test('accepts_submissions NULL: tracking is decided over the whole roster, so a student filter and recordReferral agree with the dashboard', () => {
+    const a = student('u1', 'Ada', 'L');
+    const bo = student('u2', 'Bo', 'M');
+    const id = assignment('a1', 'Not yet synced', '2026-10-05', { accepts: null }); // Bo: 9 school days → red
+    grade(a, id, { submission_type: 'drop', first_submitted_at: epoch('2026-10-05'), late: 0 });
+    expect(getTriage(db, { today: TODAY, studentId: bo }).lateWork.map((r) => r.studentName)).toEqual(['Bo M']);
+    expect(recordReferral(db, { studentId: bo, assignmentId: id, action: 'referred', today: TODAY }))
+      .toMatchObject({ action: 'referred', studentName: 'Bo M', daysLate: 9 });
+  });
 });
 
 describe('getTriage — feedback owed', () => {

@@ -144,16 +144,19 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
   const feedbackOwed = [];
   const courses = currentCourses(db, courseId);
   for (const c of courses) {
-    const students = roster(db, c.id).filter((st) => studentId == null || st.id === Number(studentId));
+    const students = roster(db, c.id);
     for (const a of pastDueAssignments(db, c.id, today)) {
       if (!a.aligned && !formative) continue; // nothing to report for formative work
       const facts = assignmentFacts(db, a);
       const due = a.due_date.slice(0, 10);
-      const states = students
+      const targeted = students
         .filter((st) => !facts.assignees || facts.assignees.has(st.schoology_uid))
         .map((st) => ({ st, s: studentState(a, facts, st) }))
         .filter(({ s }) => !s.excused);
-      const tracked = tracksSubmissions(a, states);
+      // Decided over the whole targeted roster BEFORE the student filter, so a
+      // one-student view (recordReferral, get_triage student) matches the dashboard.
+      const tracked = tracksSubmissions(a, targeted);
+      const states = studentId == null ? targeted : targeted.filter(({ st }) => st.id === Number(studentId));
       // No submission channel: everyone targeted handed it in on the due date
       // (paper / in class), so the grading backlog still shows.
       const handedInAtDue = a.accepts_submissions === 0;

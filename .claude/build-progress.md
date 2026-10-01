@@ -759,6 +759,14 @@ the original 56-day gap and the fixed/re-verified result are in `.claude/powersc
   `late = 0` clears "submitted day N"; LTI state beats a stale `submission_type`; `lastSyncAt` = last
   *completed* sync; no triage on archived course pages; `list_referrals` takes a `student` filter.
   Spec "Verification results" 8–9.
+- **Extend replaces Exempt (2026-10-02):** a per-student **extension** of N lessons (= school days, 1–60;
+  new `extensions` table, one per student+assignment, upsert) moves that student's effective due date to
+  the N-th school day after it (`calendar.addSchoolDays`): hidden until then, late from then; rows carry
+  `extension { id, lessons, until, note }`. Referrals are `'referred'` only (true exemptions = Schoology
+  Excused). `historyCount` (referrals + extensions) replaces `referralCount`; `/api/triage/extensions`;
+  PrisMCP `extend_deadline` / `undo_extension`, and `list_referrals` returns `{ referrals, extensions }`.
+  Also fixed: the `accepts_submissions = NULL` fallback is decided over the whole targeted roster, so a
+  student-filtered `recordReferral` agrees with the dashboard (spec Verification results 10).
 
-**Tests:** 780 server + 522 client Vitest tests pass; `npm run build` succeeds.
+**Tests:** 824 server + 531 client Vitest tests pass; `npm run build` succeeds (2026-10-02).
 

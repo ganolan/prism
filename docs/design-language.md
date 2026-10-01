@@ -874,4 +874,9 @@ colour from a tone computed on the server (`toneFor`): green below `limit − wa
 from there, red at the limit. The number beside it (`.triage-days--{tone}`) is the actual count, so
 the colour is never the only signal. `≈` (with a tooltip) marks counts from the weekday fallback
 (no PowerSchool calendar). Rows use `.triage-row` grids on desktop and wrap to stacked lines in the
-phone block. Actions appear only where the teacher must act (red rows: Mark referred / Exempt).
+phone block. Actions appear only where the teacher must act (red rows: Mark referred).
+
+**Inline row editor — Extend (2026-10-02).** Every late-work row has a ghost **Extend** button that
+swaps the row's action cell, in place, for a `NumberStepper` (lessons, 1–60, default 3), a note input
+(`.triage-note`) and Save / Cancel — no modal. An extended row carries a grey tag
+"ext +N → DD/MM/YYYY". Reuse this swap-the-action-cell pattern for any other small per-row edit.

@@ -56,7 +56,7 @@ export default function CoursePage() {
       try {
         const t = await getTriage({ courseId: id, includeFormative: true });
         if (t) setTriageWaits({ waits: waitsByAssignment(t), feedbackLimit: t.settings.feedbackLimitDays });
-      } catch { /* triage is optional on this page */ }
+      } catch (err) { console.error(err); /* triage is optional on this page */ }
     })();
   }, [id, dataVersion]);
 

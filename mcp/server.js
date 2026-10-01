@@ -233,7 +233,18 @@ export function createServer() {
               `state. Then follow your **${assignment_type || 'portfolio'}** grading instructions (already provided in ` +
               `this chat's context) to grade the submissions provided in this chat. When done, call ` +
               `\`write_student_suggestions\` (whole class, one call) and \`write_assessment_analysis\`, then **stop and ` +
-              `hand back to the teacher to review in Prism**.`,
+              `hand back to the teacher to review in Prism**.\n\n` +
+              `How Prism shows your suggestions:\n` +
+              `- **Flags:** the teacher reads flags at a glance. Whenever you write \`reviewer_flags\` (one paragraph ` +
+              `per flag), also send \`reviewer_flags_brief\`: one short line per flag (about 12 words), in the same ` +
+              `order. The paragraphs sit behind "Show detailed flags".\n` +
+              `- **Scale assignments:** if \`get_assignment_context\` returns a \`score_scale\` (Completion, General ` +
+              `Academic Scale (Unaligned), Approaches to Learning), grade with \`scale_level\` (a level from ` +
+              `\`score_scale.levels\`) plus an \`evidence\` note saying what you checked, instead of \`rubric_scores\`.\n` +
+              `- **Re-runs:** each student's \`existing_suggestion.suggestion_state\` says how the teacher handled your ` +
+              `last narrative: \`used\` (it is in their comment), \`ignored\` (they dismissed it), \`revised\` (a ` +
+              `previous re-run changed it). Only rewrite \`narrative_feedback\` when you have something new: a changed ` +
+              `narrative reopens it for the teacher, tagged Revised.`,
           },
         },
       ],

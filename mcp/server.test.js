@@ -162,6 +162,20 @@ describe('grade-assignment prompt', () => {
     expect(text).not.toMatch(/\/Users\//);
   });
 
+  test('asks for the glanceable flag lines, scale levels, and respects the teacher\'s handling', async () => {
+    const client = await connect();
+    const { messages } = await client.getPrompt({ name: 'grade-assignment', arguments: { assignment: 'X' } });
+    const text = messages[0].content.text;
+    // One short line per flag, alongside the detailed reviewer_flags.
+    expect(text).toContain('reviewer_flags_brief');
+    // Unaligned scale assignments are graded by level + evidence, not by topic.
+    expect(text).toContain('score_scale');
+    expect(text).toContain('scale_level');
+    expect(text).toContain('evidence');
+    // used / ignored / revised state of the previous narrative.
+    expect(text).toContain('suggestion_state');
+  });
+
   test('defaults assignment_type to portfolio when omitted', async () => {
     const client = await connect();
     const { messages } = await client.getPrompt({ name: 'grade-assignment', arguments: { assignment: 'X' } });

@@ -13,10 +13,14 @@ export const courseLabel = (row) => (row.blockNumber ? `[BK ${row.blockNumber}] 
 export const meterPct = (days, limit) =>
   Math.max(4, Math.min(100, Math.round((days / Math.max(1, limit)) * 100)));
 
+const TONE_RANK = { green: 0, amber: 1, red: 2 };
+const worstTone = (rows) => rows.reduce((t, r) => (TONE_RANK[r.tone] > TONE_RANK[t] ? r.tone : t), 'green');
+
 // Per-course counts for the dashboard course-card chips.
 export function courseTriageSummary(triage, courseId) {
   const late = (triage?.lateWork || []).filter((r) => r.courseId === courseId);
   const owed = (triage?.feedbackOwed || []).filter((r) => r.courseId === courseId);
+  const makeUps = (triage?.makeUps || []).filter((r) => r.courseId === courseId);
   const atLimit = late.filter((r) => r.tone === 'red').length;
   const oldestWait = owed.reduce((m, r) => Math.max(m, r.oldestWaitDays), 0);
   return {
@@ -25,6 +29,8 @@ export function courseTriageSummary(triage, courseId) {
     toGrade: owed.reduce((n, r) => n + r.owed, 0),
     oldestWait,
     waitTone: owed.find((r) => r.oldestWaitDays === oldestWait)?.tone ?? 'green',
+    makeUps: makeUps.length,
+    makeUpTone: worstTone(makeUps),
   };
 }
 

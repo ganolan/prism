@@ -4,10 +4,12 @@ import { useDataVersion } from '../../hooks/useDataVersion.jsx';
 import { formatDateTime } from '../../lib/formatDate.js';
 import LateWorkPanel from './LateWorkPanel.jsx';
 import FeedbackOwedPanel from './FeedbackOwedPanel.jsx';
+import MakeUpPanel from './MakeUpPanel.jsx';
 import ReferralHistory from './ReferralHistory.jsx';
 
-// The two triage panels: across all current courses (no courseId — Dashboard)
-// or for one course (CoursePage). Owns its fetch; onLoaded hands the payload up
+// The triage panels — make-up tests full-width on top (the most urgent: a missed
+// test can be invalidated), then late work + feedback owed side by side — across
+// all current courses (no courseId — Dashboard) or for one course (CoursePage). Owns its fetch; onLoaded hands the payload up
 // (the Dashboard uses it for course-card chips and the school-day header).
 export default function TriageSection({ courseId = null, onLoaded }) {
   const dataVersion = useDataVersion();
@@ -54,6 +56,10 @@ export default function TriageSection({ courseId = null, onLoaded }) {
       {!showCourse && data.lastSyncAt && (
         <p className="text-sm text-muted triage__asof">Counts as of the last sync, {formatDateTime(data.lastSyncAt)}</p>
       )}
+      <MakeUpPanel
+        rows={data.makeUps ?? []} settings={data.settings} showCourse={showCourse}
+        unchecked={data.makeUpsUnchecked ?? 0} onExtend={handleExtend}
+      />
       <div className="triage-grid">
         <LateWorkPanel
           rows={data.lateWork} settings={data.settings} showCourse={showCourse}

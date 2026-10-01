@@ -9,7 +9,9 @@ vi.mock('../services/api.js', () => ({
   getTriage: vi.fn(),
 }));
 
-const TRIAGE = { referralLimitDays: 8, feedbackLimitDays: 10, warnLeadDays: 3, showFormativeDefault: false };
+const TRIAGE = {
+  referralLimitDays: 8, feedbackLimitDays: 10, warnLeadDays: 3, showFormativeDefault: false, makeUpAmberDays: 1, makeUpRedDays: 3,
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -32,6 +34,20 @@ describe('SettingsPage', () => {
     fireEvent.click(screen.getAllByLabelText('Increase')[0]);
     await waitFor(() => expect(api.updateSettings).toHaveBeenCalledWith({ triage: { referralLimitDays: 9 } }));
     expect(await screen.findByText('Saved')).toBeInTheDocument();
+  });
+
+  it('make-up clock: amber and red steppers (amber can\'t pass red), saved server-side', async () => {
+    render(<SettingsPage />);
+    const amber = await screen.findByLabelText('Make-up amber (school days)');
+    const red = screen.getByLabelText('Make-up red (school days)');
+    expect(amber).toHaveValue(1);
+    expect(amber).toHaveAttribute('min', '0');
+    expect(amber).toHaveAttribute('max', '3'); // capped at the red value
+    expect(red).toHaveValue(3);
+    expect(red).toHaveAttribute('max', '30');
+    fireEvent.change(red, { target: { value: '5' } });
+    await waitFor(() => expect(api.updateSettings).toHaveBeenCalledWith({ triage: { makeUpRedDays: 5 } }));
+    await waitFor(() => expect(amber).toHaveAttribute('max', '5'));
   });
 
   it('warns when there is no PowerSchool calendar', async () => {

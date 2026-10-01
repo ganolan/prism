@@ -97,6 +97,9 @@ export default function Dashboard() {
               const t = courseTriageSummary(triage, c.id);
               return (
                 <>
+                  {t.makeUps > 0 && (
+                    <span className={`badge ${TONE_BADGE[t.makeUpTone]}`}>{t.makeUps} make-up{t.makeUps === 1 ? '' : 's'}</span>
+                  )}
                   {t.atLimit > 0 && <span className="badge badge-red">{t.atLimit} at limit</span>}
                   {t.late > 0 && <span className="badge badge-amber">{t.late} late</span>}
                   {t.toGrade > 0 && <span className={`badge ${TONE_BADGE[t.waitTone]}`}>{t.toGrade} to grade · {t.oldestWait}d</span>}

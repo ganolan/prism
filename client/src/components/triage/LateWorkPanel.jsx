@@ -1,29 +1,17 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import UrgencyMeter from './UrgencyMeter.jsx';
-import NumberStepper from '../NumberStepper.jsx';
+import ExtendEditor, { ExtensionTag } from './ExtendEditor.jsx';
 import { APPROX_TITLE, courseLabel } from '../../lib/triage.js';
-import { formatDate } from '../../lib/formatDate.js';
-
-const DEFAULT_LESSONS = 3;
-const MAX_LESSONS = 60;
 
 // Late summative work, worst first. Every row can be extended by N lessons
 // (school days); at the referral limit a row also offers Mark referred; below
 // it, the days left.
 export default function LateWorkPanel({ rows, settings, showCourse, onRecord, onExtend, onShowHistory, historyCount }) {
   const [extending, setExtending] = useState(null);
-  const [lessons, setLessons] = useState(DEFAULT_LESSONS);
-  const [note, setNote] = useState('');
   const limit = settings.referralLimitDays;
   const atLimit = rows.filter((r) => r.tone === 'red').length;
   const key = (r) => `${r.studentId}:${r.assignmentId}`;
-
-  function startExtend(r) {
-    setExtending(key(r));
-    setLessons(DEFAULT_LESSONS);
-    setNote('');
-  }
 
   return (
     <section className="card triage-panel" aria-label="Late work">
@@ -39,11 +27,7 @@ export default function LateWorkPanel({ rows, settings, showCourse, onRecord, on
             {showCourse && <span className="triage-row__course">{courseLabel(r)}</span>}
             {r.title}
             {r.kind === 'submitted_late' && <span className="badge badge-amber triage-row__tag">submitted day {r.daysLate}</span>}
-            {r.extension && (
-              <span className="badge badge-gray triage-row__tag" title={r.extension.note || undefined}>
-                ext +{r.extension.lessons} → {formatDate(`${r.extension.until}T00:00:00`)}
-              </span>
-            )}
+            {r.extension && <ExtensionTag extension={r.extension} />}
           </span>
           <UrgencyMeter days={r.daysLate} limit={limit} tone={r.tone} />
           <span className={`triage-days triage-days--${r.tone}`}>
@@ -54,19 +38,15 @@ export default function LateWorkPanel({ rows, settings, showCourse, onRecord, on
               <>
                 {r.tone !== 'red' && <span className="text-sm text-muted">{limit - r.daysLate} left</span>}
                 {r.tone === 'red' && <button className="primary" onClick={() => onRecord(r, 'referred')}>Mark referred</button>}
-                <button className="ghost" onClick={() => startExtend(r)}>Extend</button>
+                <button className="ghost" onClick={() => setExtending(key(r))}>Extend</button>
               </>
             )}
             {extending === key(r) && (
-              <>
-                <NumberStepper value={lessons} min={1} max={MAX_LESSONS} onChange={setLessons} aria-label="Extension (lessons)" />
-                <input
-                  className="triage-note" placeholder="Note (optional)" aria-label="Extension note"
-                  value={note} onChange={(e) => setNote(e.target.value)}
-                />
-                <button className="secondary" onClick={() => { onExtend(r, lessons, note); setExtending(null); }}>Save</button>
-                <button className="ghost" onClick={() => setExtending(null)}>Cancel</button>
-              </>
+              <ExtendEditor
+                extension={r.extension}
+                onSave={(lessons, note) => { onExtend(r, lessons, note); setExtending(null); }}
+                onCancel={() => setExtending(null)}
+              />
             )}
           </span>
         </div>

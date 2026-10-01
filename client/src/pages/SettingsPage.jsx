@@ -53,6 +53,16 @@ export default function SettingsPage() {
           <NumberStepper value={triage.warnLeadDays} min={0} max={59} onChange={(v) => save({ warnLeadDays: v })} aria-label="Warning lead (school days)" />
           <span className="text-sm text-muted">school days before each limit</span>
         </div>
+        <div className="settings-row">
+          <span>Make-up tests turn amber</span>
+          <NumberStepper value={triage.makeUpAmberDays} min={0} max={triage.makeUpRedDays} onChange={(v) => save({ makeUpAmberDays: v })} aria-label="Make-up amber (school days)" />
+          <span className="text-sm text-muted">school days after the test (0 = on the day)</span>
+        </div>
+        <div className="settings-row">
+          <span>…and red (sit by)</span>
+          <NumberStepper value={triage.makeUpRedDays} min={1} max={30} onChange={(v) => save({ makeUpRedDays: v })} aria-label="Make-up red (school days)" />
+          <span className="text-sm text-muted">school days after the test</span>
+        </div>
         <label className="settings-row">
           <input type="checkbox" checked={triage.showFormativeDefault} onChange={(e) => save({ showFormativeDefault: e.target.checked })} />
           <span>Show formative work in Feedback owed by default</span>

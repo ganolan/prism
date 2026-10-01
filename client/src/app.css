@@ -1137,7 +1137,10 @@ button.ghost.accent:hover { background: var(--accent-light); }
 .triage-panel__history { margin-top: 0.5rem; color: var(--accent); }
 .triage-history { margin-top: 1rem; }
 .triage-row { display: grid; align-items: center; gap: 0.6rem; padding: 0.45rem 0.1rem; border-top: 1px solid var(--border); }
-.triage-row--late { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.8fr) 5rem 2rem auto; }
+.triage-row--late, .triage-row--makeup { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.8fr) 5rem 2rem auto; }
+/* Make-up tests: full-width above .triage-grid (the most urgent list). */
+.triage-makeups { margin-bottom: 1rem; }
+.triage-panel__note { margin: 0 0 0.6rem; font-size: 0.8rem; }
 .triage-row--feedback { grid-template-columns: minmax(0, 2fr) auto 5rem 2rem; }
 .triage-row--history { grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) auto minmax(0, 1fr) auto; }
 .triage-row__name { font-weight: 600; color: var(--text); }

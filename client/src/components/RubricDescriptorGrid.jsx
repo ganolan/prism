@@ -50,14 +50,19 @@ export default function RubricDescriptorGrid({
               return (
                 <td key={l} style={base} onClick={() => onSelect(topic.id, l)}
                     title={`Set ${topic.title} to ${LEVEL_LABELS[l]}`}>
+                  {/* Corner marks FLOAT (first, before the text) rather than sit
+                      absolutely on top: the descriptor's first line wraps around
+                      the mark instead of running underneath it. */}
+                  {st.suggested && (
+                    <span style={{ float: 'right', margin: '-0.1rem -0.15rem 0.1rem 0.3rem', lineHeight: 0, color: 'var(--ai-suggest)' }}>
+                      <AiSparkle size={17} />
+                    </span>)}
+                  {st.staged && (
+                    <span style={{ float: 'right', margin: '-0.2rem -0.1rem 0 0.3rem', color: '#ef4444',
+                      fontWeight: 800, fontSize: 21, lineHeight: 1 }}>×</span>)}
                   {text && (l === 'IE'
                     ? <span style={{ color: '#999', fontStyle: 'italic' }}>{text}</span>
                     : text)}
-                  {st.suggested && (
-                    <AiSparkle size={17} style={{ position: 'absolute', top: 4, right: 5, color: 'var(--ai-suggest)' }} />)}
-                  {st.staged && (
-                    <span style={{ position: 'absolute', top: 2, right: 5, color: '#ef4444',
-                      fontWeight: 800, fontSize: 21, lineHeight: 1 }}>×</span>)}
                 </td>
               );
             })}

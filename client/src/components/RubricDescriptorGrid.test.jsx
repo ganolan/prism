@@ -71,6 +71,20 @@ describe('RubricDescriptorGrid', () => {
     fireEvent.click(screen.getByText('Clear.').closest('td'));
     expect(onSelect).toHaveBeenCalledWith('t1', 'EX');
   });
+  it('floats the corner sparkle ahead of the text so the descriptor wraps around it, not under it', () => {
+    renderGrid((tid, lvl) => (lvl === 'ED' ? { suggested: true } : {}));
+    const edCell = screen.getByText('Polished.').closest('td');
+    const mark = edCell.querySelector('svg').parentElement;
+    expect(mark.style.cssFloat).toBe('right');
+    expect(mark.style.position).not.toBe('absolute');
+    expect(edCell.firstChild).toBe(mark);
+  });
+  it('floats the staged-removal × the same way', () => {
+    renderGrid((tid, lvl) => (lvl === 'ED' ? { staged: true } : {}));
+    const mark = screen.getByText('×');
+    expect(mark.style.cssFloat).toBe('right');
+    expect(screen.getByText('Polished.').closest('td').firstChild).toBe(mark);
+  });
   it('renders "Insufficient Evidence" in an uncovered topic\'s IE cell', () => {
     const uncovered = [{ topic: { id: 't9', title: 'Orphan topic', category_title: 'Produce', external_id: 'X9' }, criterion: null }];
     render(<RubricDescriptorGrid rows={uncovered} levels={LEVELS} cellState={() => ({})}

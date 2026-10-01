@@ -857,3 +857,11 @@ also used in place of the `✦` text character, so every AI-suggestion marker
 (rubric cells, the Reviewer notes header, Reviewer Analysis, "Suggested"
 tags, "Revised", "Accept all suggestions") is the same icon. Colour is always
 `var(--ai-suggest)` (white on the solid "Revised" badge).
+
+**Corner marks float, they don't overlay (October 2026).** In
+`RubricDescriptorGrid`, the AI star and the red staged-removal "×" sit in the
+cell's top-right corner as a **float**, placed before the descriptor text. The
+first line wraps around the mark and the lines below keep the full width.
+Previously they were `position: absolute` on top of the text, which hid words
+on the first line. Use the same pattern for any future corner badge on a text
+cell.

@@ -10,6 +10,7 @@ import ToolsPage from './pages/ToolsPage.jsx';
 import AnalyticsPage from './pages/AnalyticsPage.jsx';
 import FeedbackPage from './pages/FeedbackPage.jsx';
 import AssessmentSummaryPage from './pages/AssessmentSummaryPage.jsx';
+import SettingsPage from './pages/SettingsPage.jsx';
 import { useTheme } from './hooks/useTheme.jsx';
 import { DataVersionContext } from './hooks/useDataVersion.jsx';
 import SyncDialog from './components/SyncDialog.jsx';
@@ -77,6 +78,7 @@ function Shell({ onSyncComplete }) {
         <NavLink to="/feedback">Feedback Review</NavLink>
         <NavLink to="/tools">Class Tools</NavLink>
         <NavLink to="/import">Import CSV</NavLink>
+        <NavLink to="/settings">Settings</NavLink>
         <div className="sidebar-spacer" />
         <button className="sync-btn" onClick={() => { setNavOpen(false); setSyncOpen(true); }}>
           Sync
@@ -106,6 +108,7 @@ function Shell({ onSyncComplete }) {
           <Route path="/feedback" element={<FeedbackPage />} />
           <Route path="/tools" element={<ToolsPage />} />
           <Route path="/import" element={<ImportPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </main>
       {syncOpen && (

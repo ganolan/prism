@@ -846,3 +846,14 @@ suggestion** (solid, on the right). Both fold the box to a dashed one-liner,
 state lives on the server (`feedback.suggestion_state`), so it holds across
 devices. Only an agent re-run that *changes* the narrative resets it, to
 `revised`, which shows the box again tagged **✦ Revised**.
+
+## The AI mark: one rounded four-point star (October 2026)
+
+`AiSparkle` is a **single four-point star with curved sides and rounded tips**
+(Gemini-like): one filled path, softened by a round-joined stroke in the same
+`currentColor`. It replaced the 3-star `ai-sparkle.svg` glyph (June 2026), at
+the teacher's request, going back to the single star used before that. It's
+also used in place of the `✦` text character, so every AI-suggestion marker
+(rubric cells, the Reviewer notes header, Reviewer Analysis, "Suggested"
+tags, "Revised", "Accept all suggestions") is the same icon. Colour is always
+`var(--ai-suggest)` (white on the solid "Revised" badge).

@@ -5,6 +5,7 @@
 // border; a pending (unpublished) choice is a light fill with a dashed border;
 // an agent's suggestion (PrisMCP scale_level) gets the fuchsia suggestion ring.
 import { LEVEL_COLORS, CELL_TEXT, LEVELS } from '../lib/masteryLevels.js';
+import AiSparkle from './AiSparkle.jsx';
 
 // Colour key into the shared 5-level palette. GAS codes use their own colour;
 // other scales map by rank so best reads green and worst reads red.
@@ -52,7 +53,9 @@ export default function ScaleLevelPicker({ scale, syncedCode = null, pendingCode
             <strong style={{ display: 'block' }}>
               {level.label}
               {isSuggested && (
-                <span style={{ marginLeft: '0.4rem', color: 'var(--ai-suggest)', fontSize: '0.68rem', fontWeight: 700 }}>✦ Suggested</span>
+                <span style={{ marginLeft: '0.4rem', color: 'var(--ai-suggest)', fontSize: '0.68rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '0.2rem' }}>
+                  <AiSparkle size={11} /> Suggested
+                </span>
               )}
             </strong>
             {level.descriptor && (

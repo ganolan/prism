@@ -954,8 +954,9 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             />
             {/* What the agent checked to suggest this level (teacher-facing). */}
             {suggestedScaleLabel && scaleEvidence && (
-              <div style={{ marginTop: '0.4rem', fontSize: '0.75rem', color: 'var(--ai-suggest)' }}>
-                {`✦ Suggested ${suggestedScaleLabel}: ${scaleEvidence}`}
+              <div style={{ marginTop: '0.4rem', fontSize: '0.75rem', color: 'var(--ai-suggest)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                <AiSparkle size={12} />
+                {`Suggested ${suggestedScaleLabel}: ${scaleEvidence}`}
               </div>
             )}
           </>
@@ -1293,8 +1294,9 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
                   <span style={{
                     borderRadius: 5, padding: '0.05rem 0.35rem', fontWeight: 700,
                     background: 'var(--ai-suggest)', color: '#fff',
+                    display: 'inline-flex', alignItems: 'center', gap: '0.2rem',
                   }}>
-                    ✦ Revised
+                    <AiSparkle size={10} /> Revised
                   </span>
                 )}
               </div>
@@ -2013,7 +2015,7 @@ export default function AssessmentSummaryPage() {
                 title="Select each agent-suggested level for review. Nothing is sent until you publish."
                 style={{ color: 'var(--ai-suggest)', borderColor: 'var(--ai-suggest)' }}
               >
-                ✦ Accept all suggestions ({openScaleSuggestions})
+                <AiSparkle size={13} /> Accept all suggestions ({openScaleSuggestions})
               </button>
             )}
             {bulkLevel && (

@@ -751,6 +751,14 @@ the original 56-day gap and the fixed/re-verified result are in `.claude/powersc
   `.claude/powerschool-api-reference.md` for the observed shape.
 - Triage covers **current courses only** (`archived = 0 AND excluded = 0`); archived/excluded courses are
   out of scope by design (per `global-constraints.md`).
+- **Final-review fixes (2026-10-02):** only assignments that accept Schoology submissions
+  (`assignments.accepts_submissions` = `allow_dropbox`, set every sync) can make a student outstanding —
+  paper/test summatives had put whole classes on the referral list; those now show in Feedback owed for
+  the whole roster from the due date. Triage + referral rows carry `blockNumber` (UI chip
+  `[BK n] Course`), `list_courses` returns `block_number`; "Mark referred" only at the limit; Schoology's
+  `late = 0` clears "submitted day N"; LTI state beats a stale `submission_type`; `lastSyncAt` = last
+  *completed* sync; no triage on archived course pages; `list_referrals` takes a `student` filter.
+  Spec "Verification results" 8–9.
 
 **Tests:** 780 server + 522 client Vitest tests pass; `npm run build` succeeds.
 

@@ -216,6 +216,19 @@ explicit request; descriptions say so.
 6. **Assessments tab** shows the ungraded count + wait only for assignments that still owe feedback
    (no separate "All graded" label).
 7. **Parity run** against the Master Plan is the last gate before the panels are trusted.
+8. **Only work that accepts submissions can be outstanding** (final review, 2026-10-02). Paper /
+   in-class / gradebook-only summatives — including Schoology tests/quizzes — carry no submission
+   signal, so every student looked outstanding until graded (a whole class went red). New column
+   **`assignments.accepts_submissions`** = Schoology `allow_dropbox == 1` (native dropbox *and*
+   OneDrive/GDrive LTI), written on every sync. Late work only for `1`; for `NULL` (not synced since
+   the column was added) only when some targeted student has a real submission signal; never for
+   `0`. For `0`, Feedback owed counts every targeted non-excused student as handed in **on the due
+   date** (wait from due), so the paper-grading backlog still shows. Cost: a student who skipped a
+   Schoology test isn't flagged late.
+9. **"Mark referred" only at the limit.** `recordReferral` accepts `referred` only for a row whose
+   tone is red (else `NOT_AT_LIMIT`, HTTP 409); `exempt` is allowed at any tone (an agreed extension
+   can be logged early). A submitted pair Schoology itself marks on time (`grades.late = 0`, e.g. a
+   per-student extension) is never "submitted day N".
 
 ## Out of scope (now)
 

@@ -6,13 +6,17 @@ import { getDb } from '../server/db/index.js';
 import { getAssessmentContext } from '../server/services/assessmentContext.js';
 import { writeStudentSuggestions, upsertAssessmentAnalysis } from '../server/services/suggestions.js';
 import { listCourses, listAssignments, listStudents, listRubricsTool, readRubric, writeRubric, attachRubricTool } from './handlers.js';
+import { getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool } from './handlers.js';
 import { assertExplicitDbPath } from './dbGuard.js';
 
 // <2KB tool-search hint (spec §3.4) so a client knows when to surface PrisMCP.
 export const INSTRUCTIONS =
   "Read a Prism-tracked course/assignment's roster, rubric measurement-topics, " +
   'and current grades, and write AI grading suggestions back into Prism for ' +
-  'teacher review. Use when grading student work for a course managed in Prism.';
+  'teacher review. Use when grading student work for a course managed in Prism. ' +
+  'Also triage: which students are approaching an academic-office referral for ' +
+  'late summative work, which assessments have waited longest for feedback ' +
+  '(all in school days), and school-calendar arithmetic.';
 
 // Open the shared Prism DB (resolved relative to server/db, honoring DB_PATH)
 // and set busy_timeout so a brief write collision with the Express server
@@ -174,6 +178,73 @@ export function createServer() {
       },
     },
     async ({ rubric_name, assignment_id }) => ({ content: [{ type: 'text', text: JSON.stringify(attachRubricTool(getDb(), { rubric_name, assignment_id })) }] })
+  );
+
+  const text = (data) => ({ content: [{ type: 'text', text: JSON.stringify(data) }] });
+
+  server.registerTool(
+    'get_triage',
+    {
+      description:
+        "Late-work referral watch + feedback owed, exactly as Prism's dashboard shows them. lateWork: summative work " +
+        'not submitted (or submitted after crossing the limit), with daysLate in SCHOOL days and tone green/amber/red ' +
+        '(red = at the referral limit). feedbackOwed: per assessment, how many submissions are ungraded and the oldest ' +
+        'wait in school days. Includes the limits (settings), calendar source (approx = weekday fallback) and lastSyncAt — ' +
+        'say when data may be stale. Use for "who is close to referral?" or "what should I grade first?".',
+      inputSchema: {
+        course: z.union([z.number(), z.string()]).optional().describe('Course id (list_courses) or a name/code fragment; omit for all current courses'),
+        student: z.union([z.number(), z.string()]).optional().describe('Student id or name fragment to filter lateWork'),
+        include_formative: z.boolean().optional().describe('Include formative work in feedbackOwed (default: the teacher setting)'),
+      },
+    },
+    async (args) => text(getTriageTool(getDb(), args))
+  );
+
+  server.registerTool(
+    'list_referrals',
+    {
+      description: 'History of late-work pairs the teacher marked referred (to the academic office) or exempt, newest first, with notes and the school-day count at the time.',
+      inputSchema: {
+        course: z.union([z.number(), z.string()]).optional().describe('Course id or name/code fragment'),
+        since: z.string().optional().describe("Only records on/after this date, 'YYYY-MM-DD'"),
+      },
+    },
+    async (args) => text(listReferralsTool(getDb(), args))
+  );
+
+  server.registerTool(
+    'school_calendar',
+    {
+      description: "School-calendar arithmetic using the same rule as triage: info for a date (school day?, cycle letter, school-day number) and, with `to`, the count of school days d where date < d <= to. source 'weekdays' / approx = no PowerSchool calendar for that range.",
+      inputSchema: {
+        date: z.string().optional().describe("'YYYY-MM-DD' (default today)"),
+        to: z.string().optional().describe("'YYYY-MM-DD' end date for a school-day count"),
+      },
+    },
+    async (args) => text(schoolCalendarTool(getDb(), args))
+  );
+
+  server.registerTool(
+    'record_referral',
+    {
+      description: "Record the teacher's action on a late-work row: 'referred' (sent to the academic office) or 'exempt' (e.g. agreed extension; add a note). ONLY call when the teacher explicitly says so. Use student_id/assignment_id from get_triage lateWork; rejects pairs not currently on the list.",
+      inputSchema: {
+        student_id: z.number().describe('lateWork[].studentId'),
+        assignment_id: z.number().describe('lateWork[].assignmentId'),
+        action: z.enum(['referred', 'exempt']),
+        note: z.string().optional().describe('Optional reason, e.g. "agreed extension"'),
+      },
+    },
+    async (args) => text(recordReferralTool(getDb(), args))
+  );
+
+  server.registerTool(
+    'undo_referral',
+    {
+      description: 'Undo a referral/exemption by its id (from list_referrals or record_referral). The pair returns to the late-work list if still late. Only when the teacher asks.',
+      inputSchema: { id: z.number().describe('Referral id') },
+    },
+    async (args) => text(undoReferralTool(getDb(), args))
   );
 
   // Read-only @-mention mirror of the read tools (spec §3.2), so the teacher can

@@ -9,6 +9,9 @@ import { attachRubric } from '../server/services/rubricAttach.js';
 import { LEVELS } from '../server/lib/proficiencyScale.js';
 import { normalizeSubmissionStatus, gradingState, getRoster, scoreScaleFor } from '../server/services/assessmentContext.js';
 import { preferredFirstName } from '../server/services/studentNames.js';
+import { getTriage, listReferrals, recordReferral, undoReferral } from '../server/services/triage.js';
+import { loadCalendar } from '../server/services/schoolCalendar.js';
+import { todayLocal } from '../server/lib/schoolDays.js';
 
 // Active courses = not archived, not excluded, not hidden. Mirrors the
 // 'current' view in server/routes/courses.js, plus the excluded filter (#56,
@@ -167,4 +170,58 @@ export function attachRubricTool(db, { rubric_name, assignment_id }) {
   const { unmatched } = attachRubric(db, { rubricId: rubric.id, courseId: asg.course_id, assignmentId: asg.schoology_assignment_id });
   const nameById = Object.fromEntries(rubric.criteria.map((c) => [c.id, c.criterion_name]));
   return { attached_to: Number(assignment_id), rubric: rubric_name, unmatched_criteria: unmatched.map((id) => nameById[id] ?? `<criterion id=${id}>`) };
+}
+
+// ── Triage (late-work referral watch + feedback owed) ────────────────────────
+// Same service as the dashboard (server/services/triage.js), so numbers match.
+
+// A course reference: a local id, or a case-insensitive fragment of the course
+// name or code, among current courses. null/'' → all courses.
+export function resolveCourseRef(db, ref) {
+  if (ref == null || ref === '') return null;
+  const courses = db.prepare(`SELECT id, course_name, course_code FROM courses WHERE archived = 0 AND excluded = 0`).all();
+  if (/^\d+$/.test(String(ref))) {
+    const hit = courses.find((c) => c.id === Number(ref));
+    if (hit) return hit.id;
+  }
+  const q = String(ref).toLowerCase();
+  const hits = courses.filter((c) => c.course_name.toLowerCase().includes(q) || (c.course_code || '').toLowerCase().includes(q));
+  if (hits.length === 1) return hits[0].id;
+  if (hits.length === 0) throw new Error(`No active course matches "${ref}" — call list_courses for ids`);
+  throw new Error(`"${ref}" matches several courses (${hits.map((c) => c.course_name).join(', ')}) — pass a course id`);
+}
+
+export function getTriageTool(db, { course, student, include_formative } = {}) {
+  const t = getTriage(db, { courseId: resolveCourseRef(db, course), includeFormative: include_formative });
+  if (student != null && student !== '') {
+    const q = String(student).toLowerCase();
+    t.lateWork = t.lateWork.filter((r) => String(r.studentId) === String(student) || r.studentName.toLowerCase().includes(q));
+  }
+  return t;
+}
+
+export function listReferralsTool(db, { course, since } = {}) {
+  return listReferrals(db, { courseId: resolveCourseRef(db, course), since: since || null });
+}
+
+export function schoolCalendarTool(db, { date, to } = {}) {
+  const cal = loadCalendar(db);
+  const today = todayLocal();
+  const from = date || today;
+  return {
+    source: cal.source,
+    totalSchoolDays: cal.totalSchoolDays,
+    syncedAt: cal.syncedAt,
+    today: cal.info(today),
+    date: cal.info(from),
+    ...(to ? { between: { from, to, ...cal.between(from, to), rule: 'school days d with from < d <= to' } } : {}),
+  };
+}
+
+export function recordReferralTool(db, { student_id, assignment_id, action, note } = {}) {
+  return recordReferral(db, { studentId: student_id, assignmentId: assignment_id, action, note, source: 'mcp' });
+}
+
+export function undoReferralTool(db, { id } = {}) {
+  return undoReferral(db, id);
 }

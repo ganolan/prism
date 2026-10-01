@@ -20,11 +20,12 @@ async function connect() {
 
 beforeEach(() => {
   getDb().exec(
+    'DELETE FROM referrals; DELETE FROM school_days; ' +
+    'DELETE FROM rubric_attachment_topics; DELETE FROM rubric_attachments; ' +
+    'DELETE FROM rubric_descriptors; DELETE FROM rubric_criteria; DELETE FROM rubrics; ' +
     'DELETE FROM assessment_analysis; DELETE FROM feedback; DELETE FROM mastery_alignments; ' +
     'DELETE FROM mastery_scores; DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
-    'DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;' +
-    'DELETE FROM rubric_attachment_topics; DELETE FROM rubric_attachments; ' +
-    'DELETE FROM rubric_descriptors; DELETE FROM rubric_criteria; DELETE FROM rubrics; '
+    'DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
   );
 });
 
@@ -270,5 +271,21 @@ describe('PrisMCP rubric tools', () => {
     ] } });
     const res = await client.callTool({ name: 'attach_rubric', arguments: { rubric_name: 'Design', assignment_id: asgId } });
     expect(JSON.parse(res.content[0].text)).toMatchObject({ attached_to: asgId, rubric: 'Design', unmatched_criteria: [] });
+  });
+});
+
+describe('PrisMCP triage tools', () => {
+  test('get_triage is exposed and returns both lists', async () => {
+    const client = await connect();
+    const res = await client.callTool({ name: 'get_triage', arguments: {} });
+    const data = JSON.parse(res.content[0].text);
+    expect(data).toHaveProperty('lateWork');
+    expect(data).toHaveProperty('feedbackOwed');
+  });
+
+  test('lists all five triage tools', async () => {
+    const client = await connect();
+    const names = (await client.listTools()).tools.map((t) => t.name);
+    expect(names).toEqual(expect.arrayContaining(['get_triage', 'list_referrals', 'school_calendar', 'record_referral', 'undo_referral']));
   });
 });

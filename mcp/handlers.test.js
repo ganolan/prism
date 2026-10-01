@@ -4,10 +4,12 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../server/db/index.js';
 import { listCourses, listAssignments, listStudents, writeRubric, attachRubricTool } from './handlers.js';
+import { resolveCourseRef, getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool } from './handlers.js';
 import { saveRubric, listRubrics, getRubricByName } from '../server/services/rubricStore.js';
 
 beforeEach(() => {
   getDb().exec(
+    'DELETE FROM referrals; DELETE FROM school_days; DELETE FROM mastery_scores; ' +
     'DELETE FROM rubric_attachment_topics; DELETE FROM rubric_attachments; ' +
     'DELETE FROM rubric_descriptors; DELETE FROM rubric_criteria; DELETE FROM rubrics; ' +
     'DELETE FROM mastery_alignments; DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
@@ -220,5 +222,59 @@ describe('attachRubricTool', () => {
       { position: 1, criterion_name: 'UI/UX', standard_title: 'Visual design', reporting_category: 'Produce', descriptors: { ED: 'a' } },
     ] });
     expect(attachRubricTool(db, { rubric_name: 'Design', assignment_id: 99999 }).error).toMatch(/not found/);
+  });
+});
+
+function seedLate(db) {
+  const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name, course_code) VALUES ('s', 'AP Computer Science Principles', 'APCSP')`).run().lastInsertRowid;
+  db.prepare(`INSERT INTO reporting_categories (id, course_id, external_id, title) VALUES ('cat', ?, 'X', 'C')`).run(courseId);
+  db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES ('t1', 'cat', ?, 'X.1', 'T')`).run(courseId);
+  const studentId = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u1', 'Maya', 'Chen')`).run().lastInsertRowid;
+  db.prepare(`INSERT INTO enrolments (student_id, course_id) VALUES (?, ?)`).run(studentId, courseId);
+  const assignmentId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date) VALUES (?, 'a1', 'CP2', '2020-01-06 15:30:00')`).run(courseId).lastInsertRowid;
+  db.prepare(`INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id) VALUES ('a1', 't1', ?)`).run(courseId);
+  return { courseId, studentId, assignmentId };
+}
+
+describe('triage tools', () => {
+  test('resolveCourseRef: id, name fragment, code; ambiguous/unknown throw', () => {
+    const db = getDb();
+    const { courseId } = seedLate(db);
+    expect(resolveCourseRef(db, courseId)).toBe(courseId);
+    expect(resolveCourseRef(db, 'computer science')).toBe(courseId);
+    expect(resolveCourseRef(db, 'apcsp')).toBe(courseId);
+    expect(resolveCourseRef(db, undefined)).toBeNull();
+    expect(() => resolveCourseRef(db, 'robotics')).toThrow(/No active course/);
+  });
+
+  test('getTriageTool filters by student name fragment', () => {
+    const db = getDb();
+    seedLate(db);
+    expect(getTriageTool(db, { student: 'maya' }).lateWork).toHaveLength(1);
+    expect(getTriageTool(db, { student: 'zed' }).lateWork).toEqual([]);
+  });
+
+  test('record → list → undo through the tools (source mcp)', () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedLate(db);
+    const r = recordReferralTool(db, { student_id: studentId, assignment_id: assignmentId, action: 'exempt', note: 'extension' });
+    expect(r).toMatchObject({ action: 'exempt', source: 'mcp', note: 'extension' });
+    expect(listReferralsTool(db, {})).toHaveLength(1);
+    expect(undoReferralTool(db, { id: r.id })).toEqual({ deleted: true });
+  });
+
+  test('record_referral rejects a pair not on the list', () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedLate(db);
+    recordReferralTool(db, { student_id: studentId, assignment_id: assignmentId, action: 'referred' });
+    expect(() => recordReferralTool(db, { student_id: studentId, assignment_id: assignmentId, action: 'referred' }))
+      .toThrow(/not on the late-work list/);
+  });
+
+  test('schoolCalendarTool: between + today info, weekday fallback when empty', () => {
+    const out = schoolCalendarTool(getDb(), { date: '2026-09-25', to: '2026-09-29' });
+    expect(out.between).toMatchObject({ from: '2026-09-25', to: '2026-09-29', days: 2, approx: true });
+    expect(out.source).toBe('weekdays');
+    expect(out.today).toHaveProperty('isSchoolDay');
   });
 });

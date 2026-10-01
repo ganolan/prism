@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { makeCalendar, addDays, isWeekday, epochToLocalDate } from './schoolDays.js';
+import { makeCalendar, addDays, isWeekday, epochToLocalDate, nowLocal } from './schoolDays.js';
 
 // 28/09/2026–09/10/2026 from the 26-27 Master Plan: Thu 01/10 (National Day)
 // and Fri 02/10 (PD day) are not school days.
@@ -113,5 +113,12 @@ describe('epochToLocalDate', () => {
   });
   test('04:00Z is the same calendar day in UTC and Hong Kong', () => {
     expect(epochToLocalDate(Date.parse('2026-10-05T04:00:00Z') / 1000)).toBe('2026-10-05');
+  });
+});
+
+describe('nowLocal', () => {
+  test("the machine's local date-time as 'YYYY-MM-DD HH:MM:SS' (compares with Schoology due_date strings)", () => {
+    expect(nowLocal(new Date(2026, 9, 5, 7, 3, 9))).toBe('2026-10-05 07:03:09');
+    expect(nowLocal(new Date(2026, 0, 1, 23, 59, 0))).toBe('2026-01-01 23:59:00');
   });
 });

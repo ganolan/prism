@@ -11,13 +11,16 @@ describe('triage settings', () => {
   test('defaults when nothing is stored', () => {
     expect(getTriageSettings(getDb())).toEqual({
       referralLimitDays: 8, feedbackLimitDays: 10, warnLeadDays: 3, showFormativeDefault: false,
+      makeUpAmberDays: 1, makeUpRedDays: 3,
     });
     expect(TRIAGE_DEFAULTS.referralLimitDays).toBe(8);
   });
 
   test('round-trips a patch and keeps the other values', () => {
     const s = updateTriageSettings(getDb(), { referralLimitDays: 6, showFormativeDefault: true });
-    expect(s).toEqual({ referralLimitDays: 6, feedbackLimitDays: 10, warnLeadDays: 3, showFormativeDefault: true });
+    expect(s).toEqual({
+      referralLimitDays: 6, feedbackLimitDays: 10, warnLeadDays: 3, showFormativeDefault: true, makeUpAmberDays: 1, makeUpRedDays: 3,
+    });
     expect(getTriageSettings(getDb())).toEqual(s);
   });
 
@@ -25,6 +28,19 @@ describe('triage settings', () => {
     const s = updateTriageSettings(getDb(), { referralLimitDays: 0, feedbackLimitDays: 999, warnLeadDays: -2, bogus: 1 });
     expect(s).toMatchObject({ referralLimitDays: 1, feedbackLimitDays: 60, warnLeadDays: 0 });
     expect(getDb().prepare(`SELECT COUNT(*) AS n FROM settings WHERE key LIKE '%bogus%'`).get().n).toBe(0);
+  });
+
+  test('make-up clock: amber 0–30, red 1–30', () => {
+    expect(updateTriageSettings(getDb(), { makeUpAmberDays: -1, makeUpRedDays: 0 })).toMatchObject({ makeUpAmberDays: 0, makeUpRedDays: 1 });
+    expect(updateTriageSettings(getDb(), { makeUpAmberDays: 99, makeUpRedDays: 99 })).toMatchObject({ makeUpAmberDays: 30, makeUpRedDays: 30 });
+    expect(updateTriageSettings(getDb(), { makeUpAmberDays: 2, makeUpRedDays: 5 })).toMatchObject({ makeUpAmberDays: 2, makeUpRedDays: 5 });
+  });
+
+  test('make-up amber above red is clamped to red', () => {
+    expect(updateTriageSettings(getDb(), { makeUpAmberDays: 6, makeUpRedDays: 4 })).toMatchObject({ makeUpAmberDays: 4, makeUpRedDays: 4 });
+    // Lowering red later pulls amber down with it.
+    updateTriageSettings(getDb(), { makeUpAmberDays: 3, makeUpRedDays: 5 });
+    expect(updateTriageSettings(getDb(), { makeUpRedDays: 2 })).toMatchObject({ makeUpAmberDays: 2, makeUpRedDays: 2 });
   });
 
   test('a corrupt stored value falls back to the default', () => {

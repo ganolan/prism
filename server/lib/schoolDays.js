@@ -22,6 +22,14 @@ export function todayLocal(now = new Date()) {
   return now.toLocaleDateString('en-CA');
 }
 
+// The local date-time as 'YYYY-MM-DD HH:MM:SS' — the shape of Schoology's
+// due_date strings, so the two compare as text (make-up tests: "is it over?").
+export function nowLocal(now = new Date()) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())} `
+    + `${p(now.getHours())}:${p(now.getMinutes())}:${p(now.getSeconds())}`;
+}
+
 // Epoch seconds → local 'YYYY-MM-DD'; null for 0/missing.
 export function epochToLocalDate(secs) {
   const n = Number(secs);

@@ -52,6 +52,14 @@ function grade(studentId, assignmentId, cols) {
 function scoreTopic(uid, sid) {
   db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES (?, ?, ?, 75, 'EX')`).run(uid, sid, `topic-${sid}`);
 }
+// A Schoology test (no dropbox): is_test = 1 + the attempt-read status. Due 14:00 local.
+function testItem(sid, title, due, { status = 'ok', ...opts } = {}) {
+  const id = assignment(sid, title, due, { accepts: 0, ...opts });
+  db.prepare(`UPDATE assignments SET is_test = 1, test_fetch_status = ?, due_date = ? WHERE id = ?`).run(status, `${due} 14:00:00`, id);
+  return id;
+}
+const took = (studentId, assignmentId) => grade(studentId, assignmentId, { submission_type: 'assessment' });
+const AFTER_SCHOOL = `${TODAY} 16:00:00`;
 
 beforeEach(() => {
   db = getDb();
@@ -340,6 +348,138 @@ describe('getTriage — feedback owed', () => {
   });
 });
 
+describe('getTriage — make-up tests', () => {
+  const now = AFTER_SCHOOL;
+
+  test('a targeted student with no attempt is listed; takers are not; school days since the test, worst first', () => {
+    db.prepare(`UPDATE courses SET block_number = '7' WHERE id = ?`).run(courseId);
+    const ada = student('u1', 'Ada', 'L');
+    const bo = student('u2', 'Bo', 'M');
+    const t1 = testItem('t1', 'Unit 1 test', '2026-10-13'); // Tue: 14, 15, 16 = 3 → red
+    const t2 = testItem('t2', 'Unit 2 quiz', '2026-10-15'); // Thu: 16 = 1 → amber
+    const t3 = testItem('t3', 'Unit 3 test', TODAY);        // today, over at 14:00 → 0, green
+    took(bo, t1); took(bo, t2); took(bo, t3);
+    const t = getTriage(db, { today: TODAY, now });
+    expect(t.makeUps.map((r) => [r.title, r.studentName, r.daysSince, r.tone])).toEqual([
+      ['Unit 1 test', 'Ada L', 3, 'red'], ['Unit 2 quiz', 'Ada L', 1, 'amber'], ['Unit 3 test', 'Ada L', 0, 'green'],
+    ]);
+    expect(t.makeUps[0]).toEqual({
+      studentId: ada, studentUid: 'u1', studentName: 'Ada L', courseId, courseName: 'AP CSP', blockNumber: '7',
+      assignmentId: t1, schoologyAssignmentId: 't1', title: 'Unit 1 test', dueDate: '2026-10-13',
+      daysSince: 3, tone: 'red', approx: false, extension: null,
+    });
+    expect(t.counts.makeUpsOverdue).toBe(1);
+    expect(t.makeUpsUnchecked).toBe(0);
+    expect(t.lateWork).toEqual([]); // a missed test is not late work
+  });
+
+  test('a test due today counts only once it is over (local due datetime vs local now)', () => {
+    student('u1', 'Ada', 'L');
+    testItem('t1', 'Unit 1 test', TODAY); // 14:00
+    expect(getTriage(db, { today: TODAY, now: `${TODAY} 13:59:59` }).makeUps).toEqual([]);
+    expect(getTriage(db, { today: TODAY, now: `${TODAY} 14:00:00` }).makeUps).toHaveLength(1);
+    expect(getTriage(db, { today: TODAY }).makeUps).toHaveLength(1); // an injected past day = the end of that day
+    expect(getTriage(db, { today: '2026-10-15' }).makeUps).toEqual([]); // not yet due
+  });
+
+  test('no grades row at all = not taken', () => {
+    student('u1', 'Ada', 'L');
+    testItem('t1', 'Unit 1 test', '2026-10-15');
+    expect(getTriage(db, { today: TODAY, now }).makeUps.map((r) => r.studentName)).toEqual(['Ada L']);
+  });
+
+  test('not listed: excused, scored by hand or in mastery, dropped, on the other (*) copy', () => {
+    const ada = student('u1', 'Ada', 'L');
+    const bo = student('u2', 'Bo', 'M');
+    student('u3', 'Cy', 'N', { dropped: true });
+    const dee = student('u4', 'Dee', 'O');
+    student('u5', 'Eve', 'P'); // not an assignee
+    const id = testItem('t1', 'Unit 1 test', '2026-10-15', { assignees: ['u1', 'u2', 'u3', 'u4'] }); // Eve sits the * copy
+    grade(ada, id, { exception: 1 });
+    grade(bo, id, { score: 12 });
+    scoreTopic('u4', 't1');
+    expect(getTriage(db, { today: TODAY, now }).makeUps).toEqual([]);
+  });
+
+  test('Missing (exception 3, score 0.0) is still a make-up', () => {
+    const ada = student('u1', 'Ada', 'L');
+    const id = testItem('t1', 'Unit 1 test', '2026-10-15');
+    grade(ada, id, { exception: 3, score: 0 });
+    expect(getTriage(db, { today: TODAY, now }).makeUps).toHaveLength(1);
+  });
+
+  test('a failed or never-run attempt read is unknown, not missed: no rows, counted as unchecked', () => {
+    student('u1', 'Ada', 'L');
+    testItem('t1', 'Failed read', '2026-10-15', { status: 'failed' });
+    testItem('t2', 'Never read', '2026-10-15', { status: null });
+    testItem('t3', 'Not yet due', '2026-10-20', { status: null });
+    testItem('t4', 'Formative quiz', '2026-10-15', { status: null, summative: false });
+    const t = getTriage(db, { today: TODAY, now });
+    expect(t.makeUps).toEqual([]);
+    expect(t.makeUpsUnchecked).toBe(2);
+  });
+
+  test('summative only: a formative quiz is never a make-up, even with Show formative', () => {
+    student('u1', 'Ada', 'L');
+    testItem('f1', 'Practice quiz', '2026-10-15', { summative: false });
+    expect(getTriage(db, { today: TODAY, now, includeFormative: true }).makeUps).toEqual([]);
+  });
+
+  test('only Schoology tests: unpublished, non-test and archived-course work are not make-ups', () => {
+    student('u1', 'Ada', 'L');
+    const id = testItem('t1', 'Unit 1 test', '2026-10-15');
+    db.prepare('UPDATE assignments SET published = 0 WHERE id = ?').run(id);
+    assignment('p1', 'Paper test', '2026-10-15', { accepts: 0 });
+    expect(getTriage(db, { today: TODAY, now }).makeUps).toEqual([]);
+    db.prepare('UPDATE assignments SET published = 1 WHERE id = ?').run(id);
+    db.prepare('UPDATE courses SET archived = 1 WHERE id = ?').run(courseId);
+    expect(getTriage(db, { today: TODAY, now, courseId }).makeUps).toEqual([]);
+  });
+
+  test('an extension moves the clock ("sitting it Thursday"): green until then, counted from it', () => {
+    const ada = student('u1', 'Ada', 'L');
+    const id = testItem('t1', 'Unit 1 test', '2026-10-13'); // 3 → red
+    const e = recordExtension(db, { studentId: ada, assignmentId: id, lessons: 2, note: 'sits Thu' }); // until Thu 15/10
+    expect(getTriage(db, { today: TODAY, now }).makeUps[0]).toMatchObject({
+      dueDate: '2026-10-13', daysSince: 1, tone: 'amber', extension: { id: e.id, lessons: 2, until: '2026-10-15', note: 'sits Thu' },
+    });
+    recordExtension(db, { studentId: ada, assignmentId: id, lessons: 5 }); // until Tue 20/10
+    expect(getTriage(db, { today: TODAY, now }).makeUps[0]).toMatchObject({ daysSince: 0, tone: 'green' });
+  });
+
+  test('the make-up settings move the tones', () => {
+    student('u1', 'Ada', 'L');
+    testItem('t1', 'Unit 1 test', '2026-10-15'); // 1
+    expect(getTriage(db, { today: TODAY, now }).makeUps[0].tone).toBe('amber');
+    updateTriageSettings(db, { makeUpAmberDays: 2, makeUpRedDays: 4 });
+    expect(getTriage(db, { today: TODAY, now }).makeUps[0].tone).toBe('green');
+    updateTriageSettings(db, { makeUpAmberDays: 0, makeUpRedDays: 1 });
+    expect(getTriage(db, { today: TODAY, now }).makeUps[0].tone).toBe('red');
+  });
+
+  test('studentId filter', () => {
+    const ada = student('u1', 'Ada', 'L');
+    student('u2', 'Bo', 'M');
+    testItem('t1', 'Unit 1 test', '2026-10-13');
+    const t = getTriage(db, { today: TODAY, now, studentId: ada });
+    expect(t.makeUps.map((r) => r.studentId)).toEqual([ada]);
+    expect(t.counts.makeUpsOverdue).toBe(1);
+  });
+
+  test('feedback owed on a checked test: only takers count as handed in (not the whole roster)', () => {
+    const ada = student('u1', 'Ada', 'L');
+    student('u2', 'Bo', 'M');
+    const id = testItem('t1', 'Unit 1 test', '2026-10-12'); // 13..16/10 = 4 school days
+    took(ada, id);
+    expect(getTriage(db, { today: TODAY, now }).feedbackOwed).toEqual([expect.objectContaining({
+      title: 'Unit 1 test', owed: 1, submittedTotal: 1, oldestWaitDays: 4,
+    })]);
+    // Attempts unknown → the paper rule (whole targeted roster handed in at the due date) still applies.
+    db.prepare(`UPDATE assignments SET test_fetch_status = 'failed' WHERE id = ?`).run(id);
+    expect(getTriage(db, { today: TODAY, now }).feedbackOwed[0]).toMatchObject({ owed: 2, submittedTotal: 2 });
+  });
+});
+
 describe('getTriage — lastSyncAt', () => {
   test('is the newest completed sync, ignoring running and failed ones', () => {
     const log = db.prepare(`INSERT INTO sync_log (sync_type, status, started_at, completed_at) VALUES (?, ?, ?, ?)`);
@@ -482,6 +622,21 @@ describe('extensions (extend by N lessons = school days)', () => {
       studentId: a, studentName: 'Ada L', assignmentId: id, title: 'Future', courseId, courseName: 'AP CSP', blockNumber: '7',
       dueDate: '2026-10-20', lessons: 3, note: 'trip', source: 'mcp', until: '2026-10-23',
     });
+  });
+
+  test('re-extending stamps updated_at and overwrites source; since/order use the latest time', () => {
+    const a = student('u1', 'Ada', 'L');
+    const b = student('u2', 'Bo', 'M');
+    const id = assignment('a1', 'Essay', '2026-10-05');
+    const first = recordExtension(db, { studentId: a, assignmentId: id, lessons: 2 });
+    expect(first.updatedAt).toBeNull();
+    recordExtension(db, { studentId: b, assignmentId: id, lessons: 2 });
+    db.prepare(`UPDATE extensions SET created_at = '2026-01-05 01:00:00'`).run(); // both granted long ago
+    const again = recordExtension(db, { studentId: a, assignmentId: id, lessons: 4, source: 'mcp' });
+    expect(again).toMatchObject({ id: first.id, lessons: 4, source: 'mcp', createdAt: '2026-01-05 01:00:00' });
+    expect(again.updatedAt).toEqual(expect.any(String));
+    expect(listExtensions(db, { since: todayLocal() }).map((x) => x.studentName)).toEqual(['Ada L']);
+    expect(listExtensions(db, {}).map((x) => x.studentName)).toEqual(['Ada L', 'Bo M']); // re-extended first
   });
 
   test('re-extending the same pair replaces lessons and note (one row)', () => {

@@ -4,6 +4,9 @@ const TRIAGE_KEYS = {
   feedbackLimitDays: { def: 10, min: 1, max: 60 },
   warnLeadDays: { def: 3, min: 0, max: 59 },
   showFormativeDefault: { def: false, bool: true },
+  // Make-up tests: amber from this many school days after the test, red from makeUpRedDays.
+  makeUpAmberDays: { def: 1, min: 0, max: 30 },
+  makeUpRedDays: { def: 3, min: 1, max: 30 },
 };
 
 export const TRIAGE_DEFAULTS = Object.fromEntries(Object.entries(TRIAGE_KEYS).map(([k, s]) => [k, s.def]));
@@ -24,9 +27,12 @@ export function getTriageSettings(db) {
     db.prepare(`SELECT key, value FROM settings WHERE key LIKE 'triage.%'`).all()
       .map((r) => [r.key.slice('triage.'.length), r.value]),
   );
-  return Object.fromEntries(
+  const s = Object.fromEntries(
     Object.entries(TRIAGE_KEYS).map(([k, spec]) => [k, stored.has(k) ? parse(spec, stored.get(k)) : spec.def]),
   );
+  // Amber can't start after red.
+  s.makeUpAmberDays = Math.min(s.makeUpAmberDays, s.makeUpRedDays);
+  return s;
 }
 
 export function updateTriageSettings(db, patch = {}) {

@@ -1,10 +1,10 @@
-// Triage: late-work referral watch + feedback owed
+// Triage: late-work referral watch + feedback owed + make-up tests
 // (docs/superpowers/specs/2026-10-01-triage-late-work-and-feedback-owed-design.md).
 // The single source of truth for the web API (server/routes/triage.js) and
 // PrisMCP (mcp/handlers.js), so the agent sees exactly the dashboard's numbers.
 // All day counts are school days (server/lib/schoolDays.js).
 
-import { todayLocal, epochToLocalDate } from '../lib/schoolDays.js';
+import { todayLocal, nowLocal, epochToLocalDate } from '../lib/schoolDays.js';
 import { loadCalendar } from './schoolCalendar.js';
 import { getTriageSettings } from './settings.js';
 import { gradingState } from './assessmentContext.js';
@@ -20,6 +20,13 @@ export class TriageError extends Error {
 export function toneFor(days, limit, warnLead) {
   if (days >= limit) return 'red';
   if (days >= limit - warnLead) return 'amber';
+  return 'green';
+}
+
+// Make-up clock: green on the test day, amber from amberDays, red from redDays.
+export function makeUpTone(days, amberDays, redDays) {
+  if (days >= redDays) return 'red';
+  if (days >= amberDays) return 'amber';
   return 'green';
 }
 
@@ -54,11 +61,24 @@ const ALIGNED_SQL = `CASE WHEN EXISTS (
 function pastDueAssignments(db, courseId, today) {
   return db.prepare(`
     SELECT a.id, a.course_id, a.schoology_assignment_id, a.title, a.due_date, a.is_lti_submission, a.num_assignees,
-      a.accepts_submissions, ${ALIGNED_SQL} AS aligned
+      a.accepts_submissions, a.is_test, a.test_fetch_status, ${ALIGNED_SQL} AS aligned
     FROM assignments a
     WHERE a.course_id = ? AND a.published = 1
       AND a.due_date IS NOT NULL AND a.due_date != '' AND substr(a.due_date, 1, 10) < ?
   `).all(courseId, today);
+}
+
+// Published summative Schoology tests that are over: the full local due datetime
+// ('YYYY-MM-DD HH:MM:SS') is at or before the local now, so a same-day test counts
+// once it has ended.
+function pastDueTests(db, courseId, nowStamp) {
+  return db.prepare(`
+    SELECT a.id, a.course_id, a.schoology_assignment_id, a.title, a.due_date, a.is_lti_submission, a.num_assignees,
+      a.test_fetch_status, ${ALIGNED_SQL} AS aligned
+    FROM assignments a
+    WHERE a.course_id = ? AND a.published = 1 AND a.is_test = 1
+      AND a.due_date IS NOT NULL AND a.due_date != '' AND a.due_date <= ?
+  `).all(courseId, nowStamp).filter((a) => a.aligned);
 }
 
 function assignmentFacts(db, a) {
@@ -122,6 +142,12 @@ function studentState(a, facts, st) {
 
 const fullName = (st) => `${preferredFirstName(st)} ${st.last_name}`;
 
+// A student's effective due date: an extension moves it to the N-th school day after.
+function effectiveDue(cal, due, ext) {
+  return ext ? cal.addSchoolDays(due, ext.lessons) : { date: due, approx: false };
+}
+const extensionInfo = (ext, until) => (ext ? { id: ext.id, lessons: ext.lessons, until, note: ext.note } : null);
+
 // Can this assignment make a student "outstanding"? Only when it takes
 // submissions in Schoology (allow_dropbox, synced as accepts_submissions = 1).
 // Paper/in-class/gradebook-only work (0) — incl. Schoology tests/quizzes — has
@@ -134,10 +160,14 @@ function tracksSubmissions(a, states) {
   return false;
 }
 
-export function getTriage(db, { courseId = null, studentId = null, includeFormative, today = todayLocal() } = {}) {
+// `today` and `now` are injectable (tests). `now` ('YYYY-MM-DD HH:MM:SS', local)
+// decides whether a test due today is over; it defaults to the real local time
+// when `today` is the real today, else to the end of the injected day.
+export function getTriage(db, { courseId = null, studentId = null, includeFormative, today = todayLocal(), now = null } = {}) {
   const settings = getTriageSettings(db);
   const formative = includeFormative ?? settings.showFormativeDefault;
-  const { referralLimitDays, feedbackLimitDays, warnLeadDays } = settings;
+  const { referralLimitDays, feedbackLimitDays, warnLeadDays, makeUpAmberDays, makeUpRedDays } = settings;
+  const nowStamp = now ?? (today === todayLocal() ? nowLocal() : `${today} 23:59:59`);
   const cal = loadCalendar(db);
   const handled = new Set(db.prepare('SELECT student_id, assignment_id FROM referrals').all()
     .map((r) => `${r.student_id}:${r.assignment_id}`));
@@ -146,9 +176,38 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
 
   const lateWork = [];
   const feedbackOwed = [];
+  const makeUps = [];
+  let makeUpsUnchecked = 0;
   const courses = currentCourses(db, courseId);
   for (const c of courses) {
     const students = roster(db, c.id);
+    const courseFields = { courseId: c.id, courseName: c.course_name, blockNumber: c.block_number ?? null };
+
+    // Make-up tests: a summative Schoology test is over and a targeted, active,
+    // non-excused student has no attempt and no score (a score = sat on paper).
+    // Only when the attempt read succeeded — otherwise unknown, never "missed".
+    for (const a of pastDueTests(db, c.id, nowStamp)) {
+      if (a.test_fetch_status !== 'ok') { makeUpsUnchecked++; continue; }
+      const facts = assignmentFacts(db, a);
+      const due = a.due_date.slice(0, 10);
+      for (const st of students) {
+        if (facts.assignees && !facts.assignees.has(st.schoology_uid)) continue;
+        if (studentId != null && st.id !== Number(studentId)) continue;
+        const s = studentState(a, facts, st);
+        const took = facts.gradeByStudent.get(st.id)?.submission_type === 'assessment';
+        if (s.excused || took || s.scored) continue;
+        const ext = extensions.get(`${st.id}:${a.id}`);
+        const moved = effectiveDue(cal, due, ext);
+        const { days, approx } = cal.between(moved.date, today);
+        makeUps.push({
+          studentId: st.id, studentUid: st.schoology_uid, studentName: fullName(st), ...courseFields,
+          assignmentId: a.id, schoologyAssignmentId: a.schoology_assignment_id, title: a.title, dueDate: due,
+          daysSince: days, tone: makeUpTone(days, makeUpAmberDays, makeUpRedDays),
+          approx: approx || moved.approx, extension: extensionInfo(ext, moved.date),
+        });
+      }
+    }
+
     for (const a of pastDueAssignments(db, c.id, today)) {
       if (!a.aligned && !formative) continue; // nothing to report for formative work
       const facts = assignmentFacts(db, a);
@@ -162,8 +221,10 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
       const tracked = tracksSubmissions(a, targeted);
       const states = studentId == null ? targeted : targeted.filter(({ st }) => st.id === Number(studentId));
       // No submission channel: everyone targeted handed it in on the due date
-      // (paper / in class), so the grading backlog still shows.
-      const handedInAtDue = a.accepts_submissions === 0;
+      // (paper / in class), so the grading backlog still shows. A Schoology test
+      // whose attempts were read is the exception: only takers handed it in.
+      const testChecked = a.is_test === 1 && a.test_fetch_status === 'ok';
+      const handedInAtDue = a.accepts_submissions === 0 && !testChecked;
       let owed = 0;
       let submittedTotal = 0;
       let oldestWaitDays = 0;
@@ -175,7 +236,7 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
           // An extension moves this student's due date to the N-th school day
           // after it: hidden until then, late from then. dueDate stays original.
           const ext = extensions.get(`${st.id}:${a.id}`);
-          const moved = ext ? cal.addSchoolDays(due, ext.lessons) : { date: due, approx: false };
+          const moved = effectiveDue(cal, due, ext);
           const effDue = moved.date;
           let row = null;
           if (!s.submitted && !s.scored) {
@@ -197,9 +258,8 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
             lateWork.push({
               ...row,
               approx: row.approx || moved.approx,
-              extension: ext ? { id: ext.id, lessons: ext.lessons, until: effDue, note: ext.note } : null,
-              studentId: st.id, studentUid: st.schoology_uid, studentName: fullName(st),
-              courseId: c.id, courseName: c.course_name, blockNumber: c.block_number ?? null,
+              extension: extensionInfo(ext, effDue),
+              studentId: st.id, studentUid: st.schoology_uid, studentName: fullName(st), ...courseFields,
               assignmentId: a.id, schoologyAssignmentId: a.schoology_assignment_id, title: a.title, dueDate: due,
               tone: toneFor(row.daysLate, referralLimitDays, warnLeadDays),
             });
@@ -220,7 +280,7 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
       if (owed > 0) {
         feedbackOwed.push({
           assignmentId: a.id, schoologyAssignmentId: a.schoology_assignment_id,
-          courseId: c.id, courseName: c.course_name, blockNumber: c.block_number ?? null, title: a.title, dueDate: due, aligned: !!a.aligned,
+          ...courseFields, title: a.title, dueDate: due, aligned: !!a.aligned,
           owed, submittedTotal, oldestWaitDays,
           tone: toneFor(oldestWaitDays, feedbackLimitDays, warnLeadDays), approx: waitApprox,
         });
@@ -230,6 +290,7 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
 
   lateWork.sort((x, y) => y.daysLate - x.daysLate || x.studentName.localeCompare(y.studentName));
   feedbackOwed.sort((x, y) => y.oldestWaitDays - x.oldestWaitDays || x.title.localeCompare(y.title));
+  makeUps.sort((x, y) => y.daysSince - x.daysSince || x.studentName.localeCompare(y.studentName));
 
   // Referrals + extensions recorded in scope (the panel's history link).
   const courseIds = courses.map((c) => c.id);
@@ -255,10 +316,14 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
     counts: {
       atReferralLimit: lateWork.filter((r) => r.tone === 'red').length,
       feedbackOverdue: feedbackOwed.filter((r) => r.tone === 'red').length,
+      makeUpsOverdue: makeUps.filter((r) => r.tone === 'red').length,
     },
-    approx: lateWork.some((r) => r.approx) || feedbackOwed.some((r) => r.approx),
+    approx: [lateWork, feedbackOwed, makeUps].some((rows) => rows.some((r) => r.approx)),
     lateWork,
     feedbackOwed,
+    makeUps,
+    // Past-due summative tests whose attempts couldn't be read ("re-sync").
+    makeUpsUnchecked,
   };
 }
 
@@ -331,7 +396,7 @@ export const MAX_EXTENSION_LESSONS = 60;
 export function listExtensions(db, { courseId = null, studentId = null, since = null, id = null } = {}) {
   const cal = loadCalendar(db);
   return db.prepare(`
-    SELECT x.id, x.lessons, x.note, x.source, x.created_at AS createdAt,
+    SELECT x.id, x.lessons, x.note, x.source, x.created_at AS createdAt, x.updated_at AS updatedAt,
            x.student_id AS studentId, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher,
            x.assignment_id AS assignmentId, a.schoology_assignment_id AS schoologyAssignmentId, a.title,
            substr(a.due_date, 1, 10) AS dueDate, x.course_id AS courseId, c.course_name AS courseName,
@@ -341,8 +406,8 @@ export function listExtensions(db, { courseId = null, studentId = null, since = 
     JOIN assignments a ON a.id = x.assignment_id
     JOIN courses c ON c.id = x.course_id
     WHERE (? IS NULL OR x.id = ?) AND (? IS NULL OR x.course_id = ?)
-      AND (? IS NULL OR x.student_id = ?) AND (? IS NULL OR date(x.created_at, 'localtime') >= ?)
-    ORDER BY x.created_at DESC, x.id DESC
+      AND (? IS NULL OR x.student_id = ?) AND (? IS NULL OR date(COALESCE(x.updated_at, x.created_at), 'localtime') >= ?)
+    ORDER BY COALESCE(x.updated_at, x.created_at) DESC, x.id DESC
   `).all(id, id, courseId, courseId, studentId, studentId, since, since)
     .map(({ first_name, last_name, preferred_name, preferred_name_teacher, ...x }) => ({
       ...x,
@@ -353,7 +418,8 @@ export function listExtensions(db, { courseId = null, studentId = null, since = 
 
 // Extend one student's deadline by N lessons (school days). Any time — before
 // or after the due date, at any tone — for a summative assignment in a current
-// course that targets the student. Re-extending the pair replaces lessons/note.
+// course that targets the student. Re-extending the pair replaces lessons/note/
+// source and stamps updated_at (created_at keeps the first grant).
 export function recordExtension(db, { studentId, assignmentId, lessons, note = null, source = 'app' } = {}) {
   const st = requireStudent(db, studentId);
   const n = Number(lessons);
@@ -374,7 +440,8 @@ export function recordExtension(db, { studentId, assignmentId, lessons, note = n
   if (!enrolled || !assigned) throw new TriageError('NOT_ELIGIBLE', 'That assignment does not target that student');
   db.prepare(`
     INSERT INTO extensions (student_id, assignment_id, course_id, lessons, note, source) VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT (student_id, assignment_id) DO UPDATE SET lessons = excluded.lessons, note = excluded.note
+    ON CONFLICT (student_id, assignment_id) DO UPDATE SET
+      lessons = excluded.lessons, note = excluded.note, source = excluded.source, updated_at = datetime('now')
   `).run(st.id, a.id, a.course_id, n, note || null, source);
   const { id } = db.prepare('SELECT id FROM extensions WHERE student_id = ? AND assignment_id = ?').get(st.id, a.id);
   return listExtensions(db, { id })[0];

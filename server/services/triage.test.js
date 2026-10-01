@@ -413,16 +413,22 @@ describe('getTriage — make-up tests', () => {
     testItem('t1', 'Failed read', '2026-10-15', { status: 'failed' });
     testItem('t2', 'Never read', '2026-10-15', { status: null });
     testItem('t3', 'Not yet due', '2026-10-20', { status: null });
-    testItem('t4', 'Formative quiz', '2026-10-15', { status: null, summative: false });
+    testItem('t4', 'Unaligned quiz', '2026-10-15', { status: null, summative: false });
     const t = getTriage(db, { today: TODAY, now });
     expect(t.makeUps).toEqual([]);
-    expect(t.makeUpsUnchecked).toBe(2);
+    expect(t.makeUpsUnchecked).toBe(3);
   });
 
-  test('summative only: a formative quiz is never a make-up, even with Show formative', () => {
-    student('u1', 'Ada', 'L');
-    testItem('f1', 'Practice quiz', '2026-10-15', { summative: false });
-    expect(getTriage(db, { today: TODAY, now, includeFormative: true }).makeUps).toEqual([]);
+  test('every Schoology test/quiz counts, aligned or not (the mastery grade sits on a separate "- Result" item)', () => {
+    const ada = student('u1', 'Ada', 'L');
+    const bo = student('u2', 'Bo', 'M');
+    const quiz = testItem('q1', 'Unit 1 quiz', '2026-10-15', { summative: false }); // numeric scale, no topics
+    assignment('r1', 'Unit 1 quiz - Result', '2026-10-15', { accepts: 0 });          // gradebook-only, is_test 0
+    took(ada, quiz);
+    const t = getTriage(db, { today: TODAY, now }); // Show formative off
+    expect(t.makeUps.map((r) => [r.studentId, r.title, r.tone])).toEqual([[bo, 'Unit 1 quiz', 'amber']]);
+    expect(recordExtension(db, { studentId: bo, assignmentId: quiz, lessons: 1 })).toMatchObject({ until: '2026-10-16' });
+    expect(getTriage(db, { today: TODAY, now }).makeUps[0]).toMatchObject({ daysSince: 0, tone: 'green' });
   });
 
   test('only Schoology tests: unpublished, non-test and archived-course work are not make-ups', () => {

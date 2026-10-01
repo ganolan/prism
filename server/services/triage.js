@@ -68,9 +68,10 @@ function pastDueAssignments(db, courseId, today) {
   `).all(courseId, today);
 }
 
-// Published summative Schoology tests that are over: the full local due datetime
+// Published Schoology tests/quizzes that are over: the full local due datetime
 // ('YYYY-MM-DD HH:MM:SS') is at or before the local now, so a same-day test counts
-// once it has ended.
+// once it has ended. Any alignment — quizzes are often unaligned (numeric scale),
+// with the mastery grade on a separate gradebook-only "… - Result" item (not a test).
 function pastDueTests(db, courseId, nowStamp) {
   return db.prepare(`
     SELECT a.id, a.course_id, a.schoology_assignment_id, a.title, a.due_date, a.is_lti_submission, a.num_assignees,
@@ -78,7 +79,7 @@ function pastDueTests(db, courseId, nowStamp) {
     FROM assignments a
     WHERE a.course_id = ? AND a.published = 1 AND a.is_test = 1
       AND a.due_date IS NOT NULL AND a.due_date != '' AND a.due_date <= ?
-  `).all(courseId, nowStamp).filter((a) => a.aligned);
+  `).all(courseId, nowStamp);
 }
 
 function assignmentFacts(db, a) {
@@ -183,7 +184,7 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
     const students = roster(db, c.id);
     const courseFields = { courseId: c.id, courseName: c.course_name, blockNumber: c.block_number ?? null };
 
-    // Make-up tests: a summative Schoology test is over and a targeted, active,
+    // Make-up tests: a Schoology test/quiz is over and a targeted, active,
     // non-excused student has no attempt and no score (a score = sat on paper).
     // Only when the attempt read succeeded — otherwise unknown, never "missed".
     for (const a of pastDueTests(db, c.id, nowStamp)) {
@@ -417,8 +418,8 @@ export function listExtensions(db, { courseId = null, studentId = null, since = 
 }
 
 // Extend one student's deadline by N lessons (school days). Any time — before
-// or after the due date, at any tone — for a summative assignment in a current
-// course that targets the student. Re-extending the pair replaces lessons/note/
+// or after the due date, at any tone — for a summative assignment or a Schoology
+// test/quiz (a make-up, any alignment) in a current course that targets the student. Re-extending the pair replaces lessons/note/
 // source and stamps updated_at (created_at keeps the first grant).
 export function recordExtension(db, { studentId, assignmentId, lessons, note = null, source = 'app' } = {}) {
   const st = requireStudent(db, studentId);
@@ -427,12 +428,12 @@ export function recordExtension(db, { studentId, assignmentId, lessons, note = n
     throw new TriageError('BAD_LESSONS', `lessons must be a whole number from 1 to ${MAX_EXTENSION_LESSONS}`);
   }
   const a = db.prepare(`
-    SELECT a.id, a.course_id, a.due_date, a.num_assignees, c.archived, c.excluded, ${ALIGNED_SQL} AS aligned
+    SELECT a.id, a.course_id, a.due_date, a.num_assignees, a.is_test, c.archived, c.excluded, ${ALIGNED_SQL} AS aligned
     FROM assignments a JOIN courses c ON c.id = a.course_id WHERE a.id = ?
   `).get(Number(assignmentId));
   if (!a) throw new TriageError('NOT_FOUND', `No assignment with id ${assignmentId}`);
   if (a.archived || a.excluded) throw new TriageError('NOT_ELIGIBLE', 'That assignment is not in a current course');
-  if (!a.aligned) throw new TriageError('NOT_ELIGIBLE', 'Only summative work can be extended');
+  if (!a.aligned && a.is_test !== 1) throw new TriageError('NOT_ELIGIBLE', 'Only summative work or a Schoology test can be extended');
   if (!a.due_date) throw new TriageError('NOT_ELIGIBLE', 'That assignment has no due date to extend');
   const enrolled = db.prepare('SELECT 1 FROM enrolments WHERE student_id = ? AND course_id = ? AND dropped_at IS NULL').get(st.id, a.course_id);
   const assigned = !(a.num_assignees > 0)

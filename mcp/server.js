@@ -193,8 +193,8 @@ export function createServer() {
         'that takes Schoology submissions, not submitted (or submitted after crossing the limit), with daysLate in SCHOOL days and tone green/amber/red ' +
         '(red = at the referral limit). feedbackOwed: per assessment, how many submissions are ungraded and the oldest ' +
         'wait in school days (paper/no-dropbox work counts the whole roster as handed in on the due date; a Schoology test ' +
-        'whose attempts were read counts only the takers). makeUps: students who missed a summative Schoology test ' +
-        '(no attempt, no score, not excused) and must sit it (or their * copy) ASAP — daysSince the test in school days, ' +
+        'whose attempts were read counts only the takers). makeUps: students who missed a Schoology test or quiz ' +
+        '(any alignment; no attempt, no score, not excused) and must sit it (or their * copy) ASAP — daysSince the test in school days, ' +
         'tone green on the day / amber / red per the makeUpAmberDays/makeUpRedDays settings; clears itself once an attempt ' +
         'syncs. makeUpsUnchecked: past tests whose attempts could not be read (unknown, NOT missed — suggest a re-sync). ' +
         'Rows carry courseName + blockNumber (sections of one course share a name) and extension ({ id, lessons, until, note } or null; dueDate stays the original). Includes the limits (settings), calendar source (approx = weekday fallback) and lastSyncAt — ' +
@@ -259,7 +259,7 @@ export function createServer() {
   server.registerTool(
     'extend_deadline',
     {
-      description: "Give one student more time on a summative assignment: extend its due date by N lessons (lessons = SCHOOL days, the referral limit's unit). ONLY call when the teacher explicitly asks. The student is off the late-work list until the extended date (`until`) passes, then counts late from it. Allowed any time (before or after the due date), for summative work in a current course that targets the student. Also for make-up tests (a makeUps row): the make-up clock then counts from the extended date — e.g. sitting the make-up on Thursday. Extending the same pair again replaces lessons/note. Returns the stored extension.",
+      description: "Give one student more time on a summative assignment: extend its due date by N lessons (lessons = SCHOOL days, the referral limit's unit). ONLY call when the teacher explicitly asks. The student is off the late-work list until the extended date (`until`) passes, then counts late from it. Allowed any time (before or after the due date), for summative work or a Schoology test/quiz in a current course that targets the student. Also for make-up tests (a makeUps row): the make-up clock then counts from the extended date — e.g. sitting the make-up on Thursday. Extending the same pair again replaces lessons/note. Returns the stored extension.",
       inputSchema: {
         student_id: z.number().describe('Student id (lateWork[]/makeUps[].studentId or list_students)'),
         assignment_id: z.number().describe('Assignment id (lateWork[]/makeUps[].assignmentId or list_assignments)'),

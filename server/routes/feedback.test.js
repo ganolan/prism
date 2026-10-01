@@ -103,3 +103,29 @@ describe('GET /api/feedback/analysis/:assignmentId', () => {
     expect(body).toBeNull();
   });
 });
+
+describe('PUT /api/feedback/:id/suggestion-state', () => {
+  test('records the teacher\'s handling of the suggested feedback (used / ignored / cleared)', async () => {
+    const id = insertFeedback(s1, 'draft', { narrative_feedback: 'Nice work' });
+    for (const state of ['ignored', 'used', null]) {
+      const { status, body } = await call('PUT', `/api/feedback/${id}/suggestion-state`, { state });
+      expect(status).toBe(200);
+      expect(body).toEqual({ id, suggestion_state: state });
+      expect(getDb().prepare('SELECT suggestion_state FROM feedback WHERE id = ?').get(id).suggestion_state).toBe(state);
+    }
+  });
+
+  test('is served with the suggestion on /for-assignment', async () => {
+    const id = insertFeedback(s1, 'draft', { narrative_feedback: 'Nice work' });
+    await call('PUT', `/api/feedback/${id}/suggestion-state`, { state: 'ignored' });
+    const { body } = await call('GET', `/api/feedback/for-assignment/${assignmentSchoolId}`);
+    expect(body[s1].suggestion_state).toBe('ignored');
+  });
+
+  test('rejects an unknown state and an unknown row', async () => {
+    const id = insertFeedback(s1, 'draft', { narrative_feedback: 'x' });
+    expect((await call('PUT', `/api/feedback/${id}/suggestion-state`, { state: 'revised' })).status).toBe(400);
+    expect((await call('PUT', `/api/feedback/${id}/suggestion-state`, { state: 'banana' })).status).toBe(400);
+    expect((await call('PUT', '/api/feedback/999999/suggestion-state', { state: 'used' })).status).toBe(404);
+  });
+});

@@ -106,6 +106,11 @@ const MIGRATIONS = [
   // and re-enrolment just clears the marker.
   `ALTER TABLE enrolments ADD COLUMN status TEXT`,
   `ALTER TABLE enrolments ADD COLUMN dropped_at TEXT`,
+  // The teacher's handling of an AI suggested-feedback narrative: 'used' /
+  // 'ignored' (folds the box on /assessment/), 'revised' (an agent re-run
+  // changed a narrative the teacher had handled — shows again, tagged), or
+  // NULL (never handled). Server-side so it holds across devices.
+  `ALTER TABLE feedback ADD COLUMN suggestion_state TEXT`,
   // Indexes for issue #13 columns (must run after ALTER TABLEs above)
   `CREATE INDEX IF NOT EXISTS idx_assignments_folder ON assignments(folder_id)`,
   `CREATE INDEX IF NOT EXISTS idx_assignments_grading_category ON assignments(grading_category_id)`,

@@ -175,6 +175,7 @@ CREATE TABLE IF NOT EXISTS feedback (
   teacher_notes TEXT,
   revision_history TEXT DEFAULT '[]',
   source_file TEXT,
+  suggestion_state TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );

@@ -132,6 +132,8 @@ export const getCourseAnalytics = (id) => request(`/analytics/course/${id}`);
 export const getFeedback = (params) => { const qs = new URLSearchParams(params).toString(); return request(`/feedback${qs ? `?${qs}` : ''}`); };
 export const getFeedbackItem = (id) => request(`/feedback/${id}`);
 export const getFeedbackForAssignment = (assignmentId) => request(`/feedback/for-assignment/${assignmentId}`);
+// The teacher used / ignored a suggested-feedback narrative (or cleared that).
+export const setSuggestionState = (id, state) => request(`/feedback/${id}/suggestion-state`, { method: 'PUT', body: JSON.stringify({ state }) });
 export const getAssessmentAnalysis = (assignmentId) => request(`/feedback/analysis/${assignmentId}`);
 export const updateFeedback = (id, data) => request(`/feedback/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const approveFeedback = (id) => request(`/feedback/${id}/approve`, { method: 'PUT' });

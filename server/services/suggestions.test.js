@@ -223,3 +223,35 @@ describe('reviewer_flags_brief — flags at a glance', () => {
     expect(JSON.parse(db.prepare('SELECT feedback_json FROM feedback WHERE id = ?').get(r.feedback_id).feedback_json).reviewer_flags_brief).toEqual([]);
   });
 });
+
+describe('suggestion_state across agent re-runs', () => {
+  const state = (db, id) => db.prepare('SELECT suggestion_state FROM feedback WHERE id = ?').get(id).suggestion_state;
+
+  test('a re-run that changes the narrative after the teacher used/ignored it marks it revised', () => {
+    const db = getDb();
+    seed(db);
+    for (const prior of ['used', 'ignored']) {
+      const r = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: `v1 ${prior}` });
+      db.prepare('UPDATE feedback SET suggestion_state = ? WHERE id = ?').run(prior, r.feedback_id);
+      upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: `v2 ${prior}` });
+      expect(state(db, r.feedback_id)).toBe('revised');
+    }
+  });
+
+  test('a re-run with the same narrative keeps the teacher\'s state', () => {
+    const db = getDb();
+    seed(db);
+    const r = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'same' });
+    db.prepare(`UPDATE feedback SET suggestion_state = 'ignored' WHERE id = ?`).run(r.feedback_id);
+    upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'same', strengths: ['new'] });
+    expect(state(db, r.feedback_id)).toBe('ignored');
+  });
+
+  test('a never-handled suggestion stays unhandled (null) on a re-run', () => {
+    const db = getDb();
+    seed(db);
+    const r = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'a' });
+    upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'b' });
+    expect(state(db, r.feedback_id)).toBeNull();
+  });
+});

@@ -837,3 +837,12 @@ stored per suggestion text, so an agent's **revised** suggestion shows in full
 again, tagged **✦ Revised**. The whole notes block works the same way: its
 collapsed state remembers *which* notes were collapsed, so new notes from an
 agent re-run reopen it on their own.
+
+**"Ignore" beside "Use suggestion" (October 2026).** The suggested-feedback box
+has two actions: **Ignore** (outlined violet, on the left) and **↓ Use
+suggestion** (solid, on the right). Both fold the box to a dashed one-liner,
+"Suggestion ignored" or "✓ Suggestion used, now in your comment below", with
+**▸ Show again**, so an ignored suggestion is still one click from use. The
+state lives on the server (`feedback.suggestion_state`), so it holds across
+devices. Only an agent re-run that *changes* the narrative resets it, to
+`revised`, which shows the box again tagged **✦ Revised**.

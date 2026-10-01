@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 import AssessmentSummaryPage, { StudentRubricCard } from './AssessmentSummaryPage.jsx';
-import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale } from '../services/api.js';
+import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 
 // Stub the DB saver so tests assert wiring, not I/O.
@@ -18,6 +18,7 @@ vi.mock('../lib/assessmentDraftSaver.js', () => ({
 vi.mock('../services/api.js', () => ({
   getMasteryForAssignment: vi.fn(),
   getSubmissionLinks: vi.fn().mockResolvedValue({ status: 'not_lti', links: {} }),
+  setSuggestionState: vi.fn().mockResolvedValue({}),
   getFeedbackForAssignment: vi.fn().mockResolvedValue({}),
   getAssessmentAnalysis: vi.fn().mockResolvedValue(null),
   getDraftsForAssignment: vi.fn().mockResolvedValue({}),
@@ -1366,30 +1367,46 @@ describe('StudentRubricCard — consolidated Suggested Feedback block', () => {
     expect(html.indexOf('FLAGDETAIL')).toBeLessThan(html.indexOf('NARRATIVETEXT'));
   });
 
-  it('Use suggestion copies the narrative into the comment and collapses the suggestion box', () => {
-    renderCard(withFb({ narrative_feedback: 'Excellent, Ada!' }));
+  const row = (extra = {}, parsed = {}) => ({ feedbackRow: { id: 77, ...extra, feedback_parsed: { narrative_feedback: 'Excellent, Ada!', ...parsed } } });
+
+  it('Use suggestion copies the narrative into the comment, folds the box, and records "used"', () => {
+    renderCard(row());
     fireEvent.click(screen.getByRole('button', { name: /use suggestion/i }));
     expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue('Excellent, Ada!');
     expect(screen.queryByText('Excellent, Ada!', { selector: 'div' })).not.toBeInTheDocument();
     expect(screen.getByText(/Suggestion used/)).toBeInTheDocument();
+    expect(setSuggestionState).toHaveBeenCalledWith(77, 'used');
     fireEvent.click(screen.getByRole('button', { name: /show suggestion again/i }));
     expect(screen.getByRole('button', { name: /use suggestion/i })).toBeInTheDocument();
   });
 
-  it('remembers a used suggestion across remount', () => {
-    const { unmount } = renderCard(withFb({ narrative_feedback: 'Used once' }));
+  it('Ignore folds the box without touching the comment, and records "ignored"', () => {
+    renderCard(row());
+    const ignore = screen.getByRole('button', { name: /ignore suggestion/i });
+    // Sits just left of Use suggestion.
+    expect(ignore.compareDocumentPosition(screen.getByRole('button', { name: /use suggestion/i })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(ignore);
+    expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue('');
+    expect(screen.getByText(/Suggestion ignored/)).toBeInTheDocument();
+    expect(setSuggestionState).toHaveBeenCalledWith(77, 'ignored');
+    // Still reachable: Show again → it can be used after all.
+    fireEvent.click(screen.getByRole('button', { name: /show suggestion again/i }));
     fireEvent.click(screen.getByRole('button', { name: /use suggestion/i }));
-    unmount();
-    renderCard(withFb({ narrative_feedback: 'Used once' }));
+    expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue('Excellent, Ada!');
+    expect(setSuggestionState).toHaveBeenLastCalledWith(77, 'used');
+  });
+
+  it('a suggestion already handled on the server stays folded (used / ignored)', () => {
+    const { unmount } = renderCard(row({ suggestion_state: 'used' }));
     expect(screen.getByText(/Suggestion used/)).toBeInTheDocument();
+    unmount();
+    renderCard(row({ suggestion_state: 'ignored' }));
+    expect(screen.getByText(/Suggestion ignored/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /use suggestion/i })).not.toBeInTheDocument();
   });
 
-  it('a revised suggestion pops the box back open, tagged Revised', () => {
-    const { unmount } = renderCard(withFb({ narrative_feedback: 'First draft' }));
-    fireEvent.click(screen.getByRole('button', { name: /use suggestion/i }));
-    unmount();
-    renderCard(withFb({ narrative_feedback: 'Second, revised draft' }));
+  it('a revised suggestion shows in full, tagged Revised', () => {
+    renderCard(row({ suggestion_state: 'revised' }, { narrative_feedback: 'Second, revised draft' }));
     expect(screen.getByText('Second, revised draft')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /use suggestion/i })).toBeInTheDocument();
     expect(screen.getByText(/Revised/)).toBeInTheDocument();

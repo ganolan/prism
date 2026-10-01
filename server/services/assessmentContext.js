@@ -283,6 +283,8 @@ export function getAssessmentContext(db, { assignmentId }) {
             rubric_scores: sug.feedback_parsed.rubric_scores ?? {},
             reviewer_flags: sug.feedback_parsed.reviewer_flags ?? null,
             reviewer_flags_brief: sug.feedback_parsed.reviewer_flags_brief ?? [],
+            // How the teacher handled the narrative: used / ignored / revised / null.
+            suggestion_state: sug.suggestion_state ?? null,
             // Teacher-facing per-student analysis (grader signal). Surfaced so a
             // re-grade and review-task-and-rubric see what a prior run noted.
             strengths: sug.feedback_parsed.strengths ?? [],

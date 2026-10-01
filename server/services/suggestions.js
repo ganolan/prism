@@ -84,6 +84,11 @@ export function upsertStudentSuggestion(db, {
     ).get(studentLocalId, assignmentLocalId);
 
     if (existing) {
+      // A changed narrative the teacher already used/ignored comes back as
+      // 'revised' (shows again, tagged); unchanged keeps their state.
+      const oldNarrative = JSON.parse(existing.feedback_json || '{}').narrative_feedback ?? '';
+      const narrativeChanged = (narrative_feedback ?? '') !== oldNarrative;
+      const suggestionState = existing.suggestion_state && narrativeChanged ? 'revised' : existing.suggestion_state;
       const history = JSON.parse(existing.revision_history || '[]');
       history.push({
         feedback_json: existing.feedback_json,
@@ -93,8 +98,8 @@ export function upsertStudentSuggestion(db, {
       });
       db.prepare(
         `UPDATE feedback SET status = 'draft', score = ?, feedback_json = ?,
-           revision_history = ?, updated_at = datetime('now') WHERE id = ?`
-      ).run(null, feedbackJson, JSON.stringify(history), existing.id);
+           revision_history = ?, suggestion_state = ?, updated_at = datetime('now') WHERE id = ?`
+      ).run(null, feedbackJson, JSON.stringify(history), suggestionState ?? null, existing.id);
       return existing.id;
     }
     return db.prepare(

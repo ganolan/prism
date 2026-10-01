@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getMasteryForAssignment, getSubmissionLinks, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment } from '../services/api.js';
+import { getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 import { makeDraftSaver } from '../lib/assessmentDraftSaver.js';
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
@@ -167,21 +167,34 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     setNotesStored(value);
     try { localStorage.setItem(notesKey, value); } catch { /* ignore */ }
   };
-  // "Use suggestion" marks THAT suggestion text used: the box folds to a one-line
-  // note. A revised suggestion (different text) shows in full again, tagged.
-  const usedKey = `prism:suggestion-used:${assignmentId}:${student.enrollment_id ?? student.id}`;
+  // How the teacher handled the suggested-feedback narrative, kept on the
+  // server (feedback.suggestion_state) so it holds across devices: 'used' and
+  // 'ignored' fold the box to one line; 'revised' (an agent re-run changed a
+  // handled narrative) shows it again, tagged. A used-marker this browser kept
+  // before the server did still counts (read-only).
   const narrativeSig = narrativeSuggestion ? textSignature(narrativeSuggestion) : null;
-  const [usedSig, setUsedSig] = useState(() => {
-    try { return localStorage.getItem(usedKey); } catch { return null; }
+  const [legacyUsedSig] = useState(() => {
+    try { return localStorage.getItem(`prism:suggestion-used:${assignmentId}:${student.enrollment_id ?? student.id}`); } catch { return null; }
   });
+  const [localSuggestionState, setLocalSuggestionState] = useState(null);
+  useEffect(() => { setLocalSuggestionState(null); }, [narrativeSig]);
+  const suggestionState = localSuggestionState
+    ?? feedbackRow?.suggestion_state
+    ?? (narrativeSig != null && legacyUsedSig === narrativeSig ? 'used' : null);
+  const suggestionFolded = suggestionState === 'used' || suggestionState === 'ignored';
+  const suggestionRevised = suggestionState === 'revised';
   const [showUsedAgain, setShowUsedAgain] = useState(false);
-  const suggestionUsed = narrativeSig != null && usedSig === narrativeSig;
-  const suggestionRevised = narrativeSig != null && usedSig != null && usedSig !== narrativeSig;
+  function handleSuggestion(state) {
+    setLocalSuggestionState(state);
+    setShowUsedAgain(false);
+    if (feedbackRow?.id != null) setSuggestionState(feedbackRow.id, state).catch(() => {});
+  }
+  function ignoreSuggestion() {
+    handleSuggestion('ignored');
+  }
   function applySuggestion() {
     applyComment(normalizePastedText(narrativeSuggestion));
-    setUsedSig(narrativeSig);
-    setShowUsedAgain(false);
-    try { localStorage.setItem(usedKey, narrativeSig); } catch { /* ignore */ }
+    handleSuggestion('used');
   }
 
   // Restore any unsaved draft for this card from localStorage (#47). Read once
@@ -1244,13 +1257,13 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           {/* Narrative — the publishable AI suggestion: violet wash + border with
               black body text, its own header, and the Use-suggestion action (solid
               fuchsia, to stand out against the wash) scoped inside it. */}
-          {narrativeSuggestion && suggestionUsed && !showUsedAgain && (
+          {narrativeSuggestion && suggestionFolded && !showUsedAgain && (
             <div style={{
               display: 'flex', alignItems: 'center', gap: '0.5rem',
               border: '1px dashed var(--ai-suggest)', borderRadius: 7, padding: '0.35rem 0.65rem',
               fontSize: '0.74rem', color: 'var(--ai-suggest)', fontWeight: 600,
             }}>
-              ✓ Suggestion used, now in your comment below
+              {suggestionState === 'used' ? '✓ Suggestion used, now in your comment below' : 'Suggestion ignored'}
               <button
                 type="button"
                 onClick={() => setShowUsedAgain(true)}
@@ -1265,7 +1278,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
               </button>
             </div>
           )}
-          {narrativeSuggestion && (!suggestionUsed || showUsedAgain) && (
+          {narrativeSuggestion && (!suggestionFolded || showUsedAgain) && (
             <div style={{
               border: '1px solid var(--ai-suggest)', background: 'var(--ai-suggest-wash)',
               borderRadius: 7, padding: '0.5rem 0.65rem',
@@ -1288,7 +1301,20 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
               <div style={{ fontSize: '0.84rem', lineHeight: 1.45, color: '#1a1a1a', whiteSpace: 'pre-wrap' }}>
                 {narrativeSuggestion}
               </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={ignoreSuggestion}
+                  aria-label="Ignore suggestion"
+                  title="Hide this suggestion. Show again from its folded line"
+                  style={{
+                    borderRadius: 7, padding: '0.4rem 0.75rem', fontSize: '0.74rem',
+                    fontWeight: 600, cursor: 'pointer',
+                    background: 'var(--card-bg)', color: 'var(--ai-suggest)', border: '1px solid var(--ai-suggest)',
+                  }}
+                >
+                  Ignore
+                </button>
                 <button
                   onClick={applySuggestion}
                   title="Copy the suggestion down into your comment"

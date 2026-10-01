@@ -137,6 +137,20 @@ router.put('/:id', (req, res) => {
   res.json(updated);
 });
 
+// PUT /api/feedback/:id/suggestion-state — the teacher used or ignored the
+// suggested-feedback narrative on /assessment/ (or cleared that). 'revised' is
+// set only by an agent re-run (suggestions.js), never by the teacher.
+const TEACHER_SUGGESTION_STATES = new Set(['used', 'ignored', null]);
+router.put('/:id/suggestion-state', (req, res) => {
+  const state = req.body?.state ?? null;
+  if (!TEACHER_SUGGESTION_STATES.has(state)) return res.status(400).json({ error: `Unknown state: ${state}` });
+  const db = getDb();
+  const id = Number(req.params.id);
+  const changed = db.prepare('UPDATE feedback SET suggestion_state = ? WHERE id = ?').run(state, id).changes;
+  if (!changed) return res.status(404).json({ error: 'Feedback not found' });
+  res.json({ id, suggestion_state: state });
+});
+
 // PUT /api/feedback/:id/approve — approve feedback
 router.put('/:id/approve', (req, res) => {
   const db = getDb();

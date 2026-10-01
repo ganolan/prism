@@ -428,3 +428,12 @@ CREATE TABLE IF NOT EXISTS school_days (
   source TEXT NOT NULL DEFAULT 'powerschool',
   synced_at TEXT
 );
+
+-- App settings (key/value, JSON-encoded values). Server-side so every device,
+-- prod and PrisMCP agree. Keys are namespaced, e.g. 'triage.referralLimitDays';
+-- a missing row means the code default.
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now'))
+);

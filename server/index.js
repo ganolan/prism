@@ -18,6 +18,7 @@ import masteryRouter from './routes/mastery.js';
 import peopleRouter from './routes/people.js';
 import rubricsRouter from './routes/rubrics.js';
 import assessmentDraftsRouter from './routes/assessment-drafts.js';
+import settingsRouter from './routes/settings.js';
 import { getGradingScalesMap } from './db/scales.js';
 import { getFeatures } from './middleware/featureGate.js';
 import { getScaleTable, schoologyScaleId } from './lib/proficiencyScale.js';
@@ -51,6 +52,7 @@ app.use('/api/mastery', masteryRouter);
 app.use('/api/people', peopleRouter);
 app.use('/api/rubrics', rubricsRouter);
 app.use('/api/assessment-drafts', assessmentDraftsRouter);
+app.use('/api/settings', settingsRouter);
 
 // Feature flags endpoint
 app.get('/api/features', (req, res) => {

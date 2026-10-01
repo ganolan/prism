@@ -1123,6 +1123,44 @@ button.ghost.accent:hover { background: var(--accent-light); }
 }
 
 /* ========================================================================
+   TRIAGE — late-work referral watch + feedback owed (TriageSection on the
+   Dashboard + CoursePage). Urgency = green → amber → red against a
+   school-day limit; see docs/design-language.md "Urgency meter".
+   ======================================================================== */
+.triage { margin-bottom: 1.5rem; }
+.triage__asof { margin-bottom: 0.5rem; }
+.triage-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 1rem; align-items: start; }
+.triage-panel__head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.triage-panel__title { font-size: 1rem; font-weight: 700; display: flex; align-items: center; gap: 0.5rem; }
+.triage-panel__sub { font-size: 0.78rem; color: var(--text-muted); margin: 0.15rem 0 0.6rem; }
+.triage-panel__toggle { display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; }
+.triage-panel__history { margin-top: 0.5rem; color: var(--accent); }
+.triage-history { margin-top: 1rem; }
+.triage-row { display: grid; align-items: center; gap: 0.6rem; padding: 0.45rem 0.1rem; border-top: 1px solid var(--border); }
+.triage-row--late { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.8fr) 5rem 2rem auto; }
+.triage-row--feedback { grid-template-columns: minmax(0, 2fr) auto 5rem 2rem; }
+.triage-row--history { grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) auto minmax(0, 1fr) auto; }
+.triage-row__name { font-weight: 600; color: var(--text); }
+.triage-row__task { font-size: 0.85rem; min-width: 0; color: var(--text); }
+.triage-row__course { font-size: 0.72rem; font-weight: 700; color: var(--accent); margin-right: 0.35rem; }
+.triage-row__tag { margin-left: 0.35rem; }
+.triage-row__action { display: inline-flex; gap: 0.35rem; justify-content: flex-end; align-items: center; }
+.triage-note { width: 9rem; font-size: 0.8rem; }
+.triage-days { font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+.triage-days--red { color: var(--badge-red-text); }
+.triage-days--amber { color: var(--badge-amber-text); }
+.triage-days abbr { text-decoration: none; cursor: help; }
+.urgency-meter { display: block; height: 8px; border-radius: 4px; background: var(--bg-subtle); overflow: hidden; }
+.urgency-meter__fill { display: block; height: 100%; border-radius: 4px; }
+.urgency-meter--green .urgency-meter__fill { background: var(--success); }
+.urgency-meter--amber .urgency-meter__fill { background: var(--warning); }
+.urgency-meter--red .urgency-meter__fill { background: var(--danger); }
+.triage-wait { display: inline-flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
+.triage-wait .urgency-meter { width: 5rem; }
+.settings-section { margin-bottom: 1rem; }
+.settings-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin: 0.6rem 0; }
+
+/* ========================================================================
    PHONE LAYOUT
    Below 768px the fixed sidebar becomes a drawer behind a top-bar menu
    button. Every phone rule lives in this one block, so desktop rendering is
@@ -1215,4 +1253,14 @@ button.ghost.accent:hover { background: var(--accent-light); }
   input[type="number"],
   select,
   textarea { font-size: 16px; }
+
+  /* Triage: panels stack; each row wraps to name+days / task / meter / actions. */
+  .triage-grid { grid-template-columns: 1fr; }
+  .triage-row { display: flex; flex-wrap: wrap; row-gap: 0.3rem; }
+  .triage-row__name { flex: 1 1 auto; }
+  .triage-row__task { flex: 1 1 100%; order: 1; }
+  .triage-row .urgency-meter { flex: 1 1 6rem; order: 2; }
+  .triage-days { order: 3; }
+  .triage-row__action { flex: 1 1 100%; order: 4; justify-content: flex-start; flex-wrap: wrap; }
+  .triage-wait { flex-wrap: wrap; }
 }

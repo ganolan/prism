@@ -207,3 +207,20 @@ export const uploadRubricCsv = (name, file) => {
     return res.json();
   });
 };
+
+// Triage — late-work referral watch + feedback owed (counts in school days).
+export const getTriage = ({ courseId, includeFormative } = {}) => {
+  const p = new URLSearchParams();
+  if (courseId != null) p.set('courseId', courseId);
+  if (includeFormative != null) p.set('includeFormative', String(includeFormative));
+  const qs = p.toString();
+  return request(`/triage${qs ? `?${qs}` : ''}`);
+};
+export const getReferrals = ({ courseId } = {}) =>
+  request(`/triage/referrals${courseId != null ? `?courseId=${courseId}` : ''}`);
+export const recordReferral = (body) => request('/triage/referrals', { method: 'POST', body: JSON.stringify(body) });
+export const undoReferral = (id) => request(`/triage/referrals/${id}`, { method: 'DELETE' });
+
+// Settings (server-side, shared by every device and PrisMCP).
+export const getSettings = () => request('/settings');
+export const updateSettings = (body) => request('/settings', { method: 'PUT', body: JSON.stringify(body) });

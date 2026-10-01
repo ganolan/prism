@@ -865,3 +865,13 @@ first line wraps around the mark and the lines below keep the full width.
 Previously they were `position: absolute` on top of the text, which hid words
 on the first line. Use the same pattern for any future corner badge on a text
 cell.
+
+## Urgency meter (triage) — 2026-10-01
+
+Used by the Dashboard / course-page triage panels (late work, feedback owed) and the Assessments
+tab wait column. A thin bar (`.urgency-meter`) fills toward a **school-day limit** and takes its
+colour from a tone computed on the server (`toneFor`): green below `limit − warnLead`, amber
+from there, red at the limit. The number beside it (`.triage-days--{tone}`) is the actual count, so
+the colour is never the only signal. `≈` (with a tooltip) marks counts from the weekday fallback
+(no PowerSchool calendar). Rows use `.triage-row` grids on desktop and wrap to stacked lines in the
+phone block. Actions appear only where the teacher must act (red rows: Mark referred / Exempt).

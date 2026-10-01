@@ -1,0 +1,29 @@
+import { describe, it, expect } from 'vitest';
+import { meterPct, courseTriageSummary, waitsByAssignment } from './triage.js';
+
+const T = {
+  lateWork: [
+    { courseId: 1, tone: 'red' }, { courseId: 1, tone: 'amber' }, { courseId: 2, tone: 'green' },
+  ],
+  feedbackOwed: [
+    { courseId: 1, owed: 7, oldestWaitDays: 8, tone: 'amber', schoologyAssignmentId: 'a1' },
+    { courseId: 1, owed: 3, oldestWaitDays: 11, tone: 'red', schoologyAssignmentId: 'a2' },
+  ],
+};
+
+describe('triage helpers', () => {
+  it('meterPct clamps to 4–100', () => {
+    expect(meterPct(0, 8)).toBe(4);
+    expect(meterPct(4, 8)).toBe(50);
+    expect(meterPct(20, 8)).toBe(100);
+  });
+
+  it('courseTriageSummary counts per course', () => {
+    expect(courseTriageSummary(T, 1)).toEqual({ atLimit: 1, late: 1, toGrade: 10, oldestWait: 11, waitTone: 'red' });
+    expect(courseTriageSummary(null, 1)).toEqual({ atLimit: 0, late: 0, toGrade: 0, oldestWait: 0, waitTone: 'green' });
+  });
+
+  it('waitsByAssignment keys by Schoology id', () => {
+    expect(Object.keys(waitsByAssignment(T))).toEqual(['a1', 'a2']);
+  });
+});

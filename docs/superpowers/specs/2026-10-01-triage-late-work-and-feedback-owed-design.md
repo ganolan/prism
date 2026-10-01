@@ -49,8 +49,8 @@ teachers/schools.
 A (student, assignment) pair is **outstanding** when all hold:
 
 - assignment is Summative (`aligned`), published, has a due date, and the due date has passed;
-- the student is an active enrolment and the assignment applies to them (a `grades` row exists — to
-  be verified for individually-assigned tasks, see Open verifications);
+- the student is an active enrolment and the assignment targets them (`assignment_assignees` when
+  `num_assignees > 0`, else the whole roster — see Verification results 3);
 - no submission (`normalizedSubmissionState` ≠ `submitted`; LTI `in_progress` counts as not
   submitted), **and** no score, **and** `exception` is not Excused (1). Schoology's Missing (3)
   counts as outstanding.
@@ -79,7 +79,7 @@ clock and doesn't redden the row unfairly.
 
 Each assessment row shows: owed count of submitted total, **oldest** `waitDays`, tone by the same
 green/amber/red rule against `feedbackLimit`. Rows sort by oldest wait, descending. Assessments with
-nothing owed are omitted from the panel (but still show "All graded" on the Assessments tab).
+nothing owed are omitted from the panel (and show no wait on the Assessments tab).
 
 ## Architecture
 
@@ -113,12 +113,12 @@ functions, so the agent sees exactly the numbers on the dashboard.
   - `triage.warnLeadDays` = 3
   - `triage.showFormativeDefault` = false
   Defaults live in code; a missing row means default. Values clamped server-side
-  (limits 1–60, lead 0–(limit−1)).
-- **`referrals`** — `id, student_uid, assignment_schoology_id, course_id, action ('referred'|'exempt'),
-  note TEXT, days_late INTEGER, source ('app'|'mcp'), created_at`. `UNIQUE(student_uid,
-  assignment_schoology_id)`. Undo = delete the row.
-- **First-submission time** — if not already stored (see Open verifications), add
-  `grades.first_submitted_at INTEGER`, set once (never overwritten) by the submission sync.
+  (limits 1–60, lead 0–59).
+- **`referrals`** — `id, student_id, assignment_id, course_id, action ('referred'|'exempt'),
+  note TEXT, days_late INTEGER, source ('app'|'mcp'), created_at`. `UNIQUE(student_id,
+  assignment_id)`. Undo = delete the row.
+- **First-submission time** — `grades.first_submitted_at INTEGER` = earliest submission time
+  observed (running minimum; see Verification results 1).
 
 ### Server units
 
@@ -191,17 +191,31 @@ explicit request; descriptions say so.
   date that differs, and that PS A/B letters alternate the way Master Plan odd/even days do. The path
   to the workbook is a CLI argument (nothing school-specific in the app).
 
-## Open verifications (first tasks of the implementation plan)
+## Verification results (2026-10-01, while planning) — these amend the sections above
 
-1. **First submission time.** Does Prism store a per-student first-submission timestamp for both
-   dropbox (revision `created`) and LTI (`submissionDate`)? `grades.submitted_at` is the grade
-   timestamp, `latest_revision_at` the latest revision. If neither gives the first submission,
-   add `grades.first_submitted_at`.
-2. **`calenderDays` shape.** Capture one real entry (`inSession`, `cycleDay`) from tool output and
-   record it in `.claude/powerschool-api-reference.md` before relying on fields beyond `inSession`.
-3. **Individually-assigned tasks.** Confirm non-assignees have no `grades` row (else they'd show as
-   outstanding).
-4. **Parity run** against the Master Plan before the panels are trusted.
+1. **First submission time — not stored.** `grades.submitted_at` is the grade timestamp,
+   `latest_revision_at` the newest non-draft revision, and the bulk native-dropbox endpoint only
+   returns each student's latest revision. So add **`grades.first_submitted_at`** = the *earliest
+   submission time Prism has observed* (kept as a running minimum across syncs, written by the native,
+   retry and LTI paths), backfilled once from `latest_revision_at`. Consequence: a student who
+   resubmitted *before* this column existed may show a later "submitted day N" than reality —
+   Exempt covers it.
+2. **`calenderDays` shape — unverified beyond `inSession` + `cycleDay.letter`.** `school_days` also
+   stores each entry verbatim (`raw` JSON) so later fields need no re-probe; the first real sync
+   records a sample in `.claude/powerschool-api-reference.md`. The calendar is merged across all
+   synced sections (a date is in session if any section says so). The dashboard shows PowerSchool's
+   cycle **letter** (A/B), not the Master Plan's 1–8 number, unless `raw` turns out to carry it.
+3. **No `grades` row ≠ not assigned.** A student who never engaged has **no** `grades` row, so
+   "outstanding" is computed from the **active roster × the assignment's targets**
+   (`assignment_assignees` when `num_assignees > 0`, else everyone), not from `grades` rows.
+4. **Missing (3) is a grade-entry event.** For non-LTI work `grades.submitted_at > 0` also follows a
+   teacher's grade entry, so a "Missing" exception would read as submitted. Triage treats
+   exception 3 as *not submitted* unless a real submission signal (`submission_type` /
+   `lti_submission_state`) exists.
+5. **Referrals key on local ids** (`student_id`, `assignment_id`), like `flags`.
+6. **Assessments tab** shows the ungraded count + wait only for assignments that still owe feedback
+   (no separate "All graded" label).
+7. **Parity run** against the Master Plan is the last gate before the panels are trusted.
 
 ## Out of scope (now)
 

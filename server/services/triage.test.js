@@ -150,9 +150,17 @@ describe('getTriage — late work', () => {
     const a = student('u1', 'Ada', 'L');
     // Due Mon 21/09; first submitted Mon 05/10 → 22–25/09 (4) + 28–30/09 (3) + 05/10 (1) = 8 (01/10 + 02/10 off).
     const id = assignment('a1', 'Essay', '2026-09-21');
-    grade(a, id, { submission_type: 'drop', first_submitted_at: epoch('2026-10-05'), latest_revision_at: epoch('2026-10-05') });
+    grade(a, id, { submission_type: 'drop', first_submitted_at: epoch('2026-10-05'), latest_revision_at: epoch('2026-10-05'), late: 1 });
     const row = getTriage(db, { today: TODAY }).lateWork[0];
     expect(row).toMatchObject({ kind: 'submitted_late', daysLate: 8, submittedOn: '2026-10-05', tone: 'red' });
+  });
+
+  test('submitted after the limit but Schoology says on time (late = 0) → not listed', () => {
+    const a = student('u1', 'Ada', 'L');
+    // e.g. a per-student due-date extension Prism can't see: trust Schoology's late flag.
+    const id = assignment('a1', 'Essay', '2026-09-21');
+    grade(a, id, { submission_type: 'drop', first_submitted_at: epoch('2026-10-05'), latest_revision_at: epoch('2026-10-05'), late: 0 });
+    expect(getTriage(db, { today: TODAY }).lateWork).toEqual([]);
   });
 
   test('on-time first submission, late resubmission → not listed', () => {
@@ -180,6 +188,23 @@ describe('getTriage — late work', () => {
     const id = assignment('a1', 'OneDrive essay', '2026-10-05', { lti: 1 });
     grade(a, id, { lti_submission_state: 'in_progress' });
     expect(getTriage(db, { today: TODAY }).lateWork).toHaveLength(1);
+  });
+
+  test('LTI state wins over a stale submission_type', () => {
+    const a = student('u1', 'Ada', 'L');
+    const b = student('u2', 'Bo', 'M');
+    const id = assignment('a1', 'OneDrive essay', '2026-10-05', { lti: 1 });
+    grade(a, id, { lti_submission_state: 'in_progress', submission_type: 'drop' });
+    grade(b, id, { lti_submission_state: 'not_started', submission_type: 'drop' });
+    expect(getTriage(db, { today: TODAY }).lateWork.map((r) => [r.studentName, r.kind]))
+      .toEqual([['Ada L', 'outstanding'], ['Bo M', 'outstanding']]);
+  });
+
+  test('blockNumber rides on every late-work row', () => {
+    db.prepare(`UPDATE courses SET block_number = '7' WHERE id = ?`).run(courseId);
+    student('u1', 'Ada', 'L');
+    assignment('a1', 'Essay', '2026-10-05');
+    expect(getTriage(db, { today: TODAY }).lateWork[0]).toMatchObject({ courseName: 'AP CSP', blockNumber: '7' });
   });
 
   test('settings move the thresholds', () => {
@@ -303,6 +328,22 @@ describe('getTriage — feedback owed', () => {
   });
 });
 
+describe('getTriage — lastSyncAt', () => {
+  test('is the newest completed sync, ignoring running and failed ones', () => {
+    const log = db.prepare(`INSERT INTO sync_log (sync_type, status, started_at, completed_at) VALUES (?, ?, ?, ?)`);
+    log.run('full', 'completed', '2026-10-15T01:00:00Z', '2026-10-15T01:20:00Z');
+    log.run('mastery', 'completed', '2026-10-15T01:05:00Z', '2026-10-15T01:06:00Z');
+    log.run('full', 'error', '2026-10-16T01:00:00Z', '2026-10-16T01:02:00Z');
+    log.run('full', 'running', '2026-10-16T02:00:00Z', null);
+    expect(getTriage(db, { today: TODAY }).lastSyncAt).toBe('2026-10-15T01:20:00Z');
+  });
+
+  test('null when no sync has completed', () => {
+    db.prepare(`INSERT INTO sync_log (sync_type, status, started_at) VALUES ('full', 'running', '2026-10-16T02:00:00Z')`).run();
+    expect(getTriage(db, { today: TODAY }).lastSyncAt).toBeNull();
+  });
+});
+
 describe('referrals', () => {
   function atLimit() {
     const a = student('u1', 'Maya', 'Chen');
@@ -342,6 +383,25 @@ describe('referrals', () => {
     const pair = atLimit();
     expect(() => recordReferral(db, { ...pair, studentId: 9999, action: 'referred', today: TODAY }))
       .toThrow(expect.objectContaining({ code: 'NOT_FOUND' }));
+  });
+
+  test("'referred' only at the limit (red); 'exempt' at any tone", () => {
+    const a = student('u1', 'Ada', 'L');
+    const id = assignment('a1', 'Essay', '2026-10-12'); // 4 school days → green
+    expect(() => recordReferral(db, { studentId: a, assignmentId: id, action: 'referred', today: TODAY }))
+      .toThrow(expect.objectContaining({ code: 'NOT_AT_LIMIT' }));
+    expect(recordReferral(db, { studentId: a, assignmentId: id, action: 'exempt', today: TODAY }))
+      .toMatchObject({ action: 'exempt', daysLate: 4 });
+  });
+
+  test('referral rows carry blockNumber; studentId filter', () => {
+    db.prepare(`UPDATE courses SET block_number = '7' WHERE id = ?`).run(courseId);
+    const pair = atLimit();
+    const other = student('u2', 'Bo', 'M');
+    recordReferral(db, { ...pair, action: 'referred', today: TODAY });
+    recordReferral(db, { studentId: other, assignmentId: pair.assignmentId, action: 'referred', today: TODAY });
+    expect(listReferrals(db, {})[0]).toMatchObject({ blockNumber: '7' });
+    expect(listReferrals(db, { studentId: other }).map((r) => r.studentName)).toEqual(['Bo M']);
   });
 
   test('since (local date) includes a referral created today', () => {

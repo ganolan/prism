@@ -81,3 +81,28 @@ describe('CoursePage header — block', () => {
     expect(items.slice(0, 2)).toEqual(['Block 7', '4(A-B)']);
   });
 });
+
+describe('CoursePage triage', () => {
+  function loaded(course) {
+    vi.mocked(api.getCourse).mockResolvedValue({ id: 5, course_name: 'AP CSP', studentCount: 0, ...course });
+    vi.mocked(api.getCourseStudents).mockResolvedValue([]);
+    vi.mocked(api.getGradebook).mockResolvedValue({ assignments: [], students: [], grades: {}, folders: [], grading_scales: {} });
+    vi.mocked(api.getMasteryForCourse).mockResolvedValue({ topics: [], scores: [], rollups: [], alignments: [] });
+  }
+
+  it('fetches triage for a current course', async () => {
+    loaded({ archived: 0 });
+    const { findByText } = render(tree(0));
+    await findByText('AP CSP');
+    await waitFor(() => expect(api.getTriage).toHaveBeenCalled());
+  });
+
+  it('shows no triage (and fetches none) on an archived course page', async () => {
+    loaded({ archived: 1 });
+    const { findByText, container } = render(tree(0));
+    await findByText('AP CSP');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(api.getTriage).not.toHaveBeenCalled();
+    expect(container.querySelector('.triage')).toBeNull();
+  });
+});

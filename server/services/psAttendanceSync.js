@@ -220,8 +220,12 @@ export function applyGradeLevels(db, gradeByDcid, now = new Date()) {
  * "last resolved" timestamp (it no longer gates anything). Excluded/template and
  * section-less courses are never touched.
  *
- * Returns { processed, updated, unchanged, skipped, results:[{ courseId,
- * courseName, blockNumber, blockName?, reason, status }] }.
+ * Returns { processed, updated, unchanged, skipped, schoolDays, gradeLevels:
+ * { seen, updated }, results:[{ courseId, courseName, blockNumber, blockName?,
+ * reason, status }] }. schoolDays = school-calendar rows stored (0 when the
+ * calendar was not replaced: a targeted sync, a loop that stopped early, or
+ * none returned); gradeLevels = students whose PowerSchool grade level was
+ * seen / changed.
  * reason: 'ok' | 'not-numbered' | 'no-block' | 'ambiguous' | 'no-section-dcid' | 'section-info-failed'
  */
 export async function syncPsAttendance({ onProgress, courseIds } = {}) {

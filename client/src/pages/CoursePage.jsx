@@ -49,16 +49,21 @@ export default function CoursePage() {
       .finally(() => setLoading(false));
   }, [id, dataVersion]);
 
+  // Triage is for current courses only — none on an archived course's page.
+  // null until the course has loaded.
+  const courseLive = course ? !course.archived : null;
+
   // Assessments-tab wait column: every assignment still owed feedback (incl.
   // formative). Async + try so an automocked/absent API is a silent no-op.
   useEffect(() => {
+    if (!courseLive) return;
     (async () => {
       try {
         const t = await getTriage({ courseId: id, includeFormative: true });
         if (t) setTriageWaits({ waits: waitsByAssignment(t), feedbackLimit: t.settings.feedbackLimitDays });
       } catch (err) { console.error(err); /* triage is optional on this page */ }
     })();
-  }, [id, dataVersion]);
+  }, [id, dataVersion, courseLive]);
 
   async function refreshMastery() {
     const m = await getMasteryForCourse(id).catch(() => null);
@@ -163,7 +168,7 @@ export default function CoursePage() {
         </div>
       </header>
 
-      <TriageSection courseId={Number(id)} />
+      {courseLive && <TriageSection courseId={Number(id)} />}
 
       {view === 'roster' && (
         <RosterView

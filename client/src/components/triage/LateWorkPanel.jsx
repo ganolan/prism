@@ -17,7 +17,7 @@ export default function LateWorkPanel({ rows, settings, showCourse, onRecord, on
       <h3 className="triage-panel__title">
         Late work {atLimit > 0 && <span className="badge badge-red">{atLimit} at referral limit</span>}
       </h3>
-      <p className="triage-panel__sub">Summative work not yet submitted · school days since due · refer at {limit}</p>
+      <p className="triage-panel__sub">Summative work late or submitted after the limit · school days since due · refer at {limit}</p>
       {rows.length === 0 && <p className="text-sm text-muted">No late summative work.</p>}
       {rows.map((r) => (
         <div key={key(r)} className="triage-row triage-row--late">

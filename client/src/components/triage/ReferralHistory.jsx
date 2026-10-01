@@ -3,17 +3,25 @@ import { getReferrals, undoReferral } from '../../services/api.js';
 import { formatDate } from '../../lib/formatDate.js';
 import { courseLabel } from '../../lib/triage.js';
 
-// Referred / exempt records, newest first, each undoable.
-export default function ReferralHistory({ courseId, onClose, onChanged }) {
+// Referred / exempt records, newest first, each undoable. `version` bumps when
+// the parent records a referral, so an open history reloads.
+export default function ReferralHistory({ courseId, version = 0, onClose, onChanged }) {
   const [rows, setRows] = useState(null);
+  const [error, setError] = useState(null);
 
   async function load() {
     try { setRows((await getReferrals({ courseId })) || []); } catch { setRows([]); }
   }
-  useEffect(() => { load(); }, [courseId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [courseId, version]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function undo(id) {
-    await undoReferral(id);
+    try {
+      await undoReferral(id);
+      setError(null);
+    } catch (err) {
+      setError(`Undo failed: ${err.message}`);
+      return;
+    }
     await load();
     onChanged?.();
   }
@@ -24,6 +32,7 @@ export default function ReferralHistory({ courseId, onClose, onChanged }) {
         <h3 className="triage-panel__title">Referred / exempt</h3>
         <button className="ghost" onClick={onClose}>Close</button>
       </div>
+      {error && <div className="alert alert-warning">{error}</div>}
       {rows === null && <p className="text-sm text-muted">Loading…</p>}
       {rows?.length === 0 && <p className="text-sm text-muted">No referrals or exemptions recorded yet.</p>}
       {rows?.map((r) => (

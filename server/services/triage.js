@@ -73,7 +73,7 @@ function assignmentFacts(db, a) {
     SELECT student_uid, COUNT(*) AS n FROM mastery_scores WHERE assignment_schoology_id = ? GROUP BY student_uid
   `).all(a.schoology_assignment_id).map((r) => [r.student_uid, r.n]));
   const gradeByStudent = new Map(db.prepare(`
-    SELECT student_id, score, grade_comment, exception, submitted_at, first_submitted_at,
+    SELECT student_id, score, grade_comment, exception, late, submitted_at, first_submitted_at,
            submission_type, lti_submission_state
     FROM grades WHERE assignment_id = ?
   `).all(a.id).map((g) => [g.student_id, g]));
@@ -88,11 +88,11 @@ function assignmentFacts(db, a) {
 // grades.submitted_at also follows a plain teacher grade-entry event (e.g. a
 // comment like "please submit" with no file, or a Missing (3) exception), so
 // it is NOT treated as a submission here. LTI tracks its own
-// submitted/in_progress state separately.
+// submitted/in_progress/not_started state, which is authoritative when present
+// (a stale submission_type must not override an in-progress copy).
 function isSubmitted(a, g) {
-  if (g.submission_type) return true;
-  if (a.is_lti_submission) return g.lti_submission_state === 'submitted';
-  return false;
+  if (a.is_lti_submission && g.lti_submission_state) return g.lti_submission_state === 'submitted';
+  return !!g.submission_type;
 }
 
 function studentState(a, facts, st) {
@@ -107,6 +107,8 @@ function studentState(a, facts, st) {
   });
   return {
     excused: Number(g.exception) === 1,
+    // Schoology's own on-time/late call for the submission (0 = on time).
+    late: g.late,
     submitted: isSubmitted(a, g),
     // Missing (3) rows carry score 0.0 in real data (a grade-entry artifact,
     // not a mark) — exception 3 is never "scored".
@@ -167,14 +169,15 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
           if (!s.submitted && !s.scored) {
             const { days, approx } = cal.between(due, today);
             if (days >= 1) row = { kind: 'outstanding', daysLate: days, submittedOn: null, approx };
-          } else if (s.firstSubmittedOn) {
+          } else if (s.firstSubmittedOn && s.late !== 0) {
             // Known limit: a submitted/scored pair with no first_submitted_at
             // (e.g. a paper assessment scored straight into mastery_scores,
             // no grades row) is never flagged late here — there is no
             // submission time to measure against, so it is treated as handed
             // in on time rather than falling back to a grade timestamp (which
             // would misflag every paper assessment graded >8 school days
-            // after its due date).
+            // after its due date). Schoology's late = 0 (on time, e.g. a
+            // per-student extension) also clears it.
             const { days, approx } = cal.between(due, s.firstSubmittedOn);
             if (days >= referralLimitDays) row = { kind: 'submitted_late', daysLate: days, submittedOn: s.firstSubmittedOn, approx };
           }
@@ -218,7 +221,10 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
   const referralCount = courseIds.length
     ? db.prepare(`SELECT COUNT(*) AS n FROM referrals WHERE course_id IN (${courseIds.map(() => '?').join(',')})`).get(...courseIds).n
     : 0;
-  const last = db.prepare('SELECT COALESCE(completed_at, started_at) AS at FROM sync_log ORDER BY id DESC LIMIT 1').get();
+  const last = db.prepare(`
+    SELECT COALESCE(completed_at, started_at) AS at FROM sync_log
+    WHERE status = 'completed' ORDER BY at DESC, id DESC LIMIT 1
+  `).get();
 
   return {
     today,
@@ -271,6 +277,10 @@ export function recordReferral(db, { studentId, assignmentId, action, note = nul
   const row = getTriage(db, { courseId: a.course_id, studentId: sid, includeFormative: false, today })
     .lateWork.find((r) => r.studentId === sid && r.assignmentId === a.id);
   if (!row) throw new TriageError('NOT_ON_LIST', 'That student and assignment are not on the late-work list');
+  // Referral is the at-limit action; an exemption (e.g. an agreed extension) can be recorded early.
+  if (action === 'referred' && row.tone !== 'red') {
+    throw new TriageError('NOT_AT_LIMIT', `Not at the referral limit yet (${row.daysLate} school days late) — record 'exempt' instead, or wait`);
+  }
   let id;
   try {
     id = db.prepare(`

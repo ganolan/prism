@@ -4,7 +4,7 @@ import { getDb } from '../db/index.js';
 import { getTriage, listReferrals, recordReferral, undoReferral, TriageError } from '../services/triage.js';
 
 const router = Router();
-const STATUS = { BAD_ACTION: 400, NOT_FOUND: 404, NOT_ON_LIST: 409 };
+const STATUS = { BAD_ACTION: 400, NOT_FOUND: 404, NOT_ON_LIST: 409, NOT_AT_LIMIT: 409 };
 const optBool = (v) => (v === undefined ? undefined : v === 'true');
 
 // GET /api/triage?courseId=&includeFormative= — both lists (all current courses when no courseId).

@@ -14,6 +14,7 @@ export default function TriageSection({ courseId = null, onLoaded }) {
   const [data, setData] = useState(null);
   const [includeFormative, setIncludeFormative] = useState(undefined); // undefined → the Settings default
   const [showHistory, setShowHistory] = useState(false);
+  const [historyVersion, setHistoryVersion] = useState(0); // reloads an open history after a record
   const [error, setError] = useState(null);
 
   const load = useCallback(async () => {
@@ -33,6 +34,7 @@ export default function TriageSection({ courseId = null, onLoaded }) {
   async function handleRecord(row, action, note) {
     try {
       await recordReferral({ studentId: row.studentId, assignmentId: row.assignmentId, action, note });
+      setHistoryVersion((v) => v + 1);
       await load();
     } catch (err) {
       setError(err.message);
@@ -57,7 +59,7 @@ export default function TriageSection({ courseId = null, onLoaded }) {
           includeFormative={data.includeFormative} onToggleFormative={setIncludeFormative}
         />
       </div>
-      {showHistory && <ReferralHistory courseId={courseId} onClose={() => setShowHistory(false)} onChanged={load} />}
+      {showHistory && <ReferralHistory courseId={courseId} version={historyVersion} onClose={() => setShowHistory(false)} onChanged={load} />}
     </div>
   );
 }

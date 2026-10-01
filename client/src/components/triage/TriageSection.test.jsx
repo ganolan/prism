@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import TriageSection from './TriageSection.jsx';
 import * as api from '../../services/api.js';
@@ -46,6 +46,7 @@ describe('TriageSection', () => {
     expect(screen.getAllByText('AP CSP').length).toBeGreaterThan(0);
     expect(screen.getAllByText('[BK 7] AP CSP')).toHaveLength(2); // one late row + one feedback row
     expect(screen.getByText(/Referred \/ exempt \(2\)/)).toBeInTheDocument();
+    expect(screen.getByText('Summative work late or submitted after the limit · school days since due · refer at 8')).toBeInTheDocument();
   });
 
   it('hides course chips on a course page and passes courseId', async () => {
@@ -88,5 +89,29 @@ describe('TriageSection', () => {
     const { container } = renderSection();
     await waitFor(() => expect(api.getTriage).toHaveBeenCalled());
     expect(container.querySelector('.triage')).toBeNull();
+  });
+
+  it('history rows show the block; a failed undo shows the error inline', async () => {
+    api.getReferrals.mockResolvedValue([
+      { id: 3, action: 'referred', daysLate: 9, createdAt: '2026-10-01 07:42:00', studentName: 'Maya Chen', courseName: 'AP CSP', blockNumber: '7', title: 'CP2', note: null },
+    ]);
+    api.undoReferral.mockRejectedValue(new Error('Server unreachable'));
+    renderSection();
+    fireEvent.click(await screen.findByText(/Referred \/ exempt \(2\)/));
+    const history = await screen.findByLabelText('Referral history');
+    expect(await within(history).findByText('[BK 7] AP CSP')).toBeInTheDocument();
+    fireEvent.click(within(history).getByText('Undo'));
+    const alert = await within(history).findByText(/Server unreachable/);
+    expect(alert.closest('.alert')).toHaveClass('alert-warning');
+    expect(within(history).getByText('Maya Chen')).toBeInTheDocument(); // the row stays
+  });
+
+  it('an open history reloads after Mark referred', async () => {
+    api.getReferrals.mockResolvedValue([]);
+    renderSection();
+    fireEvent.click(await screen.findByText(/Referred \/ exempt \(2\)/));
+    await waitFor(() => expect(api.getReferrals).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getAllByText('Mark referred')[0]);
+    await waitFor(() => expect(api.getReferrals).toHaveBeenCalledTimes(2));
   });
 });

@@ -5,6 +5,7 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import router from './triage.js';
 import { getDb } from '../db/index.js';
+import { addDays, todayLocal } from '../lib/schoolDays.js';
 
 async function call(method, path, body) {
   const app = express();
@@ -19,11 +20,11 @@ async function call(method, path, body) {
   } finally { server.close(); }
 }
 
-let studentId, assignmentId;
+let studentId, assignmentId, courseId;
 beforeEach(() => {
   const db = getDb();
   db.exec('DELETE FROM referrals; DELETE FROM school_days; DELETE FROM mastery_alignments; DELETE FROM grades; DELETE FROM measurement_topics; DELETE FROM reporting_categories; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
-  const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s', 'AP CSP')`).run().lastInsertRowid;
+  courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s', 'AP CSP')`).run().lastInsertRowid;
   db.prepare(`INSERT INTO reporting_categories (id, course_id, external_id, title) VALUES ('cat', ?, 'X', 'C')`).run(courseId);
   db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES ('t1', 'cat', ?, 'X.1', 'T')`).run(courseId);
   studentId = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u1', 'Maya', 'Chen')`).run().lastInsertRowid;
@@ -55,5 +56,15 @@ describe('/api/triage', () => {
     expect((await call('POST', '/api/triage/referrals', { studentId, assignmentId: 999, action: 'referred' })).status).toBe(404);
     await call('POST', '/api/triage/referrals', { studentId, assignmentId, action: 'referred' });
     expect((await call('POST', '/api/triage/referrals', { studentId, assignmentId, action: 'exempt' })).status).toBe(409);
+  });
+
+  test("POST 'referred' before the limit → 409 NOT_AT_LIMIT", async () => {
+    // Due 3 calendar days ago → 1–2 weekdays late (weekday fallback): under the limit.
+    const recent = getDb().prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, accepts_submissions) VALUES (?, 'a2', 'Recent', ?, 1)`)
+      .run(courseId, `${addDays(todayLocal(), -3)} 15:30:00`).lastInsertRowid;
+    getDb().prepare(`INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id) VALUES ('a2', 't1', ?)`).run(courseId);
+    const res = await call('POST', '/api/triage/referrals', { studentId, assignmentId: recent, action: 'referred' });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('NOT_AT_LIMIT');
   });
 });

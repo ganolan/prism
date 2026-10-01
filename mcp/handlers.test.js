@@ -271,6 +271,19 @@ describe('triage tools', () => {
     expect(getTriageTool(db, {}).lateWork[0]).toMatchObject({ courseName: 'AP Computer Science Principles', blockNumber: '7' });
   });
 
+  test('listReferralsTool filters by student id or name fragment', () => {
+    const db = getDb();
+    const { courseId, studentId, assignmentId } = seedLate(db);
+    const zed = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u2', 'Zed', 'Young')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id) VALUES (?, ?)`).run(zed, courseId);
+    recordReferralTool(db, { student_id: studentId, assignment_id: assignmentId, action: 'referred' });
+    recordReferralTool(db, { student_id: zed, assignment_id: assignmentId, action: 'exempt' });
+    expect(listReferralsTool(db, { student: 'maya' }).map((r) => r.studentName)).toEqual(['Maya Chen']);
+    expect(listReferralsTool(db, { student: zed }).map((r) => r.studentName)).toEqual(['Zed Young']);
+    expect(listReferralsTool(db, { student: String(zed) }).map((r) => r.studentName)).toEqual(['Zed Young']);
+    expect(listReferralsTool(db, {})).toHaveLength(2);
+  });
+
   test('getTriageTool filters by student name fragment', () => {
     const db = getDb();
     seedLate(db);

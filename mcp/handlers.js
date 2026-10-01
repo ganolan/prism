@@ -204,8 +204,7 @@ const matchesStudent = (r, student) =>
 export function getTriageTool(db, { course, student, include_formative } = {}) {
   const t = getTriage(db, { courseId: resolveCourseRef(db, course), includeFormative: include_formative });
   if (student != null && student !== '') {
-    const q = String(student).toLowerCase();
-    t.lateWork = t.lateWork.filter((r) => String(r.studentId) === String(student) || r.studentName.toLowerCase().includes(q));
+    t.lateWork = t.lateWork.filter((r) => matchesStudent(r, student));
     // Recompute the referral-limit count over the filtered list, not the whole
     // class — otherwise an agent asking about one student sees everyone's count.
     // feedbackOwed/referralCount stay class-wide: they're per-assessment/class data.
@@ -215,8 +214,9 @@ export function getTriageTool(db, { course, student, include_formative } = {}) {
   return t;
 }
 
-export function listReferralsTool(db, { course, since } = {}) {
-  return listReferrals(db, { courseId: resolveCourseRef(db, course), since: since || null });
+export function listReferralsTool(db, { course, student, since } = {}) {
+  const rows = listReferrals(db, { courseId: resolveCourseRef(db, course), since: since || null });
+  return student != null && student !== '' ? rows.filter((r) => matchesStudent(r, student)) : rows;
 }
 
 export function schoolCalendarTool(db, { date, to } = {}) {

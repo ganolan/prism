@@ -207,6 +207,7 @@ export function createServer() {
       description: 'History of late-work pairs the teacher marked referred (to the academic office) or exempt, newest first, with notes and the school-day count at the time.',
       inputSchema: {
         course: z.union([z.number(), z.string()]).optional().describe('Course id or name/code fragment'),
+        student: z.union([z.number(), z.string()]).optional().describe('Student id or name fragment'),
         since: z.string().optional().describe("Only records on/after this date, 'YYYY-MM-DD'"),
       },
     },
@@ -228,7 +229,7 @@ export function createServer() {
   server.registerTool(
     'record_referral',
     {
-      description: "Record the teacher's action on a late-work row: 'referred' (sent to the academic office) or 'exempt' (e.g. agreed extension; add a note). ONLY call when the teacher explicitly says so. Use student_id/assignment_id from get_triage lateWork; rejects pairs not currently on the list.",
+      description: "Record the teacher's action on a late-work row: 'referred' (sent to the academic office) or 'exempt' (e.g. agreed extension; add a note). ONLY call when the teacher explicitly says so. Use student_id/assignment_id from get_triage lateWork; rejects pairs not currently on the list. 'referred' only for a row at the referral limit (tone red) — earlier it is rejected (NOT_AT_LIMIT); 'exempt' is allowed at any tone.",
       inputSchema: {
         student_id: z.number().describe('lateWork[].studentId'),
         assignment_id: z.number().describe('lateWork[].assignmentId'),

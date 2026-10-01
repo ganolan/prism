@@ -39,4 +39,14 @@ describe('SettingsPage', () => {
     render(<SettingsPage />);
     expect(await screen.findByText(/counting weekdays/)).toBeInTheDocument();
   });
+
+  it('reverts the value and shows error when updateSettings rejects', async () => {
+    api.updateSettings.mockRejectedValue(new Error('Server error'));
+    render(<SettingsPage />);
+    const input = await screen.findByLabelText('Referral limit (school days)');
+    expect(input).toHaveValue(8);
+    fireEvent.click(screen.getAllByLabelText('Increase')[0]);
+    await waitFor(() => expect(input).toHaveValue(8));
+    expect(await screen.findByText(/Not saved: Server error/)).toBeInTheDocument();
+  });
 });

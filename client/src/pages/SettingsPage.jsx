@@ -17,12 +17,14 @@ export default function SettingsPage() {
   }, []);
 
   async function save(patch) {
+    const prevTriage = triage;
     setTriage((prev) => ({ ...prev, ...patch }));
     try {
       const s = await updateSettings({ triage: patch });
       setTriage(s.triage);
       setStatus('Saved');
     } catch (err) {
+      setTriage(prevTriage);
       setStatus(`Not saved: ${err.message}`);
     }
   }

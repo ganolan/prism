@@ -526,6 +526,26 @@ describe('syncSectionData — submission state: native bulk + lti documents (#55
     expect(getGradeRow('701', 'L1').first_submitted_at).toBe(1500);
   });
 
+  test('triage: accepts_submissions mirrors allow_dropbox on every sync', async () => {
+    getSectionEnrollments.mockResolvedValue([{ id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' }]);
+    getSectionAssignments.mockResolvedValue([
+      { id: 'D1', title: 'Dropbox', published: 1, allow_dropbox: '1' },
+      { id: 'D2', title: 'Numeric dropbox', published: 1, allow_dropbox: 1 },
+      { id: 'P1', title: 'Paper test', published: 1, allow_dropbox: '0' },
+      { id: 'P2', title: 'No field', published: 1 },
+    ]);
+    await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {});
+    const accepts = () => Object.fromEntries(db.prepare(
+      `SELECT schoology_assignment_id AS id, accepts_submissions AS v FROM assignments`,
+    ).all().map((r) => [r.id, r.v]));
+    expect(accepts()).toEqual({ D1: 1, D2: 1, P1: 0, P2: 0 });
+
+    // The teacher turns the dropbox off: the next sync clears it.
+    getSectionAssignments.mockResolvedValue([{ id: 'D1', title: 'Dropbox', published: 1, allow_dropbox: '0' }]);
+    await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {});
+    expect(accepts().D1).toBe(0);
+  });
+
   function getFetchStatus(assignmentExtId) {
     return db.prepare(`SELECT lti_fetch_status FROM assignments WHERE schoology_assignment_id = ?`)
       .get(assignmentExtId)?.lti_fetch_status;

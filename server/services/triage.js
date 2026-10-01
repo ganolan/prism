@@ -47,6 +47,7 @@ function roster(db, courseId) {
 function pastDueAssignments(db, courseId, today) {
   return db.prepare(`
     SELECT a.id, a.course_id, a.schoology_assignment_id, a.title, a.due_date, a.is_lti_submission, a.num_assignees,
+      a.accepts_submissions,
       CASE WHEN EXISTS (
         SELECT 1 FROM mastery_alignments ma WHERE ma.assignment_schoology_id = a.schoology_assignment_id
         UNION
@@ -117,6 +118,18 @@ function studentState(a, facts, st) {
 
 const fullName = (st) => `${preferredFirstName(st)} ${st.last_name}`;
 
+// Can this assignment make a student "outstanding"? Only when it takes
+// submissions in Schoology (allow_dropbox, synced as accepts_submissions = 1).
+// Paper/in-class/gradebook-only work (0) — incl. Schoology tests/quizzes — has
+// no submission signal, so every student would look outstanding until graded.
+// NULL = not synced since the column was added: fall back to "someone has
+// actually submitted", which proves a submission channel.
+function tracksSubmissions(a, states) {
+  if (a.accepts_submissions === 1) return true;
+  if (a.accepts_submissions == null) return states.some(({ s }) => s.submitted);
+  return false;
+}
+
 export function getTriage(db, { courseId = null, studentId = null, includeFormative, today = todayLocal() } = {}) {
   const settings = getTriageSettings(db);
   const formative = includeFormative ?? settings.showFormativeDefault;
@@ -134,18 +147,22 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
       if (!a.aligned && !formative) continue; // nothing to report for formative work
       const facts = assignmentFacts(db, a);
       const due = a.due_date.slice(0, 10);
+      const states = students
+        .filter((st) => !facts.assignees || facts.assignees.has(st.schoology_uid))
+        .map((st) => ({ st, s: studentState(a, facts, st) }))
+        .filter(({ s }) => !s.excused);
+      const tracked = tracksSubmissions(a, states);
+      // No submission channel: everyone targeted handed it in on the due date
+      // (paper / in class), so the grading backlog still shows.
+      const handedInAtDue = a.accepts_submissions === 0;
       let owed = 0;
       let submittedTotal = 0;
       let oldestWaitDays = 0;
       let waitApprox = false;
 
-      for (const st of students) {
-        if (facts.assignees && !facts.assignees.has(st.schoology_uid)) continue;
-        const s = studentState(a, facts, st);
-        if (s.excused) continue;
-
-        // Late work (summative only).
-        if (a.aligned && !handled.has(`${st.id}:${a.id}`)) {
+      for (const { st, s } of states) {
+        // Late work (summative only, and only work that takes submissions).
+        if (a.aligned && tracked && !handled.has(`${st.id}:${a.id}`)) {
           let row = null;
           if (!s.submitted && !s.scored) {
             const { days, approx } = cal.between(due, today);
@@ -173,11 +190,11 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
         }
 
         // Feedback owed.
-        if (!s.submitted && !s.scored) continue;
+        if (!handedInAtDue && !s.submitted && !s.scored) continue;
         submittedTotal++;
         if (s.grading === 'complete') continue;
         owed++;
-        const start = s.firstSubmittedOn && s.firstSubmittedOn > due ? s.firstSubmittedOn : due;
+        const start = !handedInAtDue && s.firstSubmittedOn && s.firstSubmittedOn > due ? s.firstSubmittedOn : due;
         const w = cal.between(start, today);
         oldestWaitDays = Math.max(oldestWaitDays, w.days);
         waitApprox = waitApprox || w.approx;

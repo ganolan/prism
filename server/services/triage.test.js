@@ -28,10 +28,12 @@ function student(uid, first, last, { dropped = false } = {}) {
   db.prepare(`INSERT INTO enrolments (student_id, course_id, dropped_at) VALUES (?, ?, ?)`).run(id, courseId, dropped ? '2026-09-10' : null);
   return id;
 }
-function assignment(sid, title, due, { summative = true, lti = 0, assignees = null } = {}) {
+// accepts: assignments.accepts_submissions (1 = Schoology dropbox/LTI, 0 = paper /
+// gradebook-only, null = not yet synced).
+function assignment(sid, title, due, { summative = true, lti = 0, assignees = null, accepts = 1 } = {}) {
   const id = db.prepare(`
-    INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, is_lti_submission, num_assignees, published)
-    VALUES (?, ?, ?, ?, ?, ?, 1)`).run(courseId, sid, title, `${due} 15:30:00`, lti, assignees ? assignees.length : null).lastInsertRowid;
+    INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, is_lti_submission, num_assignees, published, accepts_submissions)
+    VALUES (?, ?, ?, ?, ?, ?, 1, ?)`).run(courseId, sid, title, `${due} 15:30:00`, lti, assignees ? assignees.length : null, accepts).lastInsertRowid;
   if (summative) {
     topicCount += 1;
     db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES (?, 'cat-1', ?, ?, 'T')`).run(`topic-${sid}`, courseId, `X.${topicCount}`);
@@ -215,6 +217,45 @@ describe('getTriage — late work', () => {
     expect(t.lateWork[0]).toMatchObject({ daysLate: 12, approx: true });
     expect(t.calendar.source).toBe('weekdays');
     expect(t.approx).toBe(true);
+  });
+});
+
+describe('getTriage — assignments without a submission channel', () => {
+  test('accepts_submissions 0, nobody scored → nobody late; whole roster owed feedback, waiting from due', () => {
+    student('u1', 'Ada', 'L');
+    student('u2', 'Bo', 'M');
+    const c = student('u3', 'Cy', 'N');
+    const id = assignment('t1', 'Values Theory Test', '2026-10-05', { accepts: 0 }); // 06..16/10 = 9 school days
+    grade(c, id, { exception: 1 }); // excused → not counted
+    const t = getTriage(db, { today: TODAY });
+    expect(t.lateWork).toEqual([]);
+    expect(t.feedbackOwed).toEqual([expect.objectContaining({
+      title: 'Values Theory Test', owed: 2, submittedTotal: 2, oldestWaitDays: 9, tone: 'amber',
+    })]);
+  });
+
+  test('accepts_submissions 0: graded students are done, the rest still owed', () => {
+    const a = student('u1', 'Ada', 'L');
+    student('u2', 'Bo', 'M');
+    const id = assignment('t1', 'Paper test', '2026-10-12', { accepts: 0 });
+    grade(a, id, { grade_comment: 'Well done' });
+    scoreTopic('u1', 't1');
+    expect(getTriage(db, { today: TODAY }).feedbackOwed[0]).toMatchObject({ owed: 1, submittedTotal: 2, oldestWaitDays: 4 });
+  });
+
+  test('accepts_submissions NULL and no submission signal → not outstanding', () => {
+    student('u1', 'Ada', 'L');
+    student('u2', 'Bo', 'M');
+    assignment('a1', 'Not yet synced', '2026-10-05', { accepts: null });
+    expect(getTriage(db, { today: TODAY }).lateWork).toEqual([]);
+  });
+
+  test('accepts_submissions NULL with one real submission → the others are outstanding', () => {
+    const a = student('u1', 'Ada', 'L');
+    student('u2', 'Bo', 'M');
+    const id = assignment('a1', 'Not yet synced', '2026-10-05', { accepts: null });
+    grade(a, id, { submission_type: 'drop', first_submitted_at: epoch('2026-10-05'), late: 0 });
+    expect(getTriage(db, { today: TODAY }).lateWork.map((r) => [r.studentName, r.kind])).toEqual([['Bo M', 'outstanding']]);
   });
 });
 

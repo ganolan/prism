@@ -78,6 +78,11 @@ CREATE TABLE IF NOT EXISTS assignments (
   -- #76: outcome of the last lti_submission document fetch ('ok' | 'failed';
   -- NULL = non-lti / never attempted). Drives the gradebook "re-sync" warning.
   lti_fetch_status TEXT,
+  -- Triage: 1 = the task takes submissions in Schoology (allow_dropbox — native
+  -- dropbox AND OneDrive/GDrive LTI), 0 = paper/in-class/gradebook-only (incl.
+  -- Schoology tests/quizzes), NULL = not synced since the column was added.
+  -- Only work that accepts submissions can make a student "outstanding".
+  accepts_submissions INTEGER,
   synced_at TEXT
 );
 

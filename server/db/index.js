@@ -114,6 +114,10 @@ const MIGRATIONS = [
   // Triage: earliest observed submission time (running minimum). See
   // docs/superpowers/specs/2026-10-01-triage-late-work-and-feedback-owed-design.md.
   `ALTER TABLE grades ADD COLUMN first_submitted_at INTEGER DEFAULT 0`,
+  // Triage: whether the task accepts Schoology submissions (allow_dropbox).
+  // NULL = unknown until the next sync — triage falls back to "someone has
+  // submitted". Not derived from assignment_type (masterySync overwrites it).
+  `ALTER TABLE assignments ADD COLUMN accepts_submissions INTEGER`,
   // Indexes for issue #13 columns (must run after ALTER TABLEs above)
   `CREATE INDEX IF NOT EXISTS idx_assignments_folder ON assignments(folder_id)`,
   `CREATE INDEX IF NOT EXISTS idx_assignments_grading_category ON assignments(grading_category_id)`,

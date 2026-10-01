@@ -196,6 +196,11 @@ export function getTriageTool(db, { course, student, include_formative } = {}) {
   if (student != null && student !== '') {
     const q = String(student).toLowerCase();
     t.lateWork = t.lateWork.filter((r) => String(r.studentId) === String(student) || r.studentName.toLowerCase().includes(q));
+    // Recompute the referral-limit count over the filtered list, not the whole
+    // class — otherwise an agent asking about one student sees everyone's count.
+    // feedbackOwed/referralCount stay class-wide: they're per-assessment/class data.
+    t.counts.atReferralLimit = t.lateWork.filter((r) => r.tone === 'red').length;
+    t.studentFilter = String(student);
   }
   return t;
 }

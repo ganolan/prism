@@ -247,11 +247,35 @@ describe('triage tools', () => {
     expect(() => resolveCourseRef(db, 'robotics')).toThrow(/No active course/);
   });
 
+  test('resolveCourseRef: ambiguous fragment matching multiple courses throws', () => {
+    const db = getDb();
+    db.prepare(`INSERT INTO courses (schoology_section_id, course_name, course_code) VALUES ('s1', 'Robotics I', 'ROB1')`).run();
+    db.prepare(`INSERT INTO courses (schoology_section_id, course_name, course_code) VALUES ('s2', 'Robotics II', 'ROB2')`).run();
+    expect(() => resolveCourseRef(db, 'robotics')).toThrow(/matches several courses/);
+  });
+
   test('getTriageTool filters by student name fragment', () => {
     const db = getDb();
     seedLate(db);
     expect(getTriageTool(db, { student: 'maya' }).lateWork).toHaveLength(1);
     expect(getTriageTool(db, { student: 'zed' }).lateWork).toEqual([]);
+  });
+
+  test('getTriageTool limits counts.atReferralLimit to the filtered student, not the whole class', () => {
+    const db = getDb();
+    const { courseId } = seedLate(db);
+    const studentId2 = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u2', 'Zed', 'Young')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id) VALUES (?, ?)`).run(studentId2, courseId);
+
+    const all = getTriageTool(db, {});
+    expect(all.lateWork).toHaveLength(2);
+    expect(all.counts.atReferralLimit).toBe(2);
+    expect(all.studentFilter).toBeUndefined();
+
+    const filtered = getTriageTool(db, { student: 'maya' });
+    expect(filtered.lateWork).toHaveLength(1);
+    expect(filtered.counts.atReferralLimit).toBe(1);
+    expect(filtered.studentFilter).toBe('maya');
   });
 
   test('record → list → undo through the tools (source mcp)', () => {
@@ -276,5 +300,12 @@ describe('triage tools', () => {
     expect(out.between).toMatchObject({ from: '2026-09-25', to: '2026-09-29', days: 2, approx: true });
     expect(out.source).toBe('weekdays');
     expect(out.today).toHaveProperty('isSchoolDay');
+  });
+
+  test('schoolCalendarTool without `to` omits between but still returns today/date', () => {
+    const out = schoolCalendarTool(getDb(), { date: '2026-09-25' });
+    expect(out).not.toHaveProperty('between');
+    expect(out).toHaveProperty('today');
+    expect(out).toHaveProperty('date');
   });
 });

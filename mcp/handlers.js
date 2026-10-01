@@ -9,7 +9,9 @@ import { attachRubric } from '../server/services/rubricAttach.js';
 import { LEVELS } from '../server/lib/proficiencyScale.js';
 import { normalizeSubmissionStatus, gradingState, getRoster, scoreScaleFor } from '../server/services/assessmentContext.js';
 import { preferredFirstName } from '../server/services/studentNames.js';
-import { getTriage, listReferrals, recordReferral, undoReferral } from '../server/services/triage.js';
+import {
+  getTriage, listReferrals, recordReferral, undoReferral, listExtensions, recordExtension, undoExtension,
+} from '../server/services/triage.js';
 import { loadCalendar } from '../server/services/schoolCalendar.js';
 import { todayLocal } from '../server/lib/schoolDays.js';
 
@@ -207,16 +209,18 @@ export function getTriageTool(db, { course, student, include_formative } = {}) {
     t.lateWork = t.lateWork.filter((r) => matchesStudent(r, student));
     // Recompute the referral-limit count over the filtered list, not the whole
     // class — otherwise an agent asking about one student sees everyone's count.
-    // feedbackOwed/referralCount stay class-wide: they're per-assessment/class data.
+    // feedbackOwed/historyCount stay class-wide: they're per-assessment/class data.
     t.counts.atReferralLimit = t.lateWork.filter((r) => r.tone === 'red').length;
     t.studentFilter = String(student);
   }
   return t;
 }
 
+// Triage history: referrals and per-student deadline extensions.
 export function listReferralsTool(db, { course, student, since } = {}) {
-  const rows = listReferrals(db, { courseId: resolveCourseRef(db, course), since: since || null });
-  return student != null && student !== '' ? rows.filter((r) => matchesStudent(r, student)) : rows;
+  const filters = { courseId: resolveCourseRef(db, course), since: since || null };
+  const only = (rows) => (student != null && student !== '' ? rows.filter((r) => matchesStudent(r, student)) : rows);
+  return { referrals: only(listReferrals(db, filters)), extensions: only(listExtensions(db, filters)) };
 }
 
 export function schoolCalendarTool(db, { date, to } = {}) {
@@ -239,4 +243,12 @@ export function recordReferralTool(db, { student_id, assignment_id, action, note
 
 export function undoReferralTool(db, { id } = {}) {
   return undoReferral(db, id);
+}
+
+export function extendDeadlineTool(db, { student_id, assignment_id, lessons, note } = {}) {
+  return recordExtension(db, { studentId: student_id, assignmentId: assignment_id, lessons, note, source: 'mcp' });
+}
+
+export function undoExtensionTool(db, { id } = {}) {
+  return undoExtension(db, id);
 }

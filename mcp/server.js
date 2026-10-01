@@ -6,7 +6,9 @@ import { getDb } from '../server/db/index.js';
 import { getAssessmentContext } from '../server/services/assessmentContext.js';
 import { writeStudentSuggestions, upsertAssessmentAnalysis } from '../server/services/suggestions.js';
 import { listCourses, listAssignments, listStudents, listRubricsTool, readRubric, writeRubric, attachRubricTool } from './handlers.js';
-import { getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool } from './handlers.js';
+import {
+  getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool, extendDeadlineTool, undoExtensionTool,
+} from './handlers.js';
 import { assertExplicitDbPath } from './dbGuard.js';
 
 // <2KB tool-search hint (spec §3.4) so a client knows when to surface PrisMCP.
@@ -190,7 +192,7 @@ export function createServer() {
         'that takes Schoology submissions, not submitted (or submitted after crossing the limit), with daysLate in SCHOOL days and tone green/amber/red ' +
         '(red = at the referral limit). feedbackOwed: per assessment, how many submissions are ungraded and the oldest ' +
         'wait in school days (paper/no-dropbox work counts the whole roster as handed in on the due date). ' +
-        'Rows carry courseName + blockNumber (sections of one course share a name). Includes the limits (settings), calendar source (approx = weekday fallback) and lastSyncAt — ' +
+        'Rows carry courseName + blockNumber (sections of one course share a name) and extension ({ id, lessons, until, note } or null; dueDate stays the original). Includes the limits (settings), calendar source (approx = weekday fallback) and lastSyncAt — ' +
         'say when data may be stale. Use for "who is close to referral?" or "what should I grade first?".',
       inputSchema: {
         course: z.union([z.number(), z.string()]).optional().describe('Course id (list_courses) or a name/code fragment; omit for all current courses'),
@@ -204,7 +206,7 @@ export function createServer() {
   server.registerTool(
     'list_referrals',
     {
-      description: 'History of late-work pairs the teacher marked referred (to the academic office) or exempt, newest first, with notes and the school-day count at the time.',
+      description: 'Triage history, newest first: { referrals: late-work pairs the teacher marked referred (to the academic office), with notes and the school-day count at the time; extensions: per-student deadline extensions ({ id, lessons, until, note }) }.',
       inputSchema: {
         course: z.union([z.number(), z.string()]).optional().describe('Course id or name/code fragment'),
         student: z.union([z.number(), z.string()]).optional().describe('Student id or name fragment'),
@@ -229,12 +231,12 @@ export function createServer() {
   server.registerTool(
     'record_referral',
     {
-      description: "Record the teacher's action on a late-work row: 'referred' (sent to the academic office) or 'exempt' (e.g. agreed extension; add a note). ONLY call when the teacher explicitly says so. Use student_id/assignment_id from get_triage lateWork; rejects pairs not currently on the list. 'referred' only for a row at the referral limit (tone red) — earlier it is rejected (NOT_AT_LIMIT); 'exempt' is allowed at any tone.",
+      description: "Record that the teacher referred a late-work row to the academic office ('referred'). ONLY call when the teacher explicitly says so. Use student_id/assignment_id from get_triage lateWork; rejects pairs not currently on the list, and rows not yet at the referral limit (tone red) with NOT_AT_LIMIT. To give a student more time use extend_deadline; a true exemption is Schoology's Excused flag.",
       inputSchema: {
         student_id: z.number().describe('lateWork[].studentId'),
         assignment_id: z.number().describe('lateWork[].assignmentId'),
-        action: z.enum(['referred', 'exempt']),
-        note: z.string().optional().describe('Optional reason, e.g. "agreed extension"'),
+        action: z.enum(['referred']),
+        note: z.string().optional().describe('Optional note, e.g. "emailed the academic office"'),
       },
     },
     async (args) => text(recordReferralTool(getDb(), args))
@@ -243,10 +245,33 @@ export function createServer() {
   server.registerTool(
     'undo_referral',
     {
-      description: 'Undo a referral/exemption by its id (from list_referrals or record_referral). The pair returns to the late-work list if still late. Only when the teacher asks.',
+      description: 'Undo a referral by its id (from list_referrals or record_referral). The pair returns to the late-work list if still late. Only when the teacher asks.',
       inputSchema: { id: z.number().describe('Referral id') },
     },
     async (args) => text(undoReferralTool(getDb(), args))
+  );
+
+  server.registerTool(
+    'extend_deadline',
+    {
+      description: "Give one student more time on a summative assignment: extend its due date by N lessons (lessons = SCHOOL days, the referral limit's unit). ONLY call when the teacher explicitly asks. The student is off the late-work list until the extended date (`until`) passes, then counts late from it. Allowed any time (before or after the due date), for summative work in a current course that targets the student. Extending the same pair again replaces lessons/note. Returns the stored extension.",
+      inputSchema: {
+        student_id: z.number().describe('Student id (lateWork[].studentId or list_students)'),
+        assignment_id: z.number().describe('Assignment id (lateWork[].assignmentId or list_assignments)'),
+        lessons: z.number().int().min(1).max(60).describe('Extension in lessons (school days), 1–60'),
+        note: z.string().optional().describe('Optional reason, e.g. "sick for a week"'),
+      },
+    },
+    async (args) => text(extendDeadlineTool(getDb(), args))
+  );
+
+  server.registerTool(
+    'undo_extension',
+    {
+      description: 'Undo a deadline extension by its id (from list_referrals extensions or extend_deadline). The student is measured from the original due date again. Only when the teacher asks.',
+      inputSchema: { id: z.number().describe('Extension id') },
+    },
+    async (args) => text(undoExtensionTool(getDb(), args))
   );
 
   // Read-only @-mention mirror of the read tools (spec §3.2), so the teacher can

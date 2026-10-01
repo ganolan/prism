@@ -448,9 +448,10 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 
 -- Triage: the teacher's handling of a late-work pair that reached the referral
--- limit — 'referred' (sent to the academic office) or 'exempt' (e.g. an agreed
--- extension). A row removes the pair from the late-work list; undo = delete.
--- days_late is the school-day count when the action was taken.
+-- limit — 'referred' (sent to the academic office). A row removes the pair from
+-- the late-work list; undo = delete. days_late is the school-day count when the
+-- action was taken. ('exempt' is legacy: the app no longer writes it — per-student
+-- extensions live in `extensions`, true exemptions use Schoology's Excused flag.)
 CREATE TABLE IF NOT EXISTS referrals (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   student_id INTEGER NOT NULL REFERENCES students(id),
@@ -459,6 +460,23 @@ CREATE TABLE IF NOT EXISTS referrals (
   action TEXT NOT NULL CHECK (action IN ('referred', 'exempt')),
   note TEXT,
   days_late INTEGER,
+  source TEXT NOT NULL DEFAULT 'app',   -- 'app' | 'mcp'
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(student_id, assignment_id)
+);
+
+-- Triage: a per-student deadline extension of N lessons (= school days, the
+-- referral limit's unit). The student's effective due date is the N-th school
+-- day after the assignment's due date; they stay off the late-work list until
+-- it passes, then count late from it. One per pair — re-extending replaces
+-- lessons/note. Undo = delete. A pair can be extended and later referred.
+CREATE TABLE IF NOT EXISTS extensions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  student_id INTEGER NOT NULL REFERENCES students(id),
+  assignment_id INTEGER NOT NULL REFERENCES assignments(id),
+  course_id INTEGER NOT NULL REFERENCES courses(id),
+  lessons INTEGER NOT NULL,
+  note TEXT,
   source TEXT NOT NULL DEFAULT 'app',   -- 'app' | 'mcp'
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(student_id, assignment_id)

@@ -41,6 +41,43 @@ describe('makeCalendar.between (school days d with from < d <= to)', () => {
   });
 });
 
+describe('makeCalendar.addSchoolDays (the n-th school day after from)', () => {
+  const cal = makeCalendar(window());
+
+  test('across the 01/10–02/10 holidays and the weekend: Wed 30/09 + 1 → Mon 05/10', () => {
+    expect(cal.addSchoolDays('2026-09-30', 1)).toEqual({ date: '2026-10-05', approx: false });
+  });
+
+  test('inverse of between: between(from, addSchoolDays(from, n)) === n', () => {
+    for (const n of [1, 2, 3, 5]) {
+      const { date } = cal.addSchoolDays('2026-09-28', n);
+      expect(cal.between('2026-09-28', date).days).toBe(n);
+    }
+    expect(cal.addSchoolDays('2026-09-28', 3).date).toBe('2026-10-05');
+  });
+
+  test('from a non-school day counts from the next school day', () => {
+    expect(cal.addSchoolDays('2026-10-01', 2).date).toBe('2026-10-06');
+  });
+
+  test('n <= 0 → from itself', () => {
+    expect(cal.addSchoolDays('2026-10-05', 0)).toEqual({ date: '2026-10-05', approx: false });
+  });
+
+  test('beyond the stored calendar falls back to weekdays and flags approx', () => {
+    // 09/10 covered; 10–11/10 weekend; then uncovered weekdays 12/10, 13/10.
+    expect(cal.addSchoolDays('2026-10-08', 3)).toEqual({ date: '2026-10-13', approx: true });
+  });
+
+  test('no calendar → weekdays, approx', () => {
+    expect(makeCalendar([]).addSchoolDays('2026-09-25', 2)).toEqual({ date: '2026-09-29', approx: true });
+  });
+
+  test('bad date → null date', () => {
+    expect(cal.addSchoolDays('nope', 3).date).toBeNull();
+  });
+});
+
 describe('makeCalendar with no rows', () => {
   test('counts weekdays, approx, source "weekdays"', () => {
     const cal = makeCalendar([]);

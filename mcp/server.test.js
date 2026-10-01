@@ -20,7 +20,7 @@ async function connect() {
 
 beforeEach(() => {
   getDb().exec(
-    'DELETE FROM referrals; DELETE FROM school_days; ' +
+    'DELETE FROM referrals; DELETE FROM extensions; DELETE FROM school_days; ' +
     'DELETE FROM rubric_attachment_topics; DELETE FROM rubric_attachments; ' +
     'DELETE FROM rubric_descriptors; DELETE FROM rubric_criteria; DELETE FROM rubrics; ' +
     'DELETE FROM assessment_analysis; DELETE FROM feedback; DELETE FROM mastery_alignments; ' +
@@ -283,9 +283,24 @@ describe('PrisMCP triage tools', () => {
     expect(data).toHaveProperty('feedbackOwed');
   });
 
-  test('lists all five triage tools', async () => {
+  test('lists all seven triage tools', async () => {
     const client = await connect();
     const names = (await client.listTools()).tools.map((t) => t.name);
-    expect(names).toEqual(expect.arrayContaining(['get_triage', 'list_referrals', 'school_calendar', 'record_referral', 'undo_referral']));
+    expect(names).toEqual(expect.arrayContaining([
+      'get_triage', 'list_referrals', 'school_calendar', 'record_referral', 'undo_referral', 'extend_deadline', 'undo_extension',
+    ]));
+  });
+
+  test("record_referral's action enum is 'referred' only", async () => {
+    const client = await connect();
+    const tool = (await client.listTools()).tools.find((t) => t.name === 'record_referral');
+    expect(tool.inputSchema.properties.action.enum).toEqual(['referred']);
+  });
+
+  test('extend_deadline takes lessons as a 1–60 integer', async () => {
+    const client = await connect();
+    const tool = (await client.listTools()).tools.find((t) => t.name === 'extend_deadline');
+    expect(tool.inputSchema.required).toEqual(expect.arrayContaining(['student_id', 'assignment_id', 'lessons']));
+    expect(tool.inputSchema.properties.lessons).toMatchObject({ type: 'integer', minimum: 1, maximum: 60 });
   });
 });

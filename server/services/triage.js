@@ -43,16 +43,18 @@ function roster(db, courseId) {
   `).all(courseId);
 }
 
+// Summative = aligned to measurement topics (or scored against them).
+const ALIGNED_SQL = `CASE WHEN EXISTS (
+        SELECT 1 FROM mastery_alignments ma WHERE ma.assignment_schoology_id = a.schoology_assignment_id
+        UNION
+        SELECT 1 FROM mastery_scores ms WHERE ms.assignment_schoology_id = a.schoology_assignment_id
+      ) THEN 1 ELSE 0 END`;
+
 // Published assignments whose due date has passed (due date before today).
 function pastDueAssignments(db, courseId, today) {
   return db.prepare(`
     SELECT a.id, a.course_id, a.schoology_assignment_id, a.title, a.due_date, a.is_lti_submission, a.num_assignees,
-      a.accepts_submissions,
-      CASE WHEN EXISTS (
-        SELECT 1 FROM mastery_alignments ma WHERE ma.assignment_schoology_id = a.schoology_assignment_id
-        UNION
-        SELECT 1 FROM mastery_scores ms WHERE ms.assignment_schoology_id = a.schoology_assignment_id
-      ) THEN 1 ELSE 0 END AS aligned
+      a.accepts_submissions, ${ALIGNED_SQL} AS aligned
     FROM assignments a
     WHERE a.course_id = ? AND a.published = 1
       AND a.due_date IS NOT NULL AND a.due_date != '' AND substr(a.due_date, 1, 10) < ?
@@ -139,6 +141,8 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
   const cal = loadCalendar(db);
   const handled = new Set(db.prepare('SELECT student_id, assignment_id FROM referrals').all()
     .map((r) => `${r.student_id}:${r.assignment_id}`));
+  const extensions = new Map(db.prepare('SELECT id, student_id, assignment_id, lessons, note FROM extensions').all()
+    .map((e) => [`${e.student_id}:${e.assignment_id}`, e]));
 
   const lateWork = [];
   const feedbackOwed = [];
@@ -168,9 +172,14 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
       for (const { st, s } of states) {
         // Late work (summative only, and only work that takes submissions).
         if (a.aligned && tracked && !handled.has(`${st.id}:${a.id}`)) {
+          // An extension moves this student's due date to the N-th school day
+          // after it: hidden until then, late from then. dueDate stays original.
+          const ext = extensions.get(`${st.id}:${a.id}`);
+          const moved = ext ? cal.addSchoolDays(due, ext.lessons) : { date: due, approx: false };
+          const effDue = moved.date;
           let row = null;
           if (!s.submitted && !s.scored) {
-            const { days, approx } = cal.between(due, today);
+            const { days, approx } = cal.between(effDue, today);
             if (days >= 1) row = { kind: 'outstanding', daysLate: days, submittedOn: null, approx };
           } else if (s.firstSubmittedOn && s.late !== 0) {
             // Known limit: a submitted/scored pair with no first_submitted_at
@@ -181,12 +190,14 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
             // would misflag every paper assessment graded >8 school days
             // after its due date). Schoology's late = 0 (on time, e.g. a
             // per-student extension) also clears it.
-            const { days, approx } = cal.between(due, s.firstSubmittedOn);
+            const { days, approx } = cal.between(effDue, s.firstSubmittedOn);
             if (days >= referralLimitDays) row = { kind: 'submitted_late', daysLate: days, submittedOn: s.firstSubmittedOn, approx };
           }
           if (row) {
             lateWork.push({
               ...row,
+              approx: row.approx || moved.approx,
+              extension: ext ? { id: ext.id, lessons: ext.lessons, until: effDue, note: ext.note } : null,
               studentId: st.id, studentUid: st.schoology_uid, studentName: fullName(st),
               courseId: c.id, courseName: c.course_name, blockNumber: c.block_number ?? null,
               assignmentId: a.id, schoologyAssignmentId: a.schoology_assignment_id, title: a.title, dueDate: due,
@@ -220,9 +231,14 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
   lateWork.sort((x, y) => y.daysLate - x.daysLate || x.studentName.localeCompare(y.studentName));
   feedbackOwed.sort((x, y) => y.oldestWaitDays - x.oldestWaitDays || x.title.localeCompare(y.title));
 
+  // Referrals + extensions recorded in scope (the panel's history link).
   const courseIds = courses.map((c) => c.id);
-  const referralCount = courseIds.length
-    ? db.prepare(`SELECT COUNT(*) AS n FROM referrals WHERE course_id IN (${courseIds.map(() => '?').join(',')})`).get(...courseIds).n
+  const inScope = courseIds.map(() => '?').join(',');
+  const historyCount = courseIds.length
+    ? db.prepare(`
+        SELECT (SELECT COUNT(*) FROM referrals WHERE course_id IN (${inScope}))
+             + (SELECT COUNT(*) FROM extensions WHERE course_id IN (${inScope})) AS n
+      `).get(...courseIds, ...courseIds).n
     : 0;
   const last = db.prepare(`
     SELECT COALESCE(completed_at, started_at) AS at FROM sync_log
@@ -234,7 +250,7 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
     includeFormative: formative,
     settings,
     lastSyncAt: last?.at ?? null,
-    referralCount,
+    historyCount,
     calendar: { source: cal.source, totalSchoolDays: cal.totalSchoolDays, syncedAt: cal.syncedAt, today: cal.info(today) },
     counts: {
       atReferralLimit: lateWork.filter((r) => r.tone === 'red').length,
@@ -267,22 +283,29 @@ export function listReferrals(db, { courseId = null, studentId = null, since = n
     }));
 }
 
-export function recordReferral(db, { studentId, assignmentId, action, note = null, source = 'app', today = todayLocal() } = {}) {
-  if (action !== 'referred' && action !== 'exempt') {
-    throw new TriageError('BAD_ACTION', `action must be 'referred' or 'exempt'`);
-  }
+function requireStudent(db, studentId) {
   const sid = Number(studentId);
-  if (!Number.isInteger(sid) || sid <= 0 || !db.prepare('SELECT id FROM students WHERE id = ?').get(sid)) {
-    throw new TriageError('NOT_FOUND', `No student with id ${studentId}`);
+  const st = Number.isInteger(sid) && sid > 0
+    ? db.prepare('SELECT id, schoology_uid FROM students WHERE id = ?').get(sid)
+    : null;
+  if (!st) throw new TriageError('NOT_FOUND', `No student with id ${studentId}`);
+  return st;
+}
+
+// Referral = the at-limit action ('referred' only; a per-student extension is
+// recordExtension, a true exemption is Schoology's Excused flag).
+export function recordReferral(db, { studentId, assignmentId, action, note = null, source = 'app', today = todayLocal() } = {}) {
+  if (action !== 'referred') {
+    throw new TriageError('BAD_ACTION', `action must be 'referred' (to extend a deadline, record an extension)`);
   }
+  const sid = requireStudent(db, studentId).id;
   const a = db.prepare('SELECT id, course_id FROM assignments WHERE id = ?').get(Number(assignmentId));
   if (!a) throw new TriageError('NOT_FOUND', `No assignment with id ${assignmentId}`);
   const row = getTriage(db, { courseId: a.course_id, studentId: sid, includeFormative: false, today })
     .lateWork.find((r) => r.studentId === sid && r.assignmentId === a.id);
   if (!row) throw new TriageError('NOT_ON_LIST', 'That student and assignment are not on the late-work list');
-  // Referral is the at-limit action; an exemption (e.g. an agreed extension) can be recorded early.
-  if (action === 'referred' && row.tone !== 'red') {
-    throw new TriageError('NOT_AT_LIMIT', `Not at the referral limit yet (${row.daysLate} school days late) — record 'exempt' instead, or wait`);
+  if (row.tone !== 'red') {
+    throw new TriageError('NOT_AT_LIMIT', `Not at the referral limit yet (${row.daysLate} school days late) — extend the deadline instead, or wait`);
   }
   let id;
   try {
@@ -301,4 +324,62 @@ export function recordReferral(db, { studentId, assignmentId, action, note = nul
 
 export function undoReferral(db, id) {
   return { deleted: db.prepare('DELETE FROM referrals WHERE id = ?').run(Number(id)).changes > 0 };
+}
+
+export const MAX_EXTENSION_LESSONS = 60;
+
+export function listExtensions(db, { courseId = null, studentId = null, since = null, id = null } = {}) {
+  const cal = loadCalendar(db);
+  return db.prepare(`
+    SELECT x.id, x.lessons, x.note, x.source, x.created_at AS createdAt,
+           x.student_id AS studentId, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher,
+           x.assignment_id AS assignmentId, a.schoology_assignment_id AS schoologyAssignmentId, a.title,
+           substr(a.due_date, 1, 10) AS dueDate, x.course_id AS courseId, c.course_name AS courseName,
+           c.block_number AS blockNumber
+    FROM extensions x
+    JOIN students s ON s.id = x.student_id
+    JOIN assignments a ON a.id = x.assignment_id
+    JOIN courses c ON c.id = x.course_id
+    WHERE (? IS NULL OR x.id = ?) AND (? IS NULL OR x.course_id = ?)
+      AND (? IS NULL OR x.student_id = ?) AND (? IS NULL OR date(x.created_at, 'localtime') >= ?)
+    ORDER BY x.created_at DESC, x.id DESC
+  `).all(id, id, courseId, courseId, studentId, studentId, since, since)
+    .map(({ first_name, last_name, preferred_name, preferred_name_teacher, ...x }) => ({
+      ...x,
+      studentName: `${preferredFirstName({ first_name, preferred_name, preferred_name_teacher })} ${last_name}`,
+      until: cal.addSchoolDays(x.dueDate, x.lessons).date,
+    }));
+}
+
+// Extend one student's deadline by N lessons (school days). Any time — before
+// or after the due date, at any tone — for a summative assignment in a current
+// course that targets the student. Re-extending the pair replaces lessons/note.
+export function recordExtension(db, { studentId, assignmentId, lessons, note = null, source = 'app' } = {}) {
+  const st = requireStudent(db, studentId);
+  const n = Number(lessons);
+  if (lessons == null || lessons === '' || !Number.isInteger(n) || n < 1 || n > MAX_EXTENSION_LESSONS) {
+    throw new TriageError('BAD_LESSONS', `lessons must be a whole number from 1 to ${MAX_EXTENSION_LESSONS}`);
+  }
+  const a = db.prepare(`
+    SELECT a.id, a.course_id, a.due_date, a.num_assignees, c.archived, c.excluded, ${ALIGNED_SQL} AS aligned
+    FROM assignments a JOIN courses c ON c.id = a.course_id WHERE a.id = ?
+  `).get(Number(assignmentId));
+  if (!a) throw new TriageError('NOT_FOUND', `No assignment with id ${assignmentId}`);
+  if (a.archived || a.excluded) throw new TriageError('NOT_ELIGIBLE', 'That assignment is not in a current course');
+  if (!a.aligned) throw new TriageError('NOT_ELIGIBLE', 'Only summative work can be extended');
+  if (!a.due_date) throw new TriageError('NOT_ELIGIBLE', 'That assignment has no due date to extend');
+  const enrolled = db.prepare('SELECT 1 FROM enrolments WHERE student_id = ? AND course_id = ? AND dropped_at IS NULL').get(st.id, a.course_id);
+  const assigned = !(a.num_assignees > 0)
+    || db.prepare('SELECT 1 FROM assignment_assignees WHERE assignment_id = ? AND schoology_uid = ?').get(a.id, st.schoology_uid);
+  if (!enrolled || !assigned) throw new TriageError('NOT_ELIGIBLE', 'That assignment does not target that student');
+  db.prepare(`
+    INSERT INTO extensions (student_id, assignment_id, course_id, lessons, note, source) VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT (student_id, assignment_id) DO UPDATE SET lessons = excluded.lessons, note = excluded.note
+  `).run(st.id, a.id, a.course_id, n, note || null, source);
+  const { id } = db.prepare('SELECT id FROM extensions WHERE student_id = ? AND assignment_id = ?').get(st.id, a.id);
+  return listExtensions(db, { id })[0];
+}
+
+export function undoExtension(db, id) {
+  return { deleted: db.prepare('DELETE FROM extensions WHERE id = ?').run(Number(id)).changes > 0 };
 }

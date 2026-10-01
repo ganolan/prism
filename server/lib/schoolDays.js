@@ -58,6 +58,20 @@ export function makeCalendar(rows = []) {
     return { days, approx };
   }
 
+  // The n-th school day after `from`: the date d with between(from, d).days === n
+  // (n <= 0 → from). Same approx rule as between. Bad date → { date: null }.
+  function addSchoolDays(from, n) {
+    let approx = min === null;
+    if (!ISO.test(from)) return { date: null, approx: true };
+    let d = from;
+    for (let left = Math.floor(n); left > 0;) {
+      d = addDays(d, 1);
+      if (!covers(d)) approx = true;
+      if (isSchoolDay(d)) left--;
+    }
+    return { date: d, approx };
+  }
+
   function info(date) {
     const idx = sessionDays.indexOf(date);
     return {
@@ -69,5 +83,5 @@ export function makeCalendar(rows = []) {
     };
   }
 
-  return { between, isSchoolDay, info, covers, source: source || 'weekdays', totalSchoolDays: inSession.size };
+  return { between, addSchoolDays, isSchoolDay, info, covers, source: source || 'weekdays', totalSchoolDays: inSession.size };
 }

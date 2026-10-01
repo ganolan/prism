@@ -4,12 +4,15 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../server/db/index.js';
 import { listCourses, listAssignments, listStudents, writeRubric, attachRubricTool } from './handlers.js';
-import { resolveCourseRef, getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool } from './handlers.js';
+import {
+  resolveCourseRef, getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool,
+  extendDeadlineTool, undoExtensionTool,
+} from './handlers.js';
 import { saveRubric, listRubrics, getRubricByName } from '../server/services/rubricStore.js';
 
 beforeEach(() => {
   getDb().exec(
-    'DELETE FROM referrals; DELETE FROM school_days; DELETE FROM mastery_scores; ' +
+    'DELETE FROM referrals; DELETE FROM extensions; DELETE FROM school_days; DELETE FROM mastery_scores; ' +
     'DELETE FROM rubric_attachment_topics; DELETE FROM rubric_attachments; ' +
     'DELETE FROM rubric_descriptors; DELETE FROM rubric_criteria; DELETE FROM rubrics; ' +
     'DELETE FROM mastery_alignments; DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
@@ -271,17 +274,20 @@ describe('triage tools', () => {
     expect(getTriageTool(db, {}).lateWork[0]).toMatchObject({ courseName: 'AP Computer Science Principles', blockNumber: '7' });
   });
 
-  test('listReferralsTool filters by student id or name fragment', () => {
+  test('listReferralsTool returns referrals + extensions, filtered by student id or name fragment', () => {
     const db = getDb();
     const { courseId, studentId, assignmentId } = seedLate(db);
     const zed = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u2', 'Zed', 'Young')`).run().lastInsertRowid;
     db.prepare(`INSERT INTO enrolments (student_id, course_id) VALUES (?, ?)`).run(zed, courseId);
     recordReferralTool(db, { student_id: studentId, assignment_id: assignmentId, action: 'referred' });
-    recordReferralTool(db, { student_id: zed, assignment_id: assignmentId, action: 'exempt' });
-    expect(listReferralsTool(db, { student: 'maya' }).map((r) => r.studentName)).toEqual(['Maya Chen']);
-    expect(listReferralsTool(db, { student: zed }).map((r) => r.studentName)).toEqual(['Zed Young']);
-    expect(listReferralsTool(db, { student: String(zed) }).map((r) => r.studentName)).toEqual(['Zed Young']);
-    expect(listReferralsTool(db, {})).toHaveLength(2);
+    recordReferralTool(db, { student_id: zed, assignment_id: assignmentId, action: 'referred' });
+    extendDeadlineTool(db, { student_id: zed, assignment_id: assignmentId, lessons: 2 });
+    const names = (out) => ({ referrals: out.referrals.map((r) => r.studentName), extensions: out.extensions.map((r) => r.studentName) });
+    expect(names(listReferralsTool(db, { student: 'maya' }))).toEqual({ referrals: ['Maya Chen'], extensions: [] });
+    expect(names(listReferralsTool(db, { student: zed }))).toEqual({ referrals: ['Zed Young'], extensions: ['Zed Young'] });
+    expect(names(listReferralsTool(db, { student: String(zed) }))).toEqual({ referrals: ['Zed Young'], extensions: ['Zed Young'] });
+    expect(listReferralsTool(db, {}).referrals).toHaveLength(2);
+    expect(listReferralsTool(db, { course: 'apcsp' }).extensions).toHaveLength(1);
   });
 
   test('getTriageTool filters by student name fragment', () => {
@@ -311,10 +317,36 @@ describe('triage tools', () => {
   test('record → list → undo through the tools (source mcp)', () => {
     const db = getDb();
     const { studentId, assignmentId } = seedLate(db);
-    const r = recordReferralTool(db, { student_id: studentId, assignment_id: assignmentId, action: 'exempt', note: 'extension' });
-    expect(r).toMatchObject({ action: 'exempt', source: 'mcp', note: 'extension' });
-    expect(listReferralsTool(db, {})).toHaveLength(1);
+    const r = recordReferralTool(db, { student_id: studentId, assignment_id: assignmentId, action: 'referred', note: 'emailed AO' });
+    expect(r).toMatchObject({ action: 'referred', source: 'mcp', note: 'emailed AO' });
+    expect(listReferralsTool(db, {}).referrals).toHaveLength(1);
     expect(undoReferralTool(db, { id: r.id })).toEqual({ deleted: true });
+  });
+
+  test("record_referral rejects 'exempt'", () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedLate(db);
+    expect(() => recordReferralTool(db, { student_id: studentId, assignment_id: assignmentId, action: 'exempt' }))
+      .toThrow(expect.objectContaining({ code: 'BAD_ACTION' }));
+  });
+
+  test('extend_deadline → get_triage row carries it → undo_extension (source mcp)', () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedLate(db);
+    // Due Mon 06/01/2020, weekday fallback: +3 lessons → Thu 09/01/2020.
+    const e = extendDeadlineTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 3, note: 'sick' });
+    expect(e).toMatchObject({ lessons: 3, note: 'sick', source: 'mcp', until: '2020-01-09', studentName: 'Maya Chen' });
+    expect(getTriageTool(db, {}).lateWork[0].extension).toMatchObject({ id: e.id, lessons: 3, until: '2020-01-09' });
+    expect(listReferralsTool(db, {}).extensions).toHaveLength(1);
+    expect(undoExtensionTool(db, { id: e.id })).toEqual({ deleted: true });
+    expect(listReferralsTool(db, {}).extensions).toEqual([]);
+  });
+
+  test('extend_deadline rejects out-of-range lessons', () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedLate(db);
+    expect(() => extendDeadlineTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 61 }))
+      .toThrow(expect.objectContaining({ code: 'BAD_LESSONS' }));
   });
 
   test('record_referral rejects a pair not on the list', () => {

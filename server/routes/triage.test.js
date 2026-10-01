@@ -23,7 +23,7 @@ async function call(method, path, body) {
 let studentId, assignmentId, courseId;
 beforeEach(() => {
   const db = getDb();
-  db.exec('DELETE FROM referrals; DELETE FROM school_days; DELETE FROM mastery_alignments; DELETE FROM grades; DELETE FROM measurement_topics; DELETE FROM reporting_categories; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
+  db.exec('DELETE FROM referrals; DELETE FROM extensions; DELETE FROM school_days; DELETE FROM mastery_alignments; DELETE FROM grades; DELETE FROM measurement_topics; DELETE FROM reporting_categories; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
   courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s', 'AP CSP')`).run().lastInsertRowid;
   db.prepare(`INSERT INTO reporting_categories (id, course_id, external_id, title) VALUES ('cat', ?, 'X', 'C')`).run(courseId);
   db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES ('t1', 'cat', ?, 'X.1', 'T')`).run(courseId);
@@ -55,7 +55,8 @@ describe('/api/triage', () => {
     expect((await call('POST', '/api/triage/referrals', { studentId, assignmentId, action: 'x' })).status).toBe(400);
     expect((await call('POST', '/api/triage/referrals', { studentId, assignmentId: 999, action: 'referred' })).status).toBe(404);
     await call('POST', '/api/triage/referrals', { studentId, assignmentId, action: 'referred' });
-    expect((await call('POST', '/api/triage/referrals', { studentId, assignmentId, action: 'exempt' })).status).toBe(409);
+    expect((await call('POST', '/api/triage/referrals', { studentId, assignmentId, action: 'referred' })).status).toBe(409);
+    expect((await call('POST', '/api/triage/referrals', { studentId, assignmentId, action: 'exempt' })).body.code).toBe('BAD_ACTION');
   });
 
   test("POST 'referred' before the limit → 409 NOT_AT_LIMIT", async () => {
@@ -66,5 +67,29 @@ describe('/api/triage', () => {
     const res = await call('POST', '/api/triage/referrals', { studentId, assignmentId: recent, action: 'referred' });
     expect(res.status).toBe(409);
     expect(res.body.code).toBe('NOT_AT_LIMIT');
+  });
+
+  test('POST extension → 201 with until; listed by course; the row carries it; DELETE undoes', async () => {
+    const created = await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 3, note: 'sick' });
+    expect(created.status).toBe(201);
+    // Due Mon 06/01/2020, weekday fallback → until Thu 09/01/2020.
+    expect(created.body).toMatchObject({ lessons: 3, note: 'sick', source: 'app', until: '2020-01-09', studentName: 'Maya Chen' });
+    expect((await call('GET', `/api/triage/extensions?courseId=${courseId}`)).body).toHaveLength(1);
+    expect((await call('GET', `/api/triage/extensions?courseId=${courseId + 1}`)).body).toEqual([]);
+    const row = (await call('GET', '/api/triage')).body.lateWork[0];
+    expect(row.extension).toMatchObject({ id: created.body.id, lessons: 3, until: '2020-01-09' });
+    expect((await call('GET', '/api/triage')).body.historyCount).toBe(1);
+    expect((await call('DELETE', `/api/triage/extensions/${created.body.id}`)).body).toEqual({ deleted: true });
+    expect((await call('GET', '/api/triage/extensions')).body).toEqual([]);
+  });
+
+  test('POST extension errors map to status codes', async () => {
+    const bad = await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 0 });
+    expect(bad).toMatchObject({ status: 400, body: { code: 'BAD_LESSONS' } });
+    expect((await call('POST', '/api/triage/extensions', { studentId: 999, assignmentId, lessons: 3 })).status).toBe(404);
+    expect((await call('POST', '/api/triage/extensions', { studentId, assignmentId: 999, lessons: 3 })).status).toBe(404);
+    getDb().prepare('UPDATE courses SET archived = 1 WHERE id = ?').run(courseId);
+    expect((await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 3 })))
+      .toMatchObject({ status: 409, body: { code: 'NOT_ELIGIBLE' } });
   });
 });

@@ -6,7 +6,9 @@ import { getDb } from '../db/index.js';
 import { addDays, isWeekday, todayLocal } from '../lib/schoolDays.js';
 import { storeSchoolDays } from './schoolCalendar.js';
 import { updateTriageSettings } from './settings.js';
-import { getTriage, recordReferral, undoReferral, listReferrals, toneFor, TriageError } from './triage.js';
+import {
+  getTriage, recordReferral, undoReferral, listReferrals, recordExtension, undoExtension, listExtensions, toneFor, TriageError,
+} from './triage.js';
 
 const TODAY = '2026-10-16'; // Fri
 
@@ -54,7 +56,7 @@ function scoreTopic(uid, sid) {
 beforeEach(() => {
   db = getDb();
   db.exec(
-    'DELETE FROM referrals; DELETE FROM settings; DELETE FROM school_days; DELETE FROM mastery_scores; DELETE FROM mastery_alignments; ' +
+    'DELETE FROM referrals; DELETE FROM extensions; DELETE FROM settings; DELETE FROM school_days; DELETE FROM mastery_scores; DELETE FROM mastery_alignments; ' +
     'DELETE FROM assignment_assignees; DELETE FROM grades; DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
     'DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses; DELETE FROM sync_log;',
   );
@@ -367,16 +369,22 @@ describe('referrals', () => {
     expect(r).toMatchObject({ action: 'referred', daysLate: 9, studentName: 'Maya Chen', title: 'CP2', source: 'app' });
     const t = getTriage(db, { today: TODAY });
     expect(t.lateWork).toEqual([]);
-    expect(t.referralCount).toBe(1);
+    expect(t.historyCount).toBe(1);
     expect(listReferrals(db, {})).toHaveLength(1);
     expect(undoReferral(db, r.id)).toEqual({ deleted: true });
     expect(getTriage(db, { today: TODAY }).lateWork).toHaveLength(1);
   });
 
-  test('exempt keeps its note and source', () => {
+  test('a referral keeps its note and source', () => {
     const pair = atLimit();
-    const r = recordReferral(db, { ...pair, action: 'exempt', note: 'agreed extension', source: 'mcp', today: TODAY });
-    expect(r).toMatchObject({ action: 'exempt', note: 'agreed extension', source: 'mcp' });
+    const r = recordReferral(db, { ...pair, action: 'referred', note: 'emailed AO', source: 'mcp', today: TODAY });
+    expect(r).toMatchObject({ action: 'referred', note: 'emailed AO', source: 'mcp' });
+  });
+
+  test("'exempt' is no longer an action (extensions replace it)", () => {
+    const pair = atLimit();
+    expect(() => recordReferral(db, { ...pair, action: 'exempt', today: TODAY }))
+      .toThrow(expect.objectContaining({ code: 'BAD_ACTION' }));
   });
 
   test('rejects a bad action, an unknown assignment, and a pair not on the list', () => {
@@ -395,13 +403,11 @@ describe('referrals', () => {
       .toThrow(expect.objectContaining({ code: 'NOT_FOUND' }));
   });
 
-  test("'referred' only at the limit (red); 'exempt' at any tone", () => {
+  test("'referred' only at the limit (red)", () => {
     const a = student('u1', 'Ada', 'L');
     const id = assignment('a1', 'Essay', '2026-10-12'); // 4 school days → green
     expect(() => recordReferral(db, { studentId: a, assignmentId: id, action: 'referred', today: TODAY }))
       .toThrow(expect.objectContaining({ code: 'NOT_AT_LIMIT' }));
-    expect(recordReferral(db, { studentId: a, assignmentId: id, action: 'exempt', today: TODAY }))
-      .toMatchObject({ action: 'exempt', daysLate: 4 });
   });
 
   test('referral rows carry blockNumber; studentId filter', () => {
@@ -418,5 +424,128 @@ describe('referrals', () => {
     const pair = atLimit();
     recordReferral(db, { ...pair, action: 'referred', today: TODAY });
     expect(listReferrals(db, { since: todayLocal() })).toHaveLength(1);
+  });
+});
+
+describe('extensions (extend by N lessons = school days)', () => {
+  test('hides the student until the extended date passes, then counts late from it', () => {
+    const maya = student('u1', 'Maya', 'Chen');
+    const id = assignment('a1', 'CP2', '2026-10-05'); // 9 school days late → red
+    const e = recordExtension(db, { studentId: maya, assignmentId: id, lessons: 3, note: 'sick week' });
+    // 06, 07, 08/10 → until Thu 08/10; 09, 12–16/10 = 6 school days late → amber.
+    expect(getTriage(db, { today: TODAY }).lateWork).toEqual([expect.objectContaining({
+      kind: 'outstanding', dueDate: '2026-10-05', daysLate: 6, tone: 'amber',
+      extension: { id: e.id, lessons: 3, until: '2026-10-08', note: 'sick week' },
+    })]);
+    expect(getTriage(db, { today: '2026-10-08' }).lateWork).toEqual([]); // the extended date itself
+    recordExtension(db, { studentId: maya, assignmentId: id, lessons: 9 }); // until 16/10 = today
+    expect(getTriage(db, { today: TODAY }).lateWork).toEqual([]);
+  });
+
+  test('crosses the 01/10–02/10 holidays in school days', () => {
+    const maya = student('u1', 'Maya', 'Chen');
+    const id = assignment('a1', 'CP2', '2026-09-29'); // Tue
+    expect(recordExtension(db, { studentId: maya, assignmentId: id, lessons: 2 })).toMatchObject({ until: '2026-10-05' });
+  });
+
+  test('submitted_late is measured from the extended date', () => {
+    const a = student('u1', 'Ada', 'L');
+    // Due Mon 21/09, first submitted Mon 05/10 = day 8 → red without the extension.
+    const id = assignment('a1', 'Essay', '2026-09-21');
+    grade(a, id, { submission_type: 'drop', first_submitted_at: epoch('2026-10-05'), latest_revision_at: epoch('2026-10-05'), late: 1 });
+    expect(getTriage(db, { today: TODAY }).lateWork[0]).toMatchObject({ kind: 'submitted_late', daysLate: 8, extension: null });
+    recordExtension(db, { studentId: a, assignmentId: id, lessons: 1 }); // until 22/09 → day 7
+    expect(getTriage(db, { today: TODAY }).lateWork).toEqual([]);
+  });
+
+  test('feedback wait still starts at max(due, first submitted)', () => {
+    const a = student('u1', 'Ada', 'L');
+    const id = assignment('a1', 'Model Card', '2026-10-05');
+    grade(a, id, { submission_type: 'drop', first_submitted_at: epoch('2026-10-02') });
+    recordExtension(db, { studentId: a, assignmentId: id, lessons: 3 });
+    expect(getTriage(db, { today: TODAY }).feedbackOwed[0]).toMatchObject({ oldestWaitDays: 9 });
+  });
+
+  test('only the extended student moves', () => {
+    const a = student('u1', 'Ada', 'L');
+    student('u2', 'Bo', 'M');
+    const id = assignment('a1', 'Essay', '2026-10-05');
+    recordExtension(db, { studentId: a, assignmentId: id, lessons: 20 });
+    expect(getTriage(db, { today: TODAY }).lateWork.map((r) => [r.studentName, r.daysLate])).toEqual([['Bo M', 9]]);
+  });
+
+  test('can be granted before the due date; returns the stored row with names and until', () => {
+    db.prepare(`UPDATE courses SET block_number = '7' WHERE id = ?`).run(courseId);
+    const a = student('u1', 'Ada', 'L');
+    const id = assignment('a1', 'Future', '2026-10-20'); // Tue
+    expect(recordExtension(db, { studentId: a, assignmentId: id, lessons: 3, note: 'trip', source: 'mcp' })).toMatchObject({
+      studentId: a, studentName: 'Ada L', assignmentId: id, title: 'Future', courseId, courseName: 'AP CSP', blockNumber: '7',
+      dueDate: '2026-10-20', lessons: 3, note: 'trip', source: 'mcp', until: '2026-10-23',
+    });
+  });
+
+  test('re-extending the same pair replaces lessons and note (one row)', () => {
+    const a = student('u1', 'Ada', 'L');
+    const id = assignment('a1', 'Essay', '2026-10-05');
+    const first = recordExtension(db, { studentId: a, assignmentId: id, lessons: 2, note: 'one' });
+    const second = recordExtension(db, { studentId: a, assignmentId: id, lessons: 5 });
+    expect(second).toMatchObject({ id: first.id, lessons: 5, note: null, until: '2026-10-12' });
+    expect(listExtensions(db, {})).toHaveLength(1);
+  });
+
+  test('validation: lessons 1–60 integer, known student/assignment, summative, current course, targets the student', () => {
+    const a = student('u1', 'Ada', 'L');
+    const dropped = student('u2', 'Bo', 'M', { dropped: true });
+    const other = student('u3', 'Cy', 'N');
+    const id = assignment('a1', 'Essay', '2026-10-05');
+    const code = (args) => {
+      try { recordExtension(db, args); } catch (err) { expect(err).toBeInstanceOf(TriageError); return err.code; }
+      return 'OK';
+    };
+    for (const lessons of [0, 61, 2.5, 'x', null]) expect(code({ studentId: a, assignmentId: id, lessons })).toBe('BAD_LESSONS');
+    expect(code({ studentId: 9999, assignmentId: id, lessons: 3 })).toBe('NOT_FOUND');
+    expect(code({ studentId: a, assignmentId: 9999, lessons: 3 })).toBe('NOT_FOUND');
+    expect(code({ studentId: a, assignmentId: assignment('f1', 'Practice', '2026-10-05', { summative: false }), lessons: 3 })).toBe('NOT_ELIGIBLE');
+    expect(code({ studentId: dropped, assignmentId: id, lessons: 3 })).toBe('NOT_ELIGIBLE');
+    expect(code({ studentId: other, assignmentId: assignment('a2', 'Copy', '2026-10-05', { assignees: ['u1'] }), lessons: 3 })).toBe('NOT_ELIGIBLE');
+    const undated = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, published) VALUES (?, 'a3', 'Undated', 1)`).run(courseId).lastInsertRowid;
+    db.prepare(`INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id) VALUES ('a3', 'topic-a1', ?)`).run(courseId);
+    expect(code({ studentId: a, assignmentId: undated, lessons: 3 })).toBe('NOT_ELIGIBLE');
+    expect(code({ studentId: a, assignmentId: id, lessons: 60 })).toBe('OK');
+    db.prepare('UPDATE courses SET archived = 1 WHERE id = ?').run(courseId);
+    expect(code({ studentId: a, assignmentId: id, lessons: 3 })).toBe('NOT_ELIGIBLE');
+  });
+
+  test('undo puts the pair back on the list', () => {
+    const a = student('u1', 'Ada', 'L');
+    const id = assignment('a1', 'Essay', '2026-10-05');
+    const e = recordExtension(db, { studentId: a, assignmentId: id, lessons: 20 });
+    expect(getTriage(db, { today: TODAY }).lateWork).toEqual([]);
+    expect(undoExtension(db, e.id)).toEqual({ deleted: true });
+    expect(undoExtension(db, e.id)).toEqual({ deleted: false });
+    expect(getTriage(db, { today: TODAY }).lateWork).toHaveLength(1);
+  });
+
+  test('an extended pair can still be referred once red again (days counted from the extended date)', () => {
+    const a = student('u1', 'Ada', 'L');
+    const id = assignment('a1', 'Essay', '2026-09-21');
+    recordExtension(db, { studentId: a, assignmentId: id, lessons: 1 }); // until 22/09 → 16 school days late
+    expect(recordReferral(db, { studentId: a, assignmentId: id, action: 'referred', today: TODAY })).toMatchObject({ daysLate: 16 });
+  });
+
+  test('historyCount = referrals + extensions in scope; listExtensions filters', () => {
+    const a = student('u1', 'Ada', 'L');
+    const b = student('u2', 'Bo', 'M');
+    const id = assignment('a1', 'Essay', '2026-10-05');
+    recordReferral(db, { studentId: a, assignmentId: id, action: 'referred', today: TODAY });
+    const e = recordExtension(db, { studentId: b, assignmentId: id, lessons: 2 });
+    expect(getTriage(db, { today: TODAY }).historyCount).toBe(2);
+    const other = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-2', 'AIML')`).run().lastInsertRowid;
+    expect(getTriage(db, { today: TODAY, courseId: other }).historyCount).toBe(0);
+    expect(listExtensions(db, { courseId }).map((r) => r.id)).toEqual([e.id]);
+    expect(listExtensions(db, { courseId: other })).toEqual([]);
+    expect(listExtensions(db, { studentId: a })).toEqual([]);
+    expect(listExtensions(db, { id: e.id })[0]).toMatchObject({ studentName: 'Bo M' });
+    expect(listExtensions(db, { since: todayLocal() })).toHaveLength(1);
   });
 });

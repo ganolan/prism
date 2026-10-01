@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { meterPct, courseTriageSummary, waitsByAssignment } from './triage.js';
+import { meterPct, courseTriageSummary, waitsByAssignment, courseLabel, APPROX_TITLE } from './triage.js';
 
 const T = {
   lateWork: [
@@ -25,5 +25,15 @@ describe('triage helpers', () => {
 
   it('waitsByAssignment keys by Schoology id', () => {
     expect(Object.keys(waitsByAssignment(T))).toEqual(['a1', 'a2']);
+  });
+
+  it('courseLabel prefixes the block so sections of one course differ', () => {
+    expect(courseLabel({ courseName: 'AP COMPUTER SCIENCE PRINCIPLES', blockNumber: '7' })).toBe('[BK 7] AP COMPUTER SCIENCE PRINCIPLES');
+    expect(courseLabel({ courseName: 'AP CSP', blockNumber: null })).toBe('AP CSP');
+    expect(courseLabel({ courseName: 'AP CSP' })).toBe('AP CSP');
+  });
+
+  it('APPROX_TITLE explains the ≈ marker', () => {
+    expect(APPROX_TITLE).toMatch(/weekdays/);
   });
 });

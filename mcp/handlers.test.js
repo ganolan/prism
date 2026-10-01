@@ -22,8 +22,8 @@ describe('listCourses', () => {
   test('returns active courses with the documented columns', () => {
     const db = getDb();
     db.prepare(
-      `INSERT INTO courses (schoology_section_id, course_name, section_name, course_code)
-       VALUES ('s1', 'Robotics', 'Block A', 'ROB')`
+      `INSERT INTO courses (schoology_section_id, course_name, section_name, course_code, block_number)
+       VALUES ('s1', 'Robotics', 'Block A', 'ROB', '4')`
     ).run();
     const rows = listCourses(db);
     expect(rows).toHaveLength(1);
@@ -32,6 +32,7 @@ describe('listCourses', () => {
       section_name: 'Block A',
       course_code: 'ROB',
       schoology_section_id: 's1',
+      block_number: '4',
     });
     expect(typeof rows[0].id).toBe('number');
   });
@@ -249,9 +250,25 @@ describe('triage tools', () => {
 
   test('resolveCourseRef: ambiguous fragment matching multiple courses throws', () => {
     const db = getDb();
-    db.prepare(`INSERT INTO courses (schoology_section_id, course_name, course_code) VALUES ('s1', 'Robotics I', 'ROB1')`).run();
-    db.prepare(`INSERT INTO courses (schoology_section_id, course_name, course_code) VALUES ('s2', 'Robotics II', 'ROB2')`).run();
-    expect(() => resolveCourseRef(db, 'robotics')).toThrow(/matches several courses/);
+    const a = db.prepare(`INSERT INTO courses (schoology_section_id, course_name, course_code, block_number) VALUES ('s1', 'Robotics', 'ROB', '2')`).run().lastInsertRowid;
+    const b = db.prepare(`INSERT INTO courses (schoology_section_id, course_name, course_code, block_number) VALUES ('s2', 'Robotics', 'ROB', '6')`).run().lastInsertRowid;
+    const c = db.prepare(`INSERT INTO courses (schoology_section_id, course_name, course_code) VALUES ('s3', 'Robotics Club', 'ROBC')`).run().lastInsertRowid;
+    expect(() => resolveCourseRef(db, 'robotics')).toThrow(
+      `"robotics" matches several courses (${a} Robotics (Block 2), ${b} Robotics (Block 6), ${c} Robotics Club) — pass a course id`,
+    );
+  });
+
+  test('resolveCourseRef: unknown lists the current courses with ids and blocks', () => {
+    const db = getDb();
+    const a = db.prepare(`INSERT INTO courses (schoology_section_id, course_name, block_number) VALUES ('s1', 'AP CSP', '7')`).run().lastInsertRowid;
+    expect(() => resolveCourseRef(db, 'chemistry')).toThrow(`No active course matches "chemistry" (current: ${a} AP CSP (Block 7)) — pass a course id`);
+  });
+
+  test('get_triage rows carry blockNumber', () => {
+    const db = getDb();
+    const { courseId } = seedLate(db);
+    db.prepare(`UPDATE courses SET block_number = '7' WHERE id = ?`).run(courseId);
+    expect(getTriageTool(db, {}).lateWork[0]).toMatchObject({ courseName: 'AP Computer Science Principles', blockNumber: '7' });
   });
 
   test('getTriageTool filters by student name fragment', () => {

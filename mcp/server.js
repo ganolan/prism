@@ -39,7 +39,7 @@ export function createServer() {
 
   server.registerTool(
     'list_courses',
-    { description: 'List active (non-archived) Prism courses, to resolve which class to grade.' },
+    { description: 'List active (non-archived) Prism courses, to resolve which class to grade. Sections of one course share a name — block_number tells them apart.' },
     async () => ({ content: [{ type: 'text', text: JSON.stringify(listCourses(getDb())) }] })
   );
 
@@ -187,9 +187,10 @@ export function createServer() {
     {
       description:
         "Late-work referral watch + feedback owed, exactly as Prism's dashboard shows them. lateWork: summative work " +
-        'not submitted (or submitted after crossing the limit), with daysLate in SCHOOL days and tone green/amber/red ' +
+        'that takes Schoology submissions, not submitted (or submitted after crossing the limit), with daysLate in SCHOOL days and tone green/amber/red ' +
         '(red = at the referral limit). feedbackOwed: per assessment, how many submissions are ungraded and the oldest ' +
-        'wait in school days. Includes the limits (settings), calendar source (approx = weekday fallback) and lastSyncAt — ' +
+        'wait in school days (paper/no-dropbox work counts the whole roster as handed in on the due date). ' +
+        'Rows carry courseName + blockNumber (sections of one course share a name). Includes the limits (settings), calendar source (approx = weekday fallback) and lastSyncAt — ' +
         'say when data may be stale. Use for "who is close to referral?" or "what should I grade first?".',
       inputSchema: {
         course: z.union([z.number(), z.string()]).optional().describe('Course id (list_courses) or a name/code fragment; omit for all current courses'),

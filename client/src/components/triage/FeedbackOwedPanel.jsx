@@ -1,7 +1,6 @@
 import { Link } from 'react-router-dom';
 import UrgencyMeter from './UrgencyMeter.jsx';
-
-const APPROX_TITLE = 'Approximate: counted as weekdays (no PowerSchool calendar for these dates)';
+import { APPROX_TITLE, courseLabel } from '../../lib/triage.js';
 
 // Assessments with ungraded submissions, longest wait first.
 export default function FeedbackOwedPanel({ rows, settings, showCourse, includeFormative, onToggleFormative }) {
@@ -25,7 +24,7 @@ export default function FeedbackOwedPanel({ rows, settings, showCourse, includeF
       {rows.map((r) => (
         <div key={r.assignmentId} className="triage-row triage-row--feedback">
           <Link className="triage-row__task" to={`/course/${r.courseId}/assessment/${r.schoologyAssignmentId}`}>
-            {showCourse && <span className="triage-row__course">{r.courseName}</span>}
+            {showCourse && <span className="triage-row__course">{courseLabel(r)}</span>}
             <strong>{r.title}</strong>
             {!r.aligned && <span className="badge badge-formative triage-row__tag">F</span>}
           </Link>

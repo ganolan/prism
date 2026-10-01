@@ -287,6 +287,14 @@ describe('getTriage — feedback owed', () => {
     expect(t.feedbackOwed).toHaveLength(1);
   });
 
+  test('blockNumber rides on every feedback-owed row', () => {
+    db.prepare(`UPDATE courses SET block_number = '3' WHERE id = ?`).run(courseId);
+    const a = student('u1', 'Ada', 'L');
+    const id = assignment('a1', 'Model Card', '2026-10-05');
+    grade(a, id, { submission_type: 'drop', first_submitted_at: epoch('2026-10-05') });
+    expect(getTriage(db, { today: TODAY }).feedbackOwed[0]).toMatchObject({ blockNumber: '3' });
+  });
+
   test('a scored formative (no topics) is complete', () => {
     const a = student('u1', 'Ada', 'L');
     const id = assignment('f1', 'Practice', '2026-10-05', { summative: false });

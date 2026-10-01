@@ -18,7 +18,7 @@ import { todayLocal } from '../server/lib/schoolDays.js';
 // spec §3.1).
 export function listCourses(db) {
   return db.prepare(`
-    SELECT id, course_name, section_name, course_code, schoology_section_id
+    SELECT id, course_name, section_name, course_code, schoology_section_id, block_number
     FROM courses
     WHERE archived = 0 AND excluded = 0 AND hidden = 0
     ORDER BY course_name
@@ -176,10 +176,16 @@ export function attachRubricTool(db, { rubric_name, assignment_id }) {
 // Same service as the dashboard (server/services/triage.js), so numbers match.
 
 // A course reference: a local id, or a case-insensitive fragment of the course
-// name or code, among current courses. null/'' → all courses.
+// name or code, among current courses. null/'' → all courses. Sections of one
+// course share a name, so errors list each candidate's id and block.
+const courseCandidate = (c) => `${c.id} ${c.course_name}${c.block_number ? ` (Block ${c.block_number})` : ''}`;
+
 export function resolveCourseRef(db, ref) {
   if (ref == null || ref === '') return null;
-  const courses = db.prepare(`SELECT id, course_name, course_code FROM courses WHERE archived = 0 AND excluded = 0`).all();
+  const courses = db.prepare(`
+    SELECT id, course_name, course_code, block_number FROM courses WHERE archived = 0 AND excluded = 0
+    ORDER BY course_name, block_number, id
+  `).all();
   if (/^\d+$/.test(String(ref))) {
     const hit = courses.find((c) => c.id === Number(ref));
     if (hit) return hit.id;
@@ -187,9 +193,13 @@ export function resolveCourseRef(db, ref) {
   const q = String(ref).toLowerCase();
   const hits = courses.filter((c) => c.course_name.toLowerCase().includes(q) || (c.course_code || '').toLowerCase().includes(q));
   if (hits.length === 1) return hits[0].id;
-  if (hits.length === 0) throw new Error(`No active course matches "${ref}" — call list_courses for ids`);
-  throw new Error(`"${ref}" matches several courses (${hits.map((c) => c.course_name).join(', ')}) — pass a course id`);
+  if (hits.length === 0) throw new Error(`No active course matches "${ref}" (current: ${courses.map(courseCandidate).join(', ')}) — pass a course id`);
+  throw new Error(`"${ref}" matches several courses (${hits.map(courseCandidate).join(', ')}) — pass a course id`);
 }
+
+// A student reference: a local id, or a case-insensitive name fragment.
+const matchesStudent = (r, student) =>
+  String(r.studentId) === String(student) || r.studentName.toLowerCase().includes(String(student).toLowerCase());
 
 export function getTriageTool(db, { course, student, include_formative } = {}) {
   const t = getTriage(db, { courseId: resolveCourseRef(db, course), includeFormative: include_formative });

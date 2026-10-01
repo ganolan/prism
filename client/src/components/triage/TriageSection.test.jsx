@@ -18,10 +18,10 @@ const PAYLOAD = {
   lateWork: [
     { kind: 'outstanding', studentId: 1, studentName: 'Maya Chen', courseId: 5, courseName: 'AP CSP', assignmentId: 9, schoologyAssignmentId: 'a9', title: 'CP2', dueDate: '2026-10-05', daysLate: 9, tone: 'red', approx: false },
     { kind: 'submitted_late', studentId: 2, studentName: 'Ethan Wong', courseId: 5, courseName: 'AP CSP', assignmentId: 9, schoologyAssignmentId: 'a9', title: 'CP2', dueDate: '2026-09-21', daysLate: 10, submittedOn: '2026-10-05', tone: 'red', approx: false },
-    { kind: 'outstanding', studentId: 3, studentName: 'Aiden Li', courseId: 5, courseName: 'AP CSP', assignmentId: 9, schoologyAssignmentId: 'a9', title: 'CP2', dueDate: '2026-10-14', daysLate: 2, tone: 'green', approx: false },
+    { kind: 'outstanding', studentId: 3, studentName: 'Aiden Li', courseId: 6, courseName: 'AP CSP', blockNumber: '7', assignmentId: 10, schoologyAssignmentId: 'a9', title: 'CP2', dueDate: '2026-10-14', daysLate: 2, tone: 'green', approx: false },
   ],
   feedbackOwed: [
-    { assignmentId: 4, schoologyAssignmentId: 'a4', courseId: 5, courseName: 'AP CSP', title: 'Model Card', dueDate: '2026-09-14', aligned: true, owed: 18, submittedTotal: 22, oldestWaitDays: 11, tone: 'red', approx: false },
+    { assignmentId: 4, schoologyAssignmentId: 'a4', courseId: 6, courseName: 'AP CSP', blockNumber: '7', title: 'Model Card', dueDate: '2026-09-14', aligned: true, owed: 18, submittedTotal: 22, oldestWaitDays: 11, tone: 'red', approx: false },
   ],
 };
 
@@ -44,6 +44,7 @@ describe('TriageSection', () => {
     expect(screen.getByText('6 left')).toBeInTheDocument();
     expect(screen.getByText('18 of 22 ungraded')).toBeInTheDocument();
     expect(screen.getAllByText('AP CSP').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('[BK 7] AP CSP')).toHaveLength(2); // one late row + one feedback row
     expect(screen.getByText(/Referred \/ exempt \(2\)/)).toBeInTheDocument();
   });
 
@@ -52,6 +53,7 @@ describe('TriageSection', () => {
     await screen.findByText('Maya Chen');
     expect(api.getTriage).toHaveBeenCalledWith({ courseId: 5, includeFormative: undefined });
     expect(screen.queryByText('AP CSP')).not.toBeInTheDocument();
+    expect(screen.queryByText('[BK 7] AP CSP')).not.toBeInTheDocument();
   });
 
   it('Mark referred posts and reloads', async () => {

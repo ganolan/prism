@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import UrgencyMeter from './UrgencyMeter.jsx';
-
-const APPROX_TITLE = 'Approximate: counted as weekdays (no PowerSchool calendar for these dates)';
+import { APPROX_TITLE, courseLabel } from '../../lib/triage.js';
 
 // Late summative work, worst first. At the referral limit a row offers
 // Mark referred / Exempt (optional note); below it, the days left.
@@ -24,7 +23,7 @@ export default function LateWorkPanel({ rows, settings, showCourse, onRecord, on
         <div key={key(r)} className="triage-row triage-row--late">
           <Link to={`/student/${r.studentId}`} className="triage-row__name">{r.studentName}</Link>
           <span className="triage-row__task">
-            {showCourse && <span className="triage-row__course">{r.courseName}</span>}
+            {showCourse && <span className="triage-row__course">{courseLabel(r)}</span>}
             {r.title}
             {r.kind === 'submitted_late' && <span className="badge badge-amber triage-row__tag">submitted day {r.daysLate}</span>}
           </span>

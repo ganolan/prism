@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getReferrals, undoReferral } from '../../services/api.js';
 import { formatDate } from '../../lib/formatDate.js';
+import { courseLabel } from '../../lib/triage.js';
 
 // Referred / exempt records, newest first, each undoable.
 export default function ReferralHistory({ courseId, onClose, onChanged }) {
@@ -28,7 +29,7 @@ export default function ReferralHistory({ courseId, onClose, onChanged }) {
       {rows?.map((r) => (
         <div key={r.id} className="triage-row triage-row--history">
           <span className="triage-row__name">{r.studentName}</span>
-          <span className="triage-row__task"><span className="triage-row__course">{r.courseName}</span>{r.title}</span>
+          <span className="triage-row__task"><span className="triage-row__course">{courseLabel(r)}</span>{r.title}</span>
           <span className={`badge ${r.action === 'referred' ? 'badge-red' : 'badge-gray'}`}>
             {r.action === 'referred' ? 'Referred' : 'Exempt'} · day {r.daysLate}
           </span>

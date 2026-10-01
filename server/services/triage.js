@@ -27,10 +27,10 @@ export function toneFor(days, limit, warnLead) {
 // ones; a specific course (its own page) is shown even when hidden.
 function currentCourses(db, courseId) {
   if (courseId != null) {
-    return db.prepare(`SELECT id, course_name FROM courses WHERE id = ? AND archived = 0 AND excluded = 0`).all(Number(courseId));
+    return db.prepare(`SELECT id, course_name, block_number FROM courses WHERE id = ? AND archived = 0 AND excluded = 0`).all(Number(courseId));
   }
   return db.prepare(`
-    SELECT id, course_name FROM courses WHERE archived = 0 AND excluded = 0 AND hidden = 0 ORDER BY course_name
+    SELECT id, course_name, block_number FROM courses WHERE archived = 0 AND excluded = 0 AND hidden = 0 ORDER BY course_name
   `).all();
 }
 
@@ -182,7 +182,7 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
             lateWork.push({
               ...row,
               studentId: st.id, studentUid: st.schoology_uid, studentName: fullName(st),
-              courseId: c.id, courseName: c.course_name,
+              courseId: c.id, courseName: c.course_name, blockNumber: c.block_number ?? null,
               assignmentId: a.id, schoologyAssignmentId: a.schoology_assignment_id, title: a.title, dueDate: due,
               tone: toneFor(row.daysLate, referralLimitDays, warnLeadDays),
             });
@@ -203,7 +203,7 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
       if (owed > 0) {
         feedbackOwed.push({
           assignmentId: a.id, schoologyAssignmentId: a.schoology_assignment_id,
-          courseId: c.id, courseName: c.course_name, title: a.title, dueDate: due, aligned: !!a.aligned,
+          courseId: c.id, courseName: c.course_name, blockNumber: c.block_number ?? null, title: a.title, dueDate: due, aligned: !!a.aligned,
           owed, submittedTotal, oldestWaitDays,
           tone: toneFor(oldestWaitDays, feedbackLimitDays, warnLeadDays), approx: waitApprox,
         });
@@ -242,7 +242,8 @@ export function listReferrals(db, { courseId = null, studentId = null, since = n
     SELECT r.id, r.action, r.note, r.days_late AS daysLate, r.source, r.created_at AS createdAt,
            r.student_id AS studentId, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher,
            r.assignment_id AS assignmentId, a.schoology_assignment_id AS schoologyAssignmentId, a.title,
-           substr(a.due_date, 1, 10) AS dueDate, r.course_id AS courseId, c.course_name AS courseName
+           substr(a.due_date, 1, 10) AS dueDate, r.course_id AS courseId, c.course_name AS courseName,
+           c.block_number AS blockNumber
     FROM referrals r
     JOIN students s ON s.id = r.student_id
     JOIN assignments a ON a.id = r.assignment_id

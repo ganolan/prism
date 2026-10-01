@@ -693,3 +693,60 @@ no layout change. **Next (deferred until core pages settle):** page-level phone 
 Student, Directory and Search, which means moving their inline styles into classes. See
 `docs/design-language.md` → "Phone layout".
 
+## Triage — late-work referral watch + feedback owed (2026-10-01, branch `feat/triage`)
+
+A new per-course/per-dashboard panel surfaces two things teachers currently track by hand: students
+approaching the late-work referral limit, and submitted-but-ungraded work sitting past the feedback-owed
+limit. School-day arithmetic (not calendar days) drives both, backed by a PowerSchool-derived `school_days`
+table synced alongside the existing block-number pass.
+
+**What shipped:**
+- `server/lib/psCalendar.js` — `extractCalendarDays`/`mergeCalendarDays`: turns each section's
+  `section_info.calenderDays` into `{date, inSession, cycleLetter}`, unioned across all synced sections
+  (a date is in session if *any* section's calendar says so; first non-null letter wins).
+- `server/services/schoolCalendar.js` + `school_days` table (`date`, `in_session`, `cycle_letter`, `raw`,
+  `source`, `synced_at`) — stored during the existing PowerSchool block-number sync
+  (`server/services/psAttendanceSync.js`), skipped on targeted/early-exit syncs so a partial run can't
+  blank the calendar.
+- School-day arithmetic with a weekday fallback for dates outside the synced calendar range.
+- `server/services/triage.js` — late-work + feedback-owed computation with configurable limits
+  (referral/feedback day counts, amber lead, formative-visibility toggle), referral record/undo, and
+  `first_submitted_at` tracking per grade (see limits below).
+- `/api/triage/*` routes, PrisMCP tools (`get_triage`, `list_referrals`, `school_calendar`,
+  `record_referral`/`undo_referral`), dashboard panels + course-card chips + school-day header, Course
+  page panels + an Assessments feedback-wait column, and a Settings page for the limits with a live
+  calendar-status check.
+- `scripts/lib/masterPlanCalendar.js` + `scripts/parity-school-calendar.js` — read-only parity check
+  between the stored PowerSchool calendar and the school's authoritative Master Plan workbook (a zip of
+  XML, parsed with `unzip` + regexes — no new dependency).
+
+**Live parity result (2026-10-01, dev clone DB, PowerSchool live sync, overlap 2026-08-13 → 2027-06-16):
+PARITY DIFFERS, and the cause is understood and is a real bug, not a test artifact.**
+PowerSchool's `inSession` flag (what `school_days.in_session` is sourced from) is `true` on 56 dates the
+Master Plan does not count as school days — every one of them has `cycleDay: null` and a PowerSchool
+`type` of `PH` (public holiday), `H` (Winter Break), `PD` (Professional Development Day), `O` (Interim), or
+`M` (half day, e.g. the last day of school). PowerSchool's `inSession` means "the school year is active",
+not "classes meet" — the reliable instructional-day signal is `cycleDay != null`, which `extractCalendarDays`
+(`server/lib/psCalendar.js`) does not currently check. Net effect: `school_days.in_session` currently
+overcounts school days by 56 (220 vs the Master Plan's 164) — **the panels' school-day counts are too high
+until this is fixed.** Full raw-JSON evidence, the letter-vs-cycle-day investigation (a second, unrelated
+finding — PS's own A/B letter runs in pairs rather than alternating daily, which is why the parity script's
+naive odd/even `letterByParity` model flags spurious "mismatches" against the Master Plan's distinct 1–8
+block-numbering — not a data bug), and the full `parity-school-calendar.js` output are in
+`.claude/powerschool-api-reference.md` (dated 2026-10-01 note under `section_info`) and
+`.superpowers/sdd/2026-10-01-triage-late-work-and-feedback-owed/task-13-live-report.md`. **Not fixed in
+this task** — live investigation only, per the task brief (no code changes on a live-data finding without
+separate review). Whoever picks this up next should revisit `mergeCalendarDays`/the in-session rule to key
+off `cycleDay` instead of `inSession`, then re-run the parity script to confirm 164/164.
+
+**Known limits (by design, not bugs):**
+- `first_submitted_at` is the **earliest observed** submission timestamp per grade, not a guarantee the
+  student never resubmitted after — it's a watermark, set once and kept.
+- The cycle day is shown as a single **A/B letter** only. PowerSchool's own `cycleDay` object carries more
+  (`dayNumber`, `abbreviation`, `sortOrder`) but none of it is surfaced; see the 2026-10-01 note in
+  `.claude/powerschool-api-reference.md` for the observed shape.
+- Triage covers **current courses only** (`archived = 0 AND excluded = 0`); archived/excluded courses are
+  out of scope by design (per `global-constraints.md`).
+
+**Tests:** 780 server + 522 client Vitest tests pass; `npm run build` succeeds.
+

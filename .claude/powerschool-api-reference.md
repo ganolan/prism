@@ -127,6 +127,30 @@ GET https://powerschool.hkis.edu.hk/ws/attendance/section_info?sectionDcid={dcid
 ```
 ⚠️ `calenderDays`/`inSessionDays` ignore the `startDate`/`endDate` params — `section_info` returns the **whole year's** calendar regardless of range (verified 2026-06-08). The date range only matters for the per-day roster (`section_attendance`), not for `section_info`'s calendar or bell-schedule fields.
 
+**2026-10-01 (triage, #task-13) — observed `calenderDays` entry shape, stored verbatim in `school_days.raw`.** Live sync via `syncPsAttendance` → `extractCalendarDays`/`mergeCalendarDays` (`server/lib/psCalendar.js`), dev clone DB, 2026-27 school year (308 rows synced).
+
+In-session, cycle day present (`2027-01-12`):
+```json
+{"dcid":50952,"id":50952,"schoolId":40,"date":"2027-01-12","scheduleId":"A","a":1,"b":1,"c":1,"d":1,"e":1,"f":1,"inSession":true,"membershipValue":1,"note":null,"type":null,"cycleDayId":3502,"cycleDay":{"dcid":3502,"id":3502,"schoolId":40,"yearId":36,"letter":"B","dayNumber":2,"abbreviation":"B","sortOrder":2},"bellScheduleId":4235,"weekNumber":0,"ipAddress":null}
+```
+
+Not in session (`2027-01-10`):
+```json
+{"dcid":50950,"id":50950,"schoolId":40,"date":"2027-01-10","scheduleId":"A","a":0,"b":0,"c":0,"d":0,"e":0,"f":0,"inSession":false,"membershipValue":0,"note":null,"type":null,"cycleDayId":0,"cycleDay":null,"bellScheduleId":0,"weekNumber":0,"ipAddress":null}
+```
+
+`inSession: true`, non-school-day type, `cycleDay: null` (`2026-10-01`, a public holiday PS still flags `inSession: true`):
+```json
+{"dcid":50849,"id":50849,"schoolId":40,"date":"2026-10-01","scheduleId":"A","a":1,"b":1,"c":1,"d":1,"e":1,"f":1,"inSession":true,"membershipValue":1,"note":"Public Holiday (National Day)","type":"PH","cycleDayId":0,"cycleDay":null,"bellScheduleId":0,"weekNumber":0,"ipAddress":null}
+```
+
+`cycleDay` carries more than just `letter`: `dayNumber` (observed values 1/2, matching the A/B letter 1:1 — i.e. PS's own cycle is a plain two-value A/B alternation, numbered), plus `abbreviation` (mirrors `letter`) and `sortOrder`. **The dashboard currently surfaces only `letter`** — `dayNumber`/`sortOrder`/`abbreviation` are stored in `raw` but unused.
+
+**Calendar parity vs the 2026-27 Master Plan (`scripts/parity-school-calendar.js`, dev DB, overlap 2026-08-13 → 2027-06-16): PARITY DIFFERS.**
+- School days: Master Plan 164, PowerSchool (`in_session=1`) 220 — a 56-day gap, and it is *one-directional*: `onlyInPlan` is empty (every Master Plan school day is also `in_session=1` in PowerSchool), `onlyInPs` has all 56 extra dates.
+- **Root cause (confirmed by inspecting `raw` for every `onlyInPs` date): PowerSchool's `inSession` boolean is true on days that are not instructional days.** Every one of the 56 extra dates has `cycleDay: null`/`cycleDayId: 0` and a `type`/`note` marking it non-instructional: `"type":"PH"` (public holiday, e.g. 2026-10-01 National Day, 2026-10-19 day after Chung Yeung), `"type":"H"` (Winter Break, e.g. 2026-12-14..2027-01-01), `"type":"PD"` (Professional Development Day, e.g. 2026-11-26), `"type":"O"` (Interim, e.g. 2027-03-01), `"type":"M"` (half day, e.g. 2027-06-16 "Last Day of School (Half Day)"). The Master Plan's cycle-day column correctly excludes all of these; PS's `inSession` flag does not — it means "the school year is in session" (membership/calendar-active), not "classes meet today". `extractCalendarDays` (`server/lib/psCalendar.js`) currently takes `inSession` at face value without checking `cycleDay`; the reliable "is this a teaching day" signal is `cycleDay != null`, not `inSession`. **Not fixed in this task** (live investigation only, no code changes per brief) — flagging for whoever next touches `mergeCalendarDays`/the in-session rule.
+- Letter mapping: `letterByParity` (keyed by Master Plan cycle-day-number parity, odd/even) converged to `{"0":"A","1":"A"}` with 80 flagged mismatches, all landing on Master Plan cycle-days 3/4/7/8 (never 1/2/5/6). Cross-checking PS's own consecutive school days directly (e.g. 2026-08-13→2026-08-27: letters run A,A,A,A,B,B,A,A,B,B,A) shows PS's A/B letter **repeats in pairs**, not strict day-to-day alternation. The Master Plan's own cycle-day column (1–8) is therefore a different numbering scheme (likely a block/rotation counter) from PS's A/B letter cadence; reducing the Master Plan's 1–8 number mod 2 does not track PS's actual AABB-grouped letter pattern, which produces a deterministic quarter-cycle mismatch rather than a real data error. No `onlyInPs`/`onlyInPlan` disagreement is implicated here — this is purely an artifact of comparing two different cycle-numbering schemes via naive parity, not a data bug.
+
 ### Block number — the displayed "Block N" = `bellScheduleItems[].period.name` (#106, verified 2026-06-08)
 
 **Resolved.** The canonical block a teacher sees at the top of the attendance-code column (e.g. ACSS = "Block 3") is the PowerSchool **period name**, available directly from `section_info` — **no in-session date, no `userDcid`, no `getattendance_integration` needed.**

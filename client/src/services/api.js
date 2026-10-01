@@ -220,6 +220,11 @@ export const getReferrals = ({ courseId } = {}) =>
   request(`/triage/referrals${courseId != null ? `?courseId=${courseId}` : ''}`);
 export const recordReferral = (body) => request('/triage/referrals', { method: 'POST', body: JSON.stringify(body) });
 export const undoReferral = (id) => request(`/triage/referrals/${id}`, { method: 'DELETE' });
+// Per-student deadline extensions: { studentId, assignmentId, lessons (school days), note? }.
+export const getExtensions = ({ courseId } = {}) =>
+  request(`/triage/extensions${courseId != null ? `?courseId=${courseId}` : ''}`);
+export const recordExtension = (body) => request('/triage/extensions', { method: 'POST', body: JSON.stringify(body) });
+export const undoExtension = (id) => request(`/triage/extensions/${id}`, { method: 'DELETE' });
 
 // Settings (server-side, shared by every device and PrisMCP).
 export const getSettings = () => request('/settings');

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getTriage, recordReferral } from '../../services/api.js';
+import { getTriage, recordReferral, recordExtension } from '../../services/api.js';
 import { useDataVersion } from '../../hooks/useDataVersion.jsx';
 import { formatDateTime } from '../../lib/formatDate.js';
 import LateWorkPanel from './LateWorkPanel.jsx';
@@ -31,15 +31,20 @@ export default function TriageSection({ courseId = null, onLoaded }) {
 
   useEffect(() => { load(); }, [load, dataVersion]);
 
-  async function handleRecord(row, action, note) {
+  // A write, then refresh the lists (and an open history).
+  async function write(fn) {
     try {
-      await recordReferral({ studentId: row.studentId, assignmentId: row.assignmentId, action, note });
+      await fn();
       setHistoryVersion((v) => v + 1);
       await load();
     } catch (err) {
       setError(err.message);
     }
   }
+  const handleRecord = (row, action, note) =>
+    write(() => recordReferral({ studentId: row.studentId, assignmentId: row.assignmentId, action, note }));
+  const handleExtend = (row, lessons, note) =>
+    write(() => recordExtension({ studentId: row.studentId, assignmentId: row.assignmentId, lessons, note }));
 
   if (!data) return error ? <div className="alert alert-warning">Triage unavailable: {error}</div> : null;
   const showCourse = courseId == null;
@@ -52,7 +57,8 @@ export default function TriageSection({ courseId = null, onLoaded }) {
       <div className="triage-grid">
         <LateWorkPanel
           rows={data.lateWork} settings={data.settings} showCourse={showCourse}
-          onRecord={handleRecord} onShowHistory={() => setShowHistory(true)} referralCount={data.referralCount}
+          onRecord={handleRecord} onExtend={handleExtend}
+          onShowHistory={() => setShowHistory(true)} historyCount={data.historyCount}
         />
         <FeedbackOwedPanel
           rows={data.feedbackOwed} settings={data.settings} showCourse={showCourse}

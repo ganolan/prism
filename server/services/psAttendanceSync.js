@@ -228,9 +228,15 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
   const log = (message) => { console.log(`[psAttendanceSync] ${message}`); onProgress?.({ message }); };
   const db = getDb();
 
+  // A targeted sync (archived-course import, or any courseIds-restricted
+  // re-sync) only visits a subset of sections, so its merged calendar would be
+  // a partial — or wrong-year — view of the school year. The stored
+  // school_days calendar is only ever replaced by the regular, all-active-
+  // courses sync (see the schoolDays block after the loop below).
+  const isTargetedSync = Boolean(courseIds && courseIds.length);
   const where = ['excluded = 0', 'schoology_section_id IS NOT NULL'];
   const params = [];
-  if (courseIds && courseIds.length) {
+  if (isTargetedSync) {
     where.push(`id IN (${courseIds.map(() => '?').join(',')})`);
     params.push(...courseIds);
   } else {
@@ -283,7 +289,7 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
         pick = { blockNumber: null, blockName: null, reason: 'no-section-dcid' };
       } else {
         const { status, first } = await fetchSectionInfoFirst(page, sectionDcid);
-        if (first) mergeCalendarDays(calendarByDate, extractCalendarDays(first));
+        if (first && !isTargetedSync) mergeCalendarDays(calendarByDate, extractCalendarDays(first));
         pick = first
           ? pickBlockNumber(first)
           : { blockNumber: null, blockName: null, reason: `section-info-failed:${status}` };
@@ -333,10 +339,15 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
       }
     }
 
-    summary.schoolDays = storeSchoolDays(db, [...calendarByDate.values()]);
-    log(summary.schoolDays
-      ? `School calendar: ${summary.schoolDays} days stored.`
-      : 'School calendar: none returned — kept the stored calendar.');
+    if (isTargetedSync) {
+      summary.schoolDays = 0;
+      log('School calendar: skipped (targeted sync).');
+    } else {
+      summary.schoolDays = storeSchoolDays(db, [...calendarByDate.values()]);
+      log(summary.schoolDays
+        ? `School calendar: ${summary.schoolDays} days stored.`
+        : 'School calendar: none returned — kept the stored calendar.');
+    }
     summary.gradeLevels.seen = gradeByDcid.size;
     summary.gradeLevels.updated = applyGradeLevels(db, gradeByDcid);
     log(`Grade levels: ${summary.gradeLevels.updated} students updated (${gradeByDcid.size} seen).`);

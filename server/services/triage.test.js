@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../db/index.js';
-import { addDays, isWeekday } from '../lib/schoolDays.js';
+import { addDays, isWeekday, todayLocal } from '../lib/schoolDays.js';
 import { storeSchoolDays } from './schoolCalendar.js';
 import { updateTriageSettings } from './settings.js';
 import { getTriage, recordReferral, undoReferral, listReferrals, toneFor, TriageError } from './triage.js';
@@ -108,13 +108,38 @@ describe('getTriage — late work', () => {
   test('Missing exception still counts as outstanding (grade timestamp is not a submission)', () => {
     const a = student('u1', 'Ada', 'L');
     const id = assignment('a1', 'Essay', '2026-10-05');
-    grade(a, id, { exception: 3, submitted_at: epoch('2026-10-06') });
+    // Real Missing rows carry score 0.0 (a grade-entry artifact, not a mark).
+    grade(a, id, { exception: 3, submitted_at: epoch('2026-10-06'), score: 0 });
     expect(getTriage(db, { today: TODAY }).lateWork[0]).toMatchObject({ kind: 'outstanding', daysLate: 9 });
+  });
+
+  test('Missing with score 0 and no submission is outstanding (exception 3 is never "scored")', () => {
+    const a = student('u1', 'Ada', 'L');
+    const id = assignment('a1', 'Essay', '2026-09-21');
+    grade(a, id, { exception: 3, score: 0 });
+    const row = getTriage(db, { today: TODAY }).lateWork[0];
+    expect(row).toMatchObject({ kind: 'outstanding', daysLate: 17, tone: 'red' });
+  });
+
+  test('comment-only grade entry (no submission) stays outstanding, not feedback-owed', () => {
+    const a = student('u1', 'Ada', 'L');
+    const id = assignment('a1', 'Essay', '2026-10-05');
+    grade(a, id, { grade_comment: 'please submit', submitted_at: epoch('2026-10-06') });
+    const t = getTriage(db, { today: TODAY });
+    expect(t.lateWork[0]).toMatchObject({ kind: 'outstanding', daysLate: 9 });
+    expect(t.feedbackOwed).toEqual([]);
   });
 
   test('scored on paper with no submission → not outstanding', () => {
     const a = student('u1', 'Ada', 'L');
     assignment('a1', 'Paper test', '2026-10-05');
+    scoreTopic('u1', 'a1');
+    expect(getTriage(db, { today: TODAY }).lateWork).toEqual([]);
+  });
+
+  test('scored on paper with no first-submission time is never flagged late (known limit)', () => {
+    const a = student('u1', 'Ada', 'L');
+    assignment('a1', 'Paper test', '2026-09-21'); // long past due — would be 17 school days if guessed
     scoreTopic('u1', 'a1');
     expect(getTriage(db, { today: TODAY }).lateWork).toEqual([]);
   });
@@ -262,5 +287,17 @@ describe('referrals', () => {
     const future = assignment('a9', 'Not due', '2026-10-30');
     expect(() => recordReferral(db, { studentId: pair.studentId, assignmentId: future, action: 'referred', today: TODAY }))
       .toThrow(expect.objectContaining({ code: 'NOT_ON_LIST' }));
+  });
+
+  test('rejects a missing studentId', () => {
+    const pair = atLimit();
+    expect(() => recordReferral(db, { ...pair, studentId: 9999, action: 'referred', today: TODAY }))
+      .toThrow(expect.objectContaining({ code: 'NOT_FOUND' }));
+  });
+
+  test('since (local date) includes a referral created today', () => {
+    const pair = atLimit();
+    recordReferral(db, { ...pair, action: 'referred', today: TODAY });
+    expect(listReferrals(db, { since: todayLocal() })).toHaveLength(1);
   });
 });

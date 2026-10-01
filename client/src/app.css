@@ -1141,6 +1141,9 @@ button.ghost.accent:hover { background: var(--accent-light); }
 /* Make-up tests: full-width above .triage-grid (the most urgent list). */
 .triage-makeups { margin-bottom: 1rem; }
 .triage-panel__note { margin: 0 0 0.6rem; font-size: 0.8rem; }
+/* Assessments tab: click-to-flip make-up tracking chip on a Schoology test/quiz. */
+.makeup-chip { border: 0; cursor: pointer; font-size: 0.72rem; flex-shrink: 0; }
+.makeup-chip:hover { box-shadow: inset 0 0 0 1px var(--accent); }
 .triage-row--feedback { grid-template-columns: minmax(0, 2fr) auto 5rem 2rem; }
 .triage-row--history { grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) auto minmax(0, 1fr) auto; }
 .triage-row__name { font-weight: 600; color: var(--text); }

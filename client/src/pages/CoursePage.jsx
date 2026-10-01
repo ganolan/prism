@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, triggerMasterySync, triggerMasteryLogin, getSubmissionLinks, getTriage } from '../services/api.js';
+import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, triggerMasterySync, triggerMasteryLogin, getSubmissionLinks, getTriage, setMakeUpIgnored } from '../services/api.js';
 import AnalyticsView from '../components/AnalyticsView.jsx';
 import OverridePopup from '../components/OverridePopup.jsx';
 import TriageSection from '../components/triage/TriageSection.jsx';
@@ -39,6 +39,7 @@ export default function CoursePage() {
   const [overrideTarget, setOverrideTarget] = useState(null); // { studentUid, category, currentLevel, hasOverride }
   const [overrideSaving, setOverrideSaving] = useState(false);
   const [triageWaits, setTriageWaits] = useState({ waits: {}, feedbackLimit: 10 });
+  const [triageKey, setTriageKey] = useState(0); // bump → the triage panels remount and re-fetch
 
   useEffect(() => {
     // includeDropped so RosterView can show the "N dropped" toggle without a
@@ -64,6 +65,20 @@ export default function CoursePage() {
       } catch (err) { console.error(err); /* triage is optional on this page */ }
     })();
   }, [id, dataVersion, courseLive]);
+
+  // Make-up tracking for one Schoology test/quiz (all students), from either the
+  // make-up panel's "Ignore this quiz" or the Assessments-tab chip.
+  function patchMakeUpIgnored(assignmentId, ignored) {
+    setGradebook((g) => g && {
+      ...g,
+      assignments: g.assignments.map((a) => (a.id === assignmentId ? { ...a, makeup_ignored: ignored ? 1 : 0 } : a)),
+    });
+  }
+  async function toggleMakeUp(a) {
+    const r = await setMakeUpIgnored(a.id, !a.makeup_ignored);
+    patchMakeUpIgnored(a.id, r.ignored);
+    setTriageKey((k) => k + 1);
+  }
 
   async function refreshMastery() {
     const m = await getMasteryForCourse(id).catch(() => null);
@@ -168,7 +183,9 @@ export default function CoursePage() {
         </div>
       </header>
 
-      {courseLive && <TriageSection courseId={Number(id)} />}
+      {courseLive && (
+        <TriageSection key={triageKey} courseId={Number(id)} onMakeUpIgnored={(aid) => patchMakeUpIgnored(aid, true)} />
+      )}
 
       {view === 'roster' && (
         <RosterView
@@ -196,7 +213,12 @@ export default function CoursePage() {
         />
       )}
       {view === 'gradebook' && <GradebookView data={gradebook} courseId={id} mastery={mastery} />}
-      {view === 'assessments' && <AssessmentsView data={gradebook} courseId={id} waits={triageWaits.waits} feedbackLimit={triageWaits.feedbackLimit} />}
+      {view === 'assessments' && (
+        <AssessmentsView
+          data={gradebook} courseId={id} waits={triageWaits.waits} feedbackLimit={triageWaits.feedbackLimit}
+          onToggleMakeUp={courseLive ? toggleMakeUp : undefined}
+        />
+      )}
       {view === 'analytics' && <AnalyticsView id={id} />}
     </div>
   );
@@ -1224,9 +1246,21 @@ function TypeFilterToggle({ label, count, active, type, onClick }) {
   );
 }
 
-export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10 }) {
+// onToggleMakeUp(assignment) (live courses only) flips make-up tracking for a
+// Schoology test/quiz; its chip shows "Make-ups: tracked / ignored".
+export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10, onToggleMakeUp }) {
   const [showSummative, setShowSummative] = useState(true);
   const [showFormative, setShowFormative] = useState(true);
+  const [makeUpError, setMakeUpError] = useState(null);
+
+  async function flipMakeUp(a) {
+    try {
+      await onToggleMakeUp(a);
+      setMakeUpError(null);
+    } catch (err) {
+      setMakeUpError(`Couldn't change make-up tracking for "${a.title}": ${err.message}`);
+    }
+  }
 
   if (!data || !data.assignments.length) {
     return <div className="card"><p className="text-muted">No assignments yet.</p></div>;
@@ -1255,6 +1289,7 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
           active={showFormative} onClick={() => setShowFormative(v => !v)}
         />
       </div>
+      {makeUpError && <div className="alert alert-warning" style={{ margin: '0.75rem 1.25rem' }}>{makeUpError}</div>}
 
       {groups.length === 0 ? (
         <p className="text-sm text-muted" style={{ padding: '1rem 1.25rem' }}>
@@ -1301,6 +1336,19 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
                     </Link>
                     <SchoologyLink url={a.web_url} ariaLabel={`View "${a.title}" in Schoology`} />
                   </span>
+                  {onToggleMakeUp && a.is_test === 1 && (
+                    <button
+                      type="button"
+                      className={`badge makeup-chip ${a.makeup_ignored ? 'badge-gray' : 'badge-blue'}`}
+                      aria-pressed={!a.makeup_ignored}
+                      title={a.makeup_ignored
+                        ? 'Ignored for make-ups (all students). Click to track it again.'
+                        : 'Students who miss this test show under Make-up tests. Click to ignore it for all students.'}
+                      onClick={() => flipMakeUp(a)}
+                    >
+                      Make-ups: {a.makeup_ignored ? 'ignored' : 'tracked'}
+                    </button>
+                  )}
                   {waits[a.schoology_assignment_id] && (() => {
                     const w = waits[a.schoology_assignment_id];
                     return (

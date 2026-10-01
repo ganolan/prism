@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getTriage, recordReferral, recordExtension } from '../../services/api.js';
+import { getTriage, recordReferral, recordExtension, setMakeUpIgnored } from '../../services/api.js';
 import { useDataVersion } from '../../hooks/useDataVersion.jsx';
 import { formatDateTime } from '../../lib/formatDate.js';
 import LateWorkPanel from './LateWorkPanel.jsx';
@@ -10,8 +10,9 @@ import ReferralHistory from './ReferralHistory.jsx';
 // The triage panels — make-up tests full-width on top (the most urgent: a missed
 // test can be invalidated), then late work + feedback owed side by side — across
 // all current courses (no courseId — Dashboard) or for one course (CoursePage). Owns its fetch; onLoaded hands the payload up
-// (the Dashboard uses it for course-card chips and the school-day header).
-export default function TriageSection({ courseId = null, onLoaded }) {
+// (the Dashboard uses it for course-card chips and the school-day header);
+// onMakeUpIgnored(assignmentId) tells the course page a quiz was ignored.
+export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnored }) {
   const dataVersion = useDataVersion();
   const [data, setData] = useState(null);
   const [includeFormative, setIncludeFormative] = useState(undefined); // undefined → the Settings default
@@ -47,6 +48,10 @@ export default function TriageSection({ courseId = null, onLoaded }) {
     write(() => recordReferral({ studentId: row.studentId, assignmentId: row.assignmentId, action, note }));
   const handleExtend = (row, lessons, note) =>
     write(() => recordExtension({ studentId: row.studentId, assignmentId: row.assignmentId, lessons, note }));
+  const handleIgnore = (row) => write(async () => {
+    await setMakeUpIgnored(row.assignmentId, true);
+    onMakeUpIgnored?.(row.assignmentId);
+  });
 
   if (!data) return error ? <div className="alert alert-warning">Triage unavailable: {error}</div> : null;
   const showCourse = courseId == null;
@@ -58,7 +63,8 @@ export default function TriageSection({ courseId = null, onLoaded }) {
       )}
       <MakeUpPanel
         rows={data.makeUps ?? []} settings={data.settings} showCourse={showCourse}
-        unchecked={data.makeUpsUnchecked ?? 0} onExtend={handleExtend}
+        unchecked={data.makeUpsUnchecked ?? 0} ignored={data.makeUpsIgnored ?? 0}
+        onExtend={handleExtend} onIgnore={handleIgnore}
       />
       <div className="triage-grid">
         <LateWorkPanel

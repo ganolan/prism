@@ -225,6 +225,9 @@ export const getExtensions = ({ courseId } = {}) =>
   request(`/triage/extensions${courseId != null ? `?courseId=${courseId}` : ''}`);
 export const recordExtension = (body) => request('/triage/extensions', { method: 'POST', body: JSON.stringify(body) });
 export const undoExtension = (id) => request(`/triage/extensions/${id}`, { method: 'DELETE' });
+// Make-up tests: ignore (or track again) one Schoology test/quiz for every student.
+export const setMakeUpIgnored = (assignmentId, ignored) =>
+  request(`/triage/makeup-ignore/${assignmentId}`, { method: 'PUT', body: JSON.stringify({ ignored }) });
 
 // Settings (server-side, shared by every device and PrisMCP).
 export const getSettings = () => request('/settings');

@@ -12,6 +12,7 @@ vi.mock('../../services/api.js', () => ({
   recordExtension: vi.fn(),
   undoExtension: vi.fn(),
   getExtensions: vi.fn(),
+  setMakeUpIgnored: vi.fn(),
 }));
 
 const SETTINGS = {
@@ -47,6 +48,7 @@ beforeEach(() => {
   api.recordExtension.mockResolvedValue({ id: 2 });
   api.getReferrals.mockResolvedValue([]);
   api.getExtensions.mockResolvedValue([]);
+  api.setMakeUpIgnored.mockResolvedValue({ assignmentId: 20, title: 'Unit 1 test', ignored: true });
 });
 
 describe('TriageSection', () => {
@@ -267,5 +269,37 @@ describe('TriageSection — make-up tests', () => {
     fireEvent.click(within(panel).getByText('Save'));
     await waitFor(() => expect(api.recordExtension).toHaveBeenCalledWith({ studentId: 8, assignmentId: 21, lessons: 3, note: 'sits Tue' }));
     await waitFor(() => expect(api.getTriage).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe('TriageSection — ignore a quiz for make-ups', () => {
+  it('Ignore this quiz asks inline, then ignores it for all students and reloads', async () => {
+    const onMakeUpIgnored = vi.fn();
+    renderSection({ onMakeUpIgnored });
+    const panel = await makeUpPanel();
+    fireEvent.click(within(panel).getAllByText('Ignore this quiz')[0]); // Noah's Unit 1 test
+    expect(within(panel).getByText('Ignore Unit 1 test for all students?')).toBeInTheDocument();
+    fireEvent.click(within(panel).getByText('Yes'));
+    await waitFor(() => expect(api.setMakeUpIgnored).toHaveBeenCalledWith(20, true));
+    await waitFor(() => expect(api.getTriage).toHaveBeenCalledTimes(2));
+    expect(onMakeUpIgnored).toHaveBeenCalledWith(20);
+  });
+
+  it('Cancel leaves it tracked', async () => {
+    renderSection();
+    const panel = await makeUpPanel();
+    fireEvent.click(within(panel).getAllByText('Ignore this quiz')[0]);
+    fireEvent.click(within(panel).getByText('Cancel'));
+    expect(within(panel).queryByText(/for all students\?/)).not.toBeInTheDocument();
+    expect(api.setMakeUpIgnored).not.toHaveBeenCalled();
+  });
+
+  it('says how many quizzes are ignored', async () => {
+    api.getTriage.mockResolvedValue({ ...PAYLOAD, makeUpsIgnored: 2 });
+    renderSection();
+    expect(within(await makeUpPanel()).getByText('2 quizzes ignored')).toBeInTheDocument();
+    api.getTriage.mockResolvedValue({ ...PAYLOAD, makeUps: [], makeUpsIgnored: 1 });
+    renderSection();
+    expect(await screen.findByText('1 quiz ignored')).toBeInTheDocument();
   });
 });

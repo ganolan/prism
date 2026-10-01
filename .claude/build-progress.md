@@ -720,24 +720,28 @@ table synced alongside the existing block-number pass.
   between the stored PowerSchool calendar and the school's authoritative Master Plan workbook (a zip of
   XML, parsed with `unzip` + regexes — no new dependency).
 
-**Live parity result (2026-10-01, dev clone DB, PowerSchool live sync, overlap 2026-08-13 → 2027-06-16):
-PARITY DIFFERS, and the cause is understood and is a real bug, not a test artifact.**
-PowerSchool's `inSession` flag (what `school_days.in_session` is sourced from) is `true` on 56 dates the
-Master Plan does not count as school days — every one of them has `cycleDay: null` and a PowerSchool
-`type` of `PH` (public holiday), `H` (Winter Break), `PD` (Professional Development Day), `O` (Interim), or
-`M` (half day, e.g. the last day of school). PowerSchool's `inSession` means "the school year is active",
-not "classes meet" — the reliable instructional-day signal is `cycleDay != null`, which `extractCalendarDays`
-(`server/lib/psCalendar.js`) does not currently check. Net effect: `school_days.in_session` currently
-overcounts school days by 56 (220 vs the Master Plan's 164) — **the panels' school-day counts are too high
-until this is fixed.** Full raw-JSON evidence, the letter-vs-cycle-day investigation (a second, unrelated
-finding — PS's own A/B letter runs in pairs rather than alternating daily, which is why the parity script's
-naive odd/even `letterByParity` model flags spurious "mismatches" against the Master Plan's distinct 1–8
-block-numbering — not a data bug), and the full `parity-school-calendar.js` output are in
-`.claude/powerschool-api-reference.md` (dated 2026-10-01 note under `section_info`) and
-`.superpowers/sdd/2026-10-01-triage-late-work-and-feedback-owed/task-13-live-report.md`. **Not fixed in
-this task** — live investigation only, per the task brief (no code changes on a live-data finding without
-separate review). Whoever picks this up next should revisit `mergeCalendarDays`/the in-session rule to key
-off `cycleDay` instead of `inSession`, then re-run the parity script to confirm 164/164.
+**Live parity — found a real bug, fixed it, re-verified (2026-10-01/02, dev clone DB, PowerSchool live
+sync, overlap 2026-08-13 → 2027-06-16).** First run: `school_days.in_session` overcounted by 56 days
+(220 vs the Master Plan's 164). Root cause: PowerSchool's `inSession` flag means "the school year is
+active", not "classes meet" — it was `true` on 56 dates the Master Plan doesn't count as school days,
+every one of them a non-instructional `type` (`PH` public holiday, `H` Winter Break, `PD` Professional
+Development Day, `O` Interim, `M` half day) with `cycleDay: null`. Fixed in `extractCalendarDays`
+(`server/lib/psCalendar.js`): a date now counts as a school day only when **both** `inSession` is true
+**and** `cycleDay` is present. A second, separate finding (not a data bug): the parity script's letter
+check used Master-Plan-cycle-day **parity** (odd/even), but the school's actual A/B cadence pairs up by
+cycle-day number (1-2=A, 3-4=B, 5-6=A, 7-8=B) rather than alternating daily, so parity flagged 80 spurious
+mismatches; `compareCalendars` (`scripts/lib/masterPlanCalendar.js`) now keys the learned letter by
+cycle-day **number** instead.
+
+Re-synced and re-ran parity after the fix: **Master Plan 164, PowerSchool 165** (one day short of a clean
+match), letter mapping `{1:A, 2:A, 3:B, 4:B, 5:A, 6:A, 7:B, 8:B}` with **zero** letter mismatches. The
+sole remaining difference, `2026-12-11` ("End of S1 (Half Day)", `type: M`), is **accepted**: unlike the
+56 dates above, it carries a present `cycleDay` (PowerSchool treats the half day as instructional; the
+Master Plan's Daily Planning View doesn't give it a numeric cycle day). 164 vs 165 with that one
+explained difference is the expected steady state, not a residual bug. Full raw-JSON evidence for both
+the original 56-day gap and the fixed/re-verified result are in `.claude/powerschool-api-reference.md`
+(dated 2026-10-01/02 notes under `section_info`) and
+`.superpowers/sdd/2026-10-01-triage-late-work-and-feedback-owed/task-13-live-report.md`.
 
 **Known limits (by design, not bugs):**
 - `first_submitted_at` is the **earliest observed** submission timestamp per grade, not a guarantee the

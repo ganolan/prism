@@ -110,6 +110,10 @@ CREATE TABLE IF NOT EXISTS grades (
   -- for lti_submission work the authoritative state is grades.lti_submission_state
   -- (migration-added) — submission_type is only a corroborating GHD fallback.
   submission_type TEXT,
+  -- Triage: earliest submission time Prism has observed (epoch secs, 0 = none).
+  -- A running minimum across syncs — the bulk revisions API only returns the
+  -- latest revision, so this is the best available "first submitted" signal.
+  first_submitted_at INTEGER DEFAULT 0,
   synced_at TEXT,
   UNIQUE(student_id, assignment_id)
 );

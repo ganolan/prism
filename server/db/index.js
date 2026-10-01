@@ -111,6 +111,9 @@ const MIGRATIONS = [
   // changed a narrative the teacher had handled — shows again, tagged), or
   // NULL (never handled). Server-side so it holds across devices.
   `ALTER TABLE feedback ADD COLUMN suggestion_state TEXT`,
+  // Triage: earliest observed submission time (running minimum). See
+  // docs/superpowers/specs/2026-10-01-triage-late-work-and-feedback-owed-design.md.
+  `ALTER TABLE grades ADD COLUMN first_submitted_at INTEGER DEFAULT 0`,
   // Indexes for issue #13 columns (must run after ALTER TABLEs above)
   `CREATE INDEX IF NOT EXISTS idx_assignments_folder ON assignments(folder_id)`,
   `CREATE INDEX IF NOT EXISTS idx_assignments_grading_category ON assignments(grading_category_id)`,
@@ -152,6 +155,16 @@ export function backfillExcludedCourses(database) {
     WHERE excluded = 0
       AND (course_code IS NULL OR course_code = '')
       AND (section_school_code IS NULL OR section_school_code = '')
+  `);
+}
+
+// Triage: seed first_submitted_at from the best pre-existing signal (the newest
+// non-draft revision / LTI submission time). Idempotent — only fills rows that
+// have never been set; the sync keeps it as a running minimum from then on.
+export function backfillFirstSubmittedAt(database) {
+  database.exec(`
+    UPDATE grades SET first_submitted_at = latest_revision_at
+    WHERE COALESCE(first_submitted_at, 0) = 0 AND COALESCE(latest_revision_at, 0) > 0
   `);
 }
 
@@ -218,6 +231,7 @@ export function migrate(database) {
   purgeLegacyAutoFlags(database);
   purgeStudentScopedFlags(database);
   backfillExcludedCourses(database);
+  backfillFirstSubmittedAt(database);
 }
 
 export function getDb() {

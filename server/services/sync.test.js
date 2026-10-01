@@ -496,6 +496,36 @@ describe('syncSectionData — submission state: native bulk + lti documents (#55
     expect(row.late).toBe(0);
   });
 
+  test('triage: native first_submitted_at keeps the earliest across syncs', async () => {
+    getSectionEnrollments.mockResolvedValue([{ id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' }]);
+    getSectionAssignments.mockResolvedValue([{ id: 'N1', title: 'Essay', published: 1, allow_dropbox: '1' }]);
+
+    getAssignmentSubmissions.mockResolvedValue([{ revision_id: 1, uid: '701', created: 1000, late: 0, draft: 0 }]);
+    await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {});
+    expect(getGradeRow('701', 'N1').first_submitted_at).toBe(1000);
+
+    // A later resubmission moves latest_revision_at but not first_submitted_at.
+    getAssignmentSubmissions.mockResolvedValue([{ revision_id: 2, uid: '701', created: 2000, late: 1, draft: 0 }]);
+    await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {});
+    const row = getGradeRow('701', 'N1');
+    expect(row.latest_revision_at).toBe(2000);
+    expect(row.first_submitted_at).toBe(1000);
+  });
+
+  test('triage: lti submitted time seeds first_submitted_at and keeps the earliest', async () => {
+    getSectionEnrollments.mockResolvedValue([{ id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' }]);
+    getSectionAssignments.mockResolvedValue([
+      { id: 'L1', title: 'OneDrive Essay', published: 1, allow_dropbox: '1', assignment_type: 'lti_submission' },
+    ]);
+    const docs = (t) => async () => ({
+      states: new Map([['701', 'submitted']]),
+      details: new Map([['701', { submittedAt: t, late: 0 }]]),
+    });
+    await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), { fetchDocuments: docs(1500) });
+    await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), { fetchDocuments: docs(2500) });
+    expect(getGradeRow('701', 'L1').first_submitted_at).toBe(1500);
+  });
+
   function getFetchStatus(assignmentExtId) {
     return db.prepare(`SELECT lti_fetch_status FROM assignments WHERE schoology_assignment_id = ?`)
       .get(assignmentExtId)?.lti_fetch_status;

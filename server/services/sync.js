@@ -21,6 +21,15 @@ import { createSubmissionFetcher } from './graderSubmissions.js';
 import { getSyncConfig } from '../middleware/featureGate.js';
 import { syncMasteryForCourse, hasMasterySession } from './masterySync.js';
 
+// Triage: grades.first_submitted_at is a running minimum of the non-zero
+// submission times we observe (the bulk revisions API only returns the latest
+// revision). Used in each submission upsert's ON CONFLICT clause.
+const KEEP_EARLIEST_FIRST_SUBMITTED = `
+      first_submitted_at = CASE
+        WHEN excluded.first_submitted_at > 0
+         AND (COALESCE(grades.first_submitted_at, 0) = 0 OR excluded.first_submitted_at < grades.first_submitted_at)
+        THEN excluded.first_submitted_at ELSE grades.first_submitted_at END`;
+
 // Issue #56: flip newly-discovered template sections to excluded=1. Same
 // predicate as the boot-time backfill in db/index.js but called every sync
 // so new template sections appearing in subsequent syncs also get caught.
@@ -247,14 +256,14 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   // Upsert native submission state (insert the row if missing so a submitted-but-
   // ungraded cell still surfaces) — late/draft/timing + submission_type.
   const upsertSubmissionWithType = db.prepare(`
-    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, exception, late, draft, latest_revision_at, submission_type, synced_at)
-    VALUES (?, ?, ?, NULL, ?, 0, ?, ?, ?, ?, ?)
+    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, exception, late, draft, latest_revision_at, first_submitted_at, submission_type, synced_at)
+    VALUES (?, ?, ?, NULL, ?, 0, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(student_id, assignment_id) DO UPDATE SET
       late = excluded.late,
       draft = excluded.draft,
       latest_revision_at = excluded.latest_revision_at,
       submission_type = excluded.submission_type,
-      synced_at = excluded.synced_at
+      synced_at = excluded.synced_at,${KEEP_EARLIEST_FIRST_SUBMITTED}
   `);
   // No revision → not submitted. UPDATE-only (never insert) so a never-touched
   // cell keeps "no engagement" (no grades row); clears status + type.
@@ -325,7 +334,7 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
       if (d) {
         upsertSubmissionWithType.run(
           r.studentId, r.assignmentId, r.enrolmentId, r.maxPoints,
-          d.late, d.draft, d.latestRevisionAt, d.submissionType, now,
+          d.late, d.draft, d.latestRevisionAt, d.latestRevisionAt, d.submissionType, now,
         );
         submissionCount++;
       } else {
@@ -354,14 +363,14 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   // Schoology's own on-time/late determination. Unparseable date → submittedAt
   // null → 0 here (epochToIso(0) → null in the MCP), but late is still recorded.
   const upsertLtiStateWithTime = db.prepare(`
-    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, lti_submission_state, submitted_at, latest_revision_at, late, synced_at)
-    VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
+    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, lti_submission_state, submitted_at, latest_revision_at, first_submitted_at, late, synced_at)
+    VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(student_id, assignment_id) DO UPDATE SET
       lti_submission_state = excluded.lti_submission_state,
       submitted_at = excluded.submitted_at,
       latest_revision_at = excluded.latest_revision_at,
       late = excluded.late,
-      synced_at = excluded.synced_at
+      synced_at = excluded.synced_at,${KEEP_EARLIEST_FIRST_SUBMITTED}
   `);
   // #76: record the per-assignment fetch outcome so the gradebook can flag a
   // genuine capture failure ('failed') vs a healthy read ('ok'). Assignments we
@@ -398,7 +407,7 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
           if (detail) {
             upsertLtiStateWithTime.run(
               studentRow.id, assignRow.id, String(e.id), assignRow.max_points ?? null, state,
-              detail.submittedAt ?? 0, detail.submittedAt ?? 0, detail.late ?? 0, now,
+              detail.submittedAt ?? 0, detail.submittedAt ?? 0, detail.submittedAt ?? 0, detail.late ?? 0, now,
             );
           } else {
             upsertLtiState.run(studentRow.id, assignRow.id, String(e.id), assignRow.max_points ?? null, state, now);
@@ -435,14 +444,14 @@ export async function retrySubmissions(db, failedEntries, now, metrics) {
 
   // Mirror the main native path: synthesize submission_type from the revision.
   const upsertSubmissionWithType = db.prepare(`
-    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, exception, late, draft, latest_revision_at, submission_type, synced_at)
-    VALUES (?, ?, ?, NULL, ?, 0, ?, ?, ?, ?, ?)
+    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, exception, late, draft, latest_revision_at, first_submitted_at, submission_type, synced_at)
+    VALUES (?, ?, ?, NULL, ?, 0, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(student_id, assignment_id) DO UPDATE SET
       late = excluded.late,
       draft = excluded.draft,
       latest_revision_at = excluded.latest_revision_at,
       submission_type = excluded.submission_type,
-      synced_at = excluded.synced_at
+      synced_at = excluded.synced_at,${KEEP_EARLIEST_FIRST_SUBMITTED}
   `);
   const clearSubmissionWithType = db.prepare(`
     UPDATE grades SET late = 0, draft = 0, latest_revision_at = 0, submission_type = NULL, synced_at = ?
@@ -495,7 +504,7 @@ export async function retrySubmissions(db, failedEntries, now, metrics) {
             if (d) {
               upsertSubmissionWithType.run(
                 r.studentId, r.assignmentId, r.enrolmentId, r.maxPoints,
-                d.late, d.draft, d.latestRevisionAt, d.submissionType, now,
+                d.late, d.draft, d.latestRevisionAt, d.latestRevisionAt, d.submissionType, now,
               );
             } else {
               clearSubmissionWithType.run(now, r.studentId, r.assignmentId);

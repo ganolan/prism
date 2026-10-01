@@ -83,6 +83,20 @@ describe('/api/triage', () => {
     expect((await call('GET', '/api/triage/extensions')).body).toEqual([]);
   });
 
+  test('PUT makeup-ignore/:assignmentId flips tracking for a test; errors map to status codes', async () => {
+    const quiz = getDb().prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, is_test, test_fetch_status) VALUES (?, 'q1', 'Quiz', '2020-01-06 14:00:00', 1, 'ok')`)
+      .run(courseId).lastInsertRowid;
+    expect((await call('GET', '/api/triage')).body.makeUps).toHaveLength(1);
+    const res = await call('PUT', `/api/triage/makeup-ignore/${quiz}`, { ignored: true });
+    expect(res).toMatchObject({ status: 200, body: { assignmentId: quiz, title: 'Quiz', ignored: true } });
+    const t = (await call('GET', '/api/triage')).body;
+    expect(t.makeUps).toEqual([]);
+    expect(t.makeUpsIgnored).toBe(1);
+    expect(await call('PUT', `/api/triage/makeup-ignore/${quiz}`, { ignored: 'no' })).toMatchObject({ status: 400, body: { code: 'BAD_VALUE' } });
+    expect((await call('PUT', '/api/triage/makeup-ignore/999', { ignored: true })).status).toBe(404);
+    expect(await call('PUT', `/api/triage/makeup-ignore/${assignmentId}`, { ignored: true })).toMatchObject({ status: 409, body: { code: 'NOT_ELIGIBLE' } });
+  });
+
   test('POST extension errors map to status codes', async () => {
     const bad = await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 0 });
     expect(bad).toMatchObject({ status: 400, body: { code: 'BAD_LESSONS' } });

@@ -253,11 +253,15 @@ describe('migration: make-up tests + extension re-extend time', () => {
     db.exec(`
       ALTER TABLE assignments DROP COLUMN is_test;
       ALTER TABLE assignments DROP COLUMN test_fetch_status;
+      ALTER TABLE assignments DROP COLUMN makeup_ignored;
       ALTER TABLE extensions DROP COLUMN updated_at;
     `);
     migrate(db);
     const cols = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
-    expect(cols('assignments')).toEqual(expect.arrayContaining(['is_test', 'test_fetch_status']));
+    expect(cols('assignments')).toEqual(expect.arrayContaining(['is_test', 'test_fetch_status', 'makeup_ignored']));
+    db.prepare(`INSERT INTO courses (id, schoology_section_id, course_name) VALUES (1, 's', 'C')`).run();
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (1, 'a', 'T')`).run();
+    expect(db.prepare('SELECT makeup_ignored FROM assignments').get().makeup_ignored).toBe(0); // tracked by default
     expect(cols('extensions')).toContain('updated_at');
   });
 });

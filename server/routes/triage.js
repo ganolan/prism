@@ -3,17 +3,17 @@ import { Router } from 'express';
 import { getDb } from '../db/index.js';
 import {
   getTriage, listReferrals, recordReferral, undoReferral,
-  listExtensions, recordExtension, undoExtension, TriageError,
+  listExtensions, recordExtension, undoExtension, setMakeUpIgnored, TriageError,
 } from '../services/triage.js';
 
 const router = Router();
-const STATUS = { BAD_ACTION: 400, BAD_LESSONS: 400, NOT_FOUND: 404, NOT_ON_LIST: 409, NOT_AT_LIMIT: 409, NOT_ELIGIBLE: 409 };
+const STATUS = { BAD_ACTION: 400, BAD_LESSONS: 400, BAD_VALUE: 400, NOT_FOUND: 404, NOT_ON_LIST: 409, NOT_AT_LIMIT: 409, NOT_ELIGIBLE: 409 };
 const optBool = (v) => (v === undefined ? undefined : v === 'true');
 
 // Runs a write; a TriageError becomes its HTTP status + { error, code }.
-function write(res, fn) {
+function write(res, fn, okStatus = 201) {
   try {
-    res.status(201).json(fn());
+    res.status(okStatus).json(fn());
   } catch (err) {
     if (err instanceof TriageError) return res.status(STATUS[err.code] || 400).json({ error: err.message, code: err.code });
     throw err;
@@ -58,6 +58,12 @@ router.post('/extensions', (req, res) => {
 // DELETE /api/triage/extensions/:id — undo an extension.
 router.delete('/extensions/:id', (req, res) => {
   res.json(undoExtension(getDb(), req.params.id));
+});
+
+// PUT /api/triage/makeup-ignore/:assignmentId — { ignored: boolean }: ignore (or
+// track again) one Schoology test/quiz for make-ups, for every student.
+router.put('/makeup-ignore/:assignmentId', (req, res) => {
+  write(res, () => setMakeUpIgnored(getDb(), req.params.assignmentId, req.body?.ignored), 200);
 });
 
 export default router;

@@ -8,6 +8,7 @@ import { writeStudentSuggestions, upsertAssessmentAnalysis } from '../server/ser
 import { listCourses, listAssignments, listStudents, listRubricsTool, readRubric, writeRubric, attachRubricTool } from './handlers.js';
 import {
   getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool, extendDeadlineTool, undoExtensionTool,
+  setMakeupTrackingTool,
 } from './handlers.js';
 import { assertExplicitDbPath } from './dbGuard.js';
 
@@ -197,6 +198,7 @@ export function createServer() {
         '(any alignment; no attempt, no score, not excused) and must sit it (or their * copy) ASAP — daysSince the test in school days, ' +
         'tone green on the day / amber / red per the makeUpAmberDays/makeUpRedDays settings; clears itself once an attempt ' +
         'syncs. makeUpsUnchecked: past tests whose attempts could not be read (unknown, NOT missed — suggest a re-sync). ' +
+        'makeUpsIgnored: past tests the teacher ignores for make-ups (set_makeup_tracking). ' +
         'Rows carry courseName + blockNumber (sections of one course share a name) and extension ({ id, lessons, until, note } or null; dueDate stays the original). Includes the limits (settings), calendar source (approx = weekday fallback) and lastSyncAt — ' +
         'say when data may be stale. Use for "who is close to referral?", "what should I grade first?" or "who still has to sit the test?".',
       inputSchema: {
@@ -277,6 +279,18 @@ export function createServer() {
       inputSchema: { id: z.number().describe('Extension id') },
     },
     async (args) => text(undoExtensionTool(getDb(), args))
+  );
+
+  server.registerTool(
+    'set_makeup_tracking',
+    {
+      description: "Turn make-up tracking off (tracked: false) or back on (tracked: true) for one Schoology test or quiz, for ALL students — e.g. a formative quiz nobody has to re-sit. Only when the teacher asks. An ignored test lists nobody in get_triage makeUps (counted in makeUpsIgnored). Use makeUps[].assignmentId. Rejects anything that isn't a Schoology test in a current course (NOT_ELIGIBLE).",
+      inputSchema: {
+        assignment_id: z.number().describe('Assignment id of the test/quiz (makeUps[].assignmentId or list_assignments)'),
+        tracked: z.boolean().describe('false = ignore it for make-ups; true = track it again'),
+      },
+    },
+    async (args) => text(setMakeupTrackingTool(getDb(), args))
   );
 
   // Read-only @-mention mirror of the read tools (spec §3.2), so the teacher can

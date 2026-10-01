@@ -91,6 +91,9 @@ CREATE TABLE IF NOT EXISTS assignments (
   -- lti_fetch_status: a test the sync never reaches keeps its previous value, so
   -- a failed or session-less read is UNKNOWN, never "missed".
   test_fetch_status TEXT,
+  -- Make-up tests: 1 = the teacher ignores this test/quiz for make-ups (all
+  -- students; e.g. a formative quiz). Prism-owned — the sync never writes it.
+  makeup_ignored INTEGER NOT NULL DEFAULT 0,
   synced_at TEXT
 );
 

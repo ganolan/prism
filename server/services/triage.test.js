@@ -8,6 +8,7 @@ import { storeSchoolDays } from './schoolCalendar.js';
 import { updateTriageSettings } from './settings.js';
 import {
   getTriage, recordReferral, undoReferral, listReferrals, recordExtension, undoExtension, listExtensions, toneFor, TriageError,
+  setMakeUpIgnored,
 } from './triage.js';
 
 const TODAY = '2026-10-16'; // Fri
@@ -483,6 +484,37 @@ describe('getTriage — make-up tests', () => {
     // Attempts unknown → the paper rule (whole targeted roster handed in at the due date) still applies.
     db.prepare(`UPDATE assignments SET test_fetch_status = 'failed' WHERE id = ?`).run(id);
     expect(getTriage(db, { today: TODAY, now }).feedbackOwed[0]).toMatchObject({ owed: 2, submittedTotal: 2 });
+  });
+});
+
+describe('make-up tracking: ignore a quiz for all students', () => {
+  const now = AFTER_SCHOOL;
+
+  test('an ignored test lists nobody and is counted in makeUpsIgnored (not unchecked); tracking it again restores the rows', () => {
+    student('u1', 'Ada', 'L');
+    const quiz = testItem('q1', 'Practice quiz', '2026-10-15', { summative: false });
+    testItem('q2', 'Unread quiz', '2026-10-15', { status: null });
+    testItem('q3', 'Future quiz', '2026-10-20');
+    expect(setMakeUpIgnored(db, quiz, true)).toEqual({ assignmentId: quiz, title: 'Practice quiz', ignored: true });
+    setMakeUpIgnored(db, db.prepare(`SELECT id FROM assignments WHERE schoology_assignment_id = 'q3'`).get().id, true);
+    const t = getTriage(db, { today: TODAY, now });
+    expect(t.makeUps).toEqual([]);
+    expect(t.makeUpsIgnored).toBe(1); // past-due only (q3 isn't due yet)
+    expect(t.makeUpsUnchecked).toBe(1);
+    expect(setMakeUpIgnored(db, quiz, false)).toMatchObject({ ignored: false });
+    expect(getTriage(db, { today: TODAY, now }).makeUps).toHaveLength(1);
+  });
+
+  test('only a Schoology test in a current course; ignored must be a boolean', () => {
+    const quiz = testItem('q1', 'Quiz', '2026-10-15');
+    const essay = assignment('a1', 'Essay', '2026-10-15');
+    const code = (...args) => { try { setMakeUpIgnored(db, ...args); } catch (err) { expect(err).toBeInstanceOf(TriageError); return err.code; } return 'OK'; };
+    expect(code(9999, true)).toBe('NOT_FOUND');
+    expect(code(essay, true)).toBe('NOT_ELIGIBLE');
+    expect(code(quiz, 'yes')).toBe('BAD_VALUE');
+    expect(code(quiz, true)).toBe('OK');
+    db.prepare('UPDATE courses SET archived = 1 WHERE id = ?').run(courseId);
+    expect(code(quiz, false)).toBe('NOT_ELIGIBLE');
   });
 });
 

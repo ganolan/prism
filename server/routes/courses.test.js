@@ -75,6 +75,14 @@ beforeEach(() => {
   ).run(studentId, assignmentId);
 });
 
+describe('GET /api/courses/:id/gradebook — make-up tracking', () => {
+  test('assignments carry is_test and makeup_ignored', async () => {
+    getDb().prepare(`UPDATE assignments SET is_test = 1, makeup_ignored = 1 WHERE id = ?`).run(assignmentId);
+    const { body } = await get(`/api/courses/${courseId}/gradebook`);
+    expect(body.assignments.find((a) => a.id === assignmentId)).toMatchObject({ is_test: 1, makeup_ignored: 1 });
+  });
+});
+
 describe('GET /api/courses/:id/gradebook — resubmit_requested', () => {
   test('cell resubmit_requested is false with no flag', async () => {
     const { body } = await get(`/api/courses/${courseId}/gradebook`);

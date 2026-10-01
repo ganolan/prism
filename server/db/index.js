@@ -122,6 +122,8 @@ const MIGRATIONS = [
   // grader_grade_data attempt read succeed ('ok' | 'failed'; NULL = never read).
   `ALTER TABLE assignments ADD COLUMN is_test INTEGER`,
   `ALTER TABLE assignments ADD COLUMN test_fetch_status TEXT`,
+  // Make-up tests: the teacher's per-test "Ignore" switch (Prism-owned; sync never writes it).
+  `ALTER TABLE assignments ADD COLUMN makeup_ignored INTEGER NOT NULL DEFAULT 0`,
   // Triage: when an extension was last re-extended (dev DBs already have the table).
   `ALTER TABLE extensions ADD COLUMN updated_at TEXT`,
   // Indexes for issue #13 columns (must run after ALTER TABLEs above)

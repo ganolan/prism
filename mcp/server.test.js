@@ -295,12 +295,21 @@ describe('PrisMCP triage tools', () => {
     expect(desc('extend_deadline')).toMatch(/make-up/i);
   });
 
-  test('lists all seven triage tools', async () => {
+  test('lists all eight triage tools', async () => {
     const client = await connect();
     const names = (await client.listTools()).tools.map((t) => t.name);
     expect(names).toEqual(expect.arrayContaining([
       'get_triage', 'list_referrals', 'school_calendar', 'record_referral', 'undo_referral', 'extend_deadline', 'undo_extension',
+      'set_makeup_tracking',
     ]));
+  });
+
+  test('set_makeup_tracking takes assignment_id + tracked (boolean), only when the teacher asks', async () => {
+    const client = await connect();
+    const tool = (await client.listTools()).tools.find((t) => t.name === 'set_makeup_tracking');
+    expect(tool.inputSchema.required).toEqual(expect.arrayContaining(['assignment_id', 'tracked']));
+    expect(tool.inputSchema.properties.tracked.type).toBe('boolean');
+    expect(tool.description).toMatch(/only when the teacher/i);
   });
 
   test("record_referral's action enum is 'referred' only", async () => {

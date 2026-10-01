@@ -10,7 +10,7 @@ import { LEVELS } from '../server/lib/proficiencyScale.js';
 import { normalizeSubmissionStatus, gradingState, getRoster, scoreScaleFor } from '../server/services/assessmentContext.js';
 import { preferredFirstName } from '../server/services/studentNames.js';
 import {
-  getTriage, listReferrals, recordReferral, undoReferral, listExtensions, recordExtension, undoExtension,
+  getTriage, listReferrals, recordReferral, undoReferral, listExtensions, recordExtension, undoExtension, setMakeUpIgnored,
 } from '../server/services/triage.js';
 import { loadCalendar } from '../server/services/schoolCalendar.js';
 import { todayLocal } from '../server/lib/schoolDays.js';
@@ -246,6 +246,11 @@ export function recordReferralTool(db, { student_id, assignment_id, action, note
 
 export function undoReferralTool(db, { id } = {}) {
   return undoReferral(db, id);
+}
+
+// Make-up tracking for one Schoology test/quiz (all students): tracked false = ignore.
+export function setMakeupTrackingTool(db, { assignment_id, tracked } = {}) {
+  return setMakeUpIgnored(db, assignment_id, typeof tracked === 'boolean' ? !tracked : tracked);
 }
 
 export function extendDeadlineTool(db, { student_id, assignment_id, lessons, note } = {}) {

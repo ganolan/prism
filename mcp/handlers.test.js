@@ -6,7 +6,7 @@ import { getDb } from '../server/db/index.js';
 import { listCourses, listAssignments, listStudents, writeRubric, attachRubricTool } from './handlers.js';
 import {
   resolveCourseRef, getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool,
-  extendDeadlineTool, undoExtensionTool,
+  extendDeadlineTool, undoExtensionTool, setMakeupTrackingTool,
 } from './handlers.js';
 import { saveRubric, listRubrics, getRubricByName } from '../server/services/rubricStore.js';
 
@@ -330,6 +330,19 @@ describe('triage tools', () => {
     const maya = getTriageTool(db, { student: 'maya' });
     expect(maya.makeUps.map((r) => r.studentName)).toEqual(['Maya Chen']);
     expect(maya.counts.makeUpsOverdue).toBe(1);
+  });
+
+  test('set_makeup_tracking: tracked false silences a quiz for every student; true restores it', () => {
+    const db = getDb();
+    const { courseId } = seedLate(db);
+    const quiz = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, is_test, test_fetch_status)
+      VALUES (?, 'q1', 'Practice quiz', '2020-01-06 14:00:00', 1, 'ok')`).run(courseId).lastInsertRowid;
+    expect(getTriageTool(db, {}).makeUps).toHaveLength(1);
+    expect(setMakeupTrackingTool(db, { assignment_id: quiz, tracked: false })).toEqual({ assignmentId: quiz, title: 'Practice quiz', ignored: true });
+    expect(getTriageTool(db, {})).toMatchObject({ makeUps: [], makeUpsIgnored: 1 });
+    setMakeupTrackingTool(db, { assignment_id: quiz, tracked: true });
+    expect(getTriageTool(db, {}).makeUps).toHaveLength(1);
+    expect(() => setMakeupTrackingTool(db, { assignment_id: 99999, tracked: false })).toThrow(expect.objectContaining({ code: 'NOT_FOUND' }));
   });
 
   test('record → list → undo through the tools (source mcp)', () => {

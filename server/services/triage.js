@@ -75,7 +75,7 @@ function pastDueAssignments(db, courseId, today) {
 function pastDueTests(db, courseId, nowStamp) {
   return db.prepare(`
     SELECT a.id, a.course_id, a.schoology_assignment_id, a.title, a.due_date, a.is_lti_submission, a.num_assignees,
-      a.test_fetch_status, ${ALIGNED_SQL} AS aligned
+      a.test_fetch_status, a.makeup_ignored, ${ALIGNED_SQL} AS aligned
     FROM assignments a
     WHERE a.course_id = ? AND a.published = 1 AND a.is_test = 1
       AND a.due_date IS NOT NULL AND a.due_date != '' AND a.due_date <= ?
@@ -179,6 +179,7 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
   const feedbackOwed = [];
   const makeUps = [];
   let makeUpsUnchecked = 0;
+  let makeUpsIgnored = 0;
   const courses = currentCourses(db, courseId);
   for (const c of courses) {
     const students = roster(db, c.id);
@@ -187,7 +188,9 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
     // Make-up tests: a Schoology test/quiz is over and a targeted, active,
     // non-excused student has no attempt and no score (a score = sat on paper).
     // Only when the attempt read succeeded — otherwise unknown, never "missed".
+    // A test the teacher ignores (e.g. a formative quiz) lists nobody.
     for (const a of pastDueTests(db, c.id, nowStamp)) {
+      if (a.makeup_ignored) { makeUpsIgnored++; continue; }
       if (a.test_fetch_status !== 'ok') { makeUpsUnchecked++; continue; }
       const facts = assignmentFacts(db, a);
       const due = a.due_date.slice(0, 10);
@@ -323,8 +326,10 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
     lateWork,
     feedbackOwed,
     makeUps,
-    // Past-due summative tests whose attempts couldn't be read ("re-sync").
+    // Past-due tests whose attempts couldn't be read ("re-sync").
     makeUpsUnchecked,
+    // Past-due tests the teacher ignores for make-ups.
+    makeUpsIgnored,
   };
 }
 
@@ -450,4 +455,19 @@ export function recordExtension(db, { studentId, assignmentId, lessons, note = n
 
 export function undoExtension(db, id) {
   return { deleted: db.prepare('DELETE FROM extensions WHERE id = ?').run(Number(id)).changes > 0 };
+}
+
+// Ignore (or track again) one Schoology test/quiz for make-ups, for every
+// student — e.g. a formative quiz nobody has to re-sit. Prism-owned setting.
+export function setMakeUpIgnored(db, assignmentId, ignored) {
+  if (typeof ignored !== 'boolean') throw new TriageError('BAD_VALUE', 'ignored must be true or false');
+  const a = db.prepare(`
+    SELECT a.id, a.title, a.is_test, c.archived, c.excluded
+    FROM assignments a JOIN courses c ON c.id = a.course_id WHERE a.id = ?
+  `).get(Number(assignmentId));
+  if (!a) throw new TriageError('NOT_FOUND', `No assignment with id ${assignmentId}`);
+  if (a.is_test !== 1) throw new TriageError('NOT_ELIGIBLE', 'Only a Schoology test or quiz has make-ups');
+  if (a.archived || a.excluded) throw new TriageError('NOT_ELIGIBLE', 'That test is not in a current course');
+  db.prepare('UPDATE assignments SET makeup_ignored = ? WHERE id = ?').run(ignored ? 1 : 0, a.id);
+  return { assignmentId: a.id, title: a.title, ignored };
 }

@@ -1252,6 +1252,14 @@ describe('syncSectionData — Schoology test attempts (make-up tests)', () => {
     expect(status('T9').test_fetch_status).toBeNull();
   });
 
+  test('makeup_ignored is Prism-owned: a re-sync never overwrites it', async () => {
+    await syncSectionData(db, 'sec-T', courseId, NOW);
+    expect(db.prepare(`SELECT makeup_ignored FROM assignments WHERE schoology_assignment_id = 'T1'`).get().makeup_ignored).toBe(0);
+    db.prepare(`UPDATE assignments SET makeup_ignored = 1 WHERE schoology_assignment_id = 'T1'`).run();
+    await syncSectionData(db, 'sec-T', courseId, NOW, { fetchTestAttempts: async () => attempts(), ltiFetchBackoffMs: 0 });
+    expect(db.prepare(`SELECT makeup_ignored FROM assignments WHERE schoology_assignment_id = 'T1'`).get().makeup_ignored).toBe(1);
+  });
+
   test('no test assignments, or skipSubmissions (archived) → no fetch', async () => {
     const fetchTestAttempts = vi.fn().mockResolvedValue(attempts());
     await syncSectionData(db, 'sec-T', courseId, NOW, { fetchTestAttempts, skipSubmissions: true });

@@ -6,6 +6,8 @@ import { formatDateTime } from '../lib/formatDate.js';
 import ArchivedCoursesPanel from '../components/ArchivedCoursesPanel.jsx';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import { useStickyTab } from '../hooks/useStickyTab.js';
+import TriageSection from '../components/triage/TriageSection.jsx';
+import { courseTriageSummary, TONE_BADGE } from '../lib/triage.js';
 
 export default function Dashboard() {
   const dataVersion = useDataVersion();
@@ -16,6 +18,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   // editingBlock: courseId currently being edited, blockDraft: current input value
   const [settingsCard, setSettingsCard] = useState(null);
+  const [triage, setTriage] = useState(null);
 
   async function reload() {
     try {
@@ -90,6 +93,16 @@ export default function Dashboard() {
               </span>
             )}
             {!!c.hidden && <span className="badge" style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }}>Hidden</span>}
+            {!showSemester && triage && (() => {
+              const t = courseTriageSummary(triage, c.id);
+              return (
+                <>
+                  {t.atLimit > 0 && <span className="badge badge-red">{t.atLimit} at limit</span>}
+                  {t.late > 0 && <span className="badge badge-amber">{t.late} late</span>}
+                  {t.toGrade > 0 && <span className={`badge ${TONE_BADGE[t.waitTone]}`}>{t.toGrade} to grade · {t.oldestWait}d</span>}
+                </>
+              );
+            })()}
           </div>
 
           {isSettings ? (
@@ -129,6 +142,12 @@ export default function Dashboard() {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <h2 className="page-title" style={{ marginBottom: 0 }}>Dashboard</h2>
+        {triage?.calendar?.today?.schoolDayNumber && (
+          <span className="text-sm text-muted">
+            School day {triage.calendar.today.schoolDayNumber} of {triage.calendar.totalSchoolDays}
+            {triage.calendar.today.cycleLetter ? ` · Day ${triage.calendar.today.cycleLetter}` : ''}
+          </span>
+        )}
       </div>
 
       {/* Sync status */}
@@ -165,6 +184,8 @@ export default function Dashboard() {
           <span className="text-sm" style={{ color: 'var(--text-muted)' }}>Show hidden</span>
         </label>
       </div>
+
+      {activeTab === 'current' && <TriageSection onLoaded={setTriage} />}
 
       {/* Current tab */}
       {activeTab === 'current' && (

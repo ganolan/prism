@@ -12,13 +12,19 @@ vi.mock('../services/api.js', () => ({
   discoverArchivedCourses: vi.fn(),
   importCourse: vi.fn(),
   triggerMasteryLogin: vi.fn(),
+  getTriage: vi.fn(),
+  recordReferral: vi.fn(),
+  getReferrals: vi.fn(),
+  undoReferral: vi.fn(),
 }));
 
 beforeEach(() => {
   vi.clearAllMocks();
+  sessionStorage.clear();
   api.getCoursesByView.mockResolvedValue([]);
   api.getCourses.mockResolvedValue([]);
   api.getSyncStatus.mockResolvedValue({});
+  api.getTriage.mockResolvedValue(null);
 });
 
 function renderDashboard() {
@@ -117,5 +123,31 @@ describe('Dashboard — Archived tab', () => {
     await screen.findByRole('button', { name: /Check Schoology for archived courses/ });
     expect(screen.queryByText('Add an archived course')).not.toBeInTheDocument();
     expect(screen.queryByText(/Section ID/)).not.toBeInTheDocument();
+  });
+});
+
+describe('Dashboard — triage', () => {
+  it('shows triage panels and per-course chips on the Current tab', async () => {
+    api.getCoursesByView.mockResolvedValue([
+      { id: 5, course_name: 'AP Computer Science Principles', grading_period: 'Semester 1: 08/14/2026 - 01/11/2027', student_count: 24 },
+    ]);
+    api.getTriage.mockResolvedValue({
+      settings: { referralLimitDays: 8, feedbackLimitDays: 10, warnLeadDays: 3, showFormativeDefault: false },
+      includeFormative: false, referralCount: 0, lastSyncAt: null,
+      calendar: { source: 'powerschool', totalSchoolDays: 164, today: { schoolDayNumber: 35, cycleLetter: 'A' } },
+      lateWork: [{ kind: 'outstanding', studentId: 1, studentName: 'Maya Chen', courseId: 5, courseName: 'AP Computer Science Principles', assignmentId: 9, schoologyAssignmentId: 'a9', title: 'CP2', dueDate: '2026-10-05', daysLate: 9, tone: 'red', approx: false }],
+      feedbackOwed: [{ assignmentId: 4, schoologyAssignmentId: 'a4', courseId: 5, courseName: 'AP Computer Science Principles', title: 'CP1', dueDate: '2026-09-17', aligned: true, owed: 7, submittedTotal: 24, oldestWaitDays: 8, tone: 'amber', approx: false }],
+    });
+    renderDashboard();
+    expect(await screen.findByText('Maya Chen')).toBeInTheDocument();
+    expect(await screen.findByText('1 at limit')).toBeInTheDocument();
+    expect(screen.getByText('7 to grade · 8d')).toBeInTheDocument();
+    expect(screen.getByText('School day 35 of 164 · Day A')).toBeInTheDocument();
+  });
+
+  it('no triage on the Archived tab', async () => {
+    renderDashboard();
+    fireEvent.click(await screen.findByText('Archived'));
+    expect(api.getTriage).toHaveBeenCalledTimes(1); // only the initial Current-tab mount
   });
 });

@@ -15,12 +15,16 @@
  * dropbox; that became redundant once native moved to the bulk endpoint and was
  * removed along with parseGraderHeaderData.js.)
  *
+ * It also reads Schoology test attempts per section (grader_grade_data, make-up
+ * tests — see graderTestAttempts.js) through the same browser context.
+ *
  * Everything here is best-effort: with no saved session, an expired session, or a
  * failed fetch, the fetcher returns `null` and the caller falls back gracefully.
  * It never throws into the sync.
  */
 import { existsSync } from 'fs';
 import { fetchAssignmentSubmissionState } from './graderDocuments.js';
+import { fetchSectionTestAttempts } from './graderTestAttempts.js';
 import { sessionStateFile } from '../lib/sessionPaths.js';
 
 
@@ -30,6 +34,7 @@ import { sessionStateFile } from '../lib/sessionPaths.js';
  *
  * @returns {Promise<null | {
  *   fetchDocuments: (assignmentId: string) => Promise<{ states: Map<string,string>, details: Map<string,{submittedAt:number|null, late:0|1}> }|null>,
+ *   fetchTestAttempts: (sectionId: string, uids: string[], gradeItemIds: string[]) => Promise<Map<string, Map<string,{took:boolean, notAssigned:boolean}>>|null>,
  *   close: () => Promise<void>,
  * }>}
  *   Returns `null` immediately when no saved session exists, so the caller can
@@ -58,6 +63,9 @@ export async function createSubmissionFetcher() {
   return {
     async fetchDocuments(assignmentId) {
       return fetchAssignmentSubmissionState(context, assignmentId);
+    },
+    async fetchTestAttempts(sectionId, uids, gradeItemIds) {
+      return fetchSectionTestAttempts(context, sectionId, uids, gradeItemIds);
     },
     async close() {
       if (browser) await browser.close().catch(() => {});

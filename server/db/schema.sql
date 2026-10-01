@@ -83,6 +83,14 @@ CREATE TABLE IF NOT EXISTS assignments (
   -- Schoology tests/quizzes), NULL = not synced since the column was added.
   -- Only work that accepts submissions can make a student "outstanding".
   accepts_submissions INTEGER,
+  -- Make-up tests: 1 = a Schoology test/quiz (REST type 'assessment'), 0 = not.
+  -- Written by every sync. Not derived from assignment_type (masterySync overwrites it).
+  is_test INTEGER,
+  -- Make-up tests: outcome of the last grader_grade_data attempt read for this
+  -- test ('ok' | 'failed'; NULL = not a test / never attempted). Modelled on
+  -- lti_fetch_status: a test the sync never reaches keeps its previous value, so
+  -- a failed or session-less read is UNKNOWN, never "missed".
+  test_fetch_status TEXT,
   synced_at TEXT
 );
 
@@ -468,8 +476,10 @@ CREATE TABLE IF NOT EXISTS referrals (
 -- Triage: a per-student deadline extension of N lessons (= school days, the
 -- referral limit's unit). The student's effective due date is the N-th school
 -- day after the assignment's due date; they stay off the late-work list until
--- it passes, then count late from it. One per pair — re-extending replaces
--- lessons/note. Undo = delete. A pair can be extended and later referred.
+-- it passes, then count late from it (a make-up test's clock also counts from
+-- it — "sitting it Thursday"). One per pair — re-extending replaces
+-- lessons/note/source and sets updated_at. Undo = delete. A pair can be extended
+-- and later referred.
 CREATE TABLE IF NOT EXISTS extensions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   student_id INTEGER NOT NULL REFERENCES students(id),
@@ -479,5 +489,6 @@ CREATE TABLE IF NOT EXISTS extensions (
   note TEXT,
   source TEXT NOT NULL DEFAULT 'app',   -- 'app' | 'mcp'
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT,                      -- set when re-extended (history/since use COALESCE(updated_at, created_at))
   UNIQUE(student_id, assignment_id)
 );

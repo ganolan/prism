@@ -128,8 +128,8 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
 
   const assignments = await getSectionAssignments(sectionId);
   const upsertAssignment = db.prepare(`
-    INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, max_points, assignment_type, is_lti_submission, grading_category_id, grading_scale_id, folder_id, count_in_grade, published, display_weight, num_assignees, web_url, accepts_submissions, synced_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, max_points, assignment_type, is_lti_submission, grading_category_id, grading_scale_id, folder_id, count_in_grade, published, display_weight, num_assignees, web_url, accepts_submissions, is_test, synced_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(schoology_assignment_id) DO UPDATE SET
       title = excluded.title,
       due_date = excluded.due_date,
@@ -145,6 +145,7 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
       num_assignees = excluded.num_assignees,
       web_url = excluded.web_url,
       accepts_submissions = excluded.accepts_submissions,
+      is_test = excluded.is_test,
       synced_at = excluded.synced_at
   `);
   const deleteAssignees = db.prepare(`DELETE FROM assignment_assignees WHERE assignment_id = ?`);
@@ -169,6 +170,9 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
         a.web_url || null,
         // Triage: allow_dropbox covers native dropbox AND OneDrive/GDrive LTI.
         (a.allow_dropbox === '1' || a.allow_dropbox === 1) ? 1 : 0,
+        // Make-up tests: a Schoology test/quiz (assignment_type is not reliable —
+        // masterySync overwrites it).
+        isTest(a) ? 1 : 0,
         now
       );
       const row = selectAssignment.get(String(a.id));
@@ -421,6 +425,22 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     }
   }
 
+  // Make-up tests: who has an attempt on each Schoology test. ONE browser-session
+  // read per section (grader_grade_data) for the tests in the sync window. A
+  // taker gets submission_type 'assessment'; on a good read a non-taker's stale
+  // 'assessment' is cleared ('drop' is never touched). test_fetch_status records
+  // the outcome per test, like lti_fetch_status: a failed read is 'failed'
+  // (unknown, never "missed"), and a test never reached (no session, windowed
+  // out, archived) keeps its previous value.
+  const testAll = skipSubmissions ? [] : assignments.filter(isTest);
+  const { target: testAssignments } = filterRecentAssignments(testAll, recentOnly, recentDays, now);
+  if (typeof opts.fetchTestAttempts === 'function' && testAssignments.length) {
+    await syncTestAttempts(db, {
+      sectionId, now, studentEnrollments, testAssignments, selectStudentByUid, selectAssignmentByExt,
+      fetchTestAttempts: opts.fetchTestAttempts, backoffMs: ltiFetchBackoffMs,
+    });
+  }
+
   return {
     studentsCount: studentEnrollments.length,
     assignmentsCount: assignments.length,
@@ -433,6 +453,51 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     rateLimitHits,
     transientFailures,
   };
+}
+
+// Schoology REST type 'assessment' = a test or quiz.
+const isTest = (a) => a.type === 'assessment';
+
+async function syncTestAttempts(db, {
+  sectionId, now, studentEnrollments, testAssignments, selectStudentByUid, selectAssignmentByExt, fetchTestAttempts, backoffMs,
+}) {
+  const setStatus = db.prepare(`UPDATE assignments SET test_fetch_status = ? WHERE id = ?`);
+  const markTaken = db.prepare(`
+    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, submission_type, synced_at)
+    VALUES (?, ?, ?, NULL, ?, 'assessment', ?)
+    ON CONFLICT(student_id, assignment_id) DO UPDATE SET
+      submission_type = CASE WHEN grades.submission_type = 'drop' THEN 'drop' ELSE 'assessment' END,
+      synced_at = excluded.synced_at
+  `);
+  const clearTaken = db.prepare(`
+    UPDATE grades SET submission_type = NULL, synced_at = ?
+    WHERE student_id = ? AND assignment_id = ? AND submission_type = 'assessment'
+  `);
+  const tests = testAssignments
+    .map((a) => ({ ext: String(a.id), row: selectAssignmentByExt.get(String(a.id)) }))
+    .filter((t) => t.row);
+  if (!tests.length) return;
+  const students = studentEnrollments
+    .map((e) => ({ e, studentRow: selectStudentByUid.get(String(e.uid)) }))
+    .filter((c) => c.studentRow);
+
+  const result = await retryAsync(
+    () => fetchTestAttempts(sectionId, studentEnrollments.map((e) => String(e.uid)), tests.map((t) => t.ext)),
+    { attempts: 2, backoffMs },
+  );
+  db.transaction(() => {
+    for (const t of tests) {
+      // A test the response has no cells for at all is unknown, not "nobody took it".
+      const covered = !!result && [...result.values()].some((byItem) => byItem.has(t.ext));
+      setStatus.run(covered ? 'ok' : 'failed', t.row.id);
+      if (!covered) continue;
+      for (const { e, studentRow } of students) {
+        const cell = result.get(String(e.uid))?.get(t.ext);
+        if (cell?.took) markTaken.run(studentRow.id, t.row.id, String(e.id), t.row.max_points ?? null, now);
+        else clearTaken.run(now, studentRow.id, t.row.id);
+      }
+    }
+  })();
 }
 
 // End-of-sync serial retry pass for assignments that hit transient submission
@@ -700,8 +765,10 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
     const userId = await getMyUserId();
 
     // #62: best-effort browser-session reader for lti_submission document state
-    // (the submitted/in-progress per-assignment endpoints), reused across all
-    // sections. null when no saved session — lti badges then fall back gracefully.
+    // (the submitted/in-progress per-assignment endpoints) and Schoology test
+    // attempts (grader_grade_data, make-up tests), reused across all sections.
+    // null when no saved session — lti badges then fall back gracefully and
+    // test attempts stay unknown.
     // Native dropbox no longer needs a session (public bulk revisions, #55).
     try { submissionFetcher = await createSubmissionFetcher(); } catch { submissionFetcher = null; }
 
@@ -789,6 +856,9 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
         recentOnly,
         recentDays,
         fetchDocuments: submissionFetcher ? (aid) => submissionFetcher.fetchDocuments(aid) : undefined,
+        fetchTestAttempts: submissionFetcher
+          ? (sid, uids, itemIds) => submissionFetcher.fetchTestAttempts(sid, uids, itemIds)
+          : undefined,
       });
       metrics.submission_calls += result.submissionAttempts || 0;
       metrics.window_skipped += result.windowSkipped || 0;
@@ -844,7 +914,7 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
 
     }
 
-    // The document fetcher (lti state) is only needed during the section loop
+    // The browser fetcher (lti state, test attempts) is only needed during the section loop
     // above (the retry pass uses the public API only). Close its browser now.
     if (submissionFetcher) { await submissionFetcher.close().catch(() => {}); submissionFetcher = null; }
     if (metrics.window_skipped > 0) {

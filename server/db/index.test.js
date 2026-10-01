@@ -244,3 +244,20 @@ describe('purgeStudentScopedFlags', () => {
     expect(db.prepare('SELECT COUNT(*) AS c FROM flags').get().c).toBe(1);
   });
 });
+
+describe('migration: make-up tests + extension re-extend time', () => {
+  test('adds assignments.is_test / test_fetch_status and extensions.updated_at to an existing DB', () => {
+    const db = new Database(':memory:');
+    migrate(db);
+    // Simulate a DB created before these columns existed.
+    db.exec(`
+      ALTER TABLE assignments DROP COLUMN is_test;
+      ALTER TABLE assignments DROP COLUMN test_fetch_status;
+      ALTER TABLE extensions DROP COLUMN updated_at;
+    `);
+    migrate(db);
+    const cols = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
+    expect(cols('assignments')).toEqual(expect.arrayContaining(['is_test', 'test_fetch_status']));
+    expect(cols('extensions')).toContain('updated_at');
+  });
+});

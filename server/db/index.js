@@ -118,6 +118,12 @@ const MIGRATIONS = [
   // NULL = unknown until the next sync — triage falls back to "someone has
   // submitted". Not derived from assignment_type (masterySync overwrites it).
   `ALTER TABLE assignments ADD COLUMN accepts_submissions INTEGER`,
+  // Make-up tests: is this a Schoology test (type 'assessment'), and did the last
+  // grader_grade_data attempt read succeed ('ok' | 'failed'; NULL = never read).
+  `ALTER TABLE assignments ADD COLUMN is_test INTEGER`,
+  `ALTER TABLE assignments ADD COLUMN test_fetch_status TEXT`,
+  // Triage: when an extension was last re-extended (dev DBs already have the table).
+  `ALTER TABLE extensions ADD COLUMN updated_at TEXT`,
   // Indexes for issue #13 columns (must run after ALTER TABLEs above)
   `CREATE INDEX IF NOT EXISTS idx_assignments_folder ON assignments(folder_id)`,
   `CREATE INDEX IF NOT EXISTS idx_assignments_grading_category ON assignments(grading_category_id)`,

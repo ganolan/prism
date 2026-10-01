@@ -1125,3 +1125,177 @@ describe('syncSectionData — dropped enrolments (#128)', () => {
     expect(enrolmentFor('700001').dropped_at).toBe(null);
   });
 });
+
+describe('syncSectionData — Schoology test attempts (make-up tests)', () => {
+  let db;
+  let courseId;
+  const NOW = '2026-10-02T00:00:00.000Z';
+
+  beforeEach(() => {
+    db = new Database(':memory:');
+    migrate(db);
+    courseId = db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-T', 'AP CSP')`
+    ).run().lastInsertRowid;
+    getSectionEnrollments.mockReset();
+    getSectionAssignments.mockReset();
+    getSectionGrades.mockReset();
+    getAssignmentSubmissions.mockReset();
+    getSectionGrades.mockResolvedValue([]);
+    getAssignmentSubmissions.mockResolvedValue([]);
+    getSectionEnrollments.mockResolvedValue([
+      { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
+      { id: '802', uid: '702', name_first: 'Bo', name_last: 'M', admin: '0' },
+      { id: '803', uid: '703', name_first: 'Cy', name_last: 'N', admin: '0' },
+    ]);
+    getSectionAssignments.mockResolvedValue([
+      { id: 'T1', title: 'Unit 1 test', type: 'assessment', published: 1, allow_dropbox: '0', due: '2026-09-28 14:00:00' },
+      { id: 'T2', title: 'Unit 1 test *', type: 'assessment', published: 1, allow_dropbox: '0', due: '2026-09-28 14:00:00' },
+      { id: 'E1', title: 'Essay', type: 'assignment', published: 1, allow_dropbox: '1', due: '2026-09-28 14:00:00' },
+    ]);
+  });
+
+  const cell = (took, notAssigned = false) => ({ took, notAssigned });
+  // Ada took T1, Bo didn't, Cy is on the * copy (T2) and took it.
+  const attempts = () => new Map([
+    ['701', new Map([['T1', cell(true)], ['T2', cell(false, true)]])],
+    ['702', new Map([['T1', cell(false)], ['T2', cell(false, true)]])],
+    ['703', new Map([['T1', cell(false, true)], ['T2', cell(true)]])],
+  ]);
+  const row = (uid, aid) => db.prepare(`
+    SELECT g.* FROM grades g JOIN assignments a ON a.id = g.assignment_id JOIN students s ON s.id = g.student_id
+    WHERE a.schoology_assignment_id = ? AND s.schoology_uid = ?
+  `).get(aid, uid);
+  const status = (aid) => db.prepare(`SELECT is_test, test_fetch_status FROM assignments WHERE schoology_assignment_id = ?`).get(aid);
+
+  test('is_test comes from type "assessment" on every sync', async () => {
+    await syncSectionData(db, 'sec-T', courseId, NOW);
+    expect(status('T1').is_test).toBe(1);
+    expect(status('E1').is_test).toBe(0);
+    // masterySync may rewrite assignment_type; the next sync still knows it is a test.
+    db.prepare(`UPDATE assignments SET assignment_type = 'basic' WHERE schoology_assignment_id = 'T1'`).run();
+    await syncSectionData(db, 'sec-T', courseId, NOW);
+    expect(status('T1').is_test).toBe(1);
+  });
+
+  test('ONE fetch per section for the test assignments; takers get submission_type "assessment"; status ok', async () => {
+    const fetchTestAttempts = vi.fn().mockResolvedValue(attempts());
+    await syncSectionData(db, 'sec-T', courseId, NOW, { fetchTestAttempts, ltiFetchBackoffMs: 0 });
+    expect(fetchTestAttempts).toHaveBeenCalledTimes(1);
+    expect(fetchTestAttempts).toHaveBeenCalledWith('sec-T', ['701', '702', '703'], ['T1', 'T2']);
+    expect(row('701', 'T1')).toMatchObject({ submission_type: 'assessment', score: null });
+    expect(row('703', 'T2')).toMatchObject({ submission_type: 'assessment' });
+    expect(row('702', 'T1')).toBeUndefined(); // not taken → no row invented
+    expect(row('703', 'T1')).toBeUndefined(); // not assigned → untouched
+    expect(status('T1').test_fetch_status).toBe('ok');
+    expect(status('T2').test_fetch_status).toBe('ok');
+    expect(status('E1').test_fetch_status).toBeNull();
+  });
+
+  test('a successful fetch clears a stale "assessment" for a non-taker, keeps the score, never touches "drop"', async () => {
+    await syncSectionData(db, 'sec-T', courseId, NOW);
+    const sid = (uid) => db.prepare('SELECT id FROM students WHERE schoology_uid = ?').get(uid).id;
+    const aid = (ext) => db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(ext).id;
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, score, submission_type) VALUES (?, ?, 75, 'assessment')`).run(sid('702'), aid('T1'));
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, submission_type) VALUES (?, ?, 'drop')`).run(sid('701'), aid('T1'));
+    await syncSectionData(db, 'sec-T', courseId, NOW, { fetchTestAttempts: async () => attempts(), ltiFetchBackoffMs: 0 });
+    expect(row('702', 'T1')).toMatchObject({ submission_type: null, score: 75 });
+    expect(row('701', 'T1').submission_type).toBe('drop');
+  });
+
+  test('a fetch that fails every attempt retries once, records "failed" and writes nothing', async () => {
+    await syncSectionData(db, 'sec-T', courseId, NOW);
+    const sid = db.prepare(`SELECT id FROM students WHERE schoology_uid = '702'`).get().id;
+    const aid = db.prepare(`SELECT id FROM assignments WHERE schoology_assignment_id = 'T1'`).get().id;
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, submission_type) VALUES (?, ?, 'assessment')`).run(sid, aid);
+    let calls = 0;
+    await syncSectionData(db, 'sec-T', courseId, NOW, { fetchTestAttempts: async () => { calls++; return null; }, ltiFetchBackoffMs: 0 });
+    expect(calls).toBe(2);
+    expect(status('T1').test_fetch_status).toBe('failed');
+    expect(status('T2').test_fetch_status).toBe('failed');
+    expect(row('702', 'T1').submission_type).toBe('assessment'); // unknown ≠ "didn't take it"
+    expect(row('701', 'T1')).toBeUndefined();
+  });
+
+  test('a transient null that recovers on retry records "ok"', async () => {
+    let calls = 0;
+    await syncSectionData(db, 'sec-T', courseId, NOW, {
+      fetchTestAttempts: async () => (++calls < 2 ? null : attempts()), ltiFetchBackoffMs: 0,
+    });
+    expect(calls).toBe(2);
+    expect(status('T1').test_fetch_status).toBe('ok');
+    expect(row('701', 'T1').submission_type).toBe('assessment');
+  });
+
+  test('a test the response has no cells for is "failed" (unknown), the others ok', async () => {
+    const onlyT1 = new Map([['701', new Map([['T1', cell(true)]])], ['702', new Map([['T1', cell(false)]])]]);
+    await syncSectionData(db, 'sec-T', courseId, NOW, { fetchTestAttempts: async () => onlyT1, ltiFetchBackoffMs: 0 });
+    expect(status('T1').test_fetch_status).toBe('ok');
+    expect(status('T2').test_fetch_status).toBe('failed');
+  });
+
+  test('without a fetcher (no browser session) everything is left untouched', async () => {
+    await syncSectionData(db, 'sec-T', courseId, NOW, { fetchTestAttempts: async () => attempts() });
+    await syncSectionData(db, 'sec-T', courseId, NOW); // no fetchTestAttempts
+    expect(status('T1').test_fetch_status).toBe('ok');
+    expect(row('701', 'T1').submission_type).toBe('assessment');
+  });
+
+  test('recentOnly: a test outside the window is not fetched and keeps its previous status', async () => {
+    getSectionAssignments.mockResolvedValue([
+      { id: 'T1', title: 'Recent test', type: 'assessment', published: 1, due: '2026-09-28 14:00:00' },
+      { id: 'T9', title: 'Old test', type: 'assessment', published: 1, due: '2026-03-01 14:00:00' },
+    ]);
+    const fetchTestAttempts = vi.fn().mockResolvedValue(attempts());
+    await syncSectionData(db, 'sec-T', courseId, NOW, { fetchTestAttempts, recentOnly: true, recentDays: 30, ltiFetchBackoffMs: 0 });
+    expect(fetchTestAttempts).toHaveBeenCalledWith('sec-T', ['701', '702', '703'], ['T1']);
+    expect(status('T9').test_fetch_status).toBeNull();
+  });
+
+  test('no test assignments, or skipSubmissions (archived) → no fetch', async () => {
+    const fetchTestAttempts = vi.fn().mockResolvedValue(attempts());
+    await syncSectionData(db, 'sec-T', courseId, NOW, { fetchTestAttempts, skipSubmissions: true });
+    getSectionAssignments.mockResolvedValue([{ id: 'E1', title: 'Essay', type: 'assignment', published: 1 }]);
+    await syncSectionData(db, 'sec-T', courseId, NOW, { fetchTestAttempts });
+    expect(fetchTestAttempts).not.toHaveBeenCalled();
+  });
+});
+
+describe('fullSync — test-attempt fetcher wiring', () => {
+  let db;
+
+  beforeEach(async () => {
+    db = new Database(':memory:');
+    migrate(db);
+    const dbModule = await import('../db/index.js');
+    dbModule.__setTestDb?.(db);
+    db.prepare(`INSERT INTO courses (schoology_section_id, course_name, course_code, section_school_code) VALUES ('sec-1', 'AP CSP', 'APCSP', 'S1')`).run();
+    const s = await import('./schoology.js');
+    s.getMyUserId.mockResolvedValue('user-1');
+    s.getMySections.mockResolvedValue([{ id: 'sec-1', course_title: 'AP CSP', section_title: 'A', course_code: 'APCSP', section_school_code: 'S1' }]);
+    s.getSectionGradingPeriods.mockResolvedValue([]);
+    s.getSectionEnrollments.mockReset();
+    s.getSectionEnrollments.mockResolvedValue([{ id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' }]);
+    s.getSectionAssignments.mockReset();
+    s.getSectionAssignments.mockResolvedValue([{ id: 'T1', title: 'Unit 1 test', type: 'assessment', published: 1, due: '2026-09-28 14:00:00' }]);
+    s.getSectionGrades.mockResolvedValue([]);
+    s.getSectionFolders.mockResolvedValue([]);
+    s.getSectionGradingCategories.mockResolvedValue([]);
+    s.getSectionGradingScales.mockResolvedValue([]);
+    s.getUserProfilesBatch.mockResolvedValue(new Map());
+  });
+
+  test('passes the shared browser fetcher to each section and closes it', async () => {
+    const { createSubmissionFetcher } = await import('./graderSubmissions.js');
+    const fetcher = {
+      fetchDocuments: vi.fn().mockResolvedValue(null),
+      fetchTestAttempts: vi.fn().mockResolvedValue(new Map([['701', new Map([['T1', { took: true, notAssigned: false }]])]])),
+      close: vi.fn().mockResolvedValue(),
+    };
+    createSubmissionFetcher.mockResolvedValueOnce(fetcher);
+    await fullSync(() => {});
+    expect(fetcher.fetchTestAttempts).toHaveBeenCalledWith('sec-1', ['701'], ['T1']);
+    expect(db.prepare(`SELECT test_fetch_status FROM assignments WHERE schoology_assignment_id = 'T1'`).get().test_fetch_status).toBe('ok');
+    expect(fetcher.close).toHaveBeenCalled();
+  });
+});

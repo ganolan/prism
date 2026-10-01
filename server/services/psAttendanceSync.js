@@ -247,7 +247,7 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
      WHERE ${where.join(' AND ')} ORDER BY course_name`
   ).all(...params);
 
-  const summary = { processed: 0, updated: 0, unchanged: 0, skipped: 0, gradeLevels: { seen: 0, updated: 0 }, results: [] };
+  const summary = { processed: 0, updated: 0, unchanged: 0, skipped: 0, schoolDays: 0, gradeLevels: { seen: 0, updated: 0 }, results: [] };
   if (courses.length === 0) {
     log('No courses to sync blocks for.');
     return summary; // returns before launching a browser
@@ -270,6 +270,7 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
     const calendarByDate = new Map(); // date → merged school day (triage calendar)
     const todayIso = new Date().toISOString().slice(0, 10);
     const loopStartedAt = Date.now();
+    let loopCompleted = true; // false if the time-budget break below fires — then calendarByDate is partial
 
     for (const c of courses) {
       // Safety net (see LOOP_TIME_BUDGET_MS): if PowerSchool is stalling on
@@ -277,6 +278,7 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
       // remaining course — they're picked up on the next sync.
       if (loopTimeBudgetExceeded(loopStartedAt, LOOP_TIME_BUDGET_MS)) {
         log(`Time budget (${LOOP_TIME_BUDGET_MS / 1000}s) exceeded — stopping with ${courses.length - summary.processed} course(s) left for the next sync.`);
+        loopCompleted = false;
         break;
       }
       summary.processed++;
@@ -339,9 +341,15 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
       }
     }
 
+    // Only a complete, regular (all-active-courses) sync replaces the stored
+    // calendar: a targeted sync (isTargetedSync) only ever sees a subset of
+    // sections, and a loop that stopped early (!loopCompleted) only saw a
+    // prefix of them — either way calendarByDate is a partial, not the whole
+    // school year, so storing it would overwrite a good calendar with one.
     if (isTargetedSync) {
-      summary.schoolDays = 0;
       log('School calendar: skipped (targeted sync).');
+    } else if (!loopCompleted) {
+      log('School calendar: kept the stored calendar (sync stopped early).');
     } else {
       summary.schoolDays = storeSchoolDays(db, [...calendarByDate.values()]);
       log(summary.schoolDays

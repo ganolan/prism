@@ -789,3 +789,24 @@ the original 56-day gap and the fixed/re-verified result are in `.claude/powersc
 
 **Tests:** 874 server + 550 client Vitest tests pass; `npm run build` succeeds (2026-10-02).
 
+## Sync resilience + persistent sync log (2026-10-02, branch `feat/sync-resilience-logs`)
+
+Problem: iOS drops the Sync dialog's streaming `POST /api/sync` on screen lock, and the dialog showed
+that as an error even though the sync finished server-side. A retry then got 409, which showed as a
+second error. Nothing kept a record of what a sync reported.
+
+- **Server:** new `sync_runs` + `sync_run_events` tables (`server/db/schema.sql`), service
+  `server/services/syncRuns.js` (start/append/finish/list/get/events/prune to 30/`markInterruptedRuns`
+  at boot in `server/index.js`). The stream's first line is `{type:'run', runId}`, and every event
+  carries its `seq`. A 409 carries `runId`. New `GET /api/sync/current`, `/api/sync/runs`, `/runs/:id`
+  and `/runs/:id/events?after=`. Status is `completed`, `completed_with_errors` (any error events), or
+  `failed` (orchestrator threw, or fatal summary), plus `interrupted`. Warning rule: blocks `notReady > 0`,
+  or a log line matching warning / failed / could not / abandon. The reattach protocol is described in
+  the comment above `POST /api/sync`.
+- **Client:** `SyncDialog` follows the run by polling `events?after=<lastSeq>` (2s) when the stream
+  drops, shows a muted notice instead of an error, joins on 409 and when opened mid-run, and polls at
+  once on `visibilitychange` (it drops a possibly-hung stream). Settings → **Recent syncs**
+  (`RecentSyncs.jsx`, `lib/syncRunLog.js`) lists the last 30 runs, and each one expands to its log.
+
+**Tests:** 905 server + 617 client Vitest tests pass; `npm run build` succeeds (2026-10-02).
+

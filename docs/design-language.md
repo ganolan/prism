@@ -987,3 +987,36 @@ the header-toggle + per-row ▾ pattern for any other dense side list.
 
 **Logo = home.** The sidebar logo (still the `h1`) and the phone top-bar logo are `Link to="/"`
 (named "Prism" by the logo SVG); clicking closes the phone drawer like any nav link.
+
+## Sync that survives a dropped connection + Recent syncs log (2026-10-02, branch `feat/sync-resilience-logs`)
+
+**Why.** The teacher synced from an iPhone and saw "several consecutive sync errors" while the server
+log showed both syncs finished cleanly. iOS kills the Sync dialog's long streaming request when the
+screen locks; the dialog reported that as a sync failure, and tapping Sync again hit "already in
+progress" — a second false error.
+
+**Connection lost is a notice, not an error.** When the stream drops but the server has given the
+dialog a run id, the dialog shows a **muted italic status line** under the heading
+(`.sync-notice`, `role="status"`, `--text-muted`): *"Connection lost — still syncing on the server…"*.
+It then follows the run by polling and ends in the normal done state. A dropped connection is never
+shown in `--error` or as an `.alert`. The same line reads *"A sync is already running — showing its
+progress."* when the dialog joins a run it didn't start (409, or Sync opened mid-run on another
+device or after a reload). The joined view loads the run's earlier lines, so the log looks the same
+on every device. Returning to the page polls straight away, without a notice, because the switch is
+routine. The running sub-line now says the sync carries on if Prism is closed. The old "don't
+close Prism" warning is no longer true. Errors appear only when the server says so (`interrupted`
+by a restart, or unreachable after 5 polls, which points to Settings → Recent syncs).
+
+**Recent syncs card (Settings).** One `.card.settings-section` with a `.ghost.accent` Refresh in the
+header. Each run is a full-width `.ghost` row button (`aria-expanded`): **start date/time** (bold,
+tabular, `formatDateTime` en-GB) → **status badge** from the existing badge palette (green Completed,
+amber "Completed with N errors", red Failed, gray Interrupted, blue Running…) → right-aligned muted
+meta: duration, what was synced ("Schoology · blocks · 2 mastery courses"), and counts ("1 error · 3
+warnings", `--danger` if any errors, otherwise `--warning`). Tapping a row expands its log inline. The log
+reuses the sync dialog's `.sync-log` look (monospace, `--table-header-bg`, bordered) and scrolls inside
+the card (max 320px; 60vh on phone). Each line has a muted `HH:MM:SS` time, the same ✓ / ✕ / ● phase icons
+as the dialog, and readable text ("Mastery · Bio — 412 records"). **Error lines** are `--danger` bold
+on `--error-light`; **warning lines** are `--warning`. The error/warning rule lives on the server
+(`classifyEvent`), and every event arrives with its `level`, so the UI never re-derives it. On phone
+(PHONE LAYOUT block) the meta drops onto its own line under date + badge. Screenshots:
+`/tmp/sr-recent-syncs-{desktop,phone}.png` at build time.

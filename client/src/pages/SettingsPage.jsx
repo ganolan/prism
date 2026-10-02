@@ -76,7 +76,7 @@ export default function SettingsPage() {
         )}
         {calendar && calendar.source !== 'powerschool' && (
           <div className="alert alert-warning">
-            No school calendar yet, so Prism is counting weekdays (approximate). Run a sync while signed in to PowerSchool to load it.
+            No school calendar yet, so Prism is counting weekdays (approximate). Run a sync with "Sync from PowerSchool" ticked to load it.
           </div>
         )}
       </section>

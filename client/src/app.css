@@ -1152,7 +1152,15 @@ button.btn-sm { padding: 0.3rem 0.65rem; font-size: 0.78rem; }
 }
 .triage-rail[hidden] { display: none; }
 .triage-rail .card { margin-bottom: 0; }
-.triage-panel { padding: 0.8rem 0.9rem 0.45rem; }
+/* container-type here (not a media query) lets .triage-row__actions below
+   respond to this PANEL's own rendered width — the rail panel can be narrow
+   on a wide desktop window, or wide on a narrow one once the rail drops full-
+   width on phone. A CSS container query is a different mechanism from a
+   viewport @media query, so this intentionally lives outside the single
+   PHONE LAYOUT @media block at the end of this file (see the comment there);
+   it must keep working at every viewport width, not just <768px. Also noted
+   in docs/design-language.md. */
+.triage-panel { padding: 0.8rem 0.9rem 0.45rem; container-type: inline-size; container-name: triage-panel; }
 .triage-panel__head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
 .triage-panel__title { margin: 0; font-size: 0.92rem; font-weight: 700; display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
 .triage-panel__head-actions { display: flex; align-items: center; gap: 0.4rem; flex-shrink: 0; }
@@ -1164,10 +1172,13 @@ button.triage-panel__more { padding: 0.15rem 0.4rem; font-size: 0.75rem; font-we
 /* Course page, Gradebook tab: brings the hidden rail back. */
 .triage-rail-toggle { margin-left: auto; display: inline-flex; align-items: center; gap: 0.35rem; }
 /* Compact rows: 28px ring | one-line text lines (ellipsis + full text as the
-   title) | a vertically-stacked action column (Refer / days-left above Extend,
-   or Extend above Ignore this test, or the feedback count) that sizes to its
-   widest button. Extend's editor / Ignore's confirm open full-width below the
-   row's text and actions, in `.triage-row__more`. */
+   title) | an action column (Refer / days-left alongside Extend, or Extend
+   alongside Ignore this test, or the feedback count). The action column is a
+   horizontal row when its triage PANEL is wide enough, and stacks vertically
+   (sized to its widest button) once the panel narrows below ~32rem — see the
+   `.triage-row__actions` container query below. Extend's editor / Ignore's
+   confirm open full-width below the row's text and actions, in
+   `.triage-row__more`. */
 .triage-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; column-gap: 0.6rem; padding: 0.45rem 0; border-top: 1px solid var(--border); }
 /* Assessments tab: click-to-flip make-up tracking chip on a Schoology test/quiz. */
 .makeup-chip { border: 0; cursor: pointer; font-size: 0.72rem; flex-shrink: 0; }
@@ -1184,10 +1195,19 @@ a.triage-row__title:hover { text-decoration: underline; }
 .triage-row__course { max-width: 100%; font-size: 0.64rem; font-weight: 700; letter-spacing: 0.02em; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .triage-row__task { font-size: 0.75rem; color: var(--text); }
 .triage-row__tag { flex-shrink: 0; font-size: 0.65rem; padding: 0.05rem 0.45rem; white-space: nowrap; }
-/* A column flex container auto-sizes to its widest child, then stretches the
-   others (the default cross-axis `align-items: stretch`) to match — exactly
-   "sizes to the widest, buttons full width inside it", with no fixed widths. */
-.triage-row__actions { display: flex; flex-direction: column; gap: 0.3rem; }
+/* Horizontal by default (Refer | Extend, "N left" | Extend, Extend | Ignore
+   this test) — side by side when the panel has room. Below, a container
+   query (keyed to .triage-panel's own inline size, not the viewport) switches
+   to a column: a column flex container auto-sizes to its widest child, then
+   stretches the others (the default cross-axis `align-items: stretch`) to
+   match — "sizes to the widest, buttons full width inside it", no fixed
+   widths. jsdom can't evaluate container queries, so this is covered by eye
+   (and in docs/design-language.md) rather than by a unit test; the DOM
+   order/structure tests are unaffected since no markup changed. */
+.triage-row__actions { display: flex; flex-direction: row; align-items: center; gap: 0.3rem; }
+@container triage-panel (max-width: 32rem) {
+  .triage-row__actions { flex-direction: column; align-items: stretch; }
+}
 .triage-row__count { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; cursor: help; }
 .triage-row__more { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; padding-top: 0.35rem; }
 .triage-row button.triage-row__quiet { color: var(--text-muted); }

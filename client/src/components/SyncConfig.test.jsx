@@ -9,10 +9,16 @@ const COURSES = [
   { id: 4, course_name: 'Archived Bio', hidden: 0, archived: 1 },
 ];
 
+// A calendar fresh enough (and present) that it never drives the PowerSchool
+// default on its own — tests that care only about needsFirstBlockSync use
+// this so the calendar freshness check stays out of their way.
+const FRESH_CALENDAR = { source: 'powerschool', totalSchoolDays: 120, syncedAt: new Date().toISOString() };
+
 function renderConfig(props = {}) {
   return render(
     <SyncConfig
       courses={COURSES}
+      calendar={props.calendar === undefined ? FRESH_CALENDAR : props.calendar}
       loggedIn={true}
       busy={props.busy ?? false}
       onStart={props.onStart || (() => {})}
@@ -87,10 +93,54 @@ describe('SyncConfig', () => {
     expect(onStart).toHaveBeenCalledWith([1], expect.objectContaining({ syncBlocks: true }));
   });
 
+  // Bug found in prod: school_days is written only by this same block pass,
+  // so a calendar that's never loaded (or gone stale) must pre-tick the box
+  // even once every active course already has a block pass on record.
+  it('defaults block sync ON when the school calendar is missing (no PowerSchool rows)', () => {
+    const onStart = vi.fn();
+    renderConfig({ onStart, calendar: { source: 'weekdays', totalSchoolDays: 0, syncedAt: null } });
+    fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
+    expect(onStart).toHaveBeenCalledWith([1, 2], expect.objectContaining({ syncBlocks: true }));
+    expect(screen.getByText(/school calendar missing/i)).toBeInTheDocument();
+  });
+
+  it('defaults block sync ON when the calendar has not synced in over two weeks', () => {
+    const onStart = vi.fn();
+    const old = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString();
+    renderConfig({ onStart, calendar: { source: 'powerschool', totalSchoolDays: 120, syncedAt: old } });
+    fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
+    expect(onStart).toHaveBeenCalledWith([1, 2], expect.objectContaining({ syncBlocks: true }));
+    expect(screen.getByText(/calendar over 2 weeks old/i)).toBeInTheDocument();
+  });
+
+  it('defaults block sync OFF when the calendar is present and synced within two weeks', () => {
+    const onStart = vi.fn();
+    renderConfig({ onStart }); // FRESH_CALENDAR via renderConfig's default
+    fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
+    expect(onStart).toHaveBeenCalledWith([1, 2], expect.objectContaining({ syncBlocks: false }));
+  });
+
+  it('treats a null calendar (fetch still pending or failed) as missing', () => {
+    const onStart = vi.fn();
+    renderConfig({ onStart, calendar: null });
+    fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
+    expect(onStart).toHaveBeenCalledWith([1, 2], expect.objectContaining({ syncBlocks: true }));
+  });
+
+  it('labels the first-sync reason over the calendar reason when both apply', () => {
+    const fresh = [{ id: 1, course_name: 'Biology 9', hidden: 0, archived: 0 }];
+    render(
+      <SyncConfig courses={fresh} calendar={{ source: 'weekdays', totalSchoolDays: 0, syncedAt: null }}
+        loggedIn={true} busy={false} onStart={() => {}} onCancel={() => {}} onLogin={() => {}} />
+    );
+    expect(screen.getByText(/\(first sync\)/)).toBeInTheDocument();
+    expect(screen.queryByText(/school calendar missing/i)).not.toBeInTheDocument();
+  });
+
   it('toggling the block-sync checkbox flips syncBlocks', () => {
     const onStart = vi.fn();
     renderConfig({ onStart }); // defaults OFF (every active COURSES row has block_synced_at)
-    fireEvent.click(screen.getByLabelText(/sync block numbers from powerschool/i));
+    fireEvent.click(screen.getByLabelText(/sync from powerschool/i));
     fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
     expect(onStart).toHaveBeenCalledWith([1, 2], expect.objectContaining({ syncBlocks: true }));
   });

@@ -11,6 +11,9 @@ beforeEach(() => {
   ]);
   vi.mocked(api.getMasteryLoginStatus).mockResolvedValue({ loggedIn: true });
   vi.mocked(api.getSyncMetrics).mockResolvedValue(null);
+  vi.mocked(api.getTriageCalendar).mockResolvedValue({
+    source: 'powerschool', totalSchoolDays: 120, syncedAt: new Date().toISOString(),
+  });
 });
 
 describe('SyncDialog', () => {

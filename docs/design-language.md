@@ -962,6 +962,21 @@ horizontal `.triage-row__actions` (badge + date + Undo, wrapping) via an explici
 `.triage-row--history .triage-row__actions { flex-direction: row; }` override — it never had an
 expand toggle and isn't part of this change.
 
+**Row actions respond to the panel, not the viewport (2026-10-02, later the same day).**
+*(Refines the paragraph above: the always-column `.triage-row__actions` only noticed later that it
+stacked buttons even in a wide rail with room for them side by side.)* `.triage-row__actions` is now
+row-by-default (`display: flex; flex-direction: row`) — Refer | Extend, "N left" | Extend, Extend |
+Ignore this test, side by side — and only stacks into the column described above once its own
+`.triage-panel` narrows below `32rem`. That's a **CSS container query**
+(`@container triage-panel (max-width: 32rem) { .triage-row__actions { flex-direction: column; … } } `),
+keyed off `container-type: inline-size` set on `.triage-panel`, not a viewport `@media` query — the
+rail panel can be narrow on a wide desktop window (380px rail) or wide once it drops full-width on a
+phone, so viewport width is the wrong signal entirely. **Container queries are a different mechanism
+from the PHONE LAYOUT `@media (max-width: 768px)` block and must not be added there** — they need to
+keep responding to the panel's own size at every viewport, phone included. jsdom can't evaluate
+container queries, so this is verified by eye (and noted here), not by a unit test; the existing
+DOM-order/structure tests are untouched since no markup changed, only the CSS driving the layout.
+
 **5 rows, toggle at the top.** Each panel shows its 5 most urgent rows (server order). Longer lists
 get an `All N ▾` / `Fewer ▴` button (`.ghost.accent`) in the panel **header**, right side (before
 the Formative checkbox on Feedback) — at the top so the teacher never scrolls to find it. Per panel,

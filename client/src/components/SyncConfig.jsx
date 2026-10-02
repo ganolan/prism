@@ -12,7 +12,9 @@ const GROUPS = [
 const RECENT_HELP =
   'Skips submission checks for assignments with no due date and those due more than the chosen number of days ago. Courses, students, assignments, grades and mastery still sync fully.';
 
-export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel, onLogin }) {
+const CALENDAR_STALE_DAYS = 14;
+
+export default function SyncConfig({ courses, calendar, loggedIn, busy, onStart, onCancel, onLogin }) {
   const groups = useMemo(
     () => GROUPS.map((g) => ({ ...g, courses: courses.filter(g.match) })).filter((g) => g.courses.length),
     [courses]
@@ -44,7 +46,25 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
     () => courses.some((c) => !c.archived && !c.excluded && !c.block_synced_at),
     [courses]
   );
-  const [syncBlocks, setSyncBlocks] = useState(() => needsFirstBlockSync);
+  // The school calendar (school_days) is written only by this same PowerSchool
+  // block pass, so a teacher who unticks it (or who never needed the "first
+  // sync" nudge above) can leave the calendar empty indefinitely — every
+  // triage day-count then silently falls back to a Mon–Fri approximation
+  // (bug found in prod). Pre-tick the box whenever the calendar is missing
+  // (no PowerSchool rows at all) or stale (not refreshed in 14+ days), same
+  // as the "first sync" trigger. `calendar` is null while SyncDialog's fetch
+  // is still in flight or failed — treated as missing, the safer default.
+  const calendarMissing = !calendar || calendar.source !== 'powerschool' || !calendar.totalSchoolDays;
+  const calendarStale = !calendarMissing && !!calendar.syncedAt
+    && Date.now() - new Date(calendar.syncedAt).getTime() > CALENDAR_STALE_DAYS * 24 * 60 * 60 * 1000;
+  const syncBlocksReason = needsFirstBlockSync
+    ? ' (first sync)'
+    : calendarMissing
+    ? ' (school calendar missing)'
+    : calendarStale
+    ? ' (calendar over 2 weeks old)'
+    : '';
+  const [syncBlocks, setSyncBlocks] = useState(() => needsFirstBlockSync || calendarMissing || calendarStale);
   const initialPrefs = useState(getSyncPrefs)[0];
   const [recentOnly, setRecentOnly] = useState(initialPrefs.recentOnly);
   const [recentDays, setRecentDays] = useState(initialPrefs.recentDays);
@@ -104,7 +124,7 @@ export default function SyncConfig({ courses, loggedIn, busy, onStart, onCancel,
               checked={syncBlocks}
               onChange={(e) => setSyncBlocks(e.target.checked)}
             />
-            <span>Sync block numbers from PowerSchool{needsFirstBlockSync ? ' (first sync)' : ''}</span>
+            <span>Sync from PowerSchool (block numbers + school calendar){syncBlocksReason}</span>
           </label>
           <div className="sync-toggle-row">
             <label>

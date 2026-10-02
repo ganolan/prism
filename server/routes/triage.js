@@ -5,6 +5,7 @@ import {
   getTriage, listReferrals, recordReferral, undoReferral,
   listExtensions, recordExtension, undoExtension, setMakeUpIgnored, TriageError,
 } from '../services/triage.js';
+import { loadCalendar } from '../services/schoolCalendar.js';
 
 const router = Router();
 const STATUS = { BAD_ACTION: 400, BAD_LESSONS: 400, BAD_VALUE: 400, NOT_FOUND: 404, NOT_ON_LIST: 409, NOT_AT_LIMIT: 409, NOT_ELIGIBLE: 409 };
@@ -26,6 +27,15 @@ router.get('/', (req, res) => {
     courseId: req.query.courseId ?? null,
     includeFormative: optBool(req.query.includeFormative),
   }));
+});
+
+// GET /api/triage/calendar — school-calendar freshness only (source,
+// totalSchoolDays, syncedAt). SyncConfig uses this to decide whether the
+// PowerSchool step should be pre-ticked, without paying for the full triage
+// payload (every current course's late-work + feedback-owed computation).
+router.get('/calendar', (req, res) => {
+  const cal = loadCalendar(getDb());
+  res.json({ source: cal.source, totalSchoolDays: cal.totalSchoolDays, syncedAt: cal.syncedAt });
 });
 
 // GET /api/triage/referrals?courseId= — referral history, newest first.

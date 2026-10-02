@@ -216,6 +216,10 @@ export const getTriage = ({ courseId, includeFormative } = {}) => {
   const qs = p.toString();
   return request(`/triage${qs ? `?${qs}` : ''}`);
 };
+// Calendar freshness only (source, totalSchoolDays, syncedAt) — cheaper than
+// the full triage payload; SyncConfig uses it to decide whether the
+// PowerSchool step should default on.
+export const getTriageCalendar = () => request('/triage/calendar');
 export const getReferrals = ({ courseId } = {}) =>
   request(`/triage/referrals${courseId != null ? `?courseId=${courseId}` : ''}`);
 export const recordReferral = (body) => request('/triage/referrals', { method: 'POST', body: JSON.stringify(body) });

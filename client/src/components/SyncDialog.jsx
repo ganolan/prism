@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { getCourses, getMasteryLoginStatus, triggerMasteryLogin, runSync, getSyncMetrics } from '../services/api.js';
+import { getCourses, getMasteryLoginStatus, triggerMasteryLogin, runSync, getSyncMetrics, getTriageCalendar } from '../services/api.js';
 import { reduceSyncEvents } from '../lib/syncEvents.js';
 import SyncConfig from './SyncConfig.jsx';
 import SyncProgress from './SyncProgress.jsx';
@@ -8,6 +8,12 @@ export default function SyncDialog({ onClose, onSyncComplete }) {
   const [mode, setMode] = useState('loading'); // loading | config | running | done
   const [courses, setCourses] = useState([]);
   const [loggedIn, setLoggedIn] = useState(false);
+  // Calendar freshness (source/totalSchoolDays/syncedAt), fetched alongside
+  // courses so SyncConfig can seed its PowerSchool-step default once, at
+  // mount — same "load everything before SyncConfig renders" pattern as
+  // courses/loggedIn below. Left null on fetch failure; SyncConfig treats
+  // null the same as "missing" (pre-ticks the step) rather than guessing fresh.
+  const [calendar, setCalendar] = useState(null);
   const [events, setEvents] = useState([]);
   const [retryEnabled, setRetryEnabled] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -15,11 +21,12 @@ export default function SyncDialog({ onClose, onSyncComplete }) {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([getCourses(true, true), getMasteryLoginStatus()])
-      .then(([courseList, status]) => {
+    Promise.all([getCourses(true, true), getMasteryLoginStatus(), getTriageCalendar()])
+      .then(([courseList, status, cal]) => {
         if (cancelled) return;
         setCourses(courseList);
         setLoggedIn(!!status.loggedIn);
+        setCalendar(cal ?? null);
         setMode('config');
       })
       .catch(() => { if (!cancelled) setMode('config'); });
@@ -90,6 +97,7 @@ export default function SyncDialog({ onClose, onSyncComplete }) {
         {mode === 'config' && (
           <SyncConfig
             courses={courses}
+            calendar={calendar}
             loggedIn={loggedIn}
             busy={busy}
             onStart={(ids, opts) => startSync(ids, opts)}

@@ -6,6 +6,7 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 import router from './triage.js';
 import { getDb } from '../db/index.js';
 import { addDays, todayLocal } from '../lib/schoolDays.js';
+import { storeSchoolDays } from '../services/schoolCalendar.js';
 
 async function call(method, path, body) {
   const app = express();
@@ -41,6 +42,18 @@ describe('/api/triage', () => {
     expect(body.lateWork).toHaveLength(1);
     expect(body.feedbackOwed).toEqual([]);
     expect(body.calendar.source).toBe('weekdays');
+  });
+
+  test('GET /calendar returns freshness only, without the full triage payload', async () => {
+    const empty = await call('GET', '/api/triage/calendar');
+    expect(empty.status).toBe(200);
+    expect(empty.body).toEqual({ source: 'weekdays', totalSchoolDays: 0, syncedAt: null });
+
+    storeSchoolDays(getDb(), [{ date: '2026-10-05', inSession: true, cycleLetter: 'A', raw: '{}' }], '2026-10-01T00:00:00Z');
+    const loaded = await call('GET', '/api/triage/calendar');
+    expect(loaded.status).toBe(200);
+    expect(loaded.body).toEqual({ source: 'powerschool', totalSchoolDays: 1, syncedAt: '2026-10-01T00:00:00Z' });
+    expect(loaded.body.lateWork).toBeUndefined();
   });
 
   test('POST referral → 201; it then leaves the list; DELETE undoes', async () => {

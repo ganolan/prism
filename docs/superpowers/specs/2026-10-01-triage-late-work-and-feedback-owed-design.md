@@ -101,9 +101,19 @@ A (student, test) pair is a **make-up** when all hold:
   **unknown**, never "missed";
 - the test is over: the full local `due_date` `'YYYY-MM-DD HH:MM:SS'` ≤ the local now (a same-day
   test counts once it has ended);
-- the student is targeted (assignees rule) and active, not Excused (1), has **no attempt**
-  (`submission_type ≠ 'assessment'`) and **no score** (a hand-entered or mastery score = sat on
-  paper; Missing (3) with score 0.0 still counts as no score).
+- the student is targeted (assignees rule) and active, not Excused (1), and the pair's last good
+  read **explicitly** says no attempt (`grades.test_attempt = 'none'`), with **no score** (a
+  hand-entered or mastery score = sat on paper; Missing (3) with score 0.0 still counts as no score)
+  and no real submission.
+
+`grades.test_attempt` (fix round 1) is the pair's cell from the last good read: `'took'` (also sets
+`submission_type = 'assessment'`), `'none'` (assigned, no attempt — the only value that clears a stale
+`'assessment'`), `'not_assigned'` (the other copy: not targeted, even on an open-to-all test), or
+`NULL` (no cell seen: unknown — never listed, row left untouched). Feedback owed counts `'took'` (or
+`submission_type = 'assessment'`) as handed in.
+
+Students who moved section or joined late (they never had a fair chance at the test) are handled by
+**Excusing** them in Schoology, which the rule already skips.
 
 `daysSince = schoolDaysBetween(due, today)` (0 on the test day). An extension moves the date the same
 way as for late work (`effDue = addSchoolDays(due, N)`) — how a teacher records "sitting it
@@ -113,11 +123,11 @@ Thursday"; the row stays visible (green, `daysSince` 0) until then. Tone: green 
 Rows: `studentId, studentUid, studentName, courseId, courseName, blockNumber, assignmentId,
 schoologyAssignmentId, title, dueDate, daysSince, tone, approx, extension`, sorted by `daysSince`
 desc. The payload adds `counts.makeUpsOverdue` (red), `makeUpsUnchecked` (past-due, not-ignored tests
-whose read is not `'ok'` → "Couldn't check N tests — re-sync.") and `makeUpsIgnored` (past-due
-ignored tests → "N quizzes ignored"). A row clears itself once an attempt syncs.
+whose read is not `'ok'` → "Couldn't check N tests — run a full sync.") and `makeUpsIgnored` (past-due
+ignored tests → "N tests ignored"). A row clears itself once an attempt syncs.
 
 **Ignore** (`assignments.makeup_ignored`, Prism-owned, default tracked): the teacher can ignore one
-test/quiz for **all** students (make-up row "Ignore this quiz" with an inline confirm, the
+test/quiz for **all** students (make-up row "Ignore this test" with an inline confirm, the
 Assessments-tab chip "Make-ups: tracked / ignored", or PrisMCP `set_makeup_tracking`). Only a
 Schoology test in a current course (else `NOT_ELIGIBLE`).
 
@@ -182,7 +192,8 @@ functions, so the agent sees exactly the numbers on the dashboard.
   (1 when the Schoology REST `type === 'assessment'`, written every sync — not `assignment_type`,
   which `masterySync` overwrites); `test_fetch_status TEXT` (`'ok'` | `'failed'` | NULL, modelled on
   `lti_fetch_status`: a test the sync never reaches keeps its previous value); `makeup_ignored INTEGER
-  NOT NULL DEFAULT 0` (Prism-owned; the sync's upsert never writes it). Settings keys
+  NOT NULL DEFAULT 0` (Prism-owned; the sync's upsert never writes it). Plus `grades.test_attempt TEXT`
+  (`'took'` | `'none'` | `'not_assigned'` | NULL; schema.sql and `MIGRATIONS`). Settings keys
   `triage.makeUpAmberDays` = 1 (0–30) and `triage.makeUpRedDays` = 3 (1–30); amber is clamped to red.
 - **First-submission time** — `grades.first_submitted_at INTEGER` = earliest submission time
   observed (running minimum; see Verification results 1).
@@ -218,8 +229,8 @@ functions, so the agent sees exactly the numbers on the dashboard.
 - **`MakeUpPanel`** — "Make-up tests", full-width **above** the two panels (the most urgent list):
   red-count badge, subtitle "Missed Schoology tests and quizzes · school days since the test · sit by
   day {red}", rows (course chip, student, test, meter against `makeUpRedDays`, day count, extension tag,
-  **Extend**, **Ignore this quiz** with an inline confirm), "No missed tests.", the unchecked note and
-  "N quizzes ignored". The Extend editor is shared (`ExtendEditor`) and pre-fills a re-extend.
+  **Extend**, **Ignore this test** with an inline confirm), "No missed tests.", the unchecked note and
+  "N tests ignored". The Extend editor is shared (`ExtendEditor`) and pre-fills a re-extend.
 - **Dashboard** — panels above the course cards (two columns on desktop); course cards gain chips
   ("N make-ups" — red when any is red, "1 at limit", "7 to grade · 8d"); header shows "School day N of
   M · Cycle day X" when known.

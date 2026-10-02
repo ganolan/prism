@@ -928,6 +928,7 @@ score, more than one attempt, archived sections for `grader_grade_data`.
 **Consumed by Prism (2026-10-02, make-up tests):** the sync makes one
 `grader_grade_data/{sectionId}/all?uids=…&grade_item_nids=…` GET per active section for the tests in
 the sync window (`server/services/graderTestAttempts.js` → `server/lib/parseTestAttempts.js`) and
-stores a taker as `grades.submission_type = 'assessment'`. A payload without a `body.grades` object,
+stores each returned cell as `grades.test_attempt` ('took' → also `submission_type = 'assessment'`,
+'none', 'not_assigned'); a student with no cell is left untouched (unknown). A payload without a `body.grades` object,
 or a test with no cells, is recorded as `assignments.test_fetch_status = 'failed'` (unknown). The
 results/`student_stats` pages are not fetched.

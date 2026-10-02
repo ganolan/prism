@@ -883,7 +883,7 @@ swaps the row's action cell, in place, for a `NumberStepper` (lessons, 1–60, d
 
 **Make-up tests panel (2026-10-02).** The "Make-up tests" panel sits **full-width above** the
 late-work / feedback-owed grid (most urgent first: a missed test can be invalidated), using the same
-`.triage-row` grid, urgency meter and shared `ExtendEditor`. A whole-test action ("Ignore this quiz")
+`.triage-row` grid, urgency meter and shared `ExtendEditor`. A whole-test action ("Ignore this test")
 swaps the action cell for an inline confirm ("Ignore <title> for all students?" Yes / Cancel) rather
 than a modal. On the Assessments tab a per-test setting is a click-to-flip badge button
 (`.makeup-chip`, "Make-ups: tracked / ignored", `aria-pressed`).

@@ -940,7 +940,7 @@ its `title`: late / make-up rows = name / course label (Dashboard only) / assess
 the count right-aligned as "X/Y" (title "X of Y ungraded"). Red late rows keep an inline primary
 **Refer** (`aria-label="Mark referred"`). Every late / make-up row has a ▾/▴ toggle
 (`button.triage-row__toggle`, `aria-expanded`, named "Actions for <name>, <assessment>") revealing
-its secondary actions below the text: Late → days left / "last day", Mark referred (red), Extend;
+its secondary actions below the text: Late → days left / "last day" (not yet red), Extend (Refer stays inline only, never repeated);
 Make-up → Extend, Ignore this test. The Extend editor and the Ignore confirm open inside that
 expanded area. Feedback rows have no actions, so no toggle. Names and feedback titles are links without an
 underline (underline on hover) — the earlier always-underlined feedback title read as noise in the

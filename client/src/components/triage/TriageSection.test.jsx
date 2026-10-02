@@ -104,7 +104,7 @@ describe('TriageSection', () => {
     expect(within(panel).queryByText('Extend')).not.toBeInTheDocument(); // behind the row toggle
     expandAll(panel);
     expect(within(panel).getAllByText('Extend')).toHaveLength(3);
-    expect(within(panel).getAllByText('Mark referred')).toHaveLength(2); // expanded red rows repeat it
+    expect(within(panel).getAllByRole('button', { name: 'Mark referred' })).toHaveLength(2); // not repeated when expanded
     expect(screen.queryByText('Exempt')).not.toBeInTheDocument();
   });
 
@@ -292,13 +292,13 @@ describe('TriageSection — compact rows', () => {
     expect(row.querySelector('.triage-row__more')).toBeNull();
   });
 
-  it('an expanded red row offers Mark referred and Extend', async () => {
+  it('an expanded red row offers Extend only (Refer stays inline, not repeated)', async () => {
     renderSection();
     const row = rowOf(within(await latePanel()).getByText('Maya Chen'));
     expand(row);
     const more = row.querySelector('.triage-row__more');
-    expect(within(more).getByText('Mark referred')).toHaveClass('primary', 'btn-sm');
-    expect(within(more).getByText('Extend')).toBeInTheDocument();
+    expect(within(more).getAllByRole('button').map((b) => b.textContent)).toEqual(['Extend']);
+    expect(within(row).getAllByRole('button', { name: 'Mark referred' })).toHaveLength(1);
     expect(within(more).queryByText(/left|last day/)).not.toBeInTheDocument();
   });
 
@@ -421,6 +421,7 @@ describe('TriageSection — 5 rows, then "All N" in the header', () => {
     const fewer = within(panel).getByRole('button', { name: /^Fewer/ });
     expect(fewer).toHaveTextContent('Fewer ▴');
     expect(fewer).toHaveAttribute('aria-expanded', 'true');
+    expect(panel.lastElementChild).toHaveTextContent(/Referred \/ extended \(2\)/); // history link still last
     fireEvent.click(fewer);
     expect(names(panel)).toHaveLength(5);
   });

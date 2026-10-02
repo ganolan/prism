@@ -8,8 +8,8 @@ import { PanelHead, ShowAllToggle, RowToggle, useShowAll, useOpenRows, limitRows
 // Late summative work, worst first. Days are numbered from the due date = day 1;
 // `limit` (referralLimitDays) is the last allowed day, referral after it. A row
 // past the limit has an inline Refer (= Mark referred); every row expands (▾) to
-// Extend by N lessons (school days), plus Mark referred past the limit or the
-// days left before it ("last day" on day `limit`).
+// Extend by N lessons (school days), with the days left before the limit
+// ("last day" on day `limit`) on rows not yet past it.
 const daysLeft = (day, limit) => (limit - day > 0 ? `${limit - day} left` : 'last day');
 
 export default function LateWorkPanel({ rows, settings, showCourse, scope, onRecord, onExtend, onShowHistory, historyCount }) {
@@ -59,7 +59,6 @@ export default function LateWorkPanel({ rows, settings, showCourse, scope, onRec
                 ) : (
                   <>
                     {!red && <span className="text-sm text-muted">{daysLeft(r.day, limit)}</span>}
-                    {red && <button className="primary btn-sm" onClick={() => onRecord(r, 'referred')}>Mark referred</button>}
                     <button className="secondary btn-sm" onClick={() => setExtending(k)}>Extend</button>
                   </>
                 )}

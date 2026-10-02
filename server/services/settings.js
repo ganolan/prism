@@ -15,20 +15,26 @@ const TRIAGE_KEYS = {
 
 // Before 2026-10-02 the make-up clock was stored as school days AFTER the test
 // (makeUpAmberDays 1 / makeUpRedDays 3). Convert each to its day number (+1),
-// once: only while the new key is absent. The old rows are left in place (harmless).
+// once: only while the new key is absent. The old rows are left in place
+// (rollback-safe). Reads only select legacy rows still missing their new key,
+// so once converted no write is attempted (a PrisMCP read during a sync's write
+// transaction must not hit SQLITE_BUSY).
 const LEGACY_MAKE_UP_KEYS = { makeUpAmberDays: 'makeUpAmberDay', makeUpRedDays: 'makeUpRedDay' };
 
 function migrateLegacyMakeUpKeys(db) {
-  const rows = db.prepare(`
-    SELECT key, value FROM settings WHERE key IN ('triage.makeUpAmberDays', 'triage.makeUpRedDays')
+  const pending = db.prepare(`
+    SELECT old.key, old.value FROM settings old
+    WHERE old.key IN ('triage.makeUpAmberDays', 'triage.makeUpRedDays')
+      AND NOT EXISTS (SELECT 1 FROM settings new WHERE new.key = substr(old.key, 1, length(old.key) - 1))
   `).all();
-  if (rows.length === 0) return;
-  const insert = db.prepare(`INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))`);
-  for (const { key, value } of rows) {
+  if (pending.length === 0) return;
+  let insert = null; // prepared only when a row actually converts (a corrupt old value never writes)
+  for (const { key, value } of pending) {
     const to = LEGACY_MAKE_UP_KEYS[key.slice('triage.'.length)];
     let old;
     try { old = Number(JSON.parse(value)); } catch { continue; }
     if (!Number.isFinite(old)) continue;
+    insert ??= db.prepare(`INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))`);
     insert.run(`triage.${to}`, JSON.stringify(coerce(TRIAGE_KEYS[to], Math.floor(old) + 1)));
   }
 }

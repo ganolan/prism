@@ -62,6 +62,34 @@ describe('triage settings', () => {
       expect(getTriageSettings(getDb())).not.toHaveProperty('makeUpRedDays');
     });
 
+    test('once converted, a read executes no write (PrisMCP reads during a sync write must not hit SQLITE_BUSY)', () => {
+      put('makeUpAmberDays', '1');
+      put('makeUpRedDays', '3');
+      getTriageSettings(getDb()); // converts
+      const spy = vi.spyOn(getDb(), 'prepare');
+      try {
+        expect(getTriageSettings(getDb())).toMatchObject({ makeUpAmberDay: 2, makeUpRedDay: 4 });
+        const sql = spy.mock.calls.map(([text]) => text);
+        expect(sql.length).toBeGreaterThan(0);
+        expect(sql.filter((t) => /\b(INSERT|UPDATE|DELETE|REPLACE)\b/i.test(t))).toEqual([]);
+      } finally {
+        spy.mockRestore();
+      }
+      // The old rows stay (rollback-safe).
+      expect(stored('makeUpAmberDays')).toBe('1');
+      expect(stored('makeUpRedDays')).toBe('3');
+    });
+
+    test('no legacy rows → a read executes no write', () => {
+      const spy = vi.spyOn(getDb(), 'prepare');
+      try {
+        getTriageSettings(getDb());
+        expect(spy.mock.calls.map(([t]) => t).filter((t) => /\b(INSERT|UPDATE|DELETE|REPLACE)\b/i.test(t))).toEqual([]);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
     test('old 0 (on the test day) becomes day 1; old defaults 1/3 become 2/4', () => {
       put('makeUpAmberDays', '0');
       put('makeUpRedDays', '3');
@@ -81,9 +109,15 @@ describe('triage settings', () => {
       expect(updateTriageSettings(getDb(), { makeUpRedDay: 8 })).toMatchObject({ makeUpAmberDay: 3, makeUpRedDay: 8 });
     });
 
-    test('a corrupt old value falls back to the new default', () => {
+    test('a corrupt old value falls back to the new default and never writes', () => {
       put('makeUpRedDays', 'not json');
-      expect(getTriageSettings(getDb())).toMatchObject({ makeUpRedDay: 4 });
+      const spy = vi.spyOn(getDb(), 'prepare');
+      try {
+        expect(getTriageSettings(getDb())).toMatchObject({ makeUpRedDay: 4 });
+        expect(spy.mock.calls.map(([t]) => t).filter((t) => /\b(INSERT|UPDATE|DELETE|REPLACE)\b/i.test(t))).toEqual([]);
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 

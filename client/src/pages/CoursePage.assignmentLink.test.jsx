@@ -80,7 +80,7 @@ describe('GradebookView — Schoology link in the diagonal column header (#76)',
 });
 
 describe('AssessmentsView — feedback wait column (triage)', () => {
-  it('shows ungraded count + the wait day number (due date = day 1) for assignments that owe feedback', () => {
+  it('shows ungraded count + the wait day number (day 1 = start of the wait) for assignments that owe feedback', () => {
     const assignments = [
       { id: 1, title: 'CP1', aligned: 1, schoology_assignment_id: 'a1', due_date: '2026-09-17' },
       { id: 2, title: 'Quiz', aligned: 1, schoology_assignment_id: 'a2', due_date: '2026-09-02' },
@@ -98,6 +98,9 @@ describe('AssessmentsView — feedback wait column (triage)', () => {
     expect(ring).toHaveClass('urgency-ring', 'urgency-ring--amber');
     expect(ring).toHaveTextContent('9');
     expect(ring.closest('.triage-wait')).toContainElement(screen.getByText('7/24 ungraded'));
+    expect(ring.closest('.triage-wait')).toHaveAttribute(
+      'title', 'Oldest wait: school day 9 (day 1 = due date, or a late submission); overdue after day 10',
+    );
     expect(screen.getAllByText(/ungraded/)).toHaveLength(1);
   });
 });

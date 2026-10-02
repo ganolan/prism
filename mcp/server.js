@@ -197,7 +197,7 @@ export function createServer() {
         'lateWork: summative work that takes Schoology submissions, not submitted (or submitted after the limit; submittedDay = the day it came in), ' +
         'tone green/amber/red: late work is allowed through day {referralLimitDays} (settings, default 8) and referred after day {referralLimitDays} ' +
         '(red, e.g. day 9); amber = the last warnLeadDays allowed days. feedbackOwed: per assessment, how many submissions are ungraded and `day` of the oldest ' +
-        'wait, overdue (red) after day {feedbackLimitDays} (paper/no-dropbox work counts the whole roster as handed in on the due date; a Schoology test ' +
+        'wait (day 1 = the start of the wait: the due date, or a late student\'s submission date), overdue (red) after day {feedbackLimitDays} (paper/no-dropbox work counts the whole roster as handed in on the due date; a Schoology test ' +
         'whose attempts were read counts only the takers). makeUps: students who missed a Schoology test or quiz ' +
         '(any alignment; no attempt, no score, not excused) and must sit it (or their * copy) ASAP — `day` with the test day = day 1, ' +
         'tone green on the test day, amber from day makeUpAmberDay, red from day makeUpRedDay (the makeUpAmberDay/makeUpRedDay settings); clears itself once an attempt ' +

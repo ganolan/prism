@@ -3,7 +3,8 @@ import UrgencyRing from './UrgencyRing.jsx';
 import CourseLine from './CourseLine.jsx';
 
 // Assessments with ungraded submissions, longest wait first. The ring shows the
-// school-day number of the oldest wait (due date = day 1); overdue after day `limit`.
+// school-day number of the oldest wait; day 1 = the start of the wait (the due
+// date, or a late student's submission date). Overdue after day `limit`.
 export default function FeedbackOwedPanel({ rows, settings, showCourse, includeFormative, onToggleFormative }) {
   const limit = settings.feedbackLimitDays;
   const overdue = rows.filter((r) => r.tone === 'red').length;
@@ -19,7 +20,7 @@ export default function FeedbackOwedPanel({ rows, settings, showCourse, includeF
         </label>
       </div>
       <p className="triage-panel__sub">
-        Ungraded {includeFormative ? '' : 'summative '}work · school-day number of the oldest wait (due date = day 1) · overdue after day {limit}
+        Ungraded {includeFormative ? '' : 'summative '}work · day 1 = due date (or a late submission) · overdue after day {limit}
       </p>
       {rows.length === 0 && <p className="text-sm text-muted">Nothing waiting for feedback.</p>}
       {rows.map((r) => (

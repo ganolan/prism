@@ -155,7 +155,8 @@ feedback** when it is submitted (or scored on paper but not complete) and `gradi
 clock and doesn't redden the row unfairly.
 
 Each assessment row shows: owed count of submitted total, **oldest** `waitDays` (`oldestWaitDays`) and
-its `day = oldestWaitDays + 1` (the wait's start = day 1), tone by the same green/amber/red rule against
+its `day = oldestWaitDays + 1` (day 1 = the start of the wait: the due date, or a late student's
+submission date — subtitle "day 1 = due date (or a late submission)"), tone by the same green/amber/red rule against
 `feedbackLimit` — the **last allowed day**: day 10 amber, overdue (red) from **day 11**. Rows sort by oldest wait, descending. Assessments with
 nothing owed are omitted from the panel (and show no wait on the Assessments tab).
 

@@ -243,10 +243,10 @@ describe('TriageSection — ring + stacked rows', () => {
     expect(within(row).queryByText('Mark referred')).not.toBeInTheDocument();
   });
 
-  it('feedback subtitle numbers the oldest wait from the due date', async () => {
+  it('feedback subtitle: day 1 is the start of the wait (the due date, or a late submission)', async () => {
     renderSection();
     const panel = await screen.findByLabelText('Feedback owed');
-    expect(within(panel).getByText('Ungraded summative work · school-day number of the oldest wait (due date = day 1) · overdue after day 10')).toBeInTheDocument();
+    expect(within(panel).getByText('Ungraded summative work · day 1 = due date (or a late submission) · overdue after day 10')).toBeInTheDocument();
   });
 
   it('red late-work row: Mark referred is primary; the submitted-day tag follows the title', async () => {

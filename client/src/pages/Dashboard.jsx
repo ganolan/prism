@@ -102,7 +102,7 @@ export default function Dashboard() {
                   )}
                   {t.atLimit > 0 && <span className="badge badge-red">{t.atLimit} at limit</span>}
                   {t.late > 0 && <span className="badge badge-amber">{t.late} late</span>}
-                  {t.toGrade > 0 && <span className={`badge ${TONE_BADGE[t.waitTone]}`}>{t.toGrade} to grade · {t.oldestWait}d</span>}
+                  {t.toGrade > 0 && <span className={`badge ${TONE_BADGE[t.waitTone]}`}>{t.toGrade} to grade · day {t.oldestDay}</span>}
                 </>
               );
             })()}

@@ -16,22 +16,22 @@ vi.mock('../../services/api.js', () => ({
 }));
 
 const SETTINGS = {
-  referralLimitDays: 8, feedbackLimitDays: 10, warnLeadDays: 3, showFormativeDefault: false, makeUpAmberDays: 1, makeUpRedDays: 3,
+  referralLimitDays: 8, feedbackLimitDays: 10, warnLeadDays: 3, showFormativeDefault: false, makeUpAmberDay: 2, makeUpRedDay: 4,
 };
 const PAYLOAD = {
   settings: SETTINGS, includeFormative: false, historyCount: 2, lastSyncAt: '2026-10-01 07:42:00', makeUpsUnchecked: 0,
   calendar: { source: 'powerschool', totalSchoolDays: 164, today: { schoolDayNumber: 35, cycleLetter: 'A' } },
   lateWork: [
-    { kind: 'outstanding', studentId: 1, studentName: 'Maya Chen', courseId: 5, courseName: 'AP CSP', assignmentId: 9, schoologyAssignmentId: 'a9', title: 'CP2', dueDate: '2026-10-05', daysLate: 9, tone: 'red', approx: false },
-    { kind: 'submitted_late', studentId: 2, studentName: 'Ethan Wong', courseId: 5, courseName: 'AP CSP', assignmentId: 9, schoologyAssignmentId: 'a9', title: 'CP2', dueDate: '2026-09-21', daysLate: 10, submittedOn: '2026-10-05', tone: 'red', approx: false },
-    { kind: 'outstanding', studentId: 3, studentName: 'Aiden Li', courseId: 6, courseName: 'AP CSP', blockNumber: '7', assignmentId: 10, schoologyAssignmentId: 'a9', title: 'CP2', dueDate: '2026-10-14', daysLate: 2, tone: 'green', approx: false, extension: { id: 4, lessons: 3, until: '2026-10-15', note: null } },
+    { kind: 'outstanding', studentId: 1, studentName: 'Maya Chen', courseId: 5, courseName: 'AP CSP', assignmentId: 9, schoologyAssignmentId: 'a9', title: 'CP2', dueDate: '2026-10-05', daysLate: 9, day: 10, tone: 'red', approx: false },
+    { kind: 'submitted_late', studentId: 2, studentName: 'Ethan Wong', courseId: 5, courseName: 'AP CSP', assignmentId: 9, schoologyAssignmentId: 'a9', title: 'CP2', dueDate: '2026-09-21', daysLate: 10, day: 11, submittedDay: 11, submittedOn: '2026-10-05', tone: 'red', approx: false },
+    { kind: 'outstanding', studentId: 3, studentName: 'Aiden Li', courseId: 6, courseName: 'AP CSP', blockNumber: '7', assignmentId: 10, schoologyAssignmentId: 'a9', title: 'CP2', dueDate: '2026-10-14', daysLate: 2, day: 3, tone: 'green', approx: false, extension: { id: 4, lessons: 3, until: '2026-10-15', note: null } },
   ],
   feedbackOwed: [
-    { assignmentId: 4, schoologyAssignmentId: 'a4', courseId: 6, courseName: 'AP CSP', blockNumber: '7', title: 'Model Card', dueDate: '2026-09-14', aligned: true, owed: 18, submittedTotal: 22, oldestWaitDays: 11, tone: 'red', approx: false },
+    { assignmentId: 4, schoologyAssignmentId: 'a4', courseId: 6, courseName: 'AP CSP', blockNumber: '7', title: 'Model Card', dueDate: '2026-09-14', aligned: true, owed: 18, submittedTotal: 22, oldestWaitDays: 11, day: 12, tone: 'red', approx: false },
   ],
   makeUps: [
-    { studentId: 7, studentName: 'Noah Park', courseId: 8, courseName: 'AP CSP', blockNumber: '3', assignmentId: 20, schoologyAssignmentId: 'q20', title: 'Unit 1 test', dueDate: '2026-10-13', daysSince: 3, tone: 'red', approx: false, extension: null },
-    { studentId: 8, studentName: 'Zoe Tan', courseId: 5, courseName: 'AP CSP', assignmentId: 21, schoologyAssignmentId: 'q21', title: 'Unit 2 quiz', dueDate: '2026-10-15', daysSince: 0, tone: 'green', approx: false, extension: { id: 9, lessons: 2, until: '2026-10-20', note: 'sits Tue' } },
+    { studentId: 7, studentName: 'Noah Park', courseId: 8, courseName: 'AP CSP', blockNumber: '3', assignmentId: 20, schoologyAssignmentId: 'q20', title: 'Unit 1 test', dueDate: '2026-10-13', daysSince: 3, day: 4, tone: 'red', approx: false, extension: null },
+    { studentId: 8, studentName: 'Zoe Tan', courseId: 5, courseName: 'AP CSP', assignmentId: 21, schoologyAssignmentId: 'q21', title: 'Unit 2 quiz', dueDate: '2026-10-15', daysSince: 0, day: 1, tone: 'green', approx: false, extension: { id: 9, lessons: 2, until: '2026-10-20', note: 'sits Tue' } },
   ],
 };
 const latePanel = async () => screen.findByLabelText('Late work');
@@ -56,14 +56,14 @@ describe('TriageSection', () => {
     renderSection();
     expect(await screen.findByText('Maya Chen')).toBeInTheDocument();
     expect(screen.getByText('2 at referral limit')).toBeInTheDocument();
-    expect(screen.getByText('submitted day 10')).toBeInTheDocument();
-    expect(screen.getByText('6 left')).toBeInTheDocument();
+    expect(screen.getByText('submitted day 11')).toBeInTheDocument();
+    expect(screen.getByText('5 left')).toBeInTheDocument();
     expect(screen.getByText('18 of 22 ungraded')).toBeInTheDocument();
     expect(screen.getAllByText('AP CSP').length).toBeGreaterThan(0);
     expect(screen.getAllByText('[BK 7] AP CSP')).toHaveLength(2); // one late row + one feedback row
     expect(screen.getByText('ext +3 → 15/10/2026')).toBeInTheDocument();
     expect(screen.getByText(/Referred \/ extended \(2\)/)).toBeInTheDocument();
-    expect(screen.getByText('Summative work late or submitted after the limit · school days since due · refer at 8')).toBeInTheDocument();
+    expect(screen.getByText('Summative work late or submitted after the limit · due date = day 1 · refer after day 8')).toBeInTheDocument();
   });
 
   it('hides course chips on a course page and passes courseId', async () => {
@@ -141,7 +141,7 @@ describe('TriageSection', () => {
 
   it('history rows show the block; a failed undo shows the error inline', async () => {
     api.getReferrals.mockResolvedValue([
-      { id: 3, action: 'referred', daysLate: 9, createdAt: '2026-10-01 07:42:00', studentName: 'Maya Chen', courseName: 'AP CSP', blockNumber: '7', title: 'CP2', note: null },
+      { id: 3, action: 'referred', daysLate: 9, day: 10, createdAt: '2026-10-01 07:42:00', studentName: 'Maya Chen', courseName: 'AP CSP', blockNumber: '7', title: 'CP2', note: null },
     ]);
     api.undoReferral.mockRejectedValue(new Error('Server unreachable'));
     renderSection();
@@ -156,7 +156,7 @@ describe('TriageSection', () => {
 
   it('history lists referrals and extensions; Undo on an extension calls undoExtension', async () => {
     api.getReferrals.mockResolvedValue([
-      { id: 3, action: 'referred', daysLate: 9, createdAt: '2026-10-01 07:42:00', studentName: 'Maya Chen', courseName: 'AP CSP', title: 'CP2', note: null },
+      { id: 3, action: 'referred', daysLate: 9, day: 10, createdAt: '2026-10-01 07:42:00', studentName: 'Maya Chen', courseName: 'AP CSP', title: 'CP2', note: null },
     ]);
     api.getExtensions.mockResolvedValue([
       { id: 7, lessons: 3, until: '2026-10-15', createdAt: '2026-10-02 01:00:00', studentName: 'Aiden Li', courseName: 'AP CSP', title: 'CP2', note: 'sick' },
@@ -166,7 +166,7 @@ describe('TriageSection', () => {
     fireEvent.click(await screen.findByText(/Referred \/ extended \(2\)/));
     const history = await screen.findByLabelText('Referral history');
     expect(await within(history).findByText('Extended +3 → 15/10/2026')).toBeInTheDocument();
-    expect(within(history).getByText('Referred · day 9')).toBeInTheDocument();
+    expect(within(history).getByText('Referred · day 10')).toBeInTheDocument();
     // Newest first: the extension (02/10) above the referral (01/10).
     expect(within(history).getAllByText(/Aiden Li|Maya Chen/).map((el) => el.textContent)).toEqual(['Aiden Li', 'Maya Chen']);
     fireEvent.click(within(history).getAllByText('Undo')[0]);
@@ -190,13 +190,13 @@ describe('TriageSection', () => {
 
   it('history: failed extensions still list the referrals', async () => {
     api.getReferrals.mockResolvedValue([
-      { id: 3, action: 'referred', daysLate: 9, createdAt: '2026-10-01 07:42:00', studentName: 'Maya Chen', courseName: 'AP CSP', title: 'CP2', note: null },
+      { id: 3, action: 'referred', daysLate: 9, day: 10, createdAt: '2026-10-01 07:42:00', studentName: 'Maya Chen', courseName: 'AP CSP', title: 'CP2', note: null },
     ]);
     api.getExtensions.mockRejectedValue(new Error('boom'));
     renderSection();
     fireEvent.click(await screen.findByText(/Referred \/ extended \(2\)/));
     const history = await screen.findByLabelText('Referral history');
-    expect(await within(history).findByText('Referred · day 9')).toBeInTheDocument();
+    expect(await within(history).findByText('Referred · day 10')).toBeInTheDocument();
     expect(within(history).getByText(/Couldn't load extensions: boom/)).toBeInTheDocument();
   });
 
@@ -217,7 +217,7 @@ describe('TriageSection — ring + stacked rows', () => {
     renderSection();
     const panel = await latePanel();
     const row = rowOf(within(panel).getByText('Aiden Li'));
-    expect(row.firstElementChild).toHaveAttribute('aria-label', '2 of 8 school days');
+    expect(row.firstElementChild).toHaveAttribute('aria-label', 'day 3, limit day 8');
     const lines = [...textOf(row).children];
     expect(lines.map((el) => el.className)).toEqual(['triage-row__name', 'triage-row__course', 'triage-row__task']);
     expect(lines[0]).toHaveAttribute('href', '/student/3');
@@ -225,24 +225,43 @@ describe('TriageSection — ring + stacked rows', () => {
     expect(lines[1]).toHaveAttribute('title', '[BK 7] AP CSP');
     expect(lines[2]).toHaveTextContent('CP2ext +3 → 15/10/2026');
     const actions = row.querySelector('.triage-row__actions');
-    expect(within(actions).getByText('6 left')).toBeInTheDocument();
+    expect(within(actions).getByText('5 left')).toBeInTheDocument();
     expect(within(actions).getByText('Extend')).toHaveClass('secondary', 'btn-sm');
     expect(row.lastElementChild).toBe(actions);
+  });
+
+  it('day 8 of 8 (the last allowed day) says "last day", not "0 left"; no Mark referred yet', async () => {
+    api.getTriage.mockResolvedValue({
+      ...PAYLOAD,
+      lateWork: [{ ...PAYLOAD.lateWork[2], daysLate: 7, day: 8, tone: 'amber' }],
+    });
+    renderSection();
+    const row = rowOf(within(await latePanel()).getByText('Aiden Li'));
+    expect(within(row).getByRole('img', { name: 'day 8, limit day 8' })).toHaveTextContent('8');
+    expect(within(row.querySelector('.triage-row__actions')).getByText('last day')).toBeInTheDocument();
+    expect(within(row).queryByText(/left/)).not.toBeInTheDocument();
+    expect(within(row).queryByText('Mark referred')).not.toBeInTheDocument();
+  });
+
+  it('feedback subtitle numbers the oldest wait from the due date', async () => {
+    renderSection();
+    const panel = await screen.findByLabelText('Feedback owed');
+    expect(within(panel).getByText('Ungraded summative work · school-day number of the oldest wait (due date = day 1) · overdue after day 10')).toBeInTheDocument();
   });
 
   it('red late-work row: Mark referred is primary; the submitted-day tag follows the title', async () => {
     renderSection();
     const row = rowOf(within(await latePanel()).getByText('Ethan Wong'));
-    expect(within(row).getByRole('img', { name: '10 of 8 school days' })).toBeInTheDocument();
+    expect(within(row).getByRole('img', { name: 'day 11, limit day 8' })).toBeInTheDocument();
     expect(within(row).getByText('Mark referred')).toHaveClass('primary', 'btn-sm');
-    expect(row.querySelector('.triage-row__task')).toHaveTextContent('CP2submitted day 10');
+    expect(row.querySelector('.triage-row__task')).toHaveTextContent('CP2submitted day 11');
   });
 
   it('feedback row: ring, then title (link) / course, then "X of Y ungraded"', async () => {
     renderSection();
     const panel = await screen.findByLabelText('Feedback owed');
     const row = rowOf(within(panel).getByText('Model Card'));
-    expect(row.firstElementChild).toHaveAttribute('aria-label', '11 of 10 school days');
+    expect(row.firstElementChild).toHaveAttribute('aria-label', 'day 12, limit day 10');
     const lines = [...textOf(row).children];
     expect(lines.map((el) => el.className)).toEqual(['triage-row__title', 'triage-row__course']);
     expect(lines[0]).toHaveAttribute('href', '/course/6/assessment/a4');
@@ -253,7 +272,7 @@ describe('TriageSection — ring + stacked rows', () => {
   it('make-up row: ring, three lines, Extend + Ignore this test', async () => {
     renderSection();
     const row = rowOf(within(await makeUpPanel()).getByText('Noah Park'));
-    expect(row.firstElementChild).toHaveAttribute('aria-label', '3 of 3 school days');
+    expect(row.firstElementChild).toHaveAttribute('aria-label', 'day 4, limit day 4');
     expect([...textOf(row).children].map((el) => el.textContent)).toEqual(['Noah Park', '[BK 3] AP CSP', 'Unit 1 test']);
     const actions = row.querySelector('.triage-row__actions');
     expect(within(actions).getByText('Extend')).toHaveClass('secondary');
@@ -301,11 +320,11 @@ describe('TriageSection — make-up tests', () => {
     renderSection();
     const panel = await makeUpPanel();
     expect(within(panel).getByText('1 overdue')).toHaveClass('badge-red');
-    expect(within(panel).getByText('Missed Schoology tests and quizzes · school days since the test · sit by day 3')).toBeInTheDocument();
+    expect(within(panel).getByText('Missed Schoology tests and quizzes · test day = day 1 · sit by day 3')).toBeInTheDocument();
     expect(within(panel).getByText('[BK 3] AP CSP')).toBeInTheDocument();
     expect(within(panel).getByText('Noah Park')).toBeInTheDocument();
     expect(within(panel).getByText('Unit 1 test')).toBeInTheDocument();
-    expect(within(panel).getByRole('img', { name: '3 of 3 school days' })).toBeInTheDocument();
+    expect(within(panel).getByRole('img', { name: 'day 4, limit day 4' })).toBeInTheDocument();
     expect(within(panel).getByText('ext +2 → 20/10/2026')).toBeInTheDocument();
     expect(within(panel).getAllByText('Extend')).toHaveLength(2);
     expect(within(panel).queryByText('Mark referred')).not.toBeInTheDocument();

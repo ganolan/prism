@@ -58,7 +58,7 @@ export default function ReferralHistory({ courseId, version = 0, onClose, onChan
           </div>
           <div className="triage-row__actions">
             {r.kind === 'referral'
-              ? <span className="badge badge-red">Referred · day {r.daysLate}</span>
+              ? <span className="badge badge-red">Referred · day {r.day}</span>
               : <span className="badge badge-gray">Extended +{r.lessons} → {formatDate(`${r.until}T00:00:00`)}</span>}
             <span className="text-sm text-muted">{recordedOn(r)}{r.note ? ` — ${r.note}` : ''}</span>
             <button className="ghost" onClick={() => undo(r)}>Undo</button>

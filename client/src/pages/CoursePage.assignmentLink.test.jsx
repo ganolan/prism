@@ -80,7 +80,7 @@ describe('GradebookView — Schoology link in the diagonal column header (#76)',
 });
 
 describe('AssessmentsView — feedback wait column (triage)', () => {
-  it('shows ungraded count + wait for assignments that owe feedback', () => {
+  it('shows ungraded count + the wait day number (due date = day 1) for assignments that owe feedback', () => {
     const assignments = [
       { id: 1, title: 'CP1', aligned: 1, schoology_assignment_id: 'a1', due_date: '2026-09-17' },
       { id: 2, title: 'Quiz', aligned: 1, schoology_assignment_id: 'a2', due_date: '2026-09-02' },
@@ -89,14 +89,14 @@ describe('AssessmentsView — feedback wait column (triage)', () => {
       <MemoryRouter>
         <AssessmentsView
           data={{ assignments, folders: [] }} courseId="5" feedbackLimit={10}
-          waits={{ a1: { owed: 7, submittedTotal: 24, oldestWaitDays: 8, tone: 'amber' } }}
+          waits={{ a1: { owed: 7, submittedTotal: 24, oldestWaitDays: 8, day: 9, tone: 'amber' } }}
         />
       </MemoryRouter>,
     );
     expect(screen.getByText('7/24 ungraded')).toBeInTheDocument();
-    const ring = screen.getByRole('img', { name: '8 of 10 school days' });
+    const ring = screen.getByRole('img', { name: 'day 9, limit day 10' });
     expect(ring).toHaveClass('urgency-ring', 'urgency-ring--amber');
-    expect(ring).toHaveTextContent('8');
+    expect(ring).toHaveTextContent('9');
     expect(ring.closest('.triage-wait')).toContainElement(screen.getByText('7/24 ungraded'));
     expect(screen.getAllByText(/ungraded/)).toHaveLength(1);
   });

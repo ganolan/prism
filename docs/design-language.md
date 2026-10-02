@@ -871,11 +871,22 @@ cell.
 Used by the Dashboard / course-page triage panels (make-up tests, late work, feedback owed) and the
 Assessments tab wait column. `UrgencyRing` is a 40px SVG ring (4px stroke, track `var(--border)` —
 not `--bg-subtle`, which equals `--card-bg` in midnight and would vanish) whose arc fills
-`min(1, days / limit)` of the circle, with a 4% nub so a 0-day row still shows its colour. The arc
-takes its colour from a tone computed on the server (`toneFor`): `--success` below
-`limit − warnLead`, `--warning` from there, `--danger` at the limit. The actual day count sits
-centred inside (amber/red counts use `--badge-amber-text` / `--badge-red-text`), so the colour is
-never the only signal; `role="img"` + "N of L school days" names it. `≈` (with a tooltip) marks
+`min(1, day / limit)` of the circle, with a 4% floor so a short arc still shows its colour. The arc
+takes its colour from a tone computed on the server (`toneFor`): `--success` early, `--warning` over
+the last `warnLead` allowed days, `--danger` after the limit. The **day number** sits centred inside
+(amber/red use `--badge-amber-text` / `--badge-red-text`), so the colour is never the only signal;
+`role="img"` + "day D, limit day L" names it.
+
+**Day numbering — the due date is day 1 (2026-10-02).** Every triage clock is shown as a school-day
+*number* counted from its start date as day 1 (due date, extended date, test date, the wait's start),
+not as "days since": the teacher reads "due on day 1, submit through day 8, referred on day 9" more
+easily than "8 days late". `limit` is the **last allowed day** (late work 8, feedback 10; make-ups sit
+by day `makeUpRedDay − 1`), so a ring reads amber "8" on the last day and red "9" the day after; the
+late-work action says "N left" (`limit − day`) and "last day" on day `limit`. Subtitles state the rule
+("due date = day 1 · refer after day 8"), Dashboard chips say "7 to grade · day 9", and Settings
+labels are day numbers ("Late work is allowed through day [8]"). Display only — the server keeps its
+`schoolDaysBetween` counts for the tones, so who is flagged and when did not change. Reuse this
+numbering for any future school-day clock. `≈` (with a tooltip) marks
 counts from the weekday fallback (no PowerSchool calendar).
 
 **Stacked rows.** Each `.triage-row` is `ring | stacked text | actions`. The text column stacks the
@@ -883,7 +894,7 @@ primary link (student name, or the assessment title on feedback rows), then the 
 (`.triage-row__course`: small, bold, accent, one line with an ellipsis and the full label as its
 `title`; all-courses view only), then the task title with its tags ("submitted day N",
 "ext +N → date"). Actions group at the right as compact buttons (`button.btn-sm`): Mark referred
-`.primary`, Extend / Ignore this test `.secondary` (bordered), "N left" muted text before Extend;
+`.primary`, Extend / Ignore this test `.secondary` (bordered), "N left" / "last day" muted text before Extend;
 feedback rows show "X of Y ungraded" there instead. On phones the ring stays left and the actions
 wrap to their own line, indented to align with the text. The Referred / extended history uses the
 same stacked text without a ring. The Assessments tab wait column is the ring plus "x/y ungraded".

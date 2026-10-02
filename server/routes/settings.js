@@ -4,7 +4,7 @@ import { getTriageSettings, updateTriageSettings } from '../services/settings.js
 
 const router = Router();
 
-// GET /api/settings — { triage: { referralLimitDays, feedbackLimitDays, warnLeadDays, showFormativeDefault } }
+// GET /api/settings — { triage: { referralLimitDays, feedbackLimitDays, warnLeadDays, showFormativeDefault, makeUpAmberDay, makeUpRedDay } }
 router.get('/', (req, res) => {
   res.json({ triage: getTriageSettings(getDb()) });
 });

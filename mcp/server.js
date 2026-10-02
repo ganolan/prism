@@ -20,7 +20,8 @@ export const INSTRUCTIONS =
   'Also triage: which students are approaching an academic-office referral for ' +
   'late summative work, which assessments have waited longest for feedback, ' +
   'which students missed a Schoology test and must sit a make-up test ' +
-  '(all in school days), and school-calendar arithmetic.';
+  '(all in school days, numbered with the due/test date as day 1), and ' +
+  'school-calendar arithmetic.';
 
 // Open the shared Prism DB (resolved relative to server/db, honoring DB_PATH)
 // and set busy_timeout so a brief write collision with the Express server
@@ -190,13 +191,16 @@ export function createServer() {
     'get_triage',
     {
       description:
-        "Late-work referral watch, feedback owed and make-up tests, exactly as Prism's dashboard shows them. lateWork: summative work " +
-        'that takes Schoology submissions, not submitted (or submitted after crossing the limit), with daysLate in SCHOOL days and tone green/amber/red ' +
-        '(red = at the referral limit). feedbackOwed: per assessment, how many submissions are ungraded and the oldest ' +
-        'wait in school days (paper/no-dropbox work counts the whole roster as handed in on the due date; a Schoology test ' +
+        "Late-work referral watch, feedback owed and make-up tests, exactly as Prism's dashboard shows them. " +
+        'Every row has `day`: the SCHOOL-day number the dashboard shows, counting the due date = day 1 (test date / extended date = day 1 likewise) — ' +
+        'quote `day` to the teacher, not the raw counts (daysLate / oldestWaitDays / daysSince = day − 1, kept for compatibility). ' +
+        'lateWork: summative work that takes Schoology submissions, not submitted (or submitted after the limit; submittedDay = the day it came in), ' +
+        'tone green/amber/red: late work is allowed through day {referralLimitDays} (settings, default 8) and referred after day {referralLimitDays} ' +
+        '(red, e.g. day 9); amber = the last warnLeadDays allowed days. feedbackOwed: per assessment, how many submissions are ungraded and `day` of the oldest ' +
+        'wait, overdue (red) after day {feedbackLimitDays} (paper/no-dropbox work counts the whole roster as handed in on the due date; a Schoology test ' +
         'whose attempts were read counts only the takers). makeUps: students who missed a Schoology test or quiz ' +
-        '(any alignment; no attempt, no score, not excused) and must sit it (or their * copy) ASAP — daysSince the test in school days, ' +
-        'tone green on the day / amber / red per the makeUpAmberDays/makeUpRedDays settings; clears itself once an attempt ' +
+        '(any alignment; no attempt, no score, not excused) and must sit it (or their * copy) ASAP — `day` with the test day = day 1, ' +
+        'tone green on the test day, amber from day makeUpAmberDay, red from day makeUpRedDay (the makeUpAmberDay/makeUpRedDay settings); clears itself once an attempt ' +
         'syncs. makeUpsUnchecked: past tests whose attempts could not be read (unknown, NOT missed — suggest a re-sync). ' +
         'makeUpsIgnored: past tests the teacher ignores for make-ups (set_makeup_tracking). ' +
         'Rows carry courseName + blockNumber (sections of one course share a name) and extension ({ id, lessons, until, note } or null; dueDate stays the original). Includes the limits (settings), calendar source (approx = weekday fallback) and lastSyncAt — ' +
@@ -213,7 +217,7 @@ export function createServer() {
   server.registerTool(
     'list_referrals',
     {
-      description: 'Triage history, newest first: { referrals: late-work pairs the teacher marked referred (to the academic office), with notes and the school-day count at the time; extensions: per-student deadline extensions ({ id, lessons, until, note }) }.',
+      description: 'Triage history, newest first: { referrals: late-work pairs the teacher marked referred (to the academic office), with notes and the clock at the time (`day`, due date = day 1; daysLate = day − 1); extensions: per-student deadline extensions ({ id, lessons, until, note }) }.',
       inputSchema: {
         course: z.union([z.number(), z.string()]).optional().describe('Course id or name/code fragment'),
         student: z.union([z.number(), z.string()]).optional().describe('Student id or name fragment'),
@@ -238,7 +242,7 @@ export function createServer() {
   server.registerTool(
     'record_referral',
     {
-      description: "Record that the teacher referred a late-work row to the academic office ('referred'). ONLY call when the teacher explicitly says so. Use student_id/assignment_id from get_triage lateWork; rejects pairs not currently on the list, and rows not yet at the referral limit (tone red) with NOT_AT_LIMIT. To give a student more time use extend_deadline; a true exemption is Schoology's Excused flag.",
+      description: "Record that the teacher referred a late-work row to the academic office ('referred'). ONLY call when the teacher explicitly says so. Use student_id/assignment_id from get_triage lateWork; rejects pairs not currently on the list, and rows not yet past the referral limit (tone red, i.e. day > referralLimitDays) with NOT_AT_LIMIT. To give a student more time use extend_deadline; a true exemption is Schoology's Excused flag.",
       inputSchema: {
         student_id: z.number().describe('lateWork[].studentId'),
         assignment_id: z.number().describe('lateWork[].assignmentId'),
@@ -261,7 +265,7 @@ export function createServer() {
   server.registerTool(
     'extend_deadline',
     {
-      description: "Give one student more time on a summative assignment: extend its due date by N lessons (lessons = SCHOOL days, the referral limit's unit). ONLY call when the teacher explicitly asks. The student is off the late-work list until the extended date (`until`) passes, then counts late from it. Allowed any time (before or after the due date), for summative work or a Schoology test/quiz in a current course that targets the student. Also for make-up tests (a makeUps row): the make-up clock then counts from the extended date — e.g. sitting the make-up on Thursday. Extending the same pair again replaces lessons/note. Returns the stored extension.",
+      description: "Give one student more time on a summative assignment: extend its due date by N lessons (lessons = SCHOOL days, the referral limit's unit). ONLY call when the teacher explicitly asks. The student is off the late-work list until the extended date (`until`) passes, then counts late from it. Allowed any time (before or after the due date), for summative work or a Schoology test/quiz in a current course that targets the student. Also for make-up tests (a makeUps row): the make-up clock then counts from the extended date (= day 1) — e.g. sitting the make-up on Thursday. Extending the same pair again replaces lessons/note. Returns the stored extension.",
       inputSchema: {
         student_id: z.number().describe('Student id (lateWork[]/makeUps[].studentId or list_students)'),
         assignment_id: z.number().describe('Assignment id (lateWork[]/makeUps[].assignmentId or list_assignments)'),

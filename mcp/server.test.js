@@ -295,6 +295,18 @@ describe('PrisMCP triage tools', () => {
     expect(desc('extend_deadline')).toMatch(/make-up/i);
   });
 
+  test('day numbers: get_triage says `day` is the dashboard number (due/test date = day 1) and to quote it', async () => {
+    const client = await connect();
+    const tools = (await client.listTools()).tools;
+    const desc = (name) => tools.find((t) => t.name === name).description;
+    expect(desc('get_triage')).toMatch(/due date = day 1/);
+    expect(desc('get_triage')).toMatch(/quote `day`/);
+    expect(desc('get_triage')).toMatch(/after day \{referralLimitDays\}/);
+    expect(desc('get_triage')).toMatch(/after day \{feedbackLimitDays\}/);
+    expect(desc('get_triage')).toMatch(/makeUpAmberDay\/makeUpRedDay/);
+    expect(INSTRUCTIONS).toMatch(/day 1/);
+  });
+
   test('lists all eight triage tools', async () => {
     const client = await connect();
     const names = (await client.listTools()).tools.map((t) => t.name);

@@ -2,7 +2,8 @@ import { Link } from 'react-router-dom';
 import UrgencyRing from './UrgencyRing.jsx';
 import CourseLine from './CourseLine.jsx';
 
-// Assessments with ungraded submissions, longest wait first.
+// Assessments with ungraded submissions, longest wait first. The ring shows the
+// school-day number of the oldest wait (due date = day 1); overdue after day `limit`.
 export default function FeedbackOwedPanel({ rows, settings, showCourse, includeFormative, onToggleFormative }) {
   const limit = settings.feedbackLimitDays;
   const overdue = rows.filter((r) => r.tone === 'red').length;
@@ -18,12 +19,12 @@ export default function FeedbackOwedPanel({ rows, settings, showCourse, includeF
         </label>
       </div>
       <p className="triage-panel__sub">
-        Ungraded {includeFormative ? '' : 'summative '}work · school days the oldest submission has waited · aim ≤ {limit}
+        Ungraded {includeFormative ? '' : 'summative '}work · school-day number of the oldest wait (due date = day 1) · overdue after day {limit}
       </p>
       {rows.length === 0 && <p className="text-sm text-muted">Nothing waiting for feedback.</p>}
       {rows.map((r) => (
         <div key={r.assignmentId} className="triage-row">
-          <UrgencyRing days={r.oldestWaitDays} limit={limit} tone={r.tone} approx={r.approx} />
+          <UrgencyRing day={r.day} limit={limit} tone={r.tone} approx={r.approx} />
           <div className="triage-row__text">
             <Link className="triage-row__title" to={`/course/${r.courseId}/assessment/${r.schoologyAssignmentId}`}>
               {r.title}

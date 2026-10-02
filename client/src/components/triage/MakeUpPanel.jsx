@@ -7,11 +7,12 @@ import ExtendEditor, { ExtensionTag } from './ExtendEditor.jsx';
 // Students who missed a Schoology test or quiz and must sit it (or their * copy)
 // ASAP, longest first. A row clears itself once an attempt syncs. Extend records
 // when the make-up is booked ("sitting it Thursday"); the clock counts from then.
+// Day numbers: the test (or extended) date is day 1; red from day makeUpRedDay.
 // "Ignore this test" silences a whole test/quiz (all students), after an inline confirm.
 export default function MakeUpPanel({ rows, settings, showCourse, unchecked = 0, ignored = 0, onExtend, onIgnore }) {
   const [extending, setExtending] = useState(null);
   const [confirmIgnore, setConfirmIgnore] = useState(null);
-  const red = settings.makeUpRedDays;
+  const red = settings.makeUpRedDay;
   const overdue = rows.filter((r) => r.tone === 'red').length;
   const key = (r) => `${r.studentId}:${r.assignmentId}`;
 
@@ -20,7 +21,7 @@ export default function MakeUpPanel({ rows, settings, showCourse, unchecked = 0,
       <h3 className="triage-panel__title">
         Make-up tests {overdue > 0 && <span className="badge badge-red">{overdue} overdue</span>}
       </h3>
-      <p className="triage-panel__sub">Missed Schoology tests and quizzes · school days since the test · sit by day {red}</p>
+      <p className="triage-panel__sub">Missed Schoology tests and quizzes · test day = day 1 · sit by day {red - 1}</p>
       {unchecked > 0 && (
         <p className="alert alert-warning triage-panel__note">
           Couldn&apos;t check {unchecked} test{unchecked === 1 ? '' : 's'} — run a full sync.
@@ -32,7 +33,7 @@ export default function MakeUpPanel({ rows, settings, showCourse, unchecked = 0,
       )}
       {rows.map((r) => (
         <div key={key(r)} className="triage-row">
-          <UrgencyRing days={r.daysSince} limit={red} tone={r.tone} approx={r.approx} />
+          <UrgencyRing day={r.day} limit={red} tone={r.tone} approx={r.approx} />
           <div className="triage-row__text">
             <Link to={`/student/${r.studentId}`} className="triage-row__name">{r.studentName}</Link>
             {showCourse && <CourseLine row={r} />}

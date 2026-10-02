@@ -780,6 +780,12 @@ the original 56-day gap and the fixed/re-verified result are in `.claude/powersc
   `PUT /api/triage/makeup-ignore/:id`). Extensions move the make-up clock. Feedback owed on a read test
   counts only takers. Also: re-extend pre-fills the editor and stamps `extensions.updated_at`; the
   history loads referrals/extensions independently. Spec "Make-up tests" + Verification results 11.
+- **Due date = day 1 (2026-10-02):** triage clocks are numbered from the due/test date as day 1 (teacher's
+  request: submit through day 8, referral on day 9) — every row gains `day` (late work also
+  `submittedDay`; referrals `day`), rings/tags/chips/subtitles/Settings/PrisMCP quote it; limits read as
+  the last allowed day (8 / 10); tones and who is flagged unchanged. Make-up settings are now day numbers
+  `triage.makeUpAmberDay` 2 / `makeUpRedDay` 4, converted once (+1) from the old `…Days` keys. Spec
+  Verification results 12.
 
 **Tests:** 874 server + 550 client Vitest tests pass; `npm run build` succeeds (2026-10-02).
 

@@ -464,7 +464,7 @@ CREATE TABLE IF NOT EXISTS settings (
 
 -- Triage: the teacher's handling of a late-work pair that reached the referral
 -- limit — 'referred' (sent to the academic office). A row removes the pair from
--- the late-work list; undo = delete. days_late is the school-day count when the
+-- the late-work list; undo = delete. days_late is the school-day count (between; shown as day = days_late + 1) when the
 -- action was taken. ('exempt' is legacy: the app no longer writes it — per-student
 -- extensions live in `extensions`, true exemptions use Schoology's Excused flag.)
 CREATE TABLE IF NOT EXISTS referrals (

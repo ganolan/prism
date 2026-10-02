@@ -23,14 +23,15 @@ teachers/schools.
 | Feedback unit | **School days**. Default limit **10** (≈ 2 weeks). |
 | Referral scope | **Summative only** (aligned to measurement topics). |
 | Feedback scope | **Summative by default**; a "Show formative" toggle (default off). |
-| Amber warning | Starts **3 school days before** each limit (setting). |
+| Day numbering (2026-10-02) | Days are **numbered from the due date = day 1** (test date / extended date = day 1 likewise) — the teacher's framing: due on day 1, submit through **day 8**, referral on **day 9**. Display only: `day` = `schoolDaysBetween + 1`; the limits are the **last allowed day** (8 / 10), thresholds unchanged. See Verification results 12. |
+| Amber warning | Covers the **last 3 allowed days** before each limit (setting) — late work days 6–8, feedback days 8–10. |
 | At the limit | Teacher can **Mark referred** (optional note) once a row is red. Any row — or any targeted student before the due date — can be **extended by N lessons** (school days, the limit's unit; optional note). Both date-stamped, undoable. True exemptions use Schoology's **Excused** flag, which triage already skips. (Amended 2026-10-02: Extend replaced Exempt.) |
-| Stickiness | Submitting *before* the limit clears a student. Once the limit is crossed, the student stays on the list (tagged e.g. "submitted day 10") until marked referred (an extension moves its clock — see Extensions). |
+| Stickiness | Submitting *before* the limit clears a student. Once the limit is crossed, the student stays on the list (tagged e.g. "submitted day 11") until marked referred (an extension moves its clock — see Extensions). |
 | Placement | **Dashboard** shows both lists across all current courses (option A); each **course page** shows the same lists filtered to that course, and the Assessments tab gains wait bars (option C). No separate Triage page. |
 | Calendar source | **PowerSchool** `section_info` calendar, stored locally; validated against the 26-27 Master Plan. Weekday fallback, labelled "approx". Calendar-file import is a later, pluggable source — not built now. |
 | Settings | New **Settings** page; values stored **server-side** (SQLite), so laptop, phone, prod and PrisMCP all agree. |
 | PrisMCP | Read tools **and** `record_referral` / `extend_deadline` / `set_makeup_tracking` / undo. |
-| Make-up tests (added 2026-10-02) | A student who missed a Schoology test/quiz must sit it (or their `*` copy) ASAP — its own short clock and panel, not late work. Green on the test day, amber from **1**, red from **3** school days (settings). **Every** Schoology test/quiz, any alignment (the user's quizzes are unaligned; the mastery grade sits on a separate gradebook-only "… - Result" item). Per-test **Ignore** switch for noise (e.g. formative quizzes). |
+| Make-up tests (added 2026-10-02) | A student who missed a Schoology test/quiz must sit it (or their `*` copy) ASAP — its own short clock and panel, not late work. Green on the test day (day 1), amber from **day 2**, red from **day 4** (settings `makeUpAmberDay` / `makeUpRedDay`; before 2026-10-02 stored as 1 / 3 school days after the test). **Every** Schoology test/quiz, any alignment (the user's quizzes are unaligned; the mastery grade sits on a separate gradebook-only "… - Result" item). Per-test **Ignore** switch for noise (e.g. formative quizzes). |
 
 ## Rules (exact semantics)
 
@@ -39,7 +40,11 @@ teachers/schools.
 `schoolDaysBetween(fromDate, toDate)` = number of in-session dates `d` with `fromDate < d ≤ toDate`
 (dates are local Hong Kong calendar dates, `YYYY-MM-DD`).
 
-- Due Friday, still missing Monday → **1** day late.
+- Due Friday, still missing Monday → **1** day late (`between` = 1) = **day 2**.
+- **Display:** every row's `day` = `schoolDaysBetween(from, today) + 1`, so the from-date itself (due
+  date, effective due date, test date, late-submission start) is **day 1**. The internal counts
+  (`daysLate`, `oldestWaitDays`, `daysSince`, `referrals.days_late`) stay as `schoolDaysBetween` and
+  drive the tones; the UI and PrisMCP quote `day`.
 - Due date on a non-school day → counting starts at the next school day (falls out of the formula).
 - Dates outside the stored calendar (e.g. before the year's data, or no calendar at all) fall back
   to **Mon–Fri weekdays**, and the result carries `approx: true`. The UI shows "approx" beside any
@@ -56,18 +61,23 @@ A (student, assignment) pair is **outstanding** when all hold:
   submitted), **and** no score, **and** `exception` is not Excused (1). Schoology's Missing (3)
   counts as outstanding.
 
-`daysLate = schoolDaysBetween(due, today)` for outstanding pairs.
+`daysLate = schoolDaysBetween(due, today)` for outstanding pairs; `day = daysLate + 1` (due date = day 1).
+Worked example (limit 8): due on day 1, may be submitted through **day 8** (amber, "last day"; Mark
+referred is rejected `NOT_AT_LIMIT`); still missing on **day 9** → red, referable.
 
 A pair is **on the list** when either:
 
 - it is outstanding and `daysLate ≥ 1`; or
 - it **crossed the limit**: it was submitted, but `schoolDaysBetween(due, firstSubmittedAt) ≥ referralLimit`
-  — tagged "submitted day N";
+  — i.e. submitted on day 9 or later (limit 8); `submittedDay = schoolDaysBetween(due, firstSubmittedAt) + 1`,
+  tagged "submitted day N" (a submission on day 8 is not flagged);
 
 …and it has **no referral record**. With an **extension**, `due` above is the student's effective due date (see Extensions).
 
-Tone: green below `limit − warnLead`, amber from `limit − warnLead`, red (with the **Mark referred**
-action) from `limit`. Every row also offers **Extend**.
+Tone (on `daysLate`, unchanged): green below `limit − warnLead`, amber from `limit − warnLead`, red
+(with the **Mark referred** action) from `limit` — in day numbers, red **after day `limit`** (day 9) and
+amber over the last `warnLead` allowed days (days 6–8). `referralLimitDays` is the **last allowed day**.
+Non-red rows show "N left" = `limit − day`, or "last day" on day `limit`. Every row also offers **Extend**.
 
 ### Extensions (amended 2026-10-02 — replaces Exempt)
 
@@ -115,13 +125,14 @@ A (student, test) pair is a **make-up** when all hold:
 Students who moved section or joined late (they never had a fair chance at the test) are handled by
 **Excusing** them in Schoology, which the rule already skips.
 
-`daysSince = schoolDaysBetween(due, today)` (0 on the test day). An extension moves the date the same
+`daysSince = schoolDaysBetween(due, today)` (0 on the test day); `day = daysSince + 1` (the test day is day 1). An extension moves the date the same
 way as for late work (`effDue = addSchoolDays(due, N)`) — how a teacher records "sitting it
-Thursday"; the row stays visible (green, `daysSince` 0) until then. Tone: green if
-`daysSince < makeUpAmberDays`, amber if `< makeUpRedDays`, else red.
+Thursday"; the row stays visible (green, day 1) until then. Tone on day numbers: green if
+`day < makeUpAmberDay` (default 2), amber if `< makeUpRedDay` (default 4), else red — identical to the
+old `daysSince < 1 / < 3`.
 
 Rows: `studentId, studentUid, studentName, courseId, courseName, blockNumber, assignmentId,
-schoologyAssignmentId, title, dueDate, daysSince, tone, approx, extension`, sorted by `daysSince`
+schoologyAssignmentId, title, dueDate, daysSince, day, tone, approx, extension`, sorted by `daysSince`
 desc. The payload adds `counts.makeUpsOverdue` (red), `makeUpsUnchecked` (past-due, not-ignored tests
 whose read is not `'ok'` → "Couldn't check N tests — run a full sync.") and `makeUpsIgnored` (past-due
 ignored tests → "N tests ignored"). A row clears itself once an attempt syncs.
@@ -143,8 +154,9 @@ feedback** when it is submitted (or scored on paper but not complete) and `gradi
 `waitDays = schoolDaysBetween(max(due, firstSubmittedAt), today)`, so a late submission starts its own
 clock and doesn't redden the row unfairly.
 
-Each assessment row shows: owed count of submitted total, **oldest** `waitDays`, tone by the same
-green/amber/red rule against `feedbackLimit`. Rows sort by oldest wait, descending. Assessments with
+Each assessment row shows: owed count of submitted total, **oldest** `waitDays` (`oldestWaitDays`) and
+its `day = oldestWaitDays + 1` (the wait's start = day 1), tone by the same green/amber/red rule against
+`feedbackLimit` — the **last allowed day**: day 10 amber, overdue (red) from **day 11**. Rows sort by oldest wait, descending. Assessments with
 nothing owed are omitted from the panel (and show no wait on the Assessments tab).
 
 ## Architecture
@@ -194,7 +206,10 @@ functions, so the agent sees exactly the numbers on the dashboard.
   `lti_fetch_status`: a test the sync never reaches keeps its previous value); `makeup_ignored INTEGER
   NOT NULL DEFAULT 0` (Prism-owned; the sync's upsert never writes it). Plus `grades.test_attempt TEXT`
   (`'took'` | `'none'` | `'not_assigned'` | NULL; schema.sql and `MIGRATIONS`). Settings keys
-  `triage.makeUpAmberDays` = 1 (0–30) and `triage.makeUpRedDays` = 3 (1–30); amber is clamped to red.
+  `triage.makeUpAmberDay` = 2 (1–31) and `triage.makeUpRedDay` = 4 (2–31), day numbers with the test day
+  = day 1; amber is clamped to red. (Before 2026-10-02: `triage.makeUpAmberDays` = 1 / `makeUpRedDays` =
+  3, school days after the test; `getTriageSettings` converts each old row once (+1) when the new key
+  is absent, leaving the old row in place.)
 - **First-submission time** — `grades.first_submitted_at INTEGER` = earliest submission time
   observed (running minimum; see Verification results 1).
 
@@ -223,16 +238,17 @@ functions, so the agent sees exactly the numbers on the dashboard.
 
 - **`LateWorkPanel`** and **`FeedbackOwedPanel`** (`client/src/components/triage/`) — props: data +
   `courseId?`. On the dashboard they show a course chip per row; on a course page the chip is omitted.
-  Rows: name, task, progress meter, day count, action (**Mark referred** on red rows, or "N left"; **Extend** on
+  Rows: name, task, progress ring with the **day number** (due date = day 1; aria "day D, limit day L"),
+  action (**Mark referred** on red rows, or "N left" / "last day"; **Extend** on
   every row — a `NumberStepper` 1–60, default 3, + note), and an "ext +N → DD/MM/YYYY" tag when extended.
   Feedback rows link to the existing `AssessmentSummaryPage`.
 - **`MakeUpPanel`** — "Make-up tests", full-width **above** the two panels (the most urgent list):
-  red-count badge, subtitle "Missed Schoology tests and quizzes · school days since the test · sit by
-  day {red}", rows (course chip, student, test, meter against `makeUpRedDays`, day count, extension tag,
+  red-count badge, subtitle "Missed Schoology tests and quizzes · test day = day 1 · sit by
+  day {makeUpRedDay − 1}", rows (course chip, student, test, ring against `makeUpRedDay` showing `day`, extension tag,
   **Extend**, **Ignore this test** with an inline confirm), "No missed tests.", the unchecked note and
   "N tests ignored". The Extend editor is shared (`ExtendEditor`) and pre-fills a re-extend.
 - **Dashboard** — panels above the course cards (two columns on desktop); course cards gain chips
-  ("N make-ups" — red when any is red, "1 at limit", "7 to grade · 8d"); header shows "School day N of
+  ("N make-ups" — red when any is red, "1 at limit", "7 to grade · day 9"); header shows "School day N of
   M · Cycle day X" when known.
 - **CoursePage** — the panels at the top; Assessments tab rows gain "x/y ungraded" + wait meter, and
   each Schoology test/quiz a click-to-flip "Make-ups: tracked / ignored" chip.
@@ -347,6 +363,17 @@ explicit request; descriptions say so.
     or a test with no cells at all, is recorded `'failed'` (unknown), never "missed". Not yet seen live:
     a non-taker whose classmates sat the test, an unsubmitted attempt, multiple attempts, a non-taker
     with a hand-entered score, an excused cell.
+12. **Due date = day 1** (2026-10-02: teacher asked for due date = day 1; display-only, thresholds
+    unchanged). "Make the due date day 1, that way it's easier to understand": work due on cycle day 1
+    may be submitted through day 8; submitting (or still missing) on the following day 1 = referral, i.e.
+    day 9. Every triage row gains `day = schoolDaysBetween + 1` (late work also `submittedDay`), the
+    rings, tags, chips, subtitles, Settings labels and PrisMCP descriptions quote it, and
+    `referralLimitDays` / `feedbackLimitDays` (8 / 10) are read as the last allowed day. Who is flagged,
+    and when, is unchanged — pinned in `server/services/triage.test.js` ("day numbering"): day 8 amber
+    and `NOT_AT_LIMIT`, day 9 red and referable; a submission on day 8 not flagged, on day 9
+    `submitted_late` with `submittedDay` 9; feedback day 10 amber, day 11 red; make-ups day 1 green,
+    day 2 amber, day 4 red. The make-up settings became day numbers (`makeUpAmberDay` 2 /
+    `makeUpRedDay` 4), converted once from the old keys (+1).
 
 ## Out of scope (now)
 

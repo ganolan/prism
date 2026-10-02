@@ -6,8 +6,8 @@ const T = {
     { courseId: 1, tone: 'red' }, { courseId: 1, tone: 'amber' }, { courseId: 2, tone: 'green' },
   ],
   feedbackOwed: [
-    { courseId: 1, owed: 7, oldestWaitDays: 8, tone: 'amber', schoologyAssignmentId: 'a1' },
-    { courseId: 1, owed: 3, oldestWaitDays: 11, tone: 'red', schoologyAssignmentId: 'a2' },
+    { courseId: 1, owed: 7, oldestWaitDays: 8, day: 9, tone: 'amber', schoologyAssignmentId: 'a1' },
+    { courseId: 1, owed: 3, oldestWaitDays: 11, day: 12, tone: 'red', schoologyAssignmentId: 'a2' },
   ],
   makeUps: [
     { courseId: 1, tone: 'amber' }, { courseId: 1, tone: 'red' }, { courseId: 2, tone: 'green' }, { courseId: 3, tone: 'amber' },
@@ -21,11 +21,11 @@ describe('triage helpers', () => {
     expect(meterPct(20, 8)).toBe(100);
   });
 
-  it('courseTriageSummary counts per course', () => {
-    expect(courseTriageSummary(T, 1)).toEqual({ atLimit: 1, late: 1, toGrade: 10, oldestWait: 11, waitTone: 'red', makeUps: 2, makeUpTone: 'red' });
+  it('courseTriageSummary counts per course; oldestDay is the worst feedback day number (due date = day 1)', () => {
+    expect(courseTriageSummary(T, 1)).toEqual({ atLimit: 1, late: 1, toGrade: 10, oldestDay: 12, waitTone: 'red', makeUps: 2, makeUpTone: 'red' });
     expect(courseTriageSummary(T, 2)).toMatchObject({ makeUps: 1, makeUpTone: 'green' });
     expect(courseTriageSummary(T, 3)).toMatchObject({ makeUps: 1, makeUpTone: 'amber' });
-    expect(courseTriageSummary(null, 1)).toEqual({ atLimit: 0, late: 0, toGrade: 0, oldestWait: 0, waitTone: 'green', makeUps: 0, makeUpTone: 'green' });
+    expect(courseTriageSummary(null, 1)).toEqual({ atLimit: 0, late: 0, toGrade: 0, oldestDay: 0, waitTone: 'green', makeUps: 0, makeUpTone: 'green' });
   });
 
   it('waitsByAssignment keys by Schoology id', () => {

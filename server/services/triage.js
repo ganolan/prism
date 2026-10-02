@@ -3,6 +3,14 @@
 // The single source of truth for the web API (server/routes/triage.js) and
 // PrisMCP (mcp/handlers.js), so the agent sees exactly the dashboard's numbers.
 // All day counts are school days (server/lib/schoolDays.js).
+//
+// Two numbers per clock. The internal count is cal.between(from, to) = school
+// days d with from < d ≤ to (the due date itself = 0): daysLate / oldestWaitDays /
+// daysSince, and the referral row's days_late. The display number is
+// `day` = that count + 1, so the due date (test date, late-submission date) is
+// day 1 — the teacher's framing (2026-10-02): due on day 1, submit through day 8,
+// referral on day 9. Thresholds are unchanged: a limit is the LAST ALLOWED day
+// (red when day > limit ⇔ count ≥ limit).
 
 import { todayLocal, nowLocal, epochToLocalDate } from '../lib/schoolDays.js';
 import { loadCalendar } from './schoolCalendar.js';
@@ -17,16 +25,18 @@ export class TriageError extends Error {
   }
 }
 
+// `days` is the internal count (day − 1): red after day `limit`, amber over the
+// last `warnLead` allowed days.
 export function toneFor(days, limit, warnLead) {
   if (days >= limit) return 'red';
   if (days >= limit - warnLead) return 'amber';
   return 'green';
 }
 
-// Make-up clock: green on the test day, amber from amberDays, red from redDays.
-export function makeUpTone(days, amberDays, redDays) {
-  if (days >= redDays) return 'red';
-  if (days >= amberDays) return 'amber';
+// Make-up clock on day numbers (test day = day 1): amber from day amberDay, red from day redDay.
+export function makeUpTone(day, amberDay, redDay) {
+  if (day >= redDay) return 'red';
+  if (day >= amberDay) return 'amber';
   return 'green';
 }
 
@@ -168,7 +178,7 @@ function tracksSubmissions(a, states) {
 export function getTriage(db, { courseId = null, studentId = null, includeFormative, today: todayArg = null, now = null } = {}) {
   const settings = getTriageSettings(db);
   const formative = includeFormative ?? settings.showFormativeDefault;
-  const { referralLimitDays, feedbackLimitDays, warnLeadDays, makeUpAmberDays, makeUpRedDays } = settings;
+  const { referralLimitDays, feedbackLimitDays, warnLeadDays, makeUpAmberDay, makeUpRedDay } = settings;
   const clock = new Date();
   const today = todayArg ?? todayLocal(clock);
   const nowStamp = now ?? (todayArg == null ? nowLocal(clock) : `${today} 23:59:59`);
@@ -211,7 +221,7 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
         makeUps.push({
           studentId: st.id, studentUid: st.schoology_uid, studentName: fullName(st), ...courseFields,
           assignmentId: a.id, schoologyAssignmentId: a.schoology_assignment_id, title: a.title, dueDate: due,
-          daysSince: days, tone: makeUpTone(days, makeUpAmberDays, makeUpRedDays),
+          daysSince: days, day: days + 1, tone: makeUpTone(days + 1, makeUpAmberDay, makeUpRedDay),
           approx: approx || moved.approx, extension: extensionInfo(ext, moved.date),
         });
       }
@@ -261,7 +271,10 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
             // after its due date). Schoology's late = 0 (on time, e.g. a
             // per-student extension) also clears it.
             const { days, approx } = cal.between(effDue, s.firstSubmittedOn);
-            if (days >= referralLimitDays) row = { kind: 'submitted_late', daysLate: days, submittedOn: s.firstSubmittedOn, approx };
+            // Submitted after the last allowed day (day > referralLimitDays).
+            if (days >= referralLimitDays) {
+              row = { kind: 'submitted_late', daysLate: days, submittedOn: s.firstSubmittedOn, submittedDay: days + 1, approx };
+            }
           }
           if (row) {
             lateWork.push({
@@ -270,6 +283,8 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
               extension: extensionInfo(ext, effDue),
               studentId: st.id, studentUid: st.schoology_uid, studentName: fullName(st), ...courseFields,
               assignmentId: a.id, schoologyAssignmentId: a.schoology_assignment_id, title: a.title, dueDate: due,
+              // Clock day from the effective due date (day 1): today if outstanding, the submission day if submitted_late.
+              day: row.daysLate + 1,
               tone: toneFor(row.daysLate, referralLimitDays, warnLeadDays),
             });
           }
@@ -290,7 +305,7 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
         feedbackOwed.push({
           assignmentId: a.id, schoologyAssignmentId: a.schoology_assignment_id,
           ...courseFields, title: a.title, dueDate: due, aligned: !!a.aligned,
-          owed, submittedTotal, oldestWaitDays,
+          owed, submittedTotal, oldestWaitDays, day: oldestWaitDays + 1,
           tone: toneFor(oldestWaitDays, feedbackLimitDays, warnLeadDays), approx: waitApprox,
         });
       }
@@ -341,7 +356,7 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
 export function listReferrals(db, { courseId = null, studentId = null, since = null, id = null } = {}) {
   return db.prepare(`
     SELECT r.id, r.action, r.note, r.days_late AS daysLate, r.source, r.created_at AS createdAt,
-           r.student_id AS studentId, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher,
+           r.days_late + 1 AS day, r.student_id AS studentId, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher,
            r.assignment_id AS assignmentId, a.schoology_assignment_id AS schoologyAssignmentId, a.title,
            substr(a.due_date, 1, 10) AS dueDate, r.course_id AS courseId, c.course_name AS courseName,
            c.block_number AS blockNumber
@@ -381,7 +396,7 @@ export function recordReferral(db, { studentId, assignmentId, action, note = nul
     .lateWork.find((r) => r.studentId === sid && r.assignmentId === a.id);
   if (!row) throw new TriageError('NOT_ON_LIST', 'That student and assignment are not on the late-work list');
   if (row.tone !== 'red') {
-    throw new TriageError('NOT_AT_LIMIT', `Not at the referral limit yet (${row.daysLate} school days late) — extend the deadline instead, or wait`);
+    throw new TriageError('NOT_AT_LIMIT', `Not at the referral limit yet (day ${row.day}; refer after day ${getTriageSettings(db).referralLimitDays}) — extend the deadline instead, or wait`);
   }
   let id;
   try {

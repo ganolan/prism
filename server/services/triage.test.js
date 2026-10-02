@@ -370,7 +370,7 @@ describe('getTriage — make-up tests', () => {
     expect(t.makeUps[0]).toEqual({
       studentId: ada, studentUid: 'u1', studentName: 'Ada L', courseId, courseName: 'AP CSP', blockNumber: '7',
       assignmentId: t1, schoologyAssignmentId: 't1', title: 'Unit 1 test', dueDate: '2026-10-13',
-      daysSince: 3, tone: 'red', approx: false, extension: null,
+      daysSince: 3, day: 4, tone: 'red', approx: false, extension: null,
     });
     expect(t.counts.makeUpsOverdue).toBe(1);
     expect(t.makeUpsUnchecked).toBe(0);
@@ -494,11 +494,11 @@ describe('getTriage — make-up tests', () => {
 
   test('the make-up settings move the tones', () => {
     const ada = student('u1', 'Ada', 'L');
-    missed(ada, testItem('t1', 'Unit 1 test', '2026-10-15')); // 1
+    missed(ada, testItem('t1', 'Unit 1 test', '2026-10-15')); // day 2
     expect(getTriage(db, { today: TODAY, now }).makeUps[0].tone).toBe('amber');
-    updateTriageSettings(db, { makeUpAmberDays: 2, makeUpRedDays: 4 });
+    updateTriageSettings(db, { makeUpAmberDay: 3, makeUpRedDay: 5 });
     expect(getTriage(db, { today: TODAY, now }).makeUps[0].tone).toBe('green');
-    updateTriageSettings(db, { makeUpAmberDays: 0, makeUpRedDays: 1 });
+    updateTriageSettings(db, { makeUpAmberDay: 1, makeUpRedDay: 2 });
     expect(getTriage(db, { today: TODAY, now }).makeUps[0].tone).toBe('red');
   });
 
@@ -669,11 +669,11 @@ describe('extensions (extend by N lessons = school days)', () => {
 
   test('submitted_late is measured from the extended date', () => {
     const a = student('u1', 'Ada', 'L');
-    // Due Mon 21/09, first submitted Mon 05/10 = day 8 → red without the extension.
+    // Due Mon 21/09 (day 1), first submitted Mon 05/10 = day 9 → red without the extension.
     const id = assignment('a1', 'Essay', '2026-09-21');
     grade(a, id, { submission_type: 'drop', first_submitted_at: epoch('2026-10-05'), latest_revision_at: epoch('2026-10-05'), late: 1 });
     expect(getTriage(db, { today: TODAY }).lateWork[0]).toMatchObject({ kind: 'submitted_late', daysLate: 8, extension: null });
-    recordExtension(db, { studentId: a, assignmentId: id, lessons: 1 }); // until 22/09 → day 7
+    recordExtension(db, { studentId: a, assignmentId: id, lessons: 1 }); // until 22/09 → day 8
     expect(getTriage(db, { today: TODAY }).lateWork).toEqual([]);
   });
 
@@ -781,5 +781,65 @@ describe('extensions (extend by N lessons = school days)', () => {
     expect(listExtensions(db, { studentId: a })).toEqual([]);
     expect(listExtensions(db, { id: e.id })[0]).toMatchObject({ studentName: 'Bo M' });
     expect(listExtensions(db, { since: todayLocal() })).toHaveLength(1);
+  });
+});
+
+// Teacher's policy (2026-10-02): the due date is day 1; work may be submitted
+// through day 8; still missing (or submitted) on day 9 = referral. Display-only:
+// `day` = school days since + 1; thresholds and tones are unchanged.
+describe('day numbering (the due / test date is day 1)', () => {
+  const DUE = '2026-10-05'; // Mon = day 1
+  const DAY8 = '2026-10-14'; // 06–09/10 + 12–14/10 = 7 school days after
+  const DAY9 = '2026-10-15';
+
+  test('outstanding: day 8 is the last allowed day (amber, no referral); day 9 is red and referable', () => {
+    const maya = student('u1', 'Maya', 'Chen');
+    const id = assignment('a1', 'CP2', DUE);
+    expect(getTriage(db, { today: DUE }).lateWork).toEqual([]); // day 1: not late
+    expect(getTriage(db, { today: '2026-10-06' }).lateWork[0]).toMatchObject({ day: 2, daysLate: 1, tone: 'green' });
+    expect(getTriage(db, { today: DAY8 }).lateWork[0]).toMatchObject({ kind: 'outstanding', day: 8, daysLate: 7, tone: 'amber' });
+    expect(() => recordReferral(db, { studentId: maya, assignmentId: id, action: 'referred', today: DAY8 }))
+      .toThrow(expect.objectContaining({ code: 'NOT_AT_LIMIT', message: expect.stringMatching(/day 8.*after day 8/) }));
+    expect(getTriage(db, { today: DAY9 }).lateWork[0]).toMatchObject({ kind: 'outstanding', day: 9, daysLate: 8, tone: 'red' });
+    expect(recordReferral(db, { studentId: maya, assignmentId: id, action: 'referred', today: DAY9 }))
+      .toMatchObject({ action: 'referred', daysLate: 8, day: 9 });
+  });
+
+  test('a submission on day 8 is not flagged; on day 9 it is submitted_late, submittedDay 9', () => {
+    const ada = student('u1', 'Ada', 'L');
+    const bo = student('u2', 'Bo', 'M');
+    const id = assignment('a1', 'Essay', DUE);
+    grade(ada, id, { submission_type: 'drop', first_submitted_at: epoch(DAY8), latest_revision_at: epoch(DAY8), late: 1 });
+    grade(bo, id, { submission_type: 'drop', first_submitted_at: epoch(DAY9), latest_revision_at: epoch(DAY9), late: 1 });
+    const rows = getTriage(db, { today: TODAY }).lateWork;
+    expect(rows.map((r) => r.studentName)).toEqual(['Bo M']);
+    expect(rows[0]).toMatchObject({ kind: 'submitted_late', submittedOn: DAY9, submittedDay: 9, daysLate: 8, tone: 'red' });
+    expect(rows[0].day).toBe(9); // a submitted_late clock stops at the submission (day = daysLate + 1)
+  });
+
+  test('an extension makes the extended date day 1', () => {
+    const maya = student('u1', 'Maya', 'Chen');
+    const id = assignment('a1', 'CP2', DUE);
+    recordExtension(db, { studentId: maya, assignmentId: id, lessons: 3 }); // until Thu 08/10 = day 1
+    expect(getTriage(db, { today: '2026-10-08' }).lateWork).toEqual([]);
+    expect(getTriage(db, { today: TODAY }).lateWork[0]).toMatchObject({ day: 7, daysLate: 6, tone: 'amber' });
+  });
+
+  test('feedback owed: day 10 is amber (last day), day 11 is red', () => {
+    student('u1', 'Ada', 'L');
+    assignment('t1', 'Paper test', DUE, { accepts: 0 });
+    expect(getTriage(db, { today: '2026-10-06' }).feedbackOwed[0]).toMatchObject({ day: 2, oldestWaitDays: 1, tone: 'green' });
+    expect(getTriage(db, { today: TODAY }).feedbackOwed[0]).toMatchObject({ day: 10, oldestWaitDays: 9, tone: 'amber' });
+    expect(getTriage(db, { today: '2026-10-19' }).feedbackOwed[0]).toMatchObject({ day: 11, oldestWaitDays: 10, tone: 'red' });
+  });
+
+  test('make-ups: the test day is day 1 (green), day 2 amber, day 4 red', () => {
+    const ada = student('u1', 'Ada', 'L');
+    missed(ada, testItem('t1', 'Unit 1 test', '2026-10-13')); // Tue
+    const at = (today) => getTriage(db, { today, now: `${today} 16:00:00` }).makeUps[0];
+    expect(at('2026-10-13')).toMatchObject({ day: 1, daysSince: 0, tone: 'green' });
+    expect(at('2026-10-14')).toMatchObject({ day: 2, daysSince: 1, tone: 'amber' });
+    expect(at('2026-10-15')).toMatchObject({ day: 3, tone: 'amber' });
+    expect(at('2026-10-16')).toMatchObject({ day: 4, daysSince: 3, tone: 'red' });
   });
 });

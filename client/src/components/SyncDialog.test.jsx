@@ -445,7 +445,7 @@ describe('SyncDialog', () => {
       const { unmount } = render(<SyncDialog onClose={onClose} pollMs={1} />);
       await clickStart();
       await waitFor(() => expect(box.signal).toBeDefined());
-      expect(screen.getByText(/carries on on the server/)).toBeInTheDocument();
+      expect(screen.getByText(/keeps running on the server/)).toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: 'Close' }));
       expect(onClose).toHaveBeenCalledTimes(1);
       unmount();

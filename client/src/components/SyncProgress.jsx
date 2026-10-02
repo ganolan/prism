@@ -96,7 +96,7 @@ export default function SyncProgress({ reduced, mode, notice, retryEnabled, onDo
         <h2>{running && <span className="sync-spinner" aria-hidden="true" />}{heading}</h2>
         {running && (
           <p className="text-muted text-sm">
-            This takes a few minutes. You can close this or lock your screen — the sync carries on on the server.
+            This takes a few minutes. You can close this or lock your screen — the sync keeps running on the server.
           </p>
         )}
         {running && notice && <p className="text-muted text-sm sync-notice" role="status">{notice}</p>}

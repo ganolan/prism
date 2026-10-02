@@ -1004,7 +1004,7 @@ progress."* when the dialog joins a run it didn't start (409, or Sync opened mid
 device or after a reload). The joined view loads the run's earlier lines, so the log looks the same
 on every device. Returning to the page polls straight away, without a notice, because the switch is
 routine. **The dialog can be closed while it follows a sync** (a secondary **Close** in the footer; the
-sub-line says "You can close this or lock your screen — the sync carries on on the server"), and
+sub-line says "You can close this or lock your screen — the sync keeps running on the server"), and
 reopening Sync joins the run again. Closing aborts the stream; the server keeps going. Errors appear
 only when the server reports one (e.g. the run was `interrupted` by a restart). **Losing touch with
 Prism is not an error either:** after ~3 minutes of failed polls, counted in *visible* time only and

@@ -60,7 +60,7 @@ describe('CoursePage — make-up tracking round trip', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Make-ups: tracked' }));
     await waitFor(() => expect(api.setMakeUpIgnored).toHaveBeenCalledWith(11, true));
     expect(await screen.findByRole('button', { name: 'Make-ups: ignored' })).toBeInTheDocument();
-    // The Triage section remounts, so its make-up panel re-fetches.
+    // The Triage section re-fetches (version bump, no remount).
     await waitFor(() => expect(vi.mocked(api.getTriage).mock.calls.filter(([o]) => o.includeFormative === undefined)).toHaveLength(2));
   });
 });

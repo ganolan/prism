@@ -7,7 +7,7 @@ import { APPROX_TITLE, courseLabel } from '../../lib/triage.js';
 // Students who missed a Schoology test or quiz and must sit it (or their * copy)
 // ASAP, longest first. A row clears itself once an attempt syncs. Extend records
 // when the make-up is booked ("sitting it Thursday"); the clock counts from then.
-// "Ignore this quiz" silences a whole test/quiz (all students), after an inline confirm.
+// "Ignore this test" silences a whole test/quiz (all students), after an inline confirm.
 export default function MakeUpPanel({ rows, settings, showCourse, unchecked = 0, ignored = 0, onExtend, onIgnore }) {
   const [extending, setExtending] = useState(null);
   const [confirmIgnore, setConfirmIgnore] = useState(null);
@@ -23,12 +23,12 @@ export default function MakeUpPanel({ rows, settings, showCourse, unchecked = 0,
       <p className="triage-panel__sub">Missed Schoology tests and quizzes · school days since the test · sit by day {red}</p>
       {unchecked > 0 && (
         <p className="alert alert-warning triage-panel__note">
-          Couldn&apos;t check {unchecked} test{unchecked === 1 ? '' : 's'} — re-sync.
+          Couldn&apos;t check {unchecked} test{unchecked === 1 ? '' : 's'} — run a full sync.
         </p>
       )}
       {rows.length === 0 && <p className="text-sm text-muted">No missed tests.</p>}
       {ignored > 0 && (
-        <p className="text-sm text-muted triage-panel__note">{ignored} {ignored === 1 ? 'quiz' : 'quizzes'} ignored</p>
+        <p className="text-sm text-muted triage-panel__note">{ignored} test{ignored === 1 ? '' : 's'} ignored</p>
       )}
       {rows.map((r) => (
         <div key={key(r)} className="triage-row triage-row--makeup">
@@ -53,7 +53,7 @@ export default function MakeUpPanel({ rows, settings, showCourse, unchecked = 0,
             {confirmIgnore !== key(r) && extending !== key(r) && (
               <>
                 <button className="ghost" onClick={() => { setConfirmIgnore(null); setExtending(key(r)); }}>Extend</button>
-                <button className="ghost" onClick={() => { setExtending(null); setConfirmIgnore(key(r)); }}>Ignore this quiz</button>
+                <button className="ghost" onClick={() => { setExtending(null); setConfirmIgnore(key(r)); }}>Ignore this test</button>
               </>
             )}
             {extending === key(r) && (

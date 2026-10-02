@@ -11,8 +11,9 @@ import ReferralHistory from './ReferralHistory.jsx';
 // test can be invalidated), then late work + feedback owed side by side — across
 // all current courses (no courseId — Dashboard) or for one course (CoursePage). Owns its fetch; onLoaded hands the payload up
 // (the Dashboard uses it for course-card chips and the school-day header);
-// onMakeUpIgnored(assignmentId) tells the course page a quiz was ignored.
-export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnored }) {
+// onMakeUpIgnored(assignmentId) tells the course page a quiz was ignored; bumping
+// `version` re-fetches in place (keeps Show formative and an open history).
+export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnored, version = 0 }) {
   const dataVersion = useDataVersion();
   const [data, setData] = useState(null);
   const [includeFormative, setIncludeFormative] = useState(undefined); // undefined → the Settings default
@@ -32,7 +33,7 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
     }
   }, [courseId, includeFormative]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { load(); }, [load, dataVersion]);
+  useEffect(() => { load(); }, [load, dataVersion, version]);
 
   // A write, then refresh the lists (and an open history).
   async function write(fn) {

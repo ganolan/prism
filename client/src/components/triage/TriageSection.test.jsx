@@ -248,10 +248,10 @@ describe('TriageSection — make-up tests', () => {
   it("says when tests couldn't be checked", async () => {
     api.getTriage.mockResolvedValue({ ...PAYLOAD, makeUpsUnchecked: 2 });
     renderSection();
-    expect(within(await makeUpPanel()).getByText("Couldn't check 2 tests — re-sync.")).toBeInTheDocument();
+    expect(within(await makeUpPanel()).getByText("Couldn't check 2 tests — run a full sync.")).toBeInTheDocument();
     api.getTriage.mockResolvedValue({ ...PAYLOAD, makeUps: [], makeUpsUnchecked: 1 });
     renderSection();
-    expect(await screen.findByText("Couldn't check 1 test — re-sync.")).toBeInTheDocument();
+    expect(await screen.findByText("Couldn't check 1 test — run a full sync.")).toBeInTheDocument();
   });
 
   it('no unchecked note when everything was checked', async () => {
@@ -272,12 +272,24 @@ describe('TriageSection — make-up tests', () => {
   });
 });
 
+describe('TriageSection — reload on a version bump', () => {
+  it('re-fetches without remounting: Show formative stays on', async () => {
+    const { rerender } = render(<MemoryRouter><TriageSection courseId={5} version={0} /></MemoryRouter>);
+    fireEvent.click(await screen.findByLabelText('Show formative'));
+    await waitFor(() => expect(api.getTriage).toHaveBeenLastCalledWith({ courseId: 5, includeFormative: true }));
+    const calls = api.getTriage.mock.calls.length;
+    rerender(<MemoryRouter><TriageSection courseId={5} version={1} /></MemoryRouter>);
+    await waitFor(() => expect(api.getTriage).toHaveBeenCalledTimes(calls + 1));
+    expect(api.getTriage).toHaveBeenLastCalledWith({ courseId: 5, includeFormative: true });
+  });
+});
+
 describe('TriageSection — ignore a quiz for make-ups', () => {
-  it('Ignore this quiz asks inline, then ignores it for all students and reloads', async () => {
+  it('Ignore this test asks inline, then ignores it for all students and reloads', async () => {
     const onMakeUpIgnored = vi.fn();
     renderSection({ onMakeUpIgnored });
     const panel = await makeUpPanel();
-    fireEvent.click(within(panel).getAllByText('Ignore this quiz')[0]); // Noah's Unit 1 test
+    fireEvent.click(within(panel).getAllByText('Ignore this test')[0]); // Noah's Unit 1 test
     expect(within(panel).getByText('Ignore Unit 1 test for all students?')).toBeInTheDocument();
     fireEvent.click(within(panel).getByText('Yes'));
     await waitFor(() => expect(api.setMakeUpIgnored).toHaveBeenCalledWith(20, true));
@@ -288,18 +300,18 @@ describe('TriageSection — ignore a quiz for make-ups', () => {
   it('Cancel leaves it tracked', async () => {
     renderSection();
     const panel = await makeUpPanel();
-    fireEvent.click(within(panel).getAllByText('Ignore this quiz')[0]);
+    fireEvent.click(within(panel).getAllByText('Ignore this test')[0]);
     fireEvent.click(within(panel).getByText('Cancel'));
     expect(within(panel).queryByText(/for all students\?/)).not.toBeInTheDocument();
     expect(api.setMakeUpIgnored).not.toHaveBeenCalled();
   });
 
-  it('says how many quizzes are ignored', async () => {
+  it('says how many tests are ignored', async () => {
     api.getTriage.mockResolvedValue({ ...PAYLOAD, makeUpsIgnored: 2 });
     renderSection();
-    expect(within(await makeUpPanel()).getByText('2 quizzes ignored')).toBeInTheDocument();
+    expect(within(await makeUpPanel()).getByText('2 tests ignored')).toBeInTheDocument();
     api.getTriage.mockResolvedValue({ ...PAYLOAD, makeUps: [], makeUpsIgnored: 1 });
     renderSection();
-    expect(await screen.findByText('1 quiz ignored')).toBeInTheDocument();
+    expect(await screen.findByText('1 test ignored')).toBeInTheDocument();
   });
 });

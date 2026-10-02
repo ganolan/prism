@@ -39,7 +39,7 @@ export default function CoursePage() {
   const [overrideTarget, setOverrideTarget] = useState(null); // { studentUid, category, currentLevel, hasOverride }
   const [overrideSaving, setOverrideSaving] = useState(false);
   const [triageWaits, setTriageWaits] = useState({ waits: {}, feedbackLimit: 10 });
-  const [triageKey, setTriageKey] = useState(0); // bump → the triage panels remount and re-fetch
+  const [triageVersion, setTriageVersion] = useState(0); // bump → the triage panels re-fetch
 
   useEffect(() => {
     // includeDropped so RosterView can show the "N dropped" toggle without a
@@ -67,7 +67,7 @@ export default function CoursePage() {
   }, [id, dataVersion, courseLive]);
 
   // Make-up tracking for one Schoology test/quiz (all students), from either the
-  // make-up panel's "Ignore this quiz" or the Assessments-tab chip.
+  // make-up panel's "Ignore this test" or the Assessments-tab chip.
   function patchMakeUpIgnored(assignmentId, ignored) {
     setGradebook((g) => g && {
       ...g,
@@ -77,7 +77,7 @@ export default function CoursePage() {
   async function toggleMakeUp(a) {
     const r = await setMakeUpIgnored(a.id, !a.makeup_ignored);
     patchMakeUpIgnored(a.id, r.ignored);
-    setTriageKey((k) => k + 1);
+    setTriageVersion((v) => v + 1);
   }
 
   async function refreshMastery() {
@@ -184,7 +184,7 @@ export default function CoursePage() {
       </header>
 
       {courseLive && (
-        <TriageSection key={triageKey} courseId={Number(id)} onMakeUpIgnored={(aid) => patchMakeUpIgnored(aid, true)} />
+        <TriageSection version={triageVersion} courseId={Number(id)} onMakeUpIgnored={(aid) => patchMakeUpIgnored(aid, true)} />
       )}
 
       {view === 'roster' && (

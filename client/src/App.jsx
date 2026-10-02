@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, NavLink, Link, useLocation } from 'react-router-dom';
 import { useState, useCallback, useEffect } from 'react';
 import Dashboard from './pages/Dashboard.jsx';
 import CoursePage from './pages/CoursePage.jsx';
@@ -65,11 +65,14 @@ function Shell({ onSyncComplete }) {
             <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
           </svg>
         </button>
-        <PrismLogo width={110} className="mobile-topbar-logo" />
+        <Link to="/" className="mobile-topbar-home" onClick={() => setNavOpen(false)}>
+          <PrismLogo width={110} className="mobile-topbar-logo" />
+        </Link>
       </header>
       <div className="nav-backdrop" onClick={() => setNavOpen(false)} />
       <nav className="sidebar" id="sidebar-nav">
-        <h1 className="logo"><PrismLogo /></h1>
+        {/* The logo is the way home: a link to the dashboard (named by the logo's "Prism"). */}
+        <h1 className="logo"><Link to="/" onClick={() => setNavOpen(false)}><PrismLogo /></Link></h1>
         <div className="sidebar-section-label">Navigation</div>
         <NavLink to="/" end>Dashboard</NavLink>
         <NavLink to="/search">Search Students</NavLink>

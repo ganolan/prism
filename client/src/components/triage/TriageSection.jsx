@@ -7,13 +7,16 @@ import FeedbackOwedPanel from './FeedbackOwedPanel.jsx';
 import MakeUpPanel from './MakeUpPanel.jsx';
 import ReferralHistory from './ReferralHistory.jsx';
 
-// The triage panels — make-up tests full-width on top (the most urgent: a missed
-// test can be invalidated), then late work + feedback owed side by side — across
-// all current courses (no courseId — Dashboard) or for one course (CoursePage). Owns its fetch; onLoaded hands the payload up
-// (the Dashboard uses it for course-card chips and the school-day header);
-// onMakeUpIgnored(assignmentId) tells the course page a quiz was ignored; bumping
-// `version` re-fetches in place (keeps Show formative and an open history).
-export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnored, version = 0 }) {
+// The triage rail: an <aside> of stacked panels — make-up tests first (the most
+// urgent: a missed test can be invalidated), then late work, then feedback owed —
+// across all current courses (no courseId — Dashboard) or for one course
+// (CoursePage). The page lays it out beside its main column (.triage-layout).
+// Owns its fetch; onLoaded hands the payload up (the Dashboard uses it for
+// course-card chips and the school-day header, the course page for the Gradebook
+// tab's "Triage" count); onMakeUpIgnored(assignmentId) tells the course page a
+// quiz was ignored; bumping `version` re-fetches in place (keeps Show formative
+// and an open history). `hidden` hides the rail but keeps it mounted (and fetching).
+export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnored, version = 0, hidden = false, id }) {
   const dataVersion = useDataVersion();
   const [data, setData] = useState(null);
   const [includeFormative, setIncludeFormative] = useState(undefined); // undefined → the Settings default
@@ -54,31 +57,34 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
     onMakeUpIgnored?.(row.assignmentId);
   });
 
-  if (!data) return error ? <div className="alert alert-warning">Triage unavailable: {error}</div> : null;
+  if (!data && !error) return null;
+  const rail = (children) => (
+    <aside className="triage triage-rail" aria-label="Triage" hidden={hidden} id={id}>{children}</aside>
+  );
+  if (!data) return rail(<div className="alert alert-warning">Triage unavailable: {error}</div>);
   const showCourse = courseId == null;
-  return (
-    <div className="triage">
+  const scope = courseId ?? 'all';
+  return rail(
+    <>
       {error && <div className="alert alert-warning">{error}</div>}
       {!showCourse && data.lastSyncAt && (
         <p className="text-sm text-muted triage__asof">Counts as of the last sync, {formatDateTime(data.lastSyncAt)}</p>
       )}
       <MakeUpPanel
-        rows={data.makeUps ?? []} settings={data.settings} showCourse={showCourse}
+        rows={data.makeUps ?? []} settings={data.settings} showCourse={showCourse} scope={scope}
         unchecked={data.makeUpsUnchecked ?? 0} ignored={data.makeUpsIgnored ?? 0}
         onExtend={handleExtend} onIgnore={handleIgnore}
       />
-      <div className="triage-grid">
-        <LateWorkPanel
-          rows={data.lateWork} settings={data.settings} showCourse={showCourse}
-          onRecord={handleRecord} onExtend={handleExtend}
-          onShowHistory={() => setShowHistory(true)} historyCount={data.historyCount}
-        />
-        <FeedbackOwedPanel
-          rows={data.feedbackOwed} settings={data.settings} showCourse={showCourse}
-          includeFormative={data.includeFormative} onToggleFormative={setIncludeFormative}
-        />
-      </div>
+      <LateWorkPanel
+        rows={data.lateWork} settings={data.settings} showCourse={showCourse} scope={scope}
+        onRecord={handleRecord} onExtend={handleExtend}
+        onShowHistory={() => setShowHistory(true)} historyCount={data.historyCount}
+      />
+      <FeedbackOwedPanel
+        rows={data.feedbackOwed} settings={data.settings} showCourse={showCourse} scope={scope}
+        includeFormative={data.includeFormative} onToggleFormative={setIncludeFormative}
+      />
       {showHistory && <ReferralHistory courseId={courseId} version={historyVersion} onClose={() => setShowHistory(false)} onChanged={load} />}
-    </div>
+    </>,
   );
 }

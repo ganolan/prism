@@ -5,8 +5,8 @@ import { formatDate } from '../../lib/formatDate.js';
 const DEFAULT_LESSONS = 3;
 const MAX_LESSONS = 60;
 
-// The inline "Extend by N lessons" editor that opens below a triage row's text in
-// place of its actions (late work, make-up tests). Re-extending pre-fills the current extension.
+// The inline "Extend by N lessons" editor that opens inside a triage row's expanded
+// area in place of its buttons (late work, make-up tests). Re-extending pre-fills the current extension.
 export default function ExtendEditor({ extension, onSave, onCancel }) {
   const [lessons, setLessons] = useState(extension?.lessons ?? DEFAULT_LESSONS);
   const [note, setNote] = useState(extension?.note ?? '');

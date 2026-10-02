@@ -35,6 +35,14 @@ describe('UrgencyRing', () => {
     expect(screen.getByTitle(APPROX_TITLE)).toHaveTextContent('≈');
   });
 
+  it('size shrinks the ring (28px in the triage rail), keeping the same name', () => {
+    const { container } = render(<UrgencyRing day={6} limit={8} tone="amber" size={28} />);
+    const ring = screen.getByRole('img', { name: 'day 6, limit day 8' });
+    expect(ring).toHaveClass('urgency-ring--sm');
+    expect(container.querySelector('svg')).toHaveAttribute('width', '28');
+    expect(container.querySelector('svg')).toHaveAttribute('height', '28');
+  });
+
   it('no ≈ for an exact count', () => {
     render(<UrgencyRing day={5} limit={8} tone="amber" />);
     expect(screen.queryByTitle(APPROX_TITLE)).not.toBeInTheDocument();

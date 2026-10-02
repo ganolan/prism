@@ -5,7 +5,7 @@ import AnalyticsView from '../components/AnalyticsView.jsx';
 import OverridePopup from '../components/OverridePopup.jsx';
 import TriageSection from '../components/triage/TriageSection.jsx';
 import UrgencyRing from '../components/triage/UrgencyRing.jsx';
-import { waitsByAssignment } from '../lib/triage.js';
+import { waitsByAssignment, redCount } from '../lib/triage.js';
 import { LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
 import { LetterGradePopup, LETTER_GRADE_COLORS } from '../components/MasteryPerformanceSummary.jsx';
 import { gradeLabel, submissionStatus, ltiStatusUnavailable } from '../lib/gradeLabel.js';
@@ -40,6 +40,9 @@ export default function CoursePage() {
   const [overrideSaving, setOverrideSaving] = useState(false);
   const [triageWaits, setTriageWaits] = useState({ waits: {}, feedbackLimit: 10 });
   const [triageVersion, setTriageVersion] = useState(0); // bump → the triage panels re-fetch
+  // The triage rail is hidden on the Gradebook tab (it needs the width); "Triage ▸" toggles it back in.
+  const [railOnGradebook, setRailOnGradebook] = useState(false);
+  const [triageRed, setTriageRed] = useState(0);
 
   useEffect(() => {
     // includeDropped so RosterView can show the "N dropped" toggle without a
@@ -180,46 +183,65 @@ export default function CoursePage() {
           <button className={`tab-btn ${view === 'analytics' ? 'active' : ''}`} onClick={() => setView('analytics')}>
             Analytics
           </button>
+          {courseLive && view === 'gradebook' && (
+            <button
+              className="secondary btn-sm triage-rail-toggle" aria-expanded={railOnGradebook} aria-controls="course-triage"
+              onClick={() => setRailOnGradebook((v) => !v)}
+            >
+              {railOnGradebook ? 'Hide triage' : (
+                <>Triage {triageRed > 0 && <span className="badge badge-red">{triageRed}</span>} <span aria-hidden="true">▸</span></>
+              )}
+            </button>
+          )}
         </div>
       </header>
 
-      {courseLive && (
-        <TriageSection version={triageVersion} courseId={Number(id)} onMakeUpIgnored={(aid) => patchMakeUpIgnored(aid, true)} />
-      )}
+      {/* Tab content in the main column, the triage rail beside it (below it on a phone). */}
+      <div className="triage-layout">
+        <div className="triage-layout__main">
+          {view === 'roster' && (
+            <RosterView
+              students={students}
+              mastery={mastery}
+              courseId={id}
+              displayName={displayName}
+              onOverrideClick={(studentUid, category, currentLevel, hasOverride) =>
+                setOverrideTarget({ studentUid, category, currentLevel, hasOverride })}
+            />
+          )}
 
-      {view === 'roster' && (
-        <RosterView
-          students={students}
-          mastery={mastery}
-          courseId={id}
-          displayName={displayName}
-          onOverrideClick={(studentUid, category, currentLevel, hasOverride) =>
-            setOverrideTarget({ studentUid, category, currentLevel, hasOverride })}
-        />
-      )}
-
-      {overrideTarget && (
-        <OverridePopup
-          courseId={Number(id)}
-          studentUid={overrideTarget.studentUid}
-          objectiveId={overrideTarget.category.id}
-          objectiveTitle={overrideTarget.category.title}
-          currentLevel={overrideTarget.currentLevel}
-          hasOverride={overrideTarget.hasOverride}
-          saving={overrideSaving}
-          setSaving={setOverrideSaving}
-          onClose={() => setOverrideTarget(null)}
-          onSaved={refreshMastery}
-        />
-      )}
-      {view === 'gradebook' && <GradebookView data={gradebook} courseId={id} mastery={mastery} />}
-      {view === 'assessments' && (
-        <AssessmentsView
-          data={gradebook} courseId={id} waits={triageWaits.waits} feedbackLimit={triageWaits.feedbackLimit}
-          onToggleMakeUp={courseLive ? toggleMakeUp : undefined}
-        />
-      )}
-      {view === 'analytics' && <AnalyticsView id={id} />}
+          {overrideTarget && (
+            <OverridePopup
+              courseId={Number(id)}
+              studentUid={overrideTarget.studentUid}
+              objectiveId={overrideTarget.category.id}
+              objectiveTitle={overrideTarget.category.title}
+              currentLevel={overrideTarget.currentLevel}
+              hasOverride={overrideTarget.hasOverride}
+              saving={overrideSaving}
+              setSaving={setOverrideSaving}
+              onClose={() => setOverrideTarget(null)}
+              onSaved={refreshMastery}
+            />
+          )}
+          {view === 'gradebook' && <GradebookView data={gradebook} courseId={id} mastery={mastery} />}
+          {view === 'assessments' && (
+            <AssessmentsView
+              data={gradebook} courseId={id} waits={triageWaits.waits} feedbackLimit={triageWaits.feedbackLimit}
+              onToggleMakeUp={courseLive ? toggleMakeUp : undefined}
+            />
+          )}
+          {view === 'analytics' && <AnalyticsView id={id} />}
+        </div>
+        {courseLive && (
+          <TriageSection
+            id="course-triage" version={triageVersion} courseId={Number(id)}
+            hidden={view === 'gradebook' && !railOnGradebook}
+            onLoaded={(t) => setTriageRed(redCount(t))}
+            onMakeUpIgnored={(aid) => patchMakeUpIgnored(aid, true)}
+          />
+        )}
+      </div>
     </div>
   );
 }

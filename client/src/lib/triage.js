@@ -39,3 +39,9 @@ export function courseTriageSummary(triage, courseId) {
 export function waitsByAssignment(triage) {
   return Object.fromEntries((triage?.feedbackOwed || []).map((r) => [r.schoologyAssignmentId, r]));
 }
+
+// Red rows across all three lists — the count on the course page's "Triage ▸" button.
+export function redCount(triage) {
+  return ['makeUps', 'lateWork', 'feedbackOwed']
+    .reduce((n, list) => n + (triage?.[list] || []).filter((r) => r.tone === 'red').length, 0);
+}

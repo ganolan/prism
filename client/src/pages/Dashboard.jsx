@@ -188,24 +188,28 @@ export default function Dashboard() {
         </label>
       </div>
 
-      {activeTab === 'current' && <TriageSection onLoaded={setTriage} />}
-
-      {/* Current tab */}
+      {/* Current tab: course cards in the main column, the triage rail beside them
+          (below them on a phone). */}
       {activeTab === 'current' && (
-        courses.length === 0 ? (
-          <div className="card empty-state">
-            <p>No courses synced yet. Click <strong>Sync Schoology</strong> in the sidebar to pull your courses.</p>
-          </div>
-        ) : (
-          semesterGroups.map(({ semester, courses: semCourses }) => (
-            <div key={semester} style={{ marginBottom: '1.5rem' }}>
-              <h4 className="semester-subhead">{semester}</h4>
-              <div className="grid-2">
-                {semCourses.map(c => <CourseCard key={c.id} c={c} />)}
+        <div className="triage-layout">
+          <div className="triage-layout__main">
+            {courses.length === 0 ? (
+              <div className="card empty-state">
+                <p>No courses synced yet. Click <strong>Sync Schoology</strong> in the sidebar to pull your courses.</p>
               </div>
-            </div>
-          ))
-        )
+            ) : (
+              semesterGroups.map(({ semester, courses: semCourses }) => (
+                <div key={semester} style={{ marginBottom: '1.5rem' }}>
+                  <h4 className="semester-subhead">{semester}</h4>
+                  <div className="grid-2">
+                    {semCourses.map(c => <CourseCard key={c.id} c={c} />)}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+          <TriageSection onLoaded={setTriage} />
+        </div>
       )}
 
       {/* Archived tab */}

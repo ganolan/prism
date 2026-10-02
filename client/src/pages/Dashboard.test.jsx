@@ -151,6 +151,25 @@ describe('Dashboard — triage', () => {
     expect(screen.getByText('School day 35 of 164 · Day A')).toBeInTheDocument();
   });
 
+  it('lays the course cards in the main column (2 per row) and the triage rail beside them', async () => {
+    api.getCoursesByView.mockResolvedValue([
+      { id: 5, course_name: 'AP Computer Science Principles', grading_period: 'Semester 1: 08/14/2026 - 01/11/2027' },
+    ]);
+    api.getTriage.mockResolvedValue({
+      settings: { referralLimitDays: 8, feedbackLimitDays: 10, warnLeadDays: 3, showFormativeDefault: false, makeUpAmberDay: 2, makeUpRedDay: 4 },
+      includeFormative: false, historyCount: 0, lastSyncAt: null, makeUpsUnchecked: 0, calendar: null,
+      lateWork: [], feedbackOwed: [], makeUps: [],
+    });
+    const { container } = renderDashboard();
+    const rail = await screen.findByRole('complementary', { name: 'Triage' });
+    const layout = container.querySelector('.triage-layout');
+    expect(layout.lastElementChild).toBe(rail); // after the cards: below them on a phone
+    const main = layout.querySelector('.triage-layout__main');
+    expect(main.querySelector('.grid-2')).toHaveTextContent('AP Computer Science Principles');
+    expect([...rail.querySelectorAll('section')].map((el) => el.getAttribute('aria-label')))
+      .toEqual(['Make-up tests', 'Late work', 'Feedback owed']);
+  });
+
   it('no triage on the Archived tab', async () => {
     renderDashboard();
     fireEvent.click(await screen.findByText('Archived'));

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { meterPct, courseTriageSummary, waitsByAssignment, courseLabel, APPROX_TITLE } from './triage.js';
+import { meterPct, courseTriageSummary, waitsByAssignment, courseLabel, redCount, APPROX_TITLE } from './triage.js';
 
 const T = {
   lateWork: [
@@ -40,5 +40,21 @@ describe('triage helpers', () => {
 
   it('APPROX_TITLE explains the ≈ marker', () => {
     expect(APPROX_TITLE).toMatch(/weekdays/);
+  });
+});
+
+describe('redCount', () => {
+  it('counts red rows across make-ups, late work and feedback owed', () => {
+    const t = {
+      makeUps: [{ tone: 'red' }, { tone: 'amber' }],
+      lateWork: [{ tone: 'red' }, { tone: 'red' }, { tone: 'green' }],
+      feedbackOwed: [{ tone: 'red' }],
+    };
+    expect(redCount(t)).toBe(4);
+  });
+
+  it('is 0 for no payload or missing lists', () => {
+    expect(redCount(null)).toBe(0);
+    expect(redCount({ lateWork: [] })).toBe(0);
   });
 });

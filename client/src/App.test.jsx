@@ -78,3 +78,38 @@ describe('App shell — phone menu', () => {
     expect(shell(container)).not.toHaveClass('nav-open');
   });
 });
+
+describe('App shell — the Prism logo links to the dashboard', () => {
+  const logoLinks = () => screen.getAllByRole('link', { name: 'Prism' });
+
+  it('both logos (sidebar + phone top bar) are links to "/"', () => {
+    renderApp();
+    const links = logoLinks();
+    expect(links).toHaveLength(2);
+    links.forEach((a) => expect(a).toHaveAttribute('href', '/'));
+  });
+
+  it('the sidebar logo stays the h1', () => {
+    renderApp();
+    const h1 = screen.getByRole('heading', { level: 1 });
+    expect(h1).toHaveClass('logo');
+    expect(h1.querySelector('a')).toHaveAttribute('href', '/');
+  });
+
+  it('clicking a logo goes to the dashboard and closes the phone menu', async () => {
+    window.history.pushState({}, '', '/search');
+    const { container } = renderApp();
+    expect(await screen.findByText('Search page')).toBeInTheDocument();
+    fireEvent.click(menuButton());
+    fireEvent.click(screen.getByRole('heading', { level: 1 }).querySelector('a'));
+    expect(await screen.findByText('Dashboard page')).toBeInTheDocument();
+    expect(shell(container)).not.toHaveClass('nav-open');
+  });
+
+  it('the top-bar logo goes to the dashboard too', async () => {
+    window.history.pushState({}, '', '/people');
+    const { container } = renderApp();
+    fireEvent.click(container.querySelector('.mobile-topbar a'));
+    expect(await screen.findByText('Dashboard page')).toBeInTheDocument();
+  });
+});

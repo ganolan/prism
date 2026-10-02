@@ -869,7 +869,8 @@ cell.
 ## Urgency ring (triage) — 2026-10-01, ring since 2026-10-02
 
 Used by the Dashboard / course-page triage panels (make-up tests, late work, feedback owed) and the
-Assessments tab wait column. `UrgencyRing` is a 40px SVG ring (4px stroke, track `var(--border)` —
+Assessments tab wait column. `UrgencyRing` is a 40px SVG ring (`size` prop; 28px in the triage rail,
+40px kept on the Assessments tab) (4px stroke, track `var(--border)` —
 not `--bg-subtle`, which equals `--card-bg` in midnight and would vanish) whose arc fills
 `min(1, day / limit)` of the circle, with a 4% floor so a short arc still shows its colour. The arc
 takes its colour from a tone computed on the server (`toneFor`): `--success` early, `--warning` over
@@ -889,7 +890,7 @@ labels are day numbers ("Late work is allowed through day [8]"). Display only �
 numbering for any future school-day clock. `≈` (with a tooltip) marks
 counts from the weekday fallback (no PowerSchool calendar).
 
-**Stacked rows.** Each `.triage-row` is `ring | stacked text | actions`. The text column stacks the
+**Stacked rows** *(superseded 2026-10-02 by the compact rows of "Triage rail" below)*. Each `.triage-row` is `ring | stacked text | actions`. The text column stacks the
 primary link (student name, or the assessment title on feedback rows), then the course label
 (`.triage-row__course`: small, bold, accent, one line with an ellipsis and the full label as its
 `title`; all-courses view only), then the task title with its tags ("submitted day N",
@@ -906,9 +907,52 @@ replaces the row's actions with an editor on its own full-width line below the t
 (`.triage-note`) and Save / Cancel — no modal. An extended row carries a grey tag
 "ext +N → DD/MM/YYYY". Reuse this open-below-the-row pattern for any other small per-row edit.
 
-**Make-up tests panel (2026-10-02).** The "Make-up tests" panel sits **full-width above** the
-late-work / feedback-owed grid (most urgent first: a missed test can be invalidated), using the same
+**Make-up tests panel (2026-10-02).** The "Make-up tests" panel sat **full-width above** the
+late-work / feedback-owed grid (now first in the triage rail, below) (most urgent first: a missed test can be invalidated), using the same
 stacked `.triage-row`, urgency ring and shared `ExtendEditor`. A whole-test action ("Ignore this test")
 opens an inline confirm below the row ("Ignore <title> for all students?" Yes / Cancel) rather
 than a modal. On the Assessments tab a per-test setting is a click-to-flip badge button
 (`.makeup-chip`, "Make-ups: tracked / ignored", `aria-pressed`).
+
+## Triage rail — compact rows, 5 + "All N", logo home (2026-10-02)
+
+**Rail.** The three triage panels stack in a right-hand **rail** (`<aside class="triage-rail"
+aria-label="Triage">`, 380px) beside the page's main column (`.triage-layout` →
+`.triage-layout__main` + rail): Make-up tests, Late work, Feedback owed. On the Dashboard (Current
+tab) the main column is the course cards, two per row (`.grid-2` becomes `auto-fill,
+minmax(min(260px, 100%), 1fr)` there, so it drops to one column when narrow — no new breakpoint).
+On a course page the rail sits beside every tab's content **except Gradebook**, which needs the
+width: there the rail is hidden (`hidden`, still mounted, so Show formative / open rows / the fetch
+survive) and a `Triage ▸` button (`.secondary.btn-sm`, red badge = red rows across the three lists,
+`aria-expanded` / `aria-controls`) at the right of the tab row toggles it back in beside the
+gradebook ("Hide triage" to remove it). Toggle-in rather than an overlay drawer: no focus trap,
+scrim or z-index stacking against the gradebook's sticky headers, and the same layout as every other
+tab. On desktop the rail is `position: sticky` (top 1rem) and scrolls inside itself
+(`max-height: 100vh − 2rem`) when taller than the window, so a long rail never strands its bottom
+panel. On phones (PHONE LAYOUT block) it is one column: the rail follows the main column, full
+width, not sticky.
+
+**Compact rows.** `.triage-row` is a grid: 28px ring | text | inline actions, with the expanded
+area spanning under text + actions. Each text line is one line with an ellipsis and the full text as
+its `title`: late / make-up rows = name / course label (Dashboard only) / assessment; feedback rows
+= assessment / course label. Tags that must never truncate sit **beside the name** on line 1
+(`flex-shrink: 0`): "submitted day N", "ext +N → DD/MM/YYYY", the formative "F". Feedback rows show
+the count right-aligned as "X/Y" (title "X of Y ungraded"). Red late rows keep an inline primary
+**Refer** (`aria-label="Mark referred"`). Every late / make-up row has a ▾/▴ toggle
+(`button.triage-row__toggle`, `aria-expanded`, named "Actions for <name>, <assessment>") revealing
+its secondary actions below the text: Late → days left / "last day", Mark referred (red), Extend;
+Make-up → Extend, Ignore this test. The Extend editor and the Ignore confirm open inside that
+expanded area. Feedback rows have no actions, so no toggle. Names and feedback titles are links without an
+underline (underline on hover) — the earlier always-underlined feedback title read as noise in the
+dense rail. Dashboard course-card titles drop to 0.95rem beside the rail so two cards fit per row.
+
+**5 rows, toggle at the top.** Each panel shows its 5 most urgent rows (server order). Longer lists
+get an `All N ▾` / `Fewer ▴` button (`.ghost.accent`) in the panel **header**, right side (before
+the Formative checkbox on Feedback) — at the top so the teacher never scrolls to find it. Per panel,
+remembered for the session (`sessionStorage` `prism.triage.showAll.<panel>.<all|courseId>`). Badges
+("N overdue", "N to refer") always count the full list. Subtitles are short rules ("due date = day 1
+· refer after day 8"); the Referred / extended history link stays at the bottom of Late work. Reuse
+the header-toggle + per-row ▾ pattern for any other dense side list.
+
+**Logo = home.** The sidebar logo (still the `h1`) and the phone top-bar logo are `Link to="/"`
+(named "Prism" by the logo SVG); clicking closes the phone drawer like any nav link.

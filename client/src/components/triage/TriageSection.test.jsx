@@ -68,6 +68,22 @@ describe('TriageSection', () => {
     expect(screen.getByText('due date = day 1 · refer after day 8')).toBeInTheDocument();
   });
 
+  it('Referred / extended opens the history inside the Late work panel, right below the link; the link and Close both toggle it', async () => {
+    renderSection();
+    const panel = await latePanel();
+    const link = within(panel).getByText(/Referred \/ extended \(2\)/);
+    expect(within(panel).queryByLabelText('Referral history')).not.toBeInTheDocument();
+    fireEvent.click(link);
+    const history = within(panel).getByLabelText('Referral history');
+    expect(history.previousElementSibling).toBe(link.closest('button')); // sits immediately below the link
+    fireEvent.click(within(history).getByText('Close'));
+    expect(within(panel).queryByLabelText('Referral history')).not.toBeInTheDocument();
+    fireEvent.click(link); // re-opens
+    expect(within(panel).getByLabelText('Referral history')).toBeInTheDocument();
+    fireEvent.click(link); // the link itself toggles it closed too
+    expect(within(panel).queryByLabelText('Referral history')).not.toBeInTheDocument();
+  });
+
   it('renders as the triage rail (a complementary landmark); `hidden` hides it but keeps it mounted', async () => {
     const { rerender } = renderSection();
     const rail = await screen.findByRole('complementary', { name: 'Triage' });

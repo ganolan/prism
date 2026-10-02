@@ -4,15 +4,21 @@ import UrgencyRing from './UrgencyRing.jsx';
 import CourseLine from './CourseLine.jsx';
 import ExtendEditor, { ExtensionTag } from './ExtendEditor.jsx';
 import { PanelHead, ShowAllToggle, useShowAll, limitRows } from './panelParts.jsx';
+import ReferralHistory from './ReferralHistory.jsx';
 
 // Late summative work, worst first. Days are numbered from the due date = day 1;
 // `limit` (referralLimitDays) is the last allowed day, referral after it. The action
 // column stacks Refer (red rows, inline, title "Mark referred") or the days-left label
 // above Extend. Extend opens the shared ExtendEditor (by N lessons, school days) full-width
-// below the row's text.
+// below the row's text. The "Referred / extended (N) ›" link at the bottom toggles
+// ReferralHistory open immediately below it, inside this panel (owned by the parent
+// TriageSection so a record elsewhere in the rail can still reload it).
 const daysLeft = (day, limit) => (limit - day > 0 ? `${limit - day} left` : 'last day');
 
-export default function LateWorkPanel({ rows, settings, showCourse, scope, onRecord, onExtend, onShowHistory, historyCount }) {
+export default function LateWorkPanel({
+  rows, settings, showCourse, scope, onRecord, onExtend, historyCount,
+  historyOpen, onToggleHistory, courseId, historyVersion, onCloseHistory, onHistoryChanged,
+}) {
   const [extending, setExtending] = useState(null);
   const [showAll, toggleShowAll] = useShowAll(`late.${scope}`);
   const limit = settings.referralLimitDays;
@@ -60,9 +66,12 @@ export default function LateWorkPanel({ rows, settings, showCourse, scope, onRec
           </div>
         );
       })}
-      <button className="ghost triage-panel__history" onClick={onShowHistory}>
+      <button className="ghost triage-panel__history" aria-expanded={historyOpen} onClick={onToggleHistory}>
         Referred / extended ({historyCount}) ›
       </button>
+      {historyOpen && (
+        <ReferralHistory courseId={courseId} version={historyVersion} onClose={onCloseHistory} onChanged={onHistoryChanged} />
+      )}
     </section>
   );
 }

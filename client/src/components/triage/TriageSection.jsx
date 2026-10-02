@@ -5,7 +5,6 @@ import { formatDateTime } from '../../lib/formatDate.js';
 import LateWorkPanel from './LateWorkPanel.jsx';
 import FeedbackOwedPanel from './FeedbackOwedPanel.jsx';
 import MakeUpPanel from './MakeUpPanel.jsx';
-import ReferralHistory from './ReferralHistory.jsx';
 
 // The triage rail: an <aside> of stacked panels — make-up tests first (the most
 // urgent: a missed test can be invalidated), then late work, then feedback owed —
@@ -78,13 +77,15 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
       <LateWorkPanel
         rows={data.lateWork} settings={data.settings} showCourse={showCourse} scope={scope}
         onRecord={handleRecord} onExtend={handleExtend}
-        onShowHistory={() => setShowHistory(true)} historyCount={data.historyCount}
+        historyCount={data.historyCount}
+        historyOpen={showHistory} onToggleHistory={() => setShowHistory((v) => !v)}
+        courseId={courseId} historyVersion={historyVersion}
+        onCloseHistory={() => setShowHistory(false)} onHistoryChanged={load}
       />
       <FeedbackOwedPanel
         rows={data.feedbackOwed} settings={data.settings} showCourse={showCourse} scope={scope}
         includeFormative={data.includeFormative} onToggleFormative={setIncludeFormative}
       />
-      {showHistory && <ReferralHistory courseId={courseId} version={historyVersion} onClose={() => setShowHistory(false)} onChanged={load} />}
     </>,
   );
 }

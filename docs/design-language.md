@@ -866,24 +866,38 @@ Previously they were `position: absolute` on top of the text, which hid words
 on the first line. Use the same pattern for any future corner badge on a text
 cell.
 
-## Urgency meter (triage) — 2026-10-01
+## Urgency ring (triage) — 2026-10-01, ring since 2026-10-02
 
-Used by the Dashboard / course-page triage panels (late work, feedback owed) and the Assessments
-tab wait column. A thin bar (`.urgency-meter`) fills toward a **school-day limit** and takes its
-colour from a tone computed on the server (`toneFor`): green below `limit − warnLead`, amber
-from there, red at the limit. The number beside it (`.triage-days--{tone}`) is the actual count, so
-the colour is never the only signal. `≈` (with a tooltip) marks counts from the weekday fallback
-(no PowerSchool calendar). Rows use `.triage-row` grids on desktop and wrap to stacked lines in the
-phone block. Actions appear only where the teacher must act (red rows: Mark referred).
+Used by the Dashboard / course-page triage panels (make-up tests, late work, feedback owed) and the
+Assessments tab wait column. `UrgencyRing` is a 40px SVG ring (4px stroke, track `var(--border)` —
+not `--bg-subtle`, which equals `--card-bg` in midnight and would vanish) whose arc fills
+`min(1, days / limit)` of the circle, with a 4% nub so a 0-day row still shows its colour. The arc
+takes its colour from a tone computed on the server (`toneFor`): `--success` below
+`limit − warnLead`, `--warning` from there, `--danger` at the limit. The actual day count sits
+centred inside (amber/red counts use `--badge-amber-text` / `--badge-red-text`), so the colour is
+never the only signal; `role="img"` + "N of L school days" names it. `≈` (with a tooltip) marks
+counts from the weekday fallback (no PowerSchool calendar).
 
-**Inline row editor — Extend (2026-10-02).** Every late-work row has a ghost **Extend** button that
-swaps the row's action cell, in place, for a `NumberStepper` (lessons, 1–60, default 3), a note input
+**Stacked rows.** Each `.triage-row` is `ring | stacked text | actions`. The text column stacks the
+primary link (student name, or the assessment title on feedback rows), then the course label
+(`.triage-row__course`: small, bold, accent, one line with an ellipsis and the full label as its
+`title`; all-courses view only), then the task title with its tags ("submitted day N",
+"ext +N → date"). Actions group at the right as compact buttons (`button.btn-sm`): Mark referred
+`.primary`, Extend / Ignore this test `.secondary` (bordered), "N left" muted text before Extend;
+feedback rows show "X of Y ungraded" there instead. On phones the ring stays left and the actions
+wrap to their own line, indented to align with the text. The Referred / extended history uses the
+same stacked text without a ring. The Assessments tab wait column is the ring plus "x/y ungraded".
+History: a thin horizontal bar (`.urgency-meter`) with the count beside it, 2026-10-01; replaced by
+the ring and stacked rows 2026-10-02.
+
+**Inline row editor — Extend (2026-10-02).** Every late-work row has an **Extend** button that
+replaces the row's actions with an editor on its own full-width line below the text (`.triage-row__editor`): a `NumberStepper` (lessons, 1–60, default 3), a note input
 (`.triage-note`) and Save / Cancel — no modal. An extended row carries a grey tag
-"ext +N → DD/MM/YYYY". Reuse this swap-the-action-cell pattern for any other small per-row edit.
+"ext +N → DD/MM/YYYY". Reuse this open-below-the-row pattern for any other small per-row edit.
 
 **Make-up tests panel (2026-10-02).** The "Make-up tests" panel sits **full-width above** the
 late-work / feedback-owed grid (most urgent first: a missed test can be invalidated), using the same
-`.triage-row` grid, urgency meter and shared `ExtendEditor`. A whole-test action ("Ignore this test")
-swaps the action cell for an inline confirm ("Ignore <title> for all students?" Yes / Cancel) rather
+stacked `.triage-row`, urgency ring and shared `ExtendEditor`. A whole-test action ("Ignore this test")
+opens an inline confirm below the row ("Ignore <title> for all students?" Yes / Cancel) rather
 than a modal. On the Assessments tab a per-test setting is a click-to-flip badge button
 (`.makeup-chip`, "Make-ups: tracked / ignored", `aria-pressed`).

@@ -94,7 +94,10 @@ describe('AssessmentsView — feedback wait column (triage)', () => {
       </MemoryRouter>,
     );
     expect(screen.getByText('7/24 ungraded')).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: '8 of 10 school days' })).toBeInTheDocument();
+    const ring = screen.getByRole('img', { name: '8 of 10 school days' });
+    expect(ring).toHaveClass('urgency-ring', 'urgency-ring--amber');
+    expect(ring).toHaveTextContent('8');
+    expect(ring.closest('.triage-wait')).toContainElement(screen.getByText('7/24 ungraded'));
     expect(screen.getAllByText(/ungraded/)).toHaveLength(1);
   });
 });

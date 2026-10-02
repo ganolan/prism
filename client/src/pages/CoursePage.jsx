@@ -4,7 +4,7 @@ import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, trigge
 import AnalyticsView from '../components/AnalyticsView.jsx';
 import OverridePopup from '../components/OverridePopup.jsx';
 import TriageSection from '../components/triage/TriageSection.jsx';
-import UrgencyMeter from '../components/triage/UrgencyMeter.jsx';
+import UrgencyRing from '../components/triage/UrgencyRing.jsx';
 import { waitsByAssignment } from '../lib/triage.js';
 import { LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
 import { LetterGradePopup, LETTER_GRADE_COLORS } from '../components/MasteryPerformanceSummary.jsx';
@@ -1353,9 +1353,8 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
                     const w = waits[a.schoology_assignment_id];
                     return (
                       <span className="triage-wait" title={`Oldest submission has waited ${w.oldestWaitDays} school days`}>
+                        <UrgencyRing days={w.oldestWaitDays} limit={feedbackLimit} tone={w.tone} approx={w.approx} />
                         <span className="text-sm">{w.owed}/{w.submittedTotal} ungraded</span>
-                        <UrgencyMeter days={w.oldestWaitDays} limit={feedbackLimit} tone={w.tone} />
-                        <span className={`triage-days triage-days--${w.tone}`}>{w.oldestWaitDays}</span>
                       </span>
                     );
                   })()}

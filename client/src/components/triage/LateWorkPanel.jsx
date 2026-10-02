@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import UrgencyMeter from './UrgencyMeter.jsx';
+import UrgencyRing from './UrgencyRing.jsx';
+import CourseLine from './CourseLine.jsx';
 import ExtendEditor, { ExtensionTag } from './ExtendEditor.jsx';
-import { APPROX_TITLE, courseLabel } from '../../lib/triage.js';
 
 // Late summative work, worst first. Every row can be extended by N lessons
 // (school days); at the referral limit a row also offers Mark referred; below
@@ -21,34 +21,33 @@ export default function LateWorkPanel({ rows, settings, showCourse, onRecord, on
       <p className="triage-panel__sub">Summative work late or submitted after the limit · school days since due · refer at {limit}</p>
       {rows.length === 0 && <p className="text-sm text-muted">No late summative work.</p>}
       {rows.map((r) => (
-        <div key={key(r)} className="triage-row triage-row--late">
-          <Link to={`/student/${r.studentId}`} className="triage-row__name">{r.studentName}</Link>
-          <span className="triage-row__task">
-            {showCourse && <span className="triage-row__course">{courseLabel(r)}</span>}
-            {r.title}
-            {r.kind === 'submitted_late' && <span className="badge badge-amber triage-row__tag">submitted day {r.daysLate}</span>}
-            {r.extension && <ExtensionTag extension={r.extension} />}
-          </span>
-          <UrgencyMeter days={r.daysLate} limit={limit} tone={r.tone} />
-          <span className={`triage-days triage-days--${r.tone}`}>
-            {r.daysLate}{r.approx && <abbr title={APPROX_TITLE}>≈</abbr>}
-          </span>
-          <span className="triage-row__action">
-            {extending !== key(r) && (
-              <>
-                {r.tone !== 'red' && <span className="text-sm text-muted">{limit - r.daysLate} left</span>}
-                {r.tone === 'red' && <button className="primary" onClick={() => onRecord(r, 'referred')}>Mark referred</button>}
-                <button className="ghost" onClick={() => setExtending(key(r))}>Extend</button>
-              </>
-            )}
-            {extending === key(r) && (
+        <div key={key(r)} className="triage-row">
+          <UrgencyRing days={r.daysLate} limit={limit} tone={r.tone} approx={r.approx} />
+          <div className="triage-row__text">
+            <Link to={`/student/${r.studentId}`} className="triage-row__name">{r.studentName}</Link>
+            {showCourse && <CourseLine row={r} />}
+            <div className="triage-row__task">
+              {r.title}
+              {r.kind === 'submitted_late' && <span className="badge badge-amber triage-row__tag">submitted day {r.daysLate}</span>}
+              {r.extension && <ExtensionTag extension={r.extension} />}
+            </div>
+          </div>
+          {extending !== key(r) && (
+            <div className="triage-row__actions">
+              {r.tone !== 'red' && <span className="text-sm text-muted">{limit - r.daysLate} left</span>}
+              {r.tone === 'red' && <button className="primary btn-sm" onClick={() => onRecord(r, 'referred')}>Mark referred</button>}
+              <button className="secondary btn-sm" onClick={() => setExtending(key(r))}>Extend</button>
+            </div>
+          )}
+          {extending === key(r) && (
+            <div className="triage-row__editor">
               <ExtendEditor
                 extension={r.extension}
                 onSave={(lessons, note) => { onExtend(r, lessons, note); setExtending(null); }}
                 onCancel={() => setExtending(null)}
               />
-            )}
-          </span>
+            </div>
+          )}
         </div>
       ))}
       <button className="ghost triage-panel__history" onClick={onShowHistory}>

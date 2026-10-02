@@ -9,7 +9,7 @@ export const APPROX_TITLE = 'Approximate: counted as weekdays (no PowerSchool ca
 // them apart: '[BK 7] AP COMPUTER SCIENCE PRINCIPLES' (no block → just the name).
 export const courseLabel = (row) => (row.blockNumber ? `[BK ${row.blockNumber}] ${row.courseName}` : row.courseName);
 
-// Meter fill %, with a 4% stub so a 0-day row still shows its colour.
+// Urgency-ring arc %, with a 4% nub so a 0-day row still shows its colour.
 export const meterPct = (days, limit) =>
   Math.max(4, Math.min(100, Math.round((days / Math.max(1, limit)) * 100)));
 

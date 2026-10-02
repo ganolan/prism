@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
-import UrgencyMeter from './UrgencyMeter.jsx';
-import { APPROX_TITLE, courseLabel } from '../../lib/triage.js';
+import UrgencyRing from './UrgencyRing.jsx';
+import CourseLine from './CourseLine.jsx';
 
 // Assessments with ungraded submissions, longest wait first.
 export default function FeedbackOwedPanel({ rows, settings, showCourse, includeFormative, onToggleFormative }) {
@@ -22,17 +22,18 @@ export default function FeedbackOwedPanel({ rows, settings, showCourse, includeF
       </p>
       {rows.length === 0 && <p className="text-sm text-muted">Nothing waiting for feedback.</p>}
       {rows.map((r) => (
-        <div key={r.assignmentId} className="triage-row triage-row--feedback">
-          <Link className="triage-row__task" to={`/course/${r.courseId}/assessment/${r.schoologyAssignmentId}`}>
-            {showCourse && <span className="triage-row__course">{courseLabel(r)}</span>}
-            <strong>{r.title}</strong>
-            {!r.aligned && <span className="badge badge-formative triage-row__tag">F</span>}
-          </Link>
-          <span className="text-sm text-muted">{r.owed} of {r.submittedTotal} ungraded</span>
-          <UrgencyMeter days={r.oldestWaitDays} limit={limit} tone={r.tone} />
-          <span className={`triage-days triage-days--${r.tone}`}>
-            {r.oldestWaitDays}{r.approx && <abbr title={APPROX_TITLE}>≈</abbr>}
-          </span>
+        <div key={r.assignmentId} className="triage-row">
+          <UrgencyRing days={r.oldestWaitDays} limit={limit} tone={r.tone} approx={r.approx} />
+          <div className="triage-row__text">
+            <Link className="triage-row__title" to={`/course/${r.courseId}/assessment/${r.schoologyAssignmentId}`}>
+              {r.title}
+              {!r.aligned && <span className="badge badge-formative triage-row__tag">F</span>}
+            </Link>
+            {showCourse && <CourseLine row={r} />}
+          </div>
+          <div className="triage-row__actions">
+            <span className="text-sm text-muted">{r.owed} of {r.submittedTotal} ungraded</span>
+          </div>
         </div>
       ))}
     </section>

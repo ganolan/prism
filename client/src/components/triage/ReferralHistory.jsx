@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getReferrals, undoReferral, getExtensions, undoExtension } from '../../services/api.js';
 import { formatDate } from '../../lib/formatDate.js';
-import { courseLabel } from '../../lib/triage.js';
+import CourseLine from './CourseLine.jsx';
 
 // SQLite UTC 'YYYY-MM-DD HH:MM:SS'. A re-extended extension dates from its updatedAt.
 const recordedAt = (r) => r.updatedAt || r.createdAt;
@@ -51,13 +51,18 @@ export default function ReferralHistory({ courseId, version = 0, onClose, onChan
       {rows?.length === 0 && loadErrors.length === 0 && <p className="text-sm text-muted">No referrals or extensions recorded yet.</p>}
       {rows?.map((r) => (
         <div key={`${r.kind}:${r.id}`} className="triage-row triage-row--history">
-          <span className="triage-row__name">{r.studentName}</span>
-          <span className="triage-row__task"><span className="triage-row__course">{courseLabel(r)}</span>{r.title}</span>
-          {r.kind === 'referral'
-            ? <span className="badge badge-red">Referred · day {r.daysLate}</span>
-            : <span className="badge badge-gray">Extended +{r.lessons} → {formatDate(`${r.until}T00:00:00`)}</span>}
-          <span className="text-sm text-muted">{recordedOn(r)}{r.note ? ` — ${r.note}` : ''}</span>
-          <button className="ghost" onClick={() => undo(r)}>Undo</button>
+          <div className="triage-row__text">
+            <span className="triage-row__name">{r.studentName}</span>
+            <CourseLine row={r} />
+            <div className="triage-row__task">{r.title}</div>
+          </div>
+          <div className="triage-row__actions">
+            {r.kind === 'referral'
+              ? <span className="badge badge-red">Referred · day {r.daysLate}</span>
+              : <span className="badge badge-gray">Extended +{r.lessons} → {formatDate(`${r.until}T00:00:00`)}</span>}
+            <span className="text-sm text-muted">{recordedOn(r)}{r.note ? ` — ${r.note}` : ''}</span>
+            <button className="ghost" onClick={() => undo(r)}>Undo</button>
+          </div>
         </div>
       ))}
     </section>

@@ -5,8 +5,8 @@ import { formatDate } from '../../lib/formatDate.js';
 const DEFAULT_LESSONS = 3;
 const MAX_LESSONS = 60;
 
-// The inline "Extend by N lessons" editor that swaps into a triage row's action
-// cell (late work, make-up tests). Re-extending pre-fills the current extension.
+// The inline "Extend by N lessons" editor that opens below a triage row's text in
+// place of its actions (late work, make-up tests). Re-extending pre-fills the current extension.
 export default function ExtendEditor({ extension, onSave, onCancel }) {
   const [lessons, setLessons] = useState(extension?.lessons ?? DEFAULT_LESSONS);
   const [note, setNote] = useState(extension?.note ?? '');
@@ -17,7 +17,7 @@ export default function ExtendEditor({ extension, onSave, onCancel }) {
         className="triage-note" placeholder="Note (optional)" aria-label="Extension note"
         value={note} onChange={(e) => setNote(e.target.value)}
       />
-      <button className="secondary" onClick={() => onSave(lessons, note)}>Save</button>
+      <button className="secondary btn-sm" onClick={() => onSave(lessons, note)}>Save</button>
       <button className="ghost" onClick={onCancel}>Cancel</button>
     </>
   );

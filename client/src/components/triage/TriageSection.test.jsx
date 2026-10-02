@@ -209,6 +209,84 @@ describe('TriageSection', () => {
   });
 });
 
+describe('TriageSection — ring + stacked rows', () => {
+  const rowOf = (el) => el.closest('.triage-row');
+  const textOf = (row) => row.querySelector('.triage-row__text');
+
+  it('late-work row: ring, then name (link) / course / title + tags, then actions', async () => {
+    renderSection();
+    const panel = await latePanel();
+    const row = rowOf(within(panel).getByText('Aiden Li'));
+    expect(row.firstElementChild).toHaveAttribute('aria-label', '2 of 8 school days');
+    const lines = [...textOf(row).children];
+    expect(lines.map((el) => el.className)).toEqual(['triage-row__name', 'triage-row__course', 'triage-row__task']);
+    expect(lines[0]).toHaveAttribute('href', '/student/3');
+    expect(lines[1]).toHaveTextContent('[BK 7] AP CSP');
+    expect(lines[1]).toHaveAttribute('title', '[BK 7] AP CSP');
+    expect(lines[2]).toHaveTextContent('CP2ext +3 → 15/10/2026');
+    const actions = row.querySelector('.triage-row__actions');
+    expect(within(actions).getByText('6 left')).toBeInTheDocument();
+    expect(within(actions).getByText('Extend')).toHaveClass('secondary', 'btn-sm');
+    expect(row.lastElementChild).toBe(actions);
+  });
+
+  it('red late-work row: Mark referred is primary; the submitted-day tag follows the title', async () => {
+    renderSection();
+    const row = rowOf(within(await latePanel()).getByText('Ethan Wong'));
+    expect(within(row).getByRole('img', { name: '10 of 8 school days' })).toBeInTheDocument();
+    expect(within(row).getByText('Mark referred')).toHaveClass('primary', 'btn-sm');
+    expect(row.querySelector('.triage-row__task')).toHaveTextContent('CP2submitted day 10');
+  });
+
+  it('feedback row: ring, then title (link) / course, then "X of Y ungraded"', async () => {
+    renderSection();
+    const panel = await screen.findByLabelText('Feedback owed');
+    const row = rowOf(within(panel).getByText('Model Card'));
+    expect(row.firstElementChild).toHaveAttribute('aria-label', '11 of 10 school days');
+    const lines = [...textOf(row).children];
+    expect(lines.map((el) => el.className)).toEqual(['triage-row__title', 'triage-row__course']);
+    expect(lines[0]).toHaveAttribute('href', '/course/6/assessment/a4');
+    expect(lines[1]).toHaveTextContent('[BK 7] AP CSP');
+    expect(within(row.querySelector('.triage-row__actions')).getByText('18 of 22 ungraded')).toBeInTheDocument();
+  });
+
+  it('make-up row: ring, three lines, Extend + Ignore this test', async () => {
+    renderSection();
+    const row = rowOf(within(await makeUpPanel()).getByText('Noah Park'));
+    expect(row.firstElementChild).toHaveAttribute('aria-label', '3 of 3 school days');
+    expect([...textOf(row).children].map((el) => el.textContent)).toEqual(['Noah Park', '[BK 3] AP CSP', 'Unit 1 test']);
+    const actions = row.querySelector('.triage-row__actions');
+    expect(within(actions).getByText('Extend')).toHaveClass('secondary');
+    expect(within(actions).getByText('Ignore this test')).toHaveClass('secondary');
+  });
+
+  it('the Extend editor opens below the text, full width, replacing the actions', async () => {
+    renderSection();
+    const row = rowOf(within(await latePanel()).getByText('Maya Chen'));
+    fireEvent.click(within(row).getByText('Extend'));
+    const editor = row.querySelector('.triage-row__editor');
+    expect(editor.previousElementSibling).toBe(textOf(row));
+    expect(within(editor).getByLabelText('Extension (lessons)')).toBeInTheDocument();
+    expect(row.querySelector('.triage-row__actions')).toBeNull();
+  });
+
+  it('the Ignore confirm opens below the text too', async () => {
+    renderSection();
+    const row = rowOf(within(await makeUpPanel()).getByText('Noah Park'));
+    fireEvent.click(within(row).getByText('Ignore this test'));
+    const editor = row.querySelector('.triage-row__editor');
+    expect(editor.previousElementSibling).toBe(textOf(row));
+    expect(within(editor).getByText('Ignore Unit 1 test for all students?')).toBeInTheDocument();
+    expect(row.querySelector('.triage-row__actions')).toBeNull();
+  });
+
+  it('no course line on a course page', async () => {
+    renderSection({ courseId: 5 });
+    const row = rowOf(within(await latePanel()).getByText('Maya Chen'));
+    expect(row.querySelector('.triage-row__course')).toBeNull();
+  });
+});
+
 describe('TriageSection — make-up tests', () => {
   it('renders full-width above the late-work and feedback panels', async () => {
     renderSection();

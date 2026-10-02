@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import UrgencyMeter from './UrgencyMeter.jsx';
+import UrgencyRing from './UrgencyRing.jsx';
+import CourseLine from './CourseLine.jsx';
 import ExtendEditor, { ExtensionTag } from './ExtendEditor.jsx';
-import { APPROX_TITLE, courseLabel } from '../../lib/triage.js';
 
 // Students who missed a Schoology test or quiz and must sit it (or their * copy)
 // ASAP, longest first. A row clears itself once an attempt syncs. Extend records
@@ -31,39 +31,38 @@ export default function MakeUpPanel({ rows, settings, showCourse, unchecked = 0,
         <p className="text-sm text-muted triage-panel__note">{ignored} test{ignored === 1 ? '' : 's'} ignored</p>
       )}
       {rows.map((r) => (
-        <div key={key(r)} className="triage-row triage-row--makeup">
-          <Link to={`/student/${r.studentId}`} className="triage-row__name">{r.studentName}</Link>
-          <span className="triage-row__task">
-            {showCourse && <span className="triage-row__course">{courseLabel(r)}</span>}
-            {r.title}
-            {r.extension && <ExtensionTag extension={r.extension} />}
-          </span>
-          <UrgencyMeter days={r.daysSince} limit={red} tone={r.tone} />
-          <span className={`triage-days triage-days--${r.tone}`}>
-            {r.daysSince}{r.approx && <abbr title={APPROX_TITLE}>≈</abbr>}
-          </span>
-          <span className="triage-row__action">
-            {confirmIgnore === key(r) && (
-              <>
-                <span className="text-sm">Ignore {r.title} for all students?</span>
-                <button className="secondary danger" onClick={() => { onIgnore(r); setConfirmIgnore(null); }}>Yes</button>
-                <button className="ghost" onClick={() => setConfirmIgnore(null)}>Cancel</button>
-              </>
-            )}
-            {confirmIgnore !== key(r) && extending !== key(r) && (
-              <>
-                <button className="ghost" onClick={() => { setConfirmIgnore(null); setExtending(key(r)); }}>Extend</button>
-                <button className="ghost" onClick={() => { setExtending(null); setConfirmIgnore(key(r)); }}>Ignore this test</button>
-              </>
-            )}
-            {extending === key(r) && (
+        <div key={key(r)} className="triage-row">
+          <UrgencyRing days={r.daysSince} limit={red} tone={r.tone} approx={r.approx} />
+          <div className="triage-row__text">
+            <Link to={`/student/${r.studentId}`} className="triage-row__name">{r.studentName}</Link>
+            {showCourse && <CourseLine row={r} />}
+            <div className="triage-row__task">
+              {r.title}
+              {r.extension && <ExtensionTag extension={r.extension} />}
+            </div>
+          </div>
+          {confirmIgnore !== key(r) && extending !== key(r) && (
+            <div className="triage-row__actions">
+              <button className="secondary btn-sm" onClick={() => { setConfirmIgnore(null); setExtending(key(r)); }}>Extend</button>
+              <button className="secondary btn-sm triage-row__quiet" onClick={() => { setExtending(null); setConfirmIgnore(key(r)); }}>Ignore this test</button>
+            </div>
+          )}
+          {confirmIgnore === key(r) && (
+            <div className="triage-row__editor">
+              <span className="text-sm">Ignore {r.title} for all students?</span>
+              <button className="secondary danger btn-sm" onClick={() => { onIgnore(r); setConfirmIgnore(null); }}>Yes</button>
+              <button className="ghost" onClick={() => setConfirmIgnore(null)}>Cancel</button>
+            </div>
+          )}
+          {extending === key(r) && (
+            <div className="triage-row__editor">
               <ExtendEditor
                 extension={r.extension}
                 onSave={(lessons, note) => { onExtend(r, lessons, note); setExtending(null); }}
                 onCancel={() => setExtending(null)}
               />
-            )}
-          </span>
+            </div>
+          )}
         </div>
       ))}
     </section>

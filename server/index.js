@@ -25,6 +25,7 @@ import { getFeatures } from './middleware/featureGate.js';
 import { getScaleTable, schoologyScaleId } from './lib/proficiencyScale.js';
 import { resolveHost, resolvePort } from './lib/listenConfig.js';
 import { resolveVersion } from './lib/version.js';
+import { markInterruptedRuns } from './services/syncRuns.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = resolvePort();
@@ -88,6 +89,11 @@ app.get('*', (req, res) => {
 // Initialize DB on startup
 getDb();
 console.log('Database initialized');
+// A fresh process has no sync running, so any run still marked 'running' was
+// cut off by a crash/restart/deploy — record it as interrupted (a client
+// following it by polling then stops instead of waiting forever).
+const interrupted = markInterruptedRuns(getDb());
+if (interrupted) console.log(`[sync] Marked ${interrupted} unfinished sync run(s) as interrupted`);
 
 app.listen(PORT, HOST, () => {
   console.log(`Prism server running on http://${HOST}:${PORT}`);

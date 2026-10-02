@@ -186,6 +186,33 @@ CREATE TABLE IF NOT EXISTS sync_metrics (
   failed_assignment_ids TEXT
 );
 
+-- One row per POST /api/sync (the unified sync dialog). Persists what each sync
+-- reported so a client whose stream dropped (iOS screen lock) can re-attach by
+-- polling sync_run_events, and so Settings → Recent syncs can show past runs.
+-- status: 'running' | 'completed' | 'completed_with_errors' | 'failed' |
+-- 'interrupted' (left 'running' by a crash/restart/deploy; set at server start).
+-- error_count / warning_count are kept live as events arrive (see
+-- server/services/syncRuns.js classifyEvent). Pruned to the newest 30 runs.
+CREATE TABLE IF NOT EXISTS sync_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  status TEXT NOT NULL,
+  options_json TEXT,
+  summary_json TEXT,
+  error_count INTEGER DEFAULT 0,
+  warning_count INTEGER DEFAULT 0
+);
+
+-- Every progress event a sync run streamed, in order (seq starts at 1 per run).
+CREATE TABLE IF NOT EXISTS sync_run_events (
+  run_id INTEGER NOT NULL REFERENCES sync_runs(id) ON DELETE CASCADE,
+  seq INTEGER NOT NULL,
+  at TEXT NOT NULL,
+  event_json TEXT NOT NULL,
+  PRIMARY KEY (run_id, seq)
+);
+
 CREATE TABLE IF NOT EXISTS feedback (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   submission_id TEXT,

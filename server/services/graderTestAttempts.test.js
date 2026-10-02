@@ -38,6 +38,11 @@ describe('fetchSectionTestAttempts', () => {
     expect(await fetchSectionTestAttempts(fakeContext({ payload: { body: [] } }).context, 's', ['701'], ['T1'])).toBeNull();
   });
 
+  test('null (no throw) when a page cannot even be opened', async () => {
+    const context = { newPage: vi.fn().mockRejectedValue(new Error('Target closed')) };
+    expect(await fetchSectionTestAttempts(context, 's', ['701'], ['T1'])).toBeNull();
+  });
+
   test('null without students or tests (nothing to ask)', async () => {
     const { context } = fakeContext({ payload: PAYLOAD });
     expect(await fetchSectionTestAttempts(context, 's', [], ['T1'])).toBeNull();

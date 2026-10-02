@@ -323,6 +323,7 @@ describe('triage tools', () => {
     db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, accepts_submissions, is_test, test_fetch_status)
       VALUES (?, 'q1', 'Unit 1 test', '2020-01-06 14:00:00', 0, 1, 'ok'), (?, 'q2', 'Unit 2 test', '2020-01-07 14:00:00', 0, 1, 'failed')`).run(courseId, courseId);
     db.prepare(`INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id) VALUES ('q1', 't1', ?), ('q2', 't1', ?)`).run(courseId, courseId);
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, test_attempt) SELECT s.id, a.id, 'none' FROM students s, assignments a WHERE a.schoology_assignment_id = 'q1'`).run();
     const all = getTriageTool(db, {});
     expect(all.makeUps.map((r) => [r.studentName, r.title, r.tone])).toEqual([['Maya Chen', 'Unit 1 test', 'red'], ['Zed Young', 'Unit 1 test', 'red']]);
     expect(all.counts.makeUpsOverdue).toBe(2);
@@ -337,6 +338,7 @@ describe('triage tools', () => {
     const { courseId } = seedLate(db);
     const quiz = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, is_test, test_fetch_status)
       VALUES (?, 'q1', 'Practice quiz', '2020-01-06 14:00:00', 1, 'ok')`).run(courseId).lastInsertRowid;
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, test_attempt) SELECT id, ?, 'none' FROM students`).run(quiz);
     expect(getTriageTool(db, {}).makeUps).toHaveLength(1);
     expect(setMakeupTrackingTool(db, { assignment_id: quiz, tracked: false })).toEqual({ assignmentId: quiz, title: 'Practice quiz', ignored: true });
     expect(getTriageTool(db, {})).toMatchObject({ makeUps: [], makeUpsIgnored: 1 });

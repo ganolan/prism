@@ -97,7 +97,7 @@ function assignmentFacts(db, a) {
   `).all(a.schoology_assignment_id).map((r) => [r.student_uid, r.n]));
   const gradeByStudent = new Map(db.prepare(`
     SELECT student_id, score, grade_comment, exception, late, submitted_at, first_submitted_at,
-           submission_type, lti_submission_state
+           submission_type, lti_submission_state, test_attempt
     FROM grades WHERE assignment_id = ?
   `).all(a.id).map((g) => [g.student_id, g]));
   const assignees = a.num_assignees > 0
@@ -115,7 +115,7 @@ function assignmentFacts(db, a) {
 // (a stale submission_type must not override an in-progress copy).
 function isSubmitted(a, g) {
   if (a.is_lti_submission && g.lti_submission_state) return g.lti_submission_state === 'submitted';
-  return !!g.submission_type;
+  return !!g.submission_type || g.test_attempt === 'took';
 }
 
 function studentState(a, facts, st) {
@@ -162,13 +162,16 @@ function tracksSubmissions(a, states) {
 }
 
 // `today` and `now` are injectable (tests). `now` ('YYYY-MM-DD HH:MM:SS', local)
-// decides whether a test due today is over; it defaults to the real local time
-// when `today` is the real today, else to the end of the injected day.
-export function getTriage(db, { courseId = null, studentId = null, includeFormative, today = todayLocal(), now = null } = {}) {
+// decides whether a test due today is over. Neither injected → the real local
+// clock; an injected `today` without `now` → the end of that day (never the
+// real clock, so tests don't depend on the time they run).
+export function getTriage(db, { courseId = null, studentId = null, includeFormative, today: todayArg = null, now = null } = {}) {
   const settings = getTriageSettings(db);
   const formative = includeFormative ?? settings.showFormativeDefault;
   const { referralLimitDays, feedbackLimitDays, warnLeadDays, makeUpAmberDays, makeUpRedDays } = settings;
-  const nowStamp = now ?? (today === todayLocal() ? nowLocal() : `${today} 23:59:59`);
+  const clock = new Date();
+  const today = todayArg ?? todayLocal(clock);
+  const nowStamp = now ?? (todayArg == null ? nowLocal(clock) : `${today} 23:59:59`);
   const cal = loadCalendar(db);
   const handled = new Set(db.prepare('SELECT student_id, assignment_id FROM referrals').all()
     .map((r) => `${r.student_id}:${r.assignment_id}`));
@@ -186,8 +189,10 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
     const courseFields = { courseId: c.id, courseName: c.course_name, blockNumber: c.block_number ?? null };
 
     // Make-up tests: a Schoology test/quiz is over and a targeted, active,
-    // non-excused student has no attempt and no score (a score = sat on paper).
-    // Only when the attempt read succeeded — otherwise unknown, never "missed".
+    // non-excused student's cell explicitly says "no attempt" (test_attempt
+    // 'none'), with no score (= sat on paper) and no real submission. Only when
+    // the attempt read succeeded; no cell (NULL) is unknown, never "missed";
+    // 'not_assigned' (the other copy) is not targeted.
     // A test the teacher ignores (e.g. a formative quiz) lists nobody.
     for (const a of pastDueTests(db, c.id, nowStamp)) {
       if (a.makeup_ignored) { makeUpsIgnored++; continue; }
@@ -198,8 +203,8 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
         if (facts.assignees && !facts.assignees.has(st.schoology_uid)) continue;
         if (studentId != null && st.id !== Number(studentId)) continue;
         const s = studentState(a, facts, st);
-        const took = facts.gradeByStudent.get(st.id)?.submission_type === 'assessment';
-        if (s.excused || took || s.scored) continue;
+        const missedIt = facts.gradeByStudent.get(st.id)?.test_attempt === 'none';
+        if (!missedIt || s.excused || s.submitted || s.scored) continue;
         const ext = extensions.get(`${st.id}:${a.id}`);
         const moved = effectiveDue(cal, due, ext);
         const { days, approx } = cal.between(moved.date, today);

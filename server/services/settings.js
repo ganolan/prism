@@ -45,6 +45,10 @@ export function updateTriageSettings(db, patch = {}) {
       const spec = TRIAGE_KEYS[k];
       if (spec) upsert.run(`triage.${k}`, JSON.stringify(coerce(spec, v)));
     }
+    // A make-up change stores amber clamped to red too (getTriageSettings also clamps on read).
+    if (patch && ('makeUpAmberDays' in patch || 'makeUpRedDays' in patch)) {
+      upsert.run('triage.makeUpAmberDays', JSON.stringify(getTriageSettings(db).makeUpAmberDays));
+    }
   })();
   return getTriageSettings(db);
 }

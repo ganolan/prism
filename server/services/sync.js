@@ -462,16 +462,20 @@ async function syncTestAttempts(db, {
   sectionId, now, studentEnrollments, testAssignments, selectStudentByUid, selectAssignmentByExt, fetchTestAttempts, backoffMs,
 }) {
   const setStatus = db.prepare(`UPDATE assignments SET test_fetch_status = ? WHERE id = ?`);
-  const markTaken = db.prepare(`
-    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, submission_type, synced_at)
-    VALUES (?, ?, ?, NULL, ?, 'assessment', ?)
+  // One upsert per (student, test) cell: test_attempt = 'took' | 'none' | 'not_assigned'.
+  // 'took' sets submission_type 'assessment'; only an explicit 'none' clears a stale
+  // 'assessment'; 'drop' is never touched.
+  const writeAttempt = db.prepare(`
+    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, submission_type, test_attempt, synced_at)
+    VALUES (@studentId, @assignmentId, @enrolmentId, NULL, @maxPoints, CASE WHEN @attempt = 'took' THEN 'assessment' END, @attempt, @now)
     ON CONFLICT(student_id, assignment_id) DO UPDATE SET
-      submission_type = CASE WHEN grades.submission_type = 'drop' THEN 'drop' ELSE 'assessment' END,
+      test_attempt = excluded.test_attempt,
+      submission_type = CASE
+        WHEN grades.submission_type = 'drop' THEN 'drop'
+        WHEN excluded.test_attempt = 'took' THEN 'assessment'
+        WHEN excluded.test_attempt = 'none' AND grades.submission_type = 'assessment' THEN NULL
+        ELSE grades.submission_type END,
       synced_at = excluded.synced_at
-  `);
-  const clearTaken = db.prepare(`
-    UPDATE grades SET submission_type = NULL, synced_at = ?
-    WHERE student_id = ? AND assignment_id = ? AND submission_type = 'assessment'
   `);
   const tests = testAssignments
     .map((a) => ({ ext: String(a.id), row: selectAssignmentByExt.get(String(a.id)) }))
@@ -493,8 +497,12 @@ async function syncTestAttempts(db, {
       if (!covered) continue;
       for (const { e, studentRow } of students) {
         const cell = result.get(String(e.uid))?.get(t.ext);
-        if (cell?.took) markTaken.run(studentRow.id, t.row.id, String(e.id), t.row.max_points ?? null, now);
-        else clearTaken.run(now, studentRow.id, t.row.id);
+        if (!cell) continue; // no cell for this student → unknown: leave the row as it is
+        const attempt = cell.took ? 'took' : cell.notAssigned ? 'not_assigned' : 'none';
+        writeAttempt.run({
+          studentId: studentRow.id, assignmentId: t.row.id, enrolmentId: String(e.id),
+          maxPoints: t.row.max_points ?? null, attempt, now,
+        });
       }
     }
   })();
@@ -521,9 +529,10 @@ export async function retrySubmissions(db, failedEntries, now, metrics) {
       submission_type = excluded.submission_type,
       synced_at = excluded.synced_at,${KEEP_EARLIEST_FIRST_SUBMITTED}
   `);
+  // A Schoology test attempt ('assessment') is owned by the test-attempt pass — never cleared here.
   const clearSubmissionWithType = db.prepare(`
     UPDATE grades SET late = 0, draft = 0, latest_revision_at = 0, submission_type = NULL, synced_at = ?
-    WHERE student_id = ? AND assignment_id = ?
+    WHERE student_id = ? AND assignment_id = ? AND (submission_type IS NULL OR submission_type != 'assessment')
   `);
   const selectStudentByUid = db.prepare('SELECT id FROM students WHERE schoology_uid = ?');
   const selectAssignmentByExt = db.prepare('SELECT id, max_points FROM assignments WHERE schoology_assignment_id = ?');

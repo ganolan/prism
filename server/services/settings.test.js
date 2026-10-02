@@ -36,11 +36,14 @@ describe('triage settings', () => {
     expect(updateTriageSettings(getDb(), { makeUpAmberDays: 2, makeUpRedDays: 5 })).toMatchObject({ makeUpAmberDays: 2, makeUpRedDays: 5 });
   });
 
-  test('make-up amber above red is clamped to red', () => {
+  test('make-up amber above red is clamped to red — and stored clamped', () => {
     expect(updateTriageSettings(getDb(), { makeUpAmberDays: 6, makeUpRedDays: 4 })).toMatchObject({ makeUpAmberDays: 4, makeUpRedDays: 4 });
+    const stored = () => getDb().prepare(`SELECT value FROM settings WHERE key = 'triage.makeUpAmberDays'`).get().value;
+    expect(stored()).toBe('4');
     // Lowering red later pulls amber down with it.
     updateTriageSettings(getDb(), { makeUpAmberDays: 3, makeUpRedDays: 5 });
     expect(updateTriageSettings(getDb(), { makeUpRedDays: 2 })).toMatchObject({ makeUpAmberDays: 2, makeUpRedDays: 2 });
+    expect(stored()).toBe('2');
   });
 
   test('a corrupt stored value falls back to the default', () => {

@@ -266,6 +266,25 @@ describe('syncSectionData — per-assignment atomicity (#55)', () => {
   });
 });
 
+describe('retrySubmissions — never clears a Schoology test attempt', () => {
+  test("a retried native fetch with no revision leaves submission_type 'assessment' alone", async () => {
+    const db = new Database(':memory:');
+    migrate(db);
+    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-R', 'R')`).run().lastInsertRowid;
+    const sid = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('701', 'Ada', 'L')`).run().lastInsertRowid;
+    const aid = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'X1', 'X')`).run(courseId).lastInsertRowid;
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, submission_type, test_attempt) VALUES (?, ?, 'assessment', 'took')`).run(sid, aid);
+    getSectionEnrollments.mockReset();
+    getSectionEnrollments.mockResolvedValue([{ id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' }]);
+    getAssignmentSubmissions.mockReset();
+    getAssignmentSubmissions.mockResolvedValue([]); // no revision → the clear path
+    const metrics = { submission_calls: 0, rate_limit_hits: 0, transient_failures: 0, retries_succeeded: 0, retries_failed: 0 };
+    await retrySubmissions(db, [{ sectionId: 'sec-R', courseId, assignmentExtId: 'X1' }], '2026-10-02T00:00:00Z', metrics);
+    expect(metrics.retries_succeeded).toBe(1);
+    expect(db.prepare('SELECT submission_type FROM grades WHERE student_id = ? AND assignment_id = ?').get(sid, aid).submission_type).toBe('assessment');
+  });
+});
+
 describe('retrySubmissions (#55)', () => {
   let db; let courseId;
   beforeEach(() => {
@@ -1183,10 +1202,10 @@ describe('syncSectionData — Schoology test attempts (make-up tests)', () => {
     await syncSectionData(db, 'sec-T', courseId, NOW, { fetchTestAttempts, ltiFetchBackoffMs: 0 });
     expect(fetchTestAttempts).toHaveBeenCalledTimes(1);
     expect(fetchTestAttempts).toHaveBeenCalledWith('sec-T', ['701', '702', '703'], ['T1', 'T2']);
-    expect(row('701', 'T1')).toMatchObject({ submission_type: 'assessment', score: null });
-    expect(row('703', 'T2')).toMatchObject({ submission_type: 'assessment' });
-    expect(row('702', 'T1')).toBeUndefined(); // not taken → no row invented
-    expect(row('703', 'T1')).toBeUndefined(); // not assigned → untouched
+    expect(row('701', 'T1')).toMatchObject({ submission_type: 'assessment', test_attempt: 'took', score: null });
+    expect(row('703', 'T2')).toMatchObject({ submission_type: 'assessment', test_attempt: 'took' });
+    expect(row('702', 'T1')).toMatchObject({ submission_type: null, test_attempt: 'none' });         // assigned, no attempt
+    expect(row('703', 'T1')).toMatchObject({ submission_type: null, test_attempt: 'not_assigned' }); // on the * copy
     expect(status('T1').test_fetch_status).toBe('ok');
     expect(status('T2').test_fetch_status).toBe('ok');
     expect(status('E1').test_fetch_status).toBeNull();
@@ -1199,8 +1218,30 @@ describe('syncSectionData — Schoology test attempts (make-up tests)', () => {
     db.prepare(`INSERT INTO grades (student_id, assignment_id, score, submission_type) VALUES (?, ?, 75, 'assessment')`).run(sid('702'), aid('T1'));
     db.prepare(`INSERT INTO grades (student_id, assignment_id, submission_type) VALUES (?, ?, 'drop')`).run(sid('701'), aid('T1'));
     await syncSectionData(db, 'sec-T', courseId, NOW, { fetchTestAttempts: async () => attempts(), ltiFetchBackoffMs: 0 });
-    expect(row('702', 'T1')).toMatchObject({ submission_type: null, score: 75 });
-    expect(row('701', 'T1').submission_type).toBe('drop');
+    expect(row('702', 'T1')).toMatchObject({ submission_type: null, test_attempt: 'none', score: 75 });
+    expect(row('701', 'T1')).toMatchObject({ submission_type: 'drop', test_attempt: 'took' });
+  });
+
+  test('no cell for a rostered student = unknown: the row is left exactly as it was', async () => {
+    await syncSectionData(db, 'sec-T', courseId, NOW);
+    const sid = db.prepare(`SELECT id FROM students WHERE schoology_uid = '702'`).get().id;
+    const aid = db.prepare(`SELECT id FROM assignments WHERE schoology_assignment_id = 'T1'`).get().id;
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, submission_type, test_attempt) VALUES (?, ?, 'assessment', 'took')`).run(sid, aid);
+    const without702 = attempts();
+    without702.delete('702');
+    await syncSectionData(db, 'sec-T', courseId, NOW, { fetchTestAttempts: async () => without702, ltiFetchBackoffMs: 0 });
+    expect(status('T1').test_fetch_status).toBe('ok');
+    expect(row('702', 'T1')).toMatchObject({ submission_type: 'assessment', test_attempt: 'took' });
+    expect(row('702', 'T2')).toBeUndefined(); // never invented
+  });
+
+  test('a not_assigned cell never clears a submission', async () => {
+    await syncSectionData(db, 'sec-T', courseId, NOW);
+    const sid = db.prepare(`SELECT id FROM students WHERE schoology_uid = '703'`).get().id;
+    const aid = db.prepare(`SELECT id FROM assignments WHERE schoology_assignment_id = 'T1'`).get().id;
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, submission_type) VALUES (?, ?, 'assessment')`).run(sid, aid);
+    await syncSectionData(db, 'sec-T', courseId, NOW, { fetchTestAttempts: async () => attempts(), ltiFetchBackoffMs: 0 });
+    expect(row('703', 'T1')).toMatchObject({ submission_type: 'assessment', test_attempt: 'not_assigned' });
   });
 
   test('a fetch that fails every attempt retries once, records "failed" and writes nothing', async () => {
@@ -1213,7 +1254,7 @@ describe('syncSectionData — Schoology test attempts (make-up tests)', () => {
     expect(calls).toBe(2);
     expect(status('T1').test_fetch_status).toBe('failed');
     expect(status('T2').test_fetch_status).toBe('failed');
-    expect(row('702', 'T1').submission_type).toBe('assessment'); // unknown ≠ "didn't take it"
+    expect(row('702', 'T1')).toMatchObject({ submission_type: 'assessment', test_attempt: null }); // unknown ≠ "didn't take it"
     expect(row('701', 'T1')).toBeUndefined();
   });
 

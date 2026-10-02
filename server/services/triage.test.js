@@ -59,7 +59,9 @@ function testItem(sid, title, due, { status = 'ok', ...opts } = {}) {
   db.prepare(`UPDATE assignments SET is_test = 1, test_fetch_status = ?, due_date = ? WHERE id = ?`).run(status, `${due} 14:00:00`, id);
   return id;
 }
-const took = (studentId, assignmentId) => grade(studentId, assignmentId, { submission_type: 'assessment' });
+// The sync's per-pair attempt marker (grades.test_attempt) from a good read.
+const took = (studentId, assignmentId) => grade(studentId, assignmentId, { submission_type: 'assessment', test_attempt: 'took' });
+const missed = (studentId, assignmentId, cols = {}) => grade(studentId, assignmentId, { test_attempt: 'none', ...cols });
 const AFTER_SCHOOL = `${TODAY} 16:00:00`;
 
 beforeEach(() => {
@@ -360,6 +362,7 @@ describe('getTriage — make-up tests', () => {
     const t2 = testItem('t2', 'Unit 2 quiz', '2026-10-15'); // Thu: 16 = 1 → amber
     const t3 = testItem('t3', 'Unit 3 test', TODAY);        // today, over at 14:00 → 0, green
     took(bo, t1); took(bo, t2); took(bo, t3);
+    missed(ada, t1); missed(ada, t2); missed(ada, t3);
     const t = getTriage(db, { today: TODAY, now });
     expect(t.makeUps.map((r) => [r.title, r.studentName, r.daysSince, r.tone])).toEqual([
       ['Unit 1 test', 'Ada L', 3, 'red'], ['Unit 2 quiz', 'Ada L', 1, 'amber'], ['Unit 3 test', 'Ada L', 0, 'green'],
@@ -375,17 +378,38 @@ describe('getTriage — make-up tests', () => {
   });
 
   test('a test due today counts only once it is over (local due datetime vs local now)', () => {
-    student('u1', 'Ada', 'L');
-    testItem('t1', 'Unit 1 test', TODAY); // 14:00
+    const ada = student('u1', 'Ada', 'L');
+    missed(ada, testItem('t1', 'Unit 1 test', TODAY)); // 14:00
     expect(getTriage(db, { today: TODAY, now: `${TODAY} 13:59:59` }).makeUps).toEqual([]);
     expect(getTriage(db, { today: TODAY, now: `${TODAY} 14:00:00` }).makeUps).toHaveLength(1);
     expect(getTriage(db, { today: TODAY }).makeUps).toHaveLength(1); // an injected past day = the end of that day
     expect(getTriage(db, { today: '2026-10-15' }).makeUps).toEqual([]); // not yet due
   });
 
-  test('no grades row at all = not taken', () => {
-    student('u1', 'Ada', 'L');
-    testItem('t1', 'Unit 1 test', '2026-10-15');
+  test('without an injected today, "is it over?" uses the real clock; an injected today never does', () => {
+    const ada = student('u1', 'Ada', 'L');
+    missed(ada, testItem('t1', 'Unit 1 test', TODAY)); // 14:00
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date(2026, 9, 16, 10, 0, 0)); // Fri 16/10 10:00 local — before the test ends
+      expect(getTriage(db, {}).makeUps).toEqual([]);
+      expect(getTriage(db, { today: TODAY }).makeUps).toHaveLength(1); // injected → the end of that day
+      expect(getTriage(db, { today: TODAY, now: `${TODAY} 10:00:00` }).makeUps).toEqual([]);
+      vi.setSystemTime(new Date(2026, 9, 16, 15, 0, 0)); // after it
+      expect(getTriage(db, {}).makeUps).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('only an explicit "no attempt" cell lists a student: no cell (NULL) is unknown, not_assigned is not targeted', () => {
+    const ada = student('u1', 'Ada', 'L');
+    const bo = student('u2', 'Bo', 'M');
+    const cy = student('u3', 'Cy', 'N');
+    const id = testItem('t1', 'Unit 1 test', '2026-10-15'); // open to all (no assignees)
+    missed(ada, id);
+    grade(bo, id, { test_attempt: 'not_assigned' }); // on the * copy
+    expect(cy).toBeGreaterThan(0);                    // Cy: no grades row at all → unknown
     expect(getTriage(db, { today: TODAY, now }).makeUps.map((r) => r.studentName)).toEqual(['Ada L']);
   });
 
@@ -396,22 +420,33 @@ describe('getTriage — make-up tests', () => {
     const dee = student('u4', 'Dee', 'O');
     student('u5', 'Eve', 'P'); // not an assignee
     const id = testItem('t1', 'Unit 1 test', '2026-10-15', { assignees: ['u1', 'u2', 'u3', 'u4'] }); // Eve sits the * copy
-    grade(ada, id, { exception: 1 });
-    grade(bo, id, { score: 12 });
+    const cy = db.prepare(`SELECT id FROM students WHERE schoology_uid = 'u3'`).get().id;
+    const eve = db.prepare(`SELECT id FROM students WHERE schoology_uid = 'u5'`).get().id;
+    missed(ada, id, { exception: 1 });
+    missed(bo, id, { score: 12 });
+    missed(cy, id);
+    missed(dee, id);
     scoreTopic('u4', 't1');
+    missed(eve, id);
+    expect(getTriage(db, { today: TODAY, now }).makeUps).toEqual([]);
+  });
+
+  test('a real submission counts as sitting it', () => {
+    const ada = student('u1', 'Ada', 'L');
+    missed(ada, testItem('t1', 'Unit 1 test', '2026-10-15'), { submission_type: 'drop' });
     expect(getTriage(db, { today: TODAY, now }).makeUps).toEqual([]);
   });
 
   test('Missing (exception 3, score 0.0) is still a make-up', () => {
     const ada = student('u1', 'Ada', 'L');
     const id = testItem('t1', 'Unit 1 test', '2026-10-15');
-    grade(ada, id, { exception: 3, score: 0 });
+    missed(ada, id, { exception: 3, score: 0 });
     expect(getTriage(db, { today: TODAY, now }).makeUps).toHaveLength(1);
   });
 
   test('a failed or never-run attempt read is unknown, not missed: no rows, counted as unchecked', () => {
-    student('u1', 'Ada', 'L');
-    testItem('t1', 'Failed read', '2026-10-15', { status: 'failed' });
+    const ada = student('u1', 'Ada', 'L');
+    missed(ada, testItem('t1', 'Failed read', '2026-10-15', { status: 'failed' })); // a stale cell from an older read
     testItem('t2', 'Never read', '2026-10-15', { status: null });
     testItem('t3', 'Not yet due', '2026-10-20', { status: null });
     testItem('t4', 'Unaligned quiz', '2026-10-15', { status: null, summative: false });
@@ -426,6 +461,7 @@ describe('getTriage — make-up tests', () => {
     const quiz = testItem('q1', 'Unit 1 quiz', '2026-10-15', { summative: false }); // numeric scale, no topics
     assignment('r1', 'Unit 1 quiz - Result', '2026-10-15', { accepts: 0 });          // gradebook-only, is_test 0
     took(ada, quiz);
+    missed(bo, quiz);
     const t = getTriage(db, { today: TODAY, now }); // Show formative off
     expect(t.makeUps.map((r) => [r.studentId, r.title, r.tone])).toEqual([[bo, 'Unit 1 quiz', 'amber']]);
     expect(recordExtension(db, { studentId: bo, assignmentId: quiz, lessons: 1 })).toMatchObject({ until: '2026-10-16' });
@@ -433,8 +469,9 @@ describe('getTriage — make-up tests', () => {
   });
 
   test('only Schoology tests: unpublished, non-test and archived-course work are not make-ups', () => {
-    student('u1', 'Ada', 'L');
+    const ada = student('u1', 'Ada', 'L');
     const id = testItem('t1', 'Unit 1 test', '2026-10-15');
+    missed(ada, id);
     db.prepare('UPDATE assignments SET published = 0 WHERE id = ?').run(id);
     assignment('p1', 'Paper test', '2026-10-15', { accepts: 0 });
     expect(getTriage(db, { today: TODAY, now }).makeUps).toEqual([]);
@@ -446,6 +483,7 @@ describe('getTriage — make-up tests', () => {
   test('an extension moves the clock ("sitting it Thursday"): green until then, counted from it', () => {
     const ada = student('u1', 'Ada', 'L');
     const id = testItem('t1', 'Unit 1 test', '2026-10-13'); // 3 → red
+    missed(ada, id);
     const e = recordExtension(db, { studentId: ada, assignmentId: id, lessons: 2, note: 'sits Thu' }); // until Thu 15/10
     expect(getTriage(db, { today: TODAY, now }).makeUps[0]).toMatchObject({
       dueDate: '2026-10-13', daysSince: 1, tone: 'amber', extension: { id: e.id, lessons: 2, until: '2026-10-15', note: 'sits Thu' },
@@ -455,8 +493,8 @@ describe('getTriage — make-up tests', () => {
   });
 
   test('the make-up settings move the tones', () => {
-    student('u1', 'Ada', 'L');
-    testItem('t1', 'Unit 1 test', '2026-10-15'); // 1
+    const ada = student('u1', 'Ada', 'L');
+    missed(ada, testItem('t1', 'Unit 1 test', '2026-10-15')); // 1
     expect(getTriage(db, { today: TODAY, now }).makeUps[0].tone).toBe('amber');
     updateTriageSettings(db, { makeUpAmberDays: 2, makeUpRedDays: 4 });
     expect(getTriage(db, { today: TODAY, now }).makeUps[0].tone).toBe('green');
@@ -466,8 +504,9 @@ describe('getTriage — make-up tests', () => {
 
   test('studentId filter', () => {
     const ada = student('u1', 'Ada', 'L');
-    student('u2', 'Bo', 'M');
-    testItem('t1', 'Unit 1 test', '2026-10-13');
+    const bo = student('u2', 'Bo', 'M');
+    const id = testItem('t1', 'Unit 1 test', '2026-10-13');
+    missed(ada, id); missed(bo, id);
     const t = getTriage(db, { today: TODAY, now, studentId: ada });
     expect(t.makeUps.map((r) => r.studentId)).toEqual([ada]);
     expect(t.counts.makeUpsOverdue).toBe(1);
@@ -475,9 +514,10 @@ describe('getTriage — make-up tests', () => {
 
   test('feedback owed on a checked test: only takers count as handed in (not the whole roster)', () => {
     const ada = student('u1', 'Ada', 'L');
-    student('u2', 'Bo', 'M');
+    const bo = student('u2', 'Bo', 'M');
     const id = testItem('t1', 'Unit 1 test', '2026-10-12'); // 13..16/10 = 4 school days
-    took(ada, id);
+    grade(ada, id, { test_attempt: 'took' }); // the per-pair marker alone counts as handed in
+    missed(bo, id);
     expect(getTriage(db, { today: TODAY, now }).feedbackOwed).toEqual([expect.objectContaining({
       title: 'Unit 1 test', owed: 1, submittedTotal: 1, oldestWaitDays: 4,
     })]);
@@ -491,8 +531,9 @@ describe('make-up tracking: ignore a quiz for all students', () => {
   const now = AFTER_SCHOOL;
 
   test('an ignored test lists nobody and is counted in makeUpsIgnored (not unchecked); tracking it again restores the rows', () => {
-    student('u1', 'Ada', 'L');
+    const ada = student('u1', 'Ada', 'L');
     const quiz = testItem('q1', 'Practice quiz', '2026-10-15', { summative: false });
+    missed(ada, quiz);
     testItem('q2', 'Unread quiz', '2026-10-15', { status: null });
     testItem('q3', 'Future quiz', '2026-10-20');
     expect(setMakeUpIgnored(db, quiz, true)).toEqual({ assignmentId: quiz, title: 'Practice quiz', ignored: true });

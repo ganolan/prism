@@ -25,8 +25,9 @@ const FETCH_TIMEOUT_MS = 30000;
  */
 export async function fetchSectionTestAttempts(context, sectionId, uids, gradeItemIds) {
   if (!uids.length || !gradeItemIds.length) return null;
-  const page = await context.newPage();
+  let page;
   try {
+    page = await context.newPage();
     await page.goto(`${SCHOOLOGY_BASE}/home`, { waitUntil: 'domcontentloaded', timeout: 30000 });
     if (!isLoggedInUrl(page.url())) return null;
     const url = `${SCHOOLOGY_BASE}/iapi/grades/grader_grade_data/${encodeURIComponent(sectionId)}/all`
@@ -44,6 +45,6 @@ export async function fetchSectionTestAttempts(context, sectionId, uids, gradeIt
   } catch {
     return null;
   } finally {
-    await page.close().catch(() => {});
+    await page?.close().catch(() => {});
   }
 }

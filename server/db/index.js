@@ -126,6 +126,8 @@ const MIGRATIONS = [
   `ALTER TABLE assignments ADD COLUMN makeup_ignored INTEGER NOT NULL DEFAULT 0`,
   // Triage: when an extension was last re-extended (dev DBs already have the table).
   `ALTER TABLE extensions ADD COLUMN updated_at TEXT`,
+  // Make-up tests: the pair's last attempt cell ('took' | 'none' | 'not_assigned'; NULL = unknown).
+  `ALTER TABLE grades ADD COLUMN test_attempt TEXT`,
   // Indexes for issue #13 columns (must run after ALTER TABLEs above)
   `CREATE INDEX IF NOT EXISTS idx_assignments_folder ON assignments(folder_id)`,
   `CREATE INDEX IF NOT EXISTS idx_assignments_grading_category ON assignments(grading_category_id)`,

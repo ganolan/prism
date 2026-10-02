@@ -130,6 +130,10 @@ CREATE TABLE IF NOT EXISTS grades (
   -- A running minimum across syncs — the bulk revisions API only returns the
   -- latest revision, so this is the best available "first submitted" signal.
   first_submitted_at INTEGER DEFAULT 0,
+  -- Make-up tests: this pair's cell in the last good grader_grade_data read —
+  -- 'took' | 'none' (assigned, no attempt) | 'not_assigned' (on the other copy);
+  -- NULL = no cell seen (unknown — never listed as missed).
+  test_attempt TEXT,
   synced_at TEXT,
   UNIQUE(student_id, assignment_id)
 );

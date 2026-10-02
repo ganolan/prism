@@ -254,6 +254,7 @@ describe('migration: make-up tests + extension re-extend time', () => {
       ALTER TABLE assignments DROP COLUMN is_test;
       ALTER TABLE assignments DROP COLUMN test_fetch_status;
       ALTER TABLE assignments DROP COLUMN makeup_ignored;
+      ALTER TABLE grades DROP COLUMN test_attempt;
       ALTER TABLE extensions DROP COLUMN updated_at;
     `);
     migrate(db);
@@ -263,5 +264,6 @@ describe('migration: make-up tests + extension re-extend time', () => {
     db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (1, 'a', 'T')`).run();
     expect(db.prepare('SELECT makeup_ignored FROM assignments').get().makeup_ignored).toBe(0); // tracked by default
     expect(cols('extensions')).toContain('updated_at');
+    expect(cols('grades')).toContain('test_attempt');
   });
 });

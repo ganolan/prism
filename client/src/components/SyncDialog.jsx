@@ -8,9 +8,23 @@ import SyncConfig from './SyncConfig.jsx';
 import SyncProgress from './SyncProgress.jsx';
 
 // How often a dialog that lost its stream polls the run's stored events, and
-// how many polls in a row may fail before it stops and points at Settings.
+// how long polls may keep failing — counted in VISIBLE time only, restarted on
+// every return to the page — before it stops in the neutral "can't reach"
+// state. Generous on purpose: after an iPhone unlock the VPN / Wi-Fi is often
+// still reconnecting, and a deploy answers 502 for a while.
 const POLL_MS = 2000;
-const MAX_POLL_FAILURES = 5;
+const GIVE_UP_MS = 3 * 60 * 1000;
+
+// The stream failed before the server named the run, and Prism answered that
+// nothing is running: the sync never started. Never surface a raw fetch error
+// ("Load failed", "Failed to fetch").
+function startErrorMessage(err) {
+  const msg = String(err?.message || '');
+  if (err instanceof TypeError || /load failed|failed to fetch|network/i.test(msg)) {
+    return "The sync didn't start — Prism didn't respond. Try again.";
+  }
+  return `The sync didn't start: ${msg || 'unknown error'}`;
+}
 
 const NOTICES = {
   lost: 'Connection lost — still syncing on the server…',
@@ -21,8 +35,10 @@ const NOTICES = {
 // follows it over the streaming POST; if that stream drops (iOS kills it when
 // the screen locks) it keeps following by polling the run's stored events from
 // the last `seq` it saw, so a dropped connection is never shown as an error.
-export default function SyncDialog({ onClose, onSyncComplete, pollMs = POLL_MS }) {
-  const [mode, setMode] = useState('loading'); // loading | config | running | done
+export default function SyncDialog({ onClose, onSyncComplete, pollMs = POLL_MS, giveUpMs = GIVE_UP_MS }) {
+  // stalled = following a run but Prism has been unreachable for giveUpMs of
+  // visible time: neutral, closable, with "Try again".
+  const [mode, setMode] = useState('loading'); // loading | config | running | stalled | done
   const [courses, setCourses] = useState([]);
   const [loggedIn, setLoggedIn] = useState(false);
   // Calendar freshness (source/totalSchoolDays/syncedAt), fetched alongside
@@ -36,8 +52,8 @@ export default function SyncDialog({ onClose, onSyncComplete, pollMs = POLL_MS }
   const [busy, setBusy] = useState(false);
   const [metrics, setMetrics] = useState(null);
   const [notice, setNotice] = useState(null); // null | 'lost' | 'joined'
-  // The run being followed: { runId, lastSeq, stage: 'stream'|'poll'|'done',
-  // controller, wake, quietSwitch }. A ref, not state — the stream callback,
+  // The run being followed: { runId, lastSeq, stage: 'stream'|'poll'|'locate'|
+  // 'stalled'|'done', controller, wake, quietSwitch, failSince, startError }. A ref, not state — the stream callback,
   // the poll loop and the visibility handler all read it mid-flight.
   const runRef = useRef(null);
   const unmounted = useRef(false);
@@ -65,8 +81,10 @@ export default function SyncDialog({ onClose, onSyncComplete, pollMs = POLL_MS }
     return () => {
       cancelled = true;
       unmounted.current = true;
+      // Closing the dialog only stops *following* — the sync carries on
+      // server-side. Drop the stream so the browser frees the connection.
       const r = runRef.current;
-      if (r) { r.stage = 'done'; r.wake?.(); }
+      if (r) { r.stage = 'done'; r.wake?.(); r.controller?.abort(); }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -80,7 +98,8 @@ export default function SyncDialog({ onClose, onSyncComplete, pollMs = POLL_MS }
       if (document.visibilityState !== 'visible') return;
       const r = runRef.current;
       if (!r || r.stage === 'done') return;
-      if (r.stage === 'poll') r.wake?.();
+      r.failSince = null; // back on the page: give the network a fresh budget
+      if (r.stage === 'poll' || r.stage === 'locate') r.wake?.();
       else if (r.stage === 'stream' && r.runId != null) {
         r.quietSwitch = true;
         r.controller.abort();
@@ -108,23 +127,31 @@ export default function SyncDialog({ onClose, onSyncComplete, pollMs = POLL_MS }
     });
   }
 
-  // Poll the run's stored events until it finishes. Returns its final status,
-  // or null if the server stayed unreachable.
+  // Poll the run's stored events until it finishes → { status }, or
+  // { unreachable: true } once polls have failed for giveUpMs of visible time
+  // (failures while the page is hidden don't count), or { cancelled: true }.
   async function follow(r) {
     r.stage = 'poll';
-    let failures = 0;
+    r.failSince = null;
     while (!unmounted.current && r.stage === 'poll') {
       try {
         const res = await getSyncRunEvents(r.runId, r.lastSeq);
-        failures = 0;
+        r.failSince = null;
         ingest(r, res.events || []);
-        if (res.finished) return res.status;
+        if (res.finished) return { status: res.status };
       } catch {
-        if (++failures >= MAX_POLL_FAILURES) return null;
+        if (document.hidden) r.failSince = null;
+        else if (r.failSince == null) r.failSince = Date.now();
+        else if (Date.now() - r.failSince >= giveUpMs) return { unreachable: true };
       }
       await sleep(r, pollMs);
     }
-    return null;
+    return { cancelled: true };
+  }
+
+  function stall(r) {
+    r.stage = 'stalled';
+    if (!unmounted.current) setMode('stalled');
   }
 
   // Wrap up a run: refresh open pages if the server finished it, fetch
@@ -143,15 +170,47 @@ export default function SyncDialog({ onClose, onSyncComplete, pollMs = POLL_MS }
   // Follow a run by polling from r.lastSeq (0 for a joined run, so its
   // earlier lines load too), then finish.
   async function pollToEnd(r) {
-    const status = await follow(r);
-    if (unmounted.current || r.stage === 'done') return;
-    if (status === 'interrupted') {
+    const out = await follow(r);
+    if (out.cancelled || unmounted.current || r.stage === 'done') return;
+    if (out.unreachable) return stall(r);
+    if (out.status === 'interrupted') {
       ingest(r, [{ type: 'error', message: 'The sync was interrupted — the server restarted before it finished. Run it again.' }]);
-    } else if (status == null) {
-      ingest(r, [{ type: 'error', message: "Lost contact with Prism. The sync may still be running — check Settings → Recent syncs." }]);
     }
     // Any finished run may have written data, so let open pages refresh.
-    await finish(r, { refresh: status != null });
+    await finish(r, { refresh: true });
+  }
+
+  // The stream failed before the server named the run. Ask Prism what is
+  // running, retrying with backoff while the network comes back; join the run
+  // if there is one. Unreachable throughout → the neutral stalled state.
+  async function locate(r) {
+    r.stage = 'locate';
+    const delays = [0, pollMs / 2, pollMs, pollMs * 2];
+    let reached = false;
+    for (const d of delays) {
+      if (d) await sleep(r, d);
+      if (unmounted.current || r.stage !== 'locate') return;
+      try {
+        const cur = await getCurrentSync();
+        reached = true;
+        if (cur?.running && cur.runId != null) return joinRun(cur.runId, 'lost');
+        break;
+      } catch { /* still reconnecting */ }
+    }
+    if (unmounted.current || r.stage !== 'locate') return;
+    if (!reached) return stall(r);
+    ingest(r, [{ type: 'error', message: startErrorMessage(r.startError) }]);
+    // A sync that never started wrote nothing, so skip the refresh.
+    return finish(r, { refresh: false });
+  }
+
+  // "Try again" from the stalled state: resume following.
+  function resume() {
+    const r = runRef.current;
+    if (!r || r.stage !== 'stalled') return;
+    setMode('running');
+    if (r.runId != null) pollToEnd(r);
+    else locate(r);
   }
 
   function joinRun(runId, why) {
@@ -165,8 +224,9 @@ export default function SyncDialog({ onClose, onSyncComplete, pollMs = POLL_MS }
   }
 
   // Fire-and-forget: startSync owns its error handling (failures surface as
-  // events). The running-mode overlay is intentionally non-dismissable —
-  // there is no backdrop/Escape handler.
+  // events). While running the dialog can be closed with its Close button
+  // (the sync carries on server-side; reopening Sync joins it) — there is
+  // still no backdrop/Escape handler, so it never closes by accident.
   async function startSync(masteryCourseIds, { skipSchoology = false, includeHidden = false, recentOnly = false, recentDays = 30, syncBlocks = true } = {}) {
     const r = { runId: null, lastSeq: 0, stage: 'stream', controller: new AbortController(), wake: null, quietSwitch: false, sawEnd: false };
     runRef.current = r;
@@ -193,8 +253,8 @@ export default function SyncDialog({ onClose, onSyncComplete, pollMs = POLL_MS }
         return pollToEnd(r);
       } else {
         // Dropped before the run event arrived — is our sync running anyway?
-        const cur = await getCurrentSync().catch(() => null);
-        if (cur?.running && cur.runId != null) return joinRun(cur.runId, 'lost');
+        r.startError = err;
+        return locate(r);
       }
       ingest(r, [{ type: 'error', message: err?.message || 'Sync failed' }]);
       // A hard request failure wrote nothing, so skip the refresh.
@@ -254,7 +314,7 @@ export default function SyncDialog({ onClose, onSyncComplete, pollMs = POLL_MS }
           />
         )}
 
-        {(mode === 'running' || mode === 'done') && (
+        {(mode === 'running' || mode === 'stalled' || mode === 'done') && (
           <>
             {mode === 'done' && metrics?.abandoned ? (
               <div className="alert alert-warning">
@@ -269,6 +329,8 @@ export default function SyncDialog({ onClose, onSyncComplete, pollMs = POLL_MS }
               reduced={reduced}
               mode={mode}
               notice={mode === 'running' && notice ? NOTICES[notice] : null}
+              onClose={onClose}
+              onTryAgain={resume}
               retryEnabled={retryEnabled}
               onDone={onClose}
               onRetry={handleRetry}

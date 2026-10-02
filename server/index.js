@@ -89,12 +89,13 @@ app.get('*', (req, res) => {
 // Initialize DB on startup
 getDb();
 console.log('Database initialized');
-// A fresh process has no sync running, so any run still marked 'running' was
-// cut off by a crash/restart/deploy — record it as interrupted (a client
-// following it by polling then stops instead of waiting forever).
-const interrupted = markInterruptedRuns(getDb());
-if (interrupted) console.log(`[sync] Marked ${interrupted} unfinished sync run(s) as interrupted`);
-
 app.listen(PORT, HOST, () => {
   console.log(`Prism server running on http://${HOST}:${PORT}`);
+  // A fresh process has no sync running, so any run still marked 'running' was
+  // cut off by a crash/restart/deploy — record it as interrupted (a client
+  // following it by polling then stops instead of waiting forever). Done only
+  // once this process owns the port: a second server that fails to bind (e.g.
+  // a dev copy pointed at the same DB) must not interrupt the live one's run.
+  const interrupted = markInterruptedRuns(getDb());
+  if (interrupted) console.log(`[sync] Marked ${interrupted} unfinished sync run(s) as interrupted`);
 });

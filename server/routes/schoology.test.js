@@ -1,11 +1,23 @@
 import { describe, test, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 
-const h = vi.hoisted(() => { process.env.DB_PATH = ':memory:'; return { impl: null }; });
+const h = vi.hoisted(() => { process.env.DB_PATH = ':memory:'; return { impl: null, failAppend: false }; });
 
 vi.mock('../services/syncOrchestrator.js', () => ({
   runUnifiedSync: (opts, onEvent) => h.impl(opts, onEvent),
 }));
+
+// Wrap the real service so a test can make appendEvent throw (a DB hiccup).
+vi.mock('../services/syncRuns.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    appendEvent: (...args) => {
+      if (h.failAppend) throw new Error('database is locked');
+      return actual.appendEvent(...args);
+    },
+  };
+});
 
 import router from './schoology.js';
 import { getDb } from '../db/index.js';
@@ -262,6 +274,33 @@ describe('sync runs + events', () => {
       const run = await (await fetch(`http://localhost:${port}/api/sync/runs/${streamed[0].runId}`)).json();
       expect(run.status).toBe('failed');
     } finally {
+      server.close();
+    }
+  });
+
+  test('a failing event log never breaks the stream; the lock still resets', async () => {
+    h.impl = async (opts, onEvent) => {
+      onEvent({ phase: 'schoology', status: 'done', records: 1 });
+      onEvent({ type: 'summary', schoology: { records: 1 }, mastery: [], elapsedMs: 1 });
+    };
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.failAppend = true;
+    const { server, port } = startServer();
+    try {
+      const streamed = await runOnce(port);
+      expect(streamed[0]).toMatchObject({ type: 'run' });
+      expect(streamed.slice(1)).toEqual([
+        { phase: 'schoology', status: 'done', records: 1 },
+        { type: 'summary', schoology: { records: 1 }, mastery: [], elapsedMs: 1 },
+      ]);
+      h.failAppend = false;
+      const again = await runOnce(port); // 200 + a fresh run, not 409
+      expect(again[0]).toMatchObject({ type: 'run' });
+      expect(again[0].runId).not.toBe(streamed[0].runId);
+      expect((await (await fetch(`http://localhost:${port}/api/sync/current`)).json()).running).toBe(false);
+    } finally {
+      h.failAppend = false;
+      errSpy.mockRestore();
       server.close();
     }
   });

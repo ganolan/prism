@@ -117,9 +117,17 @@ export function pruneRuns(db, keep = KEEP_RUNS) {
 }
 
 // Called once at server start: nothing can be running in a fresh process, so a
-// run still marked 'running' was cut off by a crash, restart or deploy.
+// run still marked 'running' was cut off by a crash, restart or deploy. Its
+// finished_at is when it was last heard from (its last event, or its start if
+// it logged nothing), so its duration isn't stretched to the next boot.
 export function markInterruptedRuns(db) {
-  return db.prepare(
-    `UPDATE sync_runs SET status = 'interrupted', finished_at = COALESCE(finished_at, ?) WHERE status = 'running'`
-  ).run(nowIso()).changes;
+  return db.prepare(`
+    UPDATE sync_runs SET status = 'interrupted',
+      finished_at = COALESCE(
+        finished_at,
+        (SELECT MAX(at) FROM sync_run_events WHERE run_id = sync_runs.id),
+        started_at
+      )
+    WHERE status = 'running'
+  `).run().changes;
 }

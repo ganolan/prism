@@ -112,6 +112,18 @@ describe('sync runs', () => {
     expect(listRuns(db(), { limit: 100 }).length).toBe(5);
   });
 
+  test('an interrupted run ends at its last event, not at the next boot', () => {
+    const stale = startRun(db(), {});
+    appendEvent(db(), stale, { type: 'log', message: 'a' });
+    db().prepare(`UPDATE sync_runs SET started_at = '2026-10-01T09:00:00.000Z' WHERE id = ?`).run(stale);
+    db().prepare(`UPDATE sync_run_events SET at = '2026-10-01T09:04:10.000Z' WHERE run_id = ?`).run(stale);
+    const silent = startRun(db(), {});
+    db().prepare(`UPDATE sync_runs SET started_at = '2026-10-01T08:00:00.000Z' WHERE id = ?`).run(silent);
+    markInterruptedRuns(db());
+    expect(getRun(db(), stale).finished_at).toBe('2026-10-01T09:04:10.000Z');
+    expect(getRun(db(), silent).finished_at).toBe('2026-10-01T08:00:00.000Z');
+  });
+
   test('markInterruptedRuns flips leftover running runs to interrupted', () => {
     const stale = startRun(db(), {});
     const done = startRun(db(), {});

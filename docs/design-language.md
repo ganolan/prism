@@ -1003,16 +1003,26 @@ shown in `--error` or as an `.alert`. The same line reads *"A sync is already ru
 progress."* when the dialog joins a run it didn't start (409, or Sync opened mid-run on another
 device or after a reload). The joined view loads the run's earlier lines, so the log looks the same
 on every device. Returning to the page polls straight away, without a notice, because the switch is
-routine. The running sub-line now says the sync carries on if Prism is closed. The old "don't
-close Prism" warning is no longer true. Errors appear only when the server says so (`interrupted`
-by a restart, or unreachable after 5 polls, which points to Settings → Recent syncs).
+routine. **The dialog can be closed while it follows a sync** (a secondary **Close** in the footer; the
+sub-line says "You can close this or lock your screen — the sync carries on on the server"), and
+reopening Sync joins the run again. Closing aborts the stream; the server keeps going. Errors appear
+only when the server reports one (e.g. the run was `interrupted` by a restart). **Losing touch with
+Prism is not an error either:** after ~3 minutes of failed polls, counted in *visible* time only and
+restarted on every return to the page (an unlocking iPhone's VPN/Wi-Fi, a deploy's 502s), the dialog
+goes into a neutral **stalled** state. The heading is "Can't reach Prism" in `--warning` and the
+`.alert.alert-warning` reads "Couldn't reach Prism — the sync may still be running. Check Settings →
+Recent syncs.", with **Try again** (resume following) and **Close**. A raw fetch error ("Load
+failed") is never shown.
 
 **Recent syncs card (Settings).** One `.card.settings-section` with a `.ghost.accent` Refresh in the
 header. Each run is a full-width `.ghost` row button (`aria-expanded`): **start date/time** (bold,
 tabular, `formatDateTime` en-GB) → **status badge** from the existing badge palette (green Completed,
 amber "Completed with N errors", red Failed, gray Interrupted, blue Running…) → right-aligned muted
 meta: duration, what was synced ("Schoology · blocks · 2 mastery courses"), and counts ("1 error · 3
-warnings", `--danger` if any errors, otherwise `--warning`). Tapping a row expands its log inline. The log
+warnings", `--danger` if any errors, otherwise `--warning`). Tapping a row expands its log inline (`aria-expanded` + `aria-controls` → the log region).
+Refresh reloads the list and any open log. An open log of a running sync re-fetches every ~3s and
+reloads the list when the run ends. An interrupted run's duration ends at its last event, and
+durations over an hour read "1h 12m". The log
 reuses the sync dialog's `.sync-log` look (monospace, `--table-header-bg`, bordered) and scrolls inside
 the card (max 320px; 60vh on phone). Each line has a muted `HH:MM:SS` time, the same ✓ / ✕ / ● phase icons
 as the dialog, and readable text ("Mastery · Bio — 412 records"). **Error lines** are `--danger` bold

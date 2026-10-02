@@ -805,8 +805,14 @@ second error. Nothing kept a record of what a sync reported.
   the comment above `POST /api/sync`.
 - **Client:** `SyncDialog` follows the run by polling `events?after=<lastSeq>` (2s) when the stream
   drops, shows a muted notice instead of an error, joins on 409 and when opened mid-run, and polls at
-  once on `visibilitychange` (it drops a possibly-hung stream). Settings → **Recent syncs**
+  once on `visibilitychange` (it drops a possibly-hung stream). Review follow-up:
+  - It gives up only after ~3 min of *visible* failed polling (the clock resets on return to the
+    page), and then into a neutral "Can't reach Prism" state with Try again.
+  - It can be closed while following; the stream is aborted on unmount.
+  - A drop before the runId retries `/sync/current` with backoff.
+  - Runs are marked interrupted inside the `app.listen` callback, with `finished_at` set to the
+    last event. Settings → **Recent syncs**
   (`RecentSyncs.jsx`, `lib/syncRunLog.js`) lists the last 30 runs, and each one expands to its log.
 
-**Tests:** 905 server + 617 client Vitest tests pass; `npm run build` succeeds (2026-10-02).
+**Tests:** 907 server + 630 client Vitest tests pass; `npm run build` succeeds (2026-10-02).
 

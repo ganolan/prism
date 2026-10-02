@@ -72,7 +72,10 @@ function RemedyBanner({ failure, retryEnabled, onLogin, onRetry }) {
 
 // `notice` is a muted status line under the heading (e.g. "Connection lost —
 // still syncing on the server…") — informational, never styled as an error.
-export default function SyncProgress({ reduced, mode, notice, retryEnabled, onDone, onRetry, onRetryBlocks, onLogin }) {
+// mode 'stalled' = the dialog lost touch with Prism while following a run:
+// neutral (amber), with Try again (`onTryAgain`) and Close. `onClose`, when
+// given, lets the teacher close the dialog while the sync runs.
+export default function SyncProgress({ reduced, mode, notice, retryEnabled, onDone, onClose, onTryAgain, onRetry, onRetryBlocks, onLogin }) {
   const { phases, logLines, failures, progress, summary, fatal } = reduced;
   const running = mode === 'running';
   const blocksPhase = phases.find((p) => p.kind === 'blocks');
@@ -80,6 +83,7 @@ export default function SyncProgress({ reduced, mode, notice, retryEnabled, onDo
 
   let heading = 'Syncing…';
   let headingClass = '';
+  if (mode === 'stalled') { heading = "Can't reach Prism"; headingClass = 'sync-head-warn'; }
   if (mode === 'done') {
     if (fatal) { heading = 'Sync failed'; headingClass = 'sync-head-error'; }
     else if (failures.length) { heading = 'Sync finished with issues'; headingClass = 'sync-head-warn'; }
@@ -90,7 +94,11 @@ export default function SyncProgress({ reduced, mode, notice, retryEnabled, onDo
     <div className="sync-progress">
       <div className={`sync-progress-head ${headingClass}`}>
         <h2>{running && <span className="sync-spinner" aria-hidden="true" />}{heading}</h2>
-        {running && <p className="text-muted text-sm">This takes a few minutes. It carries on if you close Prism or your screen locks.</p>}
+        {running && (
+          <p className="text-muted text-sm">
+            This takes a few minutes. You can close this or lock your screen — the sync carries on on the server.
+          </p>
+        )}
         {running && notice && <p className="text-muted text-sm sync-notice" role="status">{notice}</p>}
       </div>
 
@@ -107,6 +115,12 @@ export default function SyncProgress({ reduced, mode, notice, retryEnabled, onDo
           {logLines.slice(-40).map((line, i) => (
             <div key={Math.max(0, logLines.length - 40) + i}>{line}</div>
           ))}
+        </div>
+      )}
+
+      {mode === 'stalled' && (
+        <div className="alert alert-warning sync-remedy" role="status">
+          Couldn't reach Prism — the sync may still be running. Check Settings → Recent syncs.
         </div>
       )}
 
@@ -137,7 +151,16 @@ export default function SyncProgress({ reduced, mode, notice, retryEnabled, onDo
         <span className="text-muted text-sm">
           {summary && mode === 'done' && `Finished in ${(summary.elapsedMs / 1000).toFixed(0)}s`}
         </span>
-        <button type="button" className="primary" onClick={onDone} disabled={running}>Done</button>
+        {mode === 'stalled' ? (
+          <span className="sync-foot-actions">
+            <button type="button" className="secondary" onClick={onTryAgain}>Try again</button>
+            <button type="button" className="primary" onClick={onClose ?? onDone}>Close</button>
+          </span>
+        ) : running && onClose ? (
+          <button type="button" className="secondary" onClick={onClose}>Close</button>
+        ) : (
+          <button type="button" className="primary" onClick={onDone} disabled={running}>Done</button>
+        )}
       </div>
     </div>
   );

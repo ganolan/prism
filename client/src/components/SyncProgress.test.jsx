@@ -28,6 +28,14 @@ describe('SyncProgress', () => {
     expect(screen.getByRole('button', { name: /done/i })).toBeDisabled();
   });
 
+  it('offers Close while running when the dialog can be closed (the sync carries on)', () => {
+    const onClose = vi.fn();
+    render(<SyncProgress reduced={RUNNING} mode="running" onClose={onClose} onDone={noop} onRetry={noop} onLogin={noop} />);
+    expect(screen.queryByRole('button', { name: /done/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it('enables Done when the sync is finished', () => {
     const done = { ...RUNNING, mode: 'done' };
     render(<SyncProgress reduced={done} mode="done" onDone={noop} onRetry={noop} onLogin={noop} />);

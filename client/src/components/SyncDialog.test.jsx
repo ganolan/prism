@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import SyncDialog from './SyncDialog.jsx';
 import * as api from '../services/api.js';
@@ -18,6 +18,32 @@ beforeEach(() => {
   vi.mocked(api.getCurrentSync).mockResolvedValue({ running: false, runId: null });
   vi.mocked(api.getSyncRunEvents).mockReset();
 });
+
+// jsdom is always "visible"; let a test hide the page.
+let visibility = 'visible';
+Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => visibility });
+Object.defineProperty(document, 'hidden', { configurable: true, get: () => visibility === 'hidden' });
+function setVisibility(v) {
+  visibility = v;
+  document.dispatchEvent(new Event('visibilitychange'));
+}
+afterEach(() => { visibility = 'visible'; });
+
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// A stream that hangs until aborted (records the signal).
+function hangingStream(runId, evts = []) {
+  const box = {};
+  vi.mocked(api.runSync).mockImplementation((opts, onEvent, o) => {
+    box.signal = o?.signal;
+    onEvent({ type: 'run', runId });
+    for (const e of evts) onEvent(e);
+    return new Promise((resolve, reject) => {
+      o.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+    });
+  });
+  return box;
+}
 
 // A scripted poll endpoint: each call returns the next response.
 function pollScript(responses) {
@@ -174,7 +200,7 @@ describe('SyncDialog', () => {
       await clickStart();
       expect(await screen.findByText(/Connection lost — still syncing on the server/)).toBeInTheDocument();
       expect(screen.getByText('Syncing…')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Done' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Close' })).toBeEnabled();
     });
 
     it('a stream that ends without a summary is followed to the end too', async () => {
@@ -288,16 +314,153 @@ describe('SyncDialog', () => {
       expect(screen.queryByText(/aborted/)).not.toBeInTheDocument();
     });
 
-    it('gives up with a pointer to Settings after repeated poll failures', async () => {
+    it('stream and poll overlap: events at or below the last seq are not repeated', async () => {
+      vi.mocked(api.runSync).mockImplementation(async (opts, onEvent) => {
+        onEvent({ type: 'run', runId: 7 });
+        onEvent({ type: 'log', message: 'line A', seq: 1 });
+        onEvent({ type: 'log', message: 'line B', seq: 2 });
+        throw new TypeError('Load failed');
+      });
+      pollScript([{ status: 'completed', finished: true, events: [
+        { seq: 1, type: 'log', message: 'line A' },
+        { seq: 2, type: 'log', message: 'line B' },
+        { seq: 3, type: 'log', message: 'line C' },
+        { seq: 4, type: 'summary', schoology: null, mastery: [], elapsedMs: 1 },
+      ] }]);
+      render(<SyncDialog onClose={() => {}} pollMs={1} />);
+      await clickStart();
+      await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
+      expect(screen.getAllByText('line A')).toHaveLength(1);
+      expect(screen.getAllByText('line B')).toHaveLength(1);
+      expect(screen.getAllByText('line C')).toHaveLength(1);
+    });
+
+    it('poll failures while the page is hidden do not count toward giving up', async () => {
       vi.mocked(api.runSync).mockImplementation(async (opts, onEvent) => {
         onEvent({ type: 'run', runId: 7 });
         throw new TypeError('Load failed');
       });
-      vi.mocked(api.getSyncRunEvents).mockRejectedValue(new Error('offline'));
+      vi.mocked(api.getSyncRunEvents).mockRejectedValue(new TypeError('Load failed'));
+      render(<SyncDialog onClose={() => {}} pollMs={1} giveUpMs={40} />);
+      await waitFor(() => screen.getByRole('button', { name: /start sync/i }));
+      visibility = 'hidden';
+      fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
+      await wait(150); // well past the budget, but all of it hidden
+      expect(screen.queryByText(/Couldn't reach Prism/)).not.toBeInTheDocument();
+      expect(screen.getByText('Syncing…')).toBeInTheDocument();
+      setVisibility('visible');
+      expect(await screen.findByText(/Couldn't reach Prism/)).toBeInTheDocument();
+    });
+
+    it('the visible-time budget ends in a neutral "can\'t reach" state, never "Sync failed"; Try again resumes', async () => {
+      vi.mocked(api.runSync).mockImplementation(async (opts, onEvent) => {
+        onEvent({ type: 'run', runId: 7 });
+        onEvent({ type: 'log', message: 'Fetching sections', seq: 1 });
+        throw new TypeError('Load failed');
+      });
+      vi.mocked(api.getSyncRunEvents).mockRejectedValue(new TypeError('Load failed'));
+      const onSyncComplete = vi.fn();
+      render(<SyncDialog onClose={() => {}} onSyncComplete={onSyncComplete} pollMs={1} giveUpMs={30} />);
+      await clickStart();
+      expect(await screen.findByText(/Couldn't reach Prism — the sync may still be running/)).toBeInTheDocument();
+      expect(screen.getByText(/Recent syncs/)).toBeInTheDocument();
+      expect(screen.queryByText('Sync failed')).not.toBeInTheDocument();
+      expect(screen.queryByText(/Load failed/)).not.toBeInTheDocument();
+      expect(screen.getByText('Fetching sections')).toBeInTheDocument();
+      expect(onSyncComplete).not.toHaveBeenCalled();
+
+      pollScript([{ status: 'completed', finished: true, events: [
+        { seq: 2, type: 'summary', schoology: null, mastery: [], elapsedMs: 1 },
+      ] }]);
+      fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+      await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
+      expect(api.getSyncRunEvents).toHaveBeenLastCalledWith(7, 1);
+      expect(onSyncComplete).toHaveBeenCalledTimes(1);
+    });
+
+    it('returning to the page resets the failure clock', async () => {
+      vi.mocked(api.runSync).mockImplementation(async (opts, onEvent) => {
+        onEvent({ type: 'run', runId: 7 });
+        throw new TypeError('Load failed');
+      });
+      vi.mocked(api.getSyncRunEvents).mockRejectedValue(new TypeError('Load failed'));
+      render(<SyncDialog onClose={() => {}} pollMs={5} giveUpMs={400} />);
+      await clickStart();
+      await wait(250);
+      setVisibility('hidden');
+      setVisibility('visible'); // unlock: clock restarts
+      await wait(200); // ~450ms since the first failure, but only ~200ms since return
+      expect(screen.queryByText(/Couldn't reach Prism/)).not.toBeInTheDocument();
+      expect(await screen.findByText(/Couldn't reach Prism/)).toBeInTheDocument();
+    });
+
+    it('a drop before any runId retries finding the run before saying anything', async () => {
+      vi.mocked(api.runSync).mockRejectedValue(new TypeError('Load failed'));
+      vi.mocked(api.getCurrentSync)
+        .mockResolvedValueOnce({ running: false, runId: null }) // dialog open
+        .mockRejectedValueOnce(new TypeError('Load failed')) // still reconnecting
+        .mockRejectedValueOnce(new TypeError('Load failed'))
+        .mockResolvedValueOnce({ running: true, runId: 11 });
+      pollScript([{ status: 'completed', finished: true, events: [
+        { seq: 1, type: 'summary', schoology: null, mastery: [], elapsedMs: 1 },
+      ] }]);
+      render(<SyncDialog onClose={() => {}} pollMs={1} />);
+      await clickStart();
+      await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
+      expect(api.getCurrentSync).toHaveBeenCalledTimes(4);
+      expect(api.getSyncRunEvents).toHaveBeenCalledWith(11, 0);
+    });
+
+    it('a drop before any runId with Prism unreachable is the neutral state, not "Load failed"', async () => {
+      vi.mocked(api.runSync).mockRejectedValue(new TypeError('Load failed'));
+      vi.mocked(api.getCurrentSync)
+        .mockResolvedValueOnce({ running: false, runId: null })
+        .mockRejectedValue(new TypeError('Load failed'));
+      render(<SyncDialog onClose={() => {}} pollMs={1} />);
+      await clickStart();
+      expect(await screen.findByText(/Couldn't reach Prism/)).toBeInTheDocument();
+      expect(screen.queryByText(/Load failed/)).not.toBeInTheDocument();
+      expect(screen.queryByText('Sync failed')).not.toBeInTheDocument();
+      // Try again re-checks, finds the run, and follows it.
+      vi.mocked(api.getCurrentSync).mockResolvedValue({ running: true, runId: 4 });
+      pollScript([{ status: 'completed', finished: true, events: [
+        { seq: 1, type: 'summary', schoology: null, mastery: [], elapsedMs: 1 },
+      ] }]);
+      fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+      await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
+    });
+
+    it('a network failure when Prism says nothing is running reads plainly', async () => {
+      vi.mocked(api.runSync).mockRejectedValue(new TypeError('Load failed'));
       render(<SyncDialog onClose={() => {}} pollMs={1} />);
       await clickStart();
       await waitFor(() => expect(screen.getByText('Sync failed')).toBeInTheDocument());
-      expect(screen.getByText(/Recent syncs/)).toBeInTheDocument();
+      expect(screen.queryByText(/Load failed/)).not.toBeInTheDocument();
+      expect(screen.getByText(/didn't start/)).toBeInTheDocument();
+    });
+
+    it('Close while following: closes, and the stream is aborted on unmount', async () => {
+      const box = hangingStream(9, [{ phase: 'schoology', status: 'running', seq: 1 }]);
+      const onClose = vi.fn();
+      const { unmount } = render(<SyncDialog onClose={onClose} pollMs={1} />);
+      await clickStart();
+      await waitFor(() => expect(box.signal).toBeDefined());
+      expect(screen.getByText(/carries on on the server/)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+      expect(onClose).toHaveBeenCalledTimes(1);
+      unmount();
+      expect(box.signal.aborted).toBe(true);
+      expect(api.getSyncRunEvents).not.toHaveBeenCalled();
+    });
+
+    it('Close is offered on a joined run too', async () => {
+      vi.mocked(api.getCurrentSync).mockResolvedValue({ running: true, runId: 5 });
+      pollScript([{ status: 'running', finished: false, events: [{ seq: 1, type: 'log', message: 'Going' }] }]);
+      const onClose = vi.fn();
+      render(<SyncDialog onClose={onClose} pollMs={1} />);
+      await screen.findByText('Going');
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+      expect(onClose).toHaveBeenCalledTimes(1);
     });
   });
 });

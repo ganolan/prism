@@ -18,6 +18,11 @@ describe('formatDuration', () => {
     expect(formatDuration('2026-10-01T10:00:00Z', '2026-10-01T10:03:05Z')).toBe('3m 5s');
     expect(formatDuration('2026-10-01T10:00:00Z', null)).toBe('');
   });
+
+  it('hours + minutes past an hour', () => {
+    expect(formatDuration('2026-10-01T10:00:00Z', '2026-10-01T11:12:40Z')).toBe('1h 12m');
+    expect(formatDuration('2026-10-01T10:00:00Z', '2026-10-01T12:00:05Z')).toBe('2h 0m');
+  });
 });
 
 describe('describeOptions', () => {

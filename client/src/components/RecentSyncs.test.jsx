@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import RecentSyncs from './RecentSyncs.jsx';
 import * as api from '../services/api.js';
 
@@ -65,5 +65,43 @@ describe('RecentSyncs', () => {
     api.getSyncRuns.mockResolvedValue([]);
     render(<RecentSyncs />);
     expect(await screen.findByText(/No syncs recorded yet/)).toBeInTheDocument();
+  });
+
+  it('the expand button controls the log region', async () => {
+    render(<RecentSyncs />);
+    const row = (await screen.findByText('Completed with 2 errors')).closest('button');
+    fireEvent.click(row);
+    const log = await screen.findByRole('log');
+    const regionId = row.getAttribute('aria-controls');
+    expect(regionId).toBeTruthy();
+    expect(document.getElementById(regionId)).toContainElement(log);
+  });
+
+  it('Refresh reloads the list and an expanded log', async () => {
+    render(<RecentSyncs />);
+    fireEvent.click((await screen.findByText('Completed with 2 errors')).closest('button'));
+    await screen.findByRole('log');
+    expect(api.getSyncRun).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(api.getSyncRun).toHaveBeenCalledTimes(2));
+    expect(api.getSyncRuns).toHaveBeenCalledTimes(2);
+  });
+
+  it('an expanded running log refreshes itself until the run finishes', async () => {
+    const running = { ...RUNS[0], events: [{ seq: 1, at: '2026-10-01T09:00:01Z', type: 'log', message: 'Fetching sections', level: null }] };
+    const finished = {
+      ...RUNS[0], status: 'completed', finished_at: '2026-10-01T09:01:00Z',
+      events: [...running.events, { seq: 2, at: '2026-10-01T09:01:00Z', type: 'summary', elapsedMs: 60000, level: null }],
+    };
+    api.getSyncRun.mockResolvedValueOnce(running).mockResolvedValueOnce(running).mockResolvedValue(finished);
+    render(<RecentSyncs refreshMs={5} />);
+    fireEvent.click((await screen.findByText('Running…')).closest('button'));
+    expect(await screen.findByText('Finished in 1m 0s')).toBeInTheDocument();
+    const calls = api.getSyncRun.mock.calls.length;
+    expect(calls).toBeGreaterThanOrEqual(3);
+    // Finished → stops polling, and the list reloads to pick up the new status.
+    await new Promise((r) => setTimeout(r, 40));
+    expect(api.getSyncRun.mock.calls.length).toBe(calls);
+    await waitFor(() => expect(api.getSyncRuns.mock.calls.length).toBeGreaterThanOrEqual(2));
   });
 });

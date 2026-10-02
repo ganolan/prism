@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatDate, formatDateTime } from './formatDate.js';
+import { formatDate, formatDateTime, formatTime } from './formatDate.js';
 
 // A fixed local-time moment, so the test passes in any timezone.
 const d = new Date(2026, 8, 6, 17, 40, 43); // 6 September 2026, 17:40:43
@@ -26,5 +26,15 @@ describe('formatDateTime', () => {
 
   it('renders nothing for a missing date', () => {
     expect(formatDateTime(undefined)).toBe('');
+  });
+});
+
+describe('formatTime', () => {
+  it('is a 24-hour time with seconds', () => {
+    expect(formatTime(d)).toBe('17:40:43');
+  });
+
+  it('renders nothing for a missing date', () => {
+    expect(formatTime(null)).toBe('');
   });
 });

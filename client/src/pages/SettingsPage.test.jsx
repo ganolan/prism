@@ -7,6 +7,8 @@ vi.mock('../services/api.js', () => ({
   getSettings: vi.fn(),
   updateSettings: vi.fn(),
   getTriage: vi.fn(),
+  getSyncRuns: vi.fn(),
+  getSyncRun: vi.fn(),
 }));
 
 const TRIAGE = {
@@ -17,6 +19,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   api.getSettings.mockResolvedValue({ triage: TRIAGE });
   api.updateSettings.mockImplementation(async ({ triage }) => ({ triage: { ...TRIAGE, ...triage } }));
+  api.getSyncRuns.mockResolvedValue([]);
   api.getTriage.mockResolvedValue({ calendar: { source: 'powerschool', totalSchoolDays: 164, syncedAt: '2026-10-01T00:00:00Z' } });
 });
 
@@ -74,5 +77,14 @@ describe('SettingsPage', () => {
     fireEvent.click(screen.getAllByLabelText('Increase')[0]);
     await waitFor(() => expect(input).toHaveValue(8));
     expect(await screen.findByText(/Not saved: Server error/)).toBeInTheDocument();
+  });
+
+  it('shows the Recent syncs card', async () => {
+    api.getSyncRuns.mockResolvedValue([
+      { id: 1, started_at: '2026-10-01T09:00:00Z', finished_at: '2026-10-01T09:01:00Z', status: 'failed', error_count: 1, warning_count: 0, options: {} },
+    ]);
+    render(<SettingsPage />);
+    expect(await screen.findByRole('heading', { name: 'Recent syncs' })).toBeInTheDocument();
+    expect(await screen.findByText('Failed')).toBeInTheDocument();
   });
 });

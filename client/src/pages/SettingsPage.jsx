@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import NumberStepper from '../components/NumberStepper.jsx';
+import RecentSyncs from '../components/RecentSyncs.jsx';
 import { getSettings, updateSettings, getTriage } from '../services/api.js';
 import { formatDateTime } from '../lib/formatDate.js';
 
@@ -80,6 +81,8 @@ export default function SettingsPage() {
           </div>
         )}
       </section>
+
+      <RecentSyncs />
     </div>
   );
 }

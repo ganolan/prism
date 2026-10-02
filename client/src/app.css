@@ -1243,6 +1243,34 @@ a.triage-row__title:hover { text-decoration: underline; }
 .settings-section { margin-bottom: 1rem; }
 .settings-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin: 0.6rem 0; }
 
+/* Settings → Recent syncs (RecentSyncs.jsx): one row per sync run, tap to
+   expand its stored event log. Errors in --danger on --error-light, warnings
+   in --warning; the log scrolls inside the card. */
+.sync-runs-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.sync-runs-head h3 { margin: 0; }
+.sync-runs { list-style: none; margin: 0.5rem 0 0; padding: 0; }
+.sync-run + .sync-run { border-top: 1px solid var(--border); }
+button.ghost.sync-run-row {
+  width: 100%; display: flex; align-items: center; flex-wrap: wrap; gap: 0.35rem 0.75rem;
+  text-align: left; padding: 0.5rem 0.35rem; color: var(--text); font-size: 0.85rem;
+}
+.sync-run-when { font-weight: 600; font-variant-numeric: tabular-nums; }
+.sync-run-meta { display: flex; flex-wrap: wrap; gap: 0 0.75rem; margin-left: auto; font-size: 0.8rem; }
+.sync-run-errors { color: var(--danger); font-weight: 600; }
+.sync-run-warnings { color: var(--warning); font-weight: 600; }
+.sync-run-log {
+  margin: 0.25rem 0 0.6rem; background: var(--table-header-bg);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 0.5rem 0.65rem; font-family: ui-monospace, monospace;
+  font-size: 0.74rem; line-height: 1.55; max-height: 320px; overflow-y: auto;
+}
+.sync-run-line { display: flex; gap: 0.5rem; align-items: baseline; padding: 0 0.2rem; border-radius: 3px; }
+.sync-run-line-time { color: var(--text-muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.sync-run-line-icon { width: 1rem; flex-shrink: 0; text-align: center; }
+.sync-run-line-text { min-width: 0; overflow-wrap: anywhere; }
+.sync-run-line-error { color: var(--danger); background: var(--error-light); font-weight: 600; }
+.sync-run-line-warning { color: var(--warning); }
+
 /* ========================================================================
    PHONE LAYOUT
    Below 768px the fixed sidebar becomes a drawer behind a top-bar menu
@@ -1347,4 +1375,9 @@ a.triage-row__title:hover { text-decoration: underline; }
 
   /* The top-bar logo links to the dashboard. */
   .mobile-topbar-home { display: block; line-height: 0; }
+
+  /* Settings → Recent syncs: the run's details drop under its date + badge,
+     and an open log may use more of the (taller-than-wide) screen. */
+  .sync-run-meta { margin-left: 0; width: 100%; }
+  .sync-run-log { max-height: 60vh; }
 }

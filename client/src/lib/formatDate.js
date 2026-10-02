@@ -20,3 +20,9 @@ export function formatDateTime(value) {
   const d = toDate(value);
   return d ? d.toLocaleString(LOCALE, { dateStyle: 'short', timeStyle: 'short' }) : '';
 }
+
+/** 17:40:43 — a time of day, for log lines (the date shown elsewhere). */
+export function formatTime(value) {
+  const d = toDate(value);
+  return d ? d.toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '';
+}

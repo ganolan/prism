@@ -1288,7 +1288,8 @@ button.triage-row__toggle { padding: 0.2rem 0.35rem; font-size: 0.75rem; line-he
   }
 
   .grid-2,
-  .grid-3 { grid-template-columns: 1fr; }
+  .grid-3,
+  .triage-layout__main .grid-2 { grid-template-columns: 1fr; }
 
   /* A table wider than the screen scrolls inside itself. The gradebook is
      excluded: it already scrolls in its own card and relies on a sticky

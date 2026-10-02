@@ -7,7 +7,7 @@ import { PanelHead, ShowAllToggle, RowToggle, useShowAll, useOpenRows, limitRows
 
 // Late summative work, worst first. Days are numbered from the due date = day 1;
 // `limit` (referralLimitDays) is the last allowed day, referral after it. A row
-// past the limit has an inline Refer (= Mark referred); every row expands (▾) to
+// past the limit has an inline Refer (title "Mark referred"); every row expands (▾) to
 // Extend by N lessons (school days), with the days left before the limit
 // ("last day" on day `limit`) on rows not yet past it.
 const daysLeft = (day, limit) => (limit - day > 0 ? `${limit - day} left` : 'last day');
@@ -45,7 +45,7 @@ export default function LateWorkPanel({ rows, settings, showCourse, scope, onRec
               <div className="triage-row__task" title={r.title}>{r.title}</div>
             </div>
             <div className="triage-row__actions">
-              {red && <button className="primary btn-sm" aria-label="Mark referred" onClick={() => onRecord(r, 'referred')}>Refer</button>}
+              {red && <button className="primary btn-sm" title="Mark referred" onClick={() => onRecord(r, 'referred')}>Refer</button>}
               <RowToggle label={`${r.studentName}, ${r.title}`} expanded={open} controls={moreId(panelId, k)} onToggle={() => toggleOpen(k)} />
             </div>
             {open && (

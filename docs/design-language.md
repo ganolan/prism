@@ -920,7 +920,7 @@ than a modal. On the Assessments tab a per-test setting is a click-to-flip badge
 aria-label="Triage">`, 380px) beside the page's main column (`.triage-layout` →
 `.triage-layout__main` + rail): Make-up tests, Late work, Feedback owed. On the Dashboard (Current
 tab) the main column is the course cards, two per row (`.grid-2` becomes `auto-fill,
-minmax(min(260px, 100%), 1fr)` there, so it drops to one column when narrow — no new breakpoint).
+minmax(min(260px, 100%), 1fr)` there, so it drops to one column when narrow — no new breakpoint; the PHONE LAYOUT block restates the one-column rule for it so phones stay governed there).
 On a course page the rail sits beside every tab's content **except Gradebook**, which needs the
 width: there the rail is hidden (`hidden`, still mounted, so Show formative / open rows / the fetch
 survive) and a `Triage ▸` button (`.secondary.btn-sm`, red badge = red rows across the three lists,
@@ -938,7 +938,7 @@ its `title`: late / make-up rows = name / course label (Dashboard only) / assess
 = assessment / course label. Tags that must never truncate sit **beside the name** on line 1
 (`flex-shrink: 0`): "submitted day N", "ext +N → DD/MM/YYYY", the formative "F". Feedback rows show
 the count right-aligned as "X/Y" (title "X of Y ungraded"). Red late rows keep an inline primary
-**Refer** (`aria-label="Mark referred"`). Every late / make-up row has a ▾/▴ toggle
+**Refer** (visible name "Refer", `title="Mark referred"` — the accessible name matches the visible text). Every late / make-up row has a ▾/▴ toggle
 (`button.triage-row__toggle`, `aria-expanded`, named "Actions for <name>, <assessment>") revealing
 its secondary actions below the text: Late → days left / "last day" (not yet red), Extend (Refer stays inline only, never repeated);
 Make-up → Extend, Ignore this test. The Extend editor and the Ignore confirm open inside that

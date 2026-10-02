@@ -37,10 +37,10 @@ const PAYLOAD = {
 const latePanel = async () => screen.findByLabelText('Late work');
 const makeUpPanel = async () => screen.findByLabelText('Make-up tests');
 const rowOf = (el) => el.closest('.triage-row');
-// Open a row's secondary actions (Extend, Mark referred, Ignore this test).
+// Open a row's secondary actions (Extend, Ignore this test).
 const expand = (row) => fireEvent.click(within(row).getByRole('button', { name: /^Actions for / }));
 const expandAll = (panel) => within(panel).getAllByRole('button', { name: /^Actions for / }).forEach((b) => fireEvent.click(b));
-const referButtons = () => screen.getAllByRole('button', { name: 'Mark referred' });
+const referButtons = () => screen.getAllByRole('button', { name: 'Refer' });
 
 function renderSection(props = {}) {
   return render(<MemoryRouter><TriageSection {...props} /></MemoryRouter>);
@@ -92,7 +92,7 @@ describe('TriageSection', () => {
 
   it('Mark referred (the inline Refer button) posts and reloads', async () => {
     renderSection();
-    fireEvent.click((await screen.findAllByRole('button', { name: 'Mark referred' }))[0]);
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Refer' }))[0]);
     await waitFor(() => expect(api.recordReferral).toHaveBeenCalledWith({ studentId: 1, assignmentId: 9, action: 'referred', note: undefined }));
     expect(api.getTriage).toHaveBeenCalledTimes(2);
   });
@@ -100,11 +100,11 @@ describe('TriageSection', () => {
   it('every row offers Extend once expanded; Refer / Mark referred only on red rows; no Exempt', async () => {
     renderSection();
     const panel = await latePanel();
-    expect(within(panel).getAllByRole('button', { name: 'Mark referred' })).toHaveLength(2); // inline Refer, red rows
+    expect(within(panel).getAllByRole('button', { name: 'Refer' })).toHaveLength(2); // inline Refer, red rows
     expect(within(panel).queryByText('Extend')).not.toBeInTheDocument(); // behind the row toggle
     expandAll(panel);
     expect(within(panel).getAllByText('Extend')).toHaveLength(3);
-    expect(within(panel).getAllByRole('button', { name: 'Mark referred' })).toHaveLength(2); // not repeated when expanded
+    expect(within(panel).getAllByRole('button', { name: 'Refer' })).toHaveLength(2); // not repeated when expanded
     expect(screen.queryByText('Exempt')).not.toBeInTheDocument();
   });
 
@@ -164,6 +164,18 @@ describe('TriageSection', () => {
     const { container } = renderSection();
     await waitFor(() => expect(api.getTriage).toHaveBeenCalled());
     expect(container.querySelector('.triage')).toBeNull();
+  });
+
+  it('history rows: name and title truncate, so each carries its full text as a title', async () => {
+    api.getReferrals.mockResolvedValue([
+      { id: 3, action: 'referred', daysLate: 9, day: 10, createdAt: '2026-10-01 07:42:00', studentName: 'Maya Chen', courseName: 'AP CSP', blockNumber: '7', title: 'CP2 - A very long assignment title', note: null },
+    ]);
+    renderSection();
+    fireEvent.click(await screen.findByText(/Referred \/ extended \(2\)/));
+    const history = await screen.findByLabelText('Referral history');
+    expect(await within(history).findByText('Maya Chen')).toHaveAttribute('title', 'Maya Chen');
+    expect(within(history).getByText('CP2 - A very long assignment title')).toHaveAttribute('title', 'CP2 - A very long assignment title');
+    expect(within(history).getByText('[BK 7] AP CSP')).toHaveAttribute('title', '[BK 7] AP CSP');
   });
 
   it('history rows show the block; a failed undo shows the error inline', async () => {
@@ -263,15 +275,15 @@ describe('TriageSection — compact rows', () => {
     expect(within(row).getByRole('img', { name: 'day 11, limit day 8' })).toBeInTheDocument();
     expect(row.querySelector('.triage-row__line')).toHaveTextContent('Ethan Wongsubmitted day 11');
     expect(row.querySelector('.triage-row__task')).toHaveTextContent(/^CP2$/);
-    const refer = within(row.querySelector('.triage-row__actions')).getByRole('button', { name: 'Mark referred' });
-    expect(refer).toHaveTextContent('Refer');
+    const refer = within(row.querySelector('.triage-row__actions')).getByRole('button', { name: 'Refer' });
+    expect(refer).toHaveAttribute('title', 'Mark referred');
     expect(refer).toHaveClass('primary', 'btn-sm');
   });
 
   it('a green row has no Refer button', async () => {
     renderSection();
     const row = rowOf(within(await latePanel()).getByText('Aiden Li'));
-    expect(within(row).queryByRole('button', { name: 'Mark referred' })).not.toBeInTheDocument();
+    expect(within(row).queryByRole('button', { name: 'Refer' })).not.toBeInTheDocument();
   });
 
   it('the row toggle is a keyboard-reachable button with aria-expanded; it reveals days left + Extend below the text', async () => {
@@ -287,7 +299,7 @@ describe('TriageSection — compact rows', () => {
     expect(more.previousElementSibling).toBe(row.querySelector('.triage-row__actions'));
     expect(within(more).getByText('5 left')).toBeInTheDocument();
     expect(within(more).getByText('Extend')).toHaveClass('secondary', 'btn-sm');
-    expect(within(more).queryByText('Mark referred')).not.toBeInTheDocument(); // green row
+    expect(within(more).queryByRole('button', { name: 'Refer' })).not.toBeInTheDocument(); // green row
     fireEvent.click(toggle);
     expect(row.querySelector('.triage-row__more')).toBeNull();
   });
@@ -298,7 +310,7 @@ describe('TriageSection — compact rows', () => {
     expand(row);
     const more = row.querySelector('.triage-row__more');
     expect(within(more).getAllByRole('button').map((b) => b.textContent)).toEqual(['Extend']);
-    expect(within(row).getAllByRole('button', { name: 'Mark referred' })).toHaveLength(1);
+    expect(within(row).getAllByRole('button', { name: 'Refer' })).toHaveLength(1);
     expect(within(more).queryByText(/left|last day/)).not.toBeInTheDocument();
   });
 
@@ -313,7 +325,7 @@ describe('TriageSection — compact rows', () => {
     expand(row);
     expect(within(row.querySelector('.triage-row__more')).getByText('last day')).toBeInTheDocument();
     expect(within(row).queryByText(/left/)).not.toBeInTheDocument();
-    expect(within(row).queryByRole('button', { name: 'Mark referred' })).not.toBeInTheDocument();
+    expect(within(row).queryByRole('button', { name: 'Refer' })).not.toBeInTheDocument();
   });
 
   it('short subtitles in the rail', async () => {
@@ -374,7 +386,7 @@ describe('TriageSection — compact rows', () => {
     const more = row.querySelector('.triage-row__more');
     expect(within(more).getByLabelText('Extension (lessons)')).toBeInTheDocument();
     expect(within(more).queryByText('Extend')).not.toBeInTheDocument();
-    expect(within(more).queryByText('Mark referred')).not.toBeInTheDocument();
+    expect(within(more).queryByRole('button', { name: 'Refer' })).not.toBeInTheDocument();
   });
 
   it('the Ignore confirm opens inside the expanded area too', async () => {
@@ -484,7 +496,7 @@ describe('TriageSection — make-up tests', () => {
     expect(within(panel).getByText('ext +2 → 20/10/2026')).toBeInTheDocument();
     expandAll(panel);
     expect(within(panel).getAllByText('Extend')).toHaveLength(2);
-    expect(within(panel).queryByText('Mark referred')).not.toBeInTheDocument();
+    expect(within(panel).queryByRole('button', { name: 'Refer' })).not.toBeInTheDocument();
   });
 
   it('no course chip on a course page', async () => {

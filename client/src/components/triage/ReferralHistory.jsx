@@ -52,9 +52,9 @@ export default function ReferralHistory({ courseId, version = 0, onClose, onChan
       {rows?.map((r) => (
         <div key={`${r.kind}:${r.id}`} className="triage-row triage-row--history">
           <div className="triage-row__text">
-            <span className="triage-row__name">{r.studentName}</span>
+            <span className="triage-row__name" title={r.studentName}>{r.studentName}</span>
             <CourseLine row={r} />
-            <div className="triage-row__task">{r.title}</div>
+            <div className="triage-row__task" title={r.title}>{r.title}</div>
           </div>
           <div className="triage-row__actions">
             {r.kind === 'referral'

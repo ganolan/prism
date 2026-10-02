@@ -22,7 +22,7 @@ export default function MakeUpPanel({ rows, settings, showCourse, scope, uncheck
   const key = (r) => `${r.studentId}:${r.assignmentId}`;
 
   return (
-    <section className="card triage-panel triage-makeups" aria-label="Make-up tests">
+    <section className="card triage-panel" aria-label="Make-up tests">
       <PanelHead title="Make-up tests" badge={overdue > 0 && <span className="badge badge-red">{overdue} overdue</span>}>
         <ShowAllToggle total={rows.length} showAll={showAll} onToggle={toggleShowAll} />
       </PanelHead>

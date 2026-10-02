@@ -1,22 +1,21 @@
-import { useId, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import UrgencyRing from './UrgencyRing.jsx';
 import CourseLine from './CourseLine.jsx';
 import ExtendEditor, { ExtensionTag } from './ExtendEditor.jsx';
-import { PanelHead, ShowAllToggle, RowToggle, useShowAll, useOpenRows, limitRows, moreId } from './panelParts.jsx';
+import { PanelHead, ShowAllToggle, useShowAll, limitRows } from './panelParts.jsx';
 
 // Students who missed a Schoology test or quiz and must sit it (or their * copy)
 // ASAP, longest first. A row clears itself once an attempt syncs. Extend records
 // when the make-up is booked ("sitting it Thursday"); the clock counts from then.
 // Day numbers: the test (or extended) date is day 1; red from day makeUpRedDay.
-// Each row expands (▾) to Extend and "Ignore this test", which silences a whole
-// test/quiz (all students) after an inline confirm.
+// The action column stacks Extend above "Ignore this test", which silences a whole
+// test/quiz (all students) after an inline confirm below the row. Only one of the
+// Extend editor / Ignore confirm is open per row.
 export default function MakeUpPanel({ rows, settings, showCourse, scope, unchecked = 0, ignored = 0, onExtend, onIgnore }) {
-  const panelId = useId();
   const [extending, setExtending] = useState(null);
   const [confirmIgnore, setConfirmIgnore] = useState(null);
   const [showAll, toggleShowAll] = useShowAll(`makeUps.${scope}`);
-  const [isOpen, toggleOpen] = useOpenRows();
   const red = settings.makeUpRedDay;
   const overdue = rows.filter((r) => r.tone === 'red').length;
   const key = (r) => `${r.studentId}:${r.assignmentId}`;
@@ -38,9 +37,10 @@ export default function MakeUpPanel({ rows, settings, showCourse, scope, uncheck
       )}
       {limitRows(rows, showAll).map((r) => {
         const k = key(r);
-        const open = isOpen(k);
+        const isExtending = extending === k;
+        const isConfirming = confirmIgnore === k;
         return (
-          <div key={k} className={`triage-row${open ? ' is-open' : ''}`}>
+          <div key={k} className="triage-row">
             <UrgencyRing day={r.day} limit={red} tone={r.tone} approx={r.approx} size={28} />
             <div className="triage-row__text">
               <div className="triage-row__line">
@@ -51,30 +51,23 @@ export default function MakeUpPanel({ rows, settings, showCourse, scope, uncheck
               <div className="triage-row__task" title={r.title}>{r.title}</div>
             </div>
             <div className="triage-row__actions">
-              <RowToggle label={`${r.studentName}, ${r.title}`} expanded={open} controls={moreId(panelId, k)} onToggle={() => toggleOpen(k)} />
+              <button className="secondary btn-sm" onClick={() => { setConfirmIgnore(null); setExtending(isExtending ? null : k); }}>Extend</button>
+              <button className="secondary btn-sm triage-row__quiet" onClick={() => { setExtending(null); setConfirmIgnore(isConfirming ? null : k); }}>Ignore this test</button>
             </div>
-            {open && (
-              <div className="triage-row__more" id={moreId(panelId, k)}>
-                {confirmIgnore !== k && extending !== k && (
-                  <>
-                    <button className="secondary btn-sm" onClick={() => { setConfirmIgnore(null); setExtending(k); }}>Extend</button>
-                    <button className="secondary btn-sm triage-row__quiet" onClick={() => { setExtending(null); setConfirmIgnore(k); }}>Ignore this test</button>
-                  </>
-                )}
-                {confirmIgnore === k && (
-                  <>
-                    <span className="text-sm">Ignore {r.title} for all students?</span>
-                    <button className="secondary danger btn-sm" onClick={() => { onIgnore(r); setConfirmIgnore(null); }}>Yes</button>
-                    <button className="ghost" onClick={() => setConfirmIgnore(null)}>Cancel</button>
-                  </>
-                )}
-                {extending === k && (
-                  <ExtendEditor
-                    extension={r.extension}
-                    onSave={(lessons, note) => { onExtend(r, lessons, note); setExtending(null); }}
-                    onCancel={() => setExtending(null)}
-                  />
-                )}
+            {isExtending && (
+              <div className="triage-row__more">
+                <ExtendEditor
+                  extension={r.extension}
+                  onSave={(lessons, note) => { onExtend(r, lessons, note); setExtending(null); }}
+                  onCancel={() => setExtending(null)}
+                />
+              </div>
+            )}
+            {isConfirming && (
+              <div className="triage-row__more">
+                <span className="text-sm">Ignore {r.title} for all students?</span>
+                <button className="secondary danger btn-sm" onClick={() => { onIgnore(r); setConfirmIgnore(null); }}>Yes</button>
+                <button className="ghost" onClick={() => setConfirmIgnore(null)}>Cancel</button>
               </div>
             )}
           </div>

@@ -1,22 +1,20 @@
-import { useId, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import UrgencyRing from './UrgencyRing.jsx';
 import CourseLine from './CourseLine.jsx';
 import ExtendEditor, { ExtensionTag } from './ExtendEditor.jsx';
-import { PanelHead, ShowAllToggle, RowToggle, useShowAll, useOpenRows, limitRows, moreId } from './panelParts.jsx';
+import { PanelHead, ShowAllToggle, useShowAll, limitRows } from './panelParts.jsx';
 
 // Late summative work, worst first. Days are numbered from the due date = day 1;
-// `limit` (referralLimitDays) is the last allowed day, referral after it. A row
-// past the limit has an inline Refer (title "Mark referred"); every row expands (▾) to
-// Extend by N lessons (school days), with the days left before the limit
-// ("last day" on day `limit`) on rows not yet past it.
+// `limit` (referralLimitDays) is the last allowed day, referral after it. The action
+// column stacks Refer (red rows, inline, title "Mark referred") or the days-left label
+// above Extend. Extend opens the shared ExtendEditor (by N lessons, school days) full-width
+// below the row's text.
 const daysLeft = (day, limit) => (limit - day > 0 ? `${limit - day} left` : 'last day');
 
 export default function LateWorkPanel({ rows, settings, showCourse, scope, onRecord, onExtend, onShowHistory, historyCount }) {
-  const panelId = useId();
   const [extending, setExtending] = useState(null);
   const [showAll, toggleShowAll] = useShowAll(`late.${scope}`);
-  const [isOpen, toggleOpen] = useOpenRows();
   const limit = settings.referralLimitDays;
   const toRefer = rows.filter((r) => r.tone === 'red').length;
   const key = (r) => `${r.studentId}:${r.assignmentId}`;
@@ -31,9 +29,9 @@ export default function LateWorkPanel({ rows, settings, showCourse, scope, onRec
       {limitRows(rows, showAll).map((r) => {
         const k = key(r);
         const red = r.tone === 'red';
-        const open = isOpen(k);
+        const open = extending === k;
         return (
-          <div key={k} className={`triage-row${open ? ' is-open' : ''}`}>
+          <div key={k} className="triage-row">
             <UrgencyRing day={r.day} limit={limit} tone={r.tone} approx={r.approx} size={28} />
             <div className="triage-row__text">
               <div className="triage-row__line">
@@ -45,23 +43,18 @@ export default function LateWorkPanel({ rows, settings, showCourse, scope, onRec
               <div className="triage-row__task" title={r.title}>{r.title}</div>
             </div>
             <div className="triage-row__actions">
-              {red && <button className="primary btn-sm" title="Mark referred" onClick={() => onRecord(r, 'referred')}>Refer</button>}
-              <RowToggle label={`${r.studentName}, ${r.title}`} expanded={open} controls={moreId(panelId, k)} onToggle={() => toggleOpen(k)} />
+              {red
+                ? <button className="primary btn-sm" title="Mark referred" onClick={() => onRecord(r, 'referred')}>Refer</button>
+                : <span className="text-sm text-muted">{daysLeft(r.day, limit)}</span>}
+              <button className="secondary btn-sm" onClick={() => setExtending(open ? null : k)}>Extend</button>
             </div>
             {open && (
-              <div className="triage-row__more" id={moreId(panelId, k)}>
-                {extending === k ? (
-                  <ExtendEditor
-                    extension={r.extension}
-                    onSave={(lessons, note) => { onExtend(r, lessons, note); setExtending(null); }}
-                    onCancel={() => setExtending(null)}
-                  />
-                ) : (
-                  <>
-                    {!red && <span className="text-sm text-muted">{daysLeft(r.day, limit)}</span>}
-                    <button className="secondary btn-sm" onClick={() => setExtending(k)}>Extend</button>
-                  </>
-                )}
+              <div className="triage-row__more">
+                <ExtendEditor
+                  extension={r.extension}
+                  onSave={(lessons, note) => { onExtend(r, lessons, note); setExtending(null); }}
+                  onCancel={() => setExtending(null)}
+                />
               </div>
             )}
           </div>

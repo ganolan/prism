@@ -932,19 +932,35 @@ tab. On desktop the rail is `position: sticky` (top 1rem) and scrolls inside its
 panel. On phones (PHONE LAYOUT block) it is one column: the rail follows the main column, full
 width, not sticky.
 
-**Compact rows.** `.triage-row` is a grid: 28px ring | text | inline actions, with the expanded
-area spanning under text + actions. Each text line is one line with an ellipsis and the full text as
-its `title`: late / make-up rows = name / course label (Dashboard only) / assessment; feedback rows
-= assessment / course label. Tags that must never truncate sit **beside the name** on line 1
-(`flex-shrink: 0`): "submitted day N", "ext +N → DD/MM/YYYY", the formative "F". Feedback rows show
-the count right-aligned as "X/Y" (title "X of Y ungraded"). Red late rows keep an inline primary
-**Refer** (visible name "Refer", `title="Mark referred"` — the accessible name matches the visible text). Every late / make-up row has a ▾/▴ toggle
-(`button.triage-row__toggle`, `aria-expanded`, named "Actions for <name>, <assessment>") revealing
-its secondary actions below the text: Late → days left / "last day" (not yet red), Extend (Refer stays inline only, never repeated);
-Make-up → Extend, Ignore this test. The Extend editor and the Ignore confirm open inside that
-expanded area. Feedback rows have no actions, so no toggle. Names and feedback titles are links without an
-underline (underline on hover) — the earlier always-underlined feedback title read as noise in the
-dense rail. Dashboard course-card titles drop to 0.95rem beside the rail so two cards fit per row.
+**Compact rows.** `.triage-row` is a grid: 28px ring | text | a stacked action column, with the
+editor/confirm area spanning under text + actions when open. Each text line is one line with an
+ellipsis and the full text as its `title`: late / make-up rows = name / course label (Dashboard
+only) / assessment; feedback rows = assessment / course label. Tags that must never truncate sit
+**beside the name** on line 1 (`flex-shrink: 0`): "submitted day N", "ext +N → DD/MM/YYYY", the
+formative "F". Feedback rows show the count right-aligned as "X/Y" (title "X of Y ungraded"), and
+have no row actions. Red late rows keep an inline primary **Refer** (visible name "Refer",
+`title="Mark referred"` — the accessible name matches the visible text). Names and feedback titles
+are links without an underline (underline on hover) — the earlier always-underlined feedback title
+read as noise in the dense rail. Dashboard course-card titles drop to 0.95rem beside the rail so
+two cards fit per row.
+
+**Stacked row actions, no expand toggle (2026-10-02).** *(supersedes the ▾/▴
+`button.triage-row__toggle` described above, the same day it shipped — a teacher on a phone found
+revealing Extend behind an expand step one tap too many.)* `.triage-row__actions` is a `flex`
+**column** (`align-items: stretch`, 0.3rem gap): it auto-sizes to its widest child and stretches
+the rest to match, so stacked buttons share one width with no fixed sizing — same column, same
+behaviour, at every rail width, not just on phones. Late work stacks **Refer** above **Extend** on
+a red row, or the muted "N left" / "last day" label above **Extend** otherwise (Refer never
+repeats once a row has it inline). Make-up tests stacks **Extend** above **Ignore this test**
+(still its quiet bordered `.secondary.triage-row__quiet` style). The whole column sits vertically
+centred against the row's text via the row's own `align-items: center`. Clicking **Extend** opens
+the shared `ExtendEditor` full-width below the row (`.triage-row__more`, `grid-column: 2 / -1`) —
+the same spot the old expanded area used — without hiding the action buttons; clicking **Ignore
+this test** opens its inline confirm there instead. Only one editor/confirm is open per row
+(opening either closes the other); Cancel closes it. The Referred / extended history keeps the old
+horizontal `.triage-row__actions` (badge + date + Undo, wrapping) via an explicit
+`.triage-row--history .triage-row__actions { flex-direction: row; }` override — it never had an
+expand toggle and isn't part of this change.
 
 **5 rows, toggle at the top.** Each panel shows its 5 most urgent rows (server order). Longer lists
 get an `All N ▾` / `Fewer ▴` button (`.ghost.accent`) in the panel **header**, right side (before

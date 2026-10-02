@@ -1164,9 +1164,10 @@ button.triage-panel__more { padding: 0.15rem 0.4rem; font-size: 0.75rem; font-we
 /* Course page, Gradebook tab: brings the hidden rail back. */
 .triage-rail-toggle { margin-left: auto; display: inline-flex; align-items: center; gap: 0.35rem; }
 /* Compact rows: 28px ring | one-line text lines (ellipsis + full text as the
-   title) | inline actions (Refer, the ▾ toggle, or the feedback count). The
-   expanded area (secondary actions, the Extend editor, the Ignore confirm)
-   spans under the text and actions. */
+   title) | a vertically-stacked action column (Refer / days-left above Extend,
+   or Extend above Ignore this test, or the feedback count) that sizes to its
+   widest button. Extend's editor / Ignore's confirm open full-width below the
+   row's text and actions, in `.triage-row__more`. */
 .triage-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; column-gap: 0.6rem; padding: 0.45rem 0; border-top: 1px solid var(--border); }
 /* Assessments tab: click-to-flip make-up tracking chip on a Schoology test/quiz. */
 .makeup-chip { border: 0; cursor: pointer; font-size: 0.72rem; flex-shrink: 0; }
@@ -1183,16 +1184,18 @@ a.triage-row__title:hover { text-decoration: underline; }
 .triage-row__course { max-width: 100%; font-size: 0.64rem; font-weight: 700; letter-spacing: 0.02em; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .triage-row__task { font-size: 0.75rem; color: var(--text); }
 .triage-row__tag { flex-shrink: 0; font-size: 0.65rem; padding: 0.05rem 0.45rem; white-space: nowrap; }
-.triage-row__actions { display: flex; gap: 0.3rem; align-items: center; }
-button.triage-row__toggle { padding: 0.2rem 0.35rem; font-size: 0.75rem; line-height: 1; color: var(--text-muted); }
+/* A column flex container auto-sizes to its widest child, then stretches the
+   others (the default cross-axis `align-items: stretch`) to match — exactly
+   "sizes to the widest, buttons full width inside it", with no fixed widths. */
+.triage-row__actions { display: flex; flex-direction: column; gap: 0.3rem; }
 .triage-row__count { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; cursor: help; }
 .triage-row__more { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; padding-top: 0.35rem; }
-.triage-row__more .text-muted { margin-right: 0.15rem; }
 .triage-row button.triage-row__quiet { color: var(--text-muted); }
-/* Referred / extended history (no ring): text, then its badges + Undo, wrapping in the rail. */
+/* Referred / extended history (no ring): text, then its badges + Undo, wrapping in the rail
+   (the stacked-actions column above is for the live Late work / Make-up tests rows only). */
 .triage-row--history { display: flex; flex-wrap: wrap; gap: 0.3rem 0.75rem; }
 .triage-row--history .triage-row__text { flex: 1 1 12rem; }
-.triage-row--history .triage-row__actions { flex: 0 1 auto; flex-wrap: wrap; }
+.triage-row--history .triage-row__actions { flex-direction: row; flex: 0 1 auto; flex-wrap: wrap; align-items: center; }
 .triage-note { width: 8rem; font-size: 0.8rem; }
 /* Urgency ring: arc toward the school-day limit, the count centred inside. */
 .urgency-ring { position: relative; flex: 0 0 var(--ring-size, 40px); width: var(--ring-size, 40px); height: var(--ring-size, 40px); display: inline-block; }
@@ -1308,11 +1311,10 @@ button.triage-row__toggle { padding: 0.2rem 0.35rem; font-size: 0.75rem; line-he
   textarea { font-size: 16px; }
 
   /* Triage: one column — the rail drops below the main column (course cards /
-     tab content), full width and not sticky. Bigger row toggles for a fingertip. */
+     tab content), full width and not sticky. */
   .triage-layout { flex-direction: column; align-items: stretch; }
   .triage-layout__main { flex: none; }
   .triage-rail { flex: none; width: auto; position: static; max-height: none; overflow: visible; padding: 0; margin: 0; }
-  button.triage-row__toggle { min-width: 36px; min-height: 36px; }
   .triage-wait { flex-wrap: wrap; }
 
   /* The top-bar logo links to the dashboard. */

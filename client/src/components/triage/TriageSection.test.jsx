@@ -37,9 +37,6 @@ const PAYLOAD = {
 const latePanel = async () => screen.findByLabelText('Late work');
 const makeUpPanel = async () => screen.findByLabelText('Make-up tests');
 const rowOf = (el) => el.closest('.triage-row');
-// Open a row's secondary actions (Extend, Ignore this test).
-const expand = (row) => fireEvent.click(within(row).getByRole('button', { name: /^Actions for / }));
-const expandAll = (panel) => within(panel).getAllByRole('button', { name: /^Actions for / }).forEach((b) => fireEvent.click(b));
 const referButtons = () => screen.getAllByRole('button', { name: 'Refer' });
 
 function renderSection(props = {}) {
@@ -97,21 +94,17 @@ describe('TriageSection', () => {
     expect(api.getTriage).toHaveBeenCalledTimes(2);
   });
 
-  it('every row offers Extend once expanded; Refer / Mark referred only on red rows; no Exempt', async () => {
+  it('every row offers Extend without expanding; Refer / Mark referred only on red rows; no Exempt', async () => {
     renderSection();
     const panel = await latePanel();
     expect(within(panel).getAllByRole('button', { name: 'Refer' })).toHaveLength(2); // inline Refer, red rows
-    expect(within(panel).queryByText('Extend')).not.toBeInTheDocument(); // behind the row toggle
-    expandAll(panel);
-    expect(within(panel).getAllByText('Extend')).toHaveLength(3);
-    expect(within(panel).getAllByRole('button', { name: 'Refer' })).toHaveLength(2); // not repeated when expanded
+    expect(within(panel).getAllByText('Extend')).toHaveLength(3); // visible on every row, no expand needed
     expect(screen.queryByText('Exempt')).not.toBeInTheDocument();
   });
 
   it('Extend posts N lessons (default 3) and a note, then reloads', async () => {
     renderSection();
     const maya = rowOf(within(await latePanel()).getByText('Maya Chen'));
-    expand(maya);
     fireEvent.click(within(maya).getByText('Extend')); // Maya: no extension yet
     const lessons = screen.getByLabelText('Extension (lessons)');
     expect(lessons).toHaveValue(3);
@@ -130,16 +123,14 @@ describe('TriageSection', () => {
     api.getTriage.mockResolvedValue({ ...PAYLOAD, lateWork });
     renderSection();
     const aiden = rowOf(within(await latePanel()).getByText('Aiden Li'));
-    expand(aiden);
     fireEvent.click(within(aiden).getByText('Extend'));
     expect(screen.getByLabelText('Extension (lessons)')).toHaveValue(5);
     expect(screen.getByLabelText('Extension note')).toHaveValue('trip');
   });
 
-  it('Extend → Cancel closes the editor without posting (the row stays expanded)', async () => {
+  it('Extend → Cancel closes the editor without posting', async () => {
     renderSection();
     const maya = rowOf(within(await latePanel()).getByText('Maya Chen'));
-    expand(maya);
     fireEvent.click(within(maya).getByText('Extend'));
     fireEvent.click(screen.getByText('Cancel'));
     expect(screen.queryByLabelText('Extension (lessons)')).not.toBeInTheDocument();
@@ -286,30 +277,30 @@ describe('TriageSection — compact rows', () => {
     expect(within(row).queryByRole('button', { name: 'Refer' })).not.toBeInTheDocument();
   });
 
-  it('the row toggle is a keyboard-reachable button with aria-expanded; it reveals days left + Extend below the text', async () => {
+  it('a non-red row stacks days-left above Extend in the action column, no expand needed', async () => {
     renderSection();
     const row = rowOf(within(await latePanel()).getByText('Aiden Li'));
-    const toggle = within(row).getByRole('button', { name: 'Actions for Aiden Li, CP2' });
-    expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    expect(row.querySelector('.triage-row__more')).toBeNull();
-    fireEvent.click(toggle);
-    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(row.querySelector('.triage-row__more')).toBeNull(); // no editor until Extend is clicked
+    const actions = row.querySelector('.triage-row__actions');
+    expect([...actions.children].map((el) => el.textContent)).toEqual(['5 left', 'Extend']);
+    const extend = within(actions).getByText('Extend');
+    expect(extend).toHaveClass('secondary', 'btn-sm');
+    expect(within(actions).queryByRole('button', { name: 'Refer' })).not.toBeInTheDocument(); // green row
+    fireEvent.click(extend);
     const more = row.querySelector('.triage-row__more');
-    expect(toggle).toHaveAttribute('aria-controls', more.id);
-    expect(more.previousElementSibling).toBe(row.querySelector('.triage-row__actions'));
-    expect(within(more).getByText('5 left')).toBeInTheDocument();
-    expect(within(more).getByText('Extend')).toHaveClass('secondary', 'btn-sm');
-    expect(within(more).queryByRole('button', { name: 'Refer' })).not.toBeInTheDocument(); // green row
-    fireEvent.click(toggle);
-    expect(row.querySelector('.triage-row__more')).toBeNull();
+    expect(more).not.toBeNull();
+    expect(more.previousElementSibling).toBe(actions);
+    expect(within(actions).getByText('Extend')).toBeInTheDocument(); // the stack stays, unlike the old expanded area
   });
 
-  it('an expanded red row offers Extend only (Refer stays inline, not repeated)', async () => {
+  it('a red row stacks Refer above Extend; Refer is inline only, never repeated', async () => {
     renderSection();
     const row = rowOf(within(await latePanel()).getByText('Maya Chen'));
-    expand(row);
+    const actions = row.querySelector('.triage-row__actions');
+    expect([...actions.children].map((el) => el.textContent)).toEqual(['Refer', 'Extend']);
+    fireEvent.click(within(actions).getByText('Extend'));
     const more = row.querySelector('.triage-row__more');
-    expect(within(more).getAllByRole('button').map((b) => b.textContent)).toEqual(['Extend']);
+    expect(within(more).queryByRole('button', { name: 'Refer' })).not.toBeInTheDocument();
     expect(within(row).getAllByRole('button', { name: 'Refer' })).toHaveLength(1);
     expect(within(more).queryByText(/left|last day/)).not.toBeInTheDocument();
   });
@@ -322,8 +313,7 @@ describe('TriageSection — compact rows', () => {
     renderSection();
     const row = rowOf(within(await latePanel()).getByText('Aiden Li'));
     expect(within(row).getByRole('img', { name: 'day 8, limit day 8' })).toHaveTextContent('8');
-    expand(row);
-    expect(within(row.querySelector('.triage-row__more')).getByText('last day')).toBeInTheDocument();
+    expect(within(row.querySelector('.triage-row__actions')).getByText('last day')).toBeInTheDocument();
     expect(within(row).queryByText(/left/)).not.toBeInTheDocument();
     expect(within(row).queryByRole('button', { name: 'Refer' })).not.toBeInTheDocument();
   });
@@ -351,7 +341,7 @@ describe('TriageSection — compact rows', () => {
     const count = within(row.querySelector('.triage-row__actions')).getByTitle('18 of 22 ungraded');
     expect(count).toHaveTextContent(/^18\/22$/);
     expect(row.lastElementChild).toBe(row.querySelector('.triage-row__actions'));
-    expect(within(row).queryByRole('button', { name: /^Actions for/ })).not.toBeInTheDocument();
+    expect(within(row).queryByRole('button')).not.toBeInTheDocument(); // feedback rows have no row actions
   });
 
   it('feedback: a formative row tags F beside the title', async () => {
@@ -361,15 +351,15 @@ describe('TriageSection — compact rows', () => {
     expect(row.querySelector('.triage-row__line')).toHaveTextContent('Model CardF');
   });
 
-  it('make-up row: ring, three lines; expanding offers Extend + Ignore this test', async () => {
+  it('make-up row: ring, three lines; the action column stacks Extend above Ignore this test', async () => {
     renderSection();
     const row = rowOf(within(await makeUpPanel()).getByText('Noah Park'));
     expect(row.firstElementChild).toHaveAttribute('aria-label', 'day 4, limit day 4');
     expect([...textOf(row).children].map((el) => el.textContent)).toEqual(['Noah Park', '[BK 3] AP CSP', 'Unit 1 test']);
-    expand(row);
-    const more = row.querySelector('.triage-row__more');
-    expect(within(more).getByText('Extend')).toHaveClass('secondary');
-    expect(within(more).getByText('Ignore this test')).toHaveClass('secondary');
+    const actions = row.querySelector('.triage-row__actions');
+    expect([...actions.children].map((el) => el.textContent)).toEqual(['Extend', 'Ignore this test']);
+    expect(within(actions).getByText('Extend')).toHaveClass('secondary');
+    expect(within(actions).getByText('Ignore this test')).toHaveClass('secondary');
   });
 
   it('make-up row: the extension tag sits beside the name', async () => {
@@ -378,25 +368,26 @@ describe('TriageSection — compact rows', () => {
     expect(row.querySelector('.triage-row__line')).toHaveTextContent('Zoe Tanext +2 → 20/10/2026');
   });
 
-  it('the Extend editor opens inside the expanded area, replacing its buttons', async () => {
+  it('the Extend editor opens below the row without expanding, and without removing the action buttons', async () => {
     renderSection();
     const row = rowOf(within(await latePanel()).getByText('Maya Chen'));
-    expand(row);
-    fireEvent.click(within(row.querySelector('.triage-row__more')).getByText('Extend'));
+    const actions = row.querySelector('.triage-row__actions');
+    fireEvent.click(within(actions).getByText('Extend'));
     const more = row.querySelector('.triage-row__more');
     expect(within(more).getByLabelText('Extension (lessons)')).toBeInTheDocument();
-    expect(within(more).queryByText('Extend')).not.toBeInTheDocument();
-    expect(within(more).queryByRole('button', { name: 'Refer' })).not.toBeInTheDocument();
+    expect(within(actions).getByText('Extend')).toBeInTheDocument(); // the stack isn't replaced
+    expect(within(actions).getAllByRole('button', { name: 'Refer' })).toHaveLength(1);
   });
 
-  it('the Ignore confirm opens inside the expanded area too', async () => {
+  it('the Ignore confirm opens below the row too, closing an open Extend editor on the same row', async () => {
     renderSection();
     const row = rowOf(within(await makeUpPanel()).getByText('Noah Park'));
-    expand(row);
-    fireEvent.click(within(row).getByText('Ignore this test'));
+    const actions = row.querySelector('.triage-row__actions');
+    fireEvent.click(within(actions).getByText('Extend'));
+    fireEvent.click(within(actions).getByText('Ignore this test'));
     const more = row.querySelector('.triage-row__more');
     expect(within(more).getByText('Ignore Unit 1 test for all students?')).toBeInTheDocument();
-    expect(within(more).queryByText('Extend')).not.toBeInTheDocument();
+    expect(within(more).queryByLabelText('Extension (lessons)')).not.toBeInTheDocument();
   });
 
   it('no course line on a course page (two-line rows)', async () => {
@@ -494,8 +485,7 @@ describe('TriageSection — make-up tests', () => {
     expect(within(panel).getByText('Unit 1 test')).toBeInTheDocument();
     expect(within(panel).getByRole('img', { name: 'day 4, limit day 4' })).toBeInTheDocument();
     expect(within(panel).getByText('ext +2 → 20/10/2026')).toBeInTheDocument();
-    expandAll(panel);
-    expect(within(panel).getAllByText('Extend')).toHaveLength(2);
+    expect(within(panel).getAllByText('Extend')).toHaveLength(2); // visible on every row, no expand needed
     expect(within(panel).queryByRole('button', { name: 'Refer' })).not.toBeInTheDocument();
   });
 
@@ -529,7 +519,6 @@ describe('TriageSection — make-up tests', () => {
     renderSection();
     const panel = await makeUpPanel();
     const zoe = rowOf(within(panel).getByText('Zoe Tan'));
-    expand(zoe);
     fireEvent.click(within(zoe).getByText('Extend')); // Zoe: ext +2, "sits Tue"
     expect(within(panel).getByLabelText('Extension (lessons)')).toHaveValue(2);
     expect(within(panel).getByLabelText('Extension note')).toHaveValue('sits Tue');
@@ -557,8 +546,8 @@ describe('TriageSection — ignore a quiz for make-ups', () => {
     const onMakeUpIgnored = vi.fn();
     renderSection({ onMakeUpIgnored });
     const panel = await makeUpPanel();
-    expand(rowOf(within(panel).getByText('Noah Park')));
-    fireEvent.click(within(panel).getByText('Ignore this test')); // Noah's Unit 1 test
+    const noah = rowOf(within(panel).getByText('Noah Park'));
+    fireEvent.click(within(noah).getByText('Ignore this test')); // Noah's Unit 1 test
     expect(within(panel).getByText('Ignore Unit 1 test for all students?')).toBeInTheDocument();
     fireEvent.click(within(panel).getByText('Yes'));
     await waitFor(() => expect(api.setMakeUpIgnored).toHaveBeenCalledWith(20, true));
@@ -569,8 +558,8 @@ describe('TriageSection — ignore a quiz for make-ups', () => {
   it('Cancel leaves it tracked', async () => {
     renderSection();
     const panel = await makeUpPanel();
-    expand(rowOf(within(panel).getByText('Noah Park')));
-    fireEvent.click(within(panel).getByText('Ignore this test'));
+    const noah = rowOf(within(panel).getByText('Noah Park'));
+    fireEvent.click(within(noah).getByText('Ignore this test'));
     fireEvent.click(within(panel).getByText('Cancel'));
     expect(within(panel).queryByText(/for all students\?/)).not.toBeInTheDocument();
     expect(api.setMakeUpIgnored).not.toHaveBeenCalled();

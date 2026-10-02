@@ -1,8 +1,7 @@
 import { useState } from 'react';
 
 // Shared pieces of the three triage panels in the rail: the header (title +
-// badge left; "All N ▾" toggle and any extra control right), the 5-row limit
-// and each row's expand toggle.
+// badge left; "All N ▾" toggle and any extra control right) and the 5-row limit.
 
 export const ROW_LIMIT = 5;
 
@@ -54,30 +53,3 @@ export function PanelHead({ title, badge, children }) {
     </div>
   );
 }
-
-// Which rows of a panel are expanded (several may be open at once).
-export function useOpenRows() {
-  const [open, setOpen] = useState(() => new Set());
-  const isOpen = (key) => open.has(key);
-  const toggle = (key) => setOpen((prev) => {
-    const next = new Set(prev);
-    if (next.has(key)) next.delete(key); else next.add(key);
-    return next;
-  });
-  return [isOpen, toggle];
-}
-
-// The ▾ / ▴ button that shows a row's secondary actions below its text.
-export function RowToggle({ label, expanded, controls, onToggle }) {
-  return (
-    <button
-      type="button" className="ghost triage-row__toggle" aria-label={`Actions for ${label}`}
-      aria-expanded={expanded} aria-controls={expanded ? controls : undefined} onClick={onToggle}
-    >
-      <span aria-hidden="true">{expanded ? '▴' : '▾'}</span>
-    </button>
-  );
-}
-
-// A row's DOM id for its expanded area, unique per panel.
-export const moreId = (panelId, key) => `${panelId}-more-${key}`.replace(/[^\w-]/g, '_');

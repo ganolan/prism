@@ -70,7 +70,9 @@ function RemedyBanner({ failure, retryEnabled, onLogin, onRetry }) {
   );
 }
 
-export default function SyncProgress({ reduced, mode, retryEnabled, onDone, onRetry, onRetryBlocks, onLogin }) {
+// `notice` is a muted status line under the heading (e.g. "Connection lost —
+// still syncing on the server…") — informational, never styled as an error.
+export default function SyncProgress({ reduced, mode, notice, retryEnabled, onDone, onRetry, onRetryBlocks, onLogin }) {
   const { phases, logLines, failures, progress, summary, fatal } = reduced;
   const running = mode === 'running';
   const blocksPhase = phases.find((p) => p.kind === 'blocks');
@@ -88,7 +90,8 @@ export default function SyncProgress({ reduced, mode, retryEnabled, onDone, onRe
     <div className="sync-progress">
       <div className={`sync-progress-head ${headingClass}`}>
         <h2>{running && <span className="sync-spinner" aria-hidden="true" />}{heading}</h2>
-        {running && <p className="text-muted text-sm">Please don't close Prism — this takes a few minutes.</p>}
+        {running && <p className="text-muted text-sm">This takes a few minutes. It carries on if you close Prism or your screen locks.</p>}
+        {running && notice && <p className="text-muted text-sm sync-notice" role="status">{notice}</p>}
       </div>
 
       <div className="sync-bar">

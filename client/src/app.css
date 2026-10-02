@@ -1046,6 +1046,9 @@ button.btn-sm { padding: 0.3rem 0.65rem; font-size: 0.78rem; }
 .sync-head-ok h2 { color: var(--success); }
 .sync-head-warn h2 { color: var(--warning); }
 .sync-head-error h2 { color: var(--error); }
+/* Muted, non-alarming status under the heading — e.g. the stream dropped but
+   the sync is still running server-side (see docs/design-language.md). */
+.sync-notice { margin: 0.3rem 0 0; font-style: italic; }
 .sync-spinner {
   width: 13px; height: 13px; border-radius: 50%;
   border: 2px solid var(--border); border-top-color: var(--accent);

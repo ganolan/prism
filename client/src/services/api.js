@@ -57,18 +57,39 @@ export const getGrades = (params) => {
 export const getSyncStatus = () => request('/sync/status');
 export const getSyncMetrics = () => request('/sync/metrics');
 
+// Sync runs (persisted history + event log; see server/routes/schoology.js).
+export const getSyncRuns = (limit = 30) => request(`/sync/runs?limit=${limit}`);
+export const getSyncRun = (id) => request(`/sync/runs/${id}`);
+// Incremental events for re-attaching to a run: { status, finished, events: [{ seq, ... }] }.
+export const getSyncRunEvents = (id, afterSeq = 0) => request(`/sync/runs/${id}/events?after=${afterSeq}`);
+// { running, runId } — what (if anything) is syncing right now.
+export const getCurrentSync = () => request('/sync/current');
+
 // Run the unified sync. Streams newline-delimited JSON progress events from the
-// server; each parsed event is passed to onEvent. Resolves when the stream ends.
+// server; each parsed event is passed to onEvent. The first event is
+// { type: 'run', runId } and every later one carries its `seq`, so a caller
+// whose stream drops can re-attach with getSyncRunEvents(runId, lastSeq).
+// Resolves when the stream ends. A 409 (a sync is already running) throws an
+// Error with `status: 409` and the running `runId`. `signal` aborts the stream
+// (the sync itself carries on server-side).
 export async function runSync(
   { masteryCourseIds = [], skipSchoology = false, includeHidden = false, recentOnly = false, recentDays = 30, syncBlocks = true },
-  onEvent
+  onEvent,
+  { signal } = {},
 ) {
   const res = await fetch(`${BASE}/sync`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ masteryCourseIds, skipSchoology, includeHidden, recentOnly, recentDays, syncBlocks }),
+    signal,
   });
-  if (res.status === 409) throw new Error('A sync is already running.');
+  if (res.status === 409) {
+    const body = await res.json().catch(() => ({}));
+    const err = new Error('A sync is already running.');
+    err.status = 409;
+    err.runId = body.runId ?? null;
+    throw err;
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(err.error || `Sync failed: ${res.status}`);

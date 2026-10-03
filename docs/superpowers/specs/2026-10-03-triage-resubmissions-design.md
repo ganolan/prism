@@ -643,6 +643,12 @@ can be published:
   the baseline (a Schoology regrade *after* an unsynced R still answers it — its entry is the first after R;
   one *before* R is part of the baseline) but never counts as Prism evidence. Absorption keeps a score
   change whose Schoology grade time is after the arrival.
+- **Absorption is part-wise (round 6).** Absorbing into a pending arrival's baseline (status-line publish,
+  pre-save and echo captures) merges only the parts that changed since the last capture —
+  `absorbParts(baseline, current, changedParts(lastSnapshot, current))`, score+exception / levels / visible
+  comment separately — so the teacher's own earlier non-answering save is never absorbed (review S16:
+  R synced → hide-only save → re-show the same comment read as answered, and with an open request settled
+  it for good; S5b: the same after a pre-R echo). S16, S16b, S16r, S5b → Arrived (route tests).
 - **Closed:** S2 including its score-moving form (N1), N2, N2b, N3. Regression tests at the route level
   (`server/routes/mastery.test.js`) and through the capture protocol (`feedbackSnapshots.test.js`);
   common workflows answered: a Prism rubric regrade (`/write`, then `write-comment` with `rubricSaved`),

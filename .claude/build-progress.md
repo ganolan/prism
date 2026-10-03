@@ -905,6 +905,9 @@ the original 56-day gap and the fixed/re-verified result are in `.claude/powersc
   teacher's changes and capture stamped. The echo is logged as a `'schoology'` entry at Schoology's grade
   time (ordering only, never Prism evidence). Review N1/N2/N2b/N3 closed. Details: spec "A Prism save
   credits only what the teacher wrote".
+- **Round 6 (2026-10-03): part-wise absorption.** Absorbing into a pending arrival's baseline merges only
+  the parts that changed since the last capture (`absorbParts`), so a teacher's own earlier hide-only
+  save is never absorbed (review S16/S16b/S16r/S5b → Arrived, request stays open).
 
 ## Sync resilience + persistent sync log (2026-10-02, branch `feat/sync-resilience-logs`)
 

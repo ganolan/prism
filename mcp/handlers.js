@@ -23,8 +23,8 @@ import {
 import { act, hasLine, pairOf } from '../server/services/triageActions.js';
 import { askLine, extendResubmissionLine, gradeStandsLine, extensionLine, makeUpLine } from '../server/lib/statusLines.js';
 import { loadCalendar } from '../server/services/schoolCalendar.js';
-import { todayLocal, epochToLocalDate } from '../server/lib/schoolDays.js';
-import { sqliteUtcToEpoch } from '../server/lib/resubmission.js';
+import { todayLocal } from '../server/lib/schoolDays.js';
+import { statusLineUntil } from '../server/services/statusLineDue.js';
 
 // Active courses = not archived, not excluded, not hidden. Mirrors the
 // 'current' view in server/routes/courses.js, plus the excluded filter (#56,
@@ -361,8 +361,8 @@ const RENDERABLE_KINDS = ['ask', 'extend_resubmission', 'grade_stands', 'extensi
 // Server-rendered preview for the confirm step before any comment_line publish.
 // The agent cannot reliably compute the school-day date a template embeds, so
 // this computes `until` with the SAME calendar logic the corresponding record
-// step uses (reusing the service's own assert*/pairContext helpers — never
-// duplicating the calendar math here), renders the line with
+// step uses (server/services/statusLineDue.js, shared with the web confirm
+// modal's GET /api/triage/status-line/until), renders the line with
 // server/lib/statusLines.js, and previews it with a fresh Schoology read
 // (server/services/statusLinePublisher.js previewStatusLine). Always returns
 // the rendered suggestion in `line`; if the caller already has a candidate
@@ -373,29 +373,16 @@ export async function previewStatusLineTool(db, { student_id, assignment_id, kin
   if (!RENDERABLE_KINDS.includes(kind)) {
     throw new TriageError('BAD_VALUE', `kind must be one of ${RENDERABLE_KINDS.join(', ')}`);
   }
-  const cal = loadCalendar(db);
-  let until;
-  let rendered;
-  if (kind === 'ask') {
-    const { lessons: n } = assertCanRequest(db, { studentId: student_id, assignmentId: assignment_id, lessons: lessons ?? null });
-    until = cal.addSchoolDays(todayLocal(), n).date;
-    rendered = askLine({ until, note });
-  } else if (kind === 'extend_resubmission') {
-    if (resubmission_id == null) throw new TriageError('BAD_VALUE', 'resubmission_id is required for kind extend_resubmission');
-    const { request } = assertCanExtendRequest(db, resubmission_id, lessons);
-    const requestedOn = epochToLocalDate(sqliteUtcToEpoch(request.requested_at));
-    until = cal.addSchoolDays(requestedOn, lessons).date;
-    rendered = extendResubmissionLine({ until, note });
-  } else if (kind === 'grade_stands') {
-    if (resubmission_id == null) throw new TriageError('BAD_VALUE', 'resubmission_id is required for kind grade_stands');
-    ({ until } = assertCanGradeStand(db, resubmission_id));
-    rendered = gradeStandsLine({ until });
-  } else {
-    // extension / make_up: same calendar math, from the assignment's own due date.
-    const { assignment } = assertCanExtend(db, { studentId: student_id, assignmentId: assignment_id, lessons });
-    until = cal.addSchoolDays(assignment.due_date.slice(0, 10), lessons).date;
-    rendered = kind === 'make_up' ? makeUpLine({ until, note }) : extensionLine({ until, lessons, note });
-  }
+  const { until } = statusLineUntil(db, {
+    kind, studentId: student_id, assignmentId: assignment_id, lessons, resubmissionId: resubmission_id,
+  });
+  const rendered = {
+    ask: () => askLine({ until, note }),
+    extend_resubmission: () => extendResubmissionLine({ until, note }),
+    grade_stands: () => gradeStandsLine({ until }),
+    extension: () => extensionLine({ until, lessons, note }),
+    make_up: () => makeUpLine({ until, note }),
+  }[kind]();
   const preview = await previewStatusLine(db, { studentId: student_id, assignmentId: assignment_id, line: hasLine(line) ? line : rendered });
   return { line: rendered, until, ...preview };
 }

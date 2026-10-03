@@ -13,6 +13,7 @@ import {
   previewStatusLine, publishStatusLine, removeStatusLine, setStatusLineSource,
 } from '../services/statusLinePublisher.js';
 import { act as runAction, hasLine, pairOf } from '../services/triageActions.js';
+import { statusLineUntil } from '../services/statusLineDue.js';
 import { loadCalendar } from '../services/schoolCalendar.js';
 import { todayLocal } from '../lib/schoolDays.js';
 
@@ -63,6 +64,18 @@ router.get('/status-line/preview', async (req, res) => {
   const { studentId, assignmentId, line } = req.query;
   try {
     res.json(await previewStatusLine(getDb(), { studentId, assignmentId, line: line ?? '' }));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// GET /api/triage/status-line/until?kind&studentId&assignmentId&lessons&resubmissionId
+// → { until, lessons }: the due date the confirm modal's default line embeds, from the
+// same calendar logic (and validation) as the action itself. No Schoology read.
+router.get('/status-line/until', (req, res) => {
+  const { kind, studentId, assignmentId, lessons, resubmissionId } = req.query;
+  try {
+    res.json(statusLineUntil(getDb(), { kind, studentId, assignmentId, lessons, resubmissionId }));
   } catch (err) {
     sendError(res, err);
   }

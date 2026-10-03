@@ -9,7 +9,7 @@ import router from './triage.js';
 import { getDb } from '../db/index.js';
 import { getSectionGrades, pushGradeComments } from '../services/schoology.js';
 import { addDays, todayLocal } from '../lib/schoolDays.js';
-import { storeSchoolDays } from '../services/schoolCalendar.js';
+import { storeSchoolDays, loadCalendar } from '../services/schoolCalendar.js';
 
 async function call(method, path, body) {
   const app = express();
@@ -415,5 +415,50 @@ describe('status lines on triage actions (Amendment B)', () => {
     expect(await call('GET', `/api/triage/status-line/preview?studentId=${studentId}&assignmentId=${assignmentId}&line=x`))
       .toMatchObject({ status: 502, body: { code: 'SCHOOLOGY_READ_FAILED' } });
     expect(pushGradeComments).not.toHaveBeenCalled();
+  });
+});
+
+// The web confirm modal renders its default status line client-side
+// (client/src/lib/statusLines.js) — it needs the due date the record step will
+// store, worked out with the server's school calendar (no Schoology read).
+describe('GET status-line/until', () => {
+  const until = (q) => call('GET', `/api/triage/status-line/until?${new URLSearchParams(q)}`);
+  const cal = () => loadCalendar(getDb());
+  beforeEach(() => vi.clearAllMocks());
+
+  test('ask: today + lessons (the settings default when omitted); validated like the ask', async () => {
+    const res = await until({ kind: 'ask', studentId, assignmentId, lessons: 2 });
+    expect(res).toMatchObject({ status: 200, body: { until: cal().addSchoolDays(todayLocal(), 2).date, lessons: 2 } });
+    const dflt = await until({ kind: 'ask', studentId, assignmentId });
+    expect(dflt.status).toBe(200);
+    expect(dflt.body.until).toBe(cal().addSchoolDays(todayLocal(), dflt.body.lessons).date);
+    await call('POST', '/api/triage/resubmissions', { studentId, assignmentId, lessons: 2 });
+    expect(await until({ kind: 'ask', studentId, assignmentId, lessons: 2 })).toMatchObject({ status: 409, body: { code: 'ALREADY_OPEN' } });
+    expect(getSectionGrades).not.toHaveBeenCalled();
+  });
+
+  test('extend_resubmission matches the until the extend then records; grade_stands returns the request deadline', async () => {
+    const asked = await call('POST', '/api/triage/resubmissions', { studentId, assignmentId, lessons: 2 });
+    const res = await until({ kind: 'extend_resubmission', resubmissionId: asked.body.id, lessons: 5 });
+    expect(res.status).toBe(200);
+    const extended = await call('PUT', `/api/triage/resubmissions/${asked.body.id}`, { lessons: 5 });
+    expect(res.body.until).toBe(extended.body.until);
+    expect(await until({ kind: 'grade_stands', resubmissionId: asked.body.id })).toMatchObject({ status: 409, body: { code: 'NOT_AT_DEADLINE' } });
+    getDb().prepare(`UPDATE resubmissions SET requested_at = '2020-01-06 04:00:00' WHERE id = ?`).run(asked.body.id);
+    const stands = await until({ kind: 'grade_stands', resubmissionId: asked.body.id });
+    expect(stands.body.until).toBe(cal().addSchoolDays('2020-01-06', 5).date);
+  });
+
+  test('extension / make_up: the due date + lessons, matching the recorded extension', async () => {
+    const res = await until({ kind: 'extension', studentId, assignmentId, lessons: 3 });
+    expect(res.status).toBe(200);
+    const rec = await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 3 });
+    expect(res.body.until).toBe(rec.body.until);
+    expect((await until({ kind: 'make_up', studentId, assignmentId, lessons: 3 })).body.until).toBe(rec.body.until);
+    expect(await until({ kind: 'extension', studentId, assignmentId, lessons: 0 })).toMatchObject({ status: 400, body: { code: 'BAD_LESSONS' } });
+  });
+
+  test('an unknown kind → 400 BAD_VALUE', async () => {
+    expect(await until({ kind: 'bogus', studentId, assignmentId })).toMatchObject({ status: 400, body: { code: 'BAD_VALUE' } });
   });
 });

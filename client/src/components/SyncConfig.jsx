@@ -3,6 +3,7 @@ import { formatLastSynced } from '../lib/courseDisplay.js';
 import TriCheckbox from './TriCheckbox.jsx';
 import { getSyncPrefs, setSyncPrefs } from '../lib/syncPrefs.js';
 import NumberStepper from './NumberStepper.jsx';
+import SchoologyConnectionStatus, { connectionState } from './SchoologyConnectionStatus.jsx';
 
 const GROUPS = [
   { key: 'visible',  label: 'Visible courses',  match: (c) => !c.hidden && !c.archived && !c.excluded },
@@ -14,7 +15,9 @@ const RECENT_HELP =
 
 const CALENDAR_STALE_DAYS = 14;
 
-export default function SyncConfig({ courses, calendar, loggedIn, busy, onStart, onCancel, onLogin }) {
+// connection (optional) = useSchoologyConnection() from the dialog: the saved session's
+// live status beside the login option, plus a login prompt when it has expired.
+export default function SyncConfig({ courses, calendar, loggedIn, busy, onStart, onCancel, onLogin, connection = null }) {
   const groups = useMemo(
     () => GROUPS.map((g) => ({ ...g, courses: courses.filter(g.match) })).filter((g) => g.courses.length),
     [courses]
@@ -168,6 +171,19 @@ export default function SyncConfig({ courses, calendar, loggedIn, busy, onStart,
           <span className="sync-badge">Optional</span>
         </div>
 
+        {connection && loggedIn && (
+          <div className="sync-connection">
+            <SchoologyConnectionStatus connection={connection} />
+          </div>
+        )}
+        {loggedIn && connectionState(connection?.status) === 'expired' && (
+          <div className="alert alert-warning sync-login-prompt">
+            <p>The saved Schoology session has expired — log in again before syncing mastery.</p>
+            <button className="secondary" onClick={onLogin} disabled={busy}>
+              Log in to Schoology
+            </button>
+          </div>
+        )}
         {!loggedIn ? (
           <div className="alert alert-warning sync-login-prompt">
             <p>Mastery sync needs a Schoology browser session. Log in once to enable it.</p>

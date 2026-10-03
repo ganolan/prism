@@ -185,7 +185,16 @@ export const draftBeaconBody = (data) => new Blob([JSON.stringify(data)], { type
 
 // Mastery / SBG
 export const triggerMasteryLogin = () => request('/mastery/login', { method: 'POST' });
-export const getMasteryLoginStatus = () => request('/mastery/login-status');
+// { loggedIn, live: 'connected' | 'expired' | 'none' | null, checkedAt, message? } — live is
+// a cached server-side check of the saved session; refresh forces one; check: false never
+// opens a browser on the server (live = the cached answer or null).
+export const getMasteryLoginStatus = ({ refresh = false, check = true } = {}) => {
+  const q = new URLSearchParams();
+  if (refresh) q.set('refresh', '1');
+  if (!check) q.set('check', '0');
+  const qs = q.toString();
+  return request(`/mastery/login-status${qs ? `?${qs}` : ''}`);
+};
 export const triggerMasterySync = (courseId) => request(`/mastery/sync/${courseId}`, { method: 'POST' });
 export const getMasteryForCourse = (courseId) => request(`/mastery/${courseId}`);
 export const getMasteryForStudent = (courseId, studentUid) => request(`/mastery/${courseId}/student/${studentUid}`);

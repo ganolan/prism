@@ -6,6 +6,7 @@ import {
 import { reduceSyncEvents } from '../lib/syncEvents.js';
 import SyncConfig from './SyncConfig.jsx';
 import SyncProgress from './SyncProgress.jsx';
+import { useSchoologyConnection } from './SchoologyConnectionStatus.jsx';
 
 // How often a dialog that lost its stream polls the run's stored events, and
 // how long polls may keep failing — counted in VISIBLE time only, restarted on
@@ -41,6 +42,7 @@ export default function SyncDialog({ onClose, onSyncComplete, pollMs = POLL_MS, 
   const [mode, setMode] = useState('loading'); // loading | config | running | stalled | done
   const [courses, setCourses] = useState([]);
   const [loggedIn, setLoggedIn] = useState(false);
+  const connection = useSchoologyConnection(); // live session status beside the login option
   // Calendar freshness (source/totalSchoolDays/syncedAt), fetched alongside
   // courses so SyncConfig can seed its PowerSchool-step default once, at
   // mount — same "load everything before SyncConfig renders" pattern as
@@ -64,7 +66,9 @@ export default function SyncDialog({ onClose, onSyncComplete, pollMs = POLL_MS, 
     // A sync already running (started on another device, or before this page
     // was reloaded) → go straight to following it instead of the config step.
     const current = getCurrentSync().catch(() => null);
-    Promise.all([getCourses(true, true), getMasteryLoginStatus(), getTriageCalendar()])
+    // check: false — the live session check runs separately (useSchoologyConnection), so
+    // it never holds up the dialog.
+    Promise.all([getCourses(true, true), getMasteryLoginStatus({ check: false }), getTriageCalendar()])
       .then(([courseList, status, cal]) => {
         if (cancelled) return;
         setCourses(courseList);
@@ -275,9 +279,10 @@ export default function SyncDialog({ onClose, onSyncComplete, pollMs = POLL_MS, 
     setBusy(true);
     try {
       await triggerMasteryLogin();
-      const status = await getMasteryLoginStatus();
+      const status = await getMasteryLoginStatus({ check: false });
       setLoggedIn(!!status.loggedIn);
       setRetryEnabled(true);
+      connection.refresh();
     } catch {
       /* login browser failed or was cancelled — leave state unchanged */
     } finally {
@@ -311,6 +316,7 @@ export default function SyncDialog({ onClose, onSyncComplete, pollMs = POLL_MS, 
             onStart={(ids, opts) => startSync(ids, opts)}
             onCancel={onClose}
             onLogin={handleLogin}
+            connection={connection}
           />
         )}
 

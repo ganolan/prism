@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import SettingsPage from './SettingsPage.jsx';
 import * as api from '../services/api.js';
 
@@ -9,6 +9,8 @@ vi.mock('../services/api.js', () => ({
   getTriage: vi.fn(),
   getSyncRuns: vi.fn(),
   getSyncRun: vi.fn(),
+  getMasteryLoginStatus: vi.fn(),
+  triggerMasteryLogin: vi.fn(),
 }));
 
 const TRIAGE = {
@@ -22,6 +24,8 @@ beforeEach(() => {
   api.updateSettings.mockImplementation(async ({ triage }) => ({ triage: { ...TRIAGE, ...triage } }));
   api.getSyncRuns.mockResolvedValue([]);
   api.getTriage.mockResolvedValue({ calendar: { source: 'powerschool', totalSchoolDays: 164, syncedAt: '2026-10-01T00:00:00Z' } });
+  api.getMasteryLoginStatus.mockResolvedValue({ loggedIn: true, live: 'connected', checkedAt: '2026-10-03T06:05:00Z' });
+  api.triggerMasteryLogin.mockResolvedValue({ success: true });
 });
 
 describe('SettingsPage', () => {
@@ -98,3 +102,57 @@ describe('SettingsPage', () => {
     expect(await screen.findByText('Failed')).toBeInTheDocument();
   });
 });
+
+describe('SettingsPage — Schoology connection card', () => {
+  const card = async () => screen.findByRole('region', { name: 'Schoology connection' });
+  const hhmm = (iso) => new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+  it('is the #schoology anchor and shows "Connected · checked HH:MM"', async () => {
+    render(<SettingsPage />);
+    const c = await card();
+    expect(c).toHaveAttribute('id', 'schoology');
+    expect(await within(c).findByText(`Connected · checked ${hhmm('2026-10-03T06:05:00Z')}`)).toBeInTheDocument();
+    expect(api.getMasteryLoginStatus).toHaveBeenCalledWith({ refresh: false });
+  });
+
+  it('Expired / Not set up', async () => {
+    api.getMasteryLoginStatus.mockResolvedValue({ loggedIn: true, live: 'expired', checkedAt: '2026-10-03T06:05:00Z', message: 'bounced' });
+    const { unmount } = render(<SettingsPage />);
+    expect(await within(await card()).findByText('Expired')).toBeInTheDocument();
+    unmount();
+    api.getMasteryLoginStatus.mockResolvedValue({ loggedIn: false, live: 'none', checkedAt: null });
+    render(<SettingsPage />);
+    const c = await card();
+    expect(await within(c).findByText('Not set up')).toBeInTheDocument();
+    expect(within(c).queryByRole('button', { name: 'Check now' })).not.toBeInTheDocument();
+  });
+
+  it('Check now re-checks with refresh', async () => {
+    render(<SettingsPage />);
+    const c = await card();
+    await within(c).findByText(/Connected/);
+    api.getMasteryLoginStatus.mockResolvedValue({ loggedIn: true, live: 'expired', checkedAt: '2026-10-03T06:30:00Z' });
+    fireEvent.click(within(c).getByRole('button', { name: 'Check now' }));
+    expect(api.getMasteryLoginStatus).toHaveBeenLastCalledWith({ refresh: true });
+    expect(await within(c).findByText('Expired')).toBeInTheDocument();
+  });
+
+  it('Log in to Schoology opens the login on the server (says so), then refreshes the status', async () => {
+    api.getMasteryLoginStatus.mockResolvedValue({ loggedIn: true, live: 'expired', checkedAt: null });
+    let finish;
+    api.triggerMasteryLogin.mockImplementation(() => new Promise((r) => { finish = r; }));
+    render(<SettingsPage />);
+    const c = await card();
+    expect(within(c).getByText("Opens a Schoology login window on the server — screen-share to it if you're away.")).toBeInTheDocument();
+    expect(c.textContent).not.toMatch(/Mac mini|#136/);
+    fireEvent.click(within(c).getByRole('button', { name: 'Log in to Schoology' }));
+    expect(api.triggerMasteryLogin).toHaveBeenCalledTimes(1);
+    expect(within(c).getByRole('button', { name: 'Waiting for login…' })).toBeDisabled();
+    api.getMasteryLoginStatus.mockResolvedValue({ loggedIn: true, live: 'connected', checkedAt: '2026-10-03T07:00:00Z' });
+    finish({ success: true });
+    expect(await within(c).findByText(/^Connected/)).toBeInTheDocument();
+    expect(api.getMasteryLoginStatus).toHaveBeenLastCalledWith({ refresh: true });
+    expect(within(c).getByText('Login saved.')).toBeInTheDocument();
+  });
+});
+

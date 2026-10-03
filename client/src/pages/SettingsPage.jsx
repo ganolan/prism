@@ -1,8 +1,52 @@
 import { useEffect, useState } from 'react';
 import NumberStepper from '../components/NumberStepper.jsx';
 import RecentSyncs from '../components/RecentSyncs.jsx';
-import { getSettings, updateSettings, getTriage } from '../services/api.js';
+import SchoologyConnectionStatus, { useSchoologyConnection } from '../components/SchoologyConnectionStatus.jsx';
+import { getSettings, updateSettings, getTriage, triggerMasteryLogin } from '../services/api.js';
 import { formatDateTime } from '../lib/formatDate.js';
+
+// The saved Schoology browser session (mastery sync, OneDrive links, unsubmitting work on
+// an Ask): its live status, a re-check, and the login window. The login opens on the
+// server's screen, so the button says so. Anchor: /settings#schoology (the Ask modal's
+// "reconnect in Settings" link).
+function SchoologyConnectionCard() {
+  const connection = useSchoologyConnection();
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [loginMsg, setLoginMsg] = useState(null);
+
+  async function login() {
+    setLoginBusy(true);
+    setLoginMsg(null);
+    try {
+      await triggerMasteryLogin();
+      setLoginMsg('Login saved.');
+    } catch (err) {
+      setLoginMsg(`Login did not complete: ${err.message}`);
+    } finally {
+      setLoginBusy(false);
+      connection.refresh();
+    }
+  }
+
+  return (
+    <section className="card settings-section" id="schoology" aria-labelledby="schoology-connection-title">
+      <h3 id="schoology-connection-title">Schoology connection</h3>
+      <p className="text-sm text-muted">
+        Prism&apos;s saved Schoology login — used for mastery sync, OneDrive links and unsubmitting work when you ask for a resubmission.
+      </p>
+      <div className="settings-row">
+        <SchoologyConnectionStatus connection={connection} />
+      </div>
+      <div className="settings-row">
+        <button type="button" className="secondary" onClick={login} disabled={loginBusy}>
+          {loginBusy ? 'Waiting for login…' : 'Log in to Schoology'}
+        </button>
+        <span className="text-sm text-muted">Opens a Schoology login window on the server — screen-share to it if you&apos;re away.</span>
+      </div>
+      {loginMsg && <p className="text-sm text-muted" role="status">{loginMsg}</p>}
+    </section>
+  );
+}
 
 // App settings, stored server-side (shared by every device and PrisMCP).
 export default function SettingsPage() {
@@ -29,6 +73,11 @@ export default function SettingsPage() {
       setStatus(`Not saved: ${err.message}`);
     }
   }
+
+  // /settings#schoology: the card renders once the settings have loaded — scroll to it then.
+  useEffect(() => {
+    if (triage && window.location.hash === '#schoology') document.getElementById('schoology')?.scrollIntoView?.({ block: 'start' });
+  }, [Boolean(triage)]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!triage) return status ? <div className="error-msg">{status}</div> : <div className="loading">Loading...</div>;
 
@@ -86,6 +135,8 @@ export default function SettingsPage() {
           </div>
         )}
       </section>
+
+      <SchoologyConnectionCard />
 
       <RecentSyncs />
     </div>

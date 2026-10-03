@@ -464,3 +464,29 @@ describe('SyncDialog', () => {
     });
   });
 });
+
+describe('SyncDialog — Schoology connection status', () => {
+  it('shows the live status beside the login option; the course load never waits on the live check', async () => {
+    vi.mocked(api.getMasteryLoginStatus).mockImplementation(async ({ check = true } = {}) => (
+      check ? { loggedIn: true, live: 'connected', checkedAt: '2026-10-03T06:05:00Z' } : { loggedIn: true, live: null, checkedAt: null }
+    ));
+    render(<SyncDialog onClose={() => {}} />);
+    expect(await screen.findByText(/^Connected · checked/)).toBeInTheDocument();
+    expect(api.getMasteryLoginStatus).toHaveBeenCalledWith({ check: false });
+    expect(api.getMasteryLoginStatus).toHaveBeenCalledWith({ refresh: false });
+    expect(screen.getByRole('button', { name: 'Check now' })).toBeInTheDocument();
+  });
+
+  it('an expired session offers the login (even though a session file exists); logging in re-checks', async () => {
+    vi.mocked(api.getMasteryLoginStatus).mockImplementation(async ({ check = true } = {}) => (
+      check ? { loggedIn: true, live: 'expired', checkedAt: null } : { loggedIn: true, live: null, checkedAt: null }
+    ));
+    vi.mocked(api.triggerMasteryLogin).mockResolvedValue({ success: true });
+    render(<SyncDialog onClose={() => {}} />);
+    expect(await screen.findByText('Expired')).toBeInTheDocument();
+    vi.mocked(api.getMasteryLoginStatus).mockImplementation(async () => ({ loggedIn: true, live: 'connected', checkedAt: '2026-10-03T07:00:00Z' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Log in to Schoology' }));
+    expect(await screen.findByText(/^Connected · checked/)).toBeInTheDocument();
+    expect(api.getMasteryLoginStatus).toHaveBeenCalledWith({ refresh: true });
+  });
+});

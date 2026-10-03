@@ -1285,6 +1285,20 @@ a.triage-row__title:hover { text-decoration: underline; }
 .status-line-modal .alert { margin: 0; }
 .status-line-modal__actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.3rem; }
 .resubmit-control__note { font-size: 0.85rem; color: var(--text-muted); }
+/* Phase 2 (LTI unsubmit on Ask): the Ask confirm's checkbox + its Settings link, and the
+   "Unsubmit failed — unsubmit it in Schoology ›" note on the triage row and the card. */
+.status-line-modal__unsubmit { display: flex; flex-direction: column; gap: 0.2rem; }
+.status-line-modal__reconnect { margin-left: 1.6rem; }
+.unsubmit-failed { font-size: 0.8rem; color: var(--warning); font-weight: 600; }
+.unsubmit-failed a.link { color: inherit; text-decoration: underline; }
+
+/* Schoology connection status (Settings card, Sync dialog): a dot, one line, Check now. */
+.schoology-connection { display: inline-flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
+.schoology-connection__dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--text-muted); flex: none; }
+.schoology-connection__dot--success { background: var(--success); }
+.schoology-connection__dot--warning { background: var(--warning); }
+.schoology-connection__text { font-weight: 600; }
+.sync-connection { font-size: 0.85rem; margin: 0.4rem 0; }
 
 .settings-section { margin-bottom: 1rem; }
 .settings-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin: 0.6rem 0; }

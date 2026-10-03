@@ -1,4 +1,4 @@
-import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import express from 'express';
 
 const h = vi.hoisted(() => {
@@ -35,6 +35,11 @@ import { requestResubmission, resubmissionByStudent } from '../services/resubmis
 import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
 import { publishStatusLine } from '../services/statusLinePublisher.js';
 import { writeMasteryScores } from '../services/masterySync.js';
+import { sessionDeps, resetSessionStatusCache } from '../services/schoologySession.js';
+
+// The live session check opens a real browser — never in tests.
+const noBrowser = () => { throw new Error('tests must inject a fake Schoology page'); };
+sessionDeps.openPage = noBrowser;
 
 function startServer() {
   const app = express();
@@ -352,20 +357,48 @@ describe('GET /api/mastery/:courseId/student/:studentUid — individually assign
 });
 
 describe('GET /api/mastery/login-status', () => {
-  beforeEach(() => { h.loggedIn = true; });
-
-  test('reports loggedIn true when a session file exists', async () => {
+  let page;
+  beforeEach(() => {
     h.loggedIn = true;
+    resetSessionStatusCache();
+    page = { url: vi.fn(() => 'https://schoology.hkis.edu.hk/home'), goto: vi.fn(async () => {}) };
+    sessionDeps.openPage = vi.fn(async () => ({ page, close: async () => {} }));
+  });
+  afterEach(() => { sessionDeps.openPage = noBrowser; });
+
+  test("a live saved session → loggedIn, live 'connected', checkedAt", async () => {
     const { status, body } = await get('/api/mastery/login-status');
     expect(status).toBe(200);
-    expect(body).toEqual({ loggedIn: true });
+    expect(body).toMatchObject({ loggedIn: true, live: 'connected' });
+    expect(Date.parse(body.checkedAt)).not.toBeNaN();
   });
 
-  test('reports loggedIn false when no session file exists', async () => {
+  test("no session file → loggedIn false, live 'none', no browser", async () => {
     h.loggedIn = false;
     const { status, body } = await get('/api/mastery/login-status');
     expect(status).toBe(200);
-    expect(body).toEqual({ loggedIn: false });
+    expect(body).toEqual({ loggedIn: false, live: 'none', checkedAt: null });
+    expect(sessionDeps.openPage).not.toHaveBeenCalled();
+  });
+
+  test('cached between calls; ?refresh=1 re-checks; ?check=0 never opens a browser', async () => {
+    await get('/api/mastery/login-status');
+    await get('/api/mastery/login-status');
+    expect(sessionDeps.openPage).toHaveBeenCalledTimes(1);
+    page.url.mockReturnValue('https://login.microsoftonline.com/x');
+    const refreshed = await get('/api/mastery/login-status?refresh=1');
+    expect(sessionDeps.openPage).toHaveBeenCalledTimes(2);
+    expect(refreshed.body).toMatchObject({ loggedIn: true, live: 'expired' });
+    const quick = await get('/api/mastery/login-status?check=0&refresh=1');
+    expect(sessionDeps.openPage).toHaveBeenCalledTimes(2);
+    expect(quick.body.live).toBe('expired');
+  });
+
+  test("a failing check → 'expired' with a message, still 200", async () => {
+    sessionDeps.openPage = vi.fn(async () => { throw new Error('boom'); });
+    const { status, body } = await get('/api/mastery/login-status');
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ live: 'expired', message: expect.stringMatching(/boom/) });
   });
 });
 

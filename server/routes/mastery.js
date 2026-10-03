@@ -13,6 +13,8 @@ import { levelToGradeScaled, gradeScaledValues, pointsToLevel, LEVELS } from '..
 import { getAssignmentFiles } from '../services/oneDriveLinks.js';
 import { matchFilesToRoster } from '../lib/oneDriveSubmissions.js';
 import { epochToLocalDate } from '../lib/schoolDays.js';
+import { sessionStatus } from '../services/schoologySession.js';
+import { canUnsubmit } from '../services/ltiUnsubmit.js';
 
 const router = Router();
 const syncsInProgress = new Set();
@@ -48,10 +50,15 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// GET /api/mastery/login-status — best-effort: does a saved browser session
-// file exist? Does not verify the session is still valid.
-router.get('/login-status', (req, res) => {
-  res.json({ loggedIn: hasMasterySession() });
+// GET /api/mastery/login-status[?refresh=1][?check=0] → { loggedIn (a saved session
+// file exists), live: 'connected' | 'expired' | 'none' | null, checkedAt, message? }.
+// live = one cheap authenticated page load with the saved session, cached ~10 min
+// (server/services/schoologySession.js); refresh=1 forces a re-check; check=0 never
+// opens a browser (live = the cached answer, or null). Best-effort, never fails.
+router.get('/login-status', async (req, res) => {
+  const refresh = req.query.refresh === '1' || req.query.refresh === 'true';
+  const check = req.query.check !== '0';
+  res.json(await sessionStatus({ refresh, check, hasSession: hasMasterySession }));
 });
 
 // Rubric levels are part of the visible-feedback fingerprint, so every mastery pull
@@ -587,6 +594,8 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
         status_line: statusLineMap[s.id] || null,
         arrived_on: arrivedOn,
         lti_submission_state: ltiStateMap[s.schoology_uid] ?? null,
+        // Phase 2: the Ask modal offers to unsubmit OneDrive work Prism last saw submitted.
+        unsubmit_available: canUnsubmit({ isLti: assignmentRow?.is_lti_submission, ltiState: ltiStateMap[s.schoology_uid] }),
         submission_type: submissionTypeMap[s.schoology_uid] ?? null,
         late: lateMap[s.schoology_uid] ?? 0,
         draft: draftMap[s.schoology_uid] ?? 0,

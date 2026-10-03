@@ -52,6 +52,18 @@ router.get('/login-status', (req, res) => {
   res.json({ loggedIn: hasMasterySession() });
 });
 
+// Rubric levels are part of the visible-feedback fingerprint, so every mastery pull
+// re-snapshots the course (Amendment B fix round 1) — otherwise the next revision is
+// judged against stale levels. Best-effort: never fails the pull.
+function snapshotAfterMasteryPull(db, courseId) {
+  try {
+    captureFeedbackSnapshots(db, { courseId: Number(courseId) });
+    settleResubmissions(db, { courseId: Number(courseId) });
+  } catch (err) {
+    console.error('[mastery] snapshot/settle after pull failed:', err.message);
+  }
+}
+
 // POST /api/mastery/sync/:courseId — trigger Playwright mastery sync for a course
 router.post('/sync/:courseId', async (req, res) => {
   const { courseId } = req.params;
@@ -72,6 +84,7 @@ router.post('/sync/:courseId', async (req, res) => {
     });
     db.prepare(`UPDATE sync_log SET status = 'completed', records_synced = ?, completed_at = ? WHERE id = ?`)
       .run(result.scoresCount || 0, new Date().toISOString(), syncId);
+    snapshotAfterMasteryPull(db, courseId);
     res.json(result);
   } catch (err) {
     console.error('[mastery sync] Error:', err);
@@ -336,6 +349,7 @@ router.post('/:courseId/assignment/:assignmentId/sync', async (req, res) => {
   const { courseId, assignmentId } = req.params;
   try {
     const result = await syncMasteryForAssignment(courseId, assignmentId);
+    snapshotAfterMasteryPull(getDb(), courseId);
     res.json(result);
   } catch (err) {
     console.error('[mastery assignment sync] Error:', err);
@@ -369,7 +383,7 @@ router.post('/:courseId/write', async (req, res) => {
     // Mirror the just-confirmed Schoology state into our local mastery_scores
     // so the UI re-fetch shows the new values immediately.
     const studentRow = db.prepare(
-      'SELECT s.schoology_uid FROM students s JOIN enrolments e ON e.student_id = s.id WHERE e.schoology_enrolment_id = ?'
+      'SELECT s.id, s.schoology_uid FROM students s JOIN enrolments e ON e.student_id = s.id WHERE e.schoology_enrolment_id = ?'
     ).get(String(enrollmentId));
     if (studentRow) {
       const upsert = db.prepare(`
@@ -387,12 +401,12 @@ router.post('/:courseId/write', async (req, res) => {
         upsert.run(studentRow.schoology_uid, String(assignmentId), topicId, points, letter, now);
       }
     }
-    // Best-effort: snapshot the new visible feedback for this assessment so a rubric
+    // Best-effort: snapshot the pair's new visible feedback (a Prism save) so a rubric
     // regrade of an arrived resubmission is seen at once (Amendment B), then settle.
     const localAssignment = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(assignmentId));
-    if (localAssignment) {
+    if (localAssignment && studentRow) {
       try {
-        captureFeedbackSnapshots(db, { assignmentId: localAssignment.id });
+        captureFeedbackSnapshots(db, { assignmentId: localAssignment.id, studentId: studentRow.id, mode: 'save' });
         settleResubmissions(db, { assignmentId: localAssignment.id });
       } catch (err) {
         console.error('[mastery write] snapshot/settle failed:', err.message);
@@ -691,7 +705,7 @@ router.post('/:courseId/write-comment', async (req, res) => {
       // Best-effort: a local grade just landed — snapshot its visible feedback
       // (Amendment B) and settle any request it fulfilled. Never fails the save.
       try {
-        captureFeedbackSnapshots(db, { assignmentId: assignmentRow.id });
+        captureFeedbackSnapshots(db, { assignmentId: assignmentRow.id, studentId: studentRow.id, mode: 'save' });
         settleResubmissions(db, { assignmentId: assignmentRow.id });
       } catch (err) {
         console.error('[mastery write-comment] snapshot/settle failed:', err.message);
@@ -783,7 +797,12 @@ router.post('/:courseId/send-all', async (req, res) => {
     //    with the echoed fresh score/exception/timestamp (like write-comment),
     //    so the gradebook reflects the save without a full re-sync (#60).
     const now = new Date().toISOString();
-    const touchedAssignmentIds = new Set();
+    // assignment id → student ids saved (snapshot + settle below).
+    const touched = new Map();
+    const touch = (assignmentId, studentId) => {
+      if (!touched.has(assignmentId)) touched.set(assignmentId, new Set());
+      touched.get(assignmentId).add(studentId);
+    };
     const upsertScore = db.prepare(`
       INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade, synced_at)
       VALUES (?, ?, ?, ?, ?, ?)
@@ -800,7 +819,7 @@ router.post('/:courseId/send-all', async (req, res) => {
 
     for (const e of scoreEntries) {
       const studentRow = db.prepare(
-        'SELECT s.schoology_uid FROM students s JOIN enrolments en ON en.student_id = s.id WHERE en.schoology_enrolment_id = ?'
+        'SELECT s.id, s.schoology_uid FROM students s JOIN enrolments en ON en.student_id = s.id WHERE en.schoology_enrolment_id = ?'
       ).get(String(e.enrollmentId));
       if (!studentRow) continue;
       for (const [topicId, info] of Object.entries(e.scores.gradeInfo)) {
@@ -808,7 +827,7 @@ router.post('/:courseId/send-all', async (req, res) => {
         upsertScore.run(studentRow.schoology_uid, String(e.assignmentId), topicId, points, pointsToLevel(points), now);
       }
       const scoredAssignment = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(e.assignmentId));
-      if (scoredAssignment) touchedAssignmentIds.add(scoredAssignment.id);
+      if (scoredAssignment) touch(scoredAssignment.id, studentRow.id);
     }
 
     for (const e of commentEntries) {
@@ -826,14 +845,14 @@ router.post('/:courseId/send-all', async (req, res) => {
         gradeTimeAfterWrite(fresh),
         e.comment.comment || '', commentStatusInt, now,
       );
-      touchedAssignmentIds.add(assignmentRow.id);
+      touch(assignmentRow.id, studentRow.id);
     }
     // Best-effort: local grades just landed — snapshot their visible feedback
     // (Amendment B) and settle requests they fulfilled, once per distinct
     // assignment touched (not per entry). Never fails a save that succeeded.
-    for (const assignmentId of touchedAssignmentIds) {
+    for (const [assignmentId, studentIds] of touched) {
       try {
-        captureFeedbackSnapshots(db, { assignmentId });
+        for (const studentId of studentIds) captureFeedbackSnapshots(db, { assignmentId, studentId, mode: 'save' });
         settleResubmissions(db, { assignmentId });
       } catch (err) {
         console.error('[mastery send-all] snapshot/settle failed:', err.message);

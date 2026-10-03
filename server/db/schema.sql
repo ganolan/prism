@@ -577,6 +577,8 @@ CREATE TABLE IF NOT EXISTS feedback_snapshots (
   revision_at INTEGER NOT NULL DEFAULT 0,      -- last seen grades.latest_revision_at
   arrival_revision_at INTEGER NOT NULL DEFAULT 0,  -- the resubmission being answered (0 = none)
   arrival_baseline TEXT,              -- visible feedback just before that resubmission
+  synced_fingerprint TEXT,            -- fingerprint as of the last sync / mastery pull
+  fingerprint_at INTEGER NOT NULL DEFAULT 0,  -- epoch s of a Prism save that set `fingerprint` (0 = set by a sync)
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (student_id, assignment_id)
 );

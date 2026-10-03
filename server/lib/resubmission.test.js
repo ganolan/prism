@@ -104,6 +104,23 @@ describe('resubmissionStateFromSnapshot', () => {
     expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged, requestedAt: 1500 })).toBe('fulfilled');
   });
 
+  // Fix round 1 (Concern 3): acknowledging needs NEW visible content.
+  const vis = (comment, extra = {}) => fingerprint({ score: 80, comment, commentStatus: comment == null ? 0 : 1, ...extra });
+  test('hiding or removing the visible comment alone is not feedback — still arrived', () => {
+    const snapshot = { arrival_revision_at: 2000, arrival_baseline: vis('Good start') };
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis(null) })).toBe('arrived');
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('') })).toBe('arrived');
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis(null), requestedAt: 1500 })).toBe('arrived');
+  });
+  test('a different non-empty visible comment, score, exception or level acknowledges', () => {
+    const snapshot = { arrival_revision_at: 2000, arrival_baseline: vis('Good start') };
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('v2 is better') })).toBe(null);
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis(null, { score: 90 }) })).toBe(null);
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('Good start', { exception: 4 }) })).toBe(null);
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('Good start', { levels: [{ topic_id: 't', grade: 'EX' }] }) })).toBe(null);
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('v2 is better'), requestedAt: 1500 })).toBe('fulfilled');
+  });
+
   test('requested: a pre-ask arrival does not satisfy the ask — still waiting', () => {
     const snapshot = { arrival_revision_at: 1400, arrival_baseline: fpWithFeedback };
     expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpWithFeedback, requestedAt: 1500 })).toBe('waiting');

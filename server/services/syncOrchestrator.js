@@ -2,6 +2,8 @@ import { getDb } from '../db/index.js';
 import { fullSync } from './sync.js';
 import { syncMasteryForCourse } from './masterySync.js';
 import { syncPsAttendance } from './psAttendanceSync.js';
+import { captureFeedbackSnapshots } from './feedbackSnapshots.js';
+import { settleResubmissions } from './resubmissions.js';
 
 // Classify a mastery sync failure: 'login' means the Schoology browser session
 // is missing/expired (recoverable by re-login); 'other' is anything else.
@@ -105,6 +107,14 @@ export async function runUnifiedSync(
       });
       const records = result.scoresCount || 0;
       completeSyncLog.run(records, new Date().toISOString(), syncId);
+      // Rubric levels are part of the visible-feedback fingerprint: re-snapshot the
+      // course after its pull (Amendment B fix round 1). Best-effort.
+      try {
+        captureFeedbackSnapshots(db, { courseId });
+        settleResubmissions(db, { courseId });
+      } catch (err) {
+        console.error('[sync] snapshot/settle after mastery pull failed:', err.message);
+      }
       summary.mastery.push({ courseId, courseName, status: 'done', records });
       emit({ phase: 'mastery', courseId, courseName, status: 'done', records });
     } catch (err) {

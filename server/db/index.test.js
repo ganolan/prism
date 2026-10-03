@@ -352,7 +352,7 @@ describe('migration: status_lines and feedback_snapshots tables (Amendment B)', 
     expect(Object.keys(byName)).toEqual(
       expect.arrayContaining([
         'student_id', 'assignment_id', 'fingerprint', 'revision_at',
-        'arrival_revision_at', 'arrival_baseline', 'updated_at',
+        'arrival_revision_at', 'arrival_baseline', 'updated_at', 'synced_fingerprint', 'fingerprint_at',
       ])
     );
     expect(byName.student_id.notnull).toBe(1);
@@ -375,5 +375,17 @@ describe('migration: status_lines and feedback_snapshots tables (Amendment B)', 
     expect(row.arrival_revision_at).toBe(0);
     expect(row.arrival_baseline).toBeNull();
     expect(row.updated_at).toBeTruthy();
+    expect(row.synced_fingerprint).toBeNull();
+    expect(row.fingerprint_at).toBe(0);
+    expect(byName.fingerprint_at.notnull).toBe(1);
+  });
+
+  test('adds synced_fingerprint / fingerprint_at to a dev DB created before fix round 1', () => {
+    const db = new Database(':memory:');
+    migrate(db);
+    db.exec('ALTER TABLE feedback_snapshots DROP COLUMN synced_fingerprint; ALTER TABLE feedback_snapshots DROP COLUMN fingerprint_at;');
+    migrate(db);
+    const cols = db.prepare('PRAGMA table_info(feedback_snapshots)').all().map((c) => c.name);
+    expect(cols).toEqual(expect.arrayContaining(['synced_fingerprint', 'fingerprint_at']));
   });
 });

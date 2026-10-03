@@ -71,7 +71,14 @@ export function snapshotMap(db, scope = {}) {
 }
 
 // Snapshot every pair in scope. One transaction; unchanged pairs are not rewritten.
-export function captureFeedbackSnapshots(db, scope = {}) {
+// mode 'sync' (end of a Schoology sync, after a mastery pull): fingerprint and
+// synced_fingerprint = current, fingerprint_at = 0. mode 'save' (after a Prism
+// grade/comment/rubric save): fingerprint = current, stamped fingerprint_at = now
+// when it changed. A new revision R is judged against the feedback that predates it:
+// fingerprint_at > R means `fingerprint` came from a Prism save after R (the teacher
+// already answered), so the baseline is synced_fingerprint instead.
+export function captureFeedbackSnapshots(db, { mode = 'sync', now = Math.floor(Date.now() / 1000), ...scope } = {}) {
+  const isSave = mode === 'save';
   const current = currentFingerprints(db, scope);
   const snapshots = snapshotMap(db, scope);
   const askedAt = new Map(db.prepare(`
@@ -81,11 +88,13 @@ export function captureFeedbackSnapshots(db, scope = {}) {
     WHERE r.kind = 'request' AND r.status = 'open' AND ${SCOPE}
   `).all(...scopeArgs(scope)).map((r) => [`${r.student_id}:${r.assignment_id}`, sqliteUtcToEpoch(r.requested_at)]));
   const insert = db.prepare(`
-    INSERT INTO feedback_snapshots (student_id, assignment_id, fingerprint, revision_at, arrival_revision_at, arrival_baseline, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+    INSERT INTO feedback_snapshots (student_id, assignment_id, fingerprint, revision_at, arrival_revision_at, arrival_baseline,
+                                    synced_fingerprint, fingerprint_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
   `);
   const update = db.prepare(`
-    UPDATE feedback_snapshots SET fingerprint = ?, revision_at = ?, arrival_revision_at = ?, arrival_baseline = ?, updated_at = datetime('now')
+    UPDATE feedback_snapshots SET fingerprint = ?, revision_at = ?, arrival_revision_at = ?, arrival_baseline = ?,
+                                  synced_fingerprint = ?, fingerprint_at = ?, updated_at = datetime('now')
     WHERE student_id = ? AND assignment_id = ?
   `);
   let arrivals = 0;
@@ -106,19 +115,26 @@ export function captureFeedbackSnapshots(db, scope = {}) {
         } else if (latest > 0 && askedAt.has(k) && latest > askedAt.get(k)) {
           arrivalAt = latest; baseline = EMPTY_FINGERPRINT;
         }
-        insert.run(cur.studentId, cur.assignmentId, cur.fingerprint, latest, arrivalAt, baseline);
+        insert.run(cur.studentId, cur.assignmentId, cur.fingerprint, latest, arrivalAt, baseline,
+          isSave ? null : cur.fingerprint, isSave ? now : 0);
         if (arrivalAt) arrivals += 1;
         continue;
       }
       let arrivalAt = snap.arrival_revision_at;
       let baseline = snap.arrival_baseline;
       if (latest > snap.revision_at) {
-        // A new resubmission: the feedback before it is the last snapshot's.
-        arrivalAt = latest; baseline = snap.fingerprint; arrivals += 1;
+        // A new resubmission R: the feedback before it. If the last fingerprint came
+        // from a Prism save after R, fall back to what the last sync saw.
+        const savedAfter = snap.fingerprint_at > latest && snap.synced_fingerprint != null;
+        arrivalAt = latest; baseline = savedAfter ? snap.synced_fingerprint : snap.fingerprint; arrivals += 1;
       }
-      if (cur.fingerprint === snap.fingerprint && latest === snap.revision_at
-        && arrivalAt === snap.arrival_revision_at && baseline === snap.arrival_baseline) continue;
-      update.run(cur.fingerprint, latest, arrivalAt, baseline, cur.studentId, cur.assignmentId);
+      const revisionAt = Math.max(latest, snap.revision_at);
+      const changed = cur.fingerprint !== snap.fingerprint;
+      const synced = isSave ? snap.synced_fingerprint : cur.fingerprint;
+      const fingerprintAt = isSave ? (changed ? now : snap.fingerprint_at) : 0;
+      if (!changed && revisionAt === snap.revision_at && arrivalAt === snap.arrival_revision_at
+        && baseline === snap.arrival_baseline && synced === snap.synced_fingerprint && fingerprintAt === snap.fingerprint_at) continue;
+      update.run(cur.fingerprint, revisionAt, arrivalAt, baseline, synced, fingerprintAt, cur.studentId, cur.assignmentId);
     }
   })();
   return { arrivals };

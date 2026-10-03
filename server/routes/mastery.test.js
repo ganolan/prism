@@ -498,9 +498,33 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     expect(db.prepare('SELECT status FROM resubmissions WHERE id = ?').get(request.id).status).toBe('done');
     expect(resubmissionByStudent(db, assignmentId).has(studentId)).toBe(false);
     // The save captured the new visible feedback (Amendment B capture point).
-    const snap = db.prepare('SELECT fingerprint, arrival_baseline FROM feedback_snapshots WHERE student_id = ? AND assignment_id = ?').get(studentId, assignmentId);
+    const snap = db.prepare('SELECT fingerprint, arrival_baseline, synced_fingerprint, fingerprint_at FROM feedback_snapshots WHERE student_id = ? AND assignment_id = ?').get(studentId, assignmentId);
     expect(JSON.parse(snap.fingerprint).c).toBe('Regraded');
+    // A Prism save: stamped, and the last sync's fingerprint kept for a later revision's baseline.
+    expect(snap.fingerprint_at).toBeGreaterThanOrEqual(now);
+    expect(snap.synced_fingerprint).toBe(snap.arrival_baseline);
     expect(snap.fingerprint).not.toBe(snap.arrival_baseline);
+  });
+
+  test('C1: a course mastery pull (POST /sync/:courseId) and an assignment pull re-snapshot the course', async () => {
+    const db = getDb();
+    const { syncMasteryForCourse, syncMasteryForAssignment } = await import('../services/masterySync.js');
+    db.prepare(`INSERT INTO measurement_topics (id, course_id, external_id, title) VALUES ('t-wc', ?, 'X.1', 'T')`).run(courseId);
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, enrolment_id, score, submitted_at, latest_revision_at) VALUES (?, ?, 'enr-wc', 50, 1000, 900)`).run(studentId, assignmentId);
+    captureFeedbackSnapshots(db);
+    const levels = () => JSON.parse(db.prepare('SELECT fingerprint FROM feedback_snapshots WHERE student_id = ?').get(studentId).fingerprint).l;
+    syncMasteryForCourse.mockImplementation(async () => {
+      db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('uid-wc', 'sa-wc', 't-wc', 75, 'EX')`).run();
+      return { scoresCount: 1 };
+    });
+    expect((await post(`/api/mastery/sync/${courseId}`, {})).status).toBe(200);
+    expect(levels()).toEqual(['t-wc:EX']);
+    syncMasteryForAssignment.mockImplementation(async () => {
+      db.prepare(`UPDATE mastery_scores SET grade = 'ED', points = 100`).run();
+      return { scoresCount: 1 };
+    });
+    expect((await post(`/api/mastery/${courseId}/assignment/sa-wc/sync`, {})).status).toBe(200);
+    expect(levels()).toEqual(['t-wc:ED']);
   });
 
   test('a rubric save (POST /write) captures the snapshot so a rubric regrade of an arrival clears it at once', async () => {

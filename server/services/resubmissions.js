@@ -58,9 +58,15 @@ const stateOf = ({ request, snapshot, currentFingerprint }) => resubmissionState
   requestedAt: request ? sqliteUtcToEpoch(request.requested_at) : 0,
 });
 
-// Legacy 'review' rows (pre-Amendment B dev DBs) have status 'done' → 'done'.
+// closed: 'grade_stands' (gradeStands), 'undone' (an auto-added request undone),
+// 'closed' (anything else, e.g. archived-course migration). Legacy 'review' rows
+// (pre-Amendment B dev DBs) have status 'done' → 'done'.
 function outcomeOf(r) {
-  return { open: 'asked', closed: 'grade_stands', done: 'done' }[r.status];
+  if (r.status === 'closed') {
+    if (r.close_note === 'grade stands') return 'grade_stands';
+    return r.close_note === 'Undone' ? 'undone' : 'closed';
+  }
+  return { open: 'asked', done: 'done' }[r.status];
 }
 
 export function listResubmissions(db, { courseId = null, studentId = null, since = null, id = null } = {}) {
@@ -122,10 +128,14 @@ export function extendResubmission(db, id, lessons) {
   return listResubmissions(db, { id: r.id })[0];
 }
 
-// "Grade stands": ends an open request whose deadline has passed (the Waiting row
-// is red — today after `until`). Before that → NOT_AT_DEADLINE: extend instead.
+// "Grade stands": ends an open request that is still Waiting after its deadline
+// (the row is red — today after `until`). Before that → NOT_AT_DEADLINE (extend
+// instead); once a resubmission has arrived → NOT_ELIGIBLE (give feedback instead).
 export function gradeStands(db, id, { today = todayLocal() } = {}) {
   const r = openRequest(db, id);
+  if (stateOf(pairContext(db, r.student_id, r.assignment_id)) !== 'waiting') {
+    throw new TriageError('NOT_ELIGIBLE', 'A resubmission has arrived — give feedback instead');
+  }
   const until = listResubmissions(db, { id: r.id })[0].until;
   if (!until || !(today > until)) {
     throw new TriageError('NOT_AT_DEADLINE', `The resubmission deadline (${until}) has not passed yet`);
@@ -185,13 +195,11 @@ export function recordSchoologyUnsubmit(db, { studentId, assignmentId, requested
 }
 
 // Mark open requests whose post-ask resubmission has new visible feedback as done.
-export function settleResubmissions(db, { assignmentId = null } = {}) {
-  const open = db.prepare(`SELECT id, student_id, assignment_id FROM resubmissions WHERE ${OPEN_REQUEST} AND (? IS NULL OR assignment_id = ?)`)
-    .all(assignmentId, assignmentId);
+export function settleResubmissions(db, { assignmentId = null, courseId = null } = {}) {
   const done = db.prepare(`UPDATE resubmissions SET status = 'done', closed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`);
   let n = 0;
-  for (const r of open) {
-    if (stateOf(pairContext(db, r.student_id, r.assignment_id)) === 'fulfilled') { done.run(r.id); n++; }
+  for (const { state, request } of statesInScope(db, { assignmentId, courseId }).values()) {
+    if (request && state === 'fulfilled') { done.run(request.id); n++; }
   }
   return n;
 }

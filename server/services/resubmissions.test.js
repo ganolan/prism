@@ -73,7 +73,7 @@ describe('extend / grade stands / undo', () => {
     const r = requestResubmission(db, { studentId: s, assignmentId: a, requestedAt: sql('2026-10-12') });
     expect(extendResubmission(db, r.id, 5)).toMatchObject({ lessons: 5, until: '2026-10-19' });
     expect(() => gradeStands(db, r.id, { today: '2026-10-16' })).toThrow(expect.objectContaining({ code: 'NOT_AT_DEADLINE' }));
-    expect(() => gradeStands(db, r.id, { today: '2026-10-19' })).toThrow(expect.objectContaining({ code: 'NOT_AT_DEADLINE' })); // the deadline day itself is still allowed
+    expect(() => gradeStands(db, r.id, { today: '2026-10-19' })).toThrow(expect.objectContaining({ code: 'NOT_AT_DEADLINE' })); // the student may still resubmit on the deadline day
     expect(listResubmissions(db, { id: r.id })[0].status).toBe('open');
     expect(gradeStands(db, r.id, { today: '2026-10-20' })).toMatchObject({ status: 'closed', outcome: 'grade_stands', closeNote: 'grade stands' });
     expect(listResubmissions(db, { id: r.id })[0].closedAt).toBeTruthy();
@@ -81,6 +81,26 @@ describe('extend / grade stands / undo', () => {
     expect(() => gradeStands(db, r.id, { today: '2026-10-21' })).toThrow(expect.objectContaining({ code: 'NOT_ELIGIBLE' }));
     expect(undoResubmission(db, r.id)).toEqual({ deleted: true });
     expect(listResubmissions(db, {})).toEqual([]);
+  });
+  test('M1: gradeStands is refused once a resubmission has arrived (give feedback instead)', () => {
+    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');
+    grade(s, a, { score: 60, submitted_at: at('2026-10-06'), latest_revision_at: at('2026-10-05') });
+    captureFeedbackSnapshots(db);
+    const r = requestResubmission(db, { studentId: s, assignmentId: a, lessons: 1, requestedAt: sql('2026-10-12') });
+    db.prepare('UPDATE grades SET latest_revision_at = ?').run(at('2026-10-14'));           // late, but it arrived
+    captureFeedbackSnapshots(db);
+    expect(() => gradeStands(db, r.id, { today: '2026-10-20' })).toThrow(expect.objectContaining({ code: 'NOT_ELIGIBLE' }));
+    expect(listResubmissions(db, { id: r.id })[0].status).toBe('open');
+  });
+  test('I2: outcome — grade stands / undone (auto-add undo) / any other close', () => {
+    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');
+    const r = requestResubmission(db, { studentId: s, assignmentId: a, requestedAt: sql('2026-10-12') });
+    db.prepare(`UPDATE resubmissions SET status = 'closed', close_note = 'Undone' WHERE id = ?`).run(r.id);
+    expect(listResubmissions(db, { id: r.id })[0].outcome).toBe('undone');
+    db.prepare(`UPDATE resubmissions SET close_note = 'Migrated (archived course)' WHERE id = ?`).run(r.id);
+    expect(listResubmissions(db, { id: r.id })[0].outcome).toBe('closed');
+    db.prepare(`UPDATE resubmissions SET close_note = 'grade stands' WHERE id = ?`).run(r.id);
+    expect(listResubmissions(db, { id: r.id })[0].outcome).toBe('grade_stands');
   });
   test('gradeStands on an unknown id → NOT_FOUND', () => {
     expect(() => gradeStands(db, 999, { today: '2026-10-20' })).toThrow(expect.objectContaining({ code: 'NOT_FOUND' }));
@@ -116,6 +136,21 @@ describe('snapshot-based state', () => {
     setGrade(s, a, { score: 90 });                                          // regraded
     expect(stateOf(s, a)).toBe(null);
     expect(arrivedKeys(db, { assignmentId: a }).size).toBe(0);
+  });
+
+  test('M4: hiding the visible comment (no other change) stays Arrived; a different visible comment answers it', () => {
+    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');
+    grade(s, a, { score: 80, grade_comment: 'Good start', comment_status: 1, submitted_at: at('2026-10-06'), latest_revision_at: at('2026-10-05') });
+    captureFeedbackSnapshots(db);
+    setGrade(s, a, { latest_revision_at: at('2026-10-13') });
+    captureFeedbackSnapshots(db);
+    setGrade(s, a, { comment_status: null });                              // Display off while drafting
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save' });
+    expect(stateOf(s, a)).toBe('arrived');
+    setGrade(s, a, { grade_comment: '' , comment_status: 1 });             // visible text removed
+    expect(stateOf(s, a)).toBe('arrived');
+    setGrade(s, a, { grade_comment: 'v2: eval now complete' });            // new visible comment
+    expect(stateOf(s, a)).toBe(null);
   });
 
   test('an unchanged re-save of a visible comment stays Arrived; editing the visible comment answers it', () => {

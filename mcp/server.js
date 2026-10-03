@@ -314,12 +314,12 @@ export function createServer() {
   server.registerTool(
     'list_resubmissions',
     {
-      description: "Resubmission history, newest first: asks ('asked' = open, with lessons/until/note; 'grade_stands' = deadline passed, grade stands; 'done' = resubmitted and given new visible feedback). source 'schoology_unsubmit' = auto-added because the teacher unsubmitted graded OneDrive work in Schoology.",
+      description: "Resubmission history, newest first: asks ('asked' = open, with lessons/until/note; 'grade_stands' = deadline passed, grade stands; 'done' = resubmitted and given new visible feedback; 'undone' = an auto-added request the teacher undid; 'closed' = closed for another reason, e.g. the course was archived). source 'schoology_unsubmit' = auto-added because the teacher unsubmitted graded OneDrive work in Schoology.",
       inputSchema: {
         course: z.union([z.number(), z.string()]).optional(),
         student: z.union([z.number(), z.string()]).optional(),
         since: z.string().optional().describe("'YYYY-MM-DD'"),
-        state: z.enum(['asked', 'grade_stands', 'done']).optional(),
+        state: z.enum(['asked', 'grade_stands', 'done', 'undone', 'closed']).optional(),
       },
     },
     async (args) => text(listResubmissionsTool(getDb(), args))

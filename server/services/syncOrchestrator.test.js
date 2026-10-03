@@ -186,3 +186,50 @@ describe('runUnifiedSync', () => {
     expect(blocksErr.errorKind).toBe('other');
   });
 });
+
+// Fix round 1 (C1): rubric levels are in the visible-feedback fingerprint, so each
+// mastery pull must re-snapshot its course — or the next revision is judged against
+// stale levels and silently counted as already answered.
+describe('runUnifiedSync — snapshots after each mastery pull', () => {
+  beforeEach(() => {
+    h.db = new Database(':memory:');
+    migrate(h.db);
+    fullSync.mockReset();
+    syncMasteryForCourse.mockReset();
+    syncPsAttendance.mockReset();
+    fullSync.mockResolvedValue({ success: true, records: 0 });
+    syncPsAttendance.mockResolvedValue({ updated: 0, skipped: 0 });
+  });
+
+  test('capture → mastery pull changes levels → capture → new revision → capture → arrived', async () => {
+    const { captureFeedbackSnapshots } = await import('./feedbackSnapshots.js');
+    const { resubmissionByStudent } = await import('./resubmissions.js');
+    const db = h.db;
+    const cid = seedCourse(db, 'AIML');
+    db.prepare(`INSERT INTO reporting_categories (id, course_id, external_id, title) VALUES ('cat', ?, 'X', 'C')`).run(cid);
+    db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES ('t1', 'cat', ?, 'X.1', 'T')`).run(cid);
+    const sid = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u1', 'Maya', 'Chen')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id) VALUES (?, ?)`).run(sid, cid);
+    const aid = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, published) VALUES (?, 'a1', 'Project', 1)`).run(cid).lastInsertRowid;
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, score, submitted_at, latest_revision_at) VALUES (?, ?, 80, 50, 100)`).run(sid, aid);
+    captureFeedbackSnapshots(db);                                   // end of a sync, before levels exist
+    syncMasteryForCourse.mockImplementation(async () => {
+      db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('u1', 'a1', 't1', 75, 'EX')`).run();
+      return { scoresCount: 1 };
+    });
+    await runUnifiedSync({ masteryCourseIds: [cid], skipSchoology: true, syncBlocks: false }, () => {});
+    db.prepare('UPDATE grades SET latest_revision_at = 200').run(); // the student resubmits
+    captureFeedbackSnapshots(db);
+    expect(resubmissionByStudent(db, aid).get(sid)?.state).toBe('arrived');
+  });
+
+  test('a capture failure after a pull never fails the mastery phase', async () => {
+    const cid = seedCourse(h.db, 'AIML');
+    syncMasteryForCourse.mockImplementation(async () => {
+      h.db.exec('DROP TABLE feedback_snapshots');                   // force the capture to throw
+      return { scoresCount: 0 };
+    });
+    const summary = await runUnifiedSync({ masteryCourseIds: [cid], skipSchoology: true, syncBlocks: false }, () => {});
+    expect(summary.mastery).toMatchObject([{ status: 'done' }]);
+  });
+});

@@ -6,6 +6,20 @@
 // revision; LTI: the grader's submissionDate).
 import { hasPriorFeedback } from './feedbackFingerprint.js';
 
+const parseFp = (fp) => { try { return JSON.parse(fp) || {}; } catch { return {}; } };
+
+// Has the teacher given NEW visible feedback since the baseline? A changed score,
+// exception or rubric level, or a non-empty visible comment that differs from the
+// baseline's. Hiding or deleting the visible comment alone is not feedback.
+export function feedbackAnswered(baselineFp, currentFp) {
+  if (baselineFp === currentFp) return false;
+  const b = parseFp(baselineFp);
+  const c = parseFp(currentFp);
+  if ((b.s ?? null) !== (c.s ?? null) || (Number(b.e) || 0) !== (Number(c.e) || 0)) return true;
+  if (JSON.stringify(b.l || []) !== JSON.stringify(c.l || [])) return true;
+  return Boolean(c.c) && c.c !== b.c;
+}
+
 // Feedback given = a score, an exception, or a non-empty comment.
 export function hasFeedback(grade) {
   if (!grade) return false;
@@ -35,16 +49,16 @@ export function sqliteUtcToEpoch(text) {
 // (if any) and the fingerprint captured as its baseline (the feedback before the resubmission).
 //   'arrived'   — a resubmission to look at (current fingerprint still equals the baseline)
 //   'waiting'   — asked, no arrival after the ask yet
-//   'fulfilled' — asked, arrived after the ask, and the fingerprint has since changed (regraded)
+//   'fulfilled' — asked, arrived after the ask, and new visible feedback since (feedbackAnswered)
 //   null        — nothing to show (unrequested, no arrival, or already acknowledged)
 export function resubmissionStateFromSnapshot({ snapshot, currentFingerprint, requestedAt = 0 } = {}) {
   const hasArrival = Boolean(snapshot && snapshot.arrival_revision_at);
   if (requestedAt > 0) {
     const arrivedAfterAsk = hasArrival && Number(snapshot.arrival_revision_at) > requestedAt;
     if (!arrivedAfterAsk) return 'waiting';
-    return currentFingerprint === snapshot.arrival_baseline ? 'arrived' : 'fulfilled';
+    return feedbackAnswered(snapshot.arrival_baseline, currentFingerprint) ? 'fulfilled' : 'arrived';
   }
-  if (hasArrival && hasPriorFeedback(snapshot.arrival_baseline) && currentFingerprint === snapshot.arrival_baseline) {
+  if (hasArrival && hasPriorFeedback(snapshot.arrival_baseline) && !feedbackAnswered(snapshot.arrival_baseline, currentFingerprint)) {
     return 'arrived';
   }
   return null;

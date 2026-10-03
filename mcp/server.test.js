@@ -347,6 +347,8 @@ describe('PrisMCP resubmission tools', () => {
     ]));
     expect(names).not.toContain('mark_resubmission_reviewed');
     expect(names).not.toContain('close_resubmission');
+    const list = (await client.listTools()).tools.find((t) => t.name === 'list_resubmissions');
+    expect(list.inputSchema.properties.state.enum).toEqual(['asked', 'grade_stands', 'done', 'undone', 'closed']);
   });
 
   test('extend_deadline accepts resubmission_id and no longer requires student_id/assignment_id', async () => {

@@ -131,6 +131,11 @@ const MIGRATIONS = [
   // Indexes for issue #13 columns (must run after ALTER TABLEs above)
   `CREATE INDEX IF NOT EXISTS idx_assignments_folder ON assignments(folder_id)`,
   `CREATE INDEX IF NOT EXISTS idx_assignments_grading_category ON assignments(grading_category_id)`,
+  // Triage resubmissions (Amendment B, fix round 1): the feedback a new revision is
+  // judged against must predate it — a Prism save stamps fingerprint_at, a sync
+  // keeps synced_fingerprint. (Only dev DBs on the feature branch lack these.)
+  `ALTER TABLE feedback_snapshots ADD COLUMN synced_fingerprint TEXT`,
+  `ALTER TABLE feedback_snapshots ADD COLUMN fingerprint_at INTEGER NOT NULL DEFAULT 0`,
 ];
 
 // Remove orphaned auto-flag rows. The auto-flag feature that wrote 'missing',

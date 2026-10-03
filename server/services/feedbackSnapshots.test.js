@@ -5,6 +5,7 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 import { getDb } from '../db/index.js';
 import { fingerprint } from '../lib/feedbackFingerprint.js';
 import { currentFingerprints, captureFeedbackSnapshots, snapshotMap, EMPTY_FINGERPRINT } from './feedbackSnapshots.js';
+import { resubmissionStateFromSnapshot } from '../lib/resubmission.js';
 
 let db, courseId, course2;
 function student(uid) {
@@ -131,5 +132,80 @@ describe('captureFeedbackSnapshots', () => {
     captureFeedbackSnapshots(db, { courseId: course2 });
     expect([...snapshotMap(db, { courseId: course2 }).keys()]).toEqual([`${s}:${b}`]);
     expect(snapshotMap(db, { studentId: s }).size).toBe(2);
+  });
+});
+
+// Fix round 1. Prism saves capture with mode 'save' (stamping fingerprint_at); syncs and
+// mastery pulls with mode 'sync' (also storing synced_fingerprint). A new revision R takes
+// as baseline the feedback that predates it.
+describe('captureFeedbackSnapshots — baseline predates the resubmission (I1)', () => {
+  const stateOf = (s, a) => {
+    const cur = currentFingerprints(db, {}).get(`${s}:${a}`).fingerprint;
+    return resubmissionStateFromSnapshot({ snapshot: snap(s, a), currentFingerprint: cur });
+  };
+
+  test('save mode stamps fingerprint_at only when the fingerprint changed; sync mode stores synced_fingerprint', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 80, submitted_at: 50, latest_revision_at: 100 });
+    captureFeedbackSnapshots(db);
+    const fp0 = snap(s, a).fingerprint;
+    expect(snap(s, a)).toMatchObject({ synced_fingerprint: fp0, fingerprint_at: 0 });
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 500 });
+    expect(snap(s, a).fingerprint_at).toBe(0);                     // nothing changed
+    setGrade(s, a, { score: 90 });
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 500 });
+    expect(snap(s, a)).toMatchObject({ synced_fingerprint: fp0, fingerprint_at: 500 });
+    expect(snap(s, a).fingerprint).not.toBe(fp0);
+    captureFeedbackSnapshots(db);
+    expect(snap(s, a)).toMatchObject({ synced_fingerprint: snap(s, a).fingerprint, fingerprint_at: 0 });
+  });
+
+  test('(a) sync fp0 → resubmit R → Prism regrade after R → sync: acknowledged (baseline = fp0)', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 80, submitted_at: 50, latest_revision_at: 100 });
+    captureFeedbackSnapshots(db);
+    const fp0 = snap(s, a).fingerprint;
+    // R = 200 happens in Schoology (Prism has not synced it yet); the teacher regrades in Prism at 300.
+    setGrade(s, a, { score: 90, submitted_at: 300 });
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 300 });
+    setGrade(s, a, { latest_revision_at: 200 });                    // the sync pulls R
+    expect(captureFeedbackSnapshots(db)).toEqual({ arrivals: 1 });
+    expect(snap(s, a)).toMatchObject({ arrival_revision_at: 200, arrival_baseline: fp0 });
+    expect(stateOf(s, a)).toBe(null);
+  });
+
+  test('(b) sync fp0 → Prism save fp1 before R → resubmit R → sync: arrived with baseline fp1', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 80, submitted_at: 50, latest_revision_at: 100 });
+    captureFeedbackSnapshots(db);
+    setGrade(s, a, { score: 90, submitted_at: 150 });
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 150 });
+    const fp1 = snap(s, a).fingerprint;
+    setGrade(s, a, { latest_revision_at: 200 });
+    captureFeedbackSnapshots(db);
+    expect(snap(s, a)).toMatchObject({ arrival_revision_at: 200, arrival_baseline: fp1 });
+    expect(stateOf(s, a)).toBe('arrived');
+  });
+
+  test('M2: revision_at never moves backwards', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 80, latest_revision_at: 300 });
+    captureFeedbackSnapshots(db);
+    setGrade(s, a, { latest_revision_at: 200 });
+    captureFeedbackSnapshots(db);
+    expect(snap(s, a).revision_at).toBe(300);
+    setGrade(s, a, { latest_revision_at: 300 });
+    expect(captureFeedbackSnapshots(db)).toEqual({ arrivals: 0 });
+  });
+
+  test('C1: levels pulled between syncs are in the snapshot, so a later revision compares against them', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 80, submitted_at: 50, latest_revision_at: 100 });
+    captureFeedbackSnapshots(db);
+    db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('u1', 'a1', 't1', 75, 'EX')`).run();
+    captureFeedbackSnapshots(db, { courseId });                     // after the mastery pull
+    setGrade(s, a, { latest_revision_at: 200 });
+    captureFeedbackSnapshots(db);
+    expect(stateOf(s, a)).toBe('arrived');
   });
 });

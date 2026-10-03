@@ -284,7 +284,7 @@ export function gradeStandsTool(db, { id } = {}) {
   return gradeStands(db, id);
 }
 
-// state: 'asked' (open) | 'grade_stands' | 'done'
+// state: 'asked' (open) | 'grade_stands' | 'done' | 'undone' | 'closed'
 export function listResubmissionsTool(db, { course, student, since, state } = {}) {
   const rows = listResubmissions(db, { courseId: resolveCourseRef(db, course), since: since || null });
   return rows.filter((r) => (state ? r.outcome === state : true))

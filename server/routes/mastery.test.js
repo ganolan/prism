@@ -619,9 +619,36 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     db.exec('DELETE FROM status_lines');
     getSectionGrades.mockResolvedValue([]);
     pushGradeComments.mockResolvedValueOnce({ status: 403, data: 'forbidden' });
-    await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: '⟳ X', statusLine: '⟳ X' });
+    const rejected = await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: '⟳ X', statusLine: '⟳ X' });
+    expect(rejected.status).toBe(502);
     await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'plain' });
     expect(db.prepare('SELECT COUNT(*) AS n FROM status_lines').get().n).toBe(0);
+  });
+
+  // apiPut never throws on an HTTP error — write-comment must check the result
+  // itself, or a rejected write is silently mirrored (grades, status_lines,
+  // capture/settle) and reported back as if it had been saved.
+  test('a rejected Schoology PUT (HTTP error) → 502, nothing mirrored, reported as saved nowhere', async () => {
+    const db = getDb();
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, enrolment_id, score, grade_comment) VALUES (?, ?, 'enr-wc', 80, 'old')`).run(studentId, assignmentId);
+    getSectionGrades.mockResolvedValue([{ assignment_id: 'sa-wc', enrollment_id: 'enr-wc', grade: 80, exception: 0, timestamp: 1 }]);
+    pushGradeComments.mockResolvedValueOnce({ status: 403, data: 'forbidden' });
+    const res = await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'New comment' });
+    expect(res.status).toBe(502);
+    expect(res.body.error).toBe('Schoology rejected the update — nothing was recorded in Prism');
+    const row = db.prepare('SELECT score, grade_comment FROM grades WHERE student_id = ? AND assignment_id = ?').get(studentId, assignmentId);
+    expect(row).toEqual({ score: 80, grade_comment: 'old' }); // unchanged — not the rejected write
+  });
+
+  test('a 207 with a failed per-item entry → 502, nothing mirrored (same as an HTTP-level rejection)', async () => {
+    const db = getDb();
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, enrolment_id, score, grade_comment) VALUES (?, ?, 'enr-wc', 80, 'old')`).run(studentId, assignmentId);
+    getSectionGrades.mockResolvedValue([{ assignment_id: 'sa-wc', enrollment_id: 'enr-wc', grade: 80, exception: 0, timestamp: 1 }]);
+    pushGradeComments.mockResolvedValueOnce({ status: 207, data: { grade: [{ response_code: 400 }] } });
+    const res = await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'New comment' });
+    expect(res.status).toBe(502);
+    const row = db.prepare('SELECT grade_comment FROM grades WHERE student_id = ? AND assignment_id = ?').get(studentId, assignmentId);
+    expect(row.grade_comment).toBe('old');
   });
 
   test('a failed Schoology grade lookup → 502 and no PUT (a grade-less PUT would wipe the score)', async () => {

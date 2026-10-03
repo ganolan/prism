@@ -719,6 +719,15 @@ router.post('/:courseId/write-comment', async (req, res) => {
     try {
       const result = await pushGradeComments(courseRow.schoology_section_id, [payload]);
 
+      // apiPut never throws on an HTTP error, so the result must be checked —
+      // a rejected write (or a 207 with a failed per-item response_code) must
+      // never be mirrored as if Schoology had accepted it (grades, status_lines,
+      // the snapshot capture, settling a request) or reported back as saved.
+      if (!putSucceeded(result)) {
+        console.error('[mastery write-comment] comment PUT rejected:', result?.status, JSON.stringify(result?.data)?.slice(0, 500));
+        return res.status(502).json({ error: 'Schoology rejected the update — nothing was recorded in Prism' });
+      }
+
       // Mirror to local DB. Use upsert so virgin records (no prior grade row)
       // also get cached locally — without this, the assessment page would
       // re-render with loadedDisplay=false and the toggle would appear unsaved
@@ -783,9 +792,10 @@ router.post('/:courseId/write-comment', async (req, res) => {
           );
         }
         // The published status line, stored before the snapshot so the fingerprint
-        // ignores it. Only when Schoology accepted the write. Not tied to a triage
-        // record (source cleared), so no earlier action's undo can strip it.
-        if (line && putSucceeded(result)) {
+        // ignores it. putSucceeded(result) already returned above otherwise. Not
+        // tied to a triage record (source cleared), so no earlier action's undo
+        // can strip it.
+        if (line) {
           db.prepare(`
             INSERT INTO status_lines (student_id, assignment_id, line, kind, written_at, source_type, source_id)
             VALUES (?, ?, ?, ?, datetime('now'), NULL, NULL)

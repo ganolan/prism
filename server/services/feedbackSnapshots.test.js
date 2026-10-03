@@ -201,9 +201,40 @@ describe('captureFeedbackSnapshots — baseline predates the resubmission (I1)',
     expect(snap(s, a)).toMatchObject({ fingerprint_at: 300, synced_fingerprint: fp0 });
     setGrade(s, a, { latest_revision_at: 200 });                     // the Schoology sync sees R
     captureFeedbackSnapshots(db);
-    expect(snap(s, a)).toMatchObject({ arrival_revision_at: 200, arrival_baseline: fp0, fingerprint_at: 0 });
-    expect(snap(s, a).synced_fingerprint).toBe(snap(s, a).fingerprint); // reset once R was judged
+    expect(snap(s, a)).toMatchObject({ arrival_revision_at: 200, arrival_baseline: fp0 });
+    expect(snap(s, a).synced_fingerprint).toBe(snap(s, a).fingerprint); // what this sync saw
     expect(stateOf(s, a)).toBe(null);
+    captureFeedbackSnapshots(db);                                     // later syncs: still acknowledged
+    expect(stateOf(s, a)).toBe(null);
+    setGrade(s, a, { latest_revision_at: 400 });                     // a newer resubmission after the save
+    captureFeedbackSnapshots(db);
+    expect(snap(s, a).arrival_baseline).toBe(snap(s, a).fingerprint);  // judged against the regrade
+    expect(stateOf(s, a)).toBe('arrived');
+  });
+
+  test('R2: R (unsynced) → Prism rubric-only save after R → sync: acknowledged (the save stamp is the write after R)', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 80, submitted_at: 50, latest_revision_at: 100 });
+    captureFeedbackSnapshots(db);
+    // R = 200 in Schoology (unsynced). The teacher sets rubric levels in Prism at 300 (/write):
+    // the levels change, grades.submitted_at does not.
+    db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('u1', 'a1', 't1', 75, 'EX')`).run();
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 300 });
+    setGrade(s, a, { latest_revision_at: 200 });                     // the sync sees R; grade time still 50
+    expect(captureFeedbackSnapshots(db)).toEqual({ arrivals: 1 });
+    expect(stateOf(s, a)).toBe(null);
+  });
+
+  test('R2: a save stamp from before R is still cleared when R is judged (no false answer)', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 80, submitted_at: 50, latest_revision_at: 100 });
+    captureFeedbackSnapshots(db);
+    db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('u1', 'a1', 't1', 75, 'EX')`).run();
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 150 });   // rubric save before R
+    setGrade(s, a, { latest_revision_at: 200 });
+    captureFeedbackSnapshots(db);
+    expect(snap(s, a).fingerprint_at).toBe(0);
+    expect(stateOf(s, a)).toBe('arrived');
   });
 
   test('round 2: with no pending save stamp, a sync still refreshes synced_fingerprint', () => {

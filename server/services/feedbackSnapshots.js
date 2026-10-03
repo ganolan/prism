@@ -156,7 +156,8 @@ export function captureFeedbackSnapshots(db, { mode = 'sync', stamp = true, now 
       // see no new revision — a mastery pull never sees one (only the Schoology sync
       // writes latest_revision_at), and resetting it there would make a later R take
       // the post-save fingerprint as its baseline (a false Arrived). It is cleared
-      // only by a capture that judged a new revision.
+      // only by a capture that judged a new revision — and kept even then if it
+      // postdates that revision (R2, below).
       const keepStamp = !isSave && !newRevision && snap.fingerprint_at > 0;
       let synced;
       let fingerprintAt;
@@ -166,7 +167,15 @@ export function captureFeedbackSnapshots(db, { mode = 'sync', stamp = true, now 
         fingerprintAt = snap.fingerprint_at;
         synced = fingerprintAt > 0 ? snap.synced_fingerprint : cur.fingerprint;
       } else if (keepStamp) { synced = snap.synced_fingerprint; fingerprintAt = snap.fingerprint_at; }
-      else { synced = cur.fingerprint; fingerprintAt = 0; }
+      else {
+        // A sync capture: synced = what it saw. Judging a new revision R clears the save
+        // stamp unless it postdates R (R2): a Prism rubric-only save after R doesn't move
+        // grades.submitted_at, so that stamp is the only record of the teacher's write
+        // after the arrival, which "answered" needs. A kept stamp is then a pending stamp
+        // with synced_fingerprint = this sync's view, as after any other sync.
+        synced = cur.fingerprint;
+        fingerprintAt = newRevision && snap.fingerprint_at > latest ? snap.fingerprint_at : 0;
+      }
       if (!changed && revisionAt === snap.revision_at && arrivalAt === snap.arrival_revision_at
         && baseline === snap.arrival_baseline && synced === snap.synced_fingerprint && fingerprintAt === snap.fingerprint_at) continue;
       update.run(cur.fingerprint, revisionAt, arrivalAt, baseline, synced, fingerprintAt, cur.studentId, cur.assignmentId);

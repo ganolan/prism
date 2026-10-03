@@ -6,7 +6,9 @@
 // Liveness is one cheap authenticated page load ({SCHOOLOGY_BASE}/home → still on the
 // school domain, not bounced to SSO), as the probes do — never the cookie-expiry
 // timestamps, which read "expired" long before the Drupal session dies (AGENTS.md).
-// Best-effort: a failed check reports 'expired' with a message, never throws.
+// Best-effort, never throws: a check that can't tell (the page didn't load, the browser
+// didn't start) reports 'unknown' with a message — only a bounce to the login / SSO page
+// is 'expired'.
 //
 // Playwright is imported lazily (see masterySync.js: a top-level import can hang boot).
 import { existsSync } from 'fs';
@@ -38,14 +40,21 @@ export async function openSessionPage() {
 // ltiUnsubmit.js opens its page through sessionDeps.openPage.
 export const sessionDeps = { openPage: openSessionPage };
 
-// true = the saved session still reaches Schoology logged in; false = no session or
-// bounced to the login / SSO page. Throws on a navigation error.
+// → { live: 'connected' | 'expired' | 'unknown', message? }. 'expired' only when the
+// saved session (or its absence) lands on a real non-school page (login / SSO);
+// a navigation error or about:blank is 'unknown'. Throws if the browser can't start.
 export async function checkSessionLive() {
   const s = await sessionDeps.openPage();
-  if (!s) return false;
+  if (!s) return { live: 'expired', message: 'No saved Schoology session' };
   try {
-    await s.page.goto(`${SCHOOLOGY_BASE}/home`, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    return isLoggedInUrl(s.page.url());
+    let navError = null;
+    await s.page.goto(`${SCHOOLOGY_BASE}/home`, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch((err) => { navError = err; });
+    const url = s.page.url();
+    if (isLoggedInUrl(url)) return { live: 'connected' };
+    if (navError || !url || url.startsWith('about:') || url.startsWith('chrome-error:')) {
+      return { live: 'unknown', message: `Could not reach Schoology${navError ? ` (${navError.message})` : ''}` };
+    }
+    return { live: 'expired', message: 'Schoology sent the saved session to the login page' };
   } finally {
     await s.close().catch(() => {});
   }
@@ -72,7 +81,7 @@ const view = (loggedIn) => ({
   ...(cache?.message ? { message: cache.message } : {}),
 });
 
-// → { loggedIn (session file exists), live: 'connected' | 'expired' | 'none' | null,
+// → { loggedIn (session file exists), live: 'connected' | 'expired' | 'unknown' | 'none' | null,
 //     checkedAt, message? }. 'none' = no saved session (no browser launched).
 // The live check is cached for LIVE_CHECK_TTL_MS; refresh forces one; check: false
 // never launches a browser (live = the cached answer, or null if never checked).
@@ -86,10 +95,10 @@ export async function sessionStatus({ refresh = false, check = true, hasSession 
   if (!inflight) {
     inflight = (async () => {
       try {
-        const ok = await checkSessionLive();
-        noteSessionLive(ok ? 'connected' : 'expired', ok ? null : 'Schoology sent the saved session to the login page', now());
+        const r = await checkSessionLive();
+        noteSessionLive(r.live, r.message ?? null, now());
       } catch (err) {
-        noteSessionLive('expired', `Could not check the Schoology session: ${err.message}`, now());
+        noteSessionLive('unknown', `Could not check the Schoology session: ${err.message}`, now());
       } finally {
         inflight = null;
       }

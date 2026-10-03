@@ -27,6 +27,7 @@ import { getSectionGrades } from './schoology.js';
 import { groupObservationsByTopic, normalizeObservation } from '../lib/masteryObservations.js';
 import { pointsToLevel, levelToLabel, schoologyScaleId } from '../lib/proficiencyScale.js';
 import { sessionStateFile, ensureSessionDir } from '../lib/sessionPaths.js';
+import { noteSessionLive } from './schoologySession.js';
 
 const SCHOOLOGY_BASE = 'https://schoology.hkis.edu.hk';
 
@@ -822,9 +823,11 @@ async function openMasterySession(sectionId) {
       waitUntil: 'domcontentloaded',
     });
     if (!checkLoggedIn(page)) {
+      noteSessionLive('expired', 'A mastery write was sent to the login page');
       throw new Error('Still not logged in after relogin. Please run `npm run mastery:login` manually.');
     }
   }
+  noteSessionLive('connected'); // the Settings card / Sync dialog status follows real use
   return { browser, page, context };
 }
 

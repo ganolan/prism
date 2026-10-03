@@ -13,7 +13,7 @@ import { levelToGradeScaled, gradeScaledValues, pointsToLevel, LEVELS } from '..
 import { getAssignmentFiles } from '../services/oneDriveLinks.js';
 import { matchFilesToRoster } from '../lib/oneDriveSubmissions.js';
 import { epochToLocalDate } from '../lib/schoolDays.js';
-import { sessionStatus } from '../services/schoologySession.js';
+import { sessionStatus, resetSessionStatusCache } from '../services/schoologySession.js';
 import { canUnsubmit } from '../services/ltiUnsubmit.js';
 
 const router = Router();
@@ -47,6 +47,8 @@ router.post('/login', async (req, res) => {
     res.status(500).json({ error: err.message });
   } finally {
     loginInProgress = false;
+    // The saved session just changed (or the attempt ended): the next status read re-checks.
+    resetSessionStatusCache();
   }
 });
 

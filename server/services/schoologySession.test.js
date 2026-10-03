@@ -42,11 +42,22 @@ describe('sessionStatus (Settings card / Sync dialog live status)', () => {
     expect(r.message).toMatch(/login page/);
   });
 
-  test("a check that throws → 'expired' with the error, never throws", async () => {
+  test("a check that throws → 'unknown' with the error, never throws", async () => {
     sessionDeps.openPage = vi.fn(async () => { throw new Error('chromium missing'); });
     const r = await sessionStatus({ hasSession: () => true, now });
-    expect(r).toMatchObject({ loggedIn: true, live: 'expired' });
+    expect(r).toMatchObject({ loggedIn: true, live: 'unknown' });
     expect(r.message).toMatch(/chromium missing/);
+  });
+
+  test("a navigation error or about:blank → 'unknown' (not expired)", async () => {
+    const s = fakeSession('about:blank');
+    s.page.goto.mockRejectedValue(new Error('net::ERR_INTERNET_DISCONNECTED'));
+    sessionDeps.openPage = vi.fn(async () => s);
+    const r = await sessionStatus({ hasSession: () => true, now });
+    expect(r).toMatchObject({ live: 'unknown', message: expect.stringMatching(/ERR_INTERNET_DISCONNECTED/) });
+    expect(s.close).toHaveBeenCalled();
+    sessionDeps.openPage = vi.fn(async () => fakeSession('about:blank'));
+    expect((await sessionStatus({ hasSession: () => true, now, refresh: true })).live).toBe('unknown');
   });
 
   test('cached for 10 minutes; refresh forces a re-check; stale → re-check', async () => {

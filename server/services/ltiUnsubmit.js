@@ -22,6 +22,7 @@ import { sessionDeps, noteSessionLive } from './schoologySession.js';
 const SESSION_MESSAGE = 'Schoology connection expired — reconnect in Settings';
 const VERIFY_ATTEMPTS = 3;
 const VERIFY_WAIT_MS = 1500;
+const FETCH_TIMEOUT_MS = 20000; // each in-page fetch (the POST, each verification read)
 
 // The assignment page whose grader has Schoology's own Unsubmit button — the fallback
 // link when Prism's unsubmit fails.
@@ -68,72 +69,114 @@ export function assertCanUnsubmit(db, { studentId, assignmentId }) {
 }
 
 // In the page: the verified POST. The body is fixed here — never a parameter — so this
-// can only ever unsubmit.
-async function postUnsubmit(postUrl) {
+// can only ever unsubmit. Times out after `timeoutMs` (a hung fetch would otherwise hold
+// the pair's lock forever); a fetch that throws reports { status: 0, fetchError }.
+async function postUnsubmit({ postUrl, timeoutMs }) {
   const s = window.Drupal?.settings?.s_common || {};
   if (!s.csrf_token || !s.csrf_key) return { status: 0, csrfMissing: true, body: '' };
-  const r = await fetch(postUrl, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      'X-Csrf-Token': s.csrf_token,
-      'X-Csrf-Key': s.csrf_key,
-    },
-    body: JSON.stringify({ isSubmit: false }),
-  });
-  return { status: r.status, body: (await r.text()).slice(0, 2000) };
+  try {
+    const r = await fetch(postUrl, {
+      method: 'POST',
+      credentials: 'include',
+      signal: AbortSignal.timeout(timeoutMs),
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'X-Csrf-Token': s.csrf_token,
+        'X-Csrf-Key': s.csrf_key,
+      },
+      body: JSON.stringify({ isSubmit: false }),
+    });
+    return { status: r.status, body: (await r.text()).slice(0, 2000) };
+  } catch (err) {
+    return { status: 0, fetchError: String(err?.name || err) };
+  }
 }
 
 // In the page: the grader's in-progress list (flat { data: [{ id (= uid), … }] }).
-async function readInProgress(listUrl) {
-  const r = await fetch(listUrl, { credentials: 'include', headers: { Accept: 'application/json' } });
-  let json = null;
-  try { json = JSON.parse(await r.text()); } catch { /* not JSON */ }
-  return { status: r.status, ids: Array.isArray(json?.data) ? json.data.map((d) => String(d?.id)) : null };
+async function readInProgress({ listUrl, timeoutMs }) {
+  try {
+    const r = await fetch(listUrl, { credentials: 'include', headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(timeoutMs) });
+    let json = null;
+    try { json = JSON.parse(await r.text()); } catch { /* not JSON */ }
+    return { status: r.status, ids: Array.isArray(json?.data) ? json.data.map((d) => String(d?.id)) : null };
+  } catch (err) {
+    return { status: 0, ids: null, fetchError: String(err?.name || err) };
+  }
 }
 
 const okBody = (text) => {
   try { return Array.isArray(JSON.parse(text)?.data); } catch { return false; }
 };
 
+// Known NOT done: the POST was never sent, or Schoology rejected it (4xx).
 const fail = (message) => new TriageError('SCHOOLOGY_WRITE_FAILED', message);
+// Unknown: the POST went out but nothing confirmed it worked (a timeout, a 5xx, an
+// unexpected answer, or the student not showing as in progress) — their work MAY still
+// be submitted. The message prefix is how a stored unsubmit_error is read back as uncertain.
+export const UNCONFIRMED_PREFIX = 'Schoology didn\'t confirm the unsubmit';
+export const isUncertainUnsubmitError = (error) => String(error ?? '').startsWith(UNCONFIRMED_PREFIX);
+const unconfirmed = (detail) => new TriageError('SCHOOLOGY_UNCONFIRMED', `${UNCONFIRMED_PREFIX} — ${detail}`);
+
+// about:blank / an empty URL after goto = the page never loaded (a navigation error),
+// which says nothing about the session.
+const notLoaded = (url) => !url || url.startsWith('about:') || url.startsWith('chrome-error:');
 
 // Unsubmit one student's LTI work. → { unsubmitted: true }. Throws TriageError:
 // NOT_FOUND / NOT_ELIGIBLE (before any browser work), SCHOOLOGY_SESSION (no saved or
-// a dead session), SCHOOLOGY_WRITE_FAILED (refused, or not confirmed afterwards).
+// a dead session), SCHOOLOGY_WRITE_FAILED (known not done: not sent, or rejected),
+// SCHOOLOGY_UNCONFIRMED (sent, but not confirmed — may or may not have worked).
 export async function unsubmitLti(db, { studentId, assignmentId }, { openPage = () => sessionDeps.openPage(), wait = null } = {}) {
   const t = assertCanUnsubmit(db, { studentId, assignmentId });
-  const session = await openPage();
+  let session;
+  try {
+    session = await openPage();
+  } catch (err) {
+    throw fail(`Could not open a browser for Schoology (${err.message}) — nothing was unsubmitted`);
+  }
   if (!session) throw new TriageError('SCHOOLOGY_SESSION', SESSION_MESSAGE);
   const { page } = session;
   const pause = wait || ((ms) => page.waitForTimeout(ms));
   try {
-    await page.goto(t.url, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
-    if (!isLoggedInUrl(page.url())) {
+    let navError = null;
+    await page.goto(t.url, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch((err) => { navError = err; });
+    const landed = page.url();
+    if (!isLoggedInUrl(landed)) {
+      if (navError || notLoaded(landed)) {
+        throw fail(`Could not open the assignment page in Schoology${navError ? ` (${navError.message})` : ''} — nothing was unsubmitted`);
+      }
       noteSessionLive('expired', 'An unsubmit was sent to the login page');
       throw new TriageError('SCHOOLOGY_SESSION', SESSION_MESSAGE);
     }
+    noteSessionLive('connected');
     await page.waitForFunction(() => Boolean(window.Drupal?.settings?.s_common?.csrf_token), null, { timeout: 15000 }).catch(() => {});
-    const res = await page.evaluate(postUnsubmit, `${SCHOOLOGY_BASE}/iapi2/assignments/${t.schoologyAssignmentId}/submission-action/${t.uid}`);
+    let res;
+    try {
+      res = await page.evaluate(postUnsubmit, {
+        postUrl: `${SCHOOLOGY_BASE}/iapi2/assignments/${t.schoologyAssignmentId}/submission-action/${t.uid}`, timeoutMs: FETCH_TIMEOUT_MS,
+      });
+    } catch (err) {
+      throw unconfirmed(`the page failed while sending it (${err.message})`);
+    }
     if (res.csrfMissing) throw fail('Could not read Schoology\'s security token on the assignment page — nothing was unsubmitted');
+    if (res.fetchError) throw unconfirmed(`no answer (${res.fetchError})`);
+    if (res.status >= 400 && res.status < 500) {
+      console.warn(`[lti unsubmit] ${t.studentId}:${t.assignmentId} rejected: HTTP ${res.status} ${String(res.body).slice(0, 200)}`);
+      throw fail(`Schoology refused the unsubmit (HTTP ${res.status})`);
+    }
     if (res.status !== 200 || !okBody(res.body)) {
-      console.warn(`[lti unsubmit] ${t.studentId}:${t.assignmentId} not accepted: HTTP ${res.status} ${String(res.body).slice(0, 200)}`);
-      throw fail(res.status === 200
-        ? 'Schoology gave an unexpected answer to the unsubmit — check the student in Schoology'
-        : `Schoology refused the unsubmit (HTTP ${res.status})`);
+      console.warn(`[lti unsubmit] ${t.studentId}:${t.assignmentId} unexpected answer: HTTP ${res.status} ${String(res.body).slice(0, 200)}`);
+      throw unconfirmed(`unexpected answer (HTTP ${res.status})`);
     }
     // Confirm: the student must now be in the grader's in-progress list.
     const listUrl = `${SCHOOLOGY_BASE}/iapi2/assignments/${t.schoologyAssignmentId}/in-progress-documents/`;
     let confirmed = false;
     for (let i = 0; i < VERIFY_ATTEMPTS && !confirmed; i++) {
       if (i > 0) await pause(VERIFY_WAIT_MS);
-      const list = await page.evaluate(readInProgress, listUrl).catch(() => null);
+      const list = await page.evaluate(readInProgress, { listUrl, timeoutMs: FETCH_TIMEOUT_MS }).catch(() => null);
       confirmed = Boolean(list?.ids?.includes(t.uid));
     }
-    if (!confirmed) throw fail('Schoology did not confirm the unsubmit — the student does not show as in progress');
-    noteSessionLive('connected');
+    if (!confirmed) throw unconfirmed('the student does not show as in progress yet');
     db.prepare(`UPDATE grades SET lti_submission_state = 'in_progress' WHERE student_id = ? AND assignment_id = ?`).run(t.studentId, t.assignmentId);
     db.prepare(`UPDATE resubmissions SET unsubmit_error = NULL WHERE student_id = ? AND assignment_id = ? AND unsubmit_error IS NOT NULL`)
       .run(t.studentId, t.assignmentId);
@@ -143,18 +186,23 @@ export async function unsubmitLti(db, { studentId, assignmentId }, { openPage = 
   }
 }
 
-// The act() step: never throws. → { ok: true } | { ok: false, error, code, url }.
+// The act() step: never throws. → { ok: true } | { ok: false, error, code, uncertain, url }.
+// uncertain = the POST went out unconfirmed: their work may or may not still be submitted.
 export async function tryUnsubmitLti(db, { studentId, assignmentId }, opts) {
   try {
     await unsubmitLti(db, { studentId, assignmentId }, opts);
     return { ok: true };
   } catch (err) {
-    if (!(err instanceof TriageError)) console.error('[lti unsubmit] failed:', err);
+    const known = err instanceof TriageError;
+    if (!known) console.error('[lti unsubmit] failed:', err);
     const a = db.prepare('SELECT schoology_assignment_id FROM assignments WHERE id = ?').get(Number(assignmentId));
+    // An unexpected throw can't say whether the POST went out — treat it as unconfirmed.
+    const error = known ? err.message : `${UNCONFIRMED_PREFIX} — ${err.message}`;
     return {
       ok: false,
-      error: err instanceof TriageError ? err.message : `Unsubmit failed: ${err.message}`,
-      code: err.code ?? null,
+      error,
+      code: known ? err.code : 'SCHOOLOGY_UNCONFIRMED',
+      uncertain: isUncertainUnsubmitError(error),
       url: a ? unsubmitUrl(a.schoology_assignment_id) : null,
     };
   }

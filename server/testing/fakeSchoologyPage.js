@@ -6,8 +6,9 @@ import { vi } from 'vitest';
 
 export const SCHOOLOGY = 'https://schoology.hkis.edu.hk';
 
-// post / inProgress: (respond) => response, respond(status, body). Defaults: the
-// verified 200 {"data":[]} and an in-progress list holding `uid`.
+// post / inProgress: (respond) => response, respond(status, body) — or throw (a fetch
+// error / timeout). Defaults: the verified 200 {"data":[]} and an in-progress list
+// holding `uid`. Each recorded request keeps its init (incl. `signal`).
 export function fakeSchoologyPage({
   uid, aid, landing = `${SCHOOLOGY}/assignments/${aid}/info`, csrf = { csrf_token: 'tok', csrf_key: 'key' }, post, inProgress,
 } = {}) {

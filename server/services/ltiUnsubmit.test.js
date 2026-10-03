@@ -85,16 +85,61 @@ describe('unsubmitLti', () => {
     expect(state()).toBe('submitted');
   });
 
-  test('200 with an unexpected body → failure', async () => {
+  test('200 with an unexpected body → unconfirmed (may or may not have worked)', async () => {
     const f = fakeSession({ post: (respond) => respond(200, '<html>oops</html>') });
-    await expect(unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => f.session })).rejects.toMatchObject({ code: 'SCHOOLOGY_WRITE_FAILED' });
+    await expect(unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => f.session }))
+      .rejects.toMatchObject({ code: 'SCHOOLOGY_UNCONFIRMED', message: expect.stringMatching(/^Schoology didn't confirm the unsubmit/) });
     expect(state()).toBe('submitted');
+  });
+
+  test('a 5xx → unconfirmed; a 4xx → known refusal', async () => {
+    let f = fakeSession({ post: (respond) => respond(502, 'bad gateway') });
+    await expect(unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => f.session })).rejects.toMatchObject({ code: 'SCHOOLOGY_UNCONFIRMED' });
+    f = fakeSession({ post: (respond) => respond(400, { data: null }) });
+    await expect(unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => f.session })).rejects.toMatchObject({ code: 'SCHOOLOGY_WRITE_FAILED' });
+  });
+
+  test('every in-page fetch carries a timeout signal; a POST that times out is unconfirmed, not failed', async () => {
+    const ok = fakeSession();
+    await unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => ok.session });
+    expect(ok.requests.length).toBeGreaterThan(1);
+    for (const q of ok.requests) expect(q.signal).toBeInstanceOf(AbortSignal);
+    db.prepare(`UPDATE grades SET lti_submission_state = 'submitted'`).run();
+    const hung = fakeSession({ post: () => { throw Object.assign(new Error('signal timed out'), { name: 'TimeoutError' }); } });
+    await expect(unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => hung.session }))
+      .rejects.toMatchObject({ code: 'SCHOOLOGY_UNCONFIRMED', message: expect.stringMatching(/TimeoutError/) });
+    expect(state()).toBe('submitted');
+  });
+
+  test('a verification read that times out counts as not confirmed', async () => {
+    const f = fakeSession({ inProgress: () => { throw Object.assign(new Error('t'), { name: 'TimeoutError' }); } });
+    await expect(unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => f.session })).rejects.toMatchObject({ code: 'SCHOOLOGY_UNCONFIRMED' });
+  });
+
+  test('a navigation error / about:blank is an honest failure, not "expired" (nothing POSTed)', async () => {
+    for (const setup of [
+      (f) => { f.page.goto.mockRejectedValue(new Error('net::ERR_NAME_NOT_RESOLVED')); f.page.url.mockReturnValue('about:blank'); },
+      (f) => { f.page.url.mockReturnValue('about:blank'); },
+    ]) {
+      resetSessionStatusCache();
+      const f = fakeSession();
+      setup(f);
+      await expect(unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => f.session }))
+        .rejects.toMatchObject({ code: 'SCHOOLOGY_WRITE_FAILED', message: expect.stringMatching(/Could not open the assignment page/) });
+      expect(f.requests).toHaveLength(0);
+      expect((await sessionStatus({ hasSession: () => true, check: false })).live).toBeNull();
+    }
+  });
+
+  test('a browser that fails to launch → known failure', async () => {
+    await expect(unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => { throw new Error('no chromium'); } }))
+      .rejects.toMatchObject({ code: 'SCHOOLOGY_WRITE_FAILED' });
   });
 
   test('accepted but the student is not in progress afterwards → failure (after retries)', async () => {
     const f = fakeSession({ inProgress: (respond) => respond(200, { data: [{ id: 12345 }] }) });
     await expect(unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => f.session }))
-      .rejects.toMatchObject({ code: 'SCHOOLOGY_WRITE_FAILED', message: expect.stringMatching(/did not confirm/) });
+      .rejects.toMatchObject({ code: 'SCHOOLOGY_UNCONFIRMED', message: expect.stringMatching(/does not show as in progress/) });
     expect(f.requests.filter((q) => q.url.includes('in-progress-documents'))).toHaveLength(3);
     expect(state()).toBe('submitted');
   });
@@ -118,9 +163,15 @@ describe('tryUnsubmitLti / eligibility', () => {
   test('a failure becomes { ok: false, error, code, url } — the assignment page with the Unsubmit button', async () => {
     const r = await tryUnsubmitLti(db, { studentId, assignmentId }, { openPage: async () => null });
     expect(r).toEqual({
-      ok: false, code: 'SCHOOLOGY_SESSION', error: 'Schoology connection expired — reconnect in Settings',
+      ok: false, code: 'SCHOOLOGY_SESSION', error: 'Schoology connection expired — reconnect in Settings', uncertain: false,
       url: `${BASE}/assignments/${AID}/info`,
     });
+  });
+
+  test('an unconfirmed failure is marked uncertain', async () => {
+    const f = fakeSession({ post: (respond) => respond(503, '') });
+    expect(await tryUnsubmitLti(db, { studentId, assignmentId }, { openPage: async () => f.session }))
+      .toMatchObject({ ok: false, code: 'SCHOOLOGY_UNCONFIRMED', uncertain: true });
   });
 
   test('success → { ok: true }', async () => {

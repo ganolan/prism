@@ -34,7 +34,7 @@ import { getAssignmentFiles } from '../services/oneDriveLinks.js';
 import { requestResubmission, resubmissionByStudent } from '../services/resubmissions.js';
 import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
 import { publishStatusLine } from '../services/statusLinePublisher.js';
-import { writeMasteryScores } from '../services/masterySync.js';
+import { writeMasteryScores, interactiveLogin } from '../services/masterySync.js';
 import { sessionDeps, resetSessionStatusCache } from '../services/schoologySession.js';
 
 // The live session check opens a real browser — never in tests.
@@ -96,6 +96,20 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — review and res
     assignmentInternalId = db.prepare(
       `INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-1', 'Project')`
     ).run(courseId).lastInsertRowid;
+  });
+
+  test('unsubmit_available: only OneDrive (LTI) work Prism last saw submitted (Phase 2)', async () => {
+    const db = getDb();
+    const grade = db.prepare(`INSERT INTO grades (student_id, assignment_id, lti_submission_state) VALUES (?, ?, 'submitted')`)
+      .run(studentId, assignmentInternalId).lastInsertRowid;
+    const available = async () => (await get(`/api/mastery/${courseId}/assignment/sa-1`)).body.students[0].unsubmit_available;
+    expect(await available()).toBe(false); // not LTI
+    db.prepare('UPDATE assignments SET is_lti_submission = 1 WHERE id = ?').run(assignmentInternalId);
+    expect(await available()).toBe(true);
+    for (const st of ['in_progress', 'not_started', null]) {
+      db.prepare('UPDATE grades SET lti_submission_state = ? WHERE id = ?').run(st, grade);
+      expect(await available()).toBe(false);
+    }
   });
 
   test('review_flag is null when the student has no review flag', async () => {
@@ -394,11 +408,25 @@ describe('GET /api/mastery/login-status', () => {
     expect(quick.body.live).toBe('expired');
   });
 
-  test("a failing check → 'expired' with a message, still 200", async () => {
+  test("a failing check → 'unknown' with a message, still 200", async () => {
     sessionDeps.openPage = vi.fn(async () => { throw new Error('boom'); });
     const { status, body } = await get('/api/mastery/login-status');
     expect(status).toBe(200);
-    expect(body).toMatchObject({ live: 'expired', message: expect.stringMatching(/boom/) });
+    expect(body).toMatchObject({ live: 'unknown', message: expect.stringMatching(/boom/) });
+  });
+
+  test('POST /login resets the cached status (success or not), so the next read re-checks', async () => {
+    await get('/api/mastery/login-status');
+    expect(sessionDeps.openPage).toHaveBeenCalledTimes(1);
+    vi.mocked(interactiveLogin).mockResolvedValueOnce();
+    await post('/api/mastery/login', {});
+    await get('/api/mastery/login-status');
+    expect(sessionDeps.openPage).toHaveBeenCalledTimes(2);
+    vi.mocked(interactiveLogin).mockRejectedValueOnce(new Error('closed'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await post('/api/mastery/login', {});
+    await get('/api/mastery/login-status');
+    expect(sessionDeps.openPage).toHaveBeenCalledTimes(3);
   });
 });
 

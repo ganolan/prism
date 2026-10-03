@@ -22,10 +22,10 @@ describe('triage helpers', () => {
   });
 
   it('courseTriageSummary counts per course; oldestDay is the worst feedback day number (due date = day 1)', () => {
-    expect(courseTriageSummary(T, 1)).toEqual({ atLimit: 1, late: 1, toGrade: 10, oldestDay: 12, waitTone: 'red', makeUps: 2, makeUpTone: 'red' });
+    expect(courseTriageSummary(T, 1)).toEqual({ atLimit: 1, late: 1, toGrade: 10, oldestDay: 12, waitTone: 'red', makeUps: 2, makeUpTone: 'red', resubmissions: 0, resubmissionTone: 'green' });
     expect(courseTriageSummary(T, 2)).toMatchObject({ makeUps: 1, makeUpTone: 'green' });
     expect(courseTriageSummary(T, 3)).toMatchObject({ makeUps: 1, makeUpTone: 'amber' });
-    expect(courseTriageSummary(null, 1)).toEqual({ atLimit: 0, late: 0, toGrade: 0, oldestDay: 0, waitTone: 'green', makeUps: 0, makeUpTone: 'green' });
+    expect(courseTriageSummary(null, 1)).toEqual({ atLimit: 0, late: 0, toGrade: 0, oldestDay: 0, waitTone: 'green', makeUps: 0, makeUpTone: 'green', resubmissions: 0, resubmissionTone: 'green' });
   });
 
   it('waitsByAssignment keys by Schoology id', () => {
@@ -40,6 +40,16 @@ describe('triage helpers', () => {
 
   it('APPROX_TITLE explains the ≈ marker', () => {
     expect(APPROX_TITLE).toMatch(/weekdays/);
+  });
+});
+
+describe('courseTriageSummary — resubmissions', () => {
+  it('counts resubmissions per course and in the red total', () => {
+    const t = { lateWork: [], feedbackOwed: [], makeUps: [], resubmissions: [
+      { courseId: 5, tone: 'red' }, { courseId: 5, tone: 'green' }, { courseId: 6, tone: 'amber' },
+    ] };
+    expect(courseTriageSummary(t, 5)).toMatchObject({ resubmissions: 2, resubmissionTone: 'red' });
+    expect(redCount(t)).toBe(1);
   });
 });
 

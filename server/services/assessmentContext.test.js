@@ -234,12 +234,25 @@ describe('getAssessmentContext', () => {
     expect(s.submitted_at).toBe(new Date(1700000000 * 1000).toISOString());
     expect(s.latest_revision_at).toBe(new Date(1700000500 * 1000).toISOString());
 
-    // LTI: since #125 the timestamps are the grader's authoritative submissionDate
-    // (sync overwrites the public-path noise), so they flow through like dropbox.
+    // LTI: submitted_at stays the REST grade time (owned by upsertGrade); the
+    // grader's authoritative submission time lives in latest_revision_at — so for
+    // LTI the surfaced submitted_at tracks latest_revision_at, not the REST value
+    // (triage resubmissions, 2026-10-03).
     db.prepare(`UPDATE assignments SET is_lti_submission = 1 WHERE id = ?`).run(assignmentId);
     s = getAssessmentContext(db, { courseId, assignmentId: 'sa-1' }).students[0];
-    expect(s.submitted_at).toBe(new Date(1700000000 * 1000).toISOString());
+    expect(s.submitted_at).toBe(new Date(1700000500 * 1000).toISOString());
     expect(s.latest_revision_at).toBe(new Date(1700000500 * 1000).toISOString());
+  });
+
+  test('LTI submitted_at tracks latest_revision_at (the submission time) even when it differs from the REST grade time (triage resubmissions)', () => {
+    const db = getDb();
+    const { courseId, assignmentId, studentId } = seedContext(db);
+    db.prepare(`UPDATE assignments SET is_lti_submission = 1 WHERE id = ?`).run(assignmentId);
+    db.prepare(`UPDATE grades SET submitted_at = 2000, latest_revision_at = 3000 WHERE student_id = ? AND assignment_id = ?`).run(studentId, assignmentId);
+
+    const s = getAssessmentContext(db, { courseId, assignmentId: 'sa-1' }).students[0];
+    expect(s.submitted_at).toBe(new Date(3000 * 1000).toISOString());
+    expect(s.latest_revision_at).toBe(new Date(3000 * 1000).toISOString());
   });
 
   test('LTI with no captured submission time still surfaces null timestamps (#125)', () => {

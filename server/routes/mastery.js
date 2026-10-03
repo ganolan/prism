@@ -3,6 +3,7 @@ import { getDb } from '../db/index.js';
 import { hasMasterySession, syncMasteryForCourse, syncMasteryForAssignment, writeMasteryScores, writeMasteryScoresBatch, writeMasteryOverride, getMasteryForCourse, getRubricScoresForStudent, interactiveLogin } from '../services/masterySync.js';
 import { pushGradeComments, getSectionGrades } from '../services/schoology.js';
 import { isResubmitted } from '../lib/resubmission.js';
+import { settleResubmissions } from '../services/resubmissions.js';
 import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows, scoreScaleFor } from '../services/assessmentContext.js';
 import { getSchoologyConfig, getScoreScales } from '../middleware/featureGate.js';
 import { findScoreScale, levelForScore, isScalePoints } from '../lib/scoreScales.js';
@@ -672,6 +673,11 @@ router.post('/:courseId/write-comment', async (req, res) => {
           now,
         );
       }
+      // Best-effort: a local grade just landed that may fulfill an open
+      // resubmission request. Settling must never fail a grade save.
+      try { settleResubmissions(db, { assignmentId: assignmentRow.id }); } catch (err) {
+        console.error('[mastery write-comment] settle failed:', err.message);
+      }
     }
 
     res.json(result);
@@ -799,6 +805,11 @@ router.post('/:courseId/send-all', async (req, res) => {
         fresh ? (Number(fresh.timestamp) || 0) : 0,
         e.comment.comment || '', commentStatusInt, now,
       );
+      // Best-effort: a local grade just landed that may fulfill an open
+      // resubmission request. Settling must never fail a grade save.
+      try { settleResubmissions(db, { assignmentId: assignmentRow.id }); } catch (err) {
+        console.error('[mastery send-all] settle failed:', err.message);
+      }
     }
 
     res.json({ results: entries.map(e => ({ uid: e.uid, ok: true })) });

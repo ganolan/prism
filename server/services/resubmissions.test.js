@@ -8,7 +8,7 @@ import { storeSchoolDays } from './schoolCalendar.js';
 import { TriageError } from './triageCommon.js';
 import {
   requestResubmission, extendResubmission, closeResubmission, markResubmissionReviewed, undoResubmission,
-  listResubmissions, settleResubmissions, resubmissionByStudent, openRequestKeys,
+  listResubmissions, settleResubmissions, resubmissionByStudent, openRequestKeys, recordSchoologyUnsubmit,
 } from './resubmissions.js';
 
 const at = (iso) => Date.parse(`${iso}T04:00:00Z`) / 1000; // noon HKT
@@ -119,6 +119,18 @@ describe('settleResubmissions', () => {
     expect(settleResubmissions(db, { assignmentId: a })).toBe(1);
     expect(listResubmissions(db, { id: r1.id })[0]).toMatchObject({ status: 'done', outcome: 'done' });
     expect(listResubmissions(db, { id: r2.id })[0].status).toBe('open');
+  });
+});
+
+describe('recordSchoologyUnsubmit', () => {
+  test('needs graded + earlier submission + in progress + no open request + current course', () => {
+    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');
+    grade(s, a, { score: 80, exception: 0, first_submitted_at: 100, lti_submission_state: 'in_progress' });
+    expect(recordSchoologyUnsubmit(db, { studentId: s, assignmentId: a })).toBe(true);
+    expect(recordSchoologyUnsubmit(db, { studentId: s, assignmentId: a })).toBe(false); // already open
+    const s2 = student('u2', 'Ethan', 'Wong');
+    grade(s2, a, { score: 0, exception: 0, first_submitted_at: 0, lti_submission_state: 'in_progress' });
+    expect(recordSchoologyUnsubmit(db, { studentId: s2, assignmentId: a })).toBe(false);
   });
 });
 

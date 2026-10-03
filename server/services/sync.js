@@ -20,6 +20,7 @@ import { isActiveEnrolment } from '../lib/enrolmentStatus.js';
 import { createSubmissionFetcher } from './graderSubmissions.js';
 import { getSyncConfig } from '../middleware/featureGate.js';
 import { syncMasteryForCourse, hasMasterySession } from './masterySync.js';
+import { recordSchoologyUnsubmit, settleResubmissions } from './resubmissions.js';
 
 // Triage: grades.first_submitted_at is a running minimum of the non-zero
 // submission times we observe (the bulk revisions API only returns the latest
@@ -362,19 +363,16 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
       lti_submission_state = excluded.lti_submission_state,
       synced_at = excluded.synced_at
   `);
-  // #125: for a SUBMITTED lti student we also have the grader's authoritative
-  // submission time + late flag (parsed from submitted-documents). Write the
-  // epoch into BOTH submitted_at and latest_revision_at — the grader exposes one
-  // timestamp per lti submission, so equal values mean "no resubmit signal"
-  // (safe), and overwrite the unreliable public-path timestamp (noise). late is
-  // Schoology's own on-time/late determination. Unparseable date → submittedAt
-  // null → 0 here (epochToIso(0) → null in the MCP), but late is still recorded.
+  // #125 + triage resubmissions: the grader submissionDate is the LATEST submission
+  // → latest_revision_at (+ earliest kept in first_submitted_at). submitted_at stays
+  // the REST grade time written by upsertGrade above, so latest_revision_at >
+  // submitted_at = resubmitted since graded (verified 2026-10-03,
+  // .claude/schoology-api-reference.md).
   const upsertLtiStateWithTime = db.prepare(`
-    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, lti_submission_state, submitted_at, latest_revision_at, first_submitted_at, late, synced_at)
-    VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, lti_submission_state, latest_revision_at, first_submitted_at, late, synced_at)
+    VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(student_id, assignment_id) DO UPDATE SET
       lti_submission_state = excluded.lti_submission_state,
-      submitted_at = excluded.submitted_at,
       latest_revision_at = excluded.latest_revision_at,
       late = excluded.late,
       synced_at = excluded.synced_at,${KEEP_EARLIEST_FIRST_SUBMITTED}
@@ -414,7 +412,7 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
           if (detail) {
             upsertLtiStateWithTime.run(
               studentRow.id, assignRow.id, String(e.id), assignRow.max_points ?? null, state,
-              detail.submittedAt ?? 0, detail.submittedAt ?? 0, detail.submittedAt ?? 0, detail.late ?? 0, now,
+              detail.submittedAt ?? 0, detail.submittedAt ?? 0, detail.late ?? 0, now,
             );
           } else {
             upsertLtiState.run(studentRow.id, assignRow.id, String(e.id), assignRow.max_points ?? null, state, now);
@@ -422,6 +420,13 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
         }
       });
       writeStates();
+
+      // A graded student back in progress was unsubmitted in Schoology → chase the resubmission.
+      for (const [uid, state] of stateMap) {
+        if (state !== 'in_progress') continue;
+        const studentRow = selectStudentByUid.get(String(uid));
+        if (studentRow) recordSchoologyUnsubmit(db, { studentId: studentRow.id, assignmentId: assignRow.id });
+      }
     }
   }
 
@@ -974,6 +979,7 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
     // Update sync log
     db.prepare(`UPDATE sync_log SET status = 'completed', records_synced = ?, completed_at = ? WHERE id = ?`)
       .run(totalRecords, new Date().toISOString(), syncId);
+    settleResubmissions(db);
 
     log(`Sync complete: ${totalRecords} records`);
     return { success: true, records: totalRecords };

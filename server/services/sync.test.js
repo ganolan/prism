@@ -485,13 +485,54 @@ describe('syncSectionData — submission state: native bulk + lti documents (#55
     });
 
     const submitted = getGradeRow('701', 'L1');
-    expect(submitted.submitted_at).toBe(1747895340);
-    expect(submitted.latest_revision_at).toBe(1747895340); // only timestamp we have → both equal (no resubmit signal)
+    expect(submitted.submitted_at).toBe(0);                // REST grade time owns submitted_at (no REST grade here)
+    expect(submitted.latest_revision_at).toBe(1747895340); // the grader submissionDate
+    expect(submitted.first_submitted_at).toBe(1747895340);
     expect(submitted.late).toBe(1);
     // A not_started cell has no detail → timestamps stay 0 (epochToIso → null in the MCP).
     const notStarted = getGradeRow('702', 'L1');
     expect(notStarted.submitted_at).toBe(0);
     expect(notStarted.latest_revision_at).toBe(0);
+  });
+
+  test('resubmissions: an LTI resubmission after grading is detectable (grade time kept)', async () => {
+    getSectionEnrollments.mockResolvedValue([{ id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' }]);
+    getSectionAssignments.mockResolvedValue([
+      { id: 'L1', title: 'OneDrive Essay', published: 1, allow_dropbox: '1', assignment_type: 'lti_submission' },
+    ]);
+    getSectionGrades.mockResolvedValue([{ enrollment_id: '801', assignment_id: 'L1', grade: 80, exception: 0, timestamp: 2000, comment: '' }]);
+    await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
+      fetchDocuments: async () => ({ states: new Map([['701', 'submitted']]), details: new Map([['701', { submittedAt: 3000, late: 1 }]]) }),
+    });
+    const row = getGradeRow('701', 'L1');
+    expect(row.submitted_at).toBe(2000);
+    expect(row.latest_revision_at).toBe(3000);
+  });
+
+  test('resubmissions: graded LTI work seen back in progress is auto-added as an open request', async () => {
+    getSectionEnrollments.mockResolvedValue([
+      { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
+      { id: '802', uid: '702', name_first: 'Bo', name_last: 'M', admin: '0' },
+    ]);
+    getSectionAssignments.mockResolvedValue([
+      { id: 'L1', title: 'OneDrive Essay', published: 1, allow_dropbox: '1', assignment_type: 'lti_submission' },
+    ]);
+    getSectionGrades.mockResolvedValue([
+      { enrollment_id: '801', assignment_id: 'L1', grade: 80, exception: 0, timestamp: 2000, comment: '' },
+      { enrollment_id: '802', assignment_id: 'L1', grade: 0, exception: 0, timestamp: 2000, comment: '' },
+    ]);
+    // Sync 1: Ada submitted (seeds first_submitted_at); Bo never submitted.
+    await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
+      fetchDocuments: async () => ({ states: new Map([['701', 'submitted'], ['702', 'in_progress']]), details: new Map([['701', { submittedAt: 1500, late: 0 }]]) }),
+    });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM resubmissions').get().n).toBe(0);
+    // Sync 2: the teacher unsubmitted Ada in Schoology.
+    await syncSectionData(db, 'sec-G', courseId, new Date().toISOString(), {
+      fetchDocuments: async () => ({ states: new Map([['701', 'in_progress'], ['702', 'in_progress']]), details: new Map() }),
+    });
+    const reqs = db.prepare(`SELECT r.*, s.schoology_uid FROM resubmissions r JOIN students s ON s.id = r.student_id`).all();
+    expect(reqs).toHaveLength(1); // Review Focus 4: Bo (graded 0, never submitted) is not added
+    expect(reqs[0]).toMatchObject({ schoology_uid: '701', kind: 'request', status: 'open', source: 'schoology_unsubmit', lessons: 3 });
   });
 
   test('#125: a submitted lti student with an unparseable date still records late, timestamps stay 0', async () => {

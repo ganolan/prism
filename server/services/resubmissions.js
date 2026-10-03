@@ -146,6 +146,27 @@ export function undoResubmission(db, id) {
   return { deleted: db.prepare('DELETE FROM resubmissions WHERE id = ?').run(Number(id)).changes > 0 };
 }
 
+// Sync (LTI pass): graded work Prism saw submitted that is back "in progress" was
+// unsubmitted in Schoology → an open request (deadline = the default lessons from
+// now). Students graded without ever submitting are skipped (first_submitted_at = 0).
+export function recordSchoologyUnsubmit(db, { studentId, assignmentId, requestedAt = null }) {
+  const live = db.prepare(`
+    SELECT 1 FROM assignments a JOIN courses c ON c.id = a.course_id WHERE a.id = ? AND c.archived = 0 AND c.excluded = 0
+  `).get(assignmentId);
+  if (!live) return false;
+  const { grade, request } = pairContext(db, studentId, assignmentId);
+  if (request) return false;
+  if (grade.lti_submission_state !== 'in_progress') return false;
+  if (grade.score == null || (Number(grade.exception) || 0) !== 0) return false;
+  if (!(Number(grade.first_submitted_at) > 0)) return false;
+  const courseId = db.prepare('SELECT course_id FROM assignments WHERE id = ?').get(assignmentId).course_id;
+  db.prepare(`
+    INSERT OR IGNORE INTO resubmissions (student_id, assignment_id, course_id, kind, status, requested_at, lessons, source)
+    VALUES (?, ?, ?, 'request', 'open', COALESCE(?, datetime('now')), ?, 'schoology_unsubmit')
+  `).run(studentId, assignmentId, courseId, requestedAt, getTriageSettings(db).resubmitLessonsDefault);
+  return true;
+}
+
 // Mark open requests whose resubmission has been regraded/reviewed as done.
 export function settleResubmissions(db, { assignmentId = null } = {}) {
   const open = db.prepare(`SELECT id, student_id, assignment_id FROM resubmissions WHERE ${OPEN_REQUEST} AND (? IS NULL OR assignment_id = ?)`)

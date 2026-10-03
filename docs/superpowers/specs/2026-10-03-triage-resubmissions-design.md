@@ -751,6 +751,28 @@ minutes, `?refresh=1` re-checks, `?check=0` never opens a browser; errors read a
 the Sync dialog shows the same status. While the session is expired or missing, the Ask checkbox is
 disabled with a link to that card.
 
+**Review fixes (2026-10-04).**
+- *Undo closes, not deletes, on unsubmitted work.* Undoing a request whose OneDrive work is now in progress
+  closes it (`close_note 'Undone'`, like an auto-added `schoology_unsubmit` request): a deleted row no longer
+  blocked `recordSchoologyUnsubmit`, so the next sync re-added it. Copy: *Closes this request in Prism.
+  Their work stays unsubmitted in Schoology.*
+- *Asks stay out of Late work.* A pair with an open request is tracked in Resubmissions only; an Ask that
+  unsubmitted ungraded work used to reappear as Late work "outstanding" (its local state is in progress).
+- *Timeouts and honest outcomes.* Every in-page fetch carries `AbortSignal.timeout(20 s)`. Only a POST never
+  sent (no / dead session, no CSRF pair, page not loaded) or a 4xx is a known failure
+  (`SCHOOLOGY_WRITE_FAILED`, *their work is still submitted*). After the POST went out, a timeout, a 5xx, an
+  unexpected answer or no confirmation is `SCHOOLOGY_UNCONFIRMED` (`uncertain: true`): *Schoology didn't
+  confirm the unsubmit — their work may still be submitted. Unsubmit it in Schoology ›*; rows read *Unsubmit
+  not confirmed*.
+- *'unknown' is not 'expired'.* A navigation error or `about:blank` makes the unsubmit fail honestly and the
+  live check report `unknown` (*Couldn't check — try again*), which does not disable the Ask checkbox. Only a
+  landing on a login / SSO page is `expired`. `POST /api/mastery/login` resets the cached status; an
+  unsubmit or mastery write that reaches Schoology (or bounces to SSO) updates it.
+
+**Limitation (cross-process lock).** The per-pair lock is per process (limitation 3 above): PrisMCP and the
+web server can each start an unsubmit for the same pair at once. Both send the same idempotent
+`{"isSubmit":false}`, but both record an ask attempt; the second record fails `ALREADY_OPEN`.
+
 **Still unverified live:** whether the student's OneDrive copy becomes editable again, and whether the
 student is notified. PrisMCP needs `PRISM_SESSION_DIR` in its environment to find the saved session; without
 it the unsubmit fails safely (recorded, link shown).

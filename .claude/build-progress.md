@@ -937,6 +937,9 @@ the original 56-day gap and the fixed/re-verified result are in `.claude/powersc
   (`server/testing/fakeSchoologyPage.js` runs the real in-page code against a stub window + fetch); no
   Schoology call was made while building it. Still unverified live: whether the student's OneDrive copy
   becomes editable and whether they are notified (spec "Phase 2 — LTI unsubmit on Ask").
+  Review fixes (2026-10-04): Undo on unsubmitted work closes the request (no sync re-add); open asks stay
+  out of Late work; 20 s timeouts on in-page fetches; unconfirmed (after the POST) vs known failure wording;
+  live state `unknown` for navigation errors (doesn't disable the checkbox); login resets the cached status.
 
 ## Sync resilience + persistent sync log (2026-10-02, branch `feat/sync-resilience-logs`)
 

@@ -1142,3 +1142,12 @@ ghost *Check now* button (forces a re-check; hidden when there is no session to 
 screen-share to it if you're away.* (UI copy says "the server", never the machine's name). The Sync
 dialog's mastery step shows the same component beside its login option and offers the login when the
 session has expired, so the status reads identically wherever it appears.
+
+**Review fixes (2026-10-04).** The failure wording only says *still submitted* when Prism knows the unsubmit
+wasn't accepted (never sent, or refused). When the request went out but Schoology never confirmed it, the
+modal says *Schoology didn't confirm the unsubmit — their work may still be submitted. Unsubmit it in
+Schoology ›* and the row/card note reads *Unsubmit not confirmed*. A live check that couldn't tell shows
+*Couldn't check — try again* with a muted dot (never *Expired*) and does not disable the Ask checkbox. Undo
+of an ask on unsubmitted work reads *Closes this request in Prism. Their work stays unsubmitted in
+Schoology.* Both of the Sync dialog's login prompts carry the same *on the server — screen-share* note as
+the Settings card.

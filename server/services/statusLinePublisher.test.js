@@ -271,6 +271,10 @@ describe('previewStatusLine', () => {
       .toMatchObject({ lineProblem: 'BAD_LINE' });
     expect(await previewStatusLine(db, { studentId: s, assignmentId: a, line: '' }))
       .toMatchObject({ normalisedLine: '', lineProblem: null });           // no line yet: nothing to flag
+    for (const blank of ['   ', '\u00A0\u202F', '\t']) {                // normalises to '': publish would refuse it too
+      expect(await previewStatusLine(db, { studentId: s, assignmentId: a, line: blank }))
+        .toMatchObject({ normalisedLine: '', lineProblem: 'BAD_LINE', lineProblemMessage: 'The status line is empty' });
+    }
     expect(pushGradeComments).not.toHaveBeenCalled();
   });
 

@@ -195,12 +195,13 @@ export async function previewStatusLine(db, { studentId, assignmentId, line = ''
   const currentComment = normalise(fresh?.comment);
   const visible = Number(fresh?.comment_status) === 1;
   // Be honest about the candidate line: what publish would store (normalisedLine) and
-  // whether publish would refuse it (lineProblem 'BAD_LINE' + its message). An empty
-  // line (reading the comment before a line exists) is not a problem.
+  // whether publish would refuse it (lineProblem 'BAD_LINE' + its message) — including a
+  // line that normalises to '' (blank). No line at all ('' — reading the comment before
+  // a line exists) is not a problem.
   const normalisedLine = plainLine(normalise(line)).trim();
   let lineProblem = null;
   let lineProblemMessage;
-  if (normalisedLine || /[\r\n]/.test(String(line ?? '').trim())) {
+  if (String(line ?? '') !== '') {
     try { checkLine(line); } catch (err) { lineProblem = err.code; lineProblemMessage = err.message; }
   }
   return {

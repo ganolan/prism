@@ -442,6 +442,39 @@ describe('captureFeedbackSnapshots — baseline predates the resubmission (I1)',
     expect(stateOf(s, a)).toBe(null);
   });
 
+  // An lti revision time has no seconds: a Prism save within the minute after R may
+  // predate the real submission, so it is not "after R".
+  for (const [at, expected] of [[230, 'arrived'], [259, 'arrived'], [260, null]]) {
+    test(`lti minute precision: R = 200, a Prism rubric save at ${at} (unsynced R) → sync: ${expected ?? 'answered'}`, () => {
+      const s = student('u1'); const a = assignment('a1');
+      db.prepare('UPDATE assignments SET is_lti_submission = 1 WHERE id = ?').run(a);
+      grade(s, a, { score: 60, submitted_at: 50, latest_revision_at: 100 });
+      levelD();
+      captureFeedbackSnapshots(db);
+      setLevel('EX');
+      captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: at });
+      setGrade(s, a, { latest_revision_at: 200 });
+      captureFeedbackSnapshots(db);
+      expect(stateOf(s, a)).toBe(expected);
+    });
+  }
+
+  test('lti minute precision: a save while the arrival is pending counts only from R + 60; native work from R + 1', () => {
+    for (const [lti, at, expected] of [[1, 250, 'arrived'], [1, 260, null], [0, 201, null]]) {
+      db.exec('DELETE FROM feedback_snapshots; DELETE FROM mastery_scores; DELETE FROM grades; DELETE FROM assignments; DELETE FROM students;');
+      const s = student('u1'); const a = assignment('a1');
+      db.prepare('UPDATE assignments SET is_lti_submission = ? WHERE id = ?').run(lti, a);
+      grade(s, a, { score: 60, submitted_at: 50, latest_revision_at: 100 });
+      levelD();
+      captureFeedbackSnapshots(db);
+      setGrade(s, a, { latest_revision_at: 200 });
+      captureFeedbackSnapshots(db);
+      setLevel('EX');
+      captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: at });
+      expect([lti, at, stateOf(s, a)]).toEqual([lti, at, expected]);
+    }
+  });
+
   test('save log: each changing Prism save is logged with the fingerprint it replaced; unchanged saves and publishes are not', () => {
     const s = student('u1'); const a = assignment('a1');
     grade(s, a, { score: 60, submitted_at: 50, latest_revision_at: 100 });

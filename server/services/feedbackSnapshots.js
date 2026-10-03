@@ -42,7 +42,7 @@ export function currentFingerprints(db, scope = {}) {
   for (const g of db.prepare(`
     SELECT g.student_id, g.assignment_id, g.score, g.exception, g.grade_comment, g.comment_status,
            g.submitted_at, g.latest_revision_at, g.first_submitted_at, g.lti_submission_state,
-           sl.line AS stored_line
+           a.is_lti_submission, sl.line AS stored_line
     FROM grades g
     JOIN assignments a ON a.id = g.assignment_id
     JOIN students s ON s.id = g.student_id
@@ -172,7 +172,10 @@ export function captureFeedbackSnapshots(db, {
       let fingerprintAt = Number(snap.fingerprint_at) || 0;
       const newRevision = latest > snap.revision_at;
       const gradedAt = Number(cur.grade.submitted_at) || 0;
-      const savedAfter = (t, r) => t > r;
+      // Is a Prism save at t after revision r? An lti revision time has no seconds, so a
+      // save within the minute after it may predate the real submission: not after.
+      const lti = Number(cur.grade.is_lti_submission) === 1;
+      const savedAfter = (t, r) => (lti ? t >= r + 60 : t > r);
       if (newRevision) {
         // A new resubmission R: judge it against the feedback that predates it.
         const after = log.filter(([t]) => savedAfter(t, latest));

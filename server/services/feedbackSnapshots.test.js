@@ -222,6 +222,29 @@ describe('captureFeedbackSnapshots — baseline predates the resubmission (I1)',
     expect(snap(s, a)).toMatchObject({ fingerprint_at: 400, synced_fingerprint: snap(s, a).fingerprint });
   });
 
+  test('R1: an unstamped save (status-line publish) updates fingerprint + synced_fingerprint but never stamps', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 60, submitted_at: 100, latest_revision_at: 50 });
+    captureFeedbackSnapshots(db);
+    setGrade(s, a, { score: 70 });                                   // the publish mirrored a fresh Schoology regrade
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', stamp: false, now: 400 });
+    const fp70 = currentFingerprints(db, {}).get(`${s}:${a}`).fingerprint;
+    expect(snap(s, a)).toMatchObject({ fingerprint: fp70, synced_fingerprint: fp70, fingerprint_at: 0 });
+  });
+
+  test('R1: an unstamped save keeps a pending save stamp and its synced_fingerprint', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 60, submitted_at: 100, latest_revision_at: 50 });
+    captureFeedbackSnapshots(db);
+    const fp0 = snap(s, a).fingerprint;
+    setGrade(s, a, { score: 65 });
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 150 });   // a real Prism save
+    setGrade(s, a, { score: 70 });
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', stamp: false, now: 400 });
+    expect(snap(s, a)).toMatchObject({ fingerprint_at: 150, synced_fingerprint: fp0 });
+    expect(snap(s, a).fingerprint).toBe(currentFingerprints(db, {}).get(`${s}:${a}`).fingerprint);
+  });
+
   test('M2: revision_at never moves backwards', () => {
     const s = student('u1'); const a = assignment('a1');
     grade(s, a, { score: 80, latest_revision_at: 300 });

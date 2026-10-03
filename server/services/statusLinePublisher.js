@@ -151,10 +151,15 @@ function mirror(db, t, fresh, comment, commentStatus) {
   }
 }
 
-// Best-effort, like write-comment: a Prism save of this pair (fingerprint ignores the stored line).
+// Best-effort, like write-comment. Unstamped (R1): the mirror may carry a Schoology regrade
+// the last sync never saw, and a status line is not teacher feedback, so this capture
+// records the fresh state without counting as a Prism save — a publish after a
+// resubmission must never make it read as answered. The publisher never moves
+// grades.submitted_at either (mirror() leaves it alone). The fingerprint ignores the
+// stored line.
 function capture(db, t) {
   try {
-    captureFeedbackSnapshots(db, { assignmentId: t.assignmentId, studentId: t.studentId, mode: 'save' });
+    captureFeedbackSnapshots(db, { assignmentId: t.assignmentId, studentId: t.studentId, mode: 'save', stamp: false });
   } catch (err) {
     console.error('[status line] snapshot failed:', err.message);
   }

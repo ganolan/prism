@@ -83,8 +83,15 @@ export function snapshotMap(db, scope = {}) {
 // already answered), so the baseline is synced_fingerprint instead. Otherwise, in
 // sync mode, 0 < grades.submitted_at <= R means no teacher write came after R, so
 // the baseline is the current fingerprint (final review C1).
-export function captureFeedbackSnapshots(db, { mode = 'sync', now = Math.floor(Date.now() / 1000), ...scope } = {}) {
+// stamp: false (save mode only — the status-line publisher, R1): the capture records the
+// fresh Schoology state it mirrored but is not a teacher save. fingerprint (and
+// synced_fingerprint, when no save stamp is pending — as a sync would) are updated;
+// fingerprint_at is left alone, so publishing a status line never counts as a Prism
+// save after a resubmission (which would make R's baseline the older synced feedback
+// and could read a pre-R Schoology regrade as the answer).
+export function captureFeedbackSnapshots(db, { mode = 'sync', stamp = true, now = Math.floor(Date.now() / 1000), ...scope } = {}) {
   const isSave = mode === 'save';
+  const stamps = isSave && stamp !== false;
   const current = currentFingerprints(db, scope);
   const snapshots = snapshotMap(db, scope);
   const askedAt = new Map(db.prepare(`
@@ -122,7 +129,7 @@ export function captureFeedbackSnapshots(db, { mode = 'sync', now = Math.floor(D
           arrivalAt = latest; baseline = EMPTY_FINGERPRINT;
         }
         insert.run(cur.studentId, cur.assignmentId, cur.fingerprint, latest, arrivalAt, baseline,
-          cur.fingerprint, isSave ? now : 0);
+          cur.fingerprint, stamps ? now : 0);
         if (arrivalAt) arrivals += 1;
         continue;
       }
@@ -153,8 +160,12 @@ export function captureFeedbackSnapshots(db, { mode = 'sync', now = Math.floor(D
       const keepStamp = !isSave && !newRevision && snap.fingerprint_at > 0;
       let synced;
       let fingerprintAt;
-      if (isSave) { synced = snap.synced_fingerprint; fingerprintAt = changed ? now : snap.fingerprint_at; }
-      else if (keepStamp) { synced = snap.synced_fingerprint; fingerprintAt = snap.fingerprint_at; }
+      if (stamps) { synced = snap.synced_fingerprint; fingerprintAt = changed ? now : snap.fingerprint_at; }
+      else if (isSave) {
+        // Unstamped save (status-line publish): a fresh Schoology view, not a teacher write.
+        fingerprintAt = snap.fingerprint_at;
+        synced = fingerprintAt > 0 ? snap.synced_fingerprint : cur.fingerprint;
+      } else if (keepStamp) { synced = snap.synced_fingerprint; fingerprintAt = snap.fingerprint_at; }
       else { synced = cur.fingerprint; fingerprintAt = 0; }
       if (!changed && revisionAt === snap.revision_at && arrivalAt === snap.arrival_revision_at
         && baseline === snap.arrival_baseline && synced === snap.synced_fingerprint && fingerprintAt === snap.fingerprint_at) continue;

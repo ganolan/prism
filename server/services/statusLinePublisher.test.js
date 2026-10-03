@@ -6,6 +6,8 @@ vi.mock('./schoology.js', () => ({ getSectionGrades: vi.fn(), pushGradeComments:
 import { getDb } from '../db/index.js';
 import { getSectionGrades, pushGradeComments } from './schoology.js';
 import { previewStatusLine, publishStatusLine, removeStatusLine, lockPair, setStatusLineSource } from './statusLinePublisher.js';
+import { captureFeedbackSnapshots, currentFingerprints, snapshotMap } from './feedbackSnapshots.js';
+import { resubmissionStateFromSnapshot } from '../lib/resubmission.js';
 
 const L1 = 'Resubmission requested - due Thu 09/10. Fix the loop.';
 const L2 = 'Resubmission requested - now due Tue 14/10.';
@@ -118,6 +120,43 @@ describe('publishStatusLine', () => {
     await expect(publishStatusLine(db, { studentId: s, assignmentId: a, line: L1, kind: 'nope' })).rejects.toMatchObject({ code: 'BAD_VALUE' });
     await expect(publishStatusLine(db, { studentId: 999, assignmentId: a, line: L1, kind: 'ask' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
     expect(getSectionGrades).not.toHaveBeenCalled();
+  });
+});
+
+// R1 (residual review): a status-line publish mirrors the fresh Schoology grade, which may
+// carry a regrade the last sync never saw. It must not count as a Prism save after a
+// resubmission R, or the next sync would take the pre-regrade sync as R's baseline and the
+// regrade (given BEFORE R) would read as the answer — R silently dismissed.
+describe('a status-line publish never answers a resubmission (R1)', () => {
+  const stateOf = (requestedAt = 0) => {
+    const cur = currentFingerprints(db, {}).get(`${s}:${a}`);
+    return resubmissionStateFromSnapshot({
+      snapshot: snapshotMap(db, {}).get(`${s}:${a}`), currentFingerprint: cur.fingerprint, requestedAt, gradedAt: Number(cur.grade.submitted_at) || 0,
+    });
+  };
+
+  test('sync at 60 → Schoology regrade to 70 at 200 → resubmission at 300 → Prism Extend publish → sync: arrived', async () => {
+    db.prepare('UPDATE grades SET score = 60, grade_comment = NULL, submitted_at = 100, latest_revision_at = 50 WHERE student_id = ?').run(s);
+    captureFeedbackSnapshots(db);                                    // the last sync saw 60
+    // In Schoology (unsynced): regraded to 70 at 200, then the student resubmits at 300.
+    getSectionGrades.mockResolvedValue([fresh({ grade: '70', comment: '' })]);
+    await publishStatusLine(db, { studentId: s, assignmentId: a, line: L2, kind: 'extend_resubmission' });
+    // The publish mirrored 70 but is not a teacher save: no stamp, and the grade time is untouched.
+    expect(db.prepare('SELECT score, submitted_at FROM grades WHERE student_id = ?').get(s)).toEqual({ score: 70, submitted_at: 100 });
+    expect(snapshotMap(db, {}).get(`${s}:${a}`)).toMatchObject({ fingerprint_at: 0 });
+    // The next sync sees R = 300; Schoology's grade time moved to the publish (400).
+    db.prepare('UPDATE grades SET submitted_at = 400, latest_revision_at = 300 WHERE student_id = ?').run(s);
+    expect(captureFeedbackSnapshots(db)).toEqual({ arrivals: 1 });
+    expect(stateOf()).toBe('arrived');
+    expect(stateOf(250)).toBe('arrived');                           // an open ask before R: not fulfilled
+  });
+
+  test('removing a line also leaves the save stamp alone', async () => {
+    db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, ?, 'ask')`).run(s, a, L1);
+    captureFeedbackSnapshots(db);
+    getSectionGrades.mockResolvedValue([fresh({ grade: '3', comment: `${L1}\n\nKeep this.` })]);
+    await removeStatusLine(db, { studentId: s, assignmentId: a });
+    expect(snapshotMap(db, {}).get(`${s}:${a}`)).toMatchObject({ fingerprint_at: 0 });
   });
 });
 

@@ -491,6 +491,23 @@ describe('captureFeedbackSnapshots — baseline predates the resubmission (I1)',
     expect(snap(s, a)).toMatchObject({ fingerprint_at: 200, synced_fingerprint: fp0 });
   });
 
+  test('save log: malformed entries are dropped, never thrown on', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 60, submitted_at: 50, latest_revision_at: 100 });
+    captureFeedbackSnapshots(db);
+    const fp = snap(s, a).fingerprint;
+    for (const bad of ['[null]', '[[300]]', 'not json', '{"a":1}', JSON.stringify([[300, fp, fp], null, [Number.NaN, 'x', 'y'], ['300', fp, fp], [310, 1, fp], [320, fp, fp, 'extra']])]) {
+      db.prepare('UPDATE feedback_snapshots SET save_log = ?').run(bad);
+      setGrade(s, a, { score: 61 + Math.random() });                // a changing save rewrites the log
+      expect(() => captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 400 })).not.toThrow();
+      const log = JSON.parse(snap(s, a).save_log);
+      expect(log.every((e) => Array.isArray(e) && Number.isFinite(e[0]) && typeof e[1] === 'string' && typeof e[2] === 'string')).toBe(true);
+      expect(log.at(-1)[0]).toBe(400);
+    }
+    // The valid entries of the mixed log survive: [300, fp, fp] and [320, …] (extra items ignored).
+    expect(JSON.parse(snap(s, a).save_log).map((e) => e[0])).toEqual([300, 320, 400]);
+  });
+
   test('save log: capped at the newest 20 entries', () => {
     const s = student('u1'); const a = assignment('a1');
     grade(s, a, { score: 0, submitted_at: 50, latest_revision_at: 100 });

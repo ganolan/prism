@@ -75,13 +75,18 @@ export function snapshotMap(db, scope = {}) {
 }
 
 const SAVE_LOG_MAX = 20;
+// The pair's save log; malformed entries are dropped (never thrown on). An entry is
+// [finite epoch s, fingerprint before (string), fingerprint after (string)].
+const validEntry = (e) => Array.isArray(e) && typeof e[0] === 'number' && Number.isFinite(e[0])
+  && typeof e[1] === 'string' && typeof e[2] === 'string';
 function parseLog(text) {
+  let v;
   try {
-    const v = JSON.parse(text || '[]');
-    return Array.isArray(v) ? v : [];
+    v = JSON.parse(text || '[]');
   } catch {
     return [];
   }
+  return Array.isArray(v) ? v.filter(validEntry).map((e) => e.slice(0, 3)) : [];
 }
 
 // Snapshot every pair in scope. One transaction; unchanged pairs are not rewritten.

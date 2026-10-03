@@ -4,6 +4,7 @@ import { getGradingScalesMap } from '../db/scales.js';
 import { apiGet } from '../services/schoology.js';
 import { finalizeArchivedCourse, enrichStudentProfiles } from '../services/sync.js';
 import { isResubmitted } from '../lib/resubmission.js';
+import { openRequestKeys } from '../services/resubmissions.js';
 import { getArchivedSections } from '../services/archivedCourses.js';
 import { syncPsAttendance } from '../services/psAttendanceSync.js';
 import { getSchoologyConfig } from '../middleware/featureGate.js';
@@ -231,14 +232,8 @@ router.get('/:id/gradebook', (req, res) => {
     WHERE a.course_id = ?
   `).all(req.params.id);
 
-  // Submission-scoped 'resubmit requested' flags (#49, Part A). Prism-local.
-  const resubmitFlags = db.prepare(`
-    SELECT f.student_id, f.assignment_id
-    FROM flags f
-    JOIN assignments a ON a.id = f.assignment_id
-    WHERE a.course_id = ? AND f.flag_type = 'resubmit_requested' AND f.resolved = 0
-  `).all(req.params.id);
-  const resubmitSet = new Set(resubmitFlags.map(f => `${f.student_id}:${f.assignment_id}`));
+  // Open triage resubmission requests (#49, Part A; moved off `flags` 2026-10-03).
+  const resubmitSet = openRequestKeys(db, Number(req.params.id));
 
   // Unresolved 'review needed' flags (#57). Prism-local — surfaced on the
   // gradebook rubric modal alongside submission status.

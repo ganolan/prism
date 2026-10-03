@@ -3,7 +3,7 @@ import { getDb } from '../db/index.js';
 import { hasMasterySession, syncMasteryForCourse, syncMasteryForAssignment, writeMasteryScores, writeMasteryScoresBatch, writeMasteryOverride, getMasteryForCourse, getRubricScoresForStudent, interactiveLogin } from '../services/masterySync.js';
 import { pushGradeComments, getSectionGrades } from '../services/schoology.js';
 import { isResubmitted } from '../lib/resubmission.js';
-import { settleResubmissions } from '../services/resubmissions.js';
+import { settleResubmissions, resubmissionByStudent } from '../services/resubmissions.js';
 import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows, scoreScaleFor } from '../services/assessmentContext.js';
 import { getSchoologyConfig, getScoreScales } from '../middleware/featureGate.js';
 import { findScoreScale, levelForScore, isScalePoints } from '../lib/scoreScales.js';
@@ -494,17 +494,8 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
     reviewFlagMap[r.student_id] = { id: r.id, flag_reason: r.flag_reason };
   }
 
-  // Submission-scoped 'resubmit requested' flags for this assignment (#49).
-  const resubmitFlagRows = assignmentRow
-    ? db.prepare(`
-        SELECT id, student_id FROM flags
-        WHERE assignment_id = ? AND flag_type = 'resubmit_requested' AND resolved = 0
-      `).all(assignmentRow.id)
-    : [];
-  const resubmitFlagMap = {};
-  for (const r of resubmitFlagRows) {
-    resubmitFlagMap[r.student_id] = { id: r.id };
-  }
+  // Triage resubmissions: open request (the card's pill) + derived state.
+  const resubmissionMap = assignmentRow ? resubmissionByStudent(db, assignmentRow.id) : new Map();
 
   // An unaligned assignment on a Schoology scale Prism can grade (#41) is one
   // plain gradebook grade: ship the scale (levels best → worst) and each
@@ -530,7 +521,8 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
       comment_status: commentStatusMap[s.schoology_uid] ?? null,
       has_grade_row: hasGradeRowMap[s.schoology_uid] === true,
       review_flag: reviewFlagMap[s.id] || null,
-      resubmit_flag: resubmitFlagMap[s.id] || null,
+      resubmit_flag: resubmissionMap.get(s.id)?.request ? { id: resubmissionMap.get(s.id).request.id } : null,
+      resubmission: resubmissionMap.get(s.id) || null,
       resubmitted: resubmittedMap[s.schoology_uid] === true,
       lti_submission_state: ltiStateMap[s.schoology_uid] ?? null,
       submission_type: submissionTypeMap[s.schoology_uid] ?? null,

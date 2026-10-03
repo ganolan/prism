@@ -10,6 +10,7 @@ import { getScoreScales } from '../middleware/featureGate.js';
 import { findScoreScale, levelForScore } from '../lib/scoreScales.js';
 import { resolveAssignmentId } from './idResolvers.js';
 import { preferredFirstName } from './studentNames.js';
+import { resubmissionByStudent } from './resubmissions.js';
 
 // Epoch-seconds → ISO string (null when 0/missing). Mirrors the list_assignments
 // timestamp convention so agents get a parseable submission time.
@@ -121,19 +122,25 @@ export function getGradeMetaRows(db, assignmentSchoologyId) {
 }
 
 // Unresolved Prism-local flags for an assignment (local id), grouped by
-// student_id. review_needed carries its reason; resubmit_requested is a boolean.
+// student_id. review_needed carries its reason; resubmit_requested is a
+// boolean — true for a student with an open triage resubmission request
+// (moved off the `flags` table, 2026-10-03).
 export function getFlagsByStudent(db, assignmentLocalId) {
   const rows = db.prepare(`
     SELECT student_id, flag_type, flag_reason FROM flags
-    WHERE assignment_id = ? AND resolved = 0
-      AND flag_type IN ('review_needed', 'resubmit_requested')
+    WHERE assignment_id = ? AND resolved = 0 AND flag_type = 'review_needed'
   `).all(assignmentLocalId);
   const byStudent = {};
   for (const r of rows) {
-    const entry = byStudent[r.student_id] || { review_needed: null, resubmit_requested: false };
-    if (r.flag_type === 'review_needed') entry.review_needed = { reason: r.flag_reason || '' };
-    if (r.flag_type === 'resubmit_requested') entry.resubmit_requested = true;
-    byStudent[r.student_id] = entry;
+    byStudent[r.student_id] = { review_needed: { reason: r.flag_reason || '' }, resubmit_requested: false };
+  }
+  const openRequesters = db.prepare(`
+    SELECT student_id FROM resubmissions WHERE assignment_id = ? AND kind = 'request' AND status = 'open'
+  `).all(assignmentLocalId);
+  for (const { student_id } of openRequesters) {
+    const entry = byStudent[student_id] || { review_needed: null, resubmit_requested: false };
+    entry.resubmit_requested = true;
+    byStudent[student_id] = entry;
   }
   return byStudent;
 }
@@ -217,6 +224,7 @@ export function getAssessmentContext(db, { assignmentId }) {
   const suggestions = getExistingSuggestions(db, assignmentRow.id);
   const drafts = getAssessmentDrafts(db, assignmentRow.id);
   const flagsByStudent = getFlagsByStudent(db, assignmentRow.id);
+  const resubmissions = resubmissionByStudent(db, assignmentRow.id);
   // Class-level reviewer analysis (the grader's run-time observations), written via
   // write_assessment_analysis. Surfaced read-only so the review-task-and-rubric
   // skill can use noticings/moderation_note as direct evidence rather than
@@ -273,6 +281,10 @@ export function getAssessmentContext(db, { assignmentId }) {
       is_lti: isLti,
       due_date: assignmentRow.due_date ?? null,
       flags: flagsByStudent[st.id] || { review_needed: null, resubmit_requested: false },
+      resubmission: (() => {
+        const r = resubmissions.get(st.id);
+        return r ? { state: r.state, deadline: r.request?.until ?? null, source: r.request?.source ?? null } : null;
+      })(),
       existing_suggestion: sug
         ? {
             status: sug.status,

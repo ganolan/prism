@@ -30,6 +30,7 @@ import { getDb } from '../db/index.js';
 import { getMasteryForCourse, writeMasteryScoresBatch, writeMasteryOverride } from '../services/masterySync.js';
 import { getSectionGrades, pushGradeComments } from '../services/schoology.js';
 import { getAssignmentFiles } from '../services/oneDriveLinks.js';
+import { requestResubmission } from '../services/resubmissions.js';
 
 function startServer() {
   const app = express();
@@ -71,7 +72,7 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — review and res
   beforeEach(() => {
     const db = getDb();
     db.exec(
-      'DELETE FROM flags; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; ' +
+      'DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; ' +
       'DELETE FROM students; DELETE FROM courses;'
     );
     courseId = db.prepare(
@@ -151,14 +152,12 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — review and res
     expect(body.students[0].resubmit_flag).toBeNull();
   });
 
-  test('resubmit_flag carries the id for a resubmit_requested flag', async () => {
+  test('resubmit_flag carries the id for an open resubmission request, and resubmission is "waiting"', async () => {
     const db = getDb();
-    const flagId = db.prepare(
-      `INSERT INTO flags (student_id, assignment_id, flag_type)
-       VALUES (?, ?, 'resubmit_requested')`
-    ).run(studentId, assignmentInternalId).lastInsertRowid;
+    const request = requestResubmission(db, { studentId, assignmentId: assignmentInternalId, source: 'app' });
     const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
-    expect(body.students[0].resubmit_flag).toEqual({ id: flagId });
+    expect(body.students[0].resubmit_flag).toEqual({ id: request.id });
+    expect(body.students[0].resubmission.state).toBe('waiting');
   });
 
   test('resubmitted is true when the latest revision postdates the grade', async () => {

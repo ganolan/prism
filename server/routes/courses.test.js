@@ -19,6 +19,7 @@ import { getArchivedSections } from '../services/archivedCourses.js';
 import { apiGet } from '../services/schoology.js';
 import { finalizeArchivedCourse, enrichStudentProfiles } from '../services/sync.js';
 import { syncPsAttendance } from '../services/psAttendanceSync.js';
+import { requestResubmission } from '../services/resubmissions.js';
 
 function startServer() {
   const app = express();
@@ -55,7 +56,7 @@ let assignmentId;
 beforeEach(() => {
   const db = getDb();
   db.exec(
-    'DELETE FROM flags; DELETE FROM grades; DELETE FROM enrolments; ' +
+    'DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM enrolments; ' +
     'DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
   );
   courseId = db.prepare(
@@ -89,10 +90,8 @@ describe('GET /api/courses/:id/gradebook — resubmit_requested', () => {
     expect(body.grades[studentId][assignmentId].resubmit_requested).toBe(false);
   });
 
-  test('cell resubmit_requested is true when the flag exists', async () => {
-    getDb().prepare(
-      `INSERT INTO flags (student_id, assignment_id, flag_type) VALUES (?, ?, 'resubmit_requested')`
-    ).run(studentId, assignmentId);
+  test('cell resubmit_requested is true when there is an open resubmission request', async () => {
+    requestResubmission(getDb(), { studentId, assignmentId, source: 'app' });
     const { body } = await get(`/api/courses/${courseId}/gradebook`);
     expect(body.grades[studentId][assignmentId].resubmit_requested).toBe(true);
   });

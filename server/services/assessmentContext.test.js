@@ -4,6 +4,7 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../db/index.js';
 import { getAssessmentContext, getGradeMetaRows, normalizeSubmissionStatus, gradingState, getFlagsByStudent } from './assessmentContext.js';
+import { requestResubmission } from './resubmissions.js';
 
 // Seed one fully-populated assignment context: a course, a reporting category +
 // aligned measurement topic, an assignment, a roster of one enrolled student
@@ -38,7 +39,7 @@ function seedContext(db) {
 
 beforeEach(() => {
   getDb().exec(
-    'DELETE FROM flags; DELETE FROM assessment_drafts; DELETE FROM assessment_analysis; DELETE FROM feedback; DELETE FROM mastery_alignments; DELETE FROM mastery_scores; ' +
+    'DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM assessment_drafts; DELETE FROM assessment_analysis; DELETE FROM feedback; DELETE FROM mastery_alignments; DELETE FROM mastery_scores; ' +
     'DELETE FROM grades; DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
     'DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
   );
@@ -216,6 +217,17 @@ describe('getAssessmentContext', () => {
     expect(s.flags).toEqual({ review_needed: { reason: 'verify build' }, resubmit_requested: false });
   });
 
+  test('an open resubmission request surfaces as flags.resubmit_requested and a resubmission object', () => {
+    const db = getDb();
+    const { courseId, assignmentId, studentId } = seedContext(db);
+    const request = requestResubmission(db, { studentId, assignmentId, source: 'app' });
+
+    const ctx = getAssessmentContext(db, { courseId, assignmentId: 'sa-1' });
+    const s = ctx.students[0];
+    expect(s.flags.resubmit_requested).toBe(true);
+    expect(s.resubmission).toEqual({ state: 'waiting', deadline: request.until, source: 'app' });
+  });
+
   test('per-student includes the student email (for roster / email-list use cases)', () => {
     const db = getDb();
     const { courseId, studentId } = seedContext(db);
@@ -308,14 +320,15 @@ describe('normalizeSubmissionStatus', () => {
 });
 
 describe('getFlagsByStudent', () => {
-  test('groups review and resubmit flags by student_id, only unresolved', () => {
+  test('groups review_needed flags (only unresolved) and resubmit_requested from an open resubmission request', () => {
     const db = getDb();
     const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-f', 'ROB')`).run().lastInsertRowid;
     const assignmentId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-f', 'NB')`).run(courseId).lastInsertRowid;
     const sId = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-f', 'Ada', 'L')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'enr-f')`).run(sId, courseId);
     db.prepare(`INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason, resolved) VALUES (?, ?, 'review_needed', 'check sources', 0)`).run(sId, assignmentId);
-    db.prepare(`INSERT INTO flags (student_id, assignment_id, flag_type, resolved) VALUES (?, ?, 'resubmit_requested', 0)`).run(sId, assignmentId);
     db.prepare(`INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason, resolved) VALUES (?, ?, 'review_needed', 'old', 1)`).run(sId, assignmentId);
+    requestResubmission(db, { studentId: sId, assignmentId, source: 'app' });
 
     const byStudent = getFlagsByStudent(db, assignmentId);
     expect(byStudent[sId]).toEqual({

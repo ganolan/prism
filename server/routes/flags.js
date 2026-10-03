@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
+import { requestResubmission } from '../services/resubmissions.js';
+import { TriageError } from '../services/triageCommon.js';
 
 const router = Router();
 
@@ -36,8 +38,15 @@ router.post('/', (req, res) => {
   if (type === 'review_needed' && !flag_reason?.trim()) {
     return res.status(400).json({ error: 'flag_reason is required for review_needed flags' });
   }
-  if (type === 'resubmit_requested' && !assignment_id) {
-    return res.status(400).json({ error: 'assignment_id is required for resubmit_requested flags' });
+  // #49's toggle is now a triage resubmission request (default lessons).
+  if (type === 'resubmit_requested') {
+    if (!assignment_id) return res.status(400).json({ error: 'assignment_id is required for resubmit_requested flags' });
+    try {
+      return res.status(201).json(requestResubmission(db, { studentId: student_id, assignmentId: assignment_id, source: 'app' }));
+    } catch (err) {
+      if (err instanceof TriageError) return res.status(err.code === 'NOT_FOUND' ? 404 : 409).json({ error: err.message, code: err.code });
+      throw err;
+    }
   }
   const result = db.prepare(`
     INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason)

@@ -140,11 +140,17 @@ router.get('/:id', (req, res) => {
     'SELECT * FROM flags WHERE student_id = ? ORDER BY created_at DESC'
   ).all(req.params.id);
 
+  // Open resubmission requests (triage) still read as 'resubmit_requested' badges.
+  const requests = db.prepare(`
+    SELECT id, student_id, assignment_id, created_at FROM resubmissions
+    WHERE student_id = ? AND kind = 'request' AND status = 'open'
+  `).all(req.params.id).map((r) => ({ id: `resubmission-${r.id}`, student_id: r.student_id, assignment_id: r.assignment_id, flag_type: 'resubmit_requested', flag_reason: null, resolved: 0, created_at: r.created_at }));
+
   const parents = db.prepare(
     'SELECT * FROM parents WHERE student_id = ? ORDER BY last_name, first_name'
   ).all(req.params.id);
 
-  res.json({ ...student, courses, grades, notes, flags, parents, grading_scales: getGradingScalesMap() });
+  res.json({ ...student, courses, grades, notes, flags: [...flags, ...requests], parents, grading_scales: getGradingScalesMap() });
 });
 
 // PUT /api/students/:id — update editable fields

@@ -121,3 +121,25 @@ describe('/api/triage', () => {
       .toMatchObject({ status: 409, body: { code: 'NOT_ELIGIBLE' } });
   });
 });
+
+describe('resubmission routes', () => {
+  // The outer beforeEach already seeds an enrolled student + a current-course assignment.
+  function seedPair() { return { s: studentId, a: assignmentId }; }
+
+  test('ask → list → extend → close → undo', async () => {
+    const { s, a } = seedPair();
+    const asked = await call('POST', '/api/triage/resubmissions', { studentId: s, assignmentId: a, lessons: 2, note: 'redo' });
+    expect(asked.status).toBe(201);
+    expect(asked.body).toMatchObject({ outcome: 'asked', lessons: 2, note: 'redo' });
+    expect((await call('POST', '/api/triage/resubmissions', { studentId: s, assignmentId: a })).status).toBe(409);
+    expect((await call('PUT', `/api/triage/resubmissions/${asked.body.id}`, { lessons: 4 })).body.lessons).toBe(4);
+    expect((await call('PUT', `/api/triage/resubmissions/${asked.body.id}`, { close: true, note: 'stands' })).body.outcome).toBe('closed');
+    expect((await call('GET', '/api/triage/resubmissions')).body).toHaveLength(1);
+    expect((await call('DELETE', `/api/triage/resubmissions/${asked.body.id}`)).body).toEqual({ deleted: true });
+  });
+
+  test('review rejects a pair with nothing arrived (409)', async () => {
+    const { s, a } = seedPair();
+    expect((await call('POST', '/api/triage/resubmissions/review', { studentId: s, assignmentId: a })).status).toBe(409);
+  });
+});

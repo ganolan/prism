@@ -40,7 +40,7 @@ let assignmentId;
 beforeEach(() => {
   const db = getDb();
   db.exec(
-    'DELETE FROM flags; DELETE FROM enrolments; DELETE FROM assignments; ' +
+    'DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM enrolments; DELETE FROM assignments; ' +
     'DELETE FROM students; DELETE FROM courses;'
   );
   const courseId = db.prepare(
@@ -49,21 +49,26 @@ beforeEach(() => {
   studentId = db.prepare(
     `INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-1', 'Ada', 'Lovelace')`
   ).run().lastInsertRowid;
+  db.prepare(
+    `INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'enr-1')`
+  ).run(studentId, courseId);
   assignmentId = db.prepare(
     `INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-1', 'Project')`
   ).run(courseId).lastInsertRowid;
 });
 
 describe('POST /api/flags validation', () => {
-  test('resubmit_requested flag is created without a flag_reason', async () => {
+  // #49's toggle is now a triage resubmission request — no flag row is written.
+  test('resubmit_requested creates a resubmission request, not a flag row', async () => {
     const { status, body } = await call('POST', '/api/flags', {
       student_id: studentId,
       assignment_id: assignmentId,
       flag_type: 'resubmit_requested',
     });
     expect(status).toBe(201);
-    expect(body.flag_type).toBe('resubmit_requested');
-    expect(body.flag_reason).toBeNull();
+    expect(body.outcome).toBe('asked');
+    expect(getDb().prepare(`SELECT COUNT(*) c FROM flags WHERE flag_type = 'resubmit_requested'`).get().c).toBe(0);
+    expect(getDb().prepare('SELECT COUNT(*) c FROM resubmissions').get().c).toBe(1);
   });
 
   test('resubmit_requested flag requires an assignment_id', async () => {
@@ -117,11 +122,15 @@ describe('removed flag lifecycle routes', () => {
 });
 
 describe('DELETE /api/flags/:id', () => {
-  test('removes a resubmit_requested flag', async () => {
+  // resubmit_requested no longer writes a flags row (see above) — undoing it
+  // goes through DELETE /api/triage/resubmissions/:id instead (triage.test.js).
+  // This route still owns review_needed (and legacy custom) flags.
+  test('removes a review_needed flag', async () => {
     const created = await call('POST', '/api/flags', {
       student_id: studentId,
       assignment_id: assignmentId,
-      flag_type: 'resubmit_requested',
+      flag_type: 'review_needed',
+      flag_reason: 'check it',
     });
     const { status } = await call('DELETE', `/api/flags/${created.body.id}`);
     expect(status).toBe(200);

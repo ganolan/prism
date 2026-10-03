@@ -182,6 +182,25 @@ export function backfillFirstSubmittedAt(database) {
   `);
 }
 
+// Triage resubmissions (2026-10-03): the #49 'resubmit_requested' flag toggle
+// becomes an open request (default 3 lessons from when it was set). Idempotent:
+// only runs while such flags exist, and the flags are removed after the copy.
+export function migrateResubmitFlags(database) {
+  const flags = database.prepare(`
+    SELECT f.id, f.student_id, f.assignment_id, f.created_at, a.course_id
+    FROM flags f JOIN assignments a ON a.id = f.assignment_id
+    WHERE f.flag_type = 'resubmit_requested' AND f.resolved = 0
+  `).all();
+  const insert = database.prepare(`
+    INSERT OR IGNORE INTO resubmissions (student_id, assignment_id, course_id, kind, status, requested_at, lessons, source)
+    VALUES (?, ?, ?, 'request', 'open', ?, 3, 'app')
+  `);
+  database.transaction(() => {
+    for (const f of flags) insert.run(f.student_id, f.assignment_id, f.course_id, f.created_at);
+    database.exec(`DELETE FROM flags WHERE flag_type = 'resubmit_requested'`);
+  })();
+}
+
 // #127: mastery_rollups must be keyed per course. The original PK
 // (student_uid, objective_id) collapsed a student's rollup across every course
 // that shares a district objective UUID — so a student enrolled in several of
@@ -246,6 +265,7 @@ export function migrate(database) {
   purgeStudentScopedFlags(database);
   backfillExcludedCourses(database);
   backfillFirstSubmittedAt(database);
+  migrateResubmitFlags(database);
 }
 
 export function getDb() {

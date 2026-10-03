@@ -11,6 +11,8 @@ const TRIAGE_KEYS = {
   // Make-up tests (test day = day 1): amber from day makeUpAmberDay, red from day makeUpRedDay.
   makeUpAmberDay: { def: 2, min: 1, max: 31 },
   makeUpRedDay: { def: 4, min: 2, max: 31 },
+  // Resubmissions: default deadline (lessons = school days) when asking a student to resubmit.
+  resubmitLessonsDefault: { def: 3, min: 1, max: 60 },
 };
 
 // Before 2026-10-02 the make-up clock was stored as school days AFTER the test

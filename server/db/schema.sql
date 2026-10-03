@@ -526,3 +526,27 @@ CREATE TABLE IF NOT EXISTS extensions (
   updated_at TEXT,                      -- set when re-extended (history/since use COALESCE(updated_at, created_at))
   UNIQUE(student_id, assignment_id)
 );
+
+-- Triage resubmissions (2026-10-03 spec). One row per round: a 'request' (asked to
+-- resubmit, with a deadline in lessons) or a 'review' ("Reviewed" — the arrival
+-- at revision_at was looked at, grade stands). At most one open request per pair.
+CREATE TABLE IF NOT EXISTS resubmissions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  student_id INTEGER NOT NULL REFERENCES students(id),
+  assignment_id INTEGER NOT NULL REFERENCES assignments(id),
+  course_id INTEGER NOT NULL REFERENCES courses(id),
+  kind TEXT NOT NULL CHECK (kind IN ('request', 'review')),
+  status TEXT NOT NULL CHECK (status IN ('open', 'closed', 'done')),
+  requested_at TEXT,                    -- request: asked / first seen unsubmitted (UTC 'YYYY-MM-DD HH:MM:SS')
+  lessons INTEGER,                      -- request: deadline = requested date + N school days
+  note TEXT,
+  source TEXT NOT NULL DEFAULT 'app',   -- 'app' | 'mcp' | 'schoology_unsubmit'
+  revision_at INTEGER,                  -- review: the latest_revision_at it covered (epoch s)
+  closed_at TEXT,
+  close_note TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_resubmissions_one_open
+  ON resubmissions(student_id, assignment_id) WHERE kind = 'request' AND status = 'open';
+CREATE INDEX IF NOT EXISTS idx_resubmissions_course ON resubmissions(course_id);

@@ -11,7 +11,7 @@ describe('triage settings', () => {
   test('defaults when nothing is stored', () => {
     expect(getTriageSettings(getDb())).toEqual({
       referralLimitDays: 8, feedbackLimitDays: 10, warnLeadDays: 3, showFormativeDefault: false,
-      makeUpAmberDay: 2, makeUpRedDay: 4,
+      makeUpAmberDay: 2, makeUpRedDay: 4, resubmitLessonsDefault: 3,
     });
     expect(TRIAGE_DEFAULTS.referralLimitDays).toBe(8);
   });
@@ -20,8 +20,15 @@ describe('triage settings', () => {
     const s = updateTriageSettings(getDb(), { referralLimitDays: 6, showFormativeDefault: true });
     expect(s).toEqual({
       referralLimitDays: 6, feedbackLimitDays: 10, warnLeadDays: 3, showFormativeDefault: true, makeUpAmberDay: 2, makeUpRedDay: 4,
+      resubmitLessonsDefault: 3,
     });
     expect(getTriageSettings(getDb())).toEqual(s);
+  });
+
+  test('resubmitLessonsDefault defaults to 3 and clamps to 1–60', () => {
+    expect(getTriageSettings(getDb()).resubmitLessonsDefault).toBe(3);
+    updateTriageSettings(getDb(), { resubmitLessonsDefault: 99 });
+    expect(getTriageSettings(getDb()).resubmitLessonsDefault).toBe(60);
   });
 
   test('clamps out-of-range numbers and ignores unknown keys', () => {

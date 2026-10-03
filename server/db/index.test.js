@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { migrate, migrateMasteryRollupsPk, purgeLegacyAutoFlags, purgeStudentScopedFlags } from './index.js';
+import { migrate, migrateMasteryRollupsPk, migrateResubmitFlags, purgeLegacyAutoFlags, purgeStudentScopedFlags } from './index.js';
 
 function seedFlag(db, studentId, flagType) {
   db.prepare(
@@ -242,6 +242,35 @@ describe('purgeStudentScopedFlags', () => {
     ).run(studentId, assignmentId);
     migrate(db); // simulate reboot
     expect(db.prepare('SELECT COUNT(*) AS c FROM flags').get().c).toBe(1);
+  });
+});
+
+describe('migrateResubmitFlags', () => {
+  test('turns open resubmit_requested flags into open requests and removes the flags', () => {
+    const db = new Database(':memory:');
+    migrate(db);
+    const c = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s', 'C')`).run().lastInsertRowid;
+    const s = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u', 'A', 'B')`).run().lastInsertRowid;
+    const a = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'x', 'T')`).run(c).lastInsertRowid;
+    db.prepare(`INSERT INTO flags (student_id, assignment_id, flag_type, created_at) VALUES (?, ?, 'resubmit_requested', '2026-06-02 04:50:08')`).run(s, a);
+    db.prepare(`INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason) VALUES (?, ?, 'review_needed', 'why')`).run(s, a);
+
+    migrateResubmitFlags(db);
+    migrateResubmitFlags(db); // idempotent
+
+    const reqs = db.prepare(`SELECT * FROM resubmissions`).all();
+    expect(reqs).toHaveLength(1);
+    expect(reqs[0]).toMatchObject({ student_id: s, assignment_id: a, course_id: c, kind: 'request', status: 'open', lessons: 3, source: 'app', requested_at: '2026-06-02 04:50:08' });
+    expect(db.prepare(`SELECT flag_type FROM flags`).all()).toEqual([{ flag_type: 'review_needed' }]);
+  });
+
+  test('one open request per pair is enforced', () => {
+    const db = new Database(':memory:');
+    migrate(db);
+    const ins = `INSERT INTO resubmissions (student_id, assignment_id, course_id, kind, status, requested_at, lessons) VALUES (1, 1, 1, 'request', 'open', '2026-10-01 00:00:00', 3)`;
+    db.pragma('foreign_keys = OFF');
+    db.exec(ins);
+    expect(() => db.exec(ins)).toThrow(/UNIQUE/);
   });
 });
 

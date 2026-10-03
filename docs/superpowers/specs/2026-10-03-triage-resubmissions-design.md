@@ -489,7 +489,14 @@ can be published:
     is then reverted still marks "levels changed by a Prism save", so a later pull bringing a pre-R level
     on another topic reads as answered;
   - **the 20-entry save-log cap**: more than 20 changing Prism saves before a sync sees R can drop the
-    first post-R entry (and the levels it changed) — a false Arrived (safe direction).
+    first post-R entry (and the levels it changed) — a false Arrived (safe direction);
+  - **X13: a post-R Schoology visible comment first judged by an unstamped capture** (a save's pre-capture
+    or a status-line publish sees it before any sync does, with no Schoology grade time after R locally):
+    it is absorbed into the baseline — a false Arrived (safe direction), cleared by the next visible
+    feedback;
+  - **S6b** (pinned as a test, judged unreachable): after a Prism save, Schoology would have to show an
+    *older* score than Prism just read (a grade time moving backwards); a status-line publish mirroring it
+    then pairs with Prism's own later write time and reads as answered.
 - **The card follows the server (I1, I2).** `write-comment`, `send-all` (per result) and `/write` return
   the saved pair's post-save `resubmissionFields` (`resubmission`, `resubmit_flag`, `resubmitted`,
   `arrived_on`), computed after the capture + settle; the card patches exactly those (unknown → left
@@ -643,12 +650,23 @@ can be published:
   the baseline (a Schoology regrade *after* an unsynced R still answers it — its entry is the first after R;
   one *before* R is part of the baseline) but never counts as Prism evidence. Absorption keeps a score
   change whose Schoology grade time is after the arrival.
-- **Absorption is part-wise (round 6).** Absorbing into a pending arrival's baseline (status-line publish,
-  pre-save and echo captures) merges only the parts that changed since the last capture —
-  `absorbParts(baseline, current, changedParts(lastSnapshot, current))`, score+exception / levels / visible
-  comment separately — so the teacher's own earlier non-answering save is never absorbed (review S16:
-  R synced → hide-only save → re-show the same comment read as answered, and with an open request settled
-  it for good; S5b: the same after a pre-R echo). S16, S16b, S16r, S5b → Arrived (route tests).
+- **Absorption (rounds 6–7). Principle: absorb anything the teacher has not touched through Prism since
+  the arrival; never absorb a hide.** An unstamped capture (status-line publish, pre-save and echo
+  captures) with a pending, unanswered arrival merges into the baseline, part by part (score+exception /
+  levels / visible comment, `absorbParts`): the parts that changed since the last capture, **plus** any
+  part that differs from the baseline which no Prism save after the arrival changed
+  (`changedParts(lastSnapshot, current) | (changedParts(baseline, current) & ~arrival_parts)`). An empty
+  visible comment never replaces a non-empty baseline comment (hiding is never feedback, so re-showing
+  the same text can't read as new).
+  - Round 6 took the whole current fingerprint before that, absorbing the teacher's own earlier
+    non-answering save (S16: R synced → hide-only save → re-show the same comment read as answered, and
+    with an open request settled it for good; S5b: the same after a pre-R echo).
+  - Round 7 adds the second term: round 6's "changed since the last capture" missed a pre-R change a
+    *sync* saw after R was judged (sync captures never absorb), so the next save's grade time made it
+    read as an answer (X1: a pre-R score via the next sync, then a hide-only save; X1r with a request;
+    X1c: a pre-R comment edit, then an unchanged re-save; X7 lti; X11: hide then show).
+  - Regression tests: S16, S16b, S16r, S5b, X1, X1r (route level, request stays open), X1c, X7, X10 (a
+    Schoology-side hide, then a Prism re-show), X11 → Arrived; a real Prism comment after R still answers.
 - **Closed:** S2 including its score-moving form (N1), N2, N2b, N3. Regression tests at the route level
   (`server/routes/mastery.test.js`) and through the capture protocol (`feedbackSnapshots.test.js`);
   common workflows answered: a Prism rubric regrade (`/write`, then `write-comment` with `rubricSaved`),

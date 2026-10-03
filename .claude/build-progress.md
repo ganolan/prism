@@ -908,6 +908,13 @@ the original 56-day gap and the fixed/re-verified result are in `.claude/powersc
 - **Round 6 (2026-10-03): part-wise absorption.** Absorbing into a pending arrival's baseline merges only
   the parts that changed since the last capture (`absorbParts`), so a teacher's own earlier hide-only
   save is never absorbed (review S16/S16b/S16r/S5b → Arrived, request stays open).
+- **Round 7 (2026-10-03): absorb what the teacher hasn't touched; never a hide.** Absorption also takes
+  any part differing from the baseline that no Prism save after the arrival changed (a pre-R change a sync
+  saw after R was judged), and never replaces a non-empty baseline comment with an empty one. Review
+  X1/X1r/X1c/X7/X10/X11 → Arrived. Residuals documented: a Schoology hidden note after R, the per-arrival
+  levels bit (N4), the 20-entry cap, X13 (a post-R Schoology comment first judged by an unstamped
+  capture → false Arrived), S6b (pinned; needs a grade time moving backwards). Details: spec
+  "Absorption (rounds 6–7)".
 
 ## Sync resilience + persistent sync log (2026-10-02, branch `feat/sync-resilience-logs`)
 

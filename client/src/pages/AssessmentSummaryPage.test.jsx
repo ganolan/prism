@@ -463,6 +463,30 @@ describe('StudentRubricCard — "resubmission received" chip (Task 7, triage res
     }));
   });
 
+  // Round 5: the server credits the fresh Schoology score to the teacher only when this
+  // save wrote rubric scores first (rubricSaved); otherwise it is Schoology's own change.
+  it('a save that wrote rubric scores first passes rubricSaved on the comment write', async () => {
+    writeMasteryScores.mockResolvedValueOnce({ ok: true });
+    renderCard();
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Exhibiting Depth'));
+    fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), { target: { value: 'Regraded' } });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+    await waitFor(() => expect(writeMasteryComment).toHaveBeenCalledTimes(1));
+    expect(writeMasteryScores).toHaveBeenCalledTimes(1);
+    expect(writeMasteryComment.mock.calls[0][1].rubricSaved).toBe(true);
+  });
+
+  it('a comment-only save does not pass rubricSaved', async () => {
+    renderCard();
+    fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), { target: { value: 'Just a comment' } });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+    await waitFor(() => expect(writeMasteryComment).toHaveBeenCalledTimes(1));
+    expect(writeMasteryScores).not.toHaveBeenCalled();
+    expect(writeMasteryComment.mock.calls[0][1].rubricSaved).toBeUndefined();
+  });
+
   it('a save omits statusLine once the teacher edits the top line away', async () => {
     renderCard({ student: { ...makeStudent(), resubmission: { state: 'arrived', request: null }, arrived_on: '2026-10-03' } });
     fireEvent.click(screen.getByRole('button', { name: /insert "resubmission received" line/i }));

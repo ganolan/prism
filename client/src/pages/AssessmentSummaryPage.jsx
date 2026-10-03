@@ -739,6 +739,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
 
       // The pair's post-save resubmission state — from the last write that reported it.
       let fields = null;
+      let rubricSaved = false;
       if (hasScoreChanges && assignmentRow) {
         const scored = await writeMasteryScores(courseId, {
           enrollmentId: student.enrollment_id,
@@ -748,6 +749,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           gradingCategoryId: assignmentRow.mastery_grading_category_id,
         });
         fields = scored?.resubmissionFields ?? fields;
+        rubricSaved = true;
       }
 
       if (hasCommentChange || hasDisplayChange) {
@@ -757,6 +759,10 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           comment,
           commentStatus: display,
           ...statusLineFields(),
+          // This save wrote the rubric first, so the score Schoology recomputed (echoed by
+          // the comment write) is the teacher's change, not a Schoology-side one (round 5).
+          // Send all needs no flag: the server knows which entries carried scores.
+          ...(rubricSaved ? { rubricSaved: true } : {}),
         });
         fields = saved?.resubmissionFields ?? fields;
       }

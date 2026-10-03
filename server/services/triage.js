@@ -408,7 +408,9 @@ export function listExtensions(db, { courseId = null, studentId = null, since = 
 // or after the due date, at any tone — for a summative assignment or a Schoology
 // test/quiz (a make-up, any alignment) in a current course that targets the student. Re-extending the pair replaces lessons/note/
 // source and stamps updated_at (created_at keeps the first grant).
-export function recordExtension(db, { studentId, assignmentId, lessons, note = null, source = 'app' } = {}) {
+// Validation for an extension (no write) — the routes check it BEFORE publishing a
+// status line. Returns { student, assignment (with is_test), lessons }.
+export function assertCanExtend(db, { studentId, assignmentId, lessons } = {}) {
   const st = requireStudent(db, studentId);
   const n = Number(lessons);
   if (lessons == null || lessons === '' || !Number.isInteger(n) || n < 1 || n > MAX_EXTENSION_LESSONS) {
@@ -426,6 +428,11 @@ export function recordExtension(db, { studentId, assignmentId, lessons, note = n
   const assigned = !(a.num_assignees > 0)
     || db.prepare('SELECT 1 FROM assignment_assignees WHERE assignment_id = ? AND schoology_uid = ?').get(a.id, st.schoology_uid);
   if (!enrolled || !assigned) throw new TriageError('NOT_ELIGIBLE', 'That assignment does not target that student');
+  return { student: st, assignment: a, lessons: n };
+}
+
+export function recordExtension(db, { studentId, assignmentId, lessons, note = null, source = 'app' } = {}) {
+  const { student: st, assignment: a, lessons: n } = assertCanExtend(db, { studentId, assignmentId, lessons });
   db.prepare(`
     INSERT INTO extensions (student_id, assignment_id, course_id, lessons, note, source) VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT (student_id, assignment_id) DO UPDATE SET

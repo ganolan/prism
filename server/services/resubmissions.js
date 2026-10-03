@@ -98,9 +98,19 @@ export function listResubmissions(db, { courseId = null, studentId = null, since
   });
 }
 
-export function requestResubmission(db, { studentId, assignmentId, lessons = null, note = null, source = 'app', requestedAt = null } = {}) {
-  const { student, assignment } = eligiblePair(db, studentId, assignmentId);
+// Validation for an ask, without writing — the routes check it BEFORE publishing a
+// status line (validate → publish → record). Eligible pair, lessons, no open request.
+export function assertCanRequest(db, { studentId, assignmentId, lessons = null } = {}) {
+  const pair = eligiblePair(db, studentId, assignmentId);
   const n = lessons == null || lessons === '' ? getTriageSettings(db).resubmitLessonsDefault : checkLessons(lessons);
+  if (db.prepare(`SELECT 1 FROM resubmissions WHERE student_id = ? AND assignment_id = ? AND ${OPEN_REQUEST}`).get(pair.student.id, pair.assignment.id)) {
+    throw new TriageError('ALREADY_OPEN', 'That student already has an open resubmission request for this assessment');
+  }
+  return { ...pair, lessons: n };
+}
+
+export function requestResubmission(db, { studentId, assignmentId, lessons = null, note = null, source = 'app', requestedAt = null } = {}) {
+  const { student, assignment, lessons: n } = assertCanRequest(db, { studentId, assignmentId, lessons });
   try {
     const id = db.prepare(`
       INSERT INTO resubmissions (student_id, assignment_id, course_id, kind, status, requested_at, lessons, note, source)
@@ -122,16 +132,23 @@ function openRequest(db, id) {
   return r;
 }
 
+// Validation for extending an open request (no write). Returns { request, lessons }.
+export function assertCanExtendRequest(db, id, lessons) {
+  const request = openRequest(db, id);
+  return { request, lessons: checkLessons(lessons) };
+}
+
 export function extendResubmission(db, id, lessons) {
-  const r = openRequest(db, id);
-  db.prepare(`UPDATE resubmissions SET lessons = ?, updated_at = datetime('now') WHERE id = ?`).run(checkLessons(lessons), r.id);
+  const { request: r, lessons: n } = assertCanExtendRequest(db, id, lessons);
+  db.prepare(`UPDATE resubmissions SET lessons = ?, updated_at = datetime('now') WHERE id = ?`).run(n, r.id);
   return listResubmissions(db, { id: r.id })[0];
 }
 
 // "Grade stands": ends an open request that is still Waiting after its deadline
 // (the row is red — today after `until`). Before that → NOT_AT_DEADLINE (extend
 // instead); once a resubmission has arrived → NOT_ELIGIBLE (give feedback instead).
-export function gradeStands(db, id, { today = todayLocal() } = {}) {
+// Validation for "grade stands" (no write). Returns { request, until }.
+export function assertCanGradeStand(db, id, today = todayLocal()) {
   const r = openRequest(db, id);
   const state = stateOf(pairContext(db, r.student_id, r.assignment_id));
   if (state === 'fulfilled') throw new TriageError('NOT_ELIGIBLE', 'This resubmission has already been answered');
@@ -140,6 +157,11 @@ export function gradeStands(db, id, { today = todayLocal() } = {}) {
   if (!until || !(today > until)) {
     throw new TriageError('NOT_AT_DEADLINE', `The resubmission deadline (${until}) has not passed yet`);
   }
+  return { request: r, until };
+}
+
+export function gradeStands(db, id, { today = todayLocal() } = {}) {
+  const { request: r } = assertCanGradeStand(db, id, today);
   db.prepare(`UPDATE resubmissions SET status = 'closed', closed_at = datetime('now'), close_note = 'grade stands', updated_at = datetime('now') WHERE id = ?`)
     .run(r.id);
   return listResubmissions(db, { id: r.id })[0];

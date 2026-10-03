@@ -4,6 +4,7 @@ import { hasMasterySession, syncMasteryForCourse, syncMasteryForAssignment, writ
 import { pushGradeComments, getSectionGrades } from '../services/schoology.js';
 import { settleResubmissions, resubmissionByStudent, arrivedKeys } from '../services/resubmissions.js';
 import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
+import { STATUS_LINE_KINDS, putSucceeded } from '../services/statusLinePublisher.js';
 import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows, scoreScaleFor } from '../services/assessmentContext.js';
 import { getSchoologyConfig, getScoreScales } from '../middleware/featureGate.js';
 import { findScoreScale, levelForScore, isScalePoints } from '../lib/scoreScales.js';
@@ -575,10 +576,26 @@ function gradeTimeAfterWrite(fresh) {
 // POST /api/mastery/:courseId/write-comment — write grade comment back to Schoology
 router.post('/:courseId/write-comment', async (req, res) => {
   const { courseId } = req.params;
-  const { enrollmentId, assignmentId, comment, commentStatus, points } = req.body;
+  const { enrollmentId, assignmentId, comment, commentStatus, points, statusLine, statusLineKind } = req.body;
 
   if (!enrollmentId || !assignmentId) {
     return res.status(400).json({ error: 'enrollmentId and assignmentId are required' });
+  }
+
+  // Optional Prism status line (triage resubmissions, Amendment B — e.g. the card's
+  // "⟳ Resubmission received … — regraded." chip). The client composes it into
+  // `comment`; it must be the comment's first line so the next action can replace
+  // the exact stored text. Stored in status_lines after a successful PUT.
+  const line = typeof statusLine === 'string' ? statusLine.replace(/\r\n/g, '\n').trim() : '';
+  const lineKind = statusLineKind ?? 'received';
+  if (line) {
+    const text = String(comment ?? '').replace(/\r\n/g, '\n');
+    if (!(text === line || text.startsWith(`${line}\n`))) {
+      return res.status(400).json({ error: 'statusLine must be the first line of comment' });
+    }
+    if (!STATUS_LINE_KINDS.includes(lineKind)) {
+      return res.status(400).json({ error: `statusLineKind must be one of ${STATUS_LINE_KINDS.join(', ')}` });
+    }
   }
 
   const db = getDb();
@@ -701,6 +718,14 @@ router.post('/:courseId/write-comment', async (req, res) => {
           commentStatusInt,
           now,
         );
+      }
+      // The published status line, stored before the snapshot so the fingerprint
+      // ignores it. Only when Schoology accepted the write.
+      if (line && putSucceeded(result)) {
+        db.prepare(`
+          INSERT INTO status_lines (student_id, assignment_id, line, kind, written_at) VALUES (?, ?, ?, ?, datetime('now'))
+          ON CONFLICT (student_id, assignment_id) DO UPDATE SET line = excluded.line, kind = excluded.kind, written_at = excluded.written_at
+        `).run(studentRow.id, assignmentRow.id, line, lineKind);
       }
       // Best-effort: a local grade just landed — snapshot its visible feedback
       // (Amendment B) and settle any request it fulfilled. Never fails the save.

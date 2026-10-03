@@ -74,7 +74,7 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — review and res
   beforeEach(() => {
     const db = getDb();
     db.exec(
-      'DELETE FROM feedback_snapshots; DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; ' +
+      'DELETE FROM feedback_snapshots; DELETE FROM status_lines; DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; ' +
       'DELETE FROM students; DELETE FROM courses;'
     );
     courseId = db.prepare(
@@ -406,7 +406,7 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
   beforeEach(() => {
     const db = getDb();
     db.exec(
-      'DELETE FROM feedback_snapshots; DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM mastery_alignments; ' +
+      'DELETE FROM feedback_snapshots; DELETE FROM status_lines; DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM mastery_alignments; ' +
       'DELETE FROM mastery_scores; DELETE FROM measurement_topics; ' +
       'DELETE FROM reporting_categories; DELETE FROM assignment_assignees; ' +
       'DELETE FROM enrolments; DELETE FROM assignments; ' +
@@ -547,6 +547,51 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     expect(resubmissionByStudent(db, assignmentId).has(studentId)).toBe(false);
   });
 
+  test('statusLine: stored (default kind received) after the PUT; the snapshot ignores it', async () => {
+    const db = getDb();
+    db.exec('DELETE FROM status_lines');
+    const line = '⟳ Resubmission received 03/10 — regraded.';
+    getSectionGrades.mockResolvedValue([{ assignment_id: 'sa-wc', enrollment_id: 'enr-wc', grade: 3, exception: 0, timestamp: 1 }]);
+    const { status } = await post(`/api/mastery/${courseId}/write-comment`, {
+      enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: `${line}\n\nMuch better.`, statusLine: line,
+    });
+    expect(status).toBe(200);
+    expect(db.prepare('SELECT line, kind FROM status_lines WHERE student_id = ? AND assignment_id = ?').get(studentId, assignmentId))
+      .toEqual({ line, kind: 'received' });
+    const snap = db.prepare('SELECT fingerprint FROM feedback_snapshots WHERE student_id = ? AND assignment_id = ?').get(studentId, assignmentId);
+    expect(JSON.parse(snap.fingerprint).c).toBe('Much better.');
+  });
+
+  test('statusLine: honours statusLineKind; refuses a line that is not the comment\'s first line (no PUT)', async () => {
+    const db = getDb();
+    db.exec('DELETE FROM status_lines');
+    pushGradeComments.mockClear();
+    getSectionGrades.mockResolvedValue([]);
+    const bad = await post(`/api/mastery/${courseId}/write-comment`, {
+      enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Note first\n⟳ X', statusLine: '⟳ X',
+    });
+    expect(bad.status).toBe(400);
+    const badKind = await post(`/api/mastery/${courseId}/write-comment`, {
+      enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: '⟳ X', statusLine: '⟳ X', statusLineKind: 'bogus',
+    });
+    expect(badKind.status).toBe(400);
+    expect(pushGradeComments).not.toHaveBeenCalled();
+    await post(`/api/mastery/${courseId}/write-comment`, {
+      enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: '⟳ X', statusLine: '⟳ X', statusLineKind: 'ask',
+    });
+    expect(db.prepare('SELECT kind FROM status_lines WHERE student_id = ?').get(studentId).kind).toBe('ask');
+  });
+
+  test('statusLine is not stored when Schoology rejects the PUT; no statusLine → nothing stored', async () => {
+    const db = getDb();
+    db.exec('DELETE FROM status_lines');
+    getSectionGrades.mockResolvedValue([]);
+    pushGradeComments.mockResolvedValueOnce({ status: 403, data: 'forbidden' });
+    await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: '⟳ X', statusLine: '⟳ X' });
+    await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'plain' });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM status_lines').get().n).toBe(0);
+  });
+
   test('does not wipe an existing score when the Schoology grade lookup fails', async () => {
     const db = getDb();
     db.prepare(
@@ -579,7 +624,7 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
   beforeEach(() => {
     const db = getDb();
     db.exec(
-      'DELETE FROM feedback_snapshots; DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM mastery_alignments; ' +
+      'DELETE FROM feedback_snapshots; DELETE FROM status_lines; DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM mastery_alignments; ' +
       'DELETE FROM mastery_scores; DELETE FROM measurement_topics; ' +
       'DELETE FROM reporting_categories; DELETE FROM assignment_assignees; ' +
       'DELETE FROM enrolments; DELETE FROM assignments; ' +

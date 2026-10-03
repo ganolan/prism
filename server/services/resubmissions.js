@@ -133,9 +133,9 @@ export function extendResubmission(db, id, lessons) {
 // instead); once a resubmission has arrived → NOT_ELIGIBLE (give feedback instead).
 export function gradeStands(db, id, { today = todayLocal() } = {}) {
   const r = openRequest(db, id);
-  if (stateOf(pairContext(db, r.student_id, r.assignment_id)) !== 'waiting') {
-    throw new TriageError('NOT_ELIGIBLE', 'A resubmission has arrived — give feedback instead');
-  }
+  const state = stateOf(pairContext(db, r.student_id, r.assignment_id));
+  if (state === 'fulfilled') throw new TriageError('NOT_ELIGIBLE', 'This resubmission has already been answered');
+  if (state !== 'waiting') throw new TriageError('NOT_ELIGIBLE', 'A resubmission has arrived — give feedback instead');
   const until = listResubmissions(db, { id: r.id })[0].until;
   if (!until || !(today > until)) {
     throw new TriageError('NOT_AT_DEADLINE', `The resubmission deadline (${until}) has not passed yet`);

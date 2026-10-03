@@ -89,8 +89,12 @@ describe('extend / grade stands / undo', () => {
     const r = requestResubmission(db, { studentId: s, assignmentId: a, lessons: 1, requestedAt: sql('2026-10-12') });
     db.prepare('UPDATE grades SET latest_revision_at = ?').run(at('2026-10-14'));           // late, but it arrived
     captureFeedbackSnapshots(db);
-    expect(() => gradeStands(db, r.id, { today: '2026-10-20' })).toThrow(expect.objectContaining({ code: 'NOT_ELIGIBLE' }));
+    expect(() => gradeStands(db, r.id, { today: '2026-10-20' }))
+      .toThrow(expect.objectContaining({ code: 'NOT_ELIGIBLE', message: 'A resubmission has arrived — give feedback instead' }));
     expect(listResubmissions(db, { id: r.id })[0].status).toBe('open');
+    db.prepare('UPDATE grades SET score = 75').run();                                      // answered, not yet settled
+    expect(() => gradeStands(db, r.id, { today: '2026-10-20' }))
+      .toThrow(expect.objectContaining({ code: 'NOT_ELIGIBLE', message: 'This resubmission has already been answered' }));
   });
   test('I2: outcome — grade stands / undone (auto-add undo) / any other close', () => {
     const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');

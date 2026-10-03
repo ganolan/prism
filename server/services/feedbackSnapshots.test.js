@@ -156,6 +156,9 @@ describe('captureFeedbackSnapshots — baseline predates the resubmission (I1)',
     captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 500 });
     expect(snap(s, a)).toMatchObject({ synced_fingerprint: fp0, fingerprint_at: 500 });
     expect(snap(s, a).fingerprint).not.toBe(fp0);
+    captureFeedbackSnapshots(db);                                   // no new revision: the stamp stays (round 2)
+    expect(snap(s, a)).toMatchObject({ synced_fingerprint: fp0, fingerprint_at: 500 });
+    setGrade(s, a, { latest_revision_at: 600 });                    // a capture that judges a revision resets it
     captureFeedbackSnapshots(db);
     expect(snap(s, a)).toMatchObject({ synced_fingerprint: snap(s, a).fingerprint, fingerprint_at: 0 });
   });
@@ -185,6 +188,38 @@ describe('captureFeedbackSnapshots — baseline predates the resubmission (I1)',
     captureFeedbackSnapshots(db);
     expect(snap(s, a)).toMatchObject({ arrival_revision_at: 200, arrival_baseline: fp1 });
     expect(stateOf(s, a)).toBe('arrived');
+  });
+
+  test('round 2: a mastery pull with no new revision keeps the save stamp — sync fp0 → R → Prism regrade → pull → sync sees R → acknowledged', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 80, submitted_at: 50, latest_revision_at: 100 });
+    captureFeedbackSnapshots(db);
+    const fp0 = snap(s, a).fingerprint;
+    setGrade(s, a, { score: 90, submitted_at: 300 });                // Prism regrade at 300 (R = 200 not synced yet)
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 300 });
+    captureFeedbackSnapshots(db, { courseId });                      // assessment-page refresh / mastery pull
+    expect(snap(s, a)).toMatchObject({ fingerprint_at: 300, synced_fingerprint: fp0 });
+    setGrade(s, a, { latest_revision_at: 200 });                     // the Schoology sync sees R
+    captureFeedbackSnapshots(db);
+    expect(snap(s, a)).toMatchObject({ arrival_revision_at: 200, arrival_baseline: fp0, fingerprint_at: 0 });
+    expect(snap(s, a).synced_fingerprint).toBe(snap(s, a).fingerprint); // reset once R was judged
+    expect(stateOf(s, a)).toBe(null);
+  });
+
+  test('round 2: with no pending save stamp, a sync still refreshes synced_fingerprint', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 80, latest_revision_at: 100 });
+    captureFeedbackSnapshots(db);
+    setGrade(s, a, { score: 85 });                                    // changed in Schoology
+    captureFeedbackSnapshots(db);
+    expect(snap(s, a)).toMatchObject({ fingerprint_at: 0, synced_fingerprint: snap(s, a).fingerprint });
+  });
+
+  test('round 2: a save-mode first capture also sets synced_fingerprint', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 80 });
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 400 });
+    expect(snap(s, a)).toMatchObject({ fingerprint_at: 400, synced_fingerprint: snap(s, a).fingerprint });
   });
 
   test('M2: revision_at never moves backwards', () => {

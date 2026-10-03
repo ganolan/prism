@@ -71,8 +71,9 @@ export function snapshotMap(db, scope = {}) {
 }
 
 // Snapshot every pair in scope. One transaction; unchanged pairs are not rewritten.
-// mode 'sync' (end of a Schoology sync, after a mastery pull): fingerprint and
-// synced_fingerprint = current, fingerprint_at = 0. mode 'save' (after a Prism
+// mode 'sync' (end of a Schoology sync, after a mastery pull): fingerprint = current;
+// synced_fingerprint = current and fingerprint_at = 0 unless a save stamp is still
+// pending with no new revision seen (then both are kept). mode 'save' (after a Prism
 // grade/comment/rubric save): fingerprint = current, stamped fingerprint_at = now
 // when it changed. A new revision R is judged against the feedback that predates it:
 // fingerprint_at > R means `fingerprint` came from a Prism save after R (the teacher
@@ -116,13 +117,14 @@ export function captureFeedbackSnapshots(db, { mode = 'sync', now = Math.floor(D
           arrivalAt = latest; baseline = EMPTY_FINGERPRINT;
         }
         insert.run(cur.studentId, cur.assignmentId, cur.fingerprint, latest, arrivalAt, baseline,
-          isSave ? null : cur.fingerprint, isSave ? now : 0);
+          cur.fingerprint, isSave ? now : 0);
         if (arrivalAt) arrivals += 1;
         continue;
       }
       let arrivalAt = snap.arrival_revision_at;
       let baseline = snap.arrival_baseline;
-      if (latest > snap.revision_at) {
+      const newRevision = latest > snap.revision_at;
+      if (newRevision) {
         // A new resubmission R: the feedback before it. If the last fingerprint came
         // from a Prism save after R, fall back to what the last sync saw.
         const savedAfter = snap.fingerprint_at > latest && snap.synced_fingerprint != null;
@@ -130,8 +132,17 @@ export function captureFeedbackSnapshots(db, { mode = 'sync', now = Math.floor(D
       }
       const revisionAt = Math.max(latest, snap.revision_at);
       const changed = cur.fingerprint !== snap.fingerprint;
-      const synced = isSave ? snap.synced_fingerprint : cur.fingerprint;
-      const fingerprintAt = isSave ? (changed ? now : snap.fingerprint_at) : 0;
+      // A pending save stamp (fingerprint_at > 0) survives sync-mode captures that
+      // see no new revision — a mastery pull never sees one (only the Schoology sync
+      // writes latest_revision_at), and resetting it there would make a later R take
+      // the post-save fingerprint as its baseline (a false Arrived). It is cleared
+      // only by a capture that judged a new revision.
+      const keepStamp = !isSave && !newRevision && snap.fingerprint_at > 0;
+      let synced;
+      let fingerprintAt;
+      if (isSave) { synced = snap.synced_fingerprint; fingerprintAt = changed ? now : snap.fingerprint_at; }
+      else if (keepStamp) { synced = snap.synced_fingerprint; fingerprintAt = snap.fingerprint_at; }
+      else { synced = cur.fingerprint; fingerprintAt = 0; }
       if (!changed && revisionAt === snap.revision_at && arrivalAt === snap.arrival_revision_at
         && baseline === snap.arrival_baseline && synced === snap.synced_fingerprint && fingerprintAt === snap.fingerprint_at) continue;
       update.run(cur.fingerprint, revisionAt, arrivalAt, baseline, synced, fingerprintAt, cur.studentId, cur.assignmentId);

@@ -787,6 +787,34 @@ the original 56-day gap and the fixed/re-verified result are in `.claude/powersc
   `triage.makeUpAmberDay` 2 / `makeUpRedDay` 4, converted once (+1) from the old `…Days` keys. Spec
   Verification results 12.
 
+- **Resubmissions (2026-10-03, branch `feat/triage-resubmissions`):** a 4th panel + per-card control so a
+  teacher can ask a student to resubmit after feedback, and see when they do. `isResubmitted`/
+  `resubmissionState` (`server/lib/resubmission.js`) compare a grade's REST timestamp (feedback given) to
+  its latest-revision timestamp (newest work); new `resubmissions` table (one open/closed request per
+  student×assignment) drives `arrived` (a resubmission newer than the last feedback, no open ask) /
+  `waiting` (asked, nothing new yet) / `fulfilled` (asked, resubmitted, regraded or Reviewed — hidden,
+  settled) states, auto-added on a Schoology teacher Unsubmit. **LTI timestamp fix:** the #125 upsert
+  had been writing the grader's `submissionDate` into *both* `grades.submitted_at` and
+  `latest_revision_at`, which overwrote the REST grade time and hid every LTI resubmission (92/92
+  current LTI submitted rows had the two timestamps equal before the fix); `submitted_at` now keeps the
+  REST grade time and `submissionDate` goes only to `latest_revision_at` (+ `first_submitted_at`) — see
+  the annotated #62 row in `.claude/schoology-api-reference.md`. Dashboard `ResubmissionsPanel` (hidden
+  until the first row of the session, then stays mounted with "All caught up." so the just-made record's
+  Undo/History stays reachable), tags (`↩ arrived` / `⟳ by DD/MM/YYYY` / "unsubmitted in Schoology" /
+  "after deadline"), course-card chip; the assessment-page card gains a `ResubmitControl` pill (Ask /
+  Extend / Close / Reviewed, Settings-sourced default lessons) and a deep-link scroll + 2s highlight
+  pulse from a Dashboard row (`?student=` on `/course/:id/assessment/:aid`). New PrisMCP tools
+  `request_resubmission`, `close_resubmission`, `mark_resubmission_reviewed`, `list_resubmissions`;
+  `extend_deadline` gains an optional `resubmission_id` to extend a request's deadline instead of an
+  assignment's; `get_triage`'s student filter also filters resubmissions. **Phase 2 (Schoology unsubmit +
+  comment-line write-back) pending a write probe** — see "Verification results" in
+  `docs/superpowers/specs/2026-10-03-triage-resubmissions-design.md`. Live parity probe
+  (`scripts/parity-lti-resubmission.js`) against a dev-clone DB confirmed: archived LTI
+  resubmitted-since-feedback 9/9 (matches the 2026-10-03 read-only probe) before and after a live sync;
+  current LTI submitted rows with `submitted_at == latest_revision_at` dropped from 92/92 (pre-fix) to
+  1/92 after a live re-sync, and that one remaining row has no REST grade at all (score/exception/comment
+  all empty) — exactly the "no REST grade" case the fix predicts.
+
 **Tests:** 874 server + 550 client Vitest tests pass; `npm run build` succeeds (2026-10-02).
 
 ## Sync resilience + persistent sync log (2026-10-02, branch `feat/sync-resilience-logs`)

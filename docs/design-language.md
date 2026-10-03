@@ -1030,3 +1030,42 @@ on `--error-light`; **warning lines** are `--warning`. The error/warning rule li
 (`classifyEvent`), and every event arrives with its `level`, so the UI never re-derives it. On phone
 (PHONE LAYOUT block) the meta drops onto its own line under date + badge. Screenshots:
 `/tmp/sr-recent-syncs-{desktop,phone}.png` at build time.
+
+## Resubmissions panel (2026-10-03)
+
+A 4th triage panel, same `.card.triage-panel` + `UrgencyRing` + stacked `.triage-row` family as the
+other three (see "Triage rail" above), with its own vocabulary for the two resubmission states.
+**Hidden on a fresh load when empty** — no "0 resubmissions" placeholder — but once it has shown rows
+during the current mount it **stays mounted after the list empties** (e.g. the teacher just acted on
+the last row), showing "All caught up." plus the History link, so the record just made (and its Undo)
+stays reachable instead of the panel vanishing out from under the teacher. Row names are links that
+open the student's card on the assessment page (`cardLink`), not a modal — consistent with "row names
+navigate" elsewhere in triage.
+
+**Tags** sit beside the student name, reusing the existing badge palette rather than inventing new
+colours: `↩ arrived` is `.badge-resubmitted` (an outline ring in `--resubmit-ring`, no fill — a
+resubmission that needs a look); `⟳ by DD/MM/YYYY` is `.badge-resubmit` (filled blue, `--badge-resubmit-bg`/`-text`
+— an open ask, title-tooltipped with the ask's note); a grey `.badge-gray` "unsubmitted in Schoology" marks
+a row auto-added from a teacher's own Unsubmit (not a manual ask); an amber `.badge-amber` "after
+deadline" flags a resubmission that arrived past its `until` date. The same `↩`/`⟳` glyphs and badge
+classes appear on the gradebook/student-page `SubmissionBadges` run, so the vocabulary reads the same
+in both places.
+
+**Card control (`ResubmitControl`, `.resubmit-control`).** Lives in the assessment card's header next
+to "Flag for review". No open request: a plain pill button, "⟳ Ask to resubmit". An open request:
+the same pill shape goes **active** (`.resubmit-pill--active`, thicker border, filled
+`--badge-resubmit-bg`/`-text` — the same blue as the panel's `.badge-resubmit` tag) and reads
+"⟳ Resubmit by DD/MM/YYYY". Clicking either opens an inline panel beside it (`.resubmit-control__panel`,
+no modal — consistent with "Inline row editor" above): a `NumberStepper` for lessons (Settings-sourced
+default) + an optional note, with Ask / Extend / Close request / Undo depending on state. An arrived
+resubmission collapses the control to a single "Reviewed" button (grade stands). Prism-only — nothing
+here writes to Schoology yet (Phase 2, on hold).
+
+**Deep-link pulse.** A Dashboard/course-page resubmission row's name links to
+`/course/:id/assessment/:aid?student=:studentId`; the assessment page scrolls that student's card into
+view and gives it a 2s **outline** pulse (`.student-card--highlight`, `outline: 3px solid var(--accent)`
+fading to transparent) — outline, not box-shadow, because the card's own inline `boxShadow` already
+carries the resubmit-conflict ring (both a resubmit flag and a Prism "resubmitted" signal on the same
+card) and an animated box-shadow would fight it. Runs once per distinct `?student=` value, even if the
+page's data re-renders mid-grading-run. Reuse this outline-pulse-not-box-shadow pattern for any future
+deep-link-to-card highlight.

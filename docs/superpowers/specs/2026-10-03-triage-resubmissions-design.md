@@ -265,3 +265,74 @@ Scripts: `scripts/probe-lti-resubmission.js` (`ARCHIVED=1` for last year), `scri
 - Fixing native `first_submitted_at` (follow-up issue).
 - Detecting multiple resubmission *rounds* beyond "latest revision vs grade time".
 - Notifying students from Prism by any channel other than Phase 2's two options.
+
+## Implementation notes (Task 11, 2026-10-03)
+
+**Live parity probe** (`scripts/parity-lti-resubmission.js`), run read-only against a dev-clone DB
+(`sqlite3 -readonly ~/prism/data/students.db ".backup /tmp/prism-dev.db"`, dev server on port 3002,
+`PRISM_SESSION_DIR` pointed at a copy of the saved Schoology session).
+
+Before the sync (DB freshly migrated — schema ready, no synced resubmission rows yet, grade data
+still pre-fix from prod):
+
+```
+archived LTI resubmitted-since-feedback: 9 (probe: 9)
+  ACSS: Project - Single Page Web App (S)
+  ACSS Project - Developer Profile - Design (S)
+  ROB: Safety Poster (F)
+  ROB: HeroBot Notebook 2 - Observations and Maintenance (S)
+  ROB: HeroBot Notebook 2 - Observations and Maintenance (S)
+  ROB: HeroBot Notebook 4 - Rebuild, Test and Optimize (S)
+  ACSS Project - Web App Client Handover & Roadmap (S)
+  ACSS Project - Web App Client Handover & Roadmap (S)
+  ACSS Project - Web App Client Handover & Roadmap (S)
+current LTI submitted: 92; submitted_at == latest_revision_at: 92
+triage resubmissions by state: {}
+```
+
+Dev sync triggered via `POST /api/sync` (`{"syncBlocks":false}`), Schoology only — completed cleanly:
+`status: completed`, `error_count: 0`, `warning_count: 0`, 2380 records, 10 sections, elapsed ~90s.
+
+After the sync (code's fixed LTI upsert — `submitted_at` keeps the REST grade time, `submissionDate`
+only feeds `latest_revision_at`/`first_submitted_at`):
+
+```
+archived LTI resubmitted-since-feedback: 9 (probe: 9)
+  ACSS: Project - Single Page Web App (S)
+  ACSS Project - Developer Profile - Design (S)
+  ROB: Safety Poster (F)
+  ROB: HeroBot Notebook 2 - Observations and Maintenance (S)
+  ROB: HeroBot Notebook 2 - Observations and Maintenance (S)
+  ROB: HeroBot Notebook 4 - Rebuild, Test and Optimize (S)
+  ACSS Project - Web App Client Handover & Roadmap (S)
+  ACSS Project - Web App Client Handover & Roadmap (S)
+  ACSS Project - Web App Client Handover & Roadmap (S)
+current LTI submitted: 92; submitted_at == latest_revision_at: 1
+triage resubmissions by state: {}
+```
+
+Archived rows are untouched by a current-only sync, so the 9/9 holds both times (sanity check, not a
+new result). The current-course number is the live-fire result: **92/92 → 1/92** equal-timestamp rows.
+The one survivor (`AIML - Lesson 1 - AI Image Generators (F)`) was checked directly: `score: null,
+exception: 0, grade_comment: null` — no REST grade at all, exactly the "nothing has graded it yet, so
+there's nothing to diverge from" case the fix predicts, not a residual bug.
+
+`triage resubmissions by state: {}` both times: this snapshot's current courses have no open asks and
+no Schoology-unsubmit auto-adds yet (the `resubmissions` table only gets rows from an explicit ask or a
+detected teacher Unsubmit during a sync — neither happened here), so an empty grouping is expected, not
+a failure. The Dashboard's `/api/triage` confirmed the same: `resubmissions: []`, 13 late-work rows, 6
+feedback-owed rows, 0 make-ups — the Resubmissions panel legitimately rendered hidden in the visual
+check below.
+
+**Visual check.** Dev UI on the Vite port (`http://localhost:5173` — note: Vite bound `[::1]`, not
+`127.0.0.1`, this run), via `scripts/screenshot-triage-resubmissions.mjs` (390×844 and 1280×900) plus
+`node scripts/check-mobile-layout.mjs http://localhost:5173` (all shell PASS). Dashboard screenshots
+show the Resubmissions panel correctly absent (0 rows, matches the API above). The assessment-page
+screenshot used a late-work row's deep link (student redacted — no resubmission rows existed to link
+from this snapshot) and confirms the deep link scrolls straight to
+that student's card, with the `ResubmitControl` "Ask to resubmit" pill visible in the card header next
+to "Flag for review". PNGs (not committed): `/tmp/triage-resub-dashboard-{phone,desktop}.png`,
+`/tmp/triage-resub-assessment-{phone,desktop}.png`.
+
+**Suites:** `npx vitest run server mcp` and `cd client && npm test && npm run build` — see Task 11
+report for exact counts.

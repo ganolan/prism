@@ -163,3 +163,18 @@ export function captureFeedbackSnapshots(db, { mode = 'sync', now = Math.floor(D
   })();
   return { arrivals };
 }
+
+// Server boot (final review M4): a database with no snapshots yet — the first start
+// after the Amendment B deploy — is captured once now (sync mode, so the first-deploy
+// rule applies), so arrivals show before the first sync. Best-effort: a failure is
+// logged and swallowed, never blocking the server from starting.
+export function seedFeedbackSnapshotsIfEmpty(db, { log = console } = {}) {
+  try {
+    if (db.prepare('SELECT 1 FROM feedback_snapshots LIMIT 1').get()) return { seeded: false };
+    const { arrivals } = captureFeedbackSnapshots(db, {});
+    return { seeded: true, arrivals };
+  } catch (err) {
+    log.error('[feedback snapshots] boot seed failed:', err.message);
+    return { seeded: false, error: err.message };
+  }
+}

@@ -4,7 +4,7 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../db/index.js';
 import { fingerprint } from '../lib/feedbackFingerprint.js';
-import { currentFingerprints, captureFeedbackSnapshots, snapshotMap, EMPTY_FINGERPRINT } from './feedbackSnapshots.js';
+import { currentFingerprints, captureFeedbackSnapshots, snapshotMap, EMPTY_FINGERPRINT, seedFeedbackSnapshotsIfEmpty } from './feedbackSnapshots.js';
 import { resubmissionStateFromSnapshot } from '../lib/resubmission.js';
 
 let db, courseId, course2;
@@ -318,5 +318,32 @@ describe('captureFeedbackSnapshots — feedback given in Schoology before R (fin
     setGrade(s, a, { score: 70, submitted_at: 200, latest_revision_at: 300 });
     captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 600 });
     expect(snap(s, a).arrival_baseline).toBe(fp0);
+  });
+});
+
+// Final review M4: server boot seeds the snapshots once when there are none yet (first
+// start after the deploy), so arrivals show before the first sync — best-effort.
+describe('seedFeedbackSnapshotsIfEmpty', () => {
+  test('an empty table is captured (first-deploy rule applies)', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 80, comment_status: 1, grade_comment: 'ok', submitted_at: 100, latest_revision_at: 200 });
+    expect(seedFeedbackSnapshotsIfEmpty(db)).toEqual({ seeded: true, arrivals: 1 });
+    expect(snap(s, a)).toMatchObject({ arrival_revision_at: 200 });
+  });
+
+  test('a table that already has snapshots is left alone', () => {
+    const s = student('u1'); const a = assignment('a1'); const b = assignment('b1');
+    grade(s, a, { score: 80 });
+    captureFeedbackSnapshots(db);
+    grade(s, b, { score: 70 });
+    expect(seedFeedbackSnapshotsIfEmpty(db)).toEqual({ seeded: false });
+    expect(snap(s, b)).toBeUndefined();
+  });
+
+  test('a failure is logged and swallowed, never thrown', () => {
+    const log = { error: vi.fn() };
+    const broken = { prepare: () => { throw new Error('disk I/O error'); } };
+    expect(seedFeedbackSnapshotsIfEmpty(broken, { log })).toEqual({ seeded: false, error: 'disk I/O error' });
+    expect(log.error).toHaveBeenCalledWith(expect.stringContaining('snapshot'), 'disk I/O error');
   });
 });

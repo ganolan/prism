@@ -26,6 +26,7 @@ import { getScaleTable, schoologyScaleId } from './lib/proficiencyScale.js';
 import { resolveHost, resolvePort } from './lib/listenConfig.js';
 import { resolveVersion } from './lib/version.js';
 import { markInterruptedRuns } from './services/syncRuns.js';
+import { seedFeedbackSnapshotsIfEmpty } from './services/feedbackSnapshots.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = resolvePort();
@@ -89,6 +90,12 @@ app.get('*', (req, res) => {
 // Initialize DB on startup
 getDb();
 console.log('Database initialized');
+// First start after the Amendment B deploy: snapshot visible feedback once so
+// arrivals show before the first sync (best-effort; logs and carries on).
+{
+  const seed = seedFeedbackSnapshotsIfEmpty(getDb());
+  if (seed.seeded) console.log(`[feedback snapshots] seeded at boot (${seed.arrivals} arrival(s))`);
+}
 app.listen(PORT, HOST, () => {
   console.log(`Prism server running on http://${HOST}:${PORT}`);
   // A fresh process has no sync running, so any run still marked 'running' was

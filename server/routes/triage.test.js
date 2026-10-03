@@ -10,7 +10,7 @@ import { getDb } from '../db/index.js';
 import { getSectionGrades, pushGradeComments } from '../services/schoology.js';
 import { addDays, todayLocal } from '../lib/schoolDays.js';
 import { storeSchoolDays, loadCalendar } from '../services/schoolCalendar.js';
-import { settleResubmissions } from '../services/resubmissions.js';
+import { settleResubmissions, recordSchoologyUnsubmit } from '../services/resubmissions.js';
 import { sessionDeps, resetSessionStatusCache } from '../services/schoologySession.js';
 import { fakeSchoologyPage, SCHOOLOGY } from '../testing/fakeSchoologyPage.js';
 
@@ -528,7 +528,7 @@ describe('Ask with unsubmit (Phase 2, LTI unsubmit on Ask)', () => {
     expect(res.body).toMatchObject({
       outcome: 'asked', statusLine: { line: LINE },
       unsubmit: { ok: false, code: 'SCHOOLOGY_SESSION', error: 'Schoology connection expired — reconnect in Settings', url },
-      unsubmitError: 'Schoology connection expired — reconnect in Settings', unsubmitUrl: url,
+      unsubmitError: 'Schoology connection expired — reconnect in Settings', unsubmitUrl: url, unsubmitUncertain: false,
     });
     expect(pushGradeComments).toHaveBeenCalledTimes(1);
     expect(getDb().prepare('SELECT unsubmit_error FROM resubmissions').get().unsubmit_error).toMatch(/expired/);
@@ -538,10 +538,14 @@ describe('Ask with unsubmit (Phase 2, LTI unsubmit on Ask)', () => {
     expect(row).toMatchObject({ unsubmitError: expect.stringMatching(/expired/), unsubmitUrl: url, ltiState: 'submitted' });
   });
 
-  test('failure (Schoology refuses): recorded with the error', async () => {
+  test('failure (Schoology refuses / does not confirm): recorded with the error; unconfirmed is marked uncertain', async () => {
     fake = fakeSchoologyPage({ uid: 'u1', aid: 'a1', post: (respond) => respond(500, 'err') });
     const res = await ask();
-    expect(res.body).toMatchObject({ unsubmit: { ok: false, error: expect.stringMatching(/HTTP 500/) } });
+    expect(res.body).toMatchObject({
+      unsubmit: { ok: false, uncertain: true, error: expect.stringMatching(/HTTP 500/) }, unsubmitUncertain: true,
+    });
+    const row = (await call('GET', '/api/triage')).body.resubmissions[0];
+    expect(row).toMatchObject({ unsubmitUncertain: true });
     expect(getDb().prepare('SELECT COUNT(*) AS n FROM resubmissions').get().n).toBe(1);
   });
 
@@ -586,6 +590,36 @@ describe('Ask with unsubmit (Phase 2, LTI unsubmit on Ask)', () => {
     expect(res.body).toMatchObject({ code: 'RECORD_FAILED_AFTER_PUBLISH', published: true, unsubmitted: true });
     expect(res.body.error).toMatch(/WAS published.*WAS unsubmitted/);
     spy.mockRestore();
+  });
+
+  test('I1: Undo after an ask that unsubmitted CLOSES the request (Undone), so the next sync does not re-add it', async () => {
+    const db = getDb();
+    const sub = Math.floor(Date.now() / 1000) - 86400;
+    db.prepare('UPDATE grades SET first_submitted_at = ?, latest_revision_at = ?').run(sub, sub);
+    const asked = await ask();
+    expect(ltiState()).toBe('in_progress');
+    const undone = await call('DELETE', `/api/triage/resubmissions/${asked.body.id}`);
+    expect(undone.body).toMatchObject({ deleted: false, closed: true });
+    expect(db.prepare('SELECT status, close_note FROM resubmissions WHERE id = ?').get(asked.body.id)).toEqual({ status: 'closed', close_note: 'Undone' });
+    expect(recordSchoologyUnsubmit(db, { studentId, assignmentId })).toBe(false);
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM resubmissions WHERE status = 'open'`).get().n).toBe(0);
+  });
+
+  test('Undo of an ask on work that is still submitted deletes it (as before)', async () => {
+    sessionDeps.openPage = vi.fn(async () => null); // unsubmit fails → still submitted
+    const asked = await ask();
+    expect((await call('DELETE', `/api/triage/resubmissions/${asked.body.id}`)).body).toEqual({ deleted: true });
+  });
+
+  test('I2: an ask that unsubmits ungraded work keeps the pair out of Late work (tracked in Resubmissions)', async () => {
+    getDb().prepare('UPDATE grades SET score = NULL').run();
+    getSectionGrades.mockResolvedValue([{ ...fresh(), grade: null, comment: '' }]); // ungraded in Schoology too
+    expect((await call('GET', '/api/triage')).body.lateWork).toEqual([]);
+    await ask();
+    expect(ltiState()).toBe('in_progress');
+    const t = (await call('GET', '/api/triage')).body;
+    expect(t.lateWork).toEqual([]);
+    expect(t.resubmissions).toHaveLength(1);
   });
 
   test('a sync that sees the work in progress clears the failure', async () => {

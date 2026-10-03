@@ -12,7 +12,7 @@ import { TriageError, MAX_EXTENSION_LESSONS, toneFor, ALIGNED_SQL, fullName } fr
 import { resubmissionStateFromSnapshot, sqliteUtcToEpoch } from '../lib/resubmission.js';
 import { epochToLocalDate, todayLocal } from '../lib/schoolDays.js';
 import { currentFingerprints, snapshotMap, EMPTY_FINGERPRINT } from './feedbackSnapshots.js';
-import { canUnsubmit, unsubmitUrl } from './ltiUnsubmit.js';
+import { canUnsubmit, unsubmitUrl, isUncertainUnsubmitError } from './ltiUnsubmit.js';
 
 const OPEN_REQUEST = `kind = 'request' AND status = 'open'`;
 
@@ -107,12 +107,15 @@ export function listResubmissions(db, { courseId = null, studentId = null, since
 
 // Phase 2 (LTI unsubmit on Ask) fields on a request / triage row: the pair's LTI state
 // (null = not OneDrive work), whether Prism offers to unsubmit it, and a failed
-// unsubmit's message + the Schoology page with its own Unsubmit button.
+// unsubmit's message (+ whether it is only unconfirmed) and the Schoology page with its
+// own Unsubmit button.
 function unsubmitFields({ is_lti_submission: isLti, lti_submission_state: ltiState, unsubmit_error: error, schoology_assignment_id: sid }) {
   return {
     ltiState: Number(isLti) === 1 ? (ltiState ?? null) : null,
     unsubmitAvailable: canUnsubmit({ isLti, ltiState }),
     unsubmitError: error ?? null,
+    // The POST went out unconfirmed: their work MAY still be submitted (vs. known not done).
+    unsubmitUncertain: Boolean(error) && isUncertainUnsubmitError(error),
     unsubmitUrl: error ? unsubmitUrl(sid) : null,
   };
 }
@@ -210,14 +213,20 @@ export function gradeStands(db, id, { today = todayLocal() } = {}) {
 }
 
 // Undo one history record.
-// - A request the sync auto-added from a Schoology unsubmit is closed ("Undone"),
-//   never deleted: the closed row is what stops recordSchoologyUnsubmit re-adding
-//   it on the next sync while the work still sits "in progress".
+// - A request the sync auto-added from a Schoology unsubmit, or any request whose
+//   OneDrive (LTI) work is now "in progress" (e.g. its Ask unsubmitted it — Prism never
+//   re-submits), is closed ("Undone"), never deleted: the closed row is what stops
+//   recordSchoologyUnsubmit re-adding it on the next sync while the work still sits
+//   "in progress".
 // - Anything else is deleted.
 export function undoResubmission(db, id) {
   const r = db.prepare('SELECT * FROM resubmissions WHERE id = ?').get(Number(id));
   if (!r) return { deleted: false };
-  if (r.kind === 'request' && r.source === 'schoology_unsubmit') {
+  const ltiInProgress = Boolean(db.prepare(`
+    SELECT 1 FROM grades g JOIN assignments a ON a.id = g.assignment_id
+    WHERE g.student_id = ? AND g.assignment_id = ? AND a.is_lti_submission = 1 AND g.lti_submission_state = 'in_progress'
+  `).get(r.student_id, r.assignment_id));
+  if (r.kind === 'request' && (r.source === 'schoology_unsubmit' || ltiInProgress)) {
     if (r.status === 'open') {
       db.prepare(`UPDATE resubmissions SET status = 'closed', close_note = 'Undone', closed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(r.id);
     }

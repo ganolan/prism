@@ -21,7 +21,7 @@ import {
   previewStatusLine, publishStatusLine, removeStatusLine, setStatusLineSource,
 } from '../server/services/statusLinePublisher.js';
 import { act, hasLine, pairOf } from '../server/services/triageActions.js';
-import { askLine, extendResubmissionLine, gradeStandsLine, extensionLine, makeUpLine } from '../server/lib/statusLines.js';
+import { askLine, extendResubmissionLine, gradeStandsLine, extensionLine, makeUpLine, teacherText } from '../server/lib/statusLines.js';
 import { loadCalendar } from '../server/services/schoolCalendar.js';
 import { todayLocal } from '../server/lib/schoolDays.js';
 import { statusLineUntil } from '../server/services/statusLineDue.js';
@@ -52,8 +52,9 @@ function assignmentCounts(db, assignmentRow) {
   }
   const rows = db.prepare(`
     SELECT s.schoology_uid, g.lti_submission_state, g.submission_type, g.submitted_at,
-           g.grade_comment, g.exception
+           g.grade_comment, g.exception, sl.line AS stored_line
     FROM grades g JOIN students s ON s.id = g.student_id
+    LEFT JOIN status_lines sl ON sl.student_id = g.student_id AND sl.assignment_id = g.assignment_id
     WHERE g.assignment_id = ?
   `).all(assignmentRow.id);
   const submission = { submitted: 0, in_progress: 0, not_started: 0, unknown: 0, total: rows.length };
@@ -69,7 +70,7 @@ function assignmentCounts(db, assignmentRow) {
     const gs = gradingState({
       scoredCount: scoredByUid[r.schoology_uid] || 0,
       topicsCount,
-      hasComment: (r.grade_comment || '').trim().length > 0,
+      hasComment: teacherText(r.grade_comment, r.stored_line).length > 0, // Prism's status line is not feedback (M3)
       exception: r.exception ?? 0,
     });
     grading[gs] += 1; // gradingState returns exactly 'ungraded' | 'partial' | 'complete'

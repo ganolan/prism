@@ -39,7 +39,7 @@ function seedContext(db) {
 
 beforeEach(() => {
   getDb().exec(
-    'DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM assessment_drafts; DELETE FROM assessment_analysis; DELETE FROM feedback; DELETE FROM mastery_alignments; DELETE FROM mastery_scores; ' +
+    'DELETE FROM status_lines; DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM assessment_drafts; DELETE FROM assessment_analysis; DELETE FROM feedback; DELETE FROM mastery_alignments; DELETE FROM mastery_scores; ' +
     'DELETE FROM grades; DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
     'DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
   );
@@ -215,6 +215,17 @@ describe('getAssessmentContext', () => {
     expect(s.is_lti).toBe(true);
     expect(s.due_date).toBe('2026-06-01');
     expect(s.flags).toEqual({ review_needed: { reason: 'verify build' }, resubmit_requested: false });
+  });
+
+  test('M3: a comment that is only Prism\'s stored status line does not make grading_state complete', () => {
+    const db = getDb();
+    const { courseId, assignmentId, studentId } = seedContext(db);
+    const line = '⟳ Resubmission requested — due Thu 15/10.';
+    db.prepare('UPDATE grades SET grade_comment = ? WHERE student_id = ?').run(line, studentId);
+    db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, ?, 'ask')`).run(studentId, assignmentId, line);
+    expect(getAssessmentContext(db, { courseId, assignmentId: 'sa-1' }).students[0].grading_state).toBe('partial');
+    db.prepare('UPDATE grades SET grade_comment = ? WHERE student_id = ?').run(`${line}\n\nNice work`, studentId);
+    expect(getAssessmentContext(db, { courseId, assignmentId: 'sa-1' }).students[0].grading_state).toBe('complete');
   });
 
   test('an open resubmission request surfaces as flags.resubmit_requested and a resubmission object', () => {

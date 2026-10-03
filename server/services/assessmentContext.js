@@ -11,6 +11,7 @@ import { findScoreScale, levelForScore } from '../lib/scoreScales.js';
 import { resolveAssignmentId } from './idResolvers.js';
 import { preferredFirstName } from './studentNames.js';
 import { resubmissionByStudent } from './resubmissions.js';
+import { teacherText } from '../lib/statusLines.js';
 
 // Epoch-seconds → ISO string (null when 0/missing). Mirrors the list_assignments
 // timestamp convention so agents get a parseable submission time.
@@ -113,10 +114,12 @@ export function getGradeMetaRows(db, assignmentSchoologyId) {
   return db.prepare(`
     SELECT s.id AS student_id, s.schoology_uid, g.score, g.submitted_at, g.latest_revision_at,
            g.grade_comment, g.exception, g.comment_status,
-           g.lti_submission_state, g.submission_type, g.late, g.draft
+           g.lti_submission_state, g.submission_type, g.late, g.draft,
+           sl.line AS stored_line
     FROM grades g
     JOIN students s ON s.id = g.student_id
     JOIN assignments a ON a.id = g.assignment_id
+    LEFT JOIN status_lines sl ON sl.student_id = g.student_id AND sl.assignment_id = g.assignment_id
     WHERE a.schoology_assignment_id = ?
   `).all(assignmentSchoologyId);
 }
@@ -245,7 +248,8 @@ export function getAssessmentContext(db, { assignmentId }) {
     const grading_state = gradingState({
       scoredCount: Object.keys(currentScores).length,
       topicsCount: topics.length,
-      hasComment: (meta.grade_comment || '').trim().length > 0,
+      // Prism's own status line is not teacher feedback (final review M3).
+      hasComment: teacherText(meta.grade_comment, meta.stored_line).length > 0,
       exception: meta.exception ?? 0,
     });
     const isLti = !!assignmentRow.is_lti_submission;

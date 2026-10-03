@@ -360,7 +360,7 @@ or Prism drafts), so **only visible feedback counts**.
   - Ask: `⟳ Resubmission requested — due {Ddd DD/MM}. {note}`
   - Extend (resubmission): `⟳ Resubmission requested — now due {Ddd DD/MM}. {note}`
   - Grade stands: `⟳ Resubmission deadline ({Ddd DD/MM}) passed — your grade stands.`
-  - Late-work extension: `⟳ Extension — now due {Ddd DD/MM} ({n} lessons). {note}`
+  - Late-work extension: `⟳ Extension — now due {Ddd DD/MM} ({n} lessons). {note}` — `(1 lesson)` when n = 1
   - Make-up extension: `⟳ Make-up — sit by {Ddd DD/MM}. {note}`
   - Regrade of an arrival (card chip, optional): `⟳ Resubmission received {DD/MM} — regraded.`
 - **Exact-match, not pattern-match.** Prism stores the exact line it published (after the teacher's edits)

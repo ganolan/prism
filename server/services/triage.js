@@ -16,6 +16,7 @@ import { todayLocal, nowLocal, epochToLocalDate } from '../lib/schoolDays.js';
 import { loadCalendar } from './schoolCalendar.js';
 import { getTriageSettings } from './settings.js';
 import { gradingState } from './assessmentContext.js';
+import { teacherText } from '../lib/statusLines.js';
 import { preferredFirstName } from './studentNames.js';
 import { TriageError, toneFor, makeUpTone, currentCourses, roster, ALIGNED_SQL, fullName, MAX_EXTENSION_LESSONS } from './triageCommon.js';
 import { resubmissionRows } from './resubmissions.js';
@@ -61,9 +62,11 @@ function assignmentFacts(db, a) {
     SELECT student_uid, COUNT(*) AS n FROM mastery_scores WHERE assignment_schoology_id = ? GROUP BY student_uid
   `).all(a.schoology_assignment_id).map((r) => [r.student_uid, r.n]));
   const gradeByStudent = new Map(db.prepare(`
-    SELECT student_id, score, grade_comment, exception, late, submitted_at, first_submitted_at,
-           submission_type, lti_submission_state, test_attempt
-    FROM grades WHERE assignment_id = ?
+    SELECT g.student_id, g.score, g.grade_comment, g.exception, g.late, g.submitted_at, g.first_submitted_at,
+           g.submission_type, g.lti_submission_state, g.test_attempt, sl.line AS stored_line
+    FROM grades g
+    LEFT JOIN status_lines sl ON sl.student_id = g.student_id AND sl.assignment_id = g.assignment_id
+    WHERE g.assignment_id = ?
   `).all(a.id).map((g) => [g.student_id, g]));
   const assignees = a.num_assignees > 0
     ? new Set(db.prepare(`SELECT schoology_uid FROM assignment_assignees WHERE assignment_id = ?`).all(a.id).map((r) => r.schoology_uid))
@@ -90,7 +93,8 @@ function studentState(a, facts, st) {
     // No rubric topics: the plain score is the grade (client gradingStateOf parity).
     scoredCount: facts.topicsCount === 0 ? (g.score != null ? 1 : 0) : topicScored,
     topicsCount: facts.topicsCount,
-    hasComment: (g.grade_comment || '').trim().length > 0,
+    // Prism's own status line is not teacher feedback (final review M3).
+    hasComment: teacherText(g.grade_comment, g.stored_line).length > 0,
     exception: g.exception ?? 0,
   });
   return {

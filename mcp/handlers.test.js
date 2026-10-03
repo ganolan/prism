@@ -94,6 +94,23 @@ describe('listAssignments', () => {
     expect(nb.grading_counts).toMatchObject({ ungraded: 3, partial: 0, complete: 0 });
   });
 
+  test('M3: a comment that is only Prism\'s stored status line counts as no comment in grading_counts', () => {
+    const db = getDb();
+    const courseId = seedCourse(db);
+    const aId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-m3', 'NB')`).run(courseId).lastInsertRowid;
+    db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES ('t1', NULL, ?, 'T1', 'Topic')`).run(courseId);
+    db.prepare(`INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id) VALUES ('sa-m3', 't1', ?)`).run(courseId);
+    const line = '⟳ Resubmission requested — due Thu 15/10.';
+    for (const [uid, comment] of [['u1', line], ['u2', `${line}\n\nWell done`]]) {
+      const sId = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES (?, 'F', 'L')`).run(uid).lastInsertRowid;
+      db.prepare(`INSERT INTO grades (student_id, assignment_id, grade_comment) VALUES (?, ?, ?)`).run(sId, aId, comment);
+      db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, ?, 'ask')`).run(sId, aId, line);
+      db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES (?, 'sa-m3', 't1', 75, 'EX')`).run(uid);
+    }
+    const nb = listAssignments(db, { course_id: courseId }).find((r) => r.schoology_assignment_id === 'sa-m3');
+    expect(nb.grading_counts).toMatchObject({ ungraded: 0, partial: 1, complete: 1 });
+  });
+
   test('latest_submission_at is the max submitted_at as ISO, null when never submitted', () => {
     const db = getDb();
     const courseId = seedCourse(db);

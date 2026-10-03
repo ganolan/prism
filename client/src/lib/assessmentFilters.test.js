@@ -38,6 +38,18 @@ describe('gradingStateOf', () => {
   it('some missing is partial', () =>
     expect(gradingStateOf(stu({ scores: { t1: { grade: 'EX' } }, grade_comment: 'x' }), TOPICS)).toBe('partial'));
   it('excepted is complete', () => expect(gradingStateOf(stu({ exception: 3 }), TOPICS)).toBe('complete'));
+  // Final review M3 (server gradingState parity): Prism's own status line is not feedback.
+  it('a comment that is only the stored status line is not a comment', () => {
+    const line = '⟳ Resubmission requested — due Thu 15/10.';
+    const status_line = { line, kind: 'ask' };
+    const scores = { t1: { grade: 'EX' }, t2: { grade: 'D' } };
+    expect(gradingStateOf(stu({ scores, grade_comment: line, status_line }), TOPICS)).toBe('partial');
+    expect(gradingStateOf(stu({ grade_comment: line, status_line }), TOPICS)).toBe('ungraded');
+    expect(gradingStateOf(stu({ grade_comment: line, status_line }), [])).toBe('ungraded');
+    expect(gradingStateOf(stu({ scores, grade_comment: `${line}\n\nWell done`, status_line }), TOPICS)).toBe('complete');
+    // A hand-edited line is the teacher's text.
+    expect(gradingStateOf(stu({ scores, grade_comment: `${line} (edited)`, status_line }), TOPICS)).toBe('complete');
+  });
 });
 
 describe('passesFilters (OR within group, AND across groups)', () => {

@@ -4,6 +4,7 @@
 // tones so the filter pills match the gradebook badges exactly.
 
 import { submissionStatus } from './gradeLabel.js';
+import { teacherText } from './statusLines.js';
 
 // Tone → CSS-var pairs. Mirrors BADGE_TONE_CLASS in CoursePage / SubmissionBadges
 // (amber→pink, yellow→amber) so colours stay consistent, plus a resubmit tone.
@@ -29,7 +30,8 @@ export function gradingStateOf(student, topics) {
   if (student.exception) return 'complete';
   const scores = student.scores || {};
   const scoredCount = topics.filter(t => scores[t.id] != null).length;
-  const hasComment = (student.grade_comment || '').trim().length > 0;
+  // Prism's own status line (student.status_line) is not teacher feedback (final review M3).
+  const hasComment = teacherText(student.grade_comment, student.status_line?.line || null).length > 0;
   // No rubric topics (unaligned, #41): the plain score is the grade.
   if (topics.length === 0) return (student.score != null || hasComment) ? 'complete' : 'ungraded';
   if (scoredCount === 0 && !hasComment) return 'ungraded';

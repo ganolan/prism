@@ -14,6 +14,8 @@ describe('status lines (client mirror)', () => {
     expect(extendResubmissionLine({ until: '2026-10-13', note: null })).toBe('⟳ Resubmission requested — now due Tue 13/10.');
     expect(gradeStandsLine({ until: '2026-10-08' })).toBe('⟳ Resubmission deadline (Thu 08/10) passed — your grade stands.');
     expect(extensionLine({ until: '2026-10-09', lessons: 3, note: 'sick' })).toBe('⟳ Extension — now due Fri 09/10 (3 lessons). sick');
+    expect(extensionLine({ until: '2026-10-09', lessons: 1 })).toBe('⟳ Extension — now due Fri 09/10 (1 lesson).');
+    expect(extensionLine({ until: '2026-10-09', lessons: '1' })).toBe('⟳ Extension — now due Fri 09/10 (1 lesson).');
     expect(makeUpLine({ until: '2026-10-09', note: '' })).toBe('⟳ Make-up — sit by Fri 09/10.');
     expect(receivedLine({ on: '2026-10-14' })).toBe('⟳ Resubmission received 14/10 — regraded.');
   });
@@ -52,7 +54,7 @@ describe('parity with server/lib/statusLines.js', () => {
         for (const fn of ['askLine', 'extendResubmissionLine', 'makeUpLine']) {
           expect(client[fn]({ until, note })).toBe(server[fn]({ until, note }));
         }
-        expect(client.extensionLine({ until, lessons: 4, note })).toBe(server.extensionLine({ until, lessons: 4, note }));
+        for (const lessons of [1, 4]) expect(client.extensionLine({ until, lessons, note })).toBe(server.extensionLine({ until, lessons, note }));
       }
     }
     const comments = ['', 'Great work.', 'L1', 'L1\n\nGreat work.', 'L1\r\n\r\nGreat.', 'L1 (edited)\n\nx', '  \n ', 'L1\n\n\n\nrest'];

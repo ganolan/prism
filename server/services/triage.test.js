@@ -325,6 +325,20 @@ describe('getTriage — feedback owed', () => {
     })]);
   });
 
+  // Final review M3: Prism's own status line is not teacher feedback — a comment that is
+  // only the stored line must not make scored work "complete" (and drop off the list).
+  test('a comment that is only Prism\'s stored status line is not feedback; real text after it is', () => {
+    const a = student('u1', 'Ada', 'L');
+    const b = student('u2', 'Bo', 'M');
+    const id = assignment('a1', 'Model Card', '2026-10-05');
+    const line = '⟳ Resubmission requested — due Thu 15/10.';
+    grade(a, id, { submission_type: 'drop', first_submitted_at: epoch('2026-10-05'), grade_comment: line });
+    grade(b, id, { submission_type: 'drop', first_submitted_at: epoch('2026-10-05'), grade_comment: `${line}\n\nWell done` });
+    for (const sid of [a, b]) db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, ?, 'ask')`).run(sid, id, line);
+    scoreTopic('u1', 'a1'); scoreTopic('u2', 'a1');
+    expect(getTriage(db, { today: TODAY }).feedbackOwed).toEqual([expect.objectContaining({ title: 'Model Card', owed: 1, submittedTotal: 2 })]);
+  });
+
   test('formative only when includeFormative (or the settings default)', () => {
     const a = student('u1', 'Ada', 'L');
     const id = assignment('f1', 'Practice', '2026-10-05', { summative: false });

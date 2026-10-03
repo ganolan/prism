@@ -140,8 +140,8 @@ describe('captureFeedbackSnapshots', () => {
 // as baseline the feedback that predates it.
 describe('captureFeedbackSnapshots — baseline predates the resubmission (I1)', () => {
   const stateOf = (s, a) => {
-    const cur = currentFingerprints(db, {}).get(`${s}:${a}`).fingerprint;
-    return resubmissionStateFromSnapshot({ snapshot: snap(s, a), currentFingerprint: cur });
+    const cur = currentFingerprints(db, {}).get(`${s}:${a}`);
+    return resubmissionStateFromSnapshot({ snapshot: snap(s, a), currentFingerprint: cur.fingerprint, gradedAt: Number(cur.grade.submitted_at) || 0 });
   };
 
   test('save mode stamps fingerprint_at only when the fingerprint changed; sync mode stores synced_fingerprint', () => {
@@ -242,5 +242,81 @@ describe('captureFeedbackSnapshots — baseline predates the resubmission (I1)',
     setGrade(s, a, { latest_revision_at: 200 });
     captureFeedbackSnapshots(db);
     expect(stateOf(s, a)).toBe('arrived');
+  });
+});
+
+// Final review C1: feedback given in Schoology between syncs but BEFORE the resubmission R
+// must not count as answering R. grades.submitted_at (the REST grade time — any teacher
+// write, never a submission) at or before R means all the current feedback predates R.
+describe('captureFeedbackSnapshots — feedback given in Schoology before R (final review C1)', () => {
+  const stateOf = (s, a, requestedAt = 0) => {
+    const cur = currentFingerprints(db, {}).get(`${s}:${a}`);
+    return resubmissionStateFromSnapshot({ snapshot: snap(s, a), currentFingerprint: cur.fingerprint, requestedAt, gradedAt: Number(cur.grade.submitted_at) || 0 });
+  };
+
+  test('(a) submitted + ungraded at sync 1; scored/commented in Schoology at 200; resubmitted at 300; sync 2 → arrived', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: null, submitted_at: 0, latest_revision_at: 100 });
+    captureFeedbackSnapshots(db);
+    setGrade(s, a, { score: 60, grade_comment: 'Fix the loop', comment_status: 1, submitted_at: 200 });
+    setGrade(s, a, { latest_revision_at: 300 });
+    expect(captureFeedbackSnapshots(db)).toEqual({ arrivals: 1 });
+    const row = snap(s, a);
+    expect(row).toMatchObject({ arrival_revision_at: 300 });
+    expect(row.arrival_baseline).toBe(row.fingerprint);              // all current feedback predates R
+    expect(stateOf(s, a)).toBe('arrived');
+  });
+
+  test('(b) graded 60 at sync 1; regraded 70 in Schoology at 200; resubmitted at 300; sync 2 → arrived', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 60, submitted_at: 50, latest_revision_at: 40 });
+    captureFeedbackSnapshots(db);
+    setGrade(s, a, { score: 70, submitted_at: 200 });
+    setGrade(s, a, { latest_revision_at: 300 });
+    captureFeedbackSnapshots(db);
+    expect(snap(s, a).arrival_baseline).toBe(snap(s, a).fingerprint);
+    expect(stateOf(s, a)).toBe('arrived');
+  });
+
+  test('(a) with an open ask before R: still arrived, not fulfilled', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: null, submitted_at: 0, latest_revision_at: 100 });
+    captureFeedbackSnapshots(db);
+    setGrade(s, a, { score: 60, submitted_at: 200, latest_revision_at: 300 });
+    captureFeedbackSnapshots(db);
+    expect(stateOf(s, a, 150)).toBe('arrived');
+  });
+
+  test('a teacher write after R in Schoology still acknowledges it (baseline = the previous snapshot)', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 60, submitted_at: 50, latest_revision_at: 40 });
+    captureFeedbackSnapshots(db);
+    const fp0 = snap(s, a).fingerprint;
+    setGrade(s, a, { score: 70, submitted_at: 400, latest_revision_at: 300 });
+    captureFeedbackSnapshots(db);
+    expect(snap(s, a).arrival_baseline).toBe(fp0);
+    expect(stateOf(s, a)).toBe(null);
+  });
+
+  test('then a regrade after R acknowledges the arrival', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 60, submitted_at: 50, latest_revision_at: 40 });
+    captureFeedbackSnapshots(db);
+    setGrade(s, a, { score: 70, submitted_at: 200, latest_revision_at: 300 });
+    captureFeedbackSnapshots(db);
+    expect(stateOf(s, a)).toBe('arrived');
+    setGrade(s, a, { score: 80, submitted_at: 500 });
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 500 });
+    expect(stateOf(s, a)).toBe(null);
+  });
+
+  test('a save-mode capture keeps the old baseline rule (only sync captures apply C1)', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 60, submitted_at: 50, latest_revision_at: 40 });
+    captureFeedbackSnapshots(db);
+    const fp0 = snap(s, a).fingerprint;
+    setGrade(s, a, { score: 70, submitted_at: 200, latest_revision_at: 300 });
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 600 });
+    expect(snap(s, a).arrival_baseline).toBe(fp0);
   });
 });

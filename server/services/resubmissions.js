@@ -53,9 +53,11 @@ export function pairContext(db, studentId, assignmentId) {
 }
 
 // 'arrived' | 'waiting' | 'fulfilled' | null — see resubmissionStateFromSnapshot.
-const stateOf = ({ request, snapshot, currentFingerprint }) => resubmissionStateFromSnapshot({
+// grade = the grades row (its submitted_at is the teacher-write time the answered check needs).
+const stateOf = ({ request, snapshot, currentFingerprint, grade }) => resubmissionStateFromSnapshot({
   snapshot, currentFingerprint: currentFingerprint ?? EMPTY_FINGERPRINT,
   requestedAt: request ? sqliteUtcToEpoch(request.requested_at) : 0,
+  gradedAt: Number(grade?.submitted_at) || 0,
 });
 
 // closed: 'grade_stands' (gradeStands), 'undone' (an auto-added request undone),
@@ -240,7 +242,7 @@ function statesInScope(db, scope) {
   for (const [k, snap] of snapshots) if (snap.arrival_revision_at > 0) keys.add(k);
   const out = new Map();
   for (const k of keys) {
-    const ctx = { request: requests.get(k) || null, snapshot: snapshots.get(k) || null, currentFingerprint: current.get(k)?.fingerprint };
+    const ctx = { request: requests.get(k) || null, snapshot: snapshots.get(k) || null, currentFingerprint: current.get(k)?.fingerprint, grade: current.get(k)?.grade || null };
     out.set(k, { state: stateOf(ctx), request: ctx.request, snapshot: ctx.snapshot, grade: current.get(k)?.grade || null });
   }
   return out;

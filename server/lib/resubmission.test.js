@@ -75,7 +75,22 @@ describe('resubmissionStateFromSnapshot', () => {
 
   test('unrequested: acknowledged once the current fingerprint differs from the baseline', () => {
     const snapshot = { arrival_revision_at: 2000, arrival_baseline: fpWithFeedback };
-    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged })).toBe(null);
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged, gradedAt: 2500 })).toBe(null);
+  });
+
+  // Final review C1: a changed fingerprint only answers the arrival when the teacher wrote
+  // after it — grades.submitted_at (gradedAt) or a Prism save stamp (fingerprint_at).
+  test('a changed fingerprint with no teacher write after the arrival is still arrived', () => {
+    const snapshot = { arrival_revision_at: 2000, arrival_baseline: fpWithFeedback, fingerprint_at: 0 };
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged, gradedAt: 1900 })).toBe('arrived');
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged, gradedAt: 2000 })).toBe('arrived');
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged })).toBe('arrived');
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged, gradedAt: 1900, requestedAt: 1500 })).toBe('arrived');
+  });
+  test('a Prism save stamp after the arrival counts as the teacher write', () => {
+    const snapshot = { arrival_revision_at: 2000, arrival_baseline: fpWithFeedback, fingerprint_at: 2100 };
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged, gradedAt: 1900 })).toBe(null);
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged, gradedAt: 1900, requestedAt: 1500 })).toBe('fulfilled');
   });
 
   test('unrequested: a first submission (baseline without prior feedback) is never arrived', () => {
@@ -101,7 +116,7 @@ describe('resubmissionStateFromSnapshot', () => {
 
   test('requested: fulfilled once the current fingerprint moves past the post-ask arrival baseline', () => {
     const snapshot = { arrival_revision_at: 1600, arrival_baseline: fpWithFeedback };
-    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged, requestedAt: 1500 })).toBe('fulfilled');
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged, requestedAt: 1500, gradedAt: 1700 })).toBe('fulfilled');
   });
 
   // Fix round 1 (Concern 3): acknowledging needs NEW visible content.
@@ -114,11 +129,12 @@ describe('resubmissionStateFromSnapshot', () => {
   });
   test('a different non-empty visible comment, score, exception or level acknowledges', () => {
     const snapshot = { arrival_revision_at: 2000, arrival_baseline: vis('Good start') };
-    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('v2 is better') })).toBe(null);
-    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis(null, { score: 90 }) })).toBe(null);
-    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('Good start', { exception: 4 }) })).toBe(null);
-    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('Good start', { levels: [{ topic_id: 't', grade: 'EX' }] }) })).toBe(null);
-    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('v2 is better'), requestedAt: 1500 })).toBe('fulfilled');
+    const g = { gradedAt: 2500 };
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('v2 is better'), ...g })).toBe(null);
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis(null, { score: 90 }), ...g })).toBe(null);
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('Good start', { exception: 4 }), ...g })).toBe(null);
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('Good start', { levels: [{ topic_id: 't', grade: 'EX' }] }), ...g })).toBe(null);
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('v2 is better'), requestedAt: 1500, ...g })).toBe('fulfilled');
   });
 
   test('requested: a pre-ask arrival does not satisfy the ask — still waiting', () => {

@@ -4,8 +4,11 @@
 // feedback_snapshots remembers the last one seen plus the resubmission currently
 // being answered: when grades.latest_revision_at moves past the snapshot's
 // revision_at, the arrival is recorded with baseline = the previous snapshot's
-// fingerprint (the feedback before the resubmission). The pair is answered once
-// the current fingerprint differs from that baseline (resubmissionStateFromSnapshot).
+// fingerprint (the feedback before the resubmission) — or, for a sync whose grade
+// time (grades.submitted_at) is at or before the revision, the current fingerprint
+// (final review C1: everything the student can see predates it). The pair is
+// answered once the current fingerprint differs from that baseline AND the teacher
+// wrote after the arrival (resubmissionStateFromSnapshot).
 // Captured at the end of each sync and after every Prism grade/comment save.
 import { fingerprint, hasPriorFeedback } from '../lib/feedbackFingerprint.js';
 import { isResubmitted, sqliteUtcToEpoch } from '../lib/resubmission.js';
@@ -77,7 +80,9 @@ export function snapshotMap(db, scope = {}) {
 // grade/comment/rubric save): fingerprint = current, stamped fingerprint_at = now
 // when it changed. A new revision R is judged against the feedback that predates it:
 // fingerprint_at > R means `fingerprint` came from a Prism save after R (the teacher
-// already answered), so the baseline is synced_fingerprint instead.
+// already answered), so the baseline is synced_fingerprint instead. Otherwise, in
+// sync mode, 0 < grades.submitted_at <= R means no teacher write came after R, so
+// the baseline is the current fingerprint (final review C1).
 export function captureFeedbackSnapshots(db, { mode = 'sync', now = Math.floor(Date.now() / 1000), ...scope } = {}) {
   const isSave = mode === 'save';
   const current = currentFingerprints(db, scope);
@@ -128,7 +133,15 @@ export function captureFeedbackSnapshots(db, { mode = 'sync', now = Math.floor(D
         // A new resubmission R: the feedback before it. If the last fingerprint came
         // from a Prism save after R, fall back to what the last sync saw.
         const savedAfter = snap.fingerprint_at > latest && snap.synced_fingerprint != null;
-        arrivalAt = latest; baseline = savedAfter ? snap.synced_fingerprint : snap.fingerprint; arrivals += 1;
+        // Final review C1: with no Prism save after R, a sync whose grade time
+        // (grades.submitted_at — set by any teacher write, never by a submission) is at
+        // or before R knows every bit of current feedback predates R — including
+        // feedback given in Schoology since the last sync — so it is the baseline.
+        const gradedAt = Number(cur.grade.submitted_at) || 0;
+        const allBeforeR = !isSave && !(snap.fingerprint_at > latest) && gradedAt > 0 && gradedAt <= latest;
+        arrivalAt = latest; arrivals += 1;
+        if (allBeforeR) baseline = cur.fingerprint;
+        else baseline = savedAfter ? snap.synced_fingerprint : snap.fingerprint;
       }
       const revisionAt = Math.max(latest, snap.revision_at);
       const changed = cur.fingerprint !== snap.fingerprint;

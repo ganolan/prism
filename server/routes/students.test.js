@@ -36,7 +36,7 @@ describe('GET /api/students/:id — resubmitted follows arrivedKeys', () => {
     expect(await resubmitted()).toBe(false);
     captureFeedbackSnapshots(db);
     expect(await resubmitted()).toBe(true);
-    db.prepare('UPDATE grades SET score = 90').run();
+    db.prepare('UPDATE grades SET score = 90, submitted_at = 3000').run(); // a regrade sets the grade time
     expect(await resubmitted()).toBe(false);
   });
 });

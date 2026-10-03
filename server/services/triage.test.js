@@ -890,7 +890,7 @@ describe('resubmissions list', () => {
     grade(s, a, { latest_revision_at: epoch('2026-10-14') });                                              // arrival
     captureFeedbackSnapshots(db);
     expect(getTriage(db, { today: TODAY }).resubmissions).toMatchObject([{ state: 'arrived', id: req.id, arrivedOn: '2026-10-14' }]);
-    db.prepare(`UPDATE grades SET grade_comment = 'Hidden draft', comment_status = NULL`).run();
+    db.prepare(`UPDATE grades SET grade_comment = 'Hidden draft', comment_status = NULL, submitted_at = ?`).run(epoch('2026-10-15')); // a teacher write, hidden
     expect(getTriage(db, { today: TODAY }).resubmissions).toMatchObject([{ state: 'arrived', id: req.id }]);
     db.prepare(`UPDATE grades SET comment_status = 1`).run();
     expect(getTriage(db, { today: TODAY }).resubmissions).toEqual([]);
@@ -904,7 +904,7 @@ describe('resubmissions list', () => {
     grade(s3, a, { score: null, exception: 1, submitted_at: epoch('2026-09-25'), latest_revision_at: epoch('2026-10-14') });
     captureFeedbackSnapshots(db);
     expect(getTriage(db, { today: TODAY }).resubmissions.map((r) => r.studentId)).toEqual([s]);
-    db.prepare('UPDATE grades SET score = 80 WHERE student_id = ?').run(s);                    // regraded
+    db.prepare('UPDATE grades SET score = 80, submitted_at = ? WHERE student_id = ?').run(epoch('2026-10-15'), s); // regraded
     const t = getTriage(db, { today: TODAY });
     expect(t.resubmissions).toEqual([]);
     expect(t.resubmissionHistoryCount).toBe(1);

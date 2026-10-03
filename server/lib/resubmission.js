@@ -45,20 +45,30 @@ export function sqliteUtcToEpoch(text) {
 }
 
 // Amendment B: state from visible-feedback snapshots rather than raw timestamps.
-// snapshot = { arrival_revision_at, arrival_baseline } | null — the current open arrival
-// (if any) and the fingerprint captured as its baseline (the feedback before the resubmission).
-//   'arrived'   — a resubmission to look at (current fingerprint still equals the baseline)
+// snapshot = { arrival_revision_at, arrival_baseline, fingerprint_at } | null — the current
+// open arrival (if any), the fingerprint captured as its baseline (the feedback before the
+// resubmission), and the last Prism save stamp. gradedAt = grades.submitted_at (the REST
+// grade time: any teacher write sets it, a submission never does).
+// Answered = new visible feedback since the baseline (feedbackAnswered) AND a teacher write
+// after the arrival (gradedAt or fingerprint_at > arrival_revision_at) — final review C1:
+// feedback given before the resubmission never answers it.
+//   'arrived'   — a resubmission to look at (not answered yet)
 //   'waiting'   — asked, no arrival after the ask yet
-//   'fulfilled' — asked, arrived after the ask, and new visible feedback since (feedbackAnswered)
+//   'fulfilled' — asked, arrived after the ask, and answered
 //   null        — nothing to show (unrequested, no arrival, or already acknowledged)
-export function resubmissionStateFromSnapshot({ snapshot, currentFingerprint, requestedAt = 0 } = {}) {
+export function resubmissionStateFromSnapshot({ snapshot, currentFingerprint, requestedAt = 0, gradedAt = 0 } = {}) {
   const hasArrival = Boolean(snapshot && snapshot.arrival_revision_at);
+  const arrivalAt = hasArrival ? Number(snapshot.arrival_revision_at) : 0;
+  const answered = () => {
+    const wroteAfter = (Number(gradedAt) || 0) > arrivalAt || (Number(snapshot.fingerprint_at) || 0) > arrivalAt;
+    return wroteAfter && feedbackAnswered(snapshot.arrival_baseline, currentFingerprint);
+  };
   if (requestedAt > 0) {
-    const arrivedAfterAsk = hasArrival && Number(snapshot.arrival_revision_at) > requestedAt;
+    const arrivedAfterAsk = hasArrival && arrivalAt > requestedAt;
     if (!arrivedAfterAsk) return 'waiting';
-    return feedbackAnswered(snapshot.arrival_baseline, currentFingerprint) ? 'fulfilled' : 'arrived';
+    return answered() ? 'fulfilled' : 'arrived';
   }
-  if (hasArrival && hasPriorFeedback(snapshot.arrival_baseline) && !feedbackAnswered(snapshot.arrival_baseline, currentFingerprint)) {
+  if (hasArrival && hasPriorFeedback(snapshot.arrival_baseline) && !answered()) {
     return 'arrived';
   }
   return null;

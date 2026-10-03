@@ -92,7 +92,7 @@ describe('extend / grade stands / undo', () => {
     expect(() => gradeStands(db, r.id, { today: '2026-10-20' }))
       .toThrow(expect.objectContaining({ code: 'NOT_ELIGIBLE', message: 'A resubmission has arrived — give feedback instead' }));
     expect(listResubmissions(db, { id: r.id })[0].status).toBe('open');
-    db.prepare('UPDATE grades SET score = 75').run();                                      // answered, not yet settled
+    db.prepare('UPDATE grades SET score = 75, submitted_at = ?').run(at('2026-10-15'));                                      // answered, not yet settled
     expect(() => gradeStands(db, r.id, { today: '2026-10-20' }))
       .toThrow(expect.objectContaining({ code: 'NOT_ELIGIBLE', message: 'This resubmission has already been answered' }));
   });
@@ -153,7 +153,7 @@ describe('snapshot-based state', () => {
     expect(stateOf(s, a)).toBe('arrived');
     setGrade(s, a, { grade_comment: '' , comment_status: 1 });             // visible text removed
     expect(stateOf(s, a)).toBe('arrived');
-    setGrade(s, a, { grade_comment: 'v2: eval now complete' });            // new visible comment
+    setGrade(s, a, { grade_comment: 'v2: eval now complete', submitted_at: at('2026-10-14') });            // new visible comment
     expect(stateOf(s, a)).toBe(null);
   });
 
@@ -207,7 +207,7 @@ describe('snapshot-based state', () => {
     setGrade(s, a, { grade_comment: 'note to self', comment_status: null });  // hidden → still arrived
     expect(stateOf(s, a)).toBe('arrived');
     expect(settleResubmissions(db, { assignmentId: a })).toBe(0);
-    setGrade(s, a, { grade_comment: 'Much better — eval now complete', comment_status: 1 });
+    setGrade(s, a, { grade_comment: 'Much better — eval now complete', comment_status: 1, submitted_at: at('2026-10-14') });
     expect(stateOf(s, a)).toBe(null);                // fulfilled is hidden
     expect(settleResubmissions(db, { assignmentId: a })).toBe(1);
     expect(listResubmissions(db, { id: r.id })[0]).toMatchObject({ status: 'done', outcome: 'done' });

@@ -6,13 +6,13 @@ import {
   listExtensions, recordExtension, undoExtension, setMakeUpIgnored, assertCanExtend, TriageError,
 } from '../services/triage.js';
 import {
-  listResubmissions, requestResubmission, extendResubmission, gradeStands, undoResubmission,
-  assertCanRequest, assertCanExtendRequest, assertCanGradeStand,
+  listResubmissions, extendResubmission, gradeStands, undoResubmission,
+  assertCanExtendRequest, assertCanGradeStand,
 } from '../services/resubmissions.js';
 import {
   previewStatusLine, publishStatusLine, removeStatusLine, setStatusLineSource,
 } from '../services/statusLinePublisher.js';
-import { act as runAction, hasLine, pairOf } from '../services/triageActions.js';
+import { act as runAction, askResubmission, hasLine, pairOf } from '../services/triageActions.js';
 import { statusLineUntil } from '../services/statusLineDue.js';
 import { loadCalendar } from '../services/schoolCalendar.js';
 import { todayLocal } from '../lib/schoolDays.js';
@@ -21,7 +21,7 @@ const router = Router();
 const STATUS = {
   BAD_ACTION: 400, BAD_LESSONS: 400, BAD_VALUE: 400, NOT_FOUND: 404,
   NOT_ON_LIST: 409, NOT_AT_LIMIT: 409, NOT_ELIGIBLE: 409, ALREADY_OPEN: 409, NOT_AT_DEADLINE: 409,
-  SCHOOLOGY_READ_FAILED: 502, SCHOOLOGY_WRITE_FAILED: 502, BUSY: 409, BAD_LINE: 400,
+  SCHOOLOGY_READ_FAILED: 502, SCHOOLOGY_WRITE_FAILED: 502, SCHOOLOGY_SESSION: 502, BUSY: 409, BAD_LINE: 400,
 };
 const optBool = (v) => (v === undefined ? undefined : v === 'true');
 const flag = (v) => v === '1' || v === 'true';
@@ -48,11 +48,14 @@ function write(res, fn, okStatus = 201) {
 // outcome to an HTTP response.
 async function act(res, opts, okStatus = 201) {
   try {
-    const result = await runAction(getDb(), opts);
+    const db = getDb();
+    const result = await (opts.run ? opts.run(db) : runAction(db, opts));
     res.status(okStatus).json(result);
   } catch (err) {
     if (err && err.code === 'RECORD_FAILED_AFTER_PUBLISH') {
-      return res.status(500).json({ error: err.message, code: err.code, published: err.published, comment: err.comment });
+      return res.status(500).json({
+        error: err.message, code: err.code, published: err.published, comment: err.comment, ...(err.unsubmitted ? { unsubmitted: true } : {}),
+      });
     }
     return sendError(res, err);
   }
@@ -159,24 +162,14 @@ router.get('/resubmissions', (req, res) => {
   res.json(listResubmissions(getDb(), { courseId: req.query.courseId ?? null }));
 });
 
-// POST /api/triage/resubmissions — { studentId, assignmentId, lessons?, note?, commentLine? }
-// (lessons default: settings). Eligibility + no open request are checked before
-// commentLine is published (kind 'ask').
+// POST /api/triage/resubmissions — { studentId, assignmentId, lessons?, note?, commentLine?, unsubmit? }
+// (lessons default: settings). Eligibility + no open request (+ with `unsubmit`, LTI
+// work that is submitted) are checked before commentLine is published (kind 'ask');
+// `unsubmit` then unsubmits the student's OneDrive work in Schoology (Phase 2). A failed
+// unsubmit still records the ask: the result carries unsubmit: { ok: false, error, url }.
 router.post('/resubmissions', (req, res) => {
-  const { studentId, assignmentId, lessons, note, commentLine } = req.body || {};
-  const db = getDb();
-  act(res, {
-    pair: () => [studentId, assignmentId],
-    validate: () => assertCanRequest(db, { studentId, assignmentId, lessons }),
-    publish: hasLine(commentLine) && ((ctx) => publishStatusLine(db, {
-      studentId: ctx.student.id, assignmentId: ctx.assignment.id, line: commentLine, kind: 'ask',
-    })),
-    record: (ctx, published) => {
-      const r = requestResubmission(db, { studentId, assignmentId, lessons, note, source: 'app' });
-      if (published) setStatusLineSource(db, { studentId: ctx.student.id, assignmentId: ctx.assignment.id, type: 'resubmission', id: r.id });
-      return r;
-    },
-  });
+  const { studentId, assignmentId, lessons, note, commentLine, unsubmit } = req.body || {};
+  act(res, { run: (db) => askResubmission(db, { studentId, assignmentId, lessons, note, commentLine, unsubmit: unsubmit === true, source: 'app' }) });
 });
 
 // PUT /api/triage/resubmissions/:id — { lessons, commentLine? } extends;

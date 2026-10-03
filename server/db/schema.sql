@@ -546,7 +546,11 @@ CREATE TABLE IF NOT EXISTS resubmissions (
   closed_at TEXT,
   close_note TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT
+  updated_at TEXT,
+  -- Phase 2 (LTI unsubmit on Ask): why Prism's unsubmit of the student's OneDrive
+  -- work failed after the ask was recorded; NULL = none asked / it worked. Cleared
+  -- once a sync sees the work in progress (or resubmitted), or a later unsubmit works.
+  unsubmit_error TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_resubmissions_one_open
   ON resubmissions(student_id, assignment_id) WHERE kind = 'request' AND status = 'open';

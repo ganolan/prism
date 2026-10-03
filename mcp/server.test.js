@@ -366,6 +366,9 @@ describe('PrisMCP status lines (Amendment B)', () => {
     const tool = (name) => tools.find((t) => t.name === name);
 
     expect(tool('request_resubmission').inputSchema.properties).toHaveProperty('comment_line');
+    expect(tool('request_resubmission').inputSchema.properties).toHaveProperty('unsubmit');
+    expect(tool('request_resubmission').inputSchema.required ?? []).not.toContain('unsubmit');
+    expect(tool('request_resubmission').description).toMatch(/never re-submits/);
     expect(tool('request_resubmission').inputSchema.required ?? []).not.toContain('comment_line');
     expect(tool('request_resubmission').description).toContain('preview_status_line');
 

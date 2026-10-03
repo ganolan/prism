@@ -14,13 +14,14 @@ import {
   assertCanExtend, TriageError,
 } from '../server/services/triage.js';
 import {
-  requestResubmission, extendResubmission, gradeStands, listResubmissions,
-  assertCanRequest, assertCanExtendRequest, assertCanGradeStand,
+  extendResubmission, gradeStands, listResubmissions,
+  assertCanExtendRequest, assertCanGradeStand,
 } from '../server/services/resubmissions.js';
 import {
   previewStatusLine, publishStatusLine, removeStatusLine, setStatusLineSource,
 } from '../server/services/statusLinePublisher.js';
-import { act, hasLine, pairOf } from '../server/services/triageActions.js';
+import { act, askResubmission, hasLine, pairOf } from '../server/services/triageActions.js';
+import { unsubmitAvailable } from '../server/services/ltiUnsubmit.js';
 import { askLine, extendResubmissionLine, gradeStandsLine, extensionLine, makeUpLine, teacherText } from '../server/lib/statusLines.js';
 import { loadCalendar } from '../server/services/schoolCalendar.js';
 import { todayLocal } from '../server/lib/schoolDays.js';
@@ -339,20 +340,25 @@ export async function undoExtensionTool(db, { id, remove_line } = {}) {
 // ── Resubmissions (asks to redo graded/comment-only/ungraded work) ──────────
 // Same service as the dashboard (server/services/resubmissions.js).
 
-export async function requestResubmissionTool(db, { student_id, assignment_id, lessons, note, comment_line } = {}) {
+// unsubmit (Phase 2): unsubmit the student's OneDrive (LTI) work in Schoology so they
+// can edit it. Default: true when the work is LTI and Prism last saw it submitted, else
+// false. Never re-submits. A failed unsubmit still records the ask; the result's
+// `unsubmit` says what happened and links Schoology's own Unsubmit button.
+export async function requestResubmissionTool(db, { student_id, assignment_id, lessons, note, comment_line, unsubmit } = {}, { unsubmitOpts } = {}) {
   if (hasLine(comment_line)) assertSchoologyConfigured();
-  return act(db, {
-    pair: () => [student_id, assignment_id],
-    validate: () => assertCanRequest(db, { studentId: student_id, assignmentId: assignment_id, lessons: lessons ?? null }),
-    publish: hasLine(comment_line) ? ((ctx) => publishStatusLine(db, {
-      studentId: ctx.student.id, assignmentId: ctx.assignment.id, line: comment_line, kind: 'ask',
-    })) : null,
-    record: (ctx, published) => {
-      const r = requestResubmission(db, { studentId: student_id, assignmentId: assignment_id, lessons: lessons ?? null, note, source: 'mcp' });
-      if (published) setStatusLineSource(db, { studentId: ctx.student.id, assignmentId: ctx.assignment.id, type: 'resubmission', id: r.id });
-      return r;
-    },
+  const doUnsubmit = unsubmit ?? unsubmitAvailable(db, { studentId: student_id, assignmentId: assignment_id });
+  const r = await askResubmission(db, {
+    studentId: student_id, assignmentId: assignment_id, lessons: lessons ?? null, note, commentLine: comment_line,
+    unsubmit: doUnsubmit === true, source: 'mcp', unsubmitOpts,
   });
+  if (!r.unsubmit) return r;
+  const unsubmitReport = r.unsubmit.ok
+    ? { ok: true, message: 'Unsubmitted their OneDrive work in Schoology — they can edit it and submit again.' }
+    : {
+      ...r.unsubmit,
+      message: `The ask was recorded, but unsubmitting in Schoology failed (${r.unsubmit.error}). Tell the teacher to unsubmit it in Schoology: ${r.unsubmit.url}`,
+    };
+  return { ...r, unsubmit: unsubmitReport };
 }
 
 // Only once the request's deadline has passed (NOT_AT_DEADLINE before). `today`

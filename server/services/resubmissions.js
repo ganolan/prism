@@ -12,6 +12,7 @@ import { TriageError, MAX_EXTENSION_LESSONS, toneFor, ALIGNED_SQL, fullName } fr
 import { resubmissionStateFromSnapshot, sqliteUtcToEpoch } from '../lib/resubmission.js';
 import { epochToLocalDate, todayLocal } from '../lib/schoolDays.js';
 import { currentFingerprints, snapshotMap, EMPTY_FINGERPRINT } from './feedbackSnapshots.js';
+import { canUnsubmit, unsubmitUrl } from './ltiUnsubmit.js';
 
 const OPEN_REQUEST = `kind = 'request' AND status = 'open'`;
 
@@ -77,11 +78,13 @@ export function listResubmissions(db, { courseId = null, studentId = null, since
   return db.prepare(`
     SELECT r.*, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher,
            a.schoology_assignment_id, a.title, substr(a.due_date, 1, 10) AS due_date_only,
+           a.is_lti_submission, g.lti_submission_state,
            c.course_name, c.block_number
     FROM resubmissions r
     JOIN students s ON s.id = r.student_id
     JOIN assignments a ON a.id = r.assignment_id
     JOIN courses c ON c.id = r.course_id
+    LEFT JOIN grades g ON g.student_id = r.student_id AND g.assignment_id = r.assignment_id
     WHERE (? IS NULL OR r.id = ?) AND (? IS NULL OR r.course_id = ?) AND (? IS NULL OR r.student_id = ?)
       AND (? IS NULL OR date(COALESCE(r.updated_at, r.closed_at, r.created_at), 'localtime') >= ?)
     ORDER BY COALESCE(r.updated_at, r.closed_at, r.created_at) DESC, r.id DESC
@@ -97,8 +100,44 @@ export function listResubmissions(db, { courseId = null, studentId = null, since
       until: requestedOn && r.lessons ? cal.addSchoolDays(requestedOn, r.lessons).date : null,
       note: r.note, source: r.source, revisionAt: r.revision_at,
       closedAt: r.closed_at, closeNote: r.close_note, createdAt: r.created_at, updatedAt: r.updated_at,
+      ...unsubmitFields(r),
     };
   });
+}
+
+// Phase 2 (LTI unsubmit on Ask) fields on a request / triage row: the pair's LTI state
+// (null = not OneDrive work), whether Prism offers to unsubmit it, and a failed
+// unsubmit's message + the Schoology page with its own Unsubmit button.
+function unsubmitFields({ is_lti_submission: isLti, lti_submission_state: ltiState, unsubmit_error: error, schoology_assignment_id: sid }) {
+  return {
+    ltiState: Number(isLti) === 1 ? (ltiState ?? null) : null,
+    unsubmitAvailable: canUnsubmit({ isLti, ltiState }),
+    unsubmitError: error ?? null,
+    unsubmitUrl: error ? unsubmitUrl(sid) : null,
+  };
+}
+
+// Records why the ask's unsubmit failed (shown on the row/card until a sync sees the
+// work in progress). Returns the updated history row.
+export function setUnsubmitError(db, id, error) {
+  db.prepare('UPDATE resubmissions SET unsubmit_error = ? WHERE id = ?').run(error ? String(error) : null, Number(id));
+  return listResubmissions(db, { id: Number(id) })[0];
+}
+
+// A failed unsubmit stops mattering once the work is no longer submitted (in progress
+// or not started -- unsubmitted in Schoology since) or a newer submission arrived after
+// the ask (it was unsubmitted and resubmitted between two syncs). Run after each sync.
+export function clearSettledUnsubmitErrors(db, { assignmentId = null, courseId = null } = {}) {
+  return db.prepare(`
+    UPDATE resubmissions SET unsubmit_error = NULL
+    WHERE unsubmit_error IS NOT NULL
+      AND (? IS NULL OR assignment_id = ?) AND (? IS NULL OR course_id = ?)
+      AND EXISTS (
+        SELECT 1 FROM grades g WHERE g.student_id = resubmissions.student_id AND g.assignment_id = resubmissions.assignment_id
+          AND (g.lti_submission_state IN ('in_progress', 'not_started')
+               OR COALESCE(g.latest_revision_at, 0) > CAST(strftime('%s', resubmissions.requested_at) AS INTEGER))
+      )
+  `).run(assignmentId, assignmentId, courseId, courseId).changes;
 }
 
 // Validation for an ask, without writing — the routes check it BEFORE publishing a
@@ -221,6 +260,7 @@ export function recordSchoologyUnsubmit(db, { studentId, assignmentId, requested
 
 // Mark open requests whose post-ask resubmission has new visible feedback as done.
 export function settleResubmissions(db, { assignmentId = null, courseId = null } = {}) {
+  clearSettledUnsubmitErrors(db, { assignmentId, courseId });
   const done = db.prepare(`UPDATE resubmissions SET status = 'done', closed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`);
   let n = 0;
   for (const { state, request } of statesInScope(db, { assignmentId, courseId }).values()) {
@@ -350,6 +390,10 @@ export function resubmissionRows(db, { course, students, cal, today, settings, f
         lessons: request?.lessons ?? null, until: until?.date ?? null, requestedOn, arrivedOn,
         source: request?.source ?? null, note: request?.note ?? null,
         afterDeadline: !!(request && arrivedOn && arrivedOn > until.date),
+        ...unsubmitFields({
+          is_lti_submission: grade?.is_lti_submission, lti_submission_state: grade?.lti_submission_state,
+          unsubmit_error: request?.unsubmit_error, schoology_assignment_id: a.schoology_assignment_id,
+        }),
       });
     }
   }

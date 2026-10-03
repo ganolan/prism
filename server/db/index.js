@@ -147,6 +147,9 @@ const MIGRATIONS = [
   // an undo removes only its own line. (Only dev DBs on the feature branch lack these.)
   `ALTER TABLE status_lines ADD COLUMN source_type TEXT`,
   `ALTER TABLE status_lines ADD COLUMN source_id INTEGER`,
+  // Phase 2 (LTI unsubmit on Ask): the failed unsubmit's message, shown on the row/card
+  // with a link to Schoology's Unsubmit button until a sync sees the work in progress.
+  `ALTER TABLE resubmissions ADD COLUMN unsubmit_error TEXT`,
 ];
 
 // Remove orphaned auto-flag rows. The auto-flag feature that wrote 'missing',

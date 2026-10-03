@@ -15,6 +15,8 @@ import {
 } from './handlers.js';
 import { saveRubric, listRubrics, getRubricByName } from '../server/services/rubricStore.js';
 import { askLine, extendResubmissionLine, gradeStandsLine, extensionLine, makeUpLine } from '../server/lib/statusLines.js';
+import { sessionDeps, resetSessionStatusCache } from '../server/services/schoologySession.js';
+import { fakeSchoologyPage } from '../server/testing/fakeSchoologyPage.js';
 
 beforeEach(() => {
   // Publishing tools check the Schoology credentials are configured (final review I3);
@@ -702,5 +704,57 @@ describe('triage tools', () => {
     expect(out).not.toHaveProperty('between');
     expect(out).toHaveProperty('today');
     expect(out).toHaveProperty('date');
+  });
+});
+
+describe('request_resubmission unsubmit (Phase 2, LTI unsubmit on Ask)', () => {
+  const noBrowser = () => { throw new Error('tests must inject a fake Schoology page'); };
+  function seedLtiPair(db, state = 'submitted') {
+    const { studentId, assignmentId } = seedTriagePair(db);
+    db.prepare('UPDATE assignments SET is_lti_submission = 1 WHERE id = ?').run(assignmentId);
+    db.prepare('INSERT INTO grades (student_id, assignment_id, score, lti_submission_state) VALUES (?, ?, 2, ?)').run(studentId, assignmentId, state);
+    return { studentId, assignmentId };
+  }
+  beforeEach(() => { vi.clearAllMocks(); resetSessionStatusCache(); sessionDeps.openPage = noBrowser; });
+
+  test('defaults to unsubmitting submitted LTI work; reports the outcome', async () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedLtiPair(db);
+    const fake = fakeSchoologyPage({ uid: 'ru1', aid: 'rs-a1' });
+    const r = await requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId }, { unsubmitOpts: { openPage: async () => fake.session } });
+    expect(r).toMatchObject({ outcome: 'asked', source: 'mcp', unsubmit: { ok: true, message: expect.stringMatching(/Unsubmitted/) } });
+    expect(fake.requests.find((q) => q.method === 'POST').body).toBe('{"isSubmit":false}');
+  });
+
+  test('unsubmit: false → nothing in Schoology changes', async () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedLtiPair(db);
+    const openPage = vi.fn();
+    const r = await requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId, unsubmit: false }, { unsubmitOpts: { openPage } });
+    expect(r.unsubmit).toBeUndefined();
+    expect(openPage).not.toHaveBeenCalled();
+  });
+
+  test('defaults to no unsubmit for work that is not submitted LTI work; an explicit unsubmit there is NOT_ELIGIBLE before anything is written', async () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedLtiPair(db, 'in_progress');
+    const openPage = vi.fn();
+    await expect(requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId, unsubmit: true }, { unsubmitOpts: { openPage } }))
+      .rejects.toMatchObject({ code: 'NOT_ELIGIBLE' });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM resubmissions').get().n).toBe(0);
+    const r = await requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId }, { unsubmitOpts: { openPage } });
+    expect(r.unsubmit).toBeUndefined();
+    expect(openPage).not.toHaveBeenCalled();
+  });
+
+  test('a failed unsubmit still records the ask and hands the teacher the Schoology link', async () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedLtiPair(db);
+    const r = await requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId }, { unsubmitOpts: { openPage: async () => null } });
+    const url = 'https://schoology.hkis.edu.hk/assignments/rs-a1/info';
+    expect(r).toMatchObject({
+      outcome: 'asked', unsubmitError: expect.stringMatching(/expired/), unsubmitUrl: url,
+      unsubmit: { ok: false, url, code: 'SCHOOLOGY_SESSION', message: expect.stringContaining(url) },
+    });
   });
 });

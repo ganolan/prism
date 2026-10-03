@@ -458,7 +458,11 @@ describe('status lines on resubmission/extension tools (Amendment B)', () => {
       const preview = await previewStatusLineTool(db, { student_id: studentId, assignment_id: assignmentId, kind: 'ask', lessons: 2, note: 'Fix the loop.' });
       expect(preview.line).toBe(askLine({ until: preview.until, note: 'Fix the loop.' }));
       expect(preview.resultingComment).toBe(`${preview.line}\n\nTeacher note.`);
+      expect(preview).toMatchObject({ normalisedLine: preview.line, lineProblem: null });
       expect(pushGradeComments).not.toHaveBeenCalled();
+      // A candidate line publish would refuse is flagged at preview time.
+      const bad = await previewStatusLineTool(db, { student_id: studentId, assignment_id: assignmentId, kind: 'ask', lessons: 2, note: 'Fix the loop.', line: '\u27F3 Resubmit please' });
+      expect(bad).toMatchObject({ line: preview.line, lineProblem: 'BAD_LINE' });
       const r = await requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 2 });
       expect(r.until).toBe(preview.until);
     });

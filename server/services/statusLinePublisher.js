@@ -194,14 +194,26 @@ export async function previewStatusLine(db, { studentId, assignmentId, line = ''
   const storedLine = row?.line ?? null;
   const currentComment = normalise(fresh?.comment);
   const visible = Number(fresh?.comment_status) === 1;
+  // Be honest about the candidate line: what publish would store (normalisedLine) and
+  // whether publish would refuse it (lineProblem 'BAD_LINE' + its message). An empty
+  // line (reading the comment before a line exists) is not a problem.
+  const normalisedLine = plainLine(normalise(line)).trim();
+  let lineProblem = null;
+  let lineProblemMessage;
+  if (normalisedLine || /[\r\n]/.test(String(line ?? '').trim())) {
+    try { checkLine(line); } catch (err) { lineProblem = err.code; lineProblemMessage = err.message; }
+  }
   return {
     currentComment,
     visible,
     storedLine,
     // Which record's action published the stored line (an Undo removes it only if it is its own).
     storedSource: row?.source_type ? { sourceType: row.source_type, sourceId: Number(row.source_id) } : null,
-    resultingComment: composeComment(currentComment, storedLine, plainLine(normalise(line)).trim()),
+    resultingComment: composeComment(currentComment, storedLine, normalisedLine),
     hiddenWarning: !visible && teacherText(currentComment, storedLine) !== '',
+    normalisedLine,
+    lineProblem,
+    ...(lineProblem ? { lineProblemMessage } : {}),
   };
 }
 

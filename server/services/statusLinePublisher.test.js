@@ -215,6 +215,7 @@ describe('previewStatusLine', () => {
     expect(p).toEqual({
       currentComment: 'Private: talk to parents', visible: false, storedLine: null, storedSource: null,
       resultingComment: `${L1}\n\nPrivate: talk to parents`, hiddenWarning: true,
+      normalisedLine: L1, lineProblem: null,
     });
     expect(pushGradeComments).not.toHaveBeenCalled();
   });
@@ -238,6 +239,19 @@ describe('previewStatusLine', () => {
     setStatusLineSource(db, { studentId: s, assignmentId: a, type: 'resubmission', id: 12 });
     expect((await previewStatusLine(db, { studentId: s, assignmentId: a, line: '' })).storedSource)
       .toEqual({ sourceType: 'resubmission', sourceId: 12 });
+  });
+
+  test('lineProblem flags a line publish would refuse (BAD_LINE); normalisedLine is what would be published', async () => {
+    getSectionGrades.mockResolvedValue([fresh({ comment: 'Seen', comment_status: 1 })]);
+    expect(await previewStatusLine(db, { studentId: s, assignmentId: a, line: 'Due \u2013 \u201Cok\u201D' }))
+      .toMatchObject({ normalisedLine: 'Due - "ok"', lineProblem: null });
+    expect(await previewStatusLine(db, { studentId: s, assignmentId: a, line: '\u27F3 Bien jou\u00E9' }))
+      .toMatchObject({ lineProblem: 'BAD_LINE', lineProblemMessage: 'Use plain characters in the status line' });
+    expect(await previewStatusLine(db, { studentId: s, assignmentId: a, line: 'two\nlines' }))
+      .toMatchObject({ lineProblem: 'BAD_LINE' });
+    expect(await previewStatusLine(db, { studentId: s, assignmentId: a, line: '' }))
+      .toMatchObject({ normalisedLine: '', lineProblem: null });           // no line yet: nothing to flag
+    expect(pushGradeComments).not.toHaveBeenCalled();
   });
 
   test('a failed read → SCHOOLOGY_READ_FAILED', async () => {

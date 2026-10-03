@@ -12,7 +12,7 @@
 // wrote after the arrival (resubmissionStateFromSnapshot).
 // Captured at the end of each sync and after every Prism grade/comment save.
 import { fingerprint, hasPriorFeedback } from '../lib/feedbackFingerprint.js';
-import { isResubmitted, sqliteUtcToEpoch, feedbackAnswered, changedParts, wroteAfter, PART_SCORE } from '../lib/resubmission.js';
+import { isResubmitted, sqliteUtcToEpoch, feedbackAnswered, changedParts, absorbParts, wroteAfter, PART_SCORE } from '../lib/resubmission.js';
 
 export const EMPTY_FINGERPRINT = fingerprint({});
 
@@ -223,7 +223,10 @@ export function captureFeedbackSnapshots(db, {
         const gradedAfter = savedAfter(gradedAt, arrivalAt);
         const answered = feedbackAnswered(baseline, snap.fingerprint, { parts: arrivalParts, gradedAfter })
           || (gradedAfter && Boolean(changedParts(baseline, cur.fingerprint) & PART_SCORE));
-        if (!answered) baseline = cur.fingerprint;
+        // Part-wise (round 6): only the parts that changed since the last capture — what
+        // this capture's writer (another sync/pull, the echo, the publish) brought — never
+        // the teacher's own earlier saves, which the last snapshot already holds.
+        if (!answered) baseline = absorbParts(baseline, cur.fingerprint, changedParts(snap.fingerprint, cur.fingerprint));
       }
       const changed = cur.fingerprint !== snap.fingerprint;
       // Round 5: a save route's echo of a Schoology-side change (unstamped, echoAt = Schoology's

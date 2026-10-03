@@ -389,7 +389,12 @@ router.post('/:courseId/write', async (req, res) => {
     ).get(String(enrollmentId));
     // Round 5: capture the pair unstamped before mirroring, so levels a pull wrote meanwhile
     // (or a revision a running sync upserted) are never credited to this rubric save.
-    const preAssignment = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(assignmentId));
+    let preAssignment = null;
+    try {
+      preAssignment = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(assignmentId));
+    } catch (err) {
+      console.error('[mastery write] pre-save lookup failed:', err.message);   // Schoology already accepted the write
+    }
     if (studentRow && preAssignment) captureBeforeSave(db, studentRow.id, preAssignment.id, 'mastery write');
     if (studentRow) {
       const upsert = db.prepare(`
@@ -633,10 +638,17 @@ function captureBeforeSave(db, studentId, assignmentId, label, echoAt = 0) {
 function echoFreshGrade(db, studentId, assignmentId, fresh, label) {
   if (!fresh) return;
   const at = Number(fresh.timestamp) || 0;
-  const changed = db.prepare(`
-    UPDATE grades SET score = ?, exception = ?, submitted_at = CASE WHEN ? > 0 THEN ? ELSE submitted_at END
-    WHERE student_id = ? AND assignment_id = ?
-  `).run(fresh.grade ?? null, fresh.exception ?? 0, at, at, studentId, assignmentId).changes;
+  let changed = 0;
+  try {
+    changed = db.prepare(`
+      UPDATE grades SET score = ?, exception = ?, submitted_at = CASE WHEN ? > 0 THEN ? ELSE submitted_at END
+      WHERE student_id = ? AND assignment_id = ?
+    `).run(fresh.grade ?? null, fresh.exception ?? 0, at, at, studentId, assignmentId).changes;
+  } catch (err) {
+    // Schoology already accepted the write: never turn it into a 5xx here.
+    console.error(`[${label}] fresh-grade echo failed:`, err.message);
+    return;
+  }
   // echoAt: the change is logged as Schoology's, at Schoology's own grade time.
   if (changed) captureBeforeSave(db, studentId, assignmentId, label, at);
 }
@@ -1072,10 +1084,16 @@ router.post('/:courseId/send-all', async (req, res) => {
     // Round 5: every pair this batch saves is captured unstamped before any mirror, and a
     // comment entry's fresh Schoology score/exception is echoed unstamped unless the
     // teacher wrote it in this batch (the entry's rubric scores, or a scale grade).
+    // Best-effort (Schoology already accepted these writes): a failed lookup skips the pair.
     const pairOf = (e) => {
-      const st = db.prepare('SELECT s.id FROM students s JOIN enrolments en ON en.student_id = s.id WHERE en.schoology_enrolment_id = ?').get(String(e.enrollmentId));
-      const as = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(e.assignmentId));
-      return st && as ? { studentId: st.id, assignmentId: as.id } : null;
+      try {
+        const st = db.prepare('SELECT s.id FROM students s JOIN enrolments en ON en.student_id = s.id WHERE en.schoology_enrolment_id = ?').get(String(e.enrollmentId));
+        const as = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(e.assignmentId));
+        return st && as ? { studentId: st.id, assignmentId: as.id } : null;
+      } catch (err) {
+        console.error('[mastery send-all] pair lookup failed:', err.message);
+        return null;
+      }
     };
     const preCaptured = new Set();
     for (const e of [...scoreEntries, ...commentEntries]) {

@@ -33,6 +33,20 @@ export function changedParts(beforeFp, afterFp) {
     | ((b.c || '') !== (c.c || '') ? PART_COMMENT : 0);
 }
 
+// Round 6: merge the given parts (PART_* bits) of `fromFp` into `baseFp` — score+exception,
+// levels and visible comment separately — leaving the other parts as they were. Same key
+// order as feedbackFingerprint.fingerprint(), so equal feedback stays an equal string.
+export function absorbParts(baseFp, fromFp, parts) {
+  if (!parts || baseFp == null) return parts && baseFp == null ? fromFp : baseFp;
+  const b = parseFp(baseFp);
+  const f = parseFp(fromFp);
+  const take = (bit, keys) => keys.reduce((o, k) => ({ ...o, [k]: (parts & bit) ? f[k] : b[k] }), {});
+  const { s, e } = take(PART_SCORE, ['s', 'e']);
+  const { l } = take(PART_LEVELS, ['l']);
+  const { c } = take(PART_COMMENT, ['c']);
+  return JSON.stringify({ s: s ?? null, e: Number(e) || 0, l: l || [], c: c ?? '' });
+}
+
 // Has the teacher given NEW visible feedback since the baseline? A changed score,
 // exception or rubric level, or a non-empty visible comment that differs from the
 // baseline's. Hiding or deleting the visible comment alone is not feedback.

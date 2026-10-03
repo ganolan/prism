@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { hasFeedback, isResubmitted, resubmissionStateFromSnapshot, sqliteUtcToEpoch, changedParts, feedbackAnswered, wroteAfter, PART_SCORE, PART_LEVELS, PART_COMMENT } from './resubmission.js';
+import { hasFeedback, isResubmitted, resubmissionStateFromSnapshot, sqliteUtcToEpoch, changedParts, feedbackAnswered, wroteAfter, absorbParts, PART_SCORE, PART_LEVELS, PART_COMMENT } from './resubmission.js';
 import { fingerprint } from './feedbackFingerprint.js';
 
 describe('isResubmitted', () => {
@@ -124,6 +124,16 @@ describe('resubmissionStateFromSnapshot', () => {
     expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged, gradedAt: 2030, lti: true })).toBe('arrived');
     expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged, gradedAt: 2060, lti: true })).toBe(null);
     expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged, gradedAt: 2030 })).toBe(null);
+  });
+  test('absorbParts merges only the given parts, producing the same string as fingerprint()', () => {
+    const base = fingerprint({ score: 60, comment: 'Note', commentStatus: 1, levels: [{ topic_id: 't', grade: 'D' }] });
+    const cur = fingerprint({ score: 80, exception: 2, comment: 'Note', commentStatus: 0, levels: [{ topic_id: 't', grade: 'EX' }] });
+    expect(absorbParts(base, cur, 0)).toBe(base);
+    expect(absorbParts(base, cur, PART_SCORE)).toBe(fingerprint({ score: 80, exception: 2, comment: 'Note', commentStatus: 1, levels: [{ topic_id: 't', grade: 'D' }] }));
+    expect(absorbParts(base, cur, PART_LEVELS)).toBe(fingerprint({ score: 60, comment: 'Note', commentStatus: 1, levels: [{ topic_id: 't', grade: 'EX' }] }));
+    expect(absorbParts(base, cur, PART_COMMENT)).toBe(fingerprint({ score: 60, comment: '', commentStatus: 0, levels: [{ topic_id: 't', grade: 'D' }] }));
+    expect(absorbParts(base, cur, PART_SCORE | PART_LEVELS | PART_COMMENT)).toBe(cur);
+    expect(absorbParts(null, cur, PART_SCORE)).toBe(cur);
   });
   test('changedParts / feedbackAnswered without evidence (any change counts)', () => {
     const a = fingerprint({ score: 80, comment: 'x', commentStatus: 1, levels: [{ topic_id: 't', grade: 'D' }] });

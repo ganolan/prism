@@ -678,6 +678,46 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
       expect(state()).toBe(null);
     });
 
+    // Round 6: absorption is part-wise — only the parts that changed since the last capture
+    // (another writer's) — so a teacher's own earlier non-answering save is never absorbed.
+    const reshow = () => post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Note', commentStatus: true });
+    test('S16: R synced → hide-only save → re-show the same comment → arrived', async () => {
+      base();
+      set({ latest_revision_at: 2000 }); captureFeedbackSnapshots(getDb());
+      fresh(60, 1500); await hideOnly();
+      expect(state()).toBe('arrived');
+      fresh(60, 2600); await reshow();
+      expect(state()).toBe('arrived');
+    });
+
+    test('S16b: hide-only → identical hidden re-save → re-show → arrived', async () => {
+      base();
+      set({ latest_revision_at: 2000 }); captureFeedbackSnapshots(getDb());
+      fresh(60, 1500); await hideOnly();
+      fresh(60, 2550); await hideOnly();
+      fresh(60, 2600); await reshow();
+      expect(state()).toBe('arrived');
+    });
+
+    test('S16r: with an open request — hide-only → re-show → still arrived, the request stays open', async () => {
+      base();
+      requestResubmission(getDb(), { studentId, assignmentId, requestedAt: '1970-01-01 00:25:00' });   // epoch 1500, before R
+      set({ latest_revision_at: 2000 }); captureFeedbackSnapshots(getDb());
+      expect(state()).toBe('arrived');
+      fresh(60, 1500); await hideOnly();
+      fresh(60, 2600); await reshow();
+      expect(state()).toBe('arrived');
+      expect(getDb().prepare('SELECT status FROM resubmissions WHERE student_id = ?').get(studentId).status).toBe('open');
+    });
+
+    test('S5b: R unsynced → a pre-R Schoology regrade echoed by a hide save → sync sees R → re-show → arrived', async () => {
+      base();
+      fresh(80, 1500); await hideOnly();
+      set({ latest_revision_at: 2000 }); captureFeedbackSnapshots(getDb());
+      fresh(80, 2600); await reshow();
+      expect(state()).toBe('arrived');
+    });
+
     test('W4: a Prism visible-comment save after R → answered', async () => {
       base();
       set({ latest_revision_at: 2000 }); captureFeedbackSnapshots(getDb());

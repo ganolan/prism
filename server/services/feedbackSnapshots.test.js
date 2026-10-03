@@ -38,8 +38,8 @@ beforeEach(() => {
 describe('currentFingerprints', () => {
   test('score, exception, sorted rubric levels, visible comment minus the stored status line', () => {
     const s = student('u1'); const a = assignment('a1');
-    grade(s, a, { score: 80, exception: 0, grade_comment: '⟳ Resubmission requested — due Thu 15/10.\n\nGood work', comment_status: 1, submitted_at: 100, latest_revision_at: 50 });
-    db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, '⟳ Resubmission requested — due Thu 15/10.', 'ask')`).run(s, a);
+    grade(s, a, { score: 80, exception: 0, grade_comment: 'Resubmission requested - due Thu 15/10.\n\nGood work', comment_status: 1, submitted_at: 100, latest_revision_at: 50 });
+    db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, 'Resubmission requested - due Thu 15/10.', 'ask')`).run(s, a);
     db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('u1', 'a1', 't2', 75, 'EX'), ('u1', 'a1', 't1', 50, 'D')`).run();
     const cur = currentFingerprints(db, { assignmentId: a }).get(`${s}:${a}`);
     expect(cur.fingerprint).toBe(fingerprint({ score: 80, comment: 'Good work', commentStatus: 1, levels: [{ topic_id: 't1', grade: 'D' }, { topic_id: 't2', grade: 'EX' }] }));

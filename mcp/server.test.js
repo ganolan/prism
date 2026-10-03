@@ -398,7 +398,7 @@ describe('PrisMCP status lines (Amendment B)', () => {
     expect(tool.inputSchema.properties).toHaveProperty('note');
     expect(tool.inputSchema.properties).toHaveProperty('resubmission_id');
     expect(tool.inputSchema.properties).toHaveProperty('line');
-    expect(tool.description).toContain('⟳ Resubmission requested — due {Ddd DD/MM}. {note}');
+    expect(tool.description).toContain('Resubmission requested - due {Ddd DD/MM}. {note}');
     expect(tool.description).not.toContain('undo_extension');
   });
   // preview_status_line's actual Schoology read/compose behaviour (including the

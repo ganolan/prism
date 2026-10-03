@@ -10,7 +10,7 @@ vi.mock('../services/api.js', () => ({
   recordExtension: vi.fn(), undoExtension: vi.fn(),
 }));
 
-const LINE = '⟳ Resubmission deadline (Thu 08/10) passed — your grade stands.';
+const LINE = 'Resubmission deadline (Thu 08/10) passed - your grade stands.';
 const preview = (over = {}) => ({
   currentComment: 'Great start.', visible: true, storedLine: null,
   resultingComment: `${LINE}\n\nGreat start.`, hiddenWarning: false, ...over,
@@ -141,10 +141,10 @@ describe('StatusLineModal', () => {
   });
 
   it('loadDefaultLine: the line is worked out first (e.g. the due date), then pre-filled', async () => {
-    const loadDefaultLine = vi.fn().mockResolvedValue('⟳ Resubmission requested — due Thu 08/10.');
+    const loadDefaultLine = vi.fn().mockResolvedValue('Resubmission requested - due Thu 08/10.');
     renderModal({ defaultLine: undefined, loadDefaultLine });
-    expect(await screen.findByDisplayValue('⟳ Resubmission requested — due Thu 08/10.')).toBeInTheDocument();
-    await waitFor(() => expect(preview$().querySelector('mark')).toHaveTextContent('⟳ Resubmission requested — due Thu 08/10.'));
+    expect(await screen.findByDisplayValue('Resubmission requested - due Thu 08/10.')).toBeInTheDocument();
+    await waitFor(() => expect(preview$().querySelector('mark')).toHaveTextContent('Resubmission requested - due Thu 08/10.'));
   });
 
   it('loadDefaultLine failing (e.g. ALREADY_OPEN) shows the error and blocks publishing', async () => {

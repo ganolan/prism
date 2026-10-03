@@ -149,7 +149,7 @@ describe('TriageSection', () => {
     fireEvent.change(screen.getByLabelText('Extension note'), { target: { value: 'sick week' } });
     fireEvent.click(screen.getByText('Save'));
     expect(await dialog()).toHaveAccessibleName("Publish to Maya Chen's Schoology comment");
-    const line = '⟳ Extension — now due Fri 16/10 (4 lessons). sick week';
+    const line = 'Extension - now due Fri 16/10 (4 lessons). sick week';
     expect(await screen.findByDisplayValue(line)).toBeInTheDocument();
     expect(api.getStatusLineUntil).toHaveBeenCalledWith({ kind: 'extension', studentId: 1, assignmentId: 9, lessons: 4 });
     expect(api.recordExtension).not.toHaveBeenCalled();
@@ -615,7 +615,7 @@ describe('TriageSection — make-up tests', () => {
     expect(within(panel).getByLabelText('Extension note')).toHaveValue('sits Tue');
     fireEvent.click(within(panel).getByLabelText('Increase'));
     fireEvent.click(within(panel).getByText('Save'));
-    const line = '⟳ Make-up — sit by Fri 16/10. sits Tue';
+    const line = 'Make-up - sit by Fri 16/10. sits Tue';
     expect(await screen.findByDisplayValue(line)).toBeInTheDocument();
     expect(api.getStatusLineUntil).toHaveBeenCalledWith({ kind: 'make_up', studentId: 8, assignmentId: 21, lessons: 3 });
     fireEvent.click(await publishBtn('Publish new due date'));
@@ -724,7 +724,7 @@ describe('Resubmissions panel', () => {
     const modal = await dialog();
     expect(modal).toHaveAccessibleName("Publish to Ravi Shah's Schoology comment");
     expect(within(modal).getByText('Ends the resubmission request: missed deadline, grade stands.')).toBeInTheDocument();
-    const line = '⟳ Resubmission deadline (Wed 14/10) passed — your grade stands.';
+    const line = 'Resubmission deadline (Wed 14/10) passed - your grade stands.';
     expect(within(modal).getByLabelText('Status line')).toHaveValue(line);
     expect(api.updateResubmission).not.toHaveBeenCalled();
     fireEvent.click(await publishBtn('Publish & close request'));
@@ -748,7 +748,7 @@ describe('Resubmissions panel', () => {
     expect(within(ivy).queryByLabelText('Extension note')).not.toBeInTheDocument();
     fireEvent.click(within(ivy).getByLabelText('Increase'));
     fireEvent.click(within(ivy).getByRole('button', { name: 'Save' }));
-    const line = '⟳ Resubmission requested — now due Fri 16/10.';
+    const line = 'Resubmission requested - now due Fri 16/10.';
     expect(await screen.findByDisplayValue(line)).toBeInTheDocument();
     expect(api.getStatusLineUntil).toHaveBeenCalledWith({ kind: 'extend_resubmission', studentId: 13, assignmentId: 30, resubmissionId: 42, lessons: 4 });
     fireEvent.click(await publishBtn('Publish new due date'));

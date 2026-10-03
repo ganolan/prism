@@ -622,7 +622,7 @@ router.post('/:courseId/write-comment', async (req, res) => {
   }
 
   // Optional Prism status line (triage resubmissions, Amendment B — e.g. the card's
-  // "⟳ Resubmission received … — regraded." chip). The client composes it into
+  // "Resubmission received DD/MM - regraded." chip). The client composes it into
   // `comment`; it must be the comment's first line so the next action can replace
   // the exact stored text. Stored in status_lines after a successful PUT.
   let line = '';

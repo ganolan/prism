@@ -358,7 +358,7 @@ describe('StudentRubricCard — resubmission control (triage resubmissions)', ()
     expect(await screen.findByRole('dialog')).toHaveTextContent('Launch');
     fireEvent.click(await screen.findByRole('button', { name: 'Publish & ask' }));
     await waitFor(() => expect(requestResubmission).toHaveBeenCalledWith({
-      studentId: 1, assignmentId: 50, lessons: 3, note: '', commentLine: '⟳ Resubmission requested — due Thu 15/10.',
+      studentId: 1, assignmentId: 50, lessons: 3, note: '', commentLine: 'Resubmission requested - due Thu 15/10.',
     }));
     expect(onSaved).toHaveBeenCalledWith('uid-1', {
       resubmission: { state: 'waiting', request: { id: 71, lessons: 3, until: '2026-10-15', outcome: 'asked' } },
@@ -421,15 +421,15 @@ describe('StudentRubricCard — "resubmission received" chip (Task 7, triage res
     renderCard({
       student: {
         ...makeStudent(),
-        grade_comment: '⟳ Resubmission requested — due Thu 09/10.\n\nGood start.',
-        status_line: { line: '⟳ Resubmission requested — due Thu 09/10.', kind: 'ask' },
+        grade_comment: 'Resubmission requested - due Thu 09/10.\n\nGood start.',
+        status_line: { line: 'Resubmission requested - due Thu 09/10.', kind: 'ask' },
         resubmission: { state: 'arrived', request: null },
         arrived_on: '2026-10-03',
       },
     });
     fireEvent.click(screen.getByRole('button', { name: /insert "resubmission received" line/i }));
     expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue(
-      '⟳ Resubmission received 03/10 — regraded.\n\nGood start.'
+      'Resubmission received 03/10 - regraded.\n\nGood start.'
     );
   });
 
@@ -447,7 +447,7 @@ describe('StudentRubricCard — "resubmission received" chip (Task 7, triage res
     fireEvent.click(chip);
     // A second click must not stack a duplicate line — it replaces its own insertion.
     expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue(
-      '⟳ Resubmission received 03/10 — regraded.\n\nBody text.'
+      'Resubmission received 03/10 - regraded.\n\nBody text.'
     );
   });
 
@@ -458,7 +458,7 @@ describe('StudentRubricCard — "resubmission received" chip (Task 7, triage res
     fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
     await waitFor(() => expect(writeMasteryComment).toHaveBeenCalledTimes(1));
     expect(writeMasteryComment).toHaveBeenCalledWith('4', expect.objectContaining({
-      statusLine: '⟳ Resubmission received 03/10 — regraded.',
+      statusLine: 'Resubmission received 03/10 - regraded.',
       statusLineKind: 'received',
     }));
   });
@@ -489,7 +489,7 @@ describe('StudentRubricCard — "resubmission received" chip (Task 7, triage res
     fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(onSaved).toHaveBeenCalledWith('uid-1', expect.objectContaining({
-      status_line: { line: '⟳ Resubmission received 03/10 — regraded.', kind: 'received' },
+      status_line: { line: 'Resubmission received 03/10 - regraded.', kind: 'received' },
     }));
   });
 
@@ -501,7 +501,7 @@ describe('StudentRubricCard — "resubmission received" chip (Task 7, triage res
     function restoredDraftProps() {
       const student = { ...makeStudent(), resubmission: { state: 'arrived', request: null }, arrived_on: '2026-10-03' };
       const base = draftBaseline(student, TOPICS);
-      const comment = '⟳ Resubmission received 03/10 — regraded.\n\nSo far so good.';
+      const comment = 'Resubmission received 03/10 - regraded.\n\nSo far so good.';
       return { student, draftRow: { pending: {}, comment, display: false, displayTouched: false, base } };
     }
 
@@ -509,7 +509,7 @@ describe('StudentRubricCard — "resubmission received" chip (Task 7, triage res
       renderCard(restoredDraftProps());
       fireEvent.click(screen.getByRole('button', { name: /insert "resubmission received" line/i }));
       expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue(
-        '⟳ Resubmission received 03/10 — regraded.\n\nSo far so good.'
+        'Resubmission received 03/10 - regraded.\n\nSo far so good.'
       );
     });
 
@@ -519,7 +519,7 @@ describe('StudentRubricCard — "resubmission received" chip (Task 7, triage res
       fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
       await waitFor(() => expect(writeMasteryComment).toHaveBeenCalledTimes(1));
       expect(writeMasteryComment).toHaveBeenCalledWith('4', expect.objectContaining({
-        statusLine: '⟳ Resubmission received 03/10 — regraded.',
+        statusLine: 'Resubmission received 03/10 - regraded.',
         statusLineKind: 'received',
       }));
     });
@@ -1853,7 +1853,7 @@ describe('AssessmentSummaryPage — a save regrades an arrived resubmission (fin
     await screen.findByText(/Published 1 grade/);
     expect(sendAllGrades).toHaveBeenCalledWith('4', [expect.objectContaining({
       comment: expect.objectContaining({
-        statusLine: '⟳ Resubmission received 03/10 — regraded.',
+        statusLine: 'Resubmission received 03/10 - regraded.',
         statusLineKind: 'received',
       }),
     })]);
@@ -1912,7 +1912,7 @@ describe('AssessmentSummaryPage — no resubmission control on an archived/exclu
 // comment. The card must keep its stored comment, status line and editor in step, or
 // the next Save PUTs the stale text and erases the published line.
 describe('StudentRubricCard — a status-line action keeps the comment in step (final review I1)', () => {
-  const ASK = '⟳ Resubmission requested — due Thu 15/10.';
+  const ASK = 'Resubmission requested - due Thu 15/10.';
   function StatefulCard({ initial }) {
     const [student, setStudent] = useState(initial);
     return (

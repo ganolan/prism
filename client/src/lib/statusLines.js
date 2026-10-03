@@ -1,17 +1,20 @@
 // client/src/lib/statusLines.js — a mirror of server/lib/statusLines.js (spec Amendment B),
 // so the confirm modal can render the default line and compose the preview locally.
 // Keep the two identical: statusLines.test.js checks parity against the server module.
+// Templates are plain printable ASCII (since 2026-10-03): no special character is ever sent
+// to Schoology, so no encoding round-trip can alter a stored line. Prism's own UI may still
+// show the ⟳ glyph on its pills and tags.
 export function lineDate(iso) {
   return new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: '2-digit' }).replace(',', '');
 }
 export const shortDate = (iso) => new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' });
 const withNote = (text, note) => (note && String(note).trim() ? `${text} ${String(note).trim()}` : text);
-export const askLine = ({ until, note }) => withNote(`⟳ Resubmission requested — due ${lineDate(until)}.`, note);
-export const extendResubmissionLine = ({ until, note }) => withNote(`⟳ Resubmission requested — now due ${lineDate(until)}.`, note);
-export const gradeStandsLine = ({ until }) => `⟳ Resubmission deadline (${lineDate(until)}) passed — your grade stands.`;
-export const extensionLine = ({ until, lessons, note }) => withNote(`⟳ Extension — now due ${lineDate(until)} (${lessons} ${Number(lessons) === 1 ? 'lesson' : 'lessons'}).`, note);
-export const makeUpLine = ({ until, note }) => withNote(`⟳ Make-up — sit by ${lineDate(until)}.`, note);
-export const receivedLine = ({ on }) => `⟳ Resubmission received ${shortDate(on)} — regraded.`;
+export const askLine = ({ until, note }) => withNote(`Resubmission requested - due ${lineDate(until)}.`, note);
+export const extendResubmissionLine = ({ until, note }) => withNote(`Resubmission requested - now due ${lineDate(until)}.`, note);
+export const gradeStandsLine = ({ until }) => `Resubmission deadline (${lineDate(until)}) passed - your grade stands.`;
+export const extensionLine = ({ until, lessons, note }) => withNote(`Extension - now due ${lineDate(until)} (${lessons} ${Number(lessons) === 1 ? 'lesson' : 'lessons'}).`, note);
+export const makeUpLine = ({ until, note }) => withNote(`Make-up - sit by ${lineDate(until)}.`, note);
+export const receivedLine = ({ on }) => `Resubmission received ${shortDate(on)} - regraded.`;
 
 // Remove the exact stored line from the start (if still there verbatim), then prepend newLine.
 export function composeComment(current, storedLine, newLine) {

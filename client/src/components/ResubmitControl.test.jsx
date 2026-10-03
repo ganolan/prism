@@ -29,17 +29,17 @@ function renderControl(r = null, props = {}) {
 
 describe('ResubmitControl', () => {
   it('Ask opens the confirm with the due date worked out by the server, then publishes commentLine with the ask', async () => {
-    const published = '⟳ Resubmission requested — due Thu 15/10. add tests\n\nGood start.';
+    const published = 'Resubmission requested - due Thu 15/10. add tests\n\nGood start.';
     api.requestResubmission.mockResolvedValue({
       id: 3, lessons: 3, until: '2026-10-15', outcome: 'asked',
-      statusLine: { comment: published, line: '⟳ Resubmission requested — due Thu 15/10. add tests' },
+      statusLine: { comment: published, line: 'Resubmission requested - due Thu 15/10. add tests' },
     });
     const onChange = renderControl();
     fireEvent.click(screen.getByRole('button', { name: /Ask to resubmit/ }));
     fireEvent.change(screen.getByLabelText('Resubmission note'), { target: { value: 'add tests' } });
     fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
     expect(modal()).toHaveAccessibleName("Publish to Maya Chen's Schoology comment");
-    const line = '⟳ Resubmission requested — due Thu 15/10. add tests';
+    const line = 'Resubmission requested - due Thu 15/10. add tests';
     expect(await screen.findByDisplayValue(line)).toBeInTheDocument();
     expect(api.getStatusLineUntil).toHaveBeenCalledWith({ kind: 'ask', studentId: 7, assignmentId: 30, lessons: 3 });
     expect(api.requestResubmission).not.toHaveBeenCalled(); // nothing written until Publish
@@ -94,7 +94,7 @@ describe('ResubmitControl', () => {
     fireEvent.click(screen.getByRole('button', { name: /Resubmit by 15\/10\/2026/ }));
     fireEvent.click(screen.getByLabelText('Increase'));
     fireEvent.click(screen.getByRole('button', { name: 'Extend' }));
-    const line = '⟳ Resubmission requested — now due Tue 20/10.';
+    const line = 'Resubmission requested - now due Tue 20/10.';
     expect(await screen.findByDisplayValue(line)).toBeInTheDocument();
     expect(api.getStatusLineUntil).toHaveBeenCalledWith({ kind: 'extend_resubmission', studentId: 7, assignmentId: 30, resubmissionId: 3, lessons: 4 });
     fireEvent.click(await screen.findByRole('button', { name: 'Publish new due date' }));
@@ -108,7 +108,7 @@ describe('ResubmitControl', () => {
     fireEvent.click(screen.getByRole('button', { name: /Resubmit by 08\/10\/2026/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Grade stands' }));
     expect(screen.getByText('Ends the resubmission request: missed deadline, grade stands.')).toBeInTheDocument();
-    const line = '⟳ Resubmission deadline (Thu 08/10) passed — your grade stands.';
+    const line = 'Resubmission deadline (Thu 08/10) passed - your grade stands.';
     expect(screen.getByLabelText('Status line')).toHaveValue(line);
     expect(api.getStatusLineUntil).not.toHaveBeenCalled(); // the deadline is already known
     fireEvent.click(await screen.findByRole('button', { name: 'Publish & close request' }));
@@ -182,7 +182,7 @@ describe('ResubmitControl', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(stands).toHaveFocus();
     fireEvent.click(stands);
-    expect(screen.getByLabelText('Status line')).toHaveValue('⟳ Resubmission deadline (Thu 08/10) passed — your grade stands.');
+    expect(screen.getByLabelText('Status line')).toHaveValue('Resubmission deadline (Thu 08/10) passed - your grade stands.');
   });
 
   it('Undo with the box unchecked leaves the comment alone', async () => {

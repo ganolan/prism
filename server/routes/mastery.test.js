@@ -235,10 +235,10 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — review and res
 
   test('status_line carries the stored line + kind once something has been published', async () => {
     const db = getDb();
-    db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, '⟳ Resubmission requested — due Thu 09/10.', 'ask')`)
+    db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, 'Resubmission requested - due Thu 09/10.', 'ask')`)
       .run(studentId, assignmentInternalId);
     const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
-    expect(body.students[0].status_line).toEqual({ line: '⟳ Resubmission requested — due Thu 09/10.', kind: 'ask' });
+    expect(body.students[0].status_line).toEqual({ line: 'Resubmission requested - due Thu 09/10.', kind: 'ask' });
   });
 
   test('arrived_on is the snapshot\'s arrival date when the resubmission state is arrived', async () => {
@@ -613,7 +613,7 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
 
     test('a received-line-only save keeps the arrival Arrived', async () => {
       arrivedPair();
-      const line = '⟳ Resubmission received 03/10 — regraded.';
+      const line = 'Resubmission received 03/10 - regraded.';
       const { body } = await post(`/api/mastery/${courseId}/write-comment`, {
         enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: `${line}\n\nGood start`, statusLine: line,
       });
@@ -642,7 +642,7 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
   test('statusLine: stored (default kind received) after the PUT; the snapshot ignores it', async () => {
     const db = getDb();
     db.exec('DELETE FROM status_lines');
-    const line = '⟳ Resubmission received 03/10 — regraded.';
+    const line = 'Resubmission received 03/10 - regraded.';
     getSectionGrades.mockResolvedValue([{ assignment_id: 'sa-wc', enrollment_id: 'enr-wc', grade: 3, exception: 0, timestamp: 1 }]);
     const { status } = await post(`/api/mastery/${courseId}/write-comment`, {
       enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: `${line}\n\nMuch better.`, statusLine: line,
@@ -767,10 +767,10 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     const db = getDb();
     db.prepare(`INSERT INTO grades (student_id, assignment_id, enrolment_id, score) VALUES (?, ?, 'enr-wc', 2)`).run(studentId, assignmentId);
     const ask = requestResubmission(db, { studentId, assignmentId, lessons: 2 });
-    const askLine = '⟳ Resubmission requested — due Thu 09/10.';
+    const askLine = 'Resubmission requested - due Thu 09/10.';
     db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind, source_type, source_id) VALUES (?, ?, ?, 'ask', 'resubmission', ?)`)
       .run(studentId, assignmentId, askLine, ask.id);
-    const received = '⟳ Resubmission received 03/10 — regraded.';
+    const received = 'Resubmission received 03/10 - regraded.';
     getSectionGrades.mockResolvedValue([{ assignment_id: 'sa-wc', enrollment_id: 'enr-wc', grade: 3, exception: 0, comment: askLine, comment_status: 1 }]);
     expect((await post(`/api/mastery/${courseId}/write-comment`, {
       enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: `${received}\n\nBetter.`, statusLine: received,
@@ -1072,7 +1072,7 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
   }
 
   test('statusLine: stored (default kind received, trimmed) once Send-all succeeds', async () => {
-    const line = '⟳ Resubmission received 03/10 — regraded.';
+    const line = 'Resubmission received 03/10 - regraded.';
     // The comment's first line is the plain (unpadded) text; the submitted
     // statusLine has incidental whitespace — checkLine trims it before storing,
     // and the trim still matches the comment's exact first line.
@@ -1122,7 +1122,7 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
   // I1: apiPut never throws on an HTTP error — send-all must check the result,
   // same as write-comment, or it would mirror a comment Schoology rejected.
   test('I1: a rejected comment PUT (HTTP error) → 502, nothing mirrored, no status_lines', async () => {
-    const line = '⟳ Resubmission received 03/10 — regraded.';
+    const line = 'Resubmission received 03/10 - regraded.';
     pushGradeComments.mockResolvedValueOnce({ status: 403, data: 'forbidden' });
     const res = await post(`/api/mastery/${courseId}/send-all`, { entries: [statusLineEntry(line)] });
     expect(res.status).toBe(502);
@@ -1133,7 +1133,7 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
   });
 
   test('I1: a 207 with a failed entry (per-item response_code) → 502, nothing mirrored', async () => {
-    const line = '⟳ Resubmission received 03/10 — regraded.';
+    const line = 'Resubmission received 03/10 - regraded.';
     pushGradeComments.mockResolvedValueOnce({ status: 207, data: { grade: [{ response_code: 400 }] } });
     const res = await post(`/api/mastery/${courseId}/send-all`, { entries: [statusLineEntry(line)] });
     expect(res.status).toBe(502);
@@ -1142,7 +1142,7 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
   });
 
   test('a failed fresh-grade read with a statusLine present → 502, no status_lines write either', async () => {
-    const line = '⟳ Resubmission received 03/10 — regraded.';
+    const line = 'Resubmission received 03/10 - regraded.';
     getSectionGrades.mockRejectedValueOnce(new Error('Schoology down'));
     const res = await post(`/api/mastery/${courseId}/send-all`, { entries: [statusLineEntry(line)] });
     expect(res.status).toBe(502);
@@ -1154,7 +1154,7 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
   // I2: an overlapping write for the same pair must not compose from the same
   // stale read and drop one line — mirrors the write-comment BUSY test.
   test('I2: statusLine holds the per-pair lock — an overlapping send-all for the same pair → 409 BUSY', async () => {
-    const line = '⟳ Resubmission received 03/10 — regraded.';
+    const line = 'Resubmission received 03/10 - regraded.';
     let finishPut;
     pushGradeComments.mockImplementationOnce(() => new Promise((resolve) => { finishPut = () => resolve({ status: 207 }); }));
     const body = { entries: [statusLineEntry(line)] };

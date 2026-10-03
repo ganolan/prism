@@ -105,7 +105,7 @@ describe('listAssignments', () => {
     const aId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-m3', 'NB')`).run(courseId).lastInsertRowid;
     db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES ('t1', NULL, ?, 'T1', 'Topic')`).run(courseId);
     db.prepare(`INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id) VALUES ('sa-m3', 't1', ?)`).run(courseId);
-    const line = '⟳ Resubmission requested — due Thu 15/10.';
+    const line = 'Resubmission requested - due Thu 15/10.';
     for (const [uid, comment] of [['u1', line], ['u2', `${line}\n\nWell done`]]) {
       const sId = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES (?, 'F', 'L')`).run(uid).lastInsertRowid;
       db.prepare(`INSERT INTO grades (student_id, assignment_id, grade_comment) VALUES (?, ?, ?)`).run(sId, aId, comment);
@@ -316,7 +316,7 @@ describe('resubmission tools', () => {
 });
 
 describe('status lines on resubmission/extension tools (Amendment B)', () => {
-  const LINE = '⟳ Resubmission requested — due Thu 09/10. Fix the loop.';
+  const LINE = 'Resubmission requested - due Thu 09/10. Fix the loop.';
   const fresh = (over = {}) => ({ assignment_id: 'a1', enrollment_id: 'enr', grade: null, exception: 0, comment: 'Teacher note.', comment_status: 1, ...over });
   const storedLine = (db, studentId, assignmentId) =>
     db.prepare('SELECT line, kind FROM status_lines WHERE student_id = ? AND assignment_id = ?').get(studentId, assignmentId) || null;
@@ -383,7 +383,7 @@ describe('status lines on resubmission/extension tools (Amendment B)', () => {
     vi.clearAllMocks();
     getSectionGrades.mockResolvedValue([fresh()]);
     pushGradeComments.mockResolvedValue({ status: 207, data: {} });
-    const EXT = '⟳ Resubmission requested — now due Mon 13/10.';
+    const EXT = 'Resubmission requested - now due Mon 13/10.';
     const res = await extendDeadlineTool(db, { resubmission_id: r.id, lessons: 5, comment_line: EXT });
     expect(res.statusLine).toMatchObject({ line: EXT });
     expect(storedLine(db, studentId, assignmentId)).toEqual({ line: EXT, kind: 'extend_resubmission' });
@@ -392,7 +392,7 @@ describe('status lines on resubmission/extension tools (Amendment B)', () => {
   test('extend_deadline (student/assignment path) publishes kind extension', async () => {
     const db = getDb();
     const { studentId, assignmentId } = seedEligiblePair(db);
-    const EXT = '⟳ Extension — now due Mon 13/10 (5 lessons).';
+    const EXT = 'Extension - now due Mon 13/10 (5 lessons).';
     const res = await extendDeadlineTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 5, comment_line: EXT });
     expect(res.statusLine).toMatchObject({ line: EXT });
     expect(storedLine(db, studentId, assignmentId)).toEqual({ line: EXT, kind: 'extension' });
@@ -425,7 +425,7 @@ describe('status lines on resubmission/extension tools (Amendment B)', () => {
     vi.clearAllMocks();
     getSectionGrades.mockResolvedValue([fresh()]);
     pushGradeComments.mockResolvedValue({ status: 207, data: {} });
-    const STANDS = '⟳ Resubmission deadline (Thu 09/10) passed — your grade stands.';
+    const STANDS = 'Resubmission deadline (Thu 09/10) passed - your grade stands.';
     const res = await gradeStandsTool(db, { id: r.id, comment_line: STANDS });
     expect(getSectionGrades).toHaveBeenCalled();
     expect(res.statusLine).toMatchObject({ line: STANDS });
@@ -435,7 +435,7 @@ describe('status lines on resubmission/extension tools (Amendment B)', () => {
   test('undo_extension with remove_line removes the stored line; without it, Schoology is untouched', async () => {
     const db = getDb();
     const { studentId, assignmentId } = seedEligiblePair(db);
-    const EXT = '⟳ Extension — now due Mon 13/10 (5 lessons).';
+    const EXT = 'Extension - now due Mon 13/10 (5 lessons).';
     const created = await extendDeadlineTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 5, comment_line: EXT });
     vi.clearAllMocks();
     getSectionGrades.mockResolvedValue([fresh({ comment: `${EXT}\n\nTeacher note.` })]);
@@ -513,7 +513,7 @@ describe('status lines on resubmission/extension tools (Amendment B)', () => {
       const preview = await previewStatusLineTool(db, { student_id: studentId, assignment_id: assignmentId, kind: 'ask', lessons: 2, line: edited });
       expect(preview.resultingComment).toBe(`${edited}\n\nTeacher note.`);
       expect(preview.line).not.toBe(edited);
-      expect(preview.line).toMatch(/^⟳ Resubmission requested — due /);
+      expect(preview.line).toMatch(/^Resubmission requested - due /);
       expect(pushGradeComments).not.toHaveBeenCalled();
     });
 

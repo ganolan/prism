@@ -171,7 +171,7 @@ describe('resubmission routes', () => {
 });
 
 describe('status lines on triage actions (Amendment B)', () => {
-  const LINE = '⟳ Resubmission requested — due Thu 09/10. Fix the loop.';
+  const LINE = 'Resubmission requested - due Thu 09/10. Fix the loop.';
   const fresh = (over = {}) => ({ assignment_id: 'a1', enrollment_id: 'enr', grade: '2', exception: 1, comment: 'Teacher note.', comment_status: 1, ...over });
   const storedLine = () => getDb().prepare('SELECT line, kind FROM status_lines WHERE student_id = ? AND assignment_id = ?').get(studentId, assignmentId) || null;
   const payload = () => pushGradeComments.mock.calls.at(-1)[1][0];
@@ -256,7 +256,7 @@ describe('status lines on triage actions (Amendment B)', () => {
     const asked = await ask({ commentLine: edited });
     expect(storedLine().line).toBe(edited);
     getSectionGrades.mockResolvedValue([fresh({ comment: `${edited}\r\n\r\nTeacher note.` })]);
-    const next = '⟳ Resubmission requested — now due Mon 13/10.';
+    const next = 'Resubmission requested - now due Mon 13/10.';
     const res = await call('PUT', `/api/triage/resubmissions/${asked.body.id}`, { lessons: 4, commentLine: next });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ lessons: 4, statusLine: { comment: `${next}\n\nTeacher note.` } });
@@ -275,7 +275,7 @@ describe('status lines on triage actions (Amendment B)', () => {
 
   test('grade stands: NOT_AT_DEADLINE before any PUT; after the deadline publishes kind grade_stands and closes', async () => {
     const asked = await ask();
-    const stands = '⟳ Resubmission deadline (Wed 08/01) passed — your grade stands.';
+    const stands = 'Resubmission deadline (Wed 08/01) passed - your grade stands.';
     expect(await call('PUT', `/api/triage/resubmissions/${asked.body.id}`, { gradeStands: true, commentLine: stands }))
       .toMatchObject({ status: 409, body: { code: 'NOT_AT_DEADLINE' } });
     expect(getSectionGrades).not.toHaveBeenCalled();
@@ -312,7 +312,7 @@ describe('status lines on triage actions (Amendment B)', () => {
   });
 
   test('extension with commentLine: kind extension for work, make_up for a Schoology test; undo removes it', async () => {
-    const ext = '⟳ Extension — now due Thu 09/01 (3 lessons).';
+    const ext = 'Extension - now due Thu 09/01 (3 lessons).';
     const res = await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 3, commentLine: ext });
     expect(res.status).toBe(201);
     expect(storedLine()).toEqual({ line: ext, kind: 'extension' });
@@ -320,7 +320,7 @@ describe('status lines on triage actions (Amendment B)', () => {
     const quiz = getDb().prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, is_test) VALUES (?, 'q1', 'Quiz', '2020-01-06 14:00:00', 1)`)
       .run(courseId).lastInsertRowid;
     getSectionGrades.mockResolvedValue([fresh({ assignment_id: 'q1', comment: '' })]);
-    const makeUp = '⟳ Make-up — sit by Thu 09/01.';
+    const makeUp = 'Make-up - sit by Thu 09/01.';
     expect((await call('POST', '/api/triage/extensions', { studentId, assignmentId: quiz, lessons: 3, commentLine: makeUp })).status).toBe(201);
     expect(getDb().prepare('SELECT kind FROM status_lines WHERE assignment_id = ?').get(quiz).kind).toBe('make_up');
     expect(payload()).toMatchObject({ assignment_id: 'q1', comment: makeUp, comment_status: 1 });
@@ -347,14 +347,14 @@ describe('status lines on triage actions (Amendment B)', () => {
     const source = () => getDb().prepare('SELECT source_type, source_id FROM status_lines WHERE student_id = ? AND assignment_id = ?').get(studentId, assignmentId);
     const asked = await ask({ commentLine: LINE });
     expect(source()).toEqual({ source_type: 'resubmission', source_id: asked.body.id });
-    const x = await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 2, commentLine: '⟳ Extension — now due Wed 08/01 (2 lessons).' });
+    const x = await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 2, commentLine: 'Extension - now due Wed 08/01 (2 lessons).' });
     expect(source()).toEqual({ source_type: 'extension', source_id: x.body.id });
   });
 
   test('I-2: undoing a closed request never strips the open request\'s live line', async () => {
     const first = await ask({ commentLine: LINE });
     getDb().prepare(`UPDATE resubmissions SET status = 'closed', closed_at = datetime('now') WHERE id = ?`).run(first.body.id);
-    const second = '⟳ Resubmission requested — due Fri 10/10.';
+    const second = 'Resubmission requested - due Fri 10/10.';
     getSectionGrades.mockResolvedValue([fresh({ comment: `${LINE}\n\nTeacher note.` })]);
     const asked2 = await ask({ commentLine: second });
     expect(asked2.status).toBe(201);

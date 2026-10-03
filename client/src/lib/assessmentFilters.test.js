@@ -40,7 +40,7 @@ describe('gradingStateOf', () => {
   it('excepted is complete', () => expect(gradingStateOf(stu({ exception: 3 }), TOPICS)).toBe('complete'));
   // Final review M3 (server gradingState parity): Prism's own status line is not feedback.
   it('a comment that is only the stored status line is not a comment', () => {
-    const line = '⟳ Resubmission requested — due Thu 15/10.';
+    const line = 'Resubmission requested - due Thu 15/10.';
     const status_line = { line, kind: 'ask' };
     const scores = { t1: { grade: 'EX' }, t2: { grade: 'D' } };
     expect(gradingStateOf(stu({ scores, grade_comment: line, status_line }), TOPICS)).toBe('partial');

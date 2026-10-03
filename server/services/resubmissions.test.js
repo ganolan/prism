@@ -172,11 +172,11 @@ describe('snapshot-based state', () => {
 
   test('Review Focus 3: a status line hand-edited in Schoology counts as teacher text', () => {
     const s = student('u1', 'Maya', 'Chen'); const s2 = student('u2', 'Ethan', 'Wong'); const a = assignment('a1', 'Project');
-    const line = '⟳ Resubmission requested — due Thu 15/10.';
+    const line = 'Resubmission requested - due Thu 15/10.';
     for (const sid of [s, s2]) db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, ?, 'ask')`).run(sid, a, line);
     // s: only Prism's exact line → no feedback the student was given; s2: the line was edited by hand.
     grade(s, a, { grade_comment: line, comment_status: 1, submitted_at: at('2026-10-06'), latest_revision_at: at('2026-10-13') });
-    grade(s2, a, { grade_comment: '⟳ Resubmission requested — due Fri 16/10.', comment_status: 1, submitted_at: at('2026-10-06'), latest_revision_at: at('2026-10-13') });
+    grade(s2, a, { grade_comment: 'Resubmission requested - due Fri 16/10.', comment_status: 1, submitted_at: at('2026-10-06'), latest_revision_at: at('2026-10-13') });
     captureFeedbackSnapshots(db);
     expect(stateOf(s, a)).toBe(null);
     expect(stateOf(s2, a)).toBe('arrived');

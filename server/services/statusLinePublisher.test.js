@@ -7,8 +7,8 @@ import { getDb } from '../db/index.js';
 import { getSectionGrades, pushGradeComments } from './schoology.js';
 import { previewStatusLine, publishStatusLine, removeStatusLine, lockPair, setStatusLineSource } from './statusLinePublisher.js';
 
-const L1 = '⟳ Resubmission requested — due Thu 09/10. Fix the loop.';
-const L2 = '⟳ Resubmission requested — now due Tue 14/10.';
+const L1 = 'Resubmission requested - due Thu 09/10. Fix the loop.';
+const L2 = 'Resubmission requested - now due Tue 14/10.';
 
 let db, s, a;
 const fresh = (over = {}) => ({ assignment_id: 'sa', enrollment_id: 'enr', grade: '2', exception: 0, comment: '', comment_status: 1, ...over });

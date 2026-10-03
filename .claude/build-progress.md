@@ -826,7 +826,7 @@ the original 56-day gap and the fixed/re-verified result are in `.claude/powersc
   after every Prism save (`server/services/feedbackSnapshots.js`, `server/lib/feedbackFingerprint.js`,
   `server/lib/resubmission.js` `resubmissionStateFromSnapshot`). Ask, Extend (resubmission/late-work/
   make-up), Grade stands and Undo now **publish a status line to the student's Schoology comment**
-  (`⟳ …`, exact-match replace via `composeComment`/`teacherText`, `server/lib/statusLines.js` mirrored
+  (plain ASCII since 2026-10-03, e.g. `Resubmission requested - due Thu 08/10.`; exact-match replace via `composeComment`/`teacherText`, `server/lib/statusLines.js` mirrored
   client-side in `client/src/lib/statusLines.js`) through one confirm, `StatusLineModal` — the one place
   triage breaks its "inline, no modal" rule, because the write is visible to the student and parents;
   write order is always validate → publish (fresh Schoology read, echo grade/exception) → record in
@@ -843,8 +843,8 @@ the original 56-day gap and the fixed/re-verified result are in `.claude/powersc
   capture that doesn't refresh an assignment's revisions (a mastery pull, or a sync that skipped it)
   between a resubmission and the teacher's Schoology answer can leave a false **Arrived**, and a Prism
   save that exactly restores pre-resubmission feedback can read as a false "answered"; the per-pair publish lock is
-  per-process (PrisMCP and the web server don't exclude each other); the `⟳`/`—` glyphs and Schoology's
-  207 per-entry round-trip are verified offline only — the first live publish should be on a low-stakes
+  per-process (PrisMCP and the web server don't exclude each other); Schoology's
+  207 per-entry batch response is verified offline only — the first live publish should be on a low-stakes
   item, checked by eye in Schoology; `send-all` writes rubric scores before the comment PUT, so a later
   failure can leave scores in Schoology without the comment. Task 8 live parity probe
   (`scripts/parity-lti-resubmission.js`, extended) ran `captureFeedbackSnapshots` on an **in-memory copy**

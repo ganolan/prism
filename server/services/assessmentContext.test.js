@@ -220,7 +220,7 @@ describe('getAssessmentContext', () => {
   test('M3: a comment that is only Prism\'s stored status line does not make grading_state complete', () => {
     const db = getDb();
     const { courseId, assignmentId, studentId } = seedContext(db);
-    const line = '⟳ Resubmission requested — due Thu 15/10.';
+    const line = 'Resubmission requested - due Thu 15/10.';
     db.prepare('UPDATE grades SET grade_comment = ? WHERE student_id = ?').run(line, studentId);
     db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, ?, 'ask')`).run(studentId, assignmentId, line);
     expect(getAssessmentContext(db, { courseId, assignmentId: 'sa-1' }).students[0].grading_state).toBe('partial');

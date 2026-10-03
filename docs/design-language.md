@@ -1098,6 +1098,12 @@ Errors and warnings carry `role="alert"`; the preview is a labelled `region`. In
 reads *Changes their Schoology comment.*, and when Prism's stored line was published by a different
 action the modal says it will stay (the server only removes a record's own line).
 
+**Status lines are plain ASCII (2026-10-03, teacher decision).** The text Prism sends to Schoology never
+carries a special character — `Resubmission requested - due Thu 08/10.`, `Extension - now due Fri 09/10
+(3 lessons).`, `Resubmission received 14/10 - regraded.` — so no encoding round-trip can alter a stored
+line (which must later match verbatim to be replaced). The `⟳` glyph stays on Prism's own pills, tags and
+buttons only; anything that leaves Prism for a student's comment is printable ASCII.
+
 Card control update: Close request and **Reviewed** are gone. An open request offers Extend / Grade
 stands (only once the deadline has passed) / Undo; an arrived resubmission shows the muted text
 *Awaiting your feedback — regrade or comment (visible)* instead of a button. In the triage panel the

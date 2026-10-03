@@ -193,7 +193,7 @@ Prism record is saved; a failed write shows a warning on the row and is never si
    React bundle `submitDocument(aid, false, studentDocument.id)`). The student-side variant adds
    `?skipNotify=true`; the teacher-side one does not, which suggests it notifies.
 2. **☑ Add a line to their comment**: prepend `⟳ Resubmission requested — due {date} ({n} lessons):
-   {note}` via the existing echo-every-field bulk grade write with `comment_status: 1`. Prism removes
+   {note}` (superseded: Amendment B's ASCII-only templates below) via the existing echo-every-field bulk grade write with `comment_status: 1`. Prism removes
    the marked line on regrade, Reviewed, Close, or Undo. The write moves the grade time to the ask time,
    which is before any resubmission, so detection is unaffected.
 
@@ -356,13 +356,16 @@ or Prism drafts), so **only visible feedback counts**.
 
 ### Status lines
 
-- One Prism status line per student × assessment, always first in the comment, replaced by each new one:
-  - Ask: `⟳ Resubmission requested — due {Ddd DD/MM}. {note}`
-  - Extend (resubmission): `⟳ Resubmission requested — now due {Ddd DD/MM}. {note}`
-  - Grade stands: `⟳ Resubmission deadline ({Ddd DD/MM}) passed — your grade stands.`
-  - Late-work extension: `⟳ Extension — now due {Ddd DD/MM} ({n} lessons). {note}` — `(1 lesson)` when n = 1
-  - Make-up extension: `⟳ Make-up — sit by {Ddd DD/MM}. {note}`
-  - Regrade of an arrival (card chip, optional): `⟳ Resubmission received {DD/MM} — regraded.`
+- One Prism status line per student × assessment, always first in the comment, replaced by each new one.
+  **ASCII-only since 2026-10-03 — avoids any Schoology encoding round-trip risk** (teacher decision: the
+  earlier `⟳` prefix and `—` dashes are gone from everything sent to Schoology; Prism's own UI keeps the
+  `⟳` glyph on its pills and tags). `{note}` and its leading space are omitted when there is no note.
+  - Ask: `Resubmission requested - due {Ddd DD/MM}. {note}`
+  - Extend (resubmission): `Resubmission requested - now due {Ddd DD/MM}. {note}`
+  - Grade stands: `Resubmission deadline ({Ddd DD/MM}) passed - your grade stands.`
+  - Late-work extension: `Extension - now due {Ddd DD/MM} ({n} lessons). {note}` — `(1 lesson)` when n = 1
+  - Make-up extension: `Make-up - sit by {Ddd DD/MM}. {note}`
+  - Regrade of an arrival (card chip, optional): `Resubmission received {DD/MM} - regraded.`
 - **Exact-match, not pattern-match.** Prism stores the exact line it published (after the teacher's edits)
   in `status_lines`. Replacing removes that exact stored text from the start of the comment if still there
   verbatim, then prepends the new line. A line hand-edited in Schoology no longer matches → treated as the
@@ -446,10 +449,11 @@ can be published:
    stdio process; it and the web server do not exclude each other. Two concurrent publishes to the same
    pair from PrisMCP and the dashboard at once could race. Not built out further pending a real need for
    cross-process coordination.
-4. **The `⟳`/`—` glyphs and Schoology's 207 per-entry batch-write round-trip are verified offline only**
-   (unit tests, fixture-based). Nothing in this amendment has been exercised against a real Schoology
-   write. The first real publish should be on a low-stakes item, with the resulting comment checked by eye
-   in Schoology (encoding, line placement, and that the 207 entry-level status was read correctly).
+4. **Schoology's 207 per-entry batch-write response is verified offline only** (unit tests,
+   fixture-based). Nothing in this amendment has been exercised against a real Schoology write. The first
+   real publish should be on a low-stakes item, with the resulting comment checked by eye in Schoology
+   (line placement, and that the 207 entry-level status was read correctly). (The earlier `⟳`/`—` glyph
+   round-trip concern is moot: status lines are ASCII-only since 2026-10-03.)
 5. **`send-all` writes rubric scores before the comment PUT.** If the comment PUT then fails, the batch
    returns 502 (per the prod fix above — no local mirror, no status-line record), but the rubric scores it
    already wrote earlier in the same batch are left sitting in Schoology. Not rolled back; the 502 message

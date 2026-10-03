@@ -331,7 +331,7 @@ describe('getTriage — feedback owed', () => {
     const a = student('u1', 'Ada', 'L');
     const b = student('u2', 'Bo', 'M');
     const id = assignment('a1', 'Model Card', '2026-10-05');
-    const line = '⟳ Resubmission requested — due Thu 15/10.';
+    const line = 'Resubmission requested - due Thu 15/10.';
     grade(a, id, { submission_type: 'drop', first_submitted_at: epoch('2026-10-05'), grade_comment: line });
     grade(b, id, { submission_type: 'drop', first_submitted_at: epoch('2026-10-05'), grade_comment: `${line}\n\nWell done` });
     for (const sid of [a, b]) db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, ?, 'ask')`).run(sid, id, line);

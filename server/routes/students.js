@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
 import { getGradingScalesMap } from '../db/scales.js';
-import { isResubmitted } from '../lib/resubmission.js';
+import { reviewedThroughMap, isResubmittedSinceReview } from '../services/resubmissions.js';
 
 const router = Router();
 
@@ -124,11 +124,14 @@ router.get('/:id', (req, res) => {
       m.set(s.topic_id, existing);
     }
 
+    // Watermark for the plain `resubmitted` flag below — a "Reviewed" mark must
+    // clear it, or the student profile keeps flagging an arrival already reviewed.
+    const reviewedThrough = reviewedThroughMap(db, { studentId: student.id });
     for (const g of grades) {
       const aid = String(g.schoology_assignment_id);
       const map = topicsByAssignment.get(aid);
       g.mastery = map ? { topics: [...map.values()].sort((a, b) => (a.external_id || '').localeCompare(b.external_id || '')) } : null;
-      g.resubmitted = isResubmitted(g);
+      g.resubmitted = isResubmittedSinceReview(g, reviewedThrough.get(`${student.id}:${g.assignment_id}`) || 0);
     }
   }
 

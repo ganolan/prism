@@ -3,8 +3,7 @@ import { getDb } from '../db/index.js';
 import { getGradingScalesMap } from '../db/scales.js';
 import { apiGet } from '../services/schoology.js';
 import { finalizeArchivedCourse, enrichStudentProfiles } from '../services/sync.js';
-import { isResubmitted } from '../lib/resubmission.js';
-import { openRequestKeys } from '../services/resubmissions.js';
+import { openRequestKeys, reviewedThroughMap, isResubmittedSinceReview } from '../services/resubmissions.js';
 import { getArchivedSections } from '../services/archivedCourses.js';
 import { syncPsAttendance } from '../services/psAttendanceSync.js';
 import { getSchoologyConfig } from '../middleware/featureGate.js';
@@ -234,6 +233,9 @@ router.get('/:id/gradebook', (req, res) => {
 
   // Open triage resubmission requests (#49, Part A; moved off `flags` 2026-10-03).
   const resubmitSet = openRequestKeys(db, Number(req.params.id));
+  // Watermark for the plain `resubmitted` flag below — a "Reviewed" mark must
+  // clear it, or the gradebook keeps flagging an arrival the teacher already reviewed.
+  const reviewedThrough = reviewedThroughMap(db, { courseId: Number(req.params.id) });
 
   // Unresolved 'review needed' flags (#57). Prism-local — surfaced on the
   // gradebook rubric modal alongside submission status.
@@ -255,7 +257,7 @@ router.get('/:id/gradebook', (req, res) => {
   for (const g of grades) {
     if (!gradeMap[g.student_id]) gradeMap[g.student_id] = {};
     g.resubmit_requested = resubmitSet.has(`${g.student_id}:${g.assignment_id}`);
-    g.resubmitted = isResubmitted(g);
+    g.resubmitted = isResubmittedSinceReview(g, reviewedThrough.get(`${g.student_id}:${g.assignment_id}`) || 0);
     g.review_needed = reviewByKey[`${g.student_id}:${g.assignment_id}`] || [];
     gradeMap[g.student_id][g.assignment_id] = g;
   }

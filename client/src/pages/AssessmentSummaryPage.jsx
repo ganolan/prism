@@ -853,8 +853,12 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           student={student}
           assignmentId={assignmentRow?.id}
           defaultLessons={resubmitLessonsDefault}
-          onChange={(resubmission) => onSaved?.(student.schoology_uid, {
+          onChange={(resubmission, meta) => onSaved?.(student.schoology_uid, {
             resubmission, resubmit_flag: resubmission?.request ? { id: resubmission.request.id } : null,
+            // Reviewed clears the server-computed "Ungraded resubmission" watermark too
+            // (server/services/resubmissions.js reviewedThroughMap) — mirror it locally
+            // so the ⚠ pill disappears without waiting for a reload.
+            ...(meta?.reviewed ? { resubmitted: false } : {}),
           })}
         />
         {/* Detected resubmission (#49, Part B) — the student submitted new work

@@ -19,7 +19,7 @@ import { getArchivedSections } from '../services/archivedCourses.js';
 import { apiGet } from '../services/schoology.js';
 import { finalizeArchivedCourse, enrichStudentProfiles } from '../services/sync.js';
 import { syncPsAttendance } from '../services/psAttendanceSync.js';
-import { requestResubmission } from '../services/resubmissions.js';
+import { requestResubmission, markResubmissionReviewed } from '../services/resubmissions.js';
 
 function startServer() {
   const app = express();
@@ -121,6 +121,23 @@ describe('GET /api/courses/:id/gradebook — resubmitted', () => {
       .run(studentId, assignmentId);
     const { body } = await get(`/api/courses/${courseId}/gradebook`);
     expect(body.grades[studentId][assignmentId].resubmitted).toBe(false);
+  });
+
+  test('cell resubmitted goes false once the arrival is marked Reviewed, and true again for a newer revision', async () => {
+    const db = getDb();
+    db.prepare('UPDATE grades SET submitted_at = 1000, latest_revision_at = 2000 WHERE student_id = ? AND assignment_id = ?')
+      .run(studentId, assignmentId);
+    const before = await get(`/api/courses/${courseId}/gradebook`);
+    expect(before.body.grades[studentId][assignmentId].resubmitted).toBe(true);
+
+    markResubmissionReviewed(db, { studentId, assignmentId });
+    const afterReview = await get(`/api/courses/${courseId}/gradebook`);
+    expect(afterReview.body.grades[studentId][assignmentId].resubmitted).toBe(false);
+
+    db.prepare('UPDATE grades SET latest_revision_at = 3000 WHERE student_id = ? AND assignment_id = ?')
+      .run(studentId, assignmentId);
+    const afterNewRevision = await get(`/api/courses/${courseId}/gradebook`);
+    expect(afterNewRevision.body.grades[studentId][assignmentId].resubmitted).toBe(true);
   });
 });
 

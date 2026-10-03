@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 import AssessmentSummaryPage, { StudentRubricCard } from './AssessmentSummaryPage.jsx';
-import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale, requestResubmission, updateResubmission } from '../services/api.js';
+import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale, requestResubmission, updateResubmission, reviewResubmission } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 
 // Stub the DB saver so tests assert wiring, not I/O.
@@ -384,6 +384,18 @@ describe('StudentRubricCard — resubmission control (triage resubmissions)', ()
     await waitFor(() => expect(requestResubmission).toHaveBeenCalled());
     expect(writeMasteryScores).not.toHaveBeenCalled();
     expect(writeMasteryComment).not.toHaveBeenCalled();
+  });
+
+  it('marking Reviewed patches the student with resubmission cleared AND resubmitted: false, so the ⚠ pill drops immediately', async () => {
+    reviewResubmission.mockResolvedValueOnce({ id: 9, outcome: 'reviewed' });
+    const onSaved = vi.fn();
+    renderCard({
+      onSaved,
+      student: { ...makeStudent(), resubmitted: true, resubmission: { state: 'arrived', request: null } },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Reviewed' }));
+    await waitFor(() => expect(reviewResubmission).toHaveBeenCalledWith({ studentId: 1, assignmentId: 50 }));
+    expect(onSaved).toHaveBeenCalledWith('uid-1', { resubmission: null, resubmit_flag: null, resubmitted: false });
   });
 
   it('shows a read-only Resubmitted pill when student.resubmitted is true', () => {

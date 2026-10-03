@@ -111,7 +111,7 @@ export function getScoreMap(db, assignmentSchoologyId, topicIds) {
 // joined to the schoology_uid, for an assignment. Consumers build their own maps.
 export function getGradeMetaRows(db, assignmentSchoologyId) {
   return db.prepare(`
-    SELECT s.schoology_uid, g.score, g.submitted_at, g.latest_revision_at,
+    SELECT s.id AS student_id, s.schoology_uid, g.score, g.submitted_at, g.latest_revision_at,
            g.grade_comment, g.exception, g.comment_status,
            g.lti_submission_state, g.submission_type, g.late, g.draft
     FROM grades g

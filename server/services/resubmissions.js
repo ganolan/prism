@@ -6,7 +6,7 @@ import { loadCalendar } from './schoolCalendar.js';
 import { getTriageSettings } from './settings.js';
 import { preferredFirstName } from './studentNames.js';
 import { TriageError, MAX_EXTENSION_LESSONS, toneFor, ALIGNED_SQL, fullName } from './triageCommon.js';
-import { resubmissionState, sqliteUtcToEpoch } from '../lib/resubmission.js';
+import { resubmissionState, sqliteUtcToEpoch, isResubmitted } from '../lib/resubmission.js';
 import { epochToLocalDate } from '../lib/schoolDays.js';
 
 const OPEN_REQUEST = `kind = 'request' AND status = 'open'`;
@@ -210,6 +210,32 @@ export function resubmissionByStudent(db, assignmentId) {
 export function openRequestKeys(db, courseId) {
   return new Set(db.prepare(`SELECT student_id, assignment_id FROM resubmissions WHERE course_id = ? AND ${OPEN_REQUEST}`)
     .all(courseId).map((r) => `${r.student_id}:${r.assignment_id}`));
+}
+
+// 'studentId:assignmentId' → newest revision_at a "Reviewed" mark has covered,
+// scoped by whichever of courseId/studentId/assignmentId is supplied (all
+// optional — pass the narrowest filter the caller has). Every plain
+// `resubmitted` flag (mastery assignment payload, gradebook, student profile)
+// needs this watermark, or isResubmitted() keeps flagging an arrival the
+// teacher already marked Reviewed.
+export function reviewedThroughMap(db, { courseId = null, studentId = null, assignmentId = null } = {}) {
+  const rows = db.prepare(`
+    SELECT student_id, assignment_id, MAX(revision_at) AS t
+    FROM resubmissions
+    WHERE kind = 'review'
+      AND (? IS NULL OR course_id = ?)
+      AND (? IS NULL OR student_id = ?)
+      AND (? IS NULL OR assignment_id = ?)
+    GROUP BY 1, 2
+  `).all(courseId, courseId, studentId, studentId, assignmentId, assignmentId);
+  return new Map(rows.map((r) => [`${r.student_id}:${r.assignment_id}`, r.t]));
+}
+
+// isResubmitted(), but false once a "Reviewed" mark's revision_at covers the
+// grade's latest_revision_at (reviewedThrough, from reviewedThroughMap above);
+// a newer revision landing after that Reviewed mark flips it back to true.
+export function isResubmittedSinceReview(grade, reviewedThrough = 0) {
+  return isResubmitted(grade) && Number(grade?.latest_revision_at) > (reviewedThrough || 0);
 }
 
 // Triage rows for one current course. Requests show whatever the alignment;

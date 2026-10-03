@@ -30,7 +30,7 @@ import { getDb } from '../db/index.js';
 import { getMasteryForCourse, writeMasteryScoresBatch, writeMasteryOverride } from '../services/masterySync.js';
 import { getSectionGrades, pushGradeComments } from '../services/schoology.js';
 import { getAssignmentFiles } from '../services/oneDriveLinks.js';
-import { requestResubmission } from '../services/resubmissions.js';
+import { requestResubmission, markResubmissionReviewed } from '../services/resubmissions.js';
 
 function startServer() {
   const app = express();
@@ -173,6 +173,25 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — review and res
   test('resubmitted is false with no newer revision', async () => {
     const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
     expect(body.students[0].resubmitted).toBe(false);
+  });
+
+  test('resubmitted goes false once the arrival is marked Reviewed, and true again for a newer revision', async () => {
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO grades (student_id, assignment_id, score, submitted_at, latest_revision_at)
+       VALUES (?, ?, 80, 1000, 2000)`
+    ).run(studentId, assignmentInternalId);
+    const before = await get(`/api/mastery/${courseId}/assignment/sa-1`);
+    expect(before.body.students[0].resubmitted).toBe(true);
+
+    markResubmissionReviewed(db, { studentId, assignmentId: assignmentInternalId });
+    const afterReview = await get(`/api/mastery/${courseId}/assignment/sa-1`);
+    expect(afterReview.body.students[0].resubmitted).toBe(false);
+
+    db.prepare('UPDATE grades SET latest_revision_at = 3000 WHERE student_id = ? AND assignment_id = ?')
+      .run(studentId, assignmentInternalId);
+    const afterNewRevision = await get(`/api/mastery/${courseId}/assignment/sa-1`);
+    expect(afterNewRevision.body.students[0].resubmitted).toBe(true);
   });
 
   test('per-student payload carries raw submission-status fields', async () => {

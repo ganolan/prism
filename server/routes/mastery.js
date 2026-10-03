@@ -2,8 +2,7 @@ import { Router } from 'express';
 import { getDb } from '../db/index.js';
 import { hasMasterySession, syncMasteryForCourse, syncMasteryForAssignment, writeMasteryScores, writeMasteryScoresBatch, writeMasteryOverride, getMasteryForCourse, getRubricScoresForStudent, interactiveLogin } from '../services/masterySync.js';
 import { pushGradeComments, getSectionGrades } from '../services/schoology.js';
-import { isResubmitted } from '../lib/resubmission.js';
-import { settleResubmissions, resubmissionByStudent } from '../services/resubmissions.js';
+import { settleResubmissions, resubmissionByStudent, reviewedThroughMap, isResubmittedSinceReview } from '../services/resubmissions.js';
 import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows, scoreScaleFor } from '../services/assessmentContext.js';
 import { getSchoologyConfig, getScoreScales } from '../middleware/featureGate.js';
 import { findScoreScale, levelForScore, isScalePoints } from '../lib/scoreScales.js';
@@ -455,6 +454,9 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
   // null/missing = hidden. has_grade_row distinguishes "synced and got null"
   // from "never synced" so the client can arm auto-flip only for virgin rows.
   const gradeRows = getGradeMetaRows(db, assignmentId);
+  // Watermark for the plain `resubmitted` flag below — a "Reviewed" mark must
+  // clear it (isResubmittedSinceReview), or the ⚠ pill never goes away.
+  const reviewedThrough = assignmentRow ? reviewedThroughMap(db, { assignmentId: assignmentRow.id }) : new Map();
   const commentMap = {};
   const exceptionMap = {};
   const commentStatusMap = {};
@@ -472,7 +474,7 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
     exceptionMap[c.schoology_uid] = c.exception ?? 0;
     commentStatusMap[c.schoology_uid] = c.comment_status ?? null;
     hasGradeRowMap[c.schoology_uid] = true;
-    resubmittedMap[c.schoology_uid] = isResubmitted(c);
+    resubmittedMap[c.schoology_uid] = isResubmittedSinceReview(c, reviewedThrough.get(`${c.student_id}:${assignmentRow?.id}`) || 0);
     ltiStateMap[c.schoology_uid] = c.lti_submission_state ?? null;
     submissionTypeMap[c.schoology_uid] = c.submission_type ?? null;
     lateMap[c.schoology_uid] = c.late ?? 0;

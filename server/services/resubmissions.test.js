@@ -9,6 +9,7 @@ import { TriageError } from './triageCommon.js';
 import {
   requestResubmission, extendResubmission, closeResubmission, markResubmissionReviewed, undoResubmission,
   listResubmissions, settleResubmissions, resubmissionByStudent, openRequestKeys, recordSchoologyUnsubmit,
+  reviewedThroughMap, isResubmittedSinceReview,
 } from './resubmissions.js';
 
 const at = (iso) => Date.parse(`${iso}T04:00:00Z`) / 1000; // noon HKT
@@ -157,5 +158,33 @@ describe('lookups', () => {
     const r = requestResubmission(db, { studentId: s, assignmentId: a, requestedAt: sql('2026-10-12') });
     expect(openRequestKeys(db, courseId)).toEqual(new Set([`${s}:${a}`]));
     expect(resubmissionByStudent(db, a).get(s)).toMatchObject({ state: 'waiting', request: { id: r.id, lessons: 3 } });
+  });
+});
+
+describe('reviewedThroughMap / isResubmittedSinceReview', () => {
+  test('empty with no review marks', () => {
+    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');
+    grade(s, a, { score: 80, submitted_at: at('2026-10-06'), latest_revision_at: at('2026-10-08') });
+    expect(reviewedThroughMap(db, { courseId }).size).toBe(0);
+    const g = db.prepare('SELECT * FROM grades WHERE student_id = ? AND assignment_id = ?').get(s, a);
+    expect(isResubmittedSinceReview(g, 0)).toBe(true);
+  });
+
+  test('a Reviewed mark sets the watermark, scoped by courseId/studentId/assignmentId, and clears the flag until a newer revision', () => {
+    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');
+    grade(s, a, { score: 80, submitted_at: at('2026-10-06'), latest_revision_at: at('2026-10-08') });
+    markResubmissionReviewed(db, { studentId: s, assignmentId: a });
+    const key = `${s}:${a}`;
+    const t = at('2026-10-08');
+    expect(reviewedThroughMap(db, { courseId }).get(key)).toBe(t);
+    expect(reviewedThroughMap(db, { studentId: s }).get(key)).toBe(t);
+    expect(reviewedThroughMap(db, { assignmentId: a }).get(key)).toBe(t);
+
+    const g = db.prepare('SELECT * FROM grades WHERE student_id = ? AND assignment_id = ?').get(s, a);
+    expect(isResubmittedSinceReview(g, reviewedThroughMap(db, { courseId }).get(key))).toBe(false);
+
+    db.prepare('UPDATE grades SET latest_revision_at = ? WHERE student_id = ? AND assignment_id = ?').run(at('2026-10-13'), s, a);
+    const g2 = db.prepare('SELECT * FROM grades WHERE student_id = ? AND assignment_id = ?').get(s, a);
+    expect(isResubmittedSinceReview(g2, reviewedThroughMap(db, { courseId }).get(key))).toBe(true);
   });
 });

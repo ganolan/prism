@@ -144,8 +144,10 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
     .map((r) => `${r.student_id}:${r.assignment_id}`));
   const extensions = new Map(db.prepare('SELECT id, student_id, assignment_id, lessons, note FROM extensions').all()
     .map((e) => [`${e.student_id}:${e.assignment_id}`, e]));
-  // A pair with an open resubmission request is tracked in Resubmissions, not Late work
-  // (e.g. an Ask that unsubmitted their OneDrive work leaves it "in progress").
+  // Work the student submitted and was then asked to redo (an open resubmission request)
+  // is tracked in Resubmissions: an Ask that unsubmitted their OneDrive work leaves it
+  // "in progress", which must not read as Late work "outstanding". Only that branch is
+  // skipped — a never-submitted pair stays outstanding, and submitted_late stays listed.
   const openAsks = new Set(db.prepare(`SELECT student_id, assignment_id FROM resubmissions WHERE kind = 'request' AND status = 'open'`).all()
     .map((r) => `${r.student_id}:${r.assignment_id}`));
 
@@ -214,14 +216,15 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
 
       for (const { st, s } of states) {
         // Late work (summative only, and only work that takes submissions).
-        if (a.aligned && tracked && !handled.has(`${st.id}:${a.id}`) && !openAsks.has(`${st.id}:${a.id}`)) {
+        if (a.aligned && tracked && !handled.has(`${st.id}:${a.id}`)) {
           // An extension moves this student's due date to the N-th school day
           // after it: hidden until then, late from then. dueDate stays original.
           const ext = extensions.get(`${st.id}:${a.id}`);
           const moved = effectiveDue(cal, due, ext);
           const effDue = moved.date;
           let row = null;
-          if (!s.submitted && !s.scored) {
+          const resubmitting = openAsks.has(`${st.id}:${a.id}`) && Boolean(s.firstSubmittedOn);
+          if (!s.submitted && !s.scored && !resubmitting) {
             const { days, approx } = cal.between(effDue, today);
             if (days >= 1) row = { kind: 'outstanding', daysLate: days, submittedOn: null, approx };
           } else if (s.firstSubmittedOn && s.late !== 0) {

@@ -756,8 +756,12 @@ disabled with a link to that card.
   closes it (`close_note 'Undone'`, like an auto-added `schoology_unsubmit` request): a deleted row no longer
   blocked `recordSchoologyUnsubmit`, so the next sync re-added it. Copy: *Closes this request in Prism.
   Their work stays unsubmitted in Schoology.*
-- *Asks stay out of Late work.* A pair with an open request is tracked in Resubmissions only; an Ask that
-  unsubmitted ungraded work used to reappear as Late work "outstanding" (its local state is in progress).
+- *Asks stay out of Late work — narrowly.* Only the "outstanding" branch is skipped, and only for a pair
+  with an open request that the student had submitted before (`first_submitted_at > 0`): an Ask that
+  unsubmitted ungraded work used to reappear as "outstanding" (its local state is in progress). A
+  never-submitted pair stays outstanding; `submitted_late` referral rows stay listed.
+- *Undo of "grade stands" on unsubmitted work reopens the request* (status open again) instead of doing
+  nothing — copy *Reopens this request.* (refused with ALREADY_OPEN if another request is open).
 - *Timeouts and honest outcomes.* Every in-page fetch carries `AbortSignal.timeout(20 s)`. Only a POST never
   sent (no / dead session, no CSRF pair, page not loaded) or a 4xx is a known failure
   (`SCHOOLOGY_WRITE_FAILED`, *their work is still submitted*). After the POST went out, a timeout, a 5xx, an

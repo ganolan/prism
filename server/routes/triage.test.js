@@ -612,7 +612,9 @@ describe('Ask with unsubmit (Phase 2, LTI unsubmit on Ask)', () => {
   });
 
   test('I2: an ask that unsubmits ungraded work keeps the pair out of Late work (tracked in Resubmissions)', async () => {
-    getDb().prepare('UPDATE grades SET score = NULL').run();
+    // Submitted on time (Prism saw it), ungraded.
+    const due = Math.floor(Date.parse('2020-01-06T00:00:00Z') / 1000);
+    getDb().prepare('UPDATE grades SET score = NULL, first_submitted_at = ?, latest_revision_at = ?, late = 0').run(due, due);
     getSectionGrades.mockResolvedValue([{ ...fresh(), grade: null, comment: '' }]); // ungraded in Schoology too
     expect((await call('GET', '/api/triage')).body.lateWork).toEqual([]);
     await ask();
@@ -620,6 +622,32 @@ describe('Ask with unsubmit (Phase 2, LTI unsubmit on Ask)', () => {
     const t = (await call('GET', '/api/triage')).body;
     expect(t.lateWork).toEqual([]);
     expect(t.resubmissions).toHaveLength(1);
+  });
+
+  test('the open-ask skip is narrow: a never-submitted pair stays outstanding; submitted_late stays listed', async () => {
+    const db = getDb();
+    // Never submitted (first_submitted_at 0), Prism-only ask: still outstanding.
+    db.prepare(`UPDATE grades SET score = NULL, lti_submission_state = 'not_started', first_submitted_at = 0`).run();
+    await call('POST', '/api/triage/resubmissions', { studentId, assignmentId, lessons: 2 });
+    expect((await call('GET', '/api/triage')).body.lateWork).toMatchObject([{ kind: 'outstanding', studentId }]);
+    // Submitted late and scored, with an open ask: the submitted_late (referral) row stays.
+    const late = Math.floor(Date.parse('2020-03-02T04:00:00Z') / 1000); // weeks after the due date
+    db.prepare(`UPDATE grades SET score = 2, lti_submission_state = 'submitted', first_submitted_at = ?, latest_revision_at = ?, late = 1`).run(late, late);
+    expect((await call('GET', '/api/triage')).body.lateWork).toMatchObject([{ kind: 'submitted_late', studentId }]);
+  });
+
+  test('Undo of "grade stands" on unsubmitted work reopens the request', async () => {
+    const db = getDb();
+    const asked = await ask();
+    expect(ltiState()).toBe('in_progress');
+    db.prepare(`UPDATE resubmissions SET requested_at = '2020-01-06 04:00:00' WHERE id = ?`).run(asked.body.id);
+    const stands = await call('PUT', `/api/triage/resubmissions/${asked.body.id}`, { gradeStands: true });
+    expect(stands.body).toMatchObject({ outcome: 'grade_stands' });
+    const undone = await call('DELETE', `/api/triage/resubmissions/${asked.body.id}`);
+    expect(undone.body).toEqual({ deleted: false, reopened: true });
+    expect(db.prepare('SELECT status, close_note, closed_at FROM resubmissions WHERE id = ?').get(asked.body.id))
+      .toEqual({ status: 'open', close_note: null, closed_at: null });
+    expect(recordSchoologyUnsubmit(db, { studentId, assignmentId })).toBe(false);
   });
 
   test('a sync that sees the work in progress clears the failure', async () => {

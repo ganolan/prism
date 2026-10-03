@@ -44,6 +44,16 @@ describe('fingerprint', () => {
     const fp = fingerprint({ score: null, exception: 0, comment: 'L1', commentStatus: 1, storedLine: 'L1', levels: [] });
     expect(fp).toBe('{"s":null,"e":0,"l":[],"c":""}');
   });
+
+  test('score is normalised: 80, "80" and 80.0 are the same fingerprint', () => {
+    expect(fingerprint({ score: 80 })).toBe(fingerprint({ score: '80' }));
+    expect(fingerprint({ score: 80 })).toBe(fingerprint({ score: 80.0 }));
+  });
+
+  test('an empty-string or non-numeric score normalises to null, not NaN', () => {
+    expect(fingerprint({ score: '' })).toBe(fingerprint({ score: null }));
+    expect(fingerprint({ score: 'not-a-number' })).toBe(fingerprint({ score: null }));
+  });
 });
 
 describe('hasPriorFeedback', () => {

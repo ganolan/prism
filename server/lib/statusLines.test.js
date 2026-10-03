@@ -20,6 +20,9 @@ describe('status lines', () => {
     expect(composeComment('', null, 'L1')).toBe('L1');
     expect(composeComment('L1\n\nGreat work.', 'L1', '')).toBe('Great work.');
   });
+  test('composeComment normalises CRLF to LF before matching the stored line', () => {
+    expect(composeComment('L1\r\n\r\nGreat work.', 'L1', 'L2')).toBe('L2\n\nGreat work.');
+  });
   test('teacherText strips the stored line only', () => {
     expect(teacherText('L1\n\nGreat work.', 'L1')).toBe('Great work.');
     expect(teacherText('L1', 'L1')).toBe('');

@@ -14,7 +14,9 @@ export const receivedLine = ({ on }) => `⟳ Resubmission received ${shortDate(o
 
 // Remove the exact stored line from the start (if still there verbatim), then prepend newLine.
 export function composeComment(current, storedLine, newLine) {
-  let rest = String(current ?? '');
+  // Normalise CRLF → LF first: Schoology can round-trip a comment with CRLF line endings, and
+  // without this a stored LF line would never verbatim-match, stacking a duplicate line forever.
+  let rest = String(current ?? '').replace(/\r\n/g, '\n');
   // Verbatim match only: the whole comment, or the stored line followed by a newline
   // (so a hand-edited "L1 (edited)" is never mistaken for "L1").
   if (storedLine && (rest === storedLine || rest.startsWith(`${storedLine}\n`))) rest = rest.slice(storedLine.length).replace(/^\n+/, '');

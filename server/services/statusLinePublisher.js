@@ -10,7 +10,7 @@
 // Prism changes. Publishing always sets Display on (comment_status 1); removing
 // a line keeps the fresh comment_status.
 import { getSectionGrades, pushGradeComments } from './schoology.js';
-import { composeComment, teacherText } from '../lib/statusLines.js';
+import { composeComment, teacherText, plainLine, isPlainLine } from '../lib/statusLines.js';
 import { captureFeedbackSnapshots } from './feedbackSnapshots.js';
 import { TriageError } from './triageCommon.js';
 
@@ -166,12 +166,25 @@ function capture(db, t) {
 }
 
 // One line: surrounding whitespace is trimmed; a line break inside is refused (the
-// stored line must stay the comment's whole first line).
+// stored line must stay the comment's whole first line). Plain ASCII only: typographic
+// characters are normalised (plainLine) and anything else non-ASCII is refused, so the
+// stored and published line can't be altered by an encoding round-trip.
 export function checkLine(line) {
-  const text = String(line ?? '').trim();
+  const text = plainLine(line).trim();
   if (!text) throw new TriageError('BAD_LINE', 'The status line is empty');
   if (/[\r\n]/.test(text)) throw new TriageError('BAD_LINE', 'The status line must be a single line');
+  if (!isPlainLine(text)) throw new TriageError('BAD_LINE', 'Use plain characters in the status line');
   return text;
+}
+
+// write-comment / send-all: the client composed `comment` with the raw status line as
+// its first line. checkLine may have normalised the line, so swap that first line for
+// the normalised one (the comment's teacher text below it is left as typed).
+export function withCheckedLine(comment, rawLine, line) {
+  const text = String(comment ?? '').replace(/\r\n/g, '\n');
+  const raw = String(rawLine ?? '').trim();
+  if (raw !== line && (text === raw || text.startsWith(`${raw}\n`))) return line + text.slice(raw.length);
+  return comment;
 }
 
 export async function previewStatusLine(db, { studentId, assignmentId, line = '' } = {}) {
@@ -187,7 +200,7 @@ export async function previewStatusLine(db, { studentId, assignmentId, line = ''
     storedLine,
     // Which record's action published the stored line (an Undo removes it only if it is its own).
     storedSource: row?.source_type ? { sourceType: row.source_type, sourceId: Number(row.source_id) } : null,
-    resultingComment: composeComment(currentComment, storedLine, normalise(line).trim()),
+    resultingComment: composeComment(currentComment, storedLine, plainLine(normalise(line)).trim()),
     hiddenWarning: !visible && teacherText(currentComment, storedLine) !== '',
   };
 }

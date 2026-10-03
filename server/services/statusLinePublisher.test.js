@@ -5,7 +5,7 @@ vi.mock('./schoology.js', () => ({ getSectionGrades: vi.fn(), pushGradeComments:
 
 import { getDb } from '../db/index.js';
 import { getSectionGrades, pushGradeComments } from './schoology.js';
-import { previewStatusLine, publishStatusLine, removeStatusLine, lockPair, setStatusLineSource } from './statusLinePublisher.js';
+import { previewStatusLine, publishStatusLine, removeStatusLine, lockPair, setStatusLineSource, checkLine } from './statusLinePublisher.js';
 import { captureFeedbackSnapshots, currentFingerprints, snapshotMap } from './feedbackSnapshots.js';
 import { resubmissionStateFromSnapshot } from '../lib/resubmission.js';
 
@@ -113,6 +113,23 @@ describe('publishStatusLine', () => {
     expect(gradeRow()).toMatchObject({ score: null, grade_comment: L1, comment_status: 1 });
   });
 
+  test('ASCII guarantee: typographic characters are normalised; the stored and published line is the plain one', async () => {
+    getSectionGrades.mockResolvedValue([fresh({ comment: 'Note.' })]);
+    const out = await publishStatusLine(db, { studentId: s, assignmentId: a, line: '  Extension \u2014 now due Fri 09/10. \u201Csee me\u201D\u2026 ', kind: 'extension' });
+    expect(out.line).toBe('Extension - now due Fri 09/10. "see me"...');
+    expect(sentPayload().comment).toBe('Extension - now due Fri 09/10. "see me"...\n\nNote.');
+    expect(stored().line).toBe('Extension - now due Fri 09/10. "see me"...');
+  });
+
+  test('ASCII guarantee: anything else non-ASCII is refused before reading Schoology', async () => {
+    for (const line of ['\u27F3 Resubmission requested', 'Bien jou\u00E9', 'Due Fri \u{1F389}']) {
+      await expect(publishStatusLine(db, { studentId: s, assignmentId: a, line, kind: 'ask' }))
+        .rejects.toMatchObject({ code: 'BAD_LINE', message: 'Use plain characters in the status line' });
+    }
+    expect(getSectionGrades).not.toHaveBeenCalled();
+    expect(checkLine('a\u2019b')).toBe("a'b");
+  });
+
   test('rejects an empty or multi-line line, or an unknown kind, before reading Schoology', async () => {
     await expect(publishStatusLine(db, { studentId: s, assignmentId: a, line: '  ', kind: 'ask' })).rejects.toMatchObject({ code: 'BAD_LINE' });
     await expect(publishStatusLine(db, { studentId: s, assignmentId: a, line: `${L1}\nmore`, kind: 'ask' })).rejects.toMatchObject({ code: 'BAD_LINE' });
@@ -210,6 +227,8 @@ describe('previewStatusLine', () => {
     getSectionGrades.mockResolvedValue([fresh({ comment: 'Seen', comment_status: 1 })]);
     expect(await previewStatusLine(db, { studentId: s, assignmentId: a, line: L2 }))
       .toMatchObject({ visible: true, hiddenWarning: false, resultingComment: `${L2}\n\nSeen` });
+    expect((await previewStatusLine(db, { studentId: s, assignmentId: a, line: 'Due Fri \u2013 \u2018ok\u2019' })).resultingComment)
+      .toBe("Due Fri - 'ok'\n\nSeen");                                 // previews what would be published
   });
 
   test("returns the stored line's source record (null until one is set)", async () => {

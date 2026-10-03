@@ -8,6 +8,19 @@ export function lineDate(iso) {
   return new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: '2-digit' }).replace(',', '');
 }
 export const shortDate = (iso) => new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' });
+// The ASCII guarantee for teacher-edited lines: typographic punctuation and odd spaces a
+// teacher may type or paste become their plain forms (curly quotes → ' and ", dashes → -,
+// … → ..., non-breaking / narrow / tab spaces → space). Anything else outside printable
+// ASCII is refused by the server's checkLine ("Use plain characters in the status line").
+const PLAIN = [
+  [/[\u2018\u2019\u201A\u201B\u2032]/g, "'"],
+  [/[\u201C\u201D\u201E\u201F\u2033]/g, '"'],
+  [/[\u2010-\u2015\u2212]/g, '-'],
+  [/\u2026/g, '...'],
+  [/[\t\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/g, ' '],
+];
+export const plainLine = (text) => PLAIN.reduce((t, [re, to]) => t.replace(re, to), String(text ?? ''));
+export const isPlainLine = (text) => /^[\x20-\x7E]*$/.test(String(text ?? ''));
 const withNote = (text, note) => (note && String(note).trim() ? `${text} ${String(note).trim()}` : text);
 export const askLine = ({ until, note }) => withNote(`Resubmission requested - due ${lineDate(until)}.`, note);
 export const extendResubmissionLine = ({ until, note }) => withNote(`Resubmission requested - now due ${lineDate(until)}.`, note);

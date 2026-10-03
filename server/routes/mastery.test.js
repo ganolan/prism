@@ -660,18 +660,37 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     pushGradeComments.mockClear();
     getSectionGrades.mockResolvedValue([]);
     const bad = await post(`/api/mastery/${courseId}/write-comment`, {
-      enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Note first\n⟳ X', statusLine: '⟳ X',
+      enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Note first\nLine X', statusLine: 'Line X',
     });
     expect(bad.status).toBe(400);
     const badKind = await post(`/api/mastery/${courseId}/write-comment`, {
-      enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: '⟳ X', statusLine: '⟳ X', statusLineKind: 'bogus',
+      enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Line X', statusLine: 'Line X', statusLineKind: 'bogus',
     });
     expect(badKind.status).toBe(400);
     expect(pushGradeComments).not.toHaveBeenCalled();
     await post(`/api/mastery/${courseId}/write-comment`, {
-      enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: '⟳ X', statusLine: '⟳ X', statusLineKind: 'ask',
+      enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Line X', statusLine: 'Line X', statusLineKind: 'ask',
     });
     expect(db.prepare('SELECT kind FROM status_lines WHERE student_id = ?').get(studentId).kind).toBe('ask');
+  });
+
+  test('statusLine (ASCII guarantee): write-comment normalises a typographic line in the stored line and the sent comment; refuses other non-ASCII', async () => {
+    const db = getDb();
+    db.exec('DELETE FROM status_lines');
+    pushGradeComments.mockClear();
+    getSectionGrades.mockResolvedValue([]);
+    const ok = await post(`/api/mastery/${courseId}/write-comment`, {
+      enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Resubmission received 03/10 \u2013 regraded.\n\nGood.', statusLine: 'Resubmission received 03/10 \u2013 regraded.',
+    });
+    expect(ok.status).toBe(200);
+    expect(pushGradeComments.mock.calls.at(-1)[1][0].comment).toBe('Resubmission received 03/10 - regraded.\n\nGood.');
+    expect(db.prepare('SELECT line FROM status_lines WHERE student_id = ?').get(studentId).line).toBe('Resubmission received 03/10 - regraded.');
+    pushGradeComments.mockClear();
+    const bad = await post(`/api/mastery/${courseId}/write-comment`, {
+      enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: '\u27F3 X', statusLine: '\u27F3 X',
+    });
+    expect(bad).toMatchObject({ status: 400, body: { code: 'BAD_LINE', error: 'Use plain characters in the status line' } });
+    expect(pushGradeComments).not.toHaveBeenCalled();
   });
 
   test('statusLine is not stored when Schoology rejects the PUT; no statusLine → nothing stored', async () => {
@@ -679,7 +698,7 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     db.exec('DELETE FROM status_lines');
     getSectionGrades.mockResolvedValue([]);
     pushGradeComments.mockResolvedValueOnce({ status: 403, data: 'forbidden' });
-    const rejected = await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: '⟳ X', statusLine: '⟳ X' });
+    const rejected = await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Line X', statusLine: 'Line X' });
     expect(rejected.status).toBe(502);
     await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'plain' });
     expect(db.prepare('SELECT COUNT(*) AS n FROM status_lines').get().n).toBe(0);
@@ -797,7 +816,7 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     getSectionGrades.mockClear();
     pushGradeComments.mockClear();
     const res = await post(`/api/mastery/${courseId}/write-comment`, {
-      enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: '⟳ A\nB', statusLine: '⟳ A\nB',
+      enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Line A\nB', statusLine: 'Line A\nB',
     });
     expect(res).toMatchObject({ status: 400, body: { code: 'BAD_LINE' } });
     expect(getSectionGrades).not.toHaveBeenCalled();
@@ -809,7 +828,7 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     let finishPut;
     pushGradeComments.mockImplementationOnce(() => new Promise((resolve) => { finishPut = () => resolve({ status: 207 }); }));
     getSectionGrades.mockResolvedValue([]);
-    const body = { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: '⟳ R', statusLine: '⟳ R' };
+    const body = { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Line R', statusLine: 'Line R' };
     const first = post(`/api/mastery/${courseId}/write-comment`, body);
     await vi.waitFor(() => expect(pushGradeComments).toHaveBeenCalled());
     const second = await post(`/api/mastery/${courseId}/write-comment`, body);
@@ -1092,7 +1111,7 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
     const res = await post(`/api/mastery/${courseId}/send-all`, {
       entries: [{
         uid: 'uid-ada', enrollmentId: 'enr-ada', assignmentId: 'sa-1', scores: null,
-        comment: { comment: 'Note first\n⟳ X', commentStatus: true, statusLine: '⟳ X' },
+        comment: { comment: 'Note first\nLine X', commentStatus: true, statusLine: 'Line X' },
       }],
     });
     expect(res.status).toBe(400);
@@ -1104,16 +1123,31 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
     const res = await post(`/api/mastery/${courseId}/send-all`, {
       entries: [{
         uid: 'uid-ada', enrollmentId: 'enr-ada', assignmentId: 'sa-1', scores: null,
-        comment: { comment: '⟳ X', commentStatus: true, statusLine: '⟳ X', statusLineKind: 'bogus' },
+        comment: { comment: 'Line X', commentStatus: true, statusLine: 'Line X', statusLineKind: 'bogus' },
       }],
     });
     expect(res.status).toBe(400);
     expect(pushGradeComments).not.toHaveBeenCalled();
   });
 
+  test('statusLine (ASCII guarantee): a typographic line is normalised in the stored line and the sent comment', async () => {
+    const typed = 'Resubmission received 03/10 \u2014 regraded.';
+    const plain = 'Resubmission received 03/10 - regraded.';
+    const { status } = await post(`/api/mastery/${courseId}/send-all`, { entries: [statusLineEntry(typed)] });
+    expect(status).toBe(200);
+    expect(pushGradeComments.mock.calls[0][1][0].comment).toBe(`${plain}\n\nBetter.`);
+    expect(getDb().prepare('SELECT line FROM status_lines WHERE student_id = ? AND assignment_id = ?').get(adaId, assignmentRowId).line).toBe(plain);
+  });
+
+  test('statusLine (ASCII guarantee): a non-ASCII line → 400 BAD_LINE, no write', async () => {
+    const res = await post(`/api/mastery/${courseId}/send-all`, { entries: [statusLineEntry('\u27F3 Received')] });
+    expect(res).toMatchObject({ status: 400, body: { code: 'BAD_LINE', error: 'Use plain characters in the status line' } });
+    expect(pushGradeComments).not.toHaveBeenCalled();
+  });
+
   test('statusLine: a line with a line break → 400 BAD_LINE, no write (minor)', async () => {
     const res = await post(`/api/mastery/${courseId}/send-all`, {
-      entries: [statusLineEntry('⟳ A\nB', { comment: '⟳ A\nB\n\nBetter.' })],
+      entries: [statusLineEntry('Line A\nB', { comment: 'Line A\nB\n\nBetter.' })],
     });
     expect(res).toMatchObject({ status: 400, body: { code: 'BAD_LINE' } });
     expect(pushGradeComments).not.toHaveBeenCalled();

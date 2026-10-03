@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { lineDate, askLine, gradeStandsLine, extensionLine, makeUpLine, receivedLine, extendResubmissionLine, composeComment, teacherText } from './statusLines.js';
+import { lineDate, plainLine, isPlainLine, askLine, gradeStandsLine, extensionLine, makeUpLine, receivedLine, extendResubmissionLine, composeComment, teacherText } from './statusLines.js';
 
 describe('status lines', () => {
   test('templates', () => {
@@ -29,6 +29,15 @@ describe('status lines', () => {
       expect(gradeStandsLine({ until })).toMatch(ascii);
       expect(receivedLine({ on: until })).toMatch(ascii);
     }
+  });
+  test('plainLine turns typographic punctuation and odd spaces into ASCII; isPlainLine checks printable ASCII', () => {
+    expect(plainLine('\u2018a\u2019 \u201Cb\u201D c\u2013d\u2014e f\u2026')).toBe('\'a\' "b" c-d-e f...');
+    expect(plainLine('a\u00A0b\u202Fc\u2009d')).toBe('a b c d');
+    expect(plainLine(null)).toBe('');
+    expect(plainLine('caf\u00E9 \u27F3')).toBe('caf\u00E9 \u27F3');                 // not typographic: left for checkLine to refuse
+    expect(isPlainLine('Make-up - sit by Fri 09/10.')).toBe(true);
+    expect(isPlainLine('caf\u00E9')).toBe(false);
+    expect(isPlainLine('a\tb')).toBe(false);
   });
   test('composeComment replaces only an exact stored line at the start', () => {
     expect(composeComment('Great work.', null, 'L1')).toBe('L1\n\nGreat work.');

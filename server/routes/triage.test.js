@@ -374,12 +374,12 @@ describe('status lines on triage actions (Amendment B)', () => {
     pushGradeComments.mockImplementationOnce(() => new Promise((resolve) => { finishPut = () => resolve({ status: 207, data: {} }); }));
     const first = ask({ commentLine: LINE });
     await vi.waitFor(() => expect(pushGradeComments).toHaveBeenCalled());
-    const busy = await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 2, commentLine: '⟳ Extension.' });
+    const busy = await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 2, commentLine: 'Extension.' });
     expect(busy).toMatchObject({ status: 409, body: { code: 'BUSY' } });
     expect(getSectionGrades).toHaveBeenCalledTimes(1);
     finishPut();
     expect((await first).status).toBe(201);
-    expect((await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 2, commentLine: '⟳ Extension.' })).status).toBe(201);
+    expect((await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 2, commentLine: 'Extension.' })).status).toBe(201);
   });
 
   test('a removal that succeeds before the undo fails → 500 saying the line WAS removed', async () => {

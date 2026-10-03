@@ -74,11 +74,31 @@ describe('StatusLineModal', () => {
   it('edits flow to the preview and to onConfirm (trimmed, one line)', async () => {
     const { onConfirm } = renderModal();
     await waitFor(() => expect(preview$()).toHaveTextContent('Great start.'));
-    fireEvent.change(screen.getByLabelText('Status line'), { target: { value: '  ⟳ Edited line\nwith a break ' } });
-    expect(screen.getByLabelText('Status line')).toHaveValue('  ⟳ Edited line with a break ');
-    expect(preview$().querySelector('mark')).toHaveTextContent('⟳ Edited line with a break');
+    fireEvent.change(screen.getByLabelText('Status line'), { target: { value: '  Edited line\nwith a break ' } });
+    expect(screen.getByLabelText('Status line')).toHaveValue('  Edited line with a break ');
+    expect(preview$().querySelector('mark')).toHaveTextContent('Edited line with a break');
     fireEvent.click(screen.getByRole('button', { name: 'Publish & close request' }));
-    await waitFor(() => expect(onConfirm).toHaveBeenCalledWith('⟳ Edited line with a break'));
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledWith('Edited line with a break'));
+  });
+
+  it('typographic characters are shown and sent as their plain ASCII forms (same as the server)', async () => {
+    const { onConfirm } = renderModal();
+    await waitFor(() => expect(preview$()).toHaveTextContent('Great start.'));
+    fireEvent.change(screen.getByLabelText('Status line'), { target: { value: 'Due Fri \u2014 \u201Cbring it\u201D\u2026' } });
+    expect(preview$().querySelector('mark')).toHaveTextContent('Due Fri - "bring it"...');
+    fireEvent.click(screen.getByRole('button', { name: 'Publish & close request' }));
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledWith('Due Fri - "bring it"...'));
+  });
+
+  it('other non-ASCII characters block publishing with a hint', async () => {
+    const { onConfirm } = renderModal();
+    await waitFor(() => expect(preview$()).toHaveTextContent('Great start.'));
+    fireEvent.change(screen.getByLabelText('Status line'), { target: { value: '\u27F3 Bien jou\u00E9' } });
+    expect(screen.getByText('Use plain characters in the status line')).toBeInTheDocument();
+    const publish = screen.getByRole('button', { name: 'Publish & close request' });
+    expect(publish).toBeDisabled();
+    fireEvent.click(publish);
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 
   it('an empty line cannot be published', async () => {

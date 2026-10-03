@@ -2,7 +2,7 @@ import { describe, test, expect } from 'vitest';
 import * as client from './statusLines.js';
 import * as server from '../../../server/lib/statusLines.js';
 
-const { lineDate, shortDate, askLine, extendResubmissionLine, gradeStandsLine, extensionLine, makeUpLine, receivedLine, composeComment, teacherText } = client;
+const { lineDate, shortDate, plainLine, isPlainLine, askLine, extendResubmissionLine, gradeStandsLine, extensionLine, makeUpLine, receivedLine, composeComment, teacherText } = client;
 
 // Same fixed inputs/expectations as server/lib/statusLines.test.js.
 describe('status lines (client mirror)', () => {
@@ -34,6 +34,15 @@ describe('status lines (client mirror)', () => {
       expect(gradeStandsLine({ until })).toMatch(ascii);
       expect(receivedLine({ on: until })).toMatch(ascii);
     }
+  });
+  test('plainLine turns typographic punctuation and odd spaces into ASCII; isPlainLine checks printable ASCII', () => {
+    expect(plainLine('\u2018a\u2019 \u201Cb\u201D c\u2013d\u2014e f\u2026')).toBe('\'a\' "b" c-d-e f...');
+    expect(plainLine('a\u00A0b\u202Fc\u2009d')).toBe('a b c d');
+    expect(plainLine(null)).toBe('');
+    expect(plainLine('caf\u00E9 \u27F3')).toBe('caf\u00E9 \u27F3');                 // not typographic: left for checkLine to refuse
+    expect(isPlainLine('Make-up - sit by Fri 09/10.')).toBe(true);
+    expect(isPlainLine('caf\u00E9')).toBe(false);
+    expect(isPlainLine('a\tb')).toBe(false);
   });
   test('composeComment replaces only an exact stored line at the start', () => {
     expect(composeComment('Great work.', null, 'L1')).toBe('L1\n\nGreat work.');
@@ -72,6 +81,10 @@ describe('parity with server/lib/statusLines.js', () => {
         }
         for (const lessons of [1, 4]) expect(client.extensionLine({ until, lessons, note })).toBe(server.extensionLine({ until, lessons, note }));
       }
+    }
+    for (const t of ['', '\u2018q\u2019 \u201Cdq\u201D \u2013 \u2014 \u2026', 'a\u00A0b\u202Fc', 'caf\u00E9', 'plain']) {
+      expect(client.plainLine(t)).toBe(server.plainLine(t));
+      expect(client.isPlainLine(t)).toBe(server.isPlainLine(t));
     }
     const comments = ['', 'Great work.', 'L1', 'L1\n\nGreat work.', 'L1\r\n\r\nGreat.', 'L1 (edited)\n\nx', '  \n ', 'L1\n\n\n\nrest'];
     for (const c of comments) {

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { previewStatusLine } from '../services/api.js';
-import { composeComment } from '../lib/statusLines.js';
+import { composeComment, plainLine, isPlainLine } from '../lib/statusLines.js';
 
 // The confirm step before Prism writes to a student's Schoology comment (triage
 // resubmissions spec, Amendment B → "Status lines" → confirm modal). Every
@@ -89,7 +89,10 @@ export default function StatusLineModal({
     else if (!e.shiftKey && (active === last || !inside)) { e.preventDefault(); first.focus(); }
   }
 
-  const text = line.trim();
+  // What the server will store and publish: plain ASCII (typographic characters
+  // normalised, as server checkLine does); anything else non-ASCII blocks publishing.
+  const text = plainLine(line).trim();
+  const notPlain = !removeMode && !isPlainLine(text);
   const current = preview?.currentComment ?? '';
   const stored = preview?.storedLine ?? null;
   const withoutLine = composeComment(current, stored, '');
@@ -102,7 +105,7 @@ export default function StatusLineModal({
   );
   const willRemove = remove && !nothingToRemove && !notOurs;
   const resulting = removeMode ? (willRemove ? withoutLine : current) : composeComment(current, stored, text);
-  const canConfirm = Boolean(preview) && !busy && !error?.published && (removeMode || text !== '');
+  const canConfirm = Boolean(preview) && !busy && !error?.published && (removeMode || (text !== '' && !notPlain));
 
   async function confirm() {
     if (inFlight.current) return;
@@ -151,6 +154,9 @@ export default function StatusLineModal({
           </label>
         )}
 
+        {notPlain && (
+          <div className="alert alert-warning" role="alert">Use plain characters in the status line</div>
+        )}
         {loadError && (
           <div className="alert alert-warning" role="alert">
             {loadError} <button type="button" className="ghost btn-sm" onClick={() => setAttempt((n) => n + 1)}>Retry</button>

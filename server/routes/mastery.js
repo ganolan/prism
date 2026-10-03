@@ -4,7 +4,7 @@ import { hasMasterySession, syncMasteryForCourse, syncMasteryForAssignment, writ
 import { pushGradeComments, getSectionGrades } from '../services/schoology.js';
 import { settleResubmissions, resubmissionByStudent, arrivedKeys, pairResubmissionFields } from '../services/resubmissions.js';
 import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
-import { STATUS_LINE_KINDS, putSucceeded, checkLine, lockPair } from '../services/statusLinePublisher.js';
+import { STATUS_LINE_KINDS, putSucceeded, checkLine, lockPair, withCheckedLine } from '../services/statusLinePublisher.js';
 import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows, scoreScaleFor } from '../services/assessmentContext.js';
 import { getSchoologyConfig, getScoreScales } from '../middleware/featureGate.js';
 import { findScoreScale, levelForScore, isScalePoints } from '../lib/scoreScales.js';
@@ -615,7 +615,8 @@ function gradeTimeAfterWrite(fresh) {
 // POST /api/mastery/:courseId/write-comment — write grade comment back to Schoology
 router.post('/:courseId/write-comment', async (req, res) => {
   const { courseId } = req.params;
-  const { enrollmentId, assignmentId, comment, commentStatus, points, statusLine, statusLineKind } = req.body;
+  const { enrollmentId, assignmentId, commentStatus, points, statusLine, statusLineKind } = req.body;
+  let { comment } = req.body;
 
   if (!enrollmentId || !assignmentId) {
     return res.status(400).json({ error: 'enrollmentId and assignmentId are required' });
@@ -633,6 +634,7 @@ router.post('/:courseId/write-comment', async (req, res) => {
     } catch (err) {
       return res.status(400).json({ error: err.message, code: err.code });
     }
+    comment = withCheckedLine(comment, statusLine, line);   // a normalised line replaces the typed one
     const text = String(comment ?? '').replace(/\r\n/g, '\n');
     if (!(text === line || text.startsWith(`${line}\n`))) {
       return res.status(400).json({ error: 'statusLine must be the first line of comment' });
@@ -884,6 +886,7 @@ router.post('/:courseId/send-all', async (req, res) => {
     } catch (err) {
       return res.status(400).json({ error: err.message, code: err.code, results: entries.map(x => ({ uid: x.uid, ok: false })) });
     }
+    e.comment.comment = withCheckedLine(e.comment.comment, e.comment.statusLine, line);
     const text = String(e.comment.comment ?? '').replace(/\r\n/g, '\n');
     if (!(text === line || text.startsWith(`${line}\n`))) {
       return res.status(400).json({ error: 'statusLine must be the first line of comment', results: entries.map(x => ({ uid: x.uid, ok: false })) });

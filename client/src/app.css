@@ -1202,7 +1202,7 @@ button.triage-panel__more { padding: 0.15rem 0.4rem; font-size: 0.75rem; font-we
 .makeup-chip { border: 0; cursor: pointer; font-size: 0.72rem; flex-shrink: 0; }
 .makeup-chip:hover { box-shadow: inset 0 0 0 1px var(--accent); }
 .triage-row__text { min-width: 0; display: flex; flex-direction: column; }
-.triage-row__line { display: flex; align-items: center; gap: 0.35rem; min-width: 0; }
+.triage-row__line { display: flex; align-items: center; gap: 0.35rem; min-width: 0; flex-wrap: wrap; row-gap: 0.15rem; /* Tags wrap under name instead of crushing it */ }
 .triage-row__name,
 .triage-row__title,
 .triage-row__task { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

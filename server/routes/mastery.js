@@ -12,6 +12,7 @@ import { toSchoologyWebUrl } from '../lib/schoologyWebUrl.js';
 import { levelToGradeScaled, gradeScaledValues, pointsToLevel, LEVELS } from '../lib/proficiencyScale.js';
 import { getAssignmentFiles } from '../services/oneDriveLinks.js';
 import { matchFilesToRoster } from '../lib/oneDriveSubmissions.js';
+import { epochToLocalDate } from '../lib/schoolDays.js';
 
 const router = Router();
 const syncsInProgress = new Set();
@@ -494,6 +495,7 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
   const draftMap = {};
   const submittedAtMap = {};
   const scoreValueMap = {};
+  const revisionAtMap = {};
   for (const c of gradeRows) {
     scoreValueMap[c.schoology_uid] = c.score ?? null;
     commentMap[c.schoology_uid] = c.grade_comment || '';
@@ -506,6 +508,17 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
     lateMap[c.schoology_uid] = c.late ?? 0;
     draftMap[c.schoology_uid] = c.draft ?? 0;
     submittedAtMap[c.schoology_uid] = c.submitted_at ?? 0;
+    revisionAtMap[c.schoology_uid] = c.latest_revision_at ?? 0;
+  }
+
+  // Status lines (triage resubmissions, Amendment B) — the exact text Prism last
+  // published in each student's comment, for the card's "resubmission received"
+  // chip to find and replace (composeComment), keyed by local student id.
+  const statusLineMap = {};
+  if (assignmentRow) {
+    for (const r of db.prepare('SELECT student_id, line, kind FROM status_lines WHERE assignment_id = ?').all(assignmentRow.id)) {
+      statusLineMap[r.student_id] = { line: r.line, kind: r.kind };
+    }
   }
 
   // Submission-scoped 'review needed' flags for this assignment (#20).
@@ -541,25 +554,36 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
     assignment: assignmentRow || { schoology_assignment_id: assignmentId, title: 'Unknown Assignment' },
     topics,
     scoreScale,
-    students: students.map(s => ({
-      ...s,
-      scores: scoreMap[s.schoology_uid] || {},
-      grade_comment: commentMap[s.schoology_uid] || '',
-      exception: exceptionMap[s.schoology_uid] || 0,
-      comment_status: commentStatusMap[s.schoology_uid] ?? null,
-      has_grade_row: hasGradeRowMap[s.schoology_uid] === true,
-      review_flag: reviewFlagMap[s.id] || null,
-      resubmit_flag: resubmissionMap.get(s.id)?.request ? { id: resubmissionMap.get(s.id).request.id } : null,
-      resubmission: resubmissionMap.get(s.id) || null,
-      resubmitted: resubmittedMap[s.schoology_uid] === true,
-      lti_submission_state: ltiStateMap[s.schoology_uid] ?? null,
-      submission_type: submissionTypeMap[s.schoology_uid] ?? null,
-      late: lateMap[s.schoology_uid] ?? 0,
-      draft: draftMap[s.schoology_uid] ?? 0,
-      submitted_at: submittedAtMap[s.schoology_uid] ?? 0,
-      score: scoreValueMap[s.schoology_uid] ?? null,
-      scale_level: scoreScale ? levelForScore(scoreScale, scoreValueMap[s.schoology_uid]) : null,
-    })),
+    students: students.map(s => {
+      const resubmission = resubmissionMap.get(s.id) || null;
+      // Arrival date for the card's "resubmission received" chip: the snapshot's
+      // own arrivedOn when known, else grades.latest_revision_at as a fallback —
+      // only meaningful while the state is 'arrived'.
+      const arrivedOn = resubmission?.state === 'arrived'
+        ? (resubmission.arrivedOn || epochToLocalDate(revisionAtMap[s.schoology_uid]))
+        : null;
+      return {
+        ...s,
+        scores: scoreMap[s.schoology_uid] || {},
+        grade_comment: commentMap[s.schoology_uid] || '',
+        exception: exceptionMap[s.schoology_uid] || 0,
+        comment_status: commentStatusMap[s.schoology_uid] ?? null,
+        has_grade_row: hasGradeRowMap[s.schoology_uid] === true,
+        review_flag: reviewFlagMap[s.id] || null,
+        resubmit_flag: resubmission?.request ? { id: resubmission.request.id } : null,
+        resubmission,
+        resubmitted: resubmittedMap[s.schoology_uid] === true,
+        status_line: statusLineMap[s.id] || null,
+        arrived_on: arrivedOn,
+        lti_submission_state: ltiStateMap[s.schoology_uid] ?? null,
+        submission_type: submissionTypeMap[s.schoology_uid] ?? null,
+        late: lateMap[s.schoology_uid] ?? 0,
+        draft: draftMap[s.schoology_uid] ?? 0,
+        submitted_at: submittedAtMap[s.schoology_uid] ?? 0,
+        score: scoreValueMap[s.schoology_uid] ?? null,
+        scale_level: scoreScale ? levelForScore(scoreScale, scoreValueMap[s.schoology_uid]) : null,
+      };
+    }),
   });
 });
 
@@ -821,6 +845,28 @@ router.post('/:courseId/send-all', async (req, res) => {
     if (scaleError) return res.status(400).json({ error: scaleError, results: entries.map(x => ({ uid: x.uid, ok: false })) });
   }
 
+  // Optional Prism status lines (triage resubmissions, Amendment B — the card's
+  // "resubmission received" chip, carried through Send-all too). Same rule as
+  // write-comment: validate every line before any write — a bad one must not
+  // leave the batch half-sent.
+  for (const e of commentEntries) {
+    if (e.comment.statusLine == null || e.comment.statusLine === '') continue;
+    let line;
+    try {
+      line = checkLine(e.comment.statusLine);
+    } catch (err) {
+      return res.status(400).json({ error: err.message, code: err.code, results: entries.map(x => ({ uid: x.uid, ok: false })) });
+    }
+    const text = String(e.comment.comment ?? '').replace(/\r\n/g, '\n');
+    if (!(text === line || text.startsWith(`${line}\n`))) {
+      return res.status(400).json({ error: 'statusLine must be the first line of comment', results: entries.map(x => ({ uid: x.uid, ok: false })) });
+    }
+    const kind = e.comment.statusLineKind ?? 'received';
+    if (!STATUS_LINE_KINDS.includes(kind)) {
+      return res.status(400).json({ error: `statusLineKind must be one of ${STATUS_LINE_KINDS.join(', ')}`, results: entries.map(x => ({ uid: x.uid, ok: false })) });
+    }
+  }
+
   try {
     // 1. All rubric scores in one browser session.
     if (scoreEntries.length > 0) {
@@ -908,6 +954,15 @@ router.post('/:courseId/send-all', async (req, res) => {
         score = excluded.score, exception = excluded.exception, submitted_at = excluded.submitted_at,
         grade_comment = excluded.grade_comment, comment_status = excluded.comment_status, synced_at = excluded.synced_at
     `);
+    // Published status line (triage resubmissions, Amendment B card chip), same
+    // upsert as write-comment: not tied to a triage record (source cleared), so
+    // no earlier action's undo can strip it.
+    const upsertStatusLine = db.prepare(`
+      INSERT INTO status_lines (student_id, assignment_id, line, kind, written_at, source_type, source_id)
+      VALUES (?, ?, ?, ?, datetime('now'), NULL, NULL)
+      ON CONFLICT (student_id, assignment_id) DO UPDATE SET line = excluded.line, kind = excluded.kind,
+        written_at = excluded.written_at, source_type = NULL, source_id = NULL
+    `);
 
     for (const e of scoreEntries) {
       const studentRow = db.prepare(
@@ -937,6 +992,9 @@ router.post('/:courseId/send-all', async (req, res) => {
         gradeTimeAfterWrite(fresh),
         e.comment.comment || '', commentStatusInt, now,
       );
+      if (e.comment.statusLine) {
+        upsertStatusLine.run(studentRow.id, assignmentRow.id, e.comment.statusLine, e.comment.statusLineKind ?? 'received');
+      }
       touch(assignmentRow.id, studentRow.id);
     }
     // Best-effort: local grades just landed — snapshot their visible feedback

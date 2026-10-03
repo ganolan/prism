@@ -20,6 +20,7 @@ import { passesFilters } from '../lib/assessmentFilters.js';
 import { useStickyTab } from '../hooks/useStickyTab.js';
 import { formatDateTime } from '../lib/formatDate.js';
 import { briefFlags, textSignature } from '../lib/reviewerFlags.js';
+import { receivedLine, composeComment } from '../lib/statusLines.js';
 
 const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
 // Suggestion accent — fuchsia CSS tokens (matches descriptor grid's --ai-suggest).
@@ -64,6 +65,15 @@ function normalizePastedText(text) {
     .map(p => p.replace(/[ \t\u00a0]*\n[ \t\u00a0]*/g, ' ').trim())  // wrap -> space
     .filter(Boolean)
     .join('\n\n');
+}
+
+// Is `line` still (verbatim) the comment's first line? Mirrors the exact-text
+// check composeComment/write-comment use, so a save only sends statusLine when
+// the teacher hasn't edited it away (triage resubmissions, Amendment B Task 7).
+function topLineIs(text, line) {
+  if (!line) return false;
+  const t = String(text ?? '').replace(/\r\n/g, '\n');
+  return t === line || t.startsWith(`${line}\n`);
 }
 
 // A header status pill for the per-submission review / resubmit flags (#20/#49).
@@ -231,6 +241,11 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   const [comment, setComment] = useState(
     () => restoredDraft?.comment ?? (student.grade_comment || '')
   );
+  // The exact "resubmission received" line last inserted by the chip (triage
+  // resubmissions, Amendment B Task 7), or null until the chip is clicked. Save
+  // sends statusLine only while this is still (verbatim) the draft's first line —
+  // an edit away from it means the teacher doesn't want it published.
+  const [insertedLine, setInsertedLine] = useState(null);
   // Display-to-student toggle (#34). Loaded from grades.comment_status:
   // 1 → ON, anything else → OFF. Auto-flip is armed when the row hasn't been
   // published yet AND has no comment text — covers virgin records and rows
@@ -413,6 +428,27 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     setComment(next);
   }
 
+  // Chip (triage resubmissions, Amendment B Task 7): insert a fresh "resubmission
+  // received" line at the top of the draft, replacing whatever line is there —
+  // the line this chip inserted last (if the teacher hasn't saved since), else
+  // the line Prism last actually published (student.status_line). Visible and
+  // editable; nothing is saved until the teacher publishes.
+  function insertReceivedLine() {
+    if (!student.arrived_on) return;
+    const line = receivedLine({ on: student.arrived_on });
+    const stored = insertedLine ?? (student.status_line?.line || '');
+    flushNextRef.current = true;
+    applyComment(composeComment(comment, stored, line));
+    setInsertedLine(line);
+  }
+
+  // { statusLine, statusLineKind } for the write-comment/send-all payload, only
+  // while the inserted line is still (verbatim) the draft's first line — an edit
+  // away from it means don't record it as Prism's published status line.
+  function statusLineFields() {
+    return topLineIs(comment, insertedLine) ? { statusLine: insertedLine, statusLineKind: 'received' } : {};
+  }
+
   function selectLevel(topicId, level) {
     if (isRubricLocked) return;
     flushNextRef.current = true;
@@ -495,6 +531,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     flushNextRef.current = true;
     setPending({});
     setComment(student.grade_comment || '');
+    setInsertedLine(null);
     setDisplay(loadedDisplay);
     setDisplayTouched(false);
     setAutoFlipArmed(student.comment_status !== 1 && !student.grade_comment);
@@ -560,7 +597,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           assignmentId,
           scores: null,
           grade: scaleCode ? { points: scalePointsFor(scaleCode) } : null,
-          comment: { comment, commentStatus: display },
+          comment: { comment, commentStatus: display, ...statusLineFields() },
         },
         patch: {
           ...(scaleCode ? { score: scalePointsFor(scaleCode), scale_level: scaleCode } : {}),
@@ -587,7 +624,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           gradingPeriodId: assignmentRow.mastery_grading_period_id,
           gradingCategoryId: assignmentRow.mastery_grading_category_id,
         } : null,
-        comment: (hasCommentChange || hasDisplayChange) ? { comment, commentStatus: display } : null,
+        comment: (hasCommentChange || hasDisplayChange) ? { comment, commentStatus: display, ...statusLineFields() } : null,
       },
       patch: { scores: buildSavedScores(), grade_comment: comment, comment_status: display ? 1 : null, ...regradedPatch(student) },
     };
@@ -600,6 +637,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     if (ok) {
       setSaveResult('saved');
       setPending({});
+      setInsertedLine(null);
       saverRef.current.remove({ immediate: true });
       setNotesCollapsed(true); // published via bulk → tuck the reviewer notes away
     } else {
@@ -624,9 +662,11 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           comment,
           commentStatus: display,
           ...(scaleCode ? { points: scalePointsFor(scaleCode) } : {}),
+          ...statusLineFields(),
         });
         setSaveResult('saved');
         setPending({});
+        setInsertedLine(null);
         saverRef.current.remove({ immediate: true });
         onSaved?.(student.schoology_uid, {
           ...(scaleCode ? { score: scalePointsFor(scaleCode), scale_level: scaleCode } : {}),
@@ -654,10 +694,12 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           assignmentId,
           comment,
           commentStatus: display,
+          ...statusLineFields(),
         });
       }
       setSaveResult('saved');
       setPending({});
+      setInsertedLine(null);
       // Explicit clear: the card stays mounted now, but the write effect runs
       // asynchronously — clear here so a fast bulk run can't race a stale key.
       saverRef.current.remove({ immediate: true });
@@ -1322,6 +1364,20 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             <span style={{ fontSize: '0.66rem', fontWeight: 600, color: 'var(--warning)' }}>
               ● Draft - not published
             </span>
+          )}
+          {/* "Resubmission received" chip (triage resubmissions, Amendment B Task 7):
+              a resubmission is sitting unanswered (arrived). Inserts the status
+              line into the draft above — visible and editable, published only
+              when the teacher saves. */}
+          {student.resubmission?.state === 'arrived' && (
+            <button
+              type="button"
+              className="ghost btn-sm"
+              onClick={insertReceivedLine}
+              title="Insert a line telling the student this was regraded after their resubmission"
+            >
+              ⟳ Insert "resubmission received" line
+            </button>
           )}
         </div>
         <textarea

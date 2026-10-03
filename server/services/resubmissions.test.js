@@ -201,7 +201,8 @@ describe('snapshot-based state', () => {
     expect(stateOf(s, a)).toBe('waiting');
     setGrade(s, a, { latest_revision_at: at('2026-10-13') });
     captureFeedbackSnapshots(db);
-    expect(resubmissionByStudent(db, a).get(s)).toMatchObject({ state: 'arrived', request: { id: r.id } });
+    // arrivedOn (Amendment B card chip) is the arrival's local date; absent once not arrived.
+    expect(resubmissionByStudent(db, a).get(s)).toMatchObject({ state: 'arrived', request: { id: r.id }, arrivedOn: '2026-10-13' });
     expect(arrivedKeys(db, { studentId: s })).toEqual(new Set([`${s}:${a}`]));
     setGrade(s, a, { grade_comment: 'note to self', comment_status: null });  // hidden → still arrived
     expect(stateOf(s, a)).toBe('arrived');
@@ -323,7 +324,7 @@ describe('lookups', () => {
     const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');
     const r = requestResubmission(db, { studentId: s, assignmentId: a, requestedAt: sql('2026-10-12') });
     expect(openRequestKeys(db, courseId)).toEqual(new Set([`${s}:${a}`]));
-    expect(resubmissionByStudent(db, a).get(s)).toMatchObject({ state: 'waiting', request: { id: r.id, lessons: 3 } });
+    expect(resubmissionByStudent(db, a).get(s)).toMatchObject({ state: 'waiting', request: { id: r.id, lessons: 3 }, arrivedOn: null });
   });
 });
 

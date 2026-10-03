@@ -246,13 +246,20 @@ function statesInScope(db, scope) {
   return out;
 }
 
-// student id → { state, request } for one assessment (local id) — the assessment
-// page, get_assignment_context. Students with nothing to show are absent.
+// student id → { state, request, arrivedOn } for one assessment (local id) — the
+// assessment page, get_assignment_context. Students with nothing to show are
+// absent. arrivedOn (local YYYY-MM-DD) is only set when state is 'arrived' — the
+// date the resubmission arrived (snapshot.arrival_revision_at), for the card's
+// "resubmission received" chip (Amendment B).
 export function resubmissionByStudent(db, assignmentId) {
   const out = new Map();
-  for (const [k, { state, request }] of statesInScope(db, { assignmentId: Number(assignmentId) })) {
+  for (const [k, { state, request, snapshot }] of statesInScope(db, { assignmentId: Number(assignmentId) })) {
     if (state === null || state === 'fulfilled') continue;
-    out.set(Number(k.split(':')[0]), { state, request: request ? listResubmissions(db, { id: request.id })[0] : null });
+    out.set(Number(k.split(':')[0]), {
+      state,
+      request: request ? listResubmissions(db, { id: request.id })[0] : null,
+      arrivedOn: state === 'arrived' ? epochToLocalDate(snapshot.arrival_revision_at) : null,
+    });
   }
   return out;
 }

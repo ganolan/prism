@@ -403,6 +403,78 @@ describe('StudentRubricCard — resubmission control (triage resubmissions)', ()
   });
 });
 
+describe('StudentRubricCard — "resubmission received" chip (Task 7, triage resubmissions Amendment B)', () => {
+  it('is not shown when there is no resubmission, or it is only waiting', () => {
+    renderCard();
+    expect(screen.queryByRole('button', { name: /resubmission received/i })).not.toBeInTheDocument();
+
+    renderCard({ student: { ...makeStudent(), resubmission: { state: 'waiting', request: { id: 1, lessons: 3, until: '2026-10-15' } } } });
+    expect(screen.queryByRole('button', { name: /resubmission received/i })).not.toBeInTheDocument();
+  });
+
+  it('is shown once the resubmission has arrived', () => {
+    renderCard({ student: { ...makeStudent(), resubmission: { state: 'arrived', request: null }, arrived_on: '2026-10-03' } });
+    expect(screen.getByRole('button', { name: /insert "resubmission received" line/i })).toBeInTheDocument();
+  });
+
+  it('clicking it replaces the stored line at the top of the draft, keeping the rest', () => {
+    renderCard({
+      student: {
+        ...makeStudent(),
+        grade_comment: '⟳ Resubmission requested — due Thu 09/10.\n\nGood start.',
+        status_line: { line: '⟳ Resubmission requested — due Thu 09/10.', kind: 'ask' },
+        resubmission: { state: 'arrived', request: null },
+        arrived_on: '2026-10-03',
+      },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /insert "resubmission received" line/i }));
+    expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue(
+      '⟳ Resubmission received 03/10 — regraded.\n\nGood start.'
+    );
+  });
+
+  it('clicking it again replaces the line it inserted last, not the stale stored one', () => {
+    renderCard({
+      student: {
+        ...makeStudent(),
+        grade_comment: 'Body text.',
+        resubmission: { state: 'arrived', request: null },
+        arrived_on: '2026-10-03',
+      },
+    });
+    const chip = screen.getByRole('button', { name: /insert "resubmission received" line/i });
+    fireEvent.click(chip);
+    fireEvent.click(chip);
+    // A second click must not stack a duplicate line — it replaces its own insertion.
+    expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue(
+      '⟳ Resubmission received 03/10 — regraded.\n\nBody text.'
+    );
+  });
+
+  it('a save passes statusLine + statusLineKind "received" while the inserted line is still on top', async () => {
+    renderCard({ student: { ...makeStudent(), resubmission: { state: 'arrived', request: null }, arrived_on: '2026-10-03' } });
+    fireEvent.click(screen.getByRole('button', { name: /insert "resubmission received" line/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+    await waitFor(() => expect(writeMasteryComment).toHaveBeenCalledTimes(1));
+    expect(writeMasteryComment).toHaveBeenCalledWith('4', expect.objectContaining({
+      statusLine: '⟳ Resubmission received 03/10 — regraded.',
+      statusLineKind: 'received',
+    }));
+  });
+
+  it('a save omits statusLine once the teacher edits the top line away', async () => {
+    renderCard({ student: { ...makeStudent(), resubmission: { state: 'arrived', request: null }, arrived_on: '2026-10-03' } });
+    fireEvent.click(screen.getByRole('button', { name: /insert "resubmission received" line/i }));
+    fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), { target: { value: 'Something else entirely' } });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+    await waitFor(() => expect(writeMasteryComment).toHaveBeenCalledTimes(1));
+    expect(writeMasteryComment.mock.calls[0][1].statusLine).toBeUndefined();
+    expect(writeMasteryComment.mock.calls[0][1].statusLineKind).toBeUndefined();
+  });
+});
+
 describe('StudentRubricCard — student photo (#24)', () => {
   it('renders the student photo when picture_url is present', () => {
     renderCard({ student: { ...makeStudent(), picture_url: 'https://schoology/p.jpg' } });
@@ -1679,6 +1751,22 @@ describe('AssessmentSummaryPage — a save regrades an arrived resubmission (fin
     // The answered request settles server-side; the card's control is back to "Ask".
     expect(screen.queryByText(/Awaiting your feedback/)).not.toBeInTheDocument();
     expect(document.querySelector('.resubmit-control')).toHaveTextContent(/Ask to resubmit/);
+  });
+
+  it('Send-all carries statusLine + statusLineKind for a card whose chip was inserted (Task 7)', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData({ arrived_on: '2026-10-03' }));
+    sendAllGrades.mockResolvedValue({ results: [{ uid: 'uid-1', ok: true }] });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /insert "resubmission received" line/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /publish all to schoology \(1\)/i }));
+
+    await screen.findByText(/Published 1 grade/);
+    expect(sendAllGrades).toHaveBeenCalledWith('4', [expect.objectContaining({
+      comment: expect.objectContaining({
+        statusLine: '⟳ Resubmission received 03/10 — regraded.',
+        statusLineKind: 'received',
+      }),
+    })]);
   });
 
   it('a save leaves a still-waiting request in place', async () => {

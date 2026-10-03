@@ -223,6 +223,37 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — review and res
     expect(s).toMatchObject({ lti_submission_state: 'in_progress', submission_type: 'drop', late: 1, draft: 0 });
     expect(body.assignment).toMatchObject({ is_lti_submission: 1, due_date: '2026-06-01' });
   });
+
+  // Task 7 (Amendment B): the card's "resubmission received" chip reads
+  // status_line (the exact text Prism last published) and arrived_on (the
+  // arrival date, for the inserted line's date) from this payload.
+  test('status_line is null with nothing published; arrived_on is null when not arrived', async () => {
+    const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
+    expect(body.students[0].status_line).toBeNull();
+    expect(body.students[0].arrived_on).toBeNull();
+  });
+
+  test('status_line carries the stored line + kind once something has been published', async () => {
+    const db = getDb();
+    db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, '⟳ Resubmission requested — due Thu 09/10.', 'ask')`)
+      .run(studentId, assignmentInternalId);
+    const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
+    expect(body.students[0].status_line).toEqual({ line: '⟳ Resubmission requested — due Thu 09/10.', kind: 'ask' });
+  });
+
+  test('arrived_on is the snapshot\'s arrival date when the resubmission state is arrived', async () => {
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO grades (student_id, assignment_id, score, submitted_at, latest_revision_at)
+       VALUES (?, ?, 80, 1000, 2000)`
+    ).run(studentId, assignmentInternalId);
+    captureFeedbackSnapshots(db);
+    const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
+    expect(body.students[0].resubmission.state).toBe('arrived');
+    const expected = resubmissionByStudent(db, assignmentInternalId).get(studentId).arrivedOn;
+    expect(expected).toBeTruthy();
+    expect(body.students[0].arrived_on).toBe(expected);
+  });
 });
 
 describe('GET /api/mastery/:courseId/assignment/:assignmentId — individually assigned (#54)', () => {
@@ -909,6 +940,45 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
     const [, comments] = pushGradeComments.mock.calls[0];
     expect(comments).toHaveLength(1);
     expect(comments[0].enrollment_id).toBe('enr-bob');
+  });
+
+  // Task 7 (Amendment B): the card's "resubmission received" chip can save via
+  // Send-all too — same statusLine/statusLineKind contract as write-comment.
+  test('statusLine: stored (default kind received) once Send-all succeeds', async () => {
+    const line = '⟳ Resubmission received 03/10 — regraded.';
+    const { status } = await post(`/api/mastery/${courseId}/send-all`, {
+      entries: [entry('uid-ada', 'enr-ada', { scores: false }), {
+        uid: 'uid-ada', enrollmentId: 'enr-ada', assignmentId: 'sa-1', scores: null,
+        comment: { comment: `${line}\n\nBetter.`, commentStatus: true, statusLine: line },
+      }],
+    });
+    expect(status).toBe(200);
+    const db = getDb();
+    expect(db.prepare('SELECT line, kind FROM status_lines WHERE student_id = ? AND assignment_id = ?').get(adaId, assignmentRowId))
+      .toEqual({ line, kind: 'received' });
+  });
+
+  test('statusLine: refuses a line that is not the comment\'s first line, before any write', async () => {
+    const res = await post(`/api/mastery/${courseId}/send-all`, {
+      entries: [{
+        uid: 'uid-ada', enrollmentId: 'enr-ada', assignmentId: 'sa-1', scores: null,
+        comment: { comment: 'Note first\n⟳ X', commentStatus: true, statusLine: '⟳ X' },
+      }],
+    });
+    expect(res.status).toBe(400);
+    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(writeMasteryScoresBatch).not.toHaveBeenCalled();
+  });
+
+  test('statusLine: an unknown statusLineKind is rejected before any write', async () => {
+    const res = await post(`/api/mastery/${courseId}/send-all`, {
+      entries: [{
+        uid: 'uid-ada', enrollmentId: 'enr-ada', assignmentId: 'sa-1', scores: null,
+        comment: { comment: '⟳ X', commentStatus: true, statusLine: '⟳ X', statusLineKind: 'bogus' },
+      }],
+    });
+    expect(res.status).toBe(400);
+    expect(pushGradeComments).not.toHaveBeenCalled();
   });
 });
 

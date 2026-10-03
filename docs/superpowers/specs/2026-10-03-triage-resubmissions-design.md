@@ -336,3 +336,70 @@ to "Flag for review". PNGs (not committed): `/tmp/triage-resub-dashboard-{phone,
 
 **Suites:** `npx vitest run server mcp` and `cd client && npm test && npm run build` — see Task 11
 report for exact counts.
+
+## Amendment B — documented feedback (approved 2026-10-03, supersedes conflicting text above)
+
+**Principle (teacher, 2026-10-03):** every submission gets documented feedback the student can see. A
+resubmission is never silently dismissed; it ends in either a changed grade / new visible comment, or a
+written "deadline passed — grade stands". Comment fields also hold teacher-only notes (hidden comments,
+or Prism drafts), so **only visible feedback counts**.
+
+### What changes
+
+| Before (above) | Now |
+|---|---|
+| **Reviewed** (grade stands, silent) | **Removed** — UI, routes, PrisMCP. Nothing leaves Arrived without visible feedback. |
+| **Close** (any time, optional note) | **Grade stands** — only once the Waiting deadline has passed (red). Shown at a glance as *missed deadline · grade stands* (button, row, history). Writes a comment line. |
+| Arrived clears on a newer grade time | Arrived clears when the **visible feedback changed** since the resubmission arrived (snapshot model below). |
+| Prism-only asks/extensions | Ask, Extend (resubmission, late work, make-up), Grade stands and Undo **prepend a status line to the student's Schoology comment**, after a confirm. |
+| Phase 2 comment line | Now in Phase 1 (it is the comment write Prism already does). LTI unsubmit + notification check stay Phase 2. |
+
+### Status lines
+
+- One Prism status line per student × assessment, always first in the comment, replaced by each new one:
+  - Ask: `⟳ Resubmission requested — due {Ddd DD/MM}. {note}`
+  - Extend (resubmission): `⟳ Resubmission requested — now due {Ddd DD/MM}. {note}`
+  - Grade stands: `⟳ Resubmission deadline ({Ddd DD/MM}) passed — your grade stands.`
+  - Late-work extension: `⟳ Extension — now due {Ddd DD/MM} ({n} lessons). {note}`
+  - Make-up extension: `⟳ Make-up — sit by {Ddd DD/MM}. {note}`
+  - Regrade of an arrival (card chip, optional): `⟳ Resubmission received {DD/MM} — regraded.`
+- **Exact-match, not pattern-match.** Prism stores the exact line it published (after the teacher's edits)
+  in `status_lines`. Replacing removes that exact stored text from the start of the comment if still there
+  verbatim, then prepends the new line. A line hand-edited in Schoology no longer matches → treated as the
+  teacher's own text (the confirm preview shows the whole resulting comment).
+- **Confirm modal (significance):** header *Publish to {Name}'s Schoology comment*; sub *visible to the
+  student (and parents) as soon as you publish*; a consequence line specific to the action (e.g. *Ends the
+  resubmission request: missed deadline, grade stands.*); the full resulting comment with the new line
+  highlighted and the line editable; a hidden-comment warning when Display is off (*publishing shows your
+  current hidden comment to the student — edit or remove it below*); a verb-specific primary button
+  (*Publish & close request*). Publishing always sets Display on (`comment_status: 1`).
+- **Write order:** validate the Prism action → publish to Schoology (fresh read, echo grade/exception) →
+  record in Prism. A failed publish changes nothing in Prism and shows the error.
+- **Undo** (history) of an ask / extension / grade stands offers to remove the stored line (same modal,
+  default on). Auto-added `schoology_unsubmit` requests write no line until the teacher acts.
+
+### Visible-feedback snapshots (replaces the timestamp comparison for "answered")
+
+- **Fingerprint** per student × assessment = `{ score, exception, rubric levels (mastery_scores, sorted),
+  comment }` where `comment` = the comment text with the stored status line removed, **only if
+  Display-to-student is on** (hidden comment → `''`).
+- `feedback_snapshots` (Prism-owned): last seen `fingerprint` + `revision_at`, and the current arrival
+  (`arrival_revision_at`, `arrival_baseline`). Captured at the end of each sync and after every Prism
+  grade/comment save. When `latest_revision_at` is newer than the snapshot's `revision_at`, the arrival is
+  recorded with **baseline = the previous snapshot's fingerprint** (the feedback before the resubmission).
+- **Feedback given** (the baseline counts as prior feedback) = baseline has a score, an exception, rubric
+  levels, or a non-empty visible comment.
+- **States:**
+  - **Arrived (unrequested):** an arrival whose baseline had feedback, and the current fingerprint equals
+    the baseline.
+  - **Waiting:** an open request with no arrival after `requested_at`.
+  - **Arrived (requested):** an open request and an arrival after `requested_at` with current fingerprint
+    = baseline.
+  - **Acknowledged / fulfilled:** the current fingerprint differs from the arrival baseline → off the list;
+    settle marks a request `done`.
+- Hidden notes, unchanged re-saves and Prism status lines don't change the fingerprint → still Arrived.
+  Visible feedback given in Schoology between two syncs is caught (baseline = previous sync's snapshot).
+- **First deploy:** a pair the old timestamp rule calls resubmitted gets an arrival with baseline = its
+  current fingerprint (Arrived until feedback changes); every other pair gets a plain snapshot.
+- The ↩/⚠ "resubmitted" badge on gradebook / card / student page uses the same Arrived rule.
+- The LTI timestamp fix stays (it is how a new revision is noticed).

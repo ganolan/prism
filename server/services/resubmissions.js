@@ -5,7 +5,7 @@
 import { loadCalendar } from './schoolCalendar.js';
 import { getTriageSettings } from './settings.js';
 import { preferredFirstName } from './studentNames.js';
-import { TriageError, MAX_EXTENSION_LESSONS } from './triageCommon.js';
+import { TriageError, MAX_EXTENSION_LESSONS, toneFor, ALIGNED_SQL, fullName } from './triageCommon.js';
 import { resubmissionState, sqliteUtcToEpoch } from '../lib/resubmission.js';
 import { epochToLocalDate } from '../lib/schoolDays.js';
 
@@ -179,4 +179,65 @@ export function resubmissionByStudent(db, assignmentId) {
 export function openRequestKeys(db, courseId) {
   return new Set(db.prepare(`SELECT student_id, assignment_id FROM resubmissions WHERE course_id = ? AND ${OPEN_REQUEST}`)
     .all(courseId).map((r) => `${r.student_id}:${r.assignment_id}`));
+}
+
+// Triage rows for one current course. Requests show whatever the alignment;
+// unrequested arrivals follow Feedback owed (summative, or formative when shown).
+export function resubmissionRows(db, { course, students, cal, today, settings, formative, studentId = null }) {
+  const { feedbackLimitDays, warnLeadDays } = settings;
+  const assignments = new Map(db.prepare(`
+    SELECT a.id, a.schoology_assignment_id, a.title, a.num_assignees, ${ALIGNED_SQL} AS aligned
+    FROM assignments a WHERE a.course_id = ? AND a.published = 1
+  `).all(course.id).map((a) => [a.id, a]));
+  const grades = new Map(db.prepare(`
+    SELECT g.student_id, g.assignment_id, g.score, g.exception, g.grade_comment, g.submitted_at, g.latest_revision_at
+    FROM grades g JOIN assignments a ON a.id = g.assignment_id WHERE a.course_id = ?
+  `).all(course.id).map((g) => [`${g.student_id}:${g.assignment_id}`, g]));
+  const requests = new Map(db.prepare(`SELECT * FROM resubmissions WHERE course_id = ? AND ${OPEN_REQUEST}`)
+    .all(course.id).map((r) => [`${r.student_id}:${r.assignment_id}`, r]));
+  const reviewed = new Map(db.prepare(`
+    SELECT student_id, assignment_id, MAX(revision_at) AS t FROM resubmissions WHERE course_id = ? AND kind = 'review' GROUP BY 1, 2
+  `).all(course.id).map((r) => [`${r.student_id}:${r.assignment_id}`, r.t]));
+  const assigneesOf = (a) => (a.num_assignees > 0
+    ? new Set(db.prepare('SELECT schoology_uid FROM assignment_assignees WHERE assignment_id = ?').all(a.id).map((r) => r.schoology_uid))
+    : null);
+  const assigneeCache = new Map();
+
+  const rows = [];
+  for (const st of students) {
+    if (studentId != null && st.id !== Number(studentId)) continue;
+    for (const a of assignments.values()) {
+      const key = `${st.id}:${a.id}`;
+      const grade = grades.get(key);
+      const request = requests.get(key) || null;
+      if (!request && !(grade?.latest_revision_at > 0)) continue;
+      if (Number(grade?.exception) === 1) continue; // excused
+      if (!request && !a.aligned && !formative) continue;
+      if (!assigneeCache.has(a.id)) assigneeCache.set(a.id, assigneesOf(a));
+      const assignees = assigneeCache.get(a.id);
+      if (assignees && !assignees.has(st.schoology_uid)) continue;
+      const requestedAt = request ? sqliteUtcToEpoch(request.requested_at) : 0;
+      const state = resubmissionState(grade, { requestedAt, reviewedThrough: reviewed.get(key) || 0 });
+      if (state !== 'waiting' && state !== 'arrived') continue;
+
+      const requestedOn = request ? epochToLocalDate(requestedAt) : null;
+      const until = request ? cal.addSchoolDays(requestedOn, request.lessons) : null;
+      const arrivedOn = state === 'arrived' ? epochToLocalDate(grade.latest_revision_at) : null;
+      const start = state === 'arrived' ? arrivedOn : requestedOn;
+      const { days, approx } = cal.between(start, today);
+      // Waiting: the deadline `until` is the last allowed date → last allowed day = lessons + 1.
+      const limit = state === 'arrived' ? feedbackLimitDays : request.lessons + 1;
+      rows.push({
+        id: request?.id ?? null, state,
+        studentId: st.id, studentUid: st.schoology_uid, studentName: fullName(st),
+        courseId: course.id, courseName: course.course_name, blockNumber: course.block_number ?? null,
+        assignmentId: a.id, schoologyAssignmentId: a.schoology_assignment_id, title: a.title, aligned: !!a.aligned,
+        day: days + 1, limit, tone: toneFor(days, limit, warnLeadDays), approx: approx || !!until?.approx,
+        lessons: request?.lessons ?? null, until: until?.date ?? null, requestedOn, arrivedOn,
+        source: request?.source ?? null, note: request?.note ?? null,
+        afterDeadline: !!(request && arrivedOn && arrivedOn > until.date),
+      });
+    }
+  }
+  return rows;
 }

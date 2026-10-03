@@ -10,6 +10,7 @@ import {
   getTriage, recordReferral, undoReferral, listReferrals, recordExtension, undoExtension, listExtensions, toneFor, TriageError,
   setMakeUpIgnored,
 } from './triage.js';
+import { requestResubmission, markResubmissionReviewed, closeResubmission } from './resubmissions.js';
 
 const TODAY = '2026-10-16'; // Fri
 
@@ -67,7 +68,7 @@ const AFTER_SCHOOL = `${TODAY} 16:00:00`;
 beforeEach(() => {
   db = getDb();
   db.exec(
-    'DELETE FROM referrals; DELETE FROM extensions; DELETE FROM settings; DELETE FROM school_days; DELETE FROM mastery_scores; DELETE FROM mastery_alignments; ' +
+    'DELETE FROM referrals; DELETE FROM extensions; DELETE FROM resubmissions; DELETE FROM settings; DELETE FROM school_days; DELETE FROM mastery_scores; DELETE FROM mastery_alignments; ' +
     'DELETE FROM assignment_assignees; DELETE FROM grades; DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
     'DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses; DELETE FROM sync_log;',
   );
@@ -841,5 +842,69 @@ describe('day numbering (the due / test date is day 1)', () => {
     expect(at('2026-10-14')).toMatchObject({ day: 2, daysSince: 1, tone: 'amber' });
     expect(at('2026-10-15')).toMatchObject({ day: 3, tone: 'amber' });
     expect(at('2026-10-16')).toMatchObject({ day: 4, daysSince: 3, tone: 'red' });
+  });
+});
+
+describe('resubmissions list', () => {
+  const sqlAt = (iso) => `${iso} 04:00:00`;
+  test('waiting: day 1 = ask day, red after the lessons deadline', () => {
+    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'CP1', '2026-09-21');
+    grade(s, a, { score: 60, submitted_at: epoch('2026-09-25'), latest_revision_at: epoch('2026-09-21') });
+    requestResubmission(db, { studentId: s, assignmentId: a, lessons: 3, requestedAt: sqlAt('2026-10-09') }); // Fri
+    const t = getTriage(db, { today: TODAY }); // Fri 16/10: Mon 12 … Fri 16 = 5 school days after the ask
+    expect(t.resubmissions).toHaveLength(1);
+    expect(t.resubmissions[0]).toMatchObject({ state: 'waiting', day: 6, limit: 4, tone: 'red', until: '2026-10-14', requestedOn: '2026-10-09', lessons: 3 });
+    expect(t.counts.resubmissionsOverdue).toBe(1);
+  });
+  test('arrived (unrequested, summative): clock from the resubmission date, feedback limit', () => {
+    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'CP1', '2026-09-21');
+    grade(s, a, { score: 60, submitted_at: epoch('2026-09-25'), latest_revision_at: epoch('2026-10-14') });
+    const r = getTriage(db, { today: TODAY }).resubmissions[0];
+    expect(r).toMatchObject({ state: 'arrived', id: null, arrivedOn: '2026-10-14', day: 3, limit: 10, tone: 'green', afterDeadline: false });
+  });
+  test('arrived after a red deadline is tagged afterDeadline; arrived sorts before waiting', () => {
+    const s = student('u1', 'Maya', 'Chen'); const s2 = student('u2', 'Ethan', 'Wong'); const a = assignment('a1', 'CP1', '2026-09-21');
+    grade(s, a, { score: 60, submitted_at: epoch('2026-09-25'), latest_revision_at: epoch('2026-10-15') });
+    requestResubmission(db, { studentId: s, assignmentId: a, lessons: 1, requestedAt: sqlAt('2026-10-09') });
+    requestResubmission(db, { studentId: s2, assignmentId: a, lessons: 3, requestedAt: sqlAt('2026-10-09') });
+    const rows = getTriage(db, { today: TODAY }).resubmissions;
+    expect(rows.map((r) => [r.studentName, r.state])).toEqual([['Maya Chen', 'arrived'], ['Ethan Wong', 'waiting']]);
+    expect(rows[0].afterDeadline).toBe(true);
+  });
+  test('formative: unrequested arrivals only with includeFormative; asks always', () => {
+    const s = student('u1', 'Maya', 'Chen'); const s2 = student('u2', 'Ethan', 'Wong');
+    const f = assignment('f1', 'Warm-up', '2026-09-21', { summative: false });
+    grade(s, f, { score: null, grade_comment: 'try again', submitted_at: epoch('2026-09-25'), latest_revision_at: epoch('2026-10-14') });
+    requestResubmission(db, { studentId: s2, assignmentId: f, requestedAt: sqlAt('2026-10-15') });
+    expect(getTriage(db, { today: TODAY, includeFormative: false }).resubmissions.map((r) => r.studentName)).toEqual(['Ethan Wong']);
+    expect(getTriage(db, { today: TODAY, includeFormative: true }).resubmissions).toHaveLength(2);
+  });
+  test('reviewed / closed / excused rows do not show', () => {
+    const s = student('u1', 'Maya', 'Chen'); const s2 = student('u2', 'Ethan', 'Wong'); const s3 = student('u3', 'Zoe', 'Tan');
+    const a = assignment('a1', 'CP1', '2026-09-21');
+    grade(s, a, { score: 60, submitted_at: epoch('2026-09-25'), latest_revision_at: epoch('2026-10-14') });
+    markResubmissionReviewed(db, { studentId: s, assignmentId: a });
+    const r2 = requestResubmission(db, { studentId: s2, assignmentId: a, requestedAt: sqlAt('2026-10-12') });
+    closeResubmission(db, r2.id);
+    grade(s3, a, { score: null, exception: 1, submitted_at: epoch('2026-09-25'), latest_revision_at: epoch('2026-10-14') });
+    const t = getTriage(db, { today: TODAY });
+    expect(t.resubmissions).toEqual([]);
+    expect(t.resubmissionHistoryCount).toBe(2);
+  });
+  test('Review Focus 5: a dropped student or an archived course drops the row; history keeps it', () => {
+    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'CP1', '2026-09-21');
+    requestResubmission(db, { studentId: s, assignmentId: a, requestedAt: sqlAt('2026-10-12') });
+    db.prepare(`UPDATE enrolments SET dropped_at = '2026-10-13' WHERE student_id = ?`).run(s);
+    expect(getTriage(db, { today: TODAY }).resubmissions).toEqual([]);
+    db.prepare(`UPDATE enrolments SET dropped_at = NULL`).run();
+    db.prepare(`UPDATE courses SET archived = 1`).run();
+    expect(getTriage(db, { today: TODAY }).resubmissions).toEqual([]);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM resubmissions').get().n).toBe(1);
+  });
+  test('studentId filter', () => {
+    const s = student('u1', 'Maya', 'Chen'); const s2 = student('u2', 'Ethan', 'Wong'); const a = assignment('a1', 'CP1', '2026-09-21');
+    requestResubmission(db, { studentId: s, assignmentId: a, requestedAt: sqlAt('2026-10-12') });
+    requestResubmission(db, { studentId: s2, assignmentId: a, requestedAt: sqlAt('2026-10-12') });
+    expect(getTriage(db, { today: TODAY, studentId: s2 }).resubmissions.map((r) => r.studentId)).toEqual([s2]);
   });
 });

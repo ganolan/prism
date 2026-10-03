@@ -18,6 +18,7 @@ import { getTriageSettings } from './settings.js';
 import { gradingState } from './assessmentContext.js';
 import { preferredFirstName } from './studentNames.js';
 import { TriageError, toneFor, makeUpTone, currentCourses, roster, ALIGNED_SQL, fullName, MAX_EXTENSION_LESSONS } from './triageCommon.js';
+import { resubmissionRows } from './resubmissions.js';
 
 export { TriageError, toneFor, makeUpTone, MAX_EXTENSION_LESSONS };
 
@@ -143,12 +144,14 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
   const lateWork = [];
   const feedbackOwed = [];
   const makeUps = [];
+  const resubmissions = [];
   let makeUpsUnchecked = 0;
   let makeUpsIgnored = 0;
   const courses = currentCourses(db, courseId);
   for (const c of courses) {
     const students = roster(db, c.id);
     const courseFields = { courseId: c.id, courseName: c.course_name, blockNumber: c.block_number ?? null };
+    resubmissions.push(...resubmissionRows(db, { course: c, students, cal, today, settings, formative, studentId }));
 
     // Make-up tests: a Schoology test/quiz is over and a targeted, active,
     // non-excused student's cell explicitly says "no attempt" (test_attempt
@@ -267,6 +270,9 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
   lateWork.sort((x, y) => y.daysLate - x.daysLate || x.studentName.localeCompare(y.studentName));
   feedbackOwed.sort((x, y) => y.oldestWaitDays - x.oldestWaitDays || x.title.localeCompare(y.title));
   makeUps.sort((x, y) => y.daysSince - x.daysSince || x.studentName.localeCompare(y.studentName));
+  // Arrived (to regrade) before waiting; then the longest clock; then name.
+  resubmissions.sort((x, y) => (x.state === y.state ? 0 : x.state === 'arrived' ? -1 : 1)
+    || y.day - x.day || x.studentName.localeCompare(y.studentName));
 
   // Referrals + extensions recorded in scope (the panel's history link).
   const courseIds = courses.map((c) => c.id);
@@ -281,6 +287,9 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
     SELECT COALESCE(completed_at, started_at) AS at FROM sync_log
     WHERE status = 'completed' ORDER BY at DESC, id DESC LIMIT 1
   `).get();
+  const resubmissionHistoryCount = courseIds.length
+    ? db.prepare(`SELECT COUNT(*) AS n FROM resubmissions WHERE course_id IN (${inScope}) AND NOT (kind = 'request' AND status = 'open')`).get(...courseIds).n
+    : 0;
 
   return {
     today,
@@ -288,16 +297,19 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
     settings,
     lastSyncAt: last?.at ?? null,
     historyCount,
+    resubmissionHistoryCount,
     calendar: { source: cal.source, totalSchoolDays: cal.totalSchoolDays, syncedAt: cal.syncedAt, today: cal.info(today) },
     counts: {
       atReferralLimit: lateWork.filter((r) => r.tone === 'red').length,
       feedbackOverdue: feedbackOwed.filter((r) => r.tone === 'red').length,
       makeUpsOverdue: makeUps.filter((r) => r.tone === 'red').length,
+      resubmissionsOverdue: resubmissions.filter((r) => r.tone === 'red').length,
     },
-    approx: [lateWork, feedbackOwed, makeUps].some((rows) => rows.some((r) => r.approx)),
+    approx: [lateWork, feedbackOwed, makeUps, resubmissions].some((rows) => rows.some((r) => r.approx)),
     lateWork,
     feedbackOwed,
     makeUps,
+    resubmissions,
     // Past-due tests whose attempts couldn't be read ("re-sync").
     makeUpsUnchecked,
     // Past-due tests the teacher ignores for make-ups.

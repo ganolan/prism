@@ -40,6 +40,8 @@ and for `undo_extension` with `remove_line`. How depends on where it runs:
   (`set -a; . ~/prism/data/.env; set +a`), so the secret never leaves the mini
   and a key rotation there needs no laptop change. The `.env` is plain
   `KEY=value` lines, which a shell can source; `set -a` exports them.
+  **Caution:** sourcing runs the file as shell, so every value must be
+  shell-safe — no unquoted spaces or `$` (quote such a value with single quotes).
 
 Without them those tools fail before touching anything, with
 `SCHOOLOGY_NOT_CONFIGURED: PrisMCP cannot reach Schoology: … not set in its

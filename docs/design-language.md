@@ -1102,7 +1102,11 @@ action the modal says it will stay (the server only removes a record's own line)
 carries a special character — `Resubmission requested - due Thu 08/10.`, `Extension - now due Fri 09/10
 (3 lessons).`, `Resubmission received 14/10 - regraded.` — so no encoding round-trip can alter a stored
 line (which must later match verbatim to be replaced). The `⟳` glyph stays on Prism's own pills, tags and
-buttons only; anything that leaves Prism for a student's comment is printable ASCII.
+buttons only; anything that leaves Prism for a student's comment is printable ASCII. A line the teacher
+edits in `StatusLineModal` is held to the same rule: typographic characters (curly quotes, dashes, `…`,
+non-breaking spaces) are previewed and published as their plain forms, and any other non-ASCII character
+shows an `.alert-warning` *Use plain characters in the status line* and disables the publish button (the
+server's `checkLine` refuses it too).
 
 Card control update: Close request and **Reviewed** are gone. An open request offers Extend / Grade
 stands (only once the deadline has passed) / Undo; an arrived resubmission shows the muted text

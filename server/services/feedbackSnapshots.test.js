@@ -314,6 +314,119 @@ describe('captureFeedbackSnapshots — baseline predates the resubmission (I1)',
     expect(snap(s, a).fingerprint).toBe(currentFingerprints(db, {}).get(`${s}:${a}`).fingerprint);
   });
 
+  // Round 3 (save log): a single save stamp can't tell Prism saves before R from those
+  // after it, and a pending stamp kept synced_fingerprint stale. Each changing Prism save
+  // is logged with the fingerprint it replaced; R is judged against the state just
+  // before the first logged save after R.
+  const levelD = () => db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('u1', 'a1', 't1', 50, 'D')`).run();
+  const setLevel = (g) => db.prepare(`UPDATE mastery_scores SET grade = ? WHERE student_uid = 'u1' AND topic_id = 't1'`).run(g);
+
+  for (const revisionsRead of [undefined, true]) {
+    test(`X1: R answered by a Prism rubric save → further syncs → R′ unsynced → Prism hides the comment → sync: arrived (${revisionsRead ? 'revision-read' : 'plain'} syncs)`, () => {
+      const s = student('u1'); const a = assignment('a1');
+      grade(s, a, { score: 60, grade_comment: 'Note', comment_status: 1, submitted_at: 50, latest_revision_at: 100 });
+      levelD();
+      captureFeedbackSnapshots(db, { revisionsRead });
+      setGrade(s, a, { latest_revision_at: 200 });
+      captureFeedbackSnapshots(db, { revisionsRead });                 // R = 200 arrives
+      expect(stateOf(s, a)).toBe('arrived');
+      setLevel('EX');
+      captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 300 });   // rubric save answers it
+      expect(stateOf(s, a)).toBe(null);
+      captureFeedbackSnapshots(db, { revisionsRead });
+      captureFeedbackSnapshots(db, { courseId });                      // a mastery pull
+      captureFeedbackSnapshots(db, { revisionsRead });
+      setGrade(s, a, { comment_status: null, submitted_at: 650 });     // R′ = 600 unsynced; hide at 650
+      captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 650 });
+      setGrade(s, a, { latest_revision_at: 600 });
+      captureFeedbackSnapshots(db, { revisionsRead });
+      expect(stateOf(s, a)).toBe('arrived');
+    });
+  }
+
+  test('X2: same with a score save at 300 → arrived', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 60, grade_comment: 'Note', comment_status: 1, submitted_at: 50, latest_revision_at: 100 });
+    levelD();
+    captureFeedbackSnapshots(db);
+    setGrade(s, a, { latest_revision_at: 200 });
+    captureFeedbackSnapshots(db);
+    setGrade(s, a, { score: 70, submitted_at: 300 });
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 300 });
+    expect(stateOf(s, a)).toBe(null);
+    captureFeedbackSnapshots(db);
+    captureFeedbackSnapshots(db);
+    setGrade(s, a, { comment_status: null, submitted_at: 650 });
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 650 });
+    setGrade(s, a, { latest_revision_at: 600 });
+    captureFeedbackSnapshots(db);
+    expect(stateOf(s, a)).toBe('arrived');
+  });
+
+  test('X6: Prism save before R → R → hide-only Prism save after R → sync: arrived', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 60, grade_comment: 'Note', comment_status: 1, submitted_at: 50, latest_revision_at: 100 });
+    captureFeedbackSnapshots(db);
+    setGrade(s, a, { score: 70, submitted_at: 150 });
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 150 });   // before R
+    setGrade(s, a, { comment_status: null, submitted_at: 300 });               // R = 200 unsynced; hide at 300
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 300 });
+    setGrade(s, a, { latest_revision_at: 200 });
+    captureFeedbackSnapshots(db);
+    expect(stateOf(s, a)).toBe('arrived');
+  });
+
+  test('save log: each changing Prism save is logged with the fingerprint it replaced; unchanged saves and publishes are not', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 60, submitted_at: 50, latest_revision_at: 100 });
+    captureFeedbackSnapshots(db);
+    const fp0 = snap(s, a).fingerprint;
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 150 });   // unchanged
+    expect(JSON.parse(snap(s, a).save_log || '[]')).toEqual([]);
+    setGrade(s, a, { score: 70 });
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 200 });
+    const fp70 = snap(s, a).fingerprint;
+    setGrade(s, a, { score: 75 });
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', stamp: false, now: 250 });   // a publish
+    expect(JSON.parse(snap(s, a).save_log)).toEqual([[200, fp0, fp70]]);
+    expect(snap(s, a)).toMatchObject({ fingerprint_at: 200, synced_fingerprint: fp0 });
+  });
+
+  test('save log: capped at the newest 20 entries', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 0, submitted_at: 50, latest_revision_at: 100 });
+    captureFeedbackSnapshots(db);
+    for (let i = 1; i <= 25; i += 1) {
+      setGrade(s, a, { score: i });
+      captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 1000 + i });
+    }
+    const log = JSON.parse(snap(s, a).save_log);
+    expect(log).toHaveLength(20);
+    expect(log[0][0]).toBe(1006);
+    expect(log.at(-1)[0]).toBe(1025);
+  });
+
+  test('save log: a revision-read sync with no new revision clears it (entries from before the read); a mastery pull keeps it', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 60, submitted_at: 50, latest_revision_at: 100 });
+    captureFeedbackSnapshots(db);
+    setGrade(s, a, { score: 70 });
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 300 });
+    captureFeedbackSnapshots(db, { courseId });                      // mastery pull: no revisions read
+    expect(JSON.parse(snap(s, a).save_log)).toHaveLength(1);
+    expect(snap(s, a).fingerprint_at).toBe(300);
+    captureFeedbackSnapshots(db, { revisionsRead: new Set([999]) }); // another assignment's revisions read
+    expect(JSON.parse(snap(s, a).save_log)).toHaveLength(1);
+    setGrade(s, a, { score: 72 });
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 500 });
+    // A sync that started at 400 read this assignment's revisions: entries before 400 go.
+    captureFeedbackSnapshots(db, { revisionsRead: new Set([a]), readSince: 400 });
+    expect(JSON.parse(snap(s, a).save_log).map((e) => e[0])).toEqual([500]);
+    expect(snap(s, a).fingerprint_at).toBe(500);
+    captureFeedbackSnapshots(db, { revisionsRead: true });
+    expect(snap(s, a)).toMatchObject({ save_log: '[]', fingerprint_at: 0, synced_fingerprint: snap(s, a).fingerprint });
+  });
+
   test('M2: revision_at never moves backwards', () => {
     const s = student('u1'); const a = assignment('a1');
     grade(s, a, { score: 80, latest_revision_at: 300 });

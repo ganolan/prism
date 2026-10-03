@@ -358,3 +358,43 @@ describe('PrisMCP resubmission tools', () => {
     expect(tool.inputSchema.required ?? []).not.toEqual(expect.arrayContaining(['student_id']));
   });
 });
+
+describe('PrisMCP status lines (Amendment B)', () => {
+  test('request_resubmission, extend_deadline and grade_stands take an optional comment_line, with the line templates in their descriptions', async () => {
+    const client = await connect();
+    const tools = (await client.listTools()).tools;
+    const tool = (name) => tools.find((t) => t.name === name);
+
+    expect(tool('request_resubmission').inputSchema.properties).toHaveProperty('comment_line');
+    expect(tool('request_resubmission').inputSchema.required ?? []).not.toContain('comment_line');
+    expect(tool('request_resubmission').description).toContain('⟳ Resubmission requested — due {Ddd DD/MM}. {note}');
+
+    expect(tool('extend_deadline').inputSchema.properties).toHaveProperty('comment_line');
+    expect(tool('extend_deadline').description).toContain('⟳ Resubmission requested — now due {Ddd DD/MM}. {note}');
+    expect(tool('extend_deadline').description).toContain('⟳ Extension — now due {Ddd DD/MM} ({n} lessons). {note}');
+    expect(tool('extend_deadline').description).toContain('⟳ Make-up — sit by {Ddd DD/MM}. {note}');
+
+    expect(tool('grade_stands').inputSchema.properties).toHaveProperty('comment_line');
+    expect(tool('grade_stands').description).toContain('⟳ Resubmission deadline ({Ddd DD/MM}) passed — your grade stands.');
+  });
+
+  test('undo_extension takes an optional remove_line', async () => {
+    const client = await connect();
+    const tool = (await client.listTools()).tools.find((t) => t.name === 'undo_extension');
+    expect(tool.inputSchema.properties).toHaveProperty('remove_line');
+    expect(tool.inputSchema.properties.remove_line.type).toBe('boolean');
+    expect(tool.inputSchema.required ?? []).not.toContain('remove_line');
+  });
+
+  test('preview_status_line is a read tool taking student_id/assignment_id/line', async () => {
+    const client = await connect();
+    const tool = (await client.listTools()).tools.find((t) => t.name === 'preview_status_line');
+    expect(tool).toBeDefined();
+    expect(tool.inputSchema.required).toEqual(expect.arrayContaining(['student_id', 'assignment_id']));
+    expect(tool.inputSchema.properties).toHaveProperty('line');
+  });
+  // preview_status_line's actual Schoology read/compose behaviour is covered in
+  // mcp/handlers.test.js and server/services/statusLinePublisher.test.js, both of
+  // which mock server/services/schoology.js — this file never mocks it, so no
+  // test here calls a tool that would reach the real fresh-read path.
+});

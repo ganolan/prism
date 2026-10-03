@@ -1,18 +1,23 @@
 import { describe, test, expect, beforeEach, vi } from 'vitest';
 
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
+// Status-line publishing (Amendment B) reads/writes the student's Schoology
+// comment — never for real in tests.
+vi.mock('../server/services/schoology.js', () => ({ getSectionGrades: vi.fn(), pushGradeComments: vi.fn() }));
 
 import { getDb } from '../server/db/index.js';
+import { getSectionGrades, pushGradeComments } from '../server/services/schoology.js';
 import { listCourses, listAssignments, listStudents, writeRubric, attachRubricTool } from './handlers.js';
 import {
   resolveCourseRef, getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool,
   extendDeadlineTool, undoExtensionTool, setMakeupTrackingTool,
-  requestResubmissionTool, gradeStandsTool, listResubmissionsTool,
+  requestResubmissionTool, gradeStandsTool, listResubmissionsTool, previewStatusLineTool,
 } from './handlers.js';
 import { saveRubric, listRubrics, getRubricByName } from '../server/services/rubricStore.js';
 
 beforeEach(() => {
   getDb().exec(
+    'DELETE FROM status_lines; DELETE FROM feedback_snapshots; ' +
     'DELETE FROM referrals; DELETE FROM extensions; DELETE FROM resubmissions; DELETE FROM school_days; DELETE FROM mastery_scores; ' +
     'DELETE FROM rubric_attachment_topics; DELETE FROM rubric_attachments; ' +
     'DELETE FROM rubric_descriptors; DELETE FROM rubric_criteria; DELETE FROM rubrics; ' +
@@ -266,24 +271,149 @@ function seedTriagePair(db) {
 }
 
 describe('resubmission tools', () => {
-  test('request → list → extend via extend_deadline → grade_stands (only after the deadline)', () => {
+  test('request → list → extend via extend_deadline → grade_stands (only after the deadline)', async () => {
     const db = getDb();
     const { studentId, assignmentId } = seedTriagePair(db);
-    const r = requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 2, note: 'fix tests' });
+    const r = await requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 2, note: 'fix tests' });
     expect(r).toMatchObject({ outcome: 'asked', source: 'mcp', lessons: 2 });
     expect(listResubmissionsTool(db, { state: 'asked' })).toHaveLength(1);
-    expect(extendDeadlineTool(db, { resubmission_id: r.id, lessons: 5 })).toMatchObject({ lessons: 5 });
-    expect(() => gradeStandsTool(db, { id: r.id })).toThrow(expect.objectContaining({ code: 'NOT_AT_DEADLINE' }));
+    expect(await extendDeadlineTool(db, { resubmission_id: r.id, lessons: 5 })).toMatchObject({ lessons: 5 });
+    await expect(gradeStandsTool(db, { id: r.id })).rejects.toThrow(expect.objectContaining({ code: 'NOT_AT_DEADLINE' }));
     db.prepare(`UPDATE resubmissions SET requested_at = '2020-01-06 04:00:00' WHERE id = ?`).run(r.id);
-    expect(gradeStandsTool(db, { id: r.id })).toMatchObject({ outcome: 'grade_stands', closeNote: 'grade stands' });
+    expect(await gradeStandsTool(db, { id: r.id })).toMatchObject({ outcome: 'grade_stands', closeNote: 'grade stands' });
     expect(listResubmissionsTool(db, { state: 'grade_stands' })).toHaveLength(1);
   });
 
-  test('get_triage student filter applies to resubmissions', () => {
+  test('get_triage student filter applies to resubmissions', async () => {
     const db = getDb();
     const { studentId, assignmentId } = seedTriagePair(db);
-    requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId });
+    await requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId });
     expect(getTriageTool(db, { student: 'nobody-matches' }).resubmissions).toEqual([]);
+  });
+});
+
+describe('status lines on resubmission/extension tools (Amendment B)', () => {
+  const LINE = '⟳ Resubmission requested — due Thu 09/10. Fix the loop.';
+  const fresh = (over = {}) => ({ assignment_id: 'a1', enrollment_id: 'enr', grade: null, exception: 0, comment: 'Teacher note.', comment_status: 1, ...over });
+  const storedLine = (db, studentId, assignmentId) =>
+    db.prepare('SELECT line, kind FROM status_lines WHERE student_id = ? AND assignment_id = ?').get(studentId, assignmentId) || null;
+
+  // seedLate's assignment is aligned (mastery_alignments) and accepts_submissions
+  // — eligible for both the resubmission and extension tools — with a Schoology
+  // enrolment id so the status-line publisher can resolve the pair.
+  function seedEligiblePair(db) {
+    const { studentId, assignmentId } = seedLate(db);
+    db.prepare(`UPDATE enrolments SET schoology_enrolment_id = 'enr' WHERE student_id = ?`).run(studentId);
+    return { studentId, assignmentId };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getSectionGrades.mockResolvedValue([fresh()]);
+    pushGradeComments.mockResolvedValue({ status: 207, data: {} });
+  });
+
+  test('request_resubmission publishes via the mocked publisher when comment_line is given', async () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedEligiblePair(db);
+    const r = await requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 2, comment_line: LINE });
+    expect(getSectionGrades).toHaveBeenCalledWith('s');
+    expect(pushGradeComments).toHaveBeenCalledTimes(1);
+    expect(r.statusLine).toMatchObject({ comment: `${LINE}\n\nTeacher note.`, line: LINE });
+    expect(storedLine(db, studentId, assignmentId)).toEqual({ line: LINE, kind: 'ask' });
+  });
+
+  test('request_resubmission without comment_line never touches Schoology (Prism-only, as before)', async () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedEligiblePair(db);
+    const r = await requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 2 });
+    expect(getSectionGrades).not.toHaveBeenCalled();
+    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(r.statusLine).toBeUndefined();
+    expect(storedLine(db, studentId, assignmentId)).toBeNull();
+  });
+
+  test('extend_deadline (resubmission_id path) publishes kind extend_resubmission', async () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedEligiblePair(db);
+    const r = await requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 2 });
+    vi.clearAllMocks();
+    getSectionGrades.mockResolvedValue([fresh()]);
+    pushGradeComments.mockResolvedValue({ status: 207, data: {} });
+    const EXT = '⟳ Resubmission requested — now due Mon 13/10.';
+    const res = await extendDeadlineTool(db, { resubmission_id: r.id, lessons: 5, comment_line: EXT });
+    expect(res.statusLine).toMatchObject({ line: EXT });
+    expect(storedLine(db, studentId, assignmentId)).toEqual({ line: EXT, kind: 'extend_resubmission' });
+  });
+
+  test('extend_deadline (student/assignment path) publishes kind extension', async () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedEligiblePair(db);
+    const EXT = '⟳ Extension — now due Mon 13/10 (5 lessons).';
+    const res = await extendDeadlineTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 5, comment_line: EXT });
+    expect(res.statusLine).toMatchObject({ line: EXT });
+    expect(storedLine(db, studentId, assignmentId)).toEqual({ line: EXT, kind: 'extension' });
+  });
+
+  test('extend_deadline without comment_line never touches Schoology', async () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedEligiblePair(db);
+    const res = await extendDeadlineTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 5 });
+    expect(getSectionGrades).not.toHaveBeenCalled();
+    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(res.statusLine).toBeUndefined();
+  });
+
+  test('grade_stands publishes kind grade_stands when comment_line is given; nothing when omitted', async () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedEligiblePair(db);
+    const r = await requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 2 });
+    db.prepare(`UPDATE resubmissions SET requested_at = '2020-01-06 04:00:00' WHERE id = ?`).run(r.id);
+    vi.clearAllMocks();
+    expect((await gradeStandsTool(db, { id: r.id })).statusLine).toBeUndefined();
+    expect(getSectionGrades).not.toHaveBeenCalled();
+  });
+
+  test('grade_stands publishes the deadline-passed line when comment_line is given', async () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedEligiblePair(db);
+    const r = await requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 2 });
+    db.prepare(`UPDATE resubmissions SET requested_at = '2020-01-06 04:00:00' WHERE id = ?`).run(r.id);
+    vi.clearAllMocks();
+    getSectionGrades.mockResolvedValue([fresh()]);
+    pushGradeComments.mockResolvedValue({ status: 207, data: {} });
+    const STANDS = '⟳ Resubmission deadline (Thu 09/10) passed — your grade stands.';
+    const res = await gradeStandsTool(db, { id: r.id, comment_line: STANDS });
+    expect(getSectionGrades).toHaveBeenCalled();
+    expect(res.statusLine).toMatchObject({ line: STANDS });
+    expect(storedLine(db, studentId, assignmentId)).toEqual({ line: STANDS, kind: 'grade_stands' });
+  });
+
+  test('undo_extension with remove_line removes the stored line; without it, Schoology is untouched', async () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedEligiblePair(db);
+    const EXT = '⟳ Extension — now due Mon 13/10 (5 lessons).';
+    const created = await extendDeadlineTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 5, comment_line: EXT });
+    vi.clearAllMocks();
+    getSectionGrades.mockResolvedValue([fresh({ comment: `${EXT}\n\nTeacher note.` })]);
+    pushGradeComments.mockResolvedValue({ status: 207, data: {} });
+    const res = await undoExtensionTool(db, { id: created.id, remove_line: true });
+    expect(res).toMatchObject({ deleted: true, statusLine: { removed: true, comment: 'Teacher note.' } });
+    expect(storedLine(db, studentId, assignmentId)).toBeNull();
+
+    const another = await extendDeadlineTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 3, comment_line: EXT });
+    vi.clearAllMocks();
+    expect(await undoExtensionTool(db, { id: another.id })).toEqual({ deleted: true });
+    expect(getSectionGrades).not.toHaveBeenCalled();
+    expect(pushGradeComments).not.toHaveBeenCalled();
+  });
+
+  test('preview_status_line previews the resulting comment without writing', async () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedEligiblePair(db);
+    const out = await previewStatusLineTool(db, { student_id: studentId, assignment_id: assignmentId, line: LINE });
+    expect(out).toMatchObject({ currentComment: 'Teacher note.', resultingComment: `${LINE}\n\nTeacher note.` });
+    expect(pushGradeComments).not.toHaveBeenCalled();
   });
 });
 
@@ -410,23 +540,23 @@ describe('triage tools', () => {
       .toThrow(expect.objectContaining({ code: 'BAD_ACTION' }));
   });
 
-  test('extend_deadline → get_triage row carries it → undo_extension (source mcp)', () => {
+  test('extend_deadline → get_triage row carries it → undo_extension (source mcp)', async () => {
     const db = getDb();
     const { studentId, assignmentId } = seedLate(db);
     // Due Mon 06/01/2020, weekday fallback: +3 lessons → Thu 09/01/2020.
-    const e = extendDeadlineTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 3, note: 'sick' });
+    const e = await extendDeadlineTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 3, note: 'sick' });
     expect(e).toMatchObject({ lessons: 3, note: 'sick', source: 'mcp', until: '2020-01-09', studentName: 'Maya Chen' });
     expect(getTriageTool(db, {}).lateWork[0].extension).toMatchObject({ id: e.id, lessons: 3, until: '2020-01-09' });
     expect(listReferralsTool(db, {}).extensions).toHaveLength(1);
-    expect(undoExtensionTool(db, { id: e.id })).toEqual({ deleted: true });
+    expect(await undoExtensionTool(db, { id: e.id })).toEqual({ deleted: true });
     expect(listReferralsTool(db, {}).extensions).toEqual([]);
   });
 
-  test('extend_deadline rejects out-of-range lessons', () => {
+  test('extend_deadline rejects out-of-range lessons', async () => {
     const db = getDb();
     const { studentId, assignmentId } = seedLate(db);
-    expect(() => extendDeadlineTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 61 }))
-      .toThrow(expect.objectContaining({ code: 'BAD_LESSONS' }));
+    await expect(extendDeadlineTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 61 }))
+      .rejects.toThrow(expect.objectContaining({ code: 'BAD_LESSONS' }));
   });
 
   test('record_referral rejects a pair not on the list', () => {

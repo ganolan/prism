@@ -9,7 +9,7 @@ import { listCourses, listAssignments, listStudents, listRubricsTool, readRubric
 import {
   getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool, extendDeadlineTool, undoExtensionTool,
   setMakeupTrackingTool,
-  requestResubmissionTool, gradeStandsTool, listResubmissionsTool,
+  requestResubmissionTool, gradeStandsTool, listResubmissionsTool, previewStatusLineTool,
 } from './handlers.js';
 import { assertExplicitDbPath } from './dbGuard.js';
 
@@ -267,48 +267,72 @@ export function createServer() {
   server.registerTool(
     'extend_deadline',
     {
-      description: "Give one student more time on a summative assignment: extend its due date by N lessons (lessons = SCHOOL days, the referral limit's unit). ONLY call when the teacher explicitly asks. The student is off the late-work list until the extended date (`until`) passes, then counts late from it. Allowed any time (before or after the due date), for summative work or a Schoology test/quiz in a current course that targets the student. Also for make-up tests (a makeUps row): the make-up clock then counts from the extended date (= day 1) — e.g. sitting the make-up on Thursday. Extending the same pair again replaces lessons/note. Returns the stored extension. With resubmission_id: moves that request's deadline to N lessons after the ask.",
+      description: "Give one student more time on a summative assignment: extend its due date by N lessons (lessons = SCHOOL days, the referral limit's unit). ONLY call when the teacher explicitly asks. The student is off the late-work list until the extended date (`until`) passes, then counts late from it. Allowed any time (before or after the due date), for summative work or a Schoology test/quiz in a current course that targets the student. Also for make-up tests (a makeUps row): the make-up clock then counts from the extended date (= day 1) — e.g. sitting the make-up on Thursday. Extending the same pair again replaces lessons/note. Returns the stored extension. With resubmission_id: moves that request's deadline to N lessons after the ask. " +
+        "If the teacher wants the student told (normally yes), pass comment_line — use preview_status_line to show the teacher the exact line first; it is published to the student's Schoology comment (visible to the student and parents), replacing Prism's previous status line. Dates render as `Ddd DD/MM` (e.g. `Thu 09/10`); `{note}` and its leading space are omitted when there is no note. Templates: with resubmission_id — `⟳ Resubmission requested — now due {Ddd DD/MM}. {note}`; a Schoology test/quiz make-up — `⟳ Make-up — sit by {Ddd DD/MM}. {note}`; otherwise — `⟳ Extension — now due {Ddd DD/MM} ({n} lessons). {note}`.",
       inputSchema: {
         student_id: z.number().optional().describe('Student id (lateWork[]/makeUps[].studentId or list_students)'),
         assignment_id: z.number().optional().describe('Assignment id (lateWork[]/makeUps[].assignmentId or list_assignments)'),
         lessons: z.number().int().min(1).max(60).describe('Extension in lessons (school days), 1–60'),
         note: z.string().optional().describe('Optional reason, e.g. "sick for a week"'),
         resubmission_id: z.number().optional().describe('Extend an open resubmission request (get_triage resubmissions[].id) instead of an assignment deadline; then only lessons is used'),
+        comment_line: z.string().optional().describe('Exact status line to publish to the student\'s Schoology comment — see the templates above. Omit for a Prism-only change (as before).'),
       },
     },
-    async (args) => text(extendDeadlineTool(getDb(), args))
+    async (args) => text(await extendDeadlineTool(getDb(), args))
   );
 
   server.registerTool(
     'undo_extension',
     {
-      description: 'Undo a deadline extension by its id (from list_referrals extensions or extend_deadline). The student is measured from the original due date again. Only when the teacher asks.',
-      inputSchema: { id: z.number().describe('Extension id') },
+      description: 'Undo a deadline extension by its id (from list_referrals extensions or extend_deadline). The student is measured from the original due date again. Only when the teacher asks. Pass remove_line: true to also remove the status line THIS extension published from the student\'s Schoology comment (only if it is still there verbatim — a teacher hand-edit is left alone).',
+      inputSchema: {
+        id: z.number().describe('Extension id'),
+        remove_line: z.boolean().optional().describe('Also remove the status line this extension published from the Schoology comment, if still present verbatim'),
+      },
     },
-    async (args) => text(undoExtensionTool(getDb(), args))
+    async (args) => text(await undoExtensionTool(getDb(), args))
   );
 
   server.registerTool(
     'request_resubmission',
     {
-      description: "Ask a student to resubmit one assessment, with a deadline in lessons (SCHOOL days; default = the teacher's setting, 3). ONLY when the teacher explicitly asks. Works on graded, comment-only or ungraded work. The pair then shows in get_triage resubmissions as 'waiting' (day 1 = the ask day, red after the deadline `until`) until a resubmission arrives ('arrived'), then clears when the visible feedback changes (a new score, rubric level or visible comment). Rejects a second open request (ALREADY_OPEN). Prism-only: nothing is written to Schoology.",
+      description: "Ask a student to resubmit one assessment, with a deadline in lessons (SCHOOL days; default = the teacher's setting, 3). ONLY when the teacher explicitly asks. Works on graded, comment-only or ungraded work. The pair then shows in get_triage resubmissions as 'waiting' (day 1 = the ask day, red after the deadline `until`) until a resubmission arrives ('arrived'), then clears when the visible feedback changes (a new score, rubric level or visible comment). Rejects a second open request (ALREADY_OPEN). " +
+        "If the teacher wants the student told (normally yes), pass comment_line — use preview_status_line to show the teacher the exact line first; it is published to the student's Schoology comment (visible to the student and parents), replacing Prism's previous status line. Template: `⟳ Resubmission requested — due {Ddd DD/MM}. {note}` (date as `Ddd DD/MM`, e.g. `Thu 09/10`; `{note}` and its leading space omitted when there is no note). Omit comment_line for a Prism-only request: nothing is written to Schoology.",
       inputSchema: {
         student_id: z.number().describe('Student id (list_students / get_triage rows)'),
         assignment_id: z.number().describe('Assignment id (list_assignments / get_triage rows)'),
         lessons: z.number().int().min(1).max(60).optional().describe('Deadline in lessons (school days) from today'),
         note: z.string().optional().describe('What to fix, e.g. "add the evaluation section"'),
+        comment_line: z.string().optional().describe('Exact status line to publish to the student\'s Schoology comment — see the template above'),
       },
     },
-    async (args) => text(requestResubmissionTool(getDb(), args))
+    async (args) => text(await requestResubmissionTool(getDb(), args))
   );
 
   server.registerTool(
     'grade_stands',
     {
-      description: "End an open resubmission request because its deadline passed with no resubmission — the original grade stands. ONLY after the deadline (the get_triage row is red: today after `until`); before that it is rejected (NOT_AT_DEADLINE) — extend instead. Only when the teacher asks. id from get_triage resubmissions[].id or list_resubmissions. Publishes nothing to Schoology yet.",
-      inputSchema: { id: z.number().describe('Resubmission request id') },
+      description: "End an open resubmission request because its deadline passed with no resubmission — the original grade stands. ONLY after the deadline (the get_triage row is red: today after `until`); before that it is rejected (NOT_AT_DEADLINE) — extend instead. Only when the teacher asks. id from get_triage resubmissions[].id or list_resubmissions. " +
+        "If the teacher wants the student told (normally yes), pass comment_line — use preview_status_line to show the teacher the exact line first; it is published to the student's Schoology comment (visible to the student and parents), replacing Prism's previous status line. Template: `⟳ Resubmission deadline ({Ddd DD/MM}) passed — your grade stands.` (the deadline that passed, as `Ddd DD/MM`). Omit comment_line to publish nothing to Schoology.",
+      inputSchema: {
+        id: z.number().describe('Resubmission request id'),
+        comment_line: z.string().optional().describe('Exact status line to publish to the student\'s Schoology comment — see the template above'),
+      },
     },
-    async (args) => text(gradeStandsTool(getDb(), args))
+    async (args) => text(await gradeStandsTool(getDb(), args))
+  );
+
+  server.registerTool(
+    'preview_status_line',
+    {
+      description: "Preview what publishing `line` would do to a student's current Schoology comment, before using comment_line on request_resubmission / extend_deadline / grade_stands / undo_extension. Does a fresh read only — nothing is written. Returns { currentComment, visible, storedLine, resultingComment, hiddenWarning }: resultingComment is exactly what the comment would become; hiddenWarning is true when the current comment is hidden from the student but holds the teacher's own text (so publishing would make it visible). Show resultingComment to the teacher before any publish.",
+      inputSchema: {
+        student_id: z.number().describe('Student id'),
+        assignment_id: z.number().describe('Assignment id'),
+        line: z.string().optional().describe('The line to preview publishing (omit to just see the current comment)'),
+      },
+    },
+    async (args) => text(await previewStatusLineTool(getDb(), args))
   );
 
   server.registerTool(

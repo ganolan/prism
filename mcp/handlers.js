@@ -11,10 +11,16 @@ import { normalizeSubmissionStatus, gradingState, getRoster, scoreScaleFor } fro
 import { preferredFirstName } from '../server/services/studentNames.js';
 import {
   getTriage, listReferrals, recordReferral, undoReferral, listExtensions, recordExtension, undoExtension, setMakeUpIgnored,
+  assertCanExtend,
 } from '../server/services/triage.js';
 import {
   requestResubmission, extendResubmission, gradeStands, listResubmissions,
+  assertCanRequest, assertCanExtendRequest, assertCanGradeStand,
 } from '../server/services/resubmissions.js';
+import {
+  previewStatusLine, publishStatusLine, removeStatusLine, setStatusLineSource,
+} from '../server/services/statusLinePublisher.js';
+import { act, hasLine, pairOf } from '../server/services/triageActions.js';
 import { loadCalendar } from '../server/services/schoolCalendar.js';
 import { todayLocal } from '../server/lib/schoolDays.js';
 
@@ -263,25 +269,92 @@ export function setMakeupTrackingTool(db, { assignment_id, tracked } = {}) {
   return setMakeUpIgnored(db, assignment_id, typeof tracked === 'boolean' ? !tracked : tracked);
 }
 
-export function extendDeadlineTool(db, { student_id, assignment_id, lessons, note, resubmission_id } = {}) {
-  if (resubmission_id != null) return extendResubmission(db, resubmission_id, lessons);
-  return recordExtension(db, { studentId: student_id, assignmentId: assignment_id, lessons, note, source: 'mcp' });
+// extend_deadline, both paths, gain comment_line? (published via the shared
+// lock → validate → publish → record orchestration in triageActions.js, same
+// as the HTTP routes). With resubmission_id: kind 'extend_resubmission'.
+// Otherwise: kind 'make_up' for a Schoology test, else 'extension'.
+export async function extendDeadlineTool(db, { student_id, assignment_id, lessons, note, resubmission_id, comment_line } = {}) {
+  if (resubmission_id != null) {
+    return act(db, {
+      pair: () => pairOf(db, 'resubmissions', resubmission_id),
+      validate: () => assertCanExtendRequest(db, resubmission_id, lessons),
+      publish: hasLine(comment_line) ? (({ request }) => publishStatusLine(db, {
+        studentId: request.student_id, assignmentId: request.assignment_id, line: comment_line, kind: 'extend_resubmission',
+      })) : null,
+      record: ({ request }, published) => {
+        const r = extendResubmission(db, resubmission_id, lessons);
+        if (published) setStatusLineSource(db, { studentId: request.student_id, assignmentId: request.assignment_id, type: 'resubmission', id: request.id });
+        return r;
+      },
+    });
+  }
+  return act(db, {
+    pair: () => [student_id, assignment_id],
+    validate: () => assertCanExtend(db, { studentId: student_id, assignmentId: assignment_id, lessons }),
+    publish: hasLine(comment_line) ? ((ctx) => publishStatusLine(db, {
+      studentId: ctx.student.id, assignmentId: ctx.assignment.id, line: comment_line,
+      kind: ctx.assignment.is_test === 1 ? 'make_up' : 'extension',
+    })) : null,
+    record: (ctx, published) => {
+      const x = recordExtension(db, { studentId: student_id, assignmentId: assignment_id, lessons, note, source: 'mcp' });
+      if (published) setStatusLineSource(db, { studentId: ctx.student.id, assignmentId: ctx.assignment.id, type: 'extension', id: x.id });
+      return x;
+    },
+  });
 }
 
-export function undoExtensionTool(db, { id } = {}) {
-  return undoExtension(db, id);
+// undo_extension gains remove_line?: first removes the line THIS extension
+// published (if it is still the stored line) before deleting the record.
+export async function undoExtensionTool(db, { id, remove_line } = {}) {
+  return act(db, {
+    pair: () => pairOf(db, 'extensions', id),
+    validate: () => pairOf(db, 'extensions', id),
+    publish: remove_line ? ((p) => (p
+      ? removeStatusLine(db, { studentId: p[0], assignmentId: p[1], source: { type: 'extension', id } })
+      : null)) : null,
+    record: () => undoExtension(db, id),
+  });
 }
 
 // ── Resubmissions (asks to redo graded/comment-only/ungraded work) ──────────
 // Same service as the dashboard (server/services/resubmissions.js).
 
-export function requestResubmissionTool(db, { student_id, assignment_id, lessons, note } = {}) {
-  return requestResubmission(db, { studentId: student_id, assignmentId: assignment_id, lessons: lessons ?? null, note, source: 'mcp' });
+export async function requestResubmissionTool(db, { student_id, assignment_id, lessons, note, comment_line } = {}) {
+  return act(db, {
+    pair: () => [student_id, assignment_id],
+    validate: () => assertCanRequest(db, { studentId: student_id, assignmentId: assignment_id, lessons: lessons ?? null }),
+    publish: hasLine(comment_line) ? ((ctx) => publishStatusLine(db, {
+      studentId: ctx.student.id, assignmentId: ctx.assignment.id, line: comment_line, kind: 'ask',
+    })) : null,
+    record: (ctx, published) => {
+      const r = requestResubmission(db, { studentId: student_id, assignmentId: assignment_id, lessons: lessons ?? null, note, source: 'mcp' });
+      if (published) setStatusLineSource(db, { studentId: ctx.student.id, assignmentId: ctx.assignment.id, type: 'resubmission', id: r.id });
+      return r;
+    },
+  });
 }
 
 // Only once the request's deadline has passed (NOT_AT_DEADLINE before).
-export function gradeStandsTool(db, { id } = {}) {
-  return gradeStands(db, id);
+export async function gradeStandsTool(db, { id, comment_line } = {}) {
+  return act(db, {
+    pair: () => pairOf(db, 'resubmissions', id),
+    validate: () => assertCanGradeStand(db, id),
+    publish: hasLine(comment_line) ? (({ request }) => publishStatusLine(db, {
+      studentId: request.student_id, assignmentId: request.assignment_id, line: comment_line, kind: 'grade_stands',
+    })) : null,
+    record: ({ request }, published) => {
+      const r = gradeStands(db, id);
+      if (published) setStatusLineSource(db, { studentId: request.student_id, assignmentId: request.assignment_id, type: 'resubmission', id: request.id });
+      return r;
+    },
+  });
+}
+
+// Read-only preview for the confirm step before any comment_line publish: a
+// fresh read of the current comment plus what it would become, without
+// writing anything (server/services/statusLinePublisher.js previewStatusLine).
+export async function previewStatusLineTool(db, { student_id, assignment_id, line } = {}) {
+  return previewStatusLine(db, { studentId: student_id, assignmentId: assignment_id, line: line ?? '' });
 }
 
 // state: 'asked' (open) | 'grade_stands' | 'done' | 'undone' | 'closed'

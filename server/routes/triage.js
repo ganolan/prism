@@ -10,8 +10,9 @@ import {
   assertCanRequest, assertCanExtendRequest, assertCanGradeStand,
 } from '../services/resubmissions.js';
 import {
-  previewStatusLine, publishStatusLine, removeStatusLine, lockPair, setStatusLineSource,
+  previewStatusLine, publishStatusLine, removeStatusLine, setStatusLineSource,
 } from '../services/statusLinePublisher.js';
+import { act as runAction, hasLine, pairOf } from '../services/triageActions.js';
 import { loadCalendar } from '../services/schoolCalendar.js';
 import { todayLocal } from '../lib/schoolDays.js';
 
@@ -23,13 +24,6 @@ const STATUS = {
 };
 const optBool = (v) => (v === undefined ? undefined : v === 'true');
 const flag = (v) => v === '1' || v === 'true';
-// A status line to publish with the action: omitted / '' → Prism-only (as before).
-const hasLine = (commentLine) => commentLine != null && commentLine !== '';
-// The pair a record belongs to (for the per-pair lock), or null when it doesn't exist.
-const pairOf = (db, table, id) => {
-  const r = db.prepare(`SELECT student_id, assignment_id FROM ${table} WHERE id = ?`).get(Number(id));
-  return r ? [r.student_id, r.assignment_id] : null;
-};
 
 function sendError(res, err) {
   if (err instanceof TriageError) return res.status(STATUS[err.code] || 400).json({ error: err.message, code: err.code });
@@ -48,43 +42,18 @@ function write(res, fn, okStatus = 201) {
 }
 
 // An action that may publish to the student's Schoology comment (spec Amendment B,
-// "Status lines"): lock the pair → validate the Prism action → publish (optional) →
-// record in Prism → unlock. A second action on the same pair meanwhile gets BUSY (409)
-// before anything is read. A failed validation or publish changes nothing. If the
-// record step fails AFTER a Schoology write, the comment has already changed: say so
-// plainly (500) so the teacher knows, and log it.
-async function act(res, { pair = null, validate, publish = null, record }, okStatus = 201) {
-  let release = null;
+// "Status lines"). The lock → validate → publish → record sequence lives in
+// server/services/triageActions.js (shared with PrisMCP) — this just maps its
+// outcome to an HTTP response.
+async function act(res, opts, okStatus = 201) {
   try {
-    let ctx;
-    let published = null;
-    try {
-      const p = pair ? pair() : null;
-      if (p) release = lockPair(p[0], p[1]);
-      ctx = validate();
-      if (publish) published = await publish(ctx);
-    } catch (err) {
-      return sendError(res, err);
+    const result = await runAction(getDb(), opts);
+    res.status(okStatus).json(result);
+  } catch (err) {
+    if (err && err.code === 'RECORD_FAILED_AFTER_PUBLISH') {
+      return res.status(500).json({ error: err.message, code: err.code, published: err.published, comment: err.comment });
     }
-    try {
-      // The record and its line's source land together (setStatusLineSource runs inside record).
-      const result = getDb().transaction(() => record(ctx, published))();
-      return res.status(okStatus).json(published ? { ...result, statusLine: published } : result);
-    } catch (err) {
-      const removal = Boolean(published && 'removed' in published);
-      // A no-op removal (no stored line / hand-edited) wrote nothing to Schoology.
-      if (!published || published.removed === false) return sendError(res, err);
-      const what = removal ? 'The status line WAS removed from' : 'The comment WAS published to';
-      console.error(`[triage] ${what} Schoology, but recording the action in Prism failed:`, err);
-      return res.status(500).json({
-        error: `${what} the student's Schoology comment, but Prism could not record the action (${err.message}). Check the comment in Schoology, then reload and retry the action.`,
-        code: 'RECORD_FAILED_AFTER_PUBLISH',
-        published: true,
-        comment: published.comment ?? null,
-      });
-    }
-  } finally {
-    release?.();
+    return sendError(res, err);
   }
 }
 

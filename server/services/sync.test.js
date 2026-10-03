@@ -1027,6 +1027,24 @@ describe('syncSectionData — recent-only submission window (#55)', () => {
     expect(result.windowSkipped).toBe(2);
   });
 
+  // Final review 5c: an assignment with an open resubmission request is still
+  // checked even when it is outside the recent window — the arrival is exactly
+  // what the request is waiting for.
+  test('recentOnly still checks an old assignment with an open resubmission request', async () => {
+    await syncSectionData(db, 'sec-w', courseId, NOW, { recentOnly: false }); // creates students + assignments
+    const studentId = db.prepare(`SELECT id FROM students WHERE schoology_uid = '700001'`).get().id;
+    const oldId = db.prepare(`SELECT id FROM assignments WHERE schoology_assignment_id = '5002'`).get().id;
+    const undatedId = db.prepare(`SELECT id FROM assignments WHERE schoology_assignment_id = '5003'`).get().id;
+    const ins = db.prepare(`INSERT INTO resubmissions (student_id, assignment_id, course_id, kind, status, requested_at, lessons) VALUES (?, ?, ?, 'request', ?, '2026-06-01 00:00:00', 3)`);
+    ins.run(studentId, oldId, courseId, 'open');
+    ins.run(studentId, undatedId, courseId, 'closed'); // a closed request does not widen the window
+    getAssignmentSubmissions.mockClear();
+
+    const result = await syncSectionData(db, 'sec-w', courseId, NOW, { recentOnly: true, recentDays: 30 });
+    expect(getAssignmentSubmissions.mock.calls.map((c) => c[1]).sort()).toEqual(['5001', '5002']);
+    expect(result.windowSkipped).toBe(1);
+  });
+
   test('recentOnly off checks every dropbox assignment (unchanged)', async () => {
     const result = await syncSectionData(db, 'sec-w', courseId, NOW, { recentOnly: false });
     expect(getAssignmentSubmissions).toHaveBeenCalledTimes(3); // 3 assignments

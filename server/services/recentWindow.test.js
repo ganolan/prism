@@ -20,6 +20,12 @@ describe('filterRecentAssignments', () => {
     expect(windowSkipped).toBe(2);
   });
 
+  it('always keeps an assignment whose id is in alwaysInclude (open resubmission request)', () => {
+    const { target, windowSkipped } = filterRecentAssignments(all, true, 30, NOW, new Set(['o', 'u']));
+    expect(target.map((a) => a.id)).toEqual(['r', 'o', 'f', 'u']);
+    expect(windowSkipped).toBe(0);
+  });
+
   it('treats an unparseable due date as undated (skipped)', () => {
     const { target } = filterRecentAssignments([{ id: 'x', due: 'not-a-date' }], true, 30, NOW);
     expect(target).toEqual([]);

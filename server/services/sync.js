@@ -251,9 +251,17 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     ? []
     : assignments.filter(a => a.allow_dropbox === '1' || a.allow_dropbox === 1);
   // #55: when recentOnly, restrict the submission check to assignments due within
-  // recentDays or in the future; skip undated + clearly-old work.
+  // recentDays or in the future; skip undated + clearly-old work. An assignment
+  // with an open resubmission request is always checked — however old, its new
+  // submission is what the request is waiting for.
+  const openResubmissionIds = recentOnly
+    ? new Set(db.prepare(`
+        SELECT DISTINCT a.schoology_assignment_id AS id FROM resubmissions r JOIN assignments a ON a.id = r.assignment_id
+        WHERE r.course_id = ? AND r.kind = 'request' AND r.status = 'open'
+      `).all(courseId).map((r) => String(r.id)))
+    : null;
   const { target: dropboxAssignments, windowSkipped } =
-    filterRecentAssignments(dropboxAll, recentOnly, recentDays, now);
+    filterRecentAssignments(dropboxAll, recentOnly, recentDays, now, openResubmissionIds);
 
   // #62: lti_submission assignments use the per-assignment document endpoints
   // (true state, whole roster in 2 calls); native dropbox uses the bulk

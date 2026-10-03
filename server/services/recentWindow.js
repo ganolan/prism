@@ -6,8 +6,11 @@ const DAY_MS = 86400000;
 // expensive per-cell check: due within the last `recentDays` days, or due in
 // the future. Undated and clearly-old assignments are dropped. When `recentOnly`
 // is false this is a pass-through. `now` is an ISO string (the sync's reference
-// timestamp), so it must be parsed before arithmetic.
-export function filterRecentAssignments(assignments, recentOnly, recentDays, now) {
+// timestamp), so it must be parsed before arithmetic. `alwaysInclude` is a Set of
+// assignment ids (String(a.id)) kept whatever their due date — the sync passes
+// the assignments with an open resubmission request, whose arrival is exactly
+// what the request waits for.
+export function filterRecentAssignments(assignments, recentOnly, recentDays, now, alwaysInclude = null) {
   if (!recentOnly) return { target: assignments, windowSkipped: 0 };
   const nowMs = Date.parse(now);
   // Invalid reference timestamp → pass-through rather than silently dropping
@@ -15,6 +18,7 @@ export function filterRecentAssignments(assignments, recentOnly, recentDays, now
   if (!Number.isFinite(nowMs)) return { target: assignments, windowSkipped: 0 };
   const cutoff = nowMs - recentDays * DAY_MS;
   const target = assignments.filter((a) => {
+    if (alwaysInclude?.has(String(a.id))) return true;
     const t = a.due ? Date.parse(a.due) : NaN;
     return !Number.isNaN(t) && t >= cutoff;
   });

@@ -272,11 +272,27 @@ export function setMakeupTrackingTool(db, { assignment_id, tracked } = {}) {
   return setMakeUpIgnored(db, assignment_id, typeof tracked === 'boolean' ? !tracked : tracked);
 }
 
+// PrisMCP loads no dotenv (mcp/dbGuard.js), and server/services/schoology.js reads
+// its credentials from the environment at import. A tool that reads or writes the
+// student's Schoology comment (preview_status_line, comment_line, remove_line) needs
+// them in the prism MCP server's env block — checked at call time so a missing one
+// is named plainly (final review I3) instead of surfacing as a failed read.
+const SCHOOLOGY_ENV = ['SCHOOLOGY_BASE_URL', 'SCHOOLOGY_CONSUMER_KEY', 'SCHOOLOGY_CONSUMER_SECRET'];
+export function assertSchoologyConfigured(env = process.env) {
+  const missing = SCHOOLOGY_ENV.filter((k) => !String(env[k] ?? '').trim());
+  if (missing.length === 0) return;
+  throw new TriageError('SCHOOLOGY_NOT_CONFIGURED',
+    `PrisMCP cannot reach Schoology: ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not set in its environment — nothing was read, published or recorded. ` +
+    'Add SCHOOLOGY_BASE_URL, SCHOOLOGY_CONSUMER_KEY and SCHOOLOGY_CONSUMER_SECRET to the prism MCP server\'s "env" block ' +
+    '(docs/prismcp-install-and-verify.md), then restart it — or leave out comment_line / remove_line to keep the action Prism-only.');
+}
+
 // extend_deadline, both paths, gain comment_line? (published via the shared
 // lock → validate → publish → record orchestration in triageActions.js, same
 // as the HTTP routes). With resubmission_id: kind 'extend_resubmission'.
 // Otherwise: kind 'make_up' for a Schoology test, else 'extension'.
 export async function extendDeadlineTool(db, { student_id, assignment_id, lessons, note, resubmission_id, comment_line } = {}) {
+  if (hasLine(comment_line)) assertSchoologyConfigured();
   if (resubmission_id != null) {
     return act(db, {
       pair: () => pairOf(db, 'resubmissions', resubmission_id),
@@ -309,6 +325,7 @@ export async function extendDeadlineTool(db, { student_id, assignment_id, lesson
 // undo_extension gains remove_line?: first removes the line THIS extension
 // published (if it is still the stored line) before deleting the record.
 export async function undoExtensionTool(db, { id, remove_line } = {}) {
+  if (remove_line) assertSchoologyConfigured();
   return act(db, {
     pair: () => pairOf(db, 'extensions', id),
     validate: () => pairOf(db, 'extensions', id),
@@ -323,6 +340,7 @@ export async function undoExtensionTool(db, { id, remove_line } = {}) {
 // Same service as the dashboard (server/services/resubmissions.js).
 
 export async function requestResubmissionTool(db, { student_id, assignment_id, lessons, note, comment_line } = {}) {
+  if (hasLine(comment_line)) assertSchoologyConfigured();
   return act(db, {
     pair: () => [student_id, assignment_id],
     validate: () => assertCanRequest(db, { studentId: student_id, assignmentId: assignment_id, lessons: lessons ?? null }),
@@ -342,6 +360,7 @@ export async function requestResubmissionTool(db, { student_id, assignment_id, l
 // clock tick between them (e.g. a request that straddles midnight) can't make
 // the two disagree about whether the deadline has passed.
 export async function gradeStandsTool(db, { id, comment_line } = {}) {
+  if (hasLine(comment_line)) assertSchoologyConfigured();
   const today = todayLocal();
   return act(db, {
     pair: () => pairOf(db, 'resubmissions', id),
@@ -374,6 +393,7 @@ export async function previewStatusLineTool(db, { student_id, assignment_id, kin
   if (!RENDERABLE_KINDS.includes(kind)) {
     throw new TriageError('BAD_VALUE', `kind must be one of ${RENDERABLE_KINDS.join(', ')}`);
   }
+  assertSchoologyConfigured(); // the preview is a fresh Schoology read
   const { until } = statusLineUntil(db, {
     kind, studentId: student_id, assignmentId: assignment_id, lessons, resubmissionId: resubmission_id,
   });

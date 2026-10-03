@@ -1,6 +1,12 @@
 # PrisMCP — install & verify
 
-Operational guide for the PrisMCP server (spec: `docs/superpowers/specs/2026-06-06-prismcp-server.md`, tracking issue #84). PrisMCP is a local **stdio** MCP server that lets an interactive Claude grading session read a Prism course/assignment's roster, rubric measurement-topics, and current grades, and write AI grading **suggestions** back into Prism's local SQLite DB for teacher review on `/assessment/:id` (the violet ✦ layer). It never reads submissions. **It writes to Schoology in one place only** (triage resubmissions spec Amendment B, 2026-10-03): `request_resubmission` and `grade_stands` can publish a status line to a student's Schoology grade comment — but only when the caller passes `comment_line`, and only after calling `preview_status_line` first (a read-only fresh-Schoology-read) to render it; omitting `comment_line` keeps the action Prism-only, same as every other write below.
+Operational guide for the PrisMCP server (spec: `docs/superpowers/specs/2026-06-06-prismcp-server.md`, tracking issue #84). PrisMCP is a local **stdio** MCP server that lets an interactive Claude grading session read a Prism course/assignment's roster, rubric measurement-topics, and current grades, and write AI grading **suggestions** back into Prism's local SQLite DB for teacher review on `/assessment/:id` (the violet ✦ layer). It never reads submissions. **It writes to Schoology only through Prism's status lines** (triage resubmissions spec Amendment B, 2026-10-03) — a single line at the top of a student's Schoology grade comment, never a score:
+
+- `request_resubmission`, `grade_stands` and `extend_deadline` publish one **only when the caller passes `comment_line`** (and only after calling `preview_status_line` first to render it);
+- `undo_extension` removes the line that extension published **only when the caller passes `remove_line: true`**;
+- `preview_status_line` writes nothing, but it does a fresh **read** of the student's Schoology comment.
+
+Omitting `comment_line` / `remove_line` keeps the action Prism-only, same as every other write below. These Schoology-touching tools need the Schoology credentials in the server's environment — see [Schoology credentials](#schoology-credentials-for-the-status-line-tools-since-2026-10-03).
 
 Surface: tools `list_courses`, `list_assignments`, `list_students`, `get_assignment_context`, `write_student_suggestions`, `write_assessment_analysis`; rubric tools `list_rubrics`, `read_rubric`, `write_rubric`, `attach_rubric`; `@`-mention resources `prism://courses`, `prism://course/{courseId}/assignments`, `prism://assignment/{courseId}/{assignmentId}/context`; and the `grade-assignment` prompt. Also: `get_triage` (the late-work referral watch, feedback-owed, make-up-test and **resubmission** lists, same numbers as the dashboard — each row's `day` counts the due/test date as day 1: referral after day 8, feedback overdue after day 10 by default), `list_referrals` (history: `{ referrals, extensions }`), `school_calendar` (school-day info and between-dates counts), `record_referral` (mark a late-work row at the limit as referred), `undo_referral` (delete a referral by id), `extend_deadline` (give one student N more lessons — school days — on a summative task, a Schoology test/quiz, or (via `resubmission_id`) an open resubmission request; on a make-up it moves the make-up clock), `undo_extension` (delete an extension by id, optionally `remove_line: true` to also remove the status line it published), `set_makeup_tracking` (ignore — or track again — one Schoology test/quiz for make-ups, all students), and the Amendment B resubmission set: `request_resubmission` (ask a student to resubmit, deadline in lessons), `grade_stands` (close an open request once its deadline has passed, with no resubmission — the original grade stands; "Reviewed"/`close_resubmission`/`mark_resubmission_reviewed` were removed, since an arrival now only clears on genuinely new visible feedback), `preview_status_line` (render — never guess — the exact status-line text and due date for `request_resubmission` / `extend_deadline` / `grade_stands` before publishing), and `list_resubmissions` (history by course/student/since/state).
 
@@ -14,6 +20,25 @@ erased at the next `npm run db:refresh`.
 
 A relative path is refused because it resolves against whichever directory
 the client launched from. `:memory:` and `file:` URIs are accepted.
+
+## Schoology credentials for the status-line tools (since 2026-10-03)
+
+PrisMCP loads no dotenv (see above), and Prism's Schoology client reads
+`SCHOOLOGY_BASE_URL`, `SCHOOLOGY_CONSUMER_KEY` and `SCHOOLOGY_CONSUMER_SECRET`
+from the process environment when it starts. So **the MCP server config must
+provide all three** — alongside `DB_PATH`, in the entry's `env` block (or, over
+SSH, on the remote command line) — for `preview_status_line`, for
+`request_resubmission` / `grade_stands` / `extend_deadline` with `comment_line`,
+and for `undo_extension` with `remove_line`. Copy the values from the
+server's `.env` (`~/prism/data/.env` on the mini); `SCHOOLOGY_BASE_URL` is
+`https://api.schoology.com`. The config file then holds the consumer secret, so
+keep it as private as `.env` itself.
+
+Without them those tools fail before touching anything, with
+`SCHOOLOGY_NOT_CONFIGURED: PrisMCP cannot reach Schoology: … not set in its
+environment — nothing was read, published or recorded`. Every other tool —
+including the same actions *without* `comment_line` / `remove_line` — works
+without them. Restart the MCP server after adding them.
 
 ## Install
 
@@ -41,6 +66,12 @@ claude mcp add prism -s user -e DB_PATH=/Users/gnolan/prism/data/students.db -- 
 claude mcp remove prism -s user
 claude mcp add prism -s user -- ssh gnolan@macmini 'cd ~/prism/current && DB_PATH=$HOME/prism/data/students.db /usr/local/bin/node mcp/server.js'
 ```
+
+For the status-line tools, also pass the three Schoology variables (see
+[Schoology credentials](#schoology-credentials-for-the-status-line-tools-since-2026-10-03)):
+add `-e SCHOOLOGY_BASE_URL=https://api.schoology.com -e SCHOOLOGY_CONSUMER_KEY=… -e SCHOOLOGY_CONSUMER_SECRET=…`
+to the mini's `claude mcp add`, or put `SCHOOLOGY_BASE_URL=… SCHOOLOGY_CONSUMER_KEY=… SCHOOLOGY_CONSUMER_SECRET=…`
+before `DB_PATH=…` inside the SSH command's quotes.
 
 The SSH command is single-quoted so `~` and `$HOME` expand **on the mini**.
 `/usr/local/bin/node` is spelled out because a non-interactive SSH session's
@@ -116,9 +147,18 @@ and leave the rest of the file alone.
 "prism": {
   "command": "/usr/local/bin/node",
   "args": ["/Users/gnolan/prism/current/mcp/server.js"],
-  "env": { "DB_PATH": "/Users/gnolan/prism/data/students.db" }
+  "env": {
+    "DB_PATH": "/Users/gnolan/prism/data/students.db",
+    "SCHOOLOGY_BASE_URL": "https://api.schoology.com",
+    "SCHOOLOGY_CONSUMER_KEY": "<from ~/prism/data/.env>",
+    "SCHOOLOGY_CONSUMER_SECRET": "<from ~/prism/data/.env>"
+  }
 }
 ```
+
+The three `SCHOOLOGY_*` entries are only needed for the status-line tools (see
+[Schoology credentials](#schoology-credentials-for-the-status-line-tools-since-2026-10-03)).
+Over SSH (below), put them inside the quoted remote command, before `DB_PATH=…`.
 
 **On the laptop**, go over SSH to the mini. This needs the Keychain setup
 above; the `Host macmini` block supplies the user and the key:
@@ -182,5 +222,5 @@ Claude Code surfaces the same prompt as `/mcp__prism__grade-assignment` and reso
 ## Guardrails (confirmed 2026-06-06)
 
 - [x] The server contains **no** grading philosophy / rubric / extraction / output content, and **no** path outside the repo.
-- [x] It never writes to Schoology and never reads submissions.
-- [x] Writes target only the `feedback` and `assessment_analysis` tables — never `mastery_scores`, `grades`, or Schoology.
+- [x] It never reads submissions, and never writes a score to Schoology. *(Amended 2026-10-03: the status-line tools listed at the top write one line of a student's Schoology comment, only when given `comment_line` / `remove_line`.)*
+- [x] Grading writes target only the `feedback` and `assessment_analysis` tables — never `mastery_scores` or Schoology. *(Amended 2026-10-03: the triage tools also record referrals / extensions / resubmissions, and a published or removed status line is mirrored into `grades` + `status_lines`.)*

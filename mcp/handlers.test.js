@@ -17,6 +17,11 @@ import { saveRubric, listRubrics, getRubricByName } from '../server/services/rub
 import { askLine, extendResubmissionLine, gradeStandsLine, extensionLine, makeUpLine } from '../server/lib/statusLines.js';
 
 beforeEach(() => {
+  // Publishing tools check the Schoology credentials are configured (final review I3);
+  // the Schoology client itself is mocked above.
+  vi.stubEnv('SCHOOLOGY_BASE_URL', 'https://api.schoology.test');
+  vi.stubEnv('SCHOOLOGY_CONSUMER_KEY', 'key');
+  vi.stubEnv('SCHOOLOGY_CONSUMER_SECRET', 'secret');
   getDb().exec(
     'DELETE FROM status_lines; DELETE FROM feedback_snapshots; ' +
     'DELETE FROM referrals; DELETE FROM extensions; DELETE FROM resubmissions; DELETE FROM school_days; DELETE FROM mastery_scores; ' +
@@ -339,6 +344,26 @@ describe('status lines on resubmission/extension tools (Amendment B)', () => {
     expect(pushGradeComments).toHaveBeenCalledTimes(1);
     expect(r.statusLine).toMatchObject({ comment: `${LINE}\n\nTeacher note.`, line: LINE });
     expect(storedLine(db, studentId, assignmentId)).toEqual({ line: LINE, kind: 'ask' });
+  });
+
+  // Final review I3: PrisMCP loads no dotenv; without the Schoology credentials in its
+  // env block every publish would fail with a misleading read error. Say what is missing.
+  test('without the Schoology env vars, publishing tools fail with SCHOOLOGY_NOT_CONFIGURED and write nothing', async () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedEligiblePair(db);
+    vi.stubEnv('SCHOOLOGY_CONSUMER_SECRET', '');
+    const notConfigured = expect.objectContaining({ code: 'SCHOOLOGY_NOT_CONFIGURED', message: expect.stringContaining('SCHOOLOGY_CONSUMER_SECRET') });
+    await expect(requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId, comment_line: LINE })).rejects.toEqual(notConfigured);
+    await expect(extendDeadlineTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 2, comment_line: 'x' })).rejects.toEqual(notConfigured);
+    await expect(previewStatusLineTool(db, { student_id: studentId, assignment_id: assignmentId, kind: 'ask', lessons: 2 })).rejects.toEqual(notConfigured);
+    await expect(gradeStandsTool(db, { id: 1, comment_line: 'x' })).rejects.toEqual(notConfigured);
+    await expect(undoExtensionTool(db, { id: 1, remove_line: true })).rejects.toEqual(notConfigured);
+    expect(getSectionGrades).not.toHaveBeenCalled();
+    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(db.prepare('SELECT COUNT(*) AS n FROM resubmissions').get().n).toBe(0);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM extensions').get().n).toBe(0);
+    // Prism-only actions (no comment_line) still work without them.
+    await expect(requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId })).resolves.toMatchObject({ outcome: 'asked' });
   });
 
   test('request_resubmission without comment_line never touches Schoology (Prism-only, as before)', async () => {

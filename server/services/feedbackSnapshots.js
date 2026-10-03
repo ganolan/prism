@@ -11,7 +11,7 @@
 // wrote after the arrival (resubmissionStateFromSnapshot).
 // Captured at the end of each sync and after every Prism grade/comment save.
 import { fingerprint, hasPriorFeedback } from '../lib/feedbackFingerprint.js';
-import { isResubmitted, sqliteUtcToEpoch } from '../lib/resubmission.js';
+import { isResubmitted, sqliteUtcToEpoch, feedbackAnswered } from '../lib/resubmission.js';
 
 export const EMPTY_FINGERPRINT = fingerprint({});
 
@@ -88,7 +88,10 @@ export function snapshotMap(db, scope = {}) {
 // synced_fingerprint, when no save stamp is pending — as a sync would) are updated;
 // fingerprint_at is left alone, so publishing a status line never counts as a Prism
 // save after a resubmission (which would make R's baseline the older synced feedback
-// and could read a pre-R Schoology regrade as the answer).
+// and could read a pre-R Schoology regrade as the answer). It also never answers a
+// pending arrival: a publish that makes a hidden teacher comment visible (or mirrors an
+// unsynced Schoology change) is absorbed into arrival_baseline. An arrival already
+// answered is left alone, so a publish never re-surfaces it.
 export function captureFeedbackSnapshots(db, { mode = 'sync', stamp = true, now = Math.floor(Date.now() / 1000), ...scope } = {}) {
   const isSave = mode === 'save';
   const stamps = isSave && stamp !== false;
@@ -154,6 +157,12 @@ export function captureFeedbackSnapshots(db, { mode = 'sync', stamp = true, now 
         // rubric-only save doesn't move grades.submitted_at, and the save stamp is
         // cleared below, so the arrival keeps its own record of it.
         arrivalWriteAt = snap.fingerprint_at > latest ? snap.fingerprint_at : 0;
+      }
+      if (isSave && !stamps && arrivalAt > 0) {
+        // Unstamped (status-line) capture with an arrival: answered before this capture?
+        const wroteAfter = (Number(cur.grade.submitted_at) || 0) > arrivalAt || arrivalWriteAt > arrivalAt
+          || (Number(snap.fingerprint_at) || 0) > arrivalAt;
+        if (!(wroteAfter && feedbackAnswered(baseline, snap.fingerprint))) baseline = cur.fingerprint;
       }
       const revisionAt = Math.max(latest, snap.revision_at);
       const changed = cur.fingerprint !== snap.fingerprint;

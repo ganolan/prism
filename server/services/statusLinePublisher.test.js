@@ -151,6 +151,37 @@ describe('a status-line publish never answers a resubmission (R1)', () => {
     expect(stateOf(250)).toBe('arrived');                           // an open ask before R: not fulfilled
   });
 
+  test('publishing over a hidden comment (it becomes visible) never answers a pending arrival', async () => {
+    db.prepare(`UPDATE grades SET score = 60, grade_comment = 'Private: talk to parents', comment_status = NULL, submitted_at = 100, latest_revision_at = 50 WHERE student_id = ?`).run(s);
+    captureFeedbackSnapshots(db);
+    db.prepare('UPDATE grades SET latest_revision_at = 300 WHERE student_id = ?').run(s);
+    captureFeedbackSnapshots(db);                                    // R = 300 arrives
+    expect(stateOf()).toBe('arrived');
+    getSectionGrades.mockResolvedValue([fresh({ grade: '60', comment: 'Private: talk to parents', comment_status: null })]);
+    const out = await publishStatusLine(db, { studentId: s, assignmentId: a, line: L2, kind: 'extend_resubmission' });
+    expect(out.comment).toBe(`${L2}\n\nPrivate: talk to parents`);  // now visible to the student
+    expect(stateOf()).toBe('arrived');
+    db.prepare('UPDATE grades SET submitted_at = 400 WHERE student_id = ?').run(s);   // next sync: grade time = the publish
+    captureFeedbackSnapshots(db);
+    expect(stateOf()).toBe('arrived');
+    expect(stateOf(250)).toBe('arrived');
+  });
+
+  test('an arrival already answered stays answered after a publish', async () => {
+    db.prepare(`UPDATE grades SET score = 60, grade_comment = NULL, submitted_at = 100, latest_revision_at = 50 WHERE student_id = ?`).run(s);
+    captureFeedbackSnapshots(db);
+    db.prepare('UPDATE grades SET latest_revision_at = 300 WHERE student_id = ?').run(s);
+    captureFeedbackSnapshots(db);
+    db.prepare('UPDATE grades SET score = 70, submitted_at = 350 WHERE student_id = ?').run(s);   // regraded after R
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 350 });
+    expect(stateOf()).toBe(null);
+    getSectionGrades.mockResolvedValue([fresh({ grade: '70', comment: 'Hidden', comment_status: null })]);
+    await publishStatusLine(db, { studentId: s, assignmentId: a, line: L1, kind: 'extension' });
+    db.prepare('UPDATE grades SET submitted_at = 400 WHERE student_id = ?').run(s);
+    captureFeedbackSnapshots(db);
+    expect(stateOf()).toBe(null);
+  });
+
   test('removing a line also leaves the save stamp alone', async () => {
     db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, ?, 'ask')`).run(s, a, L1);
     captureFeedbackSnapshots(db);

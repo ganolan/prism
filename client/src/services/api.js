@@ -254,6 +254,14 @@ export const undoExtension = (id) => request(`/triage/extensions/${id}`, { metho
 export const setMakeUpIgnored = (assignmentId, ignored) =>
   request(`/triage/makeup-ignore/${assignmentId}`, { method: 'PUT', body: JSON.stringify({ ignored }) });
 
+// Resubmissions (asks + "Reviewed" marks).
+export const getResubmissions = ({ courseId } = {}) =>
+  request(`/triage/resubmissions${courseId != null ? `?courseId=${courseId}` : ''}`);
+export const requestResubmission = (body) => request('/triage/resubmissions', { method: 'POST', body: JSON.stringify(body) });
+export const updateResubmission = (id, body) => request(`/triage/resubmissions/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+export const reviewResubmission = (body) => request('/triage/resubmissions/review', { method: 'POST', body: JSON.stringify(body) });
+export const undoResubmission = (id) => request(`/triage/resubmissions/${id}`, { method: 'DELETE' });
+
 // Settings (server-side, shared by every device and PrisMCP).
 export const getSettings = () => request('/settings');
 export const updateSettings = (body) => request('/settings', { method: 'PUT', body: JSON.stringify(body) });

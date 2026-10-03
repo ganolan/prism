@@ -13,6 +13,10 @@ vi.mock('../../services/api.js', () => ({
   undoExtension: vi.fn(),
   getExtensions: vi.fn(),
   setMakeUpIgnored: vi.fn(),
+  getResubmissions: vi.fn(),
+  updateResubmission: vi.fn(),
+  reviewResubmission: vi.fn(),
+  undoResubmission: vi.fn(),
 }));
 
 const SETTINGS = {
@@ -52,6 +56,10 @@ beforeEach(() => {
   api.getReferrals.mockResolvedValue([]);
   api.getExtensions.mockResolvedValue([]);
   api.setMakeUpIgnored.mockResolvedValue({ assignmentId: 20, title: 'Unit 1 test', ignored: true });
+  api.getResubmissions.mockResolvedValue([]);
+  api.reviewResubmission.mockResolvedValue({});
+  api.updateResubmission.mockResolvedValue({});
+  api.undoResubmission.mockResolvedValue({});
 });
 
 describe('TriageSection', () => {
@@ -588,5 +596,43 @@ describe('TriageSection — ignore a quiz for make-ups', () => {
     api.getTriage.mockResolvedValue({ ...PAYLOAD, makeUps: [], makeUpsIgnored: 1 });
     renderSection();
     expect(await screen.findByText('1 test ignored')).toBeInTheDocument();
+  });
+});
+
+const RESUB = [
+  { id: null, state: 'arrived', studentId: 11, studentName: 'Lena Ho', courseId: 5, courseName: 'AIML', assignmentId: 30, schoologyAssignmentId: 'r30', title: 'Launch - Design', day: 3, limit: 10, tone: 'green', approx: false, lessons: null, until: null, requestedOn: null, arrivedOn: '2026-10-14', source: null, afterDeadline: false, note: null },
+  { id: 41, state: 'waiting', studentId: 12, studentName: 'Ravi Shah', courseId: 5, courseName: 'AIML', assignmentId: 30, schoologyAssignmentId: 'r30', title: 'Launch - Design', day: 6, limit: 4, tone: 'red', approx: false, lessons: 3, until: '2026-10-14', requestedOn: '2026-10-09', arrivedOn: null, source: 'schoology_unsubmit', afterDeadline: false, note: null },
+];
+
+describe('Resubmissions panel', () => {
+  it('is hidden when there are no resubmission rows', async () => {
+    renderSection();
+    await latePanel();
+    expect(screen.queryByLabelText('Resubmissions')).toBeNull();
+  });
+  it('lists arrived then waiting, with tags, and wires Reviewed / Close / Extend', async () => {
+    api.getTriage.mockResolvedValue({ ...PAYLOAD, resubmissions: RESUB, resubmissionHistoryCount: 2, counts: { resubmissionsOverdue: 1 } });
+    api.reviewResubmission.mockResolvedValue({}); api.updateResubmission.mockResolvedValue({});
+    renderSection();
+    const panel = await screen.findByLabelText('Resubmissions');
+    const names = within(panel).getAllByRole('link').map((l) => l.textContent);
+    expect(names).toEqual(['Lena Ho', 'Ravi Shah']);
+    expect(within(panel).getByText('↩ arrived')).toBeTruthy();
+    expect(within(panel).getByText('unsubmitted in Schoology')).toBeTruthy();
+    expect(within(panel).getByText('1 overdue')).toBeTruthy();
+
+    fireEvent.click(within(panel).getByRole('button', { name: 'Reviewed' }));
+    await waitFor(() => expect(api.reviewResubmission).toHaveBeenCalledWith({ studentId: 11, assignmentId: 30 }));
+
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
+    fireEvent.change(within(panel).getByLabelText('Close note'), { target: { value: 'grade stands' } });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Confirm close' }));
+    await waitFor(() => expect(api.updateResubmission).toHaveBeenCalledWith(41, { close: true, note: 'grade stands' }));
+  });
+  it('row names link to the student card on the assessment page', async () => {
+    api.getTriage.mockResolvedValue({ ...PAYLOAD, resubmissions: RESUB, counts: {} });
+    renderSection();
+    const panel = await screen.findByLabelText('Resubmissions');
+    expect(within(panel).getByRole('link', { name: 'Lena Ho' }).getAttribute('href')).toBe('/course/5/assessment/r30?student=11');
   });
 });

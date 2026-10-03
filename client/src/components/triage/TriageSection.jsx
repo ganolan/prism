@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getTriage, recordReferral, recordExtension, setMakeUpIgnored } from '../../services/api.js';
+import {
+  getTriage, recordReferral, recordExtension, setMakeUpIgnored,
+  reviewResubmission, updateResubmission,
+} from '../../services/api.js';
 import { useDataVersion } from '../../hooks/useDataVersion.jsx';
 import { formatDateTime } from '../../lib/formatDate.js';
 import LateWorkPanel from './LateWorkPanel.jsx';
 import FeedbackOwedPanel from './FeedbackOwedPanel.jsx';
 import MakeUpPanel from './MakeUpPanel.jsx';
+import ResubmissionsPanel from './ResubmissionsPanel.jsx';
 
 // The triage rail: an <aside> of stacked panels — make-up tests first (the most
-// urgent: a missed test can be invalidated), then late work, then feedback owed —
-// across all current courses (no courseId — Dashboard) or for one course
-// (CoursePage). The page lays it out beside its main column (.triage-layout).
+// urgent: a missed test can be invalidated), then late work, then resubmissions,
+// then feedback owed — across all current courses (no courseId — Dashboard) or
+// for one course (CoursePage). The page lays it out beside its main column (.triage-layout).
 // Owns its fetch; onLoaded hands the payload up (the Dashboard uses it for
 // course-card chips and the school-day header, the course page for the Gradebook
 // tab's "Triage" count); onMakeUpIgnored(assignmentId) tells the course page a
@@ -20,6 +24,7 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
   const [data, setData] = useState(null);
   const [includeFormative, setIncludeFormative] = useState(undefined); // undefined → the Settings default
   const [showHistory, setShowHistory] = useState(false);
+  const [showResubHistory, setShowResubHistory] = useState(false);
   const [historyVersion, setHistoryVersion] = useState(0); // reloads an open history after a record
   const [error, setError] = useState(null);
 
@@ -55,6 +60,9 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
     await setMakeUpIgnored(row.assignmentId, true);
     onMakeUpIgnored?.(row.assignmentId);
   });
+  const handleReview = (row) => write(() => reviewResubmission({ studentId: row.studentId, assignmentId: row.assignmentId }));
+  const handleCloseResub = (row, note) => write(() => updateResubmission(row.id, { close: true, note }));
+  const handleExtendResub = (row, lessons) => write(() => updateResubmission(row.id, { lessons }));
 
   if (!data && !error) return null;
   const rail = (children) => (
@@ -81,6 +89,14 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
         historyOpen={showHistory} onToggleHistory={() => setShowHistory((v) => !v)}
         courseId={courseId} historyVersion={historyVersion}
         onCloseHistory={() => setShowHistory(false)} onHistoryChanged={load}
+      />
+      <ResubmissionsPanel
+        rows={data.resubmissions ?? []} settings={data.settings} showCourse={showCourse} scope={scope}
+        onReview={handleReview} onClose={handleCloseResub} onExtend={handleExtendResub}
+        historyCount={data.resubmissionHistoryCount ?? 0}
+        historyOpen={showResubHistory} onToggleHistory={() => setShowResubHistory((v) => !v)}
+        courseId={courseId} historyVersion={historyVersion}
+        onCloseHistory={() => setShowResubHistory(false)} onHistoryChanged={load}
       />
       <FeedbackOwedPanel
         rows={data.feedbackOwed} settings={data.settings} showCourse={showCourse} scope={scope}

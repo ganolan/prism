@@ -9,6 +9,8 @@ import { cardLink } from './ResubmissionsPanel.jsx';
 // Students who missed a Schoology test or quiz and must sit it (or their * copy)
 // ASAP, longest first. A row clears itself once an attempt syncs. Extend records
 // when the make-up is booked ("sitting it Thursday"); the clock counts from then.
+// Save hands off to the parent's StatusLineModal confirm, which publishes the
+// make-up line (note included) to the student's Schoology comment.
 // Day numbers: the test (or extended) date is day 1; red from day makeUpRedDay.
 // The action column stacks Extend above "Ignore this test", which silences a whole
 // test/quiz (all students) after an inline confirm below the row. Only one of the

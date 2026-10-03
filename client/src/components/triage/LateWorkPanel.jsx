@@ -11,7 +11,8 @@ import { cardLink } from './ResubmissionsPanel.jsx';
 // `limit` (referralLimitDays) is the last allowed day, referral after it. The action
 // column stacks Refer (red rows, inline, title "Mark referred") or the days-left label
 // above Extend. Extend opens the shared ExtendEditor (by N lessons, school days) full-width
-// below the row's text. The "Referred / extended (N) ›" link at the bottom toggles
+// below the row's text; its Save hands off to the parent's StatusLineModal confirm, which
+// publishes the extension line (note included) to the student's Schoology comment. The "Referred / extended (N) ›" link at the bottom toggles
 // ReferralHistory open immediately below it, inside this panel (owned by the parent
 // TriageSection so a record elsewhere in the rail can still reload it).
 const daysLeft = (day, limit) => (limit - day > 0 ? `${limit - day} left` : 'last day');

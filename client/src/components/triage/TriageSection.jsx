@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   getTriage, recordReferral, recordExtension, setMakeUpIgnored,
-  reviewResubmission, updateResubmission,
+  updateResubmission, getStatusLineUntil,
 } from '../../services/api.js';
+import { extensionLine, makeUpLine, extendResubmissionLine, gradeStandsLine } from '../../lib/statusLines.js';
+import StatusLineModal from '../StatusLineModal.jsx';
 import { useDataVersion } from '../../hooks/useDataVersion.jsx';
 import { formatDateTime } from '../../lib/formatDate.js';
 import LateWorkPanel from './LateWorkPanel.jsx';
@@ -19,6 +21,9 @@ import ResubmissionsPanel from './ResubmissionsPanel.jsx';
 // tab's "Triage" count); onMakeUpIgnored(assignmentId) tells the course page a
 // quiz was ignored; bumping `version` re-fetches in place (keeps Show formative
 // and an open history). `hidden` hides the rail but keeps it mounted (and fetching).
+// Actions that publish a status line to the student's Schoology comment (extensions,
+// make-up extensions, resubmission Extend / Grade stands) open one StatusLineModal
+// confirm here; nothing is written until Publish, and Cancel writes nothing.
 export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnored, version = 0, hidden = false, id }) {
   const dataVersion = useDataVersion();
   const [data, setData] = useState(null);
@@ -27,6 +32,7 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
   const [showResubHistory, setShowResubHistory] = useState(false);
   const [historyVersion, setHistoryVersion] = useState(0); // reloads an open history after a record
   const [error, setError] = useState(null);
+  const [confirm, setConfirm] = useState(null); // StatusLineModal props for the action being confirmed
 
   const load = useCallback(async () => {
     try {
@@ -54,15 +60,59 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
   }
   const handleRecord = (row, action, note) =>
     write(() => recordReferral({ studentId: row.studentId, assignmentId: row.assignmentId, action, note }));
-  const handleExtend = (row, lessons, note) =>
-    write(() => recordExtension({ studentId: row.studentId, assignmentId: row.assignmentId, lessons, note }));
   const handleIgnore = (row) => write(async () => {
     await setMakeUpIgnored(row.assignmentId, true);
     onMakeUpIgnored?.(row.assignmentId);
   });
-  const handleReview = (row) => write(() => reviewResubmission({ studentId: row.studentId, assignmentId: row.assignmentId }));
-  const handleCloseResub = (row, note) => write(() => updateResubmission(row.id, { close: true, note }));
-  const handleExtendResub = (row, lessons) => write(() => updateResubmission(row.id, { lessons }));
+
+  // Open the confirm for one row. `run(line)` does the write; errors stay in the
+  // modal (a Schoology change Prism then failed to record still refreshes the lists).
+  const publish = (row, { run, ...props }) => setConfirm({
+    studentName: row.studentName, studentId: row.studentId, assignmentId: row.assignmentId, title: row.title,
+    ...props,
+    onConfirm: async (line) => {
+      try {
+        await run(line);
+      } catch (err) {
+        if (err.published) { setHistoryVersion((v) => v + 1); load(); }
+        throw err;
+      }
+      setConfirm(null);
+      setHistoryVersion((v) => v + 1);
+      await load();
+    },
+  });
+  const lessonsText = (n) => `${n} lesson${n === 1 ? '' : 's'}`;
+  const untilFor = async (q) => (await getStatusLineUntil(q)).until;
+
+  // Late work (extensionLine) and make-up tests (makeUpLine) — the note goes into the line.
+  const extend = (row, lessons, note, makeUp) => publish(row, {
+    consequence: makeUp
+      ? `Gives ${row.studentName} until ${lessonsText(lessons)} after the test to sit it.`
+      : `Extends ${row.studentName}'s deadline to ${lessonsText(lessons)} after the due date.`,
+    confirmLabel: 'Publish new due date',
+    loadDefaultLine: async () => {
+      const until = await untilFor({ kind: makeUp ? 'make_up' : 'extension', studentId: row.studentId, assignmentId: row.assignmentId, lessons });
+      return makeUp ? makeUpLine({ until, note }) : extensionLine({ until, lessons, note });
+    },
+    run: (commentLine) => recordExtension({ studentId: row.studentId, assignmentId: row.assignmentId, lessons, note, commentLine }),
+  });
+  const handleExtend = (row, lessons, note) => extend(row, lessons, note, false);
+  const handleExtendMakeUp = (row, lessons, note) => extend(row, lessons, note, true);
+  const handleExtendResub = (row, lessons) => publish(row, {
+    consequence: `Moves the resubmission deadline to ${lessonsText(lessons)} after the ask.`,
+    confirmLabel: 'Publish new due date',
+    loadDefaultLine: async () => extendResubmissionLine({
+      until: await untilFor({ kind: 'extend_resubmission', studentId: row.studentId, assignmentId: row.assignmentId, resubmissionId: row.id, lessons }),
+    }),
+    run: (commentLine) => updateResubmission(row.id, { lessons, commentLine }),
+  });
+  const handleGradeStands = (row) => publish(row, {
+    consequence: 'Ends the resubmission request: missed deadline, grade stands.',
+    confirmLabel: 'Publish & close request',
+    defaultLine: gradeStandsLine({ until: row.until }),
+    run: (commentLine) => updateResubmission(row.id, { gradeStands: true, commentLine }),
+  });
 
   if (!data && !error) return null;
   const rail = (children) => (
@@ -80,7 +130,7 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
       <MakeUpPanel
         rows={data.makeUps ?? []} settings={data.settings} showCourse={showCourse} scope={scope}
         unchecked={data.makeUpsUnchecked ?? 0} ignored={data.makeUpsIgnored ?? 0}
-        onExtend={handleExtend} onIgnore={handleIgnore}
+        onExtend={handleExtendMakeUp} onIgnore={handleIgnore}
       />
       <LateWorkPanel
         rows={data.lateWork} settings={data.settings} showCourse={showCourse} scope={scope}
@@ -92,7 +142,7 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
       />
       <ResubmissionsPanel
         rows={data.resubmissions ?? []} settings={data.settings} showCourse={showCourse} scope={scope}
-        onReview={handleReview} onClose={handleCloseResub} onExtend={handleExtendResub}
+        onGradeStands={handleGradeStands} onExtend={handleExtendResub}
         historyCount={data.resubmissionHistoryCount ?? 0}
         historyOpen={showResubHistory} onToggleHistory={() => setShowResubHistory((v) => !v)}
         courseId={courseId} historyVersion={historyVersion}
@@ -102,6 +152,7 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
         rows={data.feedbackOwed} settings={data.settings} showCourse={showCourse} scope={scope}
         includeFormative={data.includeFormative} onToggleFormative={setIncludeFormative}
       />
+      {confirm && <StatusLineModal {...confirm} onCancel={() => setConfirm(null)} />}
     </>,
   );
 }

@@ -1069,3 +1069,31 @@ carries the resubmit-conflict ring (both a resubmit flag and a Prism "resubmitte
 card) and an animated box-shadow would fight it. Runs once per distinct `?student=` value, even if the
 page's data re-renders mid-grading-run. Reuse this outline-pulse-not-box-shadow pattern for any future
 deep-link-to-card highlight.
+
+### Status-line confirm (`StatusLineModal`, 2026-10-03 — spec Amendment B)
+
+Every action that writes a **status line** to a student's Schoology comment (Ask, Extend, Grade stands,
+late-work / make-up extensions, and Undo of those) goes through one confirm modal — the one place Prism
+breaks the "inline, no modal" rule for triage, because the write is visible to the student and parents.
+Its job is **significance**: header *Publish to {Name}'s Schoology comment*; a muted sub-line
+*Visible to the student (and parents) as soon as you publish.*; a bold action-specific consequence
+(e.g. *Ends the resubmission request: missed deadline, grade stands.*); the editable one-line status line
+(a textarea, newlines folded to spaces); then *Their comment will read:* — the **full** resulting
+comment in a `--bg-subtle` box with the new line highlighted as a `<mark>` in the resubmit blue
+(`--badge-resubmit-bg`/`-text`, the same blue as `⟳` tags). A hidden comment (Display off) adds an
+`.alert-warning` (publishing turns Display on). The primary button is verb-specific (*Publish & ask*,
+*Publish new due date*, *Publish & close request*); Cancel is `.ghost`; Escape / backdrop press cancel
+and never call a write API. Undo uses the same modal in remove mode: a *Remove Prism's line from their
+comment* checkbox (default on) and the comment previewed without it.
+
+The modal reads the comment fresh once, then composes the preview locally with the client mirror of the
+server's `composeComment` (`client/src/lib/statusLines.js`), so editing the line is instant. A publish
+that succeeded in Schoology but failed to record in Prism switches to an `.alert-error` headed
+*Published to Schoology — not recorded in Prism* with only a Close button (retrying would publish again).
+On phones it is a full-width bottom sheet with full-width buttons (PHONE LAYOUT block).
+
+Card control update: Close request and **Reviewed** are gone. An open request offers Extend / Grade
+stands (only once the deadline has passed) / Undo; an arrived resubmission shows the muted text
+*Awaiting your feedback — regrade or comment (visible)* instead of a button. In the triage panel the
+arrived tag reads `↩ arrived · awaiting feedback`, red Waiting rows stack **Grade stands** above Extend,
+and other Waiting rows "N left" above Extend.

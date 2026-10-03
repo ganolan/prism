@@ -7,24 +7,26 @@ import { PanelHead, ShowAllToggle, useShowAll, limitRows } from './panelParts.js
 import ReferralHistory from './ReferralHistory.jsx';
 import { formatDate } from '../../lib/formatDate.js';
 
-// Resubmissions: per student × assessment. "arrived" = a resubmission newer than
-// the last feedback (day 1 = its date, regrade by day feedbackLimitDays); "waiting"
-// = asked to resubmit (day 1 = the ask, deadline `until`). Arrived rows: Reviewed
-// (grade stands). Waiting rows: Close (grade stands, optional note) + Extend.
+// Resubmissions: per student × assessment (spec Amendment B). "arrived" = a
+// resubmission still awaiting visible feedback (day 1 = its date, regrade by day
+// feedbackLimitDays) — no button: the teacher answers by regrading or writing a
+// visible comment. "waiting" = asked to resubmit (day 1 = the ask, deadline `until`):
+// "N left" + Extend before the deadline; once it has passed (red), Grade stands
+// above Extend. Extend and Grade stands publish a status line to the student's
+// Schoology comment, so both go through the parent's StatusLineModal confirm.
 // Hidden on a fresh load with no rows. Once the panel has shown rows during this
 // mount, it stays mounted even after the list empties out (e.g. the last row was
-// just Reviewed/Closed) — "All caught up." plus the History link, so the record
-// just made stays reachable instead of stranding Undo behind a vanished panel.
+// just closed) — "All caught up." plus the History link, so the record just made
+// stays reachable instead of stranding Undo behind a vanished panel.
 // Row names open the student's card on the assessment page.
 export const cardLink = (r) => `/course/${r.courseId}/assessment/${r.schoologyAssignmentId}?student=${r.studentId}`;
 const left = (r) => (r.limit - r.day > 0 ? `${r.limit - r.day} left` : 'last day');
 
 export default function ResubmissionsPanel({
-  rows, settings, showCourse, scope, onReview, onClose, onExtend, historyCount,
+  rows, settings, showCourse, scope, onGradeStands, onExtend, historyCount,
   historyOpen, onToggleHistory, courseId, historyVersion, onCloseHistory, onHistoryChanged,
 }) {
-  const [open, setOpen] = useState(null); // { key, mode: 'extend' | 'close' }
-  const [closeNote, setCloseNote] = useState('');
+  const [extending, setExtending] = useState(null); // row key
   const [showAll, toggleShowAll] = useShowAll(`resub.${scope}`);
   const hadRowsRef = useRef(false);
   if (rows.length > 0) hadRowsRef.current = true;
@@ -41,15 +43,16 @@ export default function ResubmissionsPanel({
       {rows.length === 0 && <p className="text-sm text-muted">All caught up.</p>}
       {limitRows(rows, showAll).map((r) => {
         const k = key(r);
-        const mode = open?.key === k ? open.mode : null;
+        const isExtending = extending === k;
+        const arrived = r.state === 'arrived';
         return (
           <div key={k} className="triage-row">
             <UrgencyRing day={r.day} limit={r.limit} tone={r.tone} approx={r.approx} size={28} />
             <div className="triage-row__text">
               <div className="triage-row__line">
                 <Link to={cardLink(r)} className="triage-row__name" title={r.studentName}>{r.studentName}</Link>
-                {r.state === 'arrived'
-                  ? <span className="badge badge-resubmitted triage-row__tag">↩ arrived</span>
+                {arrived
+                  ? <span className="badge badge-resubmitted triage-row__tag">↩ arrived · awaiting feedback</span>
                   : <span className="badge badge-resubmit triage-row__tag" title={r.note || undefined}>⟳ by {formatDate(`${r.until}T00:00:00`)}</span>}
                 {r.source === 'schoology_unsubmit' && <span className="badge badge-gray triage-row__tag">unsubmitted in Schoology</span>}
                 {r.afterDeadline && <span className="badge badge-amber triage-row__tag">after deadline</span>}
@@ -57,36 +60,22 @@ export default function ResubmissionsPanel({
               {showCourse && <CourseLine row={r} />}
               <div className="triage-row__task" title={r.title}>{r.title}</div>
             </div>
-            <div className="triage-row__actions">
-              {r.state === 'arrived' ? (
-                <button className="primary btn-sm" onClick={() => onReview(r)}>Reviewed</button>
-              ) : (
-                <>
-                  {r.tone === 'red'
-                    ? <button className="primary btn-sm" onClick={() => { setCloseNote(''); setOpen({ key: k, mode: 'close' }); }}>Close</button>
-                    : <span className="text-sm text-muted">{left(r)}</span>}
-                  <button className="secondary btn-sm" onClick={() => setOpen(mode === 'extend' ? null : { key: k, mode: 'extend' })}>Extend</button>
-                  {r.tone !== 'red' && (
-                    <button className="ghost btn-sm" onClick={() => { setCloseNote(''); setOpen({ key: k, mode: 'close' }); }}>Close</button>
-                  )}
-                </>
-              )}
-            </div>
-            {mode === 'extend' && (
+            {!arrived && (
+              <div className="triage-row__actions">
+                {r.tone === 'red'
+                  ? <button className="primary btn-sm" title="Missed deadline · grade stands" onClick={() => onGradeStands(r)}>Grade stands</button>
+                  : <span className="text-sm text-muted">{left(r)}</span>}
+                <button className="secondary btn-sm" onClick={() => setExtending(isExtending ? null : k)}>Extend</button>
+              </div>
+            )}
+            {isExtending && (
               <div className="triage-row__more">
                 <ExtendEditor
                   extension={{ lessons: r.lessons, note: '' }}
-                  onSave={(lessons) => { onExtend(r, lessons); setOpen(null); }}
-                  onCancel={() => setOpen(null)}
+                  onSave={(lessons) => { onExtend(r, lessons); setExtending(null); }}
+                  onCancel={() => setExtending(null)}
                   showNote={false}
                 />
-              </div>
-            )}
-            {mode === 'close' && (
-              <div className="triage-row__more">
-                <input className="triage-note" placeholder="Note (optional)" aria-label="Close note" value={closeNote} onChange={(e) => setCloseNote(e.target.value)} />
-                <button className="secondary btn-sm" onClick={() => { onClose(r, closeNote); setOpen(null); }}>Close request</button>
-                <button className="ghost" onClick={() => setOpen(null)}>Cancel</button>
               </div>
             )}
           </div>

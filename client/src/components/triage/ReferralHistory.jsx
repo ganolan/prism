@@ -2,16 +2,30 @@ import { useEffect, useState } from 'react';
 import { getReferrals, undoReferral, getExtensions, undoExtension, getResubmissions, undoResubmission } from '../../services/api.js';
 import { formatDate } from '../../lib/formatDate.js';
 import CourseLine from './CourseLine.jsx';
+import StatusLineModal from '../StatusLineModal.jsx';
 
 // SQLite UTC 'YYYY-MM-DD HH:MM:SS'. A re-extended extension dates from its updatedAt.
 // Resubmission history rows carry updatedAt/closedAt/createdAt instead (see `recordedAt` below).
 const recordedAt = (r) => r.updatedAt || r.closedAt || r.createdAt;
 const recordedOn = (r) => formatDate(`${recordedAt(r).replace(' ', 'T')}Z`);
 
-const RESUB_LABEL = { asked: 'Asked', closed: 'Closed', done: 'Resubmitted', reviewed: 'Reviewed' };
+const RESUB_LABEL = {
+  asked: (r) => `Asked${r.until ? ` · by ${formatDate(`${r.until}T00:00:00`)}` : ''}`,
+  grade_stands: () => 'Missed deadline · grade stands',
+  done: () => 'Resubmitted · feedback given',
+  undone: () => 'Undone',
+  closed: () => 'Closed',
+};
+const resubLabel = (r) => (RESUB_LABEL[r.outcome] ?? (() => r.outcome))(r);
+// A grade-stands record's close note is the outcome itself — don't repeat it.
+const extraText = (r) => (r.kind === 'resubmission' && r.outcome === 'grade_stands' ? r.note : (r.closeNote || r.note));
+
+// Records whose action may have published a status line to the student's Schoology
+// comment: Undo offers to remove it (StatusLineModal removeMode, default on).
+const mayHaveLine = (r) => r.kind === 'extension' || (r.kind === 'resubmission' && ['asked', 'grade_stands'].includes(r.outcome));
 
 // Referrals and deadline extensions (mode 'late', the default), or resubmission
-// asks/closes/reviews (mode 'resubmissions'), newest first, each undoable.
+// records (mode 'resubmissions'), newest first, each undoable.
 // `version` bumps when the parent records one, so an open history reloads.
 export default function ReferralHistory({ mode = 'late', courseId, version = 0, onClose, onChanged }) {
   const [rows, setRows] = useState(null);
@@ -44,16 +58,39 @@ export default function ReferralHistory({ mode = 'late', courseId, version = 0, 
   }
   useEffect(() => { load(); }, [courseId, version, mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const [confirming, setConfirming] = useState(null); // a row whose Undo is in the confirm
+  const undoCall = (r, opts) => (r.kind === 'extension' ? undoExtension(r.id, opts)
+    : r.kind === 'resubmission' ? undoResubmission(r.id, opts) : undoReferral(r.id));
+
+  async function refresh() {
+    await load();
+    onChanged?.();
+  }
+
+  // Prism-only undo (referrals; resubmission records whose action wrote no line).
   async function undo(r) {
     try {
-      await (r.kind === 'extension' ? undoExtension(r.id) : r.kind === 'resubmission' ? undoResubmission(r.id) : undoReferral(r.id));
+      await undoCall(r);
       setError(null);
     } catch (err) {
       setError(`Undo failed: ${err.message}`);
       return;
     }
-    await load();
-    onChanged?.();
+    await refresh();
+  }
+
+  // Through the confirm: errors stay in the modal; a Schoology change that Prism
+  // then failed to record still refreshes the lists.
+  async function confirmUndo(removeLine) {
+    try {
+      await undoCall(confirming, { removeLine });
+    } catch (err) {
+      if (err.published) refresh();
+      throw err;
+    }
+    setConfirming(null);
+    setError(null);
+    await refresh();
   }
 
   return (
@@ -78,14 +115,20 @@ export default function ReferralHistory({ mode = 'late', courseId, version = 0, 
           <div className="triage-row__actions">
             {r.kind === 'referral' && <span className="badge badge-red">Referred · day {r.day}</span>}
             {r.kind === 'extension' && <span className="badge badge-gray">Extended +{r.lessons} → {formatDate(`${r.until}T00:00:00`)}</span>}
-            {r.kind === 'resubmission' && (
-              <span className="badge badge-resubmit">{RESUB_LABEL[r.outcome]}{r.outcome === 'asked' && r.until ? ` · by ${formatDate(`${r.until}T00:00:00`)}` : ''}</span>
-            )}
-            <span className="text-sm text-muted">{recordedOn(r)}{(r.closeNote || r.note) ? ` — ${r.closeNote || r.note}` : ''}</span>
-            <button className="ghost" onClick={() => undo(r)}>Undo</button>
+            {r.kind === 'resubmission' && <span className="badge badge-resubmit">{resubLabel(r)}</span>}
+            <span className="text-sm text-muted">{recordedOn(r)}{extraText(r) ? ` — ${extraText(r)}` : ''}</span>
+            <button className="ghost" onClick={() => (mayHaveLine(r) ? setConfirming(r) : undo(r))}>Undo</button>
           </div>
         </div>
       ))}
+      {confirming && (
+        <StatusLineModal
+          removeMode studentName={confirming.studentName} studentId={confirming.studentId}
+          assignmentId={confirming.assignmentId} title={confirming.title}
+          consequence={confirming.kind === 'extension' ? 'Deletes this extension from Prism.' : 'Deletes this resubmission record from Prism.'}
+          confirmLabel="Undo" onConfirm={confirmUndo} onCancel={() => setConfirming(null)}
+        />
+      )}
     </section>
   );
 }

@@ -1,19 +1,24 @@
 import { useState } from 'react';
 import NumberStepper from './NumberStepper.jsx';
-import { formatDate } from '../lib/formatDate.js';
-import { requestResubmission, updateResubmission, reviewResubmission, undoResubmission } from '../services/api.js';
+import StatusLineModal from './StatusLineModal.jsx';
+import { formatDate, localIsoDate } from '../lib/formatDate.js';
+import { studentFullName } from '../lib/studentNames.js';
+import { askLine, extendResubmissionLine, gradeStandsLine } from '../lib/statusLines.js';
+import { requestResubmission, updateResubmission, undoResubmission, getStatusLineUntil } from '../services/api.js';
 
-// The assessment card's resubmission control (triage resubmissions, 2026-10-03).
+// The assessment card's resubmission control (triage resubmissions, spec Amendment B).
 // No request: "⟳ Ask to resubmit" → lessons (default from Settings) + note → Ask.
-// Open request: "⟳ Resubmit by DD/MM/YYYY" → Extend / Close / Undo.
-// Arrived: "Reviewed" (grade stands). Prism-only — nothing is written to Schoology.
-export default function ResubmitControl({ student, assignmentId, defaultLessons = 3, onChange }) {
+// Open request: "⟳ Resubmit by DD/MM/YYYY" → Extend / Grade stands (only once the
+// deadline has passed) / Undo. Every one of these writes a status line to the
+// student's Schoology comment, so each opens the StatusLineModal confirm first —
+// nothing is written until Publish. Arrived: no button; the teacher answers by
+// regrading or writing a visible comment.
+export default function ResubmitControl({ student, assignmentId, title, defaultLessons = 3, onChange }) {
   const r = student.resubmission;
   const [panel, setPanel] = useState(false);
   const [lessons, setLessons] = useState(r?.request?.lessons ?? defaultLessons);
   const [note, setNote] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(null);
+  const [confirm, setConfirm] = useState(null); // StatusLineModal props for the action being confirmed
 
   // Fold: reopening the panel always starts from the current request's lessons
   // (or the Settings default) and a blank note — never a stale value left over
@@ -24,60 +29,90 @@ export default function ResubmitControl({ student, assignmentId, defaultLessons 
     setPanel(true);
   }
 
-  async function run(fn) {
-    setBusy(true); setError(null);
-    try { await fn(); setPanel(false); } catch (err) { setError(err.message); } finally { setBusy(false); }
-  }
-  const ask = () => run(async () => {
-    const req = await requestResubmission({ studentId: student.id, assignmentId, lessons, note });
-    onChange?.({ state: 'waiting', request: req });
-  });
-  const extend = () => run(async () => {
-    const req = await updateResubmission(r.request.id, { lessons });
-    onChange?.({ ...r, request: req });
-  });
-  const close = () => run(async () => { await updateResubmission(r.request.id, { close: true, note }); onChange?.(null); });
-  const undo = () => run(async () => { await undoResubmission(r.request.id); onChange?.(null); });
-  const reviewed = () => run(async () => { await reviewResubmission({ studentId: student.id, assignmentId }); onChange?.(null, { reviewed: true }); });
-
   // No assessment-page id yet (assignmentRow still loading) — nothing to ask
   // against, and every action below needs it.
   if (!assignmentId) return null;
 
   if (r?.state === 'arrived') {
-    return (
-      <span className="resubmit-control">
-        <button type="button" className="secondary btn-sm" disabled={busy} onClick={reviewed}>Reviewed</button>
-        {error && <span className="text-sm badge badge-red">{error}</span>}
-      </span>
-    );
+    return <span className="resubmit-control resubmit-control__note">Awaiting your feedback — regrade or comment (visible)</span>;
   }
-  const open = r?.state === 'waiting' && r.request;
+
+  const req = r?.state === 'waiting' ? r.request : null;
+  const pastDeadline = Boolean(req?.until) && req.until < localIsoDate();
+  const ids = { studentId: student.id, assignmentId };
+  const done = (fn) => async (arg) => { await fn(arg); setConfirm(null); setPanel(false); };
+
+  const ask = () => setConfirm({
+    consequence: `Asks ${studentFullName(student) || 'the student'} to resubmit within ${lessons} lesson${lessons === 1 ? '' : 's'}.`,
+    confirmLabel: 'Publish & ask',
+    loadDefaultLine: async () => askLine({ until: (await getStatusLineUntil({ kind: 'ask', ...ids, lessons })).until, note }),
+    onConfirm: done(async (commentLine) => {
+      const created = await requestResubmission({ ...ids, lessons, note, commentLine });
+      onChange?.({ state: 'waiting', request: created });
+    }),
+  });
+  const extend = () => setConfirm({
+    consequence: `Moves the resubmission deadline to ${lessons} lesson${lessons === 1 ? '' : 's'} after the ask.`,
+    confirmLabel: 'Publish new due date',
+    loadDefaultLine: async () => extendResubmissionLine({
+      until: (await getStatusLineUntil({ kind: 'extend_resubmission', ...ids, resubmissionId: req.id, lessons })).until,
+    }),
+    onConfirm: done(async (commentLine) => {
+      const updated = await updateResubmission(req.id, { lessons, commentLine });
+      onChange?.({ ...r, request: updated });
+    }),
+  });
+  const gradeStands = () => setConfirm({
+    consequence: 'Ends the resubmission request: missed deadline, grade stands.',
+    confirmLabel: 'Publish & close request',
+    defaultLine: gradeStandsLine({ until: req.until }),
+    onConfirm: done(async (commentLine) => {
+      await updateResubmission(req.id, { gradeStands: true, commentLine });
+      onChange?.(null);
+    }),
+  });
+  const undo = () => setConfirm({
+    removeMode: true,
+    consequence: 'Deletes this resubmission request from Prism.',
+    confirmLabel: 'Undo',
+    onConfirm: done(async (removeLine) => {
+      await undoResubmission(req.id, { removeLine });
+      onChange?.(null);
+    }),
+  });
+
   return (
     <span className="resubmit-control">
       <button
-        type="button" className={`resubmit-pill${open ? ' resubmit-pill--active' : ''}`}
-        aria-expanded={panel} disabled={busy} onClick={() => (panel ? setPanel(false) : openPanel())}
+        type="button" className={`resubmit-pill${req ? ' resubmit-pill--active' : ''}`}
+        aria-expanded={panel} onClick={() => (panel ? setPanel(false) : openPanel())}
       >
         <span aria-hidden="true">⟳</span>{' '}
-        {open ? `Resubmit by ${formatDate(`${r.request.until}T00:00:00`)}` : 'Ask to resubmit'}
+        {req ? `Resubmit by ${formatDate(`${req.until}T00:00:00`)}` : 'Ask to resubmit'}
       </button>
       {panel && (
         <span className="resubmit-control__panel">
           <NumberStepper value={lessons} min={1} max={60} onChange={setLessons} aria-label="Resubmission deadline (lessons)" />
-          <input className="triage-note" placeholder="Note (optional)" aria-label="Resubmission note" value={note} onChange={(e) => setNote(e.target.value)} />
-          {open ? (
+          {req ? (
             <>
-              <button type="button" className="secondary btn-sm" disabled={busy} onClick={extend}>Extend</button>
-              <button type="button" className="secondary btn-sm" disabled={busy} onClick={close}>Close request</button>
-              <button type="button" className="ghost danger btn-sm" disabled={busy} onClick={undo}>Undo</button>
+              <button type="button" className="secondary btn-sm" onClick={extend}>Extend</button>
+              {pastDeadline && <button type="button" className="primary btn-sm" onClick={gradeStands}>Grade stands</button>}
+              <button type="button" className="ghost danger btn-sm" onClick={undo}>Undo</button>
             </>
           ) : (
-            <button type="button" className="primary btn-sm" disabled={busy} onClick={ask}>Ask</button>
+            <>
+              <input className="triage-note" placeholder="Note (optional)" aria-label="Resubmission note" value={note} onChange={(e) => setNote(e.target.value)} />
+              <button type="button" className="primary btn-sm" onClick={ask}>Ask</button>
+            </>
           )}
         </span>
       )}
-      {error && <span className="text-sm badge badge-red">{error}</span>}
+      {confirm && (
+        <StatusLineModal
+          studentName={studentFullName(student)} title={title} {...ids} {...confirm}
+          onCancel={() => setConfirm(null)}
+        />
+      )}
     </span>
   );
 }

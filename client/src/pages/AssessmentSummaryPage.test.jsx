@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 import AssessmentSummaryPage, { StudentRubricCard } from './AssessmentSummaryPage.jsx';
-import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale, requestResubmission, updateResubmission, reviewResubmission } from '../services/api.js';
+import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale, requestResubmission, undoResubmission } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 
 // Stub the DB saver so tests assert wiring, not I/O.
@@ -31,8 +31,9 @@ vi.mock('../services/api.js', () => ({
   getSettings: vi.fn().mockResolvedValue({ triage: { resubmitLessonsDefault: 3 } }),
   requestResubmission: vi.fn(),
   updateResubmission: vi.fn(),
-  reviewResubmission: vi.fn(),
   undoResubmission: vi.fn(),
+  previewStatusLine: vi.fn().mockResolvedValue({ currentComment: '', visible: true, storedLine: null, hiddenWarning: false }),
+  getStatusLineUntil: vi.fn().mockResolvedValue({ until: '2026-10-15', lessons: 3 }),
   getRubricForAssignment: vi.fn().mockResolvedValue(null),
   getRubricConfig: vi.fn().mockResolvedValue({ reportingCategoryColors: {} }),
   rubricTemplateUrl: vi.fn(() => '/api/rubrics/template'),
@@ -348,54 +349,45 @@ describe('StudentRubricCard — resubmission control (triage resubmissions)', ()
     expect(screen.getByRole('button', { name: /Resubmit by 15\/10\/2026/ })).toBeInTheDocument();
   });
 
-  it('asking to resubmit patches the student via onSaved with resubmission + resubmit_flag', async () => {
+  it('asking to resubmit goes through the confirm, then patches the student via onSaved with resubmission + resubmit_flag', async () => {
     requestResubmission.mockResolvedValueOnce({ id: 71, lessons: 3, until: '2026-10-15', outcome: 'asked' });
     const onSaved = vi.fn();
-    renderCard({ onSaved });
+    renderCard({ onSaved, assignmentRow: { id: 50, title: 'Launch', mastery_grading_period_id: 1, mastery_grading_category_id: 2 } });
     fireEvent.click(screen.getByRole('button', { name: /ask to resubmit/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+    expect(await screen.findByRole('dialog')).toHaveTextContent('Launch');
+    fireEvent.click(await screen.findByRole('button', { name: 'Publish & ask' }));
     await waitFor(() => expect(requestResubmission).toHaveBeenCalledWith({
-      studentId: 1, assignmentId: 50, lessons: 3, note: '',
+      studentId: 1, assignmentId: 50, lessons: 3, note: '', commentLine: '⟳ Resubmission requested — due Thu 15/10.',
     }));
     expect(onSaved).toHaveBeenCalledWith('uid-1', {
       resubmission: { state: 'waiting', request: { id: 71, lessons: 3, until: '2026-10-15', outcome: 'asked' } },
       resubmit_flag: { id: 71 },
     });
+    // The status line goes through the triage route — never the mastery grade/comment writes.
+    expect(writeMasteryScores).not.toHaveBeenCalled();
+    expect(writeMasteryComment).not.toHaveBeenCalled();
   });
 
-  it('closing the request patches the student with resubmission + resubmit_flag cleared', async () => {
-    updateResubmission.mockResolvedValueOnce(undefined);
+  it('undoing the request patches the student with resubmission + resubmit_flag cleared', async () => {
+    undoResubmission.mockResolvedValueOnce({ deleted: true });
     const onSaved = vi.fn();
     renderCard({
       onSaved,
       student: { ...makeStudent(), resubmission: { state: 'waiting', request: { id: 71, lessons: 3, until: '2026-10-15' } } },
     });
     fireEvent.click(screen.getByRole('button', { name: /Resubmit by 15\/10\/2026/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Close request' }));
-    await waitFor(() => expect(updateResubmission).toHaveBeenCalledWith(71, { close: true, note: '' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await screen.findByLabelText('Their comment will read');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Undo' }).at(-1));
+    await waitFor(() => expect(undoResubmission).toHaveBeenCalledWith(71, { removeLine: true }));
     expect(onSaved).toHaveBeenCalledWith('uid-1', { resubmission: null, resubmit_flag: null });
   });
 
-  it('asking to resubmit does not trigger a Schoology write', async () => {
-    requestResubmission.mockResolvedValueOnce({ id: 71, lessons: 3, until: '2026-10-15' });
-    renderCard();
-    fireEvent.click(screen.getByRole('button', { name: /ask to resubmit/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
-    await waitFor(() => expect(requestResubmission).toHaveBeenCalled());
-    expect(writeMasteryScores).not.toHaveBeenCalled();
-    expect(writeMasteryComment).not.toHaveBeenCalled();
-  });
-
-  it('marking Reviewed patches the student with resubmission cleared AND resubmitted: false, so the ⚠ pill drops immediately', async () => {
-    reviewResubmission.mockResolvedValueOnce({ id: 9, outcome: 'reviewed' });
-    const onSaved = vi.fn();
-    renderCard({
-      onSaved,
-      student: { ...makeStudent(), resubmitted: true, resubmission: { state: 'arrived', request: null } },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Reviewed' }));
-    await waitFor(() => expect(reviewResubmission).toHaveBeenCalledWith({ studentId: 1, assignmentId: 50 }));
-    expect(onSaved).toHaveBeenCalledWith('uid-1', { resubmission: null, resubmit_flag: null, resubmitted: false });
+  it('an arrived resubmission shows "awaiting your feedback" — no Reviewed button', () => {
+    renderCard({ student: { ...makeStudent(), resubmitted: true, resubmission: { state: 'arrived', request: null } } });
+    expect(screen.getByText('Awaiting your feedback — regrade or comment (visible)')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reviewed' })).not.toBeInTheDocument();
   });
 
   it('shows a read-only Resubmitted pill when student.resubmitted is true', () => {
@@ -1677,7 +1669,7 @@ describe('AssessmentSummaryPage — a save regrades an arrived resubmission (fin
     sendAllGrades.mockResolvedValue({ results: [{ uid: 'uid-1', ok: true }] });
     renderPage();
     expect(await screen.findByText(/Ungraded resubmission/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Reviewed' })).toBeInTheDocument();
+    expect(screen.getByText('Awaiting your feedback — regrade or comment (visible)')).toBeInTheDocument();
 
     fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
     fireEvent.click(await screen.findByRole('button', { name: /publish all to schoology \(1\)/i }));
@@ -1685,7 +1677,7 @@ describe('AssessmentSummaryPage — a save regrades an arrived resubmission (fin
     await screen.findByText(/Published 1 grade/);
     expect(screen.queryByText(/Ungraded resubmission/)).not.toBeInTheDocument();
     // The answered request settles server-side; the card's control is back to "Ask".
-    expect(screen.queryByRole('button', { name: 'Reviewed' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Awaiting your feedback/)).not.toBeInTheDocument();
     expect(document.querySelector('.resubmit-control')).toHaveTextContent(/Ask to resubmit/);
   });
 

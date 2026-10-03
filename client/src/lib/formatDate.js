@@ -26,3 +26,11 @@ export function formatTime(value) {
   const d = toDate(value);
   return d ? d.toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '';
 }
+
+/** 2026-10-03 — today's local calendar date as ISO (YYYY-MM-DD), for comparing with API dates. */
+export function localIsoDate(value = new Date()) {
+  const d = toDate(value);
+  if (!d) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}

@@ -868,18 +868,16 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             onClick={() => setShowFlagInput(true)}
           />
         )}
-        {/* Resubmission (triage) — ask with a deadline in lessons; Prism-only.
+        {/* Resubmission (triage) — ask with a deadline in lessons; each action publishes a
+            status line to the student's Schoology comment after a confirm (spec Amendment B).
             Not offered on an archived/excluded course (the server refuses those). */}
         {resubmitEnabled && <ResubmitControl
           student={student}
           assignmentId={assignmentRow?.id}
+          title={assignmentRow?.title}
           defaultLessons={resubmitLessonsDefault}
-          onChange={(resubmission, meta) => onSaved?.(student.schoology_uid, {
+          onChange={(resubmission) => onSaved?.(student.schoology_uid, {
             resubmission, resubmit_flag: resubmission?.request ? { id: resubmission.request.id } : null,
-            // Reviewed clears the server-computed "Ungraded resubmission" watermark too
-            // (server/services/resubmissions.js reviewedThroughMap) — mirror it locally
-            // so the ⚠ pill disappears without waiting for a reload.
-            ...(meta?.reviewed ? { resubmitted: false } : {}),
           })}
         />}
         {/* Detected resubmission (#49, Part B) — the student submitted new work

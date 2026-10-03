@@ -7,7 +7,11 @@ async function request(path, options = {}) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || `Request failed: ${res.status}`);
+    // code / published / comment ride along (e.g. triage RECORD_FAILED_AFTER_PUBLISH:
+    // the Schoology comment WAS changed even though the action failed).
+    throw Object.assign(new Error(err.error || `Request failed: ${res.status}`), {
+      status: res.status, code: err.code, published: err.published, comment: err.comment,
+    });
   }
   return res.json();
 }
@@ -249,18 +253,32 @@ export const undoReferral = (id) => request(`/triage/referrals/${id}`, { method:
 export const getExtensions = ({ courseId } = {}) =>
   request(`/triage/extensions${courseId != null ? `?courseId=${courseId}` : ''}`);
 export const recordExtension = (body) => request('/triage/extensions', { method: 'POST', body: JSON.stringify(body) });
-export const undoExtension = (id) => request(`/triage/extensions/${id}`, { method: 'DELETE' });
+// removeLine also removes the status line this extension published from the student's comment.
+export const undoExtension = (id, { removeLine = false } = {}) =>
+  request(`/triage/extensions/${id}${removeLine ? '?removeLine=1' : ''}`, { method: 'DELETE' });
 // Make-up tests: ignore (or track again) one Schoology test/quiz for every student.
 export const setMakeUpIgnored = (assignmentId, ignored) =>
   request(`/triage/makeup-ignore/${assignmentId}`, { method: 'PUT', body: JSON.stringify({ ignored }) });
 
-// Resubmissions (asks + "Reviewed" marks).
+// Resubmissions (asks; extend / grade stands via update). Writes take an optional
+// `commentLine` — the status line published to the student's Schoology comment first.
 export const getResubmissions = ({ courseId } = {}) =>
   request(`/triage/resubmissions${courseId != null ? `?courseId=${courseId}` : ''}`);
 export const requestResubmission = (body) => request('/triage/resubmissions', { method: 'POST', body: JSON.stringify(body) });
 export const updateResubmission = (id, body) => request(`/triage/resubmissions/${id}`, { method: 'PUT', body: JSON.stringify(body) });
-export const reviewResubmission = (body) => request('/triage/resubmissions/review', { method: 'POST', body: JSON.stringify(body) });
-export const undoResubmission = (id) => request(`/triage/resubmissions/${id}`, { method: 'DELETE' });
+export const undoResubmission = (id, { removeLine = false } = {}) =>
+  request(`/triage/resubmissions/${id}${removeLine ? '?removeLine=1' : ''}`, { method: 'DELETE' });
+// Status lines (spec Amendment B). The confirm modal's fresh read of the student's
+// comment: { currentComment, visible, storedLine, resultingComment, hiddenWarning }.
+export const previewStatusLine = ({ studentId, assignmentId, line = '' }) =>
+  request(`/triage/status-line/preview?${new URLSearchParams({ studentId, assignmentId, line })}`);
+// The due date a default line embeds (school calendar): { until, lessons }.
+// kind: 'ask' | 'extend_resubmission' | 'grade_stands' | 'extension' | 'make_up'.
+export const getStatusLineUntil = ({ kind, studentId, assignmentId, lessons, resubmissionId }) => {
+  const q = Object.entries({ kind, studentId, assignmentId, lessons, resubmissionId })
+    .filter(([, v]) => v != null && v !== '');
+  return request(`/triage/status-line/until?${new URLSearchParams(q)}`);
+};
 
 // Settings (server-side, shared by every device and PrisMCP).
 export const getSettings = () => request('/settings');

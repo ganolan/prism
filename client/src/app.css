@@ -1261,6 +1261,31 @@ a.triage-row__title:hover { text-decoration: underline; }
 }
 .resubmit-pill--active { border-width: 2.5px; background: var(--badge-resubmit-bg); color: var(--badge-resubmit-text); }
 
+/* Status-line confirm (StatusLineModal.jsx, spec Amendment B): the significance of
+   writing to a student's Schoology comment — header, visibility sub-line, consequence,
+   the editable line, then the full resulting comment with the new line highlighted. */
+.status-line-modal { width: min(560px, 90vw); display: flex; flex-direction: column; gap: 0.6rem; }
+.status-line-modal__title { margin: 0; font-size: 1.05rem; }
+.status-line-modal__task { margin-top: -0.4rem; }
+.status-line-modal__sub { margin: 0; font-size: 0.85rem; color: var(--text-muted); }
+.status-line-modal__consequence { margin: 0; font-weight: 600; color: var(--text); }
+.status-line-modal__field { display: flex; flex-direction: column; gap: 0.25rem; }
+.status-line-modal__field textarea {
+  width: 100%; box-sizing: border-box; resize: vertical; font: inherit; font-size: 0.9rem;
+  padding: 0.45rem 0.6rem; border: 1px solid var(--input-border); border-radius: 6px; background: var(--card-bg); color: var(--text);
+}
+.status-line-modal__check { display: flex; align-items: center; gap: 0.45rem; font-weight: 600; }
+.status-line-modal__label { margin-bottom: -0.35rem; }
+.status-line-modal__preview {
+  white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.88rem; line-height: 1.5;
+  background: var(--bg-subtle); border: 1px solid var(--border); border-radius: 6px;
+  padding: 0.6rem 0.75rem; max-height: 40vh; overflow-y: auto; color: var(--text);
+}
+.status-line-modal__new { background: var(--badge-resubmit-bg); color: var(--badge-resubmit-text); border-radius: 3px; padding: 0 0.15rem; font-weight: 600; }
+.status-line-modal .alert { margin: 0; }
+.status-line-modal__actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.3rem; }
+.resubmit-control__note { font-size: 0.85rem; color: var(--text-muted); }
+
 .settings-section { margin-bottom: 1rem; }
 .settings-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin: 0.6rem 0; }
 
@@ -1401,4 +1426,12 @@ button.ghost.sync-run-row {
      and an open log may use more of the (taller-than-wide) screen. */
   .sync-run-meta { margin-left: 0; width: 100%; }
   .sync-run-log { max-height: 60vh; }
+
+  /* Status-line confirm: a full-width bottom sheet; the buttons fill the width. */
+  .status-line-modal__overlay { align-items: flex-end; }
+  .modal-content.status-line-modal {
+    width: 100%; max-width: none; max-height: 92vh; box-sizing: border-box;
+    border-radius: 12px 12px 0 0; padding: 1rem;
+  }
+  .status-line-modal__actions button { flex: 1; min-height: 44px; }
 }

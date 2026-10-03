@@ -15,8 +15,9 @@ vi.mock('../../services/api.js', () => ({
   setMakeUpIgnored: vi.fn(),
   getResubmissions: vi.fn(),
   updateResubmission: vi.fn(),
-  reviewResubmission: vi.fn(),
   undoResubmission: vi.fn(),
+  previewStatusLine: vi.fn(),
+  getStatusLineUntil: vi.fn(),
 }));
 
 const SETTINGS = {
@@ -57,10 +58,20 @@ beforeEach(() => {
   api.getExtensions.mockResolvedValue([]);
   api.setMakeUpIgnored.mockResolvedValue({ assignmentId: 20, title: 'Unit 1 test', ignored: true });
   api.getResubmissions.mockResolvedValue([]);
-  api.reviewResubmission.mockResolvedValue({});
   api.updateResubmission.mockResolvedValue({});
   api.undoResubmission.mockResolvedValue({});
+  api.undoExtension.mockResolvedValue({ deleted: true });
+  api.previewStatusLine.mockResolvedValue({ currentComment: 'Good effort.', visible: true, storedLine: null, hiddenWarning: false });
+  api.getStatusLineUntil.mockResolvedValue({ until: '2026-10-16', lessons: 4 });
 });
+
+// The StatusLineModal confirm (portalled to <body>).
+const dialog = () => screen.findByRole('dialog');
+const publishBtn = async (name) => {
+  await screen.findByLabelText('Their comment will read');
+  return within(screen.getByRole('dialog')).getByRole('button', { name });
+};
+const SCHOOLOGY_WRITES = ['recordExtension', 'updateResubmission', 'undoResubmission', 'undoExtension'];
 
 describe('TriageSection', () => {
   it('renders both panels with counts, tags and course chips (all-courses view)', async () => {
@@ -126,7 +137,7 @@ describe('TriageSection', () => {
     expect(screen.queryByText('Exempt')).not.toBeInTheDocument();
   });
 
-  it('Extend posts N lessons (default 3) and a note, then reloads', async () => {
+  it('Extend → Save opens the confirm; Publish posts N lessons, the note and the extension line, then reloads', async () => {
     renderSection();
     const maya = rowOf(within(await latePanel()).getByText('Maya Chen'));
     fireEvent.click(within(maya).getByText('Extend')); // Maya: no extension yet
@@ -137,9 +148,50 @@ describe('TriageSection', () => {
     fireEvent.click(screen.getByLabelText('Increase'));
     fireEvent.change(screen.getByLabelText('Extension note'), { target: { value: 'sick week' } });
     fireEvent.click(screen.getByText('Save'));
-    await waitFor(() => expect(api.recordExtension).toHaveBeenCalledWith({ studentId: 1, assignmentId: 9, lessons: 4, note: 'sick week' }));
+    expect(await dialog()).toHaveAccessibleName("Publish to Maya Chen's Schoology comment");
+    const line = '⟳ Extension — now due Fri 16/10 (4 lessons). sick week';
+    expect(await screen.findByDisplayValue(line)).toBeInTheDocument();
+    expect(api.getStatusLineUntil).toHaveBeenCalledWith({ kind: 'extension', studentId: 1, assignmentId: 9, lessons: 4 });
+    expect(api.recordExtension).not.toHaveBeenCalled();
+    fireEvent.click(await publishBtn('Publish new due date'));
+    await waitFor(() => expect(api.recordExtension).toHaveBeenCalledWith({ studentId: 1, assignmentId: 9, lessons: 4, note: 'sick week', commentLine: line }));
     await waitFor(() => expect(api.getTriage).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(screen.queryByLabelText('Extension (lessons)')).not.toBeInTheDocument();
+  });
+
+  it('Cancel in the extension confirm writes nothing', async () => {
+    renderSection();
+    const maya = rowOf(within(await latePanel()).getByText('Maya Chen'));
+    fireEvent.click(within(maya).getByText('Extend'));
+    fireEvent.click(screen.getByText('Save'));
+    await publishBtn('Publish new due date');
+    fireEvent.click(within(await dialog()).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    for (const fn of SCHOOLOGY_WRITES) expect(api[fn]).not.toHaveBeenCalled();
+    expect(api.getTriage).toHaveBeenCalledTimes(1);
+  });
+
+  it('a failed publish keeps the confirm open with the server error; nothing reloads', async () => {
+    api.recordExtension.mockRejectedValue(new Error("Couldn't read the grade from Schoology — nothing was published or recorded"));
+    renderSection();
+    const maya = rowOf(within(await latePanel()).getByText('Maya Chen'));
+    fireEvent.click(within(maya).getByText('Extend'));
+    fireEvent.click(screen.getByText('Save'));
+    fireEvent.click(await publishBtn('Publish new due date'));
+    expect(await within(await dialog()).findByText(/nothing was published or recorded/)).toBeInTheDocument();
+    expect(api.getTriage).toHaveBeenCalledTimes(1);
+  });
+
+  it('published but not recorded: the confirm says so and the lists reload', async () => {
+    api.recordExtension.mockRejectedValue(Object.assign(new Error("The comment WAS published to the student's Schoology comment, but Prism could not record the action (x)."), { code: 'RECORD_FAILED_AFTER_PUBLISH', published: true }));
+    renderSection();
+    const maya = rowOf(within(await latePanel()).getByText('Maya Chen'));
+    fireEvent.click(within(maya).getByText('Extend'));
+    fireEvent.click(screen.getByText('Save'));
+    fireEvent.click(await publishBtn('Publish new due date'));
+    expect(await screen.findByText('Published to Schoology — not recorded in Prism')).toBeInTheDocument();
+    await waitFor(() => expect(api.getTriage).toHaveBeenCalledTimes(2));
   });
 
   it('re-extending pre-fills the editor with the current extension', async () => {
@@ -224,7 +276,12 @@ describe('TriageSection', () => {
     // Newest first: the extension (02/10) above the referral (01/10).
     expect(within(history).getAllByText(/Aiden Li|Maya Chen/).map((el) => el.textContent)).toEqual(['Aiden Li', 'Maya Chen']);
     fireEvent.click(within(history).getAllByText('Undo')[0]);
-    await waitFor(() => expect(api.undoExtension).toHaveBeenCalledWith(7));
+    // An extension may have published a line: Undo confirms first, offering to remove it.
+    expect(await dialog()).toHaveAccessibleName("Undo — Aiden Li's Schoology comment");
+    expect(api.undoExtension).not.toHaveBeenCalled();
+    expect(screen.getByRole('checkbox', { name: "Remove Prism's line from their comment" })).toBeChecked();
+    fireEvent.click(await publishBtn('Undo'));
+    await waitFor(() => expect(api.undoExtension).toHaveBeenCalledWith(7, { removeLine: true }));
     expect(api.undoReferral).not.toHaveBeenCalled();
   });
 
@@ -558,7 +615,11 @@ describe('TriageSection — make-up tests', () => {
     expect(within(panel).getByLabelText('Extension note')).toHaveValue('sits Tue');
     fireEvent.click(within(panel).getByLabelText('Increase'));
     fireEvent.click(within(panel).getByText('Save'));
-    await waitFor(() => expect(api.recordExtension).toHaveBeenCalledWith({ studentId: 8, assignmentId: 21, lessons: 3, note: 'sits Tue' }));
+    const line = '⟳ Make-up — sit by Fri 16/10. sits Tue';
+    expect(await screen.findByDisplayValue(line)).toBeInTheDocument();
+    expect(api.getStatusLineUntil).toHaveBeenCalledWith({ kind: 'make_up', studentId: 8, assignmentId: 21, lessons: 3 });
+    fireEvent.click(await publishBtn('Publish new due date'));
+    await waitFor(() => expect(api.recordExtension).toHaveBeenCalledWith({ studentId: 8, assignmentId: 21, lessons: 3, note: 'sits Tue', commentLine: line }));
     await waitFor(() => expect(api.getTriage).toHaveBeenCalledTimes(2));
   });
 });
@@ -614,71 +675,159 @@ const RESUB = [
   { id: 41, state: 'waiting', studentId: 12, studentName: 'Ravi Shah', courseId: 5, courseName: 'AIML', assignmentId: 30, schoologyAssignmentId: 'r30', title: 'Launch - Design', day: 6, limit: 4, tone: 'red', approx: false, lessons: 3, until: '2026-10-14', requestedOn: '2026-10-09', arrivedOn: null, source: 'schoology_unsubmit', afterDeadline: false, note: null },
 ];
 
+const RESUB3 = [
+  ...RESUB,
+  { id: 42, state: 'waiting', studentId: 13, studentName: 'Ivy Lam', courseId: 5, courseName: 'AIML', assignmentId: 30, schoologyAssignmentId: 'r30', title: 'Launch - Design', day: 2, limit: 4, tone: 'green', approx: false, lessons: 3, until: '2026-10-20', requestedOn: '2026-10-15', arrivedOn: null, source: 'app', afterDeadline: false, note: 'add tests' },
+];
+
 describe('Resubmissions panel', () => {
+  const resubPanel = async (rows = RESUB3, extra = {}) => {
+    api.getTriage.mockResolvedValue({ ...PAYLOAD, resubmissions: rows, resubmissionHistoryCount: 2, counts: {}, ...extra });
+    renderSection();
+    return screen.findByLabelText('Resubmissions');
+  };
+  const actionsOf = (panel, name) => rowOf(within(panel).getByText(name)).querySelector('.triage-row__actions');
+
   it('is hidden when there are no resubmission rows', async () => {
     renderSection();
     await latePanel();
     expect(screen.queryByLabelText('Resubmissions')).toBeNull();
   });
-  it('lists arrived then waiting, with tags, and wires Reviewed / Close / Extend', async () => {
-    api.getTriage.mockResolvedValue({ ...PAYLOAD, resubmissions: RESUB, resubmissionHistoryCount: 2, counts: { resubmissionsOverdue: 1 } });
-    api.reviewResubmission.mockResolvedValue({}); api.updateResubmission.mockResolvedValue({});
-    renderSection();
-    const panel = await screen.findByLabelText('Resubmissions');
-    const names = within(panel).getAllByRole('link').map((l) => l.textContent);
-    expect(names).toEqual(['Lena Ho', 'Ravi Shah']);
-    expect(within(panel).getByText('↩ arrived')).toBeTruthy();
-    expect(within(panel).getByText('unsubmitted in Schoology')).toBeTruthy();
-    expect(within(panel).getByText('1 overdue')).toBeTruthy();
 
-    fireEvent.click(within(panel).getByRole('button', { name: 'Reviewed' }));
-    await waitFor(() => expect(api.reviewResubmission).toHaveBeenCalledWith({ studentId: 11, assignmentId: 30 }));
-
-    fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
-    fireEvent.change(within(panel).getByLabelText('Close note'), { target: { value: 'grade stands' } });
-    fireEvent.click(within(panel).getByRole('button', { name: 'Close request' }));
-    await waitFor(() => expect(api.updateResubmission).toHaveBeenCalledWith(41, { close: true, note: 'grade stands' }));
+  it('lists rows with tags; arrived = "↩ arrived · awaiting feedback" and no button', async () => {
+    const panel = await resubPanel();
+    expect(within(panel).getAllByRole('link').map((l) => l.textContent)).toEqual(['Lena Ho', 'Ravi Shah', 'Ivy Lam']);
+    expect(within(panel).getByText('↩ arrived · awaiting feedback')).toBeInTheDocument();
+    expect(within(panel).getByText('unsubmitted in Schoology')).toBeInTheDocument();
+    expect(within(panel).getByText('1 overdue')).toBeInTheDocument();
+    expect(actionsOf(panel, 'Lena Ho')).toBeNull();
+    expect(within(rowOf(within(panel).getByText('Lena Ho'))).queryByRole('button')).not.toBeInTheDocument();
   });
+
+  it('Grade stands only on the red (past-deadline) Waiting row; before the deadline "N left" + Extend, no Close', async () => {
+    const panel = await resubPanel();
+    expect([...actionsOf(panel, 'Ravi Shah').children].map((el) => el.textContent)).toEqual(['Grade stands', 'Extend']);
+    expect([...actionsOf(panel, 'Ivy Lam').children].map((el) => el.textContent)).toEqual(['2 left', 'Extend']);
+    expect(within(panel).getAllByRole('button', { name: 'Grade stands' })).toHaveLength(1);
+    expect(within(panel).queryByRole('button', { name: /Close/ })).not.toBeInTheDocument();
+  });
+
+  it('no Reviewed button anywhere', async () => {
+    await resubPanel();
+    expect(screen.queryByRole('button', { name: 'Reviewed' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Reviewed')).not.toBeInTheDocument();
+  });
+
+  it('Grade stands opens the confirm with its consequence and line, then publishes it', async () => {
+    const panel = await resubPanel();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Grade stands' }));
+    const modal = await dialog();
+    expect(modal).toHaveAccessibleName("Publish to Ravi Shah's Schoology comment");
+    expect(within(modal).getByText('Ends the resubmission request: missed deadline, grade stands.')).toBeInTheDocument();
+    const line = '⟳ Resubmission deadline (Wed 14/10) passed — your grade stands.';
+    expect(within(modal).getByLabelText('Status line')).toHaveValue(line);
+    expect(api.updateResubmission).not.toHaveBeenCalled();
+    fireEvent.click(await publishBtn('Publish & close request'));
+    await waitFor(() => expect(api.updateResubmission).toHaveBeenCalledWith(41, { gradeStands: true, commentLine: line }));
+    await waitFor(() => expect(api.getTriage).toHaveBeenCalledTimes(2));
+  });
+
+  it('Grade stands → Cancel never calls a write API', async () => {
+    const panel = await resubPanel();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Grade stands' }));
+    fireEvent.click(within(await dialog()).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    for (const fn of SCHOOLOGY_WRITES) expect(api[fn]).not.toHaveBeenCalled();
+  });
+
+  it('Extend (no note field) → Save opens the confirm with the new due date; Publish sends lessons + commentLine', async () => {
+    const panel = await resubPanel();
+    const ivy = rowOf(within(panel).getByText('Ivy Lam'));
+    fireEvent.click(within(ivy).getByRole('button', { name: 'Extend' }));
+    expect(within(ivy).getByLabelText('Extension (lessons)')).toHaveValue(3);
+    expect(within(ivy).queryByLabelText('Extension note')).not.toBeInTheDocument();
+    fireEvent.click(within(ivy).getByLabelText('Increase'));
+    fireEvent.click(within(ivy).getByRole('button', { name: 'Save' }));
+    const line = '⟳ Resubmission requested — now due Fri 16/10.';
+    expect(await screen.findByDisplayValue(line)).toBeInTheDocument();
+    expect(api.getStatusLineUntil).toHaveBeenCalledWith({ kind: 'extend_resubmission', studentId: 13, assignmentId: 30, resubmissionId: 42, lessons: 4 });
+    fireEvent.click(await publishBtn('Publish new due date'));
+    await waitFor(() => expect(api.updateResubmission).toHaveBeenCalledWith(42, { lessons: 4, commentLine: line }));
+  });
+
   it('row names link to the student card on the assessment page', async () => {
-    api.getTriage.mockResolvedValue({ ...PAYLOAD, resubmissions: RESUB, counts: {} });
-    renderSection();
-    const panel = await screen.findByLabelText('Resubmissions');
+    const panel = await resubPanel();
     expect(within(panel).getByRole('link', { name: 'Lena Ho' }).getAttribute('href')).toBe('/course/5/assessment/r30?student=11');
   });
-  it('Extend on a waiting row sends only lessons (no note field)', async () => {
-    api.getTriage.mockResolvedValue({ ...PAYLOAD, resubmissions: RESUB, resubmissionHistoryCount: 2, counts: {} });
-    renderSection();
-    const panel = await screen.findByLabelText('Resubmissions');
-    const ravi = rowOf(within(panel).getByText('Ravi Shah'));
-    fireEvent.click(within(ravi).getByRole('button', { name: 'Extend' }));
-    expect(within(ravi).getByLabelText('Extension (lessons)')).toHaveValue(3);
-    expect(within(ravi).queryByLabelText('Extension note')).not.toBeInTheDocument();
-    fireEvent.click(within(ravi).getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(api.updateResubmission).toHaveBeenCalledWith(41, { lessons: 3 }));
-  });
-  it('stays mounted after Reviewed empties the list: "All caught up." and the history link remain', async () => {
-    api.getTriage.mockResolvedValueOnce({ ...PAYLOAD, resubmissions: [RESUB[0]], resubmissionHistoryCount: 1, counts: {} });
+
+  it('stays mounted after acting on the last row: "All caught up." and the history link remain', async () => {
+    api.getTriage.mockResolvedValueOnce({ ...PAYLOAD, resubmissions: [RESUB[1]], resubmissionHistoryCount: 1, counts: {} });
     api.getTriage.mockResolvedValueOnce({ ...PAYLOAD, resubmissions: [], resubmissionHistoryCount: 2, counts: {} });
     renderSection();
     const panel = await screen.findByLabelText('Resubmissions');
-    fireEvent.click(within(panel).getByRole('button', { name: 'Reviewed' }));
-    await waitFor(() => expect(api.reviewResubmission).toHaveBeenCalledWith({ studentId: 11, assignmentId: 30 }));
+    fireEvent.click(within(panel).getByRole('button', { name: 'Grade stands' }));
+    fireEvent.click(await publishBtn('Publish & close request'));
+    await waitFor(() => expect(api.updateResubmission).toHaveBeenCalled());
     const after = await screen.findByLabelText('Resubmissions'); // still mounted, not unmounted-then-remounted
     await waitFor(() => expect(within(after).getByText('All caught up.')).toBeInTheDocument());
     expect(within(after).getByRole('button', { name: /^History \(2\)/ })).toBeInTheDocument();
   });
-  it('History lists resubmission records with an outcome badge; Undo calls undoResubmission', async () => {
-    api.getTriage.mockResolvedValue({ ...PAYLOAD, resubmissions: RESUB, resubmissionHistoryCount: 1, counts: {} });
-    api.getResubmissions.mockResolvedValue([
-      { id: 50, outcome: 'reviewed', studentName: 'Maya Chen', title: 'CP1', courseName: 'AIML', updatedAt: '2026-10-10 01:00:00', createdAt: '2026-10-09 01:00:00' },
-    ]);
-    api.undoResubmission.mockResolvedValue({ deleted: true });
-    renderSection();
-    const panel = await screen.findByLabelText('Resubmissions');
-    fireEvent.click(within(panel).getByRole('button', { name: /^History/ }));
-    const history = await screen.findByLabelText('Resubmission history');
-    expect(await within(history).findByText('Reviewed')).toBeInTheDocument();
-    fireEvent.click(within(history).getByText('Undo'));
-    await waitFor(() => expect(api.undoResubmission).toHaveBeenCalledWith(50));
+
+  describe('history', () => {
+    const HISTORY = [
+      { id: 50, outcome: 'asked', studentId: 12, assignmentId: 30, studentName: 'Ravi Shah', title: 'CP1', courseName: 'AIML', until: '2026-10-14', updatedAt: '2026-10-12 01:00:00', createdAt: '2026-10-09 01:00:00' },
+      { id: 51, outcome: 'grade_stands', studentId: 11, assignmentId: 30, studentName: 'Maya Chen', title: 'CP1', courseName: 'AIML', closeNote: 'grade stands', updatedAt: '2026-10-11 01:00:00', createdAt: '2026-10-09 01:00:00' },
+      { id: 52, outcome: 'done', studentId: 13, assignmentId: 30, studentName: 'Ivy Lam', title: 'CP1', courseName: 'AIML', updatedAt: '2026-10-10 01:00:00', createdAt: '2026-10-09 01:00:00' },
+      { id: 53, outcome: 'undone', studentId: 14, assignmentId: 30, studentName: 'Noah Park', title: 'CP1', courseName: 'AIML', updatedAt: '2026-10-09 03:00:00', createdAt: '2026-10-09 01:00:00' },
+      { id: 54, outcome: 'closed', studentId: 15, assignmentId: 30, studentName: 'Zoe Tan', title: 'CP1', courseName: 'AIML', updatedAt: '2026-10-09 02:00:00', createdAt: '2026-10-09 01:00:00' },
+    ];
+    async function openHistory() {
+      api.getResubmissions.mockResolvedValue(HISTORY);
+      const panel = await resubPanel();
+      fireEvent.click(within(panel).getByRole('button', { name: /^History/ }));
+      const history = await screen.findByLabelText('Resubmission history');
+      await within(history).findByText('Ravi Shah');
+      return history;
+    }
+    const undoOf = (history, name) => within(rowOf(within(history).getByText(name))).getByRole('button', { name: 'Undo' });
+
+    it('labels each outcome', async () => {
+      const history = await openHistory();
+      expect(within(history).getAllByText(/^(Asked|Missed|Resubmitted|Undone|Closed)/).map((el) => el.textContent)).toEqual([
+        'Asked · by 14/10/2026', 'Missed deadline · grade stands', 'Resubmitted · feedback given', 'Undone', 'Closed',
+      ]);
+      expect(within(history).queryByText(/— grade stands/)).not.toBeInTheDocument(); // not repeated as a note
+    });
+
+    it('Undo of an ask confirms first (remove line, default on) → undoResubmission(id, { removeLine: true })', async () => {
+      const history = await openHistory();
+      fireEvent.click(undoOf(history, 'Ravi Shah'));
+      expect(await dialog()).toHaveAccessibleName("Undo — Ravi Shah's Schoology comment");
+      expect(api.undoResubmission).not.toHaveBeenCalled();
+      fireEvent.click(await publishBtn('Undo'));
+      await waitFor(() => expect(api.undoResubmission).toHaveBeenCalledWith(50, { removeLine: true }));
+    });
+
+    it('Undo of grade stands with the box unchecked → no removeLine', async () => {
+      const history = await openHistory();
+      fireEvent.click(undoOf(history, 'Maya Chen'));
+      fireEvent.click(within(await dialog()).getByRole('checkbox', { name: "Remove Prism's line from their comment" }));
+      fireEvent.click(await publishBtn('Undo'));
+      await waitFor(() => expect(api.undoResubmission).toHaveBeenCalledWith(51, { removeLine: false }));
+    });
+
+    it('Undo → Cancel calls no write API', async () => {
+      const history = await openHistory();
+      fireEvent.click(undoOf(history, 'Ravi Shah'));
+      fireEvent.click(within(await dialog()).getByRole('button', { name: 'Cancel' }));
+      for (const fn of SCHOOLOGY_WRITES) expect(api[fn]).not.toHaveBeenCalled();
+    });
+
+    it('a record whose action wrote no line (done) undoes directly, Prism-only', async () => {
+      const history = await openHistory();
+      fireEvent.click(undoOf(history, 'Ivy Lam'));
+      await waitFor(() => expect(api.undoResubmission).toHaveBeenCalledWith(52, undefined));
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
   });
 });

@@ -1,91 +1,166 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import ResubmitControl from './ResubmitControl.jsx';
 import * as api from '../services/api.js';
 
 vi.mock('../services/api.js', () => ({
-  requestResubmission: vi.fn(), updateResubmission: vi.fn(), reviewResubmission: vi.fn(), undoResubmission: vi.fn(),
+  requestResubmission: vi.fn(), updateResubmission: vi.fn(), undoResubmission: vi.fn(),
+  previewStatusLine: vi.fn(), getStatusLineUntil: vi.fn(),
 }));
-const student = (resubmission = null) => ({ id: 7, schoology_uid: 'u7', resubmission });
-beforeEach(() => vi.clearAllMocks());
+const student = (resubmission = null) => ({ id: 7, schoology_uid: 'u7', first_name: 'Maya', last_name: 'Chen', resubmission });
+const waiting = (until = '2026-10-15') => ({ state: 'waiting', request: { id: 3, lessons: 3, until } });
+const modal = () => screen.getByRole('dialog');
+const writes = ['requestResubmission', 'updateResubmission', 'undoResubmission'];
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(2026, 9, 10, 9, 0)); // Sat 10/10/2026, local
+  api.previewStatusLine.mockResolvedValue({ currentComment: 'Good start.', visible: true, storedLine: null, hiddenWarning: false });
+  api.getStatusLineUntil.mockResolvedValue({ until: '2026-10-15', lessons: 3 });
+});
+afterEach(() => vi.useRealTimers());
+
+function renderControl(r = null, props = {}) {
+  const onChange = vi.fn();
+  render(<ResubmitControl student={student(r)} assignmentId={30} title="CP2" defaultLessons={3} onChange={onChange} {...props} />);
+  return onChange;
+}
 
 describe('ResubmitControl', () => {
-  it('asks with the default lessons and a note', async () => {
+  it('Ask opens the confirm with the due date worked out by the server, then publishes commentLine with the ask', async () => {
     api.requestResubmission.mockResolvedValue({ id: 3, lessons: 3, until: '2026-10-15', outcome: 'asked' });
-    const onChange = vi.fn();
-    render(<ResubmitControl student={student()} assignmentId={30} defaultLessons={3} onChange={onChange} />);
+    const onChange = renderControl();
     fireEvent.click(screen.getByRole('button', { name: /Ask to resubmit/ }));
     fireEvent.change(screen.getByLabelText('Resubmission note'), { target: { value: 'add tests' } });
     fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
-    await waitFor(() => expect(api.requestResubmission).toHaveBeenCalledWith({ studentId: 7, assignmentId: 30, lessons: 3, note: 'add tests' }));
+    expect(modal()).toHaveAccessibleName("Publish to Maya Chen's Schoology comment");
+    const line = '⟳ Resubmission requested — due Thu 15/10. add tests';
+    expect(await screen.findByDisplayValue(line)).toBeInTheDocument();
+    expect(api.getStatusLineUntil).toHaveBeenCalledWith({ kind: 'ask', studentId: 7, assignmentId: 30, lessons: 3 });
+    expect(api.requestResubmission).not.toHaveBeenCalled(); // nothing written until Publish
+    fireEvent.click(await screen.findByRole('button', { name: 'Publish & ask' }));
+    await waitFor(() => expect(api.requestResubmission).toHaveBeenCalledWith({ studentId: 7, assignmentId: 30, lessons: 3, note: 'add tests', commentLine: line }));
     expect(onChange).toHaveBeenCalledWith({ state: 'waiting', request: { id: 3, lessons: 3, until: '2026-10-15', outcome: 'asked' } });
-  });
-  it('an open request shows "Resubmit by DD/MM/YYYY" with Extend / Close / Undo', async () => {
-    api.updateResubmission.mockResolvedValue({ id: 3, lessons: 5, until: '2026-10-19' });
-    const onChange = vi.fn();
-    render(<ResubmitControl student={student({ state: 'waiting', request: { id: 3, lessons: 3, until: '2026-10-15' } })} assignmentId={30} defaultLessons={3} onChange={onChange} />);
-    fireEvent.click(screen.getByRole('button', { name: /Resubmit by 15\/10\/2026/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Close request' }));
-    await waitFor(() => expect(api.updateResubmission).toHaveBeenCalledWith(3, { close: true, note: '' }));
-    expect(onChange).toHaveBeenCalledWith(null);
-  });
-  it('an arrived resubmission offers Reviewed, and reports { reviewed: true } so the card can clear its own watermark', async () => {
-    api.reviewResubmission.mockResolvedValue({ id: 9, outcome: 'reviewed' });
-    const onChange = vi.fn();
-    render(<ResubmitControl student={student({ state: 'arrived', request: null })} assignmentId={30} defaultLessons={3} onChange={onChange} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Reviewed' }));
-    await waitFor(() => expect(api.reviewResubmission).toHaveBeenCalledWith({ studentId: 7, assignmentId: 30 }));
-    expect(onChange).toHaveBeenCalledWith(null, { reviewed: true });
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
-  it('extending sends the current lessons and reports onChange with the returned request merged in', async () => {
-    api.updateResubmission.mockResolvedValue({ id: 3, lessons: 5, until: '2026-10-19' });
-    const onChange = vi.fn();
-    const r = { state: 'waiting', request: { id: 3, lessons: 3, until: '2026-10-15' } };
-    render(<ResubmitControl student={student(r)} assignmentId={30} defaultLessons={3} onChange={onChange} />);
-    fireEvent.click(screen.getByRole('button', { name: /Resubmit by 15\/10\/2026/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Extend' }));
-    await waitFor(() => expect(api.updateResubmission).toHaveBeenCalledWith(3, { lessons: 3 }));
-    expect(onChange).toHaveBeenCalledWith({ ...r, request: { id: 3, lessons: 5, until: '2026-10-19' } });
-  });
-
-  it('Undo deletes the open request and reports onChange(null)', async () => {
-    api.undoResubmission.mockResolvedValue({ deleted: true });
-    const onChange = vi.fn();
-    render(<ResubmitControl student={student({ state: 'waiting', request: { id: 3, lessons: 3, until: '2026-10-15' } })} assignmentId={30} defaultLessons={3} onChange={onChange} />);
-    fireEvent.click(screen.getByRole('button', { name: /Resubmit by 15\/10\/2026/ }));
-    const undoBtn = screen.getByRole('button', { name: 'Undo' });
-    expect(undoBtn.className).toContain('btn-sm');
-    fireEvent.click(undoBtn);
-    await waitFor(() => expect(api.undoResubmission).toHaveBeenCalledWith(3));
-    expect(onChange).toHaveBeenCalledWith(null);
-  });
-
-  it('shows the error badge when the ask is rejected, and leaves the panel open', async () => {
-    api.requestResubmission.mockRejectedValue(new Error('network down'));
-    const onChange = vi.fn();
-    render(<ResubmitControl student={student()} assignmentId={30} defaultLessons={3} onChange={onChange} />);
+  it('Cancel in the confirm writes nothing and keeps the panel', async () => {
+    const onChange = renderControl();
     fireEvent.click(screen.getByRole('button', { name: /Ask to resubmit/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
-    expect(await screen.findByText('network down')).toBeInTheDocument();
+    await screen.findByDisplayValue(/Resubmission requested/);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    for (const fn of writes) expect(api[fn]).not.toHaveBeenCalled();
     expect(onChange).not.toHaveBeenCalled();
-    // Still open — the note input survives so the teacher doesn't retype it.
     expect(screen.getByLabelText('Resubmission note')).toBeInTheDocument();
   });
 
-  it('reopening the panel resets lessons to the request and clears a stale note', async () => {
-    api.updateResubmission.mockResolvedValue({ id: 3, lessons: 7, until: '2026-10-22' });
-    const onChange = vi.fn();
-    render(<ResubmitControl student={student({ state: 'waiting', request: { id: 3, lessons: 3, until: '2026-10-15' } })} assignmentId={30} defaultLessons={3} onChange={onChange} />);
+  it('a rejected ask shows the server error in the confirm, which stays open', async () => {
+    api.requestResubmission.mockRejectedValue(new Error("Couldn't read the grade from Schoology"));
+    const onChange = renderControl();
+    fireEvent.click(screen.getByRole('button', { name: /Ask to resubmit/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Publish & ask' }));
+    expect(await screen.findByText("Couldn't read the grade from Schoology")).toBeInTheDocument();
+    expect(modal()).toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('an open request before its deadline: Extend + Undo, no Grade stands, no Close', () => {
+    renderControl(waiting('2026-10-15'));
+    fireEvent.click(screen.getByRole('button', { name: /Resubmit by 15\/10\/2026/ }));
+    expect(screen.getByRole('button', { name: 'Extend' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Undo' })).toHaveClass('btn-sm');
+    expect(screen.queryByRole('button', { name: 'Grade stands' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Close/ })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Resubmission note')).not.toBeInTheDocument(); // extend's note lives in the line
+  });
+
+  it('Extend publishes the new due date (extend_resubmission) with the lessons', async () => {
+    api.getStatusLineUntil.mockResolvedValue({ until: '2026-10-20', lessons: 4 });
+    api.updateResubmission.mockResolvedValue({ id: 3, lessons: 4, until: '2026-10-20' });
+    const r = waiting('2026-10-15');
+    const onChange = renderControl(r);
+    fireEvent.click(screen.getByRole('button', { name: /Resubmit by 15\/10\/2026/ }));
+    fireEvent.click(screen.getByLabelText('Increase'));
+    fireEvent.click(screen.getByRole('button', { name: 'Extend' }));
+    const line = '⟳ Resubmission requested — now due Tue 20/10.';
+    expect(await screen.findByDisplayValue(line)).toBeInTheDocument();
+    expect(api.getStatusLineUntil).toHaveBeenCalledWith({ kind: 'extend_resubmission', studentId: 7, assignmentId: 30, resubmissionId: 3, lessons: 4 });
+    fireEvent.click(await screen.findByRole('button', { name: 'Publish new due date' }));
+    await waitFor(() => expect(api.updateResubmission).toHaveBeenCalledWith(3, { lessons: 4, commentLine: line }));
+    expect(onChange).toHaveBeenCalledWith({ ...r, request: { id: 3, lessons: 4, until: '2026-10-20' } });
+  });
+
+  it('after the deadline (red): Grade stands publishes and closes the request', async () => {
+    api.updateResubmission.mockResolvedValue({ id: 3, outcome: 'grade_stands' });
+    const onChange = renderControl(waiting('2026-10-08'));
+    fireEvent.click(screen.getByRole('button', { name: /Resubmit by 08\/10\/2026/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Grade stands' }));
+    expect(screen.getByText('Ends the resubmission request: missed deadline, grade stands.')).toBeInTheDocument();
+    const line = '⟳ Resubmission deadline (Thu 08/10) passed — your grade stands.';
+    expect(screen.getByLabelText('Status line')).toHaveValue(line);
+    expect(api.getStatusLineUntil).not.toHaveBeenCalled(); // the deadline is already known
+    fireEvent.click(await screen.findByRole('button', { name: 'Publish & close request' }));
+    await waitFor(() => expect(api.updateResubmission).toHaveBeenCalledWith(3, { gradeStands: true, commentLine: line }));
+    expect(onChange).toHaveBeenCalledWith(null);
+  });
+
+  it('on the deadline day itself there is no Grade stands yet', () => {
+    renderControl(waiting('2026-10-10'));
+    fireEvent.click(screen.getByRole('button', { name: /Resubmit by 10\/10\/2026/ }));
+    expect(screen.queryByRole('button', { name: 'Grade stands' })).not.toBeInTheDocument();
+  });
+
+  it('Undo opens the confirm in remove mode; checked → removeLine', async () => {
+    api.undoResubmission.mockResolvedValue({ deleted: true });
+    const onChange = renderControl(waiting());
+    fireEvent.click(screen.getByRole('button', { name: /Resubmit by/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(screen.getByRole('checkbox', { name: "Remove Prism's line from their comment" })).toBeChecked();
+    await screen.findByLabelText('Their comment will read');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Undo' }).at(-1));
+    await waitFor(() => expect(api.undoResubmission).toHaveBeenCalledWith(3, { removeLine: true }));
+    expect(onChange).toHaveBeenCalledWith(null);
+  });
+
+  it('Undo with the box unchecked leaves the comment alone', async () => {
+    api.undoResubmission.mockResolvedValue({ deleted: true });
+    renderControl(waiting());
+    fireEvent.click(screen.getByRole('button', { name: /Resubmit by/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: "Remove Prism's line from their comment" }));
+    await screen.findByLabelText('Their comment will read');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Undo' }).at(-1));
+    await waitFor(() => expect(api.undoResubmission).toHaveBeenCalledWith(3, { removeLine: false }));
+  });
+
+  it('arrived: awaiting feedback text, no Reviewed (or any) button', () => {
+    renderControl({ state: 'arrived', request: { id: 3, lessons: 3, until: '2026-10-15' } });
+    expect(screen.getByText('Awaiting your feedback — regrade or comment (visible)')).toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('reopening the panel resets lessons to the request', () => {
+    renderControl(waiting());
     const pill = screen.getByRole('button', { name: /Resubmit by 15\/10\/2026/ });
-    fireEvent.click(pill); // open
+    fireEvent.click(pill);
+    fireEvent.click(screen.getByLabelText('Decrease')); // 3 -> 2
+    fireEvent.click(pill);
+    fireEvent.click(pill);
+    expect(screen.getByDisplayValue('3')).toBeInTheDocument();
+  });
+
+  it('reopening the Ask panel clears a stale note', () => {
+    renderControl();
+    const pill = screen.getByRole('button', { name: /Ask to resubmit/ });
+    fireEvent.click(pill);
     fireEvent.change(screen.getByLabelText('Resubmission note'), { target: { value: 'left over' } });
-    fireEvent.click(screen.getByLabelText('Decrease')); // lessons 3 -> 2
-    expect(screen.getByLabelText('Resubmission note')).toHaveValue('left over');
-    fireEvent.click(pill); // close
-    fireEvent.click(pill); // reopen
+    fireEvent.click(pill);
+    fireEvent.click(pill);
     expect(screen.getByLabelText('Resubmission note')).toHaveValue('');
-    expect(screen.getByDisplayValue('3')).toBeInTheDocument(); // back to the request's lessons, not the edited 2
   });
 
   it('does not render when assignmentId is missing', () => {

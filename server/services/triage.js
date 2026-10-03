@@ -17,55 +17,9 @@ import { loadCalendar } from './schoolCalendar.js';
 import { getTriageSettings } from './settings.js';
 import { gradingState } from './assessmentContext.js';
 import { preferredFirstName } from './studentNames.js';
+import { TriageError, toneFor, makeUpTone, currentCourses, roster, ALIGNED_SQL, fullName, MAX_EXTENSION_LESSONS } from './triageCommon.js';
 
-export class TriageError extends Error {
-  constructor(code, message) {
-    super(message);
-    this.code = code;
-  }
-}
-
-// `days` is the internal count (day − 1): red after day `limit`, amber over the
-// last `warnLead` allowed days.
-export function toneFor(days, limit, warnLead) {
-  if (days >= limit) return 'red';
-  if (days >= limit - warnLead) return 'amber';
-  return 'green';
-}
-
-// Make-up clock on day numbers (test day = day 1): amber from day amberDay, red from day redDay.
-export function makeUpTone(day, amberDay, redDay) {
-  if (day >= redDay) return 'red';
-  if (day >= amberDay) return 'amber';
-  return 'green';
-}
-
-// Current courses. The all-courses view (Dashboard, PrisMCP) also drops hidden
-// ones; a specific course (its own page) is shown even when hidden.
-function currentCourses(db, courseId) {
-  if (courseId != null) {
-    return db.prepare(`SELECT id, course_name, block_number FROM courses WHERE id = ? AND archived = 0 AND excluded = 0`).all(Number(courseId));
-  }
-  return db.prepare(`
-    SELECT id, course_name, block_number FROM courses WHERE archived = 0 AND excluded = 0 AND hidden = 0 ORDER BY course_name
-  `).all();
-}
-
-function roster(db, courseId) {
-  return db.prepare(`
-    SELECT s.id, s.schoology_uid, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher
-    FROM students s JOIN enrolments e ON e.student_id = s.id
-    WHERE e.course_id = ? AND e.dropped_at IS NULL
-    ORDER BY s.last_name, s.first_name
-  `).all(courseId);
-}
-
-// Summative = aligned to measurement topics (or scored against them).
-const ALIGNED_SQL = `CASE WHEN EXISTS (
-        SELECT 1 FROM mastery_alignments ma WHERE ma.assignment_schoology_id = a.schoology_assignment_id
-        UNION
-        SELECT 1 FROM mastery_scores ms WHERE ms.assignment_schoology_id = a.schoology_assignment_id
-      ) THEN 1 ELSE 0 END`;
+export { TriageError, toneFor, makeUpTone, MAX_EXTENSION_LESSONS };
 
 // Published assignments whose due date has passed (due date before today).
 function pastDueAssignments(db, courseId, today) {
@@ -150,8 +104,6 @@ function studentState(a, facts, st) {
     firstSubmittedOn: epochToLocalDate(g.first_submitted_at),
   };
 }
-
-const fullName = (st) => `${preferredFirstName(st)} ${st.last_name}`;
 
 // A student's effective due date: an extension moves it to the N-th school day after.
 function effectiveDue(cal, due, ext) {
@@ -416,8 +368,6 @@ export function recordReferral(db, { studentId, assignmentId, action, note = nul
 export function undoReferral(db, id) {
   return { deleted: db.prepare('DELETE FROM referrals WHERE id = ?').run(Number(id)).changes > 0 };
 }
-
-export const MAX_EXTENSION_LESSONS = 60;
 
 export function listExtensions(db, { courseId = null, studentId = null, since = null, id = null } = {}) {
   const cal = loadCalendar(db);

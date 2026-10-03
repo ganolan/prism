@@ -913,8 +913,10 @@ the original 56-day gap and the fixed/re-verified result are in `.claude/powersc
   saw after R was judged), and never replaces a non-empty baseline comment with an empty one. Review
   X1/X1r/X1c/X7/X10/X11 → Arrived. Residuals documented: a Schoology hidden note after R, the per-arrival
   levels bit (N4), the 20-entry cap, X13 (a post-R Schoology comment first judged by an unstamped
-  capture → false Arrived), S6b (pinned; needs a grade time moving backwards). Details: spec
-  "Absorption (rounds 6–7)".
+  capture → false Arrived — also with a Schoology grade time after R known, B19), F1/F2 (an unrequested
+  first submission graded in Schoology with rubric levels only, or lti inside R's minute, then any Prism
+  save/publish → Arrived until Schoology writes a score/visible comment after R; safe direction), S6b
+  (pinned; needs a grade time moving backwards). Details: spec "Absorption (rounds 6–7)".
 
 ## Sync resilience + persistent sync log (2026-10-02, branch `feat/sync-resilience-logs`)
 

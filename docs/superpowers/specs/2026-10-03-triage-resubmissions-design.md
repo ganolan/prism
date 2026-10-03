@@ -491,9 +491,17 @@ can be published:
   - **the 20-entry save-log cap**: more than 20 changing Prism saves before a sync sees R can drop the
     first post-R entry (and the levels it changed) — a false Arrived (safe direction);
   - **X13: a post-R Schoology visible comment first judged by an unstamped capture** (a save's pre-capture
-    or a status-line publish sees it before any sync does, with no Schoology grade time after R locally):
-    it is absorbed into the baseline — a false Arrived (safe direction), cleared by the next visible
-    feedback;
+    or a status-line publish sees it before any sync does): it is absorbed into the baseline — a false
+    Arrived (safe direction), cleared by the next visible feedback. This holds even when a Schoology grade
+    time after R is already known locally — B19: a Prism hide after R, then a new Schoology visible
+    comment first seen by a publish, also ends Arrived, because the comment part's "already answered"
+    guard checks the last snapshot (where the comment is hidden);
+  - **F1/F2: an unrequested first submission graded in Schoology without a score or visible comment** —
+    F1: rubric levels only (score unchanged or null; the levels arrive via a mastery pull); F2: an lti
+    first submission graded in Schoology inside R's minute — followed by any Prism save or status-line
+    publish now shows **Arrived** (the levels / in-minute grade aren't evidence after R, so they are
+    absorbed into the baseline). Safe direction; it clears once Schoology writes a score or visible
+    comment after R (or a Prism save answers it);
   - **S6b** (pinned as a test, judged unreachable): after a Prism save, Schoology would have to show an
     *older* score than Prism just read (a grade time moving backwards); a status-line publish mirroring it
     then pairs with Prism's own later write time and reads as answered.

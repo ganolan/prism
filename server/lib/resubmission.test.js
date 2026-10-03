@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'vitest';
-import { hasFeedback, isResubmitted, resubmissionState, sqliteUtcToEpoch } from './resubmission.js';
+import { hasFeedback, isResubmitted, resubmissionStateFromSnapshot, sqliteUtcToEpoch } from './resubmission.js';
+import { fingerprint } from './feedbackFingerprint.js';
 
 describe('isResubmitted', () => {
   test('true when latest revision is newer than the grade time', () => {
@@ -62,30 +63,49 @@ describe('sqliteUtcToEpoch', () => {
   });
 });
 
-describe('resubmissionState', () => {
-  const graded = { score: 80, exception: 0, grade_comment: '', submitted_at: 1000 };
-  test('unrequested: arrived when the revision is newer than the grade time', () => {
-    expect(resubmissionState({ ...graded, latest_revision_at: 2000 })).toBe('arrived');
-    expect(resubmissionState({ ...graded, latest_revision_at: 900 })).toBe(null);
+describe('resubmissionStateFromSnapshot', () => {
+  const fpWithFeedback = fingerprint({ score: 80, exception: 0, comment: '', commentStatus: 0, levels: [] });
+  const fpNoFeedback = fingerprint({ score: null, exception: 0, comment: '', commentStatus: 0, levels: [] });
+  const fpChanged = fingerprint({ score: 90, exception: 0, comment: '', commentStatus: 0, levels: [] });
+
+  test('unrequested: arrived when an arrival with feedback matches the current fingerprint', () => {
+    const snapshot = { arrival_revision_at: 2000, arrival_baseline: fpWithFeedback };
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpWithFeedback })).toBe('arrived');
   });
-  test('unrequested: a review covering the revision hides it; a newer one reappears', () => {
-    expect(resubmissionState({ ...graded, latest_revision_at: 2000 }, { reviewedThrough: 2000 })).toBe(null);
-    expect(resubmissionState({ ...graded, latest_revision_at: 3000 }, { reviewedThrough: 2000 })).toBe('arrived');
+
+  test('unrequested: acknowledged once the current fingerprint differs from the baseline', () => {
+    const snapshot = { arrival_revision_at: 2000, arrival_baseline: fpWithFeedback };
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged })).toBe(null);
   });
-  test('request: waiting until a revision newer than both the grade time and the ask', () => {
-    expect(resubmissionState({ ...graded, latest_revision_at: 900 }, { requestedAt: 1500 })).toBe('waiting');
-    expect(resubmissionState({ ...graded, latest_revision_at: 1200 }, { requestedAt: 1500 })).toBe('waiting');
-    expect(resubmissionState({ ...graded, latest_revision_at: 1600 }, { requestedAt: 1500 })).toBe('arrived');
+
+  test('unrequested: a first submission (baseline without prior feedback) is never arrived', () => {
+    const snapshot = { arrival_revision_at: 2000, arrival_baseline: fpNoFeedback };
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpNoFeedback })).toBe(null);
   });
-  test('request: works with no grades row and no feedback (baseline = the ask)', () => {
-    expect(resubmissionState({}, { requestedAt: 1500 })).toBe('waiting');
-    expect(resubmissionState({ latest_revision_at: 1600 }, { requestedAt: 1500 })).toBe('arrived');
+
+  test('unrequested: no arrival at all is null', () => {
+    expect(resubmissionStateFromSnapshot({ snapshot: null, currentFingerprint: fpWithFeedback })).toBe(null);
+    expect(resubmissionStateFromSnapshot({ snapshot: { arrival_revision_at: 0, arrival_baseline: fpWithFeedback }, currentFingerprint: fpWithFeedback })).toBe(null);
   });
-  test('request: fulfilled once regraded after the post-ask revision', () => {
-    expect(resubmissionState({ ...graded, submitted_at: 1700, latest_revision_at: 1600 }, { requestedAt: 1500 })).toBe('fulfilled');
+
+  test('requested: waiting when there is no arrival after the ask', () => {
+    expect(resubmissionStateFromSnapshot({ snapshot: null, currentFingerprint: fpWithFeedback, requestedAt: 1500 })).toBe('waiting');
+    const snapshot = { arrival_revision_at: 1200, arrival_baseline: fpWithFeedback };
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpWithFeedback, requestedAt: 1500 })).toBe('waiting');
   });
-  test('request: reviewed post-ask revision is fulfilled; reviewed pre-ask revision is still waiting', () => {
-    expect(resubmissionState({ ...graded, latest_revision_at: 1600 }, { requestedAt: 1500, reviewedThrough: 1600 })).toBe('fulfilled');
-    expect(resubmissionState({ ...graded, latest_revision_at: 1200 }, { requestedAt: 1500, reviewedThrough: 1200 })).toBe('waiting');
+
+  test('requested: arrived when the post-ask arrival baseline matches the current fingerprint', () => {
+    const snapshot = { arrival_revision_at: 1600, arrival_baseline: fpWithFeedback };
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpWithFeedback, requestedAt: 1500 })).toBe('arrived');
+  });
+
+  test('requested: fulfilled once the current fingerprint moves past the post-ask arrival baseline', () => {
+    const snapshot = { arrival_revision_at: 1600, arrival_baseline: fpWithFeedback };
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged, requestedAt: 1500 })).toBe('fulfilled');
+  });
+
+  test('requested: a pre-ask arrival does not satisfy the ask — still waiting', () => {
+    const snapshot = { arrival_revision_at: 1400, arrival_baseline: fpWithFeedback };
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpWithFeedback, requestedAt: 1500 })).toBe('waiting');
   });
 });

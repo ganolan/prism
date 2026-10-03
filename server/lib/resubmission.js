@@ -1,8 +1,10 @@
-// Resubmission detection (#49 Part B; triage resubmissions 2026-10-03).
+// Resubmission detection (#49 Part B; triage resubmissions 2026-10-03;
+// snapshot-based state added Amendment B 2026-10-03).
 // Grade time = grades.submitted_at (the REST grade timestamp; a teacher write —
 // score, exception OR comment — sets it, a submission alone never does).
 // Resubmission time = grades.latest_revision_at (native: newest non-draft
 // revision; LTI: the grader's submissionDate).
+import { hasPriorFeedback } from './feedbackFingerprint.js';
 
 // Feedback given = a score, an exception, or a non-empty comment.
 export function hasFeedback(grade) {
@@ -34,6 +36,8 @@ export function sqliteUtcToEpoch(text) {
 //   'waiting'   — asked, nothing new yet
 //   'fulfilled' — asked, resubmitted after the ask, and regraded/reviewed since (hide; settle → done)
 //   null        — nothing to show
+// Deprecated: removed in Amendment B Task 3 (superseded by resubmissionStateFromSnapshot below).
+// Kept unchanged so server/services/resubmissions.js (rewritten in Task 3) still works.
 export function resubmissionState(grade, { requestedAt = 0, reviewedThrough = 0 } = {}) {
   const g = grade || {};
   const latest = Number(g.latest_revision_at) || 0;
@@ -45,4 +49,24 @@ export function resubmissionState(grade, { requestedAt = 0, reviewedThrough = 0 
     return 'waiting';
   }
   return isResubmitted(g) && !reviewed ? 'arrived' : null;
+}
+
+// Amendment B: state from visible-feedback snapshots rather than raw timestamps.
+// snapshot = { arrival_revision_at, arrival_baseline } | null — the current open arrival
+// (if any) and the fingerprint captured as its baseline (the feedback before the resubmission).
+//   'arrived'   — a resubmission to look at (current fingerprint still equals the baseline)
+//   'waiting'   — asked, no arrival after the ask yet
+//   'fulfilled' — asked, arrived after the ask, and the fingerprint has since changed (regraded)
+//   null        — nothing to show (unrequested, no arrival, or already acknowledged)
+export function resubmissionStateFromSnapshot({ snapshot, currentFingerprint, requestedAt = 0 } = {}) {
+  const hasArrival = Boolean(snapshot && snapshot.arrival_revision_at);
+  if (requestedAt > 0) {
+    const arrivedAfterAsk = hasArrival && Number(snapshot.arrival_revision_at) > requestedAt;
+    if (!arrivedAfterAsk) return 'waiting';
+    return currentFingerprint === snapshot.arrival_baseline ? 'arrived' : 'fulfilled';
+  }
+  if (hasArrival && hasPriorFeedback(snapshot.arrival_baseline) && currentFingerprint === snapshot.arrival_baseline) {
+    return 'arrived';
+  }
+  return null;
 }

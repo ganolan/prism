@@ -835,13 +835,14 @@ the original 56-day gap and the fixed/re-verified result are in `.claude/powersc
   PrisMCP `grade_stands` + `preview_status_line` (server-side line/due-date rendering — the agent never
   computes the calendar math), `close_resubmission`/`mark_resubmission_reviewed` removed. Also closed two
   pre-existing prod gaps in the shared comment-write path (`write-comment`, `send-all`): a failed fresh
-  Schoology read used to fall through instead of aborting — now always 502 `SCHOOLOGY_READ_FAILED` before
+  Schoology read used to fall through instead of aborting — now always a plain 502 message before
   any write, including when Schoology has no record for a pair Prism's local `grades` row holds a
   score/exception for; and a Schoology write that was actually rejected used to still be mirrored into
   Prism and reported "saved" — both routes now gate the whole local mirror + response on the write having
   truly succeeded. Known limitations (not blocking, see spec "Implementation notes (Amendment B)"): a
-  standalone mastery pull between a resubmission and the next full sync, or a Prism save that exactly
-  restores pre-resubmission feedback, can read as a false "answered"; the per-pair publish lock is
+  capture that doesn't refresh an assignment's revisions (a mastery pull, or a sync that skipped it)
+  between a resubmission and the teacher's Schoology answer can leave a false **Arrived**, and a Prism
+  save that exactly restores pre-resubmission feedback can read as a false "answered"; the per-pair publish lock is
   per-process (PrisMCP and the web server don't exclude each other); the `⟳`/`—` glyphs and Schoology's
   207 per-entry round-trip are verified offline only — the first live publish should be on a low-stakes
   item, checked by eye in Schoology; `send-all` writes rubric scores before the comment PUT, so a later
@@ -857,6 +858,20 @@ the original 56-day gap and the fixed/re-verified result are in `.claude/powersc
   never Published, against a `/tmp` dev-clone copy, never prod.
 
 **Tests:** 1115 server + 720 client Vitest tests pass; `npm run build` succeeds (2026-10-03).
+
+- **Final whole-branch review fixes (2026-10-03).** C1: feedback given in Schoology *before* a
+  resubmission no longer answers it — a sync that sees new revision R with no Prism save after it uses
+  the current fingerprint as baseline when `0 < grades.submitted_at ≤ R`, and "answered" also needs a
+  teacher write after the arrival (`submitted_at` or the snapshot's save stamp past `arrival_revision_at`).
+  I1/I2: the save routes return the pair's post-save `resubmissionFields` and the card patches those
+  (a hidden-only/unchanged/received-line-only save stays Arrived); Ask/Extend/Grade stands/Undo hand the
+  new comment to the card, which patches it and rebases the editor so a later Save keeps the published
+  line. I3: PrisMCP's status-line tools fail with `SCHOOLOGY_NOT_CONFIGURED` unless the MCP config's env
+  block sets the three `SCHOOLOGY_*` vars (documented in `docs/prismcp-install-and-verify.md`). Also: a
+  stored status line alone never counts as a comment for grading state (server + client); boot seeds an
+  empty `feedback_snapshots`; send-all's post-rubric 502s warn the scores may already be in Schoology;
+  `(1 lesson)`; the parity probe migrates its in-memory copy. Details: spec "Final whole-branch review
+  fixes".
 
 ## Sync resilience + persistent sync log (2026-10-02, branch `feat/sync-resilience-logs`)
 

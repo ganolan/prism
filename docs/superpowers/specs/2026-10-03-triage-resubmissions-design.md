@@ -398,7 +398,9 @@ or Prism drafts), so **only visible feedback counts**.
   - **Acknowledged / fulfilled:** the current fingerprint differs from the arrival baseline → off the list;
     settle marks a request `done`.
 - Hidden notes, unchanged re-saves and Prism status lines don't change the fingerprint → still Arrived.
-  Visible feedback given in Schoology between two syncs is caught (baseline = previous sync's snapshot).
+  Visible feedback given in Schoology between two syncs is caught (baseline = previous sync's snapshot) —
+  unless it predates the resubmission: see "Final whole-branch review fixes" (C1) in the implementation
+  notes below for the grade-time rule and the teacher-write-after-arrival requirement.
 - **First deploy:** a pair the old timestamp rule calls resubmitted gets an arrival with baseline = its
   current fingerprint (Arrived until feedback changes); every other pair gets a plain snapshot.
 - The ↩/⚠ "resubmitted" badge on gradebook / card / student page uses the same Arrived rule.
@@ -411,10 +413,12 @@ or Prism drafts), so **only visible feedback counts**.
 can be published:
 
 - A failed fresh Schoology read (the read that must precede any comment PUT, to echo the current
-  grade/exception) used to fall through to other error handling; it now always aborts with
-  `SCHOOLOGY_READ_FAILED` (502) before any write — nothing is ever written blind. The same guard applies
-  when the fresh read succeeds but returns no record for the pair while Prism's local `grades` row holds
-  a score or a non-zero exception (a sync gap, not "no grade yet") — also 502, no PUT.
+  grade/exception) used to fall through to other error handling; it now always aborts with a 502 before
+  any write — nothing is ever written blind. The same guard applies when the fresh read succeeds but
+  returns no record for the pair while Prism's local `grades` row holds a score or a non-zero exception
+  (a sync gap, not "no grade yet") — also 502, no PUT. (`write-comment` / `send-all` return a plain 502
+  `{ error }` message; only the triage status-line routes and PrisMCP carry the `SCHOOLOGY_READ_FAILED`
+  code.)
 - A Schoology write that was actually rejected (non-2xx, or a 207 batch entry whose own status wasn't
   2xx) used to still be reported to the caller and mirrored into Prism as "saved". Both `write-comment`
   and `send-all` now gate the whole local mirror + success response on the PUT having actually succeeded;
@@ -422,15 +426,15 @@ can be published:
 
 **Known limitations (deferred; flagged to the user, not blocking):**
 
-1. **A standalone mastery pull between a resubmission and the next Schoology sync can produce a false
-   Arrived.** `captureFeedbackSnapshots` runs after every mastery pull as well as every full sync. If a
-   teacher (or a rubric re-import) changes rubric levels in Schoology *after* a resubmission arrived but
-   *before* the next full sync notices the new revision, that pull's capture takes the current fingerprint
-   as the arrival's baseline — so the resubmission can read as already-answered (or, in the visible
-   direction covered here, the student's new work can look answered by feedback that actually predates
-   it) when nothing about the resubmission itself has been looked at yet. The approximation is accepted
-   because the two captures are expected to stay close together in practice; if it bites, the teacher just
-   re-answers.
+1. **A capture that doesn't refresh an assignment's revisions can produce a false Arrived.** Only the
+   Schoology sync's revision step writes `latest_revision_at`; every other capture — a mastery pull, or a
+   sync that skipped the assignment (out of the recent window, a failed revision read) — still runs
+   `captureFeedbackSnapshots` in sync mode. If the student resubmits (R) and the teacher then answers it
+   in Schoology before any capture has seen R, such a capture stores the *post-R* feedback as the
+   snapshot fingerprint. When a later sync finally sees R, the teacher's write time is after R, so the
+   baseline is that snapshot — which already contains the answer — and the pair reads **Arrived** although
+   it was answered. The direction is the safe one (a resubmission shown when it needn't be, never one
+   silently dismissed); the teacher clears it with any new visible feedback.
 2. **A post-resubmission save that exactly restores pre-resubmission feedback reads as answered.** If the
    teacher saved feedback before the resubmission arrived, then — after it arrives — makes a Prism save
    that happens to reproduce that exact prior fingerprint (score, exception, rubric levels, visible
@@ -448,8 +452,44 @@ can be published:
    in Schoology (encoding, line placement, and that the 207 entry-level status was read correctly).
 5. **`send-all` writes rubric scores before the comment PUT.** If the comment PUT then fails, the batch
    returns 502 (per the prod fix above — no local mirror, no status-line record), but the rubric scores it
-   already wrote earlier in the same batch are left sitting in Schoology. Not rolled back; a retry re-sends
-   the same scores (idempotent) and the comment.
+   already wrote earlier in the same batch are left sitting in Schoology. Not rolled back; the 502 message
+   says so ("rubric scores may already be in Schoology — sync, then check"), and a retry re-sends the same
+   scores (idempotent) and the comment.
+
+**Final whole-branch review fixes (2026-10-03):**
+
+- **Feedback given before a resubmission never answers it (C1).** Between two syncs the teacher may give
+  feedback in Schoology (at t₁) and the student then resubmit (R > t₁); the old rule took the previous
+  snapshot as R's baseline, so the t₁ feedback looked like an answer and R was dismissed silently. Now:
+  1. A **sync-mode** capture that sees a new revision R with no Prism save after it (`fingerprint_at ≤ R`)
+     checks the grade time `grades.submitted_at` (the REST grade time — set by any teacher write, never by
+     a submission): if `0 < submitted_at ≤ R`, every bit of current feedback predates R, so the
+     **baseline is the current fingerprint**. Otherwise the earlier rule stands (previous snapshot, or
+     `synced_fingerprint` after a Prism save past R). Save-mode captures keep the earlier rule.
+  2. **Answered** additionally needs a **teacher write after the arrival**: `submitted_at >
+     arrival_revision_at` or the snapshot's save stamp `fingerprint_at > arrival_revision_at` (a rubric-only
+     Prism save stamps it without moving `submitted_at`). A changed fingerprint alone no longer answers.
+  Residual: when the grade time is after R, the baseline is still the previous snapshot, so feedback given
+  before R *and* any later write after R (even a hidden note or a Prism status-line publish) can still
+  read as answered. The grade time can't say which write changed the visible feedback.
+- **The card follows the server (I1, I2).** `write-comment`, `send-all` (per result) and `/write` return
+  the saved pair's post-save `resubmissionFields` (`resubmission`, `resubmit_flag`, `resubmitted`,
+  `arrived_on`), computed after the capture + settle; the card patches exactly those (unknown → left
+  alone), so a hidden-only, unchanged or received-line-only save stays Arrived. Ask / Extend / Grade
+  stands / Undo hand the comment Schoology now holds back to the card, which patches `grade_comment`,
+  `status_line` and Display and rebases the editor (a dirty draft gets the line swapped at the top; a
+  clean one takes the new comment), so the next Save can't erase a published line.
+- **PrisMCP and Schoology credentials (I3).** PrisMCP loads no dotenv; the status-line tools need
+  `SCHOOLOGY_BASE_URL` / `SCHOOLOGY_CONSUMER_KEY` / `SCHOOLOGY_CONSUMER_SECRET` in the MCP config's env
+  block and fail with `SCHOOLOGY_NOT_CONFIGURED` (before anything is read or written) without them
+  (`docs/prismcp-install-and-verify.md`).
+- **A status line is not teacher feedback (M3).** Every `gradingState` caller (Feedback owed,
+  `get_assignment_context`, PrisMCP `list_assignments` counts) and the client `gradingStateOf` strip the
+  stored line before deciding a comment is present.
+- **Boot seed (M4).** On start, an empty `feedback_snapshots` is captured once (sync mode, best-effort).
+- **`send-all` 502s after the rubric step** now say the rubric scores may already be in Schoology
+  ("… nothing was recorded in Prism; rubric scores may already be in Schoology — sync, then check").
+- `(1 lesson)` in the extension line (M6); the parity probe migrates its in-memory copy (M5).
 
 **Task 8 verification (this task, 2026-10-03):**
 

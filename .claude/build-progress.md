@@ -815,7 +815,48 @@ the original 56-day gap and the fixed/re-verified result are in `.claude/powersc
   1/92 after a live re-sync, and that one remaining row has no REST grade at all (score/exception/comment
   all empty) — exactly the "no REST grade" case the fix predicts.
 
-**Tests:** 874 server + 550 client Vitest tests pass; `npm run build` succeeds (2026-10-02).
+- **Resubmissions — Amendment B: documented feedback (2026-10-03, same branch).** Teacher principle: every
+  submission gets documented feedback the student can see; a resubmission never goes silent. **Reviewed**
+  (silent grade-stands) is gone — replaced by **Grade stands**, allowed only once a Waiting deadline has
+  passed (red); Close is gone too. Arrived no longer clears on a bare new grade *time* — it clears when
+  the *visible* feedback actually changed, via a new snapshot model: `feedback_snapshots`
+  (`fingerprint` = `{score, exception, rubric levels, visible comment}` with Prism's own status line
+  stripped and hidden comments read as empty; `arrival_revision_at`/`arrival_baseline` capture the
+  feedback the resubmission is being judged against), captured at the end of every sync/mastery pull and
+  after every Prism save (`server/services/feedbackSnapshots.js`, `server/lib/feedbackFingerprint.js`,
+  `server/lib/resubmission.js` `resubmissionStateFromSnapshot`). Ask, Extend (resubmission/late-work/
+  make-up), Grade stands and Undo now **publish a status line to the student's Schoology comment**
+  (`⟳ …`, exact-match replace via `composeComment`/`teacherText`, `server/lib/statusLines.js` mirrored
+  client-side in `client/src/lib/statusLines.js`) through one confirm, `StatusLineModal` — the one place
+  triage breaks its "inline, no modal" rule, because the write is visible to the student and parents;
+  write order is always validate → publish (fresh Schoology read, echo grade/exception) → record in
+  Prism, so a failed publish changes nothing. New `status_lines` table remembers the exact text last
+  published per pair (plus `source_type`/`source_id` so Undo only removes its own record's line); new
+  PrisMCP `grade_stands` + `preview_status_line` (server-side line/due-date rendering — the agent never
+  computes the calendar math), `close_resubmission`/`mark_resubmission_reviewed` removed. Also closed two
+  pre-existing prod gaps in the shared comment-write path (`write-comment`, `send-all`): a failed fresh
+  Schoology read used to fall through instead of aborting — now always 502 `SCHOOLOGY_READ_FAILED` before
+  any write, including when Schoology has no record for a pair Prism's local `grades` row holds a
+  score/exception for; and a Schoology write that was actually rejected used to still be mirrored into
+  Prism and reported "saved" — both routes now gate the whole local mirror + response on the write having
+  truly succeeded. Known limitations (not blocking, see spec "Implementation notes (Amendment B)"): a
+  standalone mastery pull between a resubmission and the next full sync, or a Prism save that exactly
+  restores pre-resubmission feedback, can read as a false "answered"; the per-pair publish lock is
+  per-process (PrisMCP and the web server don't exclude each other); the `⟳`/`—` glyphs and Schoology's
+  207 per-entry round-trip are verified offline only — the first live publish should be on a low-stakes
+  item, checked by eye in Schoology; `send-all` writes rubric scores before the comment PUT, so a later
+  failure can leave scores in Schoology without the comment. Task 8 live parity probe
+  (`scripts/parity-lti-resubmission.js`, extended) ran `captureFeedbackSnapshots` on an **in-memory copy**
+  of a dev-clone DB (`db.serialize()` → `new Database(buffer)`, patching the serialized header's WAL
+  version bytes back to legacy so the in-memory VFS accepts it — never touching the source file) and
+  confirmed the source `feedback_snapshots` count was unchanged afterwards (the probe stayed read-only)
+  while the in-memory capture produced thousands of snapshot rows and correctly picked up the
+  "first deploy" arrivals. Visual check (`scripts/screenshot-amendb-statusline.mjs`, phone 390 + desktop
+  1280) screenshotted the Resubmissions panel with all three states (Arrived, red Waiting past deadline,
+  green Waiting in time) and the `StatusLineModal` publish preview opened from "Grade stands" — Cancelled,
+  never Published, against a `/tmp` dev-clone copy, never prod.
+
+**Tests:** 1115 server + 720 client Vitest tests pass; `npm run build` succeeds (2026-10-03).
 
 ## Sync resilience + persistent sync log (2026-10-02, branch `feat/sync-resilience-logs`)
 

@@ -403,3 +403,75 @@ or Prism drafts), so **only visible feedback counts**.
   current fingerprint (Arrived until feedback changes); every other pair gets a plain snapshot.
 - The ↩/⚠ "resubmitted" badge on gradebook / card / student page uses the same Arrived rule.
 - The LTI timestamp fix stays (it is how a new revision is noticed).
+
+## Implementation notes (Amendment B, 2026-10-03)
+
+**Pre-existing prod fixes made while building this.** Two gaps existed in the live comment-write path
+(`write-comment` and `send-all`) before Amendment B touched it, both now closed everywhere a status line
+can be published:
+
+- A failed fresh Schoology read (the read that must precede any comment PUT, to echo the current
+  grade/exception) used to fall through to other error handling; it now always aborts with
+  `SCHOOLOGY_READ_FAILED` (502) before any write — nothing is ever written blind. The same guard applies
+  when the fresh read succeeds but returns no record for the pair while Prism's local `grades` row holds
+  a score or a non-zero exception (a sync gap, not "no grade yet") — also 502, no PUT.
+- A Schoology write that was actually rejected (non-2xx, or a 207 batch entry whose own status wasn't
+  2xx) used to still be reported to the caller and mirrored into Prism as "saved". Both `write-comment`
+  and `send-all` now gate the whole local mirror + success response on the PUT having actually succeeded;
+  a rejected write returns 502 and changes nothing in Prism.
+
+**Known limitations (deferred; flagged to the user, not blocking):**
+
+1. **A standalone mastery pull between a resubmission and the next Schoology sync can produce a false
+   Arrived.** `captureFeedbackSnapshots` runs after every mastery pull as well as every full sync. If a
+   teacher (or a rubric re-import) changes rubric levels in Schoology *after* a resubmission arrived but
+   *before* the next full sync notices the new revision, that pull's capture takes the current fingerprint
+   as the arrival's baseline — so the resubmission can read as already-answered (or, in the visible
+   direction covered here, the student's new work can look answered by feedback that actually predates
+   it) when nothing about the resubmission itself has been looked at yet. The approximation is accepted
+   because the two captures are expected to stay close together in practice; if it bites, the teacher just
+   re-answers.
+2. **A post-resubmission save that exactly restores pre-resubmission feedback reads as answered.** If the
+   teacher saved feedback before the resubmission arrived, then — after it arrives — makes a Prism save
+   that happens to reproduce that exact prior fingerprint (score, exception, rubric levels, visible
+   comment all identical), `feedbackAnswered` sees no difference from the baseline and the pair clears as
+   if genuinely re-graded. Same visible-feedback-only approximation as above, same accepted direction (a
+   false "answered" rather than a false "still waiting").
+3. **The per-pair publish lock is per-process.** `lockPair` (status-line publish/remove, and write-comment
+   with a status line) excludes concurrent requests only within one Node process. PrisMCP runs as its own
+   stdio process; it and the web server do not exclude each other. Two concurrent publishes to the same
+   pair from PrisMCP and the dashboard at once could race. Not built out further pending a real need for
+   cross-process coordination.
+4. **The `⟳`/`—` glyphs and Schoology's 207 per-entry batch-write round-trip are verified offline only**
+   (unit tests, fixture-based). Nothing in this amendment has been exercised against a real Schoology
+   write. The first real publish should be on a low-stakes item, with the resulting comment checked by eye
+   in Schoology (encoding, line placement, and that the 207 entry-level status was read correctly).
+5. **`send-all` writes rubric scores before the comment PUT.** If the comment PUT then fails, the batch
+   returns 502 (per the prod fix above — no local mirror, no status-line record), but the rubric scores it
+   already wrote earlier in the same batch are left sitting in Schoology. Not rolled back; a retry re-sends
+   the same scores (idempotent) and the comment.
+
+**Task 8 verification (this task, 2026-10-03):**
+
+- **Live parity probe** (`scripts/parity-lti-resubmission.js`, extended): after the existing LTI-timestamp
+  checks, it now also runs `captureFeedbackSnapshots` against an **in-memory copy** of the dev-clone DB
+  (`db.serialize()` → `new Database(buffer)`, so the probe stays read-only against `DB_PATH`) and reports
+  the before/after `feedback_snapshots` row count and the resulting Arrived count. One implementation
+  wrinkle: a WAL-mode source (prod and every dev clone always is) serializes with its header "file format
+  write/read version" bytes left at `2`, which the in-memory `memdb` VFS rejects with `SQLITE_CANTOPEN` on
+  first `prepare()` even though the serialized page images are already WAL-reconciled and fully valid —
+  patching those two header bytes to `1` on the **in-memory copy only** (never the source file) fixes it.
+  Run against a /tmp dev-clone copy seeded with one red Waiting request, one in-time Waiting request, and
+  one unrequested Arrived pair (plus whatever real historical data the clone already had): the full-scope
+  capture produced 4592 `feedback_snapshots` rows (up from the 9 already present) with 12 new first-deploy
+  arrivals (old-timestamp-rule resubmissions picked up by the "first deploy" rule above) plus the 1 seeded
+  arrival = 13 Arrived total; a follow-up read of `DB_PATH` confirmed its `feedback_snapshots` count was
+  unchanged (still 9) — the probe never wrote to the source.
+- **Visual check**, dev server on port 3002 against a `/tmp` copy of the dev-clone DB (never prod), via a
+  new `scripts/screenshot-amendb-statusline.mjs`: phone (390) and desktop (1280) screenshots of the
+  Resubmissions panel (showing all three seeded states — Arrived, red Waiting past its deadline, green
+  Waiting still in time) and of the `StatusLineModal` opened from the red row's "Grade stands" button
+  (full publish preview: header, consequence line, editable status line, highlighted resulting comment).
+  The script never calls Publish — it screenshots the open modal, then presses Cancel; `status_lines` and
+  the seeded `resubmissions` rows were confirmed unchanged afterwards. PNGs saved under `/tmp/amendb-*.png`
+  (not committed — the repo is public and the seed used real student names from the dev-clone data).

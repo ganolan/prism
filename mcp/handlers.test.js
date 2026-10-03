@@ -14,6 +14,7 @@ import {
   requestResubmissionTool, gradeStandsTool, listResubmissionsTool, previewStatusLineTool,
 } from './handlers.js';
 import { saveRubric, listRubrics, getRubricByName } from '../server/services/rubricStore.js';
+import { askLine, extendResubmissionLine, gradeStandsLine, extensionLine, makeUpLine } from '../server/lib/statusLines.js';
 
 beforeEach(() => {
   getDb().exec(
@@ -364,7 +365,7 @@ describe('status lines on resubmission/extension tools (Amendment B)', () => {
     expect(res.statusLine).toBeUndefined();
   });
 
-  test('grade_stands publishes kind grade_stands when comment_line is given; nothing when omitted', async () => {
+  test('grade_stands does not touch Schoology when comment_line is omitted', async () => {
     const db = getDb();
     const { studentId, assignmentId } = seedEligiblePair(db);
     const r = await requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 2 });
@@ -408,12 +409,88 @@ describe('status lines on resubmission/extension tools (Amendment B)', () => {
     expect(pushGradeComments).not.toHaveBeenCalled();
   });
 
-  test('preview_status_line previews the resulting comment without writing', async () => {
-    const db = getDb();
-    const { studentId, assignmentId } = seedEligiblePair(db);
-    const out = await previewStatusLineTool(db, { student_id: studentId, assignment_id: assignmentId, line: LINE });
-    expect(out).toMatchObject({ currentComment: 'Teacher note.', resultingComment: `${LINE}\n\nTeacher note.` });
-    expect(pushGradeComments).not.toHaveBeenCalled();
+  describe('preview_status_line renders the line server-side (review I1)', () => {
+    test('kind ask: the rendered line uses server/lib/statusLines.js, and until matches what request_resubmission then records', async () => {
+      const db = getDb();
+      const { studentId, assignmentId } = seedEligiblePair(db);
+      const preview = await previewStatusLineTool(db, { student_id: studentId, assignment_id: assignmentId, kind: 'ask', lessons: 2, note: 'Fix the loop.' });
+      expect(preview.line).toBe(askLine({ until: preview.until, note: 'Fix the loop.' }));
+      expect(preview.resultingComment).toBe(`${preview.line}\n\nTeacher note.`);
+      expect(pushGradeComments).not.toHaveBeenCalled();
+      const r = await requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 2 });
+      expect(r.until).toBe(preview.until);
+    });
+
+    test('kind extend_resubmission: until matches what extend_deadline\'s resubmission_id path then records', async () => {
+      const db = getDb();
+      const { studentId, assignmentId } = seedEligiblePair(db);
+      const r = await requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 2 });
+      vi.clearAllMocks();
+      getSectionGrades.mockResolvedValue([fresh()]);
+      const preview = await previewStatusLineTool(db, { student_id: studentId, assignment_id: assignmentId, kind: 'extend_resubmission', resubmission_id: r.id, lessons: 5 });
+      expect(preview.line).toBe(extendResubmissionLine({ until: preview.until }));
+      const extended = await extendDeadlineTool(db, { resubmission_id: r.id, lessons: 5 });
+      expect(extended.until).toBe(preview.until);
+    });
+
+    test('kind grade_stands: until is the open request\'s own (already-passed) deadline', async () => {
+      const db = getDb();
+      const { studentId, assignmentId } = seedEligiblePair(db);
+      const r = await requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 2 });
+      db.prepare(`UPDATE resubmissions SET requested_at = '2020-01-06 04:00:00' WHERE id = ?`).run(r.id);
+      vi.clearAllMocks();
+      getSectionGrades.mockResolvedValue([fresh()]);
+      const preview = await previewStatusLineTool(db, { student_id: studentId, assignment_id: assignmentId, kind: 'grade_stands', resubmission_id: r.id });
+      expect(preview.line).toBe(gradeStandsLine({ until: preview.until }));
+      const stood = await gradeStandsTool(db, { id: r.id });
+      expect(stood.until).toBe(preview.until);
+    });
+
+    test('kind extension: until matches what extend_deadline then records for ordinary work', async () => {
+      const db = getDb();
+      const { studentId, assignmentId } = seedEligiblePair(db);
+      const preview = await previewStatusLineTool(db, { student_id: studentId, assignment_id: assignmentId, kind: 'extension', lessons: 5, note: 'sick' });
+      expect(preview.line).toBe(extensionLine({ until: preview.until, lessons: 5, note: 'sick' }));
+      const ext = await extendDeadlineTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 5, note: 'sick' });
+      expect(ext.until).toBe(preview.until);
+    });
+
+    test('kind make_up: same calendar rule as extension', async () => {
+      const db = getDb();
+      const { studentId, assignmentId } = seedEligiblePair(db);
+      const preview = await previewStatusLineTool(db, { student_id: studentId, assignment_id: assignmentId, kind: 'make_up', lessons: 4 });
+      expect(preview.line).toBe(makeUpLine({ until: preview.until }));
+      const ext = await extendDeadlineTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 4 });
+      expect(ext.until).toBe(preview.until);
+    });
+
+    test('a teacher-edited `line` is previewed instead, but `line` in the response still returns Prism\'s suggestion', async () => {
+      const db = getDb();
+      const { studentId, assignmentId } = seedEligiblePair(db);
+      const edited = `${LINE} Bring your notebook.`;
+      const preview = await previewStatusLineTool(db, { student_id: studentId, assignment_id: assignmentId, kind: 'ask', lessons: 2, line: edited });
+      expect(preview.resultingComment).toBe(`${edited}\n\nTeacher note.`);
+      expect(preview.line).not.toBe(edited);
+      expect(preview.line).toMatch(/^⟳ Resubmission requested — due /);
+      expect(pushGradeComments).not.toHaveBeenCalled();
+    });
+
+    test('an unknown kind is rejected before any Schoology read', async () => {
+      const db = getDb();
+      const { studentId, assignmentId } = seedEligiblePair(db);
+      await expect(previewStatusLineTool(db, { student_id: studentId, assignment_id: assignmentId, kind: 'bogus' }))
+        .rejects.toThrow(expect.objectContaining({ code: 'BAD_VALUE' }));
+      expect(getSectionGrades).not.toHaveBeenCalled();
+    });
+
+    test('extend_resubmission and grade_stands require resubmission_id', async () => {
+      const db = getDb();
+      const { studentId, assignmentId } = seedEligiblePair(db);
+      await expect(previewStatusLineTool(db, { student_id: studentId, assignment_id: assignmentId, kind: 'extend_resubmission', lessons: 2 }))
+        .rejects.toThrow(expect.objectContaining({ code: 'BAD_VALUE' }));
+      await expect(previewStatusLineTool(db, { student_id: studentId, assignment_id: assignmentId, kind: 'grade_stands' }))
+        .rejects.toThrow(expect.objectContaining({ code: 'BAD_VALUE' }));
+    });
   });
 });
 

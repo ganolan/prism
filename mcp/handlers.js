@@ -11,7 +11,7 @@ import { normalizeSubmissionStatus, gradingState, getRoster, scoreScaleFor } fro
 import { preferredFirstName } from '../server/services/studentNames.js';
 import {
   getTriage, listReferrals, recordReferral, undoReferral, listExtensions, recordExtension, undoExtension, setMakeUpIgnored,
-  assertCanExtend,
+  assertCanExtend, TriageError,
 } from '../server/services/triage.js';
 import {
   requestResubmission, extendResubmission, gradeStands, listResubmissions,
@@ -21,8 +21,10 @@ import {
   previewStatusLine, publishStatusLine, removeStatusLine, setStatusLineSource,
 } from '../server/services/statusLinePublisher.js';
 import { act, hasLine, pairOf } from '../server/services/triageActions.js';
+import { askLine, extendResubmissionLine, gradeStandsLine, extensionLine, makeUpLine } from '../server/lib/statusLines.js';
 import { loadCalendar } from '../server/services/schoolCalendar.js';
-import { todayLocal } from '../server/lib/schoolDays.js';
+import { todayLocal, epochToLocalDate } from '../server/lib/schoolDays.js';
+import { sqliteUtcToEpoch } from '../server/lib/resubmission.js';
 
 // Active courses = not archived, not excluded, not hidden. Mirrors the
 // 'current' view in server/routes/courses.js, plus the excluded filter (#56,
@@ -334,27 +336,68 @@ export async function requestResubmissionTool(db, { student_id, assignment_id, l
   });
 }
 
-// Only once the request's deadline has passed (NOT_AT_DEADLINE before).
+// Only once the request's deadline has passed (NOT_AT_DEADLINE before). `today`
+// is computed once and shared between the validate and record steps, so a
+// clock tick between them (e.g. a request that straddles midnight) can't make
+// the two disagree about whether the deadline has passed.
 export async function gradeStandsTool(db, { id, comment_line } = {}) {
+  const today = todayLocal();
   return act(db, {
     pair: () => pairOf(db, 'resubmissions', id),
-    validate: () => assertCanGradeStand(db, id),
+    validate: () => assertCanGradeStand(db, id, today),
     publish: hasLine(comment_line) ? (({ request }) => publishStatusLine(db, {
       studentId: request.student_id, assignmentId: request.assignment_id, line: comment_line, kind: 'grade_stands',
     })) : null,
     record: ({ request }, published) => {
-      const r = gradeStands(db, id);
+      const r = gradeStands(db, id, { today });
       if (published) setStatusLineSource(db, { studentId: request.student_id, assignmentId: request.assignment_id, type: 'resubmission', id: request.id });
       return r;
     },
   });
 }
 
-// Read-only preview for the confirm step before any comment_line publish: a
-// fresh read of the current comment plus what it would become, without
-// writing anything (server/services/statusLinePublisher.js previewStatusLine).
-export async function previewStatusLineTool(db, { student_id, assignment_id, line } = {}) {
-  return previewStatusLine(db, { studentId: student_id, assignmentId: assignment_id, line: line ?? '' });
+const RENDERABLE_KINDS = ['ask', 'extend_resubmission', 'grade_stands', 'extension', 'make_up'];
+
+// Server-rendered preview for the confirm step before any comment_line publish.
+// The agent cannot reliably compute the school-day date a template embeds, so
+// this computes `until` with the SAME calendar logic the corresponding record
+// step uses (reusing the service's own assert*/pairContext helpers — never
+// duplicating the calendar math here), renders the line with
+// server/lib/statusLines.js, and previews it with a fresh Schoology read
+// (server/services/statusLinePublisher.js previewStatusLine). Always returns
+// the rendered suggestion in `line`; if the caller already has a candidate
+// `line` (e.g. the teacher edited Prism's suggestion), resultingComment
+// previews THAT text instead, while `line` in the response still carries the
+// original suggestion for comparison.
+export async function previewStatusLineTool(db, { student_id, assignment_id, kind, lessons, note, resubmission_id, line } = {}) {
+  if (!RENDERABLE_KINDS.includes(kind)) {
+    throw new TriageError('BAD_VALUE', `kind must be one of ${RENDERABLE_KINDS.join(', ')}`);
+  }
+  const cal = loadCalendar(db);
+  let until;
+  let rendered;
+  if (kind === 'ask') {
+    const { lessons: n } = assertCanRequest(db, { studentId: student_id, assignmentId: assignment_id, lessons: lessons ?? null });
+    until = cal.addSchoolDays(todayLocal(), n).date;
+    rendered = askLine({ until, note });
+  } else if (kind === 'extend_resubmission') {
+    if (resubmission_id == null) throw new TriageError('BAD_VALUE', 'resubmission_id is required for kind extend_resubmission');
+    const { request } = assertCanExtendRequest(db, resubmission_id, lessons);
+    const requestedOn = epochToLocalDate(sqliteUtcToEpoch(request.requested_at));
+    until = cal.addSchoolDays(requestedOn, lessons).date;
+    rendered = extendResubmissionLine({ until, note });
+  } else if (kind === 'grade_stands') {
+    if (resubmission_id == null) throw new TriageError('BAD_VALUE', 'resubmission_id is required for kind grade_stands');
+    ({ until } = assertCanGradeStand(db, resubmission_id));
+    rendered = gradeStandsLine({ until });
+  } else {
+    // extension / make_up: same calendar math, from the assignment's own due date.
+    const { assignment } = assertCanExtend(db, { studentId: student_id, assignmentId: assignment_id, lessons });
+    until = cal.addSchoolDays(assignment.due_date.slice(0, 10), lessons).date;
+    rendered = kind === 'make_up' ? makeUpLine({ until, note }) : extensionLine({ until, lessons, note });
+  }
+  const preview = await previewStatusLine(db, { studentId: student_id, assignmentId: assignment_id, line: hasLine(line) ? line : rendered });
+  return { line: rendered, until, ...preview };
 }
 
 // state: 'asked' (open) | 'grade_stands' | 'done' | 'undone' | 'closed'

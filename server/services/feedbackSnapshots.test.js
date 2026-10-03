@@ -723,6 +723,71 @@ describe('captureFeedbackSnapshots — the save-route protocol (round 5)', () =>
     expect(stateOf(s, a)).toBe(null);                                // score changed + grade time 300 > R
   });
 
+  // Round 7: absorb anything the teacher has not touched through Prism since the arrival —
+  // including a pre-R change a sync saw after R was judged (sync captures never absorb) —
+  // and never absorb a hide.
+  const show = (s, a, t) => () => setGrade(s, a, { comment_status: 1, submitted_at: t });
+  test('X1: R judged (C1) → the next sync brings a pre-R score → Prism hide-only save → arrived (also with an ask)', () => {
+    const [s, a] = base();
+    setGrade(s, a, { latest_revision_at: 200 }); sync();
+    setGrade(s, a, { score: 70, submitted_at: 150 }); sync();
+    expect(stateOf(s, a)).toBe('arrived');
+    routeSave(s, a, 300, { echo: { score: 70, submitted_at: 150 }, teacher: hide(s, a) });
+    expect(stateOf(s, a)).toBe('arrived');
+    expect(stateOf(s, a, 120)).toBe('arrived');
+  });
+
+  test('X1c: a pre-R visible comment edit seen by a sync after R was judged → an unchanged Prism re-save → arrived', () => {
+    const [s, a] = base();
+    setGrade(s, a, { latest_revision_at: 200 }); sync();
+    setGrade(s, a, { grade_comment: 'Pre-R edit', submitted_at: 150 }); sync();
+    routeSave(s, a, 300, { teacher: () => setGrade(s, a, { submitted_at: 300 }) });
+    expect(stateOf(s, a)).toBe('arrived');
+  });
+
+  test('X7 (lti): a Prism visible comment inside R\'s minute, then an unchanged re-save after R + 60 → arrived', () => {
+    const s = student('u1'); const a = assignment('a1');
+    db.prepare('UPDATE assignments SET is_lti_submission = 1 WHERE id = ?').run(a);
+    grade(s, a, { score: 60, grade_comment: 'Note', comment_status: 1, submitted_at: 50, latest_revision_at: 100 });
+    lvl('t1', 'D'); sync();
+    setGrade(s, a, { latest_revision_at: 200 }); sync();
+    routeSave(s, a, 230, { teacher: () => setGrade(s, a, { grade_comment: 'X', submitted_at: 230 }) });
+    expect(stateOf(s, a)).toBe('arrived');
+    routeSave(s, a, 300, { teacher: () => setGrade(s, a, { submitted_at: 300 }) });
+    expect(stateOf(s, a)).toBe('arrived');
+  });
+
+  test('X10: a Schoology-side hide after R (sync) → Prism re-shows the same comment → arrived', () => {
+    const [s, a] = base();
+    setGrade(s, a, { latest_revision_at: 200 }); sync();
+    setGrade(s, a, { comment_status: null, submitted_at: 250 }); sync();
+    routeSave(s, a, 310, { teacher: show(s, a, 310) });
+    expect(stateOf(s, a)).toBe('arrived');
+  });
+
+  test('X11: a pre-R comment edit seen by a sync after R was judged → Prism hide → show → arrived', () => {
+    const [s, a] = base();
+    setGrade(s, a, { latest_revision_at: 200 }); sync();
+    setGrade(s, a, { grade_comment: 'Pre-R edit', submitted_at: 150 }); sync();
+    routeSave(s, a, 300, { teacher: hide(s, a) });
+    routeSave(s, a, 310, { teacher: show(s, a, 310) });
+    expect(stateOf(s, a)).toBe('arrived');
+  });
+
+  test('S16 family through the protocol: hide → (sync) → re-show stays arrived; a real Prism comment after R still answers and stays answered', () => {
+    const [s, a] = base();
+    setGrade(s, a, { latest_revision_at: 200 }); sync();
+    routeSave(s, a, 300, { teacher: hide(s, a) });
+    sync();
+    routeSave(s, a, 310, { teacher: show(s, a, 310) });
+    expect(stateOf(s, a)).toBe('arrived');
+    routeSave(s, a, 320, { teacher: () => setGrade(s, a, { grade_comment: 'Much better', submitted_at: 320 }) });
+    expect(stateOf(s, a)).toBe(null);
+    routeSave(s, a, 330, { teacher: () => setGrade(s, a, { submitted_at: 330 }) });
+    sync();
+    expect(stateOf(s, a)).toBe(null);
+  });
+
   test('documented residual N4: the levels bit is per arrival, not per topic — a Prism change then revert, then a pull bringing a pre-R level on another topic, reads as answered', () => {
     const [s, a] = base(); lvl('t2', 'D'); sync();
     setGrade(s, a, { latest_revision_at: 200 }); sync();

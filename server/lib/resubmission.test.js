@@ -131,8 +131,13 @@ describe('resubmissionStateFromSnapshot', () => {
     expect(absorbParts(base, cur, 0)).toBe(base);
     expect(absorbParts(base, cur, PART_SCORE)).toBe(fingerprint({ score: 80, exception: 2, comment: 'Note', commentStatus: 1, levels: [{ topic_id: 't', grade: 'D' }] }));
     expect(absorbParts(base, cur, PART_LEVELS)).toBe(fingerprint({ score: 60, comment: 'Note', commentStatus: 1, levels: [{ topic_id: 't', grade: 'EX' }] }));
-    expect(absorbParts(base, cur, PART_COMMENT)).toBe(fingerprint({ score: 60, comment: '', commentStatus: 0, levels: [{ topic_id: 't', grade: 'D' }] }));
-    expect(absorbParts(base, cur, PART_SCORE | PART_LEVELS | PART_COMMENT)).toBe(cur);
+    // A hide is never absorbed: the empty (hidden) comment doesn't replace 'Note'.
+    expect(absorbParts(base, cur, PART_COMMENT)).toBe(base);
+    expect(absorbParts(base, cur, PART_SCORE | PART_LEVELS | PART_COMMENT)).toBe(fingerprint({ score: 80, exception: 2, comment: 'Note', commentStatus: 1, levels: [{ topic_id: 't', grade: 'EX' }] }));
+    const shown = fingerprint({ score: 60, comment: 'New', commentStatus: 1, levels: [{ topic_id: 't', grade: 'D' }] });
+    expect(absorbParts(base, shown, PART_COMMENT)).toBe(shown);
+    const noComment = fingerprint({ score: 60, levels: [{ topic_id: 't', grade: 'D' }] });
+    expect(absorbParts(noComment, shown, PART_COMMENT)).toBe(shown);
     expect(absorbParts(null, cur, PART_SCORE)).toBe(cur);
   });
   test('changedParts / feedbackAnswered without evidence (any change counts)', () => {

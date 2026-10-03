@@ -226,7 +226,13 @@ export function captureFeedbackSnapshots(db, {
         // Part-wise (round 6): only the parts that changed since the last capture — what
         // this capture's writer (another sync/pull, the echo, the publish) brought — never
         // the teacher's own earlier saves, which the last snapshot already holds.
-        if (!answered) baseline = absorbParts(baseline, cur.fingerprint, changedParts(snap.fingerprint, cur.fingerprint));
+        // Round 7: also any part that differs from the baseline which no Prism save has
+        // touched since the arrival (not in arrival_parts) — e.g. a pre-R change a sync saw
+        // after R was judged (sync captures never absorb). Principle: absorb anything the
+        // teacher has not touched through Prism since the arrival; never absorb a hide
+        // (absorbParts keeps a non-empty baseline comment).
+        const parts = changedParts(snap.fingerprint, cur.fingerprint) | (changedParts(baseline, cur.fingerprint) & ~arrivalParts);
+        if (!answered) baseline = absorbParts(baseline, cur.fingerprint, parts);
       }
       const changed = cur.fingerprint !== snap.fingerprint;
       // Round 5: a save route's echo of a Schoology-side change (unstamped, echoAt = Schoology's

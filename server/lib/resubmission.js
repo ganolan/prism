@@ -36,6 +36,8 @@ export function changedParts(beforeFp, afterFp) {
 // Round 6: merge the given parts (PART_* bits) of `fromFp` into `baseFp` — score+exception,
 // levels and visible comment separately — leaving the other parts as they were. Same key
 // order as feedbackFingerprint.fingerprint(), so equal feedback stays an equal string.
+// Round 7: a hide is never absorbed — an empty visible comment never replaces a non-empty
+// one (hiding is never feedback, so re-showing the same text must not read as new).
 export function absorbParts(baseFp, fromFp, parts) {
   if (!parts || baseFp == null) return parts && baseFp == null ? fromFp : baseFp;
   const b = parseFp(baseFp);
@@ -43,7 +45,8 @@ export function absorbParts(baseFp, fromFp, parts) {
   const take = (bit, keys) => keys.reduce((o, k) => ({ ...o, [k]: (parts & bit) ? f[k] : b[k] }), {});
   const { s, e } = take(PART_SCORE, ['s', 'e']);
   const { l } = take(PART_LEVELS, ['l']);
-  const { c } = take(PART_COMMENT, ['c']);
+  let { c } = take(PART_COMMENT, ['c']);
+  if (!c && b.c) c = b.c;
   return JSON.stringify({ s: s ?? null, e: Number(e) || 0, l: l || [], c: c ?? '' });
 }
 

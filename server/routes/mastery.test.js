@@ -33,6 +33,7 @@ import { getSectionGrades, pushGradeComments } from '../services/schoology.js';
 import { getAssignmentFiles } from '../services/oneDriveLinks.js';
 import { requestResubmission, resubmissionByStudent } from '../services/resubmissions.js';
 import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
+import { publishStatusLine } from '../services/statusLinePublisher.js';
 import { writeMasteryScores } from '../services/masterySync.js';
 
 function startServer() {
@@ -716,6 +717,39 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
       set({ latest_revision_at: 2000 }); captureFeedbackSnapshots(getDb());
       fresh(80, 2600); await reshow();
       expect(state()).toBe('arrived');
+    });
+
+    // Round 7: a pre-R change a sync saw after R was judged is absorbed by the next save's
+    // pre-capture (the teacher never touched it through Prism since the arrival).
+    test('X1: R synced (C1) → the next sync brings a pre-R score → Prism hide-only save → arrived', async () => {
+      base();
+      set({ latest_revision_at: 2000 }); captureFeedbackSnapshots(getDb());
+      set({ score: 80, submitted_at: 1500 }); captureFeedbackSnapshots(getDb());
+      expect(state()).toBe('arrived');
+      fresh(80, 1500); await hideOnly();
+      expect(state()).toBe('arrived');
+    });
+
+    test('X1r: same with an open request → the request stays open', async () => {
+      base();
+      requestResubmission(getDb(), { studentId, assignmentId, requestedAt: '1970-01-01 00:25:00' });
+      set({ latest_revision_at: 2000 }); captureFeedbackSnapshots(getDb());
+      set({ score: 80, submitted_at: 1500 }); captureFeedbackSnapshots(getDb());
+      fresh(80, 1500); await hideOnly();
+      expect(state()).toBe('arrived');
+      expect(getDb().prepare('SELECT status FROM resubmissions WHERE student_id = ?').get(studentId).status).toBe('open');
+    });
+
+    test('documented residual S6b: after a save, Schoology shows an OLDER score than Prism just read and a status-line publish mirrors it → answered', async () => {
+      // Needs a grade time moving backwards: the save's fresh read showed 60, then Schoology
+      // "shows" a pre-R 80. The publisher (R1) never moves submitted_at, so Prism's own later
+      // write time pairs with the score change. Judged unreachable; pinned so a change is noticed.
+      base();
+      set({ latest_revision_at: 2000 }); captureFeedbackSnapshots(getDb());
+      fresh(60, 1500); await hideOnly();
+      fresh(80, 1500);
+      await publishStatusLine(getDb(), { studentId, assignmentId, line: 'Resubmission received 01/10 - regraded.', kind: 'received' });
+      expect(state()).toBe(null);
     });
 
     test('W4: a Prism visible-comment save after R → answered', async () => {

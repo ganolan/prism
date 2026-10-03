@@ -251,13 +251,13 @@ Scripts: `scripts/probe-lti-resubmission.js` (`ARCHIVED=1` for last year), `scri
 4. **Schoology's reminders count is "submitted more than once", not "since graded".** Native CPT 1: 2
    students "New resubmission" — both revision 2 on 23/09, graded 29/09 → correctly not owed. Their
    `first_submitted_at` = revision 2's date (the bulk read only returns the latest revision).
+5. **No resubmission field on the LTI grader**: `submitted-documents` entries have one date and
+   `submissionStatus` 0/1; `statusFilter` is only `graded | ungraded | late | ontime`.
 6. **Comment-only feedback sets the grade timestamp; a submission alone never does** (prod snapshot):
    17/17 native comment-only rows have a REST timestamp (16 after the latest revision); 155/155 ungraded,
    uncommented native submissions have none; ungraded LTI cells have none (probe output). The one
    comment-only row with a later revision (an archived journal reflection: comment 29/03, submitted
    08/04) is a real arrival the old score/exception guard missed.
-5. **No resubmission field on the LTI grader**: `submitted-documents` entries have one date and
-   `submissionStatus` 0/1; `statusFilter` is only `graded | ungraded | late | ontime`.
 
 ## Out of scope (now)
 

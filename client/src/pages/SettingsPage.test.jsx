@@ -13,6 +13,7 @@ vi.mock('../services/api.js', () => ({
 
 const TRIAGE = {
   referralLimitDays: 8, feedbackLimitDays: 10, warnLeadDays: 3, showFormativeDefault: false, makeUpAmberDay: 2, makeUpRedDay: 4,
+  resubmitLessonsDefault: 3,
 };
 
 beforeEach(() => {
@@ -61,6 +62,15 @@ describe('SettingsPage', () => {
     fireEvent.change(red, { target: { value: '5' } });
     await waitFor(() => expect(api.updateSettings).toHaveBeenCalledWith({ triage: { makeUpRedDay: 5 } }));
     await waitFor(() => expect(amber).toHaveAttribute('max', '5'));
+  });
+
+  it('shows the resubmission deadline default and saves a change server-side', async () => {
+    render(<SettingsPage />);
+    const stepper = await screen.findByLabelText('Resubmission deadline (lessons)');
+    expect(stepper).toHaveValue(3);
+    expect(screen.getByText('Resubmission deadline (default)')).toBeInTheDocument();
+    fireEvent.click(screen.getAllByLabelText('Increase').find((btn) => btn.closest('.settings-row').textContent.includes('Resubmission deadline')));
+    await waitFor(() => expect(api.updateSettings).toHaveBeenCalledWith({ triage: { resubmitLessonsDefault: 4 } }));
   });
 
   it('warns when there is no PowerSchool calendar', async () => {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment } from '../services/api.js';
+import { getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 import { makeDraftSaver } from '../lib/assessmentDraftSaver.js';
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
@@ -9,6 +9,7 @@ import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import { LEVELS, LEVEL_LABELS, LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
 import { useProficiencyScale } from '../hooks/useProficiencyScale.js';
 import RubricDescriptorGrid from '../components/RubricDescriptorGrid.jsx';
+import ResubmitControl from '../components/ResubmitControl.jsx';
 import RubricManagerModal from '../components/RubricManagerModal.jsx';
 import AiSparkle from '../components/AiSparkle.jsx';
 import SchoologyLink from '../components/SchoologyLink.jsx';
@@ -116,7 +117,7 @@ function HeaderPill({ active, accent, activeBg, activeText, icon, label, clearLa
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
-export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, scoreScale = null, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
+export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, scoreScale = null, resubmitLessonsDefault = 3, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
   const scale = useProficiencyScale();
   const loadedDisplay = student.comment_status === 1;
   // Per-card DB draft saver (replaces the former localStorage key). Created once.
@@ -248,10 +249,6 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   const [flagReason, setFlagReason] = useState('');
   const [flagBusy, setFlagBusy] = useState(false);
   const [flagError, setFlagError] = useState(null);
-
-  // Re-submit requested flag (#49) — Prism-local, submission-scoped, pure toggle.
-  const [resubmitFlag, setResubmitFlag] = useState(student.resubmit_flag || null);
-  const [resubmitBusy, setResubmitBusy] = useState(false);
 
   // Exception (Excused/Incomplete/Missing) on the underlying grade locks the
   // rubric grid: setting one of these in Schoology deletes the score, so any
@@ -700,39 +697,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     }
   }
 
-  async function handleRequestResubmit() {
-    if (!assignmentRow?.id || resubmitBusy) return;
-    setFlagError(null);
-    setResubmitBusy(true);
-    try {
-      const flag = await createFlag({
-        student_id: student.id,
-        assignment_id: assignmentRow.id,
-        flag_type: 'resubmit_requested',
-      });
-      setResubmitFlag({ id: flag.id });
-    } catch (err) {
-      setFlagError(`Re-submit request failed: ${err.message}`);
-    } finally {
-      setResubmitBusy(false);
-    }
-  }
-
-  async function handleClearResubmit() {
-    if (!resubmitFlag || resubmitBusy) return;
-    setFlagError(null);
-    setResubmitBusy(true);
-    try {
-      await deleteFlag(resubmitFlag.id);
-      setResubmitFlag(null);
-    } catch (err) {
-      setFlagError(`Clear re-submit failed: ${err.message}`);
-    } finally {
-      setResubmitBusy(false);
-    }
-  }
-
-  const bothSignals = !!resubmitFlag && !!student.resubmitted;
+  const bothSignals = !!student.resubmit_flag && !!student.resubmitted;
 
   // Descriptor view: order rows by criterion.position → mapped topic; topics with
   // no criterion fall after. Built only when a rubric is attached.
@@ -883,31 +848,15 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             onClick={() => setShowFlagInput(true)}
           />
         )}
-        {/* Resubmission flag (#49, Part A) — a Prism-local reminder that the
-            teacher has asked this student to resubmit. There's no agreed Schoology
-            channel for the request yet, so it's a teacher-to-student arrangement;
-            the flag just stops the teacher forgetting. Never part of a Schoology save. */}
-        {resubmitFlag ? (
-          <HeaderPill
-            active
-            accent="var(--resubmit-ring)"
-            activeBg="var(--badge-resubmit-bg)"
-            activeText="var(--badge-resubmit-text)"
-            icon="⟳"
-            label="Resubmission requested"
-            clearLabel="Clear re-submit request"
-            onClick={handleClearResubmit}
-            busy={resubmitBusy}
-          />
-        ) : (
-          <HeaderPill
-            accent="var(--resubmit-ring)"
-            icon="⟳"
-            label="Ask to resubmit"
-            onClick={handleRequestResubmit}
-            busy={resubmitBusy}
-          />
-        )}
+        {/* Resubmission (triage) — ask with a deadline in lessons; Prism-only. */}
+        <ResubmitControl
+          student={student}
+          assignmentId={assignmentRow?.id}
+          defaultLessons={resubmitLessonsDefault}
+          onChange={(resubmission) => onSaved?.(student.schoology_uid, {
+            resubmission, resubmit_flag: resubmission?.request ? { id: resubmission.request.id } : null,
+          })}
+        />
         {/* Detected resubmission (#49, Part B) — the student submitted new work
             since this was last graded. Prominent + amber because it's an
             actionable "regrade me" signal, distinct from the teacher's request. */}
@@ -1589,6 +1538,12 @@ export default function AssessmentSummaryPage() {
   const [rubricPalette, setRubricPalette] = useState({});
   const [viewMode, setViewMode] = useStickyTab('assessment-view', 'descriptors', { param: 'view' });
   const [rubricModalOpen, setRubricModalOpen] = useState(false);
+  // Default resubmission deadline (lessons), loaded once from Settings (Ruling R2);
+  // 3 until it loads, so a card never blocks on this request.
+  const [resubmitLessonsDefault, setResubmitLessonsDefault] = useState(3);
+  useEffect(() => {
+    getSettings().then((s) => setResubmitLessonsDefault(s?.triage?.resubmitLessonsDefault ?? 3)).catch(() => {});
+  }, []);
   const [activeFilters, setActiveFilters] = useState(() => new Set());
   const toggleFilter = (id) => setActiveFilters(prev => {
     const next = new Set(prev);
@@ -1943,6 +1898,7 @@ export default function AssessmentSummaryPage() {
               rubricPalette={rubricPalette}
               submissionLink={workLinks.links[student.schoology_uid] || null}
               scoreScale={scoreScale}
+              resubmitLessonsDefault={resubmitLessonsDefault}
               onSaved={handleCardSaved}
               onPendingChange={handlePendingChange}
               onDisplayChange={handleDisplayChange}

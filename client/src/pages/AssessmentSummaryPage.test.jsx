@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 import AssessmentSummaryPage, { StudentRubricCard } from './AssessmentSummaryPage.jsx';
-import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale } from '../services/api.js';
+import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale, requestResubmission, updateResubmission } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 
 // Stub the DB saver so tests assert wiring, not I/O.
@@ -28,6 +28,11 @@ vi.mock('../services/api.js', () => ({
   sendAllGrades: vi.fn().mockResolvedValue({ results: [] }),
   createFlag: vi.fn().mockResolvedValue({ id: 99, flag_reason: 'Check citations' }),
   deleteFlag: vi.fn().mockResolvedValue({ success: true }),
+  getSettings: vi.fn().mockResolvedValue({ triage: { resubmitLessonsDefault: 3 } }),
+  requestResubmission: vi.fn(),
+  updateResubmission: vi.fn(),
+  reviewResubmission: vi.fn(),
+  undoResubmission: vi.fn(),
   getRubricForAssignment: vi.fn().mockResolvedValue(null),
   getRubricConfig: vi.fn().mockResolvedValue({ reportingCategoryColors: {} }),
   rubricTemplateUrl: vi.fn(() => '/api/rubrics/template'),
@@ -330,37 +335,53 @@ describe('StudentRubricCard review flag (#20)', () => {
   });
 });
 
-describe('StudentRubricCard — re-submit requested toggle', () => {
-  it('shows the ghost toggle when no resubmit flag is set', () => {
+describe('StudentRubricCard — resubmission control (triage resubmissions)', () => {
+  it('shows the "Ask to resubmit" pill when there is no open resubmission', () => {
     renderCard();
     expect(screen.getByRole('button', { name: /ask to resubmit/i })).toBeInTheDocument();
   });
 
-  it('creates a resubmit_requested flag with no reason on click', async () => {
-    createFlag.mockResolvedValueOnce({ id: 71, flag_type: 'resubmit_requested', flag_reason: null });
-    renderCard();
-    fireEvent.click(screen.getByRole('button', { name: /ask to resubmit/i }));
-    await waitFor(() => {
-      expect(createFlag).toHaveBeenCalledWith({
-        student_id: 1,
-        assignment_id: 50,
-        flag_type: 'resubmit_requested',
-      });
+  it('shows "Resubmit by DD/MM/YYYY" when there is an open request', () => {
+    renderCard({
+      student: { ...makeStudent(), resubmission: { state: 'waiting', request: { id: 71, lessons: 3, until: '2026-10-15' } } },
     });
-    expect(await screen.findByText(/resubmission requested/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Resubmit by 15\/10\/2026/ })).toBeInTheDocument();
   });
 
-  it('clears the flag via the ✕ control', async () => {
-    renderCard({ student: { ...makeStudent(), resubmit_flag: { id: 71 } } });
-    fireEvent.click(screen.getByRole('button', { name: /clear re-submit request/i }));
-    await waitFor(() => expect(deleteFlag).toHaveBeenCalledWith(71));
+  it('asking to resubmit patches the student via onSaved with resubmission + resubmit_flag', async () => {
+    requestResubmission.mockResolvedValueOnce({ id: 71, lessons: 3, until: '2026-10-15', outcome: 'asked' });
+    const onSaved = vi.fn();
+    renderCard({ onSaved });
+    fireEvent.click(screen.getByRole('button', { name: /ask to resubmit/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+    await waitFor(() => expect(requestResubmission).toHaveBeenCalledWith({
+      studentId: 1, assignmentId: 50, lessons: 3, note: '',
+    }));
+    expect(onSaved).toHaveBeenCalledWith('uid-1', {
+      resubmission: { state: 'waiting', request: { id: 71, lessons: 3, until: '2026-10-15', outcome: 'asked' } },
+      resubmit_flag: { id: 71 },
+    });
   });
 
-  it('the flag write does not trigger a Schoology write', async () => {
-    createFlag.mockResolvedValueOnce({ id: 71 });
+  it('closing the request patches the student with resubmission + resubmit_flag cleared', async () => {
+    updateResubmission.mockResolvedValueOnce(undefined);
+    const onSaved = vi.fn();
+    renderCard({
+      onSaved,
+      student: { ...makeStudent(), resubmission: { state: 'waiting', request: { id: 71, lessons: 3, until: '2026-10-15' } } },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Resubmit by 15\/10\/2026/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close request' }));
+    await waitFor(() => expect(updateResubmission).toHaveBeenCalledWith(71, { close: true, note: '' }));
+    expect(onSaved).toHaveBeenCalledWith('uid-1', { resubmission: null, resubmit_flag: null });
+  });
+
+  it('asking to resubmit does not trigger a Schoology write', async () => {
+    requestResubmission.mockResolvedValueOnce({ id: 71, lessons: 3, until: '2026-10-15' });
     renderCard();
     fireEvent.click(screen.getByRole('button', { name: /ask to resubmit/i }));
-    await waitFor(() => expect(createFlag).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+    await waitFor(() => expect(requestResubmission).toHaveBeenCalled());
     expect(writeMasteryScores).not.toHaveBeenCalled();
     expect(writeMasteryComment).not.toHaveBeenCalled();
   });

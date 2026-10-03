@@ -1240,6 +1240,17 @@ a.triage-row__title:hover { text-decoration: underline; }
 .urgency-ring__days abbr { font-size: 0.75em; text-decoration: none; cursor: help; }
 .urgency-ring--sm .urgency-ring__days { font-size: 0.66rem; }
 .triage-wait { display: inline-flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
+
+/* Assessment card: resubmission control (triage resubmissions). */
+.resubmit-control { display: inline-flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.resubmit-control__panel { display: inline-flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.resubmit-pill {
+  display: inline-flex; align-items: center; gap: 0.35rem; height: 1.8rem; box-sizing: border-box;
+  border-radius: 999px; padding: 0 0.7rem; font-size: 0.85rem; font-weight: 600; white-space: nowrap;
+  border: 1.5px solid var(--resubmit-ring); background: var(--card-bg); color: var(--text-muted); cursor: pointer;
+}
+.resubmit-pill--active { border-width: 2.5px; background: var(--badge-resubmit-bg); color: var(--badge-resubmit-text); }
+
 .settings-section { margin-bottom: 1rem; }
 .settings-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin: 0.6rem 0; }
 

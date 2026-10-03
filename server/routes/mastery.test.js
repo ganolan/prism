@@ -30,7 +30,7 @@ import { getDb } from '../db/index.js';
 import { getMasteryForCourse, writeMasteryScoresBatch, writeMasteryOverride } from '../services/masterySync.js';
 import { getSectionGrades, pushGradeComments } from '../services/schoology.js';
 import { getAssignmentFiles } from '../services/oneDriveLinks.js';
-import { requestResubmission, markResubmissionReviewed } from '../services/resubmissions.js';
+import { requestResubmission, markResubmissionReviewed, resubmissionByStudent } from '../services/resubmissions.js';
 
 function startServer() {
   const app = express();
@@ -145,6 +145,14 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — review and res
   test('assignment.web_url is null when the assignment has none (#76)', async () => {
     const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
     expect(body.assignment.web_url).toBeNull();
+  });
+
+  test('course carries archived/excluded so the page can hide the resubmission control', async () => {
+    let { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
+    expect(body.course).toMatchObject({ archived: 0, excluded: 0 });
+    getDb().prepare('UPDATE courses SET archived = 1 WHERE id = ?').run(courseId);
+    ({ body } = await get(`/api/mastery/${courseId}/assignment/sa-1`));
+    expect(body.course.archived).toBe(1);
   });
 
   test('resubmit_flag is null when the student has no resubmit flag', async () => {
@@ -391,7 +399,7 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
   beforeEach(() => {
     const db = getDb();
     db.exec(
-      'DELETE FROM flags; DELETE FROM grades; DELETE FROM mastery_alignments; ' +
+      'DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM mastery_alignments; ' +
       'DELETE FROM mastery_scores; DELETE FROM measurement_topics; ' +
       'DELETE FROM reporting_categories; DELETE FROM assignment_assignees; ' +
       'DELETE FROM enrolments; DELETE FROM assignments; ' +
@@ -438,8 +446,49 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
       'SELECT score, submitted_at, grade_comment FROM grades WHERE student_id = ? AND assignment_id = ?'
     ).get(studentId, assignmentId);
     expect(row.score).toBe(95);
-    expect(row.submitted_at).toBe(1779418446);
+    // The grade time is never older than the write itself (see the regrade test below).
+    expect(row.submitted_at).toBeGreaterThanOrEqual(1779418446);
     expect(row.grade_comment).toBe('Nice work');
+  });
+
+  test('mirrors a fresh timestamp newer than now unchanged', async () => {
+    const db = getDb();
+    const future = Math.floor(Date.now() / 1000) + 3600;
+    getSectionGrades.mockResolvedValue([
+      { assignment_id: 'sa-wc', enrollment_id: 'enr-wc', grade: 95, exception: 0, timestamp: future },
+    ]);
+    await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'x' });
+    const row = db.prepare('SELECT submitted_at FROM grades WHERE student_id = ? AND assignment_id = ?').get(studentId, assignmentId);
+    expect(row.submitted_at).toBe(future);
+  });
+
+  // Final review finding 1: `fresh` is read BEFORE the comment PUT, so its
+  // timestamp is the old grade time. Mirroring it left a regraded resubmission
+  // "Arrived" (and its open request unsettled) until the next sync.
+  test('a regrade of an arrived resubmission settles the open request (fresh.timestamp predates the arrival)', async () => {
+    const db = getDb();
+    const now = Math.floor(Date.now() / 1000);
+    db.prepare(
+      `INSERT INTO grades (student_id, assignment_id, enrolment_id, score, submitted_at, latest_revision_at)
+       VALUES (?, ?, 'enr-wc', 50, ?, ?)`
+    ).run(studentId, assignmentId, now - 86400 * 10, now - 3600);
+    const request = requestResubmission(db, {
+      studentId, assignmentId, requestedAt: new Date((now - 86400 * 2) * 1000).toISOString().slice(0, 19).replace('T', ' '),
+    });
+    expect(resubmissionByStudent(db, assignmentId).get(studentId).state).toBe('arrived');
+    getSectionGrades.mockResolvedValue([
+      { assignment_id: 'sa-wc', enrollment_id: 'enr-wc', grade: 50, exception: 0, timestamp: now - 86400 * 10 },
+    ]);
+
+    const { status } = await post(`/api/mastery/${courseId}/write-comment`, {
+      enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Regraded',
+    });
+    expect(status).toBe(200);
+
+    const row = db.prepare('SELECT submitted_at FROM grades WHERE student_id = ? AND assignment_id = ?').get(studentId, assignmentId);
+    expect(row.submitted_at).toBeGreaterThanOrEqual(now);
+    expect(db.prepare('SELECT status FROM resubmissions WHERE id = ?').get(request.id).status).toBe('done');
+    expect(resubmissionByStudent(db, assignmentId).has(studentId)).toBe(false);
   });
 
   test('does not wipe an existing score when the Schoology grade lookup fails', async () => {
@@ -474,7 +523,7 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
   beforeEach(() => {
     const db = getDb();
     db.exec(
-      'DELETE FROM flags; DELETE FROM grades; DELETE FROM mastery_alignments; ' +
+      'DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM mastery_alignments; ' +
       'DELETE FROM mastery_scores; DELETE FROM measurement_topics; ' +
       'DELETE FROM reporting_categories; DELETE FROM assignment_assignees; ' +
       'DELETE FROM enrolments; DELETE FROM assignments; ' +
@@ -574,7 +623,27 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
     expect(grade.score).toBe(95);
     expect(grade.grade_comment).toBe('note uid-ada');
     expect(grade.comment_status).toBe(1);
-    expect(grade.submitted_at).toBe(1779418446);
+    // Never older than the write itself — a teacher write sets the REST timestamp.
+    expect(grade.submitted_at).toBeGreaterThanOrEqual(Math.floor(Date.now() / 1000) - 5);
+  });
+
+  test('a regrade via send-all settles an arrived resubmission request (fresh.timestamp predates the arrival)', async () => {
+    const db = getDb();
+    const now = Math.floor(Date.now() / 1000);
+    db.prepare(
+      `INSERT INTO grades (student_id, assignment_id, enrolment_id, score, submitted_at, latest_revision_at)
+       VALUES (?, ?, 'enr-ada', 50, 1779418446, ?)`
+    ).run(adaId, assignmentRowId, now - 3600);
+    const request = requestResubmission(db, {
+      studentId: adaId, assignmentId: assignmentRowId,
+      requestedAt: new Date((now - 86400) * 1000).toISOString().slice(0, 19).replace('T', ' '),
+    });
+    expect(resubmissionByStudent(db, assignmentRowId).get(adaId).state).toBe('arrived');
+
+    const { status } = await post(`/api/mastery/${courseId}/send-all`, { entries: [entry('uid-ada', 'enr-ada')] });
+    expect(status).toBe(200);
+    expect(db.prepare('SELECT status FROM resubmissions WHERE id = ?').get(request.id).status).toBe('done');
+    expect(resubmissionByStudent(db, assignmentRowId).has(adaId)).toBe(false);
   });
 
   test('all-or-nothing: a score-batch failure aborts before comments and mirrors nothing', async () => {
@@ -895,7 +964,7 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
     getDb().prepare(`UPDATE courses SET section_name = '4(A-B)', block_number = '7' WHERE id = ?`).run(courseId);
     const { body } = await get(`/api/mastery/${courseId}/assignment/sa-C`);
     // block_number is a TEXT column (#106).
-    expect(body.course).toEqual({ id: courseId, course_name: 'Course', section_name: '4(A-B)', block_number: '7' });
+    expect(body.course).toEqual({ id: courseId, course_name: 'Course', section_name: '4(A-B)', block_number: '7', archived: 0, excluded: 0 });
   });
 
   test('GET: no scoreScale for a scale Prism does not grade', async () => {

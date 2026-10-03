@@ -1637,3 +1637,103 @@ describe('AssessmentSummaryPage — deep link from a triage row (Task 10)', () =
     expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('AssessmentSummaryPage — a save regrades an arrived resubmission (final review)', () => {
+  function renderPage() {
+    return render(
+      <MemoryRouter initialEntries={['/course/4/assessment/8']}>
+        <Routes>
+          <Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+  }
+  function makeData(studentExtra = {}, courseExtra = {}) {
+    return {
+      course: { id: 4, course_name: 'Course', block_number: null, archived: 0, excluded: 0, ...courseExtra },
+      assignment: { id: 50, schoology_assignment_id: '8', title: 'Quiz', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+      topics: TOPICS,
+      students: [{ ...makeStudent(), resubmitted: true, resubmission: { state: 'arrived', request: null }, ...studentExtra }],
+    };
+  }
+
+  it('a successful card save clears the ⚠ Ungraded resubmission pill', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    renderPage();
+    expect(await screen.findByText(/Ungraded resubmission/)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), { target: { value: 'Regraded' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+
+    await waitFor(() => expect(writeMasteryComment).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByText(/Ungraded resubmission/)).not.toBeInTheDocument());
+  });
+
+  it('a Send all success clears the pill and an arrived request (fulfilled → hidden)', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData({
+      resubmit_flag: { id: 71 },
+      resubmission: { state: 'arrived', request: { id: 71, lessons: 3, until: '2026-10-15' } },
+    }));
+    sendAllGrades.mockResolvedValue({ results: [{ uid: 'uid-1', ok: true }] });
+    renderPage();
+    expect(await screen.findByText(/Ungraded resubmission/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reviewed' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(await screen.findByRole('button', { name: /publish all to schoology \(1\)/i }));
+
+    await screen.findByText(/Published 1 grade/);
+    expect(screen.queryByText(/Ungraded resubmission/)).not.toBeInTheDocument();
+    // The answered request settles server-side; the card's control is back to "Ask".
+    expect(screen.queryByRole('button', { name: 'Reviewed' })).not.toBeInTheDocument();
+    expect(document.querySelector('.resubmit-control')).toHaveTextContent(/Ask to resubmit/);
+  });
+
+  it('a save leaves a still-waiting request in place', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData({
+      resubmitted: false,
+      resubmit_flag: { id: 71 },
+      resubmission: { state: 'waiting', request: { id: 71, lessons: 3, until: '2026-10-15' } },
+    }));
+    renderPage();
+    await waitFor(() => expect(document.querySelector('.resubmit-control')).toHaveTextContent(/Resubmit by/));
+    fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), { target: { value: 'x' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+    await waitFor(() => expect(writeMasteryComment).toHaveBeenCalledTimes(1));
+    await screen.findByText('Saved ✓');
+    expect(document.querySelector('.resubmit-control')).toHaveTextContent(/Resubmit by/);
+  });
+});
+
+describe('AssessmentSummaryPage — no resubmission control on an archived/excluded course (final review)', () => {
+  function renderPage() {
+    return render(
+      <MemoryRouter initialEntries={['/course/4/assessment/8']}>
+        <Routes>
+          <Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+  }
+  const data = (course) => ({
+    course: { id: 4, course_name: 'Course', block_number: null, ...course },
+    assignment: { id: 50, schoology_assignment_id: '8', title: 'Quiz', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+    topics: TOPICS,
+    students: [makeStudent()],
+  });
+
+  it('shows Ask to resubmit on a current course', async () => {
+    getMasteryForAssignment.mockResolvedValue(data({ archived: 0, excluded: 0 }));
+    renderPage();
+    await waitFor(() => expect(document.querySelector('.resubmit-control')).toHaveTextContent(/Ask to resubmit/));
+  });
+
+  it.each([['archived', { archived: 1, excluded: 0 }], ['excluded', { archived: 0, excluded: 1 }]])(
+    'hides it on an %s course', async (_label, course) => {
+      getMasteryForAssignment.mockResolvedValue(data(course));
+      renderPage();
+      await screen.findByPlaceholderText(/Teacher comment/i);
+      expect(document.querySelector('.resubmit-control')).toBeNull();
+    },
+  );
+});

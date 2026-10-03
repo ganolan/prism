@@ -30,6 +30,20 @@ const REMOVE = '__remove__';
 // a plain Schoology scale has one level for the whole assignment, not per topic.
 const SCALE = '__scale__';
 
+// A successful grade/comment save regrades the work (final review, finding 1):
+// the server mirrors the write as the new grade time and settles an answered
+// request, so drop the "Ungraded resubmission" signal and an arrived
+// resubmission locally too (a fulfilled request is hidden). A request still
+// waiting for new work is untouched.
+export function regradedPatch(student) {
+  const arrived = student.resubmission?.state === 'arrived';
+  return {
+    resubmitted: false,
+    resubmission: arrived ? null : (student.resubmission ?? null),
+    resubmit_flag: arrived ? null : (student.resubmit_flag ?? null),
+  };
+}
+
 function displayName(student) {
   return studentFullName(student);
 }
@@ -117,7 +131,7 @@ function HeaderPill({ active, accent, activeBg, activeText, icon, label, clearLa
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
-export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, scoreScale = null, resubmitLessonsDefault = 3, highlight = false, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
+export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, scoreScale = null, resubmitLessonsDefault = 3, resubmitEnabled = true, highlight = false, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
   const scale = useProficiencyScale();
   const loadedDisplay = student.comment_status === 1;
   // Per-card DB draft saver (replaces the former localStorage key). Created once.
@@ -575,7 +589,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         } : null,
         comment: (hasCommentChange || hasDisplayChange) ? { comment, commentStatus: display } : null,
       },
-      patch: { scores: buildSavedScores(), grade_comment: comment, comment_status: display ? 1 : null },
+      patch: { scores: buildSavedScores(), grade_comment: comment, comment_status: display ? 1 : null, ...regradedPatch(student) },
     };
   }
 
@@ -618,6 +632,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           ...(scaleCode ? { score: scalePointsFor(scaleCode), scale_level: scaleCode } : {}),
           grade_comment: comment,
           comment_status: display ? 1 : null,
+          ...regradedPatch(student),
         });
         setNotesCollapsed(true);
         return true;
@@ -650,6 +665,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         scores: buildSavedScores(),
         grade_comment: comment,
         comment_status: display ? 1 : null,
+        ...regradedPatch(student),
       });
       setNotesCollapsed(true); // published → tuck the reviewer notes away
       return true;
@@ -852,8 +868,9 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             onClick={() => setShowFlagInput(true)}
           />
         )}
-        {/* Resubmission (triage) — ask with a deadline in lessons; Prism-only. */}
-        <ResubmitControl
+        {/* Resubmission (triage) — ask with a deadline in lessons; Prism-only.
+            Not offered on an archived/excluded course (the server refuses those). */}
+        {resubmitEnabled && <ResubmitControl
           student={student}
           assignmentId={assignmentRow?.id}
           defaultLessons={resubmitLessonsDefault}
@@ -864,7 +881,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             // so the ⚠ pill disappears without waiting for a reload.
             ...(meta?.reviewed ? { resubmitted: false } : {}),
           })}
-        />
+        />}
         {/* Detected resubmission (#49, Part B) — the student submitted new work
             since this was last graded. Prominent + amber because it's an
             actionable "regrade me" signal, distinct from the teacher's request. */}
@@ -1936,6 +1953,7 @@ export default function AssessmentSummaryPage() {
               submissionLink={workLinks.links[student.schoology_uid] || null}
               scoreScale={scoreScale}
               resubmitLessonsDefault={resubmitLessonsDefault}
+              resubmitEnabled={!data.course?.archived && !data.course?.excluded}
               highlight={highlightId === student.id}
               onSaved={handleCardSaved}
               onPendingChange={handlePendingChange}

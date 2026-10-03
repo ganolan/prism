@@ -507,7 +507,7 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
   // Which class this is — the page names it (block + course) so sections of
   // the same course can't be confused.
   const course = db.prepare(
-    'SELECT id, course_name, section_name, block_number FROM courses WHERE id = ?'
+    'SELECT id, course_name, section_name, block_number, archived, excluded FROM courses WHERE id = ?'
   ).get(courseId) || null;
 
   res.json({
@@ -536,6 +536,16 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
     })),
   });
 });
+
+// The grade time (grades.submitted_at) to mirror after a SUCCESSFUL comment PUT.
+// `fresh` was read before the PUT, so its timestamp is the previous grade time —
+// mirroring it would leave a just-regraded resubmission "Arrived" (and its open
+// request unsettled) until the next sync. Any teacher write (score, exception or
+// comment) sets the REST timestamp, so the write itself is at least "now"; the
+// next sync overwrites this with Schoology's real value.
+function gradeTimeAfterWrite(fresh) {
+  return Math.max(Number(fresh?.timestamp) || 0, Math.floor(Date.now() / 1000));
+}
 
 // POST /api/mastery/:courseId/write-comment — write grade comment back to Schoology
 router.post('/:courseId/write-comment', async (req, res) => {
@@ -643,7 +653,7 @@ router.post('/:courseId/write-comment', async (req, res) => {
           String(enrollmentId),
           hasPoints ? Number(points) : (fresh.grade ?? null),
           fresh?.exception ?? 0,
-          Number(fresh?.timestamp) || 0,
+          gradeTimeAfterWrite(fresh),
           comment || '',
           commentStatusInt,
           now,
@@ -797,7 +807,7 @@ router.post('/:courseId/send-all', async (req, res) => {
         studentRow.id, assignmentRow.id, String(e.enrollmentId),
         e.grade ? Number(e.grade.points) : (fresh ? (fresh.grade ?? null) : null),
         fresh ? (fresh.exception ?? 0) : 0,
-        fresh ? (Number(fresh.timestamp) || 0) : 0,
+        gradeTimeAfterWrite(fresh),
         e.comment.comment || '', commentStatusInt, now,
       );
       touchedAssignmentIds.add(assignmentRow.id);

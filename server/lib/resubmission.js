@@ -30,27 +30,6 @@ export function sqliteUtcToEpoch(text) {
   return Number.isFinite(ms) ? Math.floor(ms / 1000) : 0;
 }
 
-// One student × assessment. requestedAt = epoch of an OPEN request (0 = none);
-// reviewedThrough = the newest revision a "Reviewed" mark covered (0 = none).
-//   'arrived'   — a resubmission to look at
-//   'waiting'   — asked, nothing new yet
-//   'fulfilled' — asked, resubmitted after the ask, and regraded/reviewed since (hide; settle → done)
-//   null        — nothing to show
-// Deprecated: removed in Amendment B Task 3 (superseded by resubmissionStateFromSnapshot below).
-// Kept unchanged so server/services/resubmissions.js (rewritten in Task 3) still works.
-export function resubmissionState(grade, { requestedAt = 0, reviewedThrough = 0 } = {}) {
-  const g = grade || {};
-  const latest = Number(g.latest_revision_at) || 0;
-  const gradedAt = Number(g.submitted_at) || 0;
-  const reviewed = latest > 0 && latest <= reviewedThrough;
-  if (requestedAt > 0) {
-    if (latest > requestedAt && (gradedAt >= latest || reviewed)) return 'fulfilled';
-    if (latest > Math.max(gradedAt, requestedAt) && !reviewed) return 'arrived';
-    return 'waiting';
-  }
-  return isResubmitted(g) && !reviewed ? 'arrived' : null;
-}
-
 // Amendment B: state from visible-feedback snapshots rather than raw timestamps.
 // snapshot = { arrival_revision_at, arrival_baseline } | null — the current open arrival
 // (if any) and the fingerprint captured as its baseline (the feedback before the resubmission).

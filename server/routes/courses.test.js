@@ -19,7 +19,8 @@ import { getArchivedSections } from '../services/archivedCourses.js';
 import { apiGet } from '../services/schoology.js';
 import { finalizeArchivedCourse, enrichStudentProfiles } from '../services/sync.js';
 import { syncPsAttendance } from '../services/psAttendanceSync.js';
-import { requestResubmission, markResubmissionReviewed } from '../services/resubmissions.js';
+import { requestResubmission } from '../services/resubmissions.js';
+import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
 
 function startServer() {
   const app = express();
@@ -56,7 +57,7 @@ let assignmentId;
 beforeEach(() => {
   const db = getDb();
   db.exec(
-    'DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM enrolments; ' +
+    'DELETE FROM feedback_snapshots; DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM enrolments; ' +
     'DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
   );
   courseId = db.prepare(
@@ -107,35 +108,42 @@ describe('GET /api/courses/:id/gradebook — resubmit_requested', () => {
 });
 
 describe('GET /api/courses/:id/gradebook — resubmitted', () => {
-  test('cell resubmitted is true when the latest revision is newer than the grade', async () => {
+  test('cell resubmitted follows arrivedKeys: false before any snapshot, true once captured as arrived', async () => {
     const db = getDb();
-    db.prepare('UPDATE grades SET submitted_at = 1000, latest_revision_at = 2000 WHERE student_id = ? AND assignment_id = ?')
+    db.prepare('UPDATE grades SET score = 80, submitted_at = 1000, latest_revision_at = 2000 WHERE student_id = ? AND assignment_id = ?')
       .run(studentId, assignmentId);
+    const before = await get(`/api/courses/${courseId}/gradebook`);
+    expect(before.body.grades[studentId][assignmentId].resubmitted).toBe(false);
+    captureFeedbackSnapshots(db);
     const { body } = await get(`/api/courses/${courseId}/gradebook`);
     expect(body.grades[studentId][assignmentId].resubmitted).toBe(true);
   });
 
   test('cell resubmitted is false when the grade postdates the revision', async () => {
     const db = getDb();
-    db.prepare('UPDATE grades SET submitted_at = 2000, latest_revision_at = 1000 WHERE student_id = ? AND assignment_id = ?')
+    db.prepare('UPDATE grades SET score = 80, submitted_at = 2000, latest_revision_at = 1000 WHERE student_id = ? AND assignment_id = ?')
       .run(studentId, assignmentId);
+    captureFeedbackSnapshots(db);
     const { body } = await get(`/api/courses/${courseId}/gradebook`);
     expect(body.grades[studentId][assignmentId].resubmitted).toBe(false);
   });
 
-  test('cell resubmitted goes false once the arrival is marked Reviewed, and true again for a newer revision', async () => {
+  test('cell resubmitted goes false once the visible feedback changes, and true again for a newer revision', async () => {
     const db = getDb();
-    db.prepare('UPDATE grades SET submitted_at = 1000, latest_revision_at = 2000 WHERE student_id = ? AND assignment_id = ?')
+    db.prepare('UPDATE grades SET score = 80, submitted_at = 1000, latest_revision_at = 2000 WHERE student_id = ? AND assignment_id = ?')
       .run(studentId, assignmentId);
+    captureFeedbackSnapshots(db);
     const before = await get(`/api/courses/${courseId}/gradebook`);
     expect(before.body.grades[studentId][assignmentId].resubmitted).toBe(true);
 
-    markResubmissionReviewed(db, { studentId, assignmentId });
-    const afterReview = await get(`/api/courses/${courseId}/gradebook`);
-    expect(afterReview.body.grades[studentId][assignmentId].resubmitted).toBe(false);
+    db.prepare('UPDATE grades SET score = 90, submitted_at = 2500 WHERE student_id = ? AND assignment_id = ?').run(studentId, assignmentId);
+    captureFeedbackSnapshots(db);
+    const afterRegrade = await get(`/api/courses/${courseId}/gradebook`);
+    expect(afterRegrade.body.grades[studentId][assignmentId].resubmitted).toBe(false);
 
     db.prepare('UPDATE grades SET latest_revision_at = 3000 WHERE student_id = ? AND assignment_id = ?')
       .run(studentId, assignmentId);
+    captureFeedbackSnapshots(db);
     const afterNewRevision = await get(`/api/courses/${courseId}/gradebook`);
     expect(afterNewRevision.body.grades[studentId][assignmentId].resubmitted).toBe(true);
   });

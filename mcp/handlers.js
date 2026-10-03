@@ -13,7 +13,7 @@ import {
   getTriage, listReferrals, recordReferral, undoReferral, listExtensions, recordExtension, undoExtension, setMakeUpIgnored,
 } from '../server/services/triage.js';
 import {
-  requestResubmission, extendResubmission, closeResubmission, markResubmissionReviewed, listResubmissions,
+  requestResubmission, extendResubmission, gradeStands, listResubmissions,
 } from '../server/services/resubmissions.js';
 import { loadCalendar } from '../server/services/schoolCalendar.js';
 import { todayLocal } from '../server/lib/schoolDays.js';
@@ -279,15 +279,12 @@ export function requestResubmissionTool(db, { student_id, assignment_id, lessons
   return requestResubmission(db, { studentId: student_id, assignmentId: assignment_id, lessons: lessons ?? null, note, source: 'mcp' });
 }
 
-export function closeResubmissionTool(db, { id, note } = {}) {
-  return closeResubmission(db, id, note);
+// Only once the request's deadline has passed (NOT_AT_DEADLINE before).
+export function gradeStandsTool(db, { id } = {}) {
+  return gradeStands(db, id);
 }
 
-export function markResubmissionReviewedTool(db, { student_id, assignment_id } = {}) {
-  return markResubmissionReviewed(db, { studentId: student_id, assignmentId: assignment_id, source: 'mcp' });
-}
-
-// state: 'asked' (open) | 'closed' | 'done' | 'reviewed'
+// state: 'asked' (open) | 'grade_stands' | 'done'
 export function listResubmissionsTool(db, { course, student, since, state } = {}) {
   const rows = listResubmissions(db, { courseId: resolveCourseRef(db, course), since: since || null });
   return rows.filter((r) => (state ? r.outcome === state : true))

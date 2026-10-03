@@ -1,13 +1,17 @@
 // Triage resubmissions (docs/superpowers/specs/2026-10-03-triage-resubmissions-design.md).
-// Persistence + actions for asks ('request') and "Reviewed" marks ('review'), and
-// the per-pair lookups the gradebook / assessment page / PrisMCP read. State rules
-// live in server/lib/resubmission.js; the triage list rows in resubmissionRows().
+// Persistence + actions for asks ('request' rows), and the per-pair lookups the
+// gradebook / assessment page / PrisMCP read. State comes from visible-feedback
+// snapshots (Amendment B; server/services/feedbackSnapshots.js) via
+// resubmissionStateFromSnapshot in server/lib/resubmission.js; the triage list rows
+// in resubmissionRows(). "Reviewed" marks were removed in Amendment B — an arrival
+// only clears when the visible feedback changes.
 import { loadCalendar } from './schoolCalendar.js';
 import { getTriageSettings } from './settings.js';
 import { preferredFirstName } from './studentNames.js';
 import { TriageError, MAX_EXTENSION_LESSONS, toneFor, ALIGNED_SQL, fullName } from './triageCommon.js';
-import { resubmissionState, sqliteUtcToEpoch, isResubmitted } from '../lib/resubmission.js';
-import { epochToLocalDate } from '../lib/schoolDays.js';
+import { resubmissionStateFromSnapshot, sqliteUtcToEpoch } from '../lib/resubmission.js';
+import { epochToLocalDate, todayLocal } from '../lib/schoolDays.js';
+import { currentFingerprints, snapshotMap, EMPTY_FINGERPRINT } from './feedbackSnapshots.js';
 
 const OPEN_REQUEST = `kind = 'request' AND status = 'open'`;
 
@@ -36,25 +40,27 @@ function eligiblePair(db, studentId, assignmentId) {
   return { student: st, assignment: a };
 }
 
-// The grade row, open request and newest review for one pair.
+// The grade row, open request, feedback snapshot and current visible-feedback
+// fingerprint for one pair.
 export function pairContext(db, studentId, assignmentId) {
-  const grade = db.prepare(`
-    SELECT score, exception, grade_comment, submitted_at, latest_revision_at, first_submitted_at, lti_submission_state
-    FROM grades WHERE student_id = ? AND assignment_id = ?
-  `).get(studentId, assignmentId) || {};
-  const request = db.prepare(`SELECT * FROM resubmissions WHERE student_id = ? AND assignment_id = ? AND ${OPEN_REQUEST}`).get(studentId, assignmentId) || null;
-  const reviewedThrough = db.prepare(`
-    SELECT COALESCE(MAX(revision_at), 0) AS t FROM resubmissions WHERE student_id = ? AND assignment_id = ? AND kind = 'review'
-  `).get(studentId, assignmentId).t;
-  return { grade, request, reviewedThrough };
+  const sid = Number(studentId);
+  const aid = Number(assignmentId);
+  const key = `${sid}:${aid}`;
+  const current = currentFingerprints(db, { studentId: sid, assignmentId: aid }).get(key);
+  const request = db.prepare(`SELECT * FROM resubmissions WHERE student_id = ? AND assignment_id = ? AND ${OPEN_REQUEST}`).get(sid, aid) || null;
+  const snapshot = snapshotMap(db, { studentId: sid, assignmentId: aid }).get(key) || null;
+  return { grade: current?.grade || {}, request, snapshot, currentFingerprint: current?.fingerprint ?? EMPTY_FINGERPRINT };
 }
 
-const stateOf = ({ grade, request, reviewedThrough }) =>
-  resubmissionState(grade, { requestedAt: request ? sqliteUtcToEpoch(request.requested_at) : 0, reviewedThrough });
+// 'arrived' | 'waiting' | 'fulfilled' | null — see resubmissionStateFromSnapshot.
+const stateOf = ({ request, snapshot, currentFingerprint }) => resubmissionStateFromSnapshot({
+  snapshot, currentFingerprint: currentFingerprint ?? EMPTY_FINGERPRINT,
+  requestedAt: request ? sqliteUtcToEpoch(request.requested_at) : 0,
+});
 
+// Legacy 'review' rows (pre-Amendment B dev DBs) have status 'done' → 'done'.
 function outcomeOf(r) {
-  if (r.kind === 'review') return 'reviewed';
-  return { open: 'asked', closed: 'closed', done: 'done' }[r.status];
+  return { open: 'asked', closed: 'grade_stands', done: 'done' }[r.status];
 }
 
 export function listResubmissions(db, { courseId = null, studentId = null, since = null, id = null } = {}) {
@@ -116,36 +122,20 @@ export function extendResubmission(db, id, lessons) {
   return listResubmissions(db, { id: r.id })[0];
 }
 
-export function closeResubmission(db, id, note = null) {
+// "Grade stands": ends an open request whose deadline has passed (the Waiting row
+// is red — today after `until`). Before that → NOT_AT_DEADLINE: extend instead.
+export function gradeStands(db, id, { today = todayLocal() } = {}) {
   const r = openRequest(db, id);
-  db.prepare(`UPDATE resubmissions SET status = 'closed', closed_at = datetime('now'), close_note = ?, updated_at = datetime('now') WHERE id = ?`)
-    .run(note || null, r.id);
+  const until = listResubmissions(db, { id: r.id })[0].until;
+  if (!until || !(today > until)) {
+    throw new TriageError('NOT_AT_DEADLINE', `The resubmission deadline (${until}) has not passed yet`);
+  }
+  db.prepare(`UPDATE resubmissions SET status = 'closed', closed_at = datetime('now'), close_note = 'grade stands', updated_at = datetime('now') WHERE id = ?`)
+    .run(r.id);
   return listResubmissions(db, { id: r.id })[0];
 }
 
-export function markResubmissionReviewed(db, { studentId, assignmentId, source = 'app' } = {}) {
-  const { student, assignment } = eligiblePair(db, studentId, assignmentId);
-  const ctx = pairContext(db, student.id, assignment.id);
-  if (stateOf(ctx) !== 'arrived') throw new TriageError('NOT_ON_LIST', 'No resubmission has arrived for that student and assessment');
-  const revisionAt = Number(ctx.grade.latest_revision_at) || 0;
-  // The arrival answered the ask only if it came in after the ask.
-  const answered = ctx.request && revisionAt > sqliteUtcToEpoch(ctx.request.requested_at) ? ctx.request : null;
-  const id = db.transaction(() => {
-    const newId = db.prepare(`
-      INSERT INTO resubmissions (student_id, assignment_id, course_id, kind, status, revision_at, source, closed_at, closes_request_id)
-      VALUES (?, ?, ?, 'review', 'done', ?, ?, datetime('now'), ?)
-    `).run(student.id, assignment.id, assignment.course_id, revisionAt, source, answered?.id ?? null).lastInsertRowid;
-    if (answered) {
-      db.prepare(`UPDATE resubmissions SET status = 'done', closed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(answered.id);
-    }
-    return newId;
-  })();
-  return listResubmissions(db, { id })[0];
-}
-
 // Undo one history record.
-// - A "Reviewed" mark is deleted, and the request it marked done (closes_request_id)
-//   reopens — unless another request for the pair is already open.
 // - A request the sync auto-added from a Schoology unsubmit is closed ("Undone"),
 //   never deleted: the closed row is what stops recordSchoologyUnsubmit re-adding
 //   it on the next sync while the work still sits "in progress".
@@ -159,19 +149,7 @@ export function undoResubmission(db, id) {
     }
     return { deleted: false, closed: true };
   }
-  db.transaction(() => {
-    if (r.kind === 'review' && r.closes_request_id != null) {
-      const otherOpen = db.prepare(`SELECT 1 FROM resubmissions WHERE student_id = ? AND assignment_id = ? AND ${OPEN_REQUEST}`)
-        .get(r.student_id, r.assignment_id);
-      if (!otherOpen) {
-        db.prepare(`
-          UPDATE resubmissions SET status = 'open', closed_at = NULL, updated_at = datetime('now')
-          WHERE id = ? AND kind = 'request' AND status = 'done'
-        `).run(r.closes_request_id);
-      }
-    }
-    db.prepare('DELETE FROM resubmissions WHERE id = ?').run(r.id);
-  })();
+  db.prepare('DELETE FROM resubmissions WHERE id = ?').run(r.id);
   return { deleted: true };
 }
 
@@ -206,7 +184,7 @@ export function recordSchoologyUnsubmit(db, { studentId, assignmentId, requested
   return true;
 }
 
-// Mark open requests whose resubmission has been regraded/reviewed as done.
+// Mark open requests whose post-ask resubmission has new visible feedback as done.
 export function settleResubmissions(db, { assignmentId = null } = {}) {
   const open = db.prepare(`SELECT id, student_id, assignment_id FROM resubmissions WHERE ${OPEN_REQUEST} AND (? IS NULL OR assignment_id = ?)`)
     .all(assignmentId, assignmentId);
@@ -218,20 +196,43 @@ export function settleResubmissions(db, { assignmentId = null } = {}) {
   return n;
 }
 
+// Per-pair state for every pair in scope that could be on a list: an open request
+// or a recorded arrival. 'sid:aid' → { state, request (raw row | null), snapshot }.
+function statesInScope(db, scope) {
+  const { courseId = null, studentId = null, assignmentId = null } = scope;
+  const current = currentFingerprints(db, scope);
+  const snapshots = snapshotMap(db, scope);
+  const requests = new Map(db.prepare(`
+    SELECT * FROM resubmissions
+    WHERE ${OPEN_REQUEST} AND (? IS NULL OR course_id = ?) AND (? IS NULL OR student_id = ?) AND (? IS NULL OR assignment_id = ?)
+  `).all(courseId, courseId, studentId, studentId, assignmentId, assignmentId).map((r) => [`${r.student_id}:${r.assignment_id}`, r]));
+  const keys = new Set([...requests.keys()]);
+  for (const [k, snap] of snapshots) if (snap.arrival_revision_at > 0) keys.add(k);
+  const out = new Map();
+  for (const k of keys) {
+    const ctx = { request: requests.get(k) || null, snapshot: snapshots.get(k) || null, currentFingerprint: current.get(k)?.fingerprint };
+    out.set(k, { state: stateOf(ctx), request: ctx.request, snapshot: ctx.snapshot, grade: current.get(k)?.grade || null });
+  }
+  return out;
+}
+
 // student id → { state, request } for one assessment (local id) — the assessment
 // page, get_assignment_context. Students with nothing to show are absent.
 export function resubmissionByStudent(db, assignmentId) {
-  const ids = db.prepare(`
-    SELECT student_id FROM grades WHERE assignment_id = ? AND latest_revision_at > 0
-    UNION SELECT student_id FROM resubmissions WHERE assignment_id = ?
-  `).all(assignmentId, assignmentId).map((r) => r.student_id);
   const out = new Map();
-  for (const sid of ids) {
-    const ctx = pairContext(db, sid, assignmentId);
-    const state = stateOf(ctx);
+  for (const [k, { state, request }] of statesInScope(db, { assignmentId: Number(assignmentId) })) {
     if (state === null || state === 'fulfilled') continue;
-    out.set(sid, { state, request: ctx.request ? listResubmissions(db, { id: ctx.request.id })[0] : null });
+    out.set(Number(k.split(':')[0]), { state, request: request ? listResubmissions(db, { id: request.id })[0] : null });
   }
+  return out;
+}
+
+// 'studentId:assignmentId' pairs whose state is 'arrived' (requested or not) — the
+// ↩/⚠ "resubmitted" badge on the gradebook, assessment card and student page.
+// Scope by whichever of courseId / studentId / assignmentId the caller has.
+export function arrivedKeys(db, { courseId = null, studentId = null, assignmentId = null } = {}) {
+  const out = new Set();
+  for (const [k, { state }] of statesInScope(db, { courseId, studentId, assignmentId })) if (state === 'arrived') out.add(k);
   return out;
 }
 
@@ -239,32 +240,6 @@ export function resubmissionByStudent(db, assignmentId) {
 export function openRequestKeys(db, courseId) {
   return new Set(db.prepare(`SELECT student_id, assignment_id FROM resubmissions WHERE course_id = ? AND ${OPEN_REQUEST}`)
     .all(courseId).map((r) => `${r.student_id}:${r.assignment_id}`));
-}
-
-// 'studentId:assignmentId' → newest revision_at a "Reviewed" mark has covered,
-// scoped by whichever of courseId/studentId/assignmentId is supplied (all
-// optional — pass the narrowest filter the caller has). Every plain
-// `resubmitted` flag (mastery assignment payload, gradebook, student profile)
-// needs this watermark, or isResubmitted() keeps flagging an arrival the
-// teacher already marked Reviewed.
-export function reviewedThroughMap(db, { courseId = null, studentId = null, assignmentId = null } = {}) {
-  const rows = db.prepare(`
-    SELECT student_id, assignment_id, MAX(revision_at) AS t
-    FROM resubmissions
-    WHERE kind = 'review'
-      AND (? IS NULL OR course_id = ?)
-      AND (? IS NULL OR student_id = ?)
-      AND (? IS NULL OR assignment_id = ?)
-    GROUP BY 1, 2
-  `).all(courseId, courseId, studentId, studentId, assignmentId, assignmentId);
-  return new Map(rows.map((r) => [`${r.student_id}:${r.assignment_id}`, r.t]));
-}
-
-// isResubmitted(), but false once a "Reviewed" mark's revision_at covers the
-// grade's latest_revision_at (reviewedThrough, from reviewedThroughMap above);
-// a newer revision landing after that Reviewed mark flips it back to true.
-export function isResubmittedSinceReview(grade, reviewedThrough = 0) {
-  return isResubmitted(grade) && Number(grade?.latest_revision_at) > (reviewedThrough || 0);
 }
 
 // Triage rows for one current course. Requests show whatever the alignment;
@@ -275,15 +250,7 @@ export function resubmissionRows(db, { course, students, cal, today, settings, f
     SELECT a.id, a.schoology_assignment_id, a.title, a.num_assignees, ${ALIGNED_SQL} AS aligned
     FROM assignments a WHERE a.course_id = ? AND a.published = 1
   `).all(course.id).map((a) => [a.id, a]));
-  const grades = new Map(db.prepare(`
-    SELECT g.student_id, g.assignment_id, g.score, g.exception, g.grade_comment, g.submitted_at, g.latest_revision_at
-    FROM grades g JOIN assignments a ON a.id = g.assignment_id WHERE a.course_id = ?
-  `).all(course.id).map((g) => [`${g.student_id}:${g.assignment_id}`, g]));
-  const requests = new Map(db.prepare(`SELECT * FROM resubmissions WHERE course_id = ? AND ${OPEN_REQUEST}`)
-    .all(course.id).map((r) => [`${r.student_id}:${r.assignment_id}`, r]));
-  const reviewed = new Map(db.prepare(`
-    SELECT student_id, assignment_id, MAX(revision_at) AS t FROM resubmissions WHERE course_id = ? AND kind = 'review' GROUP BY 1, 2
-  `).all(course.id).map((r) => [`${r.student_id}:${r.assignment_id}`, r.t]));
+  const states = statesInScope(db, { courseId: course.id });
   const assigneesOf = (a) => (a.num_assignees > 0
     ? new Set(db.prepare('SELECT schoology_uid FROM assignment_assignees WHERE assignment_id = ?').all(a.id).map((r) => r.schoology_uid))
     : null);
@@ -293,22 +260,18 @@ export function resubmissionRows(db, { course, students, cal, today, settings, f
   for (const st of students) {
     if (studentId != null && st.id !== Number(studentId)) continue;
     for (const a of assignments.values()) {
-      const key = `${st.id}:${a.id}`;
-      const grade = grades.get(key);
-      const request = requests.get(key) || null;
-      if (!request && !(grade?.latest_revision_at > 0)) continue;
+      const pair = states.get(`${st.id}:${a.id}`);
+      if (!pair) continue;
+      const { state, request, snapshot, grade } = pair;
+      if (state !== 'waiting' && state !== 'arrived') continue;
       if (Number(grade?.exception) === 1) continue; // excused
       if (!request && !a.aligned && !formative) continue;
       if (!assigneeCache.has(a.id)) assigneeCache.set(a.id, assigneesOf(a));
       const assignees = assigneeCache.get(a.id);
       if (assignees && !assignees.has(st.schoology_uid)) continue;
-      const requestedAt = request ? sqliteUtcToEpoch(request.requested_at) : 0;
-      const state = resubmissionState(grade, { requestedAt, reviewedThrough: reviewed.get(key) || 0 });
-      if (state !== 'waiting' && state !== 'arrived') continue;
-
-      const requestedOn = request ? epochToLocalDate(requestedAt) : null;
+      const requestedOn = request ? epochToLocalDate(sqliteUtcToEpoch(request.requested_at)) : null;
       const until = request ? cal.addSchoolDays(requestedOn, request.lessons) : null;
-      const arrivedOn = state === 'arrived' ? epochToLocalDate(grade.latest_revision_at) : null;
+      const arrivedOn = state === 'arrived' ? epochToLocalDate(snapshot.arrival_revision_at) : null;
       const start = state === 'arrived' ? arrivedOn : requestedOn;
       const { days, approx } = cal.between(start, today);
       // Waiting: the deadline `until` is the last allowed date → last allowed day = lessons + 1.

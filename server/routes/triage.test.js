@@ -24,7 +24,7 @@ async function call(method, path, body) {
 let studentId, assignmentId, courseId;
 beforeEach(() => {
   const db = getDb();
-  db.exec('DELETE FROM referrals; DELETE FROM extensions; DELETE FROM school_days; DELETE FROM mastery_alignments; DELETE FROM grades; DELETE FROM measurement_topics; DELETE FROM reporting_categories; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
+  db.exec('DELETE FROM feedback_snapshots; DELETE FROM resubmissions; DELETE FROM referrals; DELETE FROM extensions; DELETE FROM school_days; DELETE FROM mastery_alignments; DELETE FROM grades; DELETE FROM measurement_topics; DELETE FROM reporting_categories; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
   courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s', 'AP CSP')`).run().lastInsertRowid;
   db.prepare(`INSERT INTO reporting_categories (id, course_id, external_id, title) VALUES ('cat', ?, 'X', 'C')`).run(courseId);
   db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES ('t1', 'cat', ?, 'X.1', 'T')`).run(courseId);
@@ -126,20 +126,43 @@ describe('resubmission routes', () => {
   // The outer beforeEach already seeds an enrolled student + a current-course assignment.
   function seedPair() { return { s: studentId, a: assignmentId }; }
 
-  test('ask → list → extend → close → undo', async () => {
+  test('ask → list → extend → grade stands (after the deadline) → undo', async () => {
     const { s, a } = seedPair();
     const asked = await call('POST', '/api/triage/resubmissions', { studentId: s, assignmentId: a, lessons: 2, note: 'redo' });
     expect(asked.status).toBe(201);
     expect(asked.body).toMatchObject({ outcome: 'asked', lessons: 2, note: 'redo' });
     expect((await call('POST', '/api/triage/resubmissions', { studentId: s, assignmentId: a })).status).toBe(409);
     expect((await call('PUT', `/api/triage/resubmissions/${asked.body.id}`, { lessons: 4 })).body.lessons).toBe(4);
-    expect((await call('PUT', `/api/triage/resubmissions/${asked.body.id}`, { close: true, note: 'stands' })).body.outcome).toBe('closed');
+    // Asked today → the deadline is ahead: grade stands is refused.
+    const early = await call('PUT', `/api/triage/resubmissions/${asked.body.id}`, { gradeStands: true });
+    expect(early.status).toBe(409);
+    expect(early.body.code).toBe('NOT_AT_DEADLINE');
+    getDb().prepare(`UPDATE resubmissions SET requested_at = '2020-01-06 04:00:00' WHERE id = ?`).run(asked.body.id);
+    const stands = await call('PUT', `/api/triage/resubmissions/${asked.body.id}`, { gradeStands: true });
+    expect(stands.status).toBe(200);
+    expect(stands.body).toMatchObject({ status: 'closed', outcome: 'grade_stands', closeNote: 'grade stands' });
     expect((await call('GET', '/api/triage/resubmissions')).body).toHaveLength(1);
     expect((await call('DELETE', `/api/triage/resubmissions/${asked.body.id}`)).body).toEqual({ deleted: true });
   });
 
-  test('review rejects a pair with nothing arrived (409)', async () => {
+  test('{ close: true } is still accepted as an alias for grade stands', async () => {
     const { s, a } = seedPair();
-    expect((await call('POST', '/api/triage/resubmissions/review', { studentId: s, assignmentId: a })).status).toBe(409);
+    const asked = await call('POST', '/api/triage/resubmissions', { studentId: s, assignmentId: a, lessons: 1 });
+    expect((await call('PUT', `/api/triage/resubmissions/${asked.body.id}`, { close: true })).status).toBe(409);
+    getDb().prepare(`UPDATE resubmissions SET requested_at = '2020-01-06 04:00:00' WHERE id = ?`).run(asked.body.id);
+    expect((await call('PUT', `/api/triage/resubmissions/${asked.body.id}`, { close: true })).body.outcome).toBe('grade_stands');
+  });
+
+  test('the Reviewed route is gone (404)', async () => {
+    const app = express();
+    app.use(express.json());
+    app.use('/api/triage', router);
+    const server = app.listen(0);
+    try {
+      const res = await fetch(`http://localhost:${server.address().port}/api/triage/resubmissions/review`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ studentId: 1, assignmentId: 1 }),
+      });
+      expect(res.status).toBe(404);
+    } finally { server.close(); }
   });
 });

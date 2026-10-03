@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { getDb } from '../db/index.js';
 import { hasMasterySession, syncMasteryForCourse, syncMasteryForAssignment, writeMasteryScores, writeMasteryScoresBatch, writeMasteryOverride, getMasteryForCourse, getRubricScoresForStudent, interactiveLogin } from '../services/masterySync.js';
 import { pushGradeComments, getSectionGrades } from '../services/schoology.js';
-import { settleResubmissions, resubmissionByStudent, reviewedThroughMap, isResubmittedSinceReview } from '../services/resubmissions.js';
+import { settleResubmissions, resubmissionByStudent, arrivedKeys } from '../services/resubmissions.js';
+import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
 import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows, scoreScaleFor } from '../services/assessmentContext.js';
 import { getSchoologyConfig, getScoreScales } from '../middleware/featureGate.js';
 import { findScoreScale, levelForScore, isScalePoints } from '../lib/scoreScales.js';
@@ -386,6 +387,17 @@ router.post('/:courseId/write', async (req, res) => {
         upsert.run(studentRow.schoology_uid, String(assignmentId), topicId, points, letter, now);
       }
     }
+    // Best-effort: snapshot the new visible feedback for this assessment so a rubric
+    // regrade of an arrived resubmission is seen at once (Amendment B), then settle.
+    const localAssignment = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(assignmentId));
+    if (localAssignment) {
+      try {
+        captureFeedbackSnapshots(db, { assignmentId: localAssignment.id });
+        settleResubmissions(db, { assignmentId: localAssignment.id });
+      } catch (err) {
+        console.error('[mastery write] snapshot/settle failed:', err.message);
+      }
+    }
 
     res.json(result);
   } catch (err) {
@@ -454,9 +466,8 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
   // null/missing = hidden. has_grade_row distinguishes "synced and got null"
   // from "never synced" so the client can arm auto-flip only for virgin rows.
   const gradeRows = getGradeMetaRows(db, assignmentId);
-  // Watermark for the plain `resubmitted` flag below — a "Reviewed" mark must
-  // clear it (isResubmittedSinceReview), or the ⚠ pill never goes away.
-  const reviewedThrough = assignmentRow ? reviewedThroughMap(db, { assignmentId: assignmentRow.id }) : new Map();
+  // Arrived resubmissions (visible-feedback snapshots, Amendment B) — the ⚠ pill.
+  const arrived = assignmentRow ? arrivedKeys(db, { assignmentId: assignmentRow.id }) : new Set();
   const commentMap = {};
   const exceptionMap = {};
   const commentStatusMap = {};
@@ -474,7 +485,7 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
     exceptionMap[c.schoology_uid] = c.exception ?? 0;
     commentStatusMap[c.schoology_uid] = c.comment_status ?? null;
     hasGradeRowMap[c.schoology_uid] = true;
-    resubmittedMap[c.schoology_uid] = isResubmittedSinceReview(c, reviewedThrough.get(`${c.student_id}:${assignmentRow?.id}`) || 0);
+    resubmittedMap[c.schoology_uid] = arrived.has(`${c.student_id}:${assignmentRow?.id}`);
     ltiStateMap[c.schoology_uid] = c.lti_submission_state ?? null;
     submissionTypeMap[c.schoology_uid] = c.submission_type ?? null;
     lateMap[c.schoology_uid] = c.late ?? 0;
@@ -677,10 +688,13 @@ router.post('/:courseId/write-comment', async (req, res) => {
           now,
         );
       }
-      // Best-effort: a local grade just landed that may fulfill an open
-      // resubmission request. Settling must never fail a grade save.
-      try { settleResubmissions(db, { assignmentId: assignmentRow.id }); } catch (err) {
-        console.error('[mastery write-comment] settle failed:', err.message);
+      // Best-effort: a local grade just landed — snapshot its visible feedback
+      // (Amendment B) and settle any request it fulfilled. Never fails the save.
+      try {
+        captureFeedbackSnapshots(db, { assignmentId: assignmentRow.id });
+        settleResubmissions(db, { assignmentId: assignmentRow.id });
+      } catch (err) {
+        console.error('[mastery write-comment] snapshot/settle failed:', err.message);
       }
     }
 
@@ -769,6 +783,7 @@ router.post('/:courseId/send-all', async (req, res) => {
     //    with the echoed fresh score/exception/timestamp (like write-comment),
     //    so the gradebook reflects the save without a full re-sync (#60).
     const now = new Date().toISOString();
+    const touchedAssignmentIds = new Set();
     const upsertScore = db.prepare(`
       INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade, synced_at)
       VALUES (?, ?, ?, ?, ?, ?)
@@ -792,9 +807,10 @@ router.post('/:courseId/send-all', async (req, res) => {
         const points = Number(info.grade);
         upsertScore.run(studentRow.schoology_uid, String(e.assignmentId), topicId, points, pointsToLevel(points), now);
       }
+      const scoredAssignment = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(e.assignmentId));
+      if (scoredAssignment) touchedAssignmentIds.add(scoredAssignment.id);
     }
 
-    const touchedAssignmentIds = new Set();
     for (const e of commentEntries) {
       const studentRow = db.prepare(
         'SELECT s.id FROM students s JOIN enrolments en ON en.student_id = s.id WHERE en.schoology_enrolment_id = ?'
@@ -812,12 +828,15 @@ router.post('/:courseId/send-all', async (req, res) => {
       );
       touchedAssignmentIds.add(assignmentRow.id);
     }
-    // Best-effort: local grades just landed that may fulfill open resubmission
-    // requests. Settle once per distinct assignment touched (not per entry) —
-    // settling must never fail a grade save that already succeeded.
+    // Best-effort: local grades just landed — snapshot their visible feedback
+    // (Amendment B) and settle requests they fulfilled, once per distinct
+    // assignment touched (not per entry). Never fails a save that succeeded.
     for (const assignmentId of touchedAssignmentIds) {
-      try { settleResubmissions(db, { assignmentId }); } catch (err) {
-        console.error('[mastery send-all] settle failed:', err.message);
+      try {
+        captureFeedbackSnapshots(db, { assignmentId });
+        settleResubmissions(db, { assignmentId });
+      } catch (err) {
+        console.error('[mastery send-all] snapshot/settle failed:', err.message);
       }
     }
 

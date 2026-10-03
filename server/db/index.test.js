@@ -286,12 +286,10 @@ describe('migrateResubmitFlags', () => {
     expect(db.prepare(`SELECT COUNT(*) AS n FROM flags`).get().n).toBe(0);
   });
 
-  test('adds resubmissions.closes_request_id to an existing DB (final review finding 2)', () => {
+  test('resubmissions has no closes_request_id (Reviewed removed, Amendment B)', () => {
     const db = new Database(':memory:');
     migrate(db);
-    db.exec('ALTER TABLE resubmissions DROP COLUMN closes_request_id');
-    migrate(db);
-    expect(db.prepare('PRAGMA table_info(resubmissions)').all().map((c) => c.name)).toContain('closes_request_id');
+    expect(db.prepare('PRAGMA table_info(resubmissions)').all().map((c) => c.name)).not.toContain('closes_request_id');
   });
 
   test('one open request per pair is enforced', () => {

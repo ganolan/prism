@@ -9,7 +9,7 @@ import { listCourses, listAssignments, listStudents, listRubricsTool, readRubric
 import {
   getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool, extendDeadlineTool, undoExtensionTool,
   setMakeupTrackingTool,
-  requestResubmissionTool, closeResubmissionTool, markResubmissionReviewedTool, listResubmissionsTool,
+  requestResubmissionTool, gradeStandsTool, listResubmissionsTool,
 } from './handlers.js';
 import { assertExplicitDbPath } from './dbGuard.js';
 
@@ -291,7 +291,7 @@ export function createServer() {
   server.registerTool(
     'request_resubmission',
     {
-      description: "Ask a student to resubmit one assessment, with a deadline in lessons (SCHOOL days; default = the teacher's setting, 3). ONLY when the teacher explicitly asks. Works on graded, comment-only or ungraded work. The pair then shows in get_triage resubmissions as 'waiting' (day 1 = the ask day, red after the deadline `until`) until a resubmission arrives ('arrived'), then clears when it is regraded or marked reviewed. Rejects a second open request (ALREADY_OPEN). Prism-only: nothing is written to Schoology.",
+      description: "Ask a student to resubmit one assessment, with a deadline in lessons (SCHOOL days; default = the teacher's setting, 3). ONLY when the teacher explicitly asks. Works on graded, comment-only or ungraded work. The pair then shows in get_triage resubmissions as 'waiting' (day 1 = the ask day, red after the deadline `until`) until a resubmission arrives ('arrived'), then clears when the visible feedback changes (a new score, rubric level or visible comment). Rejects a second open request (ALREADY_OPEN). Prism-only: nothing is written to Schoology.",
       inputSchema: {
         student_id: z.number().describe('Student id (list_students / get_triage rows)'),
         assignment_id: z.number().describe('Assignment id (list_assignments / get_triage rows)'),
@@ -303,32 +303,23 @@ export function createServer() {
   );
 
   server.registerTool(
-    'close_resubmission',
+    'grade_stands',
     {
-      description: 'Close an open resubmission request (the original grade stands), e.g. a no-show past its deadline. Only when the teacher asks. id from get_triage resubmissions[].id or list_resubmissions.',
-      inputSchema: { id: z.number().describe('Resubmission request id'), note: z.string().optional().describe('Optional reason') },
+      description: "End an open resubmission request because its deadline passed with no resubmission — the original grade stands. ONLY after the deadline (the get_triage row is red: today after `until`); before that it is rejected (NOT_AT_DEADLINE) — extend instead. Only when the teacher asks. id from get_triage resubmissions[].id or list_resubmissions. Publishes nothing to Schoology yet.",
+      inputSchema: { id: z.number().describe('Resubmission request id') },
     },
-    async (args) => text(closeResubmissionTool(getDb(), args))
-  );
-
-  server.registerTool(
-    'mark_resubmission_reviewed',
-    {
-      description: "Mark an arrived resubmission as reviewed with the grade standing (no regrade needed). Only when the teacher says so. Clears the 'arrived' row; a later resubmission shows again. Rejects pairs with nothing arrived (NOT_ON_LIST).",
-      inputSchema: { student_id: z.number(), assignment_id: z.number() },
-    },
-    async (args) => text(markResubmissionReviewedTool(getDb(), args))
+    async (args) => text(gradeStandsTool(getDb(), args))
   );
 
   server.registerTool(
     'list_resubmissions',
     {
-      description: "Resubmission history, newest first: asks ('asked' = open, with lessons/until/note; 'closed' = grade stood; 'done' = resubmitted and regraded/reviewed) and 'reviewed' marks. source 'schoology_unsubmit' = auto-added because the teacher unsubmitted graded OneDrive work in Schoology.",
+      description: "Resubmission history, newest first: asks ('asked' = open, with lessons/until/note; 'grade_stands' = deadline passed, grade stands; 'done' = resubmitted and given new visible feedback). source 'schoology_unsubmit' = auto-added because the teacher unsubmitted graded OneDrive work in Schoology.",
       inputSchema: {
         course: z.union([z.number(), z.string()]).optional(),
         student: z.union([z.number(), z.string()]).optional(),
         since: z.string().optional().describe("'YYYY-MM-DD'"),
-        state: z.enum(['asked', 'closed', 'done', 'reviewed']).optional(),
+        state: z.enum(['asked', 'grade_stands', 'done']).optional(),
       },
     },
     async (args) => text(listResubmissionsTool(getDb(), args))

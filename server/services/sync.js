@@ -21,6 +21,7 @@ import { createSubmissionFetcher } from './graderSubmissions.js';
 import { getSyncConfig } from '../middleware/featureGate.js';
 import { syncMasteryForCourse, hasMasterySession } from './masterySync.js';
 import { recordSchoologyUnsubmit, settleResubmissions } from './resubmissions.js';
+import { captureFeedbackSnapshots } from './feedbackSnapshots.js';
 
 // Triage: grades.first_submitted_at is a running minimum of the non-zero
 // submission times we observe (the bulk revisions API only returns the latest
@@ -990,7 +991,11 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
     // Update sync log
     db.prepare(`UPDATE sync_log SET status = 'completed', records_synced = ?, completed_at = ? WHERE id = ?`)
       .run(totalRecords, new Date().toISOString(), syncId);
-    // Best-effort: a settle failure must never flip an otherwise-completed sync to 'error'.
+    // Best-effort: snapshot visible feedback (records resubmission arrivals, Amendment B),
+    // then settle. A failure here must never flip an otherwise-completed sync to 'error'.
+    try { captureFeedbackSnapshots(db); } catch (err) {
+      console.error('[sync] captureFeedbackSnapshots failed:', err.message);
+    }
     try { settleResubmissions(db); } catch (err) {
       console.error('[sync] settleResubmissions failed:', err.message);
     }

@@ -131,9 +131,6 @@ const MIGRATIONS = [
   // Indexes for issue #13 columns (must run after ALTER TABLEs above)
   `CREATE INDEX IF NOT EXISTS idx_assignments_folder ON assignments(folder_id)`,
   `CREATE INDEX IF NOT EXISTS idx_assignments_grading_category ON assignments(grading_category_id)`,
-  // Triage resubmissions (final review): a "Reviewed" mark remembers the
-  // request it marked done, so undoing the review reopens that request.
-  `ALTER TABLE resubmissions ADD COLUMN closes_request_id INTEGER`,
 ];
 
 // Remove orphaned auto-flag rows. The auto-flag feature that wrote 'missing',

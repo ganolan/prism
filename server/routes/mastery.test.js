@@ -30,7 +30,9 @@ import { getDb } from '../db/index.js';
 import { getMasteryForCourse, writeMasteryScoresBatch, writeMasteryOverride } from '../services/masterySync.js';
 import { getSectionGrades, pushGradeComments } from '../services/schoology.js';
 import { getAssignmentFiles } from '../services/oneDriveLinks.js';
-import { requestResubmission, markResubmissionReviewed, resubmissionByStudent } from '../services/resubmissions.js';
+import { requestResubmission, resubmissionByStudent } from '../services/resubmissions.js';
+import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
+import { writeMasteryScores } from '../services/masterySync.js';
 
 function startServer() {
   const app = express();
@@ -72,7 +74,7 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — review and res
   beforeEach(() => {
     const db = getDb();
     db.exec(
-      'DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; ' +
+      'DELETE FROM feedback_snapshots; DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; ' +
       'DELETE FROM students; DELETE FROM courses;'
     );
     courseId = db.prepare(
@@ -168,12 +170,13 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — review and res
     expect(body.students[0].resubmission.state).toBe('waiting');
   });
 
-  test('resubmitted is true when the latest revision postdates the grade', async () => {
+  test('resubmitted follows arrivedKeys: true once the arrival is captured', async () => {
     const db = getDb();
     db.prepare(
       `INSERT INTO grades (student_id, assignment_id, score, submitted_at, latest_revision_at)
        VALUES (?, ?, 80, 1000, 2000)`
     ).run(studentId, assignmentInternalId);
+    captureFeedbackSnapshots(db);
     const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
     expect(body.students[0].resubmitted).toBe(true);
   });
@@ -183,21 +186,25 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — review and res
     expect(body.students[0].resubmitted).toBe(false);
   });
 
-  test('resubmitted goes false once the arrival is marked Reviewed, and true again for a newer revision', async () => {
+  test('resubmitted goes false once the visible feedback changes, and true again for a newer revision', async () => {
     const db = getDb();
     db.prepare(
       `INSERT INTO grades (student_id, assignment_id, score, submitted_at, latest_revision_at)
        VALUES (?, ?, 80, 1000, 2000)`
     ).run(studentId, assignmentInternalId);
+    captureFeedbackSnapshots(db);
     const before = await get(`/api/mastery/${courseId}/assignment/sa-1`);
     expect(before.body.students[0].resubmitted).toBe(true);
 
-    markResubmissionReviewed(db, { studentId, assignmentId: assignmentInternalId });
-    const afterReview = await get(`/api/mastery/${courseId}/assignment/sa-1`);
-    expect(afterReview.body.students[0].resubmitted).toBe(false);
+    db.prepare('UPDATE grades SET score = 90, submitted_at = 2500 WHERE student_id = ? AND assignment_id = ?')
+      .run(studentId, assignmentInternalId);
+    captureFeedbackSnapshots(db);
+    const afterRegrade = await get(`/api/mastery/${courseId}/assignment/sa-1`);
+    expect(afterRegrade.body.students[0].resubmitted).toBe(false);
 
     db.prepare('UPDATE grades SET latest_revision_at = 3000 WHERE student_id = ? AND assignment_id = ?')
       .run(studentId, assignmentInternalId);
+    captureFeedbackSnapshots(db);
     const afterNewRevision = await get(`/api/mastery/${courseId}/assignment/sa-1`);
     expect(afterNewRevision.body.students[0].resubmitted).toBe(true);
   });
@@ -225,7 +232,7 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — individually a
   beforeEach(() => {
     const db = getDb();
     db.exec(
-      'DELETE FROM assignment_assignees; DELETE FROM flags; DELETE FROM grades; ' +
+      'DELETE FROM feedback_snapshots; DELETE FROM assignment_assignees; DELETE FROM flags; DELETE FROM grades; ' +
       'DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
     );
     courseId = db.prepare(
@@ -267,7 +274,7 @@ describe('GET /api/mastery/:courseId/student/:studentUid — individually assign
   beforeEach(() => {
     const db = getDb();
     db.exec(
-      'DELETE FROM mastery_alignments; DELETE FROM mastery_scores; ' +
+      'DELETE FROM feedback_snapshots; DELETE FROM mastery_alignments; DELETE FROM mastery_scores; ' +
       'DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
       'DELETE FROM assignment_assignees; DELETE FROM assignments; ' +
       'DELETE FROM enrolments; DELETE FROM students; DELETE FROM courses;'
@@ -335,7 +342,7 @@ describe('GET /api/mastery/:courseId — alignments (#32)', () => {
   beforeEach(() => {
     const db = getDb();
     db.exec(
-      'DELETE FROM mastery_alignments; DELETE FROM mastery_scores; ' +
+      'DELETE FROM feedback_snapshots; DELETE FROM mastery_alignments; DELETE FROM mastery_scores; ' +
       'DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
       'DELETE FROM assignments; DELETE FROM courses;'
     );
@@ -399,7 +406,7 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
   beforeEach(() => {
     const db = getDb();
     db.exec(
-      'DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM mastery_alignments; ' +
+      'DELETE FROM feedback_snapshots; DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM mastery_alignments; ' +
       'DELETE FROM mastery_scores; DELETE FROM measurement_topics; ' +
       'DELETE FROM reporting_categories; DELETE FROM assignment_assignees; ' +
       'DELETE FROM enrolments; DELETE FROM assignments; ' +
@@ -475,6 +482,7 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     const request = requestResubmission(db, {
       studentId, assignmentId, requestedAt: new Date((now - 86400 * 2) * 1000).toISOString().slice(0, 19).replace('T', ' '),
     });
+    captureFeedbackSnapshots(db);
     expect(resubmissionByStudent(db, assignmentId).get(studentId).state).toBe('arrived');
     getSectionGrades.mockResolvedValue([
       { assignment_id: 'sa-wc', enrollment_id: 'enr-wc', grade: 50, exception: 0, timestamp: now - 86400 * 10 },
@@ -488,6 +496,30 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     const row = db.prepare('SELECT submitted_at FROM grades WHERE student_id = ? AND assignment_id = ?').get(studentId, assignmentId);
     expect(row.submitted_at).toBeGreaterThanOrEqual(now);
     expect(db.prepare('SELECT status FROM resubmissions WHERE id = ?').get(request.id).status).toBe('done');
+    expect(resubmissionByStudent(db, assignmentId).has(studentId)).toBe(false);
+    // The save captured the new visible feedback (Amendment B capture point).
+    const snap = db.prepare('SELECT fingerprint, arrival_baseline FROM feedback_snapshots WHERE student_id = ? AND assignment_id = ?').get(studentId, assignmentId);
+    expect(JSON.parse(snap.fingerprint).c).toBe('Regraded');
+    expect(snap.fingerprint).not.toBe(snap.arrival_baseline);
+  });
+
+  test('a rubric save (POST /write) captures the snapshot so a rubric regrade of an arrival clears it at once', async () => {
+    const db = getDb();
+    db.prepare(`INSERT INTO measurement_topics (id, course_id, external_id, title) VALUES ('t-wc', ?, 'X.1', 'T')`).run(courseId);
+    db.prepare(
+      `INSERT INTO grades (student_id, assignment_id, enrolment_id, score, submitted_at, latest_revision_at)
+       VALUES (?, ?, 'enr-wc', 50, 1000, 2000)`
+    ).run(studentId, assignmentId);
+    captureFeedbackSnapshots(db);
+    expect(resubmissionByStudent(db, assignmentId).get(studentId).state).toBe('arrived');
+    writeMasteryScores.mockResolvedValue({ ok: true });
+
+    const { status } = await post(`/api/mastery/${courseId}/write`, {
+      enrollmentId: 'enr-wc', assignmentId: 'sa-wc', gradeInfo: { 't-wc': { grade: '75' } },
+    });
+    expect(status).toBe(200);
+    const snap = db.prepare('SELECT fingerprint FROM feedback_snapshots WHERE student_id = ? AND assignment_id = ?').get(studentId, assignmentId);
+    expect(JSON.parse(snap.fingerprint).l).toEqual(['t-wc:EX']);
     expect(resubmissionByStudent(db, assignmentId).has(studentId)).toBe(false);
   });
 
@@ -523,7 +555,7 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
   beforeEach(() => {
     const db = getDb();
     db.exec(
-      'DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM mastery_alignments; ' +
+      'DELETE FROM feedback_snapshots; DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM mastery_alignments; ' +
       'DELETE FROM mastery_scores; DELETE FROM measurement_topics; ' +
       'DELETE FROM reporting_categories; DELETE FROM assignment_assignees; ' +
       'DELETE FROM enrolments; DELETE FROM assignments; ' +
@@ -638,6 +670,7 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
       studentId: adaId, assignmentId: assignmentRowId,
       requestedAt: new Date((now - 86400) * 1000).toISOString().slice(0, 19).replace('T', ' '),
     });
+    captureFeedbackSnapshots(db);
     expect(resubmissionByStudent(db, assignmentRowId).get(adaId).state).toBe('arrived');
 
     const { status } = await post(`/api/mastery/${courseId}/send-all`, { entries: [entry('uid-ada', 'enr-ada')] });
@@ -698,7 +731,7 @@ describe('POST /api/mastery/:courseId/override — level-based input', () => {
     const db = getDb();
     db.pragma('foreign_keys = OFF');
     db.exec(
-      'DELETE FROM mastery_rollups; DELETE FROM mastery_scores; ' +
+      'DELETE FROM feedback_snapshots; DELETE FROM mastery_rollups; DELETE FROM mastery_scores; ' +
       'DELETE FROM mastery_alignments; DELETE FROM measurement_topics; ' +
       'DELETE FROM reporting_categories; DELETE FROM enrolments; ' +
       'DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
@@ -789,7 +822,7 @@ describe('rollups are per-course for a multi-course student (#127)', () => {
     const db = getDb();
     db.pragma('foreign_keys = OFF');
     db.exec(
-      'DELETE FROM mastery_rollups; DELETE FROM mastery_scores; ' +
+      'DELETE FROM feedback_snapshots; DELETE FROM mastery_rollups; DELETE FROM mastery_scores; ' +
       'DELETE FROM mastery_alignments; DELETE FROM measurement_topics; ' +
       'DELETE FROM reporting_categories; DELETE FROM enrolments; ' +
       'DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
@@ -864,7 +897,7 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId/submission-links (
     vi.mocked(getAssignmentFiles).mockReset();
     const db = getDb();
     db.exec(
-      'DELETE FROM mastery_rollups; DELETE FROM mastery_scores; DELETE FROM mastery_alignments; ' +
+      'DELETE FROM feedback_snapshots; DELETE FROM mastery_rollups; DELETE FROM mastery_scores; DELETE FROM mastery_alignments; ' +
       'DELETE FROM measurement_topics; DELETE FROM reporting_categories; DELETE FROM assignment_assignees; ' +
       'DELETE FROM flags; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; ' +
       'DELETE FROM students; DELETE FROM courses;'
@@ -932,7 +965,7 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
     vi.mocked(getSectionGrades).mockReset();
     const db = getDb();
     db.exec(
-      'DELETE FROM mastery_rollups; DELETE FROM mastery_scores; DELETE FROM mastery_alignments; ' +
+      'DELETE FROM feedback_snapshots; DELETE FROM mastery_rollups; DELETE FROM mastery_scores; DELETE FROM mastery_alignments; ' +
       'DELETE FROM measurement_topics; DELETE FROM reporting_categories; DELETE FROM assignment_assignees; ' +
       'DELETE FROM flags; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; ' +
       'DELETE FROM students; DELETE FROM courses;'

@@ -7,10 +7,11 @@ import { addDays, isWeekday } from '../lib/schoolDays.js';
 import { storeSchoolDays } from './schoolCalendar.js';
 import { TriageError } from './triageCommon.js';
 import {
-  requestResubmission, extendResubmission, closeResubmission, markResubmissionReviewed, undoResubmission,
+  requestResubmission, extendResubmission, gradeStands, undoResubmission,
   listResubmissions, settleResubmissions, resubmissionByStudent, openRequestKeys, recordSchoologyUnsubmit,
-  reviewedThroughMap, isResubmittedSinceReview,
+  arrivedKeys,
 } from './resubmissions.js';
+import { captureFeedbackSnapshots } from './feedbackSnapshots.js';
 
 const at = (iso) => Date.parse(`${iso}T04:00:00Z`) / 1000; // noon HKT
 const sql = (iso) => `${iso} 04:00:00`;                     // same instant as SQLite UTC text
@@ -38,7 +39,7 @@ function grade(studentId, assignmentId, cols) {
 
 beforeEach(() => {
   db = getDb();
-  db.exec('DELETE FROM resubmissions; DELETE FROM settings; DELETE FROM school_days; DELETE FROM grades; DELETE FROM assignment_assignees; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
+  db.exec('DELETE FROM feedback_snapshots; DELETE FROM status_lines; DELETE FROM resubmissions; DELETE FROM settings; DELETE FROM school_days; DELETE FROM grades; DELETE FROM assignment_assignees; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
   courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-1', 'AIML')`).run().lastInsertRowid;
   seedCalendar();
 });
@@ -66,91 +67,141 @@ describe('requestResubmission', () => {
   });
 });
 
-describe('extend / close / undo', () => {
-  test('extend sets lessons; close records the note; undo deletes', () => {
+describe('extend / grade stands / undo', () => {
+  test('extend sets lessons; grade stands only after the deadline; undo deletes', () => {
     const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');
     const r = requestResubmission(db, { studentId: s, assignmentId: a, requestedAt: sql('2026-10-12') });
     expect(extendResubmission(db, r.id, 5)).toMatchObject({ lessons: 5, until: '2026-10-19' });
-    expect(closeResubmission(db, r.id, 'grade stands')).toMatchObject({ status: 'closed', outcome: 'closed', closeNote: 'grade stands' });
+    expect(() => gradeStands(db, r.id, { today: '2026-10-16' })).toThrow(expect.objectContaining({ code: 'NOT_AT_DEADLINE' }));
+    expect(() => gradeStands(db, r.id, { today: '2026-10-19' })).toThrow(expect.objectContaining({ code: 'NOT_AT_DEADLINE' })); // the deadline day itself is still allowed
+    expect(listResubmissions(db, { id: r.id })[0].status).toBe('open');
+    expect(gradeStands(db, r.id, { today: '2026-10-20' })).toMatchObject({ status: 'closed', outcome: 'grade_stands', closeNote: 'grade stands' });
+    expect(listResubmissions(db, { id: r.id })[0].closedAt).toBeTruthy();
     expect(() => extendResubmission(db, r.id, 2)).toThrow(expect.objectContaining({ code: 'NOT_ELIGIBLE' }));
+    expect(() => gradeStands(db, r.id, { today: '2026-10-21' })).toThrow(expect.objectContaining({ code: 'NOT_ELIGIBLE' }));
     expect(undoResubmission(db, r.id)).toEqual({ deleted: true });
     expect(listResubmissions(db, {})).toEqual([]);
   });
+  test('gradeStands on an unknown id → NOT_FOUND', () => {
+    expect(() => gradeStands(db, 999, { today: '2026-10-20' })).toThrow(expect.objectContaining({ code: 'NOT_FOUND' }));
+  });
 });
 
-describe('markResubmissionReviewed', () => {
-  test('only for an arrived pair; marks a post-ask open request done', () => {
+// State comes from visible-feedback snapshots (spec Amendment B): a capture records an
+// arrival when latest_revision_at moves; the pair is answered once the visible feedback
+// differs from the arrival's baseline.
+describe('snapshot-based state', () => {
+  const stateOf = (s, a) => resubmissionByStudent(db, a).get(s)?.state ?? null;
+  const setGrade = (s, a, cols) => {
+    const keys = Object.keys(cols);
+    db.prepare(`UPDATE grades SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE student_id = ? AND assignment_id = ?`)
+      .run(...keys.map((k) => cols[k]), s, a);
+  };
+
+  test('Review Focus 1: a hidden comment edited after a resubmission stays Arrived; a score change answers it', () => {
     const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');
-    grade(s, a, { score: 80, submitted_at: at('2026-10-08'), latest_revision_at: at('2026-10-06') });
-    const r = requestResubmission(db, { studentId: s, assignmentId: a, requestedAt: sql('2026-10-12') });
-    expect(() => markResubmissionReviewed(db, { studentId: s, assignmentId: a })).toThrow(expect.objectContaining({ code: 'NOT_ON_LIST' }));
-    db.prepare('UPDATE grades SET latest_revision_at = ?').run(at('2026-10-14'));
-    const review = markResubmissionReviewed(db, { studentId: s, assignmentId: a });
-    expect(review).toMatchObject({ kind: 'review', outcome: 'reviewed', revisionAt: at('2026-10-14') });
-    expect(listResubmissions(db, { id: r.id })[0].status).toBe('done');
+    // Graded; the comment field holds a teacher-only note (Display off).
+    grade(s, a, { score: 80, grade_comment: 'v1: weak eval', comment_status: null, submitted_at: at('2026-10-06'), latest_revision_at: at('2026-10-05') });
+    captureFeedbackSnapshots(db);
+    expect(stateOf(s, a)).toBe(null);
+    setGrade(s, a, { latest_revision_at: at('2026-10-13') });           // the student resubmits
+    expect(captureFeedbackSnapshots(db)).toEqual({ arrivals: 1 });
+    expect(stateOf(s, a)).toBe('arrived');
+    // The teacher edits the hidden note (a Prism save also moves the grade time past
+    // the revision). Nothing the student sees changed → still Arrived.
+    setGrade(s, a, { grade_comment: 'v2: eval better, check refs', submitted_at: at('2026-10-14') });
+    captureFeedbackSnapshots(db, { assignmentId: a });
+    expect(stateOf(s, a)).toBe('arrived');
+    expect(arrivedKeys(db, { assignmentId: a })).toEqual(new Set([`${s}:${a}`]));
+    setGrade(s, a, { score: 90 });                                          // regraded
+    expect(stateOf(s, a)).toBe(null);
+    expect(arrivedKeys(db, { assignmentId: a }).size).toBe(0);
   });
-  test('Review Focus 2: an ask after an arrival is Waiting at once; only a post-ask revision arrives', () => {
+
+  test('an unchanged re-save of a visible comment stays Arrived; editing the visible comment answers it', () => {
     const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');
-    grade(s, a, { score: 80, submitted_at: at('2026-10-06'), latest_revision_at: at('2026-10-08') }); // arrived
-    expect(resubmissionByStudent(db, a).get(s).state).toBe('arrived');
-    const r = requestResubmission(db, { studentId: s, assignmentId: a, requestedAt: sql('2026-10-12') });
-    expect(resubmissionByStudent(db, a).get(s).state).toBe('waiting');
-    expect(() => markResubmissionReviewed(db, { studentId: s, assignmentId: a })).toThrow(expect.objectContaining({ code: 'NOT_ON_LIST' }));
-    db.prepare('UPDATE grades SET latest_revision_at = ?').run(at('2026-10-13'));
-    expect(resubmissionByStudent(db, a).get(s).state).toBe('arrived');
-    expect(listResubmissions(db, { id: r.id })[0].status).toBe('open');
+    grade(s, a, { score: 80, grade_comment: 'Good start', comment_status: 1, submitted_at: at('2026-10-06'), latest_revision_at: at('2026-10-05') });
+    captureFeedbackSnapshots(db);
+    setGrade(s, a, { latest_revision_at: at('2026-10-13') });
+    captureFeedbackSnapshots(db);
+    setGrade(s, a, { submitted_at: at('2026-10-14') });                    // re-saved, same text
+    captureFeedbackSnapshots(db);
+    expect(stateOf(s, a)).toBe('arrived');
+    setGrade(s, a, { grade_comment: 'Good start. v2: eval now complete' });
+    expect(stateOf(s, a)).toBe(null);
   });
-  test('Review Focus 3: a newer revision after a review shows as arrived again', () => {
-    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');
+
+  test('Review Focus 3: a status line hand-edited in Schoology counts as teacher text', () => {
+    const s = student('u1', 'Maya', 'Chen'); const s2 = student('u2', 'Ethan', 'Wong'); const a = assignment('a1', 'Project');
+    const line = '⟳ Resubmission requested — due Thu 15/10.';
+    for (const sid of [s, s2]) db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, ?, 'ask')`).run(sid, a, line);
+    // s: only Prism's exact line → no feedback the student was given; s2: the line was edited by hand.
+    grade(s, a, { grade_comment: line, comment_status: 1, submitted_at: at('2026-10-06'), latest_revision_at: at('2026-10-13') });
+    grade(s2, a, { grade_comment: '⟳ Resubmission requested — due Fri 16/10.', comment_status: 1, submitted_at: at('2026-10-06'), latest_revision_at: at('2026-10-13') });
+    captureFeedbackSnapshots(db);
+    expect(stateOf(s, a)).toBe(null);
+    expect(stateOf(s2, a)).toBe('arrived');
+  });
+
+  test('Review Focus 5 (first deploy): the old rule\'s resubmitted pairs with visible feedback are Arrived; others are not', () => {
+    const s = student('u1', 'Maya', 'Chen'); const s2 = student('u2', 'Ethan', 'Wong'); const a = assignment('a1', 'Project');
     grade(s, a, { score: 80, submitted_at: at('2026-10-06'), latest_revision_at: at('2026-10-08') });
-    markResubmissionReviewed(db, { studentId: s, assignmentId: a });
-    expect(resubmissionByStudent(db, a).get(s)?.state ?? null).toBe(null);
-    db.prepare('UPDATE grades SET latest_revision_at = ?').run(at('2026-10-13'));
-    expect(resubmissionByStudent(db, a).get(s).state).toBe('arrived');
+    grade(s2, a, { score: 70, submitted_at: at('2026-10-08'), latest_revision_at: at('2026-10-06') });
+    expect(stateOf(s, a)).toBe(null);                // no snapshot yet → readers never guess
+    captureFeedbackSnapshots(db);
+    expect(stateOf(s, a)).toBe('arrived');
+    expect(stateOf(s2, a)).toBe(null);
+    expect(arrivedKeys(db, { courseId })).toEqual(new Set([`${s}:${a}`]));
   });
-});
 
-describe('undo of a Reviewed mark (final review finding 2)', () => {
-  test('records the request it closed and reopens it on undo', () => {
+  test('requested: ask on ungraded work → waiting; post-ask revision → arrived; visible comment → fulfilled; settle → done', () => {
     const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');
+    grade(s, a, { latest_revision_at: 0 });
+    captureFeedbackSnapshots(db);
     const r = requestResubmission(db, { studentId: s, assignmentId: a, requestedAt: sql('2026-10-12') });
-    grade(s, a, { latest_revision_at: at('2026-10-14') });
-    const review = markResubmissionReviewed(db, { studentId: s, assignmentId: a });
-    expect(db.prepare('SELECT closes_request_id FROM resubmissions WHERE id = ?').get(review.id).closes_request_id).toBe(r.id);
-    expect(listResubmissions(db, { id: r.id })[0].status).toBe('done');
-
-    expect(undoResubmission(db, review.id)).toEqual({ deleted: true });
-    expect(listResubmissions(db, { id: review.id })).toEqual([]);
-    expect(listResubmissions(db, { id: r.id })[0]).toMatchObject({ status: 'open', closedAt: null });
+    expect(stateOf(s, a)).toBe('waiting');
+    setGrade(s, a, { latest_revision_at: at('2026-10-13') });
+    captureFeedbackSnapshots(db);
     expect(resubmissionByStudent(db, a).get(s)).toMatchObject({ state: 'arrived', request: { id: r.id } });
+    expect(arrivedKeys(db, { studentId: s })).toEqual(new Set([`${s}:${a}`]));
+    setGrade(s, a, { grade_comment: 'note to self', comment_status: null });  // hidden → still arrived
+    expect(stateOf(s, a)).toBe('arrived');
+    expect(settleResubmissions(db, { assignmentId: a })).toBe(0);
+    setGrade(s, a, { grade_comment: 'Much better — eval now complete', comment_status: 1 });
+    expect(stateOf(s, a)).toBe(null);                // fulfilled is hidden
+    expect(settleResubmissions(db, { assignmentId: a })).toBe(1);
+    expect(listResubmissions(db, { id: r.id })[0]).toMatchObject({ status: 'done', outcome: 'done' });
+    expect(stateOf(s, a)).toBe(null);
   });
-  test('does not reopen when another request for the pair is already open', () => {
+
+  test('an arrival before the ask does not answer it: ask → waiting until a post-ask revision', () => {
     const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');
+    grade(s, a, { score: 80, submitted_at: at('2026-10-06'), latest_revision_at: at('2026-10-05') });
+    captureFeedbackSnapshots(db);
+    setGrade(s, a, { latest_revision_at: at('2026-10-08') });
+    captureFeedbackSnapshots(db);
+    expect(stateOf(s, a)).toBe('arrived');
     const r = requestResubmission(db, { studentId: s, assignmentId: a, requestedAt: sql('2026-10-12') });
-    grade(s, a, { latest_revision_at: at('2026-10-14') });
-    const review = markResubmissionReviewed(db, { studentId: s, assignmentId: a });
-    const r2 = requestResubmission(db, { studentId: s, assignmentId: a, requestedAt: sql('2026-10-15') });
-    expect(undoResubmission(db, review.id)).toEqual({ deleted: true });
-    expect(listResubmissions(db, { id: r.id })[0].status).toBe('done');
-    expect(listResubmissions(db, { id: r2.id })[0].status).toBe('open');
-  });
-  test('a review that closed no request just deletes', () => {
-    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');
-    grade(s, a, { score: 80, submitted_at: at('2026-10-06'), latest_revision_at: at('2026-10-08') });
-    const review = markResubmissionReviewed(db, { studentId: s, assignmentId: a });
-    expect(db.prepare('SELECT closes_request_id FROM resubmissions WHERE id = ?').get(review.id).closes_request_id).toBeNull();
-    expect(undoResubmission(db, review.id)).toEqual({ deleted: true });
-    expect(listResubmissions(db, {})).toEqual([]);
+    expect(stateOf(s, a)).toBe('waiting');
+    expect(arrivedKeys(db, { assignmentId: a }).size).toBe(0);
+    setGrade(s, a, { latest_revision_at: at('2026-10-13') });
+    captureFeedbackSnapshots(db);
+    expect(resubmissionByStudent(db, a).get(s)).toMatchObject({ state: 'arrived', request: { id: r.id } });
+    expect(listResubmissions(db, { id: r.id })[0].status).toBe('open');
   });
 });
 
 describe('settleResubmissions', () => {
   test('marks fulfilled requests done, leaves waiting ones', () => {
     const s = student('u1', 'Maya', 'Chen'); const s2 = student('u2', 'Ethan', 'Wong'); const a = assignment('a1', 'Project');
-    grade(s, a, { score: 90, submitted_at: at('2026-10-15'), latest_revision_at: at('2026-10-14') });
+    grade(s, a, { score: 60, submitted_at: at('2026-10-08'), latest_revision_at: at('2026-10-06') });
     grade(s2, a, { score: 60, submitted_at: at('2026-10-08'), latest_revision_at: at('2026-10-06') });
+    captureFeedbackSnapshots(db);
     const r1 = requestResubmission(db, { studentId: s, assignmentId: a, requestedAt: sql('2026-10-12') });
     const r2 = requestResubmission(db, { studentId: s2, assignmentId: a, requestedAt: sql('2026-10-12') });
+    db.prepare('UPDATE grades SET latest_revision_at = ? WHERE student_id = ?').run(at('2026-10-14'), s);
+    captureFeedbackSnapshots(db);
+    db.prepare('UPDATE grades SET score = 90, submitted_at = ? WHERE student_id = ?').run(at('2026-10-15'), s);
     expect(settleResubmissions(db, { assignmentId: a })).toBe(1);
     expect(listResubmissions(db, { id: r1.id })[0]).toMatchObject({ status: 'done', outcome: 'done' });
     expect(listResubmissions(db, { id: r2.id })[0].status).toBe('open');
@@ -173,7 +224,7 @@ describe('recordSchoologyUnsubmit', () => {
     grade(s, a, { score: 80, exception: 0, first_submitted_at: 100, latest_revision_at: at('2026-10-10'), lti_submission_state: 'in_progress' });
     expect(recordSchoologyUnsubmit(db, { studentId: s, assignmentId: a, requestedAt: sql('2026-10-10') })).toBe(true);
     const row = db.prepare(`SELECT id FROM resubmissions WHERE student_id = ? AND assignment_id = ?`).get(s, a);
-    closeResubmission(db, row.id);
+    gradeStands(db, row.id, { today: '2026-12-31' });
 
     // A no-show (same latest_revision_at) must not reappear just because the
     // sync still finds it "in progress".
@@ -237,30 +288,16 @@ describe('lookups', () => {
   });
 });
 
-describe('reviewedThroughMap / isResubmittedSinceReview', () => {
-  test('empty with no review marks', () => {
-    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');
+describe('arrivedKeys', () => {
+  test('arrived pairs (requested or not), scoped by course / student / assignment; waiting pairs excluded', () => {
+    const s = student('u1', 'Maya', 'Chen'); const s2 = student('u2', 'Ethan', 'Wong'); const s3 = student('u3', 'Zoe', 'Tan');
+    const a = assignment('a1', 'Project'); const b = assignment('b1', 'Essay');
     grade(s, a, { score: 80, submitted_at: at('2026-10-06'), latest_revision_at: at('2026-10-08') });
-    expect(reviewedThroughMap(db, { courseId }).size).toBe(0);
-    const g = db.prepare('SELECT * FROM grades WHERE student_id = ? AND assignment_id = ?').get(s, a);
-    expect(isResubmittedSinceReview(g, 0)).toBe(true);
-  });
-
-  test('a Reviewed mark sets the watermark, scoped by courseId/studentId/assignmentId, and clears the flag until a newer revision', () => {
-    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');
-    grade(s, a, { score: 80, submitted_at: at('2026-10-06'), latest_revision_at: at('2026-10-08') });
-    markResubmissionReviewed(db, { studentId: s, assignmentId: a });
-    const key = `${s}:${a}`;
-    const t = at('2026-10-08');
-    expect(reviewedThroughMap(db, { courseId }).get(key)).toBe(t);
-    expect(reviewedThroughMap(db, { studentId: s }).get(key)).toBe(t);
-    expect(reviewedThroughMap(db, { assignmentId: a }).get(key)).toBe(t);
-
-    const g = db.prepare('SELECT * FROM grades WHERE student_id = ? AND assignment_id = ?').get(s, a);
-    expect(isResubmittedSinceReview(g, reviewedThroughMap(db, { courseId }).get(key))).toBe(false);
-
-    db.prepare('UPDATE grades SET latest_revision_at = ? WHERE student_id = ? AND assignment_id = ?').run(at('2026-10-13'), s, a);
-    const g2 = db.prepare('SELECT * FROM grades WHERE student_id = ? AND assignment_id = ?').get(s, a);
-    expect(isResubmittedSinceReview(g2, reviewedThroughMap(db, { courseId }).get(key))).toBe(true);
+    grade(s2, b, { score: 80, submitted_at: at('2026-10-06'), latest_revision_at: at('2026-10-08') });
+    requestResubmission(db, { studentId: s3, assignmentId: a, requestedAt: sql('2026-10-12') });
+    captureFeedbackSnapshots(db);
+    expect(arrivedKeys(db, { courseId })).toEqual(new Set([`${s}:${a}`, `${s2}:${b}`]));
+    expect(arrivedKeys(db, { studentId: s2 })).toEqual(new Set([`${s2}:${b}`]));
+    expect(arrivedKeys(db, { assignmentId: a })).toEqual(new Set([`${s}:${a}`]));
   });
 });

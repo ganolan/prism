@@ -6,15 +6,14 @@ import {
   listExtensions, recordExtension, undoExtension, setMakeUpIgnored, TriageError,
 } from '../services/triage.js';
 import {
-  listResubmissions, requestResubmission, extendResubmission, closeResubmission,
-  markResubmissionReviewed, undoResubmission,
+  listResubmissions, requestResubmission, extendResubmission, gradeStands, undoResubmission,
 } from '../services/resubmissions.js';
 import { loadCalendar } from '../services/schoolCalendar.js';
 
 const router = Router();
 const STATUS = {
   BAD_ACTION: 400, BAD_LESSONS: 400, BAD_VALUE: 400, NOT_FOUND: 404,
-  NOT_ON_LIST: 409, NOT_AT_LIMIT: 409, NOT_ELIGIBLE: 409, ALREADY_OPEN: 409,
+  NOT_ON_LIST: 409, NOT_AT_LIMIT: 409, NOT_ELIGIBLE: 409, ALREADY_OPEN: 409, NOT_AT_DEADLINE: 409,
 };
 const optBool = (v) => (v === undefined ? undefined : v === 'true');
 
@@ -77,7 +76,7 @@ router.delete('/extensions/:id', (req, res) => {
   res.json(undoExtension(getDb(), req.params.id));
 });
 
-// Resubmissions (asks + "Reviewed" marks). GET = history, newest first.
+// Resubmissions (asks). GET = history, newest first.
 router.get('/resubmissions', (req, res) => {
   res.json(listResubmissions(getDb(), { courseId: req.query.courseId ?? null }));
 });
@@ -88,21 +87,17 @@ router.post('/resubmissions', (req, res) => {
   write(res, () => requestResubmission(getDb(), { studentId, assignmentId, lessons, note, source: 'app' }));
 });
 
-// POST /api/triage/resubmissions/review — { studentId, assignmentId }: looked at, grade stands.
-router.post('/resubmissions/review', (req, res) => {
-  const { studentId, assignmentId } = req.body || {};
-  write(res, () => markResubmissionReviewed(getDb(), { studentId, assignmentId, source: 'app' }));
-});
-
-// PUT /api/triage/resubmissions/:id — { lessons } extends; { close: true, note? } closes.
+// PUT /api/triage/resubmissions/:id — { lessons } extends; { gradeStands: true }
+// ends the request once its deadline has passed (409 NOT_AT_DEADLINE before).
+// { close: true } is accepted as an alias until the client moves over.
 router.put('/resubmissions/:id', (req, res) => {
-  const { lessons, close, note } = req.body || {};
-  write(res, () => (close
-    ? closeResubmission(getDb(), req.params.id, note)
+  const { lessons, close, gradeStands: stands } = req.body || {};
+  write(res, () => (stands || close
+    ? gradeStands(getDb(), req.params.id)
     : extendResubmission(getDb(), req.params.id, lessons)), 200);
 });
 
-// DELETE /api/triage/resubmissions/:id — undo an ask or a review.
+// DELETE /api/triage/resubmissions/:id — undo an ask.
 router.delete('/resubmissions/:id', (req, res) => {
   res.json(undoResubmission(getDb(), req.params.id));
 });

@@ -1407,3 +1407,42 @@ describe('fullSync — test-attempt fetcher wiring', () => {
     expect(fetcher.close).toHaveBeenCalled();
   });
 });
+
+describe('fullSync — visible-feedback snapshots (Amendment B)', () => {
+  let db;
+
+  beforeEach(async () => {
+    db = new Database(':memory:');
+    migrate(db);
+    const dbModule = await import('../db/index.js');
+    dbModule.__setTestDb?.(db);
+    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name, course_code, section_school_code) VALUES ('sec-1', 'AP CSP', 'APCSP', 'S1')`).run().lastInsertRowid;
+    // A pair graded before the student's latest revision (the old rule's "resubmitted").
+    const studentId = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('701', 'Ada', 'L')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, '801')`).run(studentId, courseId);
+    const assignmentId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, published) VALUES (?, 'A1', 'Essay', 1)`).run(courseId).lastInsertRowid;
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, score, grade_comment, comment_status, submitted_at, latest_revision_at) VALUES (?, ?, 80, 'Good', 1, 1000, 2000)`).run(studentId, assignmentId);
+    const s = await import('./schoology.js');
+    s.getMyUserId.mockResolvedValue('user-1');
+    s.getMySections.mockResolvedValue([{ id: 'sec-1', course_title: 'AP CSP', section_title: 'A', course_code: 'APCSP', section_school_code: 'S1' }]);
+    s.getSectionGradingPeriods.mockResolvedValue([]);
+    s.getSectionEnrollments.mockReset();
+    s.getSectionEnrollments.mockResolvedValue([{ id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' }]);
+    s.getSectionAssignments.mockReset();
+    s.getSectionAssignments.mockResolvedValue([]);
+    s.getSectionGrades.mockResolvedValue([]);
+    s.getSectionFolders.mockResolvedValue([]);
+    s.getSectionGradingCategories.mockResolvedValue([]);
+    s.getSectionGradingScales.mockResolvedValue([]);
+    s.getUserProfilesBatch.mockResolvedValue(new Map());
+  });
+
+  test('a completed sync captures snapshots (first capture seeds the arrival)', async () => {
+    expect(db.prepare('SELECT COUNT(*) AS n FROM feedback_snapshots').get().n).toBe(0);
+    await fullSync(() => {});
+    expect(db.prepare(`SELECT status FROM sync_log ORDER BY id DESC LIMIT 1`).get().status).toBe('completed');
+    const snap = db.prepare('SELECT * FROM feedback_snapshots').get();
+    expect(snap).toMatchObject({ revision_at: 2000, arrival_revision_at: 2000 });
+    expect(snap.arrival_baseline).toBe(snap.fingerprint);
+  });
+});

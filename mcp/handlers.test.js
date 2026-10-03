@@ -7,7 +7,7 @@ import { listCourses, listAssignments, listStudents, writeRubric, attachRubricTo
 import {
   resolveCourseRef, getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool,
   extendDeadlineTool, undoExtensionTool, setMakeupTrackingTool,
-  requestResubmissionTool, closeResubmissionTool, markResubmissionReviewedTool, listResubmissionsTool,
+  requestResubmissionTool, gradeStandsTool, listResubmissionsTool,
 } from './handlers.js';
 import { saveRubric, listRubrics, getRubricByName } from '../server/services/rubricStore.js';
 
@@ -266,14 +266,17 @@ function seedTriagePair(db) {
 }
 
 describe('resubmission tools', () => {
-  test('request → list → extend via extend_deadline → close', () => {
+  test('request → list → extend via extend_deadline → grade_stands (only after the deadline)', () => {
     const db = getDb();
     const { studentId, assignmentId } = seedTriagePair(db);
     const r = requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 2, note: 'fix tests' });
     expect(r).toMatchObject({ outcome: 'asked', source: 'mcp', lessons: 2 });
     expect(listResubmissionsTool(db, { state: 'asked' })).toHaveLength(1);
     expect(extendDeadlineTool(db, { resubmission_id: r.id, lessons: 5 })).toMatchObject({ lessons: 5 });
-    expect(closeResubmissionTool(db, { id: r.id, note: 'grade stands' })).toMatchObject({ outcome: 'closed' });
+    expect(() => gradeStandsTool(db, { id: r.id })).toThrow(expect.objectContaining({ code: 'NOT_AT_DEADLINE' }));
+    db.prepare(`UPDATE resubmissions SET requested_at = '2020-01-06 04:00:00' WHERE id = ?`).run(r.id);
+    expect(gradeStandsTool(db, { id: r.id })).toMatchObject({ outcome: 'grade_stands', closeNote: 'grade stands' });
+    expect(listResubmissionsTool(db, { state: 'grade_stands' })).toHaveLength(1);
   });
 
   test('get_triage student filter applies to resubmissions', () => {
@@ -281,13 +284,6 @@ describe('resubmission tools', () => {
     const { studentId, assignmentId } = seedTriagePair(db);
     requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId });
     expect(getTriageTool(db, { student: 'nobody-matches' }).resubmissions).toEqual([]);
-  });
-
-  test('mark_resubmission_reviewed rejects a pair with nothing arrived', () => {
-    const db = getDb();
-    const { studentId, assignmentId } = seedTriagePair(db);
-    expect(() => markResubmissionReviewedTool(db, { student_id: studentId, assignment_id: assignmentId }))
-      .toThrow(expect.objectContaining({ code: 'NOT_ON_LIST' }));
   });
 });
 

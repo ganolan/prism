@@ -25,14 +25,21 @@ the client launched from. `:memory:` and `file:` URIs are accepted.
 
 PrisMCP loads no dotenv (see above), and Prism's Schoology client reads
 `SCHOOLOGY_BASE_URL`, `SCHOOLOGY_CONSUMER_KEY` and `SCHOOLOGY_CONSUMER_SECRET`
-from the process environment when it starts. So **the MCP server config must
-provide all three** — alongside `DB_PATH`, in the entry's `env` block (or, over
-SSH, on the remote command line) — for `preview_status_line`, for
+from the process environment when it starts. So **the server process must be
+started with all three set** — for `preview_status_line`, for
 `request_resubmission` / `grade_stands` / `extend_deadline` with `comment_line`,
-and for `undo_extension` with `remove_line`. Copy the values from the
-server's `.env` (`~/prism/data/.env` on the mini); `SCHOOLOGY_BASE_URL` is
-`https://api.schoology.com`. The config file then holds the consumer secret, so
-keep it as private as `.env` itself.
+and for `undo_extension` with `remove_line`. How depends on where it runs:
+
+- **On the mini** (PrisMCP runs there directly): put them in the entry's `env`
+  block alongside `DB_PATH`, copied from the server's `.env`
+  (`~/prism/data/.env`, mode 600); `SCHOOLOGY_BASE_URL` is
+  `https://api.schoology.com`. That config file then holds the consumer secret,
+  so keep it as private as `.env` itself — it never leaves the mini.
+- **From the laptop over SSH**: **never copy the secret into the laptop's
+  config.** The remote command sources the mini's own `.env` on the mini
+  (`set -a; . ~/prism/data/.env; set +a`), so the secret never leaves the mini
+  and a key rotation there needs no laptop change. The `.env` is plain
+  `KEY=value` lines, which a shell can source; `set -a` exports them.
 
 Without them those tools fail before touching anything, with
 `SCHOOLOGY_NOT_CONFIGURED: PrisMCP cannot reach Schoology: … not set in its
@@ -64,16 +71,18 @@ claude mcp add prism -s user -e DB_PATH=/Users/gnolan/prism/data/students.db -- 
 
 # on the laptop: over SSH to the mini (needs Remote Login on the mini + the Keychain setup below)
 claude mcp remove prism -s user
-claude mcp add prism -s user -- ssh gnolan@macmini 'cd ~/prism/current && DB_PATH=$HOME/prism/data/students.db /usr/local/bin/node mcp/server.js'
+claude mcp add prism -s user -- ssh gnolan@macmini 'set -a; . ~/prism/data/.env; set +a; cd ~/prism/current && DB_PATH=$HOME/prism/data/students.db /usr/local/bin/node mcp/server.js'
 ```
 
-For the status-line tools, also pass the three Schoology variables (see
-[Schoology credentials](#schoology-credentials-for-the-status-line-tools-since-2026-10-03)):
-add `-e SCHOOLOGY_BASE_URL=https://api.schoology.com -e SCHOOLOGY_CONSUMER_KEY=… -e SCHOOLOGY_CONSUMER_SECRET=…`
-to the mini's `claude mcp add`, or put `SCHOOLOGY_BASE_URL=… SCHOOLOGY_CONSUMER_KEY=… SCHOOLOGY_CONSUMER_SECRET=…`
-before `DB_PATH=…` inside the SSH command's quotes.
+For the status-line tools the server needs the three Schoology variables (see
+[Schoology credentials](#schoology-credentials-for-the-status-line-tools-since-2026-10-03)).
+On the mini, add `-e SCHOOLOGY_BASE_URL=https://api.schoology.com -e SCHOOLOGY_CONSUMER_KEY=… -e SCHOOLOGY_CONSUMER_SECRET=…`
+to its `claude mcp add`. The laptop's SSH command above already has them: it
+sources the mini's `~/prism/data/.env` on the mini, so no secret is ever typed
+into, or stored in, the laptop's Claude config.
 
-The SSH command is single-quoted so `~` and `$HOME` expand **on the mini**.
+The SSH command is single-quoted so `~` and `$HOME` expand — and `.env` is
+read — **on the mini**.
 `/usr/local/bin/node` is spelled out because a non-interactive SSH session's
 `PATH` is `/usr/bin:/bin:/usr/sbin:/sbin`. MCP is a stdio protocol and does
 not care that the pipe runs through SSH; Claude, the grading plugin and the
@@ -158,7 +167,7 @@ and leave the rest of the file alone.
 
 The three `SCHOOLOGY_*` entries are only needed for the status-line tools (see
 [Schoology credentials](#schoology-credentials-for-the-status-line-tools-since-2026-10-03)).
-Over SSH (below), put them inside the quoted remote command, before `DB_PATH=…`.
+Over SSH (below), don't copy them: the remote command sources the mini's `.env`.
 
 **On the laptop**, go over SSH to the mini. This needs the Keychain setup
 above; the `Host macmini` block supplies the user and the key:
@@ -168,10 +177,15 @@ above; the `Host macmini` block supplies the user and the key:
   "command": "/usr/bin/ssh",
   "args": [
     "macmini",
-    "cd ~/prism/current && DB_PATH=$HOME/prism/data/students.db /usr/local/bin/node mcp/server.js"
+    "set -a; . ~/prism/data/.env; set +a; cd ~/prism/current && DB_PATH=$HOME/prism/data/students.db /usr/local/bin/node mcp/server.js"
   ]
 }
 ```
+
+The remote command sources `~/prism/data/.env` **on the mini** before starting
+the server, so the Schoology consumer secret never leaves the mini — the
+laptop's config holds no credentials. `DB_PATH` is set after the source, so it
+wins over anything the `.env` might define.
 
 - All paths are absolute, and `DB_PATH` is mandatory (see above).
 - If a path contains spaces, keep it as a single array element; don't split it.

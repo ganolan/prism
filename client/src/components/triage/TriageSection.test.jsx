@@ -850,6 +850,20 @@ describe('Resubmissions panel', () => {
       expect(within(await dialog()).getByText('Closes this resubmission request in Prism.')).toBeInTheDocument();
     });
 
+    it('Undo of an ask whose OneDrive work is now unsubmitted says it closes it and the work stays unsubmitted', async () => {
+      api.getResubmissions.mockResolvedValue([{ ...HISTORY[0], ltiState: 'in_progress' }]);
+      const panel = await resubPanel();
+      fireEvent.click(within(panel).getByRole('button', { name: /^History/ }));
+      const history = await screen.findByLabelText('Resubmission history');
+      fireEvent.click(await within(history).findByRole('button', { name: 'Undo' }));
+      expect(within(await dialog()).getByText('Closes this request in Prism. Their work stays unsubmitted in Schoology.')).toBeInTheDocument();
+    });
+
+    it('a row whose unsubmit was only unconfirmed reads "not confirmed"', async () => {
+      const panel = await resubPanel([{ ...RESUB3[2], unsubmitError: "Schoology didn't confirm the unsubmit — x", unsubmitUncertain: true, unsubmitUrl: 'https://s/a' }]);
+      expect(within(panel).getByText(/Unsubmit not confirmed/)).toBeInTheDocument();
+    });
+
     it('Undo → Cancel calls no write API', async () => {
       const history = await openHistory();
       fireEvent.click(undoOf(history, 'Ravi Shah'));

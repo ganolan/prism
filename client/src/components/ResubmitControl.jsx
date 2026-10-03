@@ -104,8 +104,11 @@ export default function ResubmitControl({ student, assignmentId, title, defaultL
     removeMode: true,
     undoSource: { sourceType: 'resubmission', sourceId: req.id },
     // An auto-added (Schoology Unsubmit) request is closed, not deleted, by Undo.
-    consequence: (req.source === 'schoology_unsubmit' ? 'Closes this resubmission request in Prism.' : 'Deletes this resubmission request from Prism.')
-      + (unsubmitted ? STAYS_UNSUBMITTED : ''),
+    // A request on unsubmitted work is closed, not deleted (the closed row stops the next
+    // sync re-adding it), and the work stays unsubmitted — Prism never re-submits.
+    consequence: unsubmitted
+      ? `Closes this request in Prism.${STAYS_UNSUBMITTED}`
+      : (req.source === 'schoology_unsubmit' ? 'Closes this resubmission request in Prism.' : 'Deletes this resubmission request from Prism.'),
     confirmLabel: 'Undo',
     onConfirm: done(async (removeLine) => {
       const undone = await undoResubmission(req.id, { removeLine });
@@ -122,7 +125,7 @@ export default function ResubmitControl({ student, assignmentId, title, defaultL
         <span aria-hidden="true">⟳</span>{' '}
         {req ? `Resubmit by ${formatDate(`${req.until}T00:00:00`)}` : 'Ask to resubmit'}
       </button>
-      {req?.unsubmitError && <UnsubmitFailedNote url={req.unsubmitUrl} error={req.unsubmitError} />}
+      {req?.unsubmitError && <UnsubmitFailedNote url={req.unsubmitUrl} error={req.unsubmitError} uncertain={req.unsubmitUncertain} />}
       {panel && (
         <span className="resubmit-control__panel">
           <NumberStepper value={lessons} min={1} max={60} onChange={setLessons} aria-label="Resubmission deadline (lessons)" />

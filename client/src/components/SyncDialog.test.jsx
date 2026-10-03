@@ -484,6 +484,7 @@ describe('SyncDialog — Schoology connection status', () => {
     vi.mocked(api.triggerMasteryLogin).mockResolvedValue({ success: true });
     render(<SyncDialog onClose={() => {}} />);
     expect(await screen.findByText('Expired')).toBeInTheDocument();
+    expect(screen.getByText("Opens a Schoology login window on the server — screen-share to it if you're away.")).toBeInTheDocument();
     vi.mocked(api.getMasteryLoginStatus).mockImplementation(async () => ({ loggedIn: true, live: 'connected', checkedAt: '2026-10-03T07:00:00Z' }));
     fireEvent.click(screen.getByRole('button', { name: 'Log in to Schoology' }));
     expect(await screen.findByText(/^Connected · checked/)).toBeInTheDocument();

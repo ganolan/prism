@@ -127,6 +127,15 @@ describe('SettingsPage — Schoology connection card', () => {
     expect(within(c).queryByRole('button', { name: 'Check now' })).not.toBeInTheDocument();
   });
 
+  it("'unknown' (the check couldn't tell) is not shown as expired", async () => {
+    api.getMasteryLoginStatus.mockResolvedValue({ loggedIn: true, live: 'unknown', checkedAt: '2026-10-03T06:05:00Z', message: 'Could not reach Schoology' });
+    render(<SettingsPage />);
+    const c = await card();
+    expect(await within(c).findByText("Couldn't check — try again")).toBeInTheDocument();
+    expect(within(c).queryByText('Expired')).not.toBeInTheDocument();
+    expect(within(c).getByRole('button', { name: 'Check now' })).toBeInTheDocument();
+  });
+
   it('Check now re-checks with refresh', async () => {
     render(<SettingsPage />);
     const c = await card();

@@ -7,7 +7,8 @@ import { getMasteryLoginStatus } from '../services/api.js';
 // Shared by the Settings "Schoology connection" card, the Sync dialog and the Ask
 // confirm (StatusLineModal). `enabled: false` → no request at all.
 //
-// status: { loggedIn, live: 'connected' | 'expired' | 'none' | null, checkedAt, message? }
+// status: { loggedIn, live: 'connected' | 'expired' | 'unknown' | 'none' | null, checkedAt, message? }
+// 'unknown' = the check couldn't tell (Schoology unreachable, browser failed) — not expired.
 export function useSchoologyConnection({ enabled = true } = {}) {
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(enabled);
@@ -37,7 +38,7 @@ export function useSchoologyConnection({ enabled = true } = {}) {
   return { status, loading, error, refresh: () => load(true) };
 }
 
-// 'connected' | 'expired' | 'none' | null (unknown / still checking).
+// 'connected' | 'expired' | 'unknown' | 'none' | null (still checking / never checked).
 export const connectionState = (status) => status?.live ?? (status && status.loggedIn === false ? 'none' : null);
 
 const hhmm = (iso) => {
@@ -56,6 +57,7 @@ export default function SchoologyConnectionStatus({ connection, className = '' }
   else if (state === 'connected') { text = `Connected${status.checkedAt ? ` · checked ${hhmm(status.checkedAt)}` : ''}`; tone = 'success'; }
   else if (state === 'expired') { text = 'Expired'; tone = 'warning'; }
   else if (state === 'none') { text = 'Not set up'; tone = 'warning'; }
+  else if (state === 'unknown') { text = "Couldn't check — try again"; tone = 'muted'; }
   else text = 'Not checked yet';
 
   return (

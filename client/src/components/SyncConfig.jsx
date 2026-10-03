@@ -14,6 +14,8 @@ const RECENT_HELP =
   'Skips submission checks for assignments with no due date and those due more than the chosen number of days ago. Courses, students, assignments, grades and mastery still sync fully.';
 
 const CALENDAR_STALE_DAYS = 14;
+// The login window opens on the server's screen, not the teacher's device.
+const LOGIN_NOTE = "Opens a Schoology login window on the server — screen-share to it if you're away.";
 
 // connection (optional) = useSchoologyConnection() from the dialog: the saved session's
 // live status beside the login option, plus a login prompt when it has expired.
@@ -182,6 +184,7 @@ export default function SyncConfig({ courses, calendar, loggedIn, busy, onStart,
             <button className="secondary" onClick={onLogin} disabled={busy}>
               Log in to Schoology
             </button>
+            <p className="text-sm text-muted">{LOGIN_NOTE}</p>
           </div>
         )}
         {!loggedIn ? (
@@ -190,6 +193,7 @@ export default function SyncConfig({ courses, calendar, loggedIn, busy, onStart,
             <button className="secondary" onClick={onLogin} disabled={busy}>
               Log in to Schoology
             </button>
+            <p className="text-sm text-muted">{LOGIN_NOTE}</p>
           </div>
         ) : (
           <>

@@ -292,11 +292,18 @@ describe('ResubmitControl — unsubmit on Ask (Phase 2)', () => {
     expect(screen.getByText(/Unsubmit failed/)).toBeInTheDocument();
   });
 
+  it('an unconfirmed unsubmit reads "not confirmed", not "failed"', () => {
+    renderControl({ state: 'waiting', request: { id: 3, lessons: 3, until: '2026-10-15', unsubmitError: "Schoology didn't confirm the unsubmit — x", unsubmitUncertain: true, unsubmitUrl: 'https://s/a' } });
+    expect(screen.getByText(/Unsubmit not confirmed/)).toBeInTheDocument();
+    expect(screen.queryByText(/Unsubmit failed/)).not.toBeInTheDocument();
+  });
+
   it('Undo / Grade stands on unsubmitted work say it stays unsubmitted (no re-submit)', async () => {
     renderControl(waiting('2026-10-08'), {}, { lti_submission_state: 'in_progress' });
     fireEvent.click(screen.getByRole('button', { name: /Resubmit by/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
-    expect(screen.getByText('Deletes this resubmission request from Prism. Their work stays unsubmitted in Schoology.')).toBeInTheDocument();
+    // Closed, not deleted (the server keeps the row so the next sync doesn't re-add it).
+    expect(screen.getByText('Closes this request in Prism. Their work stays unsubmitted in Schoology.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     fireEvent.click(screen.getByRole('button', { name: 'Grade stands' }));
     expect(screen.getByText(/grade stands\. Their work stays unsubmitted in Schoology\./)).toBeInTheDocument();

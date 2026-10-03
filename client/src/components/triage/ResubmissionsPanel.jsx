@@ -62,7 +62,7 @@ export default function ResubmissionsPanel({
               </div>
               {showCourse && <CourseLine row={r} />}
               <div className="triage-row__task" title={r.title}>{r.title}</div>
-              {r.unsubmitError && <UnsubmitFailedNote url={r.unsubmitUrl} error={r.unsubmitError} className="text-sm" />}
+              {r.unsubmitError && <UnsubmitFailedNote url={r.unsubmitUrl} error={r.unsubmitError} uncertain={r.unsubmitUncertain} className="text-sm" />}
             </div>
             {!arrived && (
               <div className="triage-row__actions">

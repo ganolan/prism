@@ -397,4 +397,28 @@ describe('StatusLineModal — unsubmit on Ask (Phase 2)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(onCancel).toHaveBeenCalled();
   });
+
+  it('an UNCONFIRMED unsubmit says their work MAY still be submitted (not "still submitted")', async () => {
+    const url = 'https://schoology.hkis.edu.hk/assignments/8000000001/info';
+    const onConfirm = vi.fn().mockResolvedValue({
+      outcome: 'asked', unsubmit: { ok: false, uncertain: true, error: "Schoology didn't confirm the unsubmit — no answer (TimeoutError)", url },
+    });
+    askModal({ offerUnsubmit: true, onConfirm });
+    await waitFor(() => expect(preview$()).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Publish & ask' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent("Schoology didn't confirm the unsubmit — their work may still be submitted.");
+    expect(alert).not.toHaveTextContent('is still submitted');
+    expect(within(alert).getByRole('link', { name: 'Unsubmit it in Schoology ›' })).toHaveAttribute('href', url);
+  });
+
+  it("an 'unknown' connection (the check couldn't tell) does not disable the checkbox", async () => {
+    api.getMasteryLoginStatus.mockResolvedValue({ loggedIn: true, live: 'unknown', checkedAt: '2026-10-03T06:05:00Z', message: 'Could not reach Schoology' });
+    askModal({ offerUnsubmit: true });
+    await waitFor(() => expect(api.getMasteryLoginStatus).toHaveBeenCalled());
+    await waitFor(() => expect(preview$()).toBeInTheDocument());
+    expect(box()).toBeEnabled();
+    expect(box()).toBeChecked();
+    expect(screen.queryByRole('link', { name: /Settings/ })).not.toBeInTheDocument();
+  });
 });

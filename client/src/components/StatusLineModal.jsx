@@ -24,8 +24,10 @@ import { useSchoologyConnection, connectionState } from './SchoologyConnectionSt
 // checkbox, default on, to also unsubmit their work in Schoology so they can edit it;
 // onConfirm(line, { unsubmit }). Disabled (with a Settings link) while the Schoology
 // connection is expired / not set up. If onConfirm resolves to a result whose unsubmit
-// failed ({ unsubmit: { ok: false, error, url } }), the modal stays open to say so,
-// with a link to the Schoology page that has its own Unsubmit button, and offers Close.
+// failed ({ unsubmit: { ok: false, error, url, uncertain } }), the modal stays open to say
+// so — "still submitted" only when known, "may still be submitted" when Schoology never
+// confirmed it — with a link to the Schoology page that has its own Unsubmit button, and
+// offers Close. An 'unknown' connection (the check couldn't tell) doesn't disable it.
 //
 // Focus: moves into the dialog on open (the line, or the dialog itself in removeMode —
 // never the primary button), Tab is trapped inside, and focus returns on close.
@@ -133,7 +135,7 @@ export default function StatusLineModal({
       // The ask was recorded but the unsubmit failed: stay open to say so (the parent
       // closes the modal itself on full success).
       if (result?.unsubmit && result.unsubmit.ok === false) {
-        setUnsubmitFailed({ error: result.unsubmit.error, url: result.unsubmit.url });
+        setUnsubmitFailed({ error: result.unsubmit.error, url: result.unsubmit.url, uncertain: Boolean(result.unsubmit.uncertain) });
         setBusy(false);
       }
     } catch (err) {
@@ -243,14 +245,29 @@ export default function StatusLineModal({
         )}
 
         {unsubmitFailed && (
+          // Known not done (never sent, or refused) vs. uncertain (sent, never confirmed):
+          // only say "still submitted" when Prism knows the unsubmit wasn't accepted.
           <div className="alert alert-warning" role="alert">
-            <strong>Published and recorded — but their work is still submitted.</strong>
-            <div>
-              {unsubmitFailed.error ? `${unsubmitFailed.error}. ` : ''}Unsubmit failed —{' '}
-              {unsubmitFailed.url
-                ? <a className="link" href={unsubmitFailed.url} target="_blank" rel="noopener noreferrer">unsubmit it in Schoology ›</a>
-                : 'unsubmit it in Schoology.'}
-            </div>
+            {unsubmitFailed.uncertain ? (
+              <>
+                <strong>Published and recorded. Schoology didn&apos;t confirm the unsubmit — their work may still be submitted.</strong>
+                <div>
+                  {unsubmitFailed.url
+                    ? <a className="link" href={unsubmitFailed.url} target="_blank" rel="noopener noreferrer">Unsubmit it in Schoology ›</a>
+                    : 'Unsubmit it in Schoology.'}
+                </div>
+              </>
+            ) : (
+              <>
+                <strong>Published and recorded — but their work is still submitted.</strong>
+                <div>
+                  {unsubmitFailed.error ? `${unsubmitFailed.error}. ` : ''}Unsubmit failed —{' '}
+                  {unsubmitFailed.url
+                    ? <a className="link" href={unsubmitFailed.url} target="_blank" rel="noopener noreferrer">unsubmit it in Schoology ›</a>
+                    : 'unsubmit it in Schoology.'}
+                </div>
+              </>
+            )}
           </div>
         )}
 

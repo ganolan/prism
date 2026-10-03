@@ -387,6 +387,10 @@ router.post('/:courseId/write', async (req, res) => {
     const studentRow = db.prepare(
       'SELECT s.id, s.schoology_uid FROM students s JOIN enrolments e ON e.student_id = s.id WHERE e.schoology_enrolment_id = ?'
     ).get(String(enrollmentId));
+    // Round 5: capture the pair unstamped before mirroring, so levels a pull wrote meanwhile
+    // (or a revision a running sync upserted) are never credited to this rubric save.
+    const preAssignment = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(assignmentId));
+    if (studentRow && preAssignment) captureBeforeSave(db, studentRow.id, preAssignment.id, 'mastery write');
     if (studentRow) {
       const upsert = db.prepare(`
         INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade, synced_at)
@@ -612,10 +616,35 @@ function gradeTimeAfterWrite(fresh) {
   return Math.max(Number(fresh?.timestamp) || 0, Math.floor(Date.now() / 1000));
 }
 
+// Round 5: a Prism save credits only what the teacher wrote. A save route captures the
+// pair UNSTAMPED before its own mirror — judging a revision a running sync upserted (with
+// C1) and absorbing levels a pull wrote, with the true pre-save state — and mirrors the
+// fresh Schoology score/exception it echoes (+ Schoology's grade time) unstamped unless
+// the teacher wrote it in this save; only then does it mirror the teacher's own changes
+// and capture stamped, so the save log's before→after is exactly the teacher's change.
+// Best-effort, like every capture: never fails a save that succeeded.
+function captureBeforeSave(db, studentId, assignmentId, label, echoAt = 0) {
+  try {
+    captureFeedbackSnapshots(db, { studentId, assignmentId, mode: 'save', stamp: false, echoAt });
+  } catch (err) {
+    console.error(`[${label}] pre-save snapshot failed:`, err.message);
+  }
+}
+function echoFreshGrade(db, studentId, assignmentId, fresh, label) {
+  if (!fresh) return;
+  const at = Number(fresh.timestamp) || 0;
+  const changed = db.prepare(`
+    UPDATE grades SET score = ?, exception = ?, submitted_at = CASE WHEN ? > 0 THEN ? ELSE submitted_at END
+    WHERE student_id = ? AND assignment_id = ?
+  `).run(fresh.grade ?? null, fresh.exception ?? 0, at, at, studentId, assignmentId).changes;
+  // echoAt: the change is logged as Schoology's, at Schoology's own grade time.
+  if (changed) captureBeforeSave(db, studentId, assignmentId, label, at);
+}
+
 // POST /api/mastery/:courseId/write-comment — write grade comment back to Schoology
 router.post('/:courseId/write-comment', async (req, res) => {
   const { courseId } = req.params;
-  const { enrollmentId, assignmentId, commentStatus, points, statusLine, statusLineKind } = req.body;
+  const { enrollmentId, assignmentId, commentStatus, points, statusLine, statusLineKind, rubricSaved } = req.body;
   let { comment } = req.body;
 
   if (!enrollmentId || !assignmentId) {
@@ -767,6 +796,11 @@ router.post('/:courseId/write-comment', async (req, res) => {
       let resubmissionFields = null;
       if (studentRow && assignmentRow) {
         const now = new Date().toISOString();
+        // Round 5: judge/absorb what other writers put in the DB, then the Schoology-side
+        // part of the fresh echo — unless the teacher wrote the score in this save (a
+        // rubric write just before this request, or a scale grade's points).
+        captureBeforeSave(db, studentRow.id, assignmentRow.id, 'mastery write-comment');
+        if (!(rubricSaved === true || hasPoints)) echoFreshGrade(db, studentRow.id, assignmentRow.id, fresh, 'mastery write-comment');
         if (fresh || hasPoints) {
           db.prepare(`
             INSERT INTO grades (student_id, assignment_id, enrolment_id, score, exception, submitted_at, grade_comment, comment_status, synced_at)
@@ -1034,6 +1068,27 @@ router.post('/:courseId/send-all', async (req, res) => {
       ON CONFLICT (student_id, assignment_id) DO UPDATE SET line = excluded.line, kind = excluded.kind,
         written_at = excluded.written_at, source_type = NULL, source_id = NULL
     `);
+
+    // Round 5: every pair this batch saves is captured unstamped before any mirror, and a
+    // comment entry's fresh Schoology score/exception is echoed unstamped unless the
+    // teacher wrote it in this batch (the entry's rubric scores, or a scale grade).
+    const pairOf = (e) => {
+      const st = db.prepare('SELECT s.id FROM students s JOIN enrolments en ON en.student_id = s.id WHERE en.schoology_enrolment_id = ?').get(String(e.enrollmentId));
+      const as = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(e.assignmentId));
+      return st && as ? { studentId: st.id, assignmentId: as.id } : null;
+    };
+    const preCaptured = new Set();
+    for (const e of [...scoreEntries, ...commentEntries]) {
+      const p = pairOf(e);
+      if (!p || preCaptured.has(`${p.studentId}:${p.assignmentId}`)) continue;
+      preCaptured.add(`${p.studentId}:${p.assignmentId}`);
+      captureBeforeSave(db, p.studentId, p.assignmentId, 'mastery send-all');
+    }
+    for (const e of commentEntries) {
+      if (e.scores || e.grade) continue;
+      const p = pairOf(e);
+      if (p) echoFreshGrade(db, p.studentId, p.assignmentId, freshByKey.get(`${e.assignmentId}::${e.enrollmentId}`) || null, 'mastery send-all');
+    }
 
     for (const e of scoreEntries) {
       const studentRow = db.prepare(

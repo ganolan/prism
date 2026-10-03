@@ -604,6 +604,143 @@ describe('captureFeedbackSnapshots — baseline predates the resubmission (I1)',
   });
 });
 
+// Round 5 (review N1–N3): a save route captures the pair unstamped BEFORE its own mirror,
+// echoes Schoology's fresh score/exception (+ grade time) unstamped unless the teacher wrote
+// it, then mirrors the teacher's own change and captures stamped (server/routes/mastery.js).
+// The reviewer's repros, driven through that protocol; plus the common workflows.
+describe('captureFeedbackSnapshots — the save-route protocol (round 5)', () => {
+  const stateOf = (s, a, requestedAt = 0) => {
+    const cur = currentFingerprints(db, {}).get(`${s}:${a}`);
+    return resubmissionStateFromSnapshot({ snapshot: snap(s, a), currentFingerprint: cur.fingerprint, requestedAt, gradedAt: Number(cur.grade.submitted_at) || 0, lti: Number(cur.grade.is_lti_submission) === 1 });
+  };
+  const lvl = (topic, g) => db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('u1', 'a1', ?, 50, ?)
+    ON CONFLICT(student_uid, assignment_schoology_id, topic_id) DO UPDATE SET grade = excluded.grade`).run(topic, g);
+  const sync = () => captureFeedbackSnapshots(db);
+  const pull = () => captureFeedbackSnapshots(db, { courseId });
+  // A save route: pre-capture, optional Schoology-side echo, then the teacher's change.
+  const routeSave = (s, a, now, { echo = null, teacher = () => {} } = {}) => {
+    const pre = (echoAt) => captureFeedbackSnapshots(db, { assignmentId: a, studentId: s, mode: 'save', stamp: false, echoAt });
+    pre();
+    if (echo) { setGrade(s, a, echo); pre(echo.submitted_at); }
+    teacher();
+    captureFeedbackSnapshots(db, { assignmentId: a, studentId: s, mode: 'save', now });
+  };
+  const base = () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 60, grade_comment: 'Note', comment_status: 1, submitted_at: 50, latest_revision_at: 100 });
+    lvl('t1', 'D');
+    sync();
+    return [s, a];
+  };
+  const hide = (s, a) => () => setGrade(s, a, { comment_status: null, submitted_at: 300 });
+
+  test('N1: Schoology rubric regrade moving the score before R → R unsynced → hide-only save echoing the score → pull → sync: arrived', () => {
+    const [s, a] = base();
+    routeSave(s, a, 300, { echo: { score: 80, submitted_at: 150 }, teacher: hide(s, a) });
+    lvl('t1', 'EX'); pull();
+    setGrade(s, a, { latest_revision_at: 200 }); sync();
+    expect(stateOf(s, a)).toBe('arrived');
+    expect(stateOf(s, a, 120)).toBe('arrived');                     // requested: not fulfilled
+  });
+
+  test('N2: a running sync upserted a pre-R score + R → hide-only save before its capture → arrived', () => {
+    const [s, a] = base();
+    setGrade(s, a, { score: 70, submitted_at: 150, latest_revision_at: 200 });
+    routeSave(s, a, 300, { teacher: hide(s, a) });
+    sync();
+    expect(stateOf(s, a)).toBe('arrived');
+  });
+
+  test('N2b: same with a save that changes nothing visible → arrived', () => {
+    const [s, a] = base();
+    setGrade(s, a, { score: 70, submitted_at: 150, latest_revision_at: 200 });
+    routeSave(s, a, 300, { teacher: () => setGrade(s, a, { submitted_at: 300 }) });
+    sync();
+    expect(stateOf(s, a)).toBe('arrived');
+  });
+
+  test('N3: R → sync (C1) → a pull wrote a pre-R level → hide-only save before the pull capture → arrived', () => {
+    const [s, a] = base();
+    setGrade(s, a, { latest_revision_at: 200 }); sync();
+    lvl('t1', 'EX');
+    routeSave(s, a, 300, { teacher: hide(s, a) });
+    pull(); sync();
+    expect(stateOf(s, a)).toBe('arrived');
+  });
+
+  for (const synced of [true, false]) {
+    const R = (s, a) => { setGrade(s, a, { latest_revision_at: 200 }); if (synced) sync(); };
+    const tag = synced ? 'synced R' : 'unsynced R';
+    test(`W1: Prism rubric regrade (/write, then write-comment with rubricSaved) → answered (${tag})`, () => {
+      const [s, a] = base(); R(s, a);
+      routeSave(s, a, 300, { teacher: () => lvl('t1', 'EX') });
+      routeSave(s, a, 301, { teacher: () => setGrade(s, a, { score: 80, submitted_at: 301 }) });
+      sync();
+      expect(stateOf(s, a)).toBe(null);
+    });
+    test(`W2: Schoology score regrade after R → answered (${tag})`, () => {
+      const [s, a] = base(); R(s, a);
+      setGrade(s, a, { score: 70, submitted_at: 300 }); sync();
+      expect(stateOf(s, a)).toBe(null);
+    });
+    test(`W2b: a Schoology score regrade after R echoed by a hide-only save before any sync → answered (${tag})`, () => {
+      const [s, a] = base(); R(s, a);
+      routeSave(s, a, 400, { echo: { score: 70, submitted_at: 300 }, teacher: () => setGrade(s, a, { comment_status: null, submitted_at: 400 }) });
+      sync();
+      expect(stateOf(s, a)).toBe(null);
+    });
+    test(`W3/W4: a visible comment after R, in Schoology or Prism → answered (${tag})`, () => {
+      const [s, a] = base(); R(s, a);
+      routeSave(s, a, 300, { teacher: () => setGrade(s, a, { grade_comment: 'Better now', submitted_at: 300 }) });
+      sync();
+      expect(stateOf(s, a)).toBe(null);
+    });
+    test(`W6 (documented safe direction): a Schoology rubric-only regrade after R stays arrived (${tag})`, () => {
+      const [s, a] = base(); R(s, a);
+      setGrade(s, a, { submitted_at: 300 }); sync(); lvl('t1', 'EX'); pull();
+      expect(stateOf(s, a)).toBe('arrived');
+    });
+  }
+
+  test('W2c: R not yet in the DB → a Schoology score regrade after R echoed by a hide-only save → sync sees R → answered', () => {
+    const [s, a] = base();
+    routeSave(s, a, 400, { echo: { score: 70, submitted_at: 300 }, teacher: () => setGrade(s, a, { comment_status: null, submitted_at: 400 }) });
+    setGrade(s, a, { latest_revision_at: 200 }); sync();
+    expect(stateOf(s, a)).toBe(null);
+    // The echo is logged with Schoology's grade time and marked as Schoology's — never Prism evidence.
+  });
+
+  test('an echoed Schoology change is logged with its own grade time and never counts as a Prism save', () => {
+    const [s, a] = base();
+    routeSave(s, a, 400, { echo: { score: 70, submitted_at: 300 } });
+    const log = JSON.parse(snap(s, a).save_log);
+    expect(log).toHaveLength(1);
+    expect(log[0][0]).toBe(300);
+    expect(log[0][3]).toBe('schoology');
+    // Judged with R = 250: the echo is after R but only the Schoology grade time can answer it.
+    setGrade(s, a, { latest_revision_at: 250 }); sync();
+    expect(snap(s, a).arrival_parts).toBe(0);
+    expect(stateOf(s, a)).toBe(null);                                // score changed + grade time 300 > R
+  });
+
+  test('documented residual N4: the levels bit is per arrival, not per topic — a Prism change then revert, then a pull bringing a pre-R level on another topic, reads as answered', () => {
+    const [s, a] = base(); lvl('t2', 'D'); sync();
+    setGrade(s, a, { latest_revision_at: 200 }); sync();
+    routeSave(s, a, 300, { teacher: () => lvl('t1', 'EX') });
+    routeSave(s, a, 310, { teacher: () => lvl('t1', 'D') });
+    lvl('t2', 'EX'); pull();
+    expect(stateOf(s, a)).toBe(null);
+  });
+
+  test('documented residual (cap): 25 changing saves after R, the first changing levels → the entry is dropped → a false Arrived', () => {
+    const [s, a] = base();
+    routeSave(s, a, 210, { teacher: () => lvl('t1', 'EX') });
+    for (let i = 0; i < 24; i += 1) routeSave(s, a, 220 + i, { teacher: () => setGrade(s, a, { comment_status: i % 2 ? 1 : null, submitted_at: 220 + i }) });
+    setGrade(s, a, { latest_revision_at: 200 }); sync();
+    expect(stateOf(s, a)).toBe('arrived');
+  });
+});
+
 // Final review C1: feedback given in Schoology between syncs but BEFORE the resubmission R
 // must not count as answering R. grades.submitted_at (the REST grade time — any teacher
 // write, never a submission) at or before R means all the current feedback predates R.

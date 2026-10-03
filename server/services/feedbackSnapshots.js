@@ -12,7 +12,7 @@
 // wrote after the arrival (resubmissionStateFromSnapshot).
 // Captured at the end of each sync and after every Prism grade/comment save.
 import { fingerprint, hasPriorFeedback } from '../lib/feedbackFingerprint.js';
-import { isResubmitted, sqliteUtcToEpoch, feedbackAnswered, changedParts, wroteAfter } from '../lib/resubmission.js';
+import { isResubmitted, sqliteUtcToEpoch, feedbackAnswered, changedParts, wroteAfter, PART_SCORE } from '../lib/resubmission.js';
 
 export const EMPTY_FINGERPRINT = fingerprint({});
 
@@ -76,9 +76,12 @@ export function snapshotMap(db, scope = {}) {
 
 const SAVE_LOG_MAX = 20;
 // The pair's save log; malformed entries are dropped (never thrown on). An entry is
-// [finite epoch s, fingerprint before (string), fingerprint after (string)].
+// [finite epoch s, fingerprint before (string), fingerprint after (string)], plus
+// 'schoology' as a 4th item for a Schoology-side change a save route echoed (round 5).
+const SCHOOLOGY = 'schoology';
 const validEntry = (e) => Array.isArray(e) && typeof e[0] === 'number' && Number.isFinite(e[0])
   && typeof e[1] === 'string' && typeof e[2] === 'string';
+const isPrismEntry = (e) => e[3] !== SCHOOLOGY;
 function parseLog(text) {
   let v;
   try {
@@ -86,7 +89,7 @@ function parseLog(text) {
   } catch {
     return [];
   }
-  return Array.isArray(v) ? v.filter(validEntry).map((e) => e.slice(0, 3)) : [];
+  return Array.isArray(v) ? v.filter(validEntry).map((e) => (e[3] === SCHOOLOGY ? e.slice(0, 4) : e.slice(0, 3))) : [];
 }
 
 // Snapshot every pair in scope. One transaction; unchanged pairs are not rewritten.
@@ -100,9 +103,13 @@ function parseLog(text) {
 //     sync-observed changes before it); the parts those saves changed become the
 //     arrival's arrival_parts (round 4: the per-part evidence "answered" needs — a
 //     rubric-only save doesn't move grades.submitted_at).
-//   - none, and a sync capture with grades.submitted_at > 0 and not after R → every bit
-//     of current feedback predates R, so baseline = the current fingerprint (final
-//     review C1). "After R" uses wroteAfter: on lti work only from R + 60.
+//   - none, and a capture that isn't a stamped Prism save, with grades.submitted_at > 0
+//     and not after R → every bit of current feedback predates R, so baseline = the
+//     current fingerprint (final review C1). "After R" uses wroteAfter: on lti work only
+//     from R + 60.
+//   Entries marked 'schoology' (round 5: a Schoology-side change a save route echoed,
+//   timed at Schoology's own grade time) count for the baseline's ordering only, never as
+//   Prism evidence.
 //   - otherwise baseline = the previous snapshot's fingerprint.
 // Judging R empties the log. A Schoology sync capture that re-read the pair's revisions
 // (revisionsRead: a Set of assignment ids, or true) and saw no new revision drops the
@@ -116,15 +123,17 @@ function parseLog(text) {
 // → baseline = synced_fingerprint. arrival_write_at (round 2) is no longer written:
 // arrival_parts replaced it.
 //
-// stamp: false (save mode only — the status-line publisher, R1): the capture records the
-// fresh Schoology state it mirrored but is not a teacher save — never logged, never
-// stamped, so publishing a status line never counts as a Prism save after a
+// stamp: false (save mode only): the status-line publisher (R1), and the captures every
+// save route runs BEFORE its own mirror and after echoing Schoology's fresh score
+// (round 5, server/routes/mastery.js). It records state other writers produced, not a
+// teacher save — never stamped, never Prism evidence (an echo with echoAt is logged as
+// 'schoology'), so publishing a status line never counts as a Prism save after a
 // resubmission. It also never answers a pending arrival: a publish that makes a hidden
 // teacher comment visible (or mirrors an unsynced Schoology change) is absorbed into
 // arrival_baseline. An arrival already answered is left alone, so a publish never
 // re-surfaces it.
 export function captureFeedbackSnapshots(db, {
-  mode = 'sync', stamp = true, revisionsRead = null, readSince = null, now = Math.floor(Date.now() / 1000), ...scope
+  mode = 'sync', stamp = true, revisionsRead = null, readSince = null, echoAt = 0, now = Math.floor(Date.now() / 1000), ...scope
 } = {}) {
   const isSave = mode === 'save';
   const stamps = isSave && stamp !== false;
@@ -187,14 +196,18 @@ export function captureFeedbackSnapshots(db, {
         // A new resubmission R: judge it against the feedback that predates it.
         const after = log.filter(([t]) => savedAfter(t, latest));
         const legacyStamp = log.length === 0 && fingerprintAt > latest && snap.synced_fingerprint != null;
-        const allBeforeR = !isSave && after.length === 0 && !legacyStamp && gradedAt > 0 && !savedAfter(gradedAt, latest);
+        // C1 applies to every capture that isn't the teacher's own stamped save (round 5:
+        // the unstamped capture a save route runs before its mirror is often the first
+        // to see R, upserted by a running sync).
+        const allBeforeR = !stamps && after.length === 0 && !legacyStamp && gradedAt > 0 && !savedAfter(gradedAt, latest);
         arrivalAt = latest; arrivals += 1;
         if (after.length) baseline = after[0][1];
         else if (legacyStamp) baseline = snap.synced_fingerprint;
         else if (allBeforeR) baseline = cur.fingerprint;
         else baseline = snap.fingerprint;
-        // Round 4: the parts of visible feedback those post-R saves changed.
-        arrivalParts = after.reduce((p, [, before, afterFp]) => p | changedParts(before, afterFp), 0);
+        // Round 4: the parts of visible feedback those post-R Prism saves changed (an
+        // echoed Schoology change is ordering only — never Prism evidence).
+        arrivalParts = after.filter(isPrismEntry).reduce((p, [, before, afterFp]) => p | changedParts(before, afterFp), 0);
         log = []; fingerprintAt = 0;
       } else if (readRevisions(cur.assignmentId)) {
         const since = readSince ?? Infinity;
@@ -202,18 +215,33 @@ export function captureFeedbackSnapshots(db, {
         if (!log.length) fingerprintAt = 0;
       }
       if (isSave && !stamps && arrivalAt > 0) {
-        // Unstamped (status-line) capture with an arrival: answered before this capture?
-        const answered = feedbackAnswered(baseline, snap.fingerprint, { parts: arrivalParts, gradedAfter: savedAfter(gradedAt, arrivalAt) });
+        // Unstamped capture with an arrival (a status-line publish, or a save route's
+        // pre-save capture): absorb what it sees into the baseline unless the arrival was
+        // already answered — or a score/exception change now carries a Schoology grade
+        // time after the arrival (a save route echoes Schoology's own grade time with the
+        // fresh score, so a Schoology regrade after R still answers; round 5).
+        const gradedAfter = savedAfter(gradedAt, arrivalAt);
+        const answered = feedbackAnswered(baseline, snap.fingerprint, { parts: arrivalParts, gradedAfter })
+          || (gradedAfter && Boolean(changedParts(baseline, cur.fingerprint) & PART_SCORE));
         if (!answered) baseline = cur.fingerprint;
       }
       const changed = cur.fingerprint !== snap.fingerprint;
+      // Round 5: a save route's echo of a Schoology-side change (unstamped, echoAt = Schoology's
+      // own grade time) is logged too, marked 'schoology', so a later revision is judged
+      // against the state before it when it came after R (a Schoology answer) and after it
+      // when it came before R (pre-R feedback) — it never adds Prism evidence.
+      if (isSave && !stamps && changed && Number(echoAt) > 0) {
+        log = [...log, [Number(echoAt), snap.fingerprint, cur.fingerprint, SCHOOLOGY]].slice(-SAVE_LOG_MAX);
+      }
       if (stamps && changed) {
         log = [...log, [now, snap.fingerprint, cur.fingerprint]].slice(-SAVE_LOG_MAX);
         // A Prism save after a pending arrival is a teacher write after it — for the
         // parts of visible feedback it changed (round 4).
         if (arrivalAt > 0 && savedAfter(now, arrivalAt)) arrivalParts |= changedParts(snap.fingerprint, cur.fingerprint);
       }
-      if (log.length) fingerprintAt = log[log.length - 1][0];
+      const prismLog = log.filter(isPrismEntry);
+      if (prismLog.length) fingerprintAt = prismLog[prismLog.length - 1][0];
+      else if (log.length) fingerprintAt = 0;                       // only echoed Schoology changes
       // A stamp with no log (a first-sight save, or a row from before the log) stays
       // pending — with its synced_fingerprint — until a revision is judged.
       const legacyPending = !log.length && fingerprintAt > 0;

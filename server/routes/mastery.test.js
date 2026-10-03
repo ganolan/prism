@@ -579,6 +579,126 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     expect(resubmissionByStudent(db, assignmentId).has(studentId)).toBe(false);
   });
 
+  // Round 5: a save credits only what the teacher wrote. Before its own mirror the route
+  // runs an unstamped capture (judges a revision a running sync upserted, absorbs a
+  // pull's levels); the fresh Schoology score/exception it echoes is mirrored unstamped
+  // unless the teacher wrote it in this save (rubricSaved / points); then the teacher's
+  // own changes are mirrored and captured stamped.
+  describe('round 5: other writers are never credited to the teacher\'s save', () => {
+    const state = () => resubmissionByStudent(getDb(), assignmentId).get(studentId)?.state ?? null;
+    const fresh = (grade, timestamp = 1500) => getSectionGrades.mockResolvedValue([{ assignment_id: 'sa-wc', enrollment_id: 'enr-wc', grade, exception: 0, timestamp }]);
+    const level = (g) => getDb().prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('uid-wc', 'sa-wc', 't-wc', 50, ?)
+      ON CONFLICT(student_uid, assignment_schoology_id, topic_id) DO UPDATE SET grade = excluded.grade`).run(g);
+    const set = (cols) => { const k = Object.keys(cols); getDb().prepare(`UPDATE grades SET ${k.map((x) => `${x} = ?`).join(', ')} WHERE student_id = ? AND assignment_id = ?`).run(...k.map((x) => cols[x]), studentId, assignmentId); };
+    const hideOnly = () => post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Note', commentStatus: false });
+    function base() {
+      const db = getDb();
+      db.prepare(`INSERT INTO measurement_topics (id, course_id, external_id, title) VALUES ('t-wc', ?, 'X.1', 'T')`).run(courseId);
+      db.prepare(`INSERT INTO grades (student_id, assignment_id, enrolment_id, score, grade_comment, comment_status, submitted_at, latest_revision_at)
+        VALUES (?, ?, 'enr-wc', 60, 'Note', 1, 1000, 900)`).run(studentId, assignmentId);
+      level('D');
+      captureFeedbackSnapshots(db);
+    }
+
+    test('N1: Schoology rubric regrade moving the score before R → R unsynced → hide-only save (fresh score echo) → pull → sync: arrived', async () => {
+      base();
+      fresh(80);                                                     // Schoology: 80 + EX at 1500, before R = 2000
+      expect((await hideOnly()).status).toBe(200);
+      level('EX'); captureFeedbackSnapshots(getDb(), { courseId });  // pull
+      set({ latest_revision_at: 2000 }); captureFeedbackSnapshots(getDb());   // sync
+      expect(state()).toBe('arrived');
+    });
+
+    test('N2: a running sync upserted a pre-R score + R → hide-only save before its capture → arrived', async () => {
+      base();
+      set({ score: 70, submitted_at: 1500, latest_revision_at: 2000 });       // sync upsert, capture pending
+      fresh(70);
+      await hideOnly();
+      captureFeedbackSnapshots(getDb());                             // the sync's end capture
+      expect(state()).toBe('arrived');
+    });
+
+    test('N2b: same with a save that changes nothing visible → arrived', async () => {
+      base();
+      set({ score: 70, submitted_at: 1500, latest_revision_at: 2000 });
+      fresh(70);
+      await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Note', commentStatus: true });
+      captureFeedbackSnapshots(getDb());
+      expect(state()).toBe('arrived');
+    });
+
+    test('N3: R → sync → a pull wrote a pre-R level → hide-only save before the pull capture → arrived', async () => {
+      base();
+      set({ latest_revision_at: 2000 }); captureFeedbackSnapshots(getDb());
+      level('EX');                                                   // pull upsert, capture pending
+      fresh(60);
+      await hideOnly();
+      captureFeedbackSnapshots(getDb(), { courseId }); captureFeedbackSnapshots(getDb());
+      expect(state()).toBe('arrived');
+    });
+
+    test('W1: Prism rubric regrade (/write, then write-comment with rubricSaved echoing the new score) → answered', async () => {
+      base();
+      set({ latest_revision_at: 2000 }); captureFeedbackSnapshots(getDb());
+      writeMasteryScores.mockResolvedValue({ ok: true });
+      await post(`/api/mastery/${courseId}/write`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', gradeInfo: { 't-wc': { grade: '75' } } });
+      fresh(80);
+      await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Note', commentStatus: true, rubricSaved: true });
+      captureFeedbackSnapshots(getDb());
+      expect(state()).toBe(null);
+    });
+
+    test('rubricSaved: the echoed score is the teacher\'s change (answers); without it, the same echo does not', async () => {
+      base();
+      set({ latest_revision_at: 2000 }); captureFeedbackSnapshots(getDb());
+      fresh(80);
+      await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Note', commentStatus: true });
+      expect(state()).toBe('arrived');                               // a pre-R Schoology score (grade time 1500 < R)
+      getDb().exec('DELETE FROM feedback_snapshots; DELETE FROM grades; DELETE FROM mastery_scores; DELETE FROM measurement_topics;');
+      base();
+      set({ latest_revision_at: 2000 }); captureFeedbackSnapshots(getDb());
+      fresh(80);
+      await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Note', commentStatus: true, rubricSaved: true });
+      expect(state()).toBe(null);
+    });
+
+    test('W2: a Schoology score regrade after R, echoed by a hide-only save before any sync → answered (its grade time is after R)', async () => {
+      base();
+      set({ latest_revision_at: 2000 }); captureFeedbackSnapshots(getDb());
+      fresh(80, 2500);
+      await hideOnly();
+      expect(state()).toBe(null);
+    });
+
+    test('W2c: R not yet synced → a Schoology score regrade after R echoed by a hide-only save → the sync sees R → answered', async () => {
+      base();
+      fresh(80, 2500);                                               // Schoology regrade at 2500, after R = 2000
+      await hideOnly();
+      set({ latest_revision_at: 2000 }); captureFeedbackSnapshots(getDb());
+      expect(state()).toBe(null);
+    });
+
+    test('W4: a Prism visible-comment save after R → answered', async () => {
+      base();
+      set({ latest_revision_at: 2000 }); captureFeedbackSnapshots(getDb());
+      fresh(60);
+      await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Much better now', commentStatus: true });
+      captureFeedbackSnapshots(getDb());
+      expect(state()).toBe(null);
+    });
+
+    test('/write: a pull\'s pending level is absorbed before the rubric save is captured', async () => {
+      base();
+      set({ latest_revision_at: 2000 }); captureFeedbackSnapshots(getDb());
+      getDb().prepare(`INSERT INTO measurement_topics (id, course_id, external_id, title) VALUES ('t-wc2', ?, 'X.2', 'T2')`).run(courseId);
+      getDb().prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('uid-wc', 'sa-wc', 't-wc2', 75, 'EX')`).run();  // pull upsert
+      writeMasteryScores.mockResolvedValue({ ok: true });
+      await post(`/api/mastery/${courseId}/write`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', gradeInfo: { 't-wc': { grade: '50' } } });  // re-saves D (no change)
+      captureFeedbackSnapshots(getDb(), { courseId });
+      expect(state()).toBe('arrived');
+    });
+  });
+
   // Final review I2: the response carries the pair's post-save resubmission state, so the
   // card patches what the server decided instead of clearing Arrived on every save.
   describe('I2: the response carries the saved pair\'s resubmission fields', () => {
@@ -1105,6 +1225,35 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
     const db = getDb();
     expect(db.prepare('SELECT line, kind FROM status_lines WHERE student_id = ? AND assignment_id = ?').get(adaId, assignmentRowId))
       .toEqual({ line, kind: 'received' });
+  });
+
+  describe('round 5: send-all credits only what the teacher wrote', () => {
+    const state = () => resubmissionByStudent(getDb(), assignmentRowId).get(adaId)?.state ?? null;
+    function arrived() {
+      const db = getDb();
+      db.prepare(`INSERT INTO grades (student_id, assignment_id, enrolment_id, score, grade_comment, comment_status, submitted_at, latest_revision_at)
+        VALUES (?, ?, 'enr-ada', 60, 'Note', 1, 1000, 2000)`).run(adaId, assignmentRowId);
+      captureFeedbackSnapshots(db);
+      expect(state()).toBe('arrived');
+    }
+    test('a comment-only entry: a pre-R Schoology score in the fresh echo does not answer', async () => {
+      arrived();
+      getSectionGrades.mockResolvedValue([{ assignment_id: 'sa-1', enrollment_id: 'enr-ada', grade: 80, exception: 0, timestamp: 1500 }]);
+      const res = await post(`/api/mastery/${courseId}/send-all`, { entries: [{ uid: 'uid-ada', enrollmentId: 'enr-ada', assignmentId: 'sa-1', scores: null, comment: { comment: 'Note', commentStatus: false } }] });
+      expect(res.status).toBe(200);
+      expect(state()).toBe('arrived');
+    });
+    test('an entry that wrote rubric scores: the echoed score is the teacher\'s → answered', async () => {
+      arrived();
+      getSectionGrades.mockResolvedValue([{ assignment_id: 'sa-1', enrollment_id: 'enr-ada', grade: 80, exception: 0, timestamp: 1500 }]);
+      const res = await post(`/api/mastery/${courseId}/send-all`, { entries: [{
+        uid: 'uid-ada', enrollmentId: 'enr-ada', assignmentId: 'sa-1',
+        scores: { gradeInfo: { t1: { grade: '75' } }, gradingPeriodId: 1, gradingCategoryId: 2 },
+        comment: { comment: 'Note', commentStatus: true },
+      }] });
+      expect(res.status).toBe(200);
+      expect(state()).toBe(null);
+    });
   });
 
   test('statusLine: refuses a line that is not the comment\'s first line, before any write', async () => {

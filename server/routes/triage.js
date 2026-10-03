@@ -67,7 +67,8 @@ async function act(res, { pair = null, validate, publish = null, record }, okSta
       return sendError(res, err);
     }
     try {
-      const result = record(ctx, published);
+      // The record and its line's source land together (setStatusLineSource runs inside record).
+      const result = getDb().transaction(() => record(ctx, published))();
       return res.status(okStatus).json(published ? { ...result, statusLine: published } : result);
     } catch (err) {
       const removal = Boolean(published && 'removed' in published);

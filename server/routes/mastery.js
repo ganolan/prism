@@ -675,7 +675,7 @@ router.post('/:courseId/write-comment', async (req, res) => {
       `).get(String(enrollmentId), String(assignmentId));
       if (local && (local.score != null || (Number(local.exception) || 0) !== 0)) {
         console.warn(`[mastery write-comment] no Schoology record for ${enrollmentId}/${assignmentId} but Prism has a grade — not writing blind`);
-        lookupFailed = true;
+        return res.status(502).json({ error: 'Schoology has no grade record Prism expected — sync, then try again' });
       }
     }
     if (lookupFailed) {
@@ -759,11 +759,14 @@ router.post('/:courseId/write-comment', async (req, res) => {
           );
         }
         // The published status line, stored before the snapshot so the fingerprint
-        // ignores it. Only when Schoology accepted the write.
+        // ignores it. Only when Schoology accepted the write. Not tied to a triage
+        // record (source cleared), so no earlier action's undo can strip it.
         if (line && putSucceeded(result)) {
           db.prepare(`
-            INSERT INTO status_lines (student_id, assignment_id, line, kind, written_at) VALUES (?, ?, ?, ?, datetime('now'))
-            ON CONFLICT (student_id, assignment_id) DO UPDATE SET line = excluded.line, kind = excluded.kind, written_at = excluded.written_at
+            INSERT INTO status_lines (student_id, assignment_id, line, kind, written_at, source_type, source_id)
+            VALUES (?, ?, ?, ?, datetime('now'), NULL, NULL)
+            ON CONFLICT (student_id, assignment_id) DO UPDATE SET line = excluded.line, kind = excluded.kind,
+              written_at = excluded.written_at, source_type = NULL, source_id = NULL
           `).run(studentRow.id, assignmentRow.id, line, lineKind);
         }
         // Best-effort: a local grade just landed — snapshot its visible feedback
@@ -840,6 +843,28 @@ router.post('/:courseId/send-all', async (req, res) => {
       const allGrades = await getSectionGrades(sectionId);
       for (const g of allGrades) {
         freshByKey.set(`${g.assignment_id}::${g.enrollment_id}`, g);
+      }
+
+      // Never write blind: an entry with no Schoology record while Prism holds a
+      // score or exception for that pair means the read missed it (a PUT without
+      // the echo would wipe the grade). Fail the whole batch before any PUT or
+      // local write. A genuinely never-graded pair proceeds comment-only.
+      const localGrade = db.prepare(`
+        SELECT g.score, g.exception FROM grades g
+        JOIN enrolments en ON en.student_id = g.student_id AND en.schoology_enrolment_id = ?
+        JOIN assignments a ON a.id = g.assignment_id AND a.schoology_assignment_id = ?
+      `);
+      const missed = commentEntries.filter((e) => {
+        if (freshByKey.has(`${e.assignmentId}::${e.enrollmentId}`)) return false;
+        const local = localGrade.get(String(e.enrollmentId), String(e.assignmentId));
+        return Boolean(local && (local.score != null || (Number(local.exception) || 0) !== 0));
+      });
+      if (missed.length > 0) {
+        console.warn(`[mastery send-all] no Schoology record for ${missed.map((e) => `${e.enrollmentId}/${e.assignmentId}`).join(', ')} but Prism has a grade — batch not sent`);
+        return res.status(502).json({
+          error: 'Schoology has no grade record Prism expected — sync, then try again',
+          results: entries.map((x) => ({ uid: x.uid, ok: false })),
+        });
       }
 
       const payloads = commentEntries.map(e => {

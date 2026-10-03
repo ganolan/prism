@@ -26,6 +26,7 @@ vi.mock('../services/schoology.js', () => ({
 vi.mock('../services/oneDriveLinks.js', () => ({ getAssignmentFiles: vi.fn() }));
 
 import router from './mastery.js';
+import triageRouter from './triage.js';
 import { getDb } from '../db/index.js';
 import { getMasteryForCourse, writeMasteryScoresBatch, writeMasteryOverride } from '../services/masterySync.js';
 import { getSectionGrades, pushGradeComments } from '../services/schoology.js';
@@ -625,7 +626,7 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     pushGradeComments.mockClear();
     const res = await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Hi' });
     expect(res.status).toBe(502);
-    expect(res.body.error).toMatch(/nothing was saved/);
+    expect(res.body.error).toBe('Schoology has no grade record Prism expected — sync, then try again');
     db.prepare('UPDATE grades SET score = NULL, exception = 2 WHERE student_id = ?').run(studentId);
     expect((await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Hi' })).status).toBe(502);
     expect(pushGradeComments).not.toHaveBeenCalled();
@@ -642,6 +643,36 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     expect(pushGradeComments).toHaveBeenCalledTimes(1);
     expect(pushGradeComments.mock.calls[0][1][0]).toEqual({ assignment_id: 'sa-wc', enrollment_id: 'enr-wc', comment: 'First note', comment_status: 1 });
     expect(db.prepare('SELECT grade_comment FROM grades WHERE student_id = ?').get(studentId).grade_comment).toBe('First note');
+  });
+
+  test('N-1: a received line written after an ask clears the source, so undoing the ask (removeLine) leaves it', async () => {
+    const db = getDb();
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, enrolment_id, score) VALUES (?, ?, 'enr-wc', 2)`).run(studentId, assignmentId);
+    const ask = requestResubmission(db, { studentId, assignmentId, lessons: 2 });
+    const askLine = '⟳ Resubmission requested — due Thu 09/10.';
+    db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind, source_type, source_id) VALUES (?, ?, ?, 'ask', 'resubmission', ?)`)
+      .run(studentId, assignmentId, askLine, ask.id);
+    const received = '⟳ Resubmission received 03/10 — regraded.';
+    getSectionGrades.mockResolvedValue([{ assignment_id: 'sa-wc', enrollment_id: 'enr-wc', grade: 3, exception: 0, comment: askLine, comment_status: 1 }]);
+    expect((await post(`/api/mastery/${courseId}/write-comment`, {
+      enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: `${received}\n\nBetter.`, statusLine: received,
+    })).status).toBe(200);
+    expect(db.prepare('SELECT line, kind, source_type, source_id FROM status_lines WHERE student_id = ?').get(studentId))
+      .toEqual({ line: received, kind: 'received', source_type: null, source_id: null });
+
+    pushGradeComments.mockClear();
+    getSectionGrades.mockResolvedValue([{ assignment_id: 'sa-wc', enrollment_id: 'enr-wc', grade: 3, exception: 0, comment: `${received}\n\nBetter.`, comment_status: 1 }]);
+    const app = express();
+    app.use(express.json());
+    app.use('/api/triage', triageRouter);
+    const server = app.listen(0);
+    try {
+      const r = await fetch(`http://localhost:${server.address().port}/api/triage/resubmissions/${ask.id}?removeLine=1`, { method: 'DELETE' });
+      expect(r.status).toBe(200);
+      expect(await r.json()).toMatchObject({ deleted: true, statusLine: { removed: false } });
+    } finally { server.close(); }
+    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(db.prepare('SELECT line FROM status_lines WHERE student_id = ?').get(studentId).line).toBe(received);
   });
 
   test('statusLine with a line break → 400 BAD_LINE, no read or PUT', async () => {
@@ -742,6 +773,39 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
     expect(pushGradeComments).toHaveBeenCalledTimes(1);
     const [, comments] = pushGradeComments.mock.calls[0];
     expect(comments).toHaveLength(2);
+  });
+
+  test('N-2: an entry with no Schoology record while Prism has its grade → 502, no PUT, no local writes', async () => {
+    const db = getDb();
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, enrolment_id, score, grade_comment) VALUES (?, ?, 'enr-bob', 70, 'old')`).run(bobId, assignmentRowId);
+    getSectionGrades.mockResolvedValue([
+      { assignment_id: 'sa-1', enrollment_id: 'enr-ada', grade: 95, exception: 0, timestamp: 1779418446 },
+    ]);
+    const res = await post(`/api/mastery/${courseId}/send-all`, {
+      entries: [entry('uid-ada', 'enr-ada'), entry('uid-bob', 'enr-bob')],
+    });
+    expect(res.status).toBe(502);
+    expect(res.body.error).toBe('Schoology has no grade record Prism expected — sync, then try again');
+    expect(res.body.results).toEqual([{ uid: 'uid-ada', ok: false }, { uid: 'uid-bob', ok: false }]);
+    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(db.prepare('SELECT score, grade_comment FROM grades WHERE student_id = ?').get(bobId)).toEqual({ score: 70, grade_comment: 'old' });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM grades WHERE student_id = ?').get(adaId).n).toBe(0);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM mastery_scores').get().n).toBe(0);
+  });
+
+  test('N-2: a genuinely never-graded pair (no Prism score/exception) still sends comment-only', async () => {
+    const db = getDb();
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, enrolment_id, score, exception) VALUES (?, ?, 'enr-bob', NULL, 0)`).run(bobId, assignmentRowId);
+    getSectionGrades.mockResolvedValue([
+      { assignment_id: 'sa-1', enrollment_id: 'enr-ada', grade: 95, exception: 0, timestamp: 1779418446 },
+    ]);
+    const res = await post(`/api/mastery/${courseId}/send-all`, {
+      entries: [entry('uid-ada', 'enr-ada', { scores: false }), entry('uid-bob', 'enr-bob', { scores: false })],
+    });
+    expect(res.status).toBe(200);
+    expect(pushGradeComments).toHaveBeenCalledTimes(1);
+    const bob = pushGradeComments.mock.calls[0][1].find((p) => p.enrollment_id === 'enr-bob');
+    expect(bob).toEqual({ assignment_id: 'sa-1', enrollment_id: 'enr-bob', comment: 'note uid-bob', comment_status: 1 });
   });
 
   test('echoes each student\'s fresh grade into its comment payload (#46 safety)', async () => {

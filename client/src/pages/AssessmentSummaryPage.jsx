@@ -245,7 +245,15 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // resubmissions, Amendment B Task 7), or null until the chip is clicked. Save
   // sends statusLine only while this is still (verbatim) the draft's first line —
   // an edit away from it means the teacher doesn't want it published.
-  const [insertedLine, setInsertedLine] = useState(null);
+  // A restored draft (#47) can already have the line on top — from an earlier
+  // visit that clicked the chip but didn't save — so treat that as "inserted"
+  // too (I3): otherwise a save would silently omit statusLine, and clicking the
+  // chip again would stack a second copy on top of the first.
+  const [insertedLine, setInsertedLine] = useState(() => {
+    if (student.resubmission?.state !== 'arrived' || !student.arrived_on) return null;
+    const line = receivedLine({ on: student.arrived_on });
+    return topLineIs(comment, line) ? line : null;
+  });
   // Display-to-student toggle (#34). Loaded from grades.comment_status:
   // 1 → ON, anything else → OFF. Auto-flip is armed when the row hasn't been
   // published yet AND has no comment text — covers virgin records and rows
@@ -439,6 +447,10 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     const stored = insertedLine ?? (student.status_line?.line || '');
     flushNextRef.current = true;
     applyComment(composeComment(comment, stored, line));
+    // A published status line is always visible to the student (global rule) —
+    // force it on rather than relying on auto-flip, which only fires once from
+    // a virgin empty comment.
+    applyDisplay(true);
     setInsertedLine(line);
   }
 
@@ -447,6 +459,15 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // away from it means don't record it as Prism's published status line.
   function statusLineFields() {
     return topLineIs(comment, insertedLine) ? { statusLine: insertedLine, statusLineKind: 'received' } : {};
+  }
+
+  // { status_line: { line, kind } } for the in-place onSaved/getEntry patch, so
+  // the card's own student prop reflects what was actually published — without
+  // this a re-render after save would still show the pre-save status_line (or
+  // null), and a second insert would compose against stale text.
+  function statusLinePatch() {
+    const f = statusLineFields();
+    return f.statusLine ? { status_line: { line: f.statusLine, kind: f.statusLineKind } } : {};
   }
 
   function selectLevel(topicId, level) {
@@ -602,6 +623,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         patch: {
           ...(scaleCode ? { score: scalePointsFor(scaleCode), scale_level: scaleCode } : {}),
           grade_comment: comment, comment_status: display ? 1 : null,
+          ...statusLinePatch(),
         },
       };
     }
@@ -626,7 +648,10 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         } : null,
         comment: (hasCommentChange || hasDisplayChange) ? { comment, commentStatus: display, ...statusLineFields() } : null,
       },
-      patch: { scores: buildSavedScores(), grade_comment: comment, comment_status: display ? 1 : null, ...regradedPatch(student) },
+      patch: {
+        scores: buildSavedScores(), grade_comment: comment, comment_status: display ? 1 : null,
+        ...regradedPatch(student), ...statusLinePatch(),
+      },
     };
   }
 
@@ -673,6 +698,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           grade_comment: comment,
           comment_status: display ? 1 : null,
           ...regradedPatch(student),
+          ...statusLinePatch(),
         });
         setNotesCollapsed(true);
         return true;
@@ -708,6 +734,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         grade_comment: comment,
         comment_status: display ? 1 : null,
         ...regradedPatch(student),
+        ...statusLinePatch(),
       });
       setNotesCollapsed(true); // published → tuck the reviewer notes away
       return true;

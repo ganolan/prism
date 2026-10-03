@@ -473,6 +473,57 @@ describe('StudentRubricCard — "resubmission received" chip (Task 7, triage res
     expect(writeMasteryComment.mock.calls[0][1].statusLine).toBeUndefined();
     expect(writeMasteryComment.mock.calls[0][1].statusLineKind).toBeUndefined();
   });
+
+  it('clicking it turns Display-to-student on — a status line must be visible', () => {
+    renderCard({ student: { ...makeStudent(), comment_status: 0, resubmission: { state: 'arrived', request: null }, arrived_on: '2026-10-03' } });
+    expect(screen.getByRole('switch', { name: 'Display to student' })).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(screen.getByRole('button', { name: /insert "resubmission received" line/i }));
+    expect(screen.getByRole('switch', { name: 'Display to student' })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('after a save, onSaved patches student.status_line with what was actually published', async () => {
+    const onSaved = vi.fn();
+    renderCard({ onSaved, student: { ...makeStudent(), resubmission: { state: 'arrived', request: null }, arrived_on: '2026-10-03' } });
+    fireEvent.click(screen.getByRole('button', { name: /insert "resubmission received" line/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(onSaved).toHaveBeenCalledWith('uid-1', expect.objectContaining({
+      status_line: { line: '⟳ Resubmission received 03/10 — regraded.', kind: 'received' },
+    }));
+  });
+
+  // I3 (fix round 1): a draft restored from an earlier, unsaved visit can
+  // already carry the inserted line on top — the card must recognise it as
+  // "inserted" (not just whatever text happens to be there), or a save would
+  // silently drop statusLine and a second chip click would stack a duplicate.
+  describe('a restored draft that already has the line on top (I3)', () => {
+    function restoredDraftProps() {
+      const student = { ...makeStudent(), resubmission: { state: 'arrived', request: null }, arrived_on: '2026-10-03' };
+      const base = draftBaseline(student, TOPICS);
+      const comment = '⟳ Resubmission received 03/10 — regraded.\n\nSo far so good.';
+      return { student, draftRow: { pending: {}, comment, display: false, displayTouched: false, base } };
+    }
+
+    it('does not stack a duplicate when the chip is clicked again', () => {
+      renderCard(restoredDraftProps());
+      fireEvent.click(screen.getByRole('button', { name: /insert "resubmission received" line/i }));
+      expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue(
+        '⟳ Resubmission received 03/10 — regraded.\n\nSo far so good.'
+      );
+    });
+
+    it('a save still passes statusLine for the restored draft', async () => {
+      renderCard(restoredDraftProps());
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled());
+      fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+      await waitFor(() => expect(writeMasteryComment).toHaveBeenCalledTimes(1));
+      expect(writeMasteryComment).toHaveBeenCalledWith('4', expect.objectContaining({
+        statusLine: '⟳ Resubmission received 03/10 — regraded.',
+        statusLineKind: 'received',
+      }));
+    });
+  });
 });
 
 describe('StudentRubricCard — student photo (#24)', () => {

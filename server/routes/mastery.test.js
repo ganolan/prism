@@ -944,12 +944,22 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
 
   // Task 7 (Amendment B): the card's "resubmission received" chip can save via
   // Send-all too — same statusLine/statusLineKind contract as write-comment.
-  test('statusLine: stored (default kind received) once Send-all succeeds', async () => {
+  function statusLineEntry(line, overrides = {}) {
+    return {
+      uid: 'uid-ada', enrollmentId: 'enr-ada', assignmentId: 'sa-1', scores: null,
+      comment: { comment: `${line}\n\nBetter.`, commentStatus: true, statusLine: line, ...overrides },
+    };
+  }
+
+  test('statusLine: stored (default kind received, trimmed) once Send-all succeeds', async () => {
     const line = '⟳ Resubmission received 03/10 — regraded.';
+    // The comment's first line is the plain (unpadded) text; the submitted
+    // statusLine has incidental whitespace — checkLine trims it before storing,
+    // and the trim still matches the comment's exact first line.
     const { status } = await post(`/api/mastery/${courseId}/send-all`, {
-      entries: [entry('uid-ada', 'enr-ada', { scores: false }), {
+      entries: [{
         uid: 'uid-ada', enrollmentId: 'enr-ada', assignmentId: 'sa-1', scores: null,
-        comment: { comment: `${line}\n\nBetter.`, commentStatus: true, statusLine: line },
+        comment: { comment: `${line}\n\nBetter.`, commentStatus: true, statusLine: `  ${line}  ` },
       }],
     });
     expect(status).toBe(200);
@@ -979,6 +989,63 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
     });
     expect(res.status).toBe(400);
     expect(pushGradeComments).not.toHaveBeenCalled();
+  });
+
+  test('statusLine: a line with a line break → 400 BAD_LINE, no write (minor)', async () => {
+    const res = await post(`/api/mastery/${courseId}/send-all`, {
+      entries: [statusLineEntry('⟳ A\nB', { comment: '⟳ A\nB\n\nBetter.' })],
+    });
+    expect(res).toMatchObject({ status: 400, body: { code: 'BAD_LINE' } });
+    expect(pushGradeComments).not.toHaveBeenCalled();
+  });
+
+  // I1: apiPut never throws on an HTTP error — send-all must check the result,
+  // same as write-comment, or it would mirror a comment Schoology rejected.
+  test('I1: a rejected comment PUT (HTTP error) → 502, nothing mirrored, no status_lines', async () => {
+    const line = '⟳ Resubmission received 03/10 — regraded.';
+    pushGradeComments.mockResolvedValueOnce({ status: 403, data: 'forbidden' });
+    const res = await post(`/api/mastery/${courseId}/send-all`, { entries: [statusLineEntry(line)] });
+    expect(res.status).toBe(502);
+    expect(res.body.results).toEqual([{ uid: 'uid-ada', ok: false }]);
+    const db = getDb();
+    expect(db.prepare('SELECT COUNT(*) AS n FROM status_lines').get().n).toBe(0);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM grades WHERE student_id = ?').get(adaId).n).toBe(0);
+  });
+
+  test('I1: a 207 with a failed entry (per-item response_code) → 502, nothing mirrored', async () => {
+    const line = '⟳ Resubmission received 03/10 — regraded.';
+    pushGradeComments.mockResolvedValueOnce({ status: 207, data: { grade: [{ response_code: 400 }] } });
+    const res = await post(`/api/mastery/${courseId}/send-all`, { entries: [statusLineEntry(line)] });
+    expect(res.status).toBe(502);
+    const db = getDb();
+    expect(db.prepare('SELECT COUNT(*) AS n FROM status_lines').get().n).toBe(0);
+  });
+
+  test('a failed fresh-grade read with a statusLine present → 502, no status_lines write either', async () => {
+    const line = '⟳ Resubmission received 03/10 — regraded.';
+    getSectionGrades.mockRejectedValueOnce(new Error('Schoology down'));
+    const res = await post(`/api/mastery/${courseId}/send-all`, { entries: [statusLineEntry(line)] });
+    expect(res.status).toBe(502);
+    expect(pushGradeComments).not.toHaveBeenCalled();
+    const db = getDb();
+    expect(db.prepare('SELECT COUNT(*) AS n FROM status_lines').get().n).toBe(0);
+  });
+
+  // I2: an overlapping write for the same pair must not compose from the same
+  // stale read and drop one line — mirrors the write-comment BUSY test.
+  test('I2: statusLine holds the per-pair lock — an overlapping send-all for the same pair → 409 BUSY', async () => {
+    const line = '⟳ Resubmission received 03/10 — regraded.';
+    let finishPut;
+    pushGradeComments.mockImplementationOnce(() => new Promise((resolve) => { finishPut = () => resolve({ status: 207 }); }));
+    const body = { entries: [statusLineEntry(line)] };
+    const first = post(`/api/mastery/${courseId}/send-all`, body);
+    await vi.waitFor(() => expect(pushGradeComments).toHaveBeenCalled());
+    const second = await post(`/api/mastery/${courseId}/send-all`, body);
+    expect(second).toMatchObject({ status: 409, body: { code: 'BUSY' } });
+    finishPut();
+    expect((await first).status).toBe(200);
+    // Released: the next write goes through.
+    expect((await post(`/api/mastery/${courseId}/send-all`, body)).status).toBe(200);
   });
 });
 
@@ -1221,7 +1288,9 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
   let studentA;
 
   beforeEach(() => {
-    vi.mocked(pushGradeComments).mockReset().mockResolvedValue({});
+    // A real apiPut response always carries a status (send-all now checks it,
+    // I1) — {} isn't a shape pushGradeComments can actually return.
+    vi.mocked(pushGradeComments).mockReset().mockResolvedValue({ status: 207 });
     vi.mocked(getSectionGrades).mockReset();
     const db = getDb();
     db.exec(

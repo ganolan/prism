@@ -867,6 +867,27 @@ router.post('/:courseId/send-all', async (req, res) => {
     }
   }
 
+  // Per-pair lock (shared with write-comment/triage) for every entry carrying a
+  // status line: an overlapping write for the same pair must not compose from
+  // the same stale read and drop one line. Acquired before any write; if any
+  // pair is already busy, release what was taken and fail the whole batch
+  // before touching Schoology — the rest is released in the finally below.
+  const releases = [];
+  for (const e of commentEntries) {
+    if (!e.comment.statusLine) continue;
+    const pairStudent = db.prepare(`
+      SELECT s.id FROM students s JOIN enrolments en ON en.student_id = s.id WHERE en.schoology_enrolment_id = ?
+    `).get(String(e.enrollmentId));
+    const pairAssignment = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(e.assignmentId));
+    if (!pairStudent || !pairAssignment) continue;
+    try {
+      releases.push(lockPair(pairStudent.id, pairAssignment.id));
+    } catch (err) {
+      for (const release of releases) release();
+      return res.status(409).json({ error: err.message, code: err.code, results: entries.map(x => ({ uid: x.uid, ok: false })) });
+    }
+  }
+
   try {
     // 1. All rubric scores in one browser session.
     if (scoreEntries.length > 0) {
@@ -927,7 +948,17 @@ router.post('/:courseId/send-all', async (req, res) => {
         return payload;
       });
 
-      await pushGradeComments(sectionId, payloads);
+      // apiPut never throws on an HTTP error, so the result must be checked —
+      // a discarded failure here would mirror a comment Schoology never
+      // accepted (the pre-existing send-all gap putSucceeded closes elsewhere).
+      const result = await pushGradeComments(sectionId, payloads);
+      if (!putSucceeded(result)) {
+        console.error('[mastery send-all] comment PUT rejected:', result?.status, JSON.stringify(result?.data)?.slice(0, 500));
+        return res.status(502).json({
+          error: 'Schoology rejected the update — nothing was recorded in Prism',
+          results: entries.map((x) => ({ uid: x.uid, ok: false })),
+        });
+      }
     }
 
     // 3. Mirror to the local DB — only now that every write above succeeded.
@@ -993,7 +1024,9 @@ router.post('/:courseId/send-all', async (req, res) => {
         e.comment.comment || '', commentStatusInt, now,
       );
       if (e.comment.statusLine) {
-        upsertStatusLine.run(studentRow.id, assignmentRow.id, e.comment.statusLine, e.comment.statusLineKind ?? 'received');
+        // The trimmed/validated text (checkLine), not the raw payload field —
+        // matches write-comment, which stores `line` from checkLine too.
+        upsertStatusLine.run(studentRow.id, assignmentRow.id, checkLine(e.comment.statusLine), e.comment.statusLineKind ?? 'received');
       }
       touch(assignmentRow.id, studentRow.id);
     }
@@ -1013,6 +1046,8 @@ router.post('/:courseId/send-all', async (req, res) => {
   } catch (err) {
     console.error('[mastery send-all] Error:', err);
     res.status(502).json({ error: err.message, results: entries.map(e => ({ uid: e.uid, ok: false })) });
+  } finally {
+    for (const release of releases) release();
   }
 });
 

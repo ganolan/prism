@@ -875,10 +875,14 @@ the original 56-day gap and the fixed/re-verified result are in `.claude/powersc
 - **Residual review fixes (2026-10-03).** Status lines are plain ASCII (teacher decision; tested). R1: the
   status-line publisher's snapshot capture is unstamped (`captureFeedbackSnapshots` `stamp: false`), so
   a publish that mirrors an unsynced pre-resubmission Schoology regrade can no longer silently dismiss the
-  resubmission. R2: a sync judging a new revision keeps a Prism save stamp that postdates it, so a Prism
-  rubric-only regrade after the resubmission acknowledges it. R3: PrisMCP over SSH sources the mini's
-  `~/prism/data/.env` remotely — the Schoology secret never leaves the mini. Details: spec "Residual
-  review fixes".
+  resubmission; a publish also never answers a pending arrival (it is absorbed into the arrival
+  baseline — e.g. a hidden comment made visible by the publish). R2: a Prism save after the resubmission
+  is kept on the arrival as `feedback_snapshots.arrival_write_at` (new column, in `MIGRATIONS`), so a
+  Prism rubric-only regrade after it acknowledges it — the first attempt (keeping the save stamp alive)
+  froze `synced_fingerprint` and was reworked. Teacher-edited status lines are held to ASCII
+  (`checkLine` normalises typographic characters, refuses other non-ASCII; the modal mirrors it). R3:
+  PrisMCP over SSH sources the mini's `~/prism/data/.env` remotely — the Schoology secret never leaves
+  the mini (values must be shell-safe). Details: spec "Residual review fixes".
 
 ## Sync resilience + persistent sync log (2026-10-02, branch `feat/sync-resilience-logs`)
 

@@ -507,7 +507,13 @@ can be published:
 
 - **Status lines are plain ASCII** (teacher decision) — the templates above; a test asserts every
   template output matches `/^[\x20-\x7E]*$/`. This retires the `⟳`/`—` encoding round-trip concern
-  (limitation 4 now covers only the 207 batch response).
+  (limitation 4 now covers only the 207 batch response). Teacher-edited lines are held to it too:
+  `checkLine` normalises typographic characters (curly quotes → `'` / `"`, en/em dashes → `-`, `…` →
+  `...`, non-breaking / narrow spaces → space) and refuses any other non-ASCII with `BAD_LINE` (*Use
+  plain characters in the status line*). The stored and published line is the normalised one
+  (`write-comment` / `send-all` swap it into the comment's first line); the confirm modal previews and
+  sends the same normalised text via the client mirror (`plainLine` / `isPlainLine`, parity-tested) and
+  blocks publishing anything else non-ASCII. The teacher's own comment text below the line is untouched.
 - **A status-line publish never counts as a Prism save (R1).** The publisher mirrors the fresh Schoology
   grade, which can carry a regrade the last sync never saw. Its capture used to stamp `fingerprint_at`,
   so publishing after an unsynced resubmission R (e.g. sync at 60 → Schoology regrade to 70 → R → Prism
@@ -519,11 +525,25 @@ can be published:
   own move of Schoology's grade time is not a fingerprint change, so the repro ends **Arrived**. Cost (safe
   direction): a publish after a Schoology-side *answer* to an unsynced R folds that answer into R's
   baseline — a false Arrived, cleared by any new visible feedback (same family as limitation 1).
+  **A status-line publish never answers a pending arrival either.** Publishing turns Display on, so a
+  hidden teacher comment becomes visible — a fingerprint change that, with the publish moving
+  Schoology's grade time past R, would read as the answer. The unstamped capture therefore sets
+  `arrival_baseline` to the new fingerprint while the arrival is still unanswered (status-line publishes
+  are absorbed into the baseline); an arrival already answered is left alone, so a publish never
+  re-surfaces it.
 - **A Prism rubric-only save after R answers it (R2).** `/write` doesn't move `grades.submitted_at`, and
-  the sync that judged R used to reset `fingerprint_at` to 0, losing the only record of the teacher's
-  write after the arrival — the pair stayed Arrived though regraded in Prism. A sync capture judging R now
-  keeps a save stamp that postdates R (`fingerprint_at = newRevision && fingerprint_at > R ?
-  fingerprint_at : 0`, `synced_fingerprint` = that sync's view). A stamp from before R is still cleared.
+  the sync that judged R resets `fingerprint_at` to 0, losing the only record of the teacher's write
+  after the arrival — the pair stayed Arrived though regraded in Prism. A first fix kept the save stamp
+  alive past that sync, but that froze `synced_fingerprint` until the next revision (a pending stamp
+  stops syncs refreshing it), and review reproduced a new silent dismissal: sync (60, visible note) → R
+  → Prism rubric save → sync → Schoology regrade to 80, synced → R′ → Prism hides the comment → sync
+  judged R′ against the stale 60 and read the change as the answer. Reworked: `feedback_snapshots`
+  gains `arrival_write_at` (epoch s of a Prism save after the arrival; schema + `MIGRATIONS`). When a
+  capture judges a new revision R it sets `arrival_write_at = fingerprint_at > R ? fingerprint_at : 0`,
+  then clears `fingerprint_at` and refreshes `synced_fingerprint` exactly as before; a later stamped save
+  while an arrival is pending sets it to the save time. "Teacher write after the arrival" is now
+  `submitted_at`, `arrival_write_at` or `fingerprint_at` > `arrival_revision_at`. Both chains are
+  regression tests (the rubric-only repro → acknowledged; the review chain → arrived).
 - **PrisMCP over SSH (R3):** the laptop's remote command sources the mini's `.env` instead of carrying
   the consumer secret in the laptop's Claude config.
 

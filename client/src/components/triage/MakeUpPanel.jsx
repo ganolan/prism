@@ -4,6 +4,7 @@ import UrgencyRing from './UrgencyRing.jsx';
 import CourseLine from './CourseLine.jsx';
 import ExtendEditor, { ExtensionTag } from './ExtendEditor.jsx';
 import { PanelHead, ShowAllToggle, useShowAll, limitRows } from './panelParts.jsx';
+import { cardLink } from './ResubmissionsPanel.jsx';
 
 // Students who missed a Schoology test or quiz and must sit it (or their * copy)
 // ASAP, longest first. A row clears itself once an attempt syncs. Extend records
@@ -44,7 +45,7 @@ export default function MakeUpPanel({ rows, settings, showCourse, scope, uncheck
             <UrgencyRing day={r.day} limit={red} tone={r.tone} approx={r.approx} size={28} />
             <div className="triage-row__text">
               <div className="triage-row__line">
-                <Link to={`/student/${r.studentId}`} className="triage-row__name" title={r.studentName}>{r.studentName}</Link>
+                <Link to={cardLink(r)} className="triage-row__name" title={r.studentName}>{r.studentName}</Link>
                 {r.extension && <ExtensionTag extension={r.extension} />}
               </div>
               {showCourse && <CourseLine row={r} />}

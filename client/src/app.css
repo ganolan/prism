@@ -803,6 +803,16 @@ button.btn-sm { padding: 0.3rem 0.65rem; font-size: 0.78rem; }
   to { transform: rotate(360deg); }
 }
 
+/* Deep link from a triage row (Task 10): pulse the target student card's
+   ring. Uses outline, not box-shadow — the card's outer div sets an inline
+   boxShadow (the resubmit-conflict ring), which an animated box-shadow
+   property would fight with; outline is a separate box the card never sets. */
+.student-card--highlight { animation: student-card-pulse 2s ease-out; }
+@keyframes student-card-pulse {
+  0%, 60% { outline: 3px solid var(--accent); outline-offset: 2px; }
+  100% { outline: 3px solid transparent; outline-offset: 2px; }
+}
+
 /* ========================================================================
    MODAL
    ======================================================================== */

@@ -1574,3 +1574,41 @@ describe('AssessmentSummaryPage sticky view mode', () => {
     await waitFor(() => expect(modeBtn('Compact')).toHaveClass('active'));
   });
 });
+
+describe('AssessmentSummaryPage — deep link from a triage row (Task 10)', () => {
+  // jsdom has no scrollIntoView; the page must call it with optional chaining.
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  const mastery = {
+    assignment: { id: 50, title: 'Launch', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+    topics: TOPICS,
+    students: [
+      { ...makeStudent(), id: 11, schoology_uid: 'uid-11', first_name: 'Lena', last_name: 'Ho' },
+      { ...makeStudent(), id: 12, schoology_uid: 'uid-12', first_name: 'Ravi', last_name: 'Shah' },
+    ],
+  };
+
+  function renderPage(entry) {
+    getMasteryForAssignment.mockResolvedValue(mastery);
+    return render(
+      <MemoryRouter initialEntries={[entry]}>
+        <Routes>
+          <Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+  }
+
+  it('scrolls to and highlights the card named by ?student=', async () => {
+    renderPage('/course/5/assessment/a9?student=12');
+    await screen.findByText('Ravi Shah');
+    const card = document.getElementById('student-card-12');
+    expect(card).toBeTruthy();
+    await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled());
+    expect(card).toHaveClass('student-card--highlight');
+    // The other card is untouched.
+    expect(document.getElementById('student-card-11')).not.toHaveClass('student-card--highlight');
+  });
+});

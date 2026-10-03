@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 import { makeDraftSaver } from '../lib/assessmentDraftSaver.js';
@@ -117,7 +117,7 @@ function HeaderPill({ active, accent, activeBg, activeText, icon, label, clearLa
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
-export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, scoreScale = null, resubmitLessonsDefault = 3, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
+export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, scoreScale = null, resubmitLessonsDefault = 3, highlight = false, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
   const scale = useProficiencyScale();
   const loadedDisplay = student.comment_status === 1;
   // Per-card DB draft saver (replaces the former localStorage key). Created once.
@@ -726,16 +726,20 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   const showDescriptors = viewMode === 'descriptors' && !!rubric;
 
   return (
-    <div style={{
-      border: bothSignals ? '1px solid var(--resubmit-ring)' : '1px solid var(--border)',
-      boxShadow: bothSignals ? '0 0 0 2px var(--badge-resubmit-bg)' : 'none',
-      borderRadius: 10,
-      // overflow visible so the oversized avatar can pop past the header band
-      // (top and bottom) without being clipped. Only the header has a corner-
-      // reaching background, so we round its top corners to keep the card edge.
-      background: 'var(--card-bg)', overflow: 'visible',
-      marginBottom: '1rem',
-    }}>
+    <div
+      id={`student-card-${student.id}`}
+      className={highlight ? 'student-card--highlight' : undefined}
+      style={{
+        border: bothSignals ? '1px solid var(--resubmit-ring)' : '1px solid var(--border)',
+        boxShadow: bothSignals ? '0 0 0 2px var(--badge-resubmit-bg)' : 'none',
+        borderRadius: 10,
+        // overflow visible so the oversized avatar can pop past the header band
+        // (top and bottom) without being clipped. Only the header has a corner-
+        // reaching background, so we round its top corners to keep the card edge.
+        background: 'var(--card-bg)', overflow: 'visible',
+        marginBottom: '1rem',
+      }}
+    >
       {/* Student header */}
       <div style={{
         padding: '0.6rem 1rem', background: 'var(--bg-subtle)',
@@ -1554,6 +1558,11 @@ export default function AssessmentSummaryPage() {
     next.has(id) ? next.delete(id) : next.add(id);
     return next;
   });
+  // Triage rows link here with ?student=<id>: show that card (clear a filter
+  // hiding it), scroll to it, and pulse a highlight ring for ~2 s.
+  const [searchParams] = useSearchParams();
+  const focusStudentId = Number(searchParams.get('student')) || null;
+  const [highlightId, setHighlightId] = useState(null);
   const reloadRubric = async () => setRubricData(await getRubricForAssignment(assignmentId));
 
   // "Send all" bar state (#51). pendingByUid maps each card's uid → true while
@@ -1764,6 +1773,20 @@ export default function AssessmentSummaryPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [drawerOpen]);
 
+  // Deep link from a triage row (Task 10). `data` isn't destructured until
+  // after the loading/error/null guards below, so this reads straight off it
+  // rather than off `alignedTopics` (which is just `data.topics`).
+  useEffect(() => {
+    if (!focusStudentId || !data) return;
+    const s = data.students.find((x) => x.id === focusStudentId);
+    if (!s) return;
+    if (!passesFilters(s, activeFilters, { assignment: data.assignment, topics: data.topics })) setActiveFilters(new Set());
+    setHighlightId(focusStudentId);
+    requestAnimationFrame(() => document.getElementById(`student-card-${focusStudentId}`)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' }));
+    const t = setTimeout(() => setHighlightId(null), 2200);
+    return () => clearTimeout(t);
+  }, [focusStudentId, data]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (loading) return <div className="loading">Loading...</div>;
   if (error) return <div className="error-msg">{error}</div>;
   if (!data) return null;
@@ -1903,6 +1926,7 @@ export default function AssessmentSummaryPage() {
               submissionLink={workLinks.links[student.schoology_uid] || null}
               scoreScale={scoreScale}
               resubmitLessonsDefault={resubmitLessonsDefault}
+              highlight={highlightId === student.id}
               onSaved={handleCardSaved}
               onPendingChange={handlePendingChange}
               onDisplayChange={handleDisplayChange}

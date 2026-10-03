@@ -5,6 +5,7 @@ import CourseLine from './CourseLine.jsx';
 import ExtendEditor, { ExtensionTag } from './ExtendEditor.jsx';
 import { PanelHead, ShowAllToggle, useShowAll, limitRows } from './panelParts.jsx';
 import ReferralHistory from './ReferralHistory.jsx';
+import { cardLink } from './ResubmissionsPanel.jsx';
 
 // Late summative work, worst first. Days are numbered from the due date = day 1;
 // `limit` (referralLimitDays) is the last allowed day, referral after it. The action
@@ -41,7 +42,7 @@ export default function LateWorkPanel({
             <UrgencyRing day={r.day} limit={limit} tone={r.tone} approx={r.approx} size={28} />
             <div className="triage-row__text">
               <div className="triage-row__line">
-                <Link to={`/student/${r.studentId}`} className="triage-row__name" title={r.studentName}>{r.studentName}</Link>
+                <Link to={cardLink(r)} className="triage-row__name" title={r.studentName}>{r.studentName}</Link>
                 {r.kind === 'submitted_late' && <span className="badge badge-amber triage-row__tag">submitted day {r.submittedDay}</span>}
                 {r.extension && <ExtensionTag extension={r.extension} />}
               </div>

@@ -263,6 +263,16 @@ describe('TriageSection', () => {
   });
 });
 
+describe('TriageSection — deep link to the student card (Task 10)', () => {
+  it('late work and make-up names link to the student card', async () => {
+    renderSection();
+    const late = await latePanel();
+    expect(within(late).getByRole('link', { name: 'Maya Chen' }).getAttribute('href')).toBe('/course/5/assessment/a9?student=1');
+    const mk = await makeUpPanel();
+    expect(within(mk).getByRole('link', { name: 'Noah Park' }).getAttribute('href')).toBe('/course/8/assessment/q20?student=7');
+  });
+});
+
 describe('TriageSection — compact rows', () => {
   const textOf = (row) => row.querySelector('.triage-row__text');
 
@@ -275,7 +285,7 @@ describe('TriageSection — compact rows', () => {
     const lines = [...textOf(row).children];
     expect(lines.map((el) => el.className)).toEqual(['triage-row__line', 'triage-row__course', 'triage-row__task']);
     const name = within(lines[0]).getByRole('link', { name: 'Aiden Li' });
-    expect(name).toHaveAttribute('href', '/student/3');
+    expect(name).toHaveAttribute('href', '/course/6/assessment/a9?student=3');
     expect(name).toHaveAttribute('title', 'Aiden Li');
     expect(lines[0]).toHaveTextContent('Aiden Liext +3 → 15/10/2026'); // the tag sits beside the name
     expect(lines[1]).toHaveTextContent('[BK 7] AP CSP');

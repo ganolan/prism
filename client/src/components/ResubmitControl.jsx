@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import NumberStepper from './NumberStepper.jsx';
 import StatusLineModal from './StatusLineModal.jsx';
 import { formatDate, localIsoDate } from '../lib/formatDate.js';
@@ -19,6 +19,7 @@ export default function ResubmitControl({ student, assignmentId, title, defaultL
   const [lessons, setLessons] = useState(r?.request?.lessons ?? defaultLessons);
   const [note, setNote] = useState('');
   const [confirm, setConfirm] = useState(null); // StatusLineModal props for the action being confirmed
+  const actionSeq = useRef(0); // a fresh key per opened action → the modal always remounts
 
   // Fold: reopening the panel always starts from the current request's lessons
   // (or the Settings default) and a blank note — never a stale value left over
@@ -41,8 +42,9 @@ export default function ResubmitControl({ student, assignmentId, title, defaultL
   const pastDeadline = Boolean(req?.until) && req.until < localIsoDate();
   const ids = { studentId: student.id, assignmentId };
   const done = (fn) => async (arg) => { await fn(arg); setConfirm(null); setPanel(false); };
+  const open = (props) => { actionSeq.current += 1; setConfirm({ key: actionSeq.current, props }); };
 
-  const ask = () => setConfirm({
+  const ask = () => open({
     consequence: `Asks ${studentFullName(student) || 'the student'} to resubmit within ${lessons} lesson${lessons === 1 ? '' : 's'}.`,
     confirmLabel: 'Publish & ask',
     loadDefaultLine: async () => askLine({ until: (await getStatusLineUntil({ kind: 'ask', ...ids, lessons })).until, note }),
@@ -51,7 +53,7 @@ export default function ResubmitControl({ student, assignmentId, title, defaultL
       onChange?.({ state: 'waiting', request: created });
     }),
   });
-  const extend = () => setConfirm({
+  const extend = () => open({
     consequence: `Moves the resubmission deadline to ${lessons} lesson${lessons === 1 ? '' : 's'} after the ask.`,
     confirmLabel: 'Publish new due date',
     loadDefaultLine: async () => extendResubmissionLine({
@@ -62,7 +64,7 @@ export default function ResubmitControl({ student, assignmentId, title, defaultL
       onChange?.({ ...r, request: updated });
     }),
   });
-  const gradeStands = () => setConfirm({
+  const gradeStands = () => open({
     consequence: 'Ends the resubmission request: missed deadline, grade stands.',
     confirmLabel: 'Publish & close request',
     defaultLine: gradeStandsLine({ until: req.until }),
@@ -71,9 +73,11 @@ export default function ResubmitControl({ student, assignmentId, title, defaultL
       onChange?.(null);
     }),
   });
-  const undo = () => setConfirm({
+  const undo = () => open({
     removeMode: true,
-    consequence: 'Deletes this resubmission request from Prism.',
+    undoSource: { sourceType: 'resubmission', sourceId: req.id },
+    // An auto-added (Schoology Unsubmit) request is closed, not deleted, by Undo.
+    consequence: req.source === 'schoology_unsubmit' ? 'Closes this resubmission request in Prism.' : 'Deletes this resubmission request from Prism.',
     confirmLabel: 'Undo',
     onConfirm: done(async (removeLine) => {
       await undoResubmission(req.id, { removeLine });
@@ -109,7 +113,7 @@ export default function ResubmitControl({ student, assignmentId, title, defaultL
       )}
       {confirm && (
         <StatusLineModal
-          studentName={studentFullName(student)} title={title} {...ids} {...confirm}
+          key={confirm.key} studentName={studentFullName(student)} title={title} {...ids} {...confirm.props}
           onCancel={() => setConfirm(null)}
         />
       )}

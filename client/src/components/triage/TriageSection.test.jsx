@@ -816,6 +816,23 @@ describe('Resubmissions panel', () => {
       await waitFor(() => expect(api.undoResubmission).toHaveBeenCalledWith(51, { removeLine: false }));
     });
 
+    it("Undo previews against the record's own line: another action's line stays", async () => {
+      api.previewStatusLine.mockResolvedValue({ currentComment: 'L9\n\nGood.', visible: true, storedLine: 'L9', storedSource: { sourceType: 'resubmission', sourceId: 77 }, hiddenWarning: false });
+      const history = await openHistory();
+      fireEvent.click(undoOf(history, 'Ravi Shah'));
+      expect(await within(await dialog()).findByText("Prism's current line belongs to a different action — it will stay.")).toBeInTheDocument();
+      expect(screen.getByLabelText('Their comment will read').textContent).toBe('L9\n\nGood.');
+    });
+
+    it('Undo of an auto-added (Schoology Unsubmit) request says it closes it', async () => {
+      api.getResubmissions.mockResolvedValue([{ ...HISTORY[0], source: 'schoology_unsubmit' }]);
+      const panel = await resubPanel();
+      fireEvent.click(within(panel).getByRole('button', { name: /^History/ }));
+      const history = await screen.findByLabelText('Resubmission history');
+      fireEvent.click(await within(history).findByRole('button', { name: 'Undo' }));
+      expect(within(await dialog()).getByText('Closes this resubmission request in Prism.')).toBeInTheDocument();
+    });
+
     it('Undo → Cancel calls no write API', async () => {
       const history = await openHistory();
       fireEvent.click(undoOf(history, 'Ravi Shah'));

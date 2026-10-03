@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import StatusLineModal from './StatusLineModal.jsx';
 import * as api from '../services/api.js';
 
@@ -178,10 +179,124 @@ describe('StatusLineModal', () => {
       await waitFor(() => expect(onConfirm).toHaveBeenCalledWith(false));
     });
 
+    it('checked: the sub-line says their comment changes (removal keeps Display as it is)', async () => {
+      renderModal({ removeMode: true, confirmLabel: 'Undo' });
+      expect(await screen.findByText('Changes their Schoology comment.')).toBeInTheDocument();
+      expect(screen.queryByText(/as soon as you publish/)).not.toBeInTheDocument();
+    });
+
+    it("the stored line belongs to a different action: it says it will stay, and the preview keeps it", async () => {
+      api.previewStatusLine.mockResolvedValue(preview({
+        currentComment: `${LINE}\n\nGreat start.`, storedLine: LINE, storedSource: { sourceType: 'resubmission', sourceId: 99 },
+      }));
+      renderModal({ removeMode: true, confirmLabel: 'Undo', undoSource: { sourceType: 'resubmission', sourceId: 3 } });
+      expect(await screen.findByText("Prism's current line belongs to a different action — it will stay.")).toBeInTheDocument();
+      expect(preview$().textContent).toBe(`${LINE}\n\nGreat start.`);
+    });
+
+    it('the stored line is this action\'s own: previewed without it, no "different action" note', async () => {
+      api.previewStatusLine.mockResolvedValue(preview({
+        currentComment: `${LINE}\n\nGreat start.`, storedLine: LINE, storedSource: { sourceType: 'resubmission', sourceId: 3 },
+      }));
+      renderModal({ removeMode: true, confirmLabel: 'Undo', undoSource: { sourceType: 'resubmission', sourceId: 3 } });
+      await waitFor(() => expect(preview$().textContent).toBe('Great start.'));
+      expect(screen.queryByText(/different action/)).not.toBeInTheDocument();
+    });
+
     it('says so when Prism\'s line is no longer in the comment', async () => {
       api.previewStatusLine.mockResolvedValue(preview({ currentComment: 'Teacher rewrote it.', storedLine: LINE }));
       renderModal({ removeMode: true, confirmLabel: 'Undo' });
       expect(await screen.findByText(/line isn.t in their comment/)).toBeInTheDocument();
     });
+  });
+});
+
+describe('StatusLineModal — focus, alerts, guards', () => {
+  // A page button opens the modal; closing it should hand focus back to that button.
+  function Harness({ removeMode = false, onConfirm = vi.fn().mockResolvedValue({}) }) {
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <button type="button" onClick={() => setOpen(true)}>Open confirm</button>
+        <button type="button">Background action</button>
+        {open && (
+          <StatusLineModal
+            studentName="Ravi Shah" studentId={12} assignmentId={30} defaultLine={LINE}
+            confirmLabel="Publish & close request" removeMode={removeMode}
+            onConfirm={onConfirm} onCancel={() => setOpen(false)}
+          />
+        )}
+      </>
+    );
+  }
+  const openFrom = () => {
+    const opener = screen.getByRole('button', { name: 'Open confirm' });
+    opener.focus();
+    fireEvent.click(opener);
+    return opener;
+  };
+
+  it('focus moves to the line on open (never the primary button) and returns to the opener on close', async () => {
+    render(<Harness />);
+    const opener = openFrom();
+    expect(screen.getByLabelText('Status line')).toHaveFocus();
+    await waitFor(() => expect(preview$()).toHaveTextContent('Great start.'));
+    expect(screen.getByRole('button', { name: 'Publish & close request' })).not.toHaveFocus();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+  });
+
+  it('removeMode focuses the dialog itself', async () => {
+    api.previewStatusLine.mockResolvedValue(preview({ currentComment: `${LINE}\n\nGreat start.`, storedLine: LINE }));
+    render(<Harness removeMode />);
+    openFrom();
+    expect(screen.getByRole('dialog')).toHaveFocus();
+    await waitFor(() => expect(preview$()).toHaveTextContent('Great start.'));
+  });
+
+  it('Tab wraps inside the dialog at both ends; the background is never reached', async () => {
+    render(<Harness />);
+    openFrom();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish & close request' })).not.toBeDisabled());
+    const line = screen.getByLabelText('Status line');
+    const primary = screen.getByRole('button', { name: 'Publish & close request' });
+    primary.focus();
+    fireEvent.keyDown(primary, { key: 'Tab' });
+    expect(line).toHaveFocus(); // last → first
+    fireEvent.keyDown(line, { key: 'Tab', shiftKey: true });
+    expect(primary).toHaveFocus(); // first → last
+    expect(screen.getByRole('button', { name: 'Background action' })).not.toHaveFocus();
+  });
+
+  it('a double click publishes once (in-flight guard)', async () => {
+    let resolve;
+    const onConfirm = vi.fn(() => new Promise((r) => { resolve = r; }));
+    renderModal({ onConfirm });
+    await waitFor(() => expect(preview$()).toHaveTextContent('Great start.'));
+    const primary = screen.getByRole('button', { name: 'Publish & close request' });
+    fireEvent.click(primary);
+    fireEvent.click(primary);
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    resolve({});
+  });
+
+  it('errors and load warnings are announced (role=alert); the preview is a labelled region', async () => {
+    api.previewStatusLine.mockRejectedValueOnce(new Error('Schoology read failed'));
+    renderModal();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Schoology read failed');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('region', { name: 'Their comment will read' })).toBeInTheDocument();
+  });
+
+  it('"Re-read from Schoology" next to the hidden warning fetches the comment again', async () => {
+    api.previewStatusLine.mockResolvedValueOnce(preview({ visible: false, hiddenWarning: true, currentComment: 'Private note.' }));
+    api.previewStatusLine.mockResolvedValueOnce(preview({ currentComment: 'Fixed in Schoology.' }));
+    renderModal();
+    const warning = await screen.findByText(/hidden comment/i);
+    fireEvent.click(within(warning.closest('.alert')).getByRole('button', { name: 'Re-read from Schoology' }));
+    await waitFor(() => expect(preview$()).toHaveTextContent('Fixed in Schoology.'));
+    expect(api.previewStatusLine).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText(/hidden comment/i)).not.toBeInTheDocument();
   });
 });

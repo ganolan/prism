@@ -24,6 +24,13 @@ const extraText = (r) => (r.kind === 'resubmission' && r.outcome === 'grade_stan
 // comment: Undo offers to remove it (StatusLineModal removeMode, default on).
 const mayHaveLine = (r) => r.kind === 'extension' || (r.kind === 'resubmission' && ['asked', 'grade_stands'].includes(r.outcome));
 
+function undoConsequence(r) {
+  if (r.kind === 'extension') return 'Deletes this extension from Prism.';
+  // An auto-added (Schoology Unsubmit) request is closed, not deleted, by Undo.
+  if (r.source === 'schoology_unsubmit') return 'Closes this resubmission request in Prism.';
+  return 'Deletes this resubmission record from Prism.';
+}
+
 // Referrals and deadline extensions (mode 'late', the default), or resubmission
 // records (mode 'resubmissions'), newest first, each undoable.
 // `version` bumps when the parent records one, so an open history reloads.
@@ -123,9 +130,11 @@ export default function ReferralHistory({ mode = 'late', courseId, version = 0, 
       ))}
       {confirming && (
         <StatusLineModal
+          key={`${confirming.kind}:${confirming.id}`}
           removeMode studentName={confirming.studentName} studentId={confirming.studentId}
           assignmentId={confirming.assignmentId} title={confirming.title}
-          consequence={confirming.kind === 'extension' ? 'Deletes this extension from Prism.' : 'Deletes this resubmission record from Prism.'}
+          undoSource={{ sourceType: confirming.kind, sourceId: confirming.id }}
+          consequence={undoConsequence(confirming)}
           confirmLabel="Undo" onConfirm={confirmUndo} onCancel={() => setConfirming(null)}
         />
       )}

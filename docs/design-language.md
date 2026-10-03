@@ -1091,6 +1091,12 @@ server's `composeComment` (`client/src/lib/statusLines.js`), so editing the line
 that succeeded in Schoology but failed to record in Prism switches to an `.alert-error` headed
 *Published to Schoology — not recorded in Prism* with only a Close button (retrying would publish again).
 On phones it is a full-width bottom sheet with full-width buttons (PHONE LAYOUT block).
+Focus moves into the dialog on open (the line's textarea; the dialog itself in remove mode — never the
+primary button, so Enter can't publish by accident), Tab is trapped inside, and focus returns to the
+opener on close; each opened action gets its own React `key` so the modal never carries stale line state.
+Errors and warnings carry `role="alert"`; the preview is a labelled `region`. In remove mode the sub-line
+reads *Changes their Schoology comment.*, and when Prism's stored line was published by a different
+action the modal says it will stay (the server only removes a record's own line).
 
 Card control update: Close request and **Reviewed** are gone. An open request offers Extend / Grade
 stands (only once the deadline has passed) / Undo; an arrived resubmission shows the muted text

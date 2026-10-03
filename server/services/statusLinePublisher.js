@@ -172,13 +172,16 @@ export function checkLine(line) {
 export async function previewStatusLine(db, { studentId, assignmentId, line = '' } = {}) {
   const t = pairTarget(db, studentId, assignmentId);
   const fresh = await freshGrade(db, t);
-  const storedLine = storedRow(db, t)?.line ?? null;
+  const row = storedRow(db, t);
+  const storedLine = row?.line ?? null;
   const currentComment = normalise(fresh?.comment);
   const visible = Number(fresh?.comment_status) === 1;
   return {
     currentComment,
     visible,
     storedLine,
+    // Which record's action published the stored line (an Undo removes it only if it is its own).
+    storedSource: row?.source_type ? { sourceType: row.source_type, sourceId: Number(row.source_id) } : null,
     resultingComment: composeComment(currentComment, storedLine, normalise(line).trim()),
     hiddenWarning: !visible && teacherText(currentComment, storedLine) !== '',
   };

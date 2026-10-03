@@ -416,6 +416,18 @@ describe('status lines on triage actions (Amendment B)', () => {
       .toMatchObject({ status: 502, body: { code: 'SCHOOLOGY_READ_FAILED' } });
     expect(pushGradeComments).not.toHaveBeenCalled();
   });
+
+  test("GET status-line/preview names the stored line's source record (the Undo modal checks it)", async () => {
+    getSectionGrades.mockResolvedValue([fresh({ comment: 'Private note', comment_status: null })]);
+    const res = await call('GET', `/api/triage/status-line/preview?studentId=${studentId}&assignmentId=${assignmentId}&line=x`);
+    expect(res.body.storedSource).toBeNull();
+    // After an ask publishes, the preview names the request that owns the line.
+    getSectionGrades.mockResolvedValue([fresh()]);
+    const asked = await ask({ commentLine: LINE });
+    getSectionGrades.mockResolvedValue([fresh({ comment: `${LINE}\n\nTeacher note.` })]);
+    const after = await call('GET', `/api/triage/status-line/preview?studentId=${studentId}&assignmentId=${assignmentId}&line=`);
+    expect(after.body).toMatchObject({ storedLine: LINE, storedSource: { sourceType: 'resubmission', sourceId: asked.body.id } });
+  });
 });
 
 // The web confirm modal renders its default status line client-side

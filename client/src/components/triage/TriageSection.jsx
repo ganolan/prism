@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   getTriage, recordReferral, recordExtension, setMakeUpIgnored,
   updateResubmission, getStatusLineUntil,
@@ -33,6 +33,7 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
   const [historyVersion, setHistoryVersion] = useState(0); // reloads an open history after a record
   const [error, setError] = useState(null);
   const [confirm, setConfirm] = useState(null); // StatusLineModal props for the action being confirmed
+  const actionSeq = useRef(0); // a fresh key per opened action → the modal always remounts
 
   const load = useCallback(async () => {
     try {
@@ -68,18 +69,21 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
   // Open the confirm for one row. `run(line)` does the write; errors stay in the
   // modal (a Schoology change Prism then failed to record still refreshes the lists).
   const publish = (row, { run, ...props }) => setConfirm({
-    studentName: row.studentName, studentId: row.studentId, assignmentId: row.assignmentId, title: row.title,
-    ...props,
-    onConfirm: async (line) => {
-      try {
-        await run(line);
-      } catch (err) {
-        if (err.published) { setHistoryVersion((v) => v + 1); load(); }
-        throw err;
-      }
-      setConfirm(null);
-      setHistoryVersion((v) => v + 1);
-      await load();
+    key: (actionSeq.current += 1),
+    props: {
+      studentName: row.studentName, studentId: row.studentId, assignmentId: row.assignmentId, title: row.title,
+      ...props,
+      onConfirm: async (line) => {
+        try {
+          await run(line);
+        } catch (err) {
+          if (err.published) { setHistoryVersion((v) => v + 1); load(); }
+          throw err;
+        }
+        setConfirm(null);
+        setHistoryVersion((v) => v + 1);
+        await load();
+      },
     },
   });
   const lessonsText = (n) => `${n} lesson${n === 1 ? '' : 's'}`;
@@ -152,7 +156,7 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
         rows={data.feedbackOwed} settings={data.settings} showCourse={showCourse} scope={scope}
         includeFormative={data.includeFormative} onToggleFormative={setIncludeFormative}
       />
-      {confirm && <StatusLineModal {...confirm} onCancel={() => setConfirm(null)} />}
+      {confirm && <StatusLineModal key={confirm.key} {...confirm.props} onCancel={() => setConfirm(null)} />}
     </>,
   );
 }

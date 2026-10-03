@@ -126,7 +126,7 @@ describe('previewStatusLine', () => {
     getSectionGrades.mockResolvedValue([fresh({ comment: 'Private: talk to parents', comment_status: null })]);
     const p = await previewStatusLine(db, { studentId: s, assignmentId: a, line: L1 });
     expect(p).toEqual({
-      currentComment: 'Private: talk to parents', visible: false, storedLine: null,
+      currentComment: 'Private: talk to parents', visible: false, storedLine: null, storedSource: null,
       resultingComment: `${L1}\n\nPrivate: talk to parents`, hiddenWarning: true,
     });
     expect(pushGradeComments).not.toHaveBeenCalled();
@@ -140,6 +140,15 @@ describe('previewStatusLine', () => {
     getSectionGrades.mockResolvedValue([fresh({ comment: 'Seen', comment_status: 1 })]);
     expect(await previewStatusLine(db, { studentId: s, assignmentId: a, line: L2 }))
       .toMatchObject({ visible: true, hiddenWarning: false, resultingComment: `${L2}\n\nSeen` });
+  });
+
+  test("returns the stored line's source record (null until one is set)", async () => {
+    db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, ?, 'ask')`).run(s, a, L1);
+    getSectionGrades.mockResolvedValue([fresh({ comment: L1, comment_status: 1 })]);
+    expect((await previewStatusLine(db, { studentId: s, assignmentId: a, line: '' })).storedSource).toBeNull();
+    setStatusLineSource(db, { studentId: s, assignmentId: a, type: 'resubmission', id: 12 });
+    expect((await previewStatusLine(db, { studentId: s, assignmentId: a, line: '' })).storedSource)
+      .toEqual({ sourceType: 'resubmission', sourceId: 12 });
   });
 
   test('a failed read → SCHOOLOGY_READ_FAILED', async () => {

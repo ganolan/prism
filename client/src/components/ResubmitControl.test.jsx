@@ -126,6 +126,28 @@ describe('ResubmitControl', () => {
     expect(onChange).toHaveBeenCalledWith(null);
   });
 
+  it('Undo of an auto-added (Schoology Unsubmit) request says it closes it; Undo passes its own source', async () => {
+    api.previewStatusLine.mockResolvedValue({ currentComment: 'L\n\nGood.', visible: true, storedLine: 'L', storedSource: { sourceType: 'resubmission', sourceId: 8 }, hiddenWarning: false });
+    renderControl({ state: 'waiting', request: { id: 3, lessons: 3, until: '2026-10-15', source: 'schoology_unsubmit' } });
+    fireEvent.click(screen.getByRole('button', { name: /Resubmit by/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(screen.getByText('Closes this resubmission request in Prism.')).toBeInTheDocument();
+    expect(await screen.findByText("Prism's current line belongs to a different action — it will stay.")).toBeInTheDocument();
+  });
+
+  it('each action remounts the confirm (fresh line state), and Escape returns focus to the panel button', async () => {
+    renderControl(waiting('2026-10-08'));
+    fireEvent.click(screen.getByRole('button', { name: /Resubmit by/ }));
+    const stands = screen.getByRole('button', { name: 'Grade stands' });
+    stands.focus();
+    fireEvent.click(stands);
+    fireEvent.change(screen.getByLabelText('Status line'), { target: { value: 'edited' } });
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(stands).toHaveFocus();
+    fireEvent.click(stands);
+    expect(screen.getByLabelText('Status line')).toHaveValue('⟳ Resubmission deadline (Thu 08/10) passed — your grade stands.');
+  });
+
   it('Undo with the box unchecked leaves the comment alone', async () => {
     api.undoResubmission.mockResolvedValue({ deleted: true });
     renderControl(waiting());

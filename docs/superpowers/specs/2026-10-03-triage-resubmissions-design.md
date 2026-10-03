@@ -1,6 +1,6 @@
 # Triage: resubmissions — design
 
-**Date:** 2026-10-03 · **Status:** approved in brainstorming, awaiting spec review
+**Date:** 2026-10-03 · **Status:** approved (spec review 2026-10-03, with the feedback-given amendment)
 **Builds on:** `2026-10-01-triage-late-work-and-feedback-owed-design.md` (triage),
 `2026-05-17-resubmission-tracking-design.md` (#49). **Related issues:** #49, #53, #125.
 
@@ -44,15 +44,21 @@ The teacher's real workflow: ask a student to resubmit; for LTI work, click **Un
   saved, in Prism or Schoology).
 - **Resubmission time** = `grades.latest_revision_at` = native: newest non-draft revision `created`;
   LTI: the grader's `submitted-documents` `submissionDate` (minute resolution).
-- `isResubmitted(grade)` (`server/lib/resubmission.js`, unchanged): a grade exists (score or exception)
-  and `latest_revision_at > submitted_at`.
+- **Feedback given** = a score, an exception, **or a non-empty comment**. Any of these teacher writes sets
+  the REST timestamp; a submission alone never does (Verification 6).
+- `isResubmitted(grade)` (`server/lib/resubmission.js`): feedback given and `latest_revision_at >
+  submitted_at`. **Changed:** the guard widens from score/exception to include a comment-only row (also
+  fixes the gradebook "↩ Resubmitted" badge for comment-only feedback).
+- **Request baseline** = the later of the grade time and `requested_at`. For a pair with an open
+  request, an arrival is `latest_revision_at` > the request baseline — so a request works on ungraded or
+  comment-only work too.
 
 ### States (one per student × assessment, derived at read time in `getTriage`)
 
 | State | When | Clock (day 1 =) | Limit / tone | Actions |
 |---|---|---|---|---|
 | **Waiting** | An `open` request, and not Arrived. | the request's local date | `lessons` (deadline = `addSchoolDays(requested date, lessons)`); amber over the last `warnLeadDays`, red after | **Extend**, **Close** |
-| **Arrived** | `isResubmitted(grade)` and `latest_revision_at` > every `review` row's `revision_at` for the pair | the resubmission's local date | `feedbackLimitDays` (as Feedback owed) | **Reviewed** |
+| **Arrived** | (open request: `latest_revision_at` > the request baseline, and > grade time) or (no open request: `isResubmitted(grade)`), and `latest_revision_at` > every `review` row's `revision_at` for the pair | the resubmission's local date | `feedbackLimitDays` (as Feedback owed) | **Reviewed** |
 
 - **Fulfilled** (hidden): an `open` request where `latest_revision_at > requested_at` and grade time ≥
   `latest_revision_at` — the student resubmitted after the ask and was regraded since.
@@ -80,8 +86,8 @@ resubmission itself is still caught by the timestamps (Arrived).
 
 ### Actions
 
-- **Ask** (card, PrisMCP): needs a graded row (score or exception) for a targeted, enrolled student in a
-  current course; lessons 1–`MAX_EXTENSION_LESSONS`; one `open` request per pair (`ALREADY_OPEN`).
+- **Ask** (card, PrisMCP): any targeted, enrolled student in a current course (graded, comment-only, or
+  ungraded — the request baseline covers all three); lessons 1–`MAX_EXTENSION_LESSONS`; one `open` request per pair (`ALREADY_OPEN`).
 - **Extend**: sets `lessons` on the open request (same "by N lessons from the original date" meaning as
   extensions), stamps `updated_at`.
 - **Close**: `status = 'closed'`, `closed_at`, `close_note`.
@@ -204,14 +210,13 @@ Each option ships only if its own probe passes. Results go to `.claude/schoology
 ## Error handling / edge cases
 
 - Re-ask while one is open → `ALREADY_OPEN` (UI shows the existing pill instead).
-- Ask on an ungraded row → `NOT_ELIGIBLE` ("nothing to resubmit yet").
 - Student drops / course archived → rows disappear with the course/enrolment (same as other lists);
   records stay in history.
 - Ask made after a resubmission already arrived → the row shows Arrived; Reviewed/regrade clears that
   arrival but does **not** satisfy the ask (its revision predates `requested_at`), so the row returns to
   Waiting — the teacher asked for another round.
-- Ask on work that is never graded after the resubmission → stays Waiting/red until Closed (Arrived needs a
-  grade time to compare against — hence asks require a graded row).
+- Unrequested arrival on work with no feedback at all (no score/exception/comment) → not a resubmission,
+  just a first submission (Feedback owed covers it).
 - Calendar missing → `approx` as in the other lists.
 - Native `first_submitted_at` can be revision 2's date when the first sync saw only the latest revision
   (Verification 4). Not fixed here — follow-up issue.
@@ -246,6 +251,11 @@ Scripts: `scripts/probe-lti-resubmission.js` (`ARCHIVED=1` for last year), `scri
 4. **Schoology's reminders count is "submitted more than once", not "since graded".** Native CPT 1: 2
    students "New resubmission" — both revision 2 on 23/09, graded 29/09 → correctly not owed. Their
    `first_submitted_at` = revision 2's date (the bulk read only returns the latest revision).
+6. **Comment-only feedback sets the grade timestamp; a submission alone never does** (prod snapshot):
+   17/17 native comment-only rows have a REST timestamp (16 after the latest revision); 155/155 ungraded,
+   uncommented native submissions have none; ungraded LTI cells have none (probe output). The one
+   comment-only row with a later revision (an archived journal reflection: comment 29/03, submitted
+   08/04) is a real arrival the old score/exception guard missed.
 5. **No resubmission field on the LTI grader**: `submitted-documents` entries have one date and
    `submissionStatus` 0/1; `statusFilter` is only `graded | ungraded | late | ontime`.
 

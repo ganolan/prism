@@ -7,16 +7,20 @@ const MAX_LESSONS = 60;
 
 // The inline "Extend by N lessons" editor that opens inside a triage row's expanded
 // area in place of its buttons (late work, make-up tests). Re-extending pre-fills the current extension.
-export default function ExtendEditor({ extension, onSave, onCancel }) {
+// `showNote` hides the note field for callers whose write doesn't persist one
+// (resubmissions: a note typed here would be silently dropped).
+export default function ExtendEditor({ extension, onSave, onCancel, showNote = true }) {
   const [lessons, setLessons] = useState(extension?.lessons ?? DEFAULT_LESSONS);
   const [note, setNote] = useState(extension?.note ?? '');
   return (
     <>
       <NumberStepper value={lessons} min={1} max={MAX_LESSONS} onChange={setLessons} aria-label="Extension (lessons)" />
-      <input
-        className="triage-note" placeholder="Note (optional)" aria-label="Extension note"
-        value={note} onChange={(e) => setNote(e.target.value)}
-      />
+      {showNote && (
+        <input
+          className="triage-note" placeholder="Note (optional)" aria-label="Extension note"
+          value={note} onChange={(e) => setNote(e.target.value)}
+        />
+      )}
       <button className="secondary btn-sm" onClick={() => onSave(lessons, note)}>Save</button>
       <button className="ghost" onClick={onCancel}>Cancel</button>
     </>

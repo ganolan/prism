@@ -288,7 +288,7 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
     WHERE status = 'completed' ORDER BY at DESC, id DESC LIMIT 1
   `).get();
   const resubmissionHistoryCount = courseIds.length
-    ? db.prepare(`SELECT COUNT(*) AS n FROM resubmissions WHERE course_id IN (${inScope}) AND NOT (kind = 'request' AND status = 'open')`).get(...courseIds).n
+    ? db.prepare(`SELECT COUNT(*) AS n FROM resubmissions WHERE course_id IN (${inScope})`).get(...courseIds).n
     : 0;
 
   return {

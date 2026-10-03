@@ -626,7 +626,7 @@ describe('Resubmissions panel', () => {
 
     fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
     fireEvent.change(within(panel).getByLabelText('Close note'), { target: { value: 'grade stands' } });
-    fireEvent.click(within(panel).getByRole('button', { name: 'Confirm close' }));
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close request' }));
     await waitFor(() => expect(api.updateResubmission).toHaveBeenCalledWith(41, { close: true, note: 'grade stands' }));
   });
   it('row names link to the student card on the assessment page', async () => {
@@ -634,5 +634,41 @@ describe('Resubmissions panel', () => {
     renderSection();
     const panel = await screen.findByLabelText('Resubmissions');
     expect(within(panel).getByRole('link', { name: 'Lena Ho' }).getAttribute('href')).toBe('/course/5/assessment/r30?student=11');
+  });
+  it('Extend on a waiting row sends only lessons (no note field)', async () => {
+    api.getTriage.mockResolvedValue({ ...PAYLOAD, resubmissions: RESUB, resubmissionHistoryCount: 2, counts: {} });
+    renderSection();
+    const panel = await screen.findByLabelText('Resubmissions');
+    const ravi = rowOf(within(panel).getByText('Ravi Shah'));
+    fireEvent.click(within(ravi).getByRole('button', { name: 'Extend' }));
+    expect(within(ravi).getByLabelText('Extension (lessons)')).toHaveValue(3);
+    expect(within(ravi).queryByLabelText('Extension note')).not.toBeInTheDocument();
+    fireEvent.click(within(ravi).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.updateResubmission).toHaveBeenCalledWith(41, { lessons: 3 }));
+  });
+  it('stays mounted after Reviewed empties the list: "All caught up." and the history link remain', async () => {
+    api.getTriage.mockResolvedValueOnce({ ...PAYLOAD, resubmissions: [RESUB[0]], resubmissionHistoryCount: 1, counts: {} });
+    api.getTriage.mockResolvedValueOnce({ ...PAYLOAD, resubmissions: [], resubmissionHistoryCount: 2, counts: {} });
+    renderSection();
+    const panel = await screen.findByLabelText('Resubmissions');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Reviewed' }));
+    await waitFor(() => expect(api.reviewResubmission).toHaveBeenCalledWith({ studentId: 11, assignmentId: 30 }));
+    const after = await screen.findByLabelText('Resubmissions'); // still mounted, not unmounted-then-remounted
+    await waitFor(() => expect(within(after).getByText('All caught up.')).toBeInTheDocument());
+    expect(within(after).getByRole('button', { name: /^History \(2\)/ })).toBeInTheDocument();
+  });
+  it('History lists resubmission records with an outcome badge; Undo calls undoResubmission', async () => {
+    api.getTriage.mockResolvedValue({ ...PAYLOAD, resubmissions: RESUB, resubmissionHistoryCount: 1, counts: {} });
+    api.getResubmissions.mockResolvedValue([
+      { id: 50, outcome: 'reviewed', studentName: 'Maya Chen', title: 'CP1', courseName: 'AIML', updatedAt: '2026-10-10 01:00:00', createdAt: '2026-10-09 01:00:00' },
+    ]);
+    api.undoResubmission.mockResolvedValue({ deleted: true });
+    renderSection();
+    const panel = await screen.findByLabelText('Resubmissions');
+    fireEvent.click(within(panel).getByRole('button', { name: /^History/ }));
+    const history = await screen.findByLabelText('Resubmission history');
+    expect(await within(history).findByText('Reviewed')).toBeInTheDocument();
+    fireEvent.click(within(history).getByText('Undo'));
+    await waitFor(() => expect(api.undoResubmission).toHaveBeenCalledWith(50));
   });
 });

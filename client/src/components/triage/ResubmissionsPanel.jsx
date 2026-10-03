@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import UrgencyRing from './UrgencyRing.jsx';
 import CourseLine from './CourseLine.jsx';
@@ -11,7 +11,11 @@ import { formatDate } from '../../lib/formatDate.js';
 // the last feedback (day 1 = its date, regrade by day feedbackLimitDays); "waiting"
 // = asked to resubmit (day 1 = the ask, deadline `until`). Arrived rows: Reviewed
 // (grade stands). Waiting rows: Close (grade stands, optional note) + Extend.
-// Hidden when empty. Row names open the student's card on the assessment page.
+// Hidden on a fresh load with no rows. Once the panel has shown rows during this
+// mount, it stays mounted even after the list empties out (e.g. the last row was
+// just Reviewed/Closed) — "All caught up." plus the History link, so the record
+// just made stays reachable instead of stranding Undo behind a vanished panel.
+// Row names open the student's card on the assessment page.
 export const cardLink = (r) => `/course/${r.courseId}/assessment/${r.schoologyAssignmentId}?student=${r.studentId}`;
 const left = (r) => (r.limit - r.day > 0 ? `${r.limit - r.day} left` : 'last day');
 
@@ -22,7 +26,9 @@ export default function ResubmissionsPanel({
   const [open, setOpen] = useState(null); // { key, mode: 'extend' | 'close' }
   const [closeNote, setCloseNote] = useState('');
   const [showAll, toggleShowAll] = useShowAll(`resub.${scope}`);
-  if (rows.length === 0 && !historyOpen) return null;
+  const hadRowsRef = useRef(false);
+  if (rows.length > 0) hadRowsRef.current = true;
+  if (rows.length === 0 && !historyOpen && !hadRowsRef.current) return null;
   const overdue = rows.filter((r) => r.tone === 'red').length;
   const key = (r) => `${r.studentId}:${r.assignmentId}`;
 
@@ -32,6 +38,7 @@ export default function ResubmissionsPanel({
         <ShowAllToggle total={rows.length} showAll={showAll} onToggle={toggleShowAll} />
       </PanelHead>
       <p className="triage-panel__sub">asked = day 1 · regrade by day {settings.feedbackLimitDays}</p>
+      {rows.length === 0 && <p className="text-sm text-muted">All caught up.</p>}
       {limitRows(rows, showAll).map((r) => {
         const k = key(r);
         const mode = open?.key === k ? open.mode : null;
@@ -71,13 +78,14 @@ export default function ResubmissionsPanel({
                   extension={{ lessons: r.lessons, note: '' }}
                   onSave={(lessons) => { onExtend(r, lessons); setOpen(null); }}
                   onCancel={() => setOpen(null)}
+                  showNote={false}
                 />
               </div>
             )}
             {mode === 'close' && (
               <div className="triage-row__more">
                 <input className="triage-note" placeholder="Note (optional)" aria-label="Close note" value={closeNote} onChange={(e) => setCloseNote(e.target.value)} />
-                <button className="secondary btn-sm" aria-label="Confirm close" onClick={() => { onClose(r, closeNote); setOpen(null); }}>Close request</button>
+                <button className="secondary btn-sm" onClick={() => { onClose(r, closeNote); setOpen(null); }}>Close request</button>
                 <button className="ghost" onClick={() => setOpen(null)}>Cancel</button>
               </div>
             )}
@@ -85,7 +93,7 @@ export default function ResubmissionsPanel({
         );
       })}
       <button className="ghost triage-panel__history" aria-expanded={historyOpen} onClick={onToggleHistory}>
-        Closed / reviewed ({historyCount}) ›
+        History ({historyCount}) ›
       </button>
       {historyOpen && (
         <ReferralHistory mode="resubmissions" courseId={courseId} version={historyVersion} onClose={onCloseHistory} onChanged={onHistoryChanged} />

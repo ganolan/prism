@@ -130,8 +130,13 @@ For a planned restart (e.g. macOS updates) skip the prompt once with
 
 ## Schoology session expired
 
-Mastery sync fails with a clear error; the rest of the app keeps working.
-Screen-share into the mini and run:
+Mastery sync, OneDrive links and the Ask modal's "unsubmit their OneDrive work"
+option need the saved session; the rest of the app keeps working. **Settings →
+Schoology connection** shows whether it is live (*Connected · checked HH:MM* /
+*Expired* / *Not set up*, re-checked at most every 10 minutes, or on *Check now*)
+and its **Log in to Schoology** button opens the login window on the mini's
+screen — screen-share to it. The Ask modal links there when the session has
+expired. Or screen-share into the mini and run:
 
 ```bash
 cd ~/prism/current && PRISM_SESSION_DIR=$HOME/prism/data/.playwright-session npm run mastery:login

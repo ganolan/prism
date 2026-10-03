@@ -1113,3 +1113,32 @@ stands (only once the deadline has passed) / Undo; an arrived resubmission shows
 *Awaiting your feedback — regrade or comment (visible)* instead of a button. In the triage panel the
 arrived tag reads `↩ arrived · awaiting feedback`, red Waiting rows stack **Grade stands** above Extend,
 and other Waiting rows "N left" above Extend.
+
+### Unsubmit on Ask + Schoology connection card (2026-10-03 — Phase 2)
+
+**Unsubmit checkbox.** An Ask on OneDrive (LTI) work Prism last saw submitted adds one checkbox to the
+`StatusLineModal`, under the line: *Unsubmit their OneDrive work in Schoology so they can edit it*, default
+**on** (the usual reason to ask is that they need to edit it). It reuses `.status-line-modal__check`; while
+it is ticked the consequence line gains *Unsubmits their OneDrive work in Schoology so they can edit it.*
+and the busy label reads *Publishing and unsubmitting…*, so the second write is never a surprise. It is
+not shown for other work. When the saved Schoology session is expired (or was never set up) the box is
+disabled and unticked, with a `.link` *Schoology connection expired — reconnect in Settings ›* to
+`/settings#schoology` underneath — the teacher can still publish the ask on its own.
+
+**Failure is a warning, not an error.** The ask is recorded either way. If the unsubmit fails, the modal
+stays open with an `.alert-warning` (*Published and recorded — but their work is still submitted.* + the
+reason) and an external link *unsubmit it in Schoology ›* (`target="_blank"`, `rel="noopener noreferrer"`)
+to the assignment page whose grader has Schoology's own Unsubmit button; the only action is Close. The
+triage row and the card show the same short note, `.unsubmit-failed` (warning colour, bold, link
+underlined), until a sync sees the work in progress. Prism never re-submits, so Undo and Grade stands on
+unsubmitted work append *Their work stays unsubmitted in Schoology.* to their consequence line.
+
+**Schoology connection card.** Settings → *Schoology connection* (`id="schoology"`, the anchor the modal
+links to) is one status line plus two controls: `SchoologyConnectionStatus` — a small dot
+(`.schoology-connection__dot--success` / `--warning`, muted while unknown) and bold text *Connected ·
+checked HH:MM* (en-GB 24-hour), *Expired* (the server's reason in the tooltip) or *Not set up* — with a
+ghost *Check now* button (forces a re-check; hidden when there is no session to check), and a secondary
+*Log in to Schoology* button with the muted note *Opens a Schoology login window on the server —
+screen-share to it if you're away.* (UI copy says "the server", never the machine's name). The Sync
+dialog's mastery step shows the same component beside its login option and offers the login when the
+session has expired, so the status reads identically wherever it appears.

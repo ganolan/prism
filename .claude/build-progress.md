@@ -917,6 +917,26 @@ the original 56-day gap and the fixed/re-verified result are in `.claude/powersc
   first submission graded in Schoology with rubric levels only, or lti inside R's minute, then any Prism
   save/publish → Arrived until Schoology writes a score/visible comment after R; safe direction), S6b
   (pinned; needs a grade time moving backwards). Details: spec "Absorption (rounds 6–7)".
+- **Phase 2 — LTI unsubmit on Ask + Schoology connection card (2026-10-03, branch
+  `feat/lti-unsubmit-on-ask`).** Ask (`POST /api/triage/resubmissions`, PrisMCP `request_resubmission`)
+  takes `unsubmit`: validate (LTI + `lti_submission_state = 'submitted'`) → publish the ask line →
+  unsubmit with the verified call (`server/services/ltiUnsubmit.js`: `POST /iapi2/assignments/{aid}/
+  submission-action/{uid}` body exactly `{"isSubmit":false}`, CSRF pair from the `/assignments/{aid}/info`
+  page, confirmed via `in-progress-documents`, then `grades.lti_submission_state = 'in_progress'`) →
+  record (`askResubmission` in `server/services/triageActions.js`, shared by route and PrisMCP). A failed
+  unsubmit still records the ask: new `resubmissions.unsubmit_error` (schema + MIGRATIONS), the response's
+  `unsubmit: { ok: false, error, url }` (the Schoology assignment page with its own Unsubmit button), and
+  "Unsubmit failed — unsubmit it in Schoology ›" on the triage row and card until a sync sees the work in
+  progress or a newer submission (`clearSettledUnsubmitErrors`, run from `settleResubmissions`). Never
+  re-submits; Undo / Grade stands on unsubmitted work say it stays unsubmitted. PrisMCP defaults
+  `unsubmit` to true for submitted LTI work. `GET /api/mastery/login-status` now adds `live`
+  (`connected | expired | none`) + `checkedAt` from one cached (10 min) page load with the saved session
+  (`server/services/schoologySession.js`; `?refresh=1`, `?check=0`). Settings gets a **Schoology
+  connection** card (`#schoology`: status, Check now, Log in to Schoology — opens on the server); the Sync
+  dialog shows the same status (`SchoologyConnectionStatus.jsx`). Tests mock the browser layer
+  (`server/testing/fakeSchoologyPage.js` runs the real in-page code against a stub window + fetch); no
+  Schoology call was made while building it. Still unverified live: whether the student's OneDrive copy
+  becomes editable and whether they are notified (spec "Phase 2 — LTI unsubmit on Ask").
 
 ## Sync resilience + persistent sync log (2026-10-02, branch `feat/sync-resilience-logs`)
 

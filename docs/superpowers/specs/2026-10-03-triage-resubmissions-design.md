@@ -183,7 +183,7 @@ earlier in the same sync owns it. `submissionDate` goes to `latest_revision_at` 
 state?). `extend_deadline` gains optional `resubmission_id`. `get_triage` returns `resubmissions`;
 `get_assignment_context` gains per-student `resubmission` (state, deadline, source).
 
-## Phase 2 — Schoology side (designed; build gated on the write probe)
+## Phase 2 — Schoology side (designed; build gated on the write probe — unsubmit built 2026-10-03, see "Phase 2 — LTI unsubmit on Ask" at the end)
 
 The ask editor gains two options, each with a Settings default, each a separate write made **after** the
 Prism record is saved; a failed write shows a warning on the row and is never silently rolled back.
@@ -706,3 +706,51 @@ can be published:
   The script never calls Publish — it screenshots the open modal, then presses Cancel; `status_lines` and
   the seeded `resubmissions` rows were confirmed unchanged afterwards. PNGs saved under `/tmp/amendb-*.png`
   (not committed — the repo is public and the seed used real student names from the dev-clone data).
+
+## Phase 2 — LTI unsubmit on Ask (built 2026-10-03)
+
+**Verified call (2026-10-03, one archived formative; `.claude/schoology-api-reference.md`, "VERIFIED
+2026-10-03"):** `POST {SCHOOLOGY_BASE}/iapi2/assignments/{aid}/submission-action/{uid}` with body exactly
+`{"isSubmit":false}`, `Content-Type`/`Accept: application/json`, and `X-Csrf-Token` + `X-Csrf-Key` read
+from `Drupal.settings.s_common` (`csrf_token` / `csrf_key`) on the loaded `/assignments/{aid}/info` page in
+the saved browser session. `200 {"data":[]}` is success, and Prism then confirms the student is in
+`in-progress-documents` (up to 3 reads, 1.5 s apart); anything else is a failure. Grade, comment and the
+REST grade timestamp are untouched. `server/services/ltiUnsubmit.js`; the body is fixed inside the in-page
+function, never a parameter.
+
+**No re-submit.** A teacher re-submit (`{"isSubmit":true}`) re-stamps the work as submitted *now* and late;
+the original date can't be restored. Prism never sends it. Undo of an ask, and Grade stands on unsubmitted
+work, say *Their work stays unsubmitted in Schoology.*
+
+**Order** (`askResubmission` in `server/services/triageActions.js`, shared by `POST
+/api/triage/resubmissions` and PrisMCP `request_resubmission`), all under the per-pair lock: validate (the
+ask; with `unsubmit`, also LTI work Prism last saw `submitted` — else `NOT_ELIGIBLE` before anything is
+written) → publish the ask line → unsubmit → record. On success the local
+`grades.lti_submission_state` becomes `in_progress` and the response carries `unsubmit: { ok: true }`.
+
+**Failure after validation** (no / a dead session → `Schoology connection expired — reconnect in
+Settings`; a refusal; no confirmation): the ask is still recorded (the line was already published). The
+response carries `unsubmit: { ok: false, error, url }` with `url` = `{SCHOOLOGY_BASE}/assignments/{aid}/info`
+(Schoology's own Unsubmit button); `resubmissions.unsubmit_error` keeps the message so the triage row and
+the card show *Unsubmit failed — unsubmit it in Schoology ›* with that link. It clears when a sync sees the
+work in progress (or not started), or a submission newer than the ask (`clearSettledUnsubmitErrors`, run by
+`settleResubmissions`), or when a later unsubmit of the pair succeeds. If the record step itself fails
+after a successful unsubmit, the 500 says the work WAS unsubmitted (`unsubmitted: true`).
+
+**Who offers it.** Rows and history carry `ltiState`, `unsubmitAvailable` (LTI + submitted),
+`unsubmitError`, `unsubmitUrl`; the card's student carries `unsubmit_available`. The Ask confirm shows
+*Unsubmit their OneDrive work in Schoology so they can edit it* (default on) only then; the consequence line
+mentions it while checked; busy text *Publishing and unsubmitting…*. PrisMCP defaults `unsubmit` to true for
+submitted LTI work and reports the outcome (with the link on failure). Prism never relogs in for an unsubmit.
+
+**Session card.** `GET /api/mastery/login-status` returns `{ loggedIn, live: 'connected' | 'expired' |
+'none', checkedAt }`: one cheap authenticated page load (`/home` still on the school domain), cached 10
+minutes, `?refresh=1` re-checks, `?check=0` never opens a browser; errors read as `expired` with a message
+(`server/services/schoologySession.js`). Settings → **Schoology connection** (`#schoology`) shows it with
+*Check now* and *Log in to Schoology* (the existing `POST /api/mastery/login`, which opens on the server);
+the Sync dialog shows the same status. While the session is expired or missing, the Ask checkbox is
+disabled with a link to that card.
+
+**Still unverified live:** whether the student's OneDrive copy becomes editable again, and whether the
+student is notified. PrisMCP needs `PRISM_SESSION_DIR` in its environment to find the saved session; without
+it the unsubmit fails safely (recorded, link shown).

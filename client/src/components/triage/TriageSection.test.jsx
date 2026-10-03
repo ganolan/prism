@@ -688,6 +688,23 @@ describe('Resubmissions panel', () => {
   };
   const actionsOf = (panel, name) => rowOf(within(panel).getByText(name)).querySelector('.triage-row__actions');
 
+  it('a row whose LTI unsubmit failed says so and links the Schoology assignment page (new tab)', async () => {
+    const url = 'https://schoology.hkis.edu.hk/assignments/r30/info';
+    const panel = await resubPanel([{ ...RESUB3[2], unsubmitError: 'Schoology connection expired — reconnect in Settings', unsubmitUrl: url }]);
+    const link = within(panel).getByRole('link', { name: 'unsubmit it in Schoology ›' });
+    expect(link).toHaveAttribute('href', url);
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link.getAttribute('rel')).toMatch(/noopener/);
+    expect(within(panel).getByText(/Unsubmit failed/)).toBeInTheDocument();
+  });
+
+  it('Grade stands on unsubmitted OneDrive work says it stays unsubmitted', async () => {
+    const panel = await resubPanel([{ ...RESUB[1], ltiState: 'in_progress' }]);
+    fireEvent.click(within(panel).getByRole('button', { name: 'Grade stands' }));
+    await dialog();
+    expect(screen.getByText('Ends the resubmission request: missed deadline, grade stands. Their work stays unsubmitted in Schoology.')).toBeInTheDocument();
+  });
+
   it('is hidden when there are no resubmission rows', async () => {
     renderSection();
     await latePanel();

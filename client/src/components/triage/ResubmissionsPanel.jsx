@@ -6,6 +6,7 @@ import ExtendEditor from './ExtendEditor.jsx';
 import { PanelHead, ShowAllToggle, useShowAll, limitRows } from './panelParts.jsx';
 import ReferralHistory from './ReferralHistory.jsx';
 import { formatDate } from '../../lib/formatDate.js';
+import UnsubmitFailedNote from '../UnsubmitFailedNote.jsx';
 
 // Resubmissions: per student × assessment (spec Amendment B). "arrived" = a
 // resubmission still awaiting visible feedback (day 1 = its date, regrade by day
@@ -18,7 +19,9 @@ import { formatDate } from '../../lib/formatDate.js';
 // mount, it stays mounted even after the list empties out (e.g. the last row was
 // just closed) — "All caught up." plus the History link, so the record just made
 // stays reachable instead of stranding Undo behind a vanished panel.
-// Row names open the student's card on the assessment page.
+// Row names open the student's card on the assessment page. A failed LTI unsubmit on the
+// ask (Phase 2) shows "Unsubmit failed — unsubmit it in Schoology ›" until a sync sees
+// the work in progress.
 export const cardLink = (r) => `/course/${r.courseId}/assessment/${r.schoologyAssignmentId}?student=${r.studentId}`;
 const left = (r) => (r.limit - r.day > 0 ? `${r.limit - r.day} left` : 'last day');
 
@@ -59,6 +62,7 @@ export default function ResubmissionsPanel({
               </div>
               {showCourse && <CourseLine row={r} />}
               <div className="triage-row__task" title={r.title}>{r.title}</div>
+              {r.unsubmitError && <UnsubmitFailedNote url={r.unsubmitUrl} error={r.unsubmitError} className="text-sm" />}
             </div>
             {!arrived && (
               <div className="triage-row__actions">

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { previewStatusLine } from '../services/api.js';
 import { composeComment, plainLine, isPlainLine } from '../lib/statusLines.js';
+import { useSchoologyConnection, connectionState } from './SchoologyConnectionStatus.jsx';
 
 // The confirm step before Prism writes to a student's Schoology comment (triage
 // resubmissions spec, Amendment B → "Status lines" → confirm modal). Every
@@ -19,6 +20,13 @@ import { composeComment, plainLine, isPlainLine } from '../lib/statusLines.js';
 // `undoSource` ({ sourceType, sourceId }) is the record being undone — the server only
 // removes the stored line if that record published it.
 //
+// offerUnsubmit (an Ask on OneDrive/LTI work Prism last saw submitted — Phase 2): a
+// checkbox, default on, to also unsubmit their work in Schoology so they can edit it;
+// onConfirm(line, { unsubmit }). Disabled (with a Settings link) while the Schoology
+// connection is expired / not set up. If onConfirm resolves to a result whose unsubmit
+// failed ({ unsubmit: { ok: false, error, url } }), the modal stays open to say so,
+// with a link to the Schoology page that has its own Unsubmit button, and offers Close.
+//
 // Focus: moves into the dialog on open (the line, or the dialog itself in removeMode —
 // never the primary button), Tab is trapped inside, and focus returns on close.
 // Parents give each action its own `key`, so a new action always remounts it.
@@ -27,7 +35,7 @@ const FOCUSABLE = 'button:not([disabled]), textarea:not([disabled]), input:not([
 export default function StatusLineModal({
   studentName, studentId, assignmentId, title, consequence,
   defaultLine = '', loadDefaultLine = null, confirmLabel, removeMode = false, undoSource = null,
-  onConfirm, onCancel,
+  offerUnsubmit = false, onConfirm, onCancel,
 }) {
   const [line, setLine] = useState(loadDefaultLine ? '' : defaultLine);
   const [lineReady, setLineReady] = useState(!loadDefaultLine);
@@ -37,6 +45,9 @@ export default function StatusLineModal({
   const [remove, setRemove] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null); // { message, published }
+  const [unsubmit, setUnsubmit] = useState(true);
+  const [unsubmitFailed, setUnsubmitFailed] = useState(null); // { error, url } after a recorded ask
+  const connection = useSchoologyConnection({ enabled: offerUnsubmit && !removeMode });
   const inFlight = useRef(false);
   const dialogRef = useRef(null);
   const lineRef = useRef(null);
@@ -105,7 +116,12 @@ export default function StatusLineModal({
   );
   const willRemove = remove && !nothingToRemove && !notOurs;
   const resulting = removeMode ? (willRemove ? withoutLine : current) : composeComment(current, stored, text);
-  const canConfirm = Boolean(preview) && !busy && !error?.published && (removeMode || (text !== '' && !notPlain));
+  // The unsubmit option: offered, and not blocked by a dead / missing Schoology session.
+  const offered = offerUnsubmit && !removeMode;
+  const conn = offered ? connectionState(connection.status) : null;
+  const sessionBlocked = conn === 'expired' || conn === 'none';
+  const willUnsubmit = offered && unsubmit && !sessionBlocked;
+  const canConfirm = Boolean(preview) && !busy && !error?.published && !unsubmitFailed && (removeMode || (text !== '' && !notPlain));
 
   async function confirm() {
     if (inFlight.current) return;
@@ -113,7 +129,13 @@ export default function StatusLineModal({
     setBusy(true);
     setError(null);
     try {
-      await onConfirm(removeMode ? remove : text);
+      const result = await (offered ? onConfirm(text, { unsubmit: willUnsubmit }) : onConfirm(removeMode ? remove : text));
+      // The ask was recorded but the unsubmit failed: stay open to say so (the parent
+      // closes the modal itself on full success).
+      if (result?.unsubmit && result.unsubmit.ok === false) {
+        setUnsubmitFailed({ error: result.unsubmit.error, url: result.unsubmit.url });
+        setBusy(false);
+      }
     } catch (err) {
       setError({ message: err.message, published: Boolean(err.published) });
       setBusy(false);
@@ -136,7 +158,11 @@ export default function StatusLineModal({
         <h3 id="status-line-modal-title" className="status-line-modal__title">{heading}</h3>
         {title && <div className="status-line-modal__task text-sm text-muted">{title}</div>}
         <p className="status-line-modal__sub">{sub}</p>
-        {consequence && <p className="status-line-modal__consequence">{consequence}</p>}
+        {consequence && (
+          <p className="status-line-modal__consequence">
+            {consequence}{willUnsubmit ? ' Unsubmits their OneDrive work in Schoology so they can edit it.' : ''}
+          </p>
+        )}
 
         {removeMode ? (
           <label className="status-line-modal__check">
@@ -152,6 +178,23 @@ export default function StatusLineModal({
               onChange={(e) => setLine(e.target.value.replace(/[\r\n]+/g, ' '))}
             />
           </label>
+        )}
+
+        {offered && (
+          <div className="status-line-modal__unsubmit">
+            <label className="status-line-modal__check">
+              <input
+                type="checkbox" checked={willUnsubmit} disabled={busy || sessionBlocked || Boolean(unsubmitFailed)}
+                onChange={(e) => setUnsubmit(e.target.checked)}
+              />
+              Unsubmit their OneDrive work in Schoology so they can edit it
+            </label>
+            {sessionBlocked && (
+              <a className="link text-sm status-line-modal__reconnect" href="/settings#schoology">
+                {conn === 'none' ? 'Schoology connection not set up — connect in Settings ›' : 'Schoology connection expired — reconnect in Settings ›'}
+              </a>
+            )}
+          </div>
         )}
 
         {notPlain && (
@@ -199,14 +242,26 @@ export default function StatusLineModal({
           </div>
         )}
 
+        {unsubmitFailed && (
+          <div className="alert alert-warning" role="alert">
+            <strong>Published and recorded — but their work is still submitted.</strong>
+            <div>
+              {unsubmitFailed.error ? `${unsubmitFailed.error}. ` : ''}Unsubmit failed —{' '}
+              {unsubmitFailed.url
+                ? <a className="link" href={unsubmitFailed.url} target="_blank" rel="noopener noreferrer">unsubmit it in Schoology ›</a>
+                : 'unsubmit it in Schoology.'}
+            </div>
+          </div>
+        )}
+
         <div className="status-line-modal__actions">
-          {error?.published ? (
+          {error?.published || unsubmitFailed ? (
             <button type="button" className="secondary" onClick={onCancel}>Close</button>
           ) : (
             <>
               <button type="button" className="ghost" disabled={busy} onClick={close}>Cancel</button>
               <button type="button" className="primary" disabled={!canConfirm} onClick={confirm}>
-                {busy ? (removeMode ? 'Working…' : 'Publishing…') : confirmLabel}
+                {busy ? (removeMode ? 'Working…' : (willUnsubmit ? 'Publishing and unsubmitting…' : 'Publishing…')) : confirmLabel}
               </button>
             </>
           )}

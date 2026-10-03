@@ -26,9 +26,11 @@ const mayHaveLine = (r) => r.kind === 'extension' || (r.kind === 'resubmission' 
 
 function undoConsequence(r) {
   if (r.kind === 'extension') return 'Deletes this extension from Prism.';
+  // Prism never re-submits: unsubmitted OneDrive work stays that way after an Undo.
+  const stays = r.ltiState === 'in_progress' ? ' Their work stays unsubmitted in Schoology.' : '';
   // An auto-added (Schoology Unsubmit) request is closed, not deleted, by Undo.
-  if (r.source === 'schoology_unsubmit') return 'Closes this resubmission request in Prism.';
-  return 'Deletes this resubmission record from Prism.';
+  if (r.source === 'schoology_unsubmit') return `Closes this resubmission request in Prism.${stays}`;
+  return `Deletes this resubmission record from Prism.${stays}`;
 }
 
 // Referrals and deadline extensions (mode 'late', the default), or resubmission

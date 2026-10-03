@@ -463,8 +463,9 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // unsaved draft keeps the teacher's edits with the line swapped at the top
   // (composeComment against the line on top now); a clean editor takes the comment
   // Schoology now holds.
-  function handleResubmitChange(resubmission, commentChange = null) {
-    const patch = { resubmission, resubmit_flag: resubmission?.request ? { id: resubmission.request.id } : null };
+  // extra: other card fields the action changed (an Ask's unsubmit → the work is in progress).
+  function handleResubmitChange(resubmission, commentChange = null, extra = null) {
+    const patch = { resubmission, resubmit_flag: resubmission?.request ? { id: resubmission.request.id } : null, ...(extra || {}) };
     if (commentChange) {
       const newLine = commentChange.line || '';
       if (commentDirty) {

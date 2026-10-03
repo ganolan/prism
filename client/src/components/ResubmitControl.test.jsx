@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react';
 import ResubmitControl from './ResubmitControl.jsx';
 import * as api from '../services/api.js';
 
 vi.mock('../services/api.js', () => ({
   requestResubmission: vi.fn(), updateResubmission: vi.fn(), undoResubmission: vi.fn(),
-  previewStatusLine: vi.fn(), getStatusLineUntil: vi.fn(),
+  previewStatusLine: vi.fn(), getStatusLineUntil: vi.fn(), getMasteryLoginStatus: vi.fn(),
 }));
-const student = (resubmission = null) => ({ id: 7, schoology_uid: 'u7', first_name: 'Maya', last_name: 'Chen', resubmission });
+const student = (resubmission = null, extra = {}) => ({ id: 7, schoology_uid: 'u7', first_name: 'Maya', last_name: 'Chen', resubmission, ...extra });
 const waiting = (until = '2026-10-15') => ({ state: 'waiting', request: { id: 3, lessons: 3, until } });
 const modal = () => screen.getByRole('dialog');
 const writes = ['requestResubmission', 'updateResubmission', 'undoResubmission'];
@@ -18,12 +18,13 @@ beforeEach(() => {
   vi.setSystemTime(new Date(2026, 9, 10, 9, 0)); // Sat 10/10/2026, local
   api.previewStatusLine.mockResolvedValue({ currentComment: 'Good start.', visible: true, storedLine: null, hiddenWarning: false });
   api.getStatusLineUntil.mockResolvedValue({ until: '2026-10-15', lessons: 3 });
+  api.getMasteryLoginStatus.mockResolvedValue({ loggedIn: true, live: 'connected', checkedAt: '2026-10-03T06:05:00Z' });
 });
 afterEach(() => vi.useRealTimers());
 
-function renderControl(r = null, props = {}) {
+function renderControl(r = null, props = {}, extra = {}) {
   const onChange = vi.fn();
-  render(<ResubmitControl student={student(r)} assignmentId={30} title="CP2" defaultLessons={3} onChange={onChange} {...props} />);
+  render(<ResubmitControl student={student(r, extra)} assignmentId={30} title="CP2" defaultLessons={3} onChange={onChange} {...props} />);
   return onChange;
 }
 
@@ -225,5 +226,79 @@ describe('ResubmitControl', () => {
   it('does not render when assignmentId is missing', () => {
     render(<ResubmitControl student={student()} assignmentId={undefined} defaultLessons={3} onChange={vi.fn()} />);
     expect(screen.queryByRole('button', { name: /Ask to resubmit/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('ResubmitControl — unsubmit on Ask (Phase 2)', () => {
+  const LINE = 'Resubmission requested - due Thu 15/10.';
+  const BOX = 'Unsubmit their OneDrive work in Schoology so they can edit it';
+  const openAsk = async () => {
+    fireEvent.click(screen.getByRole('button', { name: /Ask to resubmit/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+    await screen.findByDisplayValue(LINE);
+    await screen.findByLabelText('Their comment will read');
+  };
+
+  it('no unsubmit option unless the card says it is available', async () => {
+    renderControl(null, {}, { lti_submission_state: 'in_progress', unsubmit_available: false });
+    await openAsk();
+    expect(screen.queryByRole('checkbox', { name: BOX })).not.toBeInTheDocument();
+    api.requestResubmission.mockResolvedValue({ id: 3, outcome: 'asked' });
+    fireEvent.click(screen.getByRole('button', { name: 'Publish & ask' }));
+    await waitFor(() => expect(api.requestResubmission).toHaveBeenCalledWith({ studentId: 7, assignmentId: 30, lessons: 3, note: '', commentLine: LINE }));
+  });
+
+  it('available: checked by default, sent with the ask; success closes and marks the work in progress', async () => {
+    api.requestResubmission.mockResolvedValue({ id: 3, outcome: 'asked', unsubmit: { ok: true }, statusLine: { comment: `${LINE}\n\nGood start.`, line: LINE } });
+    const onChange = renderControl(null, {}, { lti_submission_state: 'submitted', unsubmit_available: true });
+    await openAsk();
+    expect(screen.getByRole('checkbox', { name: BOX })).toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: 'Publish & ask' }));
+    await waitFor(() => expect(api.requestResubmission).toHaveBeenCalledWith({ studentId: 7, assignmentId: 30, lessons: 3, note: '', commentLine: LINE, unsubmit: true }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(onChange).toHaveBeenCalledWith(
+      { state: 'waiting', request: { id: 3, outcome: 'asked' } },
+      { comment: `${LINE}\n\nGood start.`, line: LINE, kind: 'ask' },
+      { lti_submission_state: 'in_progress', unsubmit_available: false },
+    );
+  });
+
+  it('a failed unsubmit: the ask is recorded (card updated), the modal stays open with the Schoology link', async () => {
+    const url = 'https://schoology.hkis.edu.hk/assignments/a1/info';
+    api.requestResubmission.mockResolvedValue({
+      id: 3, outcome: 'asked', unsubmitError: 'Schoology connection expired — reconnect in Settings', unsubmitUrl: url,
+      unsubmit: { ok: false, error: 'Schoology connection expired — reconnect in Settings', url },
+    });
+    const onChange = renderControl(null, {}, { lti_submission_state: 'submitted', unsubmit_available: true });
+    await openAsk();
+    fireEvent.click(screen.getByRole('button', { name: 'Publish & ask' }));
+    const alert = await screen.findByRole('alert');
+    expect(within(alert).getByRole('link', { name: 'unsubmit it in Schoology ›' })).toHaveAttribute('href', url);
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(onChange).toHaveBeenCalledWith(
+      { state: 'waiting', request: expect.objectContaining({ id: 3, unsubmitError: expect.any(String), unsubmitUrl: url }) },
+      null,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('an open request whose unsubmit failed shows the note with the Schoology link on the card', () => {
+    const url = 'https://schoology.hkis.edu.hk/assignments/a1/info';
+    renderControl({ state: 'waiting', request: { id: 3, lessons: 3, until: '2026-10-15', unsubmitError: 'boom', unsubmitUrl: url } });
+    const link = screen.getByRole('link', { name: 'unsubmit it in Schoology ›' });
+    expect(link).toHaveAttribute('href', url);
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(screen.getByText(/Unsubmit failed/)).toBeInTheDocument();
+  });
+
+  it('Undo / Grade stands on unsubmitted work say it stays unsubmitted (no re-submit)', async () => {
+    renderControl(waiting('2026-10-08'), {}, { lti_submission_state: 'in_progress' });
+    fireEvent.click(screen.getByRole('button', { name: /Resubmit by/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(screen.getByText('Deletes this resubmission request from Prism. Their work stays unsubmitted in Schoology.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Grade stands' }));
+    expect(screen.getByText(/grade stands\. Their work stays unsubmitted in Schoology\./)).toBeInTheDocument();
   });
 });

@@ -8,6 +8,7 @@ vi.mock('../services/api.js', () => ({
   previewStatusLine: vi.fn(),
   requestResubmission: vi.fn(), updateResubmission: vi.fn(), undoResubmission: vi.fn(),
   recordExtension: vi.fn(), undoExtension: vi.fn(),
+  getMasteryLoginStatus: vi.fn(),
 }));
 
 const LINE = 'Resubmission deadline (Thu 08/10) passed - your grade stands.';
@@ -35,6 +36,7 @@ const preview$ = () => screen.getByLabelText('Their comment will read');
 beforeEach(() => {
   vi.clearAllMocks();
   api.previewStatusLine.mockResolvedValue(preview());
+  api.getMasteryLoginStatus.mockResolvedValue({ loggedIn: true, live: 'connected', checkedAt: '2026-10-03T06:05:00Z' });
 });
 
 describe('StatusLineModal', () => {
@@ -318,5 +320,81 @@ describe('StatusLineModal — focus, alerts, guards', () => {
     await waitFor(() => expect(preview$()).toHaveTextContent('Fixed in Schoology.'));
     expect(api.previewStatusLine).toHaveBeenCalledTimes(2);
     expect(screen.queryByText(/hidden comment/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('StatusLineModal — unsubmit on Ask (Phase 2)', () => {
+  const ASK = 'Resubmission requested - due Thu 09/10.';
+  const askModal = (props = {}) => renderModal({
+    defaultLine: ASK, consequence: 'Asks Ravi Shah to resubmit within 3 lessons.', confirmLabel: 'Publish & ask', ...props,
+  });
+  const box = () => screen.getByRole('checkbox', { name: 'Unsubmit their OneDrive work in Schoology so they can edit it' });
+
+  it('no checkbox (and no session check) unless the work is offered for unsubmit', async () => {
+    askModal();
+    await waitFor(() => expect(preview$()).toBeInTheDocument());
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(api.getMasteryLoginStatus).not.toHaveBeenCalled();
+  });
+
+  it('offered: checked by default, the consequence says so, onConfirm gets { unsubmit: true }, busy text', async () => {
+    let resolve;
+    const onConfirm = vi.fn(() => new Promise((r) => { resolve = r; }));
+    askModal({ offerUnsubmit: true, onConfirm });
+    await waitFor(() => expect(preview$()).toBeInTheDocument());
+    await waitFor(() => expect(api.getMasteryLoginStatus).toHaveBeenCalled());
+    expect(box()).toBeChecked();
+    expect(screen.getByText(/Unsubmits their OneDrive work in Schoology so they can edit it\./)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Publish & ask' }));
+    expect(onConfirm).toHaveBeenCalledWith(ASK, { unsubmit: true });
+    expect(screen.getByRole('button', { name: 'Publishing and unsubmitting…' })).toBeDisabled();
+    resolve({ unsubmit: { ok: true } });
+  });
+
+  it('unchecked: the consequence drops it and onConfirm gets { unsubmit: false }', async () => {
+    const { onConfirm } = askModal({ offerUnsubmit: true });
+    await waitFor(() => expect(preview$()).toBeInTheDocument());
+    fireEvent.click(box());
+    expect(box()).not.toBeChecked();
+    expect(screen.queryByText(/Unsubmits their OneDrive work/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Publish & ask' }));
+    expect(onConfirm).toHaveBeenCalledWith(ASK, { unsubmit: false });
+  });
+
+  it('an expired Schoology connection disables it, with a link to Settings', async () => {
+    api.getMasteryLoginStatus.mockResolvedValue({ loggedIn: true, live: 'expired', checkedAt: null });
+    const { onConfirm } = askModal({ offerUnsubmit: true });
+    const link = await screen.findByRole('link', { name: 'Schoology connection expired — reconnect in Settings ›' });
+    expect(link).toHaveAttribute('href', '/settings#schoology');
+    expect(box()).toBeDisabled();
+    expect(box()).not.toBeChecked();
+    await waitFor(() => expect(preview$()).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Publish & ask' }));
+    expect(onConfirm).toHaveBeenCalledWith(ASK, { unsubmit: false });
+  });
+
+  it('no saved session: disabled with a set-up link', async () => {
+    api.getMasteryLoginStatus.mockResolvedValue({ loggedIn: false, live: 'none', checkedAt: null });
+    askModal({ offerUnsubmit: true });
+    expect(await screen.findByRole('link', { name: /connect in Settings/ })).toHaveAttribute('href', '/settings#schoology');
+    expect(box()).toBeDisabled();
+  });
+
+  it('a failed unsubmit keeps the modal open: warning + a link to Schoology (new tab) + Close', async () => {
+    const url = 'https://schoology.hkis.edu.hk/assignments/8000000001/info';
+    const onConfirm = vi.fn().mockResolvedValue({ outcome: 'asked', unsubmit: { ok: false, error: 'Schoology refused the unsubmit (HTTP 403)', url } });
+    const { onCancel } = askModal({ offerUnsubmit: true, onConfirm });
+    await waitFor(() => expect(preview$()).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Publish & ask' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Schoology refused the unsubmit (HTTP 403)');
+    expect(alert).toHaveTextContent('Unsubmit failed');
+    const link = within(alert).getByRole('link', { name: 'unsubmit it in Schoology ›' });
+    expect(link).toHaveAttribute('href', url);
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link.getAttribute('rel')).toMatch(/noopener/);
+    expect(screen.queryByRole('button', { name: 'Publish & ask' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onCancel).toHaveBeenCalled();
   });
 });

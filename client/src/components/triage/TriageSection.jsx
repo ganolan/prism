@@ -112,7 +112,8 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
     run: (commentLine) => updateResubmission(row.id, { lessons, commentLine }),
   });
   const handleGradeStands = (row) => publish(row, {
-    consequence: 'Ends the resubmission request: missed deadline, grade stands.',
+    // Prism never re-submits: unsubmitted OneDrive work stays that way.
+    consequence: `Ends the resubmission request: missed deadline, grade stands.${row.ltiState === 'in_progress' ? ' Their work stays unsubmitted in Schoology.' : ''}`,
     confirmLabel: 'Publish & close request',
     defaultLine: gradeStandsLine({ until: row.until }),
     run: (commentLine) => updateResubmission(row.id, { gradeStands: true, commentLine }),

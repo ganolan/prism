@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import NumberStepper from './NumberStepper.jsx';
 import StatusLineModal from './StatusLineModal.jsx';
+import UnsubmitFailedNote from './UnsubmitFailedNote.jsx';
 import { formatDate, localIsoDate } from '../lib/formatDate.js';
 import { studentFullName } from '../lib/studentNames.js';
 import { askLine, extendResubmissionLine, gradeStandsLine } from '../lib/statusLines.js';
@@ -18,11 +19,17 @@ import { requestResubmission, updateResubmission, undoResubmission, getStatusLin
 // when none); commentChange (final review I1) = what the action did to the student's
 // Schoology comment, so the card can keep its stored comment, status line and editor in
 // step — { comment, line, kind } after a publish (line = the new stored line), { comment,
-// line: null } after a removal, or null when the comment was not touched.
+// line: null } after a removal, or null when the comment was not touched. A third
+// argument patches other card fields (after an unsubmit: the work is in progress).
+//
+// Ask on OneDrive work Prism last saw submitted (student.unsubmit_available, Phase 2):
+// the confirm also offers to unsubmit it in Schoology. Prism never re-submits, so Undo
+// and Grade stands on unsubmitted work say it stays unsubmitted.
 const published = (kind, sl) => (sl && sl.comment != null && sl.line ? { comment: sl.comment, line: sl.line, kind } : null);
 const removed = (sl) => (sl && sl.comment != null ? { comment: sl.comment, line: null, kind: null } : null);
-// The action's record without the publish result the server appends to it.
-const recordOf = ({ statusLine: _sl, ...rest } = {}) => rest;
+// The action's record without the publish / unsubmit results the server appends to it.
+const recordOf = ({ statusLine: _sl, unsubmit: _u, ...rest } = {}) => rest;
+const STAYS_UNSUBMITTED = ' Their work stays unsubmitted in Schoology.';
 
 export default function ResubmitControl({ student, assignmentId, title, defaultLessons = 3, onChange }) {
   const r = student.resubmission;
@@ -53,16 +60,25 @@ export default function ResubmitControl({ student, assignmentId, title, defaultL
   const pastDeadline = Boolean(req?.until) && req.until < localIsoDate();
   const ids = { studentId: student.id, assignmentId };
   const done = (fn) => async (arg) => { await fn(arg); setConfirm(null); setPanel(false); };
+  const unsubmitted = student.lti_submission_state === 'in_progress';
+  const offerUnsubmit = Boolean(student.unsubmit_available);
   const open = (props) => { actionSeq.current += 1; setConfirm({ key: actionSeq.current, props }); };
 
   const ask = () => open({
     consequence: `Asks ${studentFullName(student) || 'the student'} to resubmit within ${lessons} lesson${lessons === 1 ? '' : 's'}.`,
     confirmLabel: 'Publish & ask',
+    offerUnsubmit,
     loadDefaultLine: async () => askLine({ until: (await getStatusLineUntil({ kind: 'ask', ...ids, lessons })).until, note }),
-    onConfirm: done(async (commentLine) => {
-      const created = await requestResubmission({ ...ids, lessons, note, commentLine });
-      onChange?.({ state: 'waiting', request: recordOf(created) }, published('ask', created?.statusLine));
-    }),
+    onConfirm: async (commentLine, opts) => {
+      const created = await requestResubmission({ ...ids, lessons, note, commentLine, ...(opts ? { unsubmit: opts.unsubmit } : {}) });
+      const extra = created?.unsubmit?.ok ? { lti_submission_state: 'in_progress', unsubmit_available: false } : undefined;
+      onChange?.({ state: 'waiting', request: recordOf(created) }, published('ask', created?.statusLine), ...(extra ? [extra] : []));
+      setPanel(false);
+      // A failed unsubmit: the modal stays open to say so (with the Schoology link).
+      if (created?.unsubmit && !created.unsubmit.ok) return created;
+      setConfirm(null);
+      return created;
+    },
   });
   const extend = () => open({
     consequence: `Moves the resubmission deadline to ${lessons} lesson${lessons === 1 ? '' : 's'} after the ask.`,
@@ -76,7 +92,7 @@ export default function ResubmitControl({ student, assignmentId, title, defaultL
     }),
   });
   const gradeStands = () => open({
-    consequence: 'Ends the resubmission request: missed deadline, grade stands.',
+    consequence: `Ends the resubmission request: missed deadline, grade stands.${unsubmitted ? STAYS_UNSUBMITTED : ''}`,
     confirmLabel: 'Publish & close request',
     defaultLine: gradeStandsLine({ until: req.until }),
     onConfirm: done(async (commentLine) => {
@@ -88,7 +104,8 @@ export default function ResubmitControl({ student, assignmentId, title, defaultL
     removeMode: true,
     undoSource: { sourceType: 'resubmission', sourceId: req.id },
     // An auto-added (Schoology Unsubmit) request is closed, not deleted, by Undo.
-    consequence: req.source === 'schoology_unsubmit' ? 'Closes this resubmission request in Prism.' : 'Deletes this resubmission request from Prism.',
+    consequence: (req.source === 'schoology_unsubmit' ? 'Closes this resubmission request in Prism.' : 'Deletes this resubmission request from Prism.')
+      + (unsubmitted ? STAYS_UNSUBMITTED : ''),
     confirmLabel: 'Undo',
     onConfirm: done(async (removeLine) => {
       const undone = await undoResubmission(req.id, { removeLine });
@@ -105,6 +122,7 @@ export default function ResubmitControl({ student, assignmentId, title, defaultL
         <span aria-hidden="true">⟳</span>{' '}
         {req ? `Resubmit by ${formatDate(`${req.until}T00:00:00`)}` : 'Ask to resubmit'}
       </button>
+      {req?.unsubmitError && <UnsubmitFailedNote url={req.unsubmitUrl} error={req.unsubmitError} />}
       {panel && (
         <span className="resubmit-control__panel">
           <NumberStepper value={lessons} min={1} max={60} onChange={setLessons} aria-label="Resubmission deadline (lessons)" />

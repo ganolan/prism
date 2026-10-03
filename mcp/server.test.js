@@ -20,7 +20,7 @@ async function connect() {
 
 beforeEach(() => {
   getDb().exec(
-    'DELETE FROM referrals; DELETE FROM extensions; DELETE FROM school_days; ' +
+    'DELETE FROM referrals; DELETE FROM extensions; DELETE FROM resubmissions; DELETE FROM school_days; ' +
     'DELETE FROM rubric_attachment_topics; DELETE FROM rubric_attachments; ' +
     'DELETE FROM rubric_descriptors; DELETE FROM rubric_criteria; DELETE FROM rubrics; ' +
     'DELETE FROM assessment_analysis; DELETE FROM feedback; DELETE FROM mastery_alignments; ' +
@@ -330,10 +330,27 @@ describe('PrisMCP triage tools', () => {
     expect(tool.inputSchema.properties.action.enum).toEqual(['referred']);
   });
 
-  test('extend_deadline takes lessons as a 1–60 integer', async () => {
+  test('extend_deadline takes lessons as a 1–60 integer; student_id/assignment_id optional (resubmission_id path)', async () => {
     const client = await connect();
     const tool = (await client.listTools()).tools.find((t) => t.name === 'extend_deadline');
-    expect(tool.inputSchema.required).toEqual(expect.arrayContaining(['student_id', 'assignment_id', 'lessons']));
+    expect(tool.inputSchema.required).toEqual(['lessons']);
     expect(tool.inputSchema.properties.lessons).toMatchObject({ type: 'integer', minimum: 1, maximum: 60 });
+  });
+});
+
+describe('PrisMCP resubmission tools', () => {
+  test('lists the resubmission tools', async () => {
+    const client = await connect();
+    const names = (await client.listTools()).tools.map((t) => t.name);
+    expect(names).toEqual(expect.arrayContaining([
+      'request_resubmission', 'close_resubmission', 'mark_resubmission_reviewed', 'list_resubmissions',
+    ]));
+  });
+
+  test('extend_deadline accepts resubmission_id and no longer requires student_id/assignment_id', async () => {
+    const client = await connect();
+    const tool = (await client.listTools()).tools.find((t) => t.name === 'extend_deadline');
+    expect(tool.inputSchema.properties).toHaveProperty('resubmission_id');
+    expect(tool.inputSchema.required ?? []).not.toEqual(expect.arrayContaining(['student_id']));
   });
 });

@@ -12,6 +12,9 @@ import { preferredFirstName } from '../server/services/studentNames.js';
 import {
   getTriage, listReferrals, recordReferral, undoReferral, listExtensions, recordExtension, undoExtension, setMakeUpIgnored,
 } from '../server/services/triage.js';
+import {
+  requestResubmission, extendResubmission, closeResubmission, markResubmissionReviewed, listResubmissions,
+} from '../server/services/resubmissions.js';
 import { loadCalendar } from '../server/services/schoolCalendar.js';
 import { todayLocal } from '../server/lib/schoolDays.js';
 
@@ -219,6 +222,8 @@ export function getTriageTool(db, { course, student, include_formative } = {}) {
     // per-assessment/class data.
     t.counts.atReferralLimit = t.lateWork.filter((r) => r.tone === 'red').length;
     t.counts.makeUpsOverdue = t.makeUps.filter((r) => r.tone === 'red').length;
+    t.resubmissions = t.resubmissions.filter((r) => matchesStudent(r, student));
+    t.counts.resubmissionsOverdue = t.resubmissions.filter((r) => r.tone === 'red').length;
     t.studentFilter = String(student);
   }
   return t;
@@ -258,10 +263,33 @@ export function setMakeupTrackingTool(db, { assignment_id, tracked } = {}) {
   return setMakeUpIgnored(db, assignment_id, typeof tracked === 'boolean' ? !tracked : tracked);
 }
 
-export function extendDeadlineTool(db, { student_id, assignment_id, lessons, note } = {}) {
+export function extendDeadlineTool(db, { student_id, assignment_id, lessons, note, resubmission_id } = {}) {
+  if (resubmission_id != null) return extendResubmission(db, resubmission_id, lessons);
   return recordExtension(db, { studentId: student_id, assignmentId: assignment_id, lessons, note, source: 'mcp' });
 }
 
 export function undoExtensionTool(db, { id } = {}) {
   return undoExtension(db, id);
+}
+
+// ── Resubmissions (asks to redo graded/comment-only/ungraded work) ──────────
+// Same service as the dashboard (server/services/resubmissions.js).
+
+export function requestResubmissionTool(db, { student_id, assignment_id, lessons, note } = {}) {
+  return requestResubmission(db, { studentId: student_id, assignmentId: assignment_id, lessons: lessons ?? null, note, source: 'mcp' });
+}
+
+export function closeResubmissionTool(db, { id, note } = {}) {
+  return closeResubmission(db, id, note);
+}
+
+export function markResubmissionReviewedTool(db, { student_id, assignment_id } = {}) {
+  return markResubmissionReviewed(db, { studentId: student_id, assignmentId: assignment_id, source: 'mcp' });
+}
+
+// state: 'asked' (open) | 'closed' | 'done' | 'reviewed'
+export function listResubmissionsTool(db, { course, student, since, state } = {}) {
+  const rows = listResubmissions(db, { courseId: resolveCourseRef(db, course), since: since || null });
+  return rows.filter((r) => (state ? r.outcome === state : true))
+    .filter((r) => (student != null && student !== '' ? matchesStudent(r, student) : true));
 }

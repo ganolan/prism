@@ -9,6 +9,7 @@ import { listCourses, listAssignments, listStudents, listRubricsTool, readRubric
 import {
   getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool, extendDeadlineTool, undoExtensionTool,
   setMakeupTrackingTool,
+  requestResubmissionTool, closeResubmissionTool, markResubmissionReviewedTool, listResubmissionsTool,
 } from './handlers.js';
 import { assertExplicitDbPath } from './dbGuard.js';
 
@@ -204,7 +205,8 @@ export function createServer() {
         'syncs. makeUpsUnchecked: past tests whose attempts could not be read (unknown, NOT missed — suggest a re-sync). ' +
         'makeUpsIgnored: past tests the teacher ignores for make-ups (set_makeup_tracking). ' +
         'Rows carry courseName + blockNumber (sections of one course share a name) and extension ({ id, lessons, until, note } or null; dueDate stays the original). Includes the limits (settings), calendar source (approx = weekday fallback) and lastSyncAt — ' +
-        'say when data may be stale. Use for "who is close to referral?", "what should I grade first?" or "who still has to sit the test?".',
+        'say when data may be stale. Use for "who is close to referral?", "what should I grade first?" or "who still has to sit the test?". ' +
+        'resubmissions: per student × assessment — state "waiting" (asked to resubmit; day 1 = the ask day; limit = lessons + 1, red after `until`; source schoology_unsubmit = the teacher unsubmitted OneDrive work) or "arrived" (a resubmission newer than the last feedback; day 1 = the resubmission date, overdue after day {feedbackLimitDays}; afterDeadline = came in after the ask deadline). Explicit asks show for any alignment; unrequested arrivals follow include_formative. ',
       inputSchema: {
         course: z.union([z.number(), z.string()]).optional().describe('Course id (list_courses) or a name/code fragment; omit for all current courses'),
         student: z.union([z.number(), z.string()]).optional().describe('Student id or name fragment to filter lateWork and makeUps'),
@@ -265,12 +267,13 @@ export function createServer() {
   server.registerTool(
     'extend_deadline',
     {
-      description: "Give one student more time on a summative assignment: extend its due date by N lessons (lessons = SCHOOL days, the referral limit's unit). ONLY call when the teacher explicitly asks. The student is off the late-work list until the extended date (`until`) passes, then counts late from it. Allowed any time (before or after the due date), for summative work or a Schoology test/quiz in a current course that targets the student. Also for make-up tests (a makeUps row): the make-up clock then counts from the extended date (= day 1) — e.g. sitting the make-up on Thursday. Extending the same pair again replaces lessons/note. Returns the stored extension.",
+      description: "Give one student more time on a summative assignment: extend its due date by N lessons (lessons = SCHOOL days, the referral limit's unit). ONLY call when the teacher explicitly asks. The student is off the late-work list until the extended date (`until`) passes, then counts late from it. Allowed any time (before or after the due date), for summative work or a Schoology test/quiz in a current course that targets the student. Also for make-up tests (a makeUps row): the make-up clock then counts from the extended date (= day 1) — e.g. sitting the make-up on Thursday. Extending the same pair again replaces lessons/note. Returns the stored extension. With resubmission_id: moves that request's deadline to N lessons after the ask.",
       inputSchema: {
-        student_id: z.number().describe('Student id (lateWork[]/makeUps[].studentId or list_students)'),
-        assignment_id: z.number().describe('Assignment id (lateWork[]/makeUps[].assignmentId or list_assignments)'),
+        student_id: z.number().optional().describe('Student id (lateWork[]/makeUps[].studentId or list_students)'),
+        assignment_id: z.number().optional().describe('Assignment id (lateWork[]/makeUps[].assignmentId or list_assignments)'),
         lessons: z.number().int().min(1).max(60).describe('Extension in lessons (school days), 1–60'),
         note: z.string().optional().describe('Optional reason, e.g. "sick for a week"'),
+        resubmission_id: z.number().optional().describe('Extend an open resubmission request (get_triage resubmissions[].id) instead of an assignment deadline; then only lessons is used'),
       },
     },
     async (args) => text(extendDeadlineTool(getDb(), args))
@@ -283,6 +286,52 @@ export function createServer() {
       inputSchema: { id: z.number().describe('Extension id') },
     },
     async (args) => text(undoExtensionTool(getDb(), args))
+  );
+
+  server.registerTool(
+    'request_resubmission',
+    {
+      description: "Ask a student to resubmit one assessment, with a deadline in lessons (SCHOOL days; default = the teacher's setting, 3). ONLY when the teacher explicitly asks. Works on graded, comment-only or ungraded work. The pair then shows in get_triage resubmissions as 'waiting' (day 1 = the ask day, red after the deadline `until`) until a resubmission arrives ('arrived'), then clears when it is regraded or marked reviewed. Rejects a second open request (ALREADY_OPEN). Prism-only: nothing is written to Schoology.",
+      inputSchema: {
+        student_id: z.number().describe('Student id (list_students / get_triage rows)'),
+        assignment_id: z.number().describe('Assignment id (list_assignments / get_triage rows)'),
+        lessons: z.number().int().min(1).max(60).optional().describe('Deadline in lessons (school days) from today'),
+        note: z.string().optional().describe('What to fix, e.g. "add the evaluation section"'),
+      },
+    },
+    async (args) => text(requestResubmissionTool(getDb(), args))
+  );
+
+  server.registerTool(
+    'close_resubmission',
+    {
+      description: 'Close an open resubmission request (the original grade stands), e.g. a no-show past its deadline. Only when the teacher asks. id from get_triage resubmissions[].id or list_resubmissions.',
+      inputSchema: { id: z.number().describe('Resubmission request id'), note: z.string().optional().describe('Optional reason') },
+    },
+    async (args) => text(closeResubmissionTool(getDb(), args))
+  );
+
+  server.registerTool(
+    'mark_resubmission_reviewed',
+    {
+      description: "Mark an arrived resubmission as reviewed with the grade standing (no regrade needed). Only when the teacher says so. Clears the 'arrived' row; a later resubmission shows again. Rejects pairs with nothing arrived (NOT_ON_LIST).",
+      inputSchema: { student_id: z.number(), assignment_id: z.number() },
+    },
+    async (args) => text(markResubmissionReviewedTool(getDb(), args))
+  );
+
+  server.registerTool(
+    'list_resubmissions',
+    {
+      description: "Resubmission history, newest first: asks ('asked' = open, with lessons/until/note; 'closed' = grade stood; 'done' = resubmitted and regraded/reviewed) and 'reviewed' marks. source 'schoology_unsubmit' = auto-added because the teacher unsubmitted graded OneDrive work in Schoology.",
+      inputSchema: {
+        course: z.union([z.number(), z.string()]).optional(),
+        student: z.union([z.number(), z.string()]).optional(),
+        since: z.string().optional().describe("'YYYY-MM-DD'"),
+        state: z.enum(['asked', 'closed', 'done', 'reviewed']).optional(),
+      },
+    },
+    async (args) => text(listResubmissionsTool(getDb(), args))
   );
 
   server.registerTool(

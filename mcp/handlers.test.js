@@ -7,12 +7,13 @@ import { listCourses, listAssignments, listStudents, writeRubric, attachRubricTo
 import {
   resolveCourseRef, getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool,
   extendDeadlineTool, undoExtensionTool, setMakeupTrackingTool,
+  requestResubmissionTool, closeResubmissionTool, markResubmissionReviewedTool, listResubmissionsTool,
 } from './handlers.js';
 import { saveRubric, listRubrics, getRubricByName } from '../server/services/rubricStore.js';
 
 beforeEach(() => {
   getDb().exec(
-    'DELETE FROM referrals; DELETE FROM extensions; DELETE FROM school_days; DELETE FROM mastery_scores; ' +
+    'DELETE FROM referrals; DELETE FROM extensions; DELETE FROM resubmissions; DELETE FROM school_days; DELETE FROM mastery_scores; ' +
     'DELETE FROM rubric_attachment_topics; DELETE FROM rubric_attachments; ' +
     'DELETE FROM rubric_descriptors; DELETE FROM rubric_criteria; DELETE FROM rubrics; ' +
     'DELETE FROM mastery_alignments; DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
@@ -251,6 +252,44 @@ function seedLate(db) {
   db.prepare(`INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id) VALUES ('a1', 't1', ?)`).run(courseId);
   return { courseId, studentId, assignmentId };
 }
+
+// Enrolled student + assignment in a current (non-archived, non-excluded)
+// course — the minimal eligible pair resubmission tools act on.
+function seedTriagePair(db) {
+  const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('rs', 'Resubmissions Course')`).run().lastInsertRowid;
+  const studentId = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('ru1', 'Rae', 'So')`).run().lastInsertRowid;
+  db.prepare(`INSERT INTO enrolments (student_id, course_id) VALUES (?, ?)`).run(studentId, courseId);
+  const assignmentId = db.prepare(
+    `INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, published) VALUES (?, 'rs-a1', 'Resubmit Task', '2026-10-05 15:30:00', 1)`
+  ).run(courseId).lastInsertRowid;
+  return { studentId, assignmentId };
+}
+
+describe('resubmission tools', () => {
+  test('request → list → extend via extend_deadline → close', () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedTriagePair(db);
+    const r = requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 2, note: 'fix tests' });
+    expect(r).toMatchObject({ outcome: 'asked', source: 'mcp', lessons: 2 });
+    expect(listResubmissionsTool(db, { state: 'asked' })).toHaveLength(1);
+    expect(extendDeadlineTool(db, { resubmission_id: r.id, lessons: 5 })).toMatchObject({ lessons: 5 });
+    expect(closeResubmissionTool(db, { id: r.id, note: 'grade stands' })).toMatchObject({ outcome: 'closed' });
+  });
+
+  test('get_triage student filter applies to resubmissions', () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedTriagePair(db);
+    requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId });
+    expect(getTriageTool(db, { student: 'nobody-matches' }).resubmissions).toEqual([]);
+  });
+
+  test('mark_resubmission_reviewed rejects a pair with nothing arrived', () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedTriagePair(db);
+    expect(() => markResubmissionReviewedTool(db, { student_id: studentId, assignment_id: assignmentId }))
+      .toThrow(expect.objectContaining({ code: 'NOT_ON_LIST' }));
+  });
+});
 
 describe('triage tools', () => {
   test('resolveCourseRef: id, name fragment, code; ambiguous/unknown throw', () => {

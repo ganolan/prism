@@ -356,7 +356,9 @@ export async function requestResubmissionTool(db, { student_id, assignment_id, l
     ? { ok: true, message: 'Unsubmitted their OneDrive work in Schoology — they can edit it and submit again.' }
     : {
       ...r.unsubmit,
-      message: `The ask was recorded, but unsubmitting in Schoology failed (${r.unsubmit.error}). Tell the teacher to unsubmit it in Schoology: ${r.unsubmit.url}`,
+      message: r.unsubmit.uncertain
+        ? `The ask was recorded, but Schoology didn't confirm the unsubmit — their work may still be submitted (${r.unsubmit.error}). Tell the teacher to check and unsubmit it in Schoology: ${r.unsubmit.url}`
+        : `The ask was recorded, but unsubmitting in Schoology failed — their work is still submitted (${r.unsubmit.error}). Tell the teacher to unsubmit it in Schoology: ${r.unsubmit.url}`,
     };
   return { ...r, unsubmit: unsubmitReport };
 }

@@ -756,5 +756,14 @@ describe('request_resubmission unsubmit (Phase 2, LTI unsubmit on Ask)', () => {
       outcome: 'asked', unsubmitError: expect.stringMatching(/expired/), unsubmitUrl: url,
       unsubmit: { ok: false, url, code: 'SCHOOLOGY_SESSION', message: expect.stringContaining(url) },
     });
+    expect(r.unsubmit.message).toMatch(/still submitted/);
+  });
+
+  test('an unconfirmed unsubmit is reported as "may still be submitted"', async () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedLtiPair(db);
+    const fake = fakeSchoologyPage({ uid: 'ru1', aid: 'rs-a1', post: (respond) => respond(503, '') });
+    const r = await requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId }, { unsubmitOpts: { openPage: async () => fake.session } });
+    expect(r.unsubmit).toMatchObject({ ok: false, uncertain: true, message: expect.stringMatching(/may still be submitted/) });
   });
 });

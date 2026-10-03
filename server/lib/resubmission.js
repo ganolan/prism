@@ -8,16 +8,43 @@ import { hasPriorFeedback } from './feedbackFingerprint.js';
 
 const parseFp = (fp) => { try { return JSON.parse(fp) || {}; } catch { return {}; } };
 
+// The parts of visible feedback (residual review round 4): bits of
+// feedback_snapshots.arrival_parts, recording which parts a Prism save after the
+// arrival changed.
+export const PART_SCORE = 1;    // score or exception
+export const PART_LEVELS = 2;   // rubric levels
+export const PART_COMMENT = 4;  // the visible comment (status line stripped)
+
+const scoreDiffers = (b, c) => (b.s ?? null) !== (c.s ?? null) || (Number(b.e) || 0) !== (Number(c.e) || 0);
+const levelsDiffer = (b, c) => JSON.stringify(b.l || []) !== JSON.stringify(c.l || []);
+
+// Which parts differ between two fingerprints (PART_* bits).
+export function changedParts(beforeFp, afterFp) {
+  if (beforeFp === afterFp) return 0;
+  const b = parseFp(beforeFp);
+  const c = parseFp(afterFp);
+  return (scoreDiffers(b, c) ? PART_SCORE : 0) | (levelsDiffer(b, c) ? PART_LEVELS : 0)
+    | ((b.c || '') !== (c.c || '') ? PART_COMMENT : 0);
+}
+
 // Has the teacher given NEW visible feedback since the baseline? A changed score,
 // exception or rubric level, or a non-empty visible comment that differs from the
 // baseline's. Hiding or deleting the visible comment alone is not feedback.
-export function feedbackAnswered(baselineFp, currentFp) {
+// evidence (round 4) = { parts, gradedAfter }: each changed part counts only with
+// evidence after the arrival for THAT part — rubric levels: a Prism save after it that
+// changed levels (PART_LEVELS; levels a mastery pull brings never answer on their own);
+// score/exception and the visible comment: a Prism save after it that changed them, or
+// a Schoology grade write after it (gradedAfter = grades.submitted_at > the arrival).
+// No evidence argument = any change counts.
+export function feedbackAnswered(baselineFp, currentFp, evidence = null) {
   if (baselineFp === currentFp) return false;
   const b = parseFp(baselineFp);
   const c = parseFp(currentFp);
-  if ((b.s ?? null) !== (c.s ?? null) || (Number(b.e) || 0) !== (Number(c.e) || 0)) return true;
-  if (JSON.stringify(b.l || []) !== JSON.stringify(c.l || [])) return true;
-  return Boolean(c.c) && c.c !== b.c;
+  const parts = evidence == null ? ~0 : (Number(evidence.parts) || 0);
+  const graded = evidence == null || Boolean(evidence.gradedAfter);
+  if (scoreDiffers(b, c) && (graded || (parts & PART_SCORE))) return true;
+  if (levelsDiffer(b, c) && (parts & PART_LEVELS)) return true;
+  return Boolean(c.c) && c.c !== b.c && (graded || Boolean(parts & PART_COMMENT));
 }
 
 // Feedback given = a score, an exception, or a non-empty comment.
@@ -45,15 +72,15 @@ export function sqliteUtcToEpoch(text) {
 }
 
 // Amendment B: state from visible-feedback snapshots rather than raw timestamps.
-// snapshot = { arrival_revision_at, arrival_baseline, fingerprint_at, arrival_write_at } | null — the current
+// snapshot = { arrival_revision_at, arrival_baseline, arrival_parts } | null — the current
 // open arrival (if any), the fingerprint captured as its baseline (the feedback before the
 // resubmission), and the last Prism save stamp. gradedAt = grades.submitted_at (the REST
 // grade time: any teacher write sets it, a submission never does).
-// Answered = new visible feedback since the baseline (feedbackAnswered) AND a teacher write
-// after the arrival (gradedAt, arrival_write_at or fingerprint_at > arrival_revision_at;
-// arrival_write_at keeps a Prism save after R that the sync judging R cleared from
-// fingerprint_at — residual review R2) — final review C1:
-// feedback given before the resubmission never answers it.
+// Answered = new visible feedback since the baseline, each changed part backed by a
+// teacher write after the arrival for that part (feedbackAnswered with evidence:
+// snapshot.arrival_parts — the parts Prism saves after the arrival changed — and
+// gradedAt > arrival_revision_at for a Schoology grade write; residual review round 4).
+// Final review C1: feedback given before the resubmission never answers it.
 //   'arrived'   — a resubmission to look at (not answered yet)
 //   'waiting'   — asked, no arrival after the ask yet
 //   'fulfilled' — asked, arrived after the ask, and answered
@@ -61,11 +88,9 @@ export function sqliteUtcToEpoch(text) {
 export function resubmissionStateFromSnapshot({ snapshot, currentFingerprint, requestedAt = 0, gradedAt = 0 } = {}) {
   const hasArrival = Boolean(snapshot && snapshot.arrival_revision_at);
   const arrivalAt = hasArrival ? Number(snapshot.arrival_revision_at) : 0;
-  const answered = () => {
-    const wroteAfter = (Number(gradedAt) || 0) > arrivalAt || (Number(snapshot.arrival_write_at) || 0) > arrivalAt
-      || (Number(snapshot.fingerprint_at) || 0) > arrivalAt;
-    return wroteAfter && feedbackAnswered(snapshot.arrival_baseline, currentFingerprint);
-  };
+  const answered = () => feedbackAnswered(snapshot.arrival_baseline, currentFingerprint, {
+    parts: snapshot.arrival_parts, gradedAfter: (Number(gradedAt) || 0) > arrivalAt,
+  });
   if (requestedAt > 0) {
     const arrivedAfterAsk = hasArrival && arrivalAt > requestedAt;
     if (!arrivedAfterAsk) return 'waiting';

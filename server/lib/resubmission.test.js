@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { hasFeedback, isResubmitted, resubmissionStateFromSnapshot, sqliteUtcToEpoch } from './resubmission.js';
+import { hasFeedback, isResubmitted, resubmissionStateFromSnapshot, sqliteUtcToEpoch, changedParts, feedbackAnswered, PART_SCORE, PART_LEVELS, PART_COMMENT } from './resubmission.js';
 import { fingerprint } from './feedbackFingerprint.js';
 
 describe('isResubmitted', () => {
@@ -79,7 +79,7 @@ describe('resubmissionStateFromSnapshot', () => {
   });
 
   // Final review C1: a changed fingerprint only answers the arrival when the teacher wrote
-  // after it — grades.submitted_at (gradedAt) or a Prism save stamp (fingerprint_at).
+  // after it — grades.submitted_at (gradedAt) or a Prism save after it (arrival_parts, round 4).
   test('a changed fingerprint with no teacher write after the arrival is still arrived', () => {
     const snapshot = { arrival_revision_at: 2000, arrival_baseline: fpWithFeedback, fingerprint_at: 0 };
     expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged, gradedAt: 1900 })).toBe('arrived');
@@ -87,15 +87,39 @@ describe('resubmissionStateFromSnapshot', () => {
     expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged })).toBe('arrived');
     expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged, gradedAt: 1900, requestedAt: 1500 })).toBe('arrived');
   });
-  test('a Prism save stamp after the arrival counts as the teacher write', () => {
-    const snapshot = { arrival_revision_at: 2000, arrival_baseline: fpWithFeedback, fingerprint_at: 2100 };
+  // Round 4: a Prism save after the arrival is evidence only for the parts it changed
+  // (snapshot.arrival_parts) — a save stamp alone no longer answers.
+  test('a Prism save after the arrival that changed the score counts (arrival_parts)', () => {
+    const snapshot = { arrival_revision_at: 2000, arrival_baseline: fpWithFeedback, arrival_parts: PART_SCORE };
     expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged, gradedAt: 1900 })).toBe(null);
     expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged, gradedAt: 1900, requestedAt: 1500 })).toBe('fulfilled');
   });
-  test('R2: a Prism save after the arrival kept as arrival_write_at counts as the teacher write', () => {
-    const snapshot = { arrival_revision_at: 2000, arrival_baseline: fpWithFeedback, fingerprint_at: 0, arrival_write_at: 2100 };
-    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged, gradedAt: 1900 })).toBe(null);
-    expect(resubmissionStateFromSnapshot({ snapshot: { ...snapshot, arrival_write_at: 1950 }, currentFingerprint: fpChanged, gradedAt: 1900 })).toBe('arrived');
+  test('round 4: each changed part needs its own evidence after the arrival', () => {
+    const base = fingerprint({ score: 80, comment: 'Good', commentStatus: 1, levels: [{ topic_id: 't', grade: 'D' }] });
+    const levels = fingerprint({ score: 80, comment: 'Good', commentStatus: 1, levels: [{ topic_id: 't', grade: 'EX' }] });
+    const comment = fingerprint({ score: 80, comment: 'Better', commentStatus: 1, levels: [{ topic_id: 't', grade: 'D' }] });
+    const state = (current, parts, gradedAt = 1900) => resubmissionStateFromSnapshot({
+      snapshot: { arrival_revision_at: 2000, arrival_baseline: base, arrival_parts: parts }, currentFingerprint: current, gradedAt,
+    });
+    // Levels: only a Prism save after the arrival that changed levels — never a grade write alone.
+    expect(state(levels, 0, 2500)).toBe('arrived');
+    expect(state(levels, PART_SCORE | PART_COMMENT, 2500)).toBe('arrived');
+    expect(state(levels, PART_LEVELS)).toBe(null);
+    // Score / comment: a Prism save that changed them, or a Schoology grade write after the arrival.
+    const score = fingerprint({ score: 90, comment: 'Good', commentStatus: 1, levels: [{ topic_id: 't', grade: 'D' }] });
+    expect(state(score, PART_LEVELS)).toBe('arrived');
+    expect(state(score, PART_SCORE)).toBe(null);
+    expect(state(score, 0, 2500)).toBe(null);
+    expect(state(comment, PART_SCORE)).toBe('arrived');
+    expect(state(comment, PART_COMMENT)).toBe(null);
+    expect(state(comment, 0, 2500)).toBe(null);
+  });
+  test('changedParts / feedbackAnswered without evidence (any change counts)', () => {
+    const a = fingerprint({ score: 80, comment: 'x', commentStatus: 1, levels: [{ topic_id: 't', grade: 'D' }] });
+    expect(changedParts(a, a)).toBe(0);
+    expect(changedParts(a, fingerprint({ score: 90, comment: 'x', commentStatus: 1, levels: [{ topic_id: 't', grade: 'D' }] }))).toBe(PART_SCORE);
+    expect(changedParts(a, fingerprint({ score: 80, comment: 'x', commentStatus: 0, levels: [{ topic_id: 't', grade: 'EX' }] }))).toBe(PART_LEVELS | PART_COMMENT);
+    expect(feedbackAnswered(a, fingerprint({ score: 80, comment: 'x', commentStatus: 1, levels: [] }))).toBe(true);
   });
 
   test('unrequested: a first submission (baseline without prior feedback) is never arrived', () => {
@@ -134,11 +158,13 @@ describe('resubmissionStateFromSnapshot', () => {
   });
   test('a different non-empty visible comment, score, exception or level acknowledges', () => {
     const snapshot = { arrival_revision_at: 2000, arrival_baseline: vis('Good start') };
-    const g = { gradedAt: 2500 };
+    const g = { gradedAt: 2500 };    // a Schoology grade write after the arrival
     expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('v2 is better'), ...g })).toBe(null);
     expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis(null, { score: 90 }), ...g })).toBe(null);
     expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('Good start', { exception: 4 }), ...g })).toBe(null);
-    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('Good start', { levels: [{ topic_id: 't', grade: 'EX' }] }), ...g })).toBe(null);
+    // A level change needs a Prism save after the arrival that changed levels (round 4).
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('Good start', { levels: [{ topic_id: 't', grade: 'EX' }] }), ...g })).toBe('arrived');
+    expect(resubmissionStateFromSnapshot({ snapshot: { ...snapshot, arrival_parts: PART_LEVELS }, currentFingerprint: vis('Good start', { levels: [{ topic_id: 't', grade: 'EX' }] }), ...g })).toBe(null);
     expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('v2 is better'), requestedAt: 1500, ...g })).toBe('fulfilled');
   });
 

@@ -21,7 +21,7 @@ const sentPayload = () => pushGradeComments.mock.calls.at(-1)[1][0];
 beforeEach(() => {
   vi.clearAllMocks();
   db = getDb();
-  db.exec('DELETE FROM feedback_snapshots; DELETE FROM status_lines; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
+  db.exec('DELETE FROM feedback_snapshots; DELETE FROM status_lines; DELETE FROM resubmissions; DELETE FROM mastery_scores; DELETE FROM measurement_topics; DELETE FROM reporting_categories; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
   const c = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec', 'AP CSP')`).run().lastInsertRowid;
   s = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u1', 'Maya', 'Chen')`).run().lastInsertRowid;
   db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'enr')`).run(s, c);
@@ -182,6 +182,26 @@ describe('a status-line publish never answers a resubmission (R1)', () => {
     captureFeedbackSnapshots(db);
     expect(stateOf()).toBe('arrived');
     expect(stateOf(250)).toBe('arrived');
+  });
+
+  test('S3: R → sync (C1) → pull fails → publish (absorbed) → sync reads the moved grade time → pull brings a pre-R level → arrived', async () => {
+    const courseId = db.prepare('SELECT course_id FROM assignments WHERE id = ?').get(a).course_id;
+    db.prepare(`INSERT INTO reporting_categories (id, course_id, external_id, title) VALUES ('cat-s3', ?, 'X', 'Cat')`).run(courseId);
+    db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES ('t-s3', 'cat-s3', ?, 'X.1', 'T1')`).run(courseId);
+    db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('u1', 'sa', 't-s3', 50, 'D')`).run();
+    db.prepare(`UPDATE grades SET score = 60, grade_comment = 'Note', comment_status = 1, submitted_at = 100, latest_revision_at = 50 WHERE student_id = ?`).run(s);
+    captureFeedbackSnapshots(db);
+    // Schoology: rubric regrade to EX before R (unpulled); R = 300.
+    db.prepare('UPDATE grades SET latest_revision_at = 300 WHERE student_id = ?').run(s);
+    captureFeedbackSnapshots(db);
+    expect(stateOf()).toBe('arrived');
+    getSectionGrades.mockResolvedValue([fresh({ grade: '60', comment: 'Note', comment_status: 1 })]);
+    await publishStatusLine(db, { studentId: s, assignmentId: a, line: L2, kind: 'extend_resubmission' });
+    db.prepare('UPDATE grades SET submitted_at = 400 WHERE student_id = ?').run(s);   // the publish moved the grade time
+    captureFeedbackSnapshots(db);
+    db.prepare(`UPDATE mastery_scores SET grade = 'EX' WHERE student_uid = 'u1'`).run();
+    captureFeedbackSnapshots(db, { courseId });                      // the pull
+    expect(stateOf()).toBe('arrived');
   });
 
   test('an arrival already answered stays answered after a publish', async () => {

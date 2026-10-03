@@ -141,6 +141,8 @@ const MIGRATIONS = [
   `ALTER TABLE feedback_snapshots ADD COLUMN arrival_write_at INTEGER NOT NULL DEFAULT 0`,
   // Residual review round 3: the per-pair log of Prism saves a new revision is judged against.
   `ALTER TABLE feedback_snapshots ADD COLUMN save_log TEXT`,
+  // Residual review round 4: which parts of visible feedback Prism saves after the arrival changed.
+  `ALTER TABLE feedback_snapshots ADD COLUMN arrival_parts INTEGER NOT NULL DEFAULT 0`,
   // Status lines (Task 4 fix round 1): the record whose action published the line, so
   // an undo removes only its own line. (Only dev DBs on the feature branch lack these.)
   `ALTER TABLE status_lines ADD COLUMN source_type TEXT`,

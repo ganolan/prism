@@ -376,6 +376,72 @@ describe('captureFeedbackSnapshots — baseline predates the resubmission (I1)',
     expect(stateOf(s, a)).toBe('arrived');
   });
 
+  // Round 4: a changed part of the feedback answers R only with evidence after R for THAT
+  // part — rubric levels: a Prism save after R that changed levels (a mastery pull never
+  // answers on its own); score/exception and the visible comment: a Prism save after R
+  // that changed them, or a Schoology grade write after R (submitted_at > R).
+  test('S1: Schoology rubric regrade before R (unpulled) → sync judges R → pull → Prism hide-only save → arrived', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 60, grade_comment: 'Note', comment_status: 1, submitted_at: 50, latest_revision_at: 100 });
+    levelD();
+    captureFeedbackSnapshots(db);
+    setGrade(s, a, { latest_revision_at: 200 });
+    captureFeedbackSnapshots(db);                                    // C1: baseline = current (stale level D)
+    setLevel('EX');
+    captureFeedbackSnapshots(db, { courseId });                      // the pull brings the pre-R level
+    expect(stateOf(s, a)).toBe('arrived');
+    setGrade(s, a, { comment_status: null, submitted_at: 300 });
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 300 });   // hide-only
+    expect(stateOf(s, a)).toBe('arrived');
+    captureFeedbackSnapshots(db);
+    expect(stateOf(s, a)).toBe('arrived');
+  });
+
+  test('S2: Schoology rubric regrade before R → R (unsynced) → Prism hide-only save → pull → sync: arrived', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 60, grade_comment: 'Note', comment_status: 1, submitted_at: 50, latest_revision_at: 100 });
+    levelD();
+    captureFeedbackSnapshots(db);
+    setGrade(s, a, { comment_status: null, submitted_at: 300 });
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 300 });
+    setLevel('EX');
+    captureFeedbackSnapshots(db, { courseId });
+    setGrade(s, a, { latest_revision_at: 200 });
+    captureFeedbackSnapshots(db);
+    expect(stateOf(s, a)).toBe('arrived');
+  });
+
+  test('round 4: a Prism rubric-only save after a synced R answers it', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 60, submitted_at: 50, latest_revision_at: 100 });
+    levelD();
+    captureFeedbackSnapshots(db);
+    setGrade(s, a, { latest_revision_at: 200 });
+    captureFeedbackSnapshots(db);
+    expect(stateOf(s, a)).toBe('arrived');
+    setLevel('EX');
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 300 });
+    expect(stateOf(s, a)).toBe(null);
+    captureFeedbackSnapshots(db);
+    expect(stateOf(s, a)).toBe(null);
+  });
+
+  test('round 4: a Schoology score regrade after R answers it; a Schoology rubric-only regrade after R stays arrived (safe direction)', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 60, submitted_at: 50, latest_revision_at: 100 });
+    levelD();
+    captureFeedbackSnapshots(db);
+    setGrade(s, a, { latest_revision_at: 200 });
+    captureFeedbackSnapshots(db);
+    setLevel('EX'); setGrade(s, a, { submitted_at: 300 });           // rubric regrade in Schoology after R
+    captureFeedbackSnapshots(db, { courseId });
+    captureFeedbackSnapshots(db);
+    expect(stateOf(s, a)).toBe('arrived');
+    setGrade(s, a, { score: 70, submitted_at: 400 });                // score regrade in Schoology after R
+    captureFeedbackSnapshots(db);
+    expect(stateOf(s, a)).toBe(null);
+  });
+
   test('save log: each changing Prism save is logged with the fingerprint it replaced; unchanged saves and publishes are not', () => {
     const s = student('u1'); const a = assignment('a1');
     grade(s, a, { score: 60, submitted_at: 50, latest_revision_at: 100 });

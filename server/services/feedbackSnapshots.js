@@ -12,7 +12,7 @@
 // wrote after the arrival (resubmissionStateFromSnapshot).
 // Captured at the end of each sync and after every Prism grade/comment save.
 import { fingerprint, hasPriorFeedback } from '../lib/feedbackFingerprint.js';
-import { isResubmitted, sqliteUtcToEpoch, feedbackAnswered } from '../lib/resubmission.js';
+import { isResubmitted, sqliteUtcToEpoch, feedbackAnswered, changedParts } from '../lib/resubmission.js';
 
 export const EMPTY_FINGERPRINT = fingerprint({});
 
@@ -136,7 +136,7 @@ export function captureFeedbackSnapshots(db, {
   `);
   const update = db.prepare(`
     UPDATE feedback_snapshots SET fingerprint = ?, revision_at = ?, arrival_revision_at = ?, arrival_baseline = ?,
-                                  synced_fingerprint = ?, fingerprint_at = ?, arrival_write_at = ?, save_log = ?,
+                                  synced_fingerprint = ?, fingerprint_at = ?, arrival_write_at = ?, arrival_parts = ?, save_log = ?,
                                   updated_at = datetime('now')
     WHERE student_id = ? AND assignment_id = ?
   `);
@@ -168,12 +168,14 @@ export function captureFeedbackSnapshots(db, {
       let arrivalAt = snap.arrival_revision_at;
       let baseline = snap.arrival_baseline;
       let arrivalWriteAt = Number(snap.arrival_write_at) || 0;
+      let arrivalParts = Number(snap.arrival_parts) || 0;
       let fingerprintAt = Number(snap.fingerprint_at) || 0;
       const newRevision = latest > snap.revision_at;
       const gradedAt = Number(cur.grade.submitted_at) || 0;
+      const savedAfter = (t, r) => t > r;
       if (newRevision) {
         // A new resubmission R: judge it against the feedback that predates it.
-        const after = log.filter(([t]) => t > latest);
+        const after = log.filter(([t]) => savedAfter(t, latest));
         const legacyStamp = log.length === 0 && fingerprintAt > latest && snap.synced_fingerprint != null;
         const allBeforeR = !isSave && after.length === 0 && !legacyStamp && gradedAt > 0 && gradedAt <= latest;
         arrivalAt = latest; arrivals += 1;
@@ -182,6 +184,8 @@ export function captureFeedbackSnapshots(db, {
         else if (allBeforeR) baseline = cur.fingerprint;
         else baseline = snap.fingerprint;
         arrivalWriteAt = after.length ? after[after.length - 1][0] : (legacyStamp ? fingerprintAt : 0);
+        // Round 4: the parts of visible feedback those post-R saves changed.
+        arrivalParts = after.reduce((p, [, before, afterFp]) => p | changedParts(before, afterFp), 0);
         log = []; fingerprintAt = 0;
       } else if (readRevisions(cur.assignmentId)) {
         const since = readSince ?? Infinity;
@@ -190,14 +194,18 @@ export function captureFeedbackSnapshots(db, {
       }
       if (isSave && !stamps && arrivalAt > 0) {
         // Unstamped (status-line) capture with an arrival: answered before this capture?
-        const wroteAfter = gradedAt > arrivalAt || arrivalWriteAt > arrivalAt || (Number(snap.fingerprint_at) || 0) > arrivalAt;
-        if (!(wroteAfter && feedbackAnswered(baseline, snap.fingerprint))) baseline = cur.fingerprint;
+        const answered = feedbackAnswered(baseline, snap.fingerprint, { parts: arrivalParts, gradedAfter: gradedAt > arrivalAt });
+        if (!answered) baseline = cur.fingerprint;
       }
       const changed = cur.fingerprint !== snap.fingerprint;
       if (stamps && changed) {
         log = [...log, [now, snap.fingerprint, cur.fingerprint]].slice(-SAVE_LOG_MAX);
-        // A Prism save after a pending arrival is a teacher write after it.
-        if (arrivalAt > 0 && now > arrivalAt) arrivalWriteAt = now;
+        // A Prism save after a pending arrival is a teacher write after it — for the
+        // parts of visible feedback it changed (round 4).
+        if (arrivalAt > 0 && savedAfter(now, arrivalAt)) {
+          arrivalWriteAt = now;
+          arrivalParts |= changedParts(snap.fingerprint, cur.fingerprint);
+        }
       }
       if (log.length) fingerprintAt = log[log.length - 1][0];
       // A stamp with no log (a first-sight save, or a row from before the log) stays
@@ -211,8 +219,9 @@ export function captureFeedbackSnapshots(db, {
       const logText = JSON.stringify(log);
       if (!changed && revisionAt === snap.revision_at && arrivalAt === snap.arrival_revision_at
         && baseline === snap.arrival_baseline && synced === snap.synced_fingerprint && fingerprintAt === snap.fingerprint_at
-        && arrivalWriteAt === (Number(snap.arrival_write_at) || 0) && logText === priorLog) continue;
-      update.run(cur.fingerprint, revisionAt, arrivalAt, baseline, synced, fingerprintAt, arrivalWriteAt, logText,
+        && arrivalWriteAt === (Number(snap.arrival_write_at) || 0) && arrivalParts === (Number(snap.arrival_parts) || 0)
+        && logText === priorLog) continue;
+      update.run(cur.fingerprint, revisionAt, arrivalAt, baseline, synced, fingerprintAt, arrivalWriteAt, arrivalParts, logText,
         cur.studentId, cur.assignmentId);
     }
   })();

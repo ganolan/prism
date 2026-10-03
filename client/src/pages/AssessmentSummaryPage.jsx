@@ -31,17 +31,19 @@ const REMOVE = '__remove__';
 // a plain Schoology scale has one level for the whole assignment, not per topic.
 const SCALE = '__scale__';
 
-// A successful grade/comment save regrades the work (final review, finding 1):
-// the server mirrors the write as the new grade time and settles an answered
-// request, so drop the "Ungraded resubmission" signal and an arrived
-// resubmission locally too (a fulfilled request is hidden). A request still
-// waiting for new work is untouched.
-export function regradedPatch(student) {
-  const arrived = student.resubmission?.state === 'arrived';
+// The card's resubmission fields after a save (final review I2): the save routes
+// return the pair's post-save state (resubmissionFields — what the server decided
+// after snapshotting the save and settling an answered request), so patch exactly
+// that. A hidden-only, unchanged or received-line-only save keeps an arrival
+// Arrived. Unknown (null/absent — the server could not read it) → leave the card's
+// fields alone rather than guess.
+export function resubmissionFieldsPatch(fields) {
+  if (!fields) return {};
   return {
-    resubmitted: false,
-    resubmission: arrived ? null : (student.resubmission ?? null),
-    resubmit_flag: arrived ? null : (student.resubmit_flag ?? null),
+    resubmission: fields.resubmission ?? null,
+    resubmit_flag: fields.resubmit_flag ?? null,
+    resubmitted: Boolean(fields.resubmitted),
+    arrived_on: fields.arrived_on ?? null,
   };
 }
 
@@ -454,6 +456,37 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     setInsertedLine(line);
   }
 
+  // Ask / Extend / Grade stands / Undo on this card (final review I1). Each may have
+  // changed the student's Schoology comment (published or removed a status line), so
+  // patch the card's stored comment, Display and status_line to match — and rebase the
+  // editor, or the next Save would PUT the stale text and erase the published line. An
+  // unsaved draft keeps the teacher's edits with the line swapped at the top
+  // (composeComment against the line on top now); a clean editor takes the comment
+  // Schoology now holds.
+  function handleResubmitChange(resubmission, commentChange = null) {
+    const patch = { resubmission, resubmit_flag: resubmission?.request ? { id: resubmission.request.id } : null };
+    if (commentChange) {
+      const newLine = commentChange.line || '';
+      if (commentDirty) {
+        const onTop = topLineIs(comment, insertedLine) ? insertedLine : (student.status_line?.line || null);
+        setComment(composeComment(comment, onTop, newLine));
+      } else {
+        setComment(commentChange.comment);
+      }
+      setInsertedLine(null);
+      flushNextRef.current = true;
+      patch.grade_comment = commentChange.comment;
+      patch.status_line = newLine ? { line: newLine, kind: commentChange.kind } : null;
+      if (newLine) {
+        // Publishing always turns Display on in Schoology (a status line must be visible).
+        patch.comment_status = 1;
+        setDisplay(true);
+        setAutoFlipArmed(false);
+      }
+    }
+    onSaved?.(student.schoology_uid, patch);
+  }
+
   // { statusLine, statusLineKind } for the write-comment/send-all payload, only
   // while the inserted line is still (verbatim) the draft's first line — an edit
   // away from it means don't record it as Prism's published status line.
@@ -650,7 +683,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
       },
       patch: {
         scores: buildSavedScores(), grade_comment: comment, comment_status: display ? 1 : null,
-        ...regradedPatch(student), ...statusLinePatch(),
+        ...statusLinePatch(),
       },
     };
   }
@@ -681,7 +714,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
 
       if (scoreScale) {
         // Score-scale grade (#41): grade + comment + visibility in one write.
-        await writeMasteryComment(courseId, {
+        const saved = await writeMasteryComment(courseId, {
           enrollmentId: student.enrollment_id,
           assignmentId,
           comment,
@@ -697,31 +730,35 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           ...(scaleCode ? { score: scalePointsFor(scaleCode), scale_level: scaleCode } : {}),
           grade_comment: comment,
           comment_status: display ? 1 : null,
-          ...regradedPatch(student),
+          ...resubmissionFieldsPatch(saved?.resubmissionFields),
           ...statusLinePatch(),
         });
         setNotesCollapsed(true);
         return true;
       }
 
+      // The pair's post-save resubmission state — from the last write that reported it.
+      let fields = null;
       if (hasScoreChanges && assignmentRow) {
-        await writeMasteryScores(courseId, {
+        const scored = await writeMasteryScores(courseId, {
           enrollmentId: student.enrollment_id,
           assignmentId,
           gradeInfo: buildGradeInfo(),
           gradingPeriodId: assignmentRow.mastery_grading_period_id,
           gradingCategoryId: assignmentRow.mastery_grading_category_id,
         });
+        fields = scored?.resubmissionFields ?? fields;
       }
 
       if (hasCommentChange || hasDisplayChange) {
-        await writeMasteryComment(courseId, {
+        const saved = await writeMasteryComment(courseId, {
           enrollmentId: student.enrollment_id,
           assignmentId,
           comment,
           commentStatus: display,
           ...statusLineFields(),
         });
+        fields = saved?.resubmissionFields ?? fields;
       }
       setSaveResult('saved');
       setPending({});
@@ -733,7 +770,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         scores: buildSavedScores(),
         grade_comment: comment,
         comment_status: display ? 1 : null,
-        ...regradedPatch(student),
+        ...resubmissionFieldsPatch(fields),
         ...statusLinePatch(),
       });
       setNotesCollapsed(true); // published → tuck the reviewer notes away
@@ -945,9 +982,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           assignmentId={assignmentRow?.id}
           title={assignmentRow?.title}
           defaultLessons={resubmitLessonsDefault}
-          onChange={(resubmission) => onSaved?.(student.schoology_uid, {
-            resubmission, resubmit_flag: resubmission?.request ? { id: resubmission.request.id } : null,
-          })}
+          onChange={handleResubmitChange}
         />}
         {/* Detected resubmission (#49, Part B) — the student submitted new work
             since this was last graded. Prominent + amber because it's an
@@ -1756,12 +1791,14 @@ export default function AssessmentSummaryPage() {
 
     try {
       const { results } = await sendAllGrades(courseId, items.map(i => i.entry));
-      const okByUid = new Map((results || []).map(r => [r.uid, r.ok]));
+      const resultByUid = new Map((results || []).map(r => [r.uid, r]));
       let ok = 0, fail = 0;
       for (const i of items) {
-        const success = okByUid.get(i.uid) ?? false;
+        const r = resultByUid.get(i.uid);
+        const success = r?.ok ?? false;
         cardsRef.current[i.uid]?.applyResult(success);
-        if (success) { handleCardSaved(i.uid, i.patch); ok++; } else { fail++; }
+        // Each saved pair's post-save resubmission state comes back with its result (I2).
+        if (success) { handleCardSaved(i.uid, { ...i.patch, ...resubmissionFieldsPatch(r.resubmissionFields) }); ok++; } else { fail++; }
       }
       setBulkResult(`Published ${ok} grade${ok !== 1 ? 's' : ''}${fail ? `, ${fail} failed` : ''}`);
     } catch (err) {

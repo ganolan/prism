@@ -579,6 +579,66 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     expect(resubmissionByStudent(db, assignmentId).has(studentId)).toBe(false);
   });
 
+  // Final review I2: the response carries the pair's post-save resubmission state, so the
+  // card patches what the server decided instead of clearing Arrived on every save.
+  describe('I2: the response carries the saved pair\'s resubmission fields', () => {
+    function arrivedPair() {
+      const db = getDb();
+      db.prepare(
+        `INSERT INTO grades (student_id, assignment_id, enrolment_id, score, grade_comment, comment_status, submitted_at, latest_revision_at)
+         VALUES (?, ?, 'enr-wc', 50, 'Good start', 1, 1000, 2000)`
+      ).run(studentId, assignmentId);
+      captureFeedbackSnapshots(db);
+      expect(resubmissionByStudent(db, assignmentId).get(studentId).state).toBe('arrived');
+      getSectionGrades.mockResolvedValue([{ assignment_id: 'sa-wc', enrollment_id: 'enr-wc', grade: 50, exception: 0, timestamp: 1000 }]);
+    }
+
+    test('a hidden-only comment save keeps the arrival Arrived', async () => {
+      arrivedPair();
+      const { status, body } = await post(`/api/mastery/${courseId}/write-comment`, {
+        enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Good start', commentStatus: false,
+      });
+      expect(status).toBe(200);
+      expect(body.resubmissionFields).toMatchObject({ resubmission: { state: 'arrived', request: null }, resubmit_flag: null, resubmitted: true });
+      expect(body.resubmissionFields.arrived_on).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+
+    test('an unchanged visible re-save keeps the arrival Arrived', async () => {
+      arrivedPair();
+      const { body } = await post(`/api/mastery/${courseId}/write-comment`, {
+        enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Good start', commentStatus: true,
+      });
+      expect(body.resubmissionFields).toMatchObject({ resubmitted: true, resubmission: { state: 'arrived' } });
+    });
+
+    test('a received-line-only save keeps the arrival Arrived', async () => {
+      arrivedPair();
+      const line = '⟳ Resubmission received 03/10 — regraded.';
+      const { body } = await post(`/api/mastery/${courseId}/write-comment`, {
+        enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: `${line}\n\nGood start`, statusLine: line,
+      });
+      expect(body.resubmissionFields).toMatchObject({ resubmitted: true });
+    });
+
+    test('a new visible comment answers it: everything cleared', async () => {
+      arrivedPair();
+      const { body } = await post(`/api/mastery/${courseId}/write-comment`, {
+        enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'v2 is much better', commentStatus: true,
+      });
+      expect(body.resubmissionFields).toEqual({ resubmission: null, resubmit_flag: null, resubmitted: false, arrived_on: null });
+    });
+
+    test('POST /write (rubric) carries them too', async () => {
+      arrivedPair();
+      getDb().prepare(`INSERT INTO measurement_topics (id, course_id, external_id, title) VALUES ('t-wc', ?, 'X.1', 'T')`).run(courseId);
+      writeMasteryScores.mockResolvedValue({ ok: true });
+      const { body } = await post(`/api/mastery/${courseId}/write`, {
+        enrollmentId: 'enr-wc', assignmentId: 'sa-wc', gradeInfo: { 't-wc': { grade: '75' } },
+      });
+      expect(body).toMatchObject({ ok: true, resubmissionFields: { resubmitted: false, resubmission: null } });
+    });
+  });
+
   test('statusLine: stored (default kind received) after the PUT; the snapshot ignores it', async () => {
     const db = getDb();
     db.exec('DELETE FROM status_lines');
@@ -843,7 +903,8 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
       entries: [entry('uid-ada', 'enr-ada'), entry('uid-bob', 'enr-bob')],
     });
     expect(res.status).toBe(502);
-    expect(res.body.error).toBe('Schoology has no grade record Prism expected — sync, then try again');
+    // The rubric scores (step 1) already went — say so.
+    expect(res.body.error).toBe('Schoology has no grade record Prism expected — nothing was recorded in Prism; rubric scores may already be in Schoology — sync, then check');
     expect(res.body.results).toEqual([{ uid: 'uid-ada', ok: false }, { uid: 'uid-bob', ok: false }]);
     expect(pushGradeComments).not.toHaveBeenCalled();
     expect(db.prepare('SELECT score, grade_comment FROM grades WHERE student_id = ?').get(bobId)).toEqual({ score: 70, grade_comment: 'old' });
@@ -925,6 +986,38 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
     expect(status).toBe(200);
     expect(db.prepare('SELECT status FROM resubmissions WHERE id = ?').get(request.id).status).toBe('done');
     expect(resubmissionByStudent(db, assignmentRowId).has(adaId)).toBe(false);
+  });
+
+  test('I2: each result carries its pair\'s post-save resubmission fields (hidden-only stays Arrived)', async () => {
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO grades (student_id, assignment_id, enrolment_id, score, grade_comment, comment_status, submitted_at, latest_revision_at)
+       VALUES (?, ?, 'enr-ada', 95, 'Good start', 1, 1000, 2000), (?, ?, 'enr-bob', 80, 'Ok', 1, 1000, 2000)`
+    ).run(adaId, assignmentRowId, bobId, assignmentRowId);
+    captureFeedbackSnapshots(db);
+    const { status, body } = await post(`/api/mastery/${courseId}/send-all`, {
+      entries: [
+        { uid: 'uid-ada', enrollmentId: 'enr-ada', assignmentId: 'sa-1', scores: null, comment: { comment: 'Good start', commentStatus: false } },
+        { uid: 'uid-bob', enrollmentId: 'enr-bob', assignmentId: 'sa-1', scores: null, comment: { comment: 'v2 is better', commentStatus: true } },
+      ],
+    });
+    expect(status).toBe(200);
+    const byUid = Object.fromEntries(body.results.map((r) => [r.uid, r]));
+    expect(byUid['uid-ada']).toMatchObject({ ok: true, resubmissionFields: { resubmitted: true, resubmission: { state: 'arrived' } } });
+    expect(byUid['uid-bob']).toMatchObject({ ok: true, resubmissionFields: { resubmitted: false, resubmission: null, resubmit_flag: null } });
+  });
+
+  test('a failure after the rubric scores went says they may already be in Schoology', async () => {
+    getSectionGrades.mockRejectedValue(new Error('Schoology down'));
+    const withScores = await post(`/api/mastery/${courseId}/send-all`, { entries: [entry('uid-ada', 'enr-ada')] });
+    expect(withScores.status).toBe(502);
+    expect(withScores.body.error).toBe('Schoology down — nothing was recorded in Prism; rubric scores may already be in Schoology — sync, then check');
+    pushGradeComments.mockResolvedValue({ status: 400 });
+    getSectionGrades.mockResolvedValue([{ assignment_id: 'sa-1', enrollment_id: 'enr-ada', grade: 95, exception: 0, timestamp: 1 }]);
+    const rejected = await post(`/api/mastery/${courseId}/send-all`, { entries: [entry('uid-ada', 'enr-ada')] });
+    expect(rejected.body.error).toMatch(/rubric scores may already be in Schoology/);
+    const commentOnly = await post(`/api/mastery/${courseId}/send-all`, { entries: [entry('uid-ada', 'enr-ada', { scores: false })] });
+    expect(commentOnly.body.error).toBe('Schoology rejected the update — nothing was recorded in Prism');
   });
 
   test('all-or-nothing: a score-batch failure aborts before comments and mirrors nothing', async () => {
@@ -1412,7 +1505,7 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
         grade: { points: 0 }, comment: { comment: '', commentStatus: false } }],
     });
     expect(status).toBe(200);
-    expect(body.results).toEqual([{ uid: 'uid-B', ok: true }]);
+    expect(body.results).toEqual([{ uid: 'uid-B', ok: true, resubmissionFields: { resubmission: null, resubmit_flag: null, resubmitted: false, arrived_on: null } }]);
     expect(pushGradeComments).toHaveBeenCalledWith('sec-S', [expect.objectContaining({ grade: '0', comment_status: null })]);
     const row = getDb().prepare(
       `SELECT g.score FROM grades g JOIN students s ON s.id = g.student_id WHERE s.schoology_uid = 'uid-B'`

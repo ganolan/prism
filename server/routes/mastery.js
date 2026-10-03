@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { getDb } from '../db/index.js';
 import { hasMasterySession, syncMasteryForCourse, syncMasteryForAssignment, writeMasteryScores, writeMasteryScoresBatch, writeMasteryOverride, getMasteryForCourse, getRubricScoresForStudent, interactiveLogin } from '../services/masterySync.js';
 import { pushGradeComments, getSectionGrades } from '../services/schoology.js';
-import { settleResubmissions, resubmissionByStudent, arrivedKeys } from '../services/resubmissions.js';
+import { settleResubmissions, resubmissionByStudent, arrivedKeys, pairResubmissionFields } from '../services/resubmissions.js';
 import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
 import { STATUS_LINE_KINDS, putSucceeded, checkLine, lockPair } from '../services/statusLinePublisher.js';
 import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows, scoreScaleFor } from '../services/assessmentContext.js';
@@ -406,6 +406,7 @@ router.post('/:courseId/write', async (req, res) => {
     // Best-effort: snapshot the pair's new visible feedback (a Prism save) so a rubric
     // regrade of an arrived resubmission is seen at once (Amendment B), then settle.
     const localAssignment = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(assignmentId));
+    let resubmissionFields = null;
     if (localAssignment && studentRow) {
       try {
         captureFeedbackSnapshots(db, { assignmentId: localAssignment.id, studentId: studentRow.id, mode: 'save' });
@@ -413,9 +414,10 @@ router.post('/:courseId/write', async (req, res) => {
       } catch (err) {
         console.error('[mastery write] snapshot/settle failed:', err.message);
       }
+      resubmissionFields = savedPairFields(db, studentRow.id, localAssignment.id, 'write');
     }
 
-    res.json(result);
+    res.json({ ...(result && typeof result === 'object' ? result : {}), resubmissionFields });
   } catch (err) {
     console.error('[mastery write] Error:', err);
     res.status(500).json({ error: err.message });
@@ -587,6 +589,19 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
   });
 });
 
+// The saved pair's post-save resubmission fields for the card (final review I2):
+// what the server now decides — a hidden-only or unchanged save keeps an arrival
+// Arrived. Best-effort like the capture before it: null means "unknown, keep what
+// you show" (the client then leaves its resubmission fields alone).
+function savedPairFields(db, studentId, assignmentId, where) {
+  try {
+    return pairResubmissionFields(db, studentId, assignmentId);
+  } catch (err) {
+    console.error(`[mastery ${where}] resubmission state read failed:`, err.message);
+    return null;
+  }
+}
+
 // The grade time (grades.submitted_at) to mirror after a SUCCESSFUL comment PUT.
 // `fresh` was read before the PUT, so its timestamp is the previous grade time —
 // mirroring it would leave a just-regraded resubmission "Arrived" (and its open
@@ -747,6 +762,7 @@ router.post('/:courseId/write-comment', async (req, res) => {
       const assignmentRow = db.prepare(`
         SELECT id FROM assignments WHERE schoology_assignment_id = ?
       `).get(String(assignmentId));
+      let resubmissionFields = null;
       if (studentRow && assignmentRow) {
         const now = new Date().toISOString();
         if (fresh || hasPoints) {
@@ -811,9 +827,10 @@ router.post('/:courseId/write-comment', async (req, res) => {
         } catch (err) {
           console.error('[mastery write-comment] snapshot/settle failed:', err.message);
         }
+        resubmissionFields = savedPairFields(db, studentRow.id, assignmentRow.id, 'write-comment');
       }
 
-      res.json(result);
+      res.json({ ...result, resubmissionFields });
     } catch (err) {
       console.error('[mastery write-comment] Error:', err);
       res.status(500).json({ error: err.message });
@@ -898,6 +915,10 @@ router.post('/:courseId/send-all', async (req, res) => {
     }
   }
 
+  // Once step 1 has started, a later failure can leave rubric scores already written
+  // to Schoology (the batch is not transactional there) — say so, so the teacher syncs.
+  const SCORES_MAY_BE_WRITTEN = 'nothing was recorded in Prism; rubric scores may already be in Schoology — sync, then check';
+  const failMessage = (msg) => (scoreEntries.length > 0 ? `${msg} — ${SCORES_MAY_BE_WRITTEN}` : msg);
   try {
     // 1. All rubric scores in one browser session.
     if (scoreEntries.length > 0) {
@@ -939,7 +960,9 @@ router.post('/:courseId/send-all', async (req, res) => {
       if (missed.length > 0) {
         console.warn(`[mastery send-all] no Schoology record for ${missed.map((e) => `${e.enrollmentId}/${e.assignmentId}`).join(', ')} but Prism has a grade — batch not sent`);
         return res.status(502).json({
-          error: 'Schoology has no grade record Prism expected — sync, then try again',
+          error: scoreEntries.length > 0
+            ? `Schoology has no grade record Prism expected — ${SCORES_MAY_BE_WRITTEN}`
+            : 'Schoology has no grade record Prism expected — sync, then try again',
           results: entries.map((x) => ({ uid: x.uid, ok: false })),
         });
       }
@@ -965,7 +988,9 @@ router.post('/:courseId/send-all', async (req, res) => {
       if (!putSucceeded(result)) {
         console.error('[mastery send-all] comment PUT rejected:', result?.status, JSON.stringify(result?.data)?.slice(0, 500));
         return res.status(502).json({
-          error: 'Schoology rejected the update — nothing was recorded in Prism',
+          error: scoreEntries.length > 0
+            ? `Schoology rejected the comment update — ${SCORES_MAY_BE_WRITTEN}`
+            : 'Schoology rejected the update — nothing was recorded in Prism',
           results: entries.map((x) => ({ uid: x.uid, ok: false })),
         });
       }
@@ -976,11 +1001,13 @@ router.post('/:courseId/send-all', async (req, res) => {
     //    with the echoed fresh score/exception/timestamp (like write-comment),
     //    so the gradebook reflects the save without a full re-sync (#60).
     const now = new Date().toISOString();
-    // assignment id → student ids saved (snapshot + settle below).
+    // assignment id → student ids saved (snapshot + settle below); uid → the saved pair.
     const touched = new Map();
-    const touch = (assignmentId, studentId) => {
+    const pairByUid = new Map();
+    const touch = (assignmentId, studentId, uid) => {
       if (!touched.has(assignmentId)) touched.set(assignmentId, new Set());
       touched.get(assignmentId).add(studentId);
+      pairByUid.set(uid, { studentId, assignmentId });
     };
     const upsertScore = db.prepare(`
       INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade, synced_at)
@@ -1015,7 +1042,7 @@ router.post('/:courseId/send-all', async (req, res) => {
         upsertScore.run(studentRow.schoology_uid, String(e.assignmentId), topicId, points, pointsToLevel(points), now);
       }
       const scoredAssignment = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(e.assignmentId));
-      if (scoredAssignment) touch(scoredAssignment.id, studentRow.id);
+      if (scoredAssignment) touch(scoredAssignment.id, studentRow.id, e.uid);
     }
 
     for (const e of commentEntries) {
@@ -1038,7 +1065,7 @@ router.post('/:courseId/send-all', async (req, res) => {
         // matches write-comment, which stores `line` from checkLine too.
         upsertStatusLine.run(studentRow.id, assignmentRow.id, checkLine(e.comment.statusLine), e.comment.statusLineKind ?? 'received');
       }
-      touch(assignmentRow.id, studentRow.id);
+      touch(assignmentRow.id, studentRow.id, e.uid);
     }
     // Best-effort: local grades just landed — snapshot their visible feedback
     // (Amendment B) and settle requests they fulfilled, once per distinct
@@ -1052,10 +1079,16 @@ router.post('/:courseId/send-all', async (req, res) => {
       }
     }
 
-    res.json({ results: entries.map(e => ({ uid: e.uid, ok: true })) });
+    // Each saved pair's post-save resubmission state (final review I2).
+    res.json({
+      results: entries.map((e) => {
+        const p = pairByUid.get(e.uid);
+        return { uid: e.uid, ok: true, resubmissionFields: p ? savedPairFields(db, p.studentId, p.assignmentId, 'send-all') : null };
+      }),
+    });
   } catch (err) {
     console.error('[mastery send-all] Error:', err);
-    res.status(502).json({ error: err.message, results: entries.map(e => ({ uid: e.uid, ok: false })) });
+    res.status(502).json({ error: failMessage(err.message), results: entries.map(e => ({ uid: e.uid, ok: false })) });
   } finally {
     for (const release of releases) release();
   }

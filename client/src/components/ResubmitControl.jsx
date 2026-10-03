@@ -13,6 +13,17 @@ import { requestResubmission, updateResubmission, undoResubmission, getStatusLin
 // student's Schoology comment, so each opens the StatusLineModal confirm first —
 // nothing is written until Publish. Arrived: no button; the teacher answers by
 // regrading or writing a visible comment.
+//
+// onChange(resubmission, commentChange): resubmission = the card's new state (null
+// when none); commentChange (final review I1) = what the action did to the student's
+// Schoology comment, so the card can keep its stored comment, status line and editor in
+// step — { comment, line, kind } after a publish (line = the new stored line), { comment,
+// line: null } after a removal, or null when the comment was not touched.
+const published = (kind, sl) => (sl && sl.comment != null && sl.line ? { comment: sl.comment, line: sl.line, kind } : null);
+const removed = (sl) => (sl && sl.comment != null ? { comment: sl.comment, line: null, kind: null } : null);
+// The action's record without the publish result the server appends to it.
+const recordOf = ({ statusLine: _sl, ...rest } = {}) => rest;
+
 export default function ResubmitControl({ student, assignmentId, title, defaultLessons = 3, onChange }) {
   const r = student.resubmission;
   const [panel, setPanel] = useState(false);
@@ -50,7 +61,7 @@ export default function ResubmitControl({ student, assignmentId, title, defaultL
     loadDefaultLine: async () => askLine({ until: (await getStatusLineUntil({ kind: 'ask', ...ids, lessons })).until, note }),
     onConfirm: done(async (commentLine) => {
       const created = await requestResubmission({ ...ids, lessons, note, commentLine });
-      onChange?.({ state: 'waiting', request: created });
+      onChange?.({ state: 'waiting', request: recordOf(created) }, published('ask', created?.statusLine));
     }),
   });
   const extend = () => open({
@@ -61,7 +72,7 @@ export default function ResubmitControl({ student, assignmentId, title, defaultL
     }),
     onConfirm: done(async (commentLine) => {
       const updated = await updateResubmission(req.id, { lessons, commentLine });
-      onChange?.({ ...r, request: updated });
+      onChange?.({ ...r, request: recordOf(updated) }, published('extend_resubmission', updated?.statusLine));
     }),
   });
   const gradeStands = () => open({
@@ -69,8 +80,8 @@ export default function ResubmitControl({ student, assignmentId, title, defaultL
     confirmLabel: 'Publish & close request',
     defaultLine: gradeStandsLine({ until: req.until }),
     onConfirm: done(async (commentLine) => {
-      await updateResubmission(req.id, { gradeStands: true, commentLine });
-      onChange?.(null);
+      const closed = await updateResubmission(req.id, { gradeStands: true, commentLine });
+      onChange?.(null, published('grade_stands', closed?.statusLine));
     }),
   });
   const undo = () => open({
@@ -80,8 +91,8 @@ export default function ResubmitControl({ student, assignmentId, title, defaultL
     consequence: req.source === 'schoology_unsubmit' ? 'Closes this resubmission request in Prism.' : 'Deletes this resubmission request from Prism.',
     confirmLabel: 'Undo',
     onConfirm: done(async (removeLine) => {
-      await undoResubmission(req.id, { removeLine });
-      onChange?.(null);
+      const undone = await undoResubmission(req.id, { removeLine });
+      onChange?.(null, removed(undone?.statusLine));
     }),
   });
 

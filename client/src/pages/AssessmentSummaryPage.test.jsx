@@ -1772,8 +1772,12 @@ describe('AssessmentSummaryPage — a save regrades an arrived resubmission (fin
     };
   }
 
-  it('a successful card save clears the ⚠ Ungraded resubmission pill', async () => {
+  const cleared = { resubmission: null, resubmit_flag: null, resubmitted: false, arrived_on: null };
+  const stillArrived = { resubmission: { state: 'arrived', request: null, arrivedOn: '2026-10-03' }, resubmit_flag: null, resubmitted: true, arrived_on: '2026-10-03' };
+
+  it('a successful card save clears the ⚠ Ungraded resubmission pill when the server says it is answered', async () => {
     getMasteryForAssignment.mockResolvedValue(makeData());
+    writeMasteryComment.mockResolvedValueOnce({ status: 207, resubmissionFields: cleared });
     renderPage();
     expect(await screen.findByText(/Ungraded resubmission/)).toBeInTheDocument();
 
@@ -1789,7 +1793,7 @@ describe('AssessmentSummaryPage — a save regrades an arrived resubmission (fin
       resubmit_flag: { id: 71 },
       resubmission: { state: 'arrived', request: { id: 71, lessons: 3, until: '2026-10-15' } },
     }));
-    sendAllGrades.mockResolvedValue({ results: [{ uid: 'uid-1', ok: true }] });
+    sendAllGrades.mockResolvedValue({ results: [{ uid: 'uid-1', ok: true, resubmissionFields: cleared }] });
     renderPage();
     expect(await screen.findByText(/Ungraded resubmission/)).toBeInTheDocument();
     expect(screen.getByText('Awaiting your feedback — regrade or comment (visible)')).toBeInTheDocument();
@@ -1802,6 +1806,41 @@ describe('AssessmentSummaryPage — a save regrades an arrived resubmission (fin
     // The answered request settles server-side; the card's control is back to "Ask".
     expect(screen.queryByText(/Awaiting your feedback/)).not.toBeInTheDocument();
     expect(document.querySelector('.resubmit-control')).toHaveTextContent(/Ask to resubmit/);
+  });
+
+  // Final review I2: the server decides. A hidden-only / unchanged / received-line-only
+  // save keeps the arrival Arrived, and the card must not clear it on its own.
+  it('a save the server keeps Arrived (e.g. a hidden-only comment) leaves the pill and the chip', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData({ arrived_on: '2026-10-03' }));
+    writeMasteryComment.mockResolvedValueOnce({ status: 207, resubmissionFields: stillArrived });
+    renderPage();
+    fireEvent.change(await screen.findByPlaceholderText(/Teacher comment/i), { target: { value: 'note to self' } });
+    fireEvent.click(screen.getByRole('switch', { name: 'Display to student' })); // hidden
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+    await screen.findByText('Saved ✓');
+    expect(screen.getByText(/Ungraded resubmission/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /insert "resubmission received" line/i })).toBeInTheDocument();
+  });
+
+  it('a save whose response has no resubmission state leaves the card\'s state alone (never guesses "answered")', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    writeMasteryComment.mockResolvedValueOnce({ status: 207 });
+    renderPage();
+    fireEvent.change(await screen.findByPlaceholderText(/Teacher comment/i), { target: { value: 'Regraded' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+    await screen.findByText('Saved ✓');
+    expect(screen.getByText(/Ungraded resubmission/)).toBeInTheDocument();
+  });
+
+  it('a Send all result the server keeps Arrived leaves the pill', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    sendAllGrades.mockResolvedValue({ results: [{ uid: 'uid-1', ok: true, resubmissionFields: stillArrived }] });
+    renderPage();
+    await screen.findByText(/Ungraded resubmission/);
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(await screen.findByRole('button', { name: /publish all to schoology \(1\)/i }));
+    await screen.findByText(/Published 1 grade/);
+    expect(screen.getByText(/Ungraded resubmission/)).toBeInTheDocument();
   });
 
   it('Send-all carries statusLine + statusLineKind for a card whose chip was inserted (Task 7)', async () => {
@@ -1867,4 +1906,91 @@ describe('AssessmentSummaryPage — no resubmission control on an archived/exclu
       expect(document.querySelector('.resubmit-control')).toBeNull();
     },
   );
+});
+
+// Final review I1: Ask / Extend / Grade stands / Undo change the student's Schoology
+// comment. The card must keep its stored comment, status line and editor in step, or
+// the next Save PUTs the stale text and erases the published line.
+describe('StudentRubricCard — a status-line action keeps the comment in step (final review I1)', () => {
+  const ASK = '⟳ Resubmission requested — due Thu 15/10.';
+  function StatefulCard({ initial }) {
+    const [student, setStudent] = useState(initial);
+    return (
+      <MemoryRouter>
+        <StudentRubricCard
+          student={student} topics={TOPICS} courseId="4" assignmentId="8"
+          assignmentRow={{ id: 50, title: 'Launch', mastery_grading_period_id: 1, mastery_grading_category_id: 2 }}
+          onSaved={(_uid, patch) => setStudent((s) => ({ ...s, ...patch }))}
+        />
+      </MemoryRouter>
+    );
+  }
+  const box = () => screen.getByPlaceholderText(/Teacher comment/i);
+  async function ask() {
+    fireEvent.click(screen.getByRole('button', { name: /ask to resubmit/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Publish & ask' }));
+    await waitFor(() => expect(requestResubmission).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  }
+  async function save() {
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+    await waitFor(() => expect(writeMasteryComment).toHaveBeenCalledTimes(1));
+    return writeMasteryComment.mock.calls[0][1];
+  }
+
+  it('clean editor: after Ask it shows the published comment; a later edit + Save still starts with the ask line', async () => {
+    requestResubmission.mockResolvedValueOnce({ id: 71, lessons: 3, until: '2026-10-15', statusLine: { comment: `${ASK}\n\nGood start.`, line: ASK } });
+    render(<StatefulCard initial={{ ...makeStudent(), grade_comment: 'Good start.', comment_status: null }} />);
+    await ask();
+    expect(box()).toHaveValue(`${ASK}\n\nGood start.`);
+    // Display follows Schoology: publishing turned it on.
+    expect(screen.getByRole('switch', { name: 'Display to student' })).toHaveAttribute('aria-checked', 'true');
+    fireEvent.change(box(), { target: { value: `${ASK}\n\nGood start. Fix the loop.` } });
+    const sent = await save();
+    expect(sent.comment.startsWith(`${ASK}\n`)).toBe(true);
+    expect(sent.commentStatus).toBe(true);
+  });
+
+  it('dirty editor: Ask puts the line on top of the unsaved draft; Save sends it', async () => {
+    requestResubmission.mockResolvedValueOnce({ id: 71, lessons: 3, until: '2026-10-15', statusLine: { comment: `${ASK}\n\nGood start.`, line: ASK } });
+    render(<StatefulCard initial={{ ...makeStudent(), grade_comment: 'Good start.', comment_status: 1 }} />);
+    fireEvent.change(box(), { target: { value: 'Good start. Unsaved edit.' } });
+    await ask();
+    expect(box()).toHaveValue(`${ASK}\n\nGood start. Unsaved edit.`);
+    const sent = await save();
+    expect(sent.comment).toBe(`${ASK}\n\nGood start. Unsaved edit.`);
+  });
+
+  it('Undo that removed the line: a clean editor drops it; the card forgets the stored line', async () => {
+    undoResubmission.mockResolvedValueOnce({ deleted: true, statusLine: { removed: true, comment: 'Good start.' } });
+    render(<StatefulCard initial={{
+      ...makeStudent(), grade_comment: `${ASK}\n\nGood start.`, comment_status: 1,
+      status_line: { line: ASK, kind: 'ask' }, resubmission: { state: 'waiting', request: { id: 71, lessons: 3, until: '2026-10-15' } },
+    }} />);
+    fireEvent.click(screen.getByRole('button', { name: /Resubmit by 15\/10\/2026/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await screen.findByLabelText('Their comment will read');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Undo' }).at(-1));
+    await waitFor(() => expect(box()).toHaveValue('Good start.'));
+    fireEvent.change(box(), { target: { value: 'Good start. More.' } });
+    const sent = await save();
+    expect(sent.comment).toBe('Good start. More.');
+    expect(sent.statusLine).toBeUndefined();
+  });
+
+  it('Undo with a dirty draft strips the line from the draft, keeping the edits', async () => {
+    undoResubmission.mockResolvedValueOnce({ deleted: true, statusLine: { removed: true, comment: 'Good start.' } });
+    render(<StatefulCard initial={{
+      ...makeStudent(), grade_comment: `${ASK}\n\nGood start.`, comment_status: 1,
+      status_line: { line: ASK, kind: 'ask' }, resubmission: { state: 'waiting', request: { id: 71, lessons: 3, until: '2026-10-15' } },
+    }} />);
+    fireEvent.change(box(), { target: { value: `${ASK}\n\nGood start. Edited.` } });
+    fireEvent.click(screen.getByRole('button', { name: /Resubmit by 15\/10\/2026/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await screen.findByLabelText('Their comment will read');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Undo' }).at(-1));
+    await waitFor(() => expect(box()).toHaveValue('Good start. Edited.'));
+  });
 });

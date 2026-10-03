@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import ResubmitControl from './ResubmitControl.jsx';
 import * as api from '../services/api.js';
 
@@ -29,7 +29,11 @@ function renderControl(r = null, props = {}) {
 
 describe('ResubmitControl', () => {
   it('Ask opens the confirm with the due date worked out by the server, then publishes commentLine with the ask', async () => {
-    api.requestResubmission.mockResolvedValue({ id: 3, lessons: 3, until: '2026-10-15', outcome: 'asked' });
+    const published = '⟳ Resubmission requested — due Thu 15/10. add tests\n\nGood start.';
+    api.requestResubmission.mockResolvedValue({
+      id: 3, lessons: 3, until: '2026-10-15', outcome: 'asked',
+      statusLine: { comment: published, line: '⟳ Resubmission requested — due Thu 15/10. add tests' },
+    });
     const onChange = renderControl();
     fireEvent.click(screen.getByRole('button', { name: /Ask to resubmit/ }));
     fireEvent.change(screen.getByLabelText('Resubmission note'), { target: { value: 'add tests' } });
@@ -41,7 +45,11 @@ describe('ResubmitControl', () => {
     expect(api.requestResubmission).not.toHaveBeenCalled(); // nothing written until Publish
     fireEvent.click(await screen.findByRole('button', { name: 'Publish & ask' }));
     await waitFor(() => expect(api.requestResubmission).toHaveBeenCalledWith({ studentId: 7, assignmentId: 30, lessons: 3, note: 'add tests', commentLine: line }));
-    expect(onChange).toHaveBeenCalledWith({ state: 'waiting', request: { id: 3, lessons: 3, until: '2026-10-15', outcome: 'asked' } });
+    // I1: the new comment travels with the change, so the card can keep its editor in step.
+    expect(onChange).toHaveBeenCalledWith(
+      { state: 'waiting', request: { id: 3, lessons: 3, until: '2026-10-15', outcome: 'asked' } },
+      { comment: published, line, kind: 'ask' },
+    );
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
@@ -91,7 +99,7 @@ describe('ResubmitControl', () => {
     expect(api.getStatusLineUntil).toHaveBeenCalledWith({ kind: 'extend_resubmission', studentId: 7, assignmentId: 30, resubmissionId: 3, lessons: 4 });
     fireEvent.click(await screen.findByRole('button', { name: 'Publish new due date' }));
     await waitFor(() => expect(api.updateResubmission).toHaveBeenCalledWith(3, { lessons: 4, commentLine: line }));
-    expect(onChange).toHaveBeenCalledWith({ ...r, request: { id: 3, lessons: 4, until: '2026-10-20' } });
+    expect(onChange).toHaveBeenCalledWith({ ...r, request: { id: 3, lessons: 4, until: '2026-10-20' } }, null);
   });
 
   it('after the deadline (red): Grade stands publishes and closes the request', async () => {
@@ -105,7 +113,7 @@ describe('ResubmitControl', () => {
     expect(api.getStatusLineUntil).not.toHaveBeenCalled(); // the deadline is already known
     fireEvent.click(await screen.findByRole('button', { name: 'Publish & close request' }));
     await waitFor(() => expect(api.updateResubmission).toHaveBeenCalledWith(3, { gradeStands: true, commentLine: line }));
-    expect(onChange).toHaveBeenCalledWith(null);
+    expect(onChange).toHaveBeenCalledWith(null, null);
   });
 
   it('on the deadline day itself there is no Grade stands yet', () => {
@@ -123,7 +131,36 @@ describe('ResubmitControl', () => {
     await screen.findByLabelText('Their comment will read');
     fireEvent.click(screen.getAllByRole('button', { name: 'Undo' }).at(-1));
     await waitFor(() => expect(api.undoResubmission).toHaveBeenCalledWith(3, { removeLine: true }));
-    expect(onChange).toHaveBeenCalledWith(null);
+    expect(onChange).toHaveBeenCalledWith(null, null);
+  });
+
+  // Final review I1: each publish/remove response's comment is handed to the card.
+  it('Extend / Grade stands / Undo pass the comment Schoology now holds', async () => {
+    api.updateResubmission.mockResolvedValue({ id: 3, outcome: 'grade_stands', statusLine: { comment: 'GS line\n\nGood.', line: 'GS line' } });
+    let onChange = renderControl(waiting('2026-10-08'));
+    fireEvent.click(screen.getByRole('button', { name: /Resubmit by 08\/10\/2026/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Grade stands' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Publish & close request' }));
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith(null, { comment: 'GS line\n\nGood.', line: 'GS line', kind: 'grade_stands' }));
+    cleanup();
+
+    api.undoResubmission.mockResolvedValue({ deleted: true, statusLine: { removed: true, comment: 'Good.' } });
+    onChange = renderControl(waiting());
+    fireEvent.click(screen.getByRole('button', { name: /Resubmit by/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await screen.findByLabelText('Their comment will read');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Undo' }).at(-1));
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith(null, { comment: 'Good.', line: null, kind: null }));
+    cleanup();
+
+    // A removal that found no line of its own changed nothing → no comment change.
+    api.undoResubmission.mockResolvedValue({ deleted: true, statusLine: { removed: false, comment: null } });
+    onChange = renderControl(waiting());
+    fireEvent.click(screen.getByRole('button', { name: /Resubmit by/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await screen.findByLabelText('Their comment will read');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Undo' }).at(-1));
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith(null, null));
   });
 
   it('Undo of an auto-added (Schoology Unsubmit) request says it closes it; Undo passes its own source', async () => {

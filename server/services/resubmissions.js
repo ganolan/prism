@@ -248,6 +248,17 @@ function statesInScope(db, scope) {
   return out;
 }
 
+// The card-facing view of one pair's state: { state, request, arrivedOn }, or null when
+// there is nothing to show (no state, or a fulfilled request — hidden).
+function shownEntry(db, { state, request, snapshot }) {
+  if (state === null || state === 'fulfilled') return null;
+  return {
+    state,
+    request: request ? listResubmissions(db, { id: request.id })[0] : null,
+    arrivedOn: state === 'arrived' ? epochToLocalDate(snapshot.arrival_revision_at) : null,
+  };
+}
+
 // student id → { state, request, arrivedOn } for one assessment (local id) — the
 // assessment page, get_assignment_context. Students with nothing to show are
 // absent. arrivedOn (local YYYY-MM-DD) is only set when state is 'arrived' — the
@@ -255,15 +266,29 @@ function statesInScope(db, scope) {
 // "resubmission received" chip (Amendment B).
 export function resubmissionByStudent(db, assignmentId) {
   const out = new Map();
-  for (const [k, { state, request, snapshot }] of statesInScope(db, { assignmentId: Number(assignmentId) })) {
-    if (state === null || state === 'fulfilled') continue;
-    out.set(Number(k.split(':')[0]), {
-      state,
-      request: request ? listResubmissions(db, { id: request.id })[0] : null,
-      arrivedOn: state === 'arrived' ? epochToLocalDate(snapshot.arrival_revision_at) : null,
-    });
+  for (const [k, pair] of statesInScope(db, { assignmentId: Number(assignmentId) })) {
+    const entry = shownEntry(db, pair);
+    if (entry) out.set(Number(k.split(':')[0]), entry);
   }
   return out;
+}
+
+// One pair's post-save state as the assessment card's student fields (final review
+// I2): { resubmission, resubmit_flag, resubmitted, arrived_on } — the same values
+// GET /api/mastery/:courseId/assignment/:id gives the card, so a save response can
+// patch the card with what the server decided (a hidden-only or unchanged save keeps
+// an arrival Arrived) instead of guessing.
+export function pairResubmissionFields(db, studentId, assignmentId) {
+  const sid = Number(studentId);
+  const aid = Number(assignmentId);
+  const pair = statesInScope(db, { studentId: sid, assignmentId: aid }).get(`${sid}:${aid}`);
+  const resubmission = pair ? shownEntry(db, pair) : null;
+  return {
+    resubmission,
+    resubmit_flag: resubmission?.request ? { id: resubmission.request.id } : null,
+    resubmitted: resubmission?.state === 'arrived',
+    arrived_on: resubmission?.arrivedOn ?? null,
+  };
 }
 
 // 'studentId:assignmentId' pairs whose state is 'arrived' (requested or not) — the

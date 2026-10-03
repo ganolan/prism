@@ -618,6 +618,32 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     expect(row.grade_comment).toBeNull();
   });
 
+  test('read OK but no record for the pair while Prism has a score/exception → 502, no PUT', async () => {
+    const db = getDb();
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, enrolment_id, score) VALUES (?, ?, 'enr-wc', 88)`).run(studentId, assignmentId);
+    getSectionGrades.mockResolvedValue([{ assignment_id: 'sa-wc', enrollment_id: 'someone-else', grade: 50, exception: 0 }]);
+    pushGradeComments.mockClear();
+    const res = await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Hi' });
+    expect(res.status).toBe(502);
+    expect(res.body.error).toMatch(/nothing was saved/);
+    db.prepare('UPDATE grades SET score = NULL, exception = 2 WHERE student_id = ?').run(studentId);
+    expect((await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Hi' })).status).toBe(502);
+    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(db.prepare('SELECT grade_comment FROM grades WHERE student_id = ?').get(studentId).grade_comment).toBeNull();
+  });
+
+  test('genuine no-record (no Prism score/exception) still writes comment-only', async () => {
+    const db = getDb();
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, enrolment_id, score, exception) VALUES (?, ?, 'enr-wc', NULL, 0)`).run(studentId, assignmentId);
+    getSectionGrades.mockResolvedValue([]);
+    pushGradeComments.mockClear();
+    const res = await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'First note' });
+    expect(res.status).toBe(200);
+    expect(pushGradeComments).toHaveBeenCalledTimes(1);
+    expect(pushGradeComments.mock.calls[0][1][0]).toEqual({ assignment_id: 'sa-wc', enrollment_id: 'enr-wc', comment: 'First note', comment_status: 1 });
+    expect(db.prepare('SELECT grade_comment FROM grades WHERE student_id = ?').get(studentId).grade_comment).toBe('First note');
+  });
+
   test('statusLine with a line break → 400 BAD_LINE, no read or PUT', async () => {
     getSectionGrades.mockClear();
     pushGradeComments.mockClear();

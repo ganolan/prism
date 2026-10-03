@@ -664,6 +664,20 @@ router.post('/:courseId/write-comment', async (req, res) => {
     // The PUT replaces the whole grade record: without the fresh record it would
     // drop the grade (and the rubric observations behind it) or an exception (e.g.
     // Late) it must echo — stop rather than write blind, comment-only saves included.
+    // The read worked but holds no record for this pair while Prism knows a score or
+    // exception for it: the lookup missed (ids drifted, partial response), it isn't a
+    // never-graded student. A PUT without the echo would wipe that grade — same stop.
+    if (!lookupFailed && !fresh) {
+      const local = db.prepare(`
+        SELECT g.score, g.exception FROM grades g
+        JOIN enrolments e ON e.student_id = g.student_id AND e.schoology_enrolment_id = ?
+        JOIN assignments a ON a.id = g.assignment_id AND a.schoology_assignment_id = ?
+      `).get(String(enrollmentId), String(assignmentId));
+      if (local && (local.score != null || (Number(local.exception) || 0) !== 0)) {
+        console.warn(`[mastery write-comment] no Schoology record for ${enrollmentId}/${assignmentId} but Prism has a grade — not writing blind`);
+        lookupFailed = true;
+      }
+    }
     if (lookupFailed) {
       return res.status(502).json({ error: 'Could not read the current Schoology grade — nothing was saved. Try again.' });
     }

@@ -101,6 +101,18 @@ describe('listAssignments', () => {
     expect(byTitle.Submitted.latest_submission_at).toBe(new Date(1700000500 * 1000).toISOString());
     expect(byTitle.Untouched.latest_submission_at).toBeNull();
   });
+
+  test('latest_submission_at reads latest_revision_at (not submitted_at) for an LTI assignment', () => {
+    const db = getDb();
+    const courseId = seedCourse(db);
+    const ltiId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, is_lti_submission) VALUES (?, 'lti-1', 'OneDrive Essay', 1)`).run(courseId).lastInsertRowid;
+    const s1 = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u1','A','One')`).run().lastInsertRowid;
+    // submitted_at here is the REST grade time (not the submission) — must be ignored for LTI.
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, submitted_at, latest_revision_at) VALUES (?, ?, 0, 1700000900)`).run(s1, ltiId);
+
+    const byTitle = Object.fromEntries(listAssignments(db, { course_id: courseId }).map((a) => [a.title, a]));
+    expect(byTitle['OneDrive Essay'].latest_submission_at).toBe(new Date(1700000900 * 1000).toISOString());
+  });
 });
 
 describe('listAssignments — score scale (#41)', () => {

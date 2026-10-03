@@ -790,6 +790,7 @@ router.post('/:courseId/send-all', async (req, res) => {
       }
     }
 
+    const touchedAssignmentIds = new Set();
     for (const e of commentEntries) {
       const studentRow = db.prepare(
         'SELECT s.id FROM students s JOIN enrolments en ON en.student_id = s.id WHERE en.schoology_enrolment_id = ?'
@@ -805,9 +806,13 @@ router.post('/:courseId/send-all', async (req, res) => {
         fresh ? (Number(fresh.timestamp) || 0) : 0,
         e.comment.comment || '', commentStatusInt, now,
       );
-      // Best-effort: a local grade just landed that may fulfill an open
-      // resubmission request. Settling must never fail a grade save.
-      try { settleResubmissions(db, { assignmentId: assignmentRow.id }); } catch (err) {
+      touchedAssignmentIds.add(assignmentRow.id);
+    }
+    // Best-effort: local grades just landed that may fulfill open resubmission
+    // requests. Settle once per distinct assignment touched (not per entry) —
+    // settling must never fail a grade save that already succeeded.
+    for (const assignmentId of touchedAssignmentIds) {
+      try { settleResubmissions(db, { assignmentId }); } catch (err) {
         console.error('[mastery send-all] settle failed:', err.message);
       }
     }

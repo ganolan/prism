@@ -76,7 +76,8 @@ export function listAssignments(db, { course_id }) {
              WHERE ma.assignment_schoology_id = a.schoology_assignment_id
                AND ma.course_id = a.course_id
            ) AS has_aligned_topics,
-           (SELECT MAX(g.submitted_at) FROM grades g WHERE g.assignment_id = a.id) AS latest_submitted_at
+           (SELECT MAX(CASE WHEN a.is_lti_submission = 1 THEN g.latest_revision_at ELSE g.submitted_at END)
+              FROM grades g WHERE g.assignment_id = a.id) AS latest_submitted_at
     FROM assignments a
     WHERE a.course_id = ?
     ORDER BY a.due_date, a.id
@@ -87,8 +88,12 @@ export function listAssignments(db, { course_id }) {
     // Scale an unaligned assignment is graded on (#41) — grade those by
     // write_student_suggestions `scale_level`. null for rubric/other assignments.
     score_scale: scoreScaleFor({ grading_scale_id }, r.has_aligned_topics ? 1 : 0)?.name ?? null,
-    // submitted_at is a Unix-seconds epoch (0 = never submitted);
-    // surface the latest as an ISO string, null when nobody has submitted.
+    // submitted_at/latest_revision_at are Unix-seconds epochs (0 = never submitted).
+    // Native: submitted_at (the REST grade time) is the submission signal. LTI:
+    // submitted_at is the REST grade time, not the submission — the grader's
+    // submission time lives in latest_revision_at (triage resubmissions,
+    // 2026-10-03), so the query above reads that column for LTI assignments.
+    // Surface the latest as an ISO string, null when nobody has submitted.
     latest_submission_at: latest_submitted_at > 0 ? new Date(latest_submitted_at * 1000).toISOString() : null,
     ...assignmentCounts(db, { id: r.id, schoology_assignment_id: r.schoology_assignment_id, course_id: _c, is_lti_submission }),
   }));

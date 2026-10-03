@@ -421,11 +421,14 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
       });
       writeStates();
 
-      // A graded student back in progress was unsubmitted in Schoology → chase the resubmission.
-      for (const [uid, state] of stateMap) {
-        if (state !== 'in_progress') continue;
-        const studentRow = selectStudentByUid.get(String(uid));
-        if (studentRow) recordSchoologyUnsubmit(db, { studentId: studentRow.id, assignmentId: assignRow.id });
+      // A graded student back in progress was unsubmitted in Schoology → chase the
+      // resubmission. Same enrolled-students mapping writeStates iterates (not the
+      // raw stateMap, which may carry uids outside this section's roster).
+      for (const { e, studentRow } of studentEnrollments
+        .map((e) => ({ e, studentRow: selectStudentByUid.get(String(e.uid)) }))
+        .filter((c) => c.studentRow)) {
+        if (stateMap.get(String(e.uid)) !== 'in_progress') continue;
+        recordSchoologyUnsubmit(db, { studentId: studentRow.id, assignmentId: assignRow.id });
       }
     }
   }
@@ -979,7 +982,10 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
     // Update sync log
     db.prepare(`UPDATE sync_log SET status = 'completed', records_synced = ?, completed_at = ? WHERE id = ?`)
       .run(totalRecords, new Date().toISOString(), syncId);
-    settleResubmissions(db);
+    // Best-effort: a settle failure must never flip an otherwise-completed sync to 'error'.
+    try { settleResubmissions(db); } catch (err) {
+      console.error('[sync] settleResubmissions failed:', err.message);
+    }
 
     log(`Sync complete: ${totalRecords} records`);
     return { success: true, records: totalRecords };

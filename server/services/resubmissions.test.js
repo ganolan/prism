@@ -132,6 +132,23 @@ describe('recordSchoologyUnsubmit', () => {
     grade(s2, a, { score: 0, exception: 0, first_submitted_at: 0, lti_submission_state: 'in_progress' });
     expect(recordSchoologyUnsubmit(db, { studentId: s2, assignmentId: a })).toBe(false);
   });
+
+  test('one auto-add per unsubmit episode: closing it does not let the next sync re-add until a newer submission', () => {
+    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');
+    grade(s, a, { score: 80, exception: 0, first_submitted_at: 100, latest_revision_at: at('2026-10-10'), lti_submission_state: 'in_progress' });
+    expect(recordSchoologyUnsubmit(db, { studentId: s, assignmentId: a, requestedAt: sql('2026-10-10') })).toBe(true);
+    const row = db.prepare(`SELECT id FROM resubmissions WHERE student_id = ? AND assignment_id = ?`).get(s, a);
+    closeResubmission(db, row.id);
+
+    // A no-show (same latest_revision_at) must not reappear just because the
+    // sync still finds it "in progress".
+    expect(recordSchoologyUnsubmit(db, { studentId: s, assignmentId: a, requestedAt: sql('2026-10-11') })).toBe(false);
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM resubmissions WHERE student_id = ? AND assignment_id = ?`).get(s, a).n).toBe(1);
+
+    // A genuinely newer submission (after the closed request's requested_at) is a new episode.
+    db.prepare(`UPDATE grades SET latest_revision_at = ? WHERE student_id = ? AND assignment_id = ?`).run(at('2026-10-12'), s, a);
+    expect(recordSchoologyUnsubmit(db, { studentId: s, assignmentId: a, requestedAt: sql('2026-10-12') })).toBe(true);
+  });
 });
 
 describe('lookups', () => {

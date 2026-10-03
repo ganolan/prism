@@ -159,6 +159,16 @@ export function recordSchoologyUnsubmit(db, { studentId, assignmentId, requested
   if (grade.lti_submission_state !== 'in_progress') return false;
   if (grade.score == null || (Number(grade.exception) || 0) !== 0) return false;
   if (!(Number(grade.first_submitted_at) > 0)) return false;
+  // One auto-add per unsubmit episode: if any request for this pair (open or
+  // closed) was already made at/after the current latest submission, a newer
+  // submission hasn't arrived since — don't re-add on the next sync just
+  // because the no-show is still sitting "in progress" (review finding: closing
+  // the request must not have it reappear).
+  const latestRevisionAt = Number(grade.latest_revision_at) || 0;
+  const priorRequests = db.prepare(`
+    SELECT requested_at FROM resubmissions WHERE student_id = ? AND assignment_id = ? AND kind = 'request'
+  `).all(studentId, assignmentId);
+  if (priorRequests.some((r) => sqliteUtcToEpoch(r.requested_at) >= latestRevisionAt)) return false;
   const courseId = db.prepare('SELECT course_id FROM assignments WHERE id = ?').get(assignmentId).course_id;
   db.prepare(`
     INSERT OR IGNORE INTO resubmissions (student_id, assignment_id, course_id, kind, status, requested_at, lessons, source)

@@ -883,6 +883,14 @@ the original 56-day gap and the fixed/re-verified result are in `.claude/powersc
   (`checkLine` normalises typographic characters, refuses other non-ASCII; the modal mirrors it). R3:
   PrisMCP over SSH sources the mini's `~/prism/data/.env` remotely — the Schoology secret never leaves
   the mini (values must be shell-safe). Details: spec "Residual review fixes".
+- **Round 3 (2026-10-03): the save log.** A single save stamp couldn't tell Prism saves before a
+  resubmission from those after it (review: X1/X2/X6 silent dismissals). `feedback_snapshots.save_log`
+  logs each changing Prism save as `[t, fingerprint before, after]` (newest 20); a new revision R is
+  judged against the fingerprint the first post-R save replaced (else C1 / the previous snapshot), and
+  judging empties the log. `fullSync` tells the capture which assignments' revisions it read
+  (`revisionsRead` + `readSince`) so those pairs' older entries are dropped; mastery pulls and status-line
+  captures never touch the log. The status-line preview also returns `normalisedLine` + `lineProblem`.
+  Details: spec "Save log".
 
 ## Sync resilience + persistent sync log (2026-10-02, branch `feat/sync-resilience-logs`)
 

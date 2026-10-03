@@ -389,7 +389,9 @@ or Prism drafts), so **only visible feedback counts**.
 - `feedback_snapshots` (Prism-owned): last seen `fingerprint` + `revision_at`, and the current arrival
   (`arrival_revision_at`, `arrival_baseline`). Captured at the end of each sync and after every Prism
   grade/comment save. When `latest_revision_at` is newer than the snapshot's `revision_at`, the arrival is
-  recorded with **baseline = the previous snapshot's fingerprint** (the feedback before the resubmission).
+  recorded with **baseline = the feedback before the resubmission** — the previous snapshot's fingerprint
+  in the simple case; the full rule (the save log, C1) is under "Save log" in the implementation notes
+  below.
 - **Feedback given** (the baseline counts as prior feedback) = baseline has a score, an exception, rubric
   levels, or a non-empty visible comment.
 - **States:**
@@ -465,14 +467,15 @@ can be published:
 - **Feedback given before a resubmission never answers it (C1).** Between two syncs the teacher may give
   feedback in Schoology (at t₁) and the student then resubmit (R > t₁); the old rule took the previous
   snapshot as R's baseline, so the t₁ feedback looked like an answer and R was dismissed silently. Now:
-  1. A **sync-mode** capture that sees a new revision R with no Prism save after it (`fingerprint_at ≤ R`)
-     checks the grade time `grades.submitted_at` (the REST grade time — set by any teacher write, never by
-     a submission): if `0 < submitted_at ≤ R`, every bit of current feedback predates R, so the
-     **baseline is the current fingerprint**. Otherwise the earlier rule stands (previous snapshot, or
-     `synced_fingerprint` after a Prism save past R). Save-mode captures keep the earlier rule.
+  1. A **sync-mode** capture that sees a new revision R with no Prism save logged after it checks the
+     grade time `grades.submitted_at` (the REST grade time — set by any teacher write, never by a
+     submission): if `0 < submitted_at ≤ R`, every bit of current feedback predates R, so the **baseline
+     is the current fingerprint**. Otherwise the earlier rule stands (previous snapshot; with Prism saves
+     after R, the save-log rule below). Save-mode captures keep the earlier rule.
   2. **Answered** additionally needs a **teacher write after the arrival**: `submitted_at >
-     arrival_revision_at` or the snapshot's save stamp `fingerprint_at > arrival_revision_at` (a rubric-only
-     Prism save stamps it without moving `submitted_at`). A changed fingerprint alone no longer answers.
+     arrival_revision_at`, or a Prism save after it (`arrival_write_at`, or a logged save —
+     `fingerprint_at` — past `arrival_revision_at`; a rubric-only Prism save doesn't move
+     `submitted_at`). A changed fingerprint alone no longer answers.
   Residual: when the grade time is after R, the baseline is still the previous snapshot, so feedback given
   before R *and* a later write after R that adds no visible feedback can still read as answered. The
   grade time can't say which write changed the visible feedback. The two known cases (a Prism
@@ -480,8 +483,8 @@ can be published:
   - **a hidden note written in Schoology after R** (it moves the grade time past R; the pre-R visible
     feedback then differs from the previous snapshot);
   - **a Prism `write-comment` hidden-only save after R** whose fresh read echoes a pre-R Schoology score
-    the last sync never saw: the mirror changes the fingerprint, so the save is stamped after R and the
-    next sync takes the older `synced_fingerprint` as the baseline.
+    the last sync never saw: the mirror changes the fingerprint, so the save is logged after R with the
+    pre-mirror fingerprint as what it replaced, and that becomes the baseline.
 - **The card follows the server (I1, I2).** `write-comment`, `send-all` (per result) and `/write` return
   the saved pair's post-save `resubmissionFields` (`resubmission`, `resubmit_flag`, `resubmitted`,
   `arrived_on`), computed after the capture + settle; the card patches exactly those (unknown → left
@@ -546,6 +549,39 @@ can be published:
   regression tests (the rubric-only repro → acknowledged; the review chain → arrived).
 - **PrisMCP over SSH (R3):** the laptop's remote command sources the mini's `.env` instead of carrying
   the consumer secret in the laptop's Claude config.
+
+**Save log (residual review round 3, supersedes the save-stamp / `synced_fingerprint` baseline above):**
+
+- **Why.** A single save stamp (`fingerprint_at`) couldn't tell Prism saves before a resubmission R from
+  those after it, and a pending stamp kept `synced_fingerprint` stale; review reproduced silent
+  dismissals in that family — X1: R answered by a Prism rubric save, later syncs, then R′ unsynced and a
+  hide-only Prism save → R′ dismissed (D→EX read as the answer); X2: the same with a score save; X6: a
+  Prism save before R and a hide-only save after it → R dismissed.
+- **The log.** `feedback_snapshots.save_log` (schema + `MIGRATIONS`): a JSON array of `[epoch s,
+  fingerprint before, fingerprint after]`, oldest first, newest 20 kept — one entry per Prism save that
+  changes the fingerprint (a stamped save-mode capture). Status-line publishes (`stamp: false`) and
+  every sync-mode capture never append.
+- **Judging a new revision R.** Prism saves logged after R → **baseline = the fingerprint the first of
+  them replaced** (the state just before the teacher's first post-R save, including anything a sync or
+  pull saw before it), and the last one's time becomes `arrival_write_at`. None → C1 (`0 < submitted_at
+  ≤ R` in a sync capture → the current fingerprint), else the previous snapshot's fingerprint. Judging
+  empties the log. (Each entry stores the fingerprint it replaced, rather than only its own result, so
+  a change a sync saw between two saves is part of the baseline.)
+- **Clearing.** The end-of-sync capture is told which assignments' revisions that sync read in full
+  (`revisionsRead`: a native bulk read, an `ok` lti document read, or a successful retry — not
+  window-skipped, failed or abandoned ones) and when it began (`readSince`); for those pairs, with no
+  new revision, entries from before the sync began are dropped (any revision before then was seen).
+  Mastery pulls (no revisions read) and status-line captures never clear it.
+- `fingerprint_at` is now the newest logged save's time (0 = none) and `synced_fingerprint` the
+  fingerprint before the oldest logged save (or the current one) — both derived, no longer consulted for
+  a baseline. Rows from before the log (a stamp with no log, e.g. a first-sight save) keep the old rule.
+- **Teacher write after the arrival** = `submitted_at`, `arrival_write_at` or `fingerprint_at` >
+  `arrival_revision_at`; status-line absorption into a pending arrival's baseline is unchanged.
+- Regression tests: X1 (plain and revision-read syncs), X2, X6 → Arrived; C1 (a)/(b), R1, R2 + the
+  round-2 chain and the absorption orderings keep their outcomes.
+- Also: the status-line preview (dashboard route and PrisMCP `preview_status_line`) returns
+  `normalisedLine` (the candidate exactly as it would publish) and `lineProblem` (`'BAD_LINE'` + message
+  when publish would refuse it, else `null`).
 
 **Task 8 verification (this task, 2026-10-03):**
 

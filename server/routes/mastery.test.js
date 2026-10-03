@@ -592,27 +592,58 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     expect(db.prepare('SELECT COUNT(*) AS n FROM status_lines').get().n).toBe(0);
   });
 
-  test('does not wipe an existing score when the Schoology grade lookup fails', async () => {
+  test('a failed Schoology grade lookup → 502 and no PUT (a grade-less PUT would wipe the score)', async () => {
     const db = getDb();
     db.prepare(
       `INSERT INTO grades (student_id, assignment_id, enrolment_id, score, submitted_at)
        VALUES (?, ?, 'enr-wc', 88, 1779000000)`
     ).run(studentId, assignmentId);
     getSectionGrades.mockRejectedValue(new Error('Schoology down'));
+    pushGradeComments.mockClear();
 
-    const { status } = await post(`/api/mastery/${courseId}/write-comment`, {
+    const res = await post(`/api/mastery/${courseId}/write-comment`, {
       enrollmentId: 'enr-wc',
       assignmentId: 'sa-wc',
       comment: 'Comment only',
     });
-    expect(status).toBe(200);
+    expect(res.status).toBe(502);
+    expect(res.body.error).toMatch(/nothing was saved/);
+    expect(pushGradeComments).not.toHaveBeenCalled();
 
     const row = db.prepare(
       'SELECT score, submitted_at, grade_comment FROM grades WHERE student_id = ? AND assignment_id = ?'
     ).get(studentId, assignmentId);
     expect(row.score).toBe(88);
     expect(row.submitted_at).toBe(1779000000);
-    expect(row.grade_comment).toBe('Comment only');
+    expect(row.grade_comment).toBeNull();
+  });
+
+  test('statusLine with a line break → 400 BAD_LINE, no read or PUT', async () => {
+    getSectionGrades.mockClear();
+    pushGradeComments.mockClear();
+    const res = await post(`/api/mastery/${courseId}/write-comment`, {
+      enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: '⟳ A\nB', statusLine: '⟳ A\nB',
+    });
+    expect(res).toMatchObject({ status: 400, body: { code: 'BAD_LINE' } });
+    expect(getSectionGrades).not.toHaveBeenCalled();
+    expect(pushGradeComments).not.toHaveBeenCalled();
+  });
+
+  test('statusLine holds the per-pair lock: an overlapping status-line write → 409 BUSY before any read', async () => {
+    getSectionGrades.mockClear();
+    let finishPut;
+    pushGradeComments.mockImplementationOnce(() => new Promise((resolve) => { finishPut = () => resolve({ status: 207 }); }));
+    getSectionGrades.mockResolvedValue([]);
+    const body = { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: '⟳ R', statusLine: '⟳ R' };
+    const first = post(`/api/mastery/${courseId}/write-comment`, body);
+    await vi.waitFor(() => expect(pushGradeComments).toHaveBeenCalled());
+    const second = await post(`/api/mastery/${courseId}/write-comment`, body);
+    expect(second).toMatchObject({ status: 409, body: { code: 'BUSY' } });
+    expect(getSectionGrades).toHaveBeenCalledTimes(1);
+    finishPut();
+    expect((await first).status).toBe(200);
+    // Released: the next write goes through.
+    expect((await post(`/api/mastery/${courseId}/write-comment`, body)).status).toBe(200);
   });
 });
 

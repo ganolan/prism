@@ -563,6 +563,8 @@ CREATE TABLE IF NOT EXISTS status_lines (
   line TEXT NOT NULL,                 -- the exact text Prism published (after the teacher's edits)
   kind TEXT NOT NULL,                 -- 'ask' | 'extend_resubmission' | 'grade_stands' | 'extension' | 'make_up' | 'received'
   written_at TEXT NOT NULL DEFAULT (datetime('now')),
+  source_type TEXT,                   -- 'resubmission' | 'extension': the record whose action published it
+  source_id INTEGER,                  -- that record's id (undo removes the line only for its own record)
   PRIMARY KEY (student_id, assignment_id)
 );
 

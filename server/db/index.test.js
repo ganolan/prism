@@ -388,4 +388,13 @@ describe('migration: status_lines and feedback_snapshots tables (Amendment B)', 
     const cols = db.prepare('PRAGMA table_info(feedback_snapshots)').all().map((c) => c.name);
     expect(cols).toEqual(expect.arrayContaining(['synced_fingerprint', 'fingerprint_at']));
   });
+
+  test('status_lines carries source_type / source_id, added to a dev DB that lacks them', () => {
+    const db = new Database(':memory:');
+    migrate(db);
+    db.exec('ALTER TABLE status_lines DROP COLUMN source_type; ALTER TABLE status_lines DROP COLUMN source_id;');
+    migrate(db);
+    const cols = db.prepare('PRAGMA table_info(status_lines)').all().map((c) => c.name);
+    expect(cols).toEqual(expect.arrayContaining(['source_type', 'source_id']));
+  });
 });

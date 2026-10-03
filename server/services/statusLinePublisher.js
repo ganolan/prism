@@ -18,6 +18,28 @@ export const STATUS_LINE_KINDS = ['ask', 'extend_resubmission', 'grade_stands', 
 
 const normalise = (text) => String(text ?? '').replace(/\r\n/g, '\n');
 
+// Per-pair lock (in-process: Prism is one server). A comment write is read → PUT →
+// record; two overlapping writes for one student × assessment could each compose
+// from the same fresh read and the second would drop the first's line. The second
+// gets BUSY (409) before it reads anything. Callers hold the lock across the whole
+// validate → publish → record sequence (server/routes/triage.js act(), write-comment).
+const busyPairs = new Set();
+export function lockPair(studentId, assignmentId) {
+  const key = `${Number(studentId)}:${Number(assignmentId)}`;
+  if (busyPairs.has(key)) throw new TriageError('BUSY', 'Another update for this student is in progress — try again');
+  busyPairs.add(key);
+  let held = true;
+  return () => { if (held) { held = false; busyPairs.delete(key); } };
+}
+
+// Point the pair's stored line at the Prism record whose action published it, so an
+// undo removes only its own line. Called after the record step (an ask's id only
+// exists then).
+export function setStatusLineSource(db, { studentId, assignmentId, type, id }) {
+  db.prepare('UPDATE status_lines SET source_type = ?, source_id = ? WHERE student_id = ? AND assignment_id = ?')
+    .run(type, Number(id), Number(studentId), Number(assignmentId));
+}
+
 // Student, assignment, section and Schoology enrolment for one pair.
 function pairTarget(db, studentId, assignmentId) {
   const sid = Number(studentId);
@@ -46,11 +68,14 @@ function pairTarget(db, studentId, assignmentId) {
   };
 }
 
-const storedRow = (db, t) => db.prepare('SELECT line, kind FROM status_lines WHERE student_id = ? AND assignment_id = ?').get(t.studentId, t.assignmentId) || null;
+const storedRow = (db, t) => db.prepare('SELECT line, kind, source_type, source_id FROM status_lines WHERE student_id = ? AND assignment_id = ?').get(t.studentId, t.assignmentId) || null;
 
 // The pair's grade record, read now. null = Schoology has no record for the pair yet
 // (never graded / commented) — a comment-only write is then safe, as in write-comment.
-async function freshGrade(t) {
+// But if Prism holds a score or exception for the pair, a missing record means the
+// read didn't find it (ids drifted, partial response): writing without the echo
+// would wipe that grade, so treat it as a failed read.
+async function freshGrade(db, t) {
   let all;
   try {
     all = await getSectionGrades(t.sectionId);
@@ -58,7 +83,15 @@ async function freshGrade(t) {
     console.warn(`[status line] fresh grade read failed: ${err.message}`);
     throw new TriageError('SCHOOLOGY_READ_FAILED', 'Could not read the current Schoology comment — nothing was published. Try again.');
   }
-  return (all || []).find((g) => String(g.assignment_id) === t.schoologyAssignmentId && String(g.enrollment_id) === t.enrollmentId) || null;
+  const found = (all || []).find((g) => String(g.assignment_id) === t.schoologyAssignmentId && String(g.enrollment_id) === t.enrollmentId) || null;
+  if (!found) {
+    const local = db.prepare('SELECT score, exception FROM grades WHERE student_id = ? AND assignment_id = ?').get(t.studentId, t.assignmentId);
+    if (local && (local.score != null || (Number(local.exception) || 0) !== 0)) {
+      console.warn(`[status line] no Schoology grade record for ${t.studentId}:${t.assignmentId}, but Prism has a grade — not writing blind`);
+      throw new TriageError('SCHOOLOGY_READ_FAILED', 'Schoology did not return this student\'s grade record — nothing was published. Sync, then try again.');
+    }
+  }
+  return found;
 }
 
 // apiPut never throws on an HTTP error, so check the status — and any per-entry
@@ -127,15 +160,18 @@ function capture(db, t) {
   }
 }
 
-function checkLine(line) {
-  const text = normalise(line).trim();
-  if (!text) throw new TriageError('BAD_VALUE', 'The status line is empty');
+// One line: surrounding whitespace is trimmed; a line break inside is refused (the
+// stored line must stay the comment's whole first line).
+export function checkLine(line) {
+  const text = String(line ?? '').trim();
+  if (!text) throw new TriageError('BAD_LINE', 'The status line is empty');
+  if (/[\r\n]/.test(text)) throw new TriageError('BAD_LINE', 'The status line must be a single line');
   return text;
 }
 
 export async function previewStatusLine(db, { studentId, assignmentId, line = '' } = {}) {
   const t = pairTarget(db, studentId, assignmentId);
-  const fresh = await freshGrade(t);
+  const fresh = await freshGrade(db, t);
   const storedLine = storedRow(db, t)?.line ?? null;
   const currentComment = normalise(fresh?.comment);
   const visible = Number(fresh?.comment_status) === 1;
@@ -152,27 +188,31 @@ export async function publishStatusLine(db, { studentId, assignmentId, line, kin
   const text = checkLine(line);
   if (!STATUS_LINE_KINDS.includes(kind)) throw new TriageError('BAD_VALUE', `kind must be one of ${STATUS_LINE_KINDS.join(', ')}`);
   const t = pairTarget(db, studentId, assignmentId);
-  const fresh = await freshGrade(t);
+  const fresh = await freshGrade(db, t);
   const comment = composeComment(fresh?.comment, storedRow(db, t)?.line ?? null, text);
   await putComment(t, fresh, comment, 1);
   db.transaction(() => {
     mirror(db, t, fresh, comment, 1);
     db.prepare(`
-      INSERT INTO status_lines (student_id, assignment_id, line, kind, written_at) VALUES (?, ?, ?, ?, datetime('now'))
-      ON CONFLICT (student_id, assignment_id) DO UPDATE SET line = excluded.line, kind = excluded.kind, written_at = excluded.written_at
+      INSERT INTO status_lines (student_id, assignment_id, line, kind, written_at, source_type, source_id)
+      VALUES (?, ?, ?, ?, datetime('now'), NULL, NULL)
+      ON CONFLICT (student_id, assignment_id) DO UPDATE SET line = excluded.line, kind = excluded.kind,
+        written_at = excluded.written_at, source_type = NULL, source_id = NULL
     `).run(t.studentId, t.assignmentId, text, kind);
   })();
   capture(db, t);
   return { comment, line: text };
 }
 
-// Remove the stored line (only if it is still there verbatim). `kinds` limits it to
-// lines of the action being undone (an extension undo leaves an ask's line alone).
-export async function removeStatusLine(db, { studentId, assignmentId, kinds = null } = {}) {
+// Remove the stored line (only if it is still there verbatim). `source` ({ type, id })
+// limits it to the line published by that record's action: undoing request #1 never
+// strips the live line of request #2 or of an extension.
+export async function removeStatusLine(db, { studentId, assignmentId, source = null } = {}) {
   const t = pairTarget(db, studentId, assignmentId);
   const row = storedRow(db, t);
-  if (!row || (kinds && !kinds.includes(row.kind))) return { removed: false, comment: null };
-  const fresh = await freshGrade(t);
+  const own = !source || (row && row.source_type === source.type && Number(row.source_id) === Number(source.id));
+  if (!row || !own) return { removed: false, comment: null };
+  const fresh = await freshGrade(db, t);
   const current = normalise(fresh?.comment);
   const comment = composeComment(current, row.line, '');
   const dropRow = db.prepare('DELETE FROM status_lines WHERE student_id = ? AND assignment_id = ?');

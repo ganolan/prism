@@ -136,6 +136,10 @@ const MIGRATIONS = [
   // keeps synced_fingerprint. (Only dev DBs on the feature branch lack these.)
   `ALTER TABLE feedback_snapshots ADD COLUMN synced_fingerprint TEXT`,
   `ALTER TABLE feedback_snapshots ADD COLUMN fingerprint_at INTEGER NOT NULL DEFAULT 0`,
+  // Status lines (Task 4 fix round 1): the record whose action published the line, so
+  // an undo removes only its own line. (Only dev DBs on the feature branch lack these.)
+  `ALTER TABLE status_lines ADD COLUMN source_type TEXT`,
+  `ALTER TABLE status_lines ADD COLUMN source_id INTEGER`,
 ];
 
 // Remove orphaned auto-flag rows. The auto-flag feature that wrote 'missing',

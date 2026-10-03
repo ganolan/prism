@@ -4,7 +4,7 @@ import { hasMasterySession, syncMasteryForCourse, syncMasteryForAssignment, writ
 import { pushGradeComments, getSectionGrades } from '../services/schoology.js';
 import { settleResubmissions, resubmissionByStudent, arrivedKeys } from '../services/resubmissions.js';
 import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
-import { STATUS_LINE_KINDS, putSucceeded } from '../services/statusLinePublisher.js';
+import { STATUS_LINE_KINDS, putSucceeded, checkLine, lockPair } from '../services/statusLinePublisher.js';
 import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows, scoreScaleFor } from '../services/assessmentContext.js';
 import { getSchoologyConfig, getScoreScales } from '../middleware/featureGate.js';
 import { findScoreScale, levelForScore, isScalePoints } from '../lib/scoreScales.js';
@@ -586,9 +586,14 @@ router.post('/:courseId/write-comment', async (req, res) => {
   // "⟳ Resubmission received … — regraded." chip). The client composes it into
   // `comment`; it must be the comment's first line so the next action can replace
   // the exact stored text. Stored in status_lines after a successful PUT.
-  const line = typeof statusLine === 'string' ? statusLine.replace(/\r\n/g, '\n').trim() : '';
+  let line = '';
   const lineKind = statusLineKind ?? 'received';
-  if (line) {
+  if (statusLine != null && statusLine !== '') {
+    try {
+      line = checkLine(statusLine);
+    } catch (err) {
+      return res.status(400).json({ error: err.message, code: err.code });
+    }
     const text = String(comment ?? '').replace(/\r\n/g, '\n');
     if (!(text === line || text.startsWith(`${line}\n`))) {
       return res.status(400).json({ error: 'statusLine must be the first line of comment' });
@@ -626,121 +631,144 @@ router.post('/:courseId/write-comment', async (req, res) => {
   // the comment write, so the local DB is stale by the time we get here, and
   // for brand-new students it may have no row at all. Echoing the stale/null
   // grade reproduced the original #46 wipe — see commit history.
-  let fresh = null;
-  let lookupFailed = false;
-  try {
-    const allGrades = await getSectionGrades(courseRow.schoology_section_id);
-    fresh = allGrades.find(g =>
-      String(g.assignment_id) === String(assignmentId) &&
-      String(g.enrollment_id) === String(enrollmentId)
-    ) || null;
-  } catch (err) {
-    lookupFailed = true;
-    console.warn(`[mastery write-comment] fresh grade lookup failed: ${err.message}`);
-  }
-  // Writing a grade without the fresh record could drop an exception (e.g.
-  // Late) the PUT must echo — stop rather than write blind.
-  if (hasPoints && lookupFailed) {
-    return res.status(502).json({ error: 'Could not read the current Schoology grade — nothing was saved. Try again.' });
-  }
-
-  const payload = {
-    assignment_id: String(assignmentId),
-    enrollment_id: String(enrollmentId),
-    comment: comment || '',
-    comment_status: commentStatusInt,
-  };
-  if (fresh && fresh.grade != null) payload.grade = String(fresh.grade);
-  if (hasPoints) payload.grade = String(Number(points));
-  if (fresh && fresh.exception != null) payload.exception = fresh.exception;
-
-  try {
-    const result = await pushGradeComments(courseRow.schoology_section_id, [payload]);
-
-    // Mirror to local DB. Use upsert so virgin records (no prior grade row)
-    // also get cached locally — without this, the assessment page would
-    // re-render with loadedDisplay=false and the toggle would appear unsaved
-    // immediately after save.
-    //
-    // When the fresh Schoology lookup succeeded, also mirror score/exception/
-    // submission timestamp. Grading on the assessment page reaches this route
-    // (the comment write follows the rubric write), and `fresh` already holds
-    // the just-entered grade — without mirroring it the local row keeps a
-    // stale NULL score and the gradebook shows "Missing • Not Started" for
-    // graded work until the next full sync (#60).
-    const studentRow = db.prepare(`
-      SELECT s.id FROM students s
-      JOIN enrolments e ON e.student_id = s.id
-      WHERE e.schoology_enrolment_id = ?
+  // A status line is replaced by its exact stored text: hold the per-pair lock
+  // (shared with the triage actions) across read → PUT → store, so an overlapping
+  // write can't compose from the same read and drop it.
+  let release = null;
+  if (line) {
+    const pairStudent = db.prepare(`
+      SELECT s.id FROM students s JOIN enrolments e ON e.student_id = s.id WHERE e.schoology_enrolment_id = ?
     `).get(String(enrollmentId));
-    const assignmentRow = db.prepare(`
-      SELECT id FROM assignments WHERE schoology_assignment_id = ?
-    `).get(String(assignmentId));
-    if (studentRow && assignmentRow) {
-      const now = new Date().toISOString();
-      if (fresh || hasPoints) {
-        db.prepare(`
-          INSERT INTO grades (student_id, assignment_id, enrolment_id, score, exception, submitted_at, grade_comment, comment_status, synced_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(student_id, assignment_id) DO UPDATE SET
-            score = excluded.score,
-            exception = excluded.exception,
-            submitted_at = excluded.submitted_at,
-            grade_comment = excluded.grade_comment,
-            comment_status = excluded.comment_status,
-            synced_at = excluded.synced_at
-        `).run(
-          studentRow.id,
-          assignmentRow.id,
-          String(enrollmentId),
-          hasPoints ? Number(points) : (fresh.grade ?? null),
-          fresh?.exception ?? 0,
-          gradeTimeAfterWrite(fresh),
-          comment || '',
-          commentStatusInt,
-          now,
-        );
-      } else {
-        // Schoology lookup failed — mirror the comment only. Touching score or
-        // submitted_at here would wipe a real grade to NULL.
-        db.prepare(`
-          INSERT INTO grades (student_id, assignment_id, enrolment_id, grade_comment, comment_status, synced_at)
-          VALUES (?, ?, ?, ?, ?, ?)
-          ON CONFLICT(student_id, assignment_id) DO UPDATE SET
-            grade_comment = excluded.grade_comment,
-            comment_status = excluded.comment_status,
-            synced_at = excluded.synced_at
-        `).run(
-          studentRow.id,
-          assignmentRow.id,
-          String(enrollmentId),
-          comment || '',
-          commentStatusInt,
-          now,
-        );
-      }
-      // The published status line, stored before the snapshot so the fingerprint
-      // ignores it. Only when Schoology accepted the write.
-      if (line && putSucceeded(result)) {
-        db.prepare(`
-          INSERT INTO status_lines (student_id, assignment_id, line, kind, written_at) VALUES (?, ?, ?, ?, datetime('now'))
-          ON CONFLICT (student_id, assignment_id) DO UPDATE SET line = excluded.line, kind = excluded.kind, written_at = excluded.written_at
-        `).run(studentRow.id, assignmentRow.id, line, lineKind);
-      }
-      // Best-effort: a local grade just landed — snapshot its visible feedback
-      // (Amendment B) and settle any request it fulfilled. Never fails the save.
+    const pairAssignment = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(assignmentId));
+    if (pairStudent && pairAssignment) {
       try {
-        captureFeedbackSnapshots(db, { assignmentId: assignmentRow.id, studentId: studentRow.id, mode: 'save' });
-        settleResubmissions(db, { assignmentId: assignmentRow.id });
+        release = lockPair(pairStudent.id, pairAssignment.id);
       } catch (err) {
-        console.error('[mastery write-comment] snapshot/settle failed:', err.message);
+        return res.status(409).json({ error: err.message, code: err.code });
       }
     }
+  }
+  try {
+    let fresh = null;
+    let lookupFailed = false;
+    try {
+      const allGrades = await getSectionGrades(courseRow.schoology_section_id);
+      fresh = allGrades.find(g =>
+        String(g.assignment_id) === String(assignmentId) &&
+        String(g.enrollment_id) === String(enrollmentId)
+      ) || null;
+    } catch (err) {
+      lookupFailed = true;
+      console.warn(`[mastery write-comment] fresh grade lookup failed: ${err.message}`);
+    }
+    // The PUT replaces the whole grade record: without the fresh record it would
+    // drop the grade (and the rubric observations behind it) or an exception (e.g.
+    // Late) it must echo — stop rather than write blind, comment-only saves included.
+    if (lookupFailed) {
+      return res.status(502).json({ error: 'Could not read the current Schoology grade — nothing was saved. Try again.' });
+    }
 
-    res.json(result);
-  } catch (err) {
-    console.error('[mastery write-comment] Error:', err);
-    res.status(500).json({ error: err.message });
+    const payload = {
+      assignment_id: String(assignmentId),
+      enrollment_id: String(enrollmentId),
+      comment: comment || '',
+      comment_status: commentStatusInt,
+    };
+    if (fresh && fresh.grade != null) payload.grade = String(fresh.grade);
+    if (hasPoints) payload.grade = String(Number(points));
+    if (fresh && fresh.exception != null) payload.exception = fresh.exception;
+
+    try {
+      const result = await pushGradeComments(courseRow.schoology_section_id, [payload]);
+
+      // Mirror to local DB. Use upsert so virgin records (no prior grade row)
+      // also get cached locally — without this, the assessment page would
+      // re-render with loadedDisplay=false and the toggle would appear unsaved
+      // immediately after save.
+      //
+      // When the fresh Schoology lookup succeeded, also mirror score/exception/
+      // submission timestamp. Grading on the assessment page reaches this route
+      // (the comment write follows the rubric write), and `fresh` already holds
+      // the just-entered grade — without mirroring it the local row keeps a
+      // stale NULL score and the gradebook shows "Missing • Not Started" for
+      // graded work until the next full sync (#60).
+      const studentRow = db.prepare(`
+        SELECT s.id FROM students s
+        JOIN enrolments e ON e.student_id = s.id
+        WHERE e.schoology_enrolment_id = ?
+      `).get(String(enrollmentId));
+      const assignmentRow = db.prepare(`
+        SELECT id FROM assignments WHERE schoology_assignment_id = ?
+      `).get(String(assignmentId));
+      if (studentRow && assignmentRow) {
+        const now = new Date().toISOString();
+        if (fresh || hasPoints) {
+          db.prepare(`
+            INSERT INTO grades (student_id, assignment_id, enrolment_id, score, exception, submitted_at, grade_comment, comment_status, synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(student_id, assignment_id) DO UPDATE SET
+              score = excluded.score,
+              exception = excluded.exception,
+              submitted_at = excluded.submitted_at,
+              grade_comment = excluded.grade_comment,
+              comment_status = excluded.comment_status,
+              synced_at = excluded.synced_at
+          `).run(
+            studentRow.id,
+            assignmentRow.id,
+            String(enrollmentId),
+            hasPoints ? Number(points) : (fresh.grade ?? null),
+            fresh?.exception ?? 0,
+            gradeTimeAfterWrite(fresh),
+            comment || '',
+            commentStatusInt,
+            now,
+          );
+        } else {
+          // No Schoology record for the pair (a failed lookup returns 502 above) —
+          // mirror the comment only. Touching score or submitted_at here would
+          // wipe a real grade to NULL.
+          db.prepare(`
+            INSERT INTO grades (student_id, assignment_id, enrolment_id, grade_comment, comment_status, synced_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(student_id, assignment_id) DO UPDATE SET
+              grade_comment = excluded.grade_comment,
+              comment_status = excluded.comment_status,
+              synced_at = excluded.synced_at
+          `).run(
+            studentRow.id,
+            assignmentRow.id,
+            String(enrollmentId),
+            comment || '',
+            commentStatusInt,
+            now,
+          );
+        }
+        // The published status line, stored before the snapshot so the fingerprint
+        // ignores it. Only when Schoology accepted the write.
+        if (line && putSucceeded(result)) {
+          db.prepare(`
+            INSERT INTO status_lines (student_id, assignment_id, line, kind, written_at) VALUES (?, ?, ?, ?, datetime('now'))
+            ON CONFLICT (student_id, assignment_id) DO UPDATE SET line = excluded.line, kind = excluded.kind, written_at = excluded.written_at
+          `).run(studentRow.id, assignmentRow.id, line, lineKind);
+        }
+        // Best-effort: a local grade just landed — snapshot its visible feedback
+        // (Amendment B) and settle any request it fulfilled. Never fails the save.
+        try {
+          captureFeedbackSnapshots(db, { assignmentId: assignmentRow.id, studentId: studentRow.id, mode: 'save' });
+          settleResubmissions(db, { assignmentId: assignmentRow.id });
+        } catch (err) {
+          console.error('[mastery write-comment] snapshot/settle failed:', err.message);
+        }
+      }
+
+      res.json(result);
+    } catch (err) {
+      console.error('[mastery write-comment] Error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  } finally {
+    release?.();
   }
 });
 

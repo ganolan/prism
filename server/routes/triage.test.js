@@ -343,6 +343,70 @@ describe('status lines on triage actions (Amendment B)', () => {
     expect(storedLine()).toEqual({ line: LINE, kind: 'ask' });
   });
 
+  test('the published line records its source record (ask → request id, extension → extension id)', async () => {
+    const source = () => getDb().prepare('SELECT source_type, source_id FROM status_lines WHERE student_id = ? AND assignment_id = ?').get(studentId, assignmentId);
+    const asked = await ask({ commentLine: LINE });
+    expect(source()).toEqual({ source_type: 'resubmission', source_id: asked.body.id });
+    const x = await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 2, commentLine: '⟳ Extension — now due Wed 08/01 (2 lessons).' });
+    expect(source()).toEqual({ source_type: 'extension', source_id: x.body.id });
+  });
+
+  test('I-2: undoing a closed request never strips the open request\'s live line', async () => {
+    const first = await ask({ commentLine: LINE });
+    getDb().prepare(`UPDATE resubmissions SET status = 'closed', closed_at = datetime('now') WHERE id = ?`).run(first.body.id);
+    const second = '⟳ Resubmission requested — due Fri 10/10.';
+    getSectionGrades.mockResolvedValue([fresh({ comment: `${LINE}\n\nTeacher note.` })]);
+    const asked2 = await ask({ commentLine: second });
+    expect(asked2.status).toBe(201);
+    vi.clearAllMocks();
+    getSectionGrades.mockResolvedValue([fresh({ comment: `${second}\n\nTeacher note.` })]);
+    const undo1 = await call('DELETE', `/api/triage/resubmissions/${first.body.id}?removeLine=1`);
+    expect(undo1.body).toMatchObject({ deleted: true, statusLine: { removed: false } });
+    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(storedLine()).toEqual({ line: second, kind: 'ask' });
+    const undo2 = await call('DELETE', `/api/triage/resubmissions/${asked2.body.id}?removeLine=1`);
+    expect(undo2.body).toMatchObject({ deleted: true, statusLine: { removed: true, comment: 'Teacher note.' } });
+    expect(storedLine()).toBeNull();
+  });
+
+  test('I-3: a second action on the same pair while one is publishing → 409 BUSY before any read; released after', async () => {
+    let finishPut;
+    pushGradeComments.mockImplementationOnce(() => new Promise((resolve) => { finishPut = () => resolve({ status: 207, data: {} }); }));
+    const first = ask({ commentLine: LINE });
+    await vi.waitFor(() => expect(pushGradeComments).toHaveBeenCalled());
+    const busy = await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 2, commentLine: '⟳ Extension.' });
+    expect(busy).toMatchObject({ status: 409, body: { code: 'BUSY' } });
+    expect(getSectionGrades).toHaveBeenCalledTimes(1);
+    finishPut();
+    expect((await first).status).toBe(201);
+    expect((await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 2, commentLine: '⟳ Extension.' })).status).toBe(201);
+  });
+
+  test('a removal that succeeds before the undo fails → 500 saying the line WAS removed', async () => {
+    const asked = await ask({ commentLine: LINE });
+    getSectionGrades.mockResolvedValue([fresh({ comment: `${LINE}\n\nTeacher note.` })]);
+    pushGradeComments.mockImplementationOnce(async () => {
+      getDb().exec(`CREATE TEMP TRIGGER no_delete BEFORE DELETE ON resubmissions BEGIN SELECT RAISE(ABORT, 'boom'); END;`);
+      return { status: 207, data: {} };
+    });
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const res = await call('DELETE', `/api/triage/resubmissions/${asked.body.id}?removeLine=1`);
+      expect(res.status).toBe(500);
+      expect(res.body).toMatchObject({ code: 'RECORD_FAILED_AFTER_PUBLISH', comment: 'Teacher note.' });
+      expect(res.body.error).toMatch(/line WAS removed/);
+    } finally {
+      getDb().exec('DROP TRIGGER IF EXISTS no_delete');
+      spy.mockRestore();
+    }
+  });
+
+  test('a commentLine with a line break → 400 BAD_LINE, nothing published or recorded', async () => {
+    expect(await ask({ commentLine: `${LINE}\nsecond line` })).toMatchObject({ status: 400, body: { code: 'BAD_LINE' } });
+    expect(getSectionGrades).not.toHaveBeenCalled();
+    expect(count('resubmissions')).toBe(0);
+  });
+
   test('GET status-line/preview: hidden comment → hiddenWarning; failed read → 502', async () => {
     getSectionGrades.mockResolvedValue([fresh({ comment: 'Private note', comment_status: null })]);
     const res = await call('GET', `/api/triage/status-line/preview?studentId=${studentId}&assignmentId=${assignmentId}&line=${encodeURIComponent(LINE)}`);

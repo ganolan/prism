@@ -9,7 +9,9 @@ import {
   listResubmissions, requestResubmission, extendResubmission, gradeStands, undoResubmission,
   assertCanRequest, assertCanExtendRequest, assertCanGradeStand,
 } from '../services/resubmissions.js';
-import { previewStatusLine, publishStatusLine, removeStatusLine } from '../services/statusLinePublisher.js';
+import {
+  previewStatusLine, publishStatusLine, removeStatusLine, lockPair, setStatusLineSource,
+} from '../services/statusLinePublisher.js';
 import { loadCalendar } from '../services/schoolCalendar.js';
 import { todayLocal } from '../lib/schoolDays.js';
 
@@ -17,14 +19,17 @@ const router = Router();
 const STATUS = {
   BAD_ACTION: 400, BAD_LESSONS: 400, BAD_VALUE: 400, NOT_FOUND: 404,
   NOT_ON_LIST: 409, NOT_AT_LIMIT: 409, NOT_ELIGIBLE: 409, ALREADY_OPEN: 409, NOT_AT_DEADLINE: 409,
-  SCHOOLOGY_READ_FAILED: 502, SCHOOLOGY_WRITE_FAILED: 502,
+  SCHOOLOGY_READ_FAILED: 502, SCHOOLOGY_WRITE_FAILED: 502, BUSY: 409, BAD_LINE: 400,
 };
 const optBool = (v) => (v === undefined ? undefined : v === 'true');
 const flag = (v) => v === '1' || v === 'true';
 // A status line to publish with the action: omitted / '' → Prism-only (as before).
 const hasLine = (commentLine) => commentLine != null && commentLine !== '';
-const RESUBMISSION_LINE_KINDS = ['ask', 'extend_resubmission', 'grade_stands'];
-const EXTENSION_LINE_KINDS = ['extension', 'make_up'];
+// The pair a record belongs to (for the per-pair lock), or null when it doesn't exist.
+const pairOf = (db, table, id) => {
+  const r = db.prepare(`SELECT student_id, assignment_id FROM ${table} WHERE id = ?`).get(Number(id));
+  return r ? [r.student_id, r.assignment_id] : null;
+};
 
 function sendError(res, err) {
   if (err instanceof TriageError) return res.status(STATUS[err.code] || 400).json({ error: err.message, code: err.code });
@@ -43,32 +48,42 @@ function write(res, fn, okStatus = 201) {
 }
 
 // An action that may publish to the student's Schoology comment (spec Amendment B,
-// "Status lines"): validate the Prism action → publish (optional) → record in Prism.
-// A failed validation or publish changes nothing. If the record step fails AFTER a
-// publish, the comment is already on Schoology: say so plainly (500) so the teacher
-// knows, and log it.
-async function act(res, { validate, publish = null, record }, okStatus = 201) {
-  let ctx;
-  let published = null;
+// "Status lines"): lock the pair → validate the Prism action → publish (optional) →
+// record in Prism → unlock. A second action on the same pair meanwhile gets BUSY (409)
+// before anything is read. A failed validation or publish changes nothing. If the
+// record step fails AFTER a Schoology write, the comment has already changed: say so
+// plainly (500) so the teacher knows, and log it.
+async function act(res, { pair = null, validate, publish = null, record }, okStatus = 201) {
+  let release = null;
   try {
-    ctx = validate();
-    if (publish) published = await publish(ctx);
-  } catch (err) {
-    return sendError(res, err);
-  }
-  try {
-    const result = record(ctx);
-    return res.status(okStatus).json(published ? { ...result, statusLine: published } : result);
-  } catch (err) {
-    // A no-op removal (no stored line / hand-edited) wrote nothing to Schoology.
-    if (!published || published.removed === false) return sendError(res, err);
-    console.error('[triage] status line published to Schoology, but recording the action in Prism failed:', err);
-    return res.status(500).json({
-      error: `The comment WAS published to the student's Schoology comment, but Prism could not record the action (${err.message}). Check the comment in Schoology, then reload and retry the action.`,
-      code: 'RECORD_FAILED_AFTER_PUBLISH',
-      published: true,
-      comment: published.comment ?? null,
-    });
+    let ctx;
+    let published = null;
+    try {
+      const p = pair ? pair() : null;
+      if (p) release = lockPair(p[0], p[1]);
+      ctx = validate();
+      if (publish) published = await publish(ctx);
+    } catch (err) {
+      return sendError(res, err);
+    }
+    try {
+      const result = record(ctx, published);
+      return res.status(okStatus).json(published ? { ...result, statusLine: published } : result);
+    } catch (err) {
+      const removal = Boolean(published && 'removed' in published);
+      // A no-op removal (no stored line / hand-edited) wrote nothing to Schoology.
+      if (!published || published.removed === false) return sendError(res, err);
+      const what = removal ? 'The status line WAS removed from' : 'The comment WAS published to';
+      console.error(`[triage] ${what} Schoology, but recording the action in Prism failed:`, err);
+      return res.status(500).json({
+        error: `${what} the student's Schoology comment, but Prism could not record the action (${err.message}). Check the comment in Schoology, then reload and retry the action.`,
+        code: 'RECORD_FAILED_AFTER_PUBLISH',
+        published: true,
+        comment: published.comment ?? null,
+      });
+    }
+  } finally {
+    release?.();
   }
 }
 
@@ -127,23 +142,30 @@ router.post('/extensions', (req, res) => {
   const { studentId, assignmentId, lessons, note, commentLine } = req.body || {};
   const db = getDb();
   act(res, {
+    pair: () => [studentId, assignmentId],
     validate: () => assertCanExtend(db, { studentId, assignmentId, lessons }),
     publish: hasLine(commentLine) && ((ctx) => publishStatusLine(db, {
       studentId: ctx.student.id, assignmentId: ctx.assignment.id, line: commentLine,
       kind: ctx.assignment.is_test === 1 ? 'make_up' : 'extension',
     })),
-    record: () => recordExtension(db, { studentId, assignmentId, lessons, note, source: 'app' }),
+    record: (ctx, published) => {
+      const x = recordExtension(db, { studentId, assignmentId, lessons, note, source: 'app' });
+      if (published) setStatusLineSource(db, { studentId: ctx.student.id, assignmentId: ctx.assignment.id, type: 'extension', id: x.id });
+      return x;
+    },
   });
 });
 
 // DELETE /api/triage/extensions/:id?removeLine=1 — undo an extension; removeLine
-// first removes the stored extension/make-up line from the student's comment.
+// first removes the line THIS extension published (if it is still the stored line).
 router.delete('/extensions/:id', (req, res) => {
   const db = getDb();
+  const { id } = req.params;
   act(res, {
-    validate: () => db.prepare('SELECT student_id, assignment_id FROM extensions WHERE id = ?').get(Number(req.params.id)),
-    publish: flag(req.query.removeLine) && ((x) => (x
-      ? removeStatusLine(db, { studentId: x.student_id, assignmentId: x.assignment_id, kinds: EXTENSION_LINE_KINDS })
+    pair: () => pairOf(db, 'extensions', id),
+    validate: () => pairOf(db, 'extensions', id),
+    publish: flag(req.query.removeLine) && ((p) => (p
+      ? removeStatusLine(db, { studentId: p[0], assignmentId: p[1], source: { type: 'extension', id } })
       : null)),
     record: () => undoExtension(db, req.params.id),
   }, 200);
@@ -161,11 +183,16 @@ router.post('/resubmissions', (req, res) => {
   const { studentId, assignmentId, lessons, note, commentLine } = req.body || {};
   const db = getDb();
   act(res, {
+    pair: () => [studentId, assignmentId],
     validate: () => assertCanRequest(db, { studentId, assignmentId, lessons }),
     publish: hasLine(commentLine) && ((ctx) => publishStatusLine(db, {
       studentId: ctx.student.id, assignmentId: ctx.assignment.id, line: commentLine, kind: 'ask',
     })),
-    record: () => requestResubmission(db, { studentId, assignmentId, lessons, note, source: 'app' }),
+    record: (ctx, published) => {
+      const r = requestResubmission(db, { studentId, assignmentId, lessons, note, source: 'app' });
+      if (published) setStatusLineSource(db, { studentId: ctx.student.id, assignmentId: ctx.assignment.id, type: 'resubmission', id: r.id });
+      return r;
+    },
   });
 });
 
@@ -180,25 +207,33 @@ router.put('/resubmissions/:id', (req, res) => {
   const today = todayLocal();
   const ending = Boolean(stands || close);
   act(res, {
+    pair: () => pairOf(db, 'resubmissions', id),
     validate: () => (ending ? assertCanGradeStand(db, id, today) : assertCanExtendRequest(db, id, lessons)),
     publish: hasLine(commentLine) && (({ request }) => publishStatusLine(db, {
       studentId: request.student_id, assignmentId: request.assignment_id, line: commentLine,
       kind: ending ? 'grade_stands' : 'extend_resubmission',
     })),
-    record: () => (ending ? gradeStands(db, id, { today }) : extendResubmission(db, id, lessons)),
+    record: ({ request }, published) => {
+      const r = ending ? gradeStands(db, id, { today }) : extendResubmission(db, id, lessons);
+      if (published) setStatusLineSource(db, { studentId: request.student_id, assignmentId: request.assignment_id, type: 'resubmission', id: request.id });
+      return r;
+    },
   }, 200);
 });
 
 // DELETE /api/triage/resubmissions/:id?removeLine=1 — undo; removeLine first removes
-// the stored ask / extend / grade-stands line from the student's comment.
+// the line THIS request's ask / extend / grade stands published (if it is still the
+// stored line) — never another request's live line.
 router.delete('/resubmissions/:id', (req, res) => {
   const db = getDb();
+  const { id } = req.params;
   act(res, {
-    validate: () => db.prepare('SELECT student_id, assignment_id FROM resubmissions WHERE id = ?').get(Number(req.params.id)),
-    publish: flag(req.query.removeLine) && ((r) => (r
-      ? removeStatusLine(db, { studentId: r.student_id, assignmentId: r.assignment_id, kinds: RESUBMISSION_LINE_KINDS })
+    pair: () => pairOf(db, 'resubmissions', id),
+    validate: () => pairOf(db, 'resubmissions', id),
+    publish: flag(req.query.removeLine) && ((p) => (p
+      ? removeStatusLine(db, { studentId: p[0], assignmentId: p[1], source: { type: 'resubmission', id } })
       : null)),
-    record: () => undoResubmission(db, req.params.id),
+    record: () => undoResubmission(db, id),
   }, 200);
 });
 

@@ -5,7 +5,7 @@ vi.mock('./schoology.js', () => ({ getSectionGrades: vi.fn(), pushGradeComments:
 
 import { getDb } from '../db/index.js';
 import { getSectionGrades, pushGradeComments } from './schoology.js';
-import { previewStatusLine, publishStatusLine, removeStatusLine } from './statusLinePublisher.js';
+import { previewStatusLine, publishStatusLine, removeStatusLine, lockPair, setStatusLineSource } from './statusLinePublisher.js';
 
 const L1 = '⟳ Resubmission requested — due Thu 09/10. Fix the loop.';
 const L2 = '⟳ Resubmission requested — now due Tue 14/10.';
@@ -93,16 +93,28 @@ describe('publishStatusLine', () => {
     expect(gradeRow().grade_comment).toBe('stale');
   });
 
-  test('no Schoology grade record yet → comment-only write (no grade echoed); score untouched', async () => {
+  test('no Schoology record but Prism has a score or exception → SCHOOLOGY_READ_FAILED, no PUT (never write blind)', async () => {
+    getSectionGrades.mockResolvedValue([fresh({ enrollment_id: 'someone-else' })]);
+    await expect(publishStatusLine(db, { studentId: s, assignmentId: a, line: L1, kind: 'ask' })).rejects.toMatchObject({ code: 'SCHOOLOGY_READ_FAILED' });
+    db.prepare('UPDATE grades SET score = NULL, exception = 1 WHERE student_id = ?').run(s);
+    await expect(publishStatusLine(db, { studentId: s, assignmentId: a, line: L1, kind: 'ask' })).rejects.toMatchObject({ code: 'SCHOOLOGY_READ_FAILED' });
+    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(stored()).toBeNull();
+  });
+
+  test('no Schoology grade record yet (and no Prism grade) → comment-only write (no grade echoed)', async () => {
+    db.prepare('UPDATE grades SET score = NULL, exception = 0 WHERE student_id = ?').run(s);
     getSectionGrades.mockResolvedValue([]);
     const out = await publishStatusLine(db, { studentId: s, assignmentId: a, line: L1, kind: 'extension' });
     expect(out.comment).toBe(L1);
     expect(sentPayload()).toEqual({ assignment_id: 'sa', enrollment_id: 'enr', comment: L1, comment_status: 1 });
-    expect(gradeRow()).toMatchObject({ score: 1, grade_comment: L1, comment_status: 1 });
+    expect(gradeRow()).toMatchObject({ score: null, grade_comment: L1, comment_status: 1 });
   });
 
-  test('rejects an empty line or an unknown kind before reading Schoology', async () => {
-    await expect(publishStatusLine(db, { studentId: s, assignmentId: a, line: '  ', kind: 'ask' })).rejects.toMatchObject({ code: 'BAD_VALUE' });
+  test('rejects an empty or multi-line line, or an unknown kind, before reading Schoology', async () => {
+    await expect(publishStatusLine(db, { studentId: s, assignmentId: a, line: '  ', kind: 'ask' })).rejects.toMatchObject({ code: 'BAD_LINE' });
+    await expect(publishStatusLine(db, { studentId: s, assignmentId: a, line: `${L1}\nmore`, kind: 'ask' })).rejects.toMatchObject({ code: 'BAD_LINE' });
+    await expect(publishStatusLine(db, { studentId: s, assignmentId: a, line: `${L1}\rmore`, kind: 'ask' })).rejects.toMatchObject({ code: 'BAD_LINE' });
     await expect(publishStatusLine(db, { studentId: s, assignmentId: a, line: L1, kind: 'nope' })).rejects.toMatchObject({ code: 'BAD_VALUE' });
     await expect(publishStatusLine(db, { studentId: 999, assignmentId: a, line: L1, kind: 'ask' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
     expect(getSectionGrades).not.toHaveBeenCalled();
@@ -152,11 +164,23 @@ describe('removeStatusLine', () => {
     expect(getSectionGrades).not.toHaveBeenCalled();
   });
 
-  test('a stored line of another kind (kinds filter) is left alone', async () => {
+  test('source filter: only the line published by that record is removed', async () => {
     db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, ?, 'ask')`).run(s, a, L1);
-    expect(await removeStatusLine(db, { studentId: s, assignmentId: a, kinds: ['extension', 'make_up'] })).toEqual({ removed: false, comment: null });
+    setStatusLineSource(db, { studentId: s, assignmentId: a, type: 'resubmission', id: 2 });
+    expect(await removeStatusLine(db, { studentId: s, assignmentId: a, source: { type: 'resubmission', id: 1 } })).toEqual({ removed: false, comment: null });
+    expect(await removeStatusLine(db, { studentId: s, assignmentId: a, source: { type: 'extension', id: 2 } })).toEqual({ removed: false, comment: null });
     expect(getSectionGrades).not.toHaveBeenCalled();
     expect(stored()).not.toBeNull();
+    getSectionGrades.mockResolvedValue([fresh({ comment: L1 })]);
+    expect(await removeStatusLine(db, { studentId: s, assignmentId: a, source: { type: 'resubmission', id: '2' } })).toMatchObject({ removed: true, comment: '' });
+    expect(stored()).toBeNull();
+  });
+
+  test('a new publish clears the previous source (the route sets it after recording)', async () => {
+    db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind, source_type, source_id) VALUES (?, ?, ?, 'ask', 'resubmission', 7)`).run(s, a, L1);
+    getSectionGrades.mockResolvedValue([fresh({ comment: L1 })]);
+    await publishStatusLine(db, { studentId: s, assignmentId: a, line: L2, kind: 'extend_resubmission' });
+    expect(db.prepare('SELECT source_type, source_id FROM status_lines WHERE student_id = ?').get(s)).toEqual({ source_type: null, source_id: null });
   });
 
   test('line hand-edited away → no PUT, but the stored row is dropped', async () => {
@@ -173,5 +197,18 @@ describe('removeStatusLine', () => {
     await expect(removeStatusLine(db, { studentId: s, assignmentId: a })).rejects.toMatchObject({ code: 'SCHOOLOGY_READ_FAILED' });
     expect(pushGradeComments).not.toHaveBeenCalled();
     expect(stored()).not.toBeNull();
+  });
+});
+
+describe('lockPair', () => {
+  test('a held pair is BUSY until released; other pairs are free', () => {
+    const release = lockPair(1, 2);
+    expect(() => lockPair('1', '2')).toThrow(expect.objectContaining({ code: 'BUSY' }));
+    const other = lockPair(1, 3);
+    other();
+    release();
+    release(); // idempotent
+    const again = lockPair(1, 2);
+    again();
   });
 });

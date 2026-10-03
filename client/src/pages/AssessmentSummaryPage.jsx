@@ -1559,10 +1559,17 @@ export default function AssessmentSummaryPage() {
     return next;
   });
   // Triage rows link here with ?student=<id>: show that card (clear a filter
-  // hiding it), scroll to it, and pulse a highlight ring for ~2 s.
+  // hiding it), scroll to it, and pulse a highlight ring for ~2 s. Runs once
+  // per ?student= value — handleCardSaved patches `data` in place on every
+  // card save, so without this guard each save mid-grading-run would re-fire
+  // the effect (it depends on `data`) and yank the page back to the linked
+  // card. `focusedForRef` tracks which student id has already been handled;
+  // a *different* ?student= (a fresh deep link while still on the same
+  // assessment) clears it so the new link still focuses.
   const [searchParams] = useSearchParams();
   const focusStudentId = Number(searchParams.get('student')) || null;
   const [highlightId, setHighlightId] = useState(null);
+  const focusedForRef = useRef(null);
   const reloadRubric = async () => setRubricData(await getRubricForAssignment(assignmentId));
 
   // "Send all" bar state (#51). pendingByUid maps each card's uid → true while
@@ -1777,13 +1784,16 @@ export default function AssessmentSummaryPage() {
   // after the loading/error/null guards below, so this reads straight off it
   // rather than off `alignedTopics` (which is just `data.topics`).
   useEffect(() => {
-    if (!focusStudentId || !data) return;
+    if (!focusStudentId) { focusedForRef.current = null; return; }
+    if (focusedForRef.current === focusStudentId) return; // already handled this link
+    if (!data) return; // wait for data to load before handling
     const s = data.students.find((x) => x.id === focusStudentId);
     if (!s) return;
+    focusedForRef.current = focusStudentId;
     if (!passesFilters(s, activeFilters, { assignment: data.assignment, topics: data.topics })) setActiveFilters(new Set());
     setHighlightId(focusStudentId);
     requestAnimationFrame(() => document.getElementById(`student-card-${focusStudentId}`)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' }));
-    const t = setTimeout(() => setHighlightId(null), 2200);
+    const t = setTimeout(() => setHighlightId(null), 2000);
     return () => clearTimeout(t);
   }, [focusStudentId, data]); // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -1611,4 +1611,29 @@ describe('AssessmentSummaryPage — deep link from a triage row (Task 10)', () =
     // The other card is untouched.
     expect(document.getElementById('student-card-11')).not.toHaveClass('student-card--highlight');
   });
+
+  it('does not re-scroll when a later card save patches `data` in place, while ?student= stays in the URL', async () => {
+    sendAllGrades.mockResolvedValue({ results: [{ uid: 'uid-12', ok: true }] });
+    renderPage('/course/5/assessment/a9?student=12');
+    await screen.findByText('Ravi Shah');
+    await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1));
+
+    // Publish a grade on Ravi's own card. handleCardSaved patches `data` with a
+    // new object (new students array), which previously re-fired the deep-link
+    // effect (it depends on [focusStudentId, data]) and yanked the page back to
+    // this card mid-grading-run.
+    fireEvent.click(screen.getAllByTitle('Set Topic 1 to Developing')[1]);
+    const publishAll = await screen.findByRole('button', { name: /publish all to schoology \(1\)/i });
+    fireEvent.click(publishAll);
+    await waitFor(() => expect(sendAllGrades).toHaveBeenCalledTimes(1));
+    await screen.findByText(/Published 1 grade/);
+    // The deep-link effect's scroll is scheduled via requestAnimationFrame, so
+    // give a buggy re-fire a real chance to land before asserting it didn't:
+    // without the once-per-link guard this call count reaches 2 here.
+    await new Promise((r) => setTimeout(r, 100));
+
+    // `data` now has a new identity, but the link already ran once for student
+    // 12 — no second scroll.
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1);
+  });
 });

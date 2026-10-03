@@ -898,6 +898,13 @@ the original 56-day gap and the fixed/re-verified result are in `.claude/powersc
   changed them or `submitted_at > R`. Recorded in `feedback_snapshots.arrival_parts`. lti saves within
   the revision's minute don't count as after it; malformed save-log entries are dropped; the preview
   flags a blank candidate line. Details: spec "Answered, part by part".
+- **Round 5 (2026-10-03): a Prism save credits only what the teacher wrote.** Save routes (write-comment,
+  send-all, /write) capture the pair unstamped before their own mirror (judging a revision a running sync
+  upserted, absorbing a pull's levels), mirror Schoology's fresh score/exception + grade time unstamped
+  unless the teacher wrote it (`rubricSaved` from the card / an entry's scores / points), then mirror the
+  teacher's changes and capture stamped. The echo is logged as a `'schoology'` entry at Schoology's grade
+  time (ordering only, never Prism evidence). Review N1/N2/N2b/N3 closed. Details: spec "A Prism save
+  credits only what the teacher wrote".
 
 ## Sync resilience + persistent sync log (2026-10-02, branch `feat/sync-resilience-logs`)
 

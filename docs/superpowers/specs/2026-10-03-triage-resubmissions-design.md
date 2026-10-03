@@ -480,13 +480,16 @@ can be published:
   Residual: when the grade time is after R, the baseline is still the previous snapshot, so a *score or
   visible-comment* change given in Schoology before R (unsynced) *and* a later write after R that adds
   no visible feedback can still read as answered. The grade time can't say which write changed the
-  visible feedback. (Rubric levels no longer can — round 4 — and a Prism status-line publish no longer
-  is such a write — R1 below.) The two known cases:
+  visible feedback. (Rubric levels no longer can — round 4; a Prism status-line publish no longer is
+  such a write — R1 below; nor is a Prism save whose fresh read echoes a pre-R Schoology score — round 5,
+  "A Prism save credits only what the teacher wrote".) Remaining residuals:
   - **a hidden note written in Schoology after R** (it moves the grade time past R; a pre-R score or
-    visible-comment change then differs from the previous snapshot);
-  - **a Prism `write-comment` hidden-only save after R** whose fresh read echoes a pre-R Schoology score
-    the last sync never saw: the mirror changes the fingerprint, so the save is logged after R with the
-    pre-mirror fingerprint as what it replaced, and that becomes the baseline.
+    visible-comment change then differs from the previous snapshot) — answered, wrongly;
+  - **the levels bit is per arrival, not per topic** (review N4): a Prism change to one topic after R that
+    is then reverted still marks "levels changed by a Prism save", so a later pull bringing a pre-R level
+    on another topic reads as answered;
+  - **the 20-entry save-log cap**: more than 20 changing Prism saves before a sync sees R can drop the
+    first post-R entry (and the levels it changed) — a false Arrived (safe direction).
 - **The card follows the server (I1, I2).** `write-comment`, `send-all` (per result) and `/write` return
   the saved pair's post-save `resubmissionFields` (`resubmission`, `resubmit_flag`, `resubmitted`,
   `arrived_on`), computed after the capture + settle; the card patches exactly those (unknown → left
@@ -616,6 +619,36 @@ can be published:
   `synced_fingerprint` are informational except for rows with a stamp but no log (legacy rule).
 - Regression tests: S1, S2, S3 → Arrived; a Prism rubric-only save after R and a Schoology score regrade
   after R → answered; C1 (a)/(b), R1, R2 + chain, X1/X2/X6 and the absorption orderings unchanged.
+
+**A Prism save credits only what the teacher wrote (residual review round 5):**
+
+- **Why.** A stamped save capture diffed against the *last snapshot*, so anything another writer had put
+  in the DB since — a running sync's upserts, a mastery pull's upserts before its own capture, or the
+  route's fresh-read echo of a Schoology-side change — was credited to the teacher's save; and a save that
+  was the first capture to see R skipped C1. Review repros: N1 (a Schoology rubric regrade that also moved
+  the score before R; R unsynced; a hide-only save echoes the score), N2 / N2b (a running sync upserted a
+  pre-R score and R; a hide-only / no-visible-change save before the sync's capture), N3 (a pull wrote a
+  pre-R level; a hide-only save before the pull's capture) — all dismissed.
+- **Protocol** (`server/routes/mastery.js` — `write-comment`, `send-all` per pair, `/write`):
+  1. **Before its own mirror**, capture the pair *unstamped* — it judges a revision a running sync upserted
+     (C1 now applies to every capture except a stamped Prism save) and absorbs what a sync/pull wrote into
+     a pending arrival's baseline.
+  2. `write-comment` / `send-all`: mirror the fresh Schoology score/exception **with Schoology's own grade
+     time** and capture unstamped again — unless the teacher wrote that score in this save: `rubricSaved:
+     true` on `write-comment` (the card sends it when the same save wrote rubric scores first), an entry's
+     rubric scores or scale grade in `send-all` (the server knows), or a scale grade's `points`.
+  3. Mirror the teacher's own changes (comment, display, points/score when theirs, the route's grade time,
+     the status line) and capture **stamped** — the save log's before→after is exactly the teacher's change.
+- **The echo is logged** as a `'schoology'` save-log entry at Schoology's grade time (`echoAt`): it orders
+  the baseline (a Schoology regrade *after* an unsynced R still answers it — its entry is the first after R;
+  one *before* R is part of the baseline) but never counts as Prism evidence. Absorption keeps a score
+  change whose Schoology grade time is after the arrival.
+- **Closed:** S2 including its score-moving form (N1), N2, N2b, N3. Regression tests at the route level
+  (`server/routes/mastery.test.js`) and through the capture protocol (`feedbackSnapshots.test.js`);
+  common workflows answered: a Prism rubric regrade (`/write`, then `write-comment` with `rubricSaved`),
+  a Prism or Schoology visible comment, a Schoology score regrade after R (synced, or echoed by a save
+  before the sync sees R). Remaining residuals: see the C1 "Residual" list above (a Schoology hidden note
+  after R; the per-arrival levels bit, N4; the 20-entry cap).
 
 **Task 8 verification (this task, 2026-10-03):**
 

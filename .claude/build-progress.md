@@ -866,12 +866,19 @@ the original 56-day gap and the fixed/re-verified result are in `.claude/powersc
   I1/I2: the save routes return the pair's post-save `resubmissionFields` and the card patches those
   (a hidden-only/unchanged/received-line-only save stays Arrived); Ask/Extend/Grade stands/Undo hand the
   new comment to the card, which patches it and rebases the editor so a later Save keeps the published
-  line. I3: PrisMCP's status-line tools fail with `SCHOOLOGY_NOT_CONFIGURED` unless the MCP config's env
-  block sets the three `SCHOOLOGY_*` vars (documented in `docs/prismcp-install-and-verify.md`). Also: a
+  line. I3: PrisMCP's status-line tools fail with `SCHOOLOGY_NOT_CONFIGURED` unless its environment has the
+  three `SCHOOLOGY_*` vars (mini: env block; laptop over SSH: sources the mini's `.env`) (documented in `docs/prismcp-install-and-verify.md`). Also: a
   stored status line alone never counts as a comment for grading state (server + client); boot seeds an
   empty `feedback_snapshots`; send-all's post-rubric 502s warn the scores may already be in Schoology;
   `(1 lesson)`; the parity probe migrates its in-memory copy. Details: spec "Final whole-branch review
   fixes".
+- **Residual review fixes (2026-10-03).** Status lines are plain ASCII (teacher decision; tested). R1: the
+  status-line publisher's snapshot capture is unstamped (`captureFeedbackSnapshots` `stamp: false`), so
+  a publish that mirrors an unsynced pre-resubmission Schoology regrade can no longer silently dismiss the
+  resubmission. R2: a sync judging a new revision keeps a Prism save stamp that postdates it, so a Prism
+  rubric-only regrade after the resubmission acknowledges it. R3: PrisMCP over SSH sources the mini's
+  `~/prism/data/.env` remotely — the Schoology secret never leaves the mini. Details: spec "Residual
+  review fixes".
 
 ## Sync resilience + persistent sync log (2026-10-02, branch `feat/sync-resilience-logs`)
 

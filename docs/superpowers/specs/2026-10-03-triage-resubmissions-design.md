@@ -474,8 +474,14 @@ can be published:
      arrival_revision_at` or the snapshot's save stamp `fingerprint_at > arrival_revision_at` (a rubric-only
      Prism save stamps it without moving `submitted_at`). A changed fingerprint alone no longer answers.
   Residual: when the grade time is after R, the baseline is still the previous snapshot, so feedback given
-  before R *and* any later write after R (even a hidden note or a Prism status-line publish) can still
-  read as answered. The grade time can't say which write changed the visible feedback.
+  before R *and* a later write after R that adds no visible feedback can still read as answered. The
+  grade time can't say which write changed the visible feedback. The two known cases (a Prism
+  status-line publish no longer is one — R1 below):
+  - **a hidden note written in Schoology after R** (it moves the grade time past R; the pre-R visible
+    feedback then differs from the previous snapshot);
+  - **a Prism `write-comment` hidden-only save after R** whose fresh read echoes a pre-R Schoology score
+    the last sync never saw: the mirror changes the fingerprint, so the save is stamped after R and the
+    next sync takes the older `synced_fingerprint` as the baseline.
 - **The card follows the server (I1, I2).** `write-comment`, `send-all` (per result) and `/write` return
   the saved pair's post-save `resubmissionFields` (`resubmission`, `resubmit_flag`, `resubmitted`,
   `arrived_on`), computed after the capture + settle; the card patches exactly those (unknown → left
@@ -484,9 +490,11 @@ can be published:
   `status_line` and Display and rebases the editor (a dirty draft gets the line swapped at the top; a
   clean one takes the new comment), so the next Save can't erase a published line.
 - **PrisMCP and Schoology credentials (I3).** PrisMCP loads no dotenv; the status-line tools need
-  `SCHOOLOGY_BASE_URL` / `SCHOOLOGY_CONSUMER_KEY` / `SCHOOLOGY_CONSUMER_SECRET` in the MCP config's env
-  block and fail with `SCHOOLOGY_NOT_CONFIGURED` (before anything is read or written) without them
-  (`docs/prismcp-install-and-verify.md`).
+  `SCHOOLOGY_BASE_URL` / `SCHOOLOGY_CONSUMER_KEY` / `SCHOOLOGY_CONSUMER_SECRET` in its environment and
+  fail with `SCHOOLOGY_NOT_CONFIGURED` (before anything is read or written) without them — on the mini
+  via the MCP config's env block; from the laptop over SSH by sourcing the mini's `~/prism/data/.env`
+  in the remote command, so the secret never leaves the mini (R3 below;
+  `docs/prismcp-install-and-verify.md`).
 - **A status line is not teacher feedback (M3).** Every `gradingState` caller (Feedback owed,
   `get_assignment_context`, PrisMCP `list_assignments` counts) and the client `gradingStateOf` strip the
   stored line before deciding a comment is present.
@@ -494,6 +502,30 @@ can be published:
 - **`send-all` 502s after the rubric step** now say the rubric scores may already be in Schoology
   ("… nothing was recorded in Prism; rubric scores may already be in Schoology — sync, then check").
 - `(1 lesson)` in the extension line (M6); the parity probe migrates its in-memory copy (M5).
+
+**Residual review fixes (2026-10-03):**
+
+- **Status lines are plain ASCII** (teacher decision) — the templates above; a test asserts every
+  template output matches `/^[\x20-\x7E]*$/`. This retires the `⟳`/`—` encoding round-trip concern
+  (limitation 4 now covers only the 207 batch response).
+- **A status-line publish never counts as a Prism save (R1).** The publisher mirrors the fresh Schoology
+  grade, which can carry a regrade the last sync never saw. Its capture used to stamp `fingerprint_at`,
+  so publishing after an unsynced resubmission R (e.g. sync at 60 → Schoology regrade to 70 → R → Prism
+  Extend) made the next sync take the pre-regrade sync as R's baseline and read the pre-R regrade as the
+  answer — R silently dismissed. `captureFeedbackSnapshots` now takes `stamp: false` (used only by the
+  publisher's publish/remove capture): it updates `fingerprint`, and `synced_fingerprint` when no save
+  stamp is pending, but never `fingerprint_at`. The publisher never moves `grades.submitted_at`, and
+  "answered" still needs both a fingerprint change and a teacher write after the arrival; the publish's
+  own move of Schoology's grade time is not a fingerprint change, so the repro ends **Arrived**. Cost (safe
+  direction): a publish after a Schoology-side *answer* to an unsynced R folds that answer into R's
+  baseline — a false Arrived, cleared by any new visible feedback (same family as limitation 1).
+- **A Prism rubric-only save after R answers it (R2).** `/write` doesn't move `grades.submitted_at`, and
+  the sync that judged R used to reset `fingerprint_at` to 0, losing the only record of the teacher's
+  write after the arrival — the pair stayed Arrived though regraded in Prism. A sync capture judging R now
+  keeps a save stamp that postdates R (`fingerprint_at = newRevision && fingerprint_at > R ?
+  fingerprint_at : 0`, `synced_fingerprint` = that sync's view). A stamp from before R is still cleared.
+- **PrisMCP over SSH (R3):** the laptop's remote command sources the mini's `.env` instead of carrying
+  the consumer secret in the laptop's Claude config.
 
 **Task 8 verification (this task, 2026-10-03):**
 

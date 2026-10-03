@@ -110,6 +110,40 @@ describe('markResubmissionReviewed', () => {
   });
 });
 
+describe('undo of a Reviewed mark (final review finding 2)', () => {
+  test('records the request it closed and reopens it on undo', () => {
+    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');
+    const r = requestResubmission(db, { studentId: s, assignmentId: a, requestedAt: sql('2026-10-12') });
+    grade(s, a, { latest_revision_at: at('2026-10-14') });
+    const review = markResubmissionReviewed(db, { studentId: s, assignmentId: a });
+    expect(db.prepare('SELECT closes_request_id FROM resubmissions WHERE id = ?').get(review.id).closes_request_id).toBe(r.id);
+    expect(listResubmissions(db, { id: r.id })[0].status).toBe('done');
+
+    expect(undoResubmission(db, review.id)).toEqual({ deleted: true });
+    expect(listResubmissions(db, { id: review.id })).toEqual([]);
+    expect(listResubmissions(db, { id: r.id })[0]).toMatchObject({ status: 'open', closedAt: null });
+    expect(resubmissionByStudent(db, a).get(s)).toMatchObject({ state: 'arrived', request: { id: r.id } });
+  });
+  test('does not reopen when another request for the pair is already open', () => {
+    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');
+    const r = requestResubmission(db, { studentId: s, assignmentId: a, requestedAt: sql('2026-10-12') });
+    grade(s, a, { latest_revision_at: at('2026-10-14') });
+    const review = markResubmissionReviewed(db, { studentId: s, assignmentId: a });
+    const r2 = requestResubmission(db, { studentId: s, assignmentId: a, requestedAt: sql('2026-10-15') });
+    expect(undoResubmission(db, review.id)).toEqual({ deleted: true });
+    expect(listResubmissions(db, { id: r.id })[0].status).toBe('done');
+    expect(listResubmissions(db, { id: r2.id })[0].status).toBe('open');
+  });
+  test('a review that closed no request just deletes', () => {
+    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');
+    grade(s, a, { score: 80, submitted_at: at('2026-10-06'), latest_revision_at: at('2026-10-08') });
+    const review = markResubmissionReviewed(db, { studentId: s, assignmentId: a });
+    expect(db.prepare('SELECT closes_request_id FROM resubmissions WHERE id = ?').get(review.id).closes_request_id).toBeNull();
+    expect(undoResubmission(db, review.id)).toEqual({ deleted: true });
+    expect(listResubmissions(db, {})).toEqual([]);
+  });
+});
+
 describe('settleResubmissions', () => {
   test('marks fulfilled requests done, leaves waiting ones', () => {
     const s = student('u1', 'Maya', 'Chen'); const s2 = student('u2', 'Ethan', 'Wong'); const a = assignment('a1', 'Project');
@@ -149,6 +183,48 @@ describe('recordSchoologyUnsubmit', () => {
     // A genuinely newer submission (after the closed request's requested_at) is a new episode.
     db.prepare(`UPDATE grades SET latest_revision_at = ? WHERE student_id = ? AND assignment_id = ?`).run(at('2026-10-12'), s, a);
     expect(recordSchoologyUnsubmit(db, { studentId: s, assignmentId: a, requestedAt: sql('2026-10-12') })).toBe(true);
+  });
+});
+
+describe('recordSchoologyUnsubmit guards (final review 5b)', () => {
+  const unsubmitted = (s, a, extra = {}) => grade(s, a, { score: 80, exception: 0, first_submitted_at: 100, lti_submission_state: 'in_progress', ...extra });
+  test('archived course → false', () => {
+    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project'); unsubmitted(s, a);
+    db.prepare('UPDATE courses SET archived = 1').run();
+    expect(recordSchoologyUnsubmit(db, { studentId: s, assignmentId: a })).toBe(false);
+  });
+  test('excluded course → false', () => {
+    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project'); unsubmitted(s, a);
+    db.prepare('UPDATE courses SET excluded = 1').run();
+    expect(recordSchoologyUnsubmit(db, { studentId: s, assignmentId: a })).toBe(false);
+  });
+  test('an exception (≠ 0) → false', () => {
+    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project'); unsubmitted(s, a, { exception: 4 });
+    expect(recordSchoologyUnsubmit(db, { studentId: s, assignmentId: a })).toBe(false);
+  });
+  test.each(['submitted', null, 'graded'])('state %s (not in_progress) → false', (state) => {
+    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project'); unsubmitted(s, a, { lti_submission_state: state });
+    expect(recordSchoologyUnsubmit(db, { studentId: s, assignmentId: a })).toBe(false);
+  });
+});
+
+describe('undo of an auto-added request (final review finding 4)', () => {
+  test('closes it ("Undone") instead of deleting, so the next sync does not re-add it', () => {
+    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');
+    grade(s, a, { score: 80, exception: 0, first_submitted_at: 100, latest_revision_at: at('2026-10-10'), lti_submission_state: 'in_progress' });
+    expect(recordSchoologyUnsubmit(db, { studentId: s, assignmentId: a, requestedAt: sql('2026-10-10') })).toBe(true);
+    const row = db.prepare(`SELECT id FROM resubmissions WHERE student_id = ? AND assignment_id = ?`).get(s, a);
+
+    expect(undoResubmission(db, row.id)).toEqual({ deleted: false, closed: true });
+    expect(listResubmissions(db, { id: row.id })[0]).toMatchObject({ status: 'closed', closeNote: 'Undone' });
+    expect(listResubmissions(db, { id: row.id })[0].closedAt).toBeTruthy();
+    expect(recordSchoologyUnsubmit(db, { studentId: s, assignmentId: a, requestedAt: sql('2026-10-11') })).toBe(false);
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM resubmissions`).get().n).toBe(1);
+  });
+  test('an app request is still deleted by undo', () => {
+    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');
+    const r = requestResubmission(db, { studentId: s, assignmentId: a });
+    expect(undoResubmission(db, r.id)).toEqual({ deleted: true });
   });
 });
 

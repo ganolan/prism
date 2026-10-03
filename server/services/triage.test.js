@@ -10,7 +10,7 @@ import {
   getTriage, recordReferral, undoReferral, listReferrals, recordExtension, undoExtension, listExtensions, toneFor, TriageError,
   setMakeUpIgnored,
 } from './triage.js';
-import { requestResubmission, markResubmissionReviewed, closeResubmission } from './resubmissions.js';
+import { requestResubmission, markResubmissionReviewed, closeResubmission, undoResubmission } from './resubmissions.js';
 
 const TODAY = '2026-10-16'; // Fri
 
@@ -878,6 +878,19 @@ describe('resubmissions list', () => {
     requestResubmission(db, { studentId: s2, assignmentId: f, requestedAt: sqlAt('2026-10-15') });
     expect(getTriage(db, { today: TODAY, includeFormative: false }).resubmissions.map((r) => r.studentName)).toEqual(['Ethan Wong']);
     expect(getTriage(db, { today: TODAY, includeFormative: true }).resubmissions).toHaveLength(2);
+  });
+  test('final review finding 2: undoing a Reviewed mark reopens the request it closed — the pair is Arrived again', () => {
+    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'CP1', '2026-09-21');
+    const req = requestResubmission(db, { studentId: s, assignmentId: a, requestedAt: sqlAt('2026-10-09') }); // ungraded work
+    grade(s, a, { latest_revision_at: epoch('2026-10-14') });                                              // arrival
+    expect(getTriage(db, { today: TODAY }).resubmissions).toMatchObject([{ state: 'arrived', id: req.id }]);
+    const review = markResubmissionReviewed(db, { studentId: s, assignmentId: a });
+    expect(getTriage(db, { today: TODAY }).resubmissions).toEqual([]);
+
+    expect(undoResubmission(db, review.id)).toEqual({ deleted: true });
+    const row = db.prepare('SELECT status, closed_at FROM resubmissions WHERE id = ?').get(req.id);
+    expect(row).toEqual({ status: 'open', closed_at: null });
+    expect(getTriage(db, { today: TODAY }).resubmissions).toMatchObject([{ state: 'arrived', id: req.id }]);
   });
   test('reviewed / closed / excused rows do not show', () => {
     const s = student('u1', 'Maya', 'Chen'); const s2 = student('u2', 'Ethan', 'Wong'); const s3 = student('u3', 'Zoe', 'Tan');

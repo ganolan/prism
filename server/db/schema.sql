@@ -542,6 +542,7 @@ CREATE TABLE IF NOT EXISTS resubmissions (
   note TEXT,
   source TEXT NOT NULL DEFAULT 'app',   -- 'app' | 'mcp' | 'schoology_unsubmit'
   revision_at INTEGER,                  -- review: the latest_revision_at it covered (epoch s)
+  closes_request_id INTEGER,            -- review: the request it marked done (Undo reopens it)
   closed_at TEXT,
   close_note TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),

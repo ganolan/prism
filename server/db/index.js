@@ -131,6 +131,9 @@ const MIGRATIONS = [
   // Indexes for issue #13 columns (must run after ALTER TABLEs above)
   `CREATE INDEX IF NOT EXISTS idx_assignments_folder ON assignments(folder_id)`,
   `CREATE INDEX IF NOT EXISTS idx_assignments_grading_category ON assignments(grading_category_id)`,
+  // Triage resubmissions (final review): a "Reviewed" mark remembers the
+  // request it marked done, so undoing the review reopens that request.
+  `ALTER TABLE resubmissions ADD COLUMN closes_request_id INTEGER`,
 ];
 
 // Remove orphaned auto-flag rows. The auto-flag feature that wrote 'missing',
@@ -183,20 +186,28 @@ export function backfillFirstSubmittedAt(database) {
 }
 
 // Triage resubmissions (2026-10-03): the #49 'resubmit_requested' flag toggle
-// becomes an open request (default 3 lessons from when it was set). Idempotent:
-// only runs while such flags exist, and the flags are removed after the copy.
+// becomes an open request (default 3 lessons from when it was set). A flag on an
+// archived or excluded course becomes a closed request instead — nothing can
+// act on it there, and an open one would sit unresolvable in the history.
+// Idempotent: only runs while such flags exist, and the flags are removed after
+// the copy.
 export function migrateResubmitFlags(database) {
   const flags = database.prepare(`
-    SELECT f.id, f.student_id, f.assignment_id, f.created_at, a.course_id
-    FROM flags f JOIN assignments a ON a.id = f.assignment_id
+    SELECT f.id, f.student_id, f.assignment_id, f.created_at, a.course_id,
+           (COALESCE(c.archived, 0) = 1 OR COALESCE(c.excluded, 0) = 1) AS retired
+    FROM flags f JOIN assignments a ON a.id = f.assignment_id JOIN courses c ON c.id = a.course_id
     WHERE f.flag_type = 'resubmit_requested' AND f.resolved = 0
   `).all();
-  const insert = database.prepare(`
+  const insertOpen = database.prepare(`
     INSERT OR IGNORE INTO resubmissions (student_id, assignment_id, course_id, kind, status, requested_at, lessons, source)
     VALUES (?, ?, ?, 'request', 'open', ?, 3, 'app')
   `);
+  const insertClosed = database.prepare(`
+    INSERT INTO resubmissions (student_id, assignment_id, course_id, kind, status, requested_at, lessons, source, closed_at, close_note)
+    VALUES (?, ?, ?, 'request', 'closed', ?, 3, 'app', datetime('now'), 'Migrated (archived course)')
+  `);
   database.transaction(() => {
-    for (const f of flags) insert.run(f.student_id, f.assignment_id, f.course_id, f.created_at);
+    for (const f of flags) (f.retired ? insertClosed : insertOpen).run(f.student_id, f.assignment_id, f.course_id, f.created_at);
     database.exec(`DELETE FROM flags WHERE flag_type = 'resubmit_requested'`);
   })();
 }

@@ -264,6 +264,36 @@ describe('migrateResubmitFlags', () => {
     expect(db.prepare(`SELECT flag_type FROM flags`).all()).toEqual([{ flag_type: 'review_needed' }]);
   });
 
+  test('flags on an archived or excluded course migrate closed; current-course flags stay open (final review 5d)', () => {
+    const db = new Database(':memory:');
+    migrate(db);
+    const course = (name, cols = '') => db.prepare(`INSERT INTO courses (schoology_section_id, course_name${cols ? ', ' + cols : ''}) VALUES (?, ?${cols ? ', 1' : ''})`).run(`s-${name}`, name).lastInsertRowid;
+    const current = course('Now'); const archived = course('Old', 'archived'); const excluded = course('Tpl', 'excluded');
+    const s = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u', 'A', 'B')`).run().lastInsertRowid;
+    for (const c of [current, archived, excluded]) {
+      const a = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, ?, 'T')`).run(c, `x-${c}`).lastInsertRowid;
+      db.prepare(`INSERT INTO flags (student_id, assignment_id, flag_type, created_at) VALUES (?, ?, 'resubmit_requested', '2026-06-02 04:50:08')`).run(s, a);
+    }
+
+    migrateResubmitFlags(db);
+
+    const byCourse = Object.fromEntries(db.prepare(`SELECT course_id, status, close_note, closed_at FROM resubmissions`).all().map((r) => [r.course_id, r]));
+    expect(byCourse[current]).toMatchObject({ status: 'open', close_note: null, closed_at: null });
+    for (const c of [archived, excluded]) {
+      expect(byCourse[c]).toMatchObject({ status: 'closed', close_note: 'Migrated (archived course)' });
+      expect(byCourse[c].closed_at).toBeTruthy();
+    }
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM flags`).get().n).toBe(0);
+  });
+
+  test('adds resubmissions.closes_request_id to an existing DB (final review finding 2)', () => {
+    const db = new Database(':memory:');
+    migrate(db);
+    db.exec('ALTER TABLE resubmissions DROP COLUMN closes_request_id');
+    migrate(db);
+    expect(db.prepare('PRAGMA table_info(resubmissions)').all().map((c) => c.name)).toContain('closes_request_id');
+  });
+
   test('one open request per pair is enforced', () => {
     const db = new Database(':memory:');
     migrate(db);

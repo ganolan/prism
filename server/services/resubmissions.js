@@ -128,22 +128,51 @@ export function markResubmissionReviewed(db, { studentId, assignmentId, source =
   const ctx = pairContext(db, student.id, assignment.id);
   if (stateOf(ctx) !== 'arrived') throw new TriageError('NOT_ON_LIST', 'No resubmission has arrived for that student and assessment');
   const revisionAt = Number(ctx.grade.latest_revision_at) || 0;
+  // The arrival answered the ask only if it came in after the ask.
+  const answered = ctx.request && revisionAt > sqliteUtcToEpoch(ctx.request.requested_at) ? ctx.request : null;
   const id = db.transaction(() => {
     const newId = db.prepare(`
-      INSERT INTO resubmissions (student_id, assignment_id, course_id, kind, status, revision_at, source, closed_at)
-      VALUES (?, ?, ?, 'review', 'done', ?, ?, datetime('now'))
-    `).run(student.id, assignment.id, assignment.course_id, revisionAt, source).lastInsertRowid;
-    // The arrival answered the ask only if it came in after the ask.
-    if (ctx.request && revisionAt > sqliteUtcToEpoch(ctx.request.requested_at)) {
-      db.prepare(`UPDATE resubmissions SET status = 'done', closed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(ctx.request.id);
+      INSERT INTO resubmissions (student_id, assignment_id, course_id, kind, status, revision_at, source, closed_at, closes_request_id)
+      VALUES (?, ?, ?, 'review', 'done', ?, ?, datetime('now'), ?)
+    `).run(student.id, assignment.id, assignment.course_id, revisionAt, source, answered?.id ?? null).lastInsertRowid;
+    if (answered) {
+      db.prepare(`UPDATE resubmissions SET status = 'done', closed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(answered.id);
     }
     return newId;
   })();
   return listResubmissions(db, { id })[0];
 }
 
+// Undo one history record.
+// - A "Reviewed" mark is deleted, and the request it marked done (closes_request_id)
+//   reopens — unless another request for the pair is already open.
+// - A request the sync auto-added from a Schoology unsubmit is closed ("Undone"),
+//   never deleted: the closed row is what stops recordSchoologyUnsubmit re-adding
+//   it on the next sync while the work still sits "in progress".
+// - Anything else is deleted.
 export function undoResubmission(db, id) {
-  return { deleted: db.prepare('DELETE FROM resubmissions WHERE id = ?').run(Number(id)).changes > 0 };
+  const r = db.prepare('SELECT * FROM resubmissions WHERE id = ?').get(Number(id));
+  if (!r) return { deleted: false };
+  if (r.kind === 'request' && r.source === 'schoology_unsubmit') {
+    if (r.status === 'open') {
+      db.prepare(`UPDATE resubmissions SET status = 'closed', close_note = 'Undone', closed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(r.id);
+    }
+    return { deleted: false, closed: true };
+  }
+  db.transaction(() => {
+    if (r.kind === 'review' && r.closes_request_id != null) {
+      const otherOpen = db.prepare(`SELECT 1 FROM resubmissions WHERE student_id = ? AND assignment_id = ? AND ${OPEN_REQUEST}`)
+        .get(r.student_id, r.assignment_id);
+      if (!otherOpen) {
+        db.prepare(`
+          UPDATE resubmissions SET status = 'open', closed_at = NULL, updated_at = datetime('now')
+          WHERE id = ? AND kind = 'request' AND status = 'done'
+        `).run(r.closes_request_id);
+      }
+    }
+    db.prepare('DELETE FROM resubmissions WHERE id = ?').run(r.id);
+  })();
+  return { deleted: true };
 }
 
 // Sync (LTI pass): graded work Prism saw submitted that is back "in progress" was

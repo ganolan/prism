@@ -212,9 +212,9 @@ Each option ships only if its own probe passes. Results go to `.claude/schoology
 - Re-ask while one is open → `ALREADY_OPEN` (UI shows the existing pill instead).
 - Student drops / course archived → rows disappear with the course/enrolment (same as other lists);
   records stay in history.
-- Ask made after a resubmission already arrived → the row shows Arrived; Reviewed/regrade clears that
-  arrival but does **not** satisfy the ask (its revision predates `requested_at`), so the row returns to
-  Waiting — the teacher asked for another round.
+- Ask made after a resubmission already arrived → the ask means "another round": the pair is **Waiting
+  at once** (the request baseline is the ask, so the earlier arrival no longer shows); only a revision
+  after the ask arrives.
 - Unrequested arrival on work with no feedback at all (no score/exception/comment) → not a resubmission,
   just a first submission (Feedback owed covers it).
 - Calendar missing → `approx` as in the other lists.

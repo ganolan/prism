@@ -148,7 +148,7 @@ describe('a status-line publish never answers a resubmission (R1)', () => {
   const stateOf = (requestedAt = 0) => {
     const cur = currentFingerprints(db, {}).get(`${s}:${a}`);
     return resubmissionStateFromSnapshot({
-      snapshot: snapshotMap(db, {}).get(`${s}:${a}`), currentFingerprint: cur.fingerprint, requestedAt, gradedAt: Number(cur.grade.submitted_at) || 0,
+      snapshot: snapshotMap(db, {}).get(`${s}:${a}`), currentFingerprint: cur.fingerprint, requestedAt, gradedAt: Number(cur.grade.submitted_at) || 0, lti: Number(cur.grade.is_lti_submission) === 1,
     });
   };
 

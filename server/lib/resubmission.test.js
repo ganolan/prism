@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { hasFeedback, isResubmitted, resubmissionStateFromSnapshot, sqliteUtcToEpoch, changedParts, feedbackAnswered, PART_SCORE, PART_LEVELS, PART_COMMENT } from './resubmission.js';
+import { hasFeedback, isResubmitted, resubmissionStateFromSnapshot, sqliteUtcToEpoch, changedParts, feedbackAnswered, wroteAfter, PART_SCORE, PART_LEVELS, PART_COMMENT } from './resubmission.js';
 import { fingerprint } from './feedbackFingerprint.js';
 
 describe('isResubmitted', () => {
@@ -113,6 +113,17 @@ describe('resubmissionStateFromSnapshot', () => {
     expect(state(comment, PART_SCORE)).toBe('arrived');
     expect(state(comment, PART_COMMENT)).toBe(null);
     expect(state(comment, 0, 2500)).toBe(null);
+  });
+  test('wroteAfter: lti revision times have no seconds — a write counts as after R only from R + 60', () => {
+    expect(wroteAfter(2001, 2000)).toBe(true);
+    expect(wroteAfter(2000, 2000)).toBe(false);
+    expect(wroteAfter(2030, 2000, true)).toBe(false);
+    expect(wroteAfter(2059, 2000, true)).toBe(false);
+    expect(wroteAfter(2060, 2000, true)).toBe(true);
+    const snapshot = { arrival_revision_at: 2000, arrival_baseline: fpWithFeedback, arrival_parts: 0 };
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged, gradedAt: 2030, lti: true })).toBe('arrived');
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged, gradedAt: 2060, lti: true })).toBe(null);
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged, gradedAt: 2030 })).toBe(null);
   });
   test('changedParts / feedbackAnswered without evidence (any change counts)', () => {
     const a = fingerprint({ score: 80, comment: 'x', commentStatus: 1, levels: [{ topic_id: 't', grade: 'D' }] });

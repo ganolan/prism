@@ -5,7 +5,7 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 import { getDb } from '../db/index.js';
 import { fingerprint } from '../lib/feedbackFingerprint.js';
 import { currentFingerprints, captureFeedbackSnapshots, snapshotMap, EMPTY_FINGERPRINT, seedFeedbackSnapshotsIfEmpty } from './feedbackSnapshots.js';
-import { resubmissionStateFromSnapshot } from '../lib/resubmission.js';
+import { resubmissionStateFromSnapshot, PART_LEVELS } from '../lib/resubmission.js';
 
 let db, courseId, course2;
 function student(uid) {
@@ -141,7 +141,7 @@ describe('captureFeedbackSnapshots', () => {
 describe('captureFeedbackSnapshots — baseline predates the resubmission (I1)', () => {
   const stateOf = (s, a) => {
     const cur = currentFingerprints(db, {}).get(`${s}:${a}`);
-    return resubmissionStateFromSnapshot({ snapshot: snap(s, a), currentFingerprint: cur.fingerprint, gradedAt: Number(cur.grade.submitted_at) || 0 });
+    return resubmissionStateFromSnapshot({ snapshot: snap(s, a), currentFingerprint: cur.fingerprint, gradedAt: Number(cur.grade.submitted_at) || 0, lti: Number(cur.grade.is_lti_submission) === 1 });
   };
 
   test('save mode stamps fingerprint_at only when the fingerprint changed; sync mode stores synced_fingerprint', () => {
@@ -223,7 +223,7 @@ describe('captureFeedbackSnapshots — baseline predates the resubmission (I1)',
     setGrade(s, a, { latest_revision_at: 200 });                     // the sync sees R; grade time still 50
     expect(captureFeedbackSnapshots(db)).toEqual({ arrivals: 1 });
     // The save after R is kept on the arrival; the save stamp itself is cleared as before.
-    expect(snap(s, a)).toMatchObject({ arrival_write_at: 300, fingerprint_at: 0 });
+    expect(snap(s, a)).toMatchObject({ arrival_parts: PART_LEVELS, fingerprint_at: 0 });
     expect(snap(s, a).synced_fingerprint).toBe(snap(s, a).fingerprint);
     expect(stateOf(s, a)).toBe(null);
   });
@@ -247,19 +247,19 @@ describe('captureFeedbackSnapshots — baseline predates the resubmission (I1)',
     expect(stateOf(s, a)).toBe('arrived');
   });
 
-  test('R2: a stamped Prism save while an arrival is pending records arrival_write_at', () => {
+  test('R2: a stamped Prism save while an arrival is pending records the parts it changed', () => {
     const s = student('u1'); const a = assignment('a1');
     grade(s, a, { score: 60, submitted_at: 50, latest_revision_at: 40 });
     captureFeedbackSnapshots(db);
     setGrade(s, a, { latest_revision_at: 300 });
     captureFeedbackSnapshots(db);
-    expect(snap(s, a)).toMatchObject({ arrival_revision_at: 300, arrival_write_at: 0 });
+    expect(snap(s, a)).toMatchObject({ arrival_revision_at: 300, arrival_parts: 0 });
     expect(stateOf(s, a)).toBe('arrived');
     db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('u1', 'a1', 't1', 75, 'EX')`).run();
     captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 400 });   // rubric-only regrade
-    expect(snap(s, a)).toMatchObject({ arrival_write_at: 400 });
+    expect(snap(s, a)).toMatchObject({ arrival_parts: PART_LEVELS });
     captureFeedbackSnapshots(db);                                    // a later sync keeps it
-    expect(snap(s, a)).toMatchObject({ arrival_write_at: 400 });
+    expect(snap(s, a)).toMatchObject({ arrival_parts: PART_LEVELS });
     expect(stateOf(s, a)).toBe(null);
   });
 
@@ -271,7 +271,7 @@ describe('captureFeedbackSnapshots — baseline predates the resubmission (I1)',
     captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 150 });   // rubric save before R
     setGrade(s, a, { latest_revision_at: 200 });
     captureFeedbackSnapshots(db);
-    expect(snap(s, a)).toMatchObject({ fingerprint_at: 0, arrival_write_at: 0 });
+    expect(snap(s, a)).toMatchObject({ fingerprint_at: 0, arrival_parts: 0 });
     expect(stateOf(s, a)).toBe('arrived');
   });
 
@@ -475,6 +475,44 @@ describe('captureFeedbackSnapshots — baseline predates the resubmission (I1)',
     }
   });
 
+  // The same minute rule for a Schoology grade write (grades.submitted_at) on lti work:
+  // within R's minute it may precede the real submission — not after R, and (C1) at or
+  // before R + 59 counts as before it.
+  for (const [at, expected] of [[230, 'arrived'], [260, null]]) {
+    test(`lti minute precision: synced R = 200, a Schoology score regrade at ${at} → ${expected ?? 'answered'}`, () => {
+      const s = student('u1'); const a = assignment('a1');
+      db.prepare('UPDATE assignments SET is_lti_submission = 1 WHERE id = ?').run(a);
+      grade(s, a, { score: 60, submitted_at: 50, latest_revision_at: 100 });
+      captureFeedbackSnapshots(db);
+      setGrade(s, a, { latest_revision_at: 200 });
+      captureFeedbackSnapshots(db);
+      setGrade(s, a, { score: 70, submitted_at: at });
+      captureFeedbackSnapshots(db);
+      expect(stateOf(s, a)).toBe(expected);
+    });
+
+    test(`lti minute precision (C1): Schoology score regrade at ${at}, R = 200 unsynced → sync: ${expected ?? 'answered'}`, () => {
+      const s = student('u1'); const a = assignment('a1');
+      db.prepare('UPDATE assignments SET is_lti_submission = 1 WHERE id = ?').run(a);
+      grade(s, a, { score: 60, submitted_at: 50, latest_revision_at: 100 });
+      captureFeedbackSnapshots(db);
+      const fp60 = snap(s, a).fingerprint;
+      setGrade(s, a, { score: 70, submitted_at: at, latest_revision_at: 200 });
+      captureFeedbackSnapshots(db);
+      expect(snap(s, a).arrival_baseline).toBe(expected === 'arrived' ? snap(s, a).fingerprint : fp60);
+      expect(stateOf(s, a)).toBe(expected);
+    });
+  }
+
+  test('native work keeps the exact comparison: a grade write at R + 1 is after R', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 60, submitted_at: 50, latest_revision_at: 100 });
+    captureFeedbackSnapshots(db);
+    setGrade(s, a, { score: 70, submitted_at: 201, latest_revision_at: 200 });
+    captureFeedbackSnapshots(db);
+    expect(stateOf(s, a)).toBe(null);
+  });
+
   test('save log: each changing Prism save is logged with the fingerprint it replaced; unchanged saves and publishes are not', () => {
     const s = student('u1'); const a = assignment('a1');
     grade(s, a, { score: 60, submitted_at: 50, latest_revision_at: 100 });
@@ -572,7 +610,7 @@ describe('captureFeedbackSnapshots — baseline predates the resubmission (I1)',
 describe('captureFeedbackSnapshots — feedback given in Schoology before R (final review C1)', () => {
   const stateOf = (s, a, requestedAt = 0) => {
     const cur = currentFingerprints(db, {}).get(`${s}:${a}`);
-    return resubmissionStateFromSnapshot({ snapshot: snap(s, a), currentFingerprint: cur.fingerprint, requestedAt, gradedAt: Number(cur.grade.submitted_at) || 0 });
+    return resubmissionStateFromSnapshot({ snapshot: snap(s, a), currentFingerprint: cur.fingerprint, requestedAt, gradedAt: Number(cur.grade.submitted_at) || 0, lti: Number(cur.grade.is_lti_submission) === 1 });
   };
 
   test('(a) submitted + ungraded at sync 1; scored/commented in Schoology at 200; resubmitted at 300; sync 2 → arrived', () => {

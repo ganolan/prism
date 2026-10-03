@@ -58,6 +58,7 @@ const stateOf = ({ request, snapshot, currentFingerprint, grade }) => resubmissi
   snapshot, currentFingerprint: currentFingerprint ?? EMPTY_FINGERPRINT,
   requestedAt: request ? sqliteUtcToEpoch(request.requested_at) : 0,
   gradedAt: Number(grade?.submitted_at) || 0,
+  lti: Number(grade?.is_lti_submission) === 1,
 });
 
 // closed: 'grade_stands' (gradeStands), 'undone' (an auto-added request undone),

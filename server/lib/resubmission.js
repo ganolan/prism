@@ -8,6 +8,12 @@ import { hasPriorFeedback } from './feedbackFingerprint.js';
 
 const parseFp = (fp) => { try { return JSON.parse(fp) || {}; } catch { return {}; } };
 
+// Was a teacher write at time t after revision r? An lti revision time has no seconds,
+// so on lti work a write within r's minute may precede the real submission: only
+// t >= r + 60 counts as after it (and t <= r + 59 as at-or-before it). Applies to Prism
+// saves and to the Schoology grade time (grades.submitted_at) alike.
+export const wroteAfter = (t, r, lti = false) => (lti ? t >= r + 60 : t > r);
+
 // The parts of visible feedback (residual review round 4): bits of
 // feedback_snapshots.arrival_parts, recording which parts a Prism save after the
 // arrival changed.
@@ -85,11 +91,13 @@ export function sqliteUtcToEpoch(text) {
 //   'waiting'   — asked, no arrival after the ask yet
 //   'fulfilled' — asked, arrived after the ask, and answered
 //   null        — nothing to show (unrequested, no arrival, or already acknowledged)
-export function resubmissionStateFromSnapshot({ snapshot, currentFingerprint, requestedAt = 0, gradedAt = 0 } = {}) {
+// lti = the assignment is lti_submission work (assignments.is_lti_submission): the
+// minute rule in wroteAfter applies to gradedAt.
+export function resubmissionStateFromSnapshot({ snapshot, currentFingerprint, requestedAt = 0, gradedAt = 0, lti = false } = {}) {
   const hasArrival = Boolean(snapshot && snapshot.arrival_revision_at);
   const arrivalAt = hasArrival ? Number(snapshot.arrival_revision_at) : 0;
   const answered = () => feedbackAnswered(snapshot.arrival_baseline, currentFingerprint, {
-    parts: snapshot.arrival_parts, gradedAfter: (Number(gradedAt) || 0) > arrivalAt,
+    parts: snapshot.arrival_parts, gradedAfter: wroteAfter(Number(gradedAt) || 0, arrivalAt, lti),
   });
   if (requestedAt > 0) {
     const arrivedAfterAsk = hasArrival && arrivalAt > requestedAt;

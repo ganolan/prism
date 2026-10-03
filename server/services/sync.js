@@ -300,6 +300,10 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   // #55: counts bulk fetches (one per native-dropbox assignment), not the old
   // per-(student) call count — fed into sync_metrics.submission_calls.
   let submissionAttempts = 0;
+  // Local ids of the assignments whose revisions were read in full this pass (native
+  // bulk read, or an 'ok' lti document read). The end-of-sync snapshot capture may
+  // clear these pairs' Prism save logs (feedbackSnapshots.js, residual review round 3).
+  const revisionsRead = new Set();
 
   for (const a of nativeDropboxAssignments) {
     if (failedAssignmentIds.length >= submissionAbandonAfter) {
@@ -325,6 +329,7 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
       throw err;
     }
     const byUid = groupRevisionsByUid(revisions);
+    revisionsRead.add(assignRow.id);
 
     const cells = studentEnrollments
       .map((e) => ({ e, studentRow: selectStudentByUid.get(String(e.uid)) }))
@@ -408,6 +413,7 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
         continue;
       }
       setLtiFetchStatus.run('ok', assignRow.id);
+      revisionsRead.add(assignRow.id);
       const { states: stateMap, details: detailMap } = result;
       const writeStates = db.transaction(() => {
         for (const { e, studentRow } of studentEnrollments
@@ -469,6 +475,7 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     windowSkipped,
     rateLimitHits,
     transientFailures,
+    revisionsReadAssignmentIds: [...revisionsRead],
   };
 }
 
@@ -532,7 +539,8 @@ async function syncTestAttempts(db, {
 // results. Mutates `metrics.retries_succeeded`, `metrics.retries_failed`,
 // `metrics.submission_calls`, `metrics.rate_limit_hits`, and
 // `metrics.transient_failures`. Returns the list of entries that still failed.
-export async function retrySubmissions(db, failedEntries, now, metrics) {
+// revisionsRead (optional Set): gains the local id of each assignment re-read in full.
+export async function retrySubmissions(db, failedEntries, now, metrics, revisionsRead = null) {
   const stillFailing = [];
 
   // Mirror the main native path: synthesize submission_type from the revision.
@@ -607,6 +615,7 @@ export async function retrySubmissions(db, failedEntries, now, metrics) {
         });
         writeRetry(cellResults);
       }
+      revisionsRead?.add(assignRow.id);
       metrics.retries_succeeded++;
     } catch (err) {
       // Non-transient errors (or unexpected enrollments fetch failures): mark
@@ -788,6 +797,8 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
       sections_skipped: 0,
       failed_assignment_ids: [], // { sectionId, courseId, assignmentExtId }
     };
+    // Assignments whose revisions were read in full this sync (sections + retry pass).
+    const revisionsRead = new Set();
     const userId = await getMyUserId();
 
     // #62: best-effort browser-session reader for lti_submission document state
@@ -894,6 +905,7 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
       for (const aid of (result.failedAssignmentIds || [])) {
         metrics.failed_assignment_ids.push({ sectionId, courseId: courseRow.id, assignmentExtId: aid });
       }
+      for (const id of (result.revisionsReadAssignmentIds || [])) revisionsRead.add(id);
       totalRecords += result.studentsCount + result.assignmentsCount + result.gradesCount + (result.submissionCount || 0);
 
       // Sync folders
@@ -952,7 +964,7 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
     if (metrics.failed_assignment_ids.length > 0 && metrics.abandoned === 0) {
       log(`Retrying ${metrics.failed_assignment_ids.length} failed assignments...`);
       metrics.retries_attempted = metrics.failed_assignment_ids.length;
-      metrics.failed_assignment_ids = await retrySubmissions(db, metrics.failed_assignment_ids, now, metrics);
+      metrics.failed_assignment_ids = await retrySubmissions(db, metrics.failed_assignment_ids, now, metrics, revisionsRead);
     }
 
     // One-time: finalise archived courses imported before #70 (capture mastery).
@@ -993,7 +1005,9 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
       .run(totalRecords, new Date().toISOString(), syncId);
     // Best-effort: snapshot visible feedback (records resubmission arrivals, Amendment B),
     // then settle. A failure here must never flip an otherwise-completed sync to 'error'.
-    try { captureFeedbackSnapshots(db); } catch (err) {
+    // Pairs whose revisions this sync read with no new revision drop their Prism save
+    // log entries from before the sync began (any revision before then was seen).
+    try { captureFeedbackSnapshots(db, { revisionsRead, readSince: Math.floor(startedAt / 1000) }); } catch (err) {
       console.error('[sync] captureFeedbackSnapshots failed:', err.message);
     }
     try { settleResubmissions(db); } catch (err) {

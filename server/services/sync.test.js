@@ -244,6 +244,27 @@ describe('syncSectionData — per-assignment atomicity (#55)', () => {
     expect(a2.length).toBe(2);
   });
 
+  test('round 3: revisionsReadAssignmentIds lists the assignments whose revisions were read (not a failed one)', async () => {
+    getSectionEnrollments.mockResolvedValue([{ id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' }]);
+    getSectionAssignments.mockResolvedValue([
+      { id: 'A1', title: 'A', published: 1, allow_dropbox: '1' },
+      { id: 'A2', title: 'B', published: 1, allow_dropbox: '1' },
+      { id: 'L1', title: 'L', published: 1, allow_dropbox: '1', assignment_type: 'lti_submission' },
+      { id: 'L2', title: 'L', published: 1, allow_dropbox: '1', assignment_type: 'lti_submission' },
+      { id: 'N1', title: 'No dropbox', published: 1 },
+    ]);
+    getAssignmentSubmissions.mockImplementation(async (sid, aid) => {
+      if (aid === 'A1') { const e = new Error('503'); e.transient = true; throw e; }
+      return [];
+    });
+    const result = await syncSectionData(db, 'sec-A', courseId, new Date().toISOString(), {
+      ltiFetchBackoffMs: 0,
+      fetchDocuments: async (aid) => (aid === 'L1' ? { states: new Map(), details: new Map() } : null),
+    });
+    const idOf = (ext) => db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(ext).id;
+    expect([...result.revisionsReadAssignmentIds].sort()).toEqual([idOf('A2'), idOf('L1')].sort());
+  });
+
   test('abandonAfter threshold short-circuits remaining bulk fetches', async () => {
     getSectionEnrollments.mockResolvedValue([
       { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
@@ -295,6 +316,15 @@ describe('retrySubmissions (#55)', () => {
     db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('701', 'Ada', 'L')`).run();
     getSectionEnrollments.mockReset();
     getAssignmentSubmissions.mockReset();
+  });
+
+  test('round 3: a successful retry adds the assignment to the revisions-read set', async () => {
+    getSectionEnrollments.mockResolvedValue([{ id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' }]);
+    getAssignmentSubmissions.mockResolvedValue([]);
+    const metrics = { submission_calls: 0, rate_limit_hits: 0, transient_failures: 0, retries_succeeded: 0, retries_failed: 0 };
+    const read = new Set();
+    await retrySubmissions(db, [{ sectionId: 'sec-R', courseId, assignmentExtId: 'RA1' }], '2026-10-02T00:00:00Z', metrics, read);
+    expect([...read]).toEqual([db.prepare(`SELECT id FROM assignments WHERE schoology_assignment_id = 'RA1'`).get().id]);
   });
 
   test('retry succeeds → row written, retries_succeeded incremented', async () => {
@@ -1435,6 +1465,20 @@ describe('fullSync — visible-feedback snapshots (Amendment B)', () => {
     s.getSectionGradingCategories.mockResolvedValue([]);
     s.getSectionGradingScales.mockResolvedValue([]);
     s.getUserProfilesBatch.mockResolvedValue(new Map());
+  });
+
+  test('round 3: a sync that read a pair\'s revisions (no new revision) clears its Prism save log; one that did not keeps it', async () => {
+    await fullSync(() => {});                                         // seeds the snapshot
+    const log = JSON.stringify([[1, 'x', 'y']]);
+    db.prepare('UPDATE feedback_snapshots SET save_log = ?, fingerprint_at = 1').run(log);
+    await fullSync(() => {});                                         // A1 isn't a dropbox assignment: revisions not read
+    expect(db.prepare('SELECT save_log FROM feedback_snapshots').get().save_log).toBe(log);
+    const s = await import('./schoology.js');
+    s.getSectionAssignments.mockResolvedValue([{ id: 'A1', title: 'Essay', published: 1, allow_dropbox: '1' }]);
+    s.getAssignmentSubmissions.mockReset();
+    s.getAssignmentSubmissions.mockResolvedValue([{ revision_id: 1, uid: '701', created: 2000, late: 0, draft: 0 }]);
+    await fullSync(() => {});
+    expect(db.prepare('SELECT save_log, fingerprint_at FROM feedback_snapshots').get()).toEqual({ save_log: '[]', fingerprint_at: 0 });
   });
 
   test('a completed sync captures snapshots (first capture seeds the arrival)', async () => {

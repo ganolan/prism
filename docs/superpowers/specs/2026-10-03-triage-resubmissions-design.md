@@ -608,8 +608,12 @@ can be published:
   changed — from the save log's before/after fingerprints when R is judged, and from each later changing
   save while the arrival is pending. `changedParts` / `feedbackAnswered(baseline, current, { parts,
   gradedAfter })`.
-- **lti minute precision.** An lti revision time has no seconds, so for `is_lti_submission = 1` a Prism
-  save at `t < R + 60` is not "after R" (neither for the baseline nor as evidence) — the safe direction.
+- **lti minute precision.** An lti revision time has no seconds, so for `is_lti_submission = 1` a write
+  at `t < R + 60` is not "after R" — a Prism save (baseline and evidence) and the Schoology grade time
+  alike (`submitted_at >= R + 60` for the grade-write evidence; the C1 rule treats `submitted_at <= R + 59`
+  as before R). One helper, `wroteAfter` in `server/lib/resubmission.js`.
+- `arrival_write_at` (round 2) is no longer written — `arrival_parts` replaced it; `fingerprint_at` and
+  `synced_fingerprint` are informational except for rows with a stamp but no log (legacy rule).
 - Regression tests: S1, S2, S3 → Arrived; a Prism rubric-only save after R and a Schoology score regrade
   after R → answered; C1 (a)/(b), R1, R2 + chain, X1/X2/X6 and the absorption orderings unchanged.
 

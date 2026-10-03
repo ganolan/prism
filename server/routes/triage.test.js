@@ -152,7 +152,19 @@ describe('resubmission routes', () => {
     expect(stands.status).toBe(200);
     expect(stands.body).toMatchObject({ status: 'closed', outcome: 'grade_stands', closeNote: 'grade stands' });
     expect((await call('GET', '/api/triage/resubmissions')).body).toHaveLength(1);
+    // Undo reverses grade stands (reopens); undoing the open ask then deletes it.
+    expect((await call('DELETE', `/api/triage/resubmissions/${asked.body.id}`)).body).toEqual({ deleted: false, reopened: true });
+    expect((await call('GET', '/api/triage/resubmissions')).body[0]).toMatchObject({ status: 'open', outcome: 'asked' });
     expect((await call('DELETE', `/api/triage/resubmissions/${asked.body.id}`)).body).toEqual({ deleted: true });
+  });
+
+  test('undo of grade stands while another request is open → 409 ALREADY_OPEN', async () => {
+    const { s, a } = seedPair();
+    const asked = await call('POST', '/api/triage/resubmissions', { studentId: s, assignmentId: a, lessons: 2 });
+    getDb().prepare(`UPDATE resubmissions SET requested_at = '2020-01-06 04:00:00' WHERE id = ?`).run(asked.body.id);
+    await call('PUT', `/api/triage/resubmissions/${asked.body.id}`, { gradeStands: true });
+    await call('POST', '/api/triage/resubmissions', { studentId: s, assignmentId: a, lessons: 2 });
+    expect(await call('DELETE', `/api/triage/resubmissions/${asked.body.id}`)).toMatchObject({ status: 409, body: { code: 'ALREADY_OPEN' } });
   });
 
   test('{ close: true } is still accepted as an alias for grade stands', async () => {

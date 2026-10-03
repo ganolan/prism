@@ -26,13 +26,11 @@ const mayHaveLine = (r) => r.kind === 'extension' || (r.kind === 'resubmission' 
 
 function undoConsequence(r) {
   if (r.kind === 'extension') return 'Deletes this extension from Prism.';
-  // Unsubmitted OneDrive work: the record is never deleted (so the next sync doesn't
-  // re-add a request) — an open ask closes, "grade stands" reopens; the work stays
-  // unsubmitted either way (Prism never re-submits).
-  if (r.ltiState === 'in_progress') {
-    if (r.outcome === 'grade_stands') return 'Reopens this request.';
-    return 'Closes this request in Prism. Their work stays unsubmitted in Schoology.';
-  }
+  // Undo reverses the last action: "grade stands" reopens the request.
+  if (r.outcome === 'grade_stands') return 'Reopens this request.';
+  // Unsubmitted OneDrive work: an open ask is closed, not deleted (so the next sync
+  // doesn't re-add a request); the work stays unsubmitted (Prism never re-submits).
+  if (r.ltiState === 'in_progress') return 'Closes this request in Prism. Their work stays unsubmitted in Schoology.';
   // An auto-added (Schoology Unsubmit) request is closed, not deleted, by Undo.
   if (r.source === 'schoology_unsubmit') return 'Closes this resubmission request in Prism.';
   return 'Deletes this resubmission record from Prism.';

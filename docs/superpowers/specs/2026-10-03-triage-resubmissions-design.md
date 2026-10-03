@@ -760,8 +760,9 @@ disabled with a link to that card.
   with an open request that the student had submitted before (`first_submitted_at > 0`): an Ask that
   unsubmitted ungraded work used to reappear as "outstanding" (its local state is in progress). A
   never-submitted pair stays outstanding; `submitted_late` referral rows stay listed.
-- *Undo of "grade stands" on unsubmitted work reopens the request* (status open again) instead of doing
-  nothing — copy *Reopens this request.* (refused with ALREADY_OPEN if another request is open).
+- *Undo of "grade stands" reopens the request* — everywhere (Undo reverses the last action), not only on
+  unsubmitted work: status open again, `close_note`/`closed_at` cleared, copy *Reopens this request.*;
+  refused with ALREADY_OPEN if another request for the pair is open. A second Undo then undoes the ask.
 - *Timeouts and honest outcomes.* Every in-page fetch carries `AbortSignal.timeout(20 s)`. Only a POST never
   sent (no / dead session, no CSRF pair, page not loaded) or a 4xx is a known failure
   (`SCHOOLOGY_WRITE_FAILED`, *their work is still submitted*). After the POST went out, a timeout, a 5xx, an

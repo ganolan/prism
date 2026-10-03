@@ -212,18 +212,25 @@ export function gradeStands(db, id, { today = todayLocal() } = {}) {
   return listResubmissions(db, { id: r.id })[0];
 }
 
-// Undo one history record.
+// Undo one history record (Undo reverses the record's last action).
+// - "Grade stands" reopens the request (status open again, as before it was ended) —
+//   refused with ALREADY_OPEN if another request for the pair is open meanwhile.
 // - A request the sync auto-added from a Schoology unsubmit, or a request whose OneDrive
 //   (LTI) work is now "in progress" (e.g. its Ask unsubmitted it — Prism never
 //   re-submits), is never deleted: the row is what stops recordSchoologyUnsubmit
 //   re-adding a request on the next sync while the work still sits "in progress".
-//   Open → closed ("Undone"); "grade stands" → reopened (the ask is live again; refused
-//   with ALREADY_OPEN if another request for the pair is open meanwhile); anything else
-//   is left as it is.
+//   Open → closed ("Undone"); anything else is left as it is.
 // - Anything else is deleted.
 export function undoResubmission(db, id) {
   const r = db.prepare('SELECT * FROM resubmissions WHERE id = ?').get(Number(id));
   if (!r) return { deleted: false };
+  if (r.kind === 'request' && r.status === 'closed' && r.close_note === 'grade stands') {
+    const another = db.prepare(`SELECT 1 FROM resubmissions WHERE student_id = ? AND assignment_id = ? AND ${OPEN_REQUEST} AND id != ?`)
+      .get(r.student_id, r.assignment_id, r.id);
+    if (another) throw new TriageError('ALREADY_OPEN', 'Another resubmission request for this assessment is open — undo that one instead');
+    db.prepare(`UPDATE resubmissions SET status = 'open', close_note = NULL, closed_at = NULL, updated_at = datetime('now') WHERE id = ?`).run(r.id);
+    return { deleted: false, reopened: true };
+  }
   const ltiInProgress = Boolean(db.prepare(`
     SELECT 1 FROM grades g JOIN assignments a ON a.id = g.assignment_id
     WHERE g.student_id = ? AND g.assignment_id = ? AND a.is_lti_submission = 1 AND g.lti_submission_state = 'in_progress'
@@ -231,14 +238,6 @@ export function undoResubmission(db, id) {
   if (r.kind === 'request' && (r.source === 'schoology_unsubmit' || ltiInProgress)) {
     if (r.status === 'open') {
       db.prepare(`UPDATE resubmissions SET status = 'closed', close_note = 'Undone', closed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(r.id);
-      return { deleted: false, closed: true };
-    }
-    if (r.status === 'closed' && r.close_note === 'grade stands') {
-      const another = db.prepare(`SELECT 1 FROM resubmissions WHERE student_id = ? AND assignment_id = ? AND ${OPEN_REQUEST} AND id != ?`)
-        .get(r.student_id, r.assignment_id, r.id);
-      if (another) throw new TriageError('ALREADY_OPEN', 'Another resubmission request for this assessment is open — undo that one instead');
-      db.prepare(`UPDATE resubmissions SET status = 'open', close_note = NULL, closed_at = NULL, updated_at = datetime('now') WHERE id = ?`).run(r.id);
-      return { deleted: false, reopened: true };
     }
     return { deleted: false, closed: true };
   }

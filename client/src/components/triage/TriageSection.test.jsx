@@ -868,6 +868,15 @@ describe('Resubmissions panel', () => {
       expect(within(await dialog()).getByText('Reopens this request.')).toBeInTheDocument();
     });
 
+    it('Undo of any "grade stands" record says it reopens the request', async () => {
+      api.getResubmissions.mockResolvedValue([{ ...HISTORY[0], outcome: 'grade_stands', status: 'closed', closeNote: 'grade stands', ltiState: null }]);
+      const panel = await resubPanel();
+      fireEvent.click(within(panel).getByRole('button', { name: /^History/ }));
+      const history = await screen.findByLabelText('Resubmission history');
+      fireEvent.click(await within(history).findByRole('button', { name: 'Undo' }));
+      expect(within(await dialog()).getByText('Reopens this request.')).toBeInTheDocument();
+    });
+
     it('a row whose unsubmit was only unconfirmed reads "not confirmed"', async () => {
       const panel = await resubPanel([{ ...RESUB3[2], unsubmitError: "Schoology didn't confirm the unsubmit — x", unsubmitUncertain: true, unsubmitUrl: 'https://s/a' }]);
       expect(within(panel).getByText(/Unsubmit not confirmed/)).toBeInTheDocument();

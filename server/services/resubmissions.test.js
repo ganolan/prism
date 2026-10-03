@@ -68,7 +68,7 @@ describe('requestResubmission', () => {
 });
 
 describe('extend / grade stands / undo', () => {
-  test('extend sets lessons; grade stands only after the deadline; undo deletes', () => {
+  test('extend sets lessons; grade stands only after the deadline; undo reopens it, a second undo deletes', () => {
     const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');
     const r = requestResubmission(db, { studentId: s, assignmentId: a, requestedAt: sql('2026-10-12') });
     expect(extendResubmission(db, r.id, 5)).toMatchObject({ lessons: 5, until: '2026-10-19' });
@@ -79,8 +79,19 @@ describe('extend / grade stands / undo', () => {
     expect(listResubmissions(db, { id: r.id })[0].closedAt).toBeTruthy();
     expect(() => extendResubmission(db, r.id, 2)).toThrow(expect.objectContaining({ code: 'NOT_ELIGIBLE' }));
     expect(() => gradeStands(db, r.id, { today: '2026-10-21' })).toThrow(expect.objectContaining({ code: 'NOT_ELIGIBLE' }));
+    // Undo reverses the last action: grade stands → the request is open again.
+    expect(undoResubmission(db, r.id)).toEqual({ deleted: false, reopened: true });
+    expect(listResubmissions(db, { id: r.id })[0]).toMatchObject({ status: 'open', outcome: 'asked', closedAt: null, closeNote: null });
     expect(undoResubmission(db, r.id)).toEqual({ deleted: true });
     expect(listResubmissions(db, {})).toEqual([]);
+  });
+  test('undo of grade stands is refused (ALREADY_OPEN) while another request for the pair is open', () => {
+    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');
+    const r = requestResubmission(db, { studentId: s, assignmentId: a, requestedAt: sql('2026-10-12') });
+    gradeStands(db, r.id, { today: '2026-10-30' });
+    requestResubmission(db, { studentId: s, assignmentId: a, requestedAt: sql('2026-10-29') });
+    expect(() => undoResubmission(db, r.id)).toThrow(expect.objectContaining({ code: 'ALREADY_OPEN' }));
+    expect(listResubmissions(db, { id: r.id })[0]).toMatchObject({ status: 'closed', outcome: 'grade_stands' });
   });
   test('M1: gradeStands is refused once a resubmission has arrived (give feedback instead)', () => {
     const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');

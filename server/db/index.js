@@ -136,6 +136,9 @@ const MIGRATIONS = [
   // keeps synced_fingerprint. (Only dev DBs on the feature branch lack these.)
   `ALTER TABLE feedback_snapshots ADD COLUMN synced_fingerprint TEXT`,
   `ALTER TABLE feedback_snapshots ADD COLUMN fingerprint_at INTEGER NOT NULL DEFAULT 0`,
+  // Residual review R2: a Prism save after the arrival (a rubric-only save doesn't
+  // move grades.submitted_at), kept apart from the fingerprint_at save stamp.
+  `ALTER TABLE feedback_snapshots ADD COLUMN arrival_write_at INTEGER NOT NULL DEFAULT 0`,
   // Status lines (Task 4 fix round 1): the record whose action published the line, so
   // an undo removes only its own line. (Only dev DBs on the feature branch lack these.)
   `ALTER TABLE status_lines ADD COLUMN source_type TEXT`,

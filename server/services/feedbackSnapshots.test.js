@@ -222,6 +222,44 @@ describe('captureFeedbackSnapshots — baseline predates the resubmission (I1)',
     captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 300 });
     setGrade(s, a, { latest_revision_at: 200 });                     // the sync sees R; grade time still 50
     expect(captureFeedbackSnapshots(db)).toEqual({ arrivals: 1 });
+    // The save after R is kept on the arrival; the save stamp itself is cleared as before.
+    expect(snap(s, a)).toMatchObject({ arrival_write_at: 300, fingerprint_at: 0 });
+    expect(snap(s, a).synced_fingerprint).toBe(snap(s, a).fingerprint);
+    expect(stateOf(s, a)).toBe(null);
+  });
+
+  test('R2 (review chain): a Schoology regrade synced after an R2-acknowledged arrival is the next baseline — a later hide-only save does not answer R′', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 60, grade_comment: 'Note', comment_status: 1, submitted_at: 50, latest_revision_at: 100 });
+    captureFeedbackSnapshots(db);                                    // sync: 60 + visible "Note"
+    db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('u1', 'a1', 't1', 75, 'EX')`).run();
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 300 });   // R = 200 unsynced; rubric-only save at 300
+    setGrade(s, a, { latest_revision_at: 200 });
+    captureFeedbackSnapshots(db);                                    // sync judges R
+    expect(stateOf(s, a)).toBe(null);
+    setGrade(s, a, { score: 80, submitted_at: 500 });                // Schoology regrade to 80 at 500 …
+    captureFeedbackSnapshots(db);                                    // … synced
+    // R′ = 600 unsynced; at 650 the teacher hides the comment in Prism (a stamped save).
+    setGrade(s, a, { comment_status: null, submitted_at: 650 });
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 650 });
+    setGrade(s, a, { latest_revision_at: 600 });
+    captureFeedbackSnapshots(db);                                    // sync judges R′
+    expect(stateOf(s, a)).toBe('arrived');
+  });
+
+  test('R2: a stamped Prism save while an arrival is pending records arrival_write_at', () => {
+    const s = student('u1'); const a = assignment('a1');
+    grade(s, a, { score: 60, submitted_at: 50, latest_revision_at: 40 });
+    captureFeedbackSnapshots(db);
+    setGrade(s, a, { latest_revision_at: 300 });
+    captureFeedbackSnapshots(db);
+    expect(snap(s, a)).toMatchObject({ arrival_revision_at: 300, arrival_write_at: 0 });
+    expect(stateOf(s, a)).toBe('arrived');
+    db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('u1', 'a1', 't1', 75, 'EX')`).run();
+    captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 400 });   // rubric-only regrade
+    expect(snap(s, a)).toMatchObject({ arrival_write_at: 400 });
+    captureFeedbackSnapshots(db);                                    // a later sync keeps it
+    expect(snap(s, a)).toMatchObject({ arrival_write_at: 400 });
     expect(stateOf(s, a)).toBe(null);
   });
 
@@ -233,7 +271,7 @@ describe('captureFeedbackSnapshots — baseline predates the resubmission (I1)',
     captureFeedbackSnapshots(db, { assignmentId: a, mode: 'save', now: 150 });   // rubric save before R
     setGrade(s, a, { latest_revision_at: 200 });
     captureFeedbackSnapshots(db);
-    expect(snap(s, a).fingerprint_at).toBe(0);
+    expect(snap(s, a)).toMatchObject({ fingerprint_at: 0, arrival_write_at: 0 });
     expect(stateOf(s, a)).toBe('arrived');
   });
 

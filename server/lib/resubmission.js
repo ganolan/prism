@@ -45,12 +45,14 @@ export function sqliteUtcToEpoch(text) {
 }
 
 // Amendment B: state from visible-feedback snapshots rather than raw timestamps.
-// snapshot = { arrival_revision_at, arrival_baseline, fingerprint_at } | null — the current
+// snapshot = { arrival_revision_at, arrival_baseline, fingerprint_at, arrival_write_at } | null — the current
 // open arrival (if any), the fingerprint captured as its baseline (the feedback before the
 // resubmission), and the last Prism save stamp. gradedAt = grades.submitted_at (the REST
 // grade time: any teacher write sets it, a submission never does).
 // Answered = new visible feedback since the baseline (feedbackAnswered) AND a teacher write
-// after the arrival (gradedAt or fingerprint_at > arrival_revision_at) — final review C1:
+// after the arrival (gradedAt, arrival_write_at or fingerprint_at > arrival_revision_at;
+// arrival_write_at keeps a Prism save after R that the sync judging R cleared from
+// fingerprint_at — residual review R2) — final review C1:
 // feedback given before the resubmission never answers it.
 //   'arrived'   — a resubmission to look at (not answered yet)
 //   'waiting'   — asked, no arrival after the ask yet
@@ -60,7 +62,8 @@ export function resubmissionStateFromSnapshot({ snapshot, currentFingerprint, re
   const hasArrival = Boolean(snapshot && snapshot.arrival_revision_at);
   const arrivalAt = hasArrival ? Number(snapshot.arrival_revision_at) : 0;
   const answered = () => {
-    const wroteAfter = (Number(gradedAt) || 0) > arrivalAt || (Number(snapshot.fingerprint_at) || 0) > arrivalAt;
+    const wroteAfter = (Number(gradedAt) || 0) > arrivalAt || (Number(snapshot.arrival_write_at) || 0) > arrivalAt
+      || (Number(snapshot.fingerprint_at) || 0) > arrivalAt;
     return wroteAfter && feedbackAnswered(snapshot.arrival_baseline, currentFingerprint);
   };
   if (requestedAt > 0) {

@@ -92,6 +92,11 @@ describe('resubmissionStateFromSnapshot', () => {
     expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged, gradedAt: 1900 })).toBe(null);
     expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged, gradedAt: 1900, requestedAt: 1500 })).toBe('fulfilled');
   });
+  test('R2: a Prism save after the arrival kept as arrival_write_at counts as the teacher write', () => {
+    const snapshot = { arrival_revision_at: 2000, arrival_baseline: fpWithFeedback, fingerprint_at: 0, arrival_write_at: 2100 };
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: fpChanged, gradedAt: 1900 })).toBe(null);
+    expect(resubmissionStateFromSnapshot({ snapshot: { ...snapshot, arrival_write_at: 1950 }, currentFingerprint: fpChanged, gradedAt: 1900 })).toBe('arrived');
+  });
 
   test('unrequested: a first submission (baseline without prior feedback) is never arrived', () => {
     const snapshot = { arrival_revision_at: 2000, arrival_baseline: fpNoFeedback };

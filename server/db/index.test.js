@@ -83,6 +83,18 @@ describe('migration: courses.finalized_at (#70)', () => {
   });
 });
 
+describe('migration: feedback_snapshots.arrival_write_at (residual review R2)', () => {
+  test('a dev DB whose feedback_snapshots predates the column gains it (default 0)', () => {
+    const db = new Database(':memory:');
+    db.exec(`CREATE TABLE feedback_snapshots (student_id INTEGER NOT NULL, assignment_id INTEGER NOT NULL, fingerprint TEXT NOT NULL,
+      revision_at INTEGER NOT NULL DEFAULT 0, arrival_revision_at INTEGER NOT NULL DEFAULT 0, arrival_baseline TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (student_id, assignment_id))`);
+    db.prepare(`INSERT INTO feedback_snapshots (student_id, assignment_id, fingerprint) VALUES (1, 2, '{}')`).run();
+    migrate(db);
+    expect(db.prepare('SELECT arrival_write_at, fingerprint_at FROM feedback_snapshots').get()).toEqual({ arrival_write_at: 0, fingerprint_at: 0 });
+  });
+});
+
 describe('migrateMasteryRollupsPk (rollups keyed per course)', () => {
   // The pre-fix schema: a student's rollup is keyed (student_uid, objective_id)
   // only, so a district objective UUID shared across courses collapses to a

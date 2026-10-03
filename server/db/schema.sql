@@ -551,3 +551,32 @@ CREATE TABLE IF NOT EXISTS resubmissions (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_resubmissions_one_open
   ON resubmissions(student_id, assignment_id) WHERE kind = 'request' AND status = 'open';
 CREATE INDEX IF NOT EXISTS idx_resubmissions_course ON resubmissions(course_id);
+
+-- Triage resubmissions (Amendment B): the exact status line text Prism last
+-- published in a grade comment for this pair, so the next action can find and
+-- replace it verbatim (composeComment) and the fingerprint can tell teacher
+-- text apart from Prism's own line. One row per pair — a new action overwrites
+-- it in place.
+CREATE TABLE IF NOT EXISTS status_lines (
+  student_id INTEGER NOT NULL REFERENCES students(id),
+  assignment_id INTEGER NOT NULL REFERENCES assignments(id),
+  line TEXT NOT NULL,                 -- the exact text Prism published (after the teacher's edits)
+  kind TEXT NOT NULL,                 -- 'ask' | 'extend_resubmission' | 'grade_stands' | 'extension' | 'make_up' | 'received'
+  written_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (student_id, assignment_id)
+);
+
+-- Triage resubmissions (Amendment B): the last-seen visible-feedback fingerprint
+-- per pair, so a sync can tell "teacher wrote new feedback" apart from "nothing
+-- changed" without re-deriving history. arrival_revision_at/arrival_baseline
+-- capture the resubmission currently being answered (0/NULL = none in flight).
+CREATE TABLE IF NOT EXISTS feedback_snapshots (
+  student_id INTEGER NOT NULL REFERENCES students(id),
+  assignment_id INTEGER NOT NULL REFERENCES assignments(id),
+  fingerprint TEXT NOT NULL,          -- last seen visible feedback (feedbackFingerprint.js)
+  revision_at INTEGER NOT NULL DEFAULT 0,      -- last seen grades.latest_revision_at
+  arrival_revision_at INTEGER NOT NULL DEFAULT 0,  -- the resubmission being answered (0 = none)
+  arrival_baseline TEXT,              -- visible feedback just before that resubmission
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (student_id, assignment_id)
+);

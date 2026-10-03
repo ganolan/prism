@@ -326,3 +326,56 @@ describe('migration: make-up tests + extension re-extend time', () => {
     expect(cols('grades')).toContain('test_attempt');
   });
 });
+
+describe('migration: status_lines and feedback_snapshots tables (Amendment B)', () => {
+  test('creates status_lines with the expected columns and composite PK', () => {
+    const db = new Database(':memory:');
+    migrate(db);
+    const info = db.prepare('PRAGMA table_info(status_lines)').all();
+    const byName = Object.fromEntries(info.map((c) => [c.name, c]));
+    expect(Object.keys(byName)).toEqual(
+      expect.arrayContaining(['student_id', 'assignment_id', 'line', 'kind', 'written_at'])
+    );
+    expect(byName.student_id.notnull).toBe(1);
+    expect(byName.assignment_id.notnull).toBe(1);
+    expect(byName.line.notnull).toBe(1);
+    expect(byName.kind.notnull).toBe(1);
+    // Composite primary key (student_id, assignment_id): both columns carry pk
+    // ordinals 1 and 2 (order doesn't matter, but both must be part of the PK).
+    expect(byName.student_id.pk).toBeGreaterThan(0);
+    expect(byName.assignment_id.pk).toBeGreaterThan(0);
+  });
+
+  test('creates feedback_snapshots with the expected columns, defaults, and composite PK', () => {
+    const db = new Database(':memory:');
+    migrate(db);
+    const info = db.prepare('PRAGMA table_info(feedback_snapshots)').all();
+    const byName = Object.fromEntries(info.map((c) => [c.name, c]));
+    expect(Object.keys(byName)).toEqual(
+      expect.arrayContaining([
+        'student_id', 'assignment_id', 'fingerprint', 'revision_at',
+        'arrival_revision_at', 'arrival_baseline', 'updated_at',
+      ])
+    );
+    expect(byName.student_id.notnull).toBe(1);
+    expect(byName.assignment_id.notnull).toBe(1);
+    expect(byName.fingerprint.notnull).toBe(1);
+    expect(byName.revision_at.notnull).toBe(1);
+    expect(byName.arrival_revision_at.notnull).toBe(1);
+    expect(byName.student_id.pk).toBeGreaterThan(0);
+    expect(byName.assignment_id.pk).toBeGreaterThan(0);
+
+    // Defaults apply when omitted.
+    db.exec(`INSERT INTO students (id, first_name, last_name) VALUES (1, 'A', 'B')`);
+    db.exec(`INSERT INTO courses (id, schoology_section_id, course_name) VALUES (1, 's', 'C')`);
+    db.exec(`INSERT INTO assignments (id, course_id, schoology_assignment_id, title) VALUES (1, 1, 'a', 'T')`);
+    db.prepare(
+      `INSERT INTO feedback_snapshots (student_id, assignment_id, fingerprint) VALUES (1, 1, 'fp')`
+    ).run();
+    const row = db.prepare('SELECT * FROM feedback_snapshots WHERE student_id = 1 AND assignment_id = 1').get();
+    expect(row.revision_at).toBe(0);
+    expect(row.arrival_revision_at).toBe(0);
+    expect(row.arrival_baseline).toBeNull();
+    expect(row.updated_at).toBeTruthy();
+  });
+});

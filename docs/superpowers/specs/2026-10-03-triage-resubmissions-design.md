@@ -472,16 +472,18 @@ can be published:
      submission): if `0 < submitted_at ≤ R`, every bit of current feedback predates R, so the **baseline
      is the current fingerprint**. Otherwise the earlier rule stands (previous snapshot; with Prism saves
      after R, the save-log rule below). Save-mode captures keep the earlier rule.
-  2. **Answered** additionally needs a **teacher write after the arrival**: `submitted_at >
-     arrival_revision_at`, or a Prism save after it (`arrival_write_at`, or a logged save —
-     `fingerprint_at` — past `arrival_revision_at`; a rubric-only Prism save doesn't move
-     `submitted_at`). A changed fingerprint alone no longer answers.
-  Residual: when the grade time is after R, the baseline is still the previous snapshot, so feedback given
-  before R *and* a later write after R that adds no visible feedback can still read as answered. The
-  grade time can't say which write changed the visible feedback. The two known cases (a Prism
-  status-line publish no longer is one — R1 below):
-  - **a hidden note written in Schoology after R** (it moves the grade time past R; the pre-R visible
-    feedback then differs from the previous snapshot);
+  2. **Answered** additionally needs a **teacher write after the arrival** — since round 4, for *each
+     changed part* (see "Answered, part by part" below): rubric levels only by a Prism save after the
+     arrival that changed levels; score/exception and the visible comment by a Prism save after it that
+     changed them, or a Schoology grade write after it (`submitted_at > arrival_revision_at`). A changed
+     fingerprint alone no longer answers.
+  Residual: when the grade time is after R, the baseline is still the previous snapshot, so a *score or
+  visible-comment* change given in Schoology before R (unsynced) *and* a later write after R that adds
+  no visible feedback can still read as answered. The grade time can't say which write changed the
+  visible feedback. (Rubric levels no longer can — round 4 — and a Prism status-line publish no longer
+  is such a write — R1 below.) The two known cases:
+  - **a hidden note written in Schoology after R** (it moves the grade time past R; a pre-R score or
+    visible-comment change then differs from the previous snapshot);
   - **a Prism `write-comment` hidden-only save after R** whose fresh read echoes a pre-R Schoology score
     the last sync never saw: the mirror changes the fingerprint, so the save is logged after R with the
     pre-mirror fingerprint as what it replaced, and that becomes the baseline.
@@ -581,7 +583,35 @@ can be published:
   round-2 chain and the absorption orderings keep their outcomes.
 - Also: the status-line preview (dashboard route and PrisMCP `preview_status_line`) returns
   `normalisedLine` (the candidate exactly as it would publish) and `lineProblem` (`'BAD_LINE'` + message
-  when publish would refuse it, else `null`).
+  when publish would refuse it — including a candidate that normalises to '' — else `null`).
+- Malformed log entries are dropped on read (only `[finite number, string, string]` is kept); a bad
+  value never throws.
+
+**Answered, part by part (residual review round 4, supersedes "any part changed AND any write after R"):**
+
+- **Why.** The old rule paired *any* changed part with *any* teacher write after R, and the two needn't be
+  related. Rubric levels lag — they only change locally via mastery pulls, after the sync's capture — and
+  review reproduced silent dismissals: S1 (a Schoology rubric regrade before R, pulled only after the sync
+  judged R; then a Prism hide-only save), S2 (the same with the hide-only save before the pull), S3 (the
+  pull fails, a status-line publish moves the grade time, the pull then brings the pre-R level).
+- **Rule.** Each part that differs from the baseline must be backed by evidence after R for *that* part:
+  - **rubric levels** — only a Prism save after R that changed levels. Levels a mastery pull brings never
+    answer on their own: **a Schoology-side rubric-only regrade stays Arrived** until a visible comment or
+    score write (either side) or a Prism rubric save — the safe direction;
+  - **score / exception** — a Prism save after R that changed them, or a Schoology grade write after R
+    (`submitted_at > R`); status-line publishes keep being absorbed into a pending arrival's baseline, so
+    the grade time our own publish moves can't pair with a pre-R score change;
+  - **visible comment** (status line stripped) — a Prism save after R that changed it, or `submitted_at >
+    R` with a changed non-empty visible comment. Hiding or removing visible text never answers.
+- **Recorded as** `feedback_snapshots.arrival_parts` (schema + `MIGRATIONS`): bits (`PART_SCORE`,
+  `PART_LEVELS`, `PART_COMMENT` in `server/lib/resubmission.js`) for the parts Prism saves after the arrival
+  changed — from the save log's before/after fingerprints when R is judged, and from each later changing
+  save while the arrival is pending. `changedParts` / `feedbackAnswered(baseline, current, { parts,
+  gradedAfter })`.
+- **lti minute precision.** An lti revision time has no seconds, so for `is_lti_submission = 1` a Prism
+  save at `t < R + 60` is not "after R" (neither for the baseline nor as evidence) — the safe direction.
+- Regression tests: S1, S2, S3 → Arrived; a Prism rubric-only save after R and a Schoology score regrade
+  after R → answered; C1 (a)/(b), R1, R2 + chain, X1/X2/X6 and the absorption orderings unchanged.
 
 **Task 8 verification (this task, 2026-10-03):**
 

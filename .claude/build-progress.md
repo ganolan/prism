@@ -891,6 +891,13 @@ the original 56-day gap and the fixed/re-verified result are in `.claude/powersc
   (`revisionsRead` + `readSince`) so those pairs' older entries are dropped; mastery pulls and status-line
   captures never touch the log. The status-line preview also returns `normalisedLine` + `lineProblem`.
   Details: spec "Save log".
+- **Round 4 (2026-10-03): answered, part by part.** "Any part changed AND any write after R" paired
+  unrelated events (review S1–S3: lagging rubric levels from mastery pulls). Now each changed part needs
+  its own evidence after R: levels only via a Prism save that changed levels (a Schoology rubric-only
+  regrade stays Arrived — safe direction); score/exception and the visible comment via a Prism save that
+  changed them or `submitted_at > R`. Recorded in `feedback_snapshots.arrival_parts`. lti saves within
+  the revision's minute don't count as after it; malformed save-log entries are dropped; the preview
+  flags a blank candidate line. Details: spec "Answered, part by part".
 
 ## Sync resilience + persistent sync log (2026-10-02, branch `feat/sync-resilience-logs`)
 

@@ -8,8 +8,8 @@ vi.mock('../services/api.js');
 
 // Never resolve the fetch: AnalyticsView stays in its loading state (a plain
 // div, no charts), so we can assert the re-fetch behavior without rendering
-// recharts. AnalyticsView is shared by AnalyticsPage and CoursePage's analytics
-// tab, so this one test covers both surfaces.
+// recharts. AnalyticsView renders CoursePage's Analytics tab (the standalone
+// AnalyticsPage was removed in #129).
 const pending = () => new Promise(() => {});
 
 function tree(version) {

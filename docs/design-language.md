@@ -172,9 +172,9 @@ Scope-narrowing checkboxes in the same cluster share a verb for parallelism:
   (`StatusPill`? `CommandBar`? a `state-border` helper? the eye-switch?).
 - **Extraction boundary.** Which patterns become CSS classes vs React components?
   How much stays inline (rubric palette clearly does)?
-- **Theme coverage.** Confirm the semantic roles hold across all themes incl.
-  dark and any colour-blind-friendly theme (verify `--success`/`--warning`/
-  `--danger` contrast and distinguishability).
+- **Colour roles.** Prism has one palette since #133 (Midnight and Ocean removed);
+  still verify `--success`/`--warning`/`--danger` contrast and colour-blind
+  distinguishability.
 - **Rollout order.** Which surfaces first — Course, Student, Feedback, Dashboard,
   gradebook cells? Where do the patterns most obviously diverge today?
 - **Motion.** We used short `0.12–0.15s` transitions ad hoc; standardise?

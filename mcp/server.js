@@ -247,6 +247,9 @@ export function createServer() {
         "`emails` is a ready-to-paste Outlook To/Bcc list ('a@x; b@x') for the students in the result who have an email. counts.unknown (with " +
         'unknownHint) tells you when a re-sync would answer more confidently. status "not_submitted" (default) lists only students who owe something, ' +
         'the whole-school view; status "all" lists every item (submitted or not) but needs a course, assignment_id or student, since it can be large. ' +
+        'For a school-wide "who still owes work?" question, pass summative_only and past_due_only together (this matches the dashboard\'s late-work ' +
+        'list); an unfiltered whole-school call also returns formative and not-yet-due work, which can be hundreds of items. Leave past_due_only off, ' +
+        'or use status "all", only when you already named a course, assignment or student. ' +
         'Use list_assignments to find an assignment_id by title (e.g. "the Robotics Notebook 3 PowerPoint").',
       inputSchema: {
         course: z.union([z.number(), z.string()]).optional().describe('Course id (list_courses) or a name/code fragment; omit for all current courses'),

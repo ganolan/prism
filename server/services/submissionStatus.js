@@ -55,8 +55,11 @@ export function getSubmissionStatus(db, {
 
   let effectiveCourseId = courseId;
   if (assignmentId != null) {
-    const a = db.prepare('SELECT course_id FROM assignments WHERE id = ?').get(Number(assignmentId));
+    const a = db.prepare(`
+      SELECT a.course_id, c.archived, c.excluded FROM assignments a JOIN courses c ON c.id = a.course_id WHERE a.id = ?
+    `).get(Number(assignmentId));
     if (!a) throw new Error(`No assignment with id ${assignmentId}`);
+    if (a.archived || a.excluded) throw new Error(`Assignment ${assignmentId} is in a course that is archived or excluded from Prism`);
     effectiveCourseId = a.course_id;
   }
   const courses = currentCourses(db, effectiveCourseId);
@@ -77,10 +80,13 @@ export function getSubmissionStatus(db, {
 
       const facts = assignmentFacts(db, a);
       // Decided over the whole targeted roster, same as triage, so a
-      // one-student view agrees with the whole-class one.
+      // one-student view agrees with the whole-class one. Excused students are
+      // excluded from that decision too (triage.js: `.filter(({ s }) => !s.excused)`
+      // before tracksSubmissions) — an excused student's own submission_type must
+      // not make an untracked (accepts_submissions NULL) assignment look tracked.
       const targeted = courseStudents.filter((st) => !facts.assignees || facts.assignees.has(st.schoology_uid));
       const states = targeted.map((st) => ({ st, s: studentState(a, facts, st) }));
-      const tracked = tracksSubmissions(a, states);
+      const tracked = tracksSubmissions(a, states.filter(({ s }) => !s.excused));
 
       for (const { st, s } of states) {
         if (student != null && student !== '' && !matchesStudentRef(st, student)) continue;

@@ -160,6 +160,21 @@ describe('getSubmissionStatus - paper / gradebook-only work', () => {
   });
 });
 
+describe('getSubmissionStatus - tracksSubmissions parity with getTriage (excused excluded from the decision)', () => {
+  test('accepts_submissions NULL: an excused students own submission does not make the assignment look tracked for the rest', () => {
+    const ada = student('u1', 'Ada', 'Lin'); // excused, but has a submission signal
+    const bo = student('u2', 'Bo', 'Mar'); // nothing at all
+    const id = assignment('a1', 'Not yet synced', '2026-10-05', { accepts: null });
+    grade(ada, id, { exception: 1, submission_type: 'drop' });
+    const r = getSubmissionStatus(db, { today: TODAY, courseId, status: 'all' });
+    const byName = Object.fromEntries(r.students.map((s) => [s.studentName, s.items.find((i) => i.assignmentId === id)]));
+    expect(byName['Ada Lin']).toMatchObject({ status: 'excused', owing: false });
+    // Without excluding Ada from the tracksSubmissions decision, Bo would wrongly
+    // show as owing (tracked=true from Ada's submission) — get_triage lists nobody.
+    expect(byName['Bo Mar']).toMatchObject({ status: 'not_tracked', owing: false });
+  });
+});
+
 describe('getSubmissionStatus - excused, scored, late', () => {
   test('exception 1 is excused and never owes, even when never submitted', () => {
     const ada = student('u1', 'Ada', 'Lin');
@@ -235,6 +250,17 @@ describe('getSubmissionStatus - filters', () => {
     expect(r.students).toHaveLength(1);
     expect(r.students[0].items.map((i) => i.title)).toEqual(['Essay']);
     expect(() => getSubmissionStatus(db, { today: TODAY, assignmentId: 999999, status: 'all' })).toThrow('No assignment with id 999999');
+  });
+
+  test('assignmentId in an archived or excluded course throws a clear error, not a silent empty result', () => {
+    student('u1', 'Ada', 'Lin');
+    const archivedId = assignment('a1', 'Essay', '2026-10-05');
+    db.prepare('UPDATE courses SET archived = 1 WHERE id = ?').run(courseId);
+    expect(() => getSubmissionStatus(db, { today: TODAY, assignmentId: archivedId, status: 'all' }))
+      .toThrow(`Assignment ${archivedId} is in a course that is archived or excluded from Prism`);
+    db.prepare('UPDATE courses SET archived = 0, excluded = 1 WHERE id = ?').run(courseId);
+    expect(() => getSubmissionStatus(db, { today: TODAY, assignmentId: archivedId, status: 'all' }))
+      .toThrow(`Assignment ${archivedId} is in a course that is archived or excluded from Prism`);
   });
 
   test('student filter: local id or case-insensitive name fragment', () => {

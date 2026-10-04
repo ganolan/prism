@@ -1233,6 +1233,29 @@ a.triage-row__title:hover { text-decoration: underline; }
    (the stacked-actions column above is for the live Late work / Make-up tests rows only). */
 .triage-row--history { display: flex; flex-wrap: wrap; gap: 0.3rem 0.75rem; }
 .triage-row--history .triage-row__text { flex: 1 1 12rem; }
+/* Email menu (#137): "@ ▾" in a panel header copies student addresses; its menu,
+   the "copied" status and the copy-by-hand fallback float below the button,
+   right-aligned so they stay inside the 380px rail. ✉ on a row = mailto:. */
+.email-menu { position: relative; }
+.email-menu__pop,
+.email-menu__status,
+.email-menu__bubble {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 20;
+  background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 8px;
+  box-shadow: var(--card-shadow-hover);
+}
+.email-menu__pop { min-width: 14rem; padding: 0.3rem; display: flex; flex-direction: column; }
+button.email-menu__item { text-align: left; padding: 0.35rem 0.5rem; font-size: 0.8rem; white-space: nowrap; }
+.email-menu__group {
+  margin-top: 0.2rem; padding: 0.4rem 0.5rem 0.15rem; border-top: 1px solid var(--border);
+  font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);
+}
+.email-menu__status { margin: 0; padding: 0.45rem 0.6rem; width: max-content; max-width: 18rem; font-size: 0.75rem; color: var(--text); }
+.email-menu__status:empty { display: none; }
+.email-menu__bubble { width: 18rem; padding: 0.5rem 0.6rem; display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.75rem; }
+.email-menu__field { width: 100%; box-sizing: border-box; font-size: 0.75rem; }
+.triage-row__mail { flex-shrink: 0; font-size: 0.8rem; line-height: 1; color: var(--text-muted); text-decoration: none; }
+.triage-row__mail:hover { color: var(--accent); }
 .triage-row--history .triage-row__actions { flex-direction: row; flex: 0 1 auto; flex-wrap: wrap; align-items: center; }
 .triage-note { width: 8rem; font-size: 0.8rem; }
 /* Urgency ring: arc toward the school-day limit, the count centred inside. */

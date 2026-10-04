@@ -944,8 +944,9 @@ the original 56-day gap and the fixed/re-verified result are in `.claude/powersc
 - **"@" copy-email menus + Dashboard stats strip (2026-10-04, branch `feat/137-triage-email-stats`,
   issue #137).** Teachers currently copy student addresses by hand per panel and have no single "how
   behind am I?" view. `studentEmail` now rides every Make-up tests / Late work / Resubmissions triage row
-  (`server/services/triage.js`; also returned by PrisMCP `get_triage`, no handler change needed — it
-  passes `getTriage`'s payload through). `client/src/lib/emailLists.js` (`buildEmailMenu`,
+  (`server/services/triageCommon.js`'s shared roster query, `server/services/triage.js`,
+  `server/services/resubmissions.js`; also returned by PrisMCP `get_triage`, no handler change needed:
+  it passes `getTriage`'s payload through). `client/src/lib/emailLists.js` (`buildEmailMenu`,
   `uniqueAddresses`, `copiedMessage`, `mailtoFor`) builds the tiered copy list (Red / Red + amber /
   Everyone still owing, then By assessment) and the per-row `mailto:` string; `EmailMenu` +
   `MailLink` (`client/src/components/triage/EmailMenu.jsx`) render the panel-header `@ ▾` button and a

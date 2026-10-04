@@ -1258,8 +1258,11 @@ button.email-menu__item {
   margin-top: 0.2rem; padding: 0.4rem 0.5rem 0.15rem; border-top: 1px solid var(--border);
   font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);
 }
-.email-menu__status { margin: 0; padding: 0.45rem 0.6rem; width: max-content; max-width: min(18rem, calc(100vw - 2rem)); font-size: 0.75rem; color: var(--text); }
-.email-menu__status:empty { display: none; }
+.email-menu__status { margin: 0; padding: 0.45rem 0.6rem; width: max-content; max-width: min(18rem, calc(100vw - 2rem)); font-size: 0.75rem; color: var(--text); pointer-events: none; }
+/* Empty but still rendered (not display: none) so the role="status" live region stays
+   in the accessibility tree and screen readers catch the "copied" announcement; these
+   resets just keep it visually weightless while it has no content. */
+.email-menu__status:empty { padding: 0; border: 0; box-shadow: none; background: none; }
 .email-menu__bubble { width: min(18rem, calc(100vw - 2rem)); padding: 0.5rem 0.6rem; display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.75rem; }
 .email-menu__field { width: 100%; box-sizing: border-box; font-size: 0.75rem; }
 
@@ -1499,4 +1502,8 @@ button.ghost.sync-run-row {
     border-radius: 12px 12px 0 0; padding: 1rem;
   }
   .status-line-modal__actions button { flex: 1; min-height: 44px; }
+
+  /* Triage row ✉ link: the glyph itself is ~13px, so pad its hit area without
+     shifting surrounding layout (negative margin cancels the extra padding). */
+  .triage-row__mail { padding: 0.4rem; margin: -0.4rem 0; }
 }

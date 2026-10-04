@@ -13,6 +13,7 @@ import {
   getTriage, listReferrals, recordReferral, undoReferral, listExtensions, recordExtension, undoExtension, setMakeUpIgnored,
   assertCanExtend, TriageError,
 } from '../server/services/triage.js';
+import { getSubmissionStatus } from '../server/services/submissionStatus.js';
 import {
   extendResubmission, gradeStands, listResubmissions,
   assertCanExtendRequest, assertCanGradeStand,
@@ -237,6 +238,17 @@ export function getTriageTool(db, { course, student, include_formative } = {}) {
     t.studentFilter = String(student);
   }
   return t;
+}
+
+// Roster-wide submission state (issue #119): "who still hasn't submitted X?"
+// / "give me an email list of everyone with unsubmitted summative work?".
+// Same service a teacher's dashboard would use, so an agent sees the same
+// answer the triage panels do.
+export function getSubmissionStatusTool(db, { course, assignment_id, student, summative_only, past_due_only, status } = {}) {
+  return getSubmissionStatus(db, {
+    courseId: resolveCourseRef(db, course), assignmentId: assignment_id, student,
+    summativeOnly: summative_only, pastDueOnly: past_due_only, status,
+  });
 }
 
 // Triage history: referrals and per-student deadline extensions.

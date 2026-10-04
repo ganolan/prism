@@ -48,7 +48,7 @@ function pastDueTests(db, courseId, nowStamp) {
   `).all(courseId, nowStamp);
 }
 
-function assignmentFacts(db, a) {
+export function assignmentFacts(db, a) {
   let topicsCount = db.prepare(
     `SELECT COUNT(*) AS n FROM mastery_alignments WHERE assignment_schoology_id = ? AND course_id = ?`,
   ).get(a.schoology_assignment_id, a.course_id).n;
@@ -81,12 +81,12 @@ function assignmentFacts(db, a) {
 // it is NOT treated as a submission here. LTI tracks its own
 // submitted/in_progress/not_started state, which is authoritative when present
 // (a stale submission_type must not override an in-progress copy).
-function isSubmitted(a, g) {
+export function isSubmitted(a, g) {
   if (a.is_lti_submission && g.lti_submission_state) return g.lti_submission_state === 'submitted';
   return !!g.submission_type || g.test_attempt === 'took';
 }
 
-function studentState(a, facts, st) {
+export function studentState(a, facts, st) {
   const g = facts.gradeByStudent.get(st.id) || {};
   const topicScored = facts.scoredByUid.get(st.schoology_uid) || 0;
   const grading = gradingState({
@@ -122,7 +122,7 @@ const extensionInfo = (ext, until) => (ext ? { id: ext.id, lessons: ext.lessons,
 // no submission signal, so every student would look outstanding until graded.
 // NULL = not synced since the column was added: fall back to "someone has
 // actually submitted", which proves a submission channel.
-function tracksSubmissions(a, states) {
+export function tracksSubmissions(a, states) {
   if (a.accepts_submissions === 1) return true;
   if (a.accepts_submissions == null) return states.some(({ s }) => s.submitted);
   return false;

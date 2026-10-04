@@ -10,6 +10,7 @@ import {
   getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool, extendDeadlineTool, undoExtensionTool,
   setMakeupTrackingTool,
   requestResubmissionTool, gradeStandsTool, listResubmissionsTool, previewStatusLineTool,
+  getSubmissionStatusTool,
 } from './handlers.js';
 import { assertExplicitDbPath } from './dbGuard.js';
 
@@ -230,6 +231,33 @@ export function createServer() {
       },
     },
     async (args) => text(() => getTriageTool(getDb(), args))
+  );
+
+  server.registerTool(
+    'get_submission_status',
+    {
+      description:
+        'Roster-wide submission state for a course, one assignment, or one student: answers "who still hasn\'t submitted X?", ' +
+        '"has everyone turned in their summative work?" or "give me an email list of everyone with unsubmitted work". ' +
+        "Each item's `status` is one of submitted, not_started, in_progress (OneDrive work in progress), excused (Schoology Excused), " +
+        'not_tracked (paper / gradebook-only work with no submission channel, never owing) or unknown (no submission signal synced yet, ' +
+        'e.g. OneDrive work or a test whose attempts were not read: NEVER treated as missing, since Prism must not accuse a student on missing data). ' +
+        '`owing` is true only for not_started / in_progress AND not yet scored: that is the "still outstanding" set. summative = aligned to measurement ' +
+        'topics (summative_only keeps only that work). past_due_only keeps only work whose due date has passed (due today is not yet past due). ' +
+        "`emails` is a ready-to-paste Outlook To/Bcc list ('a@x; b@x') for the students in the result who have an email. counts.unknown (with " +
+        'unknownHint) tells you when a re-sync would answer more confidently. status "not_submitted" (default) lists only students who owe something, ' +
+        'the whole-school view; status "all" lists every item (submitted or not) but needs a course, assignment_id or student, since it can be large. ' +
+        'Use list_assignments to find an assignment_id by title (e.g. "the Robotics Notebook 3 PowerPoint").',
+      inputSchema: {
+        course: z.union([z.number(), z.string()]).optional().describe('Course id (list_courses) or a name/code fragment; omit for all current courses'),
+        assignment_id: z.number().optional().describe('Restrict to one assignment (list_assignments); resolves its course automatically'),
+        student: z.union([z.number(), z.string()]).optional().describe('Student id or name fragment to restrict to one student'),
+        summative_only: z.boolean().optional().describe('Only work aligned to measurement topics (default: all work)'),
+        past_due_only: z.boolean().optional().describe('Only assignments whose due date has passed (default: all, including not-yet-due and undated work)'),
+        status: z.enum(['not_submitted', 'all']).optional().describe('not_submitted (default): only owing items/students. all: every item; requires course, assignment_id or student'),
+      },
+    },
+    async (args) => text(() => getSubmissionStatusTool(getDb(), args))
   );
 
   server.registerTool(

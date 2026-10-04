@@ -12,6 +12,7 @@ import {
   resolveCourseRef, getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool,
   extendDeadlineTool, undoExtensionTool, setMakeupTrackingTool,
   requestResubmissionTool, gradeStandsTool, listResubmissionsTool, previewStatusLineTool,
+  getSubmissionStatusTool,
 } from './handlers.js';
 import { saveRubric, listRubrics, getRubricByName } from '../server/services/rubricStore.js';
 import { askLine, extendResubmissionLine, gradeStandsLine, extensionLine, makeUpLine } from '../server/lib/statusLines.js';
@@ -704,6 +705,27 @@ describe('triage tools', () => {
     expect(out).not.toHaveProperty('between');
     expect(out).toHaveProperty('today');
     expect(out).toHaveProperty('date');
+  });
+});
+
+describe('get_submission_status', () => {
+  test('resolves course by name fragment and lists an outstanding student as owing', () => {
+    const db = getDb();
+    const { studentId } = seedLate(db);
+    const r = getSubmissionStatusTool(db, { course: 'apcsp' });
+    expect(r.students).toHaveLength(1);
+    expect(r.students[0]).toMatchObject({ studentId, studentName: 'Maya Chen' });
+    expect(r.students[0].items[0]).toMatchObject({ title: 'CP2', status: 'not_started', owing: true });
+  });
+
+  test('passes summative_only / past_due_only / assignment_id / status through to the service', () => {
+    const db = getDb();
+    const { courseId, assignmentId } = seedLate(db);
+    const r = getSubmissionStatusTool(db, {
+      course: courseId, assignment_id: assignmentId, status: 'all', summative_only: true, past_due_only: true,
+    });
+    expect(r.filters).toMatchObject({ summativeOnly: true, pastDueOnly: true, status: 'all', assignmentId });
+    expect(r.students[0].items).toHaveLength(1);
   });
 });
 

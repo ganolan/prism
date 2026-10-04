@@ -941,6 +941,32 @@ the original 56-day gap and the fixed/re-verified result are in `.claude/powersc
   out of Late work; 20 s timeouts on in-page fetches; unconfirmed (after the POST) vs known failure wording;
   live state `unknown` for navigation errors (doesn't disable the checkbox); login resets the cached status.
 
+- **"@" copy-email menus + Dashboard stats strip (2026-10-04, branch `feat/137-triage-email-stats`,
+  issue #137).** Teachers currently copy student addresses by hand per panel and have no single "how
+  behind am I?" view. `studentEmail` now rides every Make-up tests / Late work / Resubmissions triage row
+  (`server/services/triage.js`; also returned by PrisMCP `get_triage`, no handler change needed — it
+  passes `getTriage`'s payload through). `client/src/lib/emailLists.js` (`buildEmailMenu`,
+  `uniqueAddresses`, `copiedMessage`, `mailtoFor`) builds the tiered copy list (Red / Red + amber /
+  Everyone still owing, then By assessment) and the per-row `mailto:` string; `EmailMenu` +
+  `MailLink` (`client/src/components/triage/EmailMenu.jsx`) render the panel-header `@ ▾` button and a
+  row's ✉ link. "@ ▾" copies `a@x; b@x` to the clipboard with a 5 s inline `role="status"` confirmation
+  (no toast system in Prism); if the clipboard API is missing or rejects, a pre-selected read-only field
+  holds the text to copy by hand. The Dashboard's Current tab gets an "At a glance" strip
+  (`StatsStrip.jsx`) above the course cards: one muted status line (school day, last sync, Schoology
+  connection) and four tiles (At referral limit, Make-ups overdue, Resubmissions overdue, Feedback
+  overdue) — red number + red border above 0, muted 0 when clear; a tile scrolls to and focuses its
+  panel. It replaces the old header school-day text and "Last sync:" line. Spec:
+  `docs/superpowers/specs/2026-10-04-triage-email-and-stats-design.md`; plan:
+  `docs/superpowers/plans/2026-10-04-triage-email-and-stats.md`. Deferred (decided in spec, not bugs):
+  parent addresses (would source from the `parents` table, 397/416 rows have an email in prod, not the
+  sparser `students.parent_email`); a full-width triage board with filter chips/checkboxes and Dashboard
+  Overview/Courses tabs; median feedback turnaround / waiting totals / oldest wait (needs a new "grade
+  first seen" timestamp the strip doesn't have yet). Also noted (not fixed this task): the stats strip's
+  `useSchoologyConnection` call means the Dashboard's cached (10-minute) Schoology login-status check now
+  runs on every Dashboard visit, not just Settings/Sync — bounded by the existing cache and in-flight
+  dedup, but worth revisiting if visit volume grows. **Tests:** 1289 server + 800 client Vitest tests
+  pass; `npm run build` succeeds (2026-10-04).
+
 ## Sync resilience + persistent sync log (2026-10-02, branch `feat/sync-resilience-logs`)
 
 Problem: iOS drops the Sync dialog's streaming `POST /api/sync` on screen lock, and the dialog showed

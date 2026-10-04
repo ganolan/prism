@@ -1153,3 +1153,10 @@ Schoology.* Both of the Sync dialog's login prompts carry the same *on the serve
 the Settings card.
 
 **No em dashes in UI copy (2026-10-04).** Use a hyphen, comma or colon instead; a guard test enforces it (see AGENTS.md). Quoted copy elsewhere in this doc predates the rule and is historical, not a current example.
+
+## Triage: "@" copies addresses, ✉ writes one email (October 2026, #137)
+
+- **"@ ▾" in a panel header** (Make-up tests, Late work, Resubmissions) copies the addresses of students who still owe something: tiers Red / Red + amber / Everyone still owing, then By assessment. Format `a@x; b@x` for Outlook To or Bcc. Students who already acted (submitted late, resubmission arrived) are left out of the bulk copy. "@" was chosen over the word "Email" because it reads as *addresses* and keeps the header on one line on a phone.
+- **✉ on a row** is a `mailto:` to that one student, subject `<title>: late work | make-up test | resubmission`. Course names are not in the subject: the stored Schoology names are long capitals and Prism has no short name.
+- **No toast system.** Confirmation is an inline `role="status"` bubble under the button that clears after 5 seconds. If the clipboard is unavailable, a pre-selected read-only field holds the addresses to copy by hand.
+- **Dashboard "At a glance" strip:** one muted status line (school day · last sync · Schoology connection, expired links to Settings), then four tiles (At referral limit, Make-ups overdue, Resubmissions overdue, Feedback overdue). Red number + red border when above 0, muted 0 when clear; a tile scrolls to its panel and focuses its heading. 4 across on desktop, 2 x 2 on a phone. It replaces the header's school-day text and the old "Last sync:" line.

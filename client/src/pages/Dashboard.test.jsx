@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Dashboard from './Dashboard.jsx';
 import * as api from '../services/api.js';
@@ -16,6 +16,7 @@ vi.mock('../services/api.js', () => ({
   recordReferral: vi.fn(),
   getReferrals: vi.fn(),
   undoReferral: vi.fn(),
+  getMasteryLoginStatus: vi.fn(),
 }));
 
 beforeEach(() => {
@@ -25,6 +26,7 @@ beforeEach(() => {
   api.getCourses.mockResolvedValue([]);
   api.getSyncStatus.mockResolvedValue({});
   api.getTriage.mockResolvedValue(null);
+  api.getMasteryLoginStatus.mockResolvedValue({ loggedIn: true, live: 'connected' });
 });
 
 function renderDashboard() {
@@ -174,5 +176,75 @@ describe('Dashboard — triage', () => {
     renderDashboard();
     fireEvent.click(await screen.findByText('Archived'));
     expect(api.getTriage).toHaveBeenCalledTimes(1); // only the initial Current-tab mount
+  });
+});
+
+describe('Dashboard — stats strip (#137)', () => {
+  const TRIAGE = {
+    settings: { referralLimitDays: 8, feedbackLimitDays: 10, warnLeadDays: 3, showFormativeDefault: false, makeUpAmberDay: 2, makeUpRedDay: 4 },
+    includeFormative: false, historyCount: 0, lastSyncAt: null, makeUpsUnchecked: 0,
+    calendar: { source: 'powerschool', totalSchoolDays: 164, today: { schoolDayNumber: 35, cycleLetter: 'A' } },
+    counts: { atReferralLimit: 2, makeUpsOverdue: 0, resubmissionsOverdue: 1, feedbackOverdue: 3 },
+    lateWork: [{ kind: 'outstanding', studentId: 1, studentName: 'Maya Chen', courseId: 5, courseName: 'AP CSP', assignmentId: 9, schoologyAssignmentId: 'a9', title: 'CP2', dueDate: '2026-10-05', daysLate: 9, day: 10, tone: 'red', approx: false }],
+    feedbackOwed: [], makeUps: [], resubmissions: [],
+  };
+  beforeEach(() => {
+    api.getCoursesByView.mockResolvedValue([{ id: 5, course_name: 'AP CSP', grading_period: 'Semester 1: 08/14/2026 - 01/11/2027' }]);
+    api.getTriage.mockResolvedValue(TRIAGE);
+    api.getSyncStatus.mockResolvedValue({ last: { completed_at: '2026-10-04 07:12:00', status: 'success' } });
+  });
+  const strip = () => {
+    renderDashboard();
+    return screen.findByRole('region', { name: 'At a glance' });
+  };
+
+  it('shows four tiles with their counts; red when above 0', async () => {
+    const s = await strip();
+    const tile = (label) => within(s).getByRole('button', { name: new RegExp(label) });
+    await within(s).findByRole('button', { name: /At referral limit/ });
+    expect(tile('At referral limit')).toHaveTextContent('2');
+    expect(tile('At referral limit')).toHaveClass('stat-tile--red');
+    expect(tile('Make-ups overdue')).toHaveTextContent('0');
+    expect(tile('Make-ups overdue')).not.toHaveClass('stat-tile--red');
+    expect(tile('Resubmissions overdue')).toHaveTextContent('1');
+    expect(tile('Feedback overdue')).toHaveTextContent('3');
+  });
+
+  it('a tile scrolls its panel into view and focuses the panel heading', async () => {
+    const s = await strip();
+    await screen.findByText('Maya Chen');
+    const panel = document.getElementById('triage-late');
+    panel.scrollIntoView = vi.fn();
+    fireEvent.click(await within(s).findByRole('button', { name: /At referral limit/ }));
+    expect(panel.scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
+    expect(within(panel).getByRole('heading', { level: 3 })).toHaveFocus();
+  });
+
+  it('a tile whose panel is not rendered does nothing', async () => {
+    const s = await strip();
+    await screen.findByText('Maya Chen');
+    expect(document.getElementById('triage-resubmissions')).toBeNull(); // empty Resubmissions hides itself
+    const tile = await within(s).findByRole('button', { name: /Resubmissions overdue/ });
+    expect(() => fireEvent.click(tile)).not.toThrow();
+  });
+
+  it('status line: school day, last sync, Schoology connection', async () => {
+    const s = await strip();
+    await within(s).findByText('School day 35 of 164 · Day A');
+    expect(within(s).getByText(/^Last sync .*, success$/)).toBeInTheDocument();
+    expect(await within(s).findByText('Schoology: connected')).toBeInTheDocument();
+    expect(screen.queryByText(/Last sync: /)).not.toBeInTheDocument(); // the old standalone line is gone
+  });
+
+  it('an expired Schoology connection links to Settings', async () => {
+    api.getMasteryLoginStatus.mockResolvedValue({ loggedIn: true, live: 'expired' });
+    const s = await strip();
+    expect(await within(s).findByRole('link', { name: 'Schoology: expired' })).toHaveAttribute('href', '/settings#schoology');
+  });
+
+  it('no strip on the Archived tab', async () => {
+    await strip();
+    fireEvent.click(screen.getByText('Archived'));
+    expect(screen.queryByRole('region', { name: 'At a glance' })).not.toBeInTheDocument();
   });
 });

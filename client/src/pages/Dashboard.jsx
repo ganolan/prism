@@ -2,11 +2,11 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getCourses, getCoursesByView, getSyncStatus, toggleCourseVisibility } from '../services/api.js';
 import { groupBySemester, groupByYearAndSemester } from '../lib/courseDisplay.js';
-import { formatDateTime } from '../lib/formatDate.js';
 import ArchivedCoursesPanel from '../components/ArchivedCoursesPanel.jsx';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import { useStickyTab } from '../hooks/useStickyTab.js';
 import TriageSection from '../components/triage/TriageSection.jsx';
+import StatsStrip from '../components/triage/StatsStrip.jsx';
 import { courseTriageSummary, TONE_BADGE } from '../lib/triage.js';
 
 export default function Dashboard() {
@@ -148,22 +148,7 @@ export default function Dashboard() {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <h2 className="page-title" style={{ marginBottom: 0 }}>Dashboard</h2>
-        {triage?.calendar?.today?.schoolDayNumber && (
-          <span className="text-sm text-muted">
-            School day {triage.calendar.today.schoolDayNumber} of {triage.calendar.totalSchoolDays}
-            {triage.calendar.today.cycleLetter ? ` · Day ${triage.calendar.today.cycleLetter}` : ''}
-          </span>
-        )}
       </div>
-
-      {/* Sync status */}
-      {syncStatus?.last && (
-        <p className="text-sm text-muted mb-2">
-          Last sync: {formatDateTime(syncStatus.last.completed_at || syncStatus.last.started_at)}
-          {': '}{syncStatus.last.status}
-          {syncStatus.last.records_synced ? ` (${syncStatus.last.records_synced} records)` : ''}
-        </p>
-      )}
 
       {/* Controls: tab toggle + show hidden */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
@@ -193,6 +178,7 @@ export default function Dashboard() {
 
       {/* Current tab: course cards in the main column, the triage rail beside them
           (below them on a phone). */}
+      {activeTab === 'current' && <StatsStrip triage={triage} syncStatus={syncStatus} />}
       {activeTab === 'current' && (
         <div className="triage-layout">
           <div className="triage-layout__main">

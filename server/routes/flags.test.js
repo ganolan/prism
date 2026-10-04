@@ -109,6 +109,54 @@ describe('POST /api/flags validation', () => {
   });
 });
 
+// #124: a second unresolved flag of the same (student, assignment, flag_type)
+// updates the existing row's reason instead of inserting a duplicate.
+describe('POST /api/flags dedup (#124)', () => {
+  test('creating the same unresolved flag twice leaves one row with the second reason', async () => {
+    const first = await call('POST', '/api/flags', {
+      student_id: studentId,
+      assignment_id: assignmentId,
+      flag_type: 'review_needed',
+      flag_reason: 'First look',
+    });
+    const second = await call('POST', '/api/flags', {
+      student_id: studentId,
+      assignment_id: assignmentId,
+      flag_type: 'review_needed',
+      flag_reason: 'Second look',
+    });
+    expect(second.status).toBe(201);
+    // Same row (same id) updated in place, not a new row.
+    expect(second.body.id).toBe(first.body.id);
+    expect(second.body.flag_reason).toBe('Second look');
+    const rows = getDb().prepare(`SELECT * FROM flags WHERE student_id = ? AND assignment_id = ? AND flag_type = 'review_needed'`).all(studentId, assignmentId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].flag_reason).toBe('Second look');
+  });
+
+  test('a resolved flag of that type does not block creating a new one', async () => {
+    const first = await call('POST', '/api/flags', {
+      student_id: studentId,
+      assignment_id: assignmentId,
+      flag_type: 'review_needed',
+      flag_reason: 'Old reason',
+    });
+    getDb().prepare(`UPDATE flags SET resolved = 1 WHERE id = ?`).run(first.body.id);
+
+    const second = await call('POST', '/api/flags', {
+      student_id: studentId,
+      assignment_id: assignmentId,
+      flag_type: 'review_needed',
+      flag_reason: 'New reason',
+    });
+    expect(second.status).toBe(201);
+    expect(second.body.id).not.toBe(first.body.id);
+    expect(second.body.flag_reason).toBe('New reason');
+    const rows = getDb().prepare(`SELECT * FROM flags WHERE student_id = ? AND assignment_id = ? AND flag_type = 'review_needed'`).all(studentId, assignmentId);
+    expect(rows).toHaveLength(2);
+  });
+});
+
 describe('removed flag lifecycle routes', () => {
   test('PUT /:id/resolve is gone', async () => {
     const { status } = await call('PUT', '/api/flags/1/resolve');

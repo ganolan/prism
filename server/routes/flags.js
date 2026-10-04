@@ -48,11 +48,24 @@ router.post('/', (req, res) => {
       throw err;
     }
   }
-  const result = db.prepare(`
-    INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason)
-    VALUES (?, ?, ?, ?)
-  `).run(student_id, assignment_id || null, type, flag_reason?.trim() || null);
-  const flag = db.prepare('SELECT * FROM flags WHERE id = ?').get(result.lastInsertRowid);
+  // #124: don't create a second unresolved flag of the same type for the same
+  // (student, assignment) — update the existing row's reason instead. `IS ?`
+  // (not `=`) so a NULL assignment_id (non-assignment-scoped flag) matches a
+  // NULL assignment_id, which `=` never does.
+  const existing = db.prepare(`
+    SELECT * FROM flags WHERE student_id = ? AND assignment_id IS ? AND flag_type = ? AND resolved = 0
+  `).get(student_id, assignment_id || null, type);
+  let flag;
+  if (existing) {
+    db.prepare('UPDATE flags SET flag_reason = ? WHERE id = ?').run(flag_reason?.trim() || null, existing.id);
+    flag = db.prepare('SELECT * FROM flags WHERE id = ?').get(existing.id);
+  } else {
+    const result = db.prepare(`
+      INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason)
+      VALUES (?, ?, ?, ?)
+    `).run(student_id, assignment_id || null, type, flag_reason?.trim() || null);
+    flag = db.prepare('SELECT * FROM flags WHERE id = ?').get(result.lastInsertRowid);
+  }
   res.status(201).json(flag);
 });
 

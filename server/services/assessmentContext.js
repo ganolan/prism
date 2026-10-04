@@ -132,8 +132,11 @@ export function getFlagsByStudent(db, assignmentLocalId) {
   const rows = db.prepare(`
     SELECT student_id, flag_type, flag_reason FROM flags
     WHERE assignment_id = ? AND resolved = 0 AND flag_type = 'review_needed'
+    ORDER BY created_at, id
   `).all(assignmentLocalId);
   const byStudent = {};
+  // ORDER BY above + overwrite-on-iterate: if legacy duplicate unresolved
+  // flags of the same type exist (#124), the newest one wins deterministically.
   for (const r of rows) {
     byStudent[r.student_id] = { review_needed: { reason: r.flag_reason || '' }, resubmit_requested: false };
   }

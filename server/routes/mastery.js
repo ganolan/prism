@@ -548,9 +548,12 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
     ? db.prepare(`
         SELECT id, student_id, flag_reason FROM flags
         WHERE assignment_id = ? AND flag_type = 'review_needed' AND resolved = 0
+        ORDER BY created_at, id
       `).all(assignmentRow.id)
     : [];
   const reviewFlagMap = {};
+  // ORDER BY above + overwrite-on-iterate: if legacy duplicate unresolved
+  // flags of the same type exist (#124), the newest one wins deterministically.
   for (const r of reviewFlagRows) {
     reviewFlagMap[r.student_id] = { id: r.id, flag_reason: r.flag_reason };
   }

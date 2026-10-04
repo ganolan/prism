@@ -347,6 +347,25 @@ describe('getFlagsByStudent', () => {
       resubmit_requested: true,
     });
   });
+
+  // #124: with legacy duplicate unresolved flags of the same type (no unique
+  // constraint prevents this pre-fix), the read must pick a deterministic
+  // winner — the newest row — rather than whichever SQLite happens to return
+  // last with no ORDER BY.
+  test('two legacy duplicate unresolved review_needed rows: the newest wins', () => {
+    const db = getDb();
+    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-dup', 'ROB')`).run().lastInsertRowid;
+    const assignmentId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-dup', 'NB')`).run(courseId).lastInsertRowid;
+    const sId = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-dup', 'Ada', 'L')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'enr-dup')`).run(sId, courseId);
+    // Both unresolved, same type; explicit created_at so ordering is deterministic
+    // regardless of insertion order or rowid.
+    db.prepare(`INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason, resolved, created_at) VALUES (?, ?, 'review_needed', 'newer', 0, '2026-02-02')`).run(sId, assignmentId);
+    db.prepare(`INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason, resolved, created_at) VALUES (?, ?, 'review_needed', 'older', 0, '2026-01-01')`).run(sId, assignmentId);
+
+    const byStudent = getFlagsByStudent(db, assignmentId);
+    expect(byStudent[sId].review_needed).toEqual({ reason: 'newer' });
+  });
 });
 
 describe('gradingState', () => {

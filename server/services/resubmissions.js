@@ -401,7 +401,7 @@ export function resubmissionRows(db, { course, students, cal, today, settings, f
       const limit = state === 'arrived' ? feedbackLimitDays : request.lessons + 1;
       rows.push({
         id: request?.id ?? null, state,
-        studentId: st.id, studentUid: st.schoology_uid, studentName: fullName(st),
+        studentId: st.id, studentUid: st.schoology_uid, studentName: fullName(st), studentEmail: st.email ?? null,
         courseId: course.id, courseName: course.course_name, blockNumber: course.block_number ?? null,
         assignmentId: a.id, schoologyAssignmentId: a.schoology_assignment_id, title: a.title, aligned: !!a.aligned,
         day: days + 1, limit, tone: toneFor(days, limit, warnLeadDays), approx: approx || !!until?.approx,

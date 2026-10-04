@@ -384,7 +384,7 @@ describe('getTriage — make-up tests', () => {
       ['Unit 1 test', 'Ada L', 3, 'red'], ['Unit 2 quiz', 'Ada L', 1, 'amber'], ['Unit 3 test', 'Ada L', 0, 'green'],
     ]);
     expect(t.makeUps[0]).toEqual({
-      studentId: ada, studentUid: 'u1', studentName: 'Ada L', courseId, courseName: 'AP CSP', blockNumber: '7',
+      studentId: ada, studentUid: 'u1', studentName: 'Ada L', studentEmail: null, courseId, courseName: 'AP CSP', blockNumber: '7',
       assignmentId: t1, schoologyAssignmentId: 't1', title: 'Unit 1 test', dueDate: '2026-10-13',
       daysSince: 3, day: 4, tone: 'red', approx: false, extension: null,
     });
@@ -938,5 +938,39 @@ describe('resubmissions list', () => {
     requestResubmission(db, { studentId: s, assignmentId: a, requestedAt: sqlAt('2026-10-12') });
     requestResubmission(db, { studentId: s2, assignmentId: a, requestedAt: sqlAt('2026-10-12') });
     expect(getTriage(db, { today: TODAY, studentId: s2 }).resubmissions.map((r) => r.studentId)).toEqual([s2]);
+  });
+});
+
+describe('getTriage — studentEmail (#137)', () => {
+  const sqlAt = (iso) => `${iso} 04:00:00`;
+  const setEmail = (id, email) => db.prepare('UPDATE students SET email = ? WHERE id = ?').run(email, id);
+
+  test('late work rows carry the student email, null when Prism has none', () => {
+    const ada = student('u1', 'Ada', 'L');
+    student('u2', 'Bo', 'M');
+    setEmail(ada, 'ada@example.test');
+    assignment('a1', 'Essay', '2026-10-05');
+    const t = getTriage(db, { today: TODAY });
+    expect(Object.fromEntries(t.lateWork.map((r) => [r.studentName, r.studentEmail])))
+      .toEqual({ 'Ada L': 'ada@example.test', 'Bo M': null });
+  });
+
+  test('make-up rows carry the student email', () => {
+    const ada = student('u1', 'Ada', 'L');
+    setEmail(ada, 'ada@example.test');
+    const quiz = testItem('q1', 'Unit 1 test', '2026-10-13');
+    missed(ada, quiz);
+    const t = getTriage(db, { today: TODAY, now: AFTER_SCHOOL });
+    expect(t.makeUps.map((r) => r.studentEmail)).toEqual(['ada@example.test']);
+  });
+
+  test('resubmission rows carry the student email', () => {
+    const s = student('u1', 'Maya', 'Chen');
+    setEmail(s, 'maya@example.test');
+    const a = assignment('a1', 'CP1', '2026-09-21');
+    grade(s, a, { score: 60, submitted_at: epoch('2026-09-25'), latest_revision_at: epoch('2026-09-21') });
+    requestResubmission(db, { studentId: s, assignmentId: a, lessons: 3, requestedAt: sqlAt('2026-10-09') });
+    const rows = getTriage(db, { today: TODAY }).resubmissions;
+    expect(rows.map((r) => [r.state, r.studentEmail])).toEqual([['waiting', 'maya@example.test']]);
   });
 });

@@ -37,7 +37,7 @@ export function currentCourses(db, courseId) {
 
 export function roster(db, courseId) {
   return db.prepare(`
-    SELECT s.id, s.schoology_uid, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher
+    SELECT s.id, s.schoology_uid, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher, s.email
     FROM students s JOIN enrolments e ON e.student_id = s.id
     WHERE e.course_id = ? AND e.dropped_at IS NULL
     ORDER BY s.last_name, s.first_name

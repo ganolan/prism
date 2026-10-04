@@ -184,7 +184,7 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
         const moved = effectiveDue(cal, due, ext);
         const { days, approx } = cal.between(moved.date, today);
         makeUps.push({
-          studentId: st.id, studentUid: st.schoology_uid, studentName: fullName(st), ...courseFields,
+          studentId: st.id, studentUid: st.schoology_uid, studentName: fullName(st), studentEmail: st.email ?? null, ...courseFields,
           assignmentId: a.id, schoologyAssignmentId: a.schoology_assignment_id, title: a.title, dueDate: due,
           daysSince: days, day: days + 1, tone: makeUpTone(days + 1, makeUpAmberDay, makeUpRedDay),
           approx: approx || moved.approx, extension: extensionInfo(ext, moved.date),
@@ -247,7 +247,7 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
               ...row,
               approx: row.approx || moved.approx,
               extension: extensionInfo(ext, effDue),
-              studentId: st.id, studentUid: st.schoology_uid, studentName: fullName(st), ...courseFields,
+              studentId: st.id, studentUid: st.schoology_uid, studentName: fullName(st), studentEmail: st.email ?? null, ...courseFields,
               assignmentId: a.id, schoologyAssignmentId: a.schoology_assignment_id, title: a.title, dueDate: due,
               // Clock day from the effective due date (day 1): today if outstanding, the submission day if submitted_late.
               day: row.daysLate + 1,

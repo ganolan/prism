@@ -52,7 +52,7 @@ export default function OverridePopup({
         <h4 style={{ margin: '0 0 0.25rem 0' }}>Override Schoology rollup</h4>
         <p style={{ margin: '0 0 0.5rem 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
           {objectiveTitle}
-          {hasOverride && ' — override currently set'}
+          {hasOverride && ', override currently set'}
         </p>
         <p style={{ margin: '0 0 0.9rem 0', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
           Sets the level Schoology reports for this student. Writes back to Schoology immediately.

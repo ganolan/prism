@@ -559,14 +559,14 @@ describe('triage tools', () => {
     const b = db.prepare(`INSERT INTO courses (schoology_section_id, course_name, course_code, block_number) VALUES ('s2', 'Robotics', 'ROB', '6')`).run().lastInsertRowid;
     const c = db.prepare(`INSERT INTO courses (schoology_section_id, course_name, course_code) VALUES ('s3', 'Robotics Club', 'ROBC')`).run().lastInsertRowid;
     expect(() => resolveCourseRef(db, 'robotics')).toThrow(
-      `"robotics" matches several courses (${a} Robotics (Block 2), ${b} Robotics (Block 6), ${c} Robotics Club) — pass a course id`,
+      `"robotics" matches several courses (${a} Robotics (Block 2), ${b} Robotics (Block 6), ${c} Robotics Club): pass a course id`,
     );
   });
 
   test('resolveCourseRef: unknown lists the current courses with ids and blocks', () => {
     const db = getDb();
     const a = db.prepare(`INSERT INTO courses (schoology_section_id, course_name, block_number) VALUES ('s1', 'AP CSP', '7')`).run().lastInsertRowid;
-    expect(() => resolveCourseRef(db, 'chemistry')).toThrow(`No active course matches "chemistry" (current: ${a} AP CSP (Block 7)) — pass a course id`);
+    expect(() => resolveCourseRef(db, 'chemistry')).toThrow(`No active course matches "chemistry" (current: ${a} AP CSP (Block 7)): pass a course id`);
   });
 
   test('get_triage rows carry blockNumber', () => {

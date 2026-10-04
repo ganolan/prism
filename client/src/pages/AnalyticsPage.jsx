@@ -18,7 +18,7 @@ export default function AnalyticsPage() {
   return (
     <div className="fade-in">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-        <h2 className="page-title" style={{ marginBottom: 0 }}>{course.course_name} — Analytics</h2>
+        <h2 className="page-title" style={{ marginBottom: 0 }}>{course.course_name} - Analytics</h2>
         <Link to={`/course/${id}`} className="link text-sm">Back to roster</Link>
       </div>
       <AnalyticsView id={id} />

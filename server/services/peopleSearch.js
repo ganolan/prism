@@ -104,7 +104,7 @@ export async function searchPeople(query, { maxPages = DEFAULT_MAX_PAGES } = {})
     const loggedIn = url.includes('schoology.hkis.edu.hk') &&
       !/\/login|\/saml|accounts\.google\.com|microsoftonline/.test(url);
     if (!loggedIn) {
-      const e = new Error('Schoology browser session expired — run `npm run mastery:login`.');
+      const e = new Error('Schoology browser session expired: run `npm run mastery:login`.');
       e.needsLogin = true;
       throw e;
     }

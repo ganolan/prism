@@ -100,7 +100,7 @@ export default function SearchPage() {
                     </td>
                     <td className="text-sm">{s.email || '-'}</td>
                     <td className="text-sm">
-                      {gradYearToLevel(s.grad_year) ? `Grade ${gradYearToLevel(s.grad_year)}` : '—'}
+                      {gradYearToLevel(s.grad_year) ? `Grade ${gradYearToLevel(s.grad_year)}` : '-'}
                     </td>
                   </tr>
                 ))}

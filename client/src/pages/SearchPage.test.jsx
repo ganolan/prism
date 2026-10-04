@@ -19,6 +19,6 @@ describe('SearchPage grade column', () => {
     await waitFor(() => expect(screen.getByText('Ana Lee')).toBeInTheDocument());
     expect(screen.getByRole('columnheader', { name: 'Grade' })).toBeInTheDocument();
     expect(screen.getByText('Grade 11')).toBeInTheDocument(); // Ana, grad_year 2027
-    expect(screen.getByText('—')).toBeInTheDocument();        // Bo, grad_year 2025 (graduated)
+    expect(screen.getByText('-')).toBeInTheDocument();        // Bo, grad_year 2025 (graduated)
   });
 });

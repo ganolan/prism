@@ -208,9 +208,9 @@ export async function syncMasteryForCourse(courseId, { onProgress, allowInteract
     const loggedIn = checkLoggedIn(page);
     if (!loggedIn) {
       if (!allowInteractiveLogin) {
-        throw new Error('Not logged in to Schoology — the mastery session has expired. Log in and retry.');
+        throw new Error('Not logged in to Schoology: the mastery session has expired. Log in and retry.');
       }
-      log('Not logged in — opening browser for Schoology login...');
+      log('Not logged in: opening browser for Schoology login...');
       await browser.close();
 
       // Open a visible browser so the user can log in to Schoology
@@ -600,7 +600,7 @@ export async function syncMasteryForAssignment(courseId, assignmentId) {
     WHERE assignment_schoology_id = ? AND course_id = ?
   `).all(String(assignmentId), Number(courseId));
   if (topicRows.length === 0) {
-    return { topicsCount: 0, scoresCount: 0, note: 'No aligned topics in DB — run a full mastery sync first.' };
+    return { topicsCount: 0, scoresCount: 0, note: 'No aligned topics in DB: run a full mastery sync first.' };
   }
   const topicIds = topicRows.map(r => r.topic_id);
 

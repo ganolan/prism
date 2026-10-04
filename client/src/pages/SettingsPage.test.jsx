@@ -131,7 +131,7 @@ describe('SettingsPage — Schoology connection card', () => {
     api.getMasteryLoginStatus.mockResolvedValue({ loggedIn: true, live: 'unknown', checkedAt: '2026-10-03T06:05:00Z', message: 'Could not reach Schoology' });
     render(<SettingsPage />);
     const c = await card();
-    expect(await within(c).findByText("Couldn't check — try again")).toBeInTheDocument();
+    expect(await within(c).findByText("Couldn't check, try again")).toBeInTheDocument();
     expect(within(c).queryByText('Expired')).not.toBeInTheDocument();
     expect(within(c).getByRole('button', { name: 'Check now' })).toBeInTheDocument();
   });
@@ -152,7 +152,7 @@ describe('SettingsPage — Schoology connection card', () => {
     api.triggerMasteryLogin.mockImplementation(() => new Promise((r) => { finish = r; }));
     render(<SettingsPage />);
     const c = await card();
-    expect(within(c).getByText("Opens a Schoology login window on the server — screen-share to it if you're away.")).toBeInTheDocument();
+    expect(within(c).getByText("Opens a Schoology login window on the server. Screen-share to it if you're away.")).toBeInTheDocument();
     expect(c.textContent).not.toMatch(/Mac mini|#136/);
     fireEvent.click(within(c).getByRole('button', { name: 'Log in to Schoology' }));
     expect(api.triggerMasteryLogin).toHaveBeenCalledTimes(1);

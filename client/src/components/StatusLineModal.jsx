@@ -146,7 +146,7 @@ export default function StatusLineModal({
     }
   }
 
-  const heading = removeMode ? `Undo — ${studentName}'s Schoology comment` : `Publish to ${studentName}'s Schoology comment`;
+  const heading = removeMode ? `Undo: ${studentName}'s Schoology comment` : `Publish to ${studentName}'s Schoology comment`;
   let sub = 'Visible to the student (and parents) as soon as you publish.';
   if (removeMode) sub = willRemove ? 'Changes their Schoology comment.' : 'Nothing in Schoology changes.';
   return createPortal(
@@ -193,7 +193,7 @@ export default function StatusLineModal({
             </label>
             {sessionBlocked && (
               <a className="link text-sm status-line-modal__reconnect" href="/settings#schoology">
-                {conn === 'none' ? 'Schoology connection not set up — connect in Settings ›' : 'Schoology connection expired — reconnect in Settings ›'}
+                {conn === 'none' ? 'Schoology connection not set up: connect in Settings ›' : 'Schoology connection expired: reconnect in Settings ›'}
               </a>
             )}
           </div>
@@ -211,7 +211,7 @@ export default function StatusLineModal({
         {preview?.hiddenWarning && !removeMode && (
           <div className="alert alert-warning" role="alert">
             Their comment is hidden from the student. Publishing turns Display on, so your current hidden comment
-            (below) becomes visible to the student and parents — edit or remove it in Schoology first if it isn&apos;t for them.{' '}
+            (below) becomes visible to the student and parents. Edit or remove it in Schoology first if it isn&apos;t for them.{' '}
             <button type="button" className="ghost btn-sm" onClick={() => setAttempt((n) => n + 1)}>Re-read from Schoology</button>
           </div>
         )}
@@ -224,10 +224,10 @@ export default function StatusLineModal({
               ) : resulting}
             </div>
             {nothingToRemove && (
-              <p className="text-sm text-muted">Prism&apos;s line isn&apos;t in their comment any more — there is nothing to remove.</p>
+              <p className="text-sm text-muted">Prism&apos;s line isn&apos;t in their comment any more. There is nothing to remove.</p>
             )}
             {notOurs && (
-              <p className="text-sm text-muted">Prism&apos;s current line belongs to a different action — it will stay.</p>
+              <p className="text-sm text-muted">Prism&apos;s current line belongs to a different action. It will stay.</p>
             )}
             {removeMode && willRemove && !undoSource && (
               <p className="text-sm text-muted">Removed only if it is still the line this action published, unchanged.</p>
@@ -238,7 +238,7 @@ export default function StatusLineModal({
         {error && (
           <div className={`alert ${error.published ? 'alert-error' : 'alert-warning'}`} role="alert">
             {error.published && (
-              <strong>{removeMode ? 'Changed in Schoology — not recorded in Prism' : 'Published to Schoology — not recorded in Prism'}</strong>
+              <strong>{removeMode ? 'Changed in Schoology: not recorded in Prism' : 'Published to Schoology: not recorded in Prism'}</strong>
             )}
             <div>{error.message}</div>
           </div>
@@ -250,7 +250,7 @@ export default function StatusLineModal({
           <div className="alert alert-warning" role="alert">
             {unsubmitFailed.uncertain ? (
               <>
-                <strong>Published and recorded. Schoology didn&apos;t confirm the unsubmit — their work may still be submitted.</strong>
+                <strong>Published and recorded. Schoology didn&apos;t confirm the unsubmit. Their work may still be submitted.</strong>
                 <div>
                   {unsubmitFailed.url
                     ? <a className="link" href={unsubmitFailed.url} target="_blank" rel="noopener noreferrer">Unsubmit it in Schoology ›</a>
@@ -259,9 +259,9 @@ export default function StatusLineModal({
               </>
             ) : (
               <>
-                <strong>Published and recorded — but their work is still submitted.</strong>
+                <strong>Published and recorded, but their work is still submitted.</strong>
                 <div>
-                  {unsubmitFailed.error ? `${unsubmitFailed.error}. ` : ''}Unsubmit failed —{' '}
+                  {unsubmitFailed.error ? `${unsubmitFailed.error}. ` : ''}Unsubmit failed:{' '}
                   {unsubmitFailed.url
                     ? <a className="link" href={unsubmitFailed.url} target="_blank" rel="noopener noreferrer">unsubmit it in Schoology ›</a>
                     : 'unsubmit it in Schoology.'}

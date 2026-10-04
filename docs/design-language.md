@@ -1151,3 +1151,5 @@ Schoology ›* and the row/card note reads *Unsubmit not confirmed*. A live chec
 of an ask on unsubmitted work reads *Closes this request in Prism. Their work stays unsubmitted in
 Schoology.* Both of the Sync dialog's login prompts carry the same *on the server — screen-share* note as
 the Settings card.
+
+**No em dashes in UI copy (2026-10-04).** Use a hyphen, comma or colon instead; a guard test enforces it (see AGENTS.md). Quoted copy elsewhere in this doc predates the rule and is historical, not a current example.

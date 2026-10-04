@@ -95,7 +95,7 @@ export default function ArchivedCoursesPanel({ onImported }) {
       {discovered && remaining.length > 0 && (
         <>
           <p className="archived-import-found">
-            Found on Schoology ({discovered.length}) — {remaining.length} not yet imported
+            Found on Schoology ({discovered.length}), {remaining.length} not yet imported
           </p>
           <ArchivedImportList
             sections={remaining}

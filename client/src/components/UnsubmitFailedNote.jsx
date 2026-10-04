@@ -6,7 +6,7 @@
 export default function UnsubmitFailedNote({ url, error = null, uncertain = false, className = '' }) {
   return (
     <span className={`unsubmit-failed ${className}`.trim()} title={error || undefined}>
-      {uncertain ? 'Unsubmit not confirmed' : 'Unsubmit failed'} —{' '}
+      {uncertain ? 'Unsubmit not confirmed' : 'Unsubmit failed'}:{' '}
       {url
         ? <a className="link" href={url} target="_blank" rel="noopener noreferrer">unsubmit it in Schoology ›</a>
         : 'unsubmit it in Schoology'}

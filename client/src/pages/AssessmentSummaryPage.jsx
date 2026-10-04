@@ -914,7 +914,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             url={submissionLink.url}
             label="Open"
             ariaLabel={`Open ${displayName(student)}'s work in OneDrive`}
-            title={`Open ${displayName(student)}'s work in OneDrive — last edited ${formatDateTime(submissionLink.modifiedAt)}`}
+            title={`Open ${displayName(student)}'s work in OneDrive: last edited ${formatDateTime(submissionLink.modifiedAt)}`}
             style={{ fontSize: '0.78rem', fontWeight: 600 }}
           />
         )}
@@ -996,7 +996,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             actionable "regrade me" signal, distinct from the teacher's request. */}
         {student.resubmitted && (
           <span
-            title="The student submitted new work after this was last graded — review and update the grade."
+            title="The student submitted new work after this was last graded: review and update the grade."
             style={{
               display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
               height: '1.8rem', boxSizing: 'border-box', padding: '0 0.7rem',
@@ -1005,15 +1005,15 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
               border: '2px solid var(--warning)',
             }}
           >
-            ⚠ Ungraded resubmission — review
+            ⚠ Ungraded resubmission: review
           </span>
         )}
         {flagError && (
           <span className="text-sm" style={{ color: 'var(--danger)' }}>{flagError}</span>
         )}
         {isRubricLocked && (
-          <span className="badge badge-red" style={{ fontSize: '0.68rem' }} title="Exception set in Schoology — score data is deleted while the exception is active">
-            {exceptionLabel} — rubric locked
+          <span className="badge badge-red" style={{ fontSize: '0.68rem' }} title="Exception set in Schoology: score data is deleted while the exception is active">
+            {exceptionLabel}, rubric locked
           </span>
         )}
         </div>
@@ -1588,7 +1588,7 @@ function ReviewerAnalysisBody({ topics, feedbackRows, analysis }) {
           Proposed score distribution
         </div>
         <div style={{ fontSize: '0.6rem', color: '#9a90b8', marginBottom: '0.4rem' }}>
-          From the reviewer's suggested grades — not final entered scores.
+          From the reviewer's suggested grades, not final entered scores.
         </div>
         {topics.map(t => {
           const counts = dist[t.id] || { ED: 0, EX: 0, D: 0, EM: 0, IE: 0 };
@@ -1828,7 +1828,7 @@ export default function AssessmentSummaryPage() {
       if (card?.stageScaleLevel?.(level.code)) staged++;
     }
     setBulkResult(staged
-      ? `Marked ${staged} student${staged !== 1 ? 's' : ''} ${level.label} — review, then publish`
+      ? `Marked ${staged} student${staged !== 1 ? 's' : ''} ${level.label}: review, then publish`
       : `Every shown student already has a grade`);
   }
 
@@ -1839,7 +1839,7 @@ export default function AssessmentSummaryPage() {
     for (const card of Object.values(cardsRef.current)) {
       if (card?.acceptScaleSuggestion?.()) staged++;
     }
-    setBulkResult(`Accepted ${staged} suggestion${staged !== 1 ? 's' : ''} — review, then publish`);
+    setBulkResult(`Accepted ${staged} suggestion${staged !== 1 ? 's' : ''}: review, then publish`);
   }
 
   // Revert every card with unsaved changes back to its synced state (#51 sibling
@@ -2031,7 +2031,7 @@ export default function AssessmentSummaryPage() {
           {hasAnalysis && (
             <button
               onClick={() => setDrawerOpen(true)}
-              title="Reviewer Analysis — not student-facing"
+              title="Reviewer Analysis: not student-facing"
               style={{
                 marginLeft: 'auto', border: '1px solid var(--ai-suggest)', background: 'var(--ai-suggest-wash)',
                 color: 'var(--ai-suggest)', borderRadius: 7, padding: '0.32rem 0.7rem',

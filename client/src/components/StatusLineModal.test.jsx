@@ -130,8 +130,8 @@ describe('StatusLineModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Publish & close request' }));
     expect(await screen.findByRole('button', { name: 'Publishing…' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
-    reject(Object.assign(new Error("Couldn't read the grade from Schoology — nothing was published"), { code: 'SCHOOLOGY_READ_FAILED' }));
-    expect(await screen.findByText("Couldn't read the grade from Schoology — nothing was published")).toBeInTheDocument();
+    reject(Object.assign(new Error("Couldn't read the grade from Schoology: nothing was published"), { code: 'SCHOOLOGY_READ_FAILED' }));
+    expect(await screen.findByText("Couldn't read the grade from Schoology: nothing was published")).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Publish & close request' })).not.toBeDisabled();
     expect(onCancel).not.toHaveBeenCalled();
   });
@@ -145,7 +145,7 @@ describe('StatusLineModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Publish & close request' }));
     const err = await screen.findByText(/Prism could not record the action/);
     expect(err.closest('.alert')).toHaveClass('alert-error');
-    expect(screen.getByText('Published to Schoology — not recorded in Prism')).toBeInTheDocument();
+    expect(screen.getByText('Published to Schoology: not recorded in Prism')).toBeInTheDocument();
     // Retrying would publish again: only Close is offered.
     expect(screen.queryByRole('button', { name: 'Publish & close request' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
@@ -212,7 +212,7 @@ describe('StatusLineModal', () => {
         currentComment: `${LINE}\n\nGreat start.`, storedLine: LINE, storedSource: { sourceType: 'resubmission', sourceId: 99 },
       }));
       renderModal({ removeMode: true, confirmLabel: 'Undo', undoSource: { sourceType: 'resubmission', sourceId: 3 } });
-      expect(await screen.findByText("Prism's current line belongs to a different action — it will stay.")).toBeInTheDocument();
+      expect(await screen.findByText("Prism's current line belongs to a different action. It will stay.")).toBeInTheDocument();
       expect(preview$().textContent).toBe(`${LINE}\n\nGreat start.`);
     });
 
@@ -364,7 +364,7 @@ describe('StatusLineModal — unsubmit on Ask (Phase 2)', () => {
   it('an expired Schoology connection disables it, with a link to Settings', async () => {
     api.getMasteryLoginStatus.mockResolvedValue({ loggedIn: true, live: 'expired', checkedAt: null });
     const { onConfirm } = askModal({ offerUnsubmit: true });
-    const link = await screen.findByRole('link', { name: 'Schoology connection expired — reconnect in Settings ›' });
+    const link = await screen.findByRole('link', { name: 'Schoology connection expired: reconnect in Settings ›' });
     expect(link).toHaveAttribute('href', '/settings#schoology');
     expect(box()).toBeDisabled();
     expect(box()).not.toBeChecked();
@@ -401,13 +401,13 @@ describe('StatusLineModal — unsubmit on Ask (Phase 2)', () => {
   it('an UNCONFIRMED unsubmit says their work MAY still be submitted (not "still submitted")', async () => {
     const url = 'https://schoology.hkis.edu.hk/assignments/8000000001/info';
     const onConfirm = vi.fn().mockResolvedValue({
-      outcome: 'asked', unsubmit: { ok: false, uncertain: true, error: "Schoology didn't confirm the unsubmit — no answer (TimeoutError)", url },
+      outcome: 'asked', unsubmit: { ok: false, uncertain: true, error: "Schoology didn't confirm the unsubmit: no answer (TimeoutError)", url },
     });
     askModal({ offerUnsubmit: true, onConfirm });
     await waitFor(() => expect(preview$()).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'Publish & ask' }));
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent("Schoology didn't confirm the unsubmit — their work may still be submitted.");
+    expect(alert).toHaveTextContent("Schoology didn't confirm the unsubmit. Their work may still be submitted.");
     expect(alert).not.toHaveTextContent('is still submitted');
     expect(within(alert).getByRole('link', { name: 'Unsubmit it in Schoology ›' })).toHaveAttribute('href', url);
   });

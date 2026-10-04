@@ -24,7 +24,7 @@ describe('classifyEvent', () => {
     expect(classifyEvent({ phase: 'blocks', status: 'done', records: 3, notReady: 2 })).toBe('warning');
     expect(classifyEvent({ type: 'log', message: '[Bio] Warning: rollup fetch failed: 500' })).toBe('warning');
     expect(classifyEvent({ type: 'log', message: 'Retrying 3 failed assignments...' })).toBe('warning');
-    expect(classifyEvent({ type: 'log', message: "[blocks] Bio: grade-level read failed (x) — skipped" })).toBe('warning');
+    expect(classifyEvent({ type: 'log', message: "[blocks] Bio: grade-level read failed (x), skipped" })).toBe('warning');
   });
 
   test('ordinary events are neither', () => {

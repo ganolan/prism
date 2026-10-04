@@ -137,7 +137,7 @@ export default function FeedbackPage() {
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.25rem' }}>
                   {item.score != null && (() => {
                     const lbl = gradeLabel({ score: item.score, max_points: item.max_points, grading_scale_id: item.grading_scale_id, scales });
-                    return <span className="text-sm" style={lbl.kind === 'mismatch' ? { color: 'var(--danger)' } : null} title={lbl.kind === 'mismatch' ? 'Score does not match any defined level on this grading scale — check Schoology' : undefined}>Score: {lbl.text}</span>;
+                    return <span className="text-sm" style={lbl.kind === 'mismatch' ? { color: 'var(--danger)' } : null} title={lbl.kind === 'mismatch' ? 'Score does not match any defined level on this grading scale: check Schoology' : undefined}>Score: {lbl.text}</span>;
                   })()}
                   {item.flag_for_review ? <span className="badge badge-red">Flagged</span> : null}
                   <span className="text-sm text-muted" style={{ marginLeft: 'auto' }}>{formatDate(item.created_at)}</span>
@@ -217,7 +217,7 @@ function FeedbackDetail({ item, scales, onApprove, onDelete, onUpdate }) {
                 {studentFullName(item)}
               </Link>
             </h3>
-            <p className="text-sm text-muted">{item.assignment_title} — {item.course_name}</p>
+            <p className="text-sm text-muted">{item.assignment_title} - {item.course_name}</p>
           </div>
           <span className={`badge ${STATUS_COLORS[item.status]}`}>{item.status.replace('_', ' ')}</span>
         </div>
@@ -345,7 +345,7 @@ function FeedbackDetail({ item, scales, onApprove, onDelete, onUpdate }) {
             return (
               <div key={i} style={{ padding: '0.5rem', background: 'var(--bg-subtle)', borderRadius: 8, marginBottom: '0.5rem', border: '1px solid var(--border)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
-                  <span className="text-sm text-muted">Version {i + 1} — {h.status}</span>
+                  <span className="text-sm text-muted">Version {i + 1}: {h.status}</span>
                   <span className="text-sm text-muted">{formatDateTime(h.changed_at)}</span>
                 </div>
                 {h.score != null && (() => {

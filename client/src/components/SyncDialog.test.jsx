@@ -198,7 +198,7 @@ describe('SyncDialog', () => {
       pollScript([{ status: 'running', finished: false, events: [] }]);
       render(<SyncDialog onClose={() => {}} pollMs={1} />);
       await clickStart();
-      expect(await screen.findByText(/Connection lost — still syncing on the server/)).toBeInTheDocument();
+      expect(await screen.findByText(/Connection lost: still syncing on the server/)).toBeInTheDocument();
       expect(screen.getByText('Syncing…')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Close' })).toBeEnabled();
     });
@@ -266,7 +266,7 @@ describe('SyncDialog', () => {
       });
       render(<SyncDialog onClose={() => {}} pollMs={1} />);
       await clickStart();
-      expect(await screen.findByText(/A sync is already running — showing its progress/)).toBeInTheDocument();
+      expect(await screen.findByText(/A sync is already running: showing its progress/)).toBeInTheDocument();
       expect(await screen.findByText('Earlier line from the first device')).toBeInTheDocument();
       finishRun();
       await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
@@ -284,7 +284,7 @@ describe('SyncDialog', () => {
       ]);
       render(<SyncDialog onClose={() => {}} pollMs={1} />);
       expect(await screen.findByText('Already under way')).toBeInTheDocument();
-      expect(screen.getByText(/A sync is already running — showing its progress/)).toBeInTheDocument();
+      expect(screen.getByText(/A sync is already running: showing its progress/)).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /start sync/i })).not.toBeInTheDocument();
       expect(api.runSync).not.toHaveBeenCalled();
     });
@@ -362,7 +362,7 @@ describe('SyncDialog', () => {
       const onSyncComplete = vi.fn();
       render(<SyncDialog onClose={() => {}} onSyncComplete={onSyncComplete} pollMs={1} giveUpMs={30} />);
       await clickStart();
-      expect(await screen.findByText(/Couldn't reach Prism — the sync may still be running/)).toBeInTheDocument();
+      expect(await screen.findByText(/Couldn't reach Prism: the sync may still be running/)).toBeInTheDocument();
       expect(screen.getByText(/Recent syncs/)).toBeInTheDocument();
       expect(screen.queryByText('Sync failed')).not.toBeInTheDocument();
       expect(screen.queryByText(/Load failed/)).not.toBeInTheDocument();
@@ -484,7 +484,7 @@ describe('SyncDialog — Schoology connection status', () => {
     vi.mocked(api.triggerMasteryLogin).mockResolvedValue({ success: true });
     render(<SyncDialog onClose={() => {}} />);
     expect(await screen.findByText('Expired')).toBeInTheDocument();
-    expect(screen.getByText("Opens a Schoology login window on the server — screen-share to it if you're away.")).toBeInTheDocument();
+    expect(screen.getByText("Opens a Schoology login window on the server. Screen-share to it if you're away.")).toBeInTheDocument();
     vi.mocked(api.getMasteryLoginStatus).mockImplementation(async () => ({ loggedIn: true, live: 'connected', checkedAt: '2026-10-03T07:00:00Z' }));
     fireEvent.click(screen.getByRole('button', { name: 'Log in to Schoology' }));
     expect(await screen.findByText(/^Connected · checked/)).toBeInTheDocument();

@@ -66,7 +66,7 @@ describe('unsubmitLti', () => {
 
   test('no saved session → SCHOOLOGY_SESSION', async () => {
     await expect(unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => null }))
-      .rejects.toMatchObject({ code: 'SCHOOLOGY_SESSION', message: 'Schoology connection expired — reconnect in Settings' });
+      .rejects.toMatchObject({ code: 'SCHOOLOGY_SESSION', message: 'Schoology connection expired: reconnect in Settings' });
     expect(state()).toBe('submitted');
   });
 
@@ -163,7 +163,7 @@ describe('tryUnsubmitLti / eligibility', () => {
   test('a failure becomes { ok: false, error, code, url } — the assignment page with the Unsubmit button', async () => {
     const r = await tryUnsubmitLti(db, { studentId, assignmentId }, { openPage: async () => null });
     expect(r).toEqual({
-      ok: false, code: 'SCHOOLOGY_SESSION', error: 'Schoology connection expired — reconnect in Settings', uncertain: false,
+      ok: false, code: 'SCHOOLOGY_SESSION', error: 'Schoology connection expired: reconnect in Settings', uncertain: false,
       url: `${BASE}/assignments/${AID}/info`,
     });
   });

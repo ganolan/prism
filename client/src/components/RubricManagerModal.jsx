@@ -40,7 +40,7 @@ export default function RubricManagerModal({ open, onClose, courseId, assignment
       if (info) notes.push(info);
       if (unmatched?.length) {
         setTab('map');
-        notes.push(`${unmatched.length} ${unmatched.length === 1 ? 'criterion' : 'criteria'} couldn’t be auto-matched — pick a topic below.`);
+        notes.push(`${unmatched.length} ${unmatched.length === 1 ? 'criterion' : 'criteria'} couldn’t be auto-matched, pick a topic below.`);
       }
       if (notes.length) setMsg(notes.join(' '));
     } catch (e) { setMsg(`Attach failed: ${e.message}`); }
@@ -62,7 +62,7 @@ export default function RubricManagerModal({ open, onClose, courseId, assignment
     setMsg('');
     try {
       const { id, reused, name } = await uploadRubricCsv(file.name.replace(/\.csv$/i, ''), file);
-      await doAttach(id, reused ? `Identical to existing “${name}” — attached it, no copy created.` : undefined);
+      await doAttach(id, reused ? `Identical to existing “${name}”: attached it, no copy created.` : undefined);
     } catch (e) { setMsg(`Upload failed: ${e.message}`); }
   }
   async function doMap(criterionId, topicId) {
@@ -176,7 +176,7 @@ function mappedTopic(attachment, criterionId) {
   return attachment.topicByCriterion.find((m) => m.criterion_id === criterionId)?.topic_id ?? '';
 }
 function topicTitle(topics, topicId) {
-  return topics.find((t) => t.id === topicId)?.title ?? '— unmapped —';
+  return topics.find((t) => t.id === topicId)?.title ?? '(unmapped)';
 }
 
 function MapTab({ attachment, topics, onMap }) {
@@ -201,11 +201,11 @@ function MapTab({ attachment, topics, onMap }) {
             </span>
             <select aria-label={`Topic for ${c.criterion_name}`} value={current}
               onChange={(e) => onMap(c.id, e.target.value)}>
-              <option value="">— none —</option>
+              <option value="">(none)</option>
               {topics.map((t) => {
                 const owner = ownerByTopic[t.id];
                 const annotate = owner && t.id !== current;   // held by someone else → show the owner
-                return <option key={t.id} value={t.id}>{annotate ? `${t.title} — now: ${owner}` : t.title}</option>;
+                return <option key={t.id} value={t.id}>{annotate ? `${t.title} (now: ${owner})` : t.title}</option>;
               })}
             </select>
           </div>

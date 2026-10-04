@@ -15,7 +15,7 @@ const RECENT_HELP =
 
 const CALENDAR_STALE_DAYS = 14;
 // The login window opens on the server's screen, not the teacher's device.
-const LOGIN_NOTE = "Opens a Schoology login window on the server — screen-share to it if you're away.";
+const LOGIN_NOTE = "Opens a Schoology login window on the server. Screen-share to it if you're away.";
 
 // connection (optional) = useSchoologyConnection() from the dialog: the saved session's
 // live status beside the login option, plus a login prompt when it has expired.
@@ -112,7 +112,7 @@ export default function SyncConfig({ courses, calendar, loggedIn, busy, onStart,
           <span className="sync-badge sync-badge-run">Always runs</span>
         </div>
         <p className="sync-step-desc">
-          Courses, students, assignments, grades &amp; submission status — all sections in one pass.
+          Courses, students, assignments, grades &amp; submission status: all sections in one pass.
         </p>
         <div className="sync-step-toggles">
           <label>
@@ -180,7 +180,7 @@ export default function SyncConfig({ courses, calendar, loggedIn, busy, onStart,
         )}
         {loggedIn && connectionState(connection?.status) === 'expired' && (
           <div className="alert alert-warning sync-login-prompt">
-            <p>The saved Schoology session has expired — log in again before syncing mastery.</p>
+            <p>The saved Schoology session has expired: log in again before syncing mastery.</p>
             <button className="secondary" onClick={onLogin} disabled={busy}>
               Log in to Schoology
             </button>
@@ -198,8 +198,8 @@ export default function SyncConfig({ courses, calendar, loggedIn, busy, onStart,
         ) : (
           <>
             <div className="alert alert-warning sync-disclaimer">
-              Mastery sync opens a browser session and runs one course at a time —
-              roughly 20–40s per course. Pick only what you need.
+              Mastery sync opens a browser session and runs one course at a time,
+              roughly 20-40s per course. Pick only what you need.
             </div>
             {groups.map((group) => {
               const ids = group.courses.map((c) => c.id);

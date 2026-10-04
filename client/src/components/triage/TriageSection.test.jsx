@@ -173,7 +173,7 @@ describe('TriageSection', () => {
   });
 
   it('a failed publish keeps the confirm open with the server error; nothing reloads', async () => {
-    api.recordExtension.mockRejectedValue(new Error("Couldn't read the grade from Schoology — nothing was published or recorded"));
+    api.recordExtension.mockRejectedValue(new Error("Couldn't read the grade from Schoology: nothing was published or recorded"));
     renderSection();
     const maya = rowOf(within(await latePanel()).getByText('Maya Chen'));
     fireEvent.click(within(maya).getByText('Extend'));
@@ -190,7 +190,7 @@ describe('TriageSection', () => {
     fireEvent.click(within(maya).getByText('Extend'));
     fireEvent.click(screen.getByText('Save'));
     fireEvent.click(await publishBtn('Publish new due date'));
-    expect(await screen.findByText('Published to Schoology — not recorded in Prism')).toBeInTheDocument();
+    expect(await screen.findByText('Published to Schoology: not recorded in Prism')).toBeInTheDocument();
     await waitFor(() => expect(api.getTriage).toHaveBeenCalledTimes(2));
   });
 
@@ -277,7 +277,7 @@ describe('TriageSection', () => {
     expect(within(history).getAllByText(/Aiden Li|Maya Chen/).map((el) => el.textContent)).toEqual(['Aiden Li', 'Maya Chen']);
     fireEvent.click(within(history).getAllByText('Undo')[0]);
     // An extension may have published a line: Undo confirms first, offering to remove it.
-    expect(await dialog()).toHaveAccessibleName("Undo — Aiden Li's Schoology comment");
+    expect(await dialog()).toHaveAccessibleName("Undo: Aiden Li's Schoology comment");
     expect(api.undoExtension).not.toHaveBeenCalled();
     expect(screen.getByRole('checkbox', { name: "Remove Prism's line from their comment" })).toBeChecked();
     fireEvent.click(await publishBtn('Undo'));
@@ -595,10 +595,10 @@ describe('TriageSection — make-up tests', () => {
   it("says when tests couldn't be checked", async () => {
     api.getTriage.mockResolvedValue({ ...PAYLOAD, makeUpsUnchecked: 2 });
     renderSection();
-    expect(within(await makeUpPanel()).getByText("Couldn't check 2 tests — run a full sync.")).toBeInTheDocument();
+    expect(within(await makeUpPanel()).getByText("Couldn't check 2 tests: run a full sync.")).toBeInTheDocument();
     api.getTriage.mockResolvedValue({ ...PAYLOAD, makeUps: [], makeUpsUnchecked: 1 });
     renderSection();
-    expect(await screen.findByText("Couldn't check 1 test — run a full sync.")).toBeInTheDocument();
+    expect(await screen.findByText("Couldn't check 1 test: run a full sync.")).toBeInTheDocument();
   });
 
   it('no unchecked note when everything was checked', async () => {
@@ -690,7 +690,7 @@ describe('Resubmissions panel', () => {
 
   it('a row whose LTI unsubmit failed says so and links the Schoology assignment page (new tab)', async () => {
     const url = 'https://schoology.hkis.edu.hk/assignments/r30/info';
-    const panel = await resubPanel([{ ...RESUB3[2], unsubmitError: 'Schoology connection expired — reconnect in Settings', unsubmitUrl: url }]);
+    const panel = await resubPanel([{ ...RESUB3[2], unsubmitError: 'Schoology connection expired: reconnect in Settings', unsubmitUrl: url }]);
     const link = within(panel).getByRole('link', { name: 'unsubmit it in Schoology ›' });
     expect(link).toHaveAttribute('href', url);
     expect(link).toHaveAttribute('target', '_blank');
@@ -819,7 +819,7 @@ describe('Resubmissions panel', () => {
     it('Undo of an ask confirms first (remove line, default on) → undoResubmission(id, { removeLine: true })', async () => {
       const history = await openHistory();
       fireEvent.click(undoOf(history, 'Ravi Shah'));
-      expect(await dialog()).toHaveAccessibleName("Undo — Ravi Shah's Schoology comment");
+      expect(await dialog()).toHaveAccessibleName("Undo: Ravi Shah's Schoology comment");
       expect(api.undoResubmission).not.toHaveBeenCalled();
       fireEvent.click(await publishBtn('Undo'));
       await waitFor(() => expect(api.undoResubmission).toHaveBeenCalledWith(50, { removeLine: true }));
@@ -837,7 +837,7 @@ describe('Resubmissions panel', () => {
       api.previewStatusLine.mockResolvedValue({ currentComment: 'L9\n\nGood.', visible: true, storedLine: 'L9', storedSource: { sourceType: 'resubmission', sourceId: 77 }, hiddenWarning: false });
       const history = await openHistory();
       fireEvent.click(undoOf(history, 'Ravi Shah'));
-      expect(await within(await dialog()).findByText("Prism's current line belongs to a different action — it will stay.")).toBeInTheDocument();
+      expect(await within(await dialog()).findByText("Prism's current line belongs to a different action. It will stay.")).toBeInTheDocument();
       expect(screen.getByLabelText('Their comment will read').textContent).toBe('L9\n\nGood.');
     });
 
@@ -878,7 +878,7 @@ describe('Resubmissions panel', () => {
     });
 
     it('a row whose unsubmit was only unconfirmed reads "not confirmed"', async () => {
-      const panel = await resubPanel([{ ...RESUB3[2], unsubmitError: "Schoology didn't confirm the unsubmit — x", unsubmitUncertain: true, unsubmitUrl: 'https://s/a' }]);
+      const panel = await resubPanel([{ ...RESUB3[2], unsubmitError: "Schoology didn't confirm the unsubmit: x", unsubmitUncertain: true, unsubmitUrl: 'https://s/a' }]);
       expect(within(panel).getByText(/Unsubmit not confirmed/)).toBeInTheDocument();
     });
 

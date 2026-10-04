@@ -969,7 +969,7 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     pushGradeComments.mockResolvedValueOnce({ status: 403, data: 'forbidden' });
     const res = await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'New comment' });
     expect(res.status).toBe(502);
-    expect(res.body.error).toBe('Schoology rejected the update — nothing was recorded in Prism');
+    expect(res.body.error).toBe('Schoology rejected the update: nothing was recorded in Prism');
     const row = db.prepare('SELECT score, grade_comment FROM grades WHERE student_id = ? AND assignment_id = ?').get(studentId, assignmentId);
     expect(row).toEqual({ score: 80, grade_comment: 'old' }); // unchanged — not the rejected write
   });
@@ -1018,7 +1018,7 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     pushGradeComments.mockClear();
     const res = await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Hi' });
     expect(res.status).toBe(502);
-    expect(res.body.error).toBe('Schoology has no grade record Prism expected — sync, then try again');
+    expect(res.body.error).toBe('Schoology has no grade record Prism expected: sync, then try again');
     db.prepare('UPDATE grades SET score = NULL, exception = 2 WHERE student_id = ?').run(studentId);
     expect((await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Hi' })).status).toBe(502);
     expect(pushGradeComments).not.toHaveBeenCalled();
@@ -1178,7 +1178,7 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
     });
     expect(res.status).toBe(502);
     // The rubric scores (step 1) already went — say so.
-    expect(res.body.error).toBe('Schoology has no grade record Prism expected — nothing was recorded in Prism; rubric scores may already be in Schoology — sync, then check');
+    expect(res.body.error).toBe('Schoology has no grade record Prism expected: nothing was recorded in Prism; rubric scores may already be in Schoology, sync, then check');
     expect(res.body.results).toEqual([{ uid: 'uid-ada', ok: false }, { uid: 'uid-bob', ok: false }]);
     expect(pushGradeComments).not.toHaveBeenCalled();
     expect(db.prepare('SELECT score, grade_comment FROM grades WHERE student_id = ?').get(bobId)).toEqual({ score: 70, grade_comment: 'old' });
@@ -1285,13 +1285,13 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
     getSectionGrades.mockRejectedValue(new Error('Schoology down'));
     const withScores = await post(`/api/mastery/${courseId}/send-all`, { entries: [entry('uid-ada', 'enr-ada')] });
     expect(withScores.status).toBe(502);
-    expect(withScores.body.error).toBe('Schoology down — nothing was recorded in Prism; rubric scores may already be in Schoology — sync, then check');
+    expect(withScores.body.error).toBe('Schoology down: nothing was recorded in Prism; rubric scores may already be in Schoology, sync, then check');
     pushGradeComments.mockResolvedValue({ status: 400 });
     getSectionGrades.mockResolvedValue([{ assignment_id: 'sa-1', enrollment_id: 'enr-ada', grade: 95, exception: 0, timestamp: 1 }]);
     const rejected = await post(`/api/mastery/${courseId}/send-all`, { entries: [entry('uid-ada', 'enr-ada')] });
     expect(rejected.body.error).toMatch(/rubric scores may already be in Schoology/);
     const commentOnly = await post(`/api/mastery/${courseId}/send-all`, { entries: [entry('uid-ada', 'enr-ada', { scores: false })] });
-    expect(commentOnly.body.error).toBe('Schoology rejected the update — nothing was recorded in Prism');
+    expect(commentOnly.body.error).toBe('Schoology rejected the update: nothing was recorded in Prism');
   });
 
   test('all-or-nothing: a score-batch failure aborts before comments and mirrors nothing', async () => {

@@ -16,9 +16,17 @@ export default function EmailMenu({ kind, rows, showCourse = false }) {
   const wrapRef = useRef(null);
   const buttonRef = useRef(null);
   const fieldRef = useRef(null);
+  const popRef = useRef(null);
+  const bubbleRef = useRef(null);
   const timer = useRef(null);
 
   useEffect(() => () => clearTimeout(timer.current), []);
+  // `.triage-rail` is a sticky, scrolling column (max-height + overflow-y: auto); a button
+  // near its bottom can open a menu or fallback bubble that renders past the visible box.
+  // Nudge the rail just enough to bring the popup into view, rather than relying on the
+  // user to notice and scroll. jsdom has no scrollIntoView, hence the optional chaining.
+  useEffect(() => { if (open) popRef.current?.scrollIntoView?.({ block: 'nearest' }); }, [open]);
+  useEffect(() => { if (fallback) bubbleRef.current?.scrollIntoView?.({ block: 'nearest' }); }, [fallback]);
   useEffect(() => {
     if (!open) return undefined;
     const onDown = (e) => { if (!wrapRef.current?.contains(e.target)) setOpen(false); };
@@ -77,7 +85,7 @@ export default function EmailMenu({ kind, rows, showCourse = false }) {
         @ ▾
       </button>
       {open && (
-        <div className="email-menu__pop" role="menu" aria-label="Copy student emails">
+        <div ref={popRef} className="email-menu__pop" role="menu" aria-label="Copy student emails">
           {menu.tiers.map(itemButton)}
           {menu.byAssessment.length > 0 && (
             <>
@@ -89,7 +97,7 @@ export default function EmailMenu({ kind, rows, showCourse = false }) {
       )}
       <p className="email-menu__status" role="status">{status}</p>
       {fallback && (
-        <div className="email-menu__bubble">
+        <div ref={bubbleRef} className="email-menu__bubble">
           <span>Copy these addresses:</span>
           <input
             ref={fieldRef} readOnly value={fallback} aria-label="Addresses to copy"

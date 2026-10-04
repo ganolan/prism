@@ -100,6 +100,35 @@ describe('EmailMenu', () => {
     fireEvent.mouseDown(screen.getByText('outside'));
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
+
+  it('scrolls the opened menu into view inside the scrolling rail', () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    try {
+      render(<EmailMenu kind="late" rows={ROWS} />);
+      openMenu();
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+      expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole('menu'));
+    } finally {
+      delete Element.prototype.scrollIntoView;
+    }
+  });
+
+  it('scrolls the fallback bubble into view inside the scrolling rail', async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    try {
+      setClipboard(vi.fn().mockRejectedValue(new Error('denied')));
+      render(<EmailMenu kind="late" rows={ROWS} />);
+      openMenu();
+      await pick('Red (1)');
+      const bubble = screen.getByLabelText('Addresses to copy').closest('.email-menu__bubble');
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+      expect(scrollIntoView.mock.contexts.at(-1)).toBe(bubble);
+    } finally {
+      delete Element.prototype.scrollIntoView;
+    }
+  });
 });
 
 describe('MailLink', () => {

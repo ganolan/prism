@@ -77,7 +77,7 @@ export function LetterGradePopup({ onClose, numCategories }) {
         </div>
 
         <p className="text-sm text-muted" style={{ marginBottom: '0.75rem' }}>
-          Based on reporting category proficiency levels. Approximate — verify against official HKIS scale.
+          Based on reporting category proficiency levels. Approximate, verify against official HKIS scale.
         </p>
 
         {/* Proficiency boundaries */}
@@ -87,14 +87,14 @@ export function LetterGradePopup({ onClose, numCategories }) {
               <tr>
                 {LEVELS.map(l => (
                   <th key={l} style={{ background: LEVEL_COLORS[l].headerFill, color: CELL_TEXT, padding: '0.3rem 0.5rem', textAlign: 'center' }}>
-                    {l} — {LEVEL_LABELS[l]}
+                    {l} - {LEVEL_LABELS[l]}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
               <tr>
-                {['87.5–100', '62.5–87.49', '37.5–62.49', '12.5–37.49', '0–12.49'].map((r, i) => (
+                {['87.5-100', '62.5-87.49', '37.5-62.49', '12.5-37.49', '0-12.49'].map((r, i) => (
                   <td key={i} style={{ textAlign: 'center', padding: '0.25rem', color: 'var(--text-muted)' }}>{r}</td>
                 ))}
               </tr>
@@ -128,7 +128,7 @@ export function LetterGradePopup({ onClose, numCategories }) {
                       color: 'var(--text)', whiteSpace: 'pre-line', verticalAlign: 'top',
                       border: '1px solid var(--border)',
                     }}>
-                      {row.rows[n] || '—'}
+                      {row.rows[n] || '-'}
                     </td>
                   ))}
                 </tr>
@@ -145,7 +145,7 @@ export function LetterGradePopup({ onClose, numCategories }) {
 
 function LevelCell({ grade, size = 'md', dim = false, pending = false }) {
   if (!grade && pending) return <td style={{ background: 'var(--bg-subtle)', color: 'var(--text-muted)', textAlign: 'center', padding: size === 'sm' ? '0.2rem 0.3rem' : '0.35rem 0.5rem', fontStyle: 'italic', fontSize: '0.68rem' }}>Pending</td>;
-  if (!grade) return <td style={{ background: 'var(--bg-subtle)', color: 'var(--text-muted)', textAlign: 'center', padding: size === 'sm' ? '0.2rem 0.3rem' : '0.35rem 0.5rem', opacity: dim ? 0.45 : 1 }}>—</td>;
+  if (!grade) return <td style={{ background: 'var(--bg-subtle)', color: 'var(--text-muted)', textAlign: 'center', padding: size === 'sm' ? '0.2rem 0.3rem' : '0.35rem 0.5rem', opacity: dim ? 0.45 : 1 }}>-</td>;
   const c = LEVEL_COLORS[grade] || {};
   return (
     <td style={{
@@ -399,7 +399,7 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
                     color: c ? CELL_TEXT : 'var(--text-muted)',
                     border: '1px solid var(--border)',
                   }}>
-                    {lvl || '—'}
+                    {lvl || '-'}
                   </td>
                 );
               })
@@ -420,7 +420,7 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
                   color: c ? CELL_TEXT : 'var(--text-muted)',
                   border: '1px solid var(--border)',
                 }}>
-                  {lvl || '—'}
+                  {lvl || '-'}
                 </td>
               );
             })}
@@ -441,7 +441,7 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
                     color: c ? CELL_TEXT : 'var(--text-muted)',
                     border: '1px solid var(--border)',
                   }}>
-                    {lvl || '—'}{topicAvg[t.id] != null ? ` (${topicAvg[t.id].toFixed(0)})` : ''}
+                    {lvl || '-'}{topicAvg[t.id] != null ? ` (${topicAvg[t.id].toFixed(0)})` : ''}
                   </td>
                 );
               })
@@ -463,7 +463,7 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
                   color: c ? CELL_TEXT : 'var(--text-muted)',
                   border: '1px solid var(--border)',
                 }}>
-                  {lvl || '—'}{avg != null ? ` (${avg.toFixed(1)})` : ''}
+                  {lvl || '-'}{avg != null ? ` (${avg.toFixed(1)})` : ''}
                 </td>
               );
             })}
@@ -500,7 +500,7 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
                       border: '1px solid var(--border)',
                       borderTop: '2px solid var(--accent)',
                     }}>
-                      {lvl || '—'}{pct != null ? ` (${Math.round(pct)})` : ''}{override ? '*' : ''}
+                      {lvl || '-'}{pct != null ? ` (${Math.round(pct)})` : ''}{override ? '*' : ''}
                     </td>
                   );
                 })
@@ -535,7 +535,7 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
                 <td key={cat.id} colSpan={cat.topics.length}
                     className="schoology-cell"
                     onClick={() => setOverrideTarget({ category: cat, currentLevel: lvl, hasOverride: override })}
-                    title={override ? 'Teacher override set in Schoology — click to change or clear' : 'Click to set a teacher override in Schoology'}
+                    title={override ? 'Teacher override set in Schoology, click to change or clear' : 'Click to set a teacher override in Schoology'}
                     style={{
                   textAlign: 'center', fontWeight: 700, fontSize: '0.85rem',
                   padding: '0.35rem',
@@ -547,7 +547,7 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
                   borderRight: isLast ? '3px solid var(--accent)' : '1px solid var(--border)',
                   cursor: 'pointer',
                 }}>
-                  {lvl || '—'}{pct != null ? ` (${pct.toFixed(1)})` : ''}{override ? '*' : ''}
+                  {lvl || '-'}{pct != null ? ` (${pct.toFixed(1)})` : ''}{override ? '*' : ''}
                 </td>
               );
             })}

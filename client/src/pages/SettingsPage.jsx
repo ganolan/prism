@@ -32,7 +32,7 @@ function SchoologyConnectionCard() {
     <section className="card settings-section" id="schoology" aria-labelledby="schoology-connection-title">
       <h3 id="schoology-connection-title">Schoology connection</h3>
       <p className="text-sm text-muted">
-        Prism&apos;s saved Schoology login — used for mastery sync, OneDrive links and unsubmitting work when you ask for a resubmission.
+        Prism&apos;s saved Schoology login, used for mastery sync, OneDrive links and unsubmitting work when you ask for a resubmission.
       </p>
       <div className="settings-row">
         <SchoologyConnectionStatus connection={connection} />
@@ -41,7 +41,7 @@ function SchoologyConnectionCard() {
         <button type="button" className="secondary" onClick={login} disabled={loginBusy}>
           {loginBusy ? 'Waiting for login…' : 'Log in to Schoology'}
         </button>
-        <span className="text-sm text-muted">Opens a Schoology login window on the server — screen-share to it if you&apos;re away.</span>
+        <span className="text-sm text-muted">Opens a Schoology login window on the server. Screen-share to it if you&apos;re away.</span>
       </div>
       {loginMsg && <p className="text-sm text-muted" role="status">{loginMsg}</p>}
     </section>

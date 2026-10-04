@@ -19,7 +19,7 @@ import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
 import { TriageError } from './triageCommon.js';
 import { sessionDeps, noteSessionLive } from './schoologySession.js';
 
-const SESSION_MESSAGE = 'Schoology connection expired — reconnect in Settings';
+const SESSION_MESSAGE = 'Schoology connection expired: reconnect in Settings';
 const VERIFY_ATTEMPTS = 3;
 const VERIFY_WAIT_MS = 1500;
 const FETCH_TIMEOUT_MS = 20000; // each in-page fetch (the POST, each verification read)
@@ -56,10 +56,10 @@ export function assertCanUnsubmit(db, { studentId, assignmentId }) {
     throw new TriageError('NOT_ELIGIBLE', 'Only OneDrive (LTI) work can be unsubmitted from Prism');
   }
   if (t.lti_submission_state !== 'submitted') {
-    throw new TriageError('NOT_ELIGIBLE', 'Their work is not submitted in Schoology (as of the last sync) — there is nothing to unsubmit');
+    throw new TriageError('NOT_ELIGIBLE', 'Their work is not submitted in Schoology (as of the last sync): there is nothing to unsubmit');
   }
   if (!t.schoology_uid || !t.schoology_assignment_id) {
-    throw new TriageError('NOT_ELIGIBLE', 'Prism has no Schoology ids for that student or assignment — sync first');
+    throw new TriageError('NOT_ELIGIBLE', 'Prism has no Schoology ids for that student or assignment: sync first');
   }
   return {
     studentId: t.student_id, assignmentId: t.assignment_id,
@@ -116,7 +116,7 @@ const fail = (message) => new TriageError('SCHOOLOGY_WRITE_FAILED', message);
 // be submitted. The message prefix is how a stored unsubmit_error is read back as uncertain.
 export const UNCONFIRMED_PREFIX = 'Schoology didn\'t confirm the unsubmit';
 export const isUncertainUnsubmitError = (error) => String(error ?? '').startsWith(UNCONFIRMED_PREFIX);
-const unconfirmed = (detail) => new TriageError('SCHOOLOGY_UNCONFIRMED', `${UNCONFIRMED_PREFIX} — ${detail}`);
+const unconfirmed = (detail) => new TriageError('SCHOOLOGY_UNCONFIRMED', `${UNCONFIRMED_PREFIX}: ${detail}`);
 
 // about:blank / an empty URL after goto = the page never loaded (a navigation error),
 // which says nothing about the session.
@@ -132,7 +132,7 @@ export async function unsubmitLti(db, { studentId, assignmentId }, { openPage = 
   try {
     session = await openPage();
   } catch (err) {
-    throw fail(`Could not open a browser for Schoology (${err.message}) — nothing was unsubmitted`);
+    throw fail(`Could not open a browser for Schoology (${err.message}): nothing was unsubmitted`);
   }
   if (!session) throw new TriageError('SCHOOLOGY_SESSION', SESSION_MESSAGE);
   const { page } = session;
@@ -143,7 +143,7 @@ export async function unsubmitLti(db, { studentId, assignmentId }, { openPage = 
     const landed = page.url();
     if (!isLoggedInUrl(landed)) {
       if (navError || notLoaded(landed)) {
-        throw fail(`Could not open the assignment page in Schoology${navError ? ` (${navError.message})` : ''} — nothing was unsubmitted`);
+        throw fail(`Could not open the assignment page in Schoology${navError ? ` (${navError.message})` : ''}: nothing was unsubmitted`);
       }
       noteSessionLive('expired', 'An unsubmit was sent to the login page');
       throw new TriageError('SCHOOLOGY_SESSION', SESSION_MESSAGE);
@@ -158,7 +158,7 @@ export async function unsubmitLti(db, { studentId, assignmentId }, { openPage = 
     } catch (err) {
       throw unconfirmed(`the page failed while sending it (${err.message})`);
     }
-    if (res.csrfMissing) throw fail('Could not read Schoology\'s security token on the assignment page — nothing was unsubmitted');
+    if (res.csrfMissing) throw fail('Could not read Schoology\'s security token on the assignment page: nothing was unsubmitted');
     if (res.fetchError) throw unconfirmed(`no answer (${res.fetchError})`);
     if (res.status >= 400 && res.status < 500) {
       console.warn(`[lti unsubmit] ${t.studentId}:${t.assignmentId} rejected: HTTP ${res.status} ${String(res.body).slice(0, 200)}`);
@@ -197,7 +197,7 @@ export async function tryUnsubmitLti(db, { studentId, assignmentId }, opts) {
     if (!known) console.error('[lti unsubmit] failed:', err);
     const a = db.prepare('SELECT schoology_assignment_id FROM assignments WHERE id = ?').get(Number(assignmentId));
     // An unexpected throw can't say whether the POST went out — treat it as unconfirmed.
-    const error = known ? err.message : `${UNCONFIRMED_PREFIX} — ${err.message}`;
+    const error = known ? err.message : `${UNCONFIRMED_PREFIX}: ${err.message}`;
     return {
       ok: false,
       error,

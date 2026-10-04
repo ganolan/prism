@@ -53,7 +53,7 @@ export default function ResubmitControl({ student, assignmentId, title, defaultL
   if (!assignmentId) return null;
 
   if (r?.state === 'arrived') {
-    return <span className="resubmit-control resubmit-control__note">Awaiting your feedback — regrade or comment (visible)</span>;
+    return <span className="resubmit-control resubmit-control__note">Awaiting your feedback: regrade or comment (visible)</span>;
   }
 
   const req = r?.state === 'waiting' ? r.request : null;

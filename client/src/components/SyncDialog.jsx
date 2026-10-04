@@ -22,14 +22,14 @@ const GIVE_UP_MS = 3 * 60 * 1000;
 function startErrorMessage(err) {
   const msg = String(err?.message || '');
   if (err instanceof TypeError || /load failed|failed to fetch|network/i.test(msg)) {
-    return "The sync didn't start — Prism didn't respond. Try again.";
+    return "The sync didn't start: Prism didn't respond. Try again.";
   }
   return `The sync didn't start: ${msg || 'unknown error'}`;
 }
 
 const NOTICES = {
-  lost: 'Connection lost — still syncing on the server…',
-  joined: 'A sync is already running — showing its progress.',
+  lost: 'Connection lost: still syncing on the server…',
+  joined: 'A sync is already running: showing its progress.',
 };
 
 // A sync is a server-side run (see server/routes/schoology.js). The dialog
@@ -178,7 +178,7 @@ export default function SyncDialog({ onClose, onSyncComplete, pollMs = POLL_MS, 
     if (out.cancelled || unmounted.current || r.stage === 'done') return;
     if (out.unreachable) return stall(r);
     if (out.status === 'interrupted') {
-      ingest(r, [{ type: 'error', message: 'The sync was interrupted — the server restarted before it finished. Run it again.' }]);
+      ingest(r, [{ type: 'error', message: 'The sync was interrupted: the server restarted before it finished. Run it again.' }]);
     }
     // Any finished run may have written data, so let open pages refresh.
     await finish(r, { refresh: true });
@@ -328,7 +328,7 @@ export default function SyncDialog({ onClose, onSyncComplete, pollMs = POLL_MS, 
               </div>
             ) : mode === 'done' && metrics?.retries_failed > 0 ? (
               <div className="alert alert-warning">
-                {metrics.retries_failed} assignment{metrics.retries_failed === 1 ? '' : 's'} couldn't sync — re-run sync when ready.
+                {metrics.retries_failed} assignment{metrics.retries_failed === 1 ? '' : 's'} couldn't sync: re-run sync when ready.
               </div>
             ) : null}
             <SyncProgress

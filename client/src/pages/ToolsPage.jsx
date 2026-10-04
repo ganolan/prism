@@ -118,7 +118,7 @@ function ClassListTool({ courseIds }) {
           <label className="text-sm" htmlFor="class-list-format">Format</label>
           <select id="class-list-format" value={format} onChange={e => setFormat(e.target.value)} style={{ width: 'auto' }}>
             {NAME_FORMATS.map(f => (
-              <option key={f.id} value={f.id}>{f.label} — {formatName(SAMPLE_STUDENT, f.id)}</option>
+              <option key={f.id} value={f.id}>{f.label}: {formatName(SAMPLE_STUDENT, f.id)}</option>
             ))}
           </select>
         </div>

@@ -84,11 +84,11 @@ async function establishPsSession(page, schoologySectionId) {
 
   if (!page.url().includes(PS_HOST)) {
     if (!isLoggedInUrl(page.url())) {
-      throw new Error('Not logged in to Schoology — run `npm run mastery:login` and retry.');
+      throw new Error('Not logged in to Schoology: run `npm run mastery:login` and retry.');
     }
     const hasForm = await page.evaluate(() => !!document.forms[0]);
     if (!hasForm) {
-      throw new Error('Could not reach the PowerSchool attendance app (no launch form). Session may be stale — run `npm run mastery:login`.');
+      throw new Error('Could not reach the PowerSchool attendance app (no launch form). Session may be stale: run `npm run mastery:login`.');
     }
     await Promise.all([
       page.waitForURL((u) => u.toString().includes(PS_HOST), { timeout: 45000 }).catch(() => {}),
@@ -96,7 +96,7 @@ async function establishPsSession(page, schoologySectionId) {
     ]);
   }
   if (!page.url().includes(PS_HOST)) {
-    throw new Error('PowerSchool attendance app did not load — run `npm run mastery:login` and retry.');
+    throw new Error('PowerSchool attendance app did not load: run `npm run mastery:login` and retry.');
   }
 }
 
@@ -258,7 +258,7 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
   }
 
   if (!existsSync(sessionStateFile())) {
-    throw new Error('No Schoology browser session — run `npm run mastery:login` first.');
+    throw new Error('No Schoology browser session: run `npm run mastery:login` first.');
   }
 
   const { browser, context, page } = await openPage();
@@ -281,7 +281,7 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
       // every section, stop instead of paying PS_FETCH_TIMEOUT_MS per
       // remaining course — they're picked up on the next sync.
       if (loopTimeBudgetExceeded(loopStartedAt, LOOP_TIME_BUDGET_MS)) {
-        log(`Time budget (${LOOP_TIME_BUDGET_MS / 1000}s) exceeded — stopping with ${courses.length - summary.processed} course(s) left for the next sync.`);
+        log(`Time budget (${LOOP_TIME_BUDGET_MS / 1000}s) exceeded: stopping with ${courses.length - summary.processed} course(s) left for the next sync.`);
         loopCompleted = false;
         break;
       }
@@ -315,7 +315,7 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
                 gradeByDcid.set(dcid, gradeLevel);
               }
             } catch (err) {
-              log(`${c.course_name}: grade-level read failed (${err.message}) — skipped`);
+              log(`${c.course_name}: grade-level read failed (${err.message}), skipped`);
             }
           }
         }
@@ -341,7 +341,7 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
         stampOnly.run(now, c.id);
         summary.skipped++;
         summary.results.push({ courseId: c.id, courseName: c.course_name, blockNumber: null, blockName: pick.blockName, reason, status: 'skipped' });
-        log(`${c.course_name}: no numbered block (${reason}${pick.blockName ? `: "${pick.blockName}"` : ''}) — left unchanged`);
+        log(`${c.course_name}: no numbered block (${reason}${pick.blockName ? `: "${pick.blockName}"` : ''}), left unchanged`);
       }
     }
 
@@ -358,7 +358,7 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
       summary.schoolDays = storeSchoolDays(db, [...calendarByDate.values()]);
       log(summary.schoolDays
         ? `School calendar: ${summary.schoolDays} days stored.`
-        : 'School calendar: none returned — kept the stored calendar.');
+        : 'School calendar: none returned, kept the stored calendar.');
     }
     summary.gradeLevels.seen = gradeByDcid.size;
     summary.gradeLevels.updated = applyGradeLevels(db, gradeByDcid);

@@ -539,8 +539,8 @@ describe('Ask with unsubmit (Phase 2, LTI unsubmit on Ask)', () => {
     const url = `${SCHOOLOGY}/assignments/a1/info`;
     expect(res.body).toMatchObject({
       outcome: 'asked', statusLine: { line: LINE },
-      unsubmit: { ok: false, code: 'SCHOOLOGY_SESSION', error: 'Schoology connection expired — reconnect in Settings', url },
-      unsubmitError: 'Schoology connection expired — reconnect in Settings', unsubmitUrl: url, unsubmitUncertain: false,
+      unsubmit: { ok: false, code: 'SCHOOLOGY_SESSION', error: 'Schoology connection expired: reconnect in Settings', url },
+      unsubmitError: 'Schoology connection expired: reconnect in Settings', unsubmitUrl: url, unsubmitUncertain: false,
     });
     expect(pushGradeComments).toHaveBeenCalledTimes(1);
     expect(getDb().prepare('SELECT unsubmit_error FROM resubmissions').get().unsubmit_error).toMatch(/expired/);

@@ -41,7 +41,7 @@ export default function ImportProgress({ model, onRetry, onDone }) {
               {heading}
               {done && failed > 0 && <span className="badge badge-gray"> · {failed} failed</span>}
             </h2>
-            {running && <p className="text-muted text-sm">Please don't close Prism — this can take a few minutes.</p>}
+            {running && <p className="text-muted text-sm">Please don't close Prism, this can take a few minutes.</p>}
           </div>
 
           <div className="sync-bar">

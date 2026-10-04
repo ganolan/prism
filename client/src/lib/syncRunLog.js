@@ -71,7 +71,7 @@ export function describeRunEvent(evt) {
       outcome = evt.records != null ? plural(evt.records, 'record') : 'done';
       if (evt.notReady > 0) outcome += `, ${evt.notReady} not yet published in PowerSchool`;
     }
-    return { icon: ICON[evt.status] || '○', text: `${phaseLabel(evt)} — ${outcome}`, level };
+    return { icon: ICON[evt.status] || '○', text: `${phaseLabel(evt)}: ${outcome}`, level };
   }
   return null;
 }

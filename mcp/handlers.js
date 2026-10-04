@@ -213,8 +213,8 @@ export function resolveCourseRef(db, ref) {
   const q = String(ref).toLowerCase();
   const hits = courses.filter((c) => c.course_name.toLowerCase().includes(q) || (c.course_code || '').toLowerCase().includes(q));
   if (hits.length === 1) return hits[0].id;
-  if (hits.length === 0) throw new Error(`No active course matches "${ref}" (current: ${courses.map(courseCandidate).join(', ')}) — pass a course id`);
-  throw new Error(`"${ref}" matches several courses (${hits.map(courseCandidate).join(', ')}) — pass a course id`);
+  if (hits.length === 0) throw new Error(`No active course matches "${ref}" (current: ${courses.map(courseCandidate).join(', ')}): pass a course id`);
+  throw new Error(`"${ref}" matches several courses (${hits.map(courseCandidate).join(', ')}): pass a course id`);
 }
 
 // A student reference: a local id, or a case-insensitive name fragment.
@@ -283,9 +283,9 @@ export function assertSchoologyConfigured(env = process.env) {
   const missing = SCHOOLOGY_ENV.filter((k) => !String(env[k] ?? '').trim());
   if (missing.length === 0) return;
   throw new TriageError('SCHOOLOGY_NOT_CONFIGURED',
-    `PrisMCP cannot reach Schoology: ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not set in its environment — nothing was read, published or recorded. ` +
+    `PrisMCP cannot reach Schoology: ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not set in its environment: nothing was read, published or recorded. ` +
     'Add SCHOOLOGY_BASE_URL, SCHOOLOGY_CONSUMER_KEY and SCHOOLOGY_CONSUMER_SECRET to the prism MCP server\'s "env" block ' +
-    '(docs/prismcp-install-and-verify.md), then restart it — or leave out comment_line / remove_line to keep the action Prism-only.');
+    '(docs/prismcp-install-and-verify.md), then restart it, or leave out comment_line / remove_line to keep the action Prism-only.');
 }
 
 // extend_deadline, both paths, gain comment_line? (published via the shared
@@ -353,12 +353,12 @@ export async function requestResubmissionTool(db, { student_id, assignment_id, l
   });
   if (!r.unsubmit) return r;
   const unsubmitReport = r.unsubmit.ok
-    ? { ok: true, message: 'Unsubmitted their OneDrive work in Schoology — they can edit it and submit again.' }
+    ? { ok: true, message: 'Unsubmitted their OneDrive work in Schoology: they can edit it and submit again.' }
     : {
       ...r.unsubmit,
       message: r.unsubmit.uncertain
-        ? `The ask was recorded, but Schoology didn't confirm the unsubmit — their work may still be submitted (${r.unsubmit.error}). Tell the teacher to check and unsubmit it in Schoology: ${r.unsubmit.url}`
-        : `The ask was recorded, but unsubmitting in Schoology failed — their work is still submitted (${r.unsubmit.error}). Tell the teacher to unsubmit it in Schoology: ${r.unsubmit.url}`,
+        ? `The ask was recorded, but Schoology didn't confirm the unsubmit. Their work may still be submitted (${r.unsubmit.error}). Tell the teacher to check and unsubmit it in Schoology: ${r.unsubmit.url}`
+        : `The ask was recorded, but unsubmitting in Schoology failed: their work is still submitted (${r.unsubmit.error}). Tell the teacher to unsubmit it in Schoology: ${r.unsubmit.url}`,
     };
   return { ...r, unsubmit: unsubmitReport };
 }

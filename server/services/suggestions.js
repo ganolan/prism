@@ -36,7 +36,7 @@ export function upsertStudentSuggestion(db, {
     if (!scoreScale) scaleNote = `Ignored scale_level: this assignment is not graded on a scale (use rubric_scores).`;
     else {
       storedScaleLevel = normalizeScaleLevel(scoreScale, scale_level);
-      if (!storedScaleLevel) scaleNote = `Ignored scale_level ${JSON.stringify(scale_level)} — ${scoreScale.name} levels are ${scoreScale.levels.map(l => l.label).join(', ')}.`;
+      if (!storedScaleLevel) scaleNote = `Ignored scale_level ${JSON.stringify(scale_level)}: ${scoreScale.name} levels are ${scoreScale.levels.map(l => l.label).join(', ')}.`;
     }
   }
   const byKey = new Map();
@@ -112,7 +112,7 @@ export function upsertStudentSuggestion(db, {
   const result = { student, status: 'written', feedback_id: feedbackId };
   if (unresolvedTopics.length) result.unresolved_topics = unresolvedTopics;
   const notes = [];
-  if (numericLevels.length) notes.push(`Ignored numeric value(s) for ${numericLevels.join(', ')} — emit proficiency levels; Prism owns the points conversion.`);
+  if (numericLevels.length) notes.push(`Ignored numeric value(s) for ${numericLevels.join(', ')}: emit proficiency levels; Prism owns the points conversion.`);
   if (Object.keys(invalidLevels).length) notes.push(`Ignored out-of-vocabulary levels: ${JSON.stringify(invalidLevels)}`);
   if (scaleNote) notes.push(scaleNote);
   if (notes.length) result.message = notes.join(' ');

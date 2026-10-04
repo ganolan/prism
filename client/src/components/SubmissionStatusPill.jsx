@@ -34,7 +34,7 @@ export default function SubmissionStatusPill({ student, assignment }) {
     })) {
       return (
         <span style={{ ...PILL, background: 'var(--warning-light)', color: 'var(--warning)', border: '2px solid var(--warning)' }}
-          title="Prism couldn't read the submission status for this assignment at the last sync — re-sync to refresh.">
+          title="Prism couldn't read the submission status for this assignment at the last sync, re-sync to refresh.">
           <span aria-hidden="true">⚠ </span>Status unavailable
         </span>
       );

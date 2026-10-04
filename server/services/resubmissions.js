@@ -197,7 +197,7 @@ export function assertCanGradeStand(db, id, today = todayLocal()) {
   const r = openRequest(db, id);
   const state = stateOf(pairContext(db, r.student_id, r.assignment_id));
   if (state === 'fulfilled') throw new TriageError('NOT_ELIGIBLE', 'This resubmission has already been answered');
-  if (state !== 'waiting') throw new TriageError('NOT_ELIGIBLE', 'A resubmission has arrived — give feedback instead');
+  if (state !== 'waiting') throw new TriageError('NOT_ELIGIBLE', 'A resubmission has arrived: give feedback instead');
   const until = listResubmissions(db, { id: r.id })[0].until;
   if (!until || !(today > until)) {
     throw new TriageError('NOT_AT_DEADLINE', `The resubmission deadline (${until}) has not passed yet`);
@@ -227,7 +227,7 @@ export function undoResubmission(db, id) {
   if (r.kind === 'request' && r.status === 'closed' && r.close_note === 'grade stands') {
     const another = db.prepare(`SELECT 1 FROM resubmissions WHERE student_id = ? AND assignment_id = ? AND ${OPEN_REQUEST} AND id != ?`)
       .get(r.student_id, r.assignment_id, r.id);
-    if (another) throw new TriageError('ALREADY_OPEN', 'Another resubmission request for this assessment is open — undo that one instead');
+    if (another) throw new TriageError('ALREADY_OPEN', 'Another resubmission request for this assessment is open: undo that one instead');
     db.prepare(`UPDATE resubmissions SET status = 'open', close_note = NULL, closed_at = NULL, updated_at = datetime('now') WHERE id = ?`).run(r.id);
     return { deleted: false, reopened: true };
   }

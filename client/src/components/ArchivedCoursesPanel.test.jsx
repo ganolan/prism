@@ -46,7 +46,7 @@ describe('ArchivedCoursesPanel', () => {
     fireEvent.click(screen.getByText(/Check Schoology for archived courses/));
     await screen.findByText('Drama 8');
     expect(screen.queryByText('History 9')).not.toBeInTheDocument();
-    expect(screen.getByText(/Found on Schoology \(2\) — 1 not yet imported/)).toBeInTheDocument();
+    expect(screen.getByText(/Found on Schoology \(2\), 1 not yet imported/)).toBeInTheDocument();
   });
 
   it('imports the selection via a progress modal, then drops it and refreshes', async () => {

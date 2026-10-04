@@ -316,11 +316,11 @@ router.post('/:courseId/override', async (req, res) => {
   // explicitly so the route doesn't silently fall through to a clear operation.
   // (A clear is level==null && rawScaled==null → gradeScaled null → allowed below.)
   if (level != null && gradeScaled == null) {
-    return res.status(400).json({ error: `Unknown level "${level}" — expected one of ${LEVELS.join(', ')}` });
+    return res.status(400).json({ error: `Unknown level "${level}": expected one of ${LEVELS.join(', ')}` });
   }
   const valid = gradeScaledValues();
   if (gradeScaled != null && !valid.has(gradeScaled)) {
-    return res.status(400).json({ error: `Unknown level/grade — expected one of ${[...valid].join(', ')} or a level code` });
+    return res.status(400).json({ error: `Unknown level/grade: expected one of ${[...valid].join(', ')} or a level code` });
   }
 
   const db = getDb();
@@ -768,11 +768,11 @@ router.post('/:courseId/write-comment', async (req, res) => {
       `).get(String(enrollmentId), String(assignmentId));
       if (local && (local.score != null || (Number(local.exception) || 0) !== 0)) {
         console.warn(`[mastery write-comment] no Schoology record for ${enrollmentId}/${assignmentId} but Prism has a grade — not writing blind`);
-        return res.status(502).json({ error: 'Schoology has no grade record Prism expected — sync, then try again' });
+        return res.status(502).json({ error: 'Schoology has no grade record Prism expected: sync, then try again' });
       }
     }
     if (lookupFailed) {
-      return res.status(502).json({ error: 'Could not read the current Schoology grade — nothing was saved. Try again.' });
+      return res.status(502).json({ error: 'Could not read the current Schoology grade: nothing was saved. Try again.' });
     }
 
     const payload = {
@@ -794,7 +794,7 @@ router.post('/:courseId/write-comment', async (req, res) => {
       // the snapshot capture, settling a request) or reported back as saved.
       if (!putSucceeded(result)) {
         console.error('[mastery write-comment] comment PUT rejected:', result?.status, JSON.stringify(result?.data)?.slice(0, 500));
-        return res.status(502).json({ error: 'Schoology rejected the update — nothing was recorded in Prism' });
+        return res.status(502).json({ error: 'Schoology rejected the update: nothing was recorded in Prism' });
       }
 
       // Mirror to local DB. Use upsert so virgin records (no prior grade row)
@@ -977,8 +977,8 @@ router.post('/:courseId/send-all', async (req, res) => {
 
   // Once step 1 has started, a later failure can leave rubric scores already written
   // to Schoology (the batch is not transactional there) — say so, so the teacher syncs.
-  const SCORES_MAY_BE_WRITTEN = 'nothing was recorded in Prism; rubric scores may already be in Schoology — sync, then check';
-  const failMessage = (msg) => (scoreEntries.length > 0 ? `${msg} — ${SCORES_MAY_BE_WRITTEN}` : msg);
+  const SCORES_MAY_BE_WRITTEN = 'nothing was recorded in Prism; rubric scores may already be in Schoology, sync, then check';
+  const failMessage = (msg) => (scoreEntries.length > 0 ? `${msg}: ${SCORES_MAY_BE_WRITTEN}` : msg);
   try {
     // 1. All rubric scores in one browser session.
     if (scoreEntries.length > 0) {
@@ -1021,8 +1021,8 @@ router.post('/:courseId/send-all', async (req, res) => {
         console.warn(`[mastery send-all] no Schoology record for ${missed.map((e) => `${e.enrollmentId}/${e.assignmentId}`).join(', ')} but Prism has a grade — batch not sent`);
         return res.status(502).json({
           error: scoreEntries.length > 0
-            ? `Schoology has no grade record Prism expected — ${SCORES_MAY_BE_WRITTEN}`
-            : 'Schoology has no grade record Prism expected — sync, then try again',
+            ? `Schoology has no grade record Prism expected: ${SCORES_MAY_BE_WRITTEN}`
+            : 'Schoology has no grade record Prism expected: sync, then try again',
           results: entries.map((x) => ({ uid: x.uid, ok: false })),
         });
       }
@@ -1049,8 +1049,8 @@ router.post('/:courseId/send-all', async (req, res) => {
         console.error('[mastery send-all] comment PUT rejected:', result?.status, JSON.stringify(result?.data)?.slice(0, 500));
         return res.status(502).json({
           error: scoreEntries.length > 0
-            ? `Schoology rejected the comment update — ${SCORES_MAY_BE_WRITTEN}`
-            : 'Schoology rejected the update — nothing was recorded in Prism',
+            ? `Schoology rejected the comment update: ${SCORES_MAY_BE_WRITTEN}`
+            : 'Schoology rejected the update: nothing was recorded in Prism',
           results: entries.map((x) => ({ uid: x.uid, ok: false })),
         });
       }

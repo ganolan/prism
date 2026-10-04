@@ -100,8 +100,8 @@ function BoxTooltip({ active, payload }) {
       <p>n = {d.count} students</p>
       <p>Mean: {d.mean}% (SD: {d.stdDev})</p>
       <p>Median: {d.median}%</p>
-      <p>Q1: {d.q1}% — Q3: {d.q3}%</p>
-      <p>Range: {d.min}% — {d.max}%</p>
+      <p>Q1: {d.q1}%, Q3: {d.q3}%</p>
+      <p>Range: {d.min}%-{d.max}%</p>
     </div>
   );
 }

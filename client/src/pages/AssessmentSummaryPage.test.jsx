@@ -386,7 +386,7 @@ describe('StudentRubricCard — resubmission control (triage resubmissions)', ()
 
   it('an arrived resubmission shows "awaiting your feedback" — no Reviewed button', () => {
     renderCard({ student: { ...makeStudent(), resubmitted: true, resubmission: { state: 'arrived', request: null } } });
-    expect(screen.getByText('Awaiting your feedback — regrade or comment (visible)')).toBeInTheDocument();
+    expect(screen.getByText('Awaiting your feedback: regrade or comment (visible)')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Reviewed' })).not.toBeInTheDocument();
   });
 
@@ -1820,7 +1820,7 @@ describe('AssessmentSummaryPage — a save regrades an arrived resubmission (fin
     sendAllGrades.mockResolvedValue({ results: [{ uid: 'uid-1', ok: true, resubmissionFields: cleared }] });
     renderPage();
     expect(await screen.findByText(/Ungraded resubmission/)).toBeInTheDocument();
-    expect(screen.getByText('Awaiting your feedback — regrade or comment (visible)')).toBeInTheDocument();
+    expect(screen.getByText('Awaiting your feedback: regrade or comment (visible)')).toBeInTheDocument();
 
     fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
     fireEvent.click(await screen.findByRole('button', { name: /publish all to schoology \(1\)/i }));

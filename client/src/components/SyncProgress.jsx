@@ -25,7 +25,7 @@ function BlocksPendingBanner({ count }) {
     <div className="alert alert-info sync-remedy">
       <p>
         {count} course{singular ? '' : 's'} {singular ? "doesn't" : "don't"} have a PowerSchool
-        block number yet — PowerSchool hasn't published {singular ? 'its' : 'their'} schedule for
+        block number yet: PowerSchool hasn't published {singular ? 'its' : 'their'} schedule for
         the new school year. This resolves automatically on a later sync.
       </p>
     </div>
@@ -44,13 +44,13 @@ function RemedyBanner({ failure, retryEnabled, onLogin, onRetry }) {
     >
       {isLogin ? (
         <p>
-          <strong>{failure.label}</strong> couldn't sync — the Schoology session expired.
+          <strong>{failure.label}</strong> couldn't sync: the Schoology session expired.
           Log in again, then retry.
         </p>
       ) : (
         <p>
           <strong>{failure.label}</strong> failed: {failure.message}. This is usually
-          temporary — retry, or try again later from the Sync menu.
+          temporary: retry, or try again later from the Sync menu.
         </p>
       )}
       <div className="sync-remedy-actions">
@@ -96,7 +96,7 @@ export default function SyncProgress({ reduced, mode, notice, retryEnabled, onDo
         <h2>{running && <span className="sync-spinner" aria-hidden="true" />}{heading}</h2>
         {running && (
           <p className="text-muted text-sm">
-            This takes a few minutes. You can close this or lock your screen — the sync keeps running on the server.
+            This takes a few minutes. You can close this or lock your screen. The sync keeps running on the server.
           </p>
         )}
         {running && notice && <p className="text-muted text-sm sync-notice" role="status">{notice}</p>}
@@ -120,7 +120,7 @@ export default function SyncProgress({ reduced, mode, notice, retryEnabled, onDo
 
       {mode === 'stalled' && (
         <div className="alert alert-warning sync-remedy" role="status">
-          Couldn't reach Prism — the sync may still be running. Check Settings → Recent syncs.
+          Couldn't reach Prism: the sync may still be running. Check Settings → Recent syncs.
         </div>
       )}
 

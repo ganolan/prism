@@ -168,7 +168,7 @@ describe('runUnifiedSync', () => {
   // failure mode was previously an unclassified, easy-to-miss phase error).
   test('a blocks-phase login failure is classified errorKind:login', async () => {
     const cid = seedCourse(h.db, 'Bio 12');
-    syncPsAttendance.mockRejectedValue(new Error('Not logged in to Schoology — run `npm run mastery:login` and retry.'));
+    syncPsAttendance.mockRejectedValue(new Error('Not logged in to Schoology: run `npm run mastery:login` and retry.'));
     const events = [];
     await runUnifiedSync({ masteryCourseIds: [cid] }, (e) => events.push(e));
 

@@ -371,7 +371,7 @@ export function recordReferral(db, { studentId, assignmentId, action, note = nul
     .lateWork.find((r) => r.studentId === sid && r.assignmentId === a.id);
   if (!row) throw new TriageError('NOT_ON_LIST', 'That student and assignment are not on the late-work list');
   if (row.tone !== 'red') {
-    throw new TriageError('NOT_AT_LIMIT', `Not at the referral limit yet (day ${row.day}; refer after day ${getTriageSettings(db).referralLimitDays}) — extend the deadline instead, or wait`);
+    throw new TriageError('NOT_AT_LIMIT', `Not at the referral limit yet (day ${row.day}; refer after day ${getTriageSettings(db).referralLimitDays}): extend the deadline instead, or wait`);
   }
   let id;
   try {

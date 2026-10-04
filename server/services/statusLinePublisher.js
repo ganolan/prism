@@ -26,7 +26,7 @@ const normalise = (text) => String(text ?? '').replace(/\r\n/g, '\n');
 const busyPairs = new Set();
 export function lockPair(studentId, assignmentId) {
   const key = `${Number(studentId)}:${Number(assignmentId)}`;
-  if (busyPairs.has(key)) throw new TriageError('BUSY', 'Another update for this student is in progress — try again');
+  if (busyPairs.has(key)) throw new TriageError('BUSY', 'Another update for this student is in progress: try again');
   busyPairs.add(key);
   let held = true;
   return () => { if (held) { held = false; busyPairs.delete(key); } };
@@ -60,7 +60,7 @@ function pairTarget(db, studentId, assignmentId) {
   `).get(student.id, a.course_id)?.schoology_enrolment_id
     ?? db.prepare('SELECT enrolment_id FROM grades WHERE student_id = ? AND assignment_id = ?').get(student.id, a.id)?.enrolment_id;
   if (!enrollmentId || !a.schoology_assignment_id || !a.schoology_section_id) {
-    throw new TriageError('NOT_ELIGIBLE', 'Prism has no Schoology enrolment for that student on this assessment — sync first');
+    throw new TriageError('NOT_ELIGIBLE', 'Prism has no Schoology enrolment for that student on this assessment: sync first');
   }
   return {
     studentId: student.id, assignmentId: a.id,
@@ -81,14 +81,14 @@ async function freshGrade(db, t) {
     all = await getSectionGrades(t.sectionId);
   } catch (err) {
     console.warn(`[status line] fresh grade read failed: ${err.message}`);
-    throw new TriageError('SCHOOLOGY_READ_FAILED', 'Could not read the current Schoology comment — nothing was published. Try again.');
+    throw new TriageError('SCHOOLOGY_READ_FAILED', 'Could not read the current Schoology comment: nothing was published. Try again.');
   }
   const found = (all || []).find((g) => String(g.assignment_id) === t.schoologyAssignmentId && String(g.enrollment_id) === t.enrollmentId) || null;
   if (!found) {
     const local = db.prepare('SELECT score, exception FROM grades WHERE student_id = ? AND assignment_id = ?').get(t.studentId, t.assignmentId);
     if (local && (local.score != null || (Number(local.exception) || 0) !== 0)) {
       console.warn(`[status line] no Schoology grade record for ${t.studentId}:${t.assignmentId}, but Prism has a grade — not writing blind`);
-      throw new TriageError('SCHOOLOGY_READ_FAILED', 'Schoology did not return this student\'s grade record — nothing was published. Sync, then try again.');
+      throw new TriageError('SCHOOLOGY_READ_FAILED', 'Schoology did not return this student\'s grade record: nothing was published. Sync, then try again.');
     }
   }
   return found;
@@ -121,12 +121,12 @@ async function putComment(t, fresh, comment, commentStatus) {
     result = await pushGradeComments(t.sectionId, [payload]);
   } catch (err) {
     console.error(`[status line] comment PUT failed: ${err.message}`);
-    throw new TriageError('SCHOOLOGY_WRITE_FAILED', `Schoology did not accept the comment — nothing was changed (${err.message})`);
+    throw new TriageError('SCHOOLOGY_WRITE_FAILED', `Schoology did not accept the comment: nothing was changed (${err.message})`);
   }
   if (!putSucceeded(result)) {
     const status = Number(result?.status);
     console.error('[status line] comment PUT rejected:', status, JSON.stringify(result?.data)?.slice(0, 500));
-    throw new TriageError('SCHOOLOGY_WRITE_FAILED', `Schoology did not accept the comment (HTTP ${status || '?'}) — nothing was changed`);
+    throw new TriageError('SCHOOLOGY_WRITE_FAILED', `Schoology did not accept the comment (HTTP ${status || '?'}): nothing was changed`);
   }
 }
 

@@ -170,7 +170,7 @@ describe('ResubmitControl', () => {
     fireEvent.click(screen.getByRole('button', { name: /Resubmit by/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
     expect(screen.getByText('Closes this resubmission request in Prism.')).toBeInTheDocument();
-    expect(await screen.findByText("Prism's current line belongs to a different action — it will stay.")).toBeInTheDocument();
+    expect(await screen.findByText("Prism's current line belongs to a different action. It will stay.")).toBeInTheDocument();
   });
 
   it('each action remounts the confirm (fresh line state), and Escape returns focus to the panel button', async () => {
@@ -199,7 +199,7 @@ describe('ResubmitControl', () => {
 
   it('arrived: awaiting feedback text, no Reviewed (or any) button', () => {
     renderControl({ state: 'arrived', request: { id: 3, lessons: 3, until: '2026-10-15' } });
-    expect(screen.getByText('Awaiting your feedback — regrade or comment (visible)')).toBeInTheDocument();
+    expect(screen.getByText('Awaiting your feedback: regrade or comment (visible)')).toBeInTheDocument();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
@@ -266,8 +266,8 @@ describe('ResubmitControl — unsubmit on Ask (Phase 2)', () => {
   it('a failed unsubmit: the ask is recorded (card updated), the modal stays open with the Schoology link', async () => {
     const url = 'https://schoology.hkis.edu.hk/assignments/a1/info';
     api.requestResubmission.mockResolvedValue({
-      id: 3, outcome: 'asked', unsubmitError: 'Schoology connection expired — reconnect in Settings', unsubmitUrl: url,
-      unsubmit: { ok: false, error: 'Schoology connection expired — reconnect in Settings', url },
+      id: 3, outcome: 'asked', unsubmitError: 'Schoology connection expired: reconnect in Settings', unsubmitUrl: url,
+      unsubmit: { ok: false, error: 'Schoology connection expired: reconnect in Settings', url },
     });
     const onChange = renderControl(null, {}, { lti_submission_state: 'submitted', unsubmit_available: true });
     await openAsk();
@@ -293,7 +293,7 @@ describe('ResubmitControl — unsubmit on Ask (Phase 2)', () => {
   });
 
   it('an unconfirmed unsubmit reads "not confirmed", not "failed"', () => {
-    renderControl({ state: 'waiting', request: { id: 3, lessons: 3, until: '2026-10-15', unsubmitError: "Schoology didn't confirm the unsubmit — x", unsubmitUncertain: true, unsubmitUrl: 'https://s/a' } });
+    renderControl({ state: 'waiting', request: { id: 3, lessons: 3, until: '2026-10-15', unsubmitError: "Schoology didn't confirm the unsubmit: x", unsubmitUncertain: true, unsubmitUrl: 'https://s/a' } });
     expect(screen.getByText(/Unsubmit not confirmed/)).toBeInTheDocument();
     expect(screen.queryByText(/Unsubmit failed/)).not.toBeInTheDocument();
   });

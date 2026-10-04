@@ -160,7 +160,7 @@ export default function Dashboard() {
       {syncStatus?.last && (
         <p className="text-sm text-muted mb-2">
           Last sync: {formatDateTime(syncStatus.last.completed_at || syncStatus.last.started_at)}
-          {' — '}{syncStatus.last.status}
+          {': '}{syncStatus.last.status}
           {syncStatus.last.records_synced ? ` (${syncStatus.last.records_synced} records)` : ''}
         </p>
       )}

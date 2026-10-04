@@ -328,8 +328,8 @@ router.post('/import', async (req, res) => {
     const importedCourse = db.prepare('SELECT * FROM courses WHERE id = ?').get(courseRow.id);
     res.json({ course: importedCourse, studentsCount, assignmentsCount, gradesCount });
   } catch (err) {
-    if (err.message.includes('403')) return res.status(403).json({ error: 'Section not accessible — check the section ID and try again' });
-    if (err.message.includes('404')) return res.status(404).json({ error: 'Section not found — check the section ID and try again' });
+    if (err.message.includes('403')) return res.status(403).json({ error: 'Section not accessible: check the section ID and try again' });
+    if (err.message.includes('404')) return res.status(404).json({ error: 'Section not found: check the section ID and try again' });
     res.status(500).json({ error: err.message });
   }
 });

@@ -1,7 +1,7 @@
 {
   "name": "prism",
   "version": "0.1.0",
-  "description": "Student dashboard \u2014 local-first Schoology + PowerSchool viewer",
+  "description": "Student dashboard - local-first Schoology + PowerSchool viewer",
   "private": true,
   "type": "module",
   "scripts": {
@@ -42,6 +42,8 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@babel/parser": "^7.29.2",
+    "@babel/traverse": "^7.29.0",
     "vitest": "^4.1.6"
   }
 }

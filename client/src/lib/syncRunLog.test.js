@@ -39,12 +39,12 @@ describe('describeOptions', () => {
 describe('describeRunEvent', () => {
   it('phase rows: icon, label, outcome', () => {
     expect(describeRunEvent({ phase: 'schoology', status: 'done', records: 12 }))
-      .toMatchObject({ icon: '✓', text: 'Schoology data — 12 records', level: null });
+      .toMatchObject({ icon: '✓', text: 'Schoology data: 12 records', level: null });
     expect(describeRunEvent({ phase: 'mastery', courseName: 'Bio', status: 'error', message: 'boom', level: 'error' }))
-      .toMatchObject({ icon: '✕', text: 'Mastery · Bio — boom', level: 'error' });
-    expect(describeRunEvent({ phase: 'blocks', status: 'running' })).toMatchObject({ icon: '●', text: 'PowerSchool blocks — started' });
+      .toMatchObject({ icon: '✕', text: 'Mastery · Bio: boom', level: 'error' });
+    expect(describeRunEvent({ phase: 'blocks', status: 'running' })).toMatchObject({ icon: '●', text: 'PowerSchool blocks: started' });
     expect(describeRunEvent({ phase: 'blocks', status: 'done', records: 3, notReady: 2, level: 'warning' }))
-      .toMatchObject({ text: 'PowerSchool blocks — 3 records, 2 not yet published in PowerSchool', level: 'warning' });
+      .toMatchObject({ text: 'PowerSchool blocks: 3 records, 2 not yet published in PowerSchool', level: 'warning' });
   });
 
   it('log, error and summary lines', () => {

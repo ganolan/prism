@@ -31,7 +31,7 @@ export default function MakeUpPanel({ rows, settings, showCourse, scope, uncheck
       <p className="triage-panel__sub">test day = day 1 · sit by day {red - 1}</p>
       {unchecked > 0 && (
         <p className="alert alert-warning triage-panel__note">
-          Couldn&apos;t check {unchecked} test{unchecked === 1 ? '' : 's'} — run a full sync.
+          Couldn&apos;t check {unchecked} test{unchecked === 1 ? '' : 's'}: run a full sync.
         </p>
       )}
       {rows.length === 0 && <p className="text-sm text-muted">No missed tests.</p>}

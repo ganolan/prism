@@ -129,7 +129,7 @@ export function CourseSection({ course, grades, flagsByAssignment, studentUid, s
                     </div>
                     {/* Due + flags row */}
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
-                      <span className="text-xs text-muted">Due: {g.due_date || '—'}</span>
+                      <span className="text-xs text-muted">Due: {g.due_date || '-'}</span>
                       <SubmissionBadges
                         status={statusBadges}
                         flags={assignmentFlags}
@@ -163,7 +163,7 @@ export function CourseSection({ course, grades, flagsByAssignment, studentUid, s
                                 : lbl.kind === 'pending' ? { color: 'var(--text-muted)' }
                                 : c ? { background: c.headerFill, color: CELL_TEXT, border: `1px solid ${c.finalBorder}`, padding: '0.1rem 0.4rem', borderRadius: 4, fontWeight: 500, display: 'inline-block' }
                                 : null;
-                              return <span className="text-sm" style={style} title={lbl.kind === 'mismatch' ? 'Score does not match any defined level on this grading scale — check Schoology' : undefined}>{lbl.text}</span>;
+                              return <span className="text-sm" style={style} title={lbl.kind === 'mismatch' ? 'Score does not match any defined level on this grading scale: check Schoology' : undefined}>{lbl.text}</span>;
                             })()}
                           </td>
                         </>
@@ -187,7 +187,7 @@ export function CourseSection({ course, grades, flagsByAssignment, studentUid, s
                                 fontStyle: 'italic',
                               }}>
                                 <strong style={{ fontStyle: 'normal', color: 'var(--danger)' }}>{EXCEPTION_LABELS[g.exception]}</strong>
-                                {' — rubric hidden because Schoology deletes scores when an exception is set.'}
+                                {', rubric hidden because Schoology deletes scores when an exception is set.'}
                               </div>
                             ) : (
                               <CompactRubric topics={g.mastery.topics} />

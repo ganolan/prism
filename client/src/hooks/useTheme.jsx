@@ -5,7 +5,7 @@ const ThemeContext = createContext();
 export const themes = {
   prism: {
     name: 'Prism',
-    description: 'Blues, pinks & purples — light mode',
+    description: 'Blues, pinks & purples - light mode',
   },
   midnight: {
     name: 'Midnight',
@@ -13,7 +13,7 @@ export const themes = {
   },
   ocean: {
     name: 'Ocean',
-    description: 'Teals & blues — light mode',
+    description: 'Teals & blues - light mode',
   },
 };
 

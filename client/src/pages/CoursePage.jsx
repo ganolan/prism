@@ -319,7 +319,7 @@ export function RosterView({ students, mastery, courseId, displayName, onOverrid
             onClick={() => setShowDropped(v => !v)}
             aria-expanded={showDropped}
           >
-            {droppedStudents.length} dropped {showDropped ? '— hide' : '— show'}
+            {droppedStudents.length} dropped {showDropped ? '(hide)' : '(show)'}
           </button>
         </div>
       )}
@@ -479,7 +479,7 @@ export function RosterView({ students, mastery, courseId, displayName, onOverrid
                 </td>
                 <td className="text-sm">{s.email || '-'}</td>
                 <td className="text-sm">
-                  {gradYearToLevel(s.grad_year) ? `Grade ${gradYearToLevel(s.grad_year)}` : '—'}
+                  {gradYearToLevel(s.grad_year) ? `Grade ${gradYearToLevel(s.grad_year)}` : '-'}
                 </td>
                 {categories.flatMap((cat, catIdx) => {
                   const avg = categoryAvg(uid, cat.id);
@@ -507,14 +507,14 @@ export function RosterView({ students, mastery, courseId, displayName, onOverrid
                         ...mismatchBorders,
                       })}
                     >
-                      {avgLevel || '—'}{avg != null ? ` (${Math.round(avg)})` : ''}
+                      {avgLevel || '-'}{avg != null ? ` (${Math.round(avg)})` : ''}
                     </td>,
                     <td
                       key={`${cat.id}-s`}
                       className="schoology-cell"
                       onClick={() => onOverrideClick(uid, cat, rLevel, hasOverride)}
                       title={mismatchTitle || (hasOverride
-                        ? `Schoology reported: ${rLevel} — override set (click to change or clear)`
+                        ? `Schoology reported: ${rLevel}, override set (click to change or clear)`
                         : `Schoology reported${rLevel ? `: ${rLevel}` : ': no data'} (click to set override)`)}
                       style={levelCellStyle(rLevel, {
                         cursor: 'pointer',
@@ -522,7 +522,7 @@ export function RosterView({ students, mastery, courseId, displayName, onOverrid
                         ...mismatchBorders,
                       })}
                     >
-                      {rLevel || '—'}{r?.grade_percentage != null ? ` (${Math.round(r.grade_percentage)})` : ''}{hasOverride ? '*' : ''}
+                      {rLevel || '-'}{r?.grade_percentage != null ? ` (${Math.round(r.grade_percentage)})` : ''}{hasOverride ? '*' : ''}
                     </td>,
                   ];
                 })}
@@ -539,8 +539,8 @@ export function RosterView({ students, mastery, courseId, displayName, onOverrid
                   }}
                   title={letterGrade
                     ? `Approximate letter grade from ${categoryLevels.filter(Boolean).join(' + ')}`
-                    : 'Not enough data — at least one reporting category is missing a computed level'}>
-                    {letterGrade || '—'}
+                    : 'Not enough data: at least one reporting category is missing a computed level'}>
+                    {letterGrade || '-'}
                   </td>
                 )}
                 {categories.length > 0 && (
@@ -556,8 +556,8 @@ export function RosterView({ students, mastery, courseId, displayName, onOverrid
                   }}
                   title={schoologyLetterGrade
                     ? `Letter grade from Schoology levels: ${schoologyCategoryLevels.filter(Boolean).join(' + ')}`
-                    : 'Not enough data — at least one reporting category is missing a Schoology level'}>
-                    {schoologyLetterGrade || '—'}
+                    : 'Not enough data: at least one reporting category is missing a Schoology level'}>
+                    {schoologyLetterGrade || '-'}
                   </td>
                 )}
               </tr>
@@ -572,7 +572,7 @@ export function RosterView({ students, mastery, courseId, displayName, onOverrid
       )}
       {categories.length > 0 && (
         <p className="text-sm text-muted" style={{ padding: '0.5rem 0.75rem', marginTop: '0.25rem', borderTop: '1px solid var(--border)', fontSize: '0.72rem' }}>
-          Cells with an <span style={{ padding: '0 0.3rem', borderTop: '2px solid rgba(234, 179, 8, 0.85)', borderBottom: '2px solid rgba(234, 179, 8, 0.85)' }}>amber border</span> show a mismatch between Prism's computed average and Schoology's reported level. The <strong style={{ color: 'var(--accent)' }}>Schoology</strong> column (accent-bordered) is the authoritative data — click any cell to set an override.
+          Cells with an <span style={{ padding: '0 0.3rem', borderTop: '2px solid rgba(234, 179, 8, 0.85)', borderBottom: '2px solid rgba(234, 179, 8, 0.85)' }}>amber border</span> show a mismatch between Prism's computed average and Schoology's reported level. The <strong style={{ color: 'var(--accent)' }}>Schoology</strong> column (accent-bordered) is the authoritative data: click any cell to set an override.
         </p>
       )}
       {showGradeScale && (
@@ -688,7 +688,7 @@ export function RubricModal({ student, assignment, courseId, topics, comment, gr
                   url={workLink.url}
                   label="Open"
                   ariaLabel={`Open ${fullName}'s work in OneDrive`}
-                  title={`Open ${fullName}'s work in OneDrive — last edited ${formatDateTime(workLink.modifiedAt)}`}
+                  title={`Open ${fullName}'s work in OneDrive: last edited ${formatDateTime(workLink.modifiedAt)}`}
                   style={{ fontSize: '0.78rem', fontWeight: 600 }}
                 />
               )}
@@ -849,7 +849,7 @@ export function GradebookView({ data, courseId, mastery }) {
       className="lti-unavailable"
       role="img"
       aria-label="Submission status unavailable"
-      title="Submission status unavailable — re-sync to refresh"
+      title="Submission status unavailable: re-sync to refresh"
       onMouseEnter={(e) => {
         const r = e.currentTarget.getBoundingClientRect();
         setPopover({
@@ -1018,7 +1018,7 @@ export function GradebookView({ data, courseId, mastery }) {
                   } : undefined}
                   onMouseLeave={short ? () => setPopover(null) : undefined}
                 >
-                  {short || '—'}
+                  {short || '-'}
                 </th>
               );
             })}
@@ -1038,7 +1038,7 @@ export function GradebookView({ data, courseId, mastery }) {
                 // render as a grayed dash with no badges or grade logic (#54).
                 if (a.assignees && !a.assignees.includes(s.id)) {
                   return (
-                    <td key={a.id} style={{ textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-subtle)' }} title="Not assigned to this student">—</td>
+                    <td key={a.id} style={{ textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-subtle)' }} title="Not assigned to this student">-</td>
                   );
                 }
                 const g = grades[s.id]?.[a.id];
@@ -1055,7 +1055,7 @@ export function GradebookView({ data, courseId, mastery }) {
                     is_lti_submission: a.is_lti_submission, lti_submission_state: null,
                     due_date: a.due_date,
                   });
-                  if (!empty.length) return <td key={a.id} style={{ textAlign: 'center' }}>—</td>;
+                  if (!empty.length) return <td key={a.id} style={{ textAlign: 'center' }}>-</td>;
                   return (
                     <td key={a.id} style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                       {empty.map(b => (
@@ -1085,7 +1085,7 @@ export function GradebookView({ data, courseId, mastery }) {
                 // and apply the same color coding used in the aligned rubric.
                 const code = lbl.kind === 'scale' ? masteryCodeForLevel(lbl.text) : null;
                 const c = code ? LEVEL_COLORS[code] : null;
-                const text = lbl.kind === 'pending' ? '—' : (code || lbl.text);
+                const text = lbl.kind === 'pending' ? '-' : (code || lbl.text);
                 // A cell with an overall comment gets a corner indicator and an
                 // instant hover overlay (#36) — `position: relative` anchors the
                 // indicator.
@@ -1131,7 +1131,7 @@ export function GradebookView({ data, courseId, mastery }) {
                 ].filter(Boolean).join(' · ');
                 const cellTitle = signalTitle
                   || (lbl.kind === 'mismatch'
-                      ? 'Score does not match any defined level on this grading scale — check Schoology'
+                      ? 'Score does not match any defined level on this grading scale: check Schoology'
                       : '');
                 return (
                   <td

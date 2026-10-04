@@ -80,7 +80,7 @@ export default function PeoplePage() {
     <div className="fade-in">
       <h2 className="page-title">Directory</h2>
       <p className="text-muted" style={{ marginTop: '-0.5rem', marginBottom: '1rem' }}>
-        Search the whole school — including people who aren’t in your classes.
+        Search the whole school, including people who aren’t in your classes.
       </p>
 
       <form onSubmit={runSearch} style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
@@ -113,7 +113,7 @@ export default function PeoplePage() {
             <>
               {!data.complete && (
                 <p className="text-sm text-muted" style={{ marginBottom: '0.75rem' }}>
-                  Showing the first {data.results.length} matches — refine your search to narrow it down.
+                  Showing the first {data.results.length} matches, refine your search to narrow it down.
                 </p>
               )}
               <table>
@@ -131,7 +131,7 @@ export default function PeoplePage() {
                           {p.name || `User ${p.userId}`}
                         </a>
                       </td>
-                      <td className="text-sm text-muted">{p.school || '—'}</td>
+                      <td className="text-sm text-muted">{p.school || '-'}</td>
                       <td className="text-sm">
                         {p.messageUserId && (
                           <a className="link" href={`${SCHOOLOGY}/messages/new/${p.messageUserId}`} target="_blank" rel="noreferrer">

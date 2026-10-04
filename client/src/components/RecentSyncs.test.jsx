@@ -50,8 +50,8 @@ describe('RecentSyncs', () => {
     const log = await screen.findByRole('log');
     expect(row).toHaveAttribute('aria-expanded', 'true');
     expect(api.getSyncRun).toHaveBeenCalledWith(2);
-    expect(within(log).getByText('Schoology data — 40 records')).toBeInTheDocument();
-    const err = within(log).getByText('Mastery · Bio — Not logged in').closest('.sync-run-line');
+    expect(within(log).getByText('Schoology data: 40 records')).toBeInTheDocument();
+    const err = within(log).getByText('Mastery · Bio: Not logged in').closest('.sync-run-line');
     expect(err).toHaveClass('sync-run-line-error');
     const warn = within(log).getByText('[Bio] Warning: rollup fetch failed: 500').closest('.sync-run-line');
     expect(warn).toHaveClass('sync-run-line-warning');

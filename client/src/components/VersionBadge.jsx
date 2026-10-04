@@ -29,7 +29,7 @@ export default function VersionBadge() {
           hour: '2-digit',
           minute: '2-digit',
         })}`
-      : 'Development clone — no release deployed';
+      : 'Development clone: no release deployed';
 
   return (
     <div className="version-badge" title={title}>

@@ -57,7 +57,7 @@ export default function SchoologyConnectionStatus({ connection, className = '' }
   else if (state === 'connected') { text = `Connected${status.checkedAt ? ` · checked ${hhmm(status.checkedAt)}` : ''}`; tone = 'success'; }
   else if (state === 'expired') { text = 'Expired'; tone = 'warning'; }
   else if (state === 'none') { text = 'Not set up'; tone = 'warning'; }
-  else if (state === 'unknown') { text = "Couldn't check — try again"; tone = 'muted'; }
+  else if (state === 'unknown') { text = "Couldn't check, try again"; tone = 'muted'; }
   else text = 'Not checked yet';
 
   return (

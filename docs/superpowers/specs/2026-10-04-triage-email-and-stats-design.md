@@ -69,13 +69,16 @@ emails only ever live in the DB and API responses, never in committed files or f
     it is 0.
   - By assessment: one item per `assignmentId`, label = title, plus ` · BK n` when
     `showCourse` and the row has a block (two AP CSP sections can share a title).
-    Sorted by count descending, then title.
+    Sorted by count descending, then title. The group is omitted when the still-owing
+    rows cover only one assessment (it would repeat "Everyone still owing").
 - `formatAddresses(emails)`: drop empty values, dedupe case-insensitively (keep the
   first spelling, keep list order), join with `'; '`.
 - `mailtoFor(row, kind)`: `mailto:<email>?subject=<encoded>`, subject
-  `<course name>: <title>, <late work | make-up test | resubmission>`. The course name is
-  the short name `courseLabel` already uses, without the `[BK n]` prefix. Returns `null`
-  when the row has no email.
+  `<title>: <late work | make-up test | resubmission>`, e.g. "CPT 1: late work". Returns
+  `null` when the row has no email. (Correction during planning: `courseName` is the
+  stored Schoology name, e.g. "AP COMPUTER SCIENCE PRINCIPLES", and Prism has no
+  short-name helper, so the course is left out of the subject rather than sent in
+  capitals. The student knows which class the teacher's email is about.)
 
 ## 3. `client/src/components/triage/EmailMenu.jsx`
 
@@ -124,7 +127,8 @@ Tiles (four `<button>`s), from `triage.counts`:
 - Big number + label. Red tone (CSS variables) when the count is above 0; muted "0"
   when clear.
 - Click: `scrollIntoView` on the panel and focus its heading (the heading gets
-  `tabIndex={-1}`). The four panels get those stable ids.
+  `tabIndex={-1}`). The four panels get those stable ids. If the panel is not rendered
+  (Resubmissions hides itself when empty), the click does nothing.
 - Data: the triage payload the Dashboard already receives via `TriageSection`'s
   `onLoaded`; no new fetch. Before triage loads, only the status line shows.
 - Layout: four in a row on desktop; 2×2 grid inside the existing `PHONE LAYOUT` block

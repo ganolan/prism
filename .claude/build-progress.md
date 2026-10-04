@@ -998,3 +998,30 @@ second error. Nothing kept a record of what a sync reported.
 
 **Tests:** 907 server + 630 client Vitest tests pass; `npm run build` succeeds (2026-10-02).
 
+## PrisMCP `get_submission_status` (2026-10-04, branch `feat/119-submission-status`, issue #119)
+
+A read-only PrisMCP tool so an agent can answer "which of my students still haven't submitted X?",
+"who hasn't opened their Robotics Notebook 3 PowerPoint yet?" or "give me an email list of everyone
+with unsubmitted summative work". New `server/services/submissionStatus.js` (`getSubmissionStatus`)
+reuses triage.js's verified submission rules directly rather than re-deriving them: `assignmentFacts`,
+`studentState` and `tracksSubmissions` gained `export` (no behaviour change) so this tool and
+`get_triage` agree on what counts as submitted. Per (student, assignment) `status` is decided in
+priority order: `exception = 1` → `excused`; a Schoology test → `submitted`/`not_started` from
+`test_attempt` (`not_assigned` skips the item entirely, the student sits the other copy); LTI
+(OneDrive/GDrive) → `lti_submission_state` when set, else a corroborating `submission_type`, else
+`unknown`; a tracked dropbox (`tracksSubmissions`, same roster-wide decision as triage) →
+`submitted`/`not_started`; otherwise `not_tracked` (paper/gradebook-only, never owing). `owing` = status
+in {`not_started`, `in_progress`} and not yet scored — `unknown` is never treated as missing, since
+Prism must not accuse a student on missing data (surfaced instead via `counts.unknown` +
+`unknownHint`, which suggests a re-sync). Results group by student (one entry even when enrolled in two
+of the scoped courses) with an `emails` string ready to paste into an Outlook To/Bcc field (deduped
+case-insensitively). `status: 'not_submitted'` (default) is the whole-school "who's behind" view;
+`status: 'all'` lists every item but requires a course, assignment_id or student (it throws otherwise,
+rather than silently returning a huge dump). `mcp/handlers.js` `getSubmissionStatusTool` resolves
+`course` the same way `get_triage` does (`resolveCourseRef`); `mcp/server.js` registers
+`get_submission_status` with a zod schema matching the service's filters. Docs: tool added to the
+surface list in `docs/prismcp-install-and-verify.md`.
+
+**Tests:** 1311 server + mcp Vitest tests pass (20 new in `submissionStatus.test.js`, 2 new handler
+tests in `mcp/handlers.test.js`).
+

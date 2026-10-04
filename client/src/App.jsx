@@ -7,7 +7,6 @@ import SearchPage from './pages/SearchPage.jsx';
 import PeoplePage from './pages/PeoplePage.jsx';
 import ImportPage from './pages/ImportPage.jsx';
 import ToolsPage from './pages/ToolsPage.jsx';
-import AnalyticsPage from './pages/AnalyticsPage.jsx';
 import FeedbackPage from './pages/FeedbackPage.jsx';
 import AssessmentSummaryPage from './pages/AssessmentSummaryPage.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
@@ -103,7 +102,6 @@ function Shell({ onSyncComplete }) {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/course/:id" element={<CoursePage />} />
-          <Route path="/course/:id/analytics" element={<AnalyticsPage />} />
           <Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} />
           <Route path="/student/:id" element={<StudentPage />} />
           <Route path="/search" element={<SearchPage />} />

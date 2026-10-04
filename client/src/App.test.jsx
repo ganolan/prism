@@ -14,7 +14,6 @@ vi.mock('./pages/CoursePage.jsx', () => ({ default: () => null }));
 vi.mock('./pages/StudentPage.jsx', () => ({ default: () => null }));
 vi.mock('./pages/ImportPage.jsx', () => ({ default: () => null }));
 vi.mock('./pages/ToolsPage.jsx', () => ({ default: () => null }));
-vi.mock('./pages/AnalyticsPage.jsx', () => ({ default: () => null }));
 vi.mock('./pages/FeedbackPage.jsx', () => ({ default: () => null }));
 vi.mock('./pages/AssessmentSummaryPage.jsx', () => ({ default: () => null }));
 vi.mock('./components/SyncDialog.jsx', () => ({ default: () => <div>Sync dialog</div> }));

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { meterPct, courseTriageSummary, waitsByAssignment, courseLabel, redCount, APPROX_TITLE } from './triage.js';
+import { meterPct, courseTriageSummary, courseRedLine, waitsByAssignment, courseLabel, redCount, APPROX_TITLE } from './triage.js';
 
 const T = {
   lateWork: [
@@ -22,10 +22,23 @@ describe('triage helpers', () => {
   });
 
   it('courseTriageSummary counts per course; oldestDay is the worst feedback day number (due date = day 1)', () => {
-    expect(courseTriageSummary(T, 1)).toEqual({ atLimit: 1, late: 1, toGrade: 10, oldestDay: 12, waitTone: 'red', makeUps: 2, makeUpTone: 'red', resubmissions: 0, resubmissionTone: 'green' });
+    expect(courseTriageSummary(T, 1)).toEqual({
+      atLimit: 1, late: 1, toGrade: 10, oldestDay: 12, waitTone: 'red', makeUps: 2, makeUpTone: 'red',
+      resubmissions: 0, resubmissionTone: 'green', worstTone: 'red', redMakeUps: 1, redResubmissions: 0, feedbackRed: true,
+    });
     expect(courseTriageSummary(T, 2)).toMatchObject({ makeUps: 1, makeUpTone: 'green' });
     expect(courseTriageSummary(T, 3)).toMatchObject({ makeUps: 1, makeUpTone: 'amber' });
-    expect(courseTriageSummary(null, 1)).toEqual({ atLimit: 0, late: 0, toGrade: 0, oldestDay: 0, waitTone: 'green', makeUps: 0, makeUpTone: 'green', resubmissions: 0, resubmissionTone: 'green' });
+    expect(courseTriageSummary(null, 1)).toEqual({
+      atLimit: 0, late: 0, toGrade: 0, oldestDay: 0, waitTone: 'green', makeUps: 0, makeUpTone: 'green',
+      resubmissions: 0, resubmissionTone: 'green', worstTone: 'green', redMakeUps: 0, redResubmissions: 0, feedbackRed: false,
+    });
+  });
+
+  it('worstTone, redMakeUps, redResubmissions and feedbackRed reflect the four lists for the course', () => {
+    // course 2: only a green late row and a green make-up — nothing red or amber anywhere.
+    expect(courseTriageSummary(T, 2)).toMatchObject({ worstTone: 'green', redMakeUps: 0, redResubmissions: 0, feedbackRed: false });
+    // course 3: a single amber make-up — worst tone is amber, not red.
+    expect(courseTriageSummary(T, 3)).toMatchObject({ worstTone: 'amber', redMakeUps: 0, feedbackRed: false });
   });
 
   it('waitsByAssignment keys by Schoology id', () => {
@@ -48,8 +61,31 @@ describe('courseTriageSummary — resubmissions', () => {
     const t = { lateWork: [], feedbackOwed: [], makeUps: [], resubmissions: [
       { courseId: 5, tone: 'red' }, { courseId: 5, tone: 'green' }, { courseId: 6, tone: 'amber' },
     ] };
-    expect(courseTriageSummary(t, 5)).toMatchObject({ resubmissions: 2, resubmissionTone: 'red' });
+    expect(courseTriageSummary(t, 5)).toMatchObject({ resubmissions: 2, resubmissionTone: 'red', worstTone: 'red', redResubmissions: 1 });
     expect(redCount(t)).toBe(1);
+  });
+});
+
+describe('courseRedLine', () => {
+  it('joins red-only segments with middle dots, in order: at limit, make-ups, resubmissions, feedback', () => {
+    const summary = { atLimit: 2, redMakeUps: 1, redResubmissions: 5, feedbackRed: true, toGrade: 5, oldestDay: 16 };
+    expect(courseRedLine(summary)).toBe('2 at limit · 1 make-up · 5 resubmissions · 5 to grade · day 16');
+  });
+
+  it('singularises make-up and resubmission at 1, pluralises above 1', () => {
+    expect(courseRedLine({ atLimit: 0, redMakeUps: 1, redResubmissions: 0, feedbackRed: false })).toBe('1 make-up');
+    expect(courseRedLine({ atLimit: 0, redMakeUps: 2, redResubmissions: 0, feedbackRed: false })).toBe('2 make-ups');
+    expect(courseRedLine({ atLimit: 0, redMakeUps: 0, redResubmissions: 1, feedbackRed: false })).toBe('1 resubmission');
+    expect(courseRedLine({ atLimit: 0, redMakeUps: 0, redResubmissions: 3, feedbackRed: false })).toBe('3 resubmissions');
+  });
+
+  it('includes the feedback segment only when feedbackRed is true, using toGrade and oldestDay', () => {
+    expect(courseRedLine({ atLimit: 0, redMakeUps: 0, redResubmissions: 0, feedbackRed: true, toGrade: 7, oldestDay: 9 })).toBe('7 to grade · day 9');
+    expect(courseRedLine({ atLimit: 0, redMakeUps: 0, redResubmissions: 0, feedbackRed: false, toGrade: 7, oldestDay: 9 })).toBe('');
+  });
+
+  it('is empty when nothing is red', () => {
+    expect(courseRedLine({ atLimit: 0, redMakeUps: 0, redResubmissions: 0, feedbackRed: false })).toBe('');
   });
 });
 

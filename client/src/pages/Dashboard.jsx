@@ -7,7 +7,7 @@ import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import { useStickyTab } from '../hooks/useStickyTab.js';
 import TriageSection from '../components/triage/TriageSection.jsx';
 import StatsStrip from '../components/triage/StatsStrip.jsx';
-import { courseTriageSummary, TONE_BADGE } from '../lib/triage.js';
+import { courseTriageSummary, courseRedLine } from '../lib/triage.js';
 
 export default function Dashboard() {
   const dataVersion = useDataVersion();
@@ -61,12 +61,18 @@ export default function Dashboard() {
   // Shared course card renderer
   function CourseCard({ c, showSemester = false }) {
     const isSettings = settingsCard === c.id;
+    // Current tab only (#137): one worst-tone edge + one muted red-only line per
+    // card, replacing the three chips that used to repeat the same red/amber
+    // signal already shown on the strip and in the triage rail.
+    const summary = !showSemester && triage ? courseTriageSummary(triage, c.id) : null;
+    const toneClass = summary?.worstTone === 'red' ? ' card--tone-red' : summary?.worstTone === 'amber' ? ' card--tone-amber' : '';
+    const redLine = summary ? courseRedLine(summary) : '';
 
     return (
       <Link
         to={`/course/${c.id}`}
         key={c.id}
-        className="card"
+        className={`card${toneClass}`}
         style={{ opacity: !!c.hidden ? 0.5 : (showSemester ? 0.75 : 1) }}
       >
         {/* Course info */}
@@ -79,36 +85,22 @@ export default function Dashboard() {
         {c.grading_period && showSemester && (
           <p className="text-sm text-muted">{c.grading_period}</p>
         )}
+        {redLine && <p className="text-sm text-muted course-card__triage">{redLine}</p>}
 
-        {/* Bottom row: badges + cog / settings */}
+        {/* Bottom row: student count + cog / settings */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.75rem' }}>
           <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
             {/* student_count comes from the course list endpoint (active enrolments
                 only — dropped students are excluded there, see #128). Empty shells
-                like the master/template course report 0; they get no badge rather
-                than a noisy "0 students". */}
+                like the master/template course report 0; they get no text rather
+                than a noisy "0 students". Plain muted text, not a badge (#137) —
+                it's a fact about the course, not a triage signal. */}
             {c.student_count > 0 && (
-              <span className="badge badge-gray">
+              <span className="text-sm text-muted">
                 {c.student_count} student{c.student_count === 1 ? '' : 's'}
               </span>
             )}
             {!!c.hidden && <span className="badge" style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }}>Hidden</span>}
-            {!showSemester && triage && (() => {
-              const t = courseTriageSummary(triage, c.id);
-              return (
-                <>
-                  {t.makeUps > 0 && (
-                    <span className={`badge ${TONE_BADGE[t.makeUpTone]}`}>{t.makeUps} make-up{t.makeUps === 1 ? '' : 's'}</span>
-                  )}
-                  {t.atLimit > 0 && <span className="badge badge-red">{t.atLimit} at limit</span>}
-                  {t.late > 0 && <span className="badge badge-amber">{t.late} late</span>}
-                  {t.resubmissions > 0 && (
-                    <span className={`badge ${TONE_BADGE[t.resubmissionTone]}`}>{t.resubmissions} resubmission{t.resubmissions === 1 ? '' : 's'}</span>
-                  )}
-                  {t.toGrade > 0 && <span className={`badge ${TONE_BADGE[t.waitTone]}`}>{t.toGrade} to grade · day {t.oldestDay}</span>}
-                </>
-              );
-            })()}
           </div>
 
           {isSettings ? (

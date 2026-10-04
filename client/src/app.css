@@ -1157,6 +1157,17 @@ button.btn-sm { padding: 0.3rem 0.65rem; font-size: 0.78rem; }
 .triage-layout__main .grid-2 { grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); }
 .triage-layout__main .grid-2 > .card { margin-bottom: 0; }
 .triage-layout__main .grid-2 > .card h3 { font-size: 0.95rem; }
+/* Course card tiers (#137): the card's own signal is one worst-tone left edge —
+   inset so it paints inside the existing border/padding instead of shifting
+   content the way a border-left would — plus one muted red-only line
+   (.course-card__triage). Amber detail and the rest of the counts live in the
+   triage rail; the card just says which class needs a look. Chained with the
+   base shadow so hover's shadow swap (.card:hover) keeps working underneath. */
+.card.card--tone-red { box-shadow: inset 3px 0 0 var(--danger), var(--card-shadow); }
+.card.card--tone-red:hover { box-shadow: inset 3px 0 0 var(--danger), var(--card-shadow-hover); }
+.card.card--tone-amber { box-shadow: inset 3px 0 0 var(--warning), var(--card-shadow); }
+.card.card--tone-amber:hover { box-shadow: inset 3px 0 0 var(--warning), var(--card-shadow-hover); }
+.course-card__triage { margin: 0.2rem 0 0; }
 .triage-rail {
   flex: 0 0 380px; width: 380px; min-width: 0;
   display: flex; flex-direction: column; gap: 0.75rem;
@@ -1266,10 +1277,13 @@ button.email-menu__item {
 .email-menu__bubble { width: min(18rem, calc(100vw - 2rem)); padding: 0.5rem 0.6rem; display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.75rem; }
 .email-menu__field { width: 100%; box-sizing: border-box; font-size: 0.75rem; }
 
-/* Dashboard stats strip (#137): a status line, then four overdue tiles that jump
-   to their triage panel. Red tile = something overdue; muted 0 = clear. */
+/* Dashboard stats strip (#137): a status line, then the overdue tiles that jump
+   to their triage panel — only tiles above 0 render (fewer tiles keep their
+   quarter width via the fixed 4-column grid; the rest of the row stays empty).
+   All four at 0 → .stats-strip__clear's "Nothing overdue" instead of the grid. */
 .stats-strip { margin-bottom: 1.25rem; }
 .stats-strip__status { margin: 0 0 0.6rem; }
+.stats-strip__clear { margin: 0; }
 .stats-strip__tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.75rem; }
 button.stat-tile {
   display: flex; flex-direction: column; align-items: flex-start; gap: 0.15rem;

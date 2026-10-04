@@ -3,9 +3,11 @@ import { useSchoologyConnection } from '../SchoologyConnectionStatus.jsx';
 import { formatDateTime } from '../../lib/formatDate.js';
 
 // Dashboard "At a glance" strip (#137): one status line (school day, last sync,
-// Schoology connection) above four overdue tiles from the triage payload's counts.
-// A tile scrolls to its triage panel and focuses the panel heading; a panel that
-// isn't rendered (an empty Resubmissions panel hides itself) makes it a no-op.
+// Schoology connection), then the overdue tiles from the triage payload's counts —
+// "is anything on fire?" Only non-zero tiles render; all four at 0 shows one quiet
+// "Nothing overdue" line instead of a grid of zeroes. A tile scrolls to its triage
+// panel and focuses the panel heading; a panel that isn't rendered (an empty
+// Resubmissions panel hides itself) makes it a no-op.
 export const TILES = [
   { key: 'atReferralLimit', label: 'At referral limit', panel: 'triage-late' },
   { key: 'makeUpsOverdue', label: 'Make-ups overdue', panel: 'triage-makeups' },
@@ -45,6 +47,12 @@ export default function StatsStrip({ triage, syncStatus }) {
   const counts = triage?.counts;
   if (parts.length === 0 && !counts) return null;
 
+  // #137: the strip answers "is anything on fire?" — only overdue (non-zero)
+  // tiles are worth showing; an all-clear day gets one quiet line instead of
+  // a grid of zeroes.
+  const liveTiles = counts ? TILES.filter((t) => (counts[t.key] ?? 0) > 0) : [];
+  const allClear = !!counts && liveTiles.length === 0;
+
   return (
     <section className="stats-strip" aria-label="At a glance">
       {parts.length > 0 && (
@@ -52,12 +60,13 @@ export default function StatsStrip({ triage, syncStatus }) {
           {parts.flatMap((p, i) => (i ? [<span key={`sep${i}`} aria-hidden="true"> · </span>, p] : [p]))}
         </p>
       )}
-      {counts && (
+      {allClear && <p className="text-sm text-muted stats-strip__clear">Nothing overdue</p>}
+      {liveTiles.length > 0 && (
         <div className="stats-strip__tiles">
-          {TILES.map((t) => {
-            const n = counts[t.key] ?? 0;
+          {liveTiles.map((t) => {
+            const n = counts[t.key];
             return (
-              <button key={t.key} type="button" className={`stat-tile${n > 0 ? ' stat-tile--red' : ''}`} onClick={() => jumpTo(t.panel)}>
+              <button key={t.key} type="button" className="stat-tile stat-tile--red" onClick={() => jumpTo(t.panel)}>
                 <span className="stat-tile__num">{n}</span>
                 <span className="stat-tile__label">{t.label}</span>
               </button>

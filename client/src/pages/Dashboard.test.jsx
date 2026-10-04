@@ -63,12 +63,15 @@ describe('Dashboard — Current tab', () => {
 });
 
 describe('Dashboard — enrolled-student count badge', () => {
-  it('shows the enrolment count on a current course card', async () => {
+  it('shows the enrolment count on a current course card, as plain muted text (not a badge, #137)', async () => {
     api.getCoursesByView.mockResolvedValue([
       { id: 1, course_name: 'AI & Machine Learning', student_count: 24 },
     ]);
     renderDashboard();
-    expect(await screen.findByText('24 students')).toBeInTheDocument();
+    const el = await screen.findByText('24 students');
+    expect(el).toBeInTheDocument();
+    expect(el).not.toHaveClass('badge');
+    expect(el).toHaveClass('text-sm', 'text-muted');
   });
 
   it('says "1 student" when a single student is enrolled', async () => {
@@ -76,7 +79,9 @@ describe('Dashboard — enrolled-student count badge', () => {
       { id: 1, course_name: 'Robotics', student_count: 1 },
     ]);
     renderDashboard();
-    expect(await screen.findByText('1 student')).toBeInTheDocument();
+    const el = await screen.findByText('1 student');
+    expect(el).toBeInTheDocument();
+    expect(el).not.toHaveClass('badge');
   });
 
   it('omits the badge for empty course shells rather than showing "0 students"', async () => {
@@ -129,7 +134,7 @@ describe('Dashboard — Archived tab', () => {
 });
 
 describe('Dashboard — triage', () => {
-  it('shows triage panels and per-course chips on the Current tab', async () => {
+  it('shows triage panels and one worst-tone red line on the course card (#137)', async () => {
     api.getCoursesByView.mockResolvedValue([
       { id: 5, course_name: 'AP Computer Science Principles', grading_period: 'Semester 1: 08/14/2026 - 01/11/2027', student_count: 24 },
     ]);
@@ -146,9 +151,12 @@ describe('Dashboard — triage', () => {
     });
     renderDashboard();
     expect(await screen.findByText('Maya Chen')).toBeInTheDocument();
-    expect(await screen.findByText('1 at limit')).toBeInTheDocument();
-    expect(screen.getByText('7 to grade · day 9')).toBeInTheDocument();
-    expect(screen.getByText('2 make-ups')).toHaveClass('badge-red'); // red when any make-up is red
+    const card = screen.getByRole('heading', { level: 3, name: 'AP Computer Science Principles' }).closest('.card');
+    expect(card).toHaveClass('card--tone-red'); // worst row across the four lists is red (late work, make-up)
+    expect(within(card).getByText('1 at limit · 1 make-up')).toHaveClass('course-card__triage');
+    expect(within(card).queryByText(/7 to grade · day 9/)).not.toBeInTheDocument(); // amber feedback wait stays off the card
+    expect(within(card).queryByText('2 make-ups')).not.toBeInTheDocument(); // total make-ups chip is gone; only the red count shows
+    expect(card.querySelector('.badge-red, .badge-amber')).toBeNull(); // no chip badges on the card
     expect(await screen.findByText('Noah Park')).toBeInTheDocument();
     expect(screen.getByText('School day 35 of 164 · Day A')).toBeInTheDocument();
   });
@@ -179,6 +187,52 @@ describe('Dashboard — triage', () => {
   });
 });
 
+describe('Dashboard — course card tiers (#137)', () => {
+  const BASE_TRIAGE = {
+    settings: { referralLimitDays: 8, feedbackLimitDays: 10, warnLeadDays: 3, showFormativeDefault: false, makeUpAmberDay: 2, makeUpRedDay: 4 },
+    includeFormative: false, historyCount: 0, lastSyncAt: null, makeUpsUnchecked: 0, calendar: null,
+    lateWork: [], feedbackOwed: [], makeUps: [], resubmissions: [],
+  };
+
+  it('an amber-only course gets the amber edge and no red line', async () => {
+    api.getCoursesByView.mockResolvedValue([{ id: 20, course_name: 'Amber Only' }]);
+    api.getTriage.mockResolvedValue({
+      ...BASE_TRIAGE,
+      lateWork: [{ courseId: 20, studentId: 1, studentName: 'Amy Lo', title: 'HW1', day: 6, tone: 'amber' }],
+    });
+    renderDashboard();
+    await screen.findByText('Amy Lo'); // waits for the triage fetch (TriageSection) to resolve
+    const card = screen.getByText('Amber Only').closest('.card');
+    expect(card).toHaveClass('card--tone-amber');
+    expect(card).not.toHaveClass('card--tone-red');
+    expect(card.querySelector('.course-card__triage')).toBeNull();
+  });
+
+  it('a course with nothing outstanding has no tone class', async () => {
+    api.getCoursesByView.mockResolvedValue([{ id: 21, course_name: 'Nothing Outstanding' }]);
+    api.getTriage.mockResolvedValue(BASE_TRIAGE);
+    renderDashboard();
+    await screen.findByText('No late summative work.'); // waits for the triage fetch to resolve
+    const card = screen.getByText('Nothing Outstanding').closest('.card');
+    expect(card).not.toHaveClass('card--tone-red');
+    expect(card).not.toHaveClass('card--tone-amber');
+    expect(card.querySelector('.course-card__triage')).toBeNull();
+  });
+
+  it('a red feedback wait puts "N to grade · day D" on the card', async () => {
+    api.getCoursesByView.mockResolvedValue([{ id: 22, course_name: 'Feedback Only' }]);
+    api.getTriage.mockResolvedValue({
+      ...BASE_TRIAGE,
+      feedbackOwed: [{ courseId: 22, assignmentId: 44, schoologyAssignmentId: 'a44', title: 'CP3', owed: 5, day: 16, tone: 'red' }],
+    });
+    renderDashboard();
+    await screen.findByText('CP3'); // waits for the triage fetch to resolve
+    const card = screen.getByText('Feedback Only').closest('.card');
+    expect(card).toHaveClass('card--tone-red');
+    expect(within(card).getByText('5 to grade · day 16')).toHaveClass('course-card__triage');
+  });
+});
+
 describe('Dashboard — stats strip (#137)', () => {
   const TRIAGE = {
     settings: { referralLimitDays: 8, feedbackLimitDays: 10, warnLeadDays: 3, showFormativeDefault: false, makeUpAmberDay: 2, makeUpRedDay: 4 },
@@ -198,16 +252,24 @@ describe('Dashboard — stats strip (#137)', () => {
     return screen.findByRole('region', { name: 'At a glance' });
   };
 
-  it('shows four tiles with their counts; red when above 0', async () => {
+  it('shows only the non-zero tiles, all red (#137)', async () => {
     const s = await strip();
     const tile = (label) => within(s).getByRole('button', { name: new RegExp(label) });
     await within(s).findByRole('button', { name: /At referral limit/ });
     expect(tile('At referral limit')).toHaveTextContent('2');
     expect(tile('At referral limit')).toHaveClass('stat-tile--red');
-    expect(tile('Make-ups overdue')).toHaveTextContent('0');
-    expect(tile('Make-ups overdue')).not.toHaveClass('stat-tile--red');
+    expect(within(s).queryByRole('button', { name: /Make-ups overdue/ })).not.toBeInTheDocument(); // 0 → tile hidden
     expect(tile('Resubmissions overdue')).toHaveTextContent('1');
+    expect(tile('Resubmissions overdue')).toHaveClass('stat-tile--red');
     expect(tile('Feedback overdue')).toHaveTextContent('3');
+    expect(tile('Feedback overdue')).toHaveClass('stat-tile--red');
+  });
+
+  it('shows "Nothing overdue" and no tiles when all four counts are 0', async () => {
+    api.getTriage.mockResolvedValue({ ...TRIAGE, counts: { atReferralLimit: 0, makeUpsOverdue: 0, resubmissionsOverdue: 0, feedbackOverdue: 0 }, lateWork: [] });
+    const s = await strip();
+    expect(await within(s).findByText('Nothing overdue')).toHaveClass('stats-strip__clear');
+    expect(within(s).queryByRole('button')).not.toBeInTheDocument();
   });
 
   it('a tile scrolls its panel into view and focuses the panel heading', async () => {

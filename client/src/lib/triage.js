@@ -25,17 +25,36 @@ export function courseTriageSummary(triage, courseId) {
   const atLimit = late.filter((r) => r.tone === 'red').length;
   // Day number (due date = day 1) of the longest feedback wait.
   const oldestDay = owed.reduce((m, r) => Math.max(m, r.day), 0);
+  const waitTone = owed.find((r) => r.day === oldestDay)?.tone ?? 'green';
   return {
     atLimit,
     late: late.length - atLimit,
     toGrade: owed.reduce((n, r) => n + r.owed, 0),
     oldestDay,
-    waitTone: owed.find((r) => r.day === oldestDay)?.tone ?? 'green',
+    waitTone,
     makeUps: makeUps.length,
     makeUpTone: worstTone(makeUps),
     resubmissions: resubs.length,
     resubmissionTone: worstTone(resubs),
+    // Dashboard course card (#137): one worst-tone edge + a red-only muted line,
+    // instead of the three chips above showing the same signal again.
+    worstTone: worstTone([...late, ...makeUps, ...resubs, ...owed]),
+    redMakeUps: makeUps.filter((r) => r.tone === 'red').length,
+    redResubmissions: resubs.filter((r) => r.tone === 'red').length,
+    feedbackRed: waitTone === 'red',
   };
+}
+
+// Dashboard course card (#137): the one muted red-only line, e.g.
+// "2 at limit · 1 make-up · 5 to grade · day 16". Empty string when nothing is red
+// (an amber-only card shows just its tone edge, no line).
+export function courseRedLine(summary) {
+  const parts = [];
+  if (summary.atLimit > 0) parts.push(`${summary.atLimit} at limit`);
+  if (summary.redMakeUps > 0) parts.push(`${summary.redMakeUps} make-up${summary.redMakeUps === 1 ? '' : 's'}`);
+  if (summary.redResubmissions > 0) parts.push(`${summary.redResubmissions} resubmission${summary.redResubmissions === 1 ? '' : 's'}`);
+  if (summary.feedbackRed) parts.push(`${summary.toGrade} to grade · day ${summary.oldestDay}`);
+  return parts.join(' · ');
 }
 
 // Schoology assignment id → feedback-owed row (Assessments tab wait column).

@@ -41,6 +41,14 @@ describe('EmailMenu', () => {
     expect(screen.getByText('By assessment')).toBeInTheDocument();
   });
 
+  it('a menu item carries the full "label (count)" as its title, with the count in its own element', () => {
+    render(<EmailMenu kind="late" rows={ROWS} />);
+    openMenu();
+    const item = screen.getByRole('menuitem', { name: 'Red (1)' });
+    expect(item).toHaveAttribute('title', 'Red (1)');
+    expect(item.querySelector('.email-menu__count')).toHaveTextContent('(1)');
+  });
+
   it('copies "; "-joined addresses and says how many, noting students with no email', async () => {
     render(<EmailMenu kind="late" rows={ROWS} />);
     openMenu();

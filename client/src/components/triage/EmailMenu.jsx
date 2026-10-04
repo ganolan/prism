@@ -70,8 +70,11 @@ export default function EmailMenu({ kind, rows, showCourse = false }) {
   }
 
   const itemButton = (item) => (
-    <button key={item.key} type="button" role="menuitem" className="ghost email-menu__item" onClick={() => copy(item)}>
-      {item.label} ({item.students})
+    <button
+      key={item.key} type="button" role="menuitem" className="ghost email-menu__item"
+      title={`${item.label} (${item.students})`} onClick={() => copy(item)}
+    >
+      <span className="email-menu__label">{item.label}</span> <span className="email-menu__count">({item.students})</span>
     </button>
   );
 

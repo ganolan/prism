@@ -1,10 +1,8 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 /* ========================================================================
-   BRAND — Prism's identity (PrismLogo.jsx, public/favicon.svg). The beam
-   colours are the same on every theme; the glass and wordmark are tuned for
-   the sidebar, which is dark on every theme so far. A theme with a light
-   sidebar overrides the --logo-* variables in its own block.
+   BRAND — Prism's identity (PrismLogo.jsx, public/favicon.svg). The glass
+   and wordmark are tuned for the dark sidebar below.
    ======================================================================== */
 :root {
   --brand-blue: #1ea7fd;
@@ -19,10 +17,10 @@
 }
 
 /* ========================================================================
-   THEME: Prism (default) — light mode, blues/pinks/purples with gradients
+   THEME: Prism — light mode, blues/pinks/purples with gradients. Prism is
+   the only palette (#133, 2026-10-04) — Midnight and Ocean were removed.
    ======================================================================== */
-:root,
-[data-theme="prism"] {
+:root {
   --bg: #f4f0fa;
   --bg-subtle: #ece6f5;
   --sidebar-bg: linear-gradient(180deg, #2d1b69 0%, #1e1145 100%);
@@ -83,143 +81,8 @@
   --input-focus-ring: rgba(124, 58, 237, 0.15);
   --scrollbar-track: #f0ecf9;
   --scrollbar-thumb: #c4b5e3;
-  --logo-gradient: linear-gradient(135deg, #a78bfa 0%, #ec4899 100%);
   --ai-suggest: #e21ad6;       /* AI suggestion accent (fuchsia) */
   --ai-suggest-wash: #fbe6fb;  /* suggestion cell wash */
-}
-
-/* ========================================================================
-   THEME: Midnight — dark mode, deep blues and purples
-   ======================================================================== */
-[data-theme="midnight"] {
-  --bg: #0f0a1e;
-  --bg-subtle: #1a1232;
-  --sidebar-bg: linear-gradient(180deg, #0d0820 0%, #060412 100%);
-  --sidebar-text: #8b7bb5;
-  --sidebar-text-hover: #e0d4ff;
-  --sidebar-active-bg: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%);
-  --sidebar-border: rgba(255, 255, 255, 0.04);
-  --accent: #a78bfa;
-  --accent-hover: #8b5cf6;
-  --accent-light: rgba(167, 139, 250, 0.12);
-  --accent-subtle: rgba(167, 139, 250, 0.06);
-  --secondary: #f472b6;
-  --secondary-light: rgba(244, 114, 182, 0.12);
-  --card-bg: #1a1232;
-  --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
-  --card-shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --card-border: rgba(139, 92, 246, 0.12);
-  --border: #2a1f4e;
-  --text: #e0d4ff;
-  --text-muted: #8b7bb5;
-  --success: #34d399;
-  --success-light: rgba(52, 211, 153, 0.12);
-  --success-bg: rgba(52, 211, 153, 0.12);
-  --error: #f87171;
-  --error-light: rgba(248, 113, 113, 0.12);
-  --danger: #f87171;
-  --danger-bg: rgba(248, 113, 113, 0.12);
-  --warning: #fbbf24;
-  --warning-light: rgba(251, 191, 36, 0.12);
-  --gradient-primary: linear-gradient(135deg, #7c3aed 0%, #a855f7 50%, #ec4899 100%);
-  --gradient-header: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
-  --gradient-card-accent: linear-gradient(135deg, rgba(124, 58, 237, 0.15) 0%, rgba(236, 72, 153, 0.1) 100%);
-  --badge-blue-bg: rgba(139, 92, 246, 0.15);
-  --badge-blue-text: #c4b5fa;
-  --badge-green-bg: rgba(52, 211, 153, 0.15);
-  --badge-green-text: #6ee7b7;
-  --badge-red-bg: rgba(248, 113, 113, 0.15);
-  --badge-red-text: #fca5a5;
-  --badge-gray-bg: rgba(139, 123, 181, 0.12);
-  --badge-gray-text: #a89cc8;
-  --badge-amber-bg: rgba(251, 191, 36, 0.15);
-  --badge-amber-text: #fcd34d;
-  --badge-pink-bg: rgba(244, 114, 182, 0.15);
-  --badge-pink-text: #f9a8d4;
-  --badge-resubmit-bg: rgba(59, 130, 246, 0.18);
-  --badge-resubmit-text: #93c5fd;
-  --summative-bg: rgba(245, 158, 11, 0.18);
-  --summative-text: #fcd34d;
-  --summative-border: rgba(245, 158, 11, 0.5);
-  --formative-bg: rgba(148, 163, 184, 0.14);
-  --formative-text: #cbd5e1;
-  --formative-border: rgba(148, 163, 184, 0.35);
-  --resubmit-ring: #60a5fa;
-  --table-header-bg: #1f1640;
-  --table-row-hover: rgba(139, 92, 246, 0.06);
-  --input-border: #3a2d6b;
-  --input-focus: #8b5cf6;
-  --input-focus-ring: rgba(139, 92, 246, 0.25);
-  --scrollbar-track: #1a1232;
-  --scrollbar-thumb: #3a2d6b;
-  --logo-gradient: linear-gradient(135deg, #c4b5fa 0%, #f472b6 100%);
-}
-
-/* ========================================================================
-   THEME: Ocean — light mode, teals and blues
-   ======================================================================== */
-[data-theme="ocean"] {
-  --bg: #f0f9ff;
-  --bg-subtle: #e0f2fe;
-  --sidebar-bg: linear-gradient(180deg, #0c4a6e 0%, #082f49 100%);
-  --sidebar-text: #93c5fd;
-  --sidebar-text-hover: #ffffff;
-  --sidebar-active-bg: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%);
-  --sidebar-border: rgba(255, 255, 255, 0.06);
-  --accent: #0284c7;
-  --accent-hover: #0369a1;
-  --accent-light: #e0f2fe;
-  --accent-subtle: rgba(2, 132, 199, 0.06);
-  --secondary: #06b6d4;
-  --secondary-light: #cffafe;
-  --card-bg: #ffffff;
-  --card-shadow: 0 1px 3px rgba(2, 132, 199, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
-  --card-shadow-hover: 0 4px 12px rgba(2, 132, 199, 0.1), 0 2px 4px rgba(0, 0, 0, 0.04);
-  --card-border: rgba(2, 132, 199, 0.08);
-  --border: #bae6fd;
-  --text: #082f49;
-  --text-muted: #0369a1;
-  --success: #10b981;
-  --success-light: #d1fae5;
-  --success-bg: #d1fae5;
-  --error: #ef4444;
-  --error-light: #fee2e2;
-  --danger: #ef4444;
-  --danger-bg: #fee2e2;
-  --warning: #f59e0b;
-  --warning-light: #fef3c7;
-  --gradient-primary: linear-gradient(135deg, #0284c7 0%, #06b6d4 50%, #14b8a6 100%);
-  --gradient-header: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
-  --gradient-card-accent: linear-gradient(135deg, #e0f2fe 0%, #cffafe 100%);
-  --badge-blue-bg: #e0f2fe;
-  --badge-blue-text: #0369a1;
-  --badge-green-bg: #d1fae5;
-  --badge-green-text: #065f46;
-  --badge-red-bg: #fee2e2;
-  --badge-red-text: #b91c1c;
-  --badge-gray-bg: #f0f9ff;
-  --badge-gray-text: #475569;
-  --badge-amber-bg: #fef3c7;
-  --badge-amber-text: #92400e;
-  --badge-pink-bg: #cffafe;
-  --badge-pink-text: #0e7490;
-  --badge-resubmit-bg: #dbeafe;
-  --badge-resubmit-text: #1d4ed8;
-  --summative-bg: #fef3c7;
-  --summative-text: #92400e;
-  --summative-border: #f59e0b;
-  --formative-bg: #eef2f6;
-  --formative-text: #475569;
-  --formative-border: #cbd5e1;
-  --resubmit-ring: #1d4ed8;
-  --table-header-bg: #f0f9ff;
-  --table-row-hover: rgba(2, 132, 199, 0.03);
-  --input-border: #93c5fd;
-  --input-focus: #0284c7;
-  --input-focus-ring: rgba(2, 132, 199, 0.15);
-  --scrollbar-track: #e0f2fe;
-  --scrollbar-thumb: #93c5fd;
-  --logo-gradient: linear-gradient(135deg, #38bdf8 0%, #06b6d4 100%);
 }
 
 /* ========================================================================
@@ -338,30 +201,6 @@ body {
   box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
 }
 .sync-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-
-/* Theme switcher */
-.theme-switcher {
-  display: flex;
-  gap: 0.35rem;
-  padding: 0.5rem 0.75rem;
-  margin-top: 0.5rem;
-}
-
-.theme-dot {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  border: 2px solid transparent;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  position: relative;
-}
-.theme-dot:hover { transform: scale(1.2); }
-.theme-dot.active { border-color: white; box-shadow: 0 0 0 2px rgba(255,255,255,0.3); }
-.theme-dot[data-theme="prism"] { background: linear-gradient(135deg, #7c3aed, #ec4899); }
-.theme-dot[data-theme="midnight"] { background: linear-gradient(135deg, #1a1232, #3a2d6b); }
-.theme-dot[data-theme="ocean"] { background: linear-gradient(135deg, #0284c7, #06b6d4); }
 
 /* ========================================================================
    MAIN CONTENT
@@ -1460,8 +1299,6 @@ button.ghost.sync-run-row {
   /* Tap targets: 44px is the usual minimum for a fingertip. */
   .sidebar a { padding: 0.75rem; font-size: 0.95rem; min-height: 44px; }
   .sync-btn { padding: 0.8rem 0.75rem; font-size: 0.9rem; }
-  .theme-switcher { gap: 0.75rem; }
-  .theme-dot { width: 28px; height: 28px; }
   .tab-btn { min-height: 40px; }
   .filter-btn { min-height: 36px; }
 

@@ -4,7 +4,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import App from './App.jsx';
-import { ThemeProvider } from './hooks/useTheme.jsx';
 
 // The shell is under test, not the pages — stub each one out.
 vi.mock('./pages/Dashboard.jsx', () => ({ default: () => <h2>Dashboard page</h2> }));
@@ -19,7 +18,7 @@ vi.mock('./pages/AssessmentSummaryPage.jsx', () => ({ default: () => null }));
 vi.mock('./components/SyncDialog.jsx', () => ({ default: () => <div>Sync dialog</div> }));
 vi.mock('./components/VersionBadge.jsx', () => ({ default: () => null }));
 
-const renderApp = () => render(<ThemeProvider><App /></ThemeProvider>);
+const renderApp = () => render(<App />);
 const menuButton = () => screen.getByRole('button', { name: 'Menu' });
 const shell = (container) => container.querySelector('.app');
 

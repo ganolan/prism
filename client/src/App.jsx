@@ -10,7 +10,6 @@ import ToolsPage from './pages/ToolsPage.jsx';
 import FeedbackPage from './pages/FeedbackPage.jsx';
 import AssessmentSummaryPage from './pages/AssessmentSummaryPage.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
-import { useTheme } from './hooks/useTheme.jsx';
 import { DataVersionContext } from './hooks/useDataVersion.jsx';
 import SyncDialog from './components/SyncDialog.jsx';
 import VersionBadge from './components/VersionBadge.jsx';
@@ -37,7 +36,6 @@ function Shell({ onSyncComplete }) {
   // Phone menu: below 768px the sidebar is a drawer (app.css). On desktop the
   // top bar and backdrop are hidden, so this state changes nothing visible.
   const [navOpen, setNavOpen] = useState(false);
-  const { theme, setTheme, themes } = useTheme();
   const location = useLocation();
 
   useEffect(() => { setNavOpen(false); }, [location]);
@@ -85,17 +83,6 @@ function Shell({ onSyncComplete }) {
         <button className="sync-btn" onClick={() => { setNavOpen(false); setSyncOpen(true); }}>
           Sync
         </button>
-        <div className="theme-switcher">
-          {Object.keys(themes).map(key => (
-            <button
-              key={key}
-              className={`theme-dot ${theme === key ? 'active' : ''}`}
-              data-theme={key}
-              onClick={() => setTheme(key)}
-              title={themes[key].description}
-            />
-          ))}
-        </div>
         <VersionBadge />
       </nav>
       <main className="content">

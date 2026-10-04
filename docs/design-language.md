@@ -1171,3 +1171,7 @@ Each layer of the Dashboard answers one question, so the same red signal no long
 - **Rail = "what do I do about it?"** Unchanged: every row, every tone, every action (Refer, Extend, Grade stands, email).
 
 Why: a red late-work row used to show once as a strip tile, once as a card chip, and once as a rail row — all for the same underlying fact. Tiering by "how urgent is this glance" removes the duplication without losing any information (amber and full detail are still one click away, in the rail).
+
+## Single theme: Midnight and Ocean removed (2026-10-04, #133)
+
+Prism now has exactly one palette, defined directly in `:root` in `client/src/app.css` — no `[data-theme="..."]` selector, no switcher, no `useTheme` hook. Midnight (dark mode) and Ocean (teal/blue) are gone: maintaining three palettes meant checking every visual decision against three sets of colours, and only the Prism purple/pink palette was in use. One palette to tune.

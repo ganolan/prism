@@ -7,7 +7,7 @@ import { listRubrics, getRubricByName, saveRubric, findRubricByContentHash } fro
 import { hashRubricContent } from '../server/services/rubricHash.js';
 import { attachRubric } from '../server/services/rubricAttach.js';
 import { LEVELS } from '../server/lib/proficiencyScale.js';
-import { normalizeSubmissionStatus, gradingState, getRoster, scoreScaleFor } from '../server/services/assessmentContext.js';
+import { normalizeSubmissionStatus, gradingState, getRoster, scoreScaleFor, getAlignedTopics } from '../server/services/assessmentContext.js';
 import { preferredFirstName } from '../server/services/studentNames.js';
 import {
   getTriage, listReferrals, recordReferral, undoReferral, listExtensions, recordExtension, undoExtension, setMakeUpIgnored,
@@ -45,12 +45,17 @@ export function listCourses(db) {
 // levelled + a comment => complete; nothing => ungraded; otherwise partial
 // (excepted => complete). Computed in JS over the grade rows for clarity.
 function assignmentCounts(db, assignmentRow) {
-  const topicsCount = db.prepare(`
-    SELECT COUNT(*) AS n FROM mastery_alignments WHERE assignment_schoology_id = ? AND course_id = ?
-  `).get(assignmentRow.schoology_assignment_id, assignmentRow.course_id).n;
+  // Mirrors getAssessmentContext: aligned topics (with the scored-topics
+  // fallback when alignments haven't synced), and only scores on those topics
+  // count towards "complete" (#123) so this rollup can't disagree with the
+  // per-student grading_state.
+  const topics = getAlignedTopics(db, assignmentRow.course_id, assignmentRow.schoology_assignment_id);
+  const topicsCount = topics.length;
+  const topicIds = new Set(topics.map((t) => t.id));
   const scoredByUid = {};
-  for (const r of db.prepare(`SELECT student_uid, COUNT(*) AS n FROM mastery_scores WHERE assignment_schoology_id = ? GROUP BY student_uid`).all(assignmentRow.schoology_assignment_id)) {
-    scoredByUid[r.student_uid] = r.n;
+  for (const r of db.prepare(`SELECT student_uid, topic_id FROM mastery_scores WHERE assignment_schoology_id = ?`).all(assignmentRow.schoology_assignment_id)) {
+    if (!topicIds.has(r.topic_id)) continue;
+    scoredByUid[r.student_uid] = (scoredByUid[r.student_uid] || 0) + 1;
   }
   const rows = db.prepare(`
     SELECT s.schoology_uid, g.lti_submission_state, g.submission_type, g.submitted_at,

@@ -106,7 +106,8 @@ describe('listAssignments', () => {
     const db = getDb();
     const courseId = seedCourse(db);
     const aId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-m3', 'NB')`).run(courseId).lastInsertRowid;
-    db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES ('t1', NULL, ?, 'T1', 'Topic')`).run(courseId);
+    db.prepare(`INSERT INTO reporting_categories (id, course_id, external_id, title) VALUES ('cat-1', ?, 'C1', 'Category')`).run(courseId);
+    db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES ('t1', 'cat-1', ?, 'T1', 'Topic')`).run(courseId);
     db.prepare(`INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id) VALUES ('sa-m3', 't1', ?)`).run(courseId);
     const line = 'Resubmission requested - due Thu 15/10.';
     for (const [uid, comment] of [['u1', line], ['u2', `${line}\n\nWell done`]]) {
@@ -116,6 +117,52 @@ describe('listAssignments', () => {
       db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES (?, 'sa-m3', 't1', 75, 'EX')`).run(uid);
     }
     const nb = listAssignments(db, { course_id: courseId }).find((r) => r.schoology_assignment_id === 'sa-m3');
+    expect(nb.grading_counts).toMatchObject({ ungraded: 0, partial: 1, complete: 1 });
+  });
+
+  // #123: a stray mastery_scores row on a non-aligned topic must not stop a
+  // student counting as complete — mirrors getAssessmentContext, which only
+  // ever counts aligned-topic scores.
+  test('grading_counts: a score on a non-aligned topic is ignored (complete, not partial)', () => {
+    const db = getDb();
+    const courseId = seedCourse(db);
+    const aId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-x', 'NB')`).run(courseId).lastInsertRowid;
+    db.prepare(`INSERT INTO reporting_categories (id, course_id, external_id, title) VALUES ('cat-1', ?, 'C1', 'Category')`).run(courseId);
+    db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES ('t1', 'cat-1', ?, 'T1', 'Topic 1')`).run(courseId);
+    db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES ('t2', 'cat-1', ?, 'T2', 'Topic 2')`).run(courseId);
+    // Only t1 is aligned to this assignment; t2 is some other topic.
+    db.prepare(`INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id) VALUES ('sa-x', 't1', ?)`).run(courseId);
+    const sId = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u1', 'F', 'L')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, grade_comment) VALUES (?, ?, 'Nice work')`).run(sId, aId);
+    db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('u1', 'sa-x', 't1', 75, 'EX')`).run();
+    // Stray score on a non-aligned topic (stale data / alignment changed after scoring).
+    db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('u1', 'sa-x', 't2', 50, 'DE')`).run();
+
+    const nb = listAssignments(db, { course_id: courseId }).find((r) => r.schoology_assignment_id === 'sa-x');
+    expect(nb.grading_counts).toMatchObject({ ungraded: 0, partial: 0, complete: 1 });
+  });
+
+  // #123: when alignments haven't synced yet, getAlignedTopics falls back to
+  // topics that have any score for the assignment — assignmentCounts must use
+  // the same fallback so it agrees with the per-student grading_state.
+  test('grading_counts: no alignments synced falls back to scored topics, like the per-student path', () => {
+    const db = getDb();
+    const courseId = seedCourse(db);
+    const aId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-y', 'NB')`).run(courseId).lastInsertRowid;
+    db.prepare(`INSERT INTO reporting_categories (id, course_id, external_id, title) VALUES ('cat-1', ?, 'C1', 'Category')`).run(courseId);
+    db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES ('t1', 'cat-1', ?, 'T1', 'Topic 1')`).run(courseId);
+    db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES ('t2', 'cat-1', ?, 'T2', 'Topic 2')`).run(courseId);
+    // No mastery_alignments rows at all for this assignment (not synced yet).
+    const s1 = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u1', 'F', 'L')`).run().lastInsertRowid;
+    const s2 = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u2', 'F', 'L')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, grade_comment) VALUES (?, ?, 'Nice work')`).run(s1, aId);
+    db.prepare(`INSERT INTO grades (student_id, assignment_id) VALUES (?, ?)`).run(s2, aId);
+    // Fallback topic set = {t1, t2} (both have scores for this assignment).
+    db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('u1', 'sa-y', 't1', 75, 'EX')`).run();
+    db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('u1', 'sa-y', 't2', 75, 'EX')`).run();
+    db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('u2', 'sa-y', 't1', 50, 'DE')`).run();
+
+    const nb = listAssignments(db, { course_id: courseId }).find((r) => r.schoology_assignment_id === 'sa-y');
     expect(nb.grading_counts).toMatchObject({ ungraded: 0, partial: 1, complete: 1 });
   });
 

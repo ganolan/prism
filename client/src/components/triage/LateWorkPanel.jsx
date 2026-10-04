@@ -6,6 +6,7 @@ import ExtendEditor, { ExtensionTag } from './ExtendEditor.jsx';
 import { PanelHead, ShowAllToggle, useShowAll, limitRows } from './panelParts.jsx';
 import ReferralHistory from './ReferralHistory.jsx';
 import { cardLink } from './ResubmissionsPanel.jsx';
+import EmailMenu, { MailLink } from './EmailMenu.jsx';
 
 // Late summative work, worst first. Days are numbered from the due date = day 1;
 // `limit` (referralLimitDays) is the last allowed day, referral after it. The action
@@ -15,6 +16,7 @@ import { cardLink } from './ResubmissionsPanel.jsx';
 // publishes the extension line (note included) to the student's Schoology comment. The "Referred / extended (N) ›" link at the bottom toggles
 // ReferralHistory open immediately below it, inside this panel (owned by the parent
 // TriageSection so a record elsewhere in the rail can still reload it).
+// "@ ▾" (EmailMenu) copies still-owing students' addresses; ✉ (MailLink) on each row opens a mailto.
 const daysLeft = (day, limit) => (limit - day > 0 ? `${limit - day} left` : 'last day');
 
 export default function LateWorkPanel({
@@ -28,8 +30,9 @@ export default function LateWorkPanel({
   const key = (r) => `${r.studentId}:${r.assignmentId}`;
 
   return (
-    <section className="card triage-panel" aria-label="Late work">
+    <section className="card triage-panel" id="triage-late" aria-label="Late work">
       <PanelHead title="Late work" badge={toRefer > 0 && <span className="badge badge-red">{toRefer} to refer</span>}>
+        <EmailMenu kind="late" rows={rows} showCourse={showCourse} />
         <ShowAllToggle total={rows.length} showAll={showAll} onToggle={toggleShowAll} />
       </PanelHead>
       <p className="triage-panel__sub">due date = day 1 · refer after day {limit}</p>
@@ -44,6 +47,7 @@ export default function LateWorkPanel({
             <div className="triage-row__text">
               <div className="triage-row__line">
                 <Link to={cardLink(r)} className="triage-row__name" title={r.studentName}>{r.studentName}</Link>
+                <MailLink row={r} kind="late" />
                 {r.kind === 'submitted_late' && <span className="badge badge-amber triage-row__tag">submitted day {r.submittedDay}</span>}
                 {r.extension && <ExtensionTag extension={r.extension} />}
               </div>

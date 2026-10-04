@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import TriageSection from './TriageSection.jsx';
 import * as api from '../../services/api.js';
@@ -895,5 +895,85 @@ describe('Resubmissions panel', () => {
       await waitFor(() => expect(api.undoResubmission).toHaveBeenCalledWith(52, undefined));
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
+  });
+});
+
+describe('TriageSection — email (#137)', () => {
+  const withEmails = (rows) => rows.map((r) => ({ ...r, studentEmail: `s${r.studentId}@example.test` }));
+  const EMAIL_PAYLOAD = {
+    ...PAYLOAD,
+    lateWork: withEmails(PAYLOAD.lateWork),
+    makeUps: withEmails(PAYLOAD.makeUps),
+    resubmissions: [
+      { id: 31, state: 'waiting', studentId: 11, studentName: 'Ivy Ho', studentEmail: 's11@example.test', courseId: 5, courseName: 'AP CSP', assignmentId: 9, schoologyAssignmentId: 'a9', title: 'CP2', day: 2, limit: 4, tone: 'green', approx: false, lessons: 3, until: '2026-10-20', source: 'app' },
+      { id: null, state: 'arrived', studentId: 12, studentName: 'Jo Ko', studentEmail: 's12@example.test', courseId: 5, courseName: 'AP CSP', assignmentId: 9, schoologyAssignmentId: 'a9', title: 'CP2', day: 1, limit: 10, tone: 'green', approx: false },
+    ],
+  };
+  beforeEach(() => {
+    api.getTriage.mockResolvedValue(EMAIL_PAYLOAD);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true });
+  });
+
+  it('panels carry stable ids for the Dashboard tiles', async () => {
+    renderSection();
+    await screen.findByText('Maya Chen');
+    expect(screen.getByLabelText('Make-up tests')).toHaveAttribute('id', 'triage-makeups');
+    expect(screen.getByLabelText('Late work')).toHaveAttribute('id', 'triage-late');
+    expect(screen.getByLabelText('Resubmissions')).toHaveAttribute('id', 'triage-resubmissions');
+    expect(screen.getByLabelText('Feedback owed')).toHaveAttribute('id', 'triage-feedback');
+    expect(within(screen.getByLabelText('Late work')).getByRole('heading', { level: 3 })).toHaveAttribute('tabindex', '-1');
+  });
+
+  it('three panels get the @ menu; Feedback owed does not', async () => {
+    renderSection();
+    await screen.findByText('Maya Chen');
+    for (const name of ['Make-up tests', 'Late work', 'Resubmissions']) {
+      expect(within(screen.getByLabelText(name)).getByRole('button', { name: 'Copy student emails' })).toBeInTheDocument();
+    }
+    expect(within(screen.getByLabelText('Feedback owed')).queryByRole('button', { name: 'Copy student emails' })).not.toBeInTheDocument();
+  });
+
+  it('Late work menu skips submitted-late rows; Resubmissions menu skips arrived rows', async () => {
+    renderSection();
+    const late = await latePanel();
+    fireEvent.click(within(late).getByRole('button', { name: 'Copy student emails' }));
+    // Maya (red, outstanding) + Aiden (green, outstanding); Ethan submitted late → excluded.
+    expect(within(late).getAllByRole('menuitem').map((el) => el.textContent))
+      .toEqual(['Red (1)', 'Everyone still owing (2)', 'CP2 (1)', 'CP2 · BK 7 (1)']);
+    const resub = screen.getByLabelText('Resubmissions');
+    fireEvent.click(within(resub).getByRole('button', { name: 'Copy student emails' }));
+    expect(within(resub).getAllByRole('menuitem').map((el) => el.textContent)).toEqual(['Everyone still owing (1)']);
+  });
+
+  it('copies every listed student, including rows beyond the 5-row limit', async () => {
+    const many = Array.from({ length: 7 }, (_, i) => ({
+      ...PAYLOAD.lateWork[0], studentId: 100 + i, studentName: `Student ${i}`, studentEmail: `p${i}@example.test`,
+    }));
+    api.getTriage.mockResolvedValue({ ...EMAIL_PAYLOAD, lateWork: many });
+    renderSection();
+    const late = await latePanel();
+    await within(late).findByText('Student 0');
+    expect(within(late).queryByText('Student 6')).not.toBeInTheDocument(); // hidden behind "All 7"
+    fireEvent.click(within(late).getByRole('button', { name: 'Copy student emails' }));
+    await act(async () => { fireEvent.click(within(late).getByRole('menuitem', { name: 'Red (7)' })); });
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(many.map((r) => r.studentEmail).join('; '));
+  });
+
+  it('every row, including arrived and submitted-late, gets a ✉ mailto link', async () => {
+    renderSection();
+    await screen.findByText('Maya Chen');
+    expect(screen.getByRole('link', { name: 'Email Ethan Wong' }))
+      .toHaveAttribute('href', 'mailto:s2@example.test?subject=CP2%3A%20late%20work');
+    expect(screen.getByRole('link', { name: 'Email Noah Park' }))
+      .toHaveAttribute('href', 'mailto:s7@example.test?subject=Unit%201%20test%3A%20make-up%20test');
+    expect(screen.getByRole('link', { name: 'Email Jo Ko' }))
+      .toHaveAttribute('href', 'mailto:s12@example.test?subject=CP2%3A%20resubmission');
+  });
+
+  it('no ✉ on a row without an email', async () => {
+    api.getTriage.mockResolvedValue(PAYLOAD); // no studentEmail anywhere
+    renderSection();
+    await screen.findByText('Maya Chen');
+    expect(screen.queryByRole('link', { name: /^Email / })).not.toBeInTheDocument();
   });
 });

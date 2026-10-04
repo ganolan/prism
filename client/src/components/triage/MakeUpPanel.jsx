@@ -5,6 +5,7 @@ import CourseLine from './CourseLine.jsx';
 import ExtendEditor, { ExtensionTag } from './ExtendEditor.jsx';
 import { PanelHead, ShowAllToggle, useShowAll, limitRows } from './panelParts.jsx';
 import { cardLink } from './ResubmissionsPanel.jsx';
+import EmailMenu, { MailLink } from './EmailMenu.jsx';
 
 // Students who missed a Schoology test or quiz and must sit it (or their * copy)
 // ASAP, longest first. A row clears itself once an attempt syncs. Extend records
@@ -15,6 +16,7 @@ import { cardLink } from './ResubmissionsPanel.jsx';
 // The action column stacks Extend above "Ignore this test", which silences a whole
 // test/quiz (all students) after an inline confirm below the row. Only one of the
 // Extend editor / Ignore confirm is open per row.
+// "@ ▾" (EmailMenu) copies still-owing students' addresses; ✉ (MailLink) on each row opens a mailto.
 export default function MakeUpPanel({ rows, settings, showCourse, scope, unchecked = 0, ignored = 0, onExtend, onIgnore }) {
   const [extending, setExtending] = useState(null);
   const [confirmIgnore, setConfirmIgnore] = useState(null);
@@ -24,8 +26,9 @@ export default function MakeUpPanel({ rows, settings, showCourse, scope, uncheck
   const key = (r) => `${r.studentId}:${r.assignmentId}`;
 
   return (
-    <section className="card triage-panel" aria-label="Make-up tests">
+    <section className="card triage-panel" id="triage-makeups" aria-label="Make-up tests">
       <PanelHead title="Make-up tests" badge={overdue > 0 && <span className="badge badge-red">{overdue} overdue</span>}>
+        <EmailMenu kind="makeUps" rows={rows} showCourse={showCourse} />
         <ShowAllToggle total={rows.length} showAll={showAll} onToggle={toggleShowAll} />
       </PanelHead>
       <p className="triage-panel__sub">test day = day 1 · sit by day {red - 1}</p>
@@ -48,6 +51,7 @@ export default function MakeUpPanel({ rows, settings, showCourse, scope, uncheck
             <div className="triage-row__text">
               <div className="triage-row__line">
                 <Link to={cardLink(r)} className="triage-row__name" title={r.studentName}>{r.studentName}</Link>
+                <MailLink row={r} kind="makeUps" />
                 {r.extension && <ExtensionTag extension={r.extension} />}
               </div>
               {showCourse && <CourseLine row={r} />}

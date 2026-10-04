@@ -48,7 +48,7 @@ export function ShowAllToggle({ total, showAll, onToggle }) {
 export function PanelHead({ title, badge, children }) {
   return (
     <div className="triage-panel__head">
-      <h3 className="triage-panel__title">{title} {badge}</h3>
+      <h3 className="triage-panel__title" tabIndex={-1}>{title} {badge}</h3>
       <div className="triage-panel__head-actions">{children}</div>
     </div>
   );

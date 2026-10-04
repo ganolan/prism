@@ -7,12 +7,13 @@ import { PanelHead, ShowAllToggle, useShowAll, limitRows } from './panelParts.js
 // school-day number of the oldest wait; day 1 = the start of the wait (the due
 // date, or a late student's submission date). Overdue after day `limit`. The
 // count sits right-aligned as "X/Y" (title: "X of Y ungraded"); no row actions.
+// Ids are fixed (triage-feedback) for the Dashboard stats tiles.
 export default function FeedbackOwedPanel({ rows, settings, showCourse, scope, includeFormative, onToggleFormative }) {
   const [showAll, toggleShowAll] = useShowAll(`feedback.${scope}`);
   const limit = settings.feedbackLimitDays;
   const overdue = rows.filter((r) => r.tone === 'red').length;
   return (
-    <section className="card triage-panel" aria-label="Feedback owed">
+    <section className="card triage-panel" id="triage-feedback" aria-label="Feedback owed">
       <PanelHead title="Feedback owed" badge={overdue > 0 && <span className="badge badge-red">{overdue} overdue</span>}>
         <ShowAllToggle total={rows.length} showAll={showAll} onToggle={toggleShowAll} />
         <label className="text-sm text-muted triage-panel__toggle">

@@ -7,6 +7,7 @@ import { PanelHead, ShowAllToggle, useShowAll, limitRows } from './panelParts.js
 import ReferralHistory from './ReferralHistory.jsx';
 import { formatDate } from '../../lib/formatDate.js';
 import UnsubmitFailedNote from '../UnsubmitFailedNote.jsx';
+import EmailMenu, { MailLink } from './EmailMenu.jsx';
 
 // Resubmissions: per student × assessment (spec Amendment B). "arrived" = a
 // resubmission still awaiting visible feedback (day 1 = its date, regrade by day
@@ -22,6 +23,7 @@ import UnsubmitFailedNote from '../UnsubmitFailedNote.jsx';
 // Row names open the student's card on the assessment page. A failed LTI unsubmit on the
 // ask (Phase 2) shows "Unsubmit failed — unsubmit it in Schoology ›" until a sync sees
 // the work in progress.
+// "@ ▾" (EmailMenu) copies still-owing students' addresses; ✉ (MailLink) on each row opens a mailto.
 export const cardLink = (r) => `/course/${r.courseId}/assessment/${r.schoologyAssignmentId}?student=${r.studentId}`;
 const left = (r) => (r.limit - r.day > 0 ? `${r.limit - r.day} left` : 'last day');
 
@@ -38,8 +40,9 @@ export default function ResubmissionsPanel({
   const key = (r) => `${r.studentId}:${r.assignmentId}`;
 
   return (
-    <section className="card triage-panel" aria-label="Resubmissions">
+    <section className="card triage-panel" id="triage-resubmissions" aria-label="Resubmissions">
       <PanelHead title="Resubmissions" badge={overdue > 0 && <span className="badge badge-red">{overdue} overdue</span>}>
+        <EmailMenu kind="resubmissions" rows={rows} showCourse={showCourse} />
         <ShowAllToggle total={rows.length} showAll={showAll} onToggle={toggleShowAll} />
       </PanelHead>
       <p className="triage-panel__sub">asked = day 1 · regrade by day {settings.feedbackLimitDays}</p>
@@ -54,6 +57,7 @@ export default function ResubmissionsPanel({
             <div className="triage-row__text">
               <div className="triage-row__line">
                 <Link to={cardLink(r)} className="triage-row__name" title={r.studentName}>{r.studentName}</Link>
+                <MailLink row={r} kind="resubmissions" />
                 {arrived
                   ? <span className="badge badge-resubmitted triage-row__tag">↩ arrived · awaiting feedback</span>
                   : <span className="badge badge-resubmit triage-row__tag" title={r.note || undefined}>⟳ by {formatDate(`${r.until}T00:00:00`)}</span>}

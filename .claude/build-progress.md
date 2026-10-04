@@ -955,8 +955,11 @@ the original 56-day gap and the fixed/re-verified result are in `.claude/powersc
   holds the text to copy by hand. The Dashboard's Current tab gets an "At a glance" strip
   (`StatsStrip.jsx`) above the course cards: one muted status line (school day, last sync, Schoology
   connection) and four tiles (At referral limit, Make-ups overdue, Resubmissions overdue, Feedback
-  overdue) — red number + red border above 0, muted 0 when clear; a tile scrolls to and focuses its
-  panel. It replaces the old header school-day text and "Last sync:" line. Spec:
+  overdue): red number + red border, only non-zero tiles shown, a single "Nothing overdue" line when all
+  are clear; a tile scrolls to and focuses its panel. Follow-up the same day ("one signal per layer",
+  `docs/design-language.md` "Dashboard tiers"): course cards dropped their triage chips for a worst-tone
+  left edge plus one muted red-only line (`courseRedLine` in `client/src/lib/triage.js`), and the
+  student count became plain text, so a red signal shows once per layer instead of three times. It replaces the old header school-day text and "Last sync:" line. Spec:
   `docs/superpowers/specs/2026-10-04-triage-email-and-stats-design.md`; plan:
   `docs/superpowers/plans/2026-10-04-triage-email-and-stats.md`. Deferred (decided in spec, not bugs):
   parent addresses (would source from the `parents` table, 397/416 rows have an email in prod, not the
@@ -965,7 +968,7 @@ the original 56-day gap and the fixed/re-verified result are in `.claude/powersc
   first seen" timestamp the strip doesn't have yet). Also noted (not fixed this task): the stats strip's
   `useSchoologyConnection` call means the Dashboard's cached (10-minute) Schoology login-status check now
   runs on every Dashboard visit, not just Settings/Sync — bounded by the existing cache and in-flight
-  dedup, but worth revisiting if visit volume grows. **Tests:** 1289 server + 800 client Vitest tests
+  dedup, but worth revisiting if visit volume grows. **Tests:** 1289 server + 810 client Vitest tests
   pass; `npm run build` succeeds (2026-10-04).
 
 ## Sync resilience + persistent sync log (2026-10-02, branch `feat/sync-resilience-logs`)

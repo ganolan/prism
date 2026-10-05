@@ -92,3 +92,20 @@ describe('GET /api/tools/roster/:courseId', () => {
     expect(body).toEqual({ students: [], count: 0 });
   });
 });
+
+describe('GET /api/tools/emails/:courseId', () => {
+  test('returns bare deduped addresses alongside the named Outlook list', async () => {
+    const db = getDb();
+    const zoe = addStudent({ first: 'Zoe', last: 'Adams', courses: [courseA, courseB] });
+    const alex = addStudent({ first: 'Alexander', last: 'Chen' });
+    db.prepare('UPDATE students SET email = ? WHERE id = ?').run('zoe@example.com', zoe);
+    db.prepare('UPDATE students SET email = ? WHERE id = ?').run('alex@example.com', alex);
+
+    const { status, body } = await get(`/api/tools/emails/${courseA},${courseB}?type=student`);
+
+    expect(status).toBe(200);
+    expect(body.addresses).toEqual(['zoe@example.com', 'alex@example.com']);
+    expect(body.formatted).toBe('Zoe Adams <zoe@example.com>; Alexander Chen <alex@example.com>');
+    expect(body.count).toBe(2);
+  });
+});

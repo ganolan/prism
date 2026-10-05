@@ -103,6 +103,8 @@ router.get('/emails/:courseId', (req, res) => {
     students,
     emails,
     formatted: emails.join('; '),
+    // Bare addresses, same order + dedup, for the "emails only" format
+    addresses: deduped.map(e => e.email),
     count: emails.length,
   });
 });

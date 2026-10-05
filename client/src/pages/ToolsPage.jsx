@@ -153,11 +153,19 @@ function ClassListTool({ courseIds }) {
   );
 }
 
+const EMAIL_FORMATS = [
+  { id: 'named', label: 'Names + emails (Outlook, ; separated)' },
+  { id: 'bare', label: 'Emails only (, separated)' },
+];
+
 function EmailTool({ courseIds }) {
   const [type, setType] = useState('student');
+  const [format, setFormat] = useState('named');
   const [result, setResult] = useState(null);
   const [copied, setCopied] = useState(false);
   const textareaRef = useRef(null);
+
+  const text = !result ? '' : format === 'bare' ? result.addresses.join(', ') : result.formatted;
 
   // Grow the textarea to fit the full list so it's all visible without dragging
   useEffect(() => {
@@ -165,7 +173,7 @@ function EmailTool({ courseIds }) {
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight}px`;
-  }, [result]);
+  }, [text]);
 
   async function handleGenerate() {
     const data = await getEmails(courseIds, type);
@@ -174,21 +182,27 @@ function EmailTool({ courseIds }) {
   }
 
   function handleCopy() {
-    navigator.clipboard.writeText(result.formatted);
+    navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
 
   return (
-    <div className="card">
+    <div className="card" data-testid="email-tool">
       <h3 style={{ marginBottom: '0.75rem' }}>Email List</h3>
-      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end', marginBottom: '0.75rem' }}>
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
         <div>
           <label className="text-sm">Type</label>
           <select value={type} onChange={e => setType(e.target.value)} style={{ width: 'auto' }}>
             <option value="student">Student emails</option>
             <option value="parent">Parent emails</option>
             <option value="both">Both (student + parent)</option>
+          </select>
+        </div>
+        <div>
+          <label className="text-sm" htmlFor="email-format">Format</label>
+          <select id="email-format" value={format} onChange={e => setFormat(e.target.value)} style={{ width: 'auto' }}>
+            {EMAIL_FORMATS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
           </select>
         </div>
         <button className="primary" onClick={handleGenerate}>Generate</button>
@@ -199,7 +213,7 @@ function EmailTool({ courseIds }) {
         )}
       </div>
       {result && (
-        <textarea ref={textareaRef} readOnly value={result.formatted} rows={3}
+        <textarea ref={textareaRef} readOnly value={text} rows={3}
           style={{ background: 'var(--bg-subtle)', resize: 'vertical', overflow: 'hidden' }}
         />
       )}

@@ -14,7 +14,7 @@ router.get('/course/:id', (req, res) => {
     FROM assignments a
     LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
     LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
-    WHERE a.course_id = ? AND a.max_points > 0 AND a.published = 1
+    WHERE a.course_id = ? AND a.max_points > 0 AND a.published = 1 AND a.removed_at IS NULL
     ORDER BY
       CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN a.display_weight
            WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN COALESCE(fp.display_weight, 0)

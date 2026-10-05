@@ -94,6 +94,10 @@ CREATE TABLE IF NOT EXISTS assignments (
   -- Make-up tests: 1 = the teacher ignores this test/quiz for make-ups (all
   -- students; e.g. a formative quiz). Prism-owned — the sync never writes it.
   makeup_ignored INTEGER NOT NULL DEFAULT 0,
+  -- Set by sync when the assignment drops out of Schoology's section list
+  -- (deleted there). Soft removal: the row and anything attached to it stay,
+  -- but every listing hides it. Cleared if it ever reappears.
+  removed_at TEXT,
   synced_at TEXT
 );
 

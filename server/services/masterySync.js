@@ -940,7 +940,7 @@ export function getMasteryForCourse(courseId) {
     WHERE mt.id IN (
       SELECT DISTINCT ms.topic_id FROM mastery_scores ms
       JOIN assignments a ON a.schoology_assignment_id = ms.assignment_schoology_id
-      WHERE a.course_id = ? AND a.published = 1
+      WHERE a.course_id = ? AND a.published = 1 AND a.removed_at IS NULL
     )
     ORDER BY mt.external_id
   `).all(courseId);
@@ -962,7 +962,7 @@ export function getMasteryForCourse(courseId) {
     JOIN assignments a ON a.schoology_assignment_id = ms.assignment_schoology_id
     LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
     LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
-    WHERE a.course_id = ? AND a.published = 1
+    WHERE a.course_id = ? AND a.published = 1 AND a.removed_at IS NULL
       AND (
         a.num_assignees IS NULL OR a.num_assignees = 0
         OR EXISTS (

@@ -22,6 +22,8 @@ router.get('/', (req, res) => {
 
   if (student_id) { sql += ' AND g.student_id = ?'; params.push(student_id); }
   if (assignment_id) { sql += ' AND g.assignment_id = ?'; params.push(assignment_id); }
+  // Assignments deleted in Schoology drop out of listings; a direct lookup still works.
+  else sql += ' AND a.removed_at IS NULL';
   if (course_id) { sql += ' AND c.id = ?'; params.push(course_id); }
 
   sql += ' ORDER BY a.due_date DESC, s.last_name';

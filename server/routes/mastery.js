@@ -132,7 +132,7 @@ router.get('/:courseId', (req, res) => {
       JOIN measurement_topics  mt ON mt.id = ma.topic_id
       JOIN reporting_categories rc ON rc.id = mt.category_id
       JOIN assignments a ON a.schoology_assignment_id = ma.assignment_schoology_id
-      WHERE ma.course_id = ? AND a.published = 1
+      WHERE ma.course_id = ? AND a.published = 1 AND a.removed_at IS NULL
     `).all(courseId);
     res.json({ ...data, rollups, alignments });
   } catch (err) {
@@ -159,7 +159,7 @@ router.get('/:courseId/student/:studentUid', (req, res) => {
     WHERE mt.id IN (
       SELECT ma.topic_id FROM mastery_alignments ma
       JOIN assignments a ON a.schoology_assignment_id = ma.assignment_schoology_id
-      WHERE ma.course_id = ? AND a.published = 1
+      WHERE ma.course_id = ? AND a.published = 1 AND a.removed_at IS NULL
         AND (
           a.num_assignees IS NULL OR a.num_assignees = 0
           OR EXISTS (
@@ -170,7 +170,7 @@ router.get('/:courseId/student/:studentUid', (req, res) => {
       UNION
       SELECT ms.topic_id FROM mastery_scores ms
       JOIN assignments a ON a.schoology_assignment_id = ms.assignment_schoology_id
-      WHERE a.course_id = ? AND a.published = 1
+      WHERE a.course_id = ? AND a.published = 1 AND a.removed_at IS NULL
         AND (
           a.num_assignees IS NULL OR a.num_assignees = 0
           OR EXISTS (
@@ -189,7 +189,7 @@ router.get('/:courseId/student/:studentUid', (req, res) => {
     LEFT JOIN assignments a ON a.schoology_assignment_id = ms.assignment_schoology_id
     LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
     LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
-    WHERE ms.student_uid = ? AND a.course_id = ? AND a.published = 1
+    WHERE ms.student_uid = ? AND a.course_id = ? AND a.published = 1 AND a.removed_at IS NULL
       AND (
         a.num_assignees IS NULL OR a.num_assignees = 0
         OR EXISTS (
@@ -230,7 +230,7 @@ router.get('/:courseId/student/:studentUid', (req, res) => {
     JOIN assignments a ON a.schoology_assignment_id = ma.assignment_schoology_id
     LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
     LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
-    WHERE ma.course_id = ? AND a.published = 1
+    WHERE ma.course_id = ? AND a.published = 1 AND a.removed_at IS NULL
       AND (
         a.num_assignees IS NULL OR a.num_assignees = 0
         OR EXISTS (
@@ -248,7 +248,7 @@ router.get('/:courseId/student/:studentUid', (req, res) => {
       JOIN assignments a ON a.schoology_assignment_id = ms.assignment_schoology_id
       LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
       LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
-      WHERE a.course_id = ? AND a.published = 1
+      WHERE a.course_id = ? AND a.published = 1 AND a.removed_at IS NULL
         AND (
           a.num_assignees IS NULL OR a.num_assignees = 0
           OR EXISTS (

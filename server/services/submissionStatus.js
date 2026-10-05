@@ -12,7 +12,7 @@ function assignmentsForCourse(db, courseId, assignmentId) {
     SELECT a.id, a.course_id, a.schoology_assignment_id, a.title, a.due_date, a.is_test, a.is_lti_submission,
            a.accepts_submissions, a.num_assignees, ${ALIGNED_SQL} AS aligned
     FROM assignments a
-    WHERE a.course_id = ? AND a.published = 1 AND (? IS NULL OR a.id = ?)
+    WHERE a.course_id = ? AND a.published = 1 AND a.removed_at IS NULL AND (? IS NULL OR a.id = ?)
   `).all(courseId, assignmentId, assignmentId);
 }
 

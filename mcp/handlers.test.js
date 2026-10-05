@@ -70,6 +70,15 @@ function seedCourse(db) {
 }
 
 describe('listAssignments', () => {
+  test('leaves out assignments deleted in Schoology (removed_at)', () => {
+    const db = getDb();
+    const courseId = seedCourse(db);
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'live', 'Live')`).run(courseId);
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, removed_at) VALUES (?, 'gone', 'Gone', '2026-10-05')`).run(courseId);
+
+    expect(listAssignments(db, { course_id: courseId }).map((a) => a.title)).toEqual(['Live']);
+  });
+
   test('has_aligned_topics reflects whether the assignment has a mastery alignment', () => {
     const db = getDb();
     const courseId = seedCourse(db);

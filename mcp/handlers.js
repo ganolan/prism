@@ -98,7 +98,7 @@ export function listAssignments(db, { course_id }) {
            (SELECT MAX(CASE WHEN a.is_lti_submission = 1 THEN g.latest_revision_at ELSE g.submitted_at END)
               FROM grades g WHERE g.assignment_id = a.id) AS latest_submitted_at
     FROM assignments a
-    WHERE a.course_id = ?
+    WHERE a.course_id = ? AND a.removed_at IS NULL
     ORDER BY a.due_date, a.id
   `).all(Number(course_id));
   return rows.map(({ latest_submitted_at, course_id: _c, is_lti_submission, grading_scale_id, ...r }) => ({

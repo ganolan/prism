@@ -77,6 +77,22 @@ beforeEach(() => {
   ).run(studentId, assignmentId);
 });
 
+describe('assignments deleted in Schoology (removed_at)', () => {
+  test('are left out of the assignment list and the gradebook', async () => {
+    const db = getDb();
+    const removedId = db.prepare(
+      `INSERT INTO assignments (course_id, schoology_assignment_id, title, published, removed_at) VALUES (?, 'sa-gone', 'Deleted copy', 1, '2026-10-05T00:00:00.000Z')`
+    ).run(courseId).lastInsertRowid;
+    db.prepare(`INSERT INTO grades (student_id, assignment_id) VALUES (?, ?)`).run(studentId, removedId);
+
+    const list = await get(`/api/courses/${courseId}/assignments`);
+    expect(list.body.map((a) => a.title)).toEqual(['Project']);
+
+    const gradebook = await get(`/api/courses/${courseId}/gradebook`);
+    expect(gradebook.body.assignments.map((a) => a.title)).toEqual(['Project']);
+  });
+});
+
 describe('GET /api/courses/:id/gradebook — make-up tracking', () => {
   test('assignments carry is_test and makeup_ignored', async () => {
     getDb().prepare(`UPDATE assignments SET is_test = 1, makeup_ignored = 1 WHERE id = ?`).run(assignmentId);

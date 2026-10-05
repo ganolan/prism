@@ -51,7 +51,7 @@ router.get('/:id', (req, res) => {
       CASE WHEN g.id IS NOT NULL THEN 1 ELSE 0 END as has_grade_row
     FROM enrolments e
     JOIN courses c ON c.id = e.course_id
-    JOIN assignments a ON a.course_id = c.id AND a.published = 1
+    JOIN assignments a ON a.course_id = c.id AND a.published = 1 AND a.removed_at IS NULL
     LEFT JOIN grades g ON g.student_id = e.student_id AND g.assignment_id = a.id
     LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
     LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'

@@ -148,7 +148,16 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
       web_url = excluded.web_url,
       accepts_submissions = excluded.accepts_submissions,
       is_test = excluded.is_test,
+      removed_at = NULL,
       synced_at = excluded.synced_at
+  `);
+  // Schoology's section list is authoritative: an assignment missing from it was
+  // deleted there (direct GET 404s). Soft-remove it so listings hide it while its
+  // grades/notes/flags survive. Keeps the first removal date, like dropped_at.
+  const markMissingRemoved = db.prepare(`
+    UPDATE assignments SET removed_at = ?
+    WHERE course_id = ? AND removed_at IS NULL
+      AND schoology_assignment_id NOT IN (SELECT value FROM json_each(?))
   `);
   const deleteAssignees = db.prepare(`DELETE FROM assignment_assignees WHERE assignment_id = ?`);
   const insertAssignee = db.prepare(`INSERT OR IGNORE INTO assignment_assignees (assignment_id, schoology_uid) VALUES (?, ?)`);
@@ -185,6 +194,10 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
           if (uid) insertAssignee.run(row.id, uid);
         }
       }
+    }
+    // An empty list is more likely a bad read than a teacher deleting everything.
+    if (rows.length > 0) {
+      markMissingRemoved.run(now, courseId, JSON.stringify(rows.map(a => String(a.id))));
     }
   });
   writeAssignments(assignments);

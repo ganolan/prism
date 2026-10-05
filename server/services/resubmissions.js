@@ -371,7 +371,7 @@ export function resubmissionRows(db, { course, students, cal, today, settings, f
   const { feedbackLimitDays, warnLeadDays } = settings;
   const assignments = new Map(db.prepare(`
     SELECT a.id, a.schoology_assignment_id, a.title, a.num_assignees, ${ALIGNED_SQL} AS aligned
-    FROM assignments a WHERE a.course_id = ? AND a.published = 1
+    FROM assignments a WHERE a.course_id = ? AND a.published = 1 AND a.removed_at IS NULL
   `).all(course.id).map((a) => [a.id, a]));
   const states = statesInScope(db, { courseId: course.id });
   const assigneesOf = (a) => (a.num_assignees > 0

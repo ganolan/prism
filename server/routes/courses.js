@@ -109,7 +109,7 @@ router.get('/:id/students', (req, res) => {
     FROM grades g
     JOIN assignments a ON a.id = g.assignment_id
     JOIN students s ON s.id = g.student_id
-    WHERE a.course_id = ? AND a.published = 1
+    WHERE a.course_id = ? AND a.published = 1 AND a.removed_at IS NULL
       AND (
         a.num_assignees IS NULL OR a.num_assignees = 0
         OR EXISTS (
@@ -138,7 +138,7 @@ router.get('/:id/assignments', (req, res) => {
     SELECT a.* FROM assignments a
     LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
     LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
-    WHERE a.course_id = ? AND a.published = 1
+    WHERE a.course_id = ? AND a.published = 1 AND a.removed_at IS NULL
     ORDER BY
       CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN a.display_weight
            WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN COALESCE(fp.display_weight, 0)
@@ -168,7 +168,7 @@ router.get('/:id/gradebook', (req, res) => {
     FROM assignments a
     LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
     LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
-    WHERE a.course_id = ? AND a.published = 1
+    WHERE a.course_id = ? AND a.published = 1 AND a.removed_at IS NULL
     ORDER BY
       CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN a.display_weight
            WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN COALESCE(fp.display_weight, 0)

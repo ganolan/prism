@@ -29,7 +29,7 @@ function pastDueAssignments(db, courseId, today) {
     SELECT a.id, a.course_id, a.schoology_assignment_id, a.title, a.due_date, a.is_lti_submission, a.num_assignees,
       a.accepts_submissions, a.is_test, a.test_fetch_status, ${ALIGNED_SQL} AS aligned
     FROM assignments a
-    WHERE a.course_id = ? AND a.published = 1
+    WHERE a.course_id = ? AND a.published = 1 AND a.removed_at IS NULL
       AND a.due_date IS NOT NULL AND a.due_date != '' AND substr(a.due_date, 1, 10) < ?
   `).all(courseId, today);
 }
@@ -43,7 +43,7 @@ function pastDueTests(db, courseId, nowStamp) {
     SELECT a.id, a.course_id, a.schoology_assignment_id, a.title, a.due_date, a.is_lti_submission, a.num_assignees,
       a.test_fetch_status, a.makeup_ignored, ${ALIGNED_SQL} AS aligned
     FROM assignments a
-    WHERE a.course_id = ? AND a.published = 1 AND a.is_test = 1
+    WHERE a.course_id = ? AND a.published = 1 AND a.removed_at IS NULL AND a.is_test = 1
       AND a.due_date IS NOT NULL AND a.due_date != '' AND a.due_date <= ?
   `).all(courseId, nowStamp);
 }

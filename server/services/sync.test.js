@@ -168,6 +168,84 @@ describe('syncSectionData — assignee mapping (#54)', () => {
   });
 });
 
+describe('syncSectionData — assignments deleted in Schoology are soft-removed', () => {
+  let db;
+  let courseId;
+  const removedAt = (sid) => db.prepare(
+    'SELECT removed_at FROM assignments WHERE schoology_assignment_id = ?'
+  ).get(sid).removed_at;
+
+  beforeEach(() => {
+    db = new Database(':memory:');
+    migrate(db);
+    courseId = db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-R', 'AIML')`
+    ).run().lastInsertRowid;
+    getSectionEnrollments.mockReset();
+    getSectionAssignments.mockReset();
+    getSectionGrades.mockReset();
+    getSubmissionStatus.mockReset();
+    getSectionEnrollments.mockResolvedValue([]);
+    getSectionGrades.mockResolvedValue([]);
+    getSubmissionStatus.mockResolvedValue(null);
+  });
+
+  const asg = (id, title = `A ${id}`) => ({ id, title, published: 1, num_assignees: 0, assignees: '[]' });
+
+  test('marks an assignment that dropped out of the section list, keeps its row', async () => {
+    getSectionAssignments.mockResolvedValue([asg('1'), asg('2')]);
+    await syncSectionData(db, 'sec-R', courseId, '2026-08-18T00:00:00.000Z');
+    getSectionAssignments.mockResolvedValue([asg('2')]);
+    await syncSectionData(db, 'sec-R', courseId, '2026-10-05T00:00:00.000Z');
+
+    expect(removedAt('1')).toBe('2026-10-05T00:00:00.000Z');
+    expect(removedAt('2')).toBeNull();
+  });
+
+  test('keeps the first removal date across later syncs', async () => {
+    getSectionAssignments.mockResolvedValue([asg('1'), asg('2')]);
+    await syncSectionData(db, 'sec-R', courseId, '2026-08-18T00:00:00.000Z');
+    getSectionAssignments.mockResolvedValue([asg('2')]);
+    await syncSectionData(db, 'sec-R', courseId, '2026-10-05T00:00:00.000Z');
+    await syncSectionData(db, 'sec-R', courseId, '2026-10-06T00:00:00.000Z');
+
+    expect(removedAt('1')).toBe('2026-10-05T00:00:00.000Z');
+  });
+
+  test('clears the mark if the assignment reappears (e.g. restored)', async () => {
+    getSectionAssignments.mockResolvedValue([asg('1'), asg('2')]);
+    await syncSectionData(db, 'sec-R', courseId, '2026-08-18T00:00:00.000Z');
+    getSectionAssignments.mockResolvedValue([asg('2')]);
+    await syncSectionData(db, 'sec-R', courseId, '2026-10-05T00:00:00.000Z');
+    getSectionAssignments.mockResolvedValue([asg('1'), asg('2')]);
+    await syncSectionData(db, 'sec-R', courseId, '2026-10-06T00:00:00.000Z');
+
+    expect(removedAt('1')).toBeNull();
+  });
+
+  test('an empty assignment list removes nothing (could be a bad read)', async () => {
+    getSectionAssignments.mockResolvedValue([asg('1'), asg('2')]);
+    await syncSectionData(db, 'sec-R', courseId, '2026-08-18T00:00:00.000Z');
+    getSectionAssignments.mockResolvedValue([]);
+    await syncSectionData(db, 'sec-R', courseId, '2026-10-05T00:00:00.000Z');
+
+    expect(removedAt('1')).toBeNull();
+    expect(removedAt('2')).toBeNull();
+  });
+
+  test('only touches assignments of the synced course', async () => {
+    const otherCourse = db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-O', 'Other')`
+    ).run().lastInsertRowid;
+    getSectionAssignments.mockResolvedValue([asg('9')]);
+    await syncSectionData(db, 'sec-O', otherCourse, '2026-08-18T00:00:00.000Z');
+    getSectionAssignments.mockResolvedValue([asg('2')]);
+    await syncSectionData(db, 'sec-R', courseId, '2026-10-05T00:00:00.000Z');
+
+    expect(removedAt('9')).toBeNull();
+  });
+});
+
 describe('syncSectionData — phase atomicity (#55)', () => {
   let db;
   let courseId;

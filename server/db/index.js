@@ -124,6 +124,8 @@ const MIGRATIONS = [
   `ALTER TABLE assignments ADD COLUMN test_fetch_status TEXT`,
   // Make-up tests: the teacher's per-test "Ignore" switch (Prism-owned; sync never writes it).
   `ALTER TABLE assignments ADD COLUMN makeup_ignored INTEGER NOT NULL DEFAULT 0`,
+  // Soft removal: set when an assignment is deleted in Schoology (gone from the section list).
+  `ALTER TABLE assignments ADD COLUMN removed_at TEXT`,
   // Triage: when an extension was last re-extended (dev DBs already have the table).
   `ALTER TABLE extensions ADD COLUMN updated_at TEXT`,
   // Make-up tests: the pair's last attempt cell ('took' | 'none' | 'not_assigned'; NULL = unknown).

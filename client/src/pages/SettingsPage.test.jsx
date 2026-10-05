@@ -165,3 +165,50 @@ describe('SettingsPage — Schoology connection card', () => {
   });
 });
 
+
+describe('SettingsPage — Scheduled sync card', () => {
+  const SCHEDULE = { enabled: true, time: '03:00', mastery: 'all', syncBlocks: true, includeHidden: false, recentOnly: false, recentDays: 30 };
+
+  function withSchedule(status) {
+    api.getSettings.mockResolvedValue({ triage: TRIAGE, syncSchedule: SCHEDULE, syncScheduleStatus: status });
+    api.updateSettings.mockImplementation(async ({ syncSchedule }) => ({
+      triage: TRIAGE, syncSchedule: { ...SCHEDULE, ...syncSchedule }, syncScheduleStatus: status,
+    }));
+  }
+
+  it('on prod: shows the next run and how the last scheduled sync went', async () => {
+    withSchedule({
+      active: true, nextRunAt: '2026-10-06T19:00:00Z',
+      last: { at: '2026-10-05T19:00:05Z', status: 'completed_with_errors', runId: 12 },
+    });
+    render(<SettingsPage />);
+    expect(await screen.findByLabelText('Scheduled sync time')).toHaveValue('03:00');
+    expect(screen.getByTestId('scheduled-sync-next')).toHaveTextContent(/^Next run: \d{2}\/\d{2}\/\d{4}/);
+    expect(screen.getByTestId('scheduled-sync-last')).toHaveTextContent('completed with errors (see Recent syncs)');
+    expect(screen.queryByText(/only the prod server does/)).not.toBeInTheDocument();
+  });
+
+  it('on a dev copy: says the schedule only runs on prod', async () => {
+    withSchedule({ active: false, nextRunAt: null, last: null });
+    render(<SettingsPage />);
+    expect(await screen.findByText(/This copy of Prism never runs the schedule/)).toBeInTheDocument();
+    expect(screen.queryByTestId('scheduled-sync-next')).not.toBeInTheDocument();
+    expect(screen.getByTestId('scheduled-sync-last')).toHaveTextContent('No scheduled sync has run yet.');
+  });
+
+  it('saves time, mastery and toggles server-side', async () => {
+    withSchedule({ active: true, nextRunAt: '2026-10-06T19:00:00Z', last: null });
+    render(<SettingsPage />);
+    const time = await screen.findByLabelText('Scheduled sync time');
+
+    fireEvent.change(time, { target: { value: '04:30' } });
+    await waitFor(() => expect(api.updateSettings).toHaveBeenCalledWith({ syncSchedule: { time: '04:30' } }));
+
+    fireEvent.change(screen.getByLabelText('Mastery'), { target: { value: 'none' } });
+    await waitFor(() => expect(api.updateSettings).toHaveBeenCalledWith({ syncSchedule: { mastery: 'none' } }));
+
+    fireEvent.click(screen.getByLabelText('Sync every day at'));
+    await waitFor(() => expect(api.updateSettings).toHaveBeenCalledWith({ syncSchedule: { enabled: false } }));
+    expect(await screen.findByLabelText('Scheduled sync time')).toBeDisabled();
+  });
+});

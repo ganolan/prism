@@ -48,14 +48,89 @@ function SchoologyConnectionCard() {
   );
 }
 
+const LAST_RUN_LABEL = {
+  running: 'running now',
+  completed: 'completed',
+  completed_with_errors: 'completed with errors (see Recent syncs)',
+  failed: 'failed (see Recent syncs)',
+  interrupted: 'interrupted by a server restart',
+  skipped: 'skipped, a sync was already running',
+};
+
+// Nightly unified sync, run by the prod server at the chosen time
+// (server/services/syncScheduler.js). Only prod arms it, so a dev copy says so.
+function ScheduledSyncCard({ schedule, status, message, onSave }) {
+  const last = status.last;
+  return (
+    <section className="card settings-section" aria-labelledby="scheduled-sync-title">
+      <h3 id="scheduled-sync-title">Scheduled sync</h3>
+      <p className="text-sm text-muted">
+        A full sync the server runs by itself every day, recorded in Recent syncs like any other.
+      </p>
+      {!status.active && (
+        <div className="alert alert-warning">This copy of Prism never runs the schedule: only the prod server does.</div>
+      )}
+      <div className="settings-row">
+        <label className="settings-row">
+          <input type="checkbox" checked={schedule.enabled} onChange={(e) => onSave({ enabled: e.target.checked })} />
+          <span>Sync every day at</span>
+        </label>
+        <input
+          type="time" aria-label="Scheduled sync time" value={schedule.time} disabled={!schedule.enabled} style={{ width: 'auto' }}
+          onChange={(e) => { if (e.target.value) onSave({ time: e.target.value }); }}
+        />
+      </div>
+      <div className="settings-row">
+        <label htmlFor="scheduled-sync-mastery">Mastery</label>
+        <select id="scheduled-sync-mastery" value={schedule.mastery} onChange={(e) => onSave({ mastery: e.target.value })} style={{ width: 'auto' }}>
+          <option value="all">All active courses</option>
+          <option value="none">None</option>
+        </select>
+      </div>
+      <label className="settings-row">
+        <input type="checkbox" checked={schedule.syncBlocks} onChange={(e) => onSave({ syncBlocks: e.target.checked })} />
+        <span>Sync PowerSchool blocks and school calendar</span>
+      </label>
+      <label className="settings-row">
+        <input type="checkbox" checked={schedule.includeHidden} onChange={(e) => onSave({ includeHidden: e.target.checked })} />
+        <span>Include hidden courses</span>
+      </label>
+      <div className="settings-row">
+        <label className="settings-row">
+          <input type="checkbox" checked={schedule.recentOnly} onChange={(e) => onSave({ recentOnly: e.target.checked })} />
+          <span>Only check submissions from the last</span>
+        </label>
+        <NumberStepper value={schedule.recentDays} min={1} max={365} onChange={(v) => onSave({ recentDays: v })} aria-label="Scheduled sync recent days" />
+        <span>days</span>
+      </div>
+      {status.active && (
+        <p className="text-sm text-muted" data-testid="scheduled-sync-next">
+          {status.nextRunAt ? `Next run: ${formatDateTime(status.nextRunAt)}` : 'Off: no sync is scheduled.'}
+        </p>
+      )}
+      <p className="text-sm text-muted" data-testid="scheduled-sync-last">
+        {last ? `Last scheduled sync: ${formatDateTime(last.at)}, ${LAST_RUN_LABEL[last.status] || last.status}` : 'No scheduled sync has run yet.'}
+      </p>
+      {message && <p className="text-sm text-muted" role="status">{message}</p>}
+    </section>
+  );
+}
+
 // App settings, stored server-side (shared by every device and PrisMCP).
 export default function SettingsPage() {
   const [triage, setTriage] = useState(null);
+  const [schedule, setSchedule] = useState(null);
+  const [scheduleStatus, setScheduleStatus] = useState(null);
   const [calendar, setCalendar] = useState(null);
   const [status, setStatus] = useState(null);
+  const [scheduleMsg, setScheduleMsg] = useState(null);
 
   useEffect(() => {
-    getSettings().then((s) => setTriage(s.triage)).catch((err) => setStatus(`Could not load settings: ${err.message}`));
+    getSettings().then((s) => {
+      setTriage(s.triage);
+      setSchedule(s.syncSchedule);
+      setScheduleStatus(s.syncScheduleStatus);
+    }).catch((err) => setStatus(`Could not load settings: ${err.message}`));
     (async () => {
       try { const t = await getTriage(); if (t) setCalendar(t.calendar); } catch { /* shown as loading */ }
     })();
@@ -71,6 +146,20 @@ export default function SettingsPage() {
     } catch (err) {
       setTriage(prevTriage);
       setStatus(`Not saved: ${err.message}`);
+    }
+  }
+
+  async function saveSchedule(patch) {
+    const prev = schedule;
+    setSchedule((p) => ({ ...p, ...patch }));
+    try {
+      const s = await updateSettings({ syncSchedule: patch });
+      setSchedule(s.syncSchedule);
+      setScheduleStatus(s.syncScheduleStatus);
+      setScheduleMsg('Saved');
+    } catch (err) {
+      setSchedule(prev);
+      setScheduleMsg(`Not saved: ${err.message}`);
     }
   }
 
@@ -135,6 +224,10 @@ export default function SettingsPage() {
           </div>
         )}
       </section>
+
+      {schedule && scheduleStatus && (
+        <ScheduledSyncCard schedule={schedule} status={scheduleStatus} message={scheduleMsg} onSave={saveSchedule} />
+      )}
 
       <SchoologyConnectionCard />
 

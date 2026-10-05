@@ -45,6 +45,12 @@ export const TRIAGE_DEFAULTS = Object.fromEntries(Object.entries(TRIAGE_KEYS).ma
 
 function coerce(spec, value) {
   if (spec.bool) return value === true || value === 'true' || value === 1;
+  if (spec.time) {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(String(value ?? '').trim());
+    if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return spec.def;
+    return `${m[1].padStart(2, '0')}:${m[2]}`;
+  }
+  if (spec.oneOf) return spec.oneOf.includes(value) ? value : spec.def;
   const n = Math.floor(Number(value));
   if (!Number.isFinite(n)) return spec.def;
   return Math.min(spec.max, Math.max(spec.min, n));
@@ -85,4 +91,43 @@ export function updateTriageSettings(db, patch = {}) {
     }
   })();
   return getTriageSettings(db);
+}
+
+// Scheduled sync (server/services/syncScheduler.js): a nightly unified sync at
+// `time` (server-local HH:MM). Options mirror the Sync dialog; `mastery: 'all'`
+// pulls mastery for every active course the dialog would tick by default.
+const SYNC_SCHEDULE_KEYS = {
+  enabled: { def: true, bool: true },
+  time: { def: '03:00', time: true },
+  mastery: { def: 'all', oneOf: ['all', 'none'] },
+  syncBlocks: { def: true, bool: true },
+  includeHidden: { def: false, bool: true },
+  recentOnly: { def: false, bool: true },
+  recentDays: { def: 30, min: 1, max: 365 },
+};
+
+export const SYNC_SCHEDULE_DEFAULTS = Object.fromEntries(Object.entries(SYNC_SCHEDULE_KEYS).map(([k, s]) => [k, s.def]));
+
+export function getSyncScheduleSettings(db) {
+  const stored = new Map(
+    db.prepare(`SELECT key, value FROM settings WHERE key LIKE 'syncSchedule.%'`).all()
+      .map((r) => [r.key.slice('syncSchedule.'.length), r.value]),
+  );
+  return Object.fromEntries(
+    Object.entries(SYNC_SCHEDULE_KEYS).map(([k, spec]) => [k, stored.has(k) ? parse(spec, stored.get(k)) : spec.def]),
+  );
+}
+
+export function updateSyncScheduleSettings(db, patch = {}) {
+  const upsert = db.prepare(`
+    INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+  `);
+  db.transaction(() => {
+    for (const [k, v] of Object.entries(patch || {})) {
+      const spec = SYNC_SCHEDULE_KEYS[k];
+      if (spec) upsert.run(`syncSchedule.${k}`, JSON.stringify(coerce(spec, v)));
+    }
+  })();
+  return getSyncScheduleSettings(db);
 }

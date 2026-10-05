@@ -128,6 +128,21 @@ password at the startup screen; that unlock logs in, and the agents start.
 For a planned restart (e.g. macOS updates) skip the prompt once with
 `sudo fdesetup authrestart`.
 
+## Scheduled sync
+
+Prod runs a full sync by itself every day (default **03:00**, mini local time).
+Time, mastery, blocks, hidden courses and the recent-only window are set in
+**Settings → Scheduled sync**, which also shows the next run and how the last
+one went; each run appears in Recent syncs labelled *Scheduled*. It is armed
+only where the server agent sets `PRISM_SCHEDULED_SYNC=1` (`scripts/deploy/launchd.js`),
+so dev clones, which copy prod's settings with its database, never sync on
+their own. A change to that agent reaches the mini only through
+`npm run prism:install` (re-runnable; it rewrites the agents and restarts the
+server without touching the database). A run that falls while a manual sync is
+going is skipped; a server that starts after the day's time waits for the next
+day. At night nobody can log in, so an expired Schoology/PowerSchool session
+shows as *completed with errors*: see below.
+
 ## Schoology session expired
 
 Mastery sync, OneDrive links and the Ask modal's "unsubmit their OneDrive work"

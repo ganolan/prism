@@ -36,7 +36,7 @@ export function formatDuration(startedAt, finishedAt) {
 // What the run was asked to sync, e.g. "Schoology · blocks · 2 mastery courses".
 export function describeOptions(options) {
   if (!options) return '';
-  const parts = [];
+  const parts = options.trigger === 'scheduled' ? ['Scheduled'] : [];
   if (!options.skipSchoology) parts.push(options.recentOnly ? `Schoology (last ${options.recentDays} days)` : 'Schoology');
   if (options.syncBlocks) parts.push('blocks');
   const n = options.masteryCourseIds?.length || 0;

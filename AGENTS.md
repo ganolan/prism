@@ -30,7 +30,7 @@ SCHOOLOGY_CONSUMER_KEY=...
 SCHOOLOGY_CONSUMER_SECRET=...
 ```
 
-The SQLite database lives at `server/db/students.db` (gitignored). PowerSchool CSV drops go in `data/imports/`. Optional local overrides: `PORT`, `HOST` (default `127.0.0.1`), `DB_PATH` (default `server/db/students.db`), `PRISM_SESSION_DIR`, `INBOX_DIR`, `CONFIG_PATH`, `PRISM_SKIP_BROWSERS`. PrisMCP additionally **requires** an absolute `DB_PATH` and is configured per machine — see `docs/prismcp-install-and-verify.md`.
+The SQLite database lives at `server/db/students.db` (gitignored). PowerSchool CSV drops go in `data/imports/`. Optional local overrides: `PORT`, `HOST` (default `127.0.0.1`), `DB_PATH` (default `server/db/students.db`), `PRISM_SESSION_DIR`, `INBOX_DIR`, `CONFIG_PATH`, `PRISM_SKIP_BROWSERS`, `PRISM_SCHEDULED_SYNC` (`1` arms the nightly scheduled sync; set only by the prod launchd agent, never in a dev clone). PrisMCP additionally **requires** an absolute `DB_PATH` and is configured per machine — see `docs/prismcp-install-and-verify.md`.
 
 Mastery sync (SBG data from Schoology's internal API) requires a one-time browser login:
 ```bash

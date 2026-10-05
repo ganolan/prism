@@ -56,6 +56,8 @@ describe('agents', () => {
     expect(env.DB_PATH).toBe(`${HOME}/prism/data/students.db`);
     expect(env.PRISM_SESSION_DIR).toBe(`${HOME}/prism/data/.playwright-session`);
     expect(env.INBOX_DIR).toBe(`${HOME}/prism/data/inbox`);
+    // Only prod arms the nightly scheduled sync (dev clones copy prod's settings).
+    expect(env.PRISM_SCHEDULED_SYNC).toBe('1');
     expect(a.server.WorkingDirectory).toBe(`${HOME}/prism/current`);
     expect(a.server.KeepAlive).toBe(true);
   });

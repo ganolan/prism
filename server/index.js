@@ -26,6 +26,7 @@ import { getScaleTable, schoologyScaleId } from './lib/proficiencyScale.js';
 import { resolveHost, resolvePort } from './lib/listenConfig.js';
 import { resolveVersion } from './lib/version.js';
 import { markInterruptedRuns } from './services/syncRuns.js';
+import { startSyncScheduler } from './services/syncScheduler.js';
 import { seedFeedbackSnapshotsIfEmpty } from './services/feedbackSnapshots.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -105,4 +106,8 @@ app.listen(PORT, HOST, () => {
   // a dev copy pointed at the same DB) must not interrupt the live one's run.
   const interrupted = markInterruptedRuns(getDb());
   if (interrupted) console.log(`[sync] Marked ${interrupted} unfinished sync run(s) as interrupted`);
+  // Nightly scheduled sync (Settings → Scheduled sync). Armed only where the prod
+  // launchd agent sets PRISM_SCHEDULED_SYNC=1 — dev clones carry prod's settings
+  // in their copied database and must not sync on their own.
+  startSyncScheduler({ db: getDb(), active: process.env.PRISM_SCHEDULED_SYNC === '1' });
 });

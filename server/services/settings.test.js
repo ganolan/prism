@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../db/index.js';
-import { getTriageSettings, updateTriageSettings, TRIAGE_DEFAULTS } from './settings.js';
+import { getTriageSettings, updateTriageSettings, TRIAGE_DEFAULTS, getSyncScheduleSettings, updateSyncScheduleSettings, SYNC_SCHEDULE_DEFAULTS } from './settings.js';
 
 beforeEach(() => { getDb().exec('DELETE FROM settings;'); });
 
@@ -131,5 +131,28 @@ describe('triage settings', () => {
   test('a corrupt stored value falls back to the default', () => {
     getDb().prepare(`INSERT INTO settings (key, value) VALUES ('triage.referralLimitDays', 'not json')`).run();
     expect(getTriageSettings(getDb()).referralLimitDays).toBe(8);
+  });
+});
+
+describe('sync schedule settings', () => {
+  beforeEach(() => { getDb().exec("DELETE FROM settings WHERE key LIKE 'syncSchedule.%'"); });
+
+  test('defaults: on, 03:00, mastery for all, blocks on, full sync', () => {
+    expect(getSyncScheduleSettings(getDb())).toEqual({
+      enabled: true, time: '03:00', mastery: 'all', syncBlocks: true, includeHidden: false, recentOnly: false, recentDays: 30,
+    });
+    expect(SYNC_SCHEDULE_DEFAULTS.time).toBe('03:00');
+  });
+
+  test('saves a partial patch and returns the full settings', () => {
+    const s = updateSyncScheduleSettings(getDb(), { enabled: false, time: '4:30', mastery: 'none' });
+    expect(s).toMatchObject({ enabled: false, time: '04:30', mastery: 'none', syncBlocks: true });
+    expect(getSyncScheduleSettings(getDb()).time).toBe('04:30');
+  });
+
+  test('invalid values fall back to the default; days are clamped', () => {
+    const s = updateSyncScheduleSettings(getDb(), { time: '25:00', mastery: 'some', recentDays: 999, bogus: 1 });
+    expect(s).toMatchObject({ time: '03:00', mastery: 'all', recentDays: 365 });
+    expect(getDb().prepare("SELECT COUNT(*) AS n FROM settings WHERE key = 'syncSchedule.bogus'").get().n).toBe(0);
   });
 });

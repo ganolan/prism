@@ -33,6 +33,8 @@ describe('describeOptions', () => {
       .toBe('Schoology (last 14 days)');
     expect(describeOptions({ skipSchoology: true, syncBlocks: false, masteryCourseIds: [5] })).toBe('1 mastery course');
     expect(describeOptions(null)).toBe('');
+    expect(describeOptions({ trigger: 'scheduled', skipSchoology: false, syncBlocks: true, masteryCourseIds: [1] }))
+      .toBe('Scheduled · Schoology · blocks · 1 mastery course');
   });
 });
 

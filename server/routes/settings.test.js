@@ -33,3 +33,17 @@ describe('/api/settings', () => {
     expect(body.triage).toMatchObject({ feedbackLimitDays: 12, referralLimitDays: 8 });
   });
 });
+
+describe('/api/settings — scheduled sync', () => {
+  test('GET returns the schedule defaults and an inactive status when no scheduler runs (dev clone)', async () => {
+    const { body } = await call('GET', '/api/settings');
+    expect(body.syncSchedule).toMatchObject({ enabled: true, time: '03:00', mastery: 'all' });
+    expect(body.syncScheduleStatus).toEqual({ active: false, nextRunAt: null, last: null });
+  });
+
+  test('PUT saves schedule changes without touching triage', async () => {
+    const { body } = await call('PUT', '/api/settings', { syncSchedule: { time: '05:45', recentOnly: true } });
+    expect(body.syncSchedule).toMatchObject({ time: '05:45', recentOnly: true });
+    expect(body.triage.feedbackLimitDays).toBe(10);
+  });
+});

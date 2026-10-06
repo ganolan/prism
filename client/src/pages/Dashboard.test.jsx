@@ -154,7 +154,7 @@ describe('Dashboard — triage', () => {
     const card = screen.getByRole('heading', { level: 3, name: 'AP Computer Science Principles' }).closest('.card');
     expect(card).toHaveClass('card--tone-red'); // worst row across the four lists is red (late work, make-up)
     expect(within(card).getByText('1 at limit · 1 make-up')).toHaveClass('course-card__triage');
-    expect(within(card).queryByText(/7 to grade · day 9/)).not.toBeInTheDocument(); // amber feedback wait stays off the card
+    expect(within(card).queryByText(/7 to grade · 8 school days waiting/)).not.toBeInTheDocument(); // amber feedback wait stays off the card
     expect(within(card).queryByText('2 make-ups')).not.toBeInTheDocument(); // total make-ups chip is gone; only the red count shows
     expect(card.querySelector('.badge-red, .badge-amber')).toBeNull(); // no chip badges on the card
     expect(await screen.findByText('Noah Park')).toBeInTheDocument();
@@ -219,7 +219,7 @@ describe('Dashboard — course card tiers (#137)', () => {
     expect(card.querySelector('.course-card__triage')).toBeNull();
   });
 
-  it('a red feedback wait puts "N to grade · day D" on the card', async () => {
+  it('a red feedback wait puts "N to grade · D school days waiting" on the card', async () => {
     api.getCoursesByView.mockResolvedValue([{ id: 22, course_name: 'Feedback Only' }]);
     api.getTriage.mockResolvedValue({
       ...BASE_TRIAGE,
@@ -229,7 +229,7 @@ describe('Dashboard — course card tiers (#137)', () => {
     await screen.findByText('CP3'); // waits for the triage fetch to resolve
     const card = screen.getByText('Feedback Only').closest('.card');
     expect(card).toHaveClass('card--tone-red');
-    expect(within(card).getByText('5 to grade · day 16')).toHaveClass('course-card__triage');
+    expect(within(card).getByText('5 to grade · 15 school days waiting')).toHaveClass('course-card__triage');
   });
 });
 

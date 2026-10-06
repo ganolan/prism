@@ -29,43 +29,43 @@ beforeEach(() => {
 });
 
 describe('SettingsPage', () => {
-  it('shows the triage limits as day numbers (due date = day 1) and the calendar status', async () => {
+  it('shows the triage limits in school days and the calendar status', async () => {
     render(<SettingsPage />);
-    expect(await screen.findByLabelText('Referral limit (last allowed day)')).toHaveValue(8);
-    expect(screen.getByLabelText('Feedback limit (last allowed day)')).toHaveValue(10);
+    expect(await screen.findByLabelText('Referral limit (school days late)')).toHaveValue(8);
+    expect(screen.getByLabelText('Feedback limit (school days waiting)')).toHaveValue(10);
     expect(screen.getByLabelText('Warning lead (school days)')).toHaveValue(3);
-    expect(screen.getByText('Late work is allowed through day')).toBeInTheDocument();
-    expect(screen.getByText('(due date = day 1); refer after day 8')).toBeInTheDocument();
-    expect(screen.getByText('Feedback is overdue after day')).toBeInTheDocument();
-    expect(screen.getByText('Amber warning covers the last')).toBeInTheDocument();
-    expect(screen.getByText('allowed days')).toBeInTheDocument();
-    expect(screen.getByText('Make-up tests turn amber on day')).toBeInTheDocument();
-    expect(screen.getByText('and red on day')).toBeInTheDocument();
-    expect(screen.getByText('(test day = day 1)')).toBeInTheDocument();
+    expect(screen.getByText('Refer late work at')).toBeInTheDocument();
+    expect(screen.getByText('school days late')).toBeInTheDocument();
+    expect(screen.getByText('Feedback is overdue at')).toBeInTheDocument();
+    expect(screen.getByText('school days waiting')).toBeInTheDocument();
+    expect(screen.getByText('Amber warning starts')).toBeInTheDocument();
+    expect(screen.getByText('school days before each limit')).toBeInTheDocument();
+    expect(screen.getByText('Make-up tests turn amber')).toBeInTheDocument();
+    expect(screen.getByText('school days after the test')).toBeInTheDocument();
     expect(await screen.findByText(/PowerSchool · 164 school days/)).toBeInTheDocument();
   });
 
   it('saves a stepper change server-side', async () => {
     render(<SettingsPage />);
-    await screen.findByLabelText('Referral limit (last allowed day)');
+    await screen.findByLabelText('Referral limit (school days late)');
     fireEvent.click(screen.getAllByLabelText('Increase')[0]);
     await waitFor(() => expect(api.updateSettings).toHaveBeenCalledWith({ triage: { referralLimitDays: 9 } }));
     expect(await screen.findByText('Saved')).toBeInTheDocument();
   });
 
-  it('make-up clock: amber and red day steppers (amber can\'t pass red), saved server-side', async () => {
+  it('make-up clock: shown as school days after the test, stored as day numbers (+1); amber can\'t pass red', async () => {
     render(<SettingsPage />);
-    const amber = await screen.findByLabelText('Make-up amber (day)');
-    const red = screen.getByLabelText('Make-up red (day)');
-    expect(amber).toHaveValue(2);
-    expect(amber).toHaveAttribute('min', '1');
-    expect(amber).toHaveAttribute('max', '4'); // capped at the red value
-    expect(red).toHaveValue(4);
-    expect(red).toHaveAttribute('min', '2');
-    expect(red).toHaveAttribute('max', '31');
-    fireEvent.change(red, { target: { value: '5' } });
+    const amber = await screen.findByLabelText('Make-up amber (school days after the test)');
+    const red = screen.getByLabelText('Make-up red (school days after the test)');
+    expect(amber).toHaveValue(1); // stored makeUpAmberDay 2
+    expect(amber).toHaveAttribute('min', '0');
+    expect(amber).toHaveAttribute('max', '3'); // capped at the red value
+    expect(red).toHaveValue(3); // stored makeUpRedDay 4
+    expect(red).toHaveAttribute('min', '1');
+    expect(red).toHaveAttribute('max', '30');
+    fireEvent.change(red, { target: { value: '4' } });
     await waitFor(() => expect(api.updateSettings).toHaveBeenCalledWith({ triage: { makeUpRedDay: 5 } }));
-    await waitFor(() => expect(amber).toHaveAttribute('max', '5'));
+    await waitFor(() => expect(amber).toHaveAttribute('max', '4'));
   });
 
   it('shows the resubmission deadline default and saves a change server-side', async () => {
@@ -86,7 +86,7 @@ describe('SettingsPage', () => {
   it('reverts the value and shows error when updateSettings rejects', async () => {
     api.updateSettings.mockRejectedValue(new Error('Server error'));
     render(<SettingsPage />);
-    const input = await screen.findByLabelText('Referral limit (last allowed day)');
+    const input = await screen.findByLabelText('Referral limit (school days late)');
     expect(input).toHaveValue(8);
     fireEvent.click(screen.getAllByLabelText('Increase')[0]);
     await waitFor(() => expect(input).toHaveValue(8));

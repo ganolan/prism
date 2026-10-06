@@ -35,7 +35,7 @@ export default function LateWorkPanel({
         <EmailMenu kind="late" rows={rows} showCourse={showCourse} />
         <ShowAllToggle total={rows.length} showAll={showAll} onToggle={toggleShowAll} />
       </PanelHead>
-      <p className="triage-panel__sub">due date = day 1 · refer after day {limit}</p>
+      <p className="triage-panel__sub">school days late · refer at {limit}</p>
       {rows.length === 0 && <p className="text-sm text-muted">No late summative work.</p>}
       {limitRows(rows, showAll).map((r) => {
         const k = key(r);
@@ -48,7 +48,7 @@ export default function LateWorkPanel({
               <div className="triage-row__line">
                 <Link to={cardLink(r)} className="triage-row__name" title={r.studentName}>{r.studentName}</Link>
                 <MailLink row={r} kind="late" />
-                {r.kind === 'submitted_late' && <span className="badge badge-amber triage-row__tag">submitted day {r.submittedDay}</span>}
+                {r.kind === 'submitted_late' && <span className="badge badge-amber triage-row__tag">submitted {r.submittedDay - 1} school day{r.submittedDay - 1 === 1 ? '' : 's'} late</span>}
                 {r.extension && <ExtensionTag extension={r.extension} />}
               </div>
               {showCourse && <CourseLine row={r} />}

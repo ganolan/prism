@@ -387,6 +387,15 @@ explicit request; descriptions say so.
     count. Who is flagged, and when, is unchanged. The submission timeline (assessment cards, gradebook,
     student page, PrisMCP) quotes the same clock as a distance: "Submitted Mon 12/10 09:00 · 3 school days late" (2026-10-07: "day 4" was read as timetable cycle day 4).
 
+14. **Distances, not day numbers, on every screen** (2026-10-07, teacher-chosen from a before/after
+    mock-up). "Day 5" read as timetable cycle day 5. The UI now shows school days late / waiting / since:
+    rings show `day - 1`, "school days late · refer at 8", "school days waiting · overdue at 10",
+    "school days since the test · sit within 2", "submitted 8 school days late", "Referred · 8 school days
+    late"; Settings "Refer late work at [8] school days late", "Feedback is overdue at [10] school days
+    waiting", "Amber warning starts [3] school days before each limit", make-ups shown as school days after
+    the test (stored day numbers unchanged, shown −1). Thresholds and stored values are unchanged; rows keep
+    `day` for PrisMCP, whose descriptions say to report day − 1 in school days.
+
 ## Out of scope (now)
 
 - Calendar import from a file (Master Plan / CSV) — the `schoolDays` interface allows adding it.

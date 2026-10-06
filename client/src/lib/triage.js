@@ -46,14 +46,14 @@ export function courseTriageSummary(triage, courseId) {
 }
 
 // Dashboard course card (#137): the one muted red-only line, e.g.
-// "2 at limit · 1 make-up · 5 to grade · day 16". Empty string when nothing is red
+// "2 at limit · 1 make-up · 5 to grade · 15 school days waiting". Empty string when nothing is red
 // (an amber-only card shows just its tone edge, no line).
 export function courseRedLine(summary) {
   const parts = [];
   if (summary.atLimit > 0) parts.push(`${summary.atLimit} at limit`);
   if (summary.redMakeUps > 0) parts.push(`${summary.redMakeUps} make-up${summary.redMakeUps === 1 ? '' : 's'}`);
   if (summary.redResubmissions > 0) parts.push(`${summary.redResubmissions} resubmission${summary.redResubmissions === 1 ? '' : 's'}`);
-  if (summary.feedbackRed) parts.push(`${summary.toGrade} to grade · day ${summary.oldestDay}`);
+  if (summary.feedbackRed) parts.push(`${summary.toGrade} to grade · ${summary.oldestDay - 1} school days waiting`);
   return parts.join(' · ');
 }
 

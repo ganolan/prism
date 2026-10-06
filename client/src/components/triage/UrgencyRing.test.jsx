@@ -8,11 +8,11 @@ const arcLength = (container) =>
   Number(container.querySelector('.urgency-ring__arc').getAttribute('stroke-dasharray').split(' ')[0]);
 
 describe('UrgencyRing', () => {
-  it('is an img named "day <day>, limit day <limit>" with the day number inside', () => {
+  it('shows the count in school days (clock day - 1), never a "day N" that reads as a cycle day', () => {
     const { container } = render(<UrgencyRing day={6} limit={8} tone="amber" />);
-    const ring = screen.getByRole('img', { name: 'day 6, limit day 8' });
+    const ring = screen.getByRole('img', { name: '5 school days' });
     expect(ring).toHaveClass('urgency-ring', 'urgency-ring--amber');
-    expect(ring).toHaveTextContent('6');
+    expect(ring).toHaveTextContent('5');
     expect(container.querySelector('svg')).toHaveAttribute('width', '40');
   });
 
@@ -37,7 +37,7 @@ describe('UrgencyRing', () => {
 
   it('size shrinks the ring (28px in the triage rail), keeping the same name', () => {
     const { container } = render(<UrgencyRing day={6} limit={8} tone="amber" size={28} />);
-    const ring = screen.getByRole('img', { name: 'day 6, limit day 8' });
+    const ring = screen.getByRole('img', { name: '5 school days' });
     expect(ring).toHaveClass('urgency-ring--sm');
     expect(container.querySelector('svg')).toHaveAttribute('width', '28');
     expect(container.querySelector('svg')).toHaveAttribute('height', '28');

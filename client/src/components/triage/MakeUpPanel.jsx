@@ -31,7 +31,7 @@ export default function MakeUpPanel({ rows, settings, showCourse, scope, uncheck
         <EmailMenu kind="makeUps" rows={rows} showCourse={showCourse} />
         <ShowAllToggle total={rows.length} showAll={showAll} onToggle={toggleShowAll} />
       </PanelHead>
-      <p className="triage-panel__sub">test day = day 1 · sit by day {red - 1}</p>
+      <p className="triage-panel__sub">school days since the test · sit within {red - 2}</p>
       {unchecked > 0 && (
         <p className="alert alert-warning triage-panel__note">
           Couldn&apos;t check {unchecked} test{unchecked === 1 ? '' : 's'}: run a full sync.

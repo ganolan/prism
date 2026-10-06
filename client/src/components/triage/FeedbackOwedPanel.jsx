@@ -21,7 +21,7 @@ export default function FeedbackOwedPanel({ rows, settings, showCourse, scope, i
           Formative
         </label>
       </PanelHead>
-      <p className="triage-panel__sub">day 1 = due date (or a late submission) · overdue after day {limit}</p>
+      <p className="triage-panel__sub">school days waiting · overdue at {limit}</p>
       {rows.length === 0 && <p className="text-sm text-muted">Nothing waiting for feedback.</p>}
       {limitRows(rows, showAll).map((r) => (
         <div key={r.assignmentId} className="triage-row">

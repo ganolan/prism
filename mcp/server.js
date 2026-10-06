@@ -209,7 +209,9 @@ export function createServer() {
     {
       description:
         "Late-work referral watch, feedback owed and make-up tests, exactly as Prism's dashboard shows them. " +
-        'Every row has `day`: the SCHOOL-day number the dashboard shows, counting the due date = day 1 (test date / extended date = day 1 likewise): ' +
+        'Every row has `day`, a clock position in SCHOOL days counting the due date = day 1 (test date / extended date = day 1 likewise). ' +
+        'The dashboard no longer shows day numbers (they read as timetable cycle days): it shows the distance, day − 1, e.g. day 9 = "8 school days late", ' +
+        'and its limits as "refer at 8 school days late" / "feedback overdue at 10 school days waiting". Say it that way to the teacher, never "day N". ' +
         'quote `day` to the teacher, not the raw counts (daysLate / oldestWaitDays / daysSince = day − 1, kept for compatibility). ' +
         'lateWork: summative work that takes Schoology submissions, not submitted (or submitted after the limit; submittedDay = the day it came in), ' +
         'tone green/amber/red: late work is allowed through day {referralLimitDays} (settings, default 8) and referred after day {referralLimitDays} ' +

@@ -80,7 +80,7 @@ describe('GradebookView — Schoology link in the diagonal column header (#76)',
 });
 
 describe('AssessmentsView — feedback wait column (triage)', () => {
-  it('shows ungraded count + the wait day number (day 1 = start of the wait) for assignments that owe feedback', () => {
+  it('shows ungraded count + the wait in school days for assignments that owe feedback', () => {
     const assignments = [
       { id: 1, title: 'CP1', aligned: 1, schoology_assignment_id: 'a1', due_date: '2026-09-17' },
       { id: 2, title: 'Quiz', aligned: 1, schoology_assignment_id: 'a2', due_date: '2026-09-02' },
@@ -94,12 +94,12 @@ describe('AssessmentsView — feedback wait column (triage)', () => {
       </MemoryRouter>,
     );
     expect(screen.getByText('7/24 ungraded')).toBeInTheDocument();
-    const ring = screen.getByRole('img', { name: 'day 9, limit day 10' });
+    const ring = screen.getByRole('img', { name: '8 school days' });
     expect(ring).toHaveClass('urgency-ring', 'urgency-ring--amber');
-    expect(ring).toHaveTextContent('9');
+    expect(ring).toHaveTextContent('8');
     expect(ring.closest('.triage-wait')).toContainElement(screen.getByText('7/24 ungraded'));
     expect(ring.closest('.triage-wait')).toHaveAttribute(
-      'title', 'Oldest wait: school day 9 (day 1 = due date, or a late submission); overdue after day 10',
+      'title', 'Oldest wait: 8 school days since the due date (or a late submission); overdue at 10',
     );
     expect(screen.getAllByText(/ungraded/)).toHaveLength(1);
   });

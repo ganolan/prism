@@ -78,13 +78,13 @@ describe('TriageSection', () => {
     renderSection();
     expect(await screen.findByText('Maya Chen')).toBeInTheDocument();
     expect(screen.getByText('2 to refer')).toBeInTheDocument();
-    expect(screen.getByText('submitted day 11')).toBeInTheDocument();
+    expect(screen.getByText('submitted 10 school days late')).toBeInTheDocument();
     expect(screen.getByTitle('18 of 22 ungraded')).toHaveTextContent('18/22');
     expect(screen.getAllByText('AP CSP').length).toBeGreaterThan(0);
     expect(screen.getAllByText('[BK 7] AP CSP')).toHaveLength(2); // one late row + one feedback row
     expect(screen.getByText('ext +3 → 15/10/2026')).toBeInTheDocument();
     expect(screen.getByText(/Referred \/ extended \(2\)/)).toBeInTheDocument();
-    expect(screen.getByText('due date = day 1 · refer after day 8')).toBeInTheDocument();
+    expect(screen.getByText('school days late · refer at 8')).toBeInTheDocument();
   });
 
   it('Referred / extended opens the history inside the Late work panel, right below the link; the link and Close both toggle it', async () => {
@@ -272,7 +272,7 @@ describe('TriageSection', () => {
     fireEvent.click(await screen.findByText(/Referred \/ extended \(2\)/));
     const history = await screen.findByLabelText('Referral history');
     expect(await within(history).findByText('Extended +3 → 15/10/2026')).toBeInTheDocument();
-    expect(within(history).getByText('Referred · day 10')).toBeInTheDocument();
+    expect(within(history).getByText('Referred · 9 school days late')).toBeInTheDocument();
     // Newest first: the extension (02/10) above the referral (01/10).
     expect(within(history).getAllByText(/Aiden Li|Maya Chen/).map((el) => el.textContent)).toEqual(['Aiden Li', 'Maya Chen']);
     fireEvent.click(within(history).getAllByText('Undo')[0]);
@@ -307,7 +307,7 @@ describe('TriageSection', () => {
     renderSection();
     fireEvent.click(await screen.findByText(/Referred \/ extended \(2\)/));
     const history = await screen.findByLabelText('Referral history');
-    expect(await within(history).findByText('Referred · day 10')).toBeInTheDocument();
+    expect(await within(history).findByText('Referred · 9 school days late')).toBeInTheDocument();
     expect(within(history).getByText(/Couldn't load extensions: boom/)).toBeInTheDocument();
   });
 
@@ -337,7 +337,7 @@ describe('TriageSection — compact rows', () => {
     renderSection();
     const panel = await latePanel();
     const row = rowOf(within(panel).getByText('Aiden Li'));
-    expect(row.firstElementChild).toHaveAttribute('aria-label', 'day 3, limit day 8');
+    expect(row.firstElementChild).toHaveAttribute('aria-label', '2 school days');
     expect(row.firstElementChild.querySelector('svg')).toHaveAttribute('width', '28');
     const lines = [...textOf(row).children];
     expect(lines.map((el) => el.className)).toEqual(['triage-row__line', 'triage-row__course', 'triage-row__task']);
@@ -354,8 +354,8 @@ describe('TriageSection — compact rows', () => {
   it('red late-work row: the submitted-day tag beside the name; an inline primary Refer button', async () => {
     renderSection();
     const row = rowOf(within(await latePanel()).getByText('Ethan Wong'));
-    expect(within(row).getByRole('img', { name: 'day 11, limit day 8' })).toBeInTheDocument();
-    expect(row.querySelector('.triage-row__line')).toHaveTextContent('Ethan Wongsubmitted day 11');
+    expect(within(row).getByRole('img', { name: '10 school days' })).toBeInTheDocument();
+    expect(row.querySelector('.triage-row__line')).toHaveTextContent('Ethan Wongsubmitted 10 school days late');
     expect(row.querySelector('.triage-row__task')).toHaveTextContent(/^CP2$/);
     const refer = within(row.querySelector('.triage-row__actions')).getByRole('button', { name: 'Refer' });
     expect(refer).toHaveAttribute('title', 'Mark referred');
@@ -403,7 +403,7 @@ describe('TriageSection — compact rows', () => {
     });
     renderSection();
     const row = rowOf(within(await latePanel()).getByText('Aiden Li'));
-    expect(within(row).getByRole('img', { name: 'day 8, limit day 8' })).toHaveTextContent('8');
+    expect(within(row).getByRole('img', { name: '7 school days' })).toHaveTextContent('7');
     expect(within(row.querySelector('.triage-row__actions')).getByText('last day')).toBeInTheDocument();
     expect(within(row).queryByText(/left/)).not.toBeInTheDocument();
     expect(within(row).queryByRole('button', { name: 'Refer' })).not.toBeInTheDocument();
@@ -411,17 +411,17 @@ describe('TriageSection — compact rows', () => {
 
   it('short subtitles in the rail', async () => {
     renderSection();
-    expect(within(await makeUpPanel()).getByText('test day = day 1 · sit by day 3')).toBeInTheDocument();
-    expect(within(await latePanel()).getByText('due date = day 1 · refer after day 8')).toBeInTheDocument();
+    expect(within(await makeUpPanel()).getByText('school days since the test · sit within 2')).toBeInTheDocument();
+    expect(within(await latePanel()).getByText('school days late · refer at 8')).toBeInTheDocument();
     const panel = await screen.findByLabelText('Feedback owed');
-    expect(within(panel).getByText('day 1 = due date (or a late submission) · overdue after day 10')).toBeInTheDocument();
+    expect(within(panel).getByText('school days waiting · overdue at 10')).toBeInTheDocument();
   });
 
   it('feedback row: ring, then title (link, full-text title) / course, then the count right-aligned as "X/Y"', async () => {
     renderSection();
     const panel = await screen.findByLabelText('Feedback owed');
     const row = rowOf(within(panel).getByText('Model Card'));
-    expect(row.firstElementChild).toHaveAttribute('aria-label', 'day 12, limit day 10');
+    expect(row.firstElementChild).toHaveAttribute('aria-label', '11 school days');
     const lines = [...textOf(row).children];
     expect(lines.map((el) => el.className)).toEqual(['triage-row__line', 'triage-row__course']);
     const title = within(lines[0]).getByRole('link', { name: 'Model Card' });
@@ -445,7 +445,7 @@ describe('TriageSection — compact rows', () => {
   it('make-up row: ring, three lines; the action column stacks Extend above Ignore this test', async () => {
     renderSection();
     const row = rowOf(within(await makeUpPanel()).getByText('Noah Park'));
-    expect(row.firstElementChild).toHaveAttribute('aria-label', 'day 4, limit day 4');
+    expect(row.firstElementChild).toHaveAttribute('aria-label', '3 school days');
     expect([...textOf(row).children].map((el) => el.textContent)).toEqual(['Noah Park', '[BK 3] AP CSP', 'Unit 1 test']);
     const actions = row.querySelector('.triage-row__actions');
     expect([...actions.children].map((el) => el.textContent)).toEqual(['Extend', 'Ignore this test']);
@@ -570,11 +570,11 @@ describe('TriageSection — make-up tests', () => {
     renderSection();
     const panel = await makeUpPanel();
     expect(within(panel).getByText('1 overdue')).toHaveClass('badge-red');
-    expect(within(panel).getByText('test day = day 1 · sit by day 3')).toBeInTheDocument();
+    expect(within(panel).getByText('school days since the test · sit within 2')).toBeInTheDocument();
     expect(within(panel).getByText('[BK 3] AP CSP')).toBeInTheDocument();
     expect(within(panel).getByText('Noah Park')).toBeInTheDocument();
     expect(within(panel).getByText('Unit 1 test')).toBeInTheDocument();
-    expect(within(panel).getByRole('img', { name: 'day 4, limit day 4' })).toBeInTheDocument();
+    expect(within(panel).getByRole('img', { name: '3 school days' })).toBeInTheDocument();
     expect(within(panel).getByText('ext +2 → 20/10/2026')).toBeInTheDocument();
     expect(within(panel).getAllByText('Extend')).toHaveLength(2); // visible on every row, no expand needed
     expect(within(panel).queryByRole('button', { name: 'Refer' })).not.toBeInTheDocument();

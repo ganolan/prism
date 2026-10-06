@@ -177,28 +177,30 @@ export default function SettingsPage() {
       <section className="card settings-section">
         <h3>Triage</h3>
         <p className="text-sm text-muted">
-          Counted in school days, numbered from the due date (or test date) as day 1. Applies to the Dashboard, course pages and PrisMCP.
+          Counted in school days after the due date (or test date). Applies to the Dashboard, course pages and PrisMCP.
         </p>
         <div className="settings-row">
-          <span>Late work is allowed through day</span>
-          <NumberStepper value={triage.referralLimitDays} min={1} max={60} onChange={(v) => save({ referralLimitDays: v })} aria-label="Referral limit (last allowed day)" />
-          <span className="text-sm text-muted">(due date = day 1); refer after day {triage.referralLimitDays}</span>
+          <span>Refer late work at</span>
+          <NumberStepper value={triage.referralLimitDays} min={1} max={60} onChange={(v) => save({ referralLimitDays: v })} aria-label="Referral limit (school days late)" />
+          <span>school days late</span>
         </div>
         <div className="settings-row">
-          <span>Feedback is overdue after day</span>
-          <NumberStepper value={triage.feedbackLimitDays} min={1} max={60} onChange={(v) => save({ feedbackLimitDays: v })} aria-label="Feedback limit (last allowed day)" />
+          <span>Feedback is overdue at</span>
+          <NumberStepper value={triage.feedbackLimitDays} min={1} max={60} onChange={(v) => save({ feedbackLimitDays: v })} aria-label="Feedback limit (school days waiting)" />
+          <span>school days waiting</span>
         </div>
         <div className="settings-row">
-          <span>Amber warning covers the last</span>
+          <span>Amber warning starts</span>
           <NumberStepper value={triage.warnLeadDays} min={0} max={59} onChange={(v) => save({ warnLeadDays: v })} aria-label="Warning lead (school days)" />
-          <span>allowed days</span>
+          <span>school days before each limit</span>
         </div>
         <div className="settings-row">
-          <span>Make-up tests turn amber on day</span>
-          <NumberStepper value={triage.makeUpAmberDay} min={1} max={triage.makeUpRedDay} onChange={(v) => save({ makeUpAmberDay: v })} aria-label="Make-up amber (day)" />
-          <span>and red on day</span>
-          <NumberStepper value={triage.makeUpRedDay} min={2} max={31} onChange={(v) => save({ makeUpRedDay: v })} aria-label="Make-up red (day)" />
-          <span className="text-sm text-muted">(test day = day 1)</span>
+          {/* Stored as day numbers (test day = day 1); shown as school days after the test. */}
+          <span>Make-up tests turn amber</span>
+          <NumberStepper value={triage.makeUpAmberDay - 1} min={0} max={triage.makeUpRedDay - 1} onChange={(v) => save({ makeUpAmberDay: v + 1 })} aria-label="Make-up amber (school days after the test)" />
+          <span>and red</span>
+          <NumberStepper value={triage.makeUpRedDay - 1} min={1} max={30} onChange={(v) => save({ makeUpRedDay: v + 1 })} aria-label="Make-up red (school days after the test)" />
+          <span>school days after the test</span>
         </div>
         <div className="settings-row">
           <span>Resubmission deadline (default)</span>

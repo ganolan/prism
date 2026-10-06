@@ -45,7 +45,7 @@ export default function ResubmissionsPanel({
         <EmailMenu kind="resubmissions" rows={rows} showCourse={showCourse} />
         <ShowAllToggle total={rows.length} showAll={showAll} onToggle={toggleShowAll} />
       </PanelHead>
-      <p className="triage-panel__sub">asked = day 1 · regrade by day {settings.feedbackLimitDays}</p>
+      <p className="triage-panel__sub">school days since asked or arrived · regrade overdue at {settings.feedbackLimitDays}</p>
       {rows.length === 0 && <p className="text-sm text-muted">All caught up.</p>}
       {limitRows(rows, showAll).map((r) => {
         const k = key(r);

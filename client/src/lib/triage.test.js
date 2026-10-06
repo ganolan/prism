@@ -69,7 +69,7 @@ describe('courseTriageSummary — resubmissions', () => {
 describe('courseRedLine', () => {
   it('joins red-only segments with middle dots, in order: at limit, make-ups, resubmissions, feedback', () => {
     const summary = { atLimit: 2, redMakeUps: 1, redResubmissions: 5, feedbackRed: true, toGrade: 5, oldestDay: 16 };
-    expect(courseRedLine(summary)).toBe('2 at limit · 1 make-up · 5 resubmissions · 5 to grade · day 16');
+    expect(courseRedLine(summary)).toBe('2 at limit · 1 make-up · 5 resubmissions · 5 to grade · 15 school days waiting');
   });
 
   it('singularises make-up and resubmission at 1, pluralises above 1', () => {
@@ -80,7 +80,7 @@ describe('courseRedLine', () => {
   });
 
   it('includes the feedback segment only when feedbackRed is true, using toGrade and oldestDay', () => {
-    expect(courseRedLine({ atLimit: 0, redMakeUps: 0, redResubmissions: 0, feedbackRed: true, toGrade: 7, oldestDay: 9 })).toBe('7 to grade · day 9');
+    expect(courseRedLine({ atLimit: 0, redMakeUps: 0, redResubmissions: 0, feedbackRed: true, toGrade: 7, oldestDay: 9 })).toBe('7 to grade · 8 school days waiting');
     expect(courseRedLine({ atLimit: 0, redMakeUps: 0, redResubmissions: 0, feedbackRed: false, toGrade: 7, oldestDay: 9 })).toBe('');
   });
 

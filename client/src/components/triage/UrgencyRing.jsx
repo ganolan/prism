@@ -14,7 +14,7 @@ export default function UrgencyRing({ day, limit, tone, approx = false, size = 4
     <span
       className={`urgency-ring urgency-ring--${tone}${size < 40 ? ' urgency-ring--sm' : ''}`}
       style={{ '--ring-size': `${size}px` }}
-      role="img" aria-label={`day ${day}, limit day ${limit}`}
+      role="img" aria-label={`${day - 1} school day${day - 1 === 1 ? '' : 's'}`}
     >
       <svg viewBox="0 0 40 40" width={size} height={size} aria-hidden="true">
         <circle className="urgency-ring__track" cx="20" cy="20" r={R} />
@@ -24,7 +24,7 @@ export default function UrgencyRing({ day, limit, tone, approx = false, size = 4
         />
       </svg>
       <span className="urgency-ring__days">
-        {day}{approx && <abbr title={APPROX_TITLE}>≈</abbr>}
+        {day - 1}{approx && <abbr title={APPROX_TITLE}>≈</abbr>}
       </span>
     </span>
   );

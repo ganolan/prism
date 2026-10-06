@@ -40,8 +40,11 @@ touches them — they are **import-once**.
 - **School day** — a teaching day in the PowerSchool calendar (`school_days`: in session *and* a cycle day).
   **Every Prism clock counts school days**: late work / referral, feedback owed, make-ups, extensions and
   resubmission deadlines.
-- **Day N** — a position on that clock: the due date (or extended date, test date, ask date) is **day 1**;
-  the referral limit (8) is the **last allowed day**; red from day 9. Used for nothing else.
+- **School days late / waiting / since** — what every screen shows: the distance from the due date (or
+  extended date, test date, ask date). "Refer at 8 school days late", "feedback overdue at 10 school days
+  waiting". **Never "day N" in the UI** (2026-10-07): the timetable numbers its 8-day cycle 1-8, so "day 5"
+  read as cycle day 5. Internally rows still carry `day` = a clock position with the due date = day 1, so
+  school days late = `day - 1`; the stored limits (8, 10) are the same numbers the screens show.
 - **Lesson** — a meeting of one class (`class_meetings`, from PowerSchool's bell schedules). Only ever a
   *hint* next to a school-day deadline ("3 lessons from today"); never a unit Prism counts or stores.
   The API/DB field `lessons` on extensions and resubmissions is historical: it holds **school days**.

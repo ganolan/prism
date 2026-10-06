@@ -125,7 +125,7 @@ export default function ReferralHistory({ mode = 'late', courseId, version = 0, 
             <div className="triage-row__task" title={r.title}>{r.title}</div>
           </div>
           <div className="triage-row__actions">
-            {r.kind === 'referral' && <span className="badge badge-red">Referred · day {r.day}</span>}
+            {r.kind === 'referral' && <span className="badge badge-red">Referred · {r.day - 1} school day{r.day - 1 === 1 ? '' : 's'} late</span>}
             {r.kind === 'extension' && <span className="badge badge-gray">Extended +{r.lessons} → {formatDate(`${r.until}T00:00:00`)}</span>}
             {r.kind === 'resubmission' && <span className="badge badge-resubmit">{resubLabel(r)}</span>}
             <span className="text-sm text-muted">{recordedOn(r)}{extraText(r) ? `: ${extraText(r)}` : ''}</span>

@@ -1386,7 +1386,7 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
                   {waits[a.schoology_assignment_id] && (() => {
                     const w = waits[a.schoology_assignment_id];
                     return (
-                      <span className="triage-wait" title={`Oldest wait: school day ${w.day} (day 1 = due date, or a late submission); overdue after day ${feedbackLimit}`}>
+                      <span className="triage-wait" title={`Oldest wait: ${w.day - 1} school days since the due date (or a late submission); overdue at ${feedbackLimit}`}>
                         <UrgencyRing day={w.day} limit={feedbackLimit} tone={w.tone} approx={w.approx} />
                         <span className="text-sm">{w.owed}/{w.submittedTotal} ungraded</span>
                       </span>

@@ -12,6 +12,7 @@ import { resolveAssignmentId } from './idResolvers.js';
 import { preferredFirstName } from './studentNames.js';
 import { resubmissionByStudent } from './resubmissions.js';
 import { teacherText } from '../lib/statusLines.js';
+import { timelineContext, agentTimeline } from './submissionTimeline.js';
 
 // Epoch-seconds → ISO string (null when 0/missing). Mirrors the list_assignments
 // timestamp convention so agents get a parseable submission time.
@@ -115,6 +116,7 @@ export function getGradeMetaRows(db, assignmentSchoologyId) {
     SELECT s.id AS student_id, s.schoology_uid, g.score, g.submitted_at, g.latest_revision_at,
            g.grade_comment, g.exception, g.comment_status,
            g.lti_submission_state, g.submission_type, g.late, g.draft,
+           g.first_submitted_at, g.test_attempt,
            sl.line AS stored_line
     FROM grades g
     JOIN students s ON s.id = g.student_id
@@ -240,6 +242,7 @@ export function getAssessmentContext(db, { assignmentId }) {
 
   const metaByUid = {};
   for (const g of getGradeMetaRows(db, schoolyId)) metaByUid[g.schoology_uid] = g;
+  const timelines = timelineContext(db, { courseId });
 
   const students = roster.map((st) => {
     const meta = metaByUid[st.schoology_uid] || {};
@@ -292,6 +295,12 @@ export function getAssessmentContext(db, { assignmentId }) {
         const r = resubmissions.get(st.id);
         return r ? { state: r.state, deadline: r.request?.until ?? null, source: r.request?.source ?? null } : null;
       })(),
+      // The full submission picture (as on the /assessment/ card): due + extension,
+      // first/latest submission, late (against any extension) and its clock day,
+      // the clock day it is missing on, resubmission ask/arrival, referral.
+      submission_timeline: agentTimeline(timelines.timeline(
+        assignmentRow, st.id, metaByUid[st.schoology_uid] || null, resubmissions.get(st.id) || null,
+      )),
       existing_suggestion: sug
         ? {
             status: sug.status,

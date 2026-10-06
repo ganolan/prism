@@ -40,3 +40,17 @@ describe('GET /api/students/:id — resubmitted follows arrivedKeys', () => {
     expect(await resubmitted()).toBe(false);
   });
 });
+
+describe('GET /api/students/:id — submission timeline per assignment', () => {
+  test('each assignment row carries the timeline (late day from the stored first submission)', async () => {
+    const db = getDb();
+    db.exec('DELETE FROM school_days;');
+    db.prepare(`UPDATE assignments SET due_date = '2026-10-06 15:00:00', is_lti_submission = 1, accepts_submissions = 1 WHERE id = ?`).run(assignmentId);
+    const first = Math.floor(new Date('2026-10-08T09:00:00').getTime() / 1000); // weekday fallback: 07 = day 2, 08 = day 3
+    db.prepare(`UPDATE grades SET lti_submission_state = 'submitted', first_submitted_at = ?, late = 1`).run(first);
+
+    const { body } = await get(`/api/students/${studentId}`);
+    const row = body.grades.find((g) => g.assignment_id === assignmentId);
+    expect(row.timeline).toMatchObject({ due: { date: '2026-10-06' }, submission: { state: 'submitted', late: true, day: 3 } });
+  });
+});

@@ -6,6 +6,7 @@
 import { todayLocal } from '../lib/schoolDays.js';
 import { currentCourses, roster, ALIGNED_SQL, fullName } from './triageCommon.js';
 import { assignmentFacts, studentState, tracksSubmissions } from './triage.js';
+import { timelineContext, agentTimeline } from './submissionTimeline.js';
 
 function assignmentsForCourse(db, courseId, assignmentId) {
   return db.prepare(`
@@ -70,6 +71,7 @@ export function getSubmissionStatus(db, {
 
   for (const c of courses) {
     const courseStudents = roster(db, c.id);
+    const timelines = timelineContext(db, { courseId: c.id, today });
     const courseFields = { courseId: c.id, courseName: c.course_name, blockNumber: c.block_number ?? null };
 
     for (const a of assignmentsForCourse(db, c.id, assignmentId)) {
@@ -104,6 +106,7 @@ export function getSubmissionStatus(db, {
           assignmentId: a.id, schoologyAssignmentId: a.schoology_assignment_id, title: a.title,
           ...courseFields, dueDate: due, pastDue, summative: !!a.aligned, kind: kindOf(a),
           status: itemKind, owing, late, scored: s.scored, exception: g.exception != null ? Number(g.exception) : null,
+          timeline: agentTimeline(timelines.timeline(a, st.id, facts.gradeByStudent.get(st.id) || null)),
         });
       }
     }

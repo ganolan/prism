@@ -777,6 +777,13 @@ button.btn-sm { padding: 0.3rem 0.65rem; font-size: 0.78rem; }
   color: white;
   outline: none;
 }
+/* Submission timeline (assessment card, rubric modal): one wrapping row of short
+   facts, separated by a middle dot; late = warning text, past the limit = danger. */
+.submission-timeline { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem 0; font-size: 0.78rem; color: var(--text-muted); }
+.submission-timeline__part + .submission-timeline__part::before { content: '·'; margin: 0 0.5rem; color: var(--text-muted); font-weight: 400; }
+.submission-timeline__part--late { color: var(--warning); font-weight: 600; }
+.submission-timeline__part--over { color: var(--danger); font-weight: 600; }
+.submission-timeline .help-dot { margin-left: 0.5rem; }
 .help-pop {
   position: fixed;
   transform: translateX(-50%);

@@ -1175,3 +1175,19 @@ Why: a red late-work row used to show once as a strip tile, once as a card chip,
 ## Single theme: Midnight and Ocean removed (2026-10-04, #133)
 
 Prism now has exactly one palette, defined directly in `:root` in `client/src/app.css` — no `[data-theme="..."]` selector, no switcher, no `useTheme` hook. Midnight (dark mode) and Ocean (teal/blue) are gone: maintaining three palettes meant checking every visual decision against three sets of colours, and only the Prism purple/pink palette was in use. One palette to tune.
+
+## One clock, one word: "day N" is always school days (October 2026)
+
+Teachers were reading triage's "lessons" (extensions, resubmission deadlines) as a different unit from its "day N" (late work, feedback), because two words were in use for the same school-day count. The rule now:
+
+- **"Day N" always means the triage clock:** school days, the due date (or extended date) = day 1, day 8 (the referral limit) the last allowed day. Nothing else in the UI is numbered "day".
+- **Deadlines say "school days"** wherever a number is picked or shown (Extend, Ask to resubmit, Settings, the student-facing extension line). The word "lessons" is never used as a unit.
+- **"Lesson" means a class meeting, and only appears as a hint:** under every deadline stepper, `LessonHint` shows where the count lands in the class's own timetable, "→ Thu 15/10 · 3 lessons from today", with **Next lesson / 2 lessons** picks that set the school-day number. The date is the anchor; the count is secondary.
+- **Explain once, on hover:** one `HelpDot` per surface ("Day 1 is the due date (or the extended date). Days are school days. Day 8 is the last day to submit; after it, work is referred."), not more text. On a table, one dot in the header, not one per row.
+
+## Submission timeline row (October 2026)
+
+The full submission picture in one compact, wrapping row of short facts (`SubmissionTimeline`, `.submission-timeline`): due (+ extension), submitted when and how late ("day 4, late"; "day 1, 42 min late"), or "Not submitted · day 6" if missing, then resubmission asked / arrived, referral. Parts are separated by a CSS middle dot; late text is `var(--warning)`, past the limit `var(--danger)`; nothing renders for facts that don't apply. Same words everywhere because one formatter (`client/src/lib/submissionTimeline.js`) builds them: the /assessment/ card (under the header, aligned past the avatar), the gradebook rubric modal, the student page (per assignment, replacing the raw "Due:" text). In the gradebook grid it is the cell's hover text, and graded late work keeps a small **L** (submission badges otherwise vanish once a cell is scored).
+
+`HelpDot` (`client/src/components/HelpDot.jsx`) is now the component form of `.help-dot` + `.help-pop`.
+

@@ -427,3 +427,18 @@ describe('getAssessmentContext — reviewer_flags_brief', () => {
     expect(getAssessmentContext(db, { assignmentId: 'sa-1' }).students[0].existing_suggestion.reviewer_flags_brief).toEqual(['Short']);
   });
 });
+
+describe('getAssessmentContext - submission timeline', () => {
+  test('each student carries the submission timeline (as on the card)', () => {
+    const db = getDb();
+    const { courseId, assignmentId } = seedContext(db);
+    db.prepare(`UPDATE assignments SET due_date = '2026-10-05 15:30:00', is_lti_submission = 1, accepts_submissions = 1 WHERE id = ?`).run(assignmentId);
+    db.prepare(`UPDATE grades SET lti_submission_state = 'submitted', first_submitted_at = ?`).run(Math.floor(new Date('2026-10-05T14:00:00').getTime() / 1000));
+    const ctx = getAssessmentContext(db, { courseId, assignmentId: 'sa-1' });
+    expect(ctx.students[0].submission_timeline).toMatchObject({
+      due: { date: '2026-10-05', time: '15:30' },
+      submission: { state: 'submitted', late: false },
+    });
+    expect(ctx.students[0].submission_timeline.submission.firstSubmittedAt).toMatch(/^2026-10-05T/);
+  });
+});

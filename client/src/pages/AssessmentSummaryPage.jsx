@@ -14,13 +14,14 @@ import RubricManagerModal from '../components/RubricManagerModal.jsx';
 import AiSparkle from '../components/AiSparkle.jsx';
 import SchoologyLink from '../components/SchoologyLink.jsx';
 import SubmissionStatusPill from '../components/SubmissionStatusPill.jsx';
+import SubmissionTimeline from '../components/SubmissionTimeline.jsx';
 import ScaleLevelPicker from '../components/ScaleLevelPicker.jsx';
 import AssessmentFilterBar from '../components/AssessmentFilterBar.jsx';
 import { passesFilters } from '../lib/assessmentFilters.js';
 import { useStickyTab } from '../hooks/useStickyTab.js';
 import { formatDateTime } from '../lib/formatDate.js';
 import { briefFlags, textSignature } from '../lib/reviewerFlags.js';
-import { receivedLine, composeComment } from '../lib/statusLines.js';
+import { receivedLine, composeComment, lineDate } from '../lib/statusLines.js';
 
 const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
 // Suggestion accent — fuchsia CSS tokens (matches descriptor grid's --ai-suggest).
@@ -1017,8 +1018,19 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             {exceptionLabel}, rubric locked
           </span>
         )}
+        {student.exception === 4 && (
+          <span className="badge badge-amber" style={{ fontSize: '0.68rem' }}>Marked late in Schoology</span>
+        )}
         </div>
       </div>
+
+      {/* The full submission picture: due / extension, submitted when and how late
+          (or the clock day it is missing on), resubmission, referral. */}
+      {student.timeline && (
+        <div style={{ padding: '0.45rem 1rem 0', paddingLeft: 'calc(1rem + 70px + 0.75rem)' }}>
+          <SubmissionTimeline timeline={student.timeline} />
+        </div>
+      )}
 
       {/* Rubric grid */}
       <div style={{
@@ -1976,6 +1988,7 @@ export default function AssessmentSummaryPage() {
         </h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
           <p className="text-sm text-muted" style={{ margin: 0 }}>
+            {assignment.due_date ? `Due ${lineDate(assignment.due_date.slice(0, 10))} ${assignment.due_date.slice(11, 16)} · ` : ''}
             {students.length} students · {scoreScale ? scoreScale.name : `${alignedTopics.length} measurement topics`}
           </p>
           {/* Jump straight to this assignment's Schoology page (#76). Hidden when

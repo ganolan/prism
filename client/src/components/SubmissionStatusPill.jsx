@@ -16,7 +16,8 @@ export default function SubmissionStatusPill({ student, assignment }) {
   const badges = submissionStatus({
     score: null,
     exception: student.exception ?? 0,
-    late: student.late,
+    // The timeline's lateness counts a Prism extension; Schoology's flag doesn't.
+    late: student.timeline?.submission?.late ?? student.late,
     draft: student.draft,
     submitted_at: student.submitted_at,
     submission_type: student.submission_type,

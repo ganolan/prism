@@ -430,3 +430,18 @@ describe('dropped students are hidden from course reads (#128)', () => {
     expect(body.find(c => c.id === courseId).student_count).toBe(1);
   });
 });
+
+describe('GET /api/courses/:id/gradebook — submission timelines', () => {
+  test('every shown cell has a timeline, including a student with no grade row', async () => {
+    const db = getDb();
+    db.exec('DELETE FROM extensions; DELETE FROM referrals;');
+    db.prepare(`UPDATE assignments SET due_date = '2026-01-05 15:00:00', accepts_submissions = 1, is_lti_submission = 0 WHERE id = ?`).run(assignmentId);
+    const other = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-2', 'Bo', 'Bell')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'enr-2')`).run(other, courseId);
+
+    const { body } = await get(`/api/courses/${courseId}/gradebook`);
+    expect(body.timelines[studentId][assignmentId]).toMatchObject({ due: { date: '2026-01-05' } });
+    expect(body.timelines[other][assignmentId]).toMatchObject({ submission: { state: 'not_submitted' } });
+    expect(body.timelines[other][assignmentId].overdue.day).toBeGreaterThan(1);
+  });
+});

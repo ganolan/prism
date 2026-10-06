@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 import AssessmentSummaryPage, { StudentRubricCard } from './AssessmentSummaryPage.jsx';
@@ -2016,5 +2016,31 @@ describe('StudentRubricCard — a status-line action keeps the comment in step (
     await screen.findByLabelText('Their comment will read');
     fireEvent.click(screen.getAllByRole('button', { name: 'Undo' }).at(-1));
     await waitFor(() => expect(box()).toHaveValue('Good start. Edited.'));
+  });
+});
+
+describe('StudentRubricCard — submission timeline', () => {
+  const timeline = {
+    due: { date: '2026-10-06', time: '15:00' }, extension: null, deadline: '2026-10-06',
+    submission: { state: 'submitted', firstAt: Math.floor(new Date('2026-10-12T09:00:00').getTime() / 1000), latestAt: null, late: true, day: 4, lateMinutes: null, schoologyLate: true },
+    overdue: null, resubmission: null, referral: null, limit: 8,
+  };
+
+  it('shows when the work came in and how late, with the clock explained on the "?"', () => {
+    renderCard({ student: { ...makeStudent(), timeline } });
+    const row = screen.getByTestId('submission-timeline');
+    expect(row).toHaveTextContent('Due Tue 06/10 15:00');
+    expect(row).toHaveTextContent('Submitted Mon 12/10 09:00 · day 4, late');
+    expect(within(row).getByRole('img', { name: /Day 1 is the due date/ })).toBeInTheDocument();
+  });
+
+  it('a Late exception from Schoology is shown on the card', () => {
+    renderCard({ student: { ...makeStudent(), exception: 4 } });
+    expect(screen.getByText('Marked late in Schoology')).toBeInTheDocument();
+  });
+
+  it('no timeline, no row', () => {
+    renderCard();
+    expect(screen.queryByTestId('submission-timeline')).not.toBeInTheDocument();
   });
 });

@@ -215,6 +215,28 @@ Note **not every period is a numbered "Block N"**: PCG → "Pastoral Care", Inte
 
 **Resolving Schoology section → `sectionDcid` for the sync** (verified 2026-06-08, probe `scripts/probe-ps-sectiondcid.js`): an authenticated `context.request.get(<LTI run URL>)` returns the launch-form HTML (HTTP 200, `text/html`, no JS redirect) — regex `name="custom_sectiondcid" value="(\d+)"`. Empty value = template/master course (skip). This is a **Schoology** fetch (carries the Schoology session cookie); it does not need the PowerSchool session.
 
+### Which days a class meets (its lessons): `calenderDays[d].bellScheduleId` ∈ the section's `bellScheduleItems[].bellScheduleId` (verified 2026-10-06)
+
+**A section's own `calenderDays` do NOT mark its meeting days.** They span the section's whole term: every
+school day in it (`inSession` + `cycleDay`) is listed. Observed for all 9 active sections on 2026-10-06
+(`scripts/probe-section-meeting-days.js`, read-only): full-year sections 165 school days
+(`{"A":85,"B":80}`), semester sections 76 or 89. Comparing sections' school-day sets: identical within a term.
+The `expression` (`"1(A-B)"`) and `sectionMeetings` (`[{ periodNumber: 1, cycleDayLetter: "A", meeting: "1(A)" },
+{ …"B"… }]`) say "meets on A and B days", i.e. also every day, so neither identifies lessons either.
+
+**The bell schedule does.** Every `calenderDays` entry carries a `bellScheduleId` (day keys observed: `dcid, id,
+schoolId, date, scheduleId, a…f, inSession, membershipValue, note, type, cycleDayId, cycleDay, bellScheduleId,
+weekNumber, ipAddress`), and `section_info.bellScheduleItems` lists ONLY the bell schedules that contain the
+section's period (item keys: `dcid, id, bellScheduleId, bellSchedule, periodId, period, dayPartId, dayPart,
+startTime, endTime, minutesAttended, adaCode, dailyAttendanceCode`; `bellSchedule.name` e.g. `"PCG Day 1 "`; every
+item's `periodId` is the single key of `periodIdToPsmPeriodIdMap`). So: **meets on date d ⇔ d is a school day and
+`calenderDays[d].bellScheduleId` is one of the items' `bellScheduleId`s.** That gives each class about half the school
+days (observed meeting/school days: 44/89 and 45/89, 38/76, 82/165 and 83/165), alternating day by day: e.g. Block 1/5/7 meet
+Tue 06, Thu 08, Mon 12, Wed 14, Fri 16 Oct 2026 and Blocks 2/6 on Mon 05, Wed 07, Fri 09, Tue 13, Thu 15.
+**Teacher confirmed the derived two-week table matches the real timetable (2026-10-06).** PCG (advisory) has an
+irregular pattern. Implemented as `extractMeetingDates` (`server/lib/psCalendar.js`), stored per course in
+`class_meetings` on every block sync; used only for "N lessons from today" hints (all clocks count school days).
+
 ### Step 3 — Fetch the roster with grade level
 
 ```

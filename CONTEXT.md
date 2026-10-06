@@ -35,6 +35,17 @@ touches them — they are **import-once**.
   preference is a deferred follow-up (would want a shared `formatDate` helper that
   all dates funnel through — formatting is currently scattered).
 
+### School days, lessons and "day N" (triage clock)
+
+- **School day** — a teaching day in the PowerSchool calendar (`school_days`: in session *and* a cycle day).
+  **Every Prism clock counts school days**: late work / referral, feedback owed, make-ups, extensions and
+  resubmission deadlines.
+- **Day N** — a position on that clock: the due date (or extended date, test date, ask date) is **day 1**;
+  the referral limit (8) is the **last allowed day**; red from day 9. Used for nothing else.
+- **Lesson** — a meeting of one class (`class_meetings`, from PowerSchool's bell schedules). Only ever a
+  *hint* next to a school-day deadline ("3 lessons from today"); never a unit Prism counts or stores.
+  The API/DB field `lessons` on extensions and resubmissions is historical: it holds **school days**.
+
 ### Proficiency levels (standards-based grading)
 
 The five HKIS General Academic Scale levels and their codes, ordered best → worst:

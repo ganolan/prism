@@ -376,6 +376,17 @@ explicit request; descriptions say so.
     day 2 amber, day 4 red. The make-up settings became day numbers (`makeUpAmberDay` 2 /
     `makeUpRedDay` 4), converted once from the old keys (+1).
 
+13. **One unit, said one way; lesson hints** (2026-10-06, teacher-confirmed). Every clock stays in
+    school days (the 8-day cycle: due = day 1, last allowed day 8, red on day 9); the teacher confirmed
+    this is the policy and that one clock is easier to hold than two. "Lessons" as a unit is retired from
+    the UI: Extend / Ask to resubmit / Settings / the extension status line say "school days" (the
+    `lessons` field keeps its name, holding school days). Because teachers still think in class meetings,
+    each sync now stores every class's meeting dates (`class_meetings`; see
+    `.claude/powerschool-api-reference.md` "Which days a class meets") and every deadline stepper shows a
+    hint, "→ Thu 15/10 · 3 lessons from today", with Next lesson / 2 lessons picks that set the school-day
+    count. Who is flagged, and when, is unchanged. The submission timeline (assessment cards, gradebook,
+    student page, PrisMCP) quotes the same clock: "Submitted Mon 12/10 09:00 · day 4, late".
+
 ## Out of scope (now)
 
 - Calendar import from a file (Master Plan / CSV) — the `schoolDays` interface allows adding it.

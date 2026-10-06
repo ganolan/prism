@@ -40,11 +40,14 @@ function dueProximity(due_date, today) {
   return 'early';
 }
 
-function ltiBadges(state, submission_type, due_date, today) {
+function ltiBadges(state, submission_type, due_date, today, late) {
   // GHD covered the cell but the document fetch didn't: trust "submitted".
   if (state == null && submission_type) state = 'submitted';
   const prox = dueProximity(due_date, today);
-  if (state === 'submitted') return [{ kind: 'submitted', label: 'Submitted', tone: 'green' }];
+  if (state === 'submitted') {
+    const submitted = { kind: 'submitted', label: 'Submitted', tone: 'green' };
+    return late ? [{ kind: 'late', label: 'Late', tone: 'red' }, submitted] : [submitted];
+  }
   if (state === 'in_progress') {
     return [{ kind: 'in-progress', label: 'In Progress', tone: prox === 'overdue' ? 'yellow' : 'blue' }];
   }
@@ -78,7 +81,7 @@ export function submissionStatus({ score, exception, late, draft, submitted_at, 
     return [{ kind: 'exception', label: exLabel, tone }];
   }
   if (score != null) return []; // graded — gradeLabel renders the score
-  if (is_lti_submission) return ltiBadges(lti_submission_state, submission_type, due_date, today);
+  if (is_lti_submission) return ltiBadges(lti_submission_state, submission_type, due_date, today, late);
   return nonLtiBadges({ submission_type, submitted_at, late, due_date, today });
 }
 

@@ -21,6 +21,8 @@ import CompactRubric from '../components/CompactRubric.jsx';
 import SubmissionBadges from '../components/SubmissionBadges.jsx';
 import SchoologyLink from '../components/SchoologyLink.jsx';
 import { formatDateTime } from '../lib/formatDate.js';
+import SubmissionTimeline from '../components/SubmissionTimeline.jsx';
+import { timelineSummary } from '../lib/submissionTimeline.js';
 
 const SHORT_BADGE = { late: 'L', draft: 'D', missing: 'M', 'not-started': 'NS', submitted: 'S', 'in-progress': 'IP' };
 const BADGE_TONE_CLASS = { red: 'badge-red', blue: 'badge-blue', amber: 'badge-pink', green: 'badge-green', yellow: 'badge-amber', neutral: 'badge-gray' };
@@ -617,7 +619,7 @@ function MiniRubricStrip({ topics, onClick }) {
 
 // Modal opened from a MiniRubricStrip — the full rubric grid (shared
 // CompactRubric) plus the overall comment, matching the /student/ page.
-export function RubricModal({ student, assignment, courseId, topics, comment, grade, onClose }) {
+export function RubricModal({ student, assignment, courseId, topics, comment, grade, timeline = null, onClose }) {
   const name = preferredFirstName(student);
   const fullName = `${name} ${student.last_name}`;
   // The student's own OneDrive copy (#120), looked up when the modal opens —
@@ -633,7 +635,7 @@ export function RubricModal({ student, assignment, courseId, topics, comment, gr
   }, [courseId, assignment.schoology_assignment_id, assignment.is_lti_submission, student.schoology_uid]);
   // Submission state + flags, shown above the rubric — matching the /student/ page.
   const status = submissionStatus({
-    score: grade.score, exception: grade.exception, late: grade.late,
+    score: grade.score, exception: grade.exception, late: timeline?.submission?.late ?? grade.late,
     draft: grade.draft, submitted_at: grade.submitted_at, submission_type: grade.submission_type,
     is_lti_submission: assignment.is_lti_submission, lti_submission_state: grade.lti_submission_state,
     due_date: assignment.due_date,
@@ -694,6 +696,9 @@ export function RubricModal({ student, assignment, courseId, topics, comment, gr
               )}
             </div>
           )}
+          {/* The full submission picture (due, extension, submitted when and how late,
+              resubmission, referral), same as the /assessment/ card. */}
+          {timeline && <div style={{ marginBottom: '0.85rem' }}><SubmissionTimeline timeline={timeline} /></div>}
           <CompactRubric topics={topics} />
           {comment && (
             <div
@@ -837,7 +842,7 @@ export function GradebookView({ data, courseId, mastery }) {
     return <div className="card"><p className="text-muted">No assignments yet.</p></div>;
   }
 
-  const { assignments, students, grades, grading_scales } = data;
+  const { assignments, students, grades, grading_scales, timelines = {} } = data;
   const displayName = (s) => preferredFirstName(s);
 
   // #76: cell marker for an lti_submission assignment whose document fetch
@@ -1042,6 +1047,9 @@ export function GradebookView({ data, courseId, mastery }) {
                   );
                 }
                 const g = grades[s.id]?.[a.id];
+                // The full submission picture for this cell, as hover text (and the L).
+                const tl = timelines[s.id]?.[a.id] || null;
+                const tlText = timelineSummary(tl);
                 if (!g) {
                   // No grade row — for lti this means the document pass found no
                   // state (no session / not covered); for native dropbox, past-due
@@ -1055,9 +1063,9 @@ export function GradebookView({ data, courseId, mastery }) {
                     is_lti_submission: a.is_lti_submission, lti_submission_state: null,
                     due_date: a.due_date,
                   });
-                  if (!empty.length) return <td key={a.id} style={{ textAlign: 'center' }}>-</td>;
+                  if (!empty.length) return <td key={a.id} style={{ textAlign: 'center' }} title={tlText || undefined}>-</td>;
                   return (
-                    <td key={a.id} style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                    <td key={a.id} style={{ textAlign: 'center', whiteSpace: 'nowrap' }} title={tlText || undefined}>
                       {empty.map(b => (
                         <span key={b.kind} className={`badge ${BADGE_TONE_CLASS[b.tone]}`} style={{ fontSize: '0.55rem', marginLeft: 3 }} title={b.label}>
                           {SHORT_BADGE[b.kind] || b.label[0]}
@@ -1102,20 +1110,22 @@ export function GradebookView({ data, courseId, mastery }) {
                       topics={rubricTopics}
                       onClick={() => setRubricModal({
                         student: s, assignment: a, topics: rubricTopics,
-                        comment: g.grade_comment || '', grade: g,
+                        comment: g.grade_comment || '', grade: g, timeline: tl,
                       })}
                     />
                   : (c
                       ? <span style={{ background: c.headerFill, color: CELL_TEXT, border: `1px solid ${c.finalBorder}`, padding: '0.1rem 0.4rem', borderRadius: 4, fontWeight: 500, display: 'inline-block', minWidth: 24 }}>{text}</span>
                       : text);
                 const status = submissionStatus({
-                  score: g.score, exception: g.exception, late: g.late, draft: g.draft,
+                  score: g.score, exception: g.exception, late: tl?.submission?.late ?? g.late, draft: g.draft,
                   submitted_at: g.submitted_at, submission_type: g.submission_type,
                   is_lti_submission: a.is_lti_submission, lti_submission_state: g.lti_submission_state,
                   due_date: a.due_date,
                 });
                 // Don't double up exception text — gradeLabel already shows it.
                 const inlineBadges = status.filter(b => b.kind !== 'exception');
+                // Graded late work keeps its L (submissionStatus is empty once scored).
+                if (g.score != null && tl?.submission?.late) inlineBadges.push({ kind: 'late', label: 'Late', tone: 'red' });
                 // #76: an ungraded cell whose lti document fetch failed shows the
                 // re-sync marker in place of the pending dash.
                 const ltiUnavailable = ltiStatusUnavailable({
@@ -1129,10 +1139,11 @@ export function GradebookView({ data, courseId, mastery }) {
                   g.resubmit_requested ? 'Re-submit requested' : null,
                   g.resubmitted ? 'Resubmitted since last graded' : null,
                 ].filter(Boolean).join(' · ');
-                const cellTitle = signalTitle
-                  || (lbl.kind === 'mismatch'
-                      ? 'Score does not match any defined level on this grading scale: check Schoology'
-                      : '');
+                const cellTitle = [
+                  signalTitle,
+                  lbl.kind === 'mismatch' ? 'Score does not match any defined level on this grading scale: check Schoology' : '',
+                  tlText,
+                ].filter(Boolean).join('\n');
                 return (
                   <td
                     key={a.id}
@@ -1188,6 +1199,7 @@ export function GradebookView({ data, courseId, mastery }) {
         topics={rubricModal.topics}
         comment={rubricModal.comment}
         grade={rubricModal.grade}
+        timeline={rubricModal.timeline}
         onClose={() => setRubricModal(null)}
       />
     )}

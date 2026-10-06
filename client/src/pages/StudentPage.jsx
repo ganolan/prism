@@ -8,6 +8,9 @@ import {
 import MasteryPerformanceSummary from '../components/MasteryPerformanceSummary.jsx';
 import CompactRubric from '../components/CompactRubric.jsx';
 import SubmissionBadges from '../components/SubmissionBadges.jsx';
+import SubmissionTimeline from '../components/SubmissionTimeline.jsx';
+import HelpDot from '../components/HelpDot.jsx';
+import { CLOCK_HELP } from '../lib/submissionTimeline.js';
 import { LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
 import { gradeLabel, submissionStatus } from '../lib/gradeLabel.js';
 import { masteryCodeForLevel } from '../lib/masteryLevels.js';
@@ -97,7 +100,7 @@ export function CourseSection({ course, grades, flagsByAssignment, studentUid, s
           <table>
             <thead>
               <tr>
-                <th>Assignment</th>
+                <th>Assignment <HelpDot text={CLOCK_HELP(grades.find((g) => g.timeline)?.timeline.limit)} /></th>
                 <th>Score / Rubric</th>
               </tr>
             </thead>
@@ -109,7 +112,7 @@ export function CourseSection({ course, grades, flagsByAssignment, studentUid, s
                 const statusBadges = submissionStatus({
                   score: g.score,
                   exception: g.exception,
-                  late: g.late,
+                  late: g.timeline?.submission?.late ?? g.late,
                   draft: g.draft,
                   submitted_at: g.submitted_at,
                   submission_type: g.submission_type,
@@ -127,9 +130,12 @@ export function CourseSection({ course, grades, flagsByAssignment, studentUid, s
                         {g.assignment_title}
                       </Link>
                     </div>
-                    {/* Due + flags row */}
+                    {/* The submission picture (due, submitted when / how late, or the
+                        clock day it is missing on), then status + flags. */}
+                    {g.timeline
+                      ? <SubmissionTimeline timeline={g.timeline} help={false} />
+                      : <span className="text-xs text-muted">Due: {g.due_date || '-'}</span>}
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
-                      <span className="text-xs text-muted">Due: {g.due_date || '-'}</span>
                       <SubmissionBadges
                         status={statusBadges}
                         flags={assignmentFlags}

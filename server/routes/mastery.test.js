@@ -98,6 +98,30 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — review and res
     ).run(courseId).lastInsertRowid;
   });
 
+  test('each student carries the submission timeline (late day against an extension)', async () => {
+    const db = getDb();
+    db.exec("DELETE FROM extensions; DELETE FROM school_days;");
+    db.prepare(`UPDATE assignments SET due_date = '2026-10-06 15:00:00', is_lti_submission = 1, accepts_submissions = 1 WHERE id = ?`).run(assignmentInternalId);
+    // Weekday fallback calendar (no school_days): extended +1 → Wed 07/10; submitted Fri 09/10 = day 3.
+    db.prepare(`INSERT INTO extensions (student_id, assignment_id, course_id, lessons, note, source) VALUES (?, ?, ?, 1, NULL, 'app')`)
+      .run(studentId, assignmentInternalId, courseId);
+    const submittedAt = Math.floor(new Date('2026-10-09T10:00:00').getTime() / 1000);
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, lti_submission_state, first_submitted_at, latest_revision_at, late) VALUES (?, ?, 'submitted', ?, ?, 1)`)
+      .run(studentId, assignmentInternalId, submittedAt, submittedAt);
+
+    try {
+      const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
+      expect(body.students[0].timeline).toMatchObject({
+        due: { date: '2026-10-06', time: '15:00' },
+        extension: { schoolDays: 1, until: '2026-10-07' },
+        submission: { state: 'submitted', firstAt: submittedAt, late: true, day: 3, schoologyLate: true },
+        overdue: null,
+      });
+    } finally {
+      db.exec('DELETE FROM extensions;'); // references the course the next beforeEach deletes
+    }
+  });
+
   test('unsubmit_available: only OneDrive (LTI) work Prism last saw submitted (Phase 2)', async () => {
     const db = getDb();
     const grade = db.prepare(`INSERT INTO grades (student_id, assignment_id, lti_submission_state) VALUES (?, ?, 'submitted')`)

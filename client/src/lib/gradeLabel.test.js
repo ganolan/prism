@@ -10,6 +10,17 @@ const EARLY = new Date(Date.now() + 30 * 864e5).toISOString();
 const kinds = (badges) => badges.map((b) => b.kind);
 const tone = (badges, kind) => badges.find(b => b.kind === kind)?.tone;
 
+describe('submissionStatus: late OneDrive (LTI) work', () => {
+  it('a submitted-late LTI cell carries Late, like native work', () => {
+    expect(submissionStatus({ score: null, is_lti_submission: 1, lti_submission_state: 'submitted', late: true, due_date: '2026-01-01' }))
+      .toEqual([{ kind: 'late', label: 'Late', tone: 'red' }, { kind: 'submitted', label: 'Submitted', tone: 'green' }]);
+  });
+  it('late only matters once submitted', () => {
+    expect(submissionStatus({ score: null, is_lti_submission: 1, lti_submission_state: 'in_progress', late: true, due_date: null }).map((b) => b.kind))
+      .toEqual(['in-progress']);
+  });
+});
+
 describe('submissionStatus — lti true state (#62)', () => {
   const lti = (state, due) => submissionStatus({ score: null, is_lti_submission: 1, lti_submission_state: state, due_date: due });
 

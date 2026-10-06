@@ -15,6 +15,7 @@ import { matchFilesToRoster } from '../lib/oneDriveSubmissions.js';
 import { epochToLocalDate } from '../lib/schoolDays.js';
 import { sessionStatus, resetSessionStatusCache } from '../services/schoologySession.js';
 import { canUnsubmit } from '../services/ltiUnsubmit.js';
+import { timelineContext } from '../services/submissionTimeline.js';
 
 const router = Router();
 const syncsInProgress = new Set();
@@ -516,7 +517,9 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
   const submittedAtMap = {};
   const scoreValueMap = {};
   const revisionAtMap = {};
+  const gradeByUid = {};
   for (const c of gradeRows) {
+    gradeByUid[c.schoology_uid] = c;
     scoreValueMap[c.schoology_uid] = c.score ?? null;
     commentMap[c.schoology_uid] = c.grade_comment || '';
     exceptionMap[c.schoology_uid] = c.exception ?? 0;
@@ -560,6 +563,9 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
 
   // Triage resubmissions: open request (the card's pill) + derived state.
   const resubmissionMap = assignmentRow ? resubmissionByStudent(db, assignmentRow.id) : new Map();
+  // The full submission picture per student (due, extension, submitted when / how
+  // late, clock day if missing, resubmission, referral): the card's timeline row.
+  const timelines = assignmentRow ? timelineContext(db, { courseId: assignmentRow.course_id }) : null;
 
   // An unaligned assignment on a Schoology scale Prism can grade (#41) is one
   // plain gradebook grade: ship the scale (levels best → worst) and each
@@ -607,6 +613,7 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
         submitted_at: submittedAtMap[s.schoology_uid] ?? 0,
         score: scoreValueMap[s.schoology_uid] ?? null,
         scale_level: scoreScale ? levelForScore(scoreScale, scoreValueMap[s.schoology_uid]) : null,
+        timeline: timelines ? timelines.timeline(assignmentRow, s.id, gradeByUid[s.schoology_uid] || null, resubmission) : null,
       };
     }),
   });

@@ -329,3 +329,19 @@ describe('getSubmissionStatus - email projection', () => {
     expect(r.counts.items).toBe(3);
   });
 });
+
+describe('getSubmissionStatus - timeline per item', () => {
+  test('a late submission carries its clock day and ISO submission time; missing work its overdue day', () => {
+    db.exec('DELETE FROM school_days;'); // weekday fallback calendar
+    const ada = student('u1', 'Ada', 'Lin');
+    const bo = student('u2', 'Bo', 'Bell');
+    const id = assignment('a1', 'Essay', '2026-10-05', { accepts: 1 }); // due Mon 05/10 15:30
+    const first = Math.floor(new Date('2026-10-07T09:00:00').getTime() / 1000); // Wed = day 3
+    grade(ada, id, { submission_type: 'drop', late: 1, first_submitted_at: first });
+
+    const items = Object.fromEntries(getSubmissionStatus(db, { today: TODAY, status: 'all', courseId }).students
+      .map((s) => [s.studentName, s.items[0].timeline]));
+    expect(items['Ada Lin'].submission).toMatchObject({ state: 'submitted', late: true, day: 3, firstSubmittedAt: new Date(first * 1000).toISOString() });
+    expect(items['Bo Bell']).toMatchObject({ submission: { state: 'not_submitted' }, overdue: { day: 10, overLimit: true } }); // Fri 16/10 = day 10
+  });
+});

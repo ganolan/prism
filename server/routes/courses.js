@@ -8,6 +8,7 @@ import { getArchivedSections } from '../services/archivedCourses.js';
 import { syncPsAttendance } from '../services/psAttendanceSync.js';
 import { getSchoologyConfig } from '../middleware/featureGate.js';
 import { toSchoologyWebUrl } from '../lib/schoologyWebUrl.js';
+import { timelineContext } from '../services/submissionTimeline.js';
 
 const router = Router();
 
@@ -159,7 +160,7 @@ router.get('/:id/gradebook', (req, res) => {
   const assignments = db.prepare(`
     SELECT a.id, a.title, a.max_points, a.due_date, a.grading_category_id, a.grading_scale_id, a.folder_id,
            a.schoology_assignment_id, a.num_assignees, a.is_lti_submission, a.web_url, a.lti_fetch_status,
-           a.is_test, a.makeup_ignored,
+           a.is_test, a.makeup_ignored, a.accepts_submissions,
            CASE WHEN EXISTS (
              SELECT 1 FROM mastery_alignments ma WHERE ma.assignment_schoology_id = a.schoology_assignment_id
              UNION
@@ -225,7 +226,8 @@ router.get('/:id/gradebook', (req, res) => {
   }
 
   const grades = db.prepare(`
-    SELECT g.student_id, g.assignment_id, g.score, g.max_score, g.grade_comment, g.exception, g.late, g.draft, g.submitted_at, g.latest_revision_at, g.submission_type, g.lti_submission_state, g.comment_status
+    SELECT g.student_id, g.assignment_id, g.score, g.max_score, g.grade_comment, g.exception, g.late, g.draft, g.submitted_at, g.latest_revision_at, g.submission_type, g.lti_submission_state, g.comment_status,
+           g.first_submitted_at, g.test_attempt
     FROM grades g
     JOIN assignments a ON a.id = g.assignment_id
     WHERE a.course_id = ?
@@ -261,6 +263,19 @@ router.get('/:id/gradebook', (req, res) => {
     gradeMap[g.student_id][g.assignment_id] = g;
   }
 
+  // The submission timeline for every cell the gradebook shows (student ×
+  // assignment, honouring individual targeting), grade row or not: a student who
+  // never engaged has no row but is still "not submitted · day N". Keyed like grades.
+  const timelines = timelineContext(db, { courseId: Number(req.params.id) });
+  const timelineMap = {};
+  for (const s of students) {
+    timelineMap[s.id] = {};
+    for (const a of filteredAssignments) {
+      if (a.assignees && !a.assignees.includes(s.id)) continue;
+      timelineMap[s.id][a.id] = timelines.timeline(a, s.id, gradeMap[s.id]?.[a.id] || null);
+    }
+  }
+
   // Folder metadata for this course — lets the client group assignments by
   // their Schoology folder (Assessments tab, #22). Ordering of assignments
   // already follows folder display_weight; this just supplies the titles.
@@ -270,7 +285,7 @@ router.get('/:id/gradebook', (req, res) => {
     WHERE course_id = ?
   `).all(req.params.id);
 
-  res.json({ assignments: filteredAssignments, students, grades: gradeMap, folders, grading_scales: getGradingScalesMap() });
+  res.json({ assignments: filteredAssignments, students, grades: gradeMap, timelines: timelineMap, folders, grading_scales: getGradingScalesMap() });
 });
 
 // POST /api/courses/import — fetch a past course from Schoology and sync it

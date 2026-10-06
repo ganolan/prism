@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getDb } from '../db/index.js';
 import { getGradingScalesMap } from '../db/scales.js';
 import { arrivedKeys } from '../services/resubmissions.js';
+import { timelineContext } from '../services/submissionTimeline.js';
 
 const router = Router();
 
@@ -44,7 +45,8 @@ router.get('/:id', (req, res) => {
     SELECT
       g.id, g.score, g.max_score, g.grade_comment, g.comment_status,
       g.exception, g.late, g.draft, g.submitted_at, g.latest_revision_at, g.submission_type, g.lti_submission_state,
-      a.id as assignment_id,
+      g.first_submitted_at, g.test_attempt,
+      a.id as assignment_id, a.accepts_submissions, a.is_test,
       a.title as assignment_title, a.due_date, a.is_lti_submission, a.max_points as assignment_max_points,
       a.grading_scale_id, a.display_weight, a.schoology_assignment_id,
       c.course_name, c.id as course_id,
@@ -74,6 +76,18 @@ router.get('/:id', (req, res) => {
       CASE WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN a.display_weight ELSE 0 END ASC,
       a.title
   `).all(req.params.id, student.schoology_uid || '');
+
+  // The submission timeline per assignment (due, extension, submitted when and how
+  // late, clock day if missing, referral): one context per course.
+  const contexts = new Map();
+  for (const g of grades) {
+    if (!contexts.has(g.course_id)) contexts.set(g.course_id, timelineContext(db, { courseId: g.course_id }));
+    const assignment = {
+      id: g.assignment_id, due_date: g.due_date, is_lti_submission: g.is_lti_submission,
+      accepts_submissions: g.accepts_submissions, is_test: g.is_test,
+    };
+    g.timeline = contexts.get(g.course_id).timeline(assignment, student.id, g.has_grade_row ? g : null);
+  }
 
   // Attach per-assignment mastery topic data. An assignment is "aligned" if it
   // has at least one row in mastery_alignments (authoritative) OR mastery_scores

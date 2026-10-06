@@ -82,3 +82,29 @@ describe('CourseSection assignment title link', () => {
     expect(screen.getByRole('link', { name: 'Computer Vision Project' })).toHaveAttribute('href', '/course/1/assessment/sa-10');
   });
 });
+
+describe('CourseSection submission timeline', () => {
+  const timeline = {
+    due: { date: '2026-10-06', time: '15:00' }, extension: null, deadline: '2026-10-06',
+    submission: { state: 'submitted', firstAt: Math.floor(new Date('2026-10-12T09:00:00').getTime() / 1000), latestAt: null, late: true, day: 4, lateMinutes: null, schoologyLate: true },
+    overdue: null, resubmission: null, referral: null, limit: 8,
+  };
+
+  it('shows when the work came in and how late, in place of the raw due date', () => {
+    renderCourseSection({}, { timeline });
+    const row = screen.getByTestId('submission-timeline');
+    expect(row).toHaveTextContent('Due Tue 06/10 15:00');
+    expect(row).toHaveTextContent('Submitted Mon 12/10 09:00 · day 4, late');
+    expect(screen.queryByText(/^Due: /)).not.toBeInTheDocument();
+  });
+
+  it('one "?" in the table header explains the day numbers', () => {
+    renderCourseSection({}, { timeline });
+    expect(screen.getAllByRole('img', { name: /Day 1 is the due date/ })).toHaveLength(1);
+  });
+
+  it('without a timeline the plain due date stays', () => {
+    renderCourseSection({});
+    expect(screen.getByText('Due: 2026-04-12')).toBeInTheDocument();
+  });
+});

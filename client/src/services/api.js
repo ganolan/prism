@@ -288,6 +288,8 @@ export const getStatusLineUntil = ({ kind, studentId, assignmentId, lessons, res
     .filter(([, v]) => v != null && v !== '');
   return request(`/triage/status-line/until?${new URLSearchParams(q)}`);
 };
+// Lesson hints for a school-day deadline: school days after `from` + the class's lessons.
+export const getLessonPlan = (courseId, from) => request(`/triage/lesson-plan?courseId=${courseId}${from ? `&from=${from}` : ''}`);
 
 // Settings (server-side, shared by every device and PrisMCP).
 export const getSettings = () => request('/settings');

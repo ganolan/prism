@@ -40,8 +40,8 @@ import { getDb } from '../db/index.js';
 import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
 import { pickBlockNumber, sectionDcidFromLaunchForm, loopTimeBudgetExceeded } from '../lib/psBlockNumber.js';
 import { currentSchoolYearEndYear, gradeLevelToGradYear, pickInSessionRange, extractGradeLevels, userDcidFromLaunchForm } from '../lib/psGradeLevel.js';
-import { extractCalendarDays, mergeCalendarDays } from '../lib/psCalendar.js';
-import { storeSchoolDays } from './schoolCalendar.js';
+import { extractCalendarDays, mergeCalendarDays, extractMeetingDates } from '../lib/psCalendar.js';
+import { storeSchoolDays, storeClassMeetings } from './schoolCalendar.js';
 import { sessionStateFile } from '../lib/sessionPaths.js';
 
 const PS_HOST = 'powerschool.hkis.edu.hk';
@@ -296,6 +296,10 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
       } else {
         const { status, first } = await fetchSectionInfoFirst(page, sectionDcid);
         if (first && !isTargetedSync) mergeCalendarDays(calendarByDate, extractCalendarDays(first));
+        if (first) {
+          const meetings = storeClassMeetings(db, c.id, extractMeetingDates(first), now);
+          if (meetings) log(`${c.course_name}: ${meetings} lesson dates`);
+        }
         pick = first
           ? pickBlockNumber(first)
           : { blockNumber: null, blockName: null, reason: `section-info-failed:${status}` };

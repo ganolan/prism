@@ -33,7 +33,7 @@ vi.mock('../services/api.js', () => ({
   updateResubmission: vi.fn(),
   undoResubmission: vi.fn(),
   previewStatusLine: vi.fn().mockResolvedValue({ currentComment: '', visible: true, storedLine: null, hiddenWarning: false }),
-  getStatusLineUntil: vi.fn().mockResolvedValue({ until: '2026-10-15', lessons: 3 }),
+  getLessonPlan: vi.fn().mockResolvedValue(null), getStatusLineUntil: vi.fn().mockResolvedValue({ until: '2026-10-15', lessons: 3 }),
   getRubricForAssignment: vi.fn().mockResolvedValue(null),
   getRubricConfig: vi.fn().mockResolvedValue({ reportingCategoryColors: {} }),
   rubricTemplateUrl: vi.fn(() => '/api/rubrics/template'),

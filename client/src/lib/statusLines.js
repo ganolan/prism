@@ -25,7 +25,7 @@ const withNote = (text, note) => (note && String(note).trim() ? `${text} ${Strin
 export const askLine = ({ until, note }) => withNote(`Resubmission requested - due ${lineDate(until)}.`, note);
 export const extendResubmissionLine = ({ until, note }) => withNote(`Resubmission requested - now due ${lineDate(until)}.`, note);
 export const gradeStandsLine = ({ until }) => `Resubmission deadline (${lineDate(until)}) passed - your grade stands.`;
-export const extensionLine = ({ until, lessons, note }) => withNote(`Extension - now due ${lineDate(until)} (${lessons} ${Number(lessons) === 1 ? 'lesson' : 'lessons'}).`, note);
+export const extensionLine = ({ until, lessons, note }) => withNote(`Extension - now due ${lineDate(until)} (${lessons} ${Number(lessons) === 1 ? 'school day' : 'school days'}).`, note);
 export const makeUpLine = ({ until, note }) => withNote(`Make-up - sit by ${lineDate(until)}.`, note);
 export const receivedLine = ({ on }) => `Resubmission received ${shortDate(on)} - regraded.`;
 

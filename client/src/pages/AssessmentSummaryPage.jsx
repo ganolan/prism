@@ -981,12 +981,13 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             onClick={() => setShowFlagInput(true)}
           />
         )}
-        {/* Resubmission (triage) — ask with a deadline in lessons; each action publishes a
+        {/* Resubmission (triage) — ask with a deadline in school days; each action publishes a
             status line to the student's Schoology comment after a confirm (spec Amendment B).
             Not offered on an archived/excluded course (the server refuses those). */}
         {resubmitEnabled && <ResubmitControl
           student={student}
           assignmentId={assignmentRow?.id}
+          courseId={courseId}
           title={assignmentRow?.title}
           defaultLessons={resubmitLessonsDefault}
           onChange={handleResubmitChange}

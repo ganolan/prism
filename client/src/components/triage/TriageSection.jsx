@@ -86,7 +86,7 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
       },
     },
   });
-  const lessonsText = (n) => `${n} lesson${n === 1 ? '' : 's'}`;
+  const lessonsText = (n) => `${n} school day${n === 1 ? '' : 's'}`;
   const untilFor = async (q) => (await getStatusLineUntil(q)).until;
 
   // Late work (extensionLine) and make-up tests (makeUpLine) — the note goes into the line.

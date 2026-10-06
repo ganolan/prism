@@ -5,7 +5,7 @@ import * as api from '../services/api.js';
 
 vi.mock('../services/api.js', () => ({
   requestResubmission: vi.fn(), updateResubmission: vi.fn(), undoResubmission: vi.fn(),
-  previewStatusLine: vi.fn(), getStatusLineUntil: vi.fn(), getMasteryLoginStatus: vi.fn(),
+  previewStatusLine: vi.fn(), getLessonPlan: vi.fn().mockResolvedValue(null), getStatusLineUntil: vi.fn(), getMasteryLoginStatus: vi.fn(),
 }));
 const student = (resubmission = null, extra = {}) => ({ id: 7, schoology_uid: 'u7', first_name: 'Maya', last_name: 'Chen', resubmission, ...extra });
 const waiting = (until = '2026-10-15') => ({ state: 'waiting', request: { id: 3, lessons: 3, until } });

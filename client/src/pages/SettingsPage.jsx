@@ -202,8 +202,8 @@ export default function SettingsPage() {
         </div>
         <div className="settings-row">
           <span>Resubmission deadline (default)</span>
-          <NumberStepper value={triage.resubmitLessonsDefault} min={1} max={60} onChange={(v) => save({ resubmitLessonsDefault: v })} aria-label="Resubmission deadline (lessons)" />
-          <span className="text-sm text-muted">lessons after asking</span>
+          <NumberStepper value={triage.resubmitLessonsDefault} min={1} max={60} onChange={(v) => save({ resubmitLessonsDefault: v })} aria-label="Resubmission deadline (school days)" />
+          <span className="text-sm text-muted">school days after asking</span>
         </div>
         <label className="settings-row">
           <input type="checkbox" checked={triage.showFormativeDefault} onChange={(e) => save({ showFormativeDefault: e.target.checked })} />

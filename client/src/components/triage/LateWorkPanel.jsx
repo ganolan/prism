@@ -63,6 +63,7 @@ export default function LateWorkPanel({
             {open && (
               <div className="triage-row__more">
                 <ExtendEditor
+                  courseId={r.courseId} from={r.dueDate}
                   extension={r.extension}
                   onSave={(lessons, note) => { onExtend(r, lessons, note); setExtending(null); }}
                   onCancel={() => setExtending(null)}

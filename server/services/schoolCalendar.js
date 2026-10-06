@@ -21,3 +21,19 @@ export function loadCalendar(db) {
   const syncedAt = rows.reduce((m, r) => (r.synced_at && (!m || r.synced_at > m) ? r.synced_at : m), null);
   return { ...makeCalendar(rows), syncedAt };
 }
+
+// Replace one course's meeting dates (its lessons). Empty is a no-op, so a
+// failed or odd fetch never wipes a good timetable.
+export function storeClassMeetings(db, courseId, dates, now = new Date().toISOString()) {
+  if (!dates.length) return 0;
+  const insert = db.prepare('INSERT OR IGNORE INTO class_meetings (course_id, date, synced_at) VALUES (?, ?, ?)');
+  db.transaction(() => {
+    db.prepare('DELETE FROM class_meetings WHERE course_id = ?').run(courseId);
+    for (const d of dates) insert.run(courseId, d, now);
+  })();
+  return dates.length;
+}
+
+export function loadClassMeetings(db, courseId) {
+  return db.prepare('SELECT date FROM class_meetings WHERE course_id = ? ORDER BY date').all(courseId).map((r) => r.date);
+}

@@ -79,6 +79,7 @@ export default function ResubmissionsPanel({
             {isExtending && (
               <div className="triage-row__more">
                 <ExtendEditor
+                  courseId={r.courseId} from={r.requestedOn}
                   extension={{ lessons: r.lessons, note: '' }}
                   onSave={(lessons) => { onExtend(r, lessons); setExtending(null); }}
                   onCancel={() => setExtending(null)}

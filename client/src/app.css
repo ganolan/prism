@@ -1078,6 +1078,8 @@ a.triage-row__title:hover { text-decoration: underline; }
 }
 .triage-row__count { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; cursor: help; }
 .triage-row__more { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; padding-top: 0.35rem; }
+/* LessonHint: "→ Thu 15/10 · 3 lessons from today" + Next lesson picks, beside a school-day stepper. */
+.lesson-hint { display: inline-flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
 .triage-row button.triage-row__quiet { color: var(--text-muted); }
 /* Referred / extended history (no ring): text, then its badges + Undo, wrapping in the rail
    (the stacked-actions column above is for the live Late work / Make-up tests rows only). */

@@ -13,9 +13,9 @@ describe('status lines (client mirror)', () => {
     expect(askLine({ until: '2026-10-08', note: '' })).toBe('Resubmission requested - due Thu 08/10.');
     expect(extendResubmissionLine({ until: '2026-10-13', note: null })).toBe('Resubmission requested - now due Tue 13/10.');
     expect(gradeStandsLine({ until: '2026-10-08' })).toBe('Resubmission deadline (Thu 08/10) passed - your grade stands.');
-    expect(extensionLine({ until: '2026-10-09', lessons: 3, note: 'sick' })).toBe('Extension - now due Fri 09/10 (3 lessons). sick');
-    expect(extensionLine({ until: '2026-10-09', lessons: 1 })).toBe('Extension - now due Fri 09/10 (1 lesson).');
-    expect(extensionLine({ until: '2026-10-09', lessons: '1' })).toBe('Extension - now due Fri 09/10 (1 lesson).');
+    expect(extensionLine({ until: '2026-10-09', lessons: 3, note: 'sick' })).toBe('Extension - now due Fri 09/10 (3 school days). sick');
+    expect(extensionLine({ until: '2026-10-09', lessons: 1 })).toBe('Extension - now due Fri 09/10 (1 school day).');
+    expect(extensionLine({ until: '2026-10-09', lessons: '1' })).toBe('Extension - now due Fri 09/10 (1 school day).');
     expect(makeUpLine({ until: '2026-10-09', note: '' })).toBe('Make-up - sit by Fri 09/10.');
     expect(receivedLine({ on: '2026-10-14' })).toBe('Resubmission received 14/10 - regraded.');
   });

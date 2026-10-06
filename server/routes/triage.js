@@ -15,6 +15,7 @@ import {
 import { act as runAction, askResubmission, hasLine, pairOf } from '../services/triageActions.js';
 import { statusLineUntil } from '../services/statusLineDue.js';
 import { loadCalendar } from '../services/schoolCalendar.js';
+import { lessonPlan } from '../services/lessonPlan.js';
 import { todayLocal } from '../lib/schoolDays.js';
 
 const router = Router();
@@ -99,6 +100,14 @@ router.get('/', (req, res) => {
 router.get('/calendar', (req, res) => {
   const cal = loadCalendar(getDb());
   res.json({ source: cal.source, totalSchoolDays: cal.totalSchoolDays, syncedAt: cal.syncedAt });
+});
+
+// GET /api/triage/lesson-plan?courseId=&from=YYYY-MM-DD — school days after `from`
+// (n = 1..60) plus the class's lesson dates after today, for the "N lessons from
+// today" hint and "Next lesson" picks next to a school-day deadline.
+router.get('/lesson-plan', (req, res) => {
+  if (!req.query.courseId) return res.status(400).json({ error: 'courseId is required' });
+  res.json(lessonPlan(getDb(), { courseId: req.query.courseId, from: req.query.from }));
 });
 
 // GET /api/triage/referrals?courseId= — referral history, newest first.

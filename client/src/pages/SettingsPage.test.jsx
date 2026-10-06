@@ -70,7 +70,7 @@ describe('SettingsPage', () => {
 
   it('shows the resubmission deadline default and saves a change server-side', async () => {
     render(<SettingsPage />);
-    const stepper = await screen.findByLabelText('Resubmission deadline (lessons)');
+    const stepper = await screen.findByLabelText('Resubmission deadline (school days)');
     expect(stepper).toHaveValue(3);
     expect(screen.getByText('Resubmission deadline (default)')).toBeInTheDocument();
     fireEvent.click(screen.getAllByLabelText('Increase').find((btn) => btn.closest('.settings-row').textContent.includes('Resubmission deadline')));

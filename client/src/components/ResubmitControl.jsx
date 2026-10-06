@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import NumberStepper from './NumberStepper.jsx';
+import LessonHint from './LessonHint.jsx';
 import StatusLineModal from './StatusLineModal.jsx';
 import UnsubmitFailedNote from './UnsubmitFailedNote.jsx';
 import { formatDate, localIsoDate } from '../lib/formatDate.js';
@@ -8,7 +9,8 @@ import { askLine, extendResubmissionLine, gradeStandsLine } from '../lib/statusL
 import { requestResubmission, updateResubmission, undoResubmission, getStatusLineUntil } from '../services/api.js';
 
 // The assessment card's resubmission control (triage resubmissions, spec Amendment B).
-// No request: "⟳ Ask to resubmit" → lessons (default from Settings) + note → Ask.
+// No request: "⟳ Ask to resubmit" → school days (default from Settings) + note → Ask,
+// with the class's lesson hint ("→ Thu 15/10 · 3 lessons from today", Next lesson).
 // Open request: "⟳ Resubmit by DD/MM/YYYY" → Extend / Grade stands (only once the
 // deadline has passed) / Undo. Every one of these writes a status line to the
 // student's Schoology comment, so each opens the StatusLineModal confirm first —
@@ -31,7 +33,7 @@ const removed = (sl) => (sl && sl.comment != null ? { comment: sl.comment, line:
 const recordOf = ({ statusLine: _sl, unsubmit: _u, ...rest } = {}) => rest;
 const STAYS_UNSUBMITTED = ' Their work stays unsubmitted in Schoology.';
 
-export default function ResubmitControl({ student, assignmentId, title, defaultLessons = 3, onChange }) {
+export default function ResubmitControl({ student, assignmentId, courseId, title, defaultLessons = 3, onChange }) {
   const r = student.resubmission;
   const [panel, setPanel] = useState(false);
   const [lessons, setLessons] = useState(r?.request?.lessons ?? defaultLessons);
@@ -65,7 +67,7 @@ export default function ResubmitControl({ student, assignmentId, title, defaultL
   const open = (props) => { actionSeq.current += 1; setConfirm({ key: actionSeq.current, props }); };
 
   const ask = () => open({
-    consequence: `Asks ${studentFullName(student) || 'the student'} to resubmit within ${lessons} lesson${lessons === 1 ? '' : 's'}.`,
+    consequence: `Asks ${studentFullName(student) || 'the student'} to resubmit within ${lessons} school day${lessons === 1 ? '' : 's'}.`,
     confirmLabel: 'Publish & ask',
     offerUnsubmit,
     loadDefaultLine: async () => askLine({ until: (await getStatusLineUntil({ kind: 'ask', ...ids, lessons })).until, note }),
@@ -81,7 +83,7 @@ export default function ResubmitControl({ student, assignmentId, title, defaultL
     },
   });
   const extend = () => open({
-    consequence: `Moves the resubmission deadline to ${lessons} lesson${lessons === 1 ? '' : 's'} after the ask.`,
+    consequence: `Moves the resubmission deadline to ${lessons} school day${lessons === 1 ? '' : 's'} after the ask.`,
     confirmLabel: 'Publish new due date',
     loadDefaultLine: async () => extendResubmissionLine({
       until: (await getStatusLineUntil({ kind: 'extend_resubmission', ...ids, resubmissionId: req.id, lessons })).until,
@@ -128,7 +130,9 @@ export default function ResubmitControl({ student, assignmentId, title, defaultL
       {req?.unsubmitError && <UnsubmitFailedNote url={req.unsubmitUrl} error={req.unsubmitError} uncertain={req.unsubmitUncertain} />}
       {panel && (
         <span className="resubmit-control__panel">
-          <NumberStepper value={lessons} min={1} max={60} onChange={setLessons} aria-label="Resubmission deadline (lessons)" />
+          <NumberStepper value={lessons} min={1} max={60} onChange={setLessons} aria-label="Resubmission deadline (school days)" />
+          <span className="text-sm">school days</span>
+          <LessonHint courseId={courseId} from={req?.requestedOn || localIsoDate()} value={lessons} onPick={setLessons} />
           {req ? (
             <>
               <button type="button" className="secondary btn-sm" onClick={extend}>Extend</button>

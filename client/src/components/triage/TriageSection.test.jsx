@@ -17,7 +17,7 @@ vi.mock('../../services/api.js', () => ({
   updateResubmission: vi.fn(),
   undoResubmission: vi.fn(),
   previewStatusLine: vi.fn(),
-  getStatusLineUntil: vi.fn(),
+  getLessonPlan: vi.fn().mockResolvedValue(null), getStatusLineUntil: vi.fn(),
 }));
 
 const SETTINGS = {
@@ -141,7 +141,7 @@ describe('TriageSection', () => {
     renderSection();
     const maya = rowOf(within(await latePanel()).getByText('Maya Chen'));
     fireEvent.click(within(maya).getByText('Extend')); // Maya: no extension yet
-    const lessons = screen.getByLabelText('Extension (lessons)');
+    const lessons = screen.getByLabelText('Extension (school days)');
     expect(lessons).toHaveValue(3);
     expect(lessons).toHaveAttribute('max', '60');
     expect(screen.getByLabelText('Extension note')).toHaveValue('');
@@ -149,7 +149,7 @@ describe('TriageSection', () => {
     fireEvent.change(screen.getByLabelText('Extension note'), { target: { value: 'sick week' } });
     fireEvent.click(screen.getByText('Save'));
     expect(await dialog()).toHaveAccessibleName("Publish to Maya Chen's Schoology comment");
-    const line = 'Extension - now due Fri 16/10 (4 lessons). sick week';
+    const line = 'Extension - now due Fri 16/10 (4 school days). sick week';
     expect(await screen.findByDisplayValue(line)).toBeInTheDocument();
     expect(api.getStatusLineUntil).toHaveBeenCalledWith({ kind: 'extension', studentId: 1, assignmentId: 9, lessons: 4 });
     expect(api.recordExtension).not.toHaveBeenCalled();
@@ -157,7 +157,7 @@ describe('TriageSection', () => {
     await waitFor(() => expect(api.recordExtension).toHaveBeenCalledWith({ studentId: 1, assignmentId: 9, lessons: 4, note: 'sick week', commentLine: line }));
     await waitFor(() => expect(api.getTriage).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    expect(screen.queryByLabelText('Extension (lessons)')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Extension (school days)')).not.toBeInTheDocument();
   });
 
   it('Cancel in the extension confirm writes nothing', async () => {
@@ -200,7 +200,7 @@ describe('TriageSection', () => {
     renderSection();
     const aiden = rowOf(within(await latePanel()).getByText('Aiden Li'));
     fireEvent.click(within(aiden).getByText('Extend'));
-    expect(screen.getByLabelText('Extension (lessons)')).toHaveValue(5);
+    expect(screen.getByLabelText('Extension (school days)')).toHaveValue(5);
     expect(screen.getByLabelText('Extension note')).toHaveValue('trip');
   });
 
@@ -209,7 +209,7 @@ describe('TriageSection', () => {
     const maya = rowOf(within(await latePanel()).getByText('Maya Chen'));
     fireEvent.click(within(maya).getByText('Extend'));
     fireEvent.click(screen.getByText('Cancel'));
-    expect(screen.queryByLabelText('Extension (lessons)')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Extension (school days)')).not.toBeInTheDocument();
     expect(within(maya).getByText('Extend')).toBeInTheDocument();
     expect(api.recordExtension).not.toHaveBeenCalled();
   });
@@ -465,7 +465,7 @@ describe('TriageSection — compact rows', () => {
     const actions = row.querySelector('.triage-row__actions');
     fireEvent.click(within(actions).getByText('Extend'));
     const more = row.querySelector('.triage-row__more');
-    expect(within(more).getByLabelText('Extension (lessons)')).toBeInTheDocument();
+    expect(within(more).getByLabelText('Extension (school days)')).toBeInTheDocument();
     expect(within(actions).getByText('Extend')).toBeInTheDocument(); // the stack isn't replaced
     expect(within(actions).getAllByRole('button', { name: 'Refer' })).toHaveLength(1);
   });
@@ -478,7 +478,7 @@ describe('TriageSection — compact rows', () => {
     fireEvent.click(within(actions).getByText('Ignore this test'));
     const more = row.querySelector('.triage-row__more');
     expect(within(more).getByText('Ignore Unit 1 test for all students?')).toBeInTheDocument();
-    expect(within(more).queryByLabelText('Extension (lessons)')).not.toBeInTheDocument();
+    expect(within(more).queryByLabelText('Extension (school days)')).not.toBeInTheDocument();
   });
 
   it('no course line on a course page (two-line rows)', async () => {
@@ -611,7 +611,7 @@ describe('TriageSection — make-up tests', () => {
     const panel = await makeUpPanel();
     const zoe = rowOf(within(panel).getByText('Zoe Tan'));
     fireEvent.click(within(zoe).getByText('Extend')); // Zoe: ext +2, "sits Tue"
-    expect(within(panel).getByLabelText('Extension (lessons)')).toHaveValue(2);
+    expect(within(panel).getByLabelText('Extension (school days)')).toHaveValue(2);
     expect(within(panel).getByLabelText('Extension note')).toHaveValue('sits Tue');
     fireEvent.click(within(panel).getByLabelText('Increase'));
     fireEvent.click(within(panel).getByText('Save'));
@@ -761,7 +761,7 @@ describe('Resubmissions panel', () => {
     const panel = await resubPanel();
     const ivy = rowOf(within(panel).getByText('Ivy Lam'));
     fireEvent.click(within(ivy).getByRole('button', { name: 'Extend' }));
-    expect(within(ivy).getByLabelText('Extension (lessons)')).toHaveValue(3);
+    expect(within(ivy).getByLabelText('Extension (school days)')).toHaveValue(3);
     expect(within(ivy).queryByLabelText('Extension note')).not.toBeInTheDocument();
     fireEvent.click(within(ivy).getByLabelText('Increase'));
     fireEvent.click(within(ivy).getByRole('button', { name: 'Save' }));

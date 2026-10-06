@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../db/index.js';
-import { storeSchoolDays, loadCalendar } from './schoolCalendar.js';
+import { storeSchoolDays, loadCalendar, storeClassMeetings, loadClassMeetings } from './schoolCalendar.js';
 
 const day = (date, inSession, letter = null) => ({ date, inSession, cycleLetter: letter, raw: '{}' });
 
@@ -40,5 +40,29 @@ describe('loadCalendar', () => {
     const cal = loadCalendar(getDb());
     expect(cal.source).toBe('weekdays');
     expect(cal.syncedAt).toBeNull();
+  });
+});
+
+describe('storeClassMeetings / loadClassMeetings', () => {
+  let courseId;
+  beforeEach(() => {
+    const db = getDb();
+    db.exec('DELETE FROM class_meetings; DELETE FROM courses;');
+    courseId = db.prepare("INSERT INTO courses (schoology_section_id, course_name) VALUES ('cm', 'AIML')").run().lastInsertRowid;
+  });
+
+  test('replaces a course\'s meeting dates and reads them back in order', () => {
+    const db = getDb();
+    storeClassMeetings(db, courseId, ['2026-10-08', '2026-10-06']);
+    expect(loadClassMeetings(db, courseId)).toEqual(['2026-10-06', '2026-10-08']);
+    storeClassMeetings(db, courseId, ['2026-10-12']);
+    expect(loadClassMeetings(db, courseId)).toEqual(['2026-10-12']);
+  });
+
+  test('an empty fetch keeps the stored dates', () => {
+    const db = getDb();
+    storeClassMeetings(db, courseId, ['2026-10-06']);
+    expect(storeClassMeetings(db, courseId, [])).toBe(0);
+    expect(loadClassMeetings(db, courseId)).toEqual(['2026-10-06']);
   });
 });

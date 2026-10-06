@@ -484,6 +484,17 @@ CREATE TABLE IF NOT EXISTS school_days (
   synced_at TEXT
 );
 
+-- The dates each class actually meets (its lessons), from PowerSchool: a school
+-- day whose bell schedule includes the section's period. Replaced per course on
+-- every block sync. Drives the "lesson" hints next to school-day deadlines; all
+-- clocks still count school_days.
+CREATE TABLE IF NOT EXISTS class_meetings (
+  course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+  date TEXT NOT NULL,                   -- 'YYYY-MM-DD'
+  synced_at TEXT,
+  PRIMARY KEY (course_id, date)
+);
+
 -- App settings (key/value, JSON-encoded values). Server-side so every device,
 -- prod and PrisMCP agree. Keys are namespaced, e.g. 'triage.referralLimitDays';
 -- a missing row means the code default.

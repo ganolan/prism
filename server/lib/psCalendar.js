@@ -31,3 +31,23 @@ export function mergeCalendarDays(byDate, days) {
   }
   return byDate;
 }
+
+// The dates this section (class) actually meets. A section's own calendar spans
+// its whole term, so it can't say this by itself; but each day names the bell
+// schedule it runs, and section_info lists only the bell schedules that contain
+// the section's period. Meets = a school day (as above) whose bellScheduleId is
+// one of those. Verified 2026-10-06 against the teacher's timetable
+// (scripts/probe-section-meeting-days.js; .claude/powerschool-api-reference.md).
+export function extractMeetingDates(sectionInfo) {
+  const own = new Set(Object.keys(sectionInfo?.periodIdToPsmPeriodIdMap || {}).map(String));
+  const bells = new Set(
+    (sectionInfo?.bellScheduleItems || [])
+      .filter((i) => own.has(String(i.periodId)))
+      .map((i) => String(i.bellScheduleId)),
+  );
+  if (bells.size === 0) return [];
+  return extractCalendarDays(sectionInfo)
+    .filter((d) => d.inSession && bells.has(String(JSON.parse(d.raw)?.bellScheduleId)))
+    .map((d) => d.date)
+    .sort();
+}

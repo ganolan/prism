@@ -64,6 +64,7 @@ export default function MakeUpPanel({ rows, settings, showCourse, scope, uncheck
             {isExtending && (
               <div className="triage-row__more">
                 <ExtendEditor
+                  courseId={r.courseId} from={r.dueDate}
                   extension={r.extension}
                   onSave={(lessons, note) => { onExtend(r, lessons, note); setExtending(null); }}
                   onCancel={() => setExtending(null)}

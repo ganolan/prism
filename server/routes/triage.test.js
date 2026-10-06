@@ -682,3 +682,21 @@ describe('Ask with unsubmit (Phase 2, LTI unsubmit on Ask)', () => {
     expect(getDb().prepare('SELECT unsubmit_error FROM resubmissions').get().unsubmit_error).toBeNull();
   });
 });
+
+describe('GET /api/triage/lesson-plan', () => {
+  test('needs a courseId', async () => {
+    const { status } = await call('GET', '/api/triage/lesson-plan');
+    expect(status).toBe(400);
+  });
+
+  test('returns 60 school days from the start date and the class\'s upcoming lessons', async () => {
+    const db = getDb();
+    const cid = db.prepare("INSERT INTO courses (schoology_section_id, course_name) VALUES ('lp-route', 'LP')").run().lastInsertRowid;
+    db.prepare("INSERT INTO class_meetings (course_id, date) VALUES (?, '2999-01-05')").run(cid);
+    const { status, body } = await call('GET', `/api/triage/lesson-plan?courseId=${cid}&from=2026-10-06`);
+    expect(status).toBe(200);
+    expect(body.from).toBe('2026-10-06');
+    expect(body.days).toHaveLength(60);
+    expect(body.meetings).toEqual([]); // 2999 is beyond the 60-day window
+  });
+});

@@ -1,6 +1,8 @@
 // The submission timeline (server: services/submissionTimeline.js) in words, the
 // same everywhere it shows: /assessment/ cards, gradebook, student page.
-// Every "day N" is the triage clock: school days, due (or extended) date = day 1.
+// Lateness is said as a distance, "3 school days late", never "day N": the
+// timetable has cycle days 1-8, so "day 5" read as a timetable day. The server's
+// clock day (due date = day 1) is school days late + 1.
 import { lineDate } from './statusLines.js';
 
 const hm = (secs) => {
@@ -12,7 +14,9 @@ const when = (secs) => `${lineDate(localDate(secs))} ${hm(secs)}`;
 const days = (n) => `${n} school day${n === 1 ? '' : 's'}`;
 
 export const CLOCK_HELP = (limit = 8) =>
-  `Day 1 is the due date (or the extended date). Days are school days. Day ${limit} is the last day to submit; after it, work is referred.`;
+  `Counted in school days after the due date (or the extended date). Work ${limit} or more school days late is referred.`;
+
+const minutes = (m) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`);
 
 function dueLine(t) {
   if (!t.due?.date) return null;
@@ -28,8 +32,8 @@ function submissionLine(t) {
   const s = t.submission;
   const clock = (prefix) => {
     if (!t.overdue) return { key: 'submission', text: prefix };
-    const past = t.overdue.overLimit ? `, past day ${t.limit}` : '';
-    return { key: 'submission', text: `${prefix} · day ${t.overdue.day}${past}`, tone: t.overdue.overLimit ? 'over' : 'late' };
+    const over = t.overdue.overLimit ? ', over the limit' : '';
+    return { key: 'submission', text: `${prefix} · ${days(t.overdue.day - 1)} overdue${over}`, tone: t.overdue.overLimit ? 'over' : 'late' };
   };
   switch (s.state) {
     case 'excused': return { key: 'submission', text: 'Excused' };
@@ -44,7 +48,9 @@ function submissionLine(t) {
       let tone;
       let title;
       if (s.late) {
-        text += s.day === 1 && s.lateMinutes ? ` · day 1, ${s.lateMinutes} min late` : ` · day ${s.day}, late`;
+        if (s.lateMinutes) text += ` · ${minutes(s.lateMinutes)} late`;
+        else if (s.day > 1) text += ` · ${days(s.day - 1)} late`;
+        else text += ' · late, before the next school day';
         tone = 'late';
       } else {
         text += t.extension ? ' · on time (extension)' : ' · on time';
@@ -77,7 +83,7 @@ export function timelineParts(t) {
     dueLine(t),
     submissionLine(t),
     resubmissionLine(t),
-    t.referral?.on ? { key: 'referral', text: `Referred ${lineDate(t.referral.on)} (day ${t.referral.day})`, tone: 'over', title: t.referral.note || undefined } : null,
+    t.referral?.on ? { key: 'referral', text: `Referred ${lineDate(t.referral.on)} (${days(t.referral.day - 1)} late)`, tone: 'over', title: t.referral.note || undefined } : null,
   ].filter(Boolean);
 }
 

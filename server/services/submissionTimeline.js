@@ -75,8 +75,10 @@ export function buildTimeline({
       const deadlineAt = localEpoch(deadline, due.time);
       late = firstAt > deadlineAt;
       if (late) {
-        day = dayOf(epochToLocalDate(firstAt));
-        if (day === 1) lateMinutes = Math.ceil((firstAt - deadlineAt) / 60);
+        const on = epochToLocalDate(firstAt);
+        day = dayOf(on);
+        // Minutes only when it came in the same date (a weekend hand-in is day 1 too).
+        if (on === deadline) lateMinutes = Math.ceil((firstAt - deadlineAt) / 60);
       }
     } else if (!ext) {
       late = schoologyLate;
@@ -140,10 +142,18 @@ export function timelineContext(db, { courseId, today = todayLocal() }) {
 }
 
 // The timeline for PrisMCP: the same structure, with submission times as ISO
-// strings instead of epoch seconds.
+// strings instead of epoch seconds, and the clock days also given as school
+// days late / overdue (day - 1), the wording the teacher sees.
 export function agentTimeline(t) {
   if (!t) return null;
   const iso = (secs) => (secs ? new Date(secs * 1000).toISOString() : null);
   const { firstAt, latestAt, ...submission } = t.submission;
-  return { ...t, submission: { ...submission, firstSubmittedAt: iso(firstAt), latestSubmittedAt: iso(latestAt) } };
+  return {
+    ...t,
+    submission: {
+      ...submission, firstSubmittedAt: iso(firstAt), latestSubmittedAt: iso(latestAt),
+      schoolDaysLate: submission.day != null ? submission.day - 1 : null,
+    },
+    overdue: t.overdue ? { ...t.overdue, schoolDaysOverdue: t.overdue.day - 1 } : null,
+  };
 }

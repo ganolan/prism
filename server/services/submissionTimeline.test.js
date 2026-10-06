@@ -32,6 +32,11 @@ describe('buildTimeline: submitted work', () => {
     expect(t.submission).toMatchObject({ late: true, day: 1, lateMinutes: 42, schoologyLate: true });
   });
 
+  test('over a weekend: 0 school days late, and no minute count (it is not the same date)', () => {
+    const t = buildTimeline({ ...base, assignment: { ...lti, due_date: '2026-10-09 15:00:00' }, grade: { lti_submission_state: 'submitted', first_submitted_at: at('2026-10-10 11:00') } });
+    expect(t.submission).toMatchObject({ late: true, day: 1, lateMinutes: null });
+  });
+
   test('late by school days: skips the holiday and the weekend', () => {
     // 07 = day 2, (08 holiday), 09 = day 3, 12 = day 4
     const t = buildTimeline({ ...base, assignment: native, grade: { submission_type: 'drop', first_submitted_at: at('2026-10-12 09:00'), latest_revision_at: at('2026-10-13 10:00'), late: 1 } });

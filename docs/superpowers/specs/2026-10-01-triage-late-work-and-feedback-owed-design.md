@@ -385,7 +385,7 @@ explicit request; descriptions say so.
     `.claude/powerschool-api-reference.md` "Which days a class meets") and every deadline stepper shows a
     hint, "→ Thu 15/10 · 3 lessons from today", with Next lesson / 2 lessons picks that set the school-day
     count. Who is flagged, and when, is unchanged. The submission timeline (assessment cards, gradebook,
-    student page, PrisMCP) quotes the same clock: "Submitted Mon 12/10 09:00 · day 4, late".
+    student page, PrisMCP) quotes the same clock as a distance: "Submitted Mon 12/10 09:00 · 3 school days late" (2026-10-07: "day 4" was read as timetable cycle day 4).
 
 ## Out of scope (now)
 

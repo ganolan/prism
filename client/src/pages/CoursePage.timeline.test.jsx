@@ -29,7 +29,7 @@ describe('GradebookView: submission timeline', () => {
     });
     expect(screen.getByTitle('Late')).toHaveTextContent('L');
     const cell = container.querySelector('td[title*="Submitted Mon 12/10 09:00"]');
-    expect(cell.getAttribute('title')).toBe('Due Tue 06/10 15:00\nSubmitted Mon 12/10 09:00 · day 4, late');
+    expect(cell.getAttribute('title')).toBe('Due Tue 06/10 15:00\nSubmitted Mon 12/10 09:00 · 3 school days late');
   });
 
   it('a graded on-time cell has no L', () => {
@@ -44,6 +44,6 @@ describe('GradebookView: submission timeline', () => {
     const { container } = renderGrid({
       timelines: { 10: { 1: timeline({ state: 'not_submitted' }, { overdue: { day: 9, overLimit: true } }) } },
     });
-    expect(container.querySelector('td[title*="Not submitted · day 9, past day 8"]')).not.toBeNull();
+    expect(container.querySelector('td[title*="Not submitted · 8 school days overdue, over the limit"]')).not.toBeNull();
   });
 });

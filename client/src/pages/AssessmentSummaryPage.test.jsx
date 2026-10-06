@@ -2030,8 +2030,8 @@ describe('StudentRubricCard — submission timeline', () => {
     renderCard({ student: { ...makeStudent(), timeline } });
     const row = screen.getByTestId('submission-timeline');
     expect(row).toHaveTextContent('Due Tue 06/10 15:00');
-    expect(row).toHaveTextContent('Submitted Mon 12/10 09:00 · day 4, late');
-    expect(within(row).getByRole('img', { name: /Day 1 is the due date/ })).toBeInTheDocument();
+    expect(row).toHaveTextContent('Submitted Mon 12/10 09:00 · 3 school days late');
+    expect(within(row).getByRole('img', { name: /school days after the due date/ })).toBeInTheDocument();
   });
 
   it('a Late exception from Schoology is shown on the card', () => {

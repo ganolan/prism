@@ -780,7 +780,8 @@ button.btn-sm { padding: 0.3rem 0.65rem; font-size: 0.78rem; }
 /* Submission timeline (assessment card, rubric modal): one wrapping row of short
    facts, separated by a middle dot; late = warning text, past the limit = danger. */
 .submission-timeline { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem 0; font-size: 0.78rem; color: var(--text-muted); }
-.submission-timeline__part + .submission-timeline__part::before { content: '·'; margin: 0 0.5rem; color: var(--text-muted); font-weight: 400; }
+/* The dot trails each part (not leads the next), so a wrapped line never starts with one. */
+.submission-timeline__part:not(.submission-timeline__part--last)::after { content: '·'; margin: 0 0.5rem; color: var(--text-muted); font-weight: 400; }
 .submission-timeline__part--late { color: var(--warning); font-weight: 600; }
 .submission-timeline__part--over { color: var(--danger); font-weight: 600; }
 .submission-timeline .help-dot { margin-left: 0.5rem; }
@@ -1366,4 +1367,9 @@ button.ghost.sync-run-row {
   /* Triage row ✉ link: the glyph itself is ~13px, so pad its hit area without
      shifting surrounding layout (negative margin cancels the extra padding). */
   .triage-row__mail { padding: 0.4rem; margin: -0.4rem 0; }
+
+  /* Submission timeline: one fact per row on a phone, no dots. */
+  .submission-timeline { flex-direction: column; align-items: flex-start; gap: 0.15rem; }
+  .submission-timeline__part::after { content: none !important; }
+  .submission-timeline .help-dot { margin-left: 0; }
 }

@@ -535,6 +535,10 @@ CREATE TABLE IF NOT EXISTS extensions (
   assignment_id INTEGER NOT NULL REFERENCES assignments(id),
   course_id INTEGER NOT NULL REFERENCES courses(id),
   lessons INTEGER NOT NULL,
+  -- The extended deadline (YYYY-MM-DD): N school days from the later of the due date
+  -- and the day it was granted (2026-10-08: an overdue extension gives time from now).
+  -- NULL on rows from before then: computed as due date + N.
+  until TEXT,
   note TEXT,
   source TEXT NOT NULL DEFAULT 'app',   -- 'app' | 'mcp'
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -555,6 +559,7 @@ CREATE TABLE IF NOT EXISTS resubmissions (
   status TEXT NOT NULL CHECK (status IN ('open', 'closed', 'done')),
   requested_at TEXT,                    -- request: asked / first seen unsubmitted (UTC 'YYYY-MM-DD HH:MM:SS')
   lessons INTEGER,                      -- request: deadline = requested date + N school days
+  until TEXT,                   -- request: the deadline (YYYY-MM-DD); NULL on old rows = requested date + lessons
   note TEXT,
   source TEXT NOT NULL DEFAULT 'app',   -- 'app' | 'mcp' | 'schoology_unsubmit'
   revision_at INTEGER,                  -- legacy review rows: the latest_revision_at it covered (epoch s)

@@ -37,7 +37,7 @@ describe('timelineParts', () => {
       extension: { schoolDays: 2, until: '2026-10-09', note: 'sick' }, deadline: '2026-10-09',
       submission: { ...t().submission, firstAt: at('2026-10-09 10:00'), late: false, schoologyLate: true },
     }));
-    expect(parts[0]).toMatchObject({ text: 'Due Tue 06/10 15:00 · extended 2 school days to Fri 09/10', title: 'sick' });
+    expect(parts[0]).toMatchObject({ text: 'Due Tue 06/10 15:00 · extended to Fri 09/10', title: 'sick' });
     expect(parts[1]).toMatchObject({ text: 'Submitted Fri 09/10 10:00 · on time (extension)' });
     expect(parts[1].title).toMatch(/Schoology marks it late/);
   });
@@ -66,6 +66,9 @@ describe('timelineParts', () => {
     const arrived = timelineParts(t({ resubmission: { state: 'arrived', askedOn: '2026-10-07', until: '2026-10-12', arrivedOn: '2026-10-13', afterDeadline: true } }));
     expect(arrived[2]).toMatchObject({ text: 'Resubmission arrived Tue 13/10, after its deadline', tone: 'late' });
     expect(texts(t({ referral: { on: '2026-10-19', day: 9 } }))[2]).toBe('Referred Mon 19/10 (8 school days late)');
+    const waived = timelineParts(t({ referral: { action: 'waived', on: '2026-10-19', day: 9, note: 'pre-approved' } }))[2];
+    expect(waived).toMatchObject({ text: 'Referral waived Mon 19/10 (8 school days late)', title: 'pre-approved' });
+    expect(waived.tone).toBeUndefined();
   });
 
   it('no timeline → nothing', () => {

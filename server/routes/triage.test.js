@@ -95,14 +95,16 @@ describe('/api/triage', () => {
   test('POST extension → 201 with until; listed by course; the row carries it; DELETE undoes', async () => {
     const created = await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 3, note: 'sick' });
     expect(created.status).toBe(201);
-    // Due Mon 06/01/2020, weekday fallback → until Thu 09/01/2020.
-    expect(created.body).toMatchObject({ lessons: 3, note: 'sick', source: 'app', until: '2020-01-09', studentName: 'Maya Chen' });
+    // Due Mon 06/01/2020, long past: from-today (2026-10-08) → 3 school days from today.
+    const expected = loadCalendar(getDb()).addSchoolDays(todayLocal(), 3).date;
+    expect(created.body).toMatchObject({ lessons: 3, note: 'sick', source: 'app', until: expected, studentName: 'Maya Chen' });
     expect((await call('GET', `/api/triage/extensions?courseId=${courseId}`)).body).toHaveLength(1);
     expect((await call('GET', `/api/triage/extensions?courseId=${courseId + 1}`)).body).toEqual([]);
-    const row = (await call('GET', '/api/triage')).body.lateWork[0];
-    expect(row.extension).toMatchObject({ id: created.body.id, lessons: 3, until: '2020-01-09' });
+    expect((await call('GET', '/api/triage')).body.lateWork).toEqual([]); // off the list until the new deadline
     expect((await call('GET', '/api/triage')).body.historyCount).toBe(1);
-    expect((await call('DELETE', `/api/triage/extensions/${created.body.id}`)).body).toEqual({ deleted: true });
+    expect(created.body.timeline).toMatchObject({ extension: { id: created.body.id, until: expected } }); // for the card
+    const undone = (await call('DELETE', `/api/triage/extensions/${created.body.id}`)).body;
+    expect(undone).toMatchObject({ deleted: true, timeline: { extension: null } });
     expect((await call('GET', '/api/triage/extensions')).body).toEqual([]);
   });
 
@@ -147,7 +149,8 @@ describe('resubmission routes', () => {
     const early = await call('PUT', `/api/triage/resubmissions/${asked.body.id}`, { gradeStands: true });
     expect(early.status).toBe(409);
     expect(early.body.code).toBe('NOT_AT_DEADLINE');
-    getDb().prepare(`UPDATE resubmissions SET requested_at = '2020-01-06 04:00:00' WHERE id = ?`).run(asked.body.id);
+    // Rewind to an old ask with no stored deadline (a pre-2026-10-08 row): due long ago.
+    getDb().prepare(`UPDATE resubmissions SET requested_at = '2020-01-06 04:00:00', until = NULL WHERE id = ?`).run(asked.body.id);
     const stands = await call('PUT', `/api/triage/resubmissions/${asked.body.id}`, { gradeStands: true });
     expect(stands.status).toBe(200);
     expect(stands.body).toMatchObject({ status: 'closed', outcome: 'grade_stands', closeNote: 'grade stands' });
@@ -357,7 +360,7 @@ describe('status lines on triage actions (Amendment B)', () => {
       .toMatchObject({ status: 400, body: { code: 'BAD_LESSONS' } });
     expect(pushGradeComments).not.toHaveBeenCalled();
     const x = await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 2 });
-    expect((await call('DELETE', `/api/triage/extensions/${x.body.id}?removeLine=1`)).body).toEqual({ deleted: true, statusLine: { removed: false, comment: null } });
+    expect((await call('DELETE', `/api/triage/extensions/${x.body.id}?removeLine=1`)).body).toMatchObject({ deleted: true, statusLine: { removed: false, comment: null } });
     expect(getSectionGrades).not.toHaveBeenCalled();
     expect(storedLine()).toEqual({ line: LINE, kind: 'ask' });
   });
@@ -475,12 +478,12 @@ describe('GET status-line/until', () => {
     const extended = await call('PUT', `/api/triage/resubmissions/${asked.body.id}`, { lessons: 5 });
     expect(res.body.until).toBe(extended.body.until);
     expect(await until({ kind: 'grade_stands', resubmissionId: asked.body.id })).toMatchObject({ status: 409, body: { code: 'NOT_AT_DEADLINE' } });
-    getDb().prepare(`UPDATE resubmissions SET requested_at = '2020-01-06 04:00:00' WHERE id = ?`).run(asked.body.id);
+    getDb().prepare(`UPDATE resubmissions SET requested_at = '2020-01-06 04:00:00', until = NULL WHERE id = ?`).run(asked.body.id);
     const stands = await until({ kind: 'grade_stands', resubmissionId: asked.body.id });
     expect(stands.body.until).toBe(cal().addSchoolDays('2020-01-06', 5).date);
   });
 
-  test('extension / make_up: the due date + lessons, matching the recorded extension', async () => {
+  test('extension / make_up: from the due date or today (whichever is later), matching the recorded extension', async () => {
     const res = await until({ kind: 'extension', studentId, assignmentId, lessons: 3 });
     expect(res.status).toBe(200);
     const rec = await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 3 });
@@ -695,7 +698,7 @@ describe('GET /api/triage/lesson-plan', () => {
     db.prepare("INSERT INTO class_meetings (course_id, date) VALUES (?, '2999-01-05')").run(cid);
     const { status, body } = await call('GET', `/api/triage/lesson-plan?courseId=${cid}&from=2026-10-06`);
     expect(status).toBe(200);
-    expect(body.from).toBe('2026-10-06');
+    expect(body.from).toBe(todayLocal() > '2026-10-06' ? todayLocal() : '2026-10-06'); // the later of from and today
     expect(body.days).toHaveLength(60);
     expect(body.meetings).toEqual([]); // 2999 is beyond the 60-day window
   });

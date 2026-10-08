@@ -12,8 +12,8 @@
 // stored time it falls back to Schoology's own late flag.
 import { getTriageSettings } from './settings.js';
 import { loadCalendar } from './schoolCalendar.js';
-import { isSubmitted } from './triage.js';
-import { ALIGNED_SQL } from './triageCommon.js';
+import { isSubmitted, extensionUntil } from './triage.js';
+import { ALIGNED_SQL, laterOf } from './triageCommon.js';
 import { todayLocal, epochToLocalDate } from '../lib/schoolDays.js';
 import { sqliteUtcToEpoch } from '../lib/resubmission.js';
 
@@ -57,7 +57,14 @@ export function buildTimeline({
   const g = grade || {};
   const due = splitDue(assignment.due_date);
   const ext = extension && due.date
-    ? { schoolDays: extension.lessons, until: cal.addSchoolDays(due.date, extension.lessons).date, note: extension.note ?? null }
+    ? (() => {
+        const until = extensionUntil(cal, due.date, extension).date;
+        return {
+          id: extension.id ?? null, schoolDays: extension.lessons, until, note: extension.note ?? null,
+          // From the later of the due date and today: what a re-extend starts from (0 once passed).
+          schoolDaysLeft: cal.between(laterOf(due.date, today), until).days,
+        };
+      })()
     : null;
   const deadline = ext?.until ?? due.date;
   const dayOf = (date) => (deadline && date >= deadline ? cal.between(deadline, date).days + 1 : null);
@@ -110,7 +117,10 @@ export function buildTimeline({
         }
       : null,
     referral: referral
-      ? { on: epochToLocalDate(sqliteUtcToEpoch(referral.created_at)), day: (referral.days_late ?? 0) + 1, note: referral.note ?? null }
+      ? {
+          action: referral.action === 'exempt' ? 'waived' : 'referred', // 'exempt' is how a waiver is stored
+          on: epochToLocalDate(sqliteUtcToEpoch(referral.created_at)), day: (referral.days_late ?? 0) + 1, note: referral.note ?? null,
+        }
       : null,
     limit: referralLimitDays,
   };
@@ -123,9 +133,9 @@ export function timelineContext(db, { courseId, today = todayLocal() }) {
   const cal = loadCalendar(db);
   const { referralLimitDays } = getTriageSettings(db);
   const byPair = (rows) => new Map(rows.map((r) => [`${r.student_id}:${r.assignment_id}`, r]));
-  const extensions = byPair(db.prepare('SELECT student_id, assignment_id, lessons, note FROM extensions WHERE course_id = ?').all(Number(courseId)));
+  const extensions = byPair(db.prepare('SELECT id, student_id, assignment_id, lessons, until, note FROM extensions WHERE course_id = ?').all(Number(courseId)));
   const referrals = byPair(db.prepare(
-    "SELECT student_id, assignment_id, days_late, note, created_at FROM referrals WHERE course_id = ? AND action = 'referred'",
+    'SELECT student_id, assignment_id, action, days_late, note, created_at FROM referrals WHERE course_id = ?',
   ).all(Number(courseId)));
   // Summative = aligned, exactly as triage decides it (only summative work is referred).
   const aligned = new Set(db.prepare(`SELECT a.id FROM assignments a WHERE a.course_id = ? AND ${ALIGNED_SQL} = 1`).all(Number(courseId)).map((r) => r.id));
@@ -156,4 +166,12 @@ export function agentTimeline(t) {
     },
     overdue: t.overdue ? { ...t.overdue, schoolDaysOverdue: t.overdue.day - 1 } : null,
   };
+}
+
+// One pair's timeline, read fresh (the card's Extend control patches itself with it).
+export function timelineForPair(db, { studentId, assignmentId }) {
+  const a = db.prepare('SELECT * FROM assignments WHERE id = ?').get(Number(assignmentId));
+  if (!a) return null;
+  const grade = db.prepare('SELECT * FROM grades WHERE student_id = ? AND assignment_id = ?').get(Number(studentId), a.id) || null;
+  return timelineContext(db, { courseId: a.course_id }).timeline(a, Number(studentId), grade);
 }

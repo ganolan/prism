@@ -16,6 +16,7 @@ import { act as runAction, askResubmission, hasLine, pairOf } from '../services/
 import { statusLineUntil } from '../services/statusLineDue.js';
 import { loadCalendar } from '../services/schoolCalendar.js';
 import { lessonPlan } from '../services/lessonPlan.js';
+import { timelineForPair } from '../services/submissionTimeline.js';
 import { todayLocal } from '../lib/schoolDays.js';
 
 const router = Router();
@@ -146,7 +147,8 @@ router.post('/extensions', (req, res) => {
     record: (ctx, published) => {
       const x = recordExtension(db, { studentId, assignmentId, lessons, note, source: 'app' });
       if (published) setStatusLineSource(db, { studentId: ctx.student.id, assignmentId: ctx.assignment.id, type: 'extension', id: x.id });
-      return x;
+      // The pair's fresh submission timeline, for the /assessment/ card's Extend control.
+      return { ...x, timeline: timelineForPair(db, { studentId: ctx.student.id, assignmentId: ctx.assignment.id }) };
     },
   });
 });
@@ -162,7 +164,10 @@ router.delete('/extensions/:id', (req, res) => {
     publish: flag(req.query.removeLine) && ((p) => (p
       ? removeStatusLine(db, { studentId: p[0], assignmentId: p[1], source: { type: 'extension', id } })
       : null)),
-    record: () => undoExtension(db, req.params.id),
+    record: (p) => ({
+      ...undoExtension(db, req.params.id),
+      timeline: p ? timelineForPair(db, { studentId: p[0], assignmentId: p[1] }) : null,
+    }),
   }, 200);
 });
 

@@ -48,7 +48,7 @@ describe('buildTimeline: submitted work', () => {
       ...base, assignment: lti, extension: { lessons: 2, note: 'sick' },
       grade: { lti_submission_state: 'submitted', first_submitted_at: at('2026-10-09 10:00'), late: 1 },
     });
-    expect(t.extension).toEqual({ schoolDays: 2, until: '2026-10-09', note: 'sick' });
+    expect(t.extension).toEqual({ id: null, schoolDays: 2, until: '2026-10-09', note: 'sick', schoolDaysLeft: 0 });
     expect(t.deadline).toBe('2026-10-09');
     expect(t.submission).toMatchObject({ late: false, day: null, schoologyLate: true });
   });
@@ -133,6 +133,18 @@ describe('buildTimeline: resubmission and referral', () => {
       resubmission: { state: 'arrived', arrivedOn: '2026-10-13', request: { requestedOn: '2026-10-07', until: '2026-10-12' } },
     });
     expect(t.resubmission).toEqual({ state: 'arrived', askedOn: '2026-10-07', until: '2026-10-12', arrivedOn: '2026-10-13', afterDeadline: true });
+  });
+
+  test('a stored deadline (from-today extension) wins over due date + N', () => {
+    const t = buildTimeline({ ...base, assignment: lti, extension: { id: 4, lessons: 2, until: '2026-10-16' }, grade: null });
+    expect(t.extension).toMatchObject({ id: 4, until: '2026-10-16', schoolDaysLeft: 2 }); // today 14/10 → 15, 16
+    expect(t.deadline).toBe('2026-10-16');
+    expect(t.overdue).toBeNull();
+  });
+
+  test('a waived referral is marked as waived (stored as the legacy exempt)', () => {
+    const t = buildTimeline({ ...base, assignment: lti, grade: null, referral: { action: 'exempt', created_at: '2026-10-19 12:00:00', days_late: 8 } });
+    expect(t.referral).toMatchObject({ action: 'waived', day: 9 });
   });
 
   test('a referral records the day it was made', () => {

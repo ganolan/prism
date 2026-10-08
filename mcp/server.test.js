@@ -324,10 +324,10 @@ describe('PrisMCP triage tools', () => {
     expect(tool.description).toMatch(/only when the teacher/i);
   });
 
-  test("record_referral's action enum is 'referred' only", async () => {
+  test("record_referral's action enum is 'referred' or 'waived'", async () => {
     const client = await connect();
     const tool = (await client.listTools()).tools.find((t) => t.name === 'record_referral');
-    expect(tool.inputSchema.properties.action.enum).toEqual(['referred']);
+    expect(tool.inputSchema.properties.action.enum).toEqual(['referred', 'waived']);
   });
 
   test('extend_deadline takes lessons as a 1–60 integer; student_id/assignment_id optional (resubmission_id path)', async () => {

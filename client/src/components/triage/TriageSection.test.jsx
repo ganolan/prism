@@ -36,7 +36,7 @@ const PAYLOAD = {
   ],
   makeUps: [
     { studentId: 7, studentName: 'Noah Park', courseId: 8, courseName: 'AP CSP', blockNumber: '3', assignmentId: 20, schoologyAssignmentId: 'q20', title: 'Unit 1 test', dueDate: '2026-10-13', daysSince: 3, day: 4, tone: 'red', approx: false, extension: null },
-    { studentId: 8, studentName: 'Zoe Tan', courseId: 5, courseName: 'AP CSP', assignmentId: 21, schoologyAssignmentId: 'q21', title: 'Unit 2 quiz', dueDate: '2026-10-15', daysSince: 0, day: 1, tone: 'green', approx: false, extension: { id: 9, lessons: 2, until: '2026-10-20', note: 'sits Tue' } },
+    { studentId: 8, studentName: 'Zoe Tan', courseId: 5, courseName: 'AP CSP', assignmentId: 21, schoologyAssignmentId: 'q21', title: 'Unit 2 quiz', dueDate: '2026-10-15', daysSince: 0, day: 1, tone: 'green', approx: false, extension: { id: 9, lessons: 2, until: '2026-10-20', note: 'sits Tue', schoolDaysLeft: 2 } },
   ],
 };
 const latePanel = async () => screen.findByLabelText('Late work');
@@ -82,15 +82,15 @@ describe('TriageSection', () => {
     expect(screen.getByTitle('18 of 22 ungraded')).toHaveTextContent('18/22');
     expect(screen.getAllByText('AP CSP').length).toBeGreaterThan(0);
     expect(screen.getAllByText('[BK 7] AP CSP')).toHaveLength(2); // one late row + one feedback row
-    expect(screen.getByText('ext +3 → 15/10/2026')).toBeInTheDocument();
-    expect(screen.getByText(/Referred \/ extended \(2\)/)).toBeInTheDocument();
+    expect(screen.getByText('ext → 15/10/2026')).toBeInTheDocument();
+    expect(screen.getByText(/Referred \/ waived \/ extended \(2\)/)).toBeInTheDocument();
     expect(screen.getByText('school days late · refer at 8')).toBeInTheDocument();
   });
 
-  it('Referred / extended opens the history inside the Late work panel, right below the link; the link and Close both toggle it', async () => {
+  it('Referred / waived / extended opens the history inside the Late work panel, right below the link; the link and Close both toggle it', async () => {
     renderSection();
     const panel = await latePanel();
-    const link = within(panel).getByText(/Referred \/ extended \(2\)/);
+    const link = within(panel).getByText(/Referred \/ waived \/ extended \(2\)/);
     expect(within(panel).queryByLabelText('Referral history')).not.toBeInTheDocument();
     fireEvent.click(link);
     const history = within(panel).getByLabelText('Referral history');
@@ -129,12 +129,25 @@ describe('TriageSection', () => {
     expect(api.getTriage).toHaveBeenCalledTimes(2);
   });
 
-  it('every row offers Extend without expanding; Refer / Mark referred only on red rows; no Exempt', async () => {
+  it('missing work offers Extend; work handed in late offers Waive instead; Refer only on red rows', async () => {
     renderSection();
     const panel = await latePanel();
     expect(within(panel).getAllByRole('button', { name: 'Refer' })).toHaveLength(2); // inline Refer, red rows
-    expect(within(panel).getAllByText('Extend')).toHaveLength(3); // visible on every row, no expand needed
+    expect(within(panel).getAllByText('Extend')).toHaveLength(2); // Maya, Aiden: still missing
+    const ethan = rowOf(within(panel).getByText('Ethan Wong')); // submitted late: the work is in
+    expect(within(ethan).queryByText('Extend')).not.toBeInTheDocument();
+    expect(within(ethan).getByRole('button', { name: 'Waive' })).toBeInTheDocument();
     expect(screen.queryByText('Exempt')).not.toBeInTheDocument();
+  });
+
+  it('Waive → an optional note → "Waive referral" records it as waived, then reloads', async () => {
+    renderSection();
+    const ethan = rowOf(within(await latePanel()).getByText('Ethan Wong'));
+    fireEvent.click(within(ethan).getByRole('button', { name: 'Waive' }));
+    fireEvent.change(within(ethan).getByLabelText('Waive note'), { target: { value: 'pre-approved absence' } });
+    fireEvent.click(within(ethan).getByRole('button', { name: 'Waive referral' }));
+    await waitFor(() => expect(api.recordReferral).toHaveBeenCalledWith({ studentId: 2, assignmentId: 9, action: 'waived', note: 'pre-approved absence' }));
+    await waitFor(() => expect(api.getTriage).toHaveBeenCalledTimes(2));
   });
 
   it('Extend → Save opens the confirm; Publish posts N lessons, the note and the extension line, then reloads', async () => {
@@ -194,8 +207,8 @@ describe('TriageSection', () => {
     await waitFor(() => expect(api.getTriage).toHaveBeenCalledTimes(2));
   });
 
-  it('re-extending pre-fills the editor with the current extension', async () => {
-    const lateWork = PAYLOAD.lateWork.map((r) => (r.studentId === 3 ? { ...r, extension: { id: 4, lessons: 5, until: '2026-10-21', note: 'trip' } } : r));
+  it('re-extending pre-fills the school days still left on the current extension, and its note', async () => {
+    const lateWork = PAYLOAD.lateWork.map((r) => (r.studentId === 3 ? { ...r, extension: { id: 4, lessons: 3, until: '2026-10-21', note: 'trip', schoolDaysLeft: 5 } } : r));
     api.getTriage.mockResolvedValue({ ...PAYLOAD, lateWork });
     renderSection();
     const aiden = rowOf(within(await latePanel()).getByText('Aiden Li'));
@@ -238,7 +251,7 @@ describe('TriageSection', () => {
       { id: 3, action: 'referred', daysLate: 9, day: 10, createdAt: '2026-10-01 07:42:00', studentName: 'Maya Chen', courseName: 'AP CSP', blockNumber: '7', title: 'CP2 - A very long assignment title', note: null },
     ]);
     renderSection();
-    fireEvent.click(await screen.findByText(/Referred \/ extended \(2\)/));
+    fireEvent.click(await screen.findByText(/Referred \/ waived \/ extended \(2\)/));
     const history = await screen.findByLabelText('Referral history');
     expect(await within(history).findByText('Maya Chen')).toHaveAttribute('title', 'Maya Chen');
     expect(within(history).getByText('CP2 - A very long assignment title')).toHaveAttribute('title', 'CP2 - A very long assignment title');
@@ -251,7 +264,7 @@ describe('TriageSection', () => {
     ]);
     api.undoReferral.mockRejectedValue(new Error('Server unreachable'));
     renderSection();
-    fireEvent.click(await screen.findByText(/Referred \/ extended \(2\)/));
+    fireEvent.click(await screen.findByText(/Referred \/ waived \/ extended \(2\)/));
     const history = await screen.findByLabelText('Referral history');
     expect(await within(history).findByText('[BK 7] AP CSP')).toBeInTheDocument();
     fireEvent.click(within(history).getByText('Undo'));
@@ -269,9 +282,9 @@ describe('TriageSection', () => {
     ]);
     api.undoExtension.mockResolvedValue({ deleted: true });
     renderSection();
-    fireEvent.click(await screen.findByText(/Referred \/ extended \(2\)/));
+    fireEvent.click(await screen.findByText(/Referred \/ waived \/ extended \(2\)/));
     const history = await screen.findByLabelText('Referral history');
-    expect(await within(history).findByText('Extended +3 → 15/10/2026')).toBeInTheDocument();
+    expect(await within(history).findByText('Extended to 15/10/2026')).toBeInTheDocument();
     expect(within(history).getByText('Referred · 9 school days late')).toBeInTheDocument();
     // Newest first: the extension (02/10) above the referral (01/10).
     expect(within(history).getAllByText(/Aiden Li|Maya Chen/).map((el) => el.textContent)).toEqual(['Aiden Li', 'Maya Chen']);
@@ -291,9 +304,9 @@ describe('TriageSection', () => {
       { id: 7, lessons: 3, until: '2026-10-15', createdAt: '2026-09-01 01:00:00', updatedAt: '2026-10-03 01:00:00', studentName: 'Aiden Li', courseName: 'AP CSP', title: 'CP2', note: null },
     ]);
     renderSection();
-    fireEvent.click(await screen.findByText(/Referred \/ extended \(2\)/));
+    fireEvent.click(await screen.findByText(/Referred \/ waived \/ extended \(2\)/));
     const history = await screen.findByLabelText('Referral history');
-    expect(await within(history).findByText('Extended +3 → 15/10/2026')).toBeInTheDocument();
+    expect(await within(history).findByText('Extended to 15/10/2026')).toBeInTheDocument();
     expect(within(history).getByText('03/10/2026')).toBeInTheDocument(); // re-extended date, not the first grant
     expect(within(history).getByText(/Couldn't load referrals: Server unreachable/).closest('.alert')).toHaveClass('alert-warning');
     expect(within(history).queryByText(/Couldn't load extensions/)).not.toBeInTheDocument();
@@ -305,7 +318,7 @@ describe('TriageSection', () => {
     ]);
     api.getExtensions.mockRejectedValue(new Error('boom'));
     renderSection();
-    fireEvent.click(await screen.findByText(/Referred \/ extended \(2\)/));
+    fireEvent.click(await screen.findByText(/Referred \/ waived \/ extended \(2\)/));
     const history = await screen.findByLabelText('Referral history');
     expect(await within(history).findByText('Referred · 9 school days late')).toBeInTheDocument();
     expect(within(history).getByText(/Couldn't load extensions: boom/)).toBeInTheDocument();
@@ -313,7 +326,7 @@ describe('TriageSection', () => {
 
   it('an open history reloads after Mark referred', async () => {
     renderSection();
-    fireEvent.click(await screen.findByText(/Referred \/ extended \(2\)/));
+    fireEvent.click(await screen.findByText(/Referred \/ waived \/ extended \(2\)/));
     await waitFor(() => expect(api.getReferrals).toHaveBeenCalledTimes(1));
     fireEvent.click(referButtons()[0]);
     await waitFor(() => expect(api.getReferrals).toHaveBeenCalledTimes(2));
@@ -344,7 +357,7 @@ describe('TriageSection — compact rows', () => {
     const name = within(lines[0]).getByRole('link', { name: 'Aiden Li' });
     expect(name).toHaveAttribute('href', '/course/6/assessment/a9?student=3');
     expect(name).toHaveAttribute('title', 'Aiden Li');
-    expect(lines[0]).toHaveTextContent('Aiden Liext +3 → 15/10/2026'); // the tag sits beside the name
+    expect(lines[0]).toHaveTextContent('Aiden Liext → 15/10/2026'); // the tag sits beside the name
     expect(lines[1]).toHaveTextContent('[BK 7] AP CSP');
     expect(lines[1]).toHaveAttribute('title', '[BK 7] AP CSP');
     expect(lines[2]).toHaveTextContent(/^CP2$/);
@@ -456,7 +469,7 @@ describe('TriageSection — compact rows', () => {
   it('make-up row: the extension tag sits beside the name', async () => {
     renderSection();
     const row = rowOf(within(await makeUpPanel()).getByText('Zoe Tan'));
-    expect(row.querySelector('.triage-row__line')).toHaveTextContent('Zoe Tanext +2 → 20/10/2026');
+    expect(row.querySelector('.triage-row__line')).toHaveTextContent('Zoe Tanext → 20/10/2026');
   });
 
   it('the Extend editor opens below the row without expanding, and without removing the action buttons', async () => {
@@ -515,7 +528,7 @@ describe('TriageSection — 5 rows, then "All N" in the header', () => {
     const fewer = within(panel).getByRole('button', { name: /^Fewer/ });
     expect(fewer).toHaveTextContent('Fewer ▴');
     expect(fewer).toHaveAttribute('aria-expanded', 'true');
-    expect(panel.lastElementChild).toHaveTextContent(/Referred \/ extended \(2\)/); // history link still last
+    expect(panel.lastElementChild).toHaveTextContent(/Referred \/ waived \/ extended \(2\)/); // history link still last
     fireEvent.click(fewer);
     expect(names(panel)).toHaveLength(5);
   });
@@ -526,7 +539,7 @@ describe('TriageSection — 5 rows, then "All N" in the header', () => {
     const panel = await latePanel();
     expect(names(panel)).toHaveLength(5);
     expect(within(panel).queryByRole('button', { name: /^All \d/ })).not.toBeInTheDocument();
-    expect(panel.lastElementChild).toHaveTextContent(/Referred \/ extended \(2\)/);
+    expect(panel.lastElementChild).toHaveTextContent(/Referred \/ waived \/ extended \(2\)/);
   });
 
   it('each panel keeps its own state, remembered for the session per panel + scope', async () => {
@@ -575,7 +588,7 @@ describe('TriageSection — make-up tests', () => {
     expect(within(panel).getByText('Noah Park')).toBeInTheDocument();
     expect(within(panel).getByText('Unit 1 test')).toBeInTheDocument();
     expect(within(panel).getByRole('img', { name: '3 school days' })).toBeInTheDocument();
-    expect(within(panel).getByText('ext +2 → 20/10/2026')).toBeInTheDocument();
+    expect(within(panel).getByText('ext → 20/10/2026')).toBeInTheDocument();
     expect(within(panel).getAllByText('Extend')).toHaveLength(2); // visible on every row, no expand needed
     expect(within(panel).queryByRole('button', { name: 'Refer' })).not.toBeInTheDocument();
   });
@@ -761,15 +774,15 @@ describe('Resubmissions panel', () => {
     const panel = await resubPanel();
     const ivy = rowOf(within(panel).getByText('Ivy Lam'));
     fireEvent.click(within(ivy).getByRole('button', { name: 'Extend' }));
-    expect(within(ivy).getByLabelText('Extension (school days)')).toHaveValue(3);
+    expect(within(ivy).getByLabelText('Extension (school days)')).toHaveValue(2); // limit 4 - day 2: school days left
     expect(within(ivy).queryByLabelText('Extension note')).not.toBeInTheDocument();
     fireEvent.click(within(ivy).getByLabelText('Increase'));
     fireEvent.click(within(ivy).getByRole('button', { name: 'Save' }));
     const line = 'Resubmission requested - now due Fri 16/10.';
     expect(await screen.findByDisplayValue(line)).toBeInTheDocument();
-    expect(api.getStatusLineUntil).toHaveBeenCalledWith({ kind: 'extend_resubmission', studentId: 13, assignmentId: 30, resubmissionId: 42, lessons: 4 });
+    expect(api.getStatusLineUntil).toHaveBeenCalledWith({ kind: 'extend_resubmission', studentId: 13, assignmentId: 30, resubmissionId: 42, lessons: 3 });
     fireEvent.click(await publishBtn('Publish new due date'));
-    await waitFor(() => expect(api.updateResubmission).toHaveBeenCalledWith(42, { lessons: 4, commentLine: line }));
+    await waitFor(() => expect(api.updateResubmission).toHaveBeenCalledWith(42, { lessons: 3, commentLine: line }));
   });
 
   it('row names link to the student card on the assessment page', async () => {

@@ -6,6 +6,7 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 vi.mock('../server/services/schoology.js', () => ({ getSectionGrades: vi.fn(), pushGradeComments: vi.fn() }));
 
 import { getDb } from '../server/db/index.js';
+import { todayLocal } from '../server/lib/schoolDays.js';
 import { getSectionGrades, pushGradeComments } from '../server/services/schoology.js';
 import { listCourses, listAssignments, listStudents, writeRubric, attachRubricTool } from './handlers.js';
 import {
@@ -361,7 +362,8 @@ describe('resubmission tools', () => {
     expect(listResubmissionsTool(db, { state: 'asked' })).toHaveLength(1);
     expect(await extendDeadlineTool(db, { resubmission_id: r.id, lessons: 5 })).toMatchObject({ lessons: 5 });
     await expect(gradeStandsTool(db, { id: r.id })).rejects.toThrow(expect.objectContaining({ code: 'NOT_AT_DEADLINE' }));
-    db.prepare(`UPDATE resubmissions SET requested_at = '2020-01-06 04:00:00' WHERE id = ?`).run(r.id);
+    // Rewind to an old ask with no stored deadline (a pre-2026-10-08 row): due long ago.
+    db.prepare(`UPDATE resubmissions SET requested_at = '2020-01-06 04:00:00', until = NULL WHERE id = ?`).run(r.id);
     expect(await gradeStandsTool(db, { id: r.id })).toMatchObject({ outcome: 'grade_stands', closeNote: 'grade stands' });
     expect(listResubmissionsTool(db, { state: 'grade_stands' })).toHaveLength(1);
   });
@@ -725,10 +727,11 @@ describe('triage tools', () => {
   test('extend_deadline → get_triage row carries it → undo_extension (source mcp)', async () => {
     const db = getDb();
     const { studentId, assignmentId } = seedLate(db);
-    // Due Mon 06/01/2020, weekday fallback: +3 lessons → Thu 09/01/2020.
+    // Due Mon 06/01/2020, long past: +3 school days from today (2026-10-08 rule); off the list until then.
     const e = await extendDeadlineTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 3, note: 'sick' });
-    expect(e).toMatchObject({ lessons: 3, note: 'sick', source: 'mcp', until: '2020-01-09', studentName: 'Maya Chen' });
-    expect(getTriageTool(db, {}).lateWork[0].extension).toMatchObject({ id: e.id, lessons: 3, until: '2020-01-09' });
+    expect(e).toMatchObject({ lessons: 3, note: 'sick', source: 'mcp', studentName: 'Maya Chen' });
+    expect(e.until > todayLocal()).toBe(true);
+    expect(getTriageTool(db, {}).lateWork).toEqual([]);
     expect(listReferralsTool(db, {}).extensions).toHaveLength(1);
     expect(await undoExtensionTool(db, { id: e.id })).toEqual({ deleted: true });
     expect(listReferralsTool(db, {}).extensions).toEqual([]);

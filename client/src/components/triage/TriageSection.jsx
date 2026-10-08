@@ -6,7 +6,7 @@ import {
 import { extensionLine, makeUpLine, extendResubmissionLine, gradeStandsLine } from '../../lib/statusLines.js';
 import StatusLineModal from '../StatusLineModal.jsx';
 import { useDataVersion } from '../../hooks/useDataVersion.jsx';
-import { formatDateTime } from '../../lib/formatDate.js';
+import { formatDateTime, localIsoDate } from '../../lib/formatDate.js';
 import LateWorkPanel from './LateWorkPanel.jsx';
 import FeedbackOwedPanel from './FeedbackOwedPanel.jsx';
 import MakeUpPanel from './MakeUpPanel.jsx';
@@ -91,9 +91,10 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
 
   // Late work (extensionLine) and make-up tests (makeUpLine) — the note goes into the line.
   const extend = (row, lessons, note, makeUp) => publish(row, {
+    // N school days from today (these rows are past their due / test date).
     consequence: makeUp
-      ? `Gives ${row.studentName} until ${lessonsText(lessons)} after the test to sit it.`
-      : `Extends ${row.studentName}'s deadline to ${lessonsText(lessons)} after the due date.`,
+      ? `Gives ${row.studentName} ${lessonsText(lessons)} from today to sit the test.`
+      : `Gives ${row.studentName} ${lessonsText(lessons)} from today to hand it in.`,
     confirmLabel: 'Publish new due date',
     loadDefaultLine: async () => {
       const until = await untilFor({ kind: makeUp ? 'make_up' : 'extension', studentId: row.studentId, assignmentId: row.assignmentId, lessons });
@@ -104,7 +105,7 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
   const handleExtend = (row, lessons, note) => extend(row, lessons, note, false);
   const handleExtendMakeUp = (row, lessons, note) => extend(row, lessons, note, true);
   const handleExtendResub = (row, lessons) => publish(row, {
-    consequence: `Moves the resubmission deadline to ${lessonsText(lessons)} after the ask.`,
+    consequence: `Gives ${row.studentName} ${lessonsText(lessons)} to resubmit, counted from ${row.requestedOn < localIsoDate() ? 'today' : 'the ask'}.`,
     confirmLabel: 'Publish new due date',
     loadDefaultLine: async () => extendResubmissionLine({
       until: await untilFor({ kind: 'extend_resubmission', studentId: row.studentId, assignmentId: row.assignmentId, resubmissionId: row.id, lessons }),

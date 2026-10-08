@@ -6,6 +6,7 @@
 // web confirm modal (GET /api/triage/status-line/until; the client renders the
 // line itself with client/src/lib/statusLines.js).
 import { assertCanExtend, TriageError } from './triage.js';
+import { deadlineFrom } from './triageCommon.js';
 import { assertCanRequest, assertCanExtendRequest, assertCanGradeStand } from './resubmissions.js';
 import { loadCalendar } from './schoolCalendar.js';
 import { todayLocal, epochToLocalDate } from '../lib/schoolDays.js';
@@ -29,9 +30,9 @@ export function statusLineUntil(db, { kind, studentId, assignmentId, lessons, re
     }
     const { request, lessons: n } = assertCanExtendRequest(db, resubmissionId, lessons);
     const requestedOn = epochToLocalDate(sqliteUtcToEpoch(request.requested_at));
-    return { until: cal.addSchoolDays(requestedOn, n).date, lessons: n };
+    return { until: deadlineFrom(cal, requestedOn, n, today).date, lessons: n };
   }
-  // extension / make_up: from the assignment's own due date.
+  // extension / make_up: from the assignment's own due date, or today once it has passed.
   const { assignment, lessons: n } = assertCanExtend(db, { studentId, assignmentId, lessons });
-  return { until: cal.addSchoolDays(assignment.due_date.slice(0, 10), n).date, lessons: n };
+  return { until: deadlineFrom(cal, assignment.due_date.slice(0, 10), n, today).date, lessons: n };
 }

@@ -23,7 +23,7 @@ function dueLine(t) {
   const due = `Due ${lineDate(t.due.date)}${t.due.time ? ` ${t.due.time}` : ''}`;
   if (!t.extension) return { key: 'due', text: due };
   return {
-    key: 'due', text: `${due} · extended ${days(t.extension.schoolDays)} to ${lineDate(t.extension.until)}`,
+    key: 'due', text: `${due} · extended to ${lineDate(t.extension.until)}`,
     title: t.extension.note || undefined,
   };
 }
@@ -83,7 +83,9 @@ export function timelineParts(t) {
     dueLine(t),
     submissionLine(t),
     resubmissionLine(t),
-    t.referral?.on ? { key: 'referral', text: `Referred ${lineDate(t.referral.on)} (${days(t.referral.day - 1)} late)`, tone: 'over', title: t.referral.note || undefined } : null,
+    t.referral?.on ? (t.referral.action === 'waived'
+      ? { key: 'referral', text: `Referral waived ${lineDate(t.referral.on)} (${days(t.referral.day - 1)} late)`, title: t.referral.note || undefined }
+      : { key: 'referral', text: `Referred ${lineDate(t.referral.on)} (${days(t.referral.day - 1)} late)`, tone: 'over', title: t.referral.note || undefined }) : null,
   ].filter(Boolean);
 }
 

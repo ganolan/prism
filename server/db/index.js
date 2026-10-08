@@ -126,6 +126,9 @@ const MIGRATIONS = [
   `ALTER TABLE assignments ADD COLUMN makeup_ignored INTEGER NOT NULL DEFAULT 0`,
   // Soft removal: set when an assignment is deleted in Schoology (gone from the section list).
   `ALTER TABLE assignments ADD COLUMN removed_at TEXT`,
+  // From-today deadlines (2026-10-08): the stored deadline date of an extension / resubmission ask.
+  `ALTER TABLE extensions ADD COLUMN until TEXT`,
+  `ALTER TABLE resubmissions ADD COLUMN until TEXT`,
   // Triage: when an extension was last re-extended (dev DBs already have the table).
   `ALTER TABLE extensions ADD COLUMN updated_at TEXT`,
   // Make-up tests: the pair's last attempt cell ('took' | 'none' | 'not_assigned'; NULL = unknown).

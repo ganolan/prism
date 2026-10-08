@@ -1193,3 +1193,9 @@ The full submission picture in one compact, wrapping row of short facts (`Submis
 
 **Lateness is a distance, never "day N" (2026-10-07).** On the timeline, "day 5" was read as timetable cycle day 5 (the school's 8-day cycle numbers its days 1-8). Lateness now reads "4 school days late" / "5 school days overdue" (the clock day minus one), and the "?" says "Counted in school days after the due date (or the extended date). Work 8 or more school days late is referred." On a phone each timeline fact sits on its own row with no dots; elsewhere the dot trails the part before it, so a wrapped line never starts with one.
 
+## Waive, and deadlines that count from today (October 2026)
+
+- **Waive, not Ignore or Excuse.** A late submission past the referral limit can be referred or *waived*. "Ignore" reads as neglect in a record the academic office may see; "Excuse" clashes with Schoology's *Excused* (not required to do the task). The button says **Waive**, the confirm button **Waive referral**, the history **Referral waived · 8 school days late** (grey, not red), with the teacher's optional reason. Extend is not offered on work that is already in.
+- **A deadline you set is always in the future.** Extending counts from the later of the start date and today, so the hint never says "already passed" and "Next lesson" is a small number. The extension tag and history show only the resulting date ("ext → 19/10/2026", "Extended to 19/10/2026"): a count from a moving start would mislead.
+- **Extend lives on the card too,** beside *Ask to resubmit*, styled the same way (pill → inline panel → status-line confirm): "Extend" before, "Extended to DD/MM/YYYY" after.
+

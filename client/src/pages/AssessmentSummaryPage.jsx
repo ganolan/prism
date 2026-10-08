@@ -15,6 +15,7 @@ import AiSparkle from '../components/AiSparkle.jsx';
 import SchoologyLink from '../components/SchoologyLink.jsx';
 import SubmissionStatusPill from '../components/SubmissionStatusPill.jsx';
 import SubmissionTimeline from '../components/SubmissionTimeline.jsx';
+import ExtendControl from '../components/ExtendControl.jsx';
 import ScaleLevelPicker from '../components/ScaleLevelPicker.jsx';
 import AssessmentFilterBar from '../components/AssessmentFilterBar.jsx';
 import { passesFilters } from '../lib/assessmentFilters.js';
@@ -466,7 +467,17 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // Schoology now holds.
   // extra: other card fields the action changed (an Ask's unsubmit → the work is in progress).
   function handleResubmitChange(resubmission, commentChange = null, extra = null) {
-    const patch = { resubmission, resubmit_flag: resubmission?.request ? { id: resubmission.request.id } : null, ...(extra || {}) };
+    applyCardChange({ resubmission, resubmit_flag: resubmission?.request ? { id: resubmission.request.id } : null, ...(extra || {}) }, commentChange);
+  }
+
+  // The card's Extend control: the pair's fresh timeline + what the status line did.
+  function handleExtensionChange(timeline, commentChange = null) {
+    applyCardChange(timeline ? { timeline } : {}, commentChange);
+  }
+
+  // Patch the student and keep the comment editor in step with a published / removed
+  // status line (shared by the resubmission and extension controls).
+  function applyCardChange(patch, commentChange) {
     if (commentChange) {
       const newLine = commentChange.line || '';
       if (commentDirty) {
@@ -985,6 +996,11 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         {/* Resubmission (triage) — ask with a deadline in school days; each action publishes a
             status line to the student's Schoology comment after a confirm (spec Amendment B).
             Not offered on an archived/excluded course (the server refuses those). */}
+        {/* Extend (late work, or a missed test's make-up): before or after the due date.
+            Summative or Schoology test only, in a current course, not for an excused student. */}
+        {resubmitEnabled && (topics.length > 0 || assignmentRow?.is_test === 1) && student.exception !== 1 && (
+          <ExtendControl student={student} assignment={assignmentRow || {}} courseId={courseId} onChange={handleExtensionChange} />
+        )}
         {resubmitEnabled && <ResubmitControl
           student={student}
           assignmentId={assignmentRow?.id}

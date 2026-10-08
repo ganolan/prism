@@ -80,7 +80,7 @@ export default function ResubmissionsPanel({
               <div className="triage-row__more">
                 <ExtendEditor
                   courseId={r.courseId} from={r.requestedOn}
-                  extension={{ lessons: r.lessons, note: '' }}
+                  extension={{ schoolDaysLeft: Math.max(0, r.limit - r.day), note: '' }}
                   onSave={(lessons) => { onExtend(r, lessons); setExtending(null); }}
                   onCancel={() => setExtending(null)}
                   showNote={false}

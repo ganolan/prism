@@ -14,7 +14,8 @@ const ISO = /^\d{4}-\d{2}-\d{2}$/;
 // → { from, today, days: [{ n, date, approx }] for n = 1..MAX, meetings: [dates > today] }
 //   meetings is [] when PowerSchool hasn't given this class a timetable.
 export function lessonPlan(db, { courseId, from, today = todayLocal() }) {
-  const start = ISO.test(String(from || '')) ? from : today;
+  // Deadlines count from the later of their start date and today (deadlineFrom).
+  const start = ISO.test(String(from || '')) && from > today ? from : today;
   const cal = loadCalendar(db);
   const days = [];
   for (let n = 1; n <= MAX_EXTENSION_LESSONS; n++) {

@@ -15,7 +15,9 @@ const MAX_LESSONS = 60;
 // (resubmissions: a note typed here would be silently dropped — the teacher edits
 // the status line in the confirm instead).
 export default function ExtendEditor({ extension, onSave, onCancel, showNote = true, courseId, from }) {
-  const [lessons, setLessons] = useState(extension?.lessons ?? DEFAULT_LESSONS);
+  // Deadlines count from today once the start date has passed, so a re-extend starts
+  // from the school days still left on the current deadline (or the default once passed).
+  const [lessons, setLessons] = useState(extension?.schoolDaysLeft > 0 ? extension.schoolDaysLeft : DEFAULT_LESSONS);
   const [note, setNote] = useState(extension?.note ?? '');
   return (
     <>
@@ -36,10 +38,10 @@ export default function ExtendEditor({ extension, onSave, onCancel, showNote = t
 
 // "ext +N → DD/MM/YYYY" on an extended row; the tooltip spells out the unit (+ note).
 export function ExtensionTag({ extension }) {
-  const unit = `Extended by ${extension.lessons} school day${extension.lessons === 1 ? '' : 's'}`;
+  const unit = `Extended to ${formatDate(`${extension.until}T00:00:00`)}`;
   return (
     <span className="badge badge-gray triage-row__tag" title={extension.note ? `${unit}: ${extension.note}` : unit}>
-      ext +{extension.lessons} → {formatDate(`${extension.until}T00:00:00`)}
+      ext → {formatDate(`${extension.until}T00:00:00`)}
     </span>
   );
 }

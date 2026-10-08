@@ -54,3 +54,11 @@ export const ALIGNED_SQL = `CASE WHEN EXISTS (
 export const fullName = (st) => `${preferredFirstName(st)} ${st.last_name}`;
 
 export const MAX_EXTENSION_LESSONS = 60;
+
+// A deadline N school days from its start date, or from today once that date has
+// passed: extending overdue work (or a lapsed resubmission ask, or a missed test)
+// gives time from now, not from the past. Before the start date it counts from it.
+export const laterOf = (a, b) => (a > b ? a : b);
+export function deadlineFrom(cal, start, n, today) {
+  return cal.addSchoolDays(laterOf(start, today), n);
+}

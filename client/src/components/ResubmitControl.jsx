@@ -36,7 +36,7 @@ const STAYS_UNSUBMITTED = ' Their work stays unsubmitted in Schoology.';
 export default function ResubmitControl({ student, assignmentId, courseId, title, defaultLessons = 3, onChange }) {
   const r = student.resubmission;
   const [panel, setPanel] = useState(false);
-  const [lessons, setLessons] = useState(r?.request?.lessons ?? defaultLessons);
+  const [lessons, setLessons] = useState((r?.request?.schoolDaysLeft > 0 ? r.request.schoolDaysLeft : defaultLessons));
   const [note, setNote] = useState('');
   const [confirm, setConfirm] = useState(null); // StatusLineModal props for the action being confirmed
   const actionSeq = useRef(0); // a fresh key per opened action → the modal always remounts
@@ -45,7 +45,7 @@ export default function ResubmitControl({ student, assignmentId, courseId, title
   // (or the Settings default) and a blank note — never a stale value left over
   // from a previous open/close of this same card.
   function openPanel() {
-    setLessons(r?.request?.lessons ?? defaultLessons);
+    setLessons((r?.request?.schoolDaysLeft > 0 ? r.request.schoolDaysLeft : defaultLessons));
     setNote('');
     setPanel(true);
   }
@@ -83,7 +83,7 @@ export default function ResubmitControl({ student, assignmentId, courseId, title
     },
   });
   const extend = () => open({
-    consequence: `Moves the resubmission deadline to ${lessons} school day${lessons === 1 ? '' : 's'} after the ask.`,
+    consequence: `Gives ${studentFullName(student) || 'the student'} ${lessons} school day${lessons === 1 ? '' : 's'} to resubmit, counted from ${req && req.requestedOn < localIsoDate() ? 'today' : 'the ask'}.`,
     confirmLabel: 'Publish new due date',
     loadDefaultLine: async () => extendResubmissionLine({
       until: (await getStatusLineUntil({ kind: 'extend_resubmission', ...ids, resubmissionId: req.id, lessons })).until,

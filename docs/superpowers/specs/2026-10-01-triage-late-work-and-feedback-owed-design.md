@@ -396,6 +396,22 @@ explicit request; descriptions say so.
     the test (stored day numbers unchanged, shown −1). Thresholds and stored values are unchanged; rows keep
     `day` for PrisMCP, whose descriptions say to report day − 1 in school days.
 
+15. **Waive, from-today extensions, Extend on the card** (2026-10-08, teacher-approved).
+    - **Waive** replaces Extend on a *submitted_late* row (the work is in; there is no deadline left to
+      extend): `recordReferral(action: 'waived')`, red rows of kind submitted_late only (else
+      NOT_SUBMITTED), optional note, undoable, listed in history as "Referral waived · N school days late".
+      Stored as the legacy `'exempt'` (it meant the same; the CHECK allows only 'referred'/'exempt'), mapped
+      to `'waived'` on every read. Missing work keeps Refer · Extend.
+    - **From-today deadlines.** An extension (late work, make-up) or a resubmission-ask extension counts N
+      school days from its start date (due date / test date / ask date), or **from today once that date has
+      passed** (`deadlineFrom`), and stores the resulting date (`extensions.until`, `resubmissions.until`;
+      NULL on older rows = start + N, unchanged). Extending overdue work at 16 school days late now gives
+      "3 more school days" from now instead of a date in the past. Re-extending pre-fills the school days
+      still left (`schoolDaysLeft`). The lesson-hint plan starts at the later of the start date and today.
+    - **Extend on the /assessment/ card** (`ExtendControl`), for any targeted student before or after the
+      due date: summative work or a Schoology test in a current course, not an excused student. Same
+      status-line confirm as triage; the route returns the pair's fresh timeline so the card updates.
+
 ## Out of scope (now)
 
 - Calendar import from a file (Master Plan / CSV) — the `schoolDays` interface allows adding it.

@@ -8,7 +8,7 @@
 import { loadCalendar } from './schoolCalendar.js';
 import { getTriageSettings } from './settings.js';
 import { preferredFirstName } from './studentNames.js';
-import { TriageError, MAX_EXTENSION_LESSONS, toneFor, ALIGNED_SQL, fullName } from './triageCommon.js';
+import { TriageError, MAX_EXTENSION_LESSONS, toneFor, ALIGNED_SQL, fullName, deadlineFrom, laterOf } from './triageCommon.js';
 import { resubmissionStateFromSnapshot, sqliteUtcToEpoch } from '../lib/resubmission.js';
 import { epochToLocalDate, todayLocal } from '../lib/schoolDays.js';
 import { currentFingerprints, snapshotMap, EMPTY_FINGERPRINT } from './feedbackSnapshots.js';
@@ -90,6 +90,7 @@ export function listResubmissions(db, { courseId = null, studentId = null, since
     ORDER BY COALESCE(r.updated_at, r.closed_at, r.created_at) DESC, r.id DESC
   `).all(id, id, courseId, courseId, studentId, studentId, since, since).map((r) => {
     const requestedOn = r.requested_at ? epochToLocalDate(sqliteUtcToEpoch(r.requested_at)) : null;
+    const until = requestUntil(cal, requestedOn, r)?.date ?? null;
     return {
       id: r.id, kind: r.kind, status: r.status, outcome: outcomeOf(r),
       studentId: r.student_id,
@@ -97,7 +98,9 @@ export function listResubmissions(db, { courseId = null, studentId = null, since
       assignmentId: r.assignment_id, schoologyAssignmentId: r.schoology_assignment_id, title: r.title,
       dueDate: r.due_date_only, courseId: r.course_id, courseName: r.course_name, blockNumber: r.block_number ?? null,
       requestedAt: r.requested_at, requestedOn, lessons: r.lessons,
-      until: requestedOn && r.lessons ? cal.addSchoolDays(requestedOn, r.lessons).date : null,
+      until,
+      // From the later of the ask date and today to the deadline: what a re-extend starts from.
+      schoolDaysLeft: until ? cal.between(laterOf(requestedOn, todayLocal()), until).days : null,
       note: r.note, source: r.source, revisionAt: r.revision_at,
       closedAt: r.closed_at, closeNote: r.close_note, createdAt: r.created_at, updatedAt: r.updated_at,
       ...unsubmitFields(r),
@@ -177,15 +180,25 @@ function openRequest(db, id) {
   return r;
 }
 
+// An open ask's deadline: the stored one (set by an extension, which counts from
+// today once the ask's deadline has passed), else N school days after the ask date.
+export function requestUntil(cal, requestedOn, request) {
+  if (!requestedOn || !request?.lessons) return null;
+  return request.until ? { date: request.until, approx: false } : cal.addSchoolDays(requestedOn, request.lessons);
+}
+
 // Validation for extending an open request (no write). Returns { request, lessons }.
 export function assertCanExtendRequest(db, id, lessons) {
   const request = openRequest(db, id);
   return { request, lessons: checkLessons(lessons) };
 }
 
-export function extendResubmission(db, id, lessons) {
+export function extendResubmission(db, id, lessons, today = todayLocal()) {
   const { request: r, lessons: n } = assertCanExtendRequest(db, id, lessons);
-  db.prepare(`UPDATE resubmissions SET lessons = ?, updated_at = datetime('now') WHERE id = ?`).run(n, r.id);
+  // N school days from the ask date, or from today once that has passed (2026-10-08).
+  const requestedOn = epochToLocalDate(sqliteUtcToEpoch(r.requested_at));
+  const until = deadlineFrom(loadCalendar(db), requestedOn, n, today).date;
+  db.prepare(`UPDATE resubmissions SET lessons = ?, until = ?, updated_at = datetime('now') WHERE id = ?`).run(n, until, r.id);
   return listResubmissions(db, { id: r.id })[0];
 }
 
@@ -393,12 +406,12 @@ export function resubmissionRows(db, { course, students, cal, today, settings, f
       const assignees = assigneeCache.get(a.id);
       if (assignees && !assignees.has(st.schoology_uid)) continue;
       const requestedOn = request ? epochToLocalDate(sqliteUtcToEpoch(request.requested_at)) : null;
-      const until = request ? cal.addSchoolDays(requestedOn, request.lessons) : null;
+      const until = request ? requestUntil(cal, requestedOn, request) : null;
       const arrivedOn = state === 'arrived' ? epochToLocalDate(snapshot.arrival_revision_at) : null;
       const start = state === 'arrived' ? arrivedOn : requestedOn;
       const { days, approx } = cal.between(start, today);
       // Waiting: the deadline `until` is the last allowed date → last allowed day = lessons + 1.
-      const limit = state === 'arrived' ? feedbackLimitDays : request.lessons + 1;
+      const limit = state === 'arrived' ? feedbackLimitDays : cal.between(requestedOn, until.date).days + 1;
       rows.push({
         id: request?.id ?? null, state,
         studentId: st.id, studentUid: st.schoology_uid, studentName: fullName(st), studentEmail: st.email ?? null,

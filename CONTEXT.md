@@ -48,6 +48,11 @@ touches them — they are **import-once**.
 - **Lesson** — a meeting of one class (`class_meetings`, from PowerSchool's bell schedules). Only ever a
   *hint* next to a school-day deadline ("3 lessons from today"); never a unit Prism counts or stores.
   The API/DB field `lessons` on extensions and resubmissions is historical: it holds **school days**.
+- **Extension / extended deadline** — N school days from the due date (or test / ask date), or **from today
+  once that date has passed**; the resulting date is stored (`until`). Extending overdue work always gives a
+  future deadline.
+- **Waive (a referral)** — the teacher's decision not to refer work that was handed in late past the limit.
+  Recorded in `referrals` as the legacy `exempt` action, shown as "waived". Not Schoology's *Excused*.
 
 ### Proficiency levels (standards-based grading)
 

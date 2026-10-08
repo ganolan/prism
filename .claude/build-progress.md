@@ -1036,5 +1036,7 @@ only, never AI suggestions). `list_courses` gains `include_archived`, `list_stud
 `server/lib/schoolYear.js`, no schema change. Also fixes archived finalisation marking every
 student dropped (archived sections report enrolment status "2", `droppedAtFor`). Spec + open
 questions (archived backfill, prod browser session, defaults):
-`docs/superpowers/specs/2026-10-08-prismcp-student-history-design.md`. Not yet deployed or
-backfilled.
+`docs/superpowers/specs/2026-10-08-prismcp-student-history-design.md`. Deployed 2026-10-08. The
+optional timeliness summary was then removed at the teacher's request (Schoology's late flag
+overstates lateness). 12 archived 2023-25 CS sections were backfilled into prod (courses
+819-830). AP CSP 2023-24 has no mastery data in Schoology.

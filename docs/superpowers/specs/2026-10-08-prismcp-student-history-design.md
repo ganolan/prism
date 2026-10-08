@@ -1,9 +1,17 @@
 # PrisMCP: student history across courses and years (reference letters)
 
-Status: **implemented on branch `worktree-bridge-cse_01YCitn5M2Sh7t5wxxyXKchp`, not deployed** (2026-10-08).
-The teacher first asked for a spec only, then asked for the build in the same session. This
-document is both the spec and the record of what was built. The open questions below are
-decisions the build made with a default. Reverse any of them and the code follows.
+Status: **shipped and backfilled** (2026-10-08). The teacher first asked for a spec only, then
+asked for the build in the same session. This document is both the spec and the record of what
+was built. The teacher's decisions come first. The open questions as first asked are kept below
+them for the record.
+
+**Backfill result (2026-10-08):** 12 archived CS sections from 2023-24 and 2024-25 were imported
+into prod (courses 819-830), about 12 seconds each. 173 enrolments, all status "2" and none
+marked dropped, which confirms the §6 fix. All 12 have scores and verbatim comments. 11 have
+per-topic mastery and end-of-course levels. **AP CSP 2023-24 (course 823) has none**: 248 scores
+and 168 comments, but no district-mastery observations in Schoology for that section, so its
+assessments carry overall levels only. Spot check: the history for the student in §1 now runs
+MAD 2023-24 → MGD 2024-25 → AIML 2025-26, with 16 summatives, every comment verbatim.
 
 ## Decisions (teacher, 2026-10-08)
 

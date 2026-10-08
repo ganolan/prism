@@ -1252,6 +1252,24 @@ describe('syncSectionData — dropped enrolments (#128)', () => {
     expect(enrolmentFor('700001')).toMatchObject({ status: '1', dropped_at: null });
   });
 
+  test('an archived section (every enrolment status "2") keeps the class enrolled and earlier drops dropped', async () => {
+    getSectionEnrollments.mockResolvedValue([active, dropped]);
+    await syncSectionData(db, 'sec-D', courseId, '2026-03-01T00:00:00Z');
+    getSectionEnrollments.mockResolvedValue([{ ...active, status: '2' }, { ...dropped, status: '2' }]);
+    await syncSectionData(db, 'sec-D', courseId, '2026-06-20T00:00:00Z', { skipSubmissions: true, archivedSection: true });
+
+    expect(enrolmentFor('700001')).toMatchObject({ status: '2', dropped_at: null });
+    expect(enrolmentFor('700002')).toMatchObject({ status: '2', dropped_at: '2026-03-01T00:00:00Z' });
+  });
+
+  test('importing an archived section fresh keeps every status-"2" student enrolled', async () => {
+    getSectionEnrollments.mockResolvedValue([{ ...active, status: '2' }, { ...dropped, status: '2' }]);
+    await syncSectionData(db, 'sec-D', courseId, '2026-10-08T00:00:00Z', { skipSubmissions: true, archivedSection: true });
+
+    expect(enrolmentFor('700001').dropped_at).toBeNull();
+    expect(enrolmentFor('700002').dropped_at).toBeNull();
+  });
+
   test('re-syncing preserves the ORIGINAL drop date', async () => {
     getSectionEnrollments.mockResolvedValue([dropped]);
     await syncSectionData(db, 'sec-D', courseId, '2026-08-13T00:00:00Z');

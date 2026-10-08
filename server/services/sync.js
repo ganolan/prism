@@ -16,7 +16,7 @@ import {
 import { filterRecentAssignments } from './recentWindow.js';
 import { groupRevisionsByUid, deriveNativeSubmission } from '../lib/submissionRevisions.js';
 import { retryAsync } from '../lib/retryAsync.js';
-import { isActiveEnrolment } from '../lib/enrolmentStatus.js';
+import { droppedAtFor } from '../lib/enrolmentStatus.js';
 import { createSubmissionFetcher } from './graderSubmissions.js';
 import { getSyncConfig } from '../middleware/featureGate.js';
 import { syncMasteryForCourse, hasMasterySession } from './masterySync.js';
@@ -75,6 +75,8 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     submissionRatePerSec = 4,
     submissionAbandonAfter = 5,
     skipSubmissions = false,
+    // An archived section reports every enrolment as status "2" (section ended).
+    archivedSection = false,
     recentOnly = false,
     recentDays = 30,
   } = opts;
@@ -112,6 +114,7 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   `);
 
   const selectStudent = db.prepare('SELECT id FROM students WHERE schoology_uid = ?');
+  const selectDroppedAt = db.prepare('SELECT dropped_at FROM enrolments WHERE student_id = ? AND course_id = ?');
   const writeEnrollments = db.transaction((rows) => {
     for (const e of rows) {
       upsertStudent.run(String(e.uid), e.name_first, e.name_last, e.primary_email || null, e.picture_url || null, e.school_uid ? String(e.school_uid) : null, now);
@@ -120,7 +123,7 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
         upsertEnrolment.run(
           studentRow.id, courseId, String(e.id),
           e.status == null ? null : String(e.status),
-          isActiveEnrolment(e) ? null : now
+          droppedAtFor(e, { archivedSection, previousDroppedAt: selectDroppedAt.get(studentRow.id, courseId)?.dropped_at, now })
         );
       }
     }
@@ -717,7 +720,7 @@ export async function finalizeArchivedCourse(db, { courseId, sectionId, now, run
   const c = db.prepare('SELECT course_name, grading_period FROM courses WHERE id = ?').get(courseId) || {};
   const period = c.grading_period ? ` — ${c.grading_period}` : '';
   console.log(`[archived] "${c.course_name || sectionId}"${period} (section ${sectionId}): skipping per-cell submission detection (frozen)`);
-  const counts = await syncSectionData(db, String(sectionId), courseId, now, { skipSubmissions: true });
+  const counts = await syncSectionData(db, String(sectionId), courseId, now, { skipSubmissions: true, archivedSection: true });
   const sessionPresent = runMastery && hasMasterySession();
   if (sessionPresent) {
     try {

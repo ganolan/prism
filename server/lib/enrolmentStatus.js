@@ -24,6 +24,26 @@
 export const ACTIVE_ENROLMENT_STATUSES = new Set(['1']);
 
 /**
+ * Status Schoology reports for EVERY enrolment of an archived (inactive)
+ * section, students and admins alike. Verified 2026-10-08 (scripts/
+ * probe-student-history.js) on five archived sections from 2021-22 to 2025-26:
+ * all rows "2"; the active 2026-27 AIML section in the same sweep had "1" and
+ * "5" only. It says the section ended, not that the student left, and a
+ * mid-year drop is no longer distinguishable once the section is archived.
+ */
+export const ENDED_SECTION_STATUS = '2';
+
+/**
+ * dropped_at to store for an enrolment row. In an archived section "2" means
+ * the section ended: keep whatever drop Prism already recorded while the course
+ * was current (null when none), rather than marking the whole class dropped.
+ */
+export function droppedAtFor(enrollment, { archivedSection = false, previousDroppedAt = null, now }) {
+  if (archivedSection && String(enrollment?.status ?? '') === ENDED_SECTION_STATUS) return previousDroppedAt ?? null;
+  return isActiveEnrolment(enrollment) ? null : now;
+}
+
+/**
  * True when the enrollment should appear on the roster.
  *
  * A missing/null `status` is treated as ACTIVE — older cached payloads and any

@@ -5,7 +5,18 @@ The teacher first asked for a spec only, then asked for the build in the same se
 document is both the spec and the record of what was built. The open questions below are
 decisions the build made with a default. Reverse any of them and the code follows.
 
-## Open questions for the teacher
+## Decisions (teacher, 2026-10-08)
+
+- **Deploy:** yes.
+- **Backfill:** only 2023-24 and 2024-25 (the 12 CS sections). 2021-22 and 2022-23 are not needed.
+- **Prod browser session:** refreshed by the teacher before the backfill.
+- **Formative work:** off by default, available with `include_formative`. That is the current
+  behaviour.
+- **Course final grade comments (Q6):** not used, so dropped.
+- Q5 (timeliness summary) is still open, see the reply in the session. It stays opt-in until
+  then.
+
+## Open questions for the teacher (as first asked)
 
 1. **Backfill the archived sections into prod?** Prism holds one 2024-25 section and none
    older, so the tools can't see most history yet (§1). Proposal: import the 12 CS sections

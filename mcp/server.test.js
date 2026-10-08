@@ -133,6 +133,56 @@ describe('PrisMCP server', () => {
     expect(data.map((s) => s.schoology_uid)).toEqual(['uid-1']); // dropped student excluded
   });
 
+  test('list_courses include_archived adds archived courses with school year and term; list_students include_dropped adds leavers', async () => {
+    const db = getDb();
+    db.prepare(`INSERT INTO courses (schoology_section_id, course_name, grading_period) VALUES ('s1', 'Robotics', 'HS 26-27 S1')`).run();
+    const old = db.prepare(`INSERT INTO courses (schoology_section_id, course_name, grading_period, archived) VALUES ('s0', 'MAD', 'Semester 1: 08/15/23 - 01/07/24', 1)`).run().lastInsertRowid;
+    const s1 = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name, grad_year) VALUES ('uid-1', 'Ada', 'Lovelace', 2027)`).run().lastInsertRowid;
+    const s2 = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-2', 'Grace', 'Hopper')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id) VALUES (?, ?)`).run(s1, old);
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, dropped_at) VALUES (?, ?, '2023-09-01')`).run(s2, old);
+
+    const client = await connect();
+    const plain = JSON.parse((await client.callTool({ name: 'list_courses', arguments: {} })).content[0].text);
+    expect(plain.map((c) => c.course_name)).toEqual(['Robotics']);
+    const all = JSON.parse((await client.callTool({ name: 'list_courses', arguments: { include_archived: true } })).content[0].text);
+    expect(all.map((c) => [c.course_name, c.school_year, c.term, c.archived])).toEqual([
+      ['Robotics', '2026-27', 'Semester 1', false],
+      ['MAD', '2023-24', 'Semester 1', true],
+    ]);
+    const roster = JSON.parse((await client.callTool({ name: 'list_students', arguments: { course_id: old, include_dropped: true } })).content[0].text);
+    expect(roster.map((s) => [s.schoology_uid, s.grad_year, s.dropped_at ?? null])).toEqual([['uid-1', 2027, null], ['uid-2', null, '2023-09-01']]);
+  });
+
+  test('find_student then get_student_history reach a student across archived courses, comments verbatim, no AI suggestions', async () => {
+    const db = getDb();
+    const c = db.prepare(`INSERT INTO courses (schoology_section_id, course_name, grading_period, archived) VALUES ('s0', 'MOBILE GAMES DEVELOPMENT', 'Semester 2: 01/06/25 - 06/15/25', 1)`).run().lastInsertRowid;
+    const st = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name, preferred_name_teacher, email, grad_year) VALUES ('uid-t', 'Mei Lin', 'Wong', 'Molly', '270555@hkis.edu.hk', 2027)`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id) VALUES (?, ?)`).run(st, c);
+    const a = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date) VALUES (?, 'a1', 'MGD: Final Pitch (S)', '2025-06-05 15:30:00')`).run(c).lastInsertRowid;
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, score, max_score, grade_comment) VALUES (?, ?, 100, 100, 'trying to bringing new life')`).run(st, a);
+    db.prepare(`INSERT INTO feedback (student_id, assignment_id, status, feedback_json) VALUES (?, ?, 'draft', '{"narrative_feedback":"AI TEXT"}')`).run(st, a);
+
+    const client = await connect();
+    const found = JSON.parse((await client.callTool({ name: 'find_student', arguments: { query: 'Molly Wong' } })).content[0].text);
+    expect(found.candidates.map((x) => [x.id, x.legal_first_name, x.preferred_first_name, x.courses[0].school_year])).toEqual([[st, 'Mei Lin', 'Molly', '2024-25']]);
+
+    const res = await client.callTool({ name: 'get_student_history', arguments: { student: st } });
+    const h = JSON.parse(res.content[0].text);
+    expect(h.courses[0].assessments.map((x) => x.comment)).toEqual(['trying to bringing new life']);
+    expect(res.content[0].text).not.toContain('AI TEXT');
+  });
+
+  test('get_student_history refuses an ambiguous name with the candidates', async () => {
+    const db = getDb();
+    db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name, email) VALUES ('u1', 'Ming', 'Lee', '270001@hkis.edu.hk')`).run();
+    db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name, email) VALUES ('u2', 'Ming', 'Lee', '290002@hkis.edu.hk')`).run();
+    const client = await connect();
+    const res = await client.callTool({ name: 'get_student_history', arguments: { student: 'Ming Lee' } });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toMatch(/AMBIGUOUS: "Ming Lee" matches 2 students/);
+  });
+
   test('advertises the tool-search instructions to the client', async () => {
     const client = await connect();
     expect(client.getInstructions()).toBe(INSTRUCTIONS);

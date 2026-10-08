@@ -5,7 +5,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { getDb } from '../server/db/index.js';
 import { getAssessmentContext } from '../server/services/assessmentContext.js';
 import { writeStudentSuggestions, upsertAssessmentAnalysis } from '../server/services/suggestions.js';
-import { listCourses, listAssignments, listStudents, listRubricsTool, readRubric, writeRubric, attachRubricTool } from './handlers.js';
+import { listCourses, listAssignments, listStudents, listRubricsTool, readRubric, writeRubric, attachRubricTool, findStudentTool, getStudentHistoryTool } from './handlers.js';
 import {
   getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool, extendDeadlineTool, undoExtensionTool,
   setMakeupTrackingTool,
@@ -23,7 +23,9 @@ export const INSTRUCTIONS =
   'late summative work, which assessments have waited longest for feedback, ' +
   'which students missed a Schoology test and must sit a make-up test ' +
   '(all in school days, numbered with the due/test date as day 1), and ' +
-  'school-calendar arithmetic.';
+  'school-calendar arithmetic. Also a student\'s full history across every ' +
+  'course and year with the teacher (archived included), with the teacher\'s ' +
+  'levels and comments verbatim, e.g. for reference letters.';
 
 // Open the shared Prism DB (resolved relative to server/db, honoring DB_PATH)
 // and set busy_timeout so a brief write collision with the Express server
@@ -46,8 +48,11 @@ export function createServer() {
 
   server.registerTool(
     'list_courses',
-    { description: 'List active (non-archived) Prism courses, to resolve which class to grade. Sections of one course share a name: block_number tells them apart.' },
-    async () => ({ content: [{ type: 'text', text: JSON.stringify(listCourses(getDb())) }] })
+    {
+      description: 'List active (non-archived) Prism courses, to resolve which class to grade. Sections of one course share a name: block_number tells them apart. include_archived: true adds archived (past) courses, each with school_year (e.g. "2024-25"), term and archived: true.',
+      inputSchema: { include_archived: z.boolean().optional().describe('Also list archived (past) courses. Default false.') },
+    },
+    async ({ include_archived } = {}) => ({ content: [{ type: 'text', text: JSON.stringify(listCourses(getDb(), { include_archived })) }] })
   );
 
   server.registerTool(
@@ -66,11 +71,14 @@ export function createServer() {
     'list_students',
     {
       description:
-        "List a course's current roster (non-dropped enrolments), independent of any assignment, e.g. to check a meeting attendance list against who's enrolled.",
-      inputSchema: { course_id: z.union([z.number(), z.string()]).describe('Local Prism course id') },
+        "List a course's current roster (non-dropped enrolments), independent of any assignment, e.g. to check a meeting attendance list against who's enrolled. Works for archived course ids too (list_courses include_archived). include_dropped: true appends students who left, each with dropped_at.",
+      inputSchema: {
+        course_id: z.union([z.number(), z.string()]).describe('Local Prism course id'),
+        include_dropped: z.boolean().optional().describe('Also list students who dropped the course. Default false.'),
+      },
     },
-    async ({ course_id }) => ({
-      content: [{ type: 'text', text: JSON.stringify(listStudents(getDb(), { course_id })) }],
+    async ({ course_id, include_dropped }) => ({
+      content: [{ type: 'text', text: JSON.stringify(listStudents(getDb(), { course_id, include_dropped })) }],
     })
   );
 
@@ -411,6 +419,39 @@ export function createServer() {
       },
     },
     async (args) => text(() => listResubmissionsTool(getDb(), args))
+  );
+
+  server.registerTool(
+    'find_student',
+    {
+      description: "Find a student across every course Prism holds, archived (past) years included, by legal name, preferred name, email, email number or schoology_uid. Every word of a name must match, so 'Molly Wong' finds legal 'Mei Lin Wong' whose preferred name is Molly. Each candidate has legal and preferred names, grad_year, email and their courses (school_year, term, block) so two students with the same name can be told apart. Read-only. Then call get_student_history with the candidate's id.",
+      inputSchema: {
+        query: z.union([z.string(), z.number()]).describe('Name (legal or preferred, any order), email, 6-digit email number, schoology_uid or Prism student id'),
+        include_archived: z.boolean().optional().describe('Search archived courses too. Default true.'),
+        limit: z.number().optional().describe('Max candidates (default 20)'),
+      },
+    },
+    async (args) => text(() => findStudentTool(getDb(), args))
+  );
+
+  server.registerTool(
+    'get_student_history',
+    {
+      description: "Everything Prism holds on one student across every course and year they took with the teacher (archived included), e.g. for a reference letter: per course (oldest first) the end-of-course proficiency per measurement topic, and per assessed assignment its title, due date, overall level, levels per measurement topic and the teacher's grade comment VERBATIM (quote it as written, never correct it). Only the teacher's published finals; AI suggestions are never included; `labels` mark anything unusual (unpublished assignment, comment hidden from the student). By default only summative work: `omitted` counts formative and completion-scale work left out (and how many of those have comments); ask for them with include_formative / include_completion. Large histories page: follow page.next_offset, or use detail: 'compact' (title, date, level, comment only). Dates are ISO; show them to the teacher as DD/MM/YYYY. Read-only.",
+      inputSchema: {
+        student: z.union([z.string(), z.number()]).describe('Prism student id (from find_student), schoology_uid, email, or a name that matches exactly one student'),
+        course: z.union([z.string(), z.number()]).optional().describe('Only this course: a Prism course id or part of the course name'),
+        school_year: z.string().optional().describe("Only this school year, e.g. '2024-25'"),
+        include_formative: z.boolean().optional().describe('Include formative work. Default false.'),
+        include_completion: z.boolean().optional().describe('Include completion-scale work (Completed / Incomplete). Default false.'),
+        include_teacher_drafts: z.boolean().optional().describe("Include the teacher's own unpublished drafts, labelled teacher_draft_unpublished. Default false."),
+        include_timeliness: z.boolean().optional().describe('Add per-course late / resubmission / referral counts, with caveats. Default false.'),
+        detail: z.enum(['full', 'compact']).optional().describe("'compact' = title, date, kind, level and comment per assessment. Default 'full'."),
+        limit: z.number().optional().describe('Assessments per page, max 200 (default 50)'),
+        offset: z.number().optional().describe('Page start (page.next_offset from the previous call)'),
+      },
+    },
+    async (args) => text(() => getStudentHistoryTool(getDb(), args))
   );
 
   server.registerTool(

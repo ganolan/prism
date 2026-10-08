@@ -1025,3 +1025,16 @@ surface list in `docs/prismcp-install-and-verify.md`.
 **Tests:** 1311 server + mcp Vitest tests pass (20 new in `submissionStatus.test.js`, 2 new handler
 tests in `mcp/handlers.test.js`).
 
+
+## PrisMCP student history: `find_student` + `get_student_history` (2026-10-08, branch `worktree-bridge-cse_01YCitn5M2Sh7t5wxxyXKchp`)
+
+Read-only tools for reference letters: find a student across every course Prism holds (archived
+included) by legal/preferred name, email, email number or uid; then their full history per course
+and year, with overall level, per-topic levels and the grade comment verbatim (published finals
+only, never AI suggestions). `list_courses` gains `include_archived`, `list_students`
+`include_dropped`. Service `server/services/studentHistory.js`, year parsing
+`server/lib/schoolYear.js`, no schema change. Also fixes archived finalisation marking every
+student dropped (archived sections report enrolment status "2", `droppedAtFor`). Spec + open
+questions (archived backfill, prod browser session, defaults):
+`docs/superpowers/specs/2026-10-08-prismcp-student-history-design.md`. Not yet deployed or
+backfilled.

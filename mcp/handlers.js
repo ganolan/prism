@@ -9,6 +9,8 @@ import { attachRubric } from '../server/services/rubricAttach.js';
 import { LEVELS } from '../server/lib/proficiencyScale.js';
 import { normalizeSubmissionStatus, gradingState, getRoster, scoreScaleFor, getAlignedTopics } from '../server/services/assessmentContext.js';
 import { preferredFirstName } from '../server/services/studentNames.js';
+import { findStudents, getStudentHistory } from '../server/services/studentHistory.js';
+import { schoolYearOf } from '../server/lib/schoolYear.js';
 import {
   getTriage, listReferrals, recordReferral, undoReferral, listExtensions, recordExtension, undoExtension, setMakeUpIgnored,
   assertCanExtend, TriageError,
@@ -30,14 +32,27 @@ import { statusLineUntil } from '../server/services/statusLineDue.js';
 
 // Active courses = not archived, not excluded, not hidden. Mirrors the
 // 'current' view in server/routes/courses.js, plus the excluded filter (#56,
-// spec §3.1).
-export function listCourses(db) {
+// spec §3.1). include_archived adds archived (past) courses, each labelled with
+// its school year and term, oldest first after the current ones; the default
+// output is unchanged.
+export function listCourses(db, { include_archived = false } = {}) {
+  if (!include_archived) {
+    return db.prepare(`
+      SELECT id, course_name, section_name, course_code, schoology_section_id, block_number
+      FROM courses
+      WHERE archived = 0 AND excluded = 0 AND hidden = 0
+      ORDER BY course_name
+    `).all();
+  }
   return db.prepare(`
-    SELECT id, course_name, section_name, course_code, schoology_section_id, block_number
+    SELECT id, course_name, section_name, course_code, schoology_section_id, block_number, grading_period, archived
     FROM courses
-    WHERE archived = 0 AND excluded = 0 AND hidden = 0
-    ORDER BY course_name
-  `).all();
+    WHERE excluded = 0 AND (hidden = 0 OR archived = 1)
+  `).all()
+    .map(({ grading_period, archived, ...c }) => ({ ...c, ...schoolYearOf(grading_period), archived: archived === 1 }))
+    .sort((a, b) => Number(a.archived) - Number(b.archived)
+      || String(b.school_year ?? '').localeCompare(String(a.school_year ?? ''))
+      || a.course_name.localeCompare(b.course_name));
 }
 
 // Per-assignment readiness rollup. Submission: LTI uses lti_submission_state,
@@ -121,9 +136,11 @@ export function listAssignments(db, { course_id }) {
 // Course roster (current, non-dropped enrolments), independent of any
 // assignment — so a class-list check (e.g. against a meeting attendance log)
 // doesn't require resolving an assignment first. Reuses the same getRoster
-// query get_assignment_context composes into its per-assignment roster.
-export function listStudents(db, { course_id }) {
-  return getRoster(db, Number(course_id)).map((st) => ({
+// query get_assignment_context composes into its per-assignment roster. Works
+// for an archived course id too (from list_courses include_archived).
+// include_dropped appends students who left, each with dropped_at.
+export function listStudents(db, { course_id, include_dropped = false }) {
+  const shape = (st) => ({
     id: st.id,
     schoology_uid: st.schoology_uid,
     first_name: st.first_name,
@@ -131,7 +148,30 @@ export function listStudents(db, { course_id }) {
     preferred_name: st.preferred_name,
     preferred_first_name: preferredFirstName(st),
     email: st.email ?? null,
-  }));
+    grad_year: st.grad_year ?? null,
+  });
+  const gradYears = new Map(db.prepare(`
+    SELECT s.id, s.grad_year FROM students s JOIN enrolments e ON e.student_id = s.id WHERE e.course_id = ?
+  `).all(Number(course_id)).map((r) => [r.id, r.grad_year]));
+  const current = getRoster(db, Number(course_id)).map((st) => shape({ ...st, grad_year: gradYears.get(st.id) }));
+  if (!include_dropped) return current;
+  const dropped = db.prepare(`
+    SELECT s.*, e.dropped_at FROM students s JOIN enrolments e ON e.student_id = s.id
+    WHERE e.course_id = ? AND e.dropped_at IS NOT NULL
+    ORDER BY s.last_name, s.first_name
+  `).all(Number(course_id)).map((st) => ({ ...shape(st), dropped_at: st.dropped_at }));
+  return [...current, ...dropped];
+}
+
+// ── Student history (reference letters) ─────────────────────────────────────
+// Read-only. Same service a future UI would use (server/services/studentHistory.js).
+
+export function findStudentTool(db, { query, include_archived, limit } = {}) {
+  return findStudents(db, { query, include_archived, limit });
+}
+
+export function getStudentHistoryTool(db, args = {}) {
+  return getStudentHistory(db, args);
 }
 
 // Portable rubric shape — ordered criteria, per-level descriptors, NO Prism ids

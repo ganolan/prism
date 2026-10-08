@@ -517,6 +517,27 @@ OAuth): for 5 archived `{sectionId}` (all `active:0`), `GET /v1/sections/{id}`, 
 `/enrollments` all returned 200 with real data (one section: 12 assignments / 192 grades / 17 enrollments; an empty
 template section: 0 / 0 / 3). So once you scrape a past `{sectionId}`, all the normal Prism section reads apply (feeds #5).
 
+**Student history sweep (2026-10-08, read-only, student-history spec; probes `scripts/probe-student-history.js`,
+`scripts/probe-student-grades.js`, `scripts/probe-past-sections.js`, `scripts/probe-archived-inventory.js`):**
+- **Archive inventory grew to 58 sections**, the oldest `21-22 S2` / `21-22 YR` (e.g. AP CSP `5166086706`, MAD `5166469329`).
+  Grading-period strings seen: `"2023-2024: 08/15/23 - 06/14/24 · …"`, `"Semester 1: 08/13/24 - 01/05/25 · …"`,
+  `"Semester 2: 1/09/23 - 6/14/23 · …"`, `"21-22 S2 · …"`, `"22-23 Summer · …"`. ⚠️ `parsePastCourses` returned
+  `sectionTitle: "Edit"` for 57 of 58 rows (it reads an admin link's text); only `5166469329` gave `"3(A-B)"`. The REST
+  `GET /v1/sections/{id}` `section_title` is the reliable source (import already uses it).
+- **Archived-section enrolments are all `status: "2"`**, students and admins alike: AIML `7899907727` (14 + 3 admin),
+  ACSS `7361043995` (11 + 2), MAD `6803621354` (14 + 2), MAD `5166469329` (7 + 1). The active AIML `8458134359` in the
+  same sweep had only `"1"` (18 + 1 admin) and `"5"` (2). So `"2"` = section ended, not dropped; a mid-year drop can't be
+  told apart once archived. Prism's `isActiveEnrolment` whitelists `"1"` only, so archived finalisation now passes
+  `archivedSection` and keeps a status-2 student enrolled (`droppedAtFor`, `server/lib/enrolmentStatus.js`).
+- **`GET /v1/users/{studentUid}/sections` works with the teacher's OAuth key** and returns the student's whole current
+  timetable, other teachers' sections included (uid `124747438`: 14 sections, all `active: 1`). **`?include_past=1` has no
+  effect** (same 14 rows, no paging links), so past sections are only reachable section-by-section (archive inventory,
+  then `/sections/{id}/enrollments`).
+- **`/v1/sections/{id}/grades` on archived sections carries the verbatim comment** (`comment`, multi-line, with `\n`, and
+  sometimes a trailing U+200B) plus `comment_status`. `grade` is **points** against `max_points`, not always a percent:
+  2023-24 MAD `6803621354` returns `grade: 11, max_points: 12` and `grade: 14, max_points: 16` on General Academic Scale
+  summatives; 2024-25 MGD `7361045352` returns `87.5 / 100`. Bucket by `grade / max_points` against the scale cutoffs.
+
 **3. Reminders pane (ungraded + resubmissions) — headline COUNTS captured; per-item drill-down deferred.**
 `GET /home/course_reminders_ajax` → **200 JSON `{html}`** (~598-byte fragment). Verified structure: two rows under
 `div.reminders-content`:

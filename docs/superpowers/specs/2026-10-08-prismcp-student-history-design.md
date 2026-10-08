@@ -13,8 +13,8 @@ decisions the build made with a default. Reverse any of them and the code follow
 - **Formative work:** off by default, available with `include_formative`. That is the current
   behaviour.
 - **Course final grade comments (Q6):** not used, so dropped.
-- Q5 (timeliness summary) is still open, see the reply in the session. It stays opt-in until
-  then.
+- **Timeliness summary (Q5): removed.** `get_student_history` carries no lateness,
+  resubmission or referral data at all. Schoology's late flag stays where triage uses it.
 
 ## Open questions for the teacher (as first asked)
 
@@ -178,7 +178,6 @@ Input:
 | `include_formative` | boolean | `false` | |
 | `include_completion` | boolean | `false` | Completion-scale work (Completed / Incomplete) |
 | `include_teacher_drafts` | boolean | `false` | Teacher's own unpublished drafts, labelled |
-| `include_timeliness` | boolean | `false` | Per-course late / resubmission / referral counts + caveat |
 | `detail` | `full` \| `compact` | `full` | |
 | `limit` / `offset` | number | 50 / 0 | Paging over assessments, max 200 |
 
@@ -303,7 +302,7 @@ code, so the student lands visibly in the dropped list, as #128 intends. Tests:
   template course, two same-named "Ming Lee"s, an AI suggestion, a teacher draft, a status line,
   an unpublished assignment, a hidden comment and a deleted assignment. Covers search by every
   identifier, disambiguation, year ordering, defaults and `omitted`, verbatim comments, level
-  derivation, labels, filters, compact mode, paging and timeliness.
+  derivation, labels, filters, compact mode, paging, and that no lateness data leaks.
 - `mcp/server.test.js`: `find_student` → `get_student_history` end to end over the MCP
   transport, the ambiguous-name error, and `list_courses`/`list_students` with the new flags.
 - Full suite: 97 files and 1430 tests passing.
@@ -328,7 +327,7 @@ archived courses**. That path now keeps their students enrolled.
 | MCP wiring + flags + tests | 0.5 day | done |
 | Archived status-2 fix + tests | 0.25 day | done |
 | Backfill (unattended imports) | under 1 hour of run time | pending approval (Q1, Q2) |
-| Course final comments (Q6) | about 1 day | not started |
+| Course final comments (Q6) | about 1 day | dropped: not used |
 
 ## Follow-ups
 

@@ -205,7 +205,7 @@ function courseAssessments(db, student, courseId, { includeTeacherDrafts }) {
   const rows = db.prepare(`
     SELECT a.id, a.schoology_assignment_id, a.title, a.due_date, a.published, a.grading_scale_id,
            gc.title AS category_title,
-           g.score, g.max_score, g.grade_comment, g.comment_status, g.exception, g.late,
+           g.score, g.max_score, g.grade_comment, g.comment_status, g.exception,
            sl.line AS status_line
     FROM assignments a
     LEFT JOIN grading_categories gc ON gc.course_id = a.course_id AND gc.schoology_category_id = a.grading_category_id
@@ -261,7 +261,6 @@ function courseAssessments(db, student, courseId, { includeTeacherDrafts }) {
       } : null,
       topics,
       comment: comment || null,
-      submitted_late: a.late == null ? null : a.late === 1,
       labels,
     };
     if (draft) {
@@ -293,18 +292,6 @@ function courseProficiency(db, student, courseId) {
   }));
 }
 
-function courseTimeliness(db, student, courseId, assessments) {
-  const summatives = assessments.filter((a) => a.kind === 'summative' && a.status === 'final');
-  const count = (sql) => db.prepare(sql).get(student.id, courseId).n;
-  return {
-    summatives_assessed: summatives.length,
-    summatives_submitted_late: summatives.filter((a) => a.submitted_late === true).length,
-    resubmission_requests: count(`SELECT COUNT(*) AS n FROM resubmissions WHERE student_id = ? AND course_id = ? AND kind = 'request'`),
-    referrals: count(`SELECT COUNT(*) AS n FROM referrals WHERE student_id = ? AND course_id = ? AND action = 'referred'`),
-    note: 'summatives_submitted_late is Schoology\'s own flag against the original due date: it ignores Prism extensions, and a resubmission re-stamps the work as late, so it overstates lateness. Resubmission and referral counts only cover what Prism recorded (from 2026-10).',
-  };
-}
-
 const matchesCourse = (c, ref) => {
   if (ref == null || ref === '') return true;
   const s = String(ref).toLowerCase();
@@ -319,7 +306,7 @@ const matchesYear = (c, y) => !y || (c.school_year ?? '') === String(y).trim() |
  */
 export function getStudentHistory(db, {
   student, course, school_year, include_formative = false, include_completion = false,
-  include_teacher_drafts = false, include_timeliness = false, detail = 'full', limit = 50, offset = 0,
+  include_teacher_drafts = false, detail = 'full', limit = 50, offset = 0,
 } = {}) {
   const st = resolveStudent(db, student);
   const compact = detail === 'compact';
@@ -340,27 +327,24 @@ export function getStudentHistory(db, {
       return !drop;
     });
     kept.forEach((a) => flat.push({ course_id: c.course_id, a }));
-    return { c, all, kept };
+    return { c, kept };
   });
 
   const lim = Math.max(1, Math.min(200, Number(limit) || 50));
   const off = Math.max(0, Number(offset) || 0);
   const page = new Set(flat.slice(off, off + lim).map((x) => x.a));
 
-  // submitted_late is only meaningful next to the timeliness caveat, so it stays
-  // out unless asked for.
-  const shape = ({ submitted_late, ...a }) => (compact
+  const shape = (a) => (compact
     ? { title: a.title, due_date: a.due_date, kind: a.kind, level: a.overall?.level ?? null, comment: a.comment, ...(a.labels.length ? { labels: a.labels } : {}) }
-    : { ...a, ...(include_timeliness ? { submitted_late } : {}) });
+    : a);
 
   return {
     student: identity(st),
     filters: { course: course ?? null, school_year: school_year ?? null, include_formative, include_completion, include_teacher_drafts, detail: compact ? 'compact' : 'full' },
-    courses: perCourse.map(({ c, all, kept }) => ({
+    courses: perCourse.map(({ c, kept }) => ({
       ...c,
       assessments_total: kept.length,
       proficiency: courseProficiency(db, st, c.course_id),
-      ...(include_timeliness ? { timeliness: courseTimeliness(db, st, c.course_id, all) } : {}),
       assessments: kept.filter((a) => page.has(a)).map(shape),
     })),
     omitted,

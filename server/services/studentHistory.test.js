@@ -98,7 +98,6 @@ function seed(db) {
     .run(aimlDraftOnly, molly, JSON.stringify({ comment: 'Teacher draft words', pending: { t51: 'EX', t66: '__remove__' } }));
   db.prepare(`INSERT INTO mastery_rollups (student_uid, objective_id, course_id, is_category, grade_scaled_rounded) VALUES ('uid-molly', 't51', ?, 0, 87.5)`).run(aiml);
   db.prepare(`INSERT INTO mastery_rollups (student_uid, objective_id, course_id, is_category, grade_scaled_rounded, override_value) VALUES ('uid-molly', 't66', ?, 0, 37.5, 62.5)`).run(aiml);
-  db.prepare(`INSERT INTO resubmissions (student_id, assignment_id, course_id, kind, status, requested_at) VALUES (?, ?, ?, 'request', 'open', '2025-12-03 01:00:00')`).run(molly, aimlP2, aiml);
 
   ids = { molly, natalie, ming1, ming2, mad, mgd, aiml, rob, master, aimlLlm, aimlDraftOnly };
 }
@@ -106,7 +105,7 @@ function seed(db) {
 beforeEach(() => {
   const db = getDb();
   db.exec(
-    'DELETE FROM resubmissions; DELETE FROM status_lines; DELETE FROM assessment_drafts; DELETE FROM feedback; ' +
+    'DELETE FROM status_lines; DELETE FROM assessment_drafts; DELETE FROM feedback; ' +
     'DELETE FROM mastery_rollups; DELETE FROM mastery_scores; DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
     'DELETE FROM grading_categories; DELETE FROM grading_scales; DELETE FROM grades; DELETE FROM enrolments; ' +
     'DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
@@ -284,13 +283,8 @@ describe('getStudentHistory', () => {
     expect(p2.courses.map((c) => c.assessments_total)).toEqual([2, 1, 3, 0]);
   });
 
-  test('timeliness is off by default and carries its caveat when asked for', () => {
-    const db = getDb();
-    const plain = getStudentHistory(db, { student: ids.molly });
-    expect(plain.courses[0].timeliness).toBeUndefined();
-    expect(plain.courses.flatMap((c) => c.assessments).some((a) => 'submitted_late' in a)).toBe(false);
-    const t = getStudentHistory(db, { student: ids.molly, include_timeliness: true }).courses.find((c) => c.course_id === ids.aiml).timeliness;
-    expect(t).toMatchObject({ summatives_submitted_late: 1, resubmission_requests: 1, referrals: 0 });
-    expect(t.note).toMatch(/overstates lateness/);
+  test('carries no lateness data: Schoology\'s late flag overstates it, so it stays out of letters', () => {
+    const h = getStudentHistory(getDb(), { student: ids.molly, include_formative: true, include_completion: true });
+    expect(JSON.stringify(h)).not.toMatch(/late|timeliness|referral|resubmi/i);
   });
 });

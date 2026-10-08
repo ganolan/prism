@@ -445,7 +445,6 @@ export function createServer() {
         include_formative: z.boolean().optional().describe('Include formative work. Default false.'),
         include_completion: z.boolean().optional().describe('Include completion-scale work (Completed / Incomplete). Default false.'),
         include_teacher_drafts: z.boolean().optional().describe("Include the teacher's own unpublished drafts, labelled teacher_draft_unpublished. Default false."),
-        include_timeliness: z.boolean().optional().describe('Add per-course late / resubmission / referral counts, with caveats. Default false.'),
         detail: z.enum(['full', 'compact']).optional().describe("'compact' = title, date, kind, level and comment per assessment. Default 'full'."),
         limit: z.number().optional().describe('Assessments per page, max 200 (default 50)'),
         offset: z.number().optional().describe('Page start (page.next_offset from the previous call)'),

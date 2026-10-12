@@ -1,13 +1,11 @@
 // Per-question statistics for a quiz group (spec §8). Counts, percentages, bands
 // and distractor flags only; no discrimination statistics.
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { getQuizStats, setQuizTags } from '../../services/api.js';
 
-const plain = (html) => {
-  const d = document.createElement('div');
-  d.innerHTML = html || '';
-  return (d.textContent || '').replace(/\s+/g, ' ').trim();
-};
+// Stem and option HTML is the teacher's own Schoology question text, rendered as-is in this local app.
+// DOMParser is inert (no scripts, no image loads), so reading textContent here runs nothing.
+const plain = (html) => new DOMParser().parseFromString(html || '', 'text/html').body.textContent.replace(/\s+/g, ' ').trim();
 const FLAG_CLASS = { critical: 'badge badge-red', warning: 'badge badge-amber', note: 'badge' };
 
 function QuestionRow({ q, groupId, onTagsSaved }) {
@@ -15,6 +13,7 @@ function QuestionRow({ q, groupId, onTagsSaved }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(q.tags.join(', '));
   const [saveError, setSaveError] = useState(null);
+  const stemText = useMemo(() => plain(q.stem_html).slice(0, 120), [q.stem_html]);
   const pct = q.facility == null ? null : Math.round(q.facility * 100);
   async function saveTags() {
     const tags = draft.split(',').map(t => t.trim()).filter(Boolean);
@@ -37,11 +36,11 @@ function QuestionRow({ q, groupId, onTagsSaved }) {
         {!editing && <button className="ghost" onClick={() => { setDraft(q.tags.join(', ')); setSaveError(null); setEditing(true); }} style={{ fontSize: '0.75rem' }}>Edit tags</button>}
         {editing && (
           <>
-            <input aria-label={`Tags for question ${q.position}`} value={draft} onChange={(e) => setDraft(e.target.value)} />
+            <input type="text" aria-label={`Tags for question ${q.position}`} value={draft} onChange={(e) => setDraft(e.target.value)} style={{ width: 220, maxWidth: '100%' }} />
             <button className="secondary" onClick={saveTags}>Save tags</button>
           </>
         )}
-        <span className="text-sm" style={{ flex: 1, minWidth: 160 }}>{plain(q.stem_html).slice(0, 120)}</span>
+        <span className="text-sm" style={{ flex: 1, minWidth: 160 }}>{stemText}</span>
         {pct != null && (
           <>
             <span aria-hidden="true" style={{ width: 90, height: 8, borderRadius: 4, background: 'var(--bg-subtle)', overflow: 'hidden', display: 'inline-block' }}>
@@ -64,10 +63,10 @@ function QuestionRow({ q, groupId, onTagsSaved }) {
         </div>
       )}
       {open && (
-        <div style={{ marginTop: '0.5rem', marginLeft: '2.5rem' }}>
-          <div dangerouslySetInnerHTML={{ __html: q.stem_html }} />
+        <div style={{ marginTop: '0.5rem', marginLeft: '2.5rem', maxWidth: 'calc(100% - 2.5rem)', overflowX: 'auto' }}>
+          <div style={{ maxWidth: '100%' }} dangerouslySetInnerHTML={{ __html: q.stem_html }} />
           {q.options.map(o => (
-            <div key={o.letter} style={{ display: 'flex', gap: '0.5rem' }}>
+            <div key={o.letter} style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', maxWidth: '100%' }}>
               <strong>{o.letter}</strong><span dangerouslySetInnerHTML={{ __html: o.html }} /><span className="text-muted">{o.count}{o.is_key ? ' ✓' : ''}</span>
             </div>
           ))}
@@ -78,13 +77,16 @@ function QuestionRow({ q, groupId, onTagsSaved }) {
 }
 
 export default function QuestionsTab({ groupId, reloadKey }) {
-  const [stats, setStats] = useState(null);
+  // Stats are tagged with the group they belong to, so another group never shows them while its own load runs.
+  const [loaded, setLoaded] = useState({ groupId: null, stats: null });
+  const stats = loaded.groupId === groupId ? loaded.stats : null;
   const [error, setError] = useState(null);
   const [lowestFirst, setLowestFirst] = useState(false);
   const [version, setVersion] = useState(0);
   useEffect(() => {
     let active = true;
-    getQuizStats(groupId).then(s => { if (active) setStats(s); }).catch(e => { if (active) setError(e.message); });
+    setError(null);
+    getQuizStats(groupId).then(s => { if (active) setLoaded({ groupId, stats: s }); }).catch(e => { if (active) setError(e.message); });
     return () => { active = false; };
   }, [groupId, reloadKey, version]);
 
@@ -117,7 +119,7 @@ export default function QuestionsTab({ groupId, reloadKey }) {
           <table aria-label="By type" className="text-sm">
             <thead><tr><th>Type</th><th>Result</th></tr></thead>
             <tbody>
-              {stats.mcq.count > 0 && <tr><td>MCQ ({stats.mcq.count})</td><td>median {stats.mcq.median_percent}%</td></tr>}
+              {stats.mcq.count > 0 && <tr><td>MCQ ({stats.mcq.count})</td><td>{stats.mcq.median_percent != null && `median ${stats.mcq.median_percent}%`}</td></tr>}
               {stats.frq.count > 0 && <tr><td>FRQ ({stats.frq.count})</td><td>{stats.frq.levels.map(l => `${l.name} ${l.count}`).join(', ')}</td></tr>}
             </tbody>
           </table>

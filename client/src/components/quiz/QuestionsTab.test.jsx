@@ -52,9 +52,13 @@ describe('QuestionsTab', () => {
     render(<QuestionsTab groupId={7} />);
     const row = (await screen.findAllByTestId('question-row'))[0];
     fireEvent.click(within(row).getByRole('button', { name: 'Edit tags' }));
-    fireEvent.change(within(row).getByRole('textbox', { name: 'Tags for question 1' }), { target: { value: 'AAP-1.A, AAP-1.B' } });
+    const input = within(row).getByRole('textbox', { name: 'Tags for question 1' });
+    expect(input).toHaveAttribute('type', 'text');
+    fireEvent.change(input, { target: { value: 'AAP-1.A, AAP-1.B' } });
     fireEvent.click(within(row).getByRole('button', { name: 'Save tags' }));
     await waitFor(() => expect(setQuizTags).toHaveBeenCalledWith(7, { 1: ['AAP-1.A', 'AAP-1.B'] }));
+    await waitFor(() => expect(within(row).queryByRole('textbox', { name: 'Tags for question 1' })).toBeNull());
+    await waitFor(() => expect(getQuizStats).toHaveBeenCalledTimes(2));
   });
 
   it('starts the tag editor from the current tags, not an earlier draft', async () => {
@@ -70,5 +74,64 @@ describe('QuestionsTab', () => {
     });
     fireEvent.click(within(row).getByRole('button', { name: 'Edit tags' }));
     expect(within(row).getByRole('textbox', { name: 'Tags for question 1' })).toHaveValue('CRD-9.Z');
+  });
+
+  it('expands a row to show the stem and option HTML', async () => {
+    render(<QuestionsTab groupId={7} />);
+    const row = (await screen.findAllByTestId('question-row'))[1];
+    const toggle = within(row).getByRole('button', { name: 'Q4' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(row.querySelector('p').textContent).toBe('Hard one');
+    expect(within(row).getByText('b')).toBeInTheDocument();
+    expect(within(row).getByText('c')).toBeInTheDocument();
+  });
+
+  it('keeps the editor open and shows an alert when saving tags fails', async () => {
+    setQuizTags.mockRejectedValue(new Error('Schoology is unreachable'));
+    render(<QuestionsTab groupId={7} />);
+    const row = (await screen.findAllByTestId('question-row'))[0];
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit tags' }));
+    fireEvent.click(within(row).getByRole('button', { name: 'Save tags' }));
+    expect(await within(row).findByText('Schoology is unreachable')).toBeInTheDocument();
+    expect(within(row).getByRole('textbox', { name: 'Tags for question 1' })).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'Save tags' })).toBeInTheDocument();
+    expect(getQuizStats).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the empty state when no results are loaded', async () => {
+    getQuizStats.mockResolvedValue({ ...STATS, takers: 0, questions: [] });
+    render(<QuestionsTab groupId={7} />);
+    expect(await screen.findByText('No results loaded yet. Use Load results above.')).toBeInTheDocument();
+  });
+
+  it('clears a failed load once a later load succeeds', async () => {
+    getQuizStats.mockRejectedValueOnce(new Error('Session expired'));
+    const { rerender } = render(<QuestionsTab groupId={7} reloadKey={0} />);
+    expect(await screen.findByText('Session expired')).toBeInTheDocument();
+    rerender(<QuestionsTab groupId={7} reloadKey={1} />);
+    expect(await screen.findByText(/Takers 18 of 19/)).toBeInTheDocument();
+    expect(screen.queryByText('Session expired')).toBeNull();
+  });
+
+  it('does not show the previous group while a new group loads', async () => {
+    const { rerender } = render(<QuestionsTab groupId={7} />);
+    await screen.findByText(/Takers 18 of 19/);
+    let resolveNext;
+    getQuizStats.mockReturnValueOnce(new Promise((r) => { resolveNext = r; }));
+    rerender(<QuestionsTab groupId={8} />);
+    expect(screen.queryByText(/Takers 18 of 19/)).toBeNull();
+    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    resolveNext({ ...STATS, takers: 3, classSize: 4 });
+    expect(await screen.findByText(/Takers 3 of 4/)).toBeInTheDocument();
+  });
+
+  it('omits the median from the By type row when there is no MCQ median', async () => {
+    getQuizStats.mockResolvedValue({ ...STATS, mcq: { count: 20, median_percent: null } });
+    render(<QuestionsTab groupId={7} />);
+    const table = await screen.findByRole('table', { name: 'By type' });
+    expect(within(table).getByText('MCQ (20)')).toBeInTheDocument();
+    expect(within(table).queryByText(/median/)).toBeNull();
   });
 });

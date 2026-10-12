@@ -122,6 +122,15 @@ describe('triage status lines (Amendment B)', () => {
       .rejects.toMatchObject({ message: 'The comment WAS published…', code: 'RECORD_FAILED_AFTER_PUBLISH', published: true, status: 500 });
   });
 
+  it('a failed write also carries the parity `differences` from the error body', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false, status: 409,
+      json: async () => ({ error: 'Different questions', differences: [{ assignmentId: 2, title: 'B', missing: [], extra: ['Q?'] }] }),
+    }));
+    await expect(api.checkQuizParity(['1', '2']))
+      .rejects.toMatchObject({ status: 409, differences: [{ assignmentId: 2, title: 'B', missing: [], extra: ['Q?'] }] });
+  });
+
   it('the Reviewed call is gone', () => {
     expect(api.reviewResubmission).toBeUndefined();
   });

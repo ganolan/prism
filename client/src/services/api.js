@@ -10,7 +10,7 @@ async function request(path, options = {}) {
     // code / published / comment ride along (e.g. triage RECORD_FAILED_AFTER_PUBLISH:
     // the Schoology comment WAS changed even though the action failed).
     throw Object.assign(new Error(err.error || `Request failed: ${res.status}`), {
-      status: res.status, code: err.code, published: err.published, comment: err.comment,
+      status: res.status, code: err.code, published: err.published, comment: err.comment, differences: err.differences,
     });
   }
   return res.json();

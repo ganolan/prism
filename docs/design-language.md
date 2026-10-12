@@ -1203,3 +1203,9 @@ The full submission picture in one compact, wrapping row of short facts (`Submis
 ## Test attempt link (October 2026, linked quizzes)
 
 - **"Attempt" is the #120 "Open" pattern again.** One small outbound link labelled **Attempt**, beside the submission-status pill on the `/assessment/` cards, in the gradebook rubric modal's badge row and in the status cell of the student page. The full sentence is the accessible name ("Attempt: open Ada's test attempt in Schoology"); the completion time (day-first) is in the tooltip. Nothing renders when the student has no attempt. The shared component is `components/quiz/AttemptLink.jsx`.
+
+## Quiz setup modal (October 2026, linked quizzes)
+
+- **Combine is gated on a parity check, and the gate is visible.** The modal ticks the current test and its suggested copies. Combine stays disabled until **Check questions** passes for exactly that ticked set; a single ticked test needs no check. A mismatch lists each test's missing and extra questions inside `.alert.alert-warning`, and a match shows "Same questions" in `.alert.alert-success`. Any change to the ticks drops the old result, so the teacher cannot combine on a stale check.
+- **Remove is two steps.** "Remove quiz group" reveals an inline sentence that says loaded results are removed and Schoology is not changed, with a second **Remove** button. Nothing is deleted on the first click.
+- **The result-task select lists each summative once.** The linked result is listed first; the other summatives follow, with "Not linked" as the empty choice. The shared component is `components/quiz/QuizSetupModal.jsx`, built on the existing `.modal-overlay` / `.modal-content` pair.

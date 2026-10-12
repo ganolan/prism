@@ -72,20 +72,54 @@ describe('groupStats', () => {
     ]);
   });
 
-  test('a multi-row FRQ rubric counts each graded row, and a missing row is not marked', () => {
+  test('a multi-row FRQ rubric gives one level per answer, from the first row', () => {
     const two = { id: 'r', rows: [RUBRIC.rows[0], { id: '10', title: 'Second', maxPoints: 4, levels: RUBRIC.rows[0].levels }] };
     db.prepare('UPDATE quiz_questions SET schoology_rubric_json = ? WHERE id = ?').run(JSON.stringify(two), qFrq);
-    const a0 = db.prepare(`SELECT id FROM quiz_attempts WHERE schoology_attempt_id = 'a0'`).get().id;
-    db.prepare('UPDATE quiz_responses SET schoology_rubric_cells_json = ? WHERE attempt_id = ? AND question_id = ?')
-      .run(JSON.stringify({ 9: { points: 3, comment: '' }, 10: { points: 1, comment: '' } }), a0, qFrq);
-    expect(groupStats(db, { groupId: g }).frq.levels).toEqual([
-      { name: 'Exhibiting', count: 1 }, { name: 'Developing', count: 2 }, { name: 'Emerging', count: 1 }, { name: 'Not marked', count: 4 },
+    const attemptOf = (sid) => db.prepare('SELECT id FROM quiz_attempts WHERE schoology_attempt_id = ?').get(sid).id;
+    const setCells = (sid, cells) => db.prepare('UPDATE quiz_responses SET schoology_rubric_cells_json = ? WHERE attempt_id = ? AND question_id = ?')
+      .run(cells == null ? null : JSON.stringify(cells), attemptOf(sid), qFrq);
+    // a0: row 9 at 3 (Exhibiting), row 10 at 1 (ignored: only the first row counts).
+    setCells('a0', { 9: { points: 3, comment: '' }, 10: { points: 1, comment: '' } });
+    // a1: row 9 missing, row 10 present: not marked.
+    setCells('a1', { 10: { points: 2, comment: '' } });
+    // a2: row 9 at 2 (Developing).
+    setCells('a2', { 9: { points: 2, comment: '' } });
+    // a3: no cells (not marked).
+    const s = groupStats(db, { groupId: g });
+    expect(s.frq.levels).toEqual([
+      { name: 'Exhibiting', count: 1 }, { name: 'Developing', count: 1 }, { name: 'Not marked', count: 2 },
+    ]);
+    expect(s.frq.levels.reduce((n, l) => n + l.count, 0)).toBe(4);
+  });
+
+  test('two distractors that each drew more than the key are both flagged critical', () => {
+    const member = db.prepare('SELECT assignment_id FROM quiz_group_members WHERE group_id = ?').get(g).assignment_id;
+    db.prepare('DELETE FROM quiz_responses WHERE question_id = ?').run(qMcq);
+    // 1 B (key), 2 C, 3 D: C and D each beat the key; 6 answers, 1 correct.
+    const picks = ['B', 'C', 'C', 'D', 'D', 'D'];
+    picks.forEach((letter, i) => {
+      const s = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES (?, 'S', ?)`).run(`w${i}`, `W${i}`).lastInsertRowid;
+      const a = db.prepare(`INSERT INTO quiz_attempts (group_id, assignment_id, student_id, schoology_attempt_id, fetched_at) VALUES (?, ?, ?, ?, 'now')`).run(g, member, s, `w${i}`).lastInsertRowid;
+      db.prepare('INSERT INTO quiz_responses (attempt_id, question_id, chosen_letter, is_correct, points, max_points) VALUES (?, ?, ?, ?, 1, 1)')
+        .run(a, qMcq, letter, letter === 'B' ? 1 : 0);
+    });
+    const q = groupStats(db, { groupId: g }).questions[0];
+    expect(q.total).toBe(6);
+    expect(q.flags).toEqual([
+      { level: 'critical', text: 'Distractor C drew more students than the key.' },
+      { level: 'critical', text: 'Distractor D drew more students than the key.' },
+      { level: 'critical', text: 'Fewer than half answered correctly.' },
     ]);
   });
 
   test('an FRQ with no stored rubric counts every response as not marked', () => {
     db.prepare('UPDATE quiz_questions SET schoology_rubric_json = NULL WHERE id = ?').run(qFrq);
     expect(groupStats(db, { groupId: g }).frq).toEqual({ count: 1, levels: [{ name: 'Not marked', count: 4 }] });
+  });
+
+  test('by tag: equal percents are ordered by tag name', () => {
+    db.prepare(`UPDATE quiz_questions SET tags_json = '["CRD-2.G","CRD-1.A"]' WHERE id = ?`).run(qMcq);
+    expect(groupStats(db, { groupId: g }).byTag.map(t => t.tag)).toEqual(['CRD-1.A', 'CRD-2.G']);
   });
 
   test('a group with no attempts has empty statistics', () => {

@@ -82,26 +82,20 @@ export function groupStats(db, { groupId }) {
   }).filter(x => x != null);
   const medianPercent = median(mcqPercents);
 
-  // FRQ levels come from Schoology's graded cell for each rubric row, so a multi-row
-  // rubric counts every row. A response with no cell for a row is "Not marked".
+  // One FRQ level per answer, from the cell for the rubric's first row. A missing cell,
+  // null points or no stored rubric is "Not marked". Levels follow the first row's order.
   const frqQuestions = questions.filter(q => q.kind === 'frq');
   const levelOrder = [];
   const levelCounts = new Map();
   let notMarked = 0;
   for (const q of frqQuestions) {
     const rubric = parseJson(q.schoology_rubric_json, null);
-    const rows = rubric?.rows ?? [];
-    for (const row of rows) {
-      for (const level of row.levels) if (!levelOrder.includes(level.name)) levelOrder.push(level.name);
-    }
+    const row = rubric?.rows?.[0] ?? null;
+    for (const level of row?.levels ?? []) if (!levelOrder.includes(level.name)) levelOrder.push(level.name);
     for (const r of byQuestion.get(q.id)) {
-      if (!rows.length) { notMarked++; continue; }
-      const cells = parseJson(r.schoology_rubric_cells_json, {});
-      for (const row of rows) {
-        const cell = cells[row.id];
-        const name = cell?.points == null ? null : levelNameFor(rubric, row.id, cell.points);
-        if (name) levelCounts.set(name, (levelCounts.get(name) || 0) + 1); else notMarked++;
-      }
+      const cell = row ? parseJson(r.schoology_rubric_cells_json, {})[row.id] : null;
+      const name = cell?.points == null ? null : levelNameFor(rubric, row.id, cell.points);
+      if (name) levelCounts.set(name, (levelCounts.get(name) || 0) + 1); else notMarked++;
     }
   }
   const levels = levelOrder.filter(name => levelCounts.has(name)).map(name => ({ name, count: levelCounts.get(name) }));
@@ -120,7 +114,7 @@ export function groupStats(db, { groupId }) {
   }
   const byTag = [...tagAgg.values()]
     .map(t => ({ ...t, percent: t.total ? Math.round((100 * t.correct) / t.total) : null }))
-    .sort((a, b) => (a.percent ?? 101) - (b.percent ?? 101));
+    .sort((a, b) => (a.percent ?? 101) - (b.percent ?? 101) || (a.tag < b.tag ? -1 : a.tag > b.tag ? 1 : 0));
 
   return {
     takers: attempts.length,

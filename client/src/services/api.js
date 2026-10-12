@@ -294,3 +294,19 @@ export const getLessonPlan = (courseId, from) => request(`/triage/lesson-plan?co
 // Settings (server-side, shared by every device and PrisMCP).
 export const getSettings = () => request('/settings');
 export const updateSettings = (body) => request('/settings', { method: 'PUT', body: JSON.stringify(body) });
+
+// Linked quizzes (docs/superpowers/specs/2026-10-12-linked-quiz-results-design.md).
+export const getQuizGroups = (courseId) => request(`/quizzes?course_id=${courseId}`);
+export const getQuizCandidates = (courseId) => request(`/quizzes/candidates?course_id=${courseId}`);
+export const getQuizGroupFor = (assignmentRef) => request(`/quizzes/for-assignment/${assignmentRef}`);
+export const checkQuizParity = (assignmentIds) => request('/quizzes/check-parity', { method: 'POST', body: JSON.stringify({ assignment_ids: assignmentIds }) });
+export const createQuizGroup = ({ courseId, assignmentIds, title }) =>
+  request('/quizzes', { method: 'POST', body: JSON.stringify({ course_id: courseId, assignment_ids: assignmentIds, title }) });
+export const linkQuizResult = (groupId, resultAssignmentId) =>
+  request(`/quizzes/${groupId}/link`, { method: 'PUT', body: JSON.stringify({ result_assignment_id: resultAssignmentId }) });
+export const deleteQuizGroup = (groupId) => request(`/quizzes/${groupId}`, { method: 'DELETE' });
+export const loadQuizResults = (groupId) => request(`/quizzes/${groupId}/load`, { method: 'POST' });
+export const getQuizStats = (groupId) => request(`/quizzes/${groupId}/stats`);
+export const setQuizTags = (groupId, tags) => request(`/quizzes/${groupId}/tags`, { method: 'PUT', body: JSON.stringify({ tags }) });
+export const getAttemptLinks = ({ assignmentId, studentId }) =>
+  request(`/quizzes/attempt-links?${studentId ? `student_id=${studentId}` : `assignment_id=${assignmentId}`}`);

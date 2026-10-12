@@ -1061,8 +1061,38 @@ snapshot, `scripts/verify-quiz-phase1.js`):**
 - Parity (`scripts/parity-quiz-results.js`, both groups summed against csp-tools'
   `item_analysis.csv`, which merges both sections): all 20 MCQ counts match on `n` and
   `round(facility * n)` (15 takers). No differences to explain.
-- Suites: server 1539 pass, 1 fail (`resubmissions.test.js` "extend sets lessons", pre-existing: it
-  uses the real clock); client 899 pass.
+- Suites at hand-off (after the final-review fixes and a merge of `origin/main`, 2026-10-13): server
+  1555 pass, client 928 pass, `npm run build` ok. Not yet looked at in a browser; not yet on `main`.
+
+**Final review fixes (2026-10-13):** load warnings shown to the teacher (copy mismatch, failed,
+unknown and multi-attempt students); folded tests keep their Make-ups chip on the canonical row; an
+unreachable Schoology is `UNREACHABLE` (502), not an expired session; attempts deleted in Schoology are
+removed on the next load (`summary.removed`); attempt row ids are stable across loads (upsert), so
+phase 2's `frq_marks` can key on `attempt_id`.
+
+**Follow-ups deferred from phase 1 review (do these first where marked):**
+- **Before phase 2 renders student answers:** sanitise HTML. `QuestionsTab.jsx` renders Schoology
+  stem/option HTML with `dangerouslySetInnerHTML` (teacher-authored, accepted for now);
+  `answer_html` is student-authored and must not go in unsanitised.
+- **Before phase 2:** the schema test pins the exact `quiz_%` table list; update it when `frq_marks`
+  is added.
+- **Verify on a live test:** answer options shuffled per student. The parser takes option letters
+  from display order on the attempt page; the 20/20 letter match on Ep 1 suggests review pages use
+  the canonical order, but a test with "randomize answers" on has not been probed. If shuffled, key
+  responses by option content (normalized option HTML) instead of letter.
+- **Loader:** a sign-in bounce mid-load probably shows as `HTTP 0` per student (an in-page fetch that
+  redirects cross-origin to SSO is blocked by CORS), not `NO_SESSION`; consider re-checking `/home`
+  after two consecutive status-0 reads. `summary.notTaken` overcounts when assignees overlap across
+  copies. BUSY is per process (server and PrisMCP can load the same group at once).
+- **Parsers:** an unrecognised `cell-submissions` text reads as not attempted (only `-` observed);
+  `parseQuizQuestions` silently drops a row without a wrapper; multi-select MCQ would be reported as a
+  single choice; image-only stems normalise to `''` and pair by position.
+- **Routes/UI:** `readQuestionLists` runs before the eligibility checks (a 503 can mask a 400);
+  Quiz setup shows on aligned tests; the opening test can be unticked in the modal; the member-page
+  redirect happens after the page has loaded its own data; attempt links are fetched for every
+  assignment, not only quizzes; no indexes on the new tables (class-sized data).
+- **Scripts:** `scripts/parity-quiz-results.js` passes vacuously if Prism has no MCQs for the groups;
+  `scripts/verify-quiz-phase1.js` prints raw failure reasons and mismatch kinds as `unknown`.
 
 **Next:** phase 2 (FRQ marking: `frq_marks`, Free response tab, agent tools), phase 3 (overall
 results and comment template), phase 4 (Prism write-back, starting with a teacher-approved write probe).

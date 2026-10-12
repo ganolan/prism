@@ -1209,3 +1209,12 @@ The full submission picture in one compact, wrapping row of short facts (`Submis
 - **Combine is gated on a parity check, and the gate is visible.** The modal ticks the current test and its suggested copies. Combine stays disabled until **Check questions** passes for exactly that ticked set; a single ticked test needs no check. A mismatch lists each test's missing and extra questions inside `.alert.alert-warning`, and a match shows "Same questions" in `.alert.alert-success`. Any change to the ticks drops the old result, so the teacher cannot combine on a stale check.
 - **Remove is two steps.** "Remove quiz group" reveals an inline sentence that says loaded results are removed and Schoology is not changed, with a second **Remove** button. Nothing is deleted on the first click.
 - **The result-task select lists each summative once.** The linked result is listed first; the other summatives follow, with "Not linked" as the empty choice. The shared component is `components/quiz/QuizSetupModal.jsx`, built on the existing `.modal-overlay` / `.modal-content` pair.
+
+## Questions tab (October 2026, linked quizzes)
+
+- **Facility is a bar, then the number, then the band.** Each MCQ row shows a thin `var(--accent)` fill on `var(--bg-subtle)`, the percentage, and the band as a plain `.badge` (Strong, Mixed, Divided). FRQ rows carry no facility bar: they show the level counts in the summary instead.
+- **The key is marked, never coloured.** Option counts read "B 10 ✓" in bold. Colour is reserved for flags, so a correct answer is not confused with a warning.
+- **Flags map to the existing badge tones.** Critical flags use `.badge-red`, warnings `.badge-amber`, and notes a neutral `.badge`. Flags are counts and distractor observations only; there are no discrimination indices.
+- **Rows expand, not navigate.** The question number is an `aria-expanded` button that reveals the Schoology HTML of the stem and options. The collapsed row keeps the first 120 characters of the plain stem.
+- **"Lowest first" is a `.filter-btn` toggle.** It sorts by facility, with FRQ rows last. It changes order only, never hides a question.
+- **Tags are edited in place.** "Edit tags" opens a comma-separated field inside the row; saving reloads the stats so the tag rollup stays in step. The shared component is `components/quiz/QuestionsTab.jsx`.

@@ -477,4 +477,10 @@ describe('PrisMCP status lines (Amendment B)', () => {
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toMatch(/^NOT_AT_DEADLINE: /);
   });
+
+  test('lists the quiz tools', async () => {
+    const client = await connect();
+    const { tools } = await client.listTools();
+    expect(tools.map(t => t.name)).toEqual(expect.arrayContaining(['list_quiz_groups', 'load_quiz_results', 'set_question_tags']));
+  });
 });

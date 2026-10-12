@@ -5,7 +5,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { getDb } from '../server/db/index.js';
 import { getAssessmentContext } from '../server/services/assessmentContext.js';
 import { writeStudentSuggestions, upsertAssessmentAnalysis } from '../server/services/suggestions.js';
-import { listCourses, listAssignments, listStudents, listRubricsTool, readRubric, writeRubric, attachRubricTool, findStudentTool, getStudentHistoryTool } from './handlers.js';
+import { listCourses, listAssignments, listStudents, listRubricsTool, readRubric, writeRubric, attachRubricTool, findStudentTool, getStudentHistoryTool, listQuizGroupsTool, loadQuizResultsTool, setQuestionTagsTool } from './handlers.js';
 import {
   getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool, extendDeadlineTool, undoExtensionTool,
   setMakeupTrackingTool,
@@ -25,7 +25,9 @@ export const INSTRUCTIONS =
   '(all in school days, numbered with the due/test date as day 1), and ' +
   'school-calendar arithmetic. Also a student\'s full history across every ' +
   'course and year with the teacher (archived included), with the teacher\'s ' +
-  'levels and comments verbatim, e.g. for reference letters.';
+  'levels and comments verbatim, e.g. for reference letters. Also linked ' +
+  'quizzes: per-question results of Schoology tests that Prism combined, and ' +
+  'tags per question.';
 
 // Open the shared Prism DB (resolved relative to server/db, honoring DB_PATH)
 // and set busy_timeout so a brief write collision with the Express server
@@ -144,6 +146,36 @@ export function createServer() {
     async ({ assignment_id, noticings, moderation_note }) => ({
       content: [{ type: 'text', text: JSON.stringify(upsertAssessmentAnalysis(getDb(), { assignmentId: assignment_id, noticings, moderation_note })) }],
     })
+  );
+
+  server.registerTool(
+    'list_quiz_groups',
+    {
+      description: 'List the quiz groups in a course: each is one or more Schoology tests Prism treats as one quiz, with its member tests, the linked result task (if any), parity status and when results were last loaded.',
+      inputSchema: { course: z.union([z.number(), z.string()]).describe('Local course id, or a course name or code fragment') },
+    },
+    async ({ course }) => ({ content: [{ type: 'text', text: JSON.stringify(listQuizGroupsTool(getDb(), { course })) }] })
+  );
+
+  server.registerTool(
+    'load_quiz_results',
+    {
+      description: 'Read every attempt of a quiz group from Schoology through the saved browser session (read-only; about a minute for a class). Returns counts: attempts, not taken, failed students, unknown students, copy mismatches, students with several attempts.',
+      inputSchema: { group_id: z.union([z.number(), z.string()]).describe('Quiz group id from list_quiz_groups') },
+    },
+    async ({ group_id }) => ({ content: [{ type: 'text', text: JSON.stringify(await loadQuizResultsTool(getDb(), { group_id })) }] })
+  );
+
+  server.registerTool(
+    'set_question_tags',
+    {
+      description: "Set free-text tags on a quiz group's questions by question number, for example College Board codes from the test's Codes.csv: { \"1\": [\"CRD-2.G\"], \"2\": [\"AAP-1.A\", \"AAP-1.B\"] }. Replaces each listed question's tags.",
+      inputSchema: {
+        group_id: z.union([z.number(), z.string()]).describe('Quiz group id from list_quiz_groups'),
+        tags: z.record(z.string(), z.array(z.string())).describe('{ question number: [tag, ...] }'),
+      },
+    },
+    async ({ group_id, tags }) => ({ content: [{ type: 'text', text: JSON.stringify(setQuestionTagsTool(getDb(), { group_id, tags })) }] })
   );
 
   server.registerTool(

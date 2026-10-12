@@ -14,6 +14,7 @@ import {
   extendDeadlineTool, undoExtensionTool, setMakeupTrackingTool,
   requestResubmissionTool, gradeStandsTool, listResubmissionsTool, previewStatusLineTool,
   getSubmissionStatusTool,
+  listQuizGroupsTool, loadQuizResultsTool, setQuestionTagsTool,
 } from './handlers.js';
 import { saveRubric, listRubrics, getRubricByName } from '../server/services/rubricStore.js';
 import { askLine, extendResubmissionLine, gradeStandsLine, extensionLine, makeUpLine } from '../server/lib/statusLines.js';
@@ -27,6 +28,8 @@ beforeEach(() => {
   vi.stubEnv('SCHOOLOGY_CONSUMER_KEY', 'key');
   vi.stubEnv('SCHOOLOGY_CONSUMER_SECRET', 'secret');
   getDb().exec(
+    'DELETE FROM quiz_responses; DELETE FROM quiz_attempts; DELETE FROM quiz_question_copies; DELETE FROM quiz_questions; ' +
+    'DELETE FROM quiz_group_members; DELETE FROM quiz_groups; ' +
     'DELETE FROM status_lines; DELETE FROM feedback_snapshots; ' +
     'DELETE FROM referrals; DELETE FROM extensions; DELETE FROM resubmissions; DELETE FROM school_days; DELETE FROM mastery_scores; ' +
     'DELETE FROM rubric_attachment_topics; DELETE FROM rubric_attachments; ' +
@@ -846,5 +849,36 @@ describe('request_resubmission unsubmit (Phase 2, LTI unsubmit on Ask)', () => {
     const fake = fakeSchoologyPage({ uid: 'ru1', aid: 'rs-a1', post: (respond) => respond(503, '') });
     const r = await requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId }, { unsubmitOpts: { openPage: async () => fake.session } });
     expect(r.unsubmit).toMatchObject({ ok: false, uncertain: true, message: expect.stringMatching(/may still be submitted/) });
+  });
+});
+
+describe('quiz tools', () => {
+  function seedQuiz() {
+    const db = getDb();
+    const c = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('8458134135', 'AP CSP')`).run().lastInsertRowid;
+    const t = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, is_test) VALUES (?, '900', 'Ep 1 Theory Test', 1)`).run(c).lastInsertRowid;
+    const g = db.prepare(`INSERT INTO quiz_groups (course_id, title) VALUES (?, 'Ep 1 Theory Test')`).run(c).lastInsertRowid;
+    db.prepare('INSERT INTO quiz_group_members (group_id, assignment_id) VALUES (?, ?)').run(g, t);
+    db.prepare(`INSERT INTO quiz_questions (group_id, position, kind, stem_html, max_points) VALUES (?, 1, 'mcq', 'Q', 1)`).run(g);
+    return { c, g };
+  }
+
+  test('list_quiz_groups by course id or course name', () => {
+    const { c, g } = seedQuiz();
+    expect(listQuizGroupsTool(getDb(), { course: c }).map(x => x.id)).toEqual([g]);
+    expect(listQuizGroupsTool(getDb(), { course: 'AP CSP' })[0].members[0].schoology_assignment_id).toBe('900');
+  });
+
+  test('set_question_tags', () => {
+    const { g } = seedQuiz();
+    expect(setQuestionTagsTool(getDb(), { group_id: g, tags: { 1: ['CRD-2.G'] } })).toEqual({ updated: 1, unknownPositions: [] });
+  });
+
+  test('load_quiz_results returns the loader summary, or the error code as text', async () => {
+    const { g } = seedQuiz();
+    const ok = await loadQuizResultsTool(getDb(), { group_id: g }, { loadGroup: async () => ({ attempts: 2 }) });
+    expect(ok).toEqual({ summary: { attempts: 2 } });
+    const bad = await loadQuizResultsTool(getDb(), { group_id: g }, { loadGroup: async () => { throw Object.assign(new Error('No saved Schoology session'), { code: 'NO_SESSION' }); } });
+    expect(bad).toEqual({ error: 'NO_SESSION: No saved Schoology session' });
   });
 });

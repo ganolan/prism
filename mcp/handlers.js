@@ -29,6 +29,8 @@ import { askLine, extendResubmissionLine, gradeStandsLine, extensionLine, makeUp
 import { loadCalendar } from '../server/services/schoolCalendar.js';
 import { todayLocal } from '../server/lib/schoolDays.js';
 import { statusLineUntil } from '../server/services/statusLineDue.js';
+import { listGroups, setQuestionTags } from '../server/services/quizGroups.js';
+import { loadGroup } from '../server/services/quizLoader.js';
 
 // Active courses = not archived, not excluded, not hidden. Mirrors the
 // 'current' view in server/routes/courses.js, plus the excluded filter (#56,
@@ -478,4 +480,21 @@ export function listResubmissionsTool(db, { course, student, since, state } = {}
   const rows = listResubmissions(db, { courseId: resolveCourseRef(db, course), since: since || null });
   return rows.filter((r) => (state ? r.outcome === state : true))
     .filter((r) => (student != null && student !== '' ? matchesStudent(r, student) : true));
+}
+
+// Linked quizzes (spec 2026-10-12). Combining and linking stay in Prism's UI in v1.
+export function listQuizGroupsTool(db, { course }) {
+  return listGroups(db, { courseId: resolveCourseRef(db, course) });
+}
+
+export async function loadQuizResultsTool(db, { group_id }, deps = { loadGroup }) {
+  try {
+    return { summary: await deps.loadGroup(db, { groupId: group_id }) };
+  } catch (err) {
+    return { error: `${err.code || 'ERROR'}: ${err.message}` };
+  }
+}
+
+export function setQuestionTagsTool(db, { group_id, tags }) {
+  return setQuestionTags(db, { groupId: group_id, tags });
 }

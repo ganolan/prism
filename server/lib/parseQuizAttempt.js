@@ -11,12 +11,13 @@ import { optionLetter } from './quizText.js';
 const KIND = { multiple_choice: 'mcq', essay: 'frq' };
 const num = (v) => (v === '' || v == null || !Number.isFinite(Number(v)) ? null : Number(v));
 
-// The settings blob is not always valid JSON (the button args carry an unescaped
-// inline <span class="...">), so the launch-button args are read with a regex:
-// template name, then the first three args (rubric id, enrollment id, question id).
+// The launch-button args are read with a regex, not JSON.parse of the whole blob,
+// so one malformed entry or a bad outer slice cannot drop every rubric button.
+// The match stays inside one object ([^{}]), so an entry without args cannot take
+// the args of the entry after it. Captures: rubric id, enrollment id, question id.
 function rubricButtons(html) {
   const out = {};
-  const re = /"template":"s_grades_rubric_grading_launch_btn"[\s\S]*?"args":\[\s*"(\d+)"\s*,\s*"(\d+)"\s*,\s*"(\d+)"/g;
+  const re = /"template":"s_grades_rubric_grading_launch_btn"[^{}]*?"args":\[\s*"?(\d+)"?\s*,\s*"?(\d+)"?\s*,\s*"?(\d+)"?/g;
   for (const m of String(html).matchAll(re)) {
     out[m[3]] = { rubricId: m[1], enrollmentId: m[2] };
   }

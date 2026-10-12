@@ -1218,3 +1218,10 @@ The full submission picture in one compact, wrapping row of short facts (`Submis
 - **Rows expand, not navigate.** The question number is an `aria-expanded` button that reveals the Schoology HTML of the stem and options. The collapsed row keeps the first 120 characters of the plain stem.
 - **"Lowest first" is a `.filter-btn` toggle.** It sorts by facility, with FRQ rows last. It changes order only, never hides a question.
 - **Tags are edited in place.** "Edit tags" opens a comma-separated field inside the row; saving reloads the stats so the tag rollup stays in step. The shared component is `components/quiz/QuestionsTab.jsx`.
+
+## Quiz controls on the assessment page (October 2026, linked quizzes)
+
+- **Quiz controls sit in the existing header row.** **Quiz setup…**, the chip, **Load results** and a "loaded {date} / not loaded" line follow **Manage rubrics…** as `.secondary` buttons and small muted text. They show only when the `quizzes` flag is on and the assessment is a test or already in a group. The load result line ("18 attempts loaded, 1 failed") replaces the loaded-at text until the page is reopened.
+- **Grading and Questions are `.tab-btn` tabs under the filter bar,** present whenever a group exists. The choice lives in `?tab=` (sticky), and Questions replaces the student cards rather than sitting beside them.
+- **One canonical page per group.** Any other member redirects (replace) to the canonical assessment and keeps the query string.
+- **The course Assessments list folds member tests** under the canonical row, which carries the `QuizChip` badge ("Linked: ..." or "Combined: ..."). Gradebook columns are not folded.

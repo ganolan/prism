@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, Link, useSearchParams } from 'react-router-dom';
-import { getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings } from '../services/api.js';
+import { useParams, Link, useSearchParams, Navigate, useLocation } from 'react-router-dom';
+import { getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, loadQuizResults } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 import { makeDraftSaver } from '../lib/assessmentDraftSaver.js';
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
@@ -14,7 +14,11 @@ import RubricManagerModal from '../components/RubricManagerModal.jsx';
 import AiSparkle from '../components/AiSparkle.jsx';
 import SchoologyLink from '../components/SchoologyLink.jsx';
 import AttemptLink from '../components/quiz/AttemptLink.jsx';
+import QuizChip from '../components/quiz/QuizChip.jsx';
+import QuizSetupModal from '../components/quiz/QuizSetupModal.jsx';
+import QuestionsTab from '../components/quiz/QuestionsTab.jsx';
 import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
+import { useQuizGroup } from '../hooks/useQuizGroup.js';
 import SubmissionStatusPill from '../components/SubmissionStatusPill.jsx';
 import SubmissionTimeline from '../components/SubmissionTimeline.jsx';
 import ExtendControl from '../components/ExtendControl.jsx';
@@ -1711,7 +1715,24 @@ export default function AssessmentSummaryPage() {
   // link to a different assignment's file.
   const workLinksReq = useRef(0);
   // Each student's attempt on a linked or combined Schoology test (linked quizzes, phase 1).
-  const attemptLinks = useAttemptLinks({ assignmentId, reloadKey: dataVersion });
+  const location = useLocation();
+  const { group: quizGroup, setGroup: setQuizGroup, enabled: quizzesEnabled } = useQuizGroup(assignmentId);
+  // Attempt links refresh after Load results (the group's loaded_at changes).
+  const attemptLinks = useAttemptLinks({ assignmentId, reloadKey: `${dataVersion}|${quizGroup?.loaded_at ?? ''}` });
+  const [quizTab, setQuizTab] = useStickyTab('assessment-quiz', 'grading', { param: 'tab' });
+  const [quizSetupOpen, setQuizSetupOpen] = useState(false);
+  const [quizLoad, setQuizLoad] = useState({ busy: false, message: null });
+  async function handleLoadQuiz() {
+    setQuizLoad({ busy: true, message: null });
+    try {
+      const r = await loadQuizResults(quizGroup.id);
+      setQuizGroup(r.group);
+      const failed = r.summary.failed?.length ? `, ${r.summary.failed.length} failed` : '';
+      setQuizLoad({ busy: false, message: `${r.summary.attempts} attempts loaded${failed}` });
+    } catch (e) {
+      setQuizLoad({ busy: false, message: e.message });
+    }
+  }
 
   // Attached rubric + reporting-category colour palette for this assignment (Task 13).
   // rubricData: { id, rubric:{...criteria...}, topicByCriterion:[...] } | null.
@@ -1977,6 +1998,9 @@ export default function AssessmentSummaryPage() {
   if (loading) return <div className="loading">Loading...</div>;
   if (error) return <div className="error-msg">{error}</div>;
   if (!data) return null;
+  if (quizGroup && quizGroup.canonical_schoology_id && quizGroup.canonical_schoology_id !== String(assignmentId)) {
+    return <Navigate replace to={`/course/${courseId}/assessment/${quizGroup.canonical_schoology_id}${location.search}`} />;
+  }
 
   const { assignment, topics, students } = data;
   const scoreScale = data.scoreScale || null;
@@ -2064,6 +2088,23 @@ export default function AssessmentSummaryPage() {
           <button className="secondary" style={{ fontSize: '0.78rem' }}
             onClick={() => setRubricModalOpen(true)}>Manage rubrics…</button>
 
+          {quizzesEnabled && (assignment.is_test === 1 || quizGroup) && (
+            <>
+              <button className="secondary" style={{ fontSize: '0.78rem' }} onClick={() => setQuizSetupOpen(true)}>Quiz setup…</button>
+              {quizGroup && (
+                <>
+                  <QuizChip group={quizGroup} />
+                  <button className="secondary" style={{ fontSize: '0.78rem' }} disabled={quizLoad.busy} onClick={handleLoadQuiz}>
+                    {quizLoad.busy ? 'Loading results…' : 'Load results'}
+                  </button>
+                  <span className="text-sm text-muted" style={{ fontSize: '0.75rem' }}>
+                    {quizLoad.message || (quizGroup.loaded_at ? `loaded ${formatDateTime(quizGroup.loaded_at.replace(' ', 'T'))}` : 'not loaded')}
+                  </span>
+                </>
+              )}
+            </>
+          )}
+
           {hasAnalysis && (
             <button
               onClick={() => setDrawerOpen(true)}
@@ -2087,9 +2128,17 @@ export default function AssessmentSummaryPage() {
           active={activeFilters}
           onToggle={toggleFilter}
         />
+        {quizGroup && (
+          <div role="tablist" aria-label="Quiz views" style={{ display: 'flex', gap: '0.25rem', marginTop: '0.4rem' }}>
+            <button role="tab" aria-selected={quizTab === 'grading'} className={`tab-btn${quizTab === 'grading' ? ' active' : ''}`} onClick={() => setQuizTab('grading')}>Grading</button>
+            <button role="tab" aria-selected={quizTab === 'questions'} className={`tab-btn${quizTab === 'questions' ? ' active' : ''}`} onClick={() => setQuizTab('questions')}>Questions</button>
+          </div>
+        )}
       </div>
 
-      {students.length === 0 ? (
+      {quizGroup && quizTab === 'questions' ? (
+        <QuestionsTab groupId={quizGroup.id} reloadKey={quizGroup.loaded_at} />
+      ) : students.length === 0 ? (
         <div className="card">
           <p className="text-muted">No students found. Run a mastery sync for this course first.</p>
         </div>
@@ -2292,6 +2341,15 @@ export default function AssessmentSummaryPage() {
           </div>
         </>
       )}
+
+      <QuizSetupModal
+        open={quizSetupOpen}
+        courseId={courseId}
+        currentAssignment={{ schoology_assignment_id: String(assignmentId), title: assignment.title }}
+        group={quizGroup}
+        onClose={() => setQuizSetupOpen(false)}
+        onChanged={(g) => { setQuizGroup(g); setQuizSetupOpen(false); }}
+      />
 
       <RubricManagerModal
         open={rubricModalOpen}

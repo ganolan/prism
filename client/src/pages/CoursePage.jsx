@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, triggerMasterySync, triggerMasteryLogin, getSubmissionLinks, getTriage, setMakeUpIgnored } from '../services/api.js';
+import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, triggerMasterySync, triggerMasteryLogin, getSubmissionLinks, getTriage, setMakeUpIgnored, getQuizGroups } from '../services/api.js';
 import AnalyticsView from '../components/AnalyticsView.jsx';
 import OverridePopup from '../components/OverridePopup.jsx';
 import TriageSection from '../components/triage/TriageSection.jsx';
@@ -21,6 +21,7 @@ import CompactRubric from '../components/CompactRubric.jsx';
 import SubmissionBadges from '../components/SubmissionBadges.jsx';
 import SchoologyLink from '../components/SchoologyLink.jsx';
 import AttemptLink from '../components/quiz/AttemptLink.jsx';
+import QuizChip from '../components/quiz/QuizChip.jsx';
 import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
 import { formatDateTime } from '../lib/formatDate.js';
 import SubmissionTimeline from '../components/SubmissionTimeline.jsx';
@@ -1291,6 +1292,19 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
   const [showSummative, setShowSummative] = useState(true);
   const [showFormative, setShowFormative] = useState(true);
   const [makeUpError, setMakeUpError] = useState(null);
+  // Combined tests (linked quizzes): member tests fold under the canonical row.
+  const [quizGroups, setQuizGroups] = useState([]);
+  useEffect(() => {
+    let active = true;
+    // Promise.resolve().then: a test's api mock without getQuizGroups must not crash the list.
+    Promise.resolve().then(() => getQuizGroups(courseId))
+      .then(r => { if (active) setQuizGroups(r?.groups || []); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [courseId]);
+  const groupByCanonical = new Map(quizGroups.map(g => [String(g.canonical_schoology_id), g]));
+  const foldedIds = new Set(quizGroups.flatMap(g => g.members.map(m => String(m.schoology_assignment_id)))
+    .filter(sid => !groupByCanonical.has(sid)));
 
   async function flipMakeUp(a) {
     try {
@@ -1309,7 +1323,9 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
   const summativeCount = assignments.filter(a => a.aligned).length;
   const formativeCount = assignments.length - summativeCount;
 
-  const visible = assignments.filter(a => (a.aligned ? showSummative : showFormative));
+  const visible = assignments
+    .filter(a => !foldedIds.has(String(a.schoology_assignment_id)))
+    .filter(a => (a.aligned ? showSummative : showFormative));
   const groups = groupAssignmentsByFolder(visible, folders);
 
   return (
@@ -1374,6 +1390,7 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
                       {a.title}
                     </Link>
                     <SchoologyLink url={a.web_url} ariaLabel={`View "${a.title}" in Schoology`} />
+                    <QuizChip group={groupByCanonical.get(String(a.schoology_assignment_id))} />
                   </span>
                   {onToggleMakeUp && a.is_test === 1 && (
                     <button

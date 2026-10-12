@@ -6,7 +6,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { RubricModal } from './CoursePage.jsx';
 import { getSubmissionLinks, getAttemptLinks } from '../services/api.js';
 
-vi.mock('../services/api.js', () => ({ getSubmissionLinks: vi.fn(), getAttemptLinks: vi.fn().mockResolvedValue({ links: {} }) }));
+vi.mock('../services/api.js', () => ({ getSubmissionLinks: vi.fn(), getAttemptLinks: vi.fn().mockResolvedValue({ links: {} }), getQuizGroups: vi.fn().mockResolvedValue({ groups: [] }) }));
 
 const STUDENT = { schoology_uid: 'u1', first_name: 'Ada', last_name: 'Lovelace', preferred_name: null, preferred_name_teacher: null };
 const TOPICS = [{ topic_id: 't1', title: 'Topic 1', grade: 'EX' }];

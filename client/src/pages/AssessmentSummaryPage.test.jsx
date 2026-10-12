@@ -19,6 +19,7 @@ vi.mock('../services/api.js', () => ({
   getMasteryForAssignment: vi.fn(),
   getSubmissionLinks: vi.fn().mockResolvedValue({ status: 'not_lti', links: {} }),
   getAttemptLinks: vi.fn().mockResolvedValue({ links: {} }),
+  getFeatures: vi.fn().mockResolvedValue({}),
   getQuizGroupFor: vi.fn().mockResolvedValue({ group: null }),
   setSuggestionState: vi.fn().mockResolvedValue({}),
   getFeedbackForAssignment: vi.fn().mockResolvedValue({}),

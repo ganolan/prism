@@ -17,6 +17,7 @@ import AttemptLink from '../components/quiz/AttemptLink.jsx';
 import QuizChip from '../components/quiz/QuizChip.jsx';
 import QuizSetupModal from '../components/quiz/QuizSetupModal.jsx';
 import QuestionsTab from '../components/quiz/QuestionsTab.jsx';
+import QuizLoadWarnings from '../components/quiz/QuizLoadWarnings.jsx';
 import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
 import { useQuizGroup } from '../hooks/useQuizGroup.js';
 import SubmissionStatusPill from '../components/SubmissionStatusPill.jsx';
@@ -2136,6 +2137,7 @@ export default function AssessmentSummaryPage() {
           active={activeFilters}
           onToggle={toggleFilter}
         />
+        {quizGroup && <QuizLoadWarnings group={quizGroup} students={students} />}
         {quizGroup && (
           <div role="tablist" aria-label="Quiz views" style={{ display: 'flex', gap: '0.25rem', marginTop: '0.4rem' }}>
             <button role="tab" aria-selected={quizTab === 'grading'} className={`tab-btn${quizTab === 'grading' ? ' active' : ''}`} onClick={() => setQuizTab('grading')}>Grading</button>

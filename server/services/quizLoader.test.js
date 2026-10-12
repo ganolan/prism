@@ -119,6 +119,48 @@ describe('loadGroup', () => {
     expect(r.attempts).toBe(1);
   });
 
+  test('attempts deleted in Schoology are removed from Prism, only for students the page lists as not attempted', async () => {
+    const stdId = db.prepare(`SELECT id FROM assignments WHERE schoology_assignment_id = '900'`).get().id;
+    const mk = (uid) => db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES (?, 'S', ?)`).run(uid, uid).lastInsertRowid;
+    const notTaken = mk('702'); // listed on the page as not attempted: removed
+    const absent = mk('799');   // not on the page at all: kept
+    const seed = (studentId) => {
+      const id = db.prepare(`INSERT INTO quiz_attempts (group_id, assignment_id, student_id, schoology_attempt_id, fetched_at) VALUES (?, ?, ?, '1', datetime('now'))`).run(groupId, stdId, studentId).lastInsertRowid;
+      const qid = db.prepare('SELECT id FROM quiz_questions LIMIT 1').get().id;
+      db.prepare('INSERT INTO quiz_responses (attempt_id, question_id) VALUES (?, ?)').run(id, qid);
+      return id;
+    };
+    const gone = seed(notTaken);
+    seed(absent);
+    const r = await loadGroup(db, { groupId }, { openPage: fakeOpenPage(happyPages()).openPage, pauseMs: 0 });
+    expect(r.removed).toBe(1);
+    expect(db.prepare('SELECT 1 FROM quiz_attempts WHERE id = ?').get(gone)).toBeUndefined();
+    expect(db.prepare('SELECT COUNT(*) n FROM quiz_responses WHERE attempt_id = ?').get(gone).n).toBe(0);
+    expect(db.prepare('SELECT 1 FROM quiz_attempts WHERE student_id = ?').get(absent)).toBeTruthy();
+    expect(r.attempts).toBe(3);
+  });
+
+  test('a student who failed to load keeps the stored attempt (never removed on a failure)', async () => {
+    const pages = happyPages();
+    await loadGroup(db, { groupId }, { openPage: fakeOpenPage(pages).openPage, pauseMs: 0 });
+    pages['/assignment/900/assessment_results/student_stats/701/5002'] = { status: 500, text: '' };
+    const r = await loadGroup(db, { groupId }, { openPage: fakeOpenPage(pages).openPage, pauseMs: 0 });
+    expect(r.failed).toEqual([{ uid: '701', reason: 'attempt page HTTP 500' }]);
+    expect(r.removed).toBe(0);
+    expect(db.prepare('SELECT COUNT(*) n FROM quiz_attempts WHERE student_id = ?').get(studentA).n).toBe(1);
+  });
+
+  test('a results page that fails to read removes nothing', async () => {
+    const stdId = db.prepare(`SELECT id FROM assignments WHERE schoology_assignment_id = '900'`).get().id;
+    const s = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('702', 'S', 'B')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO quiz_attempts (group_id, assignment_id, student_id, schoology_attempt_id, fetched_at) VALUES (?, ?, ?, '1', datetime('now'))`).run(groupId, stdId, s);
+    const pages = happyPages();
+    pages['/assignment/900/assessment_results'] = { status: 500, text: '' };
+    const r = await loadGroup(db, { groupId }, { openPage: fakeOpenPage(pages).openPage, pauseMs: 0 });
+    expect(r.removed).toBe(0);
+    expect(db.prepare('SELECT COUNT(*) n FROM quiz_attempts WHERE student_id = ?').get(s).n).toBe(1);
+  });
+
   test('a rejected page.evaluate fails that student only; the load still finishes', async () => {
     const pages = happyPages();
     pages['/assignment/900/assessment_results/student_stats/701/5002'] = () => { throw new Error('page crashed'); };
@@ -170,6 +212,38 @@ describe('loadGroup', () => {
     await expect(loadGroup(db, { groupId }, { openPage: fakeOpenPage(pages).openPage, pauseMs: 0 }))
       .rejects.toMatchObject({ code: 'NO_SESSION' });
     expect(db.prepare('SELECT COUNT(*) n FROM quiz_attempts').get().n).toBe(1);
+  });
+
+  describe('an unreachable Schoology is not an expired session', () => {
+    const live = async () => (await import('./schoologySession.js'));
+    const sessionWith = ({ gotoError, url }) => {
+      const close = vi.fn(async () => {});
+      const page = { goto: vi.fn(async () => { if (gotoError) throw new Error(gotoError); }), url: () => url, evaluate: vi.fn() };
+      return { openPage: async () => ({ page, close }), close, page };
+    };
+    beforeEach(async () => { (await live()).resetSessionStatusCache(); });
+
+    test.each([
+      ['navigation failed', { gotoError: 'net::ERR_INTERNET_DISCONNECTED', url: 'about:blank' }],
+      ['navigation failed, stale url', { gotoError: 'Timeout 30000ms exceeded', url: 'https://example.com/x' }],
+      ['empty url', { url: '' }],
+      ['about: url', { url: 'about:blank' }],
+      ['chrome-error: url', { url: 'chrome-error://chromewebdata/' }],
+    ])('%s: UNREACHABLE, session closed, not noted expired', async (_n, opts) => {
+      const f = sessionWith(opts);
+      await expect(loadGroup(db, { groupId }, { openPage: f.openPage, pauseMs: 0 }))
+        .rejects.toMatchObject({ code: 'UNREACHABLE', message: 'Could not reach Schoology: try again' });
+      expect(f.close).toHaveBeenCalled();
+      expect(f.page.evaluate).not.toHaveBeenCalled();
+      expect((await (await live()).sessionStatus({ check: false, hasSession: () => true })).live).not.toBe('expired');
+    });
+
+    test('a real landing on the login page is NO_SESSION and noted expired', async () => {
+      const f = sessionWith({ url: 'https://login.microsoftonline.com/x' });
+      await expect(loadGroup(db, { groupId }, { openPage: f.openPage, pauseMs: 0 })).rejects.toMatchObject({ code: 'NO_SESSION' });
+      expect(f.close).toHaveBeenCalled();
+      expect((await (await live()).sessionStatus({ check: false, hasSession: () => true })).live).toBe('expired');
+    });
   });
 
   test('no saved session: NO_SESSION before any request', async () => {

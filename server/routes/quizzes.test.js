@@ -81,6 +81,12 @@ describe('/api/quizzes', () => {
     expect([r.status, r.body.code]).toEqual([503, 'NO_SESSION']);
   });
 
+  test('an unreachable Schoology is 502, distinct from an expired session', async () => {
+    vi.mocked(readQuestionLists).mockRejectedValueOnce(new QuizError('UNREACHABLE', 'Could not reach Schoology: try again'));
+    const r = await call('POST', '/api/quizzes', { course_id: course, assignment_ids: ['900'], title: 'T' });
+    expect([r.status, r.body.code, r.body.error]).toEqual([502, 'UNREACHABLE', 'Could not reach Schoology: try again']);
+  });
+
   test('load returns the summary; BUSY is 409', async () => {
     const id = (await call('POST', '/api/quizzes', { course_id: course, assignment_ids: ['900'], title: 'T' })).body.group.id;
     vi.mocked(loadGroup).mockResolvedValueOnce({ attempts: 3 });

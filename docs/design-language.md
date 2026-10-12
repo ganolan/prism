@@ -1226,6 +1226,11 @@ The full submission picture in one compact, wrapping row of short facts (`Submis
 - **One canonical page per group.** Any other member redirects (replace) to the canonical assessment and keeps the query string.
 - **The course Assessments list folds member tests** under the canonical row, which carries the `QuizChip` badge ("Linked: ..." or "Combined: ..."). Gradebook columns are not folded.
 
+## Quiz load warnings (October 2026, linked quizzes)
+
+- **One compact `.alert.alert-warning` under the header, above the Grading / Questions tabs,** so both tabs see what the last load could not do cleanly. It lists, in order: copies that differ ("The combined tests differ:" plus each line, e.g. "Question 4: a different key"), students who could not be loaded (count, then each reason, by name when Prism knows the student), students Prism does not know ("Sync the course, then load again."), and students with more than one attempt ("Prism used the latest."). Nothing renders when all four are empty. The shared component is `components/quiz/QuizLoadWarnings.jsx`.
+- **Folded tests keep their make-up chips.** On the course Assessments list a canonical row also shows each folded member's "Make-ups (title): tracked / ignored" chip, using the same toggle as a test's own chip, so folding never hides make-up tracking.
+
 ## Linked quizzes: what phase 1 keeps constant (October 2026)
 
 - **Statistics stay counts.** Facility bars, bands (Strong at 90% and above, Mixed at 70% and above, otherwise Divided), option counts with the key marked, and flags. No discrimination statistics, on purpose: a class-sized cohort cannot support them.

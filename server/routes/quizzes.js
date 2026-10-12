@@ -16,7 +16,7 @@ import { groupStats } from '../services/quizStats.js';
 const router = Router();
 router.use(featureGate('quizzes'));
 
-const STATUS = { NOT_FOUND: 404, NOT_ELIGIBLE: 400, PARITY: 409, BUSY: 409, NO_SESSION: 503 };
+const STATUS = { NOT_FOUND: 404, NOT_ELIGIBLE: 400, PARITY: 409, BUSY: 409, NO_SESSION: 503, UNREACHABLE: 502 };
 const handle = (fn) => async (req, res) => {
   try {
     res.json(await fn(req, getDb()));

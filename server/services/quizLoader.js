@@ -11,7 +11,7 @@ import { parseQuizQuestions } from '../lib/parseQuizQuestions.js';
 import { parseQuizResults, parseStudentStats } from '../lib/parseQuizResults.js';
 import { parseQuizAttempt } from '../lib/parseQuizAttempt.js';
 import { parseQuizRubric, parseRubricGradeInfo } from '../lib/parseQuizRubric.js';
-import { storeAttempt, pruneOlderDuplicates, finishLoad } from './quizStore.js';
+import { storeAttempt, removeAttempts, pruneOlderDuplicates, finishLoad } from './quizStore.js';
 
 const FETCH_TIMEOUT_MS = 30000;
 const loading = new Set();
@@ -32,9 +32,16 @@ async function inPageFetch({ url, accept, timeoutMs }) {
 async function openReader({ openPage, pauseMs }) {
   const session = await openPage();
   if (!session) throw new QuizError('NO_SESSION', 'No saved Schoology session: reconnect in Settings');
-  await session.page.goto(`${SCHOOLOGY_BASE}/home`, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-  if (!isLoggedInUrl(session.page.url())) {
+  let navError = null;
+  await session.page.goto(`${SCHOOLOGY_BASE}/home`, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch((err) => { navError = err; });
+  const landed = session.page.url();
+  if (!isLoggedInUrl(landed)) {
     await session.close().catch(() => {});
+    // Mirrors checkSessionLive: no page, or a browser error page, means Schoology was not reached,
+    // which says nothing about the session. Only a real landing on another page (SSO) is expiry.
+    if (navError || !landed || landed.startsWith('about:') || landed.startsWith('chrome-error:')) {
+      throw new QuizError('UNREACHABLE', 'Could not reach Schoology: try again');
+    }
     noteSessionLive('expired', 'Schoology sent the saved session to the login page');
     throw new QuizError('NO_SESSION', 'Schoology connection expired: reconnect in Settings');
   }
@@ -83,7 +90,7 @@ export async function loadGroup(db, { groupId }, { openPage = () => sessionDeps.
   const group = getGroup(db, groupId);
   if (loading.has(group.id)) throw new QuizError('BUSY', 'This quiz is already loading');
   loading.add(group.id);
-  const summary = { attempts: 0, notTaken: 0, failed: [], unknownUids: [], mismatches: [], multipleAttempts: [] };
+  const summary = { attempts: 0, notTaken: 0, failed: [], unknownUids: [], mismatches: [], multipleAttempts: [], removed: 0 };
   const rubrics = {};
   let reader;
   try {
@@ -125,6 +132,10 @@ export async function loadGroup(db, { groupId }, { openPage = () => sessionDeps.
       let rows = null;
       try { rows = res.status === 200 ? parseQuizResults(res.text) : null; } catch { rows = null; }
       if (!rows) { summary.failed.push({ uid: null, reason: `results page for "${member.title}" HTTP ${res.status}` }); continue; }
+      // The page parsed, so a student it lists as not attempted has no attempt in Schoology now:
+      // drop any stored one (the teacher deleted it there). Failed, unknown and unlisted students are left alone.
+      const gone = rows.filter(r => !r.attempted).map(r => studentByUid.get(r.uid)).filter(Boolean);
+      summary.removed += removeAttempts(db, { assignmentId: member.id, studentIds: gone });
       for (const row of rows) {
         if (!row.attempted) { summary.notTaken++; continue; }
         const studentId = studentByUid.get(row.uid);

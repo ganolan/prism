@@ -17,17 +17,20 @@ export function storeAttempt(db, { groupId, assignmentId, studentId, attempt, at
   const mismatches = [];
 
   db.transaction(() => {
-    const old = db.prepare('SELECT id FROM quiz_attempts WHERE assignment_id = ? AND student_id = ?').get(assignmentId, studentId);
-    if (old) {
-      db.prepare('DELETE FROM quiz_responses WHERE attempt_id = ?').run(old.id);
-      db.prepare('DELETE FROM quiz_attempts WHERE id = ?').run(old.id);
-    }
-    const attemptRowId = db.prepare(`INSERT INTO quiz_attempts
+    // Upsert so the attempt keeps its id across loads (frq_marks will hang off it).
+    db.prepare(`INSERT INTO quiz_attempts
       (group_id, assignment_id, student_id, schoology_attempt_id, started_at, completed_at, score, max_score, attempt_count, fetched_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`).run(
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(assignment_id, student_id) DO UPDATE SET
+        group_id = excluded.group_id, schoology_attempt_id = excluded.schoology_attempt_id,
+        started_at = excluded.started_at, completed_at = excluded.completed_at,
+        score = excluded.score, max_score = excluded.max_score,
+        attempt_count = excluded.attempt_count, fetched_at = excluded.fetched_at`).run(
       groupId, assignmentId, studentId, String(attempt.attemptId), attempt.startedAt ?? null, attempt.completedAt ?? null,
       attempt.score ?? null, attempt.maxScore ?? null, attemptCount ?? 1,
-    ).lastInsertRowid;
+    );
+    const attemptRowId = db.prepare('SELECT id FROM quiz_attempts WHERE assignment_id = ? AND student_id = ?').get(assignmentId, studentId).id;
+    db.prepare('DELETE FROM quiz_responses WHERE attempt_id = ?').run(attemptRowId);
 
     const addResponse = db.prepare(`INSERT INTO quiz_responses
       (attempt_id, question_id, chosen_letter, is_correct, points, max_points, answer_html, schoology_rubric_cells_json, schoology_comment)
@@ -57,6 +60,22 @@ export function storeAttempt(db, { groupId, assignmentId, studentId, attempt, at
     }
   })();
   return { stored: true, mismatches };
+}
+
+// Deletes the stored attempts (and responses) of these students on one member test.
+// Returns how many attempts went.
+export function removeAttempts(db, { assignmentId, studentIds }) {
+  let removed = 0;
+  db.transaction(() => {
+    for (const studentId of studentIds) {
+      const row = db.prepare('SELECT id FROM quiz_attempts WHERE assignment_id = ? AND student_id = ?').get(assignmentId, studentId);
+      if (!row) continue;
+      db.prepare('DELETE FROM quiz_responses WHERE attempt_id = ?').run(row.id);
+      db.prepare('DELETE FROM quiz_attempts WHERE id = ?').run(row.id);
+      removed++;
+    }
+  })();
+  return removed;
 }
 
 export function pruneOlderDuplicates(db, { groupId }) {

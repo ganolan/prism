@@ -160,7 +160,7 @@ export function createServer() {
   server.registerTool(
     'load_quiz_results',
     {
-      description: "Read the group's attempts from Schoology through the saved browser session. Sends nothing to Schoology. Stores the attempts and responses in Prism, replacing any earlier load, and records when they were loaded. Takes about a minute for a class. Returns { summary: { attempts (number), notTaken (number), failed: [{uid, reason}], unknownUids: [uid], mismatches: [text], multipleAttempts: [uid] } }. Fails with NO_SESSION (the teacher must reconnect Schoology in Prism's Settings) or BUSY (this quiz is already loading).",
+      description: "Read the group's attempts from Schoology through the saved browser session. Sends nothing to Schoology. Stores the attempts and responses in Prism, replacing any earlier load, and records when they were loaded. An attempt deleted in Schoology (its results row now reads not attempted) is removed from Prism. Takes about a minute for a class. Returns { summary: { attempts (number), notTaken (number), failed: [{uid, reason}], unknownUids: [uid], mismatches: [text], multipleAttempts: [uid], removed (number: stored attempts dropped because Schoology no longer has them) } }. Fails with NO_SESSION (the teacher must reconnect Schoology in Prism's Settings), UNREACHABLE (Schoology could not be reached, which says nothing about the session: try again) or BUSY (this quiz is already loading).",
       inputSchema: { group_id: z.union([z.number(), z.string()]).describe('Quiz group id from list_quiz_groups') },
     },
     async ({ group_id }) => text(() => loadQuizResultsTool(getDb(), { group_id }))

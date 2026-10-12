@@ -1286,6 +1286,24 @@ function TypeFilterToggle({ label, count, active, type, onClick }) {
   );
 }
 
+// "Make-ups: tracked / ignored" chip for one Schoology test/quiz. `label` (a folded member's
+// title) is shown when the chip sits on another test's row.
+function MakeUpChip({ a, onFlip, label }) {
+  return (
+    <button
+      type="button"
+      className={`badge makeup-chip ${a.makeup_ignored ? 'badge-gray' : 'badge-blue'}`}
+      aria-pressed={!a.makeup_ignored}
+      title={a.makeup_ignored
+        ? `Ignored for make-ups (all students)${label ? `: ${label}` : ''}. Click to track it again.`
+        : `Students who miss ${label ? `"${label}"` : 'this test'} show under Make-up tests. Click to ignore it for all students.`}
+      onClick={() => onFlip(a)}
+    >
+      {label ? `Make-ups (${label})` : 'Make-ups'}: {a.makeup_ignored ? 'ignored' : 'tracked'}
+    </button>
+  );
+}
+
 // onToggleMakeUp(assignment) (live courses only) flips make-up tracking for a
 // Schoology test/quiz; its chip shows "Make-ups: tracked / ignored".
 export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10, onToggleMakeUp }) {
@@ -1305,6 +1323,17 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
   const groupByCanonical = new Map(quizGroups.map(g => [String(g.canonical_schoology_id), g]));
   const foldedIds = new Set(quizGroups.flatMap(g => g.members.map(m => String(m.schoology_assignment_id)))
     .filter(sid => !groupByCanonical.has(sid)));
+
+  // The test rows folded under this canonical row (every member but the canonical one).
+  const assignmentBySid = new Map((data?.assignments || []).map(x => [String(x.schoology_assignment_id), x]));
+  const foldedMembers = (a) => {
+    const g = groupByCanonical.get(String(a.schoology_assignment_id));
+    if (!g) return [];
+    return g.members
+      .filter(m => String(m.schoology_assignment_id) !== String(a.schoology_assignment_id))
+      .map(m => assignmentBySid.get(String(m.schoology_assignment_id)))
+      .filter(m => m && m.is_test === 1);
+  };
 
   async function flipMakeUp(a) {
     try {
@@ -1392,19 +1421,9 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
                     <SchoologyLink url={a.web_url} ariaLabel={`View "${a.title}" in Schoology`} />
                     <QuizChip group={groupByCanonical.get(String(a.schoology_assignment_id))} />
                   </span>
-                  {onToggleMakeUp && a.is_test === 1 && (
-                    <button
-                      type="button"
-                      className={`badge makeup-chip ${a.makeup_ignored ? 'badge-gray' : 'badge-blue'}`}
-                      aria-pressed={!a.makeup_ignored}
-                      title={a.makeup_ignored
-                        ? 'Ignored for make-ups (all students). Click to track it again.'
-                        : 'Students who miss this test show under Make-up tests. Click to ignore it for all students.'}
-                      onClick={() => flipMakeUp(a)}
-                    >
-                      Make-ups: {a.makeup_ignored ? 'ignored' : 'tracked'}
-                    </button>
-                  )}
+                  {onToggleMakeUp && a.is_test === 1 && <MakeUpChip a={a} onFlip={flipMakeUp} />}
+                  {/* Folded member tests have no row of their own, so their make-up tracking shows here. */}
+                  {onToggleMakeUp && foldedMembers(a).map(m => <MakeUpChip key={m.id} a={m} onFlip={flipMakeUp} label={m.title} />)}
                   {waits[a.schoology_assignment_id] && (() => {
                     const w = waits[a.schoology_assignment_id];
                     return (

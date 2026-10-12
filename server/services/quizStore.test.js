@@ -54,6 +54,16 @@ describe('storeAttempt', () => {
     expect(JSON.parse(db.prepare('SELECT schoology_rubric_json FROM quiz_questions WHERE group_id = ? AND position = 3').get(groupId).schoology_rubric_json).id).toBe('55233026');
   });
 
+  test('storing the same student twice keeps the attempt row id and replaces its responses', () => {
+    store(std, ATTEMPT, { attemptId: '5001', score: 1 });
+    const first = db.prepare('SELECT id FROM quiz_attempts WHERE student_id = ?').get(s1).id;
+    store(std, ATTEMPT, { attemptId: '5002', score: 3 });
+    const rows = db.prepare('SELECT id, schoology_attempt_id, score FROM quiz_attempts WHERE student_id = ?').all(s1);
+    expect(rows).toEqual([{ id: first, schoology_attempt_id: '5002', score: 3 }]);
+    expect(responseCount()).toBe(3);
+    expect(db.prepare('SELECT DISTINCT attempt_id FROM quiz_responses').all()).toEqual([{ attempt_id: first }]);
+  });
+
   test('reloading replaces the attempt instead of adding one', () => {
     store(std, ATTEMPT);
     store(std, ATTEMPT);

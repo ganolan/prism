@@ -94,6 +94,26 @@ describe('AssessmentSummaryPage with a quiz group', () => {
     expect(await screen.findByText('18 attempts loaded, 1 failed')).toBeInTheDocument();
   });
 
+  it('shows load warnings above the tabs, and on the Questions tab too', async () => {
+    getQuizGroupFor.mockResolvedValue({ group: { ...GROUP, loaded_at: '2026-10-12 14:02:00', parity_status: 'mismatch',
+      parity_detail: ['Question 4: a different key'], load_summary: { failed: [], unknownUids: ['9'], multipleAttempts: [] } } });
+    renderAt('/course/5/assessment/950');
+    const warnings = await screen.findByTestId('quiz-load-warnings');
+    expect(warnings).toHaveTextContent('Question 4: a different key');
+    expect(warnings).toHaveTextContent('1 student Prism does not know');
+    expect(warnings.compareDocumentPosition(screen.getByRole('tablist', { name: 'Quiz views' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: 'Questions' }));
+    expect(await screen.findByText(/Questions for group 7/)).toBeInTheDocument();
+    expect(screen.getByTestId('quiz-load-warnings')).toBeInTheDocument();
+  });
+
+  it('shows no warning block for a clean group', async () => {
+    getQuizGroupFor.mockResolvedValue({ group: { ...GROUP, parity_status: 'ok', load_summary: { failed: [], unknownUids: [], multipleAttempts: [] } } });
+    renderAt('/course/5/assessment/950');
+    await screen.findByText(/Linked: Ep 1/);
+    expect(screen.queryByTestId('quiz-load-warnings')).toBeNull();
+  });
+
   it('a member test redirects to the result task', async () => {
     getQuizGroupFor.mockResolvedValue({ group: GROUP });
     renderAt('/course/5/assessment/900');

@@ -6,13 +6,13 @@ import { QuizError } from './quizError.js';
 
 const json = (v) => (v == null ? null : JSON.stringify(v));
 
-export function storeAttempt(db, { groupId, assignmentId, studentId, attempt, attemptCount, parsed, rubrics, gradeInfo }) {
-  const logical = db.prepare(`SELECT qq.id, qq.position, qq.options_json, qq.schoology_rubric_json, c.schoology_question_id AS qid
-    FROM quiz_question_copies c JOIN quiz_questions qq ON qq.id = c.question_id
-    WHERE qq.group_id = ? AND c.assignment_id = ?`).all(groupId, assignmentId);
+export function storeAttempt(db, { groupId, assignmentId, studentId, attempt, attemptCount, parsed, rubrics = {}, gradeInfo = {} }) {
   if (!db.prepare('SELECT 1 FROM quiz_group_members WHERE group_id = ? AND assignment_id = ?').get(groupId, assignmentId)) {
     throw new QuizError('NOT_FOUND', `Test ${assignmentId} is not a member of quiz group ${groupId}`);
   }
+  const logical = db.prepare(`SELECT qq.id, qq.position, qq.options_json, qq.schoology_rubric_json, c.schoology_question_id AS qid
+    FROM quiz_question_copies c JOIN quiz_questions qq ON qq.id = c.question_id
+    WHERE qq.group_id = ? AND c.assignment_id = ?`).all(groupId, assignmentId);
   const byQid = new Map(logical.map(l => [l.qid, l]));
   const mismatches = [];
 

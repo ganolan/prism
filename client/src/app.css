@@ -510,6 +510,10 @@ button.ghost {
 }
 button.ghost:hover { background: var(--accent-subtle); }
 button.ghost.danger { color: var(--error); }
+/* Refer (to the academic office) is red everywhere, like the red ring, the "to refer"
+   badge and "Referred": never the accent, which marks the selected / open action. */
+button.primary.danger { background: var(--danger); }
+button.primary.danger:hover { background: var(--danger); filter: brightness(0.92); box-shadow: none; }
 button.ghost.danger:hover { background: var(--error-light); }
 button.ghost.success { color: var(--success); }
 button.ghost.success:hover { background: var(--success-light); }
@@ -1187,6 +1191,9 @@ button.stat-tile--red { border-color: var(--danger); }
 /* The pill whose editor is open below the header (aria-expanded): a pale accent fill and a
    strong accent outline, "selected" (not a solid button, which would read like Refer), so it
    is clear which action the panel row belongs to. */
+/* Refer on the card: a pill like its neighbours, in red. */
+.resubmit-pill.refer-pill { border-color: var(--danger); color: var(--danger); }
+.resubmit-pill.refer-pill:hover:not(:disabled) { background: var(--danger); color: white; }
 .resubmit-pill[aria-expanded="true"], .resubmit-control button[aria-expanded="true"] {
   background: var(--accent-light); color: var(--accent); border: 2.5px solid var(--accent);
 }

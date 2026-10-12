@@ -51,10 +51,10 @@ export default function ReferControl({ student, assignmentId, panelHost = null, 
   const handedIn = row.kind === 'submitted_late';
   return (
     <span className="resubmit-control">
-      <button type="button" className="primary btn-sm" title="Mark referred" disabled={busy}
+      <button type="button" className="resubmit-pill refer-pill" title="Refer to the academic office" disabled={busy}
         onClick={() => act(() => recordReferral({ ...ids, action: 'referred' }))}>Refer</button>
       {handedIn && (
-        <button type="button" className="secondary btn-sm" title="Don't refer: record why" aria-expanded={waiving}
+        <button type="button" className="resubmit-pill" title="Don't refer: record why" aria-expanded={waiving}
           onClick={() => { setNote(''); setWaiving(!waiving); }}>Waive</button>
       )}
       {error && <span className="text-sm" style={{ color: 'var(--danger)' }}>{error}</span>}

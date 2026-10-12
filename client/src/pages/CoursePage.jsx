@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, triggerMasterySync, triggerMasteryLogin, getSubmissionLinks, getTriage, setMakeUpIgnored, getAttemptLinks } from '../services/api.js';
+import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, triggerMasterySync, triggerMasteryLogin, getSubmissionLinks, getTriage, setMakeUpIgnored } from '../services/api.js';
 import AnalyticsView from '../components/AnalyticsView.jsx';
 import OverridePopup from '../components/OverridePopup.jsx';
 import TriageSection from '../components/triage/TriageSection.jsx';
@@ -21,6 +21,7 @@ import CompactRubric from '../components/CompactRubric.jsx';
 import SubmissionBadges from '../components/SubmissionBadges.jsx';
 import SchoologyLink from '../components/SchoologyLink.jsx';
 import AttemptLink from '../components/quiz/AttemptLink.jsx';
+import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
 import { formatDateTime } from '../lib/formatDate.js';
 import SubmissionTimeline from '../components/SubmissionTimeline.jsx';
 import { timelineSummary } from '../lib/submissionTimeline.js';
@@ -635,14 +636,7 @@ export function RubricModal({ student, assignment, courseId, topics, comment, gr
     return () => { active = false; };
   }, [courseId, assignment.schoology_assignment_id, assignment.is_lti_submission, student.schoology_uid]);
   // The student's attempt on a linked or combined Schoology test (linked quizzes).
-  const [attemptLink, setAttemptLink] = useState(null);
-  useEffect(() => {
-    let active = true;
-    getAttemptLinks({ assignmentId: assignment.schoology_assignment_id })
-      .then(r => { if (active) setAttemptLink(r.links?.[student.id] || null); })
-      .catch(() => {});
-    return () => { active = false; };
-  }, [assignment.schoology_assignment_id, student.id]);
+  const attemptLink = useAttemptLinks({ assignmentId: assignment.schoology_assignment_id })[student.id] || null;
   // Submission state + flags, shown above the rubric — matching the /student/ page.
   const status = submissionStatus({
     score: grade.score, exception: grade.exception, late: timeline?.submission?.late ?? grade.late,

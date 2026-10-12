@@ -3,12 +3,13 @@ import { useParams, Link } from 'react-router-dom';
 import { formatDate } from '../lib/formatDate.js';
 import {
   getStudent, updateStudent, updateParentPhone,
-  createNote, updateNote, deleteNote, getAttemptLinks,
+  createNote, updateNote, deleteNote,
 } from '../services/api.js';
 import MasteryPerformanceSummary from '../components/MasteryPerformanceSummary.jsx';
 import CompactRubric from '../components/CompactRubric.jsx';
 import SubmissionBadges from '../components/SubmissionBadges.jsx';
 import AttemptLink from '../components/quiz/AttemptLink.jsx';
+import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
 import SubmissionTimeline from '../components/SubmissionTimeline.jsx';
 import HelpDot from '../components/HelpDot.jsx';
 import { CLOCK_HELP } from '../lib/submissionTimeline.js';
@@ -52,7 +53,7 @@ function CopyButton({ text, label }) {
 
 const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
 
-export function CourseSection({ course, grades, flagsByAssignment, studentUid, scales, studentName = '', attemptLinks = {} }) {
+export function CourseSection({ course, grades, flagsByAssignment, studentUid, scales, studentName = 'the student', attemptLinks = {} }) {
   const [expanded, setExpanded] = useState(true);
 
   return (
@@ -304,12 +305,7 @@ export default function StudentPage() {
   useEffect(() => { reload(); }, [id, dataVersion]);
 
   // The student's attempts on linked or combined Schoology tests, by Schoology assignment id.
-  const [attemptLinks, setAttemptLinks] = useState({});
-  useEffect(() => {
-    let active = true;
-    getAttemptLinks({ studentId: id }).then(r => { if (active) setAttemptLinks(r.links || {}); }).catch(() => {});
-    return () => { active = false; };
-  }, [id, dataVersion]);
+  const attemptLinks = useAttemptLinks({ studentId: id, reloadKey: dataVersion });
 
   async function handleSave() {
     const updated = await updateStudent(id, preferredVal.trim() || null);

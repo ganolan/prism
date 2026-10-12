@@ -799,6 +799,8 @@ describe('AssessmentSummaryPage - test attempt links (linked quizzes)', () => {
     });
     renderPage();
     await screen.findByText('Launch');
+    await waitFor(() => expect(getAttemptLinks).toHaveBeenCalled());
+    await new Promise(r => setTimeout(r, 0));
     expect(screen.queryByRole('link', { name: /test attempt in schoology/i })).not.toBeInTheDocument();
   });
 

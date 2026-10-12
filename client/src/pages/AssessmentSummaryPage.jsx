@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
-import { getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, getAttemptLinks } from '../services/api.js';
+import { getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 import { makeDraftSaver } from '../lib/assessmentDraftSaver.js';
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
@@ -14,6 +14,7 @@ import RubricManagerModal from '../components/RubricManagerModal.jsx';
 import AiSparkle from '../components/AiSparkle.jsx';
 import SchoologyLink from '../components/SchoologyLink.jsx';
 import AttemptLink from '../components/quiz/AttemptLink.jsx';
+import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
 import SubmissionStatusPill from '../components/SubmissionStatusPill.jsx';
 import SubmissionTimeline from '../components/SubmissionTimeline.jsx';
 import ExtendControl from '../components/ExtendControl.jsx';
@@ -1710,12 +1711,7 @@ export default function AssessmentSummaryPage() {
   // link to a different assignment's file.
   const workLinksReq = useRef(0);
   // Each student's attempt on a linked or combined Schoology test (linked quizzes, phase 1).
-  const [attemptLinks, setAttemptLinks] = useState({});
-  useEffect(() => {
-    let active = true;
-    getAttemptLinks({ assignmentId }).then(r => { if (active) setAttemptLinks(r.links || {}); }).catch(() => {});
-    return () => { active = false; };
-  }, [assignmentId, dataVersion]);
+  const attemptLinks = useAttemptLinks({ assignmentId, reloadKey: dataVersion });
 
   // Attached rubric + reporting-category colour palette for this assignment (Task 13).
   // rubricData: { id, rubric:{...criteria...}, topicByCriterion:[...] } | null.

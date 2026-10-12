@@ -58,6 +58,12 @@ describe('createGroup', () => {
     make();
     expect(() => one('900')).toThrow(expect.objectContaining({ code: 'NOT_ELIGIBLE' }));
   });
+  test('refuses question lists given in the wrong order for the tests', () => {
+    expect(() => createGroup(db, { courseId: course, assignmentRefs: ['900', '901'], title: 'X',
+      questionLists: [{ assignmentId: ext, questions: LIST }, { assignmentId: std, questions: COPY }] }))
+      .toThrow(expect.objectContaining({ code: 'NOT_ELIGIBLE' }));
+    expect(db.prepare('SELECT COUNT(*) n FROM quiz_groups').get().n).toBe(0);
+  });
   test('refuses an empty selection, a list count that does not match, or the same test twice', () => {
     expect(() => createGroup(db, { courseId: course, assignmentRefs: [], title: 'X', questionLists: [] }))
       .toThrow(expect.objectContaining({ code: 'NOT_ELIGIBLE' }));
@@ -90,6 +96,30 @@ describe('links', () => {
     expect(groupForAssignment(db, '900')).toBeNull();
     expect(listGroups(db, { courseId: course })).toEqual([]);
   });
+  test('a summative linked to one group cannot be linked to another; re-linking the same group succeeds', () => {
+    const g1 = make();
+    const s1 = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, is_test) VALUES (?, '902', 'Ep 2 Theory Test', 1)`).run(course).lastInsertRowid;
+    const s2 = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, is_test) VALUES (?, '903', 'Ep 2 Theory Test *', 1)`).run(course).lastInsertRowid;
+    const g2 = createGroup(db, { courseId: course, assignmentRefs: ['902', '903'], title: 'Ep 2',
+      questionLists: [{ assignmentId: s1, questions: LIST }, { assignmentId: s2, questions: COPY }] });
+    linkResult(db, { groupId: g1.id, resultRef: '950' });
+    expect(() => linkResult(db, { groupId: g2.id, resultRef: '950' })).toThrow(expect.objectContaining({ code: 'NOT_ELIGIBLE' }));
+    expect(getGroup(db, g1.id).result.schoology_assignment_id).toBe('950');
+    expect(getGroup(db, g2.id).result).toBeNull();
+    expect(linkResult(db, { groupId: g1.id, resultRef: '950' }).result.schoology_assignment_id).toBe('950');
+  });
+});
+
+test('deleteGroup removes attempts and responses, and the tests can be combined again', () => {
+  const g = make();
+  db.prepare(`INSERT INTO quiz_attempts (group_id, assignment_id, student_id, schoology_attempt_id, completed_at, fetched_at) VALUES (?, ?, ?, '5002', '2026-10-10 09:35', 'now')`).run(g.id, ext, stu);
+  const attemptId = db.prepare('SELECT id FROM quiz_attempts WHERE group_id = ?').get(g.id).id;
+  const qid = db.prepare('SELECT id FROM quiz_questions WHERE group_id = ? AND position = 1').get(g.id).id;
+  db.prepare(`INSERT INTO quiz_responses (attempt_id, question_id, chosen_letter, is_correct, points, max_points) VALUES (?, ?, 'A', 1, 1, 1)`).run(attemptId, qid);
+  deleteGroup(db, { groupId: g.id });
+  expect(db.prepare('SELECT COUNT(*) n FROM quiz_attempts').get().n).toBe(0);
+  expect(db.prepare('SELECT COUNT(*) n FROM quiz_responses').get().n).toBe(0);
+  expect(make().members.map(m => m.schoology_assignment_id)).toEqual(['900', '901']);
 });
 
 test('setQuestionTags trims, drops blanks, and reports unknown positions', () => {
@@ -104,6 +134,15 @@ test('listCandidates: ungrouped unaligned tests with similar-title suggestions, 
   expect(c.summatives.map(s => s.schoology_assignment_id)).toEqual(['950']);
   make();
   expect(listCandidates(db, { courseId: course }).tests).toEqual([]);
+});
+
+test('attemptLinks returns the whole group for any member ref, and {} for unknown or ungrouped refs', () => {
+  const g = make();
+  db.prepare(`INSERT INTO quiz_attempts (group_id, assignment_id, student_id, schoology_attempt_id, completed_at, fetched_at) VALUES (?, ?, ?, '5002', '2026-10-10 09:35', 'now')`).run(g.id, ext, stu);
+  const want = { url: 'https://schoology.hkis.edu.hk/assignment/901/assessment_results/student_stats/701/5002', completedAt: '2026-10-10 09:35' };
+  expect(attemptLinks(db, { assignmentRef: '900' })).toEqual({ [stu]: want });
+  expect(attemptLinks(db, { assignmentRef: '901' })).toEqual({ [stu]: want });
+  expect(attemptLinks(db, { assignmentRef: '99999999' })).toEqual({});
 });
 
 test('attemptLinks: by member test, by result task, and by student', () => {

@@ -70,6 +70,12 @@ export function createGroup(db, { courseId, assignmentRefs, title, questionLists
   if (new Set(tests.map(t => t.id)).size !== tests.length) {
     throw new QuizError('NOT_ELIGIBLE', 'The same test is listed twice');
   }
+  // questionLists are positional: a list must belong to the test at the same index.
+  questionLists.forEach((l, i) => {
+    if (l.assignmentId !== undefined && Number(l.assignmentId) !== tests[i].id) {
+      throw new QuizError('NOT_ELIGIBLE', `Question list ${i + 1} is not for "${tests[i].title}"`);
+    }
+  });
   const lists = questionLists.map((l, i) => ({ assignmentId: tests[i].id, title: tests[i].title, questions: l.questions }));
   const parity = compareQuestionLists(lists);
   if (!parity.ok) {
@@ -178,10 +184,11 @@ const linkOf = (r) => ({
   completedAt: r.completed_at,
 });
 
+// Links for every attempt in the group the ref belongs to (member or result task).
 export function attemptLinks(db, { assignmentRef }) {
-  const a = resolveAssignment(db, assignmentRef);
-  if (!a) return {};
-  const rows = db.prepare(`${ATTEMPT_SQL} WHERE qa.assignment_id = ? OR g.result_assignment_id = ? ORDER BY qa.completed_at`).all(a.id, a.id);
+  const g = groupForAssignment(db, assignmentRef);
+  if (!g) return {};
+  const rows = db.prepare(`${ATTEMPT_SQL} WHERE qa.group_id = ? ORDER BY qa.completed_at`).all(g.id);
   const out = {};
   for (const r of rows) out[r.student_id] = linkOf(r);
   return out;

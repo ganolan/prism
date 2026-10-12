@@ -5,7 +5,7 @@ import { CourseSection } from './StudentPage.jsx';
 
 vi.mock('../components/MasteryPerformanceSummary.jsx', () => ({ default: () => null }));
 
-function renderCourseSection(flagsByAssignment, gradeOverrides = {}) {
+function renderCourseSection(flagsByAssignment, gradeOverrides = {}, sectionProps = {}) {
   return render(
     <MemoryRouter>
       <CourseSection
@@ -29,6 +29,7 @@ function renderCourseSection(flagsByAssignment, gradeOverrides = {}) {
         flagsByAssignment={flagsByAssignment}
         studentUid="uid-1"
         scales={[]}
+        {...sectionProps}
       />
     </MemoryRouter>
   );
@@ -106,5 +107,21 @@ describe('CourseSection submission timeline', () => {
   it('without a timeline the plain due date stays', () => {
     renderCourseSection({});
     expect(screen.getByText('Due: 2026-04-12')).toBeInTheDocument();
+  });
+});
+
+describe('CourseSection test attempt link (linked quizzes)', () => {
+  it('shows an Attempt link on the row, keyed by Schoology assignment id', () => {
+    renderCourseSection({}, {}, {
+      studentName: 'Ada Lovelace',
+      attemptLinks: { 'sa-10': { url: 'https://schoology.hkis.edu.hk/assignment/9/assessment_results/student_stats/u/2', completedAt: '2026-10-09 09:31' } },
+    });
+    const link = screen.getByRole('link', { name: "Attempt: open Ada Lovelace's test attempt in Schoology" });
+    expect(link).toHaveAttribute('href', expect.stringContaining('/student_stats/u/2'));
+  });
+
+  it('shows none for an assignment without an attempt', () => {
+    renderCourseSection({}, {}, { studentName: 'Ada Lovelace', attemptLinks: { 'other': { url: 'https://x.example/a' } } });
+    expect(screen.queryByRole('link', { name: /test attempt/i })).not.toBeInTheDocument();
   });
 });

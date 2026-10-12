@@ -4,18 +4,18 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { RubricModal } from './CoursePage.jsx';
-import { getSubmissionLinks } from '../services/api.js';
+import { getSubmissionLinks, getAttemptLinks } from '../services/api.js';
 
-vi.mock('../services/api.js', () => ({ getSubmissionLinks: vi.fn() }));
+vi.mock('../services/api.js', () => ({ getSubmissionLinks: vi.fn(), getAttemptLinks: vi.fn().mockResolvedValue({ links: {} }) }));
 
 const STUDENT = { schoology_uid: 'u1', first_name: 'Ada', last_name: 'Lovelace', preferred_name: null, preferred_name_teacher: null };
 const TOPICS = [{ topic_id: 't1', title: 'Topic 1', grade: 'EX' }];
 
-function renderModal({ assignment = {}, comment = '' } = {}) {
+function renderModal({ assignment = {}, comment = '', student = STUDENT } = {}) {
   return render(
     <MemoryRouter>
       <RubricModal
-        student={STUDENT}
+        student={student}
         assignment={{
           title: 'Project', schoology_assignment_id: 'sa-1', due_date: null, is_lti_submission: 0,
           web_url: 'https://schoology.hkis.edu.hk/assignment/sa-1/info', ...assignment,
@@ -74,5 +74,15 @@ describe('RubricModal — comment', () => {
     const rubricCell = screen.getByText('Topic 1');
     // DOCUMENT_POSITION_FOLLOWING: the comment comes after the rubric.
     expect(rubricCell.compareDocumentPosition(comment) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+describe('RubricModal - test attempt link (linked quizzes)', () => {
+  it('shows an Attempt link for the student, keyed by local student id', async () => {
+    getAttemptLinks.mockResolvedValueOnce({ links: { 7: { url: 'https://schoology.hkis.edu.hk/assignment/9/assessment_results/student_stats/u/2', completedAt: '2026-10-09 09:31' } } });
+    renderModal({ student: { ...STUDENT, id: 7 } });
+    const link = await screen.findByRole('link', { name: "Attempt: open Ada Lovelace's test attempt in Schoology" });
+    expect(link).toHaveAttribute('href', expect.stringContaining('/student_stats/u/2'));
+    expect(getAttemptLinks).toHaveBeenCalledWith({ assignmentId: 'sa-1' });
   });
 });

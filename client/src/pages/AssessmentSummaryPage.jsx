@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
-import { getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings } from '../services/api.js';
+import { getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, getAttemptLinks } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 import { makeDraftSaver } from '../lib/assessmentDraftSaver.js';
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
@@ -13,6 +13,7 @@ import ResubmitControl from '../components/ResubmitControl.jsx';
 import RubricManagerModal from '../components/RubricManagerModal.jsx';
 import AiSparkle from '../components/AiSparkle.jsx';
 import SchoologyLink from '../components/SchoologyLink.jsx';
+import AttemptLink from '../components/quiz/AttemptLink.jsx';
 import SubmissionStatusPill from '../components/SubmissionStatusPill.jsx';
 import SubmissionTimeline from '../components/SubmissionTimeline.jsx';
 import ExtendControl from '../components/ExtendControl.jsx';
@@ -145,7 +146,7 @@ function HeaderPill({ active, accent, activeBg, activeText, icon, label, clearLa
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
-export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, scoreScale = null, resubmitLessonsDefault = 3, resubmitEnabled = true, highlight = false, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
+export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, attemptLink = null, scoreScale = null, resubmitLessonsDefault = 3, resubmitEnabled = true, highlight = false, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
   const scale = useProficiencyScale();
   const loadedDisplay = student.comment_status === 1;
   // Per-card DB draft saver (replaces the former localStorage key). Created once.
@@ -930,6 +931,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             style={{ fontSize: '0.78rem', fontWeight: 600 }}
           />
         )}
+        {/* The student's attempt on a linked or combined Schoology test. */}
+        <AttemptLink link={attemptLink} name={displayName(student)} />
         {saveResult === 'saved' && (
           <span className="badge badge-green" style={{ fontSize: '0.68rem' }}>Saved ✓</span>
         )}
@@ -1706,6 +1709,13 @@ export default function AssessmentSummaryPage() {
   // moved to another assignment mid-fetch) is dropped, so a card can never
   // link to a different assignment's file.
   const workLinksReq = useRef(0);
+  // Each student's attempt on a linked or combined Schoology test (linked quizzes, phase 1).
+  const [attemptLinks, setAttemptLinks] = useState({});
+  useEffect(() => {
+    let active = true;
+    getAttemptLinks({ assignmentId }).then(r => { if (active) setAttemptLinks(r.links || {}); }).catch(() => {});
+    return () => { active = false; };
+  }, [assignmentId, dataVersion]);
 
   // Attached rubric + reporting-category colour palette for this assignment (Task 13).
   // rubricData: { id, rubric:{...criteria...}, topicByCriterion:[...] } | null.
@@ -2106,6 +2116,7 @@ export default function AssessmentSummaryPage() {
               viewMode={viewMode}
               rubricPalette={rubricPalette}
               submissionLink={workLinks.links[student.schoology_uid] || null}
+              attemptLink={attemptLinks[student.id] || null}
               scoreScale={scoreScale}
               resubmitLessonsDefault={resubmitLessonsDefault}
               resubmitEnabled={!data.course?.archived && !data.course?.excluded}

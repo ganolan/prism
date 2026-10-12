@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 import AssessmentSummaryPage, { StudentRubricCard } from './AssessmentSummaryPage.jsx';
-import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale, requestResubmission, undoResubmission } from '../services/api.js';
+import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, getAttemptLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale, requestResubmission, undoResubmission } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 
 // Stub the DB saver so tests assert wiring, not I/O.
@@ -18,6 +18,8 @@ vi.mock('../lib/assessmentDraftSaver.js', () => ({
 vi.mock('../services/api.js', () => ({
   getMasteryForAssignment: vi.fn(),
   getSubmissionLinks: vi.fn().mockResolvedValue({ status: 'not_lti', links: {} }),
+  getAttemptLinks: vi.fn().mockResolvedValue({ links: {} }),
+  getQuizGroupFor: vi.fn().mockResolvedValue({ group: null }),
   setSuggestionState: vi.fn().mockResolvedValue({}),
   getFeedbackForAssignment: vi.fn().mockResolvedValue({}),
   getAssessmentAnalysis: vi.fn().mockResolvedValue(null),
@@ -760,6 +762,49 @@ describe('AssessmentSummaryPage — OneDrive work links (#120)', () => {
     getSubmissionLinks.mockResolvedValue({ status: 'sso_failed', links: {} });
     renderPage();
     expect(await screen.findByText(/onedrive links unavailable/i)).toBeInTheDocument();
+  });
+});
+
+describe('AssessmentSummaryPage - test attempt links (linked quizzes)', () => {
+  const ATTEMPT = { url: 'https://schoology.hkis.edu.hk/assignment/9/assessment_results/student_stats/u/2', completedAt: '2026-10-09 09:31' };
+
+  function renderPage() {
+    return render(
+      <MemoryRouter initialEntries={['/course/4/assessment/8']}>
+        <Routes>
+          <Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+  }
+
+  it('shows an Attempt link on the card when the student has a test attempt', async () => {
+    getMasteryForAssignment.mockResolvedValue({
+      assignment: { id: 50, schoology_assignment_id: '8', title: 'Launch', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+      topics: TOPICS,
+      students: [makeStudent()],
+    });
+    getAttemptLinks.mockResolvedValueOnce({ links: { 1: ATTEMPT } });
+    renderPage();
+    const link = await screen.findByRole('link', { name: /^Attempt: open .* test attempt in Schoology$/ });
+    expect(link).toHaveAttribute('href', ATTEMPT.url);
+    expect(getAttemptLinks).toHaveBeenCalledWith({ assignmentId: '8' });
+  });
+
+  it('shows no Attempt link when the student has none', async () => {
+    getMasteryForAssignment.mockResolvedValue({
+      assignment: { id: 50, schoology_assignment_id: '8', title: 'Launch', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+      topics: TOPICS,
+      students: [makeStudent()],
+    });
+    renderPage();
+    await screen.findByText('Launch');
+    expect(screen.queryByRole('link', { name: /test attempt in schoology/i })).not.toBeInTheDocument();
+  });
+
+  it('StudentRubricCard renders the attemptLink beside the name', () => {
+    renderCard({ attemptLink: ATTEMPT });
+    expect(screen.getByRole('link', { name: "Attempt: open Ada Lovelace's test attempt in Schoology" })).toHaveAttribute('href', ATTEMPT.url);
   });
 });
 

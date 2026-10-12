@@ -1199,3 +1199,7 @@ The full submission picture in one compact, wrapping row of short facts (`Submis
 - **A deadline you set is always in the future.** Extending counts from the later of the start date and today, so the hint never says "already passed" and "Next lesson" is a small number. The extension tag and history show only the resulting date ("ext → 19/10/2026", "Extended to 19/10/2026"): a count from a moving start would mislead.
 - **Extend lives on the card too,** beside *Ask to resubmit*, styled the same way (pill → inline panel → status-line confirm): "Extend" before, "Extended to DD/MM/YYYY" after.
 
+
+## Test attempt link (October 2026, linked quizzes)
+
+- **"Attempt" is the #120 "Open" pattern again.** One small outbound link labelled **Attempt**, beside the submission-status pill on the `/assessment/` cards, in the gradebook rubric modal's badge row and in the status cell of the student page. The full sentence is the accessible name ("Attempt: open Ada's test attempt in Schoology"); the completion time (day-first) is in the tooltip. Nothing renders when the student has no attempt. The shared component is `components/quiz/AttemptLink.jsx`.

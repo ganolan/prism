@@ -1184,6 +1184,12 @@ button.stat-tile--red { border-color: var(--danger); }
   border: 1.5px solid var(--resubmit-ring); background: var(--card-bg); color: var(--text-muted); cursor: pointer;
 }
 .resubmit-pill--active { border-width: 2.5px; background: var(--badge-resubmit-bg); color: var(--badge-resubmit-text); }
+/* The pill whose editor is open below the header (aria-expanded): a pale accent fill and a
+   strong accent outline, "selected" (not a solid button, which would read like Refer), so it
+   is clear which action the panel row belongs to. */
+.resubmit-pill[aria-expanded="true"], .resubmit-control button[aria-expanded="true"] {
+  background: var(--accent-light); color: var(--accent); border: 2.5px solid var(--accent);
+}
 
 /* Status-line confirm (StatusLineModal.jsx, spec Amendment B): the significance of
    writing to a student's Schoology comment — header, visibility sub-line, consequence,

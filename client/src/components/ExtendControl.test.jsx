@@ -39,7 +39,9 @@ describe('ExtendControl (assessment card)', () => {
       statusLine: { comment: 'Extension - now due Mon 19/10 (3 school days). trip\n\nGood start.', line: 'Extension - now due Mon 19/10 (3 school days). trip' },
     });
     const onChange = renderControl();
+    expect(screen.getByRole('button', { name: 'Extend' })).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(screen.getByRole('button', { name: 'Extend' }));
+    expect(screen.getByRole('button', { name: 'Extend' })).toHaveAttribute('aria-expanded', 'true'); // drawn as the active pill
     expect(screen.getByLabelText('Extension (school days)')).toHaveValue(3);
     fireEvent.change(screen.getByLabelText('Extension note'), { target: { value: 'trip' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));

@@ -36,6 +36,7 @@ describe('ReferControl (assessment card)', () => {
     document.body.appendChild(host);
     render(<ReferControl student={student({ late_work: { kind: 'submitted_late', tone: 'red' } })} assignmentId={30} panelHost={host} />);
     fireEvent.click(screen.getByRole('button', { name: 'Waive' }));
+    expect(screen.getByRole('button', { name: 'Waive' })).toHaveAttribute('aria-expanded', 'true');
     expect(host).toContainElement(screen.getByLabelText('Waive note')); // drawn in the card's panel row
     fireEvent.change(screen.getByLabelText('Waive note'), { target: { value: 'pre-approved absence' } });
     fireEvent.click(screen.getByRole('button', { name: 'Waive referral' }));

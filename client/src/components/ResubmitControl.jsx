@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import NumberStepper from './NumberStepper.jsx';
 import LessonHint from './LessonHint.jsx';
+import ActionPanel, { PanelRow } from './ActionPanel.jsx';
 import StatusLineModal from './StatusLineModal.jsx';
 import UnsubmitFailedNote from './UnsubmitFailedNote.jsx';
 import { formatDate, localIsoDate } from '../lib/formatDate.js';
@@ -33,7 +34,7 @@ const removed = (sl) => (sl && sl.comment != null ? { comment: sl.comment, line:
 const recordOf = ({ statusLine: _sl, unsubmit: _u, ...rest } = {}) => rest;
 const STAYS_UNSUBMITTED = ' Their work stays unsubmitted in Schoology.';
 
-export default function ResubmitControl({ student, assignmentId, courseId, title, defaultLessons = 3, onChange }) {
+export default function ResubmitControl({ student, assignmentId, courseId, title, defaultLessons = 3, panelHost = null, onChange }) {
   const r = student.resubmission;
   const [panel, setPanel] = useState(false);
   const [lessons, setLessons] = useState((r?.request?.schoolDaysLeft > 0 ? r.request.schoolDaysLeft : defaultLessons));
@@ -129,23 +130,29 @@ export default function ResubmitControl({ student, assignmentId, courseId, title
       </button>
       {req?.unsubmitError && <UnsubmitFailedNote url={req.unsubmitUrl} error={req.unsubmitError} uncertain={req.unsubmitUncertain} />}
       {panel && (
-        <span className="resubmit-control__panel">
-          <NumberStepper value={lessons} min={1} max={60} onChange={setLessons} aria-label="Resubmission deadline (school days)" />
-          <span className="text-sm">school days</span>
-          <LessonHint courseId={courseId} from={req?.requestedOn || localIsoDate()} value={lessons} onPick={setLessons} />
-          {req ? (
-            <>
-              <button type="button" className="secondary btn-sm" onClick={extend}>Extend</button>
-              {pastDeadline && <button type="button" className="primary btn-sm" onClick={gradeStands}>Grade stands</button>}
-              <button type="button" className="ghost danger btn-sm" onClick={undo}>Undo</button>
-            </>
-          ) : (
-            <>
-              <input className="triage-note" placeholder="Note (optional)" aria-label="Resubmission note" value={note} onChange={(e) => setNote(e.target.value)} />
-              <button type="button" className="primary btn-sm" onClick={ask}>Ask</button>
-            </>
-          )}
-        </span>
+        <ActionPanel host={panelHost} label={req ? 'Resubmission request' : 'Ask to resubmit'}>
+          <PanelRow>
+            <span className="action-panel__title">{req ? 'Resubmission' : 'Ask to resubmit'}</span>
+            <NumberStepper value={lessons} min={1} max={60} onChange={setLessons} aria-label="Resubmission deadline (school days)" />
+            <span className="text-sm">school days</span>
+            <LessonHint courseId={courseId} from={req?.requestedOn || localIsoDate()} value={lessons} onPick={setLessons} />
+          </PanelRow>
+          <PanelRow>
+            {req ? (
+              <>
+                <button type="button" className="secondary btn-sm" onClick={extend}>Extend</button>
+                {pastDeadline && <button type="button" className="primary btn-sm" onClick={gradeStands}>Grade stands</button>}
+                <button type="button" className="ghost danger btn-sm" onClick={undo}>Undo</button>
+              </>
+            ) : (
+              <>
+                <input className="triage-note action-panel__note" placeholder="Note (optional)" aria-label="Resubmission note" value={note} onChange={(e) => setNote(e.target.value)} />
+                <button type="button" className="primary btn-sm" onClick={ask}>Ask</button>
+              </>
+            )}
+            <button type="button" className="ghost btn-sm" onClick={() => setPanel(false)}>Cancel</button>
+          </PanelRow>
+        </ActionPanel>
       )}
       {confirm && (
         <StatusLineModal

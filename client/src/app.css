@@ -510,6 +510,10 @@ button.ghost {
 }
 button.ghost:hover { background: var(--accent-subtle); }
 button.ghost.danger { color: var(--error); }
+/* Refer (to the academic office) is red everywhere, like the red ring, the "to refer"
+   badge and "Referred": never the accent, which marks the selected / open action. */
+button.primary.danger { background: var(--danger); }
+button.primary.danger:hover { background: var(--danger); filter: brightness(0.92); box-shadow: none; }
 button.ghost.danger:hover { background: var(--error-light); }
 button.ghost.success { color: var(--success); }
 button.ghost.success:hover { background: var(--success-light); }
@@ -1047,6 +1051,11 @@ button.triage-panel__more { padding: 0.15rem 0.4rem; font-size: 0.75rem; font-we
 .triage-panel__note { margin: 0 0 0.45rem; font-size: 0.78rem; }
 /* Course page, Gradebook tab: brings the hidden rail back. */
 .triage-rail-toggle { margin-left: auto; display: inline-flex; align-items: center; gap: 0.35rem; }
+/* Course page Summative / Formative / Unpublished filter. The compact form sits
+   right-aligned in the tab row on the Gradebook tab, before the triage toggle. */
+.type-filter-bar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.type-filter-bar--compact { gap: 0.3rem; margin-left: auto; }
+.type-filter-bar--compact + .triage-rail-toggle { margin-left: 0.4rem; }
 /* Compact rows: 28px ring | one-line text lines (ellipsis + full text as the
    title) | an action column (Refer / days-left alongside Extend, or Extend
    alongside Ignore this test, or the feedback count). The action column is a
@@ -1168,12 +1177,31 @@ button.stat-tile--red { border-color: var(--danger); }
 /* Assessment card: resubmission control (triage resubmissions). */
 .resubmit-control { display: inline-flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
 .resubmit-control__panel { display: inline-flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+/* Card action editor (ActionPanel): a full-width row under the card header, so the
+   header's pills never wrap. Row 1 = the deadline (stepper, unit, lesson hint); row 2 =
+   the note and the actions. Collapses away when no editor is open. */
+.card-action-panel { padding: 0.6rem 1rem; background: var(--bg-subtle); border-bottom: 1px solid var(--border); }
+.card-action-panel:empty { display: none; }
+.action-panel { display: flex; flex-direction: column; gap: 0.45rem; }
+.action-panel + .action-panel { padding-top: 0.6rem; border-top: 1px solid var(--border); }
+.action-panel__row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.action-panel__title { font-weight: 700; font-size: 0.85rem; min-width: 7.5rem; }
+.action-panel__note { flex: 1 1 14rem; max-width: 30rem; }
 .resubmit-pill {
   display: inline-flex; align-items: center; gap: 0.35rem; height: 1.8rem; box-sizing: border-box;
   border-radius: 999px; padding: 0 0.7rem; font-size: 0.85rem; font-weight: 600; white-space: nowrap;
   border: 1.5px solid var(--resubmit-ring); background: var(--card-bg); color: var(--text-muted); cursor: pointer;
 }
 .resubmit-pill--active { border-width: 2.5px; background: var(--badge-resubmit-bg); color: var(--badge-resubmit-text); }
+/* The pill whose editor is open below the header (aria-expanded): a pale accent fill and a
+   strong accent outline, "selected" (not a solid button, which would read like Refer), so it
+   is clear which action the panel row belongs to. */
+/* Refer on the card: a pill like its neighbours, in red. */
+.resubmit-pill.refer-pill { border-color: var(--danger); color: var(--danger); }
+.resubmit-pill.refer-pill:hover:not(:disabled) { background: var(--danger); color: white; }
+.resubmit-pill[aria-expanded="true"], .resubmit-control button[aria-expanded="true"] {
+  background: var(--accent-light); color: var(--accent); border: 2.5px solid var(--accent);
+}
 
 /* Status-line confirm (StatusLineModal.jsx, spec Amendment B): the significance of
    writing to a student's Schoology comment — header, visibility sub-line, consequence,

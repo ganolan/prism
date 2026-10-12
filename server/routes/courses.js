@@ -160,7 +160,7 @@ router.get('/:id/gradebook', (req, res) => {
   const assignments = db.prepare(`
     SELECT a.id, a.title, a.max_points, a.due_date, a.grading_category_id, a.grading_scale_id, a.folder_id,
            a.schoology_assignment_id, a.num_assignees, a.is_lti_submission, a.web_url, a.lti_fetch_status,
-           a.is_test, a.makeup_ignored, a.accepts_submissions,
+           a.is_test, a.makeup_ignored, a.accepts_submissions, a.published,
            CASE WHEN EXISTS (
              SELECT 1 FROM mastery_alignments ma WHERE ma.assignment_schoology_id = a.schoology_assignment_id
              UNION
@@ -169,7 +169,9 @@ router.get('/:id/gradebook', (req, res) => {
     FROM assignments a
     LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
     LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
-    WHERE a.course_id = ? AND a.published = 1 AND a.removed_at IS NULL
+    -- Unpublished assignments come back too (published = 0); the client hides
+    -- them behind the Assessments/Gradebook "Unpublished" filter.
+    WHERE a.course_id = ? AND a.removed_at IS NULL
     ORDER BY
       CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN a.display_weight
            WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN COALESCE(fp.display_weight, 0)

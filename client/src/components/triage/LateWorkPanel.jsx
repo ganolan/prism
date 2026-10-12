@@ -62,7 +62,7 @@ export default function LateWorkPanel({
             </div>
             <div className="triage-row__actions">
               {red
-                ? <button className="primary btn-sm" title="Mark referred" onClick={() => onRecord(r, 'referred')}>Refer</button>
+                ? <button className="primary danger btn-sm" title="Mark referred" onClick={() => onRecord(r, 'referred')}>Refer</button>
                 : <span className="text-sm text-muted">{daysLeft(r.day, limit)}</span>}
               {handedIn
                 ? <button className="secondary btn-sm" title="Don't refer: record why" onClick={() => { setWaiveNote(''); setWaiving(waive ? null : k); setExtending(null); }}>Waive</button>

@@ -59,7 +59,7 @@ describe('ResubmitControl', () => {
     fireEvent.click(screen.getByRole('button', { name: /Ask to resubmit/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
     await screen.findByDisplayValue(/Resubmission requested/);
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     for (const fn of writes) expect(api[fn]).not.toHaveBeenCalled();
     expect(onChange).not.toHaveBeenCalled();
@@ -304,7 +304,7 @@ describe('ResubmitControl — unsubmit on Ask (Phase 2)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
     // Closed, not deleted (the server keeps the row so the next sync doesn't re-add it).
     expect(screen.getByText('Closes this request in Prism. Their work stays unsubmitted in Schoology.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
     fireEvent.click(screen.getByRole('button', { name: 'Grade stands' }));
     expect(screen.getByText(/grade stands\. Their work stays unsubmitted in Schoology\./)).toBeInTheDocument();
   });

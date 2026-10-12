@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link, useSearchParams, Navigate, useLocation } from 'react-router-dom';
-import { getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, loadQuizResults } from '../services/api.js';
+import { getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, getTriagePair, loadQuizResults } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 import { makeDraftSaver } from '../lib/assessmentDraftSaver.js';
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
@@ -23,6 +23,7 @@ import { useQuizGroup } from '../hooks/useQuizGroup.js';
 import SubmissionStatusPill from '../components/SubmissionStatusPill.jsx';
 import SubmissionTimeline from '../components/SubmissionTimeline.jsx';
 import ExtendControl from '../components/ExtendControl.jsx';
+import ReferControl from '../components/ReferControl.jsx';
 import ScaleLevelPicker from '../components/ScaleLevelPicker.jsx';
 import AssessmentFilterBar from '../components/AssessmentFilterBar.jsx';
 import { passesFilters } from '../lib/assessmentFilters.js';
@@ -154,6 +155,8 @@ function HeaderPill({ active, accent, activeBg, activeText, icon, label, clearLa
 
 export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, attemptLink = null, scoreScale = null, resubmitLessonsDefault = 3, resubmitEnabled = true, highlight = false, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
   const scale = useProficiencyScale();
+  // The card's action-panel row (ActionPanel portals into it).
+  const [panelHost, setPanelHost] = useState(null);
   const loadedDisplay = student.comment_status === 1;
   // Per-card DB draft saver (replaces the former localStorage key). Created once.
   const saverRef = useRef(null);
@@ -477,9 +480,16 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     applyCardChange({ resubmission, resubmit_flag: resubmission?.request ? { id: resubmission.request.id } : null, ...(extra || {}) }, commentChange);
   }
 
-  // The card's Extend control: the pair's fresh timeline + what the status line did.
+  // The card's Extend control: the pair's fresh timeline + what the status line did;
+  // then the Late work row (an extension can take the student off it).
   function handleExtensionChange(timeline, commentChange = null) {
     applyCardChange(timeline ? { timeline } : {}, commentChange);
+    if (assignmentRow?.id) getTriagePair(student.id, assignmentRow.id).then(handlePairChange).catch(() => {});
+  }
+
+  // Refer / Waive / Undo (and after an extension): { timeline, late_work } for this student.
+  function handlePairChange(state) {
+    if (state) onSaved?.(student.schoology_uid, { timeline: state.timeline, late_work: state.late_work });
   }
 
   // Patch the student and keep the comment editor in step with a published / removed
@@ -1007,8 +1017,14 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             Not offered on an archived/excluded course (the server refuses those). */}
         {/* Extend (late work, or a missed test's make-up): before or after the due date.
             Summative or Schoology test only, in a current course, not for an excused student. */}
-        {resubmitEnabled && (topics.length > 0 || assignmentRow?.is_test === 1) && student.exception !== 1 && (
-          <ExtendControl student={student} assignment={assignmentRow || {}} courseId={courseId} onChange={handleExtensionChange} />
+        {/* Refer / Waive at the referral limit, the same row the dashboard's Late work shows. */}
+        {resubmitEnabled && (
+          <ReferControl student={student} assignmentId={assignmentRow?.id} panelHost={panelHost} onChange={handlePairChange} />
+        )}
+        {/* Hidden once the work is in: there is no deadline left to extend. */}
+        {resubmitEnabled && (topics.length > 0 || assignmentRow?.is_test === 1) && student.exception !== 1
+          && student.timeline?.submission?.state !== 'submitted' && (
+          <ExtendControl student={student} assignment={assignmentRow || {}} courseId={courseId} panelHost={panelHost} onChange={handleExtensionChange} />
         )}
         {resubmitEnabled && <ResubmitControl
           student={student}
@@ -1016,6 +1032,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           courseId={courseId}
           title={assignmentRow?.title}
           defaultLessons={resubmitLessonsDefault}
+          panelHost={panelHost}
           onChange={handleResubmitChange}
         />}
         {/* Detected resubmission (#49, Part B) — the student submitted new work
@@ -1048,6 +1065,10 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         )}
         </div>
       </div>
+
+      {/* The open action's editor (Extend, Ask to resubmit, Waive) draws here, full width
+          under the header, so the header's buttons never wrap (ActionPanel portal). */}
+      <div ref={setPanelHost} className="card-action-panel" />
 
       {/* The full submission picture: due / extension, submitted when and how late
           (or the clock day it is missing on), resubmission, referral. */}

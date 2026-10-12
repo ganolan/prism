@@ -71,13 +71,13 @@ describe('extend / grade stands / undo', () => {
   test('extend sets lessons; grade stands only after the deadline; undo reopens it, a second undo deletes', () => {
     const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project');
     const r = requestResubmission(db, { studentId: s, assignmentId: a, requestedAt: sql('2026-10-12') });
-    expect(extendResubmission(db, r.id, 5)).toMatchObject({ lessons: 5, until: '2026-10-19' });
+    expect(extendResubmission(db, r.id, 5, '2026-10-12')).toMatchObject({ lessons: 5, until: '2026-10-19' });
     expect(() => gradeStands(db, r.id, { today: '2026-10-16' })).toThrow(expect.objectContaining({ code: 'NOT_AT_DEADLINE' }));
     expect(() => gradeStands(db, r.id, { today: '2026-10-19' })).toThrow(expect.objectContaining({ code: 'NOT_AT_DEADLINE' })); // the student may still resubmit on the deadline day
     expect(listResubmissions(db, { id: r.id })[0].status).toBe('open');
     expect(gradeStands(db, r.id, { today: '2026-10-20' })).toMatchObject({ status: 'closed', outcome: 'grade_stands', closeNote: 'grade stands' });
     expect(listResubmissions(db, { id: r.id })[0].closedAt).toBeTruthy();
-    expect(() => extendResubmission(db, r.id, 2)).toThrow(expect.objectContaining({ code: 'NOT_ELIGIBLE' }));
+    expect(() => extendResubmission(db, r.id, 2, '2026-10-12')).toThrow(expect.objectContaining({ code: 'NOT_ELIGIBLE' }));
     expect(() => gradeStands(db, r.id, { today: '2026-10-21' })).toThrow(expect.objectContaining({ code: 'NOT_ELIGIBLE' }));
     // Undo reverses the last action: grade stands → the request is open again.
     expect(undoResubmission(db, r.id)).toEqual({ deleted: false, reopened: true });

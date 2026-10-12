@@ -1199,6 +1199,15 @@ The full submission picture in one compact, wrapping row of short facts (`Submis
 - **A deadline you set is always in the future.** Extending counts from the later of the start date and today, so the hint never says "already passed" and "Next lesson" is a small number. The extension tag and history show only the resulting date ("ext → 19/10/2026", "Extended to 19/10/2026"): a count from a moving start would mislead.
 - **Extend lives on the card too,** beside *Ask to resubmit*, styled the same way (pill → inline panel → status-line confirm): "Extend" before, "Extended to DD/MM/YYYY" after.
 
+## Card actions: pills in the header, editors in a row below it (October 2026)
+
+The /assessment/ card header holds one line of action pills (Flag for review, Refer, Waive / Extend, Ask to resubmit). An action that needs input opens its editor (`ActionPanel`) as a full-width row directly under the header (`.card-action-panel`, `var(--bg-subtle)`), never inline among the pills, which made the header wrap and squeezed the stepper. The editor has two rows: a bold title + the deadline (stepper, "school days", lesson hint, Next lesson picks), then the note field, the primary action and Cancel. The card shows the same triage actions as the dashboard row, from the same rules: missing work at the limit gets Refer + Extend; work handed in late at the limit gets Refer + Waive and no Extend (the work is in); a decision shows as a "Referred" / "Referral waived" badge with Undo. The pill whose editor is open is drawn as selected (`aria-expanded="true"`: pale accent fill, 2.5px accent outline), deliberately not a solid fill, which read as another primary button beside Refer. **Refer is red everywhere** (card: a red-outlined pill; rail: `button.primary.danger`), matching the red ring, the "to refer" badge and "Referred": the accent purple is reserved for the selected / open action, so a referral can never be mistaken for it.
+
+## Unpublished assessments behind a filter (October 2026)
+
+- **Assessments tab:** the Summative / Formative toggles gain a third pill, **Unpublished** (grey, `badge-gray` colours), off by default. It appears only when the course has unpublished assignments. Turned on, unpublished rows show a muted italic title and a small grey "Unpublished" badge. The type pills still apply to them (OR within types, AND with Unpublished).
+- **Gradebook tab:** the same three toggles in a **compact** size (`TypeFilterBar compact`, `.type-filter-bar--compact`) sit right-aligned in the course tab row beside "Triage ▸", so they take no vertical room from the diagonal headers. An unpublished column's diagonal title is muted italic; its hover popover adds "Unpublished on Schoology".
+- **One rule, two tabs:** `client/src/lib/assessmentTypeFilter.js` holds the filter and counts. Each tab keeps its own selection in memory (resets each visit). The `/gradebook` endpoint returns unpublished assignments with `published: 0`; the other course listings still exclude them.
 
 ## Test attempt link (October 2026, linked quizzes)
 

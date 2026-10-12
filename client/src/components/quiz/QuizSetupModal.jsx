@@ -12,20 +12,29 @@ export default function QuizSetupModal({ open, courseId, currentAssignment, grou
   const [parity, setParity] = useState(null); // { ok, differences, forKey }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
-  const [resultId, setResultId] = useState('');
+  // null = show the saved link; a string is the teacher's pick ('' = Not linked).
+  const [resultId, setResultId] = useState(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
 
   const currentId = currentAssignment?.schoology_assignment_id;
+  const linkedId = group?.result?.schoology_assignment_id || '';
 
   useEffect(() => {
-    if (!open) return;
-    setError(null); setParity(null); setConfirmRemove(false); setResultId(''); setTitle(currentAssignment?.title || '');
+    if (!open) return undefined;
+    let stale = false;
+    setCandidates(null); setTicked([]); setParity(null); setError(null); setConfirmRemove(false);
+    setTitle(currentAssignment?.title || ''); setResultId(null);
     getQuizCandidates(courseId).then((c) => {
+      if (stale) return; // a newer open or course superseded this response
       setCandidates(c);
       const me = c.tests.find(t => t.schoology_assignment_id === currentId);
       setTicked(me ? [me.schoology_assignment_id, ...me.suggestedWith] : []);
-    }).catch((e) => setError(e.message));
+    }).catch((e) => { if (!stale) setError(e.message); });
+    return () => { stale = true; };
   }, [open, courseId, currentId]); // eslint-disable-line react-hooks/exhaustive-deps -- reset on open only; currentAssignment.title is read at open
+
+  // A different saved link means an earlier pick no longer applies.
+  useEffect(() => { setResultId(null); }, [linkedId]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -37,14 +46,30 @@ export default function QuizSetupModal({ open, courseId, currentAssignment, grou
   if (!open) return null;
   const key = [...ticked].sort().join(',');
   const canCombine = ticked.length === 1 || (parity?.ok && parity.forKey === key);
+  const selected = resultId ?? linkedId;
+  const canLink = !busy && selected !== '' && selected !== linkedId;
   // The linked summative is already listed first; skip it so it appears once.
-  const summatives = (candidates?.summatives || []).filter(s => s.schoology_assignment_id !== group?.result?.schoology_assignment_id);
+  const summatives = (candidates?.summatives || []).filter(s => s.schoology_assignment_id !== linkedId);
 
   async function run(fn) {
     setBusy(true); setError(null);
     try { await fn(); } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
-  const toggle = (sid) => setTicked(t => (t.includes(sid) ? t.filter(x => x !== sid) : [...t, sid]));
+
+  async function combine() {
+    setBusy(true); setError(null);
+    try {
+      const r = await createQuizGroup({ courseId, assignmentIds: ticked, title: title.trim() });
+      onChanged(r.group);
+    } catch (e) {
+      // A create-time 409 carries the same differences as the check, so show them too.
+      if (e.differences?.length) setParity({ ok: false, differences: e.differences, forKey: key });
+      setError(e.message);
+    } finally { setBusy(false); }
+  }
+
+  // Any change to the ticks drops the previous check, even if the set returns to one already checked.
+  const toggle = (sid) => { setParity(null); setTicked(t => (t.includes(sid) ? t.filter(x => x !== sid) : [...t, sid])); };
 
   return (
     <div role="dialog" aria-modal="true" aria-label="Quiz setup" className="modal-overlay" onClick={onClose}>
@@ -85,8 +110,7 @@ export default function QuizSetupModal({ open, courseId, currentAssignment, grou
                 </div>
               ))}
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-              <button className="primary" disabled={busy || !canCombine || !ticked.length}
-                onClick={() => run(async () => { const r = await createQuizGroup({ courseId, assignmentIds: ticked, title }); onChanged(r.group); })}>
+              <button className="primary" disabled={busy || !canCombine || !ticked.length} onClick={combine}>
                 Combine
               </button>
               <button className="ghost" onClick={onClose}>Cancel</button>
@@ -99,18 +123,18 @@ export default function QuizSetupModal({ open, courseId, currentAssignment, grou
             <p className="text-sm"><strong>{group.title}</strong>: {group.members.map(m => m.title).join(', ')}</p>
             <label className="text-sm" style={{ display: 'block' }}>
               Result task{' '}
-              <select aria-label="Result task" value={resultId || group.result?.schoology_assignment_id || ''} onChange={(e) => setResultId(e.target.value)}>
+              <select aria-label="Result task" value={selected} onChange={(e) => setResultId(e.target.value)}>
                 <option value="">Not linked</option>
                 {group.result && <option value={group.result.schoology_assignment_id}>{group.result.title}</option>}
                 {summatives.map(s => <option key={s.schoology_assignment_id} value={s.schoology_assignment_id}>{s.title}</option>)}
               </select>
             </label>
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
-              <button className="primary" disabled={busy || !resultId}
-                onClick={() => run(async () => onChanged((await linkQuizResult(group.id, resultId)).group))}>Link</button>
+              <button className="primary" disabled={!canLink}
+                onClick={() => run(async () => onChanged((await linkQuizResult(group.id, selected)).group))}>Link</button>
               {group.result && (
                 <button className="secondary" disabled={busy}
-                  onClick={() => run(async () => onChanged((await linkQuizResult(group.id, null)).group))}>Unlink</button>
+                  onClick={() => run(async () => { onChanged((await linkQuizResult(group.id, null)).group); setResultId(''); })}>Unlink</button>
               )}
               {!confirmRemove
                 ? <button className="ghost danger" onClick={() => setConfirmRemove(true)}>Remove quiz group</button>

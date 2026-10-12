@@ -1008,3 +1008,11 @@ MCQ, `2` on the graded essay), `comment` (textarea). The visible score is
 **Not observed:** a test with more than one attempt, an ungraded essay (`rubric_score` empty?), a
 rubric with more than one row, an MCQ left blank, and the write request a rubric or comment save
 sends (not probed; needs a teacher-approved write on a throwaway copy).
+
+**Consumed by Prism (phase 1, linked quizzes, 2026-10-13):** `server/services/quizLoader.js` reads the
+question list (on combine), the results page, each taker's `student_stats` page, the latest
+attempt page, and for each essay with a rubric the two rubric GETs, one request at a time, GET
+only (URLs with `unsubmit` or `delete` are refused). Parsers: `server/lib/parseQuizQuestions.js`,
+`parseQuizResults.js`, `parseQuizAttempt.js`, `parseQuizRubric.js`. Live check on 2026-10-13
+(`scripts/verify-quiz-phase1.js`, `scripts/parity-quiz-results.js`): both Ep 1 groups loaded with
+no failed pages, and the MCQ counts matched csp-tools' `item_analysis.csv` on all 20 questions.

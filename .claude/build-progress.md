@@ -1040,3 +1040,29 @@ questions (archived backfill, prod browser session, defaults):
 optional timeliness summary was then removed at the teacher's request (Schoology's late flag
 overstates lateness). 12 archived 2023-25 CS sections were backfilled into prod (courses
 819-830). AP CSP 2023-24 has no mastery data in Schoology.
+
+
+## Linked quizzes, phase 1 (2026-10-13, branch `claude/angry-hopper-5c1f00`)
+
+Phase 1 shipped: quiz groups (combine a test with its extra-time copy behind a question-parity gate,
+link an aligned Result task), a read-only loader (results page, per-student attempt pages, essay
+rubrics; GET only), the Questions tab (facility, bands, option counts, flags, tags), the Attempt
+link on the cards, gradebook modal and student page, and the quiz controls on the assessment page.
+Spec: `docs/superpowers/specs/2026-10-12-linked-quiz-results-design.md`.
+
+**Live verification (scripted, dev clone on the laptop, DB restored from the 2026-10-11 prod
+snapshot, `scripts/verify-quiz-phase1.js`):**
+- BK 6 (`8544307969` + `8603667595`, Result `8544307980`): 21 questions (20 MCQ, 1 FRQ), parity ok,
+  6 attempts loaded (5 standard, 1 extra-time), 0 failed, 0 unknown uids, MCQ median 85%, FRQ levels
+  Exhibiting Depth 2 and Developing 4, 6 attempt links on the Result task.
+- BK 7 (`8544307924` + `8602127760`, Result `8544307944`): 21 questions (20 MCQ, 1 FRQ), parity ok,
+  9 attempts loaded (8 standard, 1 extra-time), 0 failed, 0 unknown uids, MCQ median 100%, FRQ levels
+  Exhibiting Depth 7, Developing 1 and Emerging 1, 9 attempt links on the Result task.
+- Parity (`scripts/parity-quiz-results.js`, both groups summed against csp-tools'
+  `item_analysis.csv`, which merges both sections): all 20 MCQ counts match on `n` and
+  `round(facility * n)` (15 takers). No differences to explain.
+- Suites: server 1539 pass, 1 fail (`resubmissions.test.js` "extend sets lessons", pre-existing: it
+  uses the real clock); client 899 pass.
+
+**Next:** phase 2 (FRQ marking: `frq_marks`, Free response tab, agent tools), phase 3 (overall
+results and comment template), phase 4 (Prism write-back, starting with a teacher-approved write probe).

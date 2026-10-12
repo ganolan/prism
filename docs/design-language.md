@@ -1225,3 +1225,9 @@ The full submission picture in one compact, wrapping row of short facts (`Submis
 - **Grading and Questions are `.tab-btn` tabs under the filter bar,** present whenever a group exists. The choice lives in `?tab=` (sticky), and Questions replaces the student cards rather than sitting beside them.
 - **One canonical page per group.** Any other member redirects (replace) to the canonical assessment and keeps the query string.
 - **The course Assessments list folds member tests** under the canonical row, which carries the `QuizChip` badge ("Linked: ..." or "Combined: ..."). Gradebook columns are not folded.
+
+## Linked quizzes: what phase 1 keeps constant (October 2026)
+
+- **Statistics stay counts.** Facility bars, bands (Strong at 90% and above, Mixed at 70% and above, otherwise Divided), option counts with the key marked, and flags. No discrimination statistics, on purpose: a class-sized cohort cannot support them.
+- **The gradebook keeps a column per test,** because each member test still carries its own score. Only the course Assessments list folds them into one row with the chip.
+- **Read-only against Schoology.** Combining, linking and loading change nothing in Schoology; the setup modal says so before **Remove**.

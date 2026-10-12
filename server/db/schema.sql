@@ -379,6 +379,82 @@ CREATE TABLE IF NOT EXISTS mastery_rollups (
   PRIMARY KEY (student_uid, objective_id, course_id)
 );
 
+-- Linked quizzes (docs/superpowers/specs/2026-10-12-linked-quiz-results-design.md).
+-- A quiz group: one or more unaligned Schoology tests in one course, treated as one
+-- quiz, optionally linked to one aligned summative (the result task).
+CREATE TABLE IF NOT EXISTS quiz_groups (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  course_id INTEGER NOT NULL REFERENCES courses(id),
+  title TEXT NOT NULL,
+  result_assignment_id INTEGER UNIQUE REFERENCES assignments(id),
+  -- 'ok' | 'mismatch' (a load found options, key or rubric differing between copies)
+  parity_status TEXT NOT NULL DEFAULT 'ok',
+  parity_detail_json TEXT,
+  loaded_at TEXT,
+  load_summary_json TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS quiz_group_members (
+  group_id INTEGER NOT NULL REFERENCES quiz_groups(id) ON DELETE CASCADE,
+  assignment_id INTEGER NOT NULL UNIQUE REFERENCES assignments(id),
+  PRIMARY KEY (group_id, assignment_id)
+);
+
+-- One logical question per group. kind: 'mcq' | 'frq' | 'other'.
+-- options_json: [{letter, html, is_key}] (filled by a load). schoology_rubric_json: the
+-- FRQ's Schoology rubric, parsed (parseQuizRubric). tags_json: ["CRD-2.G", ...].
+CREATE TABLE IF NOT EXISTS quiz_questions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  group_id INTEGER NOT NULL REFERENCES quiz_groups(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  stem_html TEXT,
+  options_json TEXT,
+  max_points REAL,
+  schoology_rubric_json TEXT,
+  tags_json TEXT NOT NULL DEFAULT '[]',
+  UNIQUE (group_id, position)
+);
+
+-- Each member test's own Schoology question id for a logical question (copies get new ids).
+CREATE TABLE IF NOT EXISTS quiz_question_copies (
+  question_id INTEGER NOT NULL REFERENCES quiz_questions(id) ON DELETE CASCADE,
+  assignment_id INTEGER NOT NULL REFERENCES assignments(id),
+  schoology_question_id TEXT NOT NULL,
+  PRIMARY KEY (assignment_id, schoology_question_id)
+);
+
+-- The counted attempt per student per member test (latest when there are several).
+CREATE TABLE IF NOT EXISTS quiz_attempts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  group_id INTEGER NOT NULL REFERENCES quiz_groups(id) ON DELETE CASCADE,
+  assignment_id INTEGER NOT NULL REFERENCES assignments(id),
+  student_id INTEGER NOT NULL REFERENCES students(id),
+  schoology_attempt_id TEXT NOT NULL,
+  started_at TEXT,
+  completed_at TEXT,
+  score REAL,
+  max_score REAL,
+  attempt_count INTEGER NOT NULL DEFAULT 1,
+  fetched_at TEXT NOT NULL,
+  UNIQUE (assignment_id, student_id)
+);
+
+CREATE TABLE IF NOT EXISTS quiz_responses (
+  attempt_id INTEGER NOT NULL REFERENCES quiz_attempts(id) ON DELETE CASCADE,
+  question_id INTEGER NOT NULL REFERENCES quiz_questions(id) ON DELETE CASCADE,
+  chosen_letter TEXT,
+  is_correct INTEGER,
+  points REAL,
+  max_points REAL,
+  answer_html TEXT,
+  schoology_rubric_cells_json TEXT,
+  schoology_comment TEXT,
+  PRIMARY KEY (attempt_id, question_id)
+);
+
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_enrolments_student ON enrolments(student_id);
 CREATE INDEX IF NOT EXISTS idx_enrolments_course ON enrolments(course_id);

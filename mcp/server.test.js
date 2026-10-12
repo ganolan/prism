@@ -483,4 +483,11 @@ describe('PrisMCP status lines (Amendment B)', () => {
     const { tools } = await client.listTools();
     expect(tools.map(t => t.name)).toEqual(expect.arrayContaining(['list_quiz_groups', 'load_quiz_results', 'set_question_tags']));
   });
+
+  test('set_question_tags on an unknown group is a tool error with its code', async () => {
+    const client = await connect();
+    const res = await client.callTool({ name: 'set_question_tags', arguments: { group_id: 999999, tags: { 1: ['X'] } } });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toMatch(/^NOT_FOUND: /);
+  });
 });

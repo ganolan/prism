@@ -154,16 +154,16 @@ export function createServer() {
       description: 'List the quiz groups in a course: each is one or more Schoology tests Prism treats as one quiz, with its member tests, the linked result task (if any), parity status and when results were last loaded.',
       inputSchema: { course: z.union([z.number(), z.string()]).describe('Local course id, or a course name or code fragment') },
     },
-    async ({ course }) => ({ content: [{ type: 'text', text: JSON.stringify(listQuizGroupsTool(getDb(), { course })) }] })
+    async ({ course }) => text(() => listQuizGroupsTool(getDb(), { course }))
   );
 
   server.registerTool(
     'load_quiz_results',
     {
-      description: 'Read every attempt of a quiz group from Schoology through the saved browser session (read-only; about a minute for a class). Returns counts: attempts, not taken, failed students, unknown students, copy mismatches, students with several attempts.',
+      description: "Read the group's attempts from Schoology through the saved browser session. Sends nothing to Schoology. Stores the attempts and responses in Prism, replacing any earlier load, and records when they were loaded. Takes about a minute for a class. Returns { summary: { attempts (number), notTaken (number), failed: [{uid, reason}], unknownUids: [uid], mismatches: [text], multipleAttempts: [uid] } }. Fails with NO_SESSION (the teacher must reconnect Schoology in Prism's Settings) or BUSY (this quiz is already loading).",
       inputSchema: { group_id: z.union([z.number(), z.string()]).describe('Quiz group id from list_quiz_groups') },
     },
-    async ({ group_id }) => ({ content: [{ type: 'text', text: JSON.stringify(await loadQuizResultsTool(getDb(), { group_id })) }] })
+    async ({ group_id }) => text(() => loadQuizResultsTool(getDb(), { group_id }))
   );
 
   server.registerTool(
@@ -175,7 +175,7 @@ export function createServer() {
         tags: z.record(z.string(), z.array(z.string())).describe('{ question number: [tag, ...] }'),
       },
     },
-    async ({ group_id, tags }) => ({ content: [{ type: 'text', text: JSON.stringify(setQuestionTagsTool(getDb(), { group_id, tags })) }] })
+    async ({ group_id, tags }) => text(() => setQuestionTagsTool(getDb(), { group_id, tags }))
   );
 
   server.registerTool(

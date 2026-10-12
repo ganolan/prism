@@ -869,16 +869,23 @@ describe('quiz tools', () => {
     expect(listQuizGroupsTool(getDb(), { course: 'AP CSP' })[0].members[0].schoology_assignment_id).toBe('900');
   });
 
-  test('set_question_tags', () => {
+  test('set_question_tags stores the tags and reports unknown positions', () => {
+    const db = getDb();
     const { g } = seedQuiz();
-    expect(setQuestionTagsTool(getDb(), { group_id: g, tags: { 1: ['CRD-2.G'] } })).toEqual({ updated: 1, unknownPositions: [] });
+    expect(setQuestionTagsTool(db, { group_id: g, tags: { 1: ['CRD-2.G', 'CRD-2.G', ' '] } })).toEqual({ updated: 1, unknownPositions: [] });
+    expect(JSON.parse(db.prepare('SELECT tags_json FROM quiz_questions WHERE group_id = ? AND position = 1').get(g).tags_json)).toEqual(['CRD-2.G']);
+    expect(setQuestionTagsTool(db, { group_id: g, tags: { 1: ['AAP-1.A'], 9: ['X'] } })).toEqual({ updated: 1, unknownPositions: [9] });
   });
 
-  test('load_quiz_results returns the loader summary, or the error code as text', async () => {
+  test('load_quiz_results returns the loader summary', async () => {
     const { g } = seedQuiz();
     const ok = await loadQuizResultsTool(getDb(), { group_id: g }, { loadGroup: async () => ({ attempts: 2 }) });
     expect(ok).toEqual({ summary: { attempts: 2 } });
-    const bad = await loadQuizResultsTool(getDb(), { group_id: g }, { loadGroup: async () => { throw Object.assign(new Error('No saved Schoology session'), { code: 'NO_SESSION' }); } });
-    expect(bad).toEqual({ error: 'NO_SESSION: No saved Schoology session' });
+  });
+
+  test('load_quiz_results lets a loader error propagate with its code', async () => {
+    const { g } = seedQuiz();
+    const loadGroup = async () => { throw Object.assign(new Error('No saved Schoology session'), { code: 'NO_SESSION' }); };
+    await expect(loadQuizResultsTool(getDb(), { group_id: g }, { loadGroup })).rejects.toMatchObject({ code: 'NO_SESSION', message: 'No saved Schoology session' });
   });
 });

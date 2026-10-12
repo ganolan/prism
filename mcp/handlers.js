@@ -488,11 +488,7 @@ export function listQuizGroupsTool(db, { course }) {
 }
 
 export async function loadQuizResultsTool(db, { group_id }, deps = { loadGroup }) {
-  try {
-    return { summary: await deps.loadGroup(db, { groupId: group_id }) };
-  } catch (err) {
-    return { error: `${err.code || 'ERROR'}: ${err.message}` };
-  }
+  return { summary: await deps.loadGroup(db, { groupId: group_id }) };
 }
 
 export function setQuestionTagsTool(db, { group_id, tags }) {

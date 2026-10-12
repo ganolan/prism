@@ -1,17 +1,26 @@
-// Text helpers for linked quizzes. normalizeStem is the comparison key used to
-// match a question across copies of a test (copies get new question ids). It is
-// ported from csp-tools' build_theory_test_review.py `norm`: tags out, entities
-// decoded, then only [a-z0-9] kept, so the HTML and the plain export of one
-// question give the same key and the code arrow drops out on both sides.
+// Text helpers for linked quizzes.
+//
+// normalizeStem is the comparison key Prism uses to match copies of the same
+// Schoology question (copies get new question ids). It keeps Unicode letters and
+// digits plus the comparison and arithmetic operators, lowercased, and drops
+// everything else (whitespace, punctuation, arrows). The HTML and plain renderings
+// of one stem therefore give the same key, while `x < 5` and `x > 5` never match.
 import { parse } from 'node-html-parser';
 
+// Script, style and noscript text is not question content: remove it before parsing.
+const DROPPED_BLOCKS = /<(script|style|noscript)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
+// Breaks and block closers become a space, so adjacent blocks do not run together.
+const BLOCK_BREAKS = /<br\s*\/?>|<\/(p|div|li|pre|h[1-6]|tr|td)\s*>/gi;
+
 export function plainText(html) {
-  const withBreaks = String(html ?? '').replace(/<br\s*\/?>/gi, ' ');
-  return parse(withBreaks).text.replace(/\s+/g, ' ').trim();
+  const cleaned = String(html ?? '').replace(DROPPED_BLOCKS, ' ').replace(BLOCK_BREAKS, ' ');
+  // No block-text elements: <pre> content is parsed as HTML, so its entities and
+  // inline tags come out as text rather than raw markup.
+  return parse(cleaned, { blockTextElements: {} }).text.replace(/\s+/g, ' ').trim();
 }
 
 export function normalizeStem(html) {
-  return plainText(html).toLowerCase().replace(/[^a-z0-9]+/g, '');
+  return plainText(html).toLowerCase().replace(/[^\p{L}\p{N}<>=+\-*/%!≠≤≥]+/gu, '');
 }
 
 export const optionLetter = (index) => String.fromCharCode(65 + index);
@@ -22,7 +31,13 @@ export function parseUsDateTime(text) {
   const m = String(text ?? '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})\s+(\d{1,2}):(\d{2})\s*(am|pm)$/i);
   if (!m) return null;
   const [, mo, d, yy, h, min, ap] = m;
-  let hour = Number(h) % 12;
+  const month = Number(mo);
+  const day = Number(d);
+  const hour12 = Number(h);
+  const minute = Number(min);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  if (hour12 < 1 || hour12 > 12 || minute > 59) return null;
+  let hour = hour12 % 12;
   if (ap.toLowerCase() === 'pm') hour += 12;
   const pad = (n) => String(n).padStart(2, '0');
   return `20${yy}-${pad(mo)}-${pad(d)} ${pad(hour)}:${min}`;

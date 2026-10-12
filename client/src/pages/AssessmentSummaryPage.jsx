@@ -1722,14 +1722,22 @@ export default function AssessmentSummaryPage() {
   const [quizTab, setQuizTab] = useStickyTab('assessment-quiz', 'grading', { param: 'tab' });
   const [quizSetupOpen, setQuizSetupOpen] = useState(false);
   const [quizLoad, setQuizLoad] = useState({ busy: false, message: null });
+  // The group id currently on screen; a Load results response for another
+  // group (the teacher navigated mid-load) is dropped.
+  const quizGroupIdRef = useRef(null);
+  quizGroupIdRef.current = quizGroup?.id ?? null;
+  useEffect(() => { setQuizLoad({ busy: false, message: null }); }, [quizGroup?.id]);
   async function handleLoadQuiz() {
+    const groupId = quizGroup.id;
     setQuizLoad({ busy: true, message: null });
     try {
-      const r = await loadQuizResults(quizGroup.id);
+      const r = await loadQuizResults(groupId);
+      if (quizGroupIdRef.current !== groupId) return;
       setQuizGroup(r.group);
       const failed = r.summary.failed?.length ? `, ${r.summary.failed.length} failed` : '';
       setQuizLoad({ busy: false, message: `${r.summary.attempts} attempts loaded${failed}` });
     } catch (e) {
+      if (quizGroupIdRef.current !== groupId) return;
       setQuizLoad({ busy: false, message: e.message });
     }
   }
@@ -1998,7 +2006,7 @@ export default function AssessmentSummaryPage() {
   if (loading) return <div className="loading">Loading...</div>;
   if (error) return <div className="error-msg">{error}</div>;
   if (!data) return null;
-  if (quizGroup && quizGroup.canonical_schoology_id && quizGroup.canonical_schoology_id !== String(assignmentId)) {
+  if (quizGroup && quizGroup.canonical_schoology_id && String(quizGroup.canonical_schoology_id) !== String(assignmentId)) {
     return <Navigate replace to={`/course/${courseId}/assessment/${quizGroup.canonical_schoology_id}${location.search}`} />;
   }
 
@@ -2098,7 +2106,7 @@ export default function AssessmentSummaryPage() {
                     {quizLoad.busy ? 'Loading results…' : 'Load results'}
                   </button>
                   <span className="text-sm text-muted" style={{ fontSize: '0.75rem' }}>
-                    {quizLoad.message || (quizGroup.loaded_at ? `loaded ${formatDateTime(quizGroup.loaded_at.replace(' ', 'T'))}` : 'not loaded')}
+                    {quizLoad.message || (quizGroup.loaded_at ? `loaded ${formatDateTime(`${quizGroup.loaded_at.replace(' ', 'T')}Z`)}` : 'not loaded')}
                   </span>
                 </>
               )}

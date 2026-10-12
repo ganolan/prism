@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, Link } from 'react-router-dom';
 import AssessmentSummaryPage from './AssessmentSummaryPage.jsx';
 import { getQuizGroupFor, loadQuizResults, getMasteryForAssignment } from '../services/api.js';
+import { formatDateTime } from '../lib/formatDate.js';
 
 vi.mock('../lib/assessmentDraftSaver.js', () => ({ makeDraftSaver: () => ({ save: vi.fn(), remove: vi.fn(), flush: vi.fn(), dispose: vi.fn() }) }));
 vi.mock('../components/quiz/QuestionsTab.jsx', () => ({ default: ({ groupId }) => <div>Questions for group {groupId}</div> }));
@@ -57,6 +58,7 @@ const GROUP = { id: 7, title: 'Ep 1', result: { schoology_assignment_id: '950', 
 function renderAt(path) {
   return render(
     <MemoryRouter initialEntries={[path]}>
+      <Link to="/course/5/assessment/960">go to B</Link>
       <Routes><Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} /></Routes>
     </MemoryRouter>
   );
@@ -109,5 +111,39 @@ describe('AssessmentSummaryPage with a quiz group', () => {
     renderAt('/course/5/assessment/911');
     await screen.findByText(/Essay/);
     expect(screen.queryByRole('button', { name: /Quiz setup/ })).toBeNull();
+  });
+  it('stays on an unrelated assignment after navigating from a grouped one', async () => {
+    getQuizGroupFor.mockImplementation(async (id) => ({ group: String(id) === '950' ? GROUP : null }));
+    getMasteryForAssignment.mockImplementation(async (c, id) => ({
+      assignment: { title: String(id) === '950' ? 'Ep 1 - Result (S)' : 'Essay B', is_test: 0 }, topics: [], students: [], course: { course_name: 'AP CSP' },
+    }));
+    renderAt('/course/5/assessment/950');
+    expect(await screen.findByText(/Linked: Ep 1/)).toBeInTheDocument();
+    getMasteryForAssignment.mockClear();
+    fireEvent.click(screen.getByText('go to B'));
+    expect(await screen.findByText(/Essay B/)).toBeInTheDocument();
+    await waitFor(() => expect(getMasteryForAssignment).toHaveBeenCalledWith('5', '960'));
+    expect(getMasteryForAssignment).not.toHaveBeenCalledWith('5', '950');
+    expect(screen.queryByText(/Linked: Ep 1/)).toBeNull();
+  });
+
+  it('shows the loaded time as UTC converted to local', async () => {
+    getQuizGroupFor.mockResolvedValue({ group: { ...GROUP, loaded_at: '2026-10-12 06:02:00' } });
+    renderAt('/course/5/assessment/950');
+    const expected = formatDateTime(new Date('2026-10-12T06:02:00Z'));
+    expect(await screen.findByText(`loaded ${expected}`)).toBeInTheDocument();
+  });
+
+  it('a member redirect keeps ?tab= so the canonical page opens on Questions', async () => {
+    getQuizGroupFor.mockResolvedValue({ group: GROUP });
+    renderAt('/course/5/assessment/900?tab=questions');
+    expect(await screen.findByText('Questions for group 7')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Questions' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('a numeric canonical id does not cause a redirect loop', async () => {
+    getQuizGroupFor.mockResolvedValue({ group: { ...GROUP, canonical_schoology_id: 950 } });
+    renderAt('/course/5/assessment/950');
+    expect(await screen.findByText(/Linked: Ep 1/)).toBeInTheDocument();
   });
 });

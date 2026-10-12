@@ -43,8 +43,15 @@ async function openReader({ openPage, pauseMs }) {
     assertReadOnlyUrl(path);
     if (!first && pauseMs) await new Promise(r => setTimeout(r, pauseMs));
     first = false;
-    const r = await session.page.evaluate(inPageFetch, { url: `${SCHOOLOGY_BASE}${path}`, accept: json ? 'application/json' : null, timeoutMs: FETCH_TIMEOUT_MS });
-    if (r.finalUrl && !isLoggedInUrl(r.finalUrl)) {
+    const url = `${SCHOOLOGY_BASE}${path}`;
+    let r;
+    try {
+      r = await session.page.evaluate(inPageFetch, { url, accept: json ? 'application/json' : null, timeoutMs: FETCH_TIMEOUT_MS });
+    } catch (err) {
+      // The page itself failed (crashed, navigated away): a failed read, not a bounce.
+      r = { status: 0, text: '', finalUrl: url, error: String(err?.message || err) };
+    }
+    if (r.status !== 0 && r.finalUrl && !isLoggedInUrl(r.finalUrl)) {
       noteSessionLive('expired', 'Schoology sent the saved session to the login page');
       throw new QuizError('NO_SESSION', 'Schoology connection expired during the load: reconnect in Settings');
     }
@@ -82,38 +89,54 @@ export async function loadGroup(db, { groupId }, { openPage = () => sessionDeps.
   try {
     reader = await openReader({ openPage, pauseMs });
     const studentByUid = new Map(db.prepare('SELECT id, schoology_uid FROM students').all().map(s => [String(s.schoology_uid), s.id]));
+    // Reads and stores one student's counted attempt. Returns a failure reason, or null when stored.
+    const loadStudent = async (uid, studentId, member) => {
+      const sid = member.schoology_assignment_id;
+      const stats = await reader.get(`/assignment/${sid}/assessment_results/student_stats/${uid}`);
+      const attempts = stats.status === 200 ? parseStudentStats(stats.text, { uid }) : [];
+      if (!attempts.length) return `attempt list HTTP ${stats.status}`;
+      // Counted attempt: latest startedAt; ties/nulls fall back to the later row in page order.
+      const counted = attempts.reduce((best, a) => ((a.startedAt || '') >= (best.startedAt || '') ? a : best));
+      const page = await reader.get(`/assignment/${sid}/assessment_results/student_stats/${uid}/${counted.attemptId}`);
+      const parsed = page.status === 200 ? parseQuizAttempt(page.text) : null;
+      if (!parsed) return `attempt page HTTP ${page.status}`;
+      const gradeInfo = {};
+      for (const q of parsed.questions) {
+        if (!q.rubric) continue;
+        if (!rubrics[q.rubric.rubricId]) {
+          const rj = await reader.get(`/iapi/grades/rubric/${q.rubric.rubricId}`, { json: true });
+          const rubric = rj.status === 200 ? parseQuizRubric(rj.json) : null;
+          if (!rubric) return `rubric HTTP ${rj.status}`;
+          rubrics[q.rubric.rubricId] = rubric;
+        }
+        const gi = await reader.get(`/iapi/grades/assessment_component_submission_rubric_grade_info/${q.rubric.rubricId}/${q.qid}/${q.rubric.enrollmentId}/${counted.attemptId}`, { json: true });
+        const info = gi.status === 200 ? parseRubricGradeInfo(gi.json) : null;
+        if (!info) return `grade info HTTP ${gi.status}`;
+        gradeInfo[q.qid] = info;
+      }
+      const stored = storeAttempt(db, { groupId: group.id, assignmentId: member.id, studentId, attempt: counted, attemptCount: attempts.length, parsed, rubrics, gradeInfo });
+      summary.mismatches.push(...stored.mismatches);
+      if (attempts.length > 1 && !summary.multipleAttempts.includes(uid)) summary.multipleAttempts.push(uid);
+      return null;
+    };
     for (const member of group.members) {
       const sid = member.schoology_assignment_id;
       const res = await reader.get(`/assignment/${sid}/assessment_results`);
-      const rows = res.status === 200 ? parseQuizResults(res.text) : null;
+      let rows = null;
+      try { rows = res.status === 200 ? parseQuizResults(res.text) : null; } catch { rows = null; }
       if (!rows) { summary.failed.push({ uid: null, reason: `results page for "${member.title}" HTTP ${res.status}` }); continue; }
       for (const row of rows) {
         if (!row.attempted) { summary.notTaken++; continue; }
         const studentId = studentByUid.get(row.uid);
-        if (!studentId) { summary.unknownUids.push(row.uid); continue; }
+        if (!studentId) { if (!summary.unknownUids.includes(row.uid)) summary.unknownUids.push(row.uid); continue; }
         onProgress({ uid: row.uid, member: sid });
-        const stats = await reader.get(`/assignment/${sid}/assessment_results/student_stats/${row.uid}`);
-        const attempts = stats.status === 200 ? parseStudentStats(stats.text, { uid: row.uid }) : [];
-        if (!attempts.length) { summary.failed.push({ uid: row.uid, reason: `attempt list HTTP ${stats.status}` }); continue; }
-        if (attempts.length > 1) summary.multipleAttempts.push(row.uid);
-        // Counted attempt: latest startedAt; ties/nulls fall back to the later row in page order.
-        const counted = attempts.reduce((best, a) => ((a.startedAt || '') >= (best.startedAt || '') ? a : best));
-        const page = await reader.get(`/assignment/${sid}/assessment_results/student_stats/${row.uid}/${counted.attemptId}`);
-        const parsed = page.status === 200 ? parseQuizAttempt(page.text) : null;
-        if (!parsed) { summary.failed.push({ uid: row.uid, reason: `attempt page HTTP ${page.status}` }); continue; }
-        const gradeInfo = {};
-        for (const q of parsed.questions) {
-          if (!q.rubric) continue;
-          if (!(q.rubric.rubricId in rubrics)) {
-            const rj = await reader.get(`/iapi/grades/rubric/${q.rubric.rubricId}`, { json: true });
-            rubrics[q.rubric.rubricId] = parseQuizRubric(rj.json);
-          }
-          const gi = await reader.get(`/iapi/grades/assessment_component_submission_rubric_grade_info/${q.rubric.rubricId}/${q.qid}/${q.rubric.enrollmentId}/${counted.attemptId}`, { json: true });
-          gradeInfo[q.qid] = parseRubricGradeInfo(gi.json);
+        try {
+          const problem = await loadStudent(row.uid, studentId, member);
+          if (problem) summary.failed.push({ uid: row.uid, reason: problem });
+        } catch (err) {
+          if (err instanceof QuizError && err.code === 'NO_SESSION') throw err;
+          summary.failed.push({ uid: row.uid, reason: String(err?.message || err) });
         }
-        const stored = storeAttempt(db, { groupId: group.id, assignmentId: member.id, studentId, attempt: counted, attemptCount: attempts.length, parsed, rubrics, gradeInfo });
-        summary.mismatches.push(...stored.mismatches);
-        summary.attempts++;
       }
     }
     pruneOlderDuplicates(db, { groupId: group.id });

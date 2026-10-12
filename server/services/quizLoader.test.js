@@ -95,6 +95,75 @@ describe('loadGroup', () => {
     expect(r.attempts).toBe(1);
   });
 
+  test('a failed rubric read is reported, not cached, and the next student retries it', async () => {
+    const pages = happyPages();
+    let n = 0;
+    pages['/iapi/grades/rubric/55233026'] = () => (++n === 1 ? { status: 500, text: '' } : { status: 200, text: RUBRIC });
+    const f = fakeOpenPage(pages);
+    const r = await loadGroup(db, { groupId }, { openPage: f.openPage, pauseMs: 0 });
+    expect(r.failed).toEqual([{ uid: '701', reason: 'rubric HTTP 500' }]);
+    expect(r.attempts).toBe(1);
+    expect(f.requested.filter(p => p === '/iapi/grades/rubric/55233026')).toHaveLength(2);
+    expect(db.prepare('SELECT student_id FROM quiz_attempts').all()).toEqual([{ student_id: studentC }]);
+    expect(db.prepare('SELECT COUNT(*) n FROM quiz_questions WHERE schoology_rubric_json IS NOT NULL').get().n).toBe(1);
+    expect(r.multipleAttempts).toEqual(['703']);
+  });
+
+  test('a failed grade-info read is reported for that student only', async () => {
+    const pages = happyPages();
+    const gi = '/iapi/grades/assessment_component_submission_rubric_grade_info/55233026/1003/3561143308/5002';
+    let n = 0;
+    pages[gi] = () => (++n === 1 ? { status: 503, text: '' } : { status: 200, text: GRADE });
+    const r = await loadGroup(db, { groupId }, { openPage: fakeOpenPage(pages).openPage, pauseMs: 0 });
+    expect(r.failed).toEqual([{ uid: '701', reason: 'grade info HTTP 503' }]);
+    expect(r.attempts).toBe(1);
+  });
+
+  test('a rejected page.evaluate fails that student only; the load still finishes', async () => {
+    const pages = happyPages();
+    pages['/assignment/900/assessment_results/student_stats/701/5002'] = () => { throw new Error('page crashed'); };
+    const r = await loadGroup(db, { groupId }, { openPage: fakeOpenPage(pages).openPage, pauseMs: 0 });
+    expect(r.failed).toEqual([{ uid: '701', reason: 'attempt page HTTP 0' }]);
+    expect(r.attempts).toBe(1);
+    expect(db.prepare('SELECT loaded_at FROM quiz_groups WHERE id = ?').get(groupId).loaded_at).toBeTruthy();
+  });
+
+  test('an unexpected exception while storing one student is reported and the rest load', async () => {
+    db.exec(`CREATE TRIGGER boom BEFORE INSERT ON quiz_attempts WHEN NEW.student_id = ${studentA} BEGIN SELECT RAISE(ABORT, 'boom'); END;`);
+    try {
+      const r = await loadGroup(db, { groupId }, { openPage: fakeOpenPage(happyPages()).openPage, pauseMs: 0 });
+      expect(r.failed).toEqual([{ uid: '701', reason: expect.stringContaining('boom') }]);
+      expect(r.attempts).toBe(1);
+      expect(r.multipleAttempts).toEqual(['703']);
+      expect(db.prepare('SELECT loaded_at FROM quiz_groups WHERE id = ?').get(groupId).loaded_at).toBeTruthy();
+    } finally {
+      db.exec('DROP TRIGGER IF EXISTS boom');
+    }
+  });
+
+  test('uids are listed once even when the group has two member tests', async () => {
+    const c = db.prepare('SELECT id FROM courses').get().id;
+    const t2 = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, is_test) VALUES (?, '901', 'T2', 1)`).run(c).lastInsertRowid;
+    const t1 = db.prepare(`SELECT id FROM assignments WHERE schoology_assignment_id = '900'`).get().id;
+    db.exec('DELETE FROM quiz_questions; DELETE FROM quiz_group_members; DELETE FROM quiz_groups;');
+    const g = createGroup(db, { courseId: c, assignmentRefs: ['900', '901'], title: 'Two', questionLists: [
+      { assignmentId: t1, questions: parseQuizQuestions(fx('questions.html')) },
+      { assignmentId: t2, questions: parseQuizQuestions(fx('questions.html')) },
+    ] });
+    db.prepare(`DELETE FROM students WHERE schoology_uid = '701'`).run();
+    const pages = happyPages();
+    for (const k of Object.keys(happyPages())) if (k.startsWith('/assignment/900/')) pages[k.replace('/assignment/900/', '/assignment/901/')] = pages[k];
+    const r = await loadGroup(db, { groupId: g.id }, { openPage: fakeOpenPage(pages).openPage, pauseMs: 0 });
+    expect(r.unknownUids).toEqual(['701']);
+    expect(r.multipleAttempts).toEqual(['703']);
+  });
+
+  test('after a NO_SESSION stop the group is not left BUSY', async () => {
+    await expect(loadGroup(db, { groupId }, { openPage: async () => null, pauseMs: 0 })).rejects.toMatchObject({ code: 'NO_SESSION' });
+    const r = await loadGroup(db, { groupId }, { openPage: fakeOpenPage(happyPages()).openPage, pauseMs: 0 });
+    expect(r.attempts).toBe(2);
+  });
+
   test('a bounce to sign-in mid-load stops with NO_SESSION and keeps what was stored', async () => {
     const pages = happyPages();
     pages['/assignment/900/assessment_results/student_stats/703/5002'] = () => ({ status: 200, text: '<html>sign in</html>', finalUrl: 'https://login.microsoftonline.com/x' });

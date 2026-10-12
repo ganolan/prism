@@ -93,6 +93,16 @@ describe('assignments deleted in Schoology (removed_at)', () => {
   });
 });
 
+describe('GET /api/courses/:id/gradebook — unpublished assignments', () => {
+  test('come back with published = 0 so the client can filter them', async () => {
+    getDb().prepare(
+      `INSERT INTO assignments (course_id, schoology_assignment_id, title, published) VALUES (?, 'sa-draft', 'Draft task', 0)`
+    ).run(courseId);
+    const { body } = await get(`/api/courses/${courseId}/gradebook`);
+    expect(body.assignments.map((a) => [a.title, a.published])).toEqual([['Draft task', 0], ['Project', 1]]);
+  });
+});
+
 describe('GET /api/courses/:id/gradebook — make-up tracking', () => {
   test('assignments carry is_test and makeup_ignored', async () => {
     getDb().prepare(`UPDATE assignments SET is_test = 1, makeup_ignored = 1 WHERE id = ?`).run(assignmentId);

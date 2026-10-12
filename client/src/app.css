@@ -1051,6 +1051,11 @@ button.triage-panel__more { padding: 0.15rem 0.4rem; font-size: 0.75rem; font-we
 .triage-panel__note { margin: 0 0 0.45rem; font-size: 0.78rem; }
 /* Course page, Gradebook tab: brings the hidden rail back. */
 .triage-rail-toggle { margin-left: auto; display: inline-flex; align-items: center; gap: 0.35rem; }
+/* Course page Summative / Formative / Unpublished filter. The compact form sits
+   right-aligned in the tab row on the Gradebook tab, before the triage toggle. */
+.type-filter-bar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.type-filter-bar--compact { gap: 0.3rem; margin-left: auto; }
+.type-filter-bar--compact + .triage-rail-toggle { margin-left: 0.4rem; }
 /* Compact rows: 28px ring | one-line text lines (ellipsis + full text as the
    title) | an action column (Refer / days-left alongside Extend, or Extend
    alongside Ignore this test, or the feedback count). The action column is a

@@ -23,6 +23,7 @@ import SchoologyLink from '../components/SchoologyLink.jsx';
 import { formatDateTime } from '../lib/formatDate.js';
 import SubmissionTimeline from '../components/SubmissionTimeline.jsx';
 import { timelineSummary } from '../lib/submissionTimeline.js';
+import { DEFAULT_TYPE_FILTER, isUnpublished, passesTypeFilter, typeFilterCounts } from '../lib/assessmentTypeFilter.js';
 
 const SHORT_BADGE = { late: 'L', draft: 'D', missing: 'M', 'not-started': 'NS', submitted: 'S', 'in-progress': 'IP' };
 const BADGE_TONE_CLASS = { red: 'badge-red', blue: 'badge-blue', amber: 'badge-pink', green: 'badge-green', yellow: 'badge-amber', neutral: 'badge-gray' };
@@ -45,6 +46,8 @@ export default function CoursePage() {
   // The triage rail is hidden on the Gradebook tab (it needs the width); "Triage ▸" toggles it back in.
   const [railOnGradebook, setRailOnGradebook] = useState(false);
   const [triageRed, setTriageRed] = useState(0);
+  // Gradebook tab's compact Summative / Formative / Unpublished filter (lives in the tab row).
+  const [gradebookFilter, setGradebookFilter] = useState(DEFAULT_TYPE_FILTER);
 
   useEffect(() => {
     // includeDropped so RosterView can show the "N dropped" toggle without a
@@ -185,6 +188,12 @@ export default function CoursePage() {
           <button className={`tab-btn ${view === 'analytics' ? 'active' : ''}`} onClick={() => setView('analytics')}>
             Analytics
           </button>
+          {view === 'gradebook' && gradebook?.assignments?.length > 0 && (
+            <TypeFilterBar
+              compact assignments={gradebook.assignments} filter={gradebookFilter}
+              onChange={setGradebookFilter}
+            />
+          )}
           {courseLive && view === 'gradebook' && (
             <button
               className="secondary btn-sm triage-rail-toggle" aria-expanded={railOnGradebook} aria-controls="course-triage"
@@ -226,7 +235,7 @@ export default function CoursePage() {
               onSaved={refreshMastery}
             />
           )}
-          {view === 'gradebook' && <GradebookView data={gradebook} courseId={id} mastery={mastery} />}
+          {view === 'gradebook' && <GradebookView data={gradebook} courseId={id} mastery={mastery} filter={gradebookFilter} />}
           {view === 'assessments' && (
             <AssessmentsView
               data={gradebook} courseId={id} waits={triageWaits.waits} feedbackLimit={triageWaits.feedbackLimit}
@@ -829,7 +838,7 @@ const TYPE_LEGEND = (
   </div>
 );
 
-export function GradebookView({ data, courseId, mastery }) {
+export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_FILTER }) {
   const indexed = useMemo(() => indexMastery(mastery), [mastery]);
   const [rubricModal, setRubricModal] = useState(null);
   // Comment shown instantly on cell hover (#36): { text, top, left }.
@@ -842,8 +851,13 @@ export function GradebookView({ data, courseId, mastery }) {
     return <div className="card"><p className="text-muted">No assignments yet.</p></div>;
   }
 
-  const { assignments, students, grades, grading_scales, timelines = {} } = data;
+  const { students, grades, grading_scales, timelines = {} } = data;
+  const assignments = data.assignments.filter(a => passesTypeFilter(a, filter));
   const displayName = (s) => preferredFirstName(s);
+
+  if (!assignments.length) {
+    return <div className="card"><p className="text-sm text-muted">No assessments match the current filters.</p></div>;
+  }
 
   // #76: cell marker for an lti_submission assignment whose document fetch
   // failed at the last sync (assignment.lti_fetch_status === 'failed'). Replaces
@@ -906,6 +920,7 @@ export function GradebookView({ data, courseId, mastery }) {
             {assignments.map((a, i) => {
               const cleanTitle = a.title.replace(/\s*\((?:F|S)\)\s*$/i, '');
               const isLast = i === assignments.length - 1;
+              const unpublished = isUnpublished(a);
               return (
                 <th
                   key={a.id}
@@ -934,6 +949,8 @@ export function GradebookView({ data, courseId, mastery }) {
                       whiteSpace: 'nowrap', width: 250,
                       overflow: 'hidden', textOverflow: 'ellipsis',
                       fontWeight: 500,
+                      // Unpublished on Schoology: muted italic title.
+                      ...(unpublished ? { color: 'var(--text-muted)', fontStyle: 'italic' } : {}),
                     }}
                     onMouseEnter={(e) => setPopover({
                       left: Math.max(8, Math.min(e.clientX - 20, window.innerWidth - 290)),
@@ -941,6 +958,9 @@ export function GradebookView({ data, courseId, mastery }) {
                       content: (
                         <>
                           <div style={{ fontWeight: 700, color: 'var(--accent)' }}>{cleanTitle}</div>
+                          {unpublished && (
+                            <div style={{ marginTop: 3, fontSize: '0.72rem', color: 'var(--text-muted)' }}>Unpublished on Schoology</div>
+                          )}
                           {a.due_date && (
                             <div style={{ marginTop: 3, fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                               Due {formatDueFull(a.due_date)}
@@ -1243,14 +1263,17 @@ export function GradebookView({ data, courseId, mastery }) {
 // ─── Assessments view ────────────────────────────────────────────────────────
 
 // Show/hide toggle for an assignment type. Filled in the type's colour while
-// showing, greyed out while hidden (#22).
-function TypeFilterToggle({ label, count, active, type, onClick }) {
+// showing, greyed out while hidden (#22). `compact` is the Gradebook tab-row size.
+const TOGGLE_VARS = {
+  summative: { bg: 'var(--summative-bg)', text: 'var(--summative-text)', border: 'var(--summative-border)' },
+  formative: { bg: 'var(--formative-bg)', text: 'var(--formative-text)', border: 'var(--formative-border)' },
+  unpublished: { bg: 'var(--badge-gray-bg)', text: 'var(--badge-gray-text)', border: 'var(--badge-gray-text)' },
+};
+
+function TypeFilterToggle({ label, count, active, type, compact = false, title, onClick }) {
+  const v = TOGGLE_VARS[type];
   const colorStyle = active
-    ? {
-        background: `var(--${type}-bg)`,
-        color: `var(--${type}-text)`,
-        boxShadow: `inset 0 0 0 1px var(--${type}-border)`,
-      }
+    ? { background: v.bg, color: v.text, boxShadow: `inset 0 0 0 1px ${v.border}` }
     : {
         background: 'var(--bg-subtle)',
         color: 'var(--text-muted)',
@@ -1261,17 +1284,17 @@ function TypeFilterToggle({ label, count, active, type, onClick }) {
     <button
       onClick={onClick}
       aria-pressed={active}
-      title={active ? `Hide ${label.toLowerCase()} assessments` : `Show ${label.toLowerCase()} assessments`}
+      title={title || (active ? `Hide ${label.toLowerCase()} assessments` : `Show ${label.toLowerCase()} assessments`)}
       style={{
-        display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
-        padding: '0.3rem 0.7rem', borderRadius: 999, border: 'none',
-        cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600,
+        display: 'inline-flex', alignItems: 'center', gap: compact ? '0.3rem' : '0.4rem',
+        padding: compact ? '0.15rem 0.5rem' : '0.3rem 0.7rem', borderRadius: 999, border: 'none',
+        cursor: 'pointer', fontSize: compact ? '0.72rem' : '0.78rem', fontWeight: 600,
         transition: 'opacity 0.12s, background 0.12s',
         ...colorStyle,
       }}
     >
       <span style={{
-        display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
+        display: 'inline-block', width: compact ? 6 : 8, height: compact ? 6 : 8, borderRadius: '50%',
         background: 'currentColor', opacity: active ? 1 : 0.5,
       }} />
       {label}
@@ -1280,11 +1303,43 @@ function TypeFilterToggle({ label, count, active, type, onClick }) {
   );
 }
 
+// Summative / Formative / Unpublished toggles over `filter` (see
+// lib/assessmentTypeFilter.js). Full size on the Assessments tab; `compact` in
+// the Course page tab row for the Gradebook, where vertical room is scarce.
+export function TypeFilterBar({ assignments, filter, onChange, compact = false }) {
+  const counts = typeFilterCounts(assignments, filter);
+  const flip = (key) => onChange({ ...filter, [key]: !filter[key] });
+  const unpublishedTitle = filter.unpublished
+    ? 'Hide assessments that are not published on Schoology'
+    : 'Show assessments that are not published on Schoology';
+  return (
+    <div
+      role="group" aria-label="Filter assessments"
+      className={compact ? 'type-filter-bar type-filter-bar--compact' : 'type-filter-bar'}
+    >
+      {!compact && <span className="text-sm text-muted" style={{ marginRight: '0.25rem' }}>Show:</span>}
+      <TypeFilterToggle
+        label="Summative" count={counts.summative} type="summative" compact={compact}
+        active={filter.summative} onClick={() => flip('summative')}
+      />
+      <TypeFilterToggle
+        label="Formative" count={counts.formative} type="formative" compact={compact}
+        active={filter.formative} onClick={() => flip('formative')}
+      />
+      {counts.unpublished > 0 && (
+        <TypeFilterToggle
+          label="Unpublished" count={counts.unpublished} type="unpublished" compact={compact}
+          title={unpublishedTitle} active={filter.unpublished} onClick={() => flip('unpublished')}
+        />
+      )}
+    </div>
+  );
+}
+
 // onToggleMakeUp(assignment) (live courses only) flips make-up tracking for a
 // Schoology test/quiz; its chip shows "Make-ups: tracked / ignored".
 export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10, onToggleMakeUp }) {
-  const [showSummative, setShowSummative] = useState(true);
-  const [showFormative, setShowFormative] = useState(true);
+  const [filter, setFilter] = useState(DEFAULT_TYPE_FILTER);
   const [makeUpError, setMakeUpError] = useState(null);
 
   async function flipMakeUp(a) {
@@ -1301,27 +1356,13 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
   }
 
   const { assignments, folders } = data;
-  const summativeCount = assignments.filter(a => a.aligned).length;
-  const formativeCount = assignments.length - summativeCount;
-
-  const visible = assignments.filter(a => (a.aligned ? showSummative : showFormative));
+  const visible = assignments.filter(a => passesTypeFilter(a, filter));
   const groups = groupAssignmentsByFolder(visible, folders);
 
   return (
     <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap',
-        padding: '0.85rem 1.25rem', borderBottom: '1px solid var(--border)',
-      }}>
-        <span className="text-sm text-muted" style={{ marginRight: '0.25rem' }}>Show:</span>
-        <TypeFilterToggle
-          label="Summative" count={summativeCount} type="summative"
-          active={showSummative} onClick={() => setShowSummative(v => !v)}
-        />
-        <TypeFilterToggle
-          label="Formative" count={formativeCount} type="formative"
-          active={showFormative} onClick={() => setShowFormative(v => !v)}
-        />
+      <div style={{ padding: '0.85rem 1.25rem', borderBottom: '1px solid var(--border)' }}>
+        <TypeFilterBar assignments={assignments} filter={filter} onChange={setFilter} />
       </div>
       {makeUpError && <div className="alert alert-warning" style={{ margin: '0.75rem 1.25rem' }}>{makeUpError}</div>}
 
@@ -1343,6 +1384,7 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
             </div>
             {group.assignments.map(a => {
               const isSummative = !!a.aligned;
+              const unpublished = isUnpublished(a);
               return (
                 <div
                   key={a.id}
@@ -1365,10 +1407,16 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
                     <Link
                       to={`/course/${courseId}/assessment/${a.schoology_assignment_id}`}
                       className="link"
+                      style={unpublished ? { color: 'var(--text-muted)', fontStyle: 'italic' } : undefined}
                     >
                       {a.title}
                     </Link>
                     <SchoologyLink url={a.web_url} ariaLabel={`View "${a.title}" in Schoology`} />
+                    {unpublished && (
+                      <span className="badge badge-gray" style={{ fontSize: '0.62rem', flexShrink: 0 }} title="Not published on Schoology">
+                        Unpublished
+                      </span>
+                    )}
                   </span>
                   {onToggleMakeUp && a.is_test === 1 && (
                     <button

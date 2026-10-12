@@ -2044,3 +2044,31 @@ describe('StudentRubricCard — submission timeline', () => {
     expect(screen.queryByTestId('submission-timeline')).not.toBeInTheDocument();
   });
 });
+
+describe('StudentRubricCard — triage actions on the card', () => {
+  const tl = (state) => ({
+    due: { date: '2026-10-06', time: '15:00' }, extension: null, deadline: '2026-10-06',
+    submission: { state }, overdue: null, resubmission: null, referral: null, limit: 8,
+  });
+  const summative = { id: 50, title: 'CP2', due_date: '2026-10-06 15:00:00', is_test: 0 };
+
+  it('missing work at the limit: Refer and Extend in the header; Extend opens in the panel row under it', () => {
+    const { container } = renderCard({
+      student: { ...makeStudent(), timeline: tl('not_submitted'), late_work: { kind: 'outstanding', tone: 'red', day: 9 } },
+      assignmentRow: summative,
+    });
+    expect(screen.getByRole('button', { name: 'Refer' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Extend' }));
+    const row = container.querySelector('.card-action-panel');
+    expect(row).toContainElement(screen.getByLabelText('Extension (school days)'));
+  });
+
+  it('handed in late past the limit: Refer and Waive, and no Extend (the work is in)', () => {
+    renderCard({
+      student: { ...makeStudent(), timeline: tl('submitted'), late_work: { kind: 'submitted_late', tone: 'red', day: 9 } },
+      assignmentRow: summative,
+    });
+    expect(screen.getByRole('button', { name: 'Waive' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Extend' })).not.toBeInTheDocument();
+  });
+});

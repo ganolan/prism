@@ -16,7 +16,7 @@ import { act as runAction, askResubmission, hasLine, pairOf } from '../services/
 import { statusLineUntil } from '../services/statusLineDue.js';
 import { loadCalendar } from '../services/schoolCalendar.js';
 import { lessonPlan } from '../services/lessonPlan.js';
-import { timelineForPair } from '../services/submissionTimeline.js';
+import { timelineForPair, pairState } from '../services/submissionTimeline.js';
 import { todayLocal } from '../lib/schoolDays.js';
 
 const router = Router();
@@ -125,6 +125,14 @@ router.post('/referrals', (req, res) => {
 // DELETE /api/triage/referrals/:id — undo a referral.
 router.delete('/referrals/:id', (req, res) => {
   res.json(undoReferral(getDb(), req.params.id));
+});
+
+// GET /api/triage/pair?studentId=&assignmentId= — one student's card state after a
+// triage action: { timeline, late_work } (the /assessment/ card's Refer / Waive / Extend).
+router.get('/pair', (req, res) => {
+  const out = pairState(getDb(), { studentId: req.query.studentId, assignmentId: req.query.assignmentId });
+  if (!out) return res.status(404).json({ error: 'Assignment not found' });
+  res.json(out);
 });
 
 // GET /api/triage/extensions?courseId= — per-student deadline extensions, newest first.

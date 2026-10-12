@@ -12,7 +12,7 @@
 // stored time it falls back to Schoology's own late flag.
 import { getTriageSettings } from './settings.js';
 import { loadCalendar } from './schoolCalendar.js';
-import { isSubmitted, extensionUntil } from './triage.js';
+import { isSubmitted, extensionUntil, getTriage } from './triage.js';
 import { ALIGNED_SQL, laterOf } from './triageCommon.js';
 import { todayLocal, epochToLocalDate } from '../lib/schoolDays.js';
 import { sqliteUtcToEpoch } from '../lib/resubmission.js';
@@ -118,6 +118,7 @@ export function buildTimeline({
       : null,
     referral: referral
       ? {
+          id: referral.id ?? null,
           action: referral.action === 'exempt' ? 'waived' : 'referred', // 'exempt' is how a waiver is stored
           on: epochToLocalDate(sqliteUtcToEpoch(referral.created_at)), day: (referral.days_late ?? 0) + 1, note: referral.note ?? null,
         }
@@ -135,7 +136,7 @@ export function timelineContext(db, { courseId, today = todayLocal() }) {
   const byPair = (rows) => new Map(rows.map((r) => [`${r.student_id}:${r.assignment_id}`, r]));
   const extensions = byPair(db.prepare('SELECT id, student_id, assignment_id, lessons, until, note FROM extensions WHERE course_id = ?').all(Number(courseId)));
   const referrals = byPair(db.prepare(
-    'SELECT student_id, assignment_id, action, days_late, note, created_at FROM referrals WHERE course_id = ?',
+    'SELECT id, student_id, assignment_id, action, days_late, note, created_at FROM referrals WHERE course_id = ?',
   ).all(Number(courseId)));
   // Summative = aligned, exactly as triage decides it (only summative work is referred).
   const aligned = new Set(db.prepare(`SELECT a.id FROM assignments a WHERE a.course_id = ? AND ${ALIGNED_SQL} = 1`).all(Number(courseId)).map((r) => r.id));
@@ -174,4 +175,23 @@ export function timelineForPair(db, { studentId, assignmentId }) {
   if (!a) return null;
   const grade = db.prepare('SELECT * FROM grades WHERE student_id = ? AND assignment_id = ?').get(Number(studentId), a.id) || null;
   return timelineContext(db, { courseId: a.course_id }).timeline(a, Number(studentId), grade);
+}
+
+// The card's triage state per student for one assignment: the Late work row the
+// dashboard shows ({ kind, tone, day, daysLate }), keyed by student id. Same rules
+// as the rail, so the card's Refer / Waive can never disagree with it.
+export function lateWorkByStudent(db, { courseId, assignmentId, studentId = null }) {
+  const rows = getTriage(db, { courseId: Number(courseId), studentId, includeFormative: false }).lateWork;
+  return new Map(rows.filter((r) => r.assignmentId === Number(assignmentId))
+    .map((r) => [r.studentId, { kind: r.kind, tone: r.tone, day: r.day, daysLate: r.daysLate }]));
+}
+
+// One pair's card state after a triage action: { timeline, late_work }.
+export function pairState(db, { studentId, assignmentId }) {
+  const a = db.prepare('SELECT course_id FROM assignments WHERE id = ?').get(Number(assignmentId));
+  if (!a) return null;
+  return {
+    timeline: timelineForPair(db, { studentId, assignmentId }),
+    late_work: lateWorkByStudent(db, { courseId: a.course_id, assignmentId, studentId: Number(studentId) }).get(Number(studentId)) || null,
+  };
 }

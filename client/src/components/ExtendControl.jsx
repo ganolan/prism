@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import NumberStepper from './NumberStepper.jsx';
 import LessonHint from './LessonHint.jsx';
+import ActionPanel, { PanelRow } from './ActionPanel.jsx';
 import StatusLineModal from './StatusLineModal.jsx';
 import { formatDate, localIsoDate } from '../lib/formatDate.js';
 import { studentFullName } from '../lib/studentNames.js';
@@ -19,7 +20,7 @@ const days = (n) => `${n} school day${n === 1 ? '' : 's'}`;
 // onChange(timeline, commentChange): the pair's fresh submission timeline (from the
 // server) and what the action did to the student's comment ({ comment, line, kind } |
 // { comment, line: null } | null), so the card keeps its comment editor in step.
-export default function ExtendControl({ student, assignment, courseId, onChange }) {
+export default function ExtendControl({ student, assignment, courseId, panelHost = null, onChange }) {
   const ext = student.timeline?.extension || null;
   const makeUp = assignment.is_test === 1;
   const initial = () => (ext?.schoolDaysLeft > 0 ? ext.schoolDaysLeft : DEFAULT_DAYS);
@@ -75,14 +76,20 @@ export default function ExtendControl({ student, assignment, courseId, onChange 
         {ext ? `Extended to ${formatDate(`${ext.until}T00:00:00`)}` : 'Extend'}
       </button>
       {panel && (
-        <span className="resubmit-control__panel">
-          <NumberStepper value={n} min={1} max={60} onChange={setN} aria-label="Extension (school days)" />
-          <span className="text-sm">school days</span>
-          <LessonHint courseId={courseId} from={assignment.due_date.slice(0, 10)} value={n} onPick={setN} />
-          <input className="triage-note" placeholder="Note (optional)" aria-label="Extension note" value={note} onChange={(e) => setNote(e.target.value)} />
-          <button type="button" className="primary btn-sm" onClick={save}>Save</button>
-          {ext?.id && <button type="button" className="ghost danger btn-sm" onClick={undo}>Undo</button>}
-        </span>
+        <ActionPanel host={panelHost} label="Extend the deadline">
+          <PanelRow>
+            <span className="action-panel__title">Extend</span>
+            <NumberStepper value={n} min={1} max={60} onChange={setN} aria-label="Extension (school days)" />
+            <span className="text-sm">school days</span>
+            <LessonHint courseId={courseId} from={assignment.due_date.slice(0, 10)} value={n} onPick={setN} />
+          </PanelRow>
+          <PanelRow>
+            <input className="triage-note action-panel__note" placeholder="Note (optional)" aria-label="Extension note" value={note} onChange={(e) => setNote(e.target.value)} />
+            <button type="button" className="primary btn-sm" onClick={save}>Save</button>
+            {ext?.id && <button type="button" className="ghost danger btn-sm" onClick={undo}>Undo</button>}
+            <button type="button" className="ghost btn-sm" onClick={() => setPanel(false)}>Cancel</button>
+          </PanelRow>
+        </ActionPanel>
       )}
       {confirm && (
         <StatusLineModal

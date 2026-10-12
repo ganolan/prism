@@ -258,6 +258,8 @@ export const getReferrals = ({ courseId } = {}) =>
   request(`/triage/referrals${courseId != null ? `?courseId=${courseId}` : ''}`);
 export const recordReferral = (body) => request('/triage/referrals', { method: 'POST', body: JSON.stringify(body) });
 export const undoReferral = (id) => request(`/triage/referrals/${id}`, { method: 'DELETE' });
+// One student's card state after a triage action: { timeline, late_work }.
+export const getTriagePair = (studentId, assignmentId) => request(`/triage/pair?${new URLSearchParams({ studentId, assignmentId })}`);
 // Per-student deadline extensions: { studentId, assignmentId, lessons (school days), note? }.
 export const getExtensions = ({ courseId } = {}) =>
   request(`/triage/extensions${courseId != null ? `?courseId=${courseId}` : ''}`);

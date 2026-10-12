@@ -1168,6 +1168,16 @@ button.stat-tile--red { border-color: var(--danger); }
 /* Assessment card: resubmission control (triage resubmissions). */
 .resubmit-control { display: inline-flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
 .resubmit-control__panel { display: inline-flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+/* Card action editor (ActionPanel): a full-width row under the card header, so the
+   header's pills never wrap. Row 1 = the deadline (stepper, unit, lesson hint); row 2 =
+   the note and the actions. Collapses away when no editor is open. */
+.card-action-panel { padding: 0.6rem 1rem; background: var(--bg-subtle); border-bottom: 1px solid var(--border); }
+.card-action-panel:empty { display: none; }
+.action-panel { display: flex; flex-direction: column; gap: 0.45rem; }
+.action-panel + .action-panel { padding-top: 0.6rem; border-top: 1px solid var(--border); }
+.action-panel__row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.action-panel__title { font-weight: 700; font-size: 0.85rem; min-width: 7.5rem; }
+.action-panel__note { flex: 1 1 14rem; max-width: 30rem; }
 .resubmit-pill {
   display: inline-flex; align-items: center; gap: 0.35rem; height: 1.8rem; box-sizing: border-box;
   border-radius: 999px; padding: 0 0.7rem; font-size: 0.85rem; font-weight: 600; white-space: nowrap;

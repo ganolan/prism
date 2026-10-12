@@ -956,3 +956,55 @@ stores each returned cell as `grades.test_attempt` ('took' → also `submission_
 'none', 'not_assigned'); a student with no cell is left untouched (unknown). A payload without a `body.grades` object,
 or a test with no cells, is recorded as `assignments.test_fetch_status = 'failed'` (unknown). The
 results/`student_stats` pages are not fetched.
+
+### Questions, attempts and FRQ rubrics (read-only probe, 2026-10-12)
+
+Probed on the AP CSP Ep 1 theory test `8544307969` and its extra-time copy `8603667595` (section
+`8458134135`), one taker's attempt. GET only; the rubric capture aborted every non-GET request.
+Scripts: `scripts/probe-assessment-attempt.js` (saves raw pages outside the repo),
+`scripts/probe-assessment-rubric.js` (opens the rubric popup, captures its XHRs). Design that uses
+it: `docs/superpowers/specs/2026-10-12-linked-quiz-results-design.md`.
+
+**Question list: `GET /assignment/{id}/assessment_questions`** (200, HTML, ~300 KB for 21
+questions). One `tr.draggable` per question, holding hidden `components[{qid}][delta]` (the order,
+0-based; not contiguous: the essay added later had `37`), `.component-summary-wrapper` classed
+`component-multiple_choice` or `component-essay`, `td.component-number` (1-based display number),
+`.component-title.s-rte` (stem HTML, code segments as `<pre>` with `<br />` line breaks), and
+`.component-attributes` → `span.component-type` ("Multiple Choice") and `span.component-points`
+("1 point"). Links: `assessment_questions/edit_question/{qid}`, `export_to_resources?cids={qid}`,
+and the write action `assessment_questions/delete_question/{qid}`, which is never fetched. **No
+answer options and no key** on this page. **A copy gets new question ids:** the standard test's 21
+ids were `2327504483` to `2327504502` plus `2315300994` (the essay), the copy's were
+`2329012780` to `2329012800`. Match copies by content, never by id.
+
+**Attempt page: `GET /assignment/{id}/assessment_results/student_stats/{uid}/{attemptId}`** (200,
+HTML, ~255 KB). The attempt id came from the `student_stats/{uid}` page (one attempt observed).
+Form `#s-assessment-edit-submission-form`; other fields `form_build_id`, `form_token`, `form_id`,
+`op`. Per question, all inside `components[0][{qid}]`: `points` (text input), `override` (hidden,
+`1` on the graded essay), `original_points`, `max_points`, `rubric_score` (hidden; empty for an
+MCQ, `2` on the graded essay), `comment` (textarea). The visible score is
+`.score-grade-score` (`<span>1</span>/1`).
+- **MCQ:** `ul.multiple-choice-review#question-{qid}-review`, one `li` per option in display order.
+  Classes: `selected correct` (chosen, right), `selected incorrect` (chosen, wrong), `correct` (the
+  key, not chosen), empty otherwise. Option text in `.option-span`. So the attempt page shows the
+  chosen letter, the key and the option text.
+- **Essay:** `.question-review.question-essay`; the full answer HTML in `.essay-review` (not
+  truncated, unlike the CSV export). Labeled "Requires manual grading".
+- **Rubric button:** `span.grading-rubric-grading-launch` with attributes `rubric-id`,
+  `enrollment-id`, `item-id` (= qid); the same values are in
+  `Drupal.settings.theme_js.s_grades_rubric_grading_launch_btn_0.args`
+  (`[rubricId, enrollmentId, qid, gradeHtml, 1, 1, attemptId, maxPoints, false, false]`).
+
+**Rubric on an essay question.** Clicking the rubric button fires two GETs:
+- `GET /iapi/grades/rubric/{rubricId}` → `{response_code, body:{id, created, created_by, title,
+  total_points, realm: "course", realm_id: <sectionId>, is_tracked, rows:[{id, is_published,
+  term_id, guid, title, description, columns:[{pts, description}], max_points, weight}],
+  num_assigned_gi}}`. Observed: rubric `55233026` "AP CSP Free Response Question", 1 row
+  (`146012384`, "AP CS: Content Knowledge"), 4 columns, pts 4/3/2/1, each `description` opening
+  with the level name and a colon ("Exhibiting Depth:", "Exhibiting:", "Developing:", "Emerging:").
+- `GET /iapi/grades/assessment_component_submission_rubric_grade_info/{rubricId}/{qid}/{enrollmentId}/{attemptId}`
+  → `{response_code:200, body:{gradeInfo:{<rowId>:{grade: "2", comment: ""}}, overrideGrade: null}}`.
+
+**Not observed:** a test with more than one attempt, an ungraded essay (`rubric_score` empty?), a
+rubric with more than one row, an MCQ left blank, and the write request a rubric or comment save
+sends (not probed; needs a teacher-approved write on a throwaway copy).

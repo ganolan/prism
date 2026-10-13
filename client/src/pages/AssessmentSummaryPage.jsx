@@ -557,7 +557,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         setPending(p => { const n = { ...p }; delete n[topicId]; return n; });
       } else {
         // Nothing pending → stage this synced final for removal.
-        armAutoFlip();
+        // A feedback row stays in Prism, so it never turns the comment visible.
+        if (!hasFeedbackRows) armAutoFlip();
         setPending(p => ({ ...p, [topicId]: REMOVE }));
       }
       return;
@@ -570,7 +571,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     }
 
     // Otherwise set/replace a draft on this level.
-    armAutoFlip();
+    if (!hasFeedbackRows) armAutoFlip();
     setPending(p => ({ ...p, [topicId]: level }));
   }
 

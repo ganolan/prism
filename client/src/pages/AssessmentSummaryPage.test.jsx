@@ -1124,6 +1124,13 @@ describe('StudentRubricCard — card chrome (Slice 5)', () => {
     expect(screen.queryByText('Display to student')).not.toBeInTheDocument();
   });
 
+  it('a topic pick on a new student turns the comment visible (aligned auto-flip)', () => {
+    renderCard();
+    expect(screen.getByRole('switch', { name: /display to student/i })).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    expect(screen.getByRole('switch', { name: /display to student/i })).toHaveAttribute('aria-checked', 'true');
+  });
+
   it('counts a visibility toggle as a pending change', () => {
     renderCard();
     fireEvent.click(screen.getByRole('switch', { name: /display to student/i }));
@@ -2251,6 +2258,30 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
     expect(withOverall.entry.comment).toMatchObject({ comment: 'Hi', commentStatus: true });
     expect(withOverall.entry.rowLevels).toEqual({ 'Features and Code': null, Playtesting: 'D' });
     expect(withOverall.patch).toMatchObject({ score: 50, scale_level: 'D', row_levels: { Playtesting: 'D' }, grade_comment: 'Hi' });
+  });
+
+  it('a row pick on a new student does not turn the comment visible, so Publish saves rows in Prism only', async () => {
+    card(); // makeStudent(): comment_status 0, grade_comment '' (auto-flip armed)
+    fireEvent.click(screen.getByTitle('Set Playtesting to Developing'));
+    expect(screen.getByRole('switch', { name: /display to student/i })).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+    await waitFor(() => expect(saveRowLevels).toHaveBeenCalledWith('8', 'uid-1', { Playtesting: 'D' }));
+    expect(writeMasteryComment).not.toHaveBeenCalled();
+  });
+
+  it('Send all: a row pick on a new student is a rows-only entry with no comment', () => {
+    const handlers = {};
+    card({ registerCard: (uid, h) => { handlers[uid] = h; }, unregisterCard: () => {} });
+    fireEvent.click(screen.getByTitle('Set Features and Code to Exhibiting'));
+    const sent = handlers['uid-1'].getEntry();
+    expect(sent.entry).toMatchObject({ grade: null, comment: null, rowLevels: { 'Features and Code': 'EX' } });
+    expect(sent.patch).toEqual({ row_levels: { 'Features and Code': 'EX' } });
+  });
+
+  it('the overall pick on a new student still turns the comment visible', () => {
+    card();
+    fireEvent.click(screen.getByRole('button', { name: /^exhibiting$/i }));
+    expect(screen.getByRole('switch', { name: /display to student/i })).toHaveAttribute('aria-checked', 'true');
   });
 
   it('a score-scale task with no rows shows the picker alone', () => {

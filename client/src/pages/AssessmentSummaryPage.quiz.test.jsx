@@ -75,7 +75,7 @@ describe('AssessmentSummaryPage with a quiz group', () => {
     getQuizGroupFor.mockResolvedValue({ group: GROUP });
     loadQuizResults.mockResolvedValue({ summary: { attempts: 18, failed: [] }, group: { ...GROUP, loaded_at: '2026-10-12 14:02:00' } });
     renderAt('/course/5/assessment/950');
-    expect(await screen.findByText(/Linked: Ep 1/)).toBeInTheDocument();
+    expect(await screen.findByText(/1 linked test/)).toBeInTheDocument();
     expect(screen.getByText('not loaded')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Load results' }));
     expect(await screen.findByText('18 attempts loaded')).toBeInTheDocument();
@@ -110,7 +110,7 @@ describe('AssessmentSummaryPage with a quiz group', () => {
   it('shows no warning block for a clean group', async () => {
     getQuizGroupFor.mockResolvedValue({ group: { ...GROUP, parity_status: 'ok', load_summary: { failed: [], unknownUids: [], multipleAttempts: [] } } });
     renderAt('/course/5/assessment/950');
-    await screen.findByText(/Linked: Ep 1/);
+    await screen.findByText(/1 linked test/);
     expect(screen.queryByTestId('quiz-load-warnings')).toBeNull();
   });
 
@@ -138,13 +138,13 @@ describe('AssessmentSummaryPage with a quiz group', () => {
       assignment: { title: String(id) === '950' ? 'Ep 1 - Result (S)' : 'Essay B', is_test: 0 }, topics: [], students: [], course: { course_name: 'AP CSP' },
     }));
     renderAt('/course/5/assessment/950');
-    expect(await screen.findByText(/Linked: Ep 1/)).toBeInTheDocument();
+    expect(await screen.findByText(/1 linked test/)).toBeInTheDocument();
     getMasteryForAssignment.mockClear();
     fireEvent.click(screen.getByText('go to B'));
     expect(await screen.findByText(/Essay B/)).toBeInTheDocument();
     await waitFor(() => expect(getMasteryForAssignment).toHaveBeenCalledWith('5', '960'));
     expect(getMasteryForAssignment).not.toHaveBeenCalledWith('5', '950');
-    expect(screen.queryByText(/Linked: Ep 1/)).toBeNull();
+    expect(screen.queryByText(/1 linked test/)).toBeNull();
   });
 
   it('shows the loaded time as UTC converted to local', async () => {
@@ -164,6 +164,6 @@ describe('AssessmentSummaryPage with a quiz group', () => {
   it('a numeric canonical id does not cause a redirect loop', async () => {
     getQuizGroupFor.mockResolvedValue({ group: { ...GROUP, canonical_schoology_id: 950 } });
     renderAt('/course/5/assessment/950');
-    expect(await screen.findByText(/Linked: Ep 1/)).toBeInTheDocument();
+    expect(await screen.findByText(/1 linked test/)).toBeInTheDocument();
   });
 });

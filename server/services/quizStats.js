@@ -40,6 +40,23 @@ function mcqFlags(options, correct, total, blank) {
   return flags;
 }
 
+// One FRQ level per answer, from the cell for the rubric's first row. A missing cell,
+// null points or no stored rubric is "Not marked". Levels follow the first row's order.
+function frqLevels(q, rs) {
+  const rubric = parseJson(q.schoology_rubric_json, null);
+  const row = rubric?.rows?.[0] ?? null;
+  const counts = new Map((row?.levels ?? []).map(l => [l.name, 0]));
+  let notMarked = 0;
+  for (const r of rs) {
+    const cell = row ? parseJson(r.schoology_rubric_cells_json, {})[row.id] : null;
+    const name = cell?.points == null ? null : levelNameFor(rubric, row.id, cell.points);
+    if (name) counts.set(name, (counts.get(name) || 0) + 1); else notMarked++;
+  }
+  const levels = [...counts].filter(([, n]) => n > 0).map(([name, count]) => ({ name, count }));
+  if (notMarked) levels.push({ name: 'Not marked', count: notMarked });
+  return levels;
+}
+
 export function groupStats(db, { groupId }) {
   const group = getGroup(db, groupId);
   const attempts = db.prepare('SELECT id, assignment_id, student_id FROM quiz_attempts WHERE group_id = ?').all(group.id);
@@ -61,7 +78,8 @@ export function groupStats(db, { groupId }) {
     const rs = byQuestion.get(q.id);
     const tags = parseJson(q.tags_json, []);
     if (q.kind !== 'mcq') {
-      return { position: q.position, kind: q.kind, stem_html: q.stem_html, tags, total: rs.length, correct: null, facility: null, band: null, options: [], blank: 0, flags: [] };
+      const out = { position: q.position, kind: q.kind, stem_html: q.stem_html, tags, total: rs.length, correct: null, facility: null, band: null, options: [], blank: 0, flags: [] };
+      return q.kind === 'frq' ? { ...out, levels: frqLevels(q, rs) } : out;
     }
     const options = parseJson(q.options_json, []).map(o => ({ ...o, count: rs.filter(r => r.chosen_letter === o.letter).length }));
     const total = rs.length;
@@ -82,23 +100,19 @@ export function groupStats(db, { groupId }) {
   }).filter(x => x != null);
   const medianPercent = median(mcqPercents);
 
-  // One FRQ level per answer, from the cell for the rubric's first row. A missing cell,
-  // null points or no stored rubric is "Not marked". Levels follow the first row's order.
+  // The group's FRQ levels: each question's counts summed, in the rubrics' level order, "Not marked" last.
   const frqQuestions = questions.filter(q => q.kind === 'frq');
-  const levelOrder = [];
   const levelCounts = new Map();
-  let notMarked = 0;
   for (const q of frqQuestions) {
-    const rubric = parseJson(q.schoology_rubric_json, null);
-    const row = rubric?.rows?.[0] ?? null;
-    for (const level of row?.levels ?? []) if (!levelOrder.includes(level.name)) levelOrder.push(level.name);
-    for (const r of byQuestion.get(q.id)) {
-      const cell = row ? parseJson(r.schoology_rubric_cells_json, {})[row.id] : null;
-      const name = cell?.points == null ? null : levelNameFor(rubric, row.id, cell.points);
-      if (name) levelCounts.set(name, (levelCounts.get(name) || 0) + 1); else notMarked++;
-    }
+    for (const l of parseJson(q.schoology_rubric_json, null)?.rows?.[0]?.levels ?? []) if (!levelCounts.has(l.name)) levelCounts.set(l.name, 0);
   }
-  const levels = levelOrder.filter(name => levelCounts.has(name)).map(name => ({ name, count: levelCounts.get(name) }));
+  levelCounts.set('Not marked', 0);
+  for (const q of outQuestions.filter(x => x.kind === 'frq')) {
+    for (const l of q.levels) levelCounts.set(l.name, (levelCounts.get(l.name) || 0) + l.count);
+  }
+  const notMarked = levelCounts.get('Not marked');
+  levelCounts.delete('Not marked');
+  const levels = [...levelCounts].filter(([, n]) => n > 0).map(([name, count]) => ({ name, count }));
   if (notMarked) levels.push({ name: 'Not marked', count: notMarked });
 
   // Tags are aggregated over MCQs only; blanks are in the denominator.

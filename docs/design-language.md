@@ -1221,10 +1221,11 @@ The /assessment/ card header holds one line of action pills (Flag for review, Re
 
 ## Questions tab (October 2026, linked quizzes)
 
-- **Facility is a bar, then the number, then the band.** Each MCQ row shows a thin `var(--accent)` fill on `var(--bg-subtle)`, the percentage, and the band as a plain `.badge` (Strong, Mixed, Divided). FRQ rows carry no facility bar: they show the level counts in the summary instead.
+- **Facility is a bar, then the number, then the band.** Each MCQ row shows a thin `var(--accent)` fill on `var(--bg-subtle)`, the percentage, and the band as a plain `.badge` (Strong, Mixed, Divided). FRQ rows carry no facility bar: they show their own level counts ("Exhibiting Depth 2, Developing 4") in its place, in full level names, because initials collide (Exhibiting and Emerging).
 - **The key is marked, never coloured.** Option counts read "B 10 ✓" in bold. Colour is reserved for flags, so a correct answer is not confused with a warning.
 - **Flags map to the existing badge tones.** Critical flags use `.badge-red`, warnings `.badge-amber`, and notes a neutral `.badge`. Flags are counts and distractor observations only; there are no discrimination indices.
-- **Rows expand, not navigate.** The question number is an `aria-expanded` button that reveals the Schoology HTML of the stem and options. The collapsed row keeps the first 120 characters of the plain stem.
+- **Rows expand, not navigate.** The whole first line opens the row (`.question-row-head`); its own buttons and the tag field keep their clicks. The question number stays the `aria-expanded` button for keyboard users. The collapsed stem is one line cut by a CSS ellipsis (`.question-stem-line`), with the full stem in the hover title. The expanded options drop the "a." or "b)" that Schoology writes at the start of an option, because the row already shows the letter.
+- **Takers are counts, not titles.** "Takers 6 of 6 (5 + 1 across 2 tests)"; the test titles and their counts are in the hover title.
 - **"Lowest first" is a `.filter-btn` toggle.** It sorts by facility, with FRQ rows last. It changes order only, never hides a question.
 - **Tags are edited in place.** "Edit tags" opens a comma-separated field inside the row; saving reloads the stats so the tag rollup stays in step. The shared component is `components/quiz/QuestionsTab.jsx`.
 
@@ -1233,12 +1234,15 @@ The /assessment/ card header holds one line of action pills (Flag for review, Re
 - **Quiz controls sit in the existing header row.** **Quiz setup…**, the chip, **Load results** and a "loaded {date} / not loaded" line follow **Manage rubrics…** as `.secondary` buttons and small muted text. They show only when the `quizzes` flag is on and the assessment is a test or already in a group. The load result line ("18 attempts loaded, 1 failed") replaces the loaded-at text until the page is reopened.
 - **Grading and Questions are `.tab-btn` tabs under the filter bar,** present whenever a group exists. The choice lives in `?tab=` (sticky), and Questions replaces the student cards rather than sitting beside them.
 - **One canonical page per group.** Any other member redirects (replace) to the canonical assessment and keeps the query string.
-- **The course Assessments list folds member tests** under the canonical row, which carries the `QuizChip` badge ("Linked: ..." or "Combined: ..."). Gradebook columns are not folded.
+- **The course Assessments list folds member tests** under the canonical row, which carries the `QuizChip`. Gradebook columns are not folded.
+- **The chip shows a count, never the titles.** `QuizChip` reads "2 linked tests ▾" (or "combined" without a result task) as a small accent-outlined button (`.quiz-chip`). A click lists the titles in a `.help-pop` box; the hover title holds the result task and the titles. A test and its extra-time copy have long, nearly identical titles, and printing them pushed the assessment title into a narrow column.
 
 ## Quiz load warnings (October 2026, linked quizzes)
 
 - **One compact `.alert.alert-warning` under the header, above the Grading / Questions tabs,** so both tabs see what the last load could not do cleanly. It lists, in order: copies that differ ("The combined tests differ:" plus each line, e.g. "Question 4: a different key"), students who could not be loaded (count, then each reason, by name when Prism knows the student), students Prism does not know ("Sync the course, then load again."), and students with more than one attempt ("Prism used the latest."). Nothing renders when all four are empty. The shared component is `components/quiz/QuizLoadWarnings.jsx`.
-- **Folded tests keep their make-up chips.** On the course Assessments list a canonical row also shows each folded member's "Make-ups (title): tracked / ignored" chip, using the same toggle as a test's own chip, so folding never hides make-up tracking.
+- **Folded tests keep their make-up chips.** On the course Assessments list a canonical row also shows each member test's make-up chip, using the same toggle as a test's own chip, so folding never hides make-up tracking. With two or more tests the chips read "Make-ups (Test 1): tracked", numbered in group order, with the full test title in the hover title. The chips sit in one wrapping group, so they move to a second line together.
+- **A folded row wraps before it squeezes.** Assessment rows wrap (`flexWrap`), and the title keeps at least 20rem, so chips move below the title instead of narrowing it.
+- **Published tests keep their folded row visible.** A result task is often unpublished until grades are released. Its folded row stays in the default list while any member test is published, still with the grey "Unpublished" badge for the result task itself.
 
 ## Linked quizzes: what phase 1 keeps constant (October 2026)
 

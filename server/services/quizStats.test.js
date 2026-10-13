@@ -41,6 +41,11 @@ describe('groupStats', () => {
     expect(s.frq).toEqual({ count: 1, levels: [{ name: 'Exhibiting', count: 1 }, { name: 'Developing', count: 2 }, { name: 'Not marked', count: 1 }] });
   });
 
+  test('an FRQ question carries its own level counts', () => {
+    const q = groupStats(db, { groupId: g }).questions[1];
+    expect(q.levels).toEqual([{ name: 'Exhibiting', count: 1 }, { name: 'Developing', count: 2 }, { name: 'Not marked', count: 1 }]);
+  });
+
   test('per question: counts, blank, band and flags', () => {
     const q = groupStats(db, { groupId: g }).questions[0];
     expect([q.total, q.correct, q.facility, q.band, q.blank]).toEqual([4, 1, 0.25, 'Divided', 1]);

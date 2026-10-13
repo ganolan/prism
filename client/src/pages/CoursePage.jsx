@@ -1309,17 +1309,17 @@ function TypeFilterToggle({ label, count, active, type, compact = false, title, 
   );
 }
 
-// "Make-ups: tracked / ignored" chip for one Schoology test/quiz. `label` (a folded member's
-// title) is shown when the chip sits on another test's row.
-function MakeUpChip({ a, onFlip, label }) {
+// "Make-ups: tracked / ignored" chip for one Schoology test/quiz. On a folded quiz row,
+// `label` ("Test 2") names which member it is and `title` is that test's full title.
+function MakeUpChip({ a, onFlip, label, title }) {
   return (
     <button
       type="button"
       className={`badge makeup-chip ${a.makeup_ignored ? 'badge-gray' : 'badge-blue'}`}
       aria-pressed={!a.makeup_ignored}
       title={a.makeup_ignored
-        ? `Ignored for make-ups (all students)${label ? `: ${label}` : ''}. Click to track it again.`
-        : `Students who miss ${label ? `"${label}"` : 'this test'} show under Make-up tests. Click to ignore it for all students.`}
+        ? `Ignored for make-ups (all students)${title ? `: ${title}` : ''}. Click to track it again.`
+        : `Students who miss ${title ? `"${title}"` : 'this test'} show under Make-up tests. Click to ignore it for all students.`}
       onClick={() => onFlip(a)}
     >
       {label ? `Make-ups (${label})` : 'Make-ups'}: {a.makeup_ignored ? 'ignored' : 'tracked'}
@@ -1379,16 +1379,18 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
   const foldedIds = new Set(quizGroups.flatMap(g => g.members.map(m => String(m.schoology_assignment_id)))
     .filter(sid => !groupByCanonical.has(sid)));
 
-  // The test rows folded under this canonical row (every member but the canonical one).
+  // A canonical row's member tests, in group order (the canonical one included when it is a member).
   const assignmentBySid = new Map((data?.assignments || []).map(x => [String(x.schoology_assignment_id), x]));
-  const foldedMembers = (a) => {
+  const memberTests = (a) => {
     const g = groupByCanonical.get(String(a.schoology_assignment_id));
-    if (!g) return [];
+    if (!g) return null;
     return g.members
-      .filter(m => String(m.schoology_assignment_id) !== String(a.schoology_assignment_id))
       .map(m => assignmentBySid.get(String(m.schoology_assignment_id)))
       .filter(m => m && m.is_test === 1);
   };
+  // A result task is often left unpublished until grades go out; its row still shows by
+  // default while any of its tests is published, so the folded tests do not vanish with it.
+  const forFilter = (a) => (isUnpublished(a) && memberTests(a)?.some(m => !isUnpublished(m)) ? { ...a, published: 1 } : a);
 
   async function flipMakeUp(a) {
     try {
@@ -1406,7 +1408,7 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
   const { assignments, folders } = data;
   const visible = assignments
     .filter(a => !foldedIds.has(String(a.schoology_assignment_id)))
-    .filter(a => passesTypeFilter(a, filter));
+    .filter(a => passesTypeFilter(forFilter(a), filter));
   const groups = groupAssignmentsByFolder(visible, folders);
 
   return (
@@ -1439,7 +1441,7 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
                 <div
                   key={a.id}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: '0.6rem',
+                    display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap',
                     padding: '0.55rem 1.25rem',
                     borderBottom: '1px solid var(--border)',
                   }}
@@ -1453,7 +1455,8 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
                   </span>
                   {/* Title + its outbound Schoology link travel together (#76);
                       the group flexes so the due date stays right-aligned. */}
-                  <span style={{ flex: 1, display: 'inline-flex', alignItems: 'center', gap: '0.4rem', minWidth: 0 }}>
+                  {/* The row wraps its chips to a second line before the title gets narrower than this. */}
+                  <span style={{ flex: '1 1 20rem', display: 'inline-flex', alignItems: 'center', gap: '0.4rem', minWidth: 'min(100%, 20rem)', flexWrap: 'wrap' }}>
                     <Link
                       to={`/course/${courseId}/assessment/${a.schoology_assignment_id}`}
                       className="link"
@@ -1469,9 +1472,19 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
                       </span>
                     )}
                   </span>
-                  {onToggleMakeUp && a.is_test === 1 && <MakeUpChip a={a} onFlip={flipMakeUp} />}
-                  {/* Folded member tests have no row of their own, so their make-up tracking shows here. */}
-                  {onToggleMakeUp && foldedMembers(a).map(m => <MakeUpChip key={m.id} a={m} onFlip={flipMakeUp} label={m.title} />)}
+                  {/* Folded member tests have no row of their own, so their make-up tracking shows here,
+                      labelled by place in the group (the full title is in the chip's hover text). */}
+                  {onToggleMakeUp && (() => {
+                    const tests = memberTests(a);
+                    if (!tests) return a.is_test === 1 && <MakeUpChip a={a} onFlip={flipMakeUp} />;
+                    return (
+                      <span style={{ display: 'inline-flex', gap: '0.4rem', flexWrap: 'wrap', marginLeft: 'auto' }}>
+                        {tests.map((m, i) => (
+                          <MakeUpChip key={m.id} a={m} onFlip={flipMakeUp} label={tests.length > 1 ? `Test ${i + 1}` : null} title={m.title} />
+                        ))}
+                      </span>
+                    );
+                  })()}
                   {waits[a.schoology_assignment_id] && (() => {
                     const w = waits[a.schoology_assignment_id];
                     return (

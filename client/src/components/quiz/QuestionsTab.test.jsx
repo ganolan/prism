@@ -16,7 +16,8 @@ const STATS = {
       options: [{ letter: 'A', html: 'a', count: 18, is_key: true }, { letter: 'B', html: 'b', count: 0, is_key: false }], flags: [{ level: 'note', text: 'Nobody missed it.' }] },
     { position: 4, kind: 'mcq', stem_html: '<p>Hard one</p>', tags: ['CRD-2.G'], total: 18, correct: 10, facility: 0.556, band: 'Divided', blank: 0,
       options: [{ letter: 'A', html: 'a', count: 2, is_key: false }, { letter: 'B', html: 'b', count: 10, is_key: true }, { letter: 'C', html: 'c', count: 6, is_key: false }], flags: [] },
-    { position: 21, kind: 'frq', stem_html: '<p>Explain</p>', tags: [], total: 18, correct: null, facility: null, band: null, blank: 0, options: [], flags: [] },
+    { position: 21, kind: 'frq', stem_html: '<p>Explain</p>', tags: [], total: 18, correct: null, facility: null, band: null, blank: 0, options: [], flags: [],
+      levels: [{ name: 'Exhibiting', count: 8 }, { name: 'Developing', count: 5 }] },
   ],
 };
 
@@ -28,7 +29,7 @@ describe('QuestionsTab', () => {
     expect(await screen.findByText(/Takers 18 of 19/)).toBeInTheDocument();
     expect(screen.getByText(/MCQ median 80%/)).toBeInTheDocument();
     expect(within(screen.getByRole('table', { name: 'By tag' })).getByText('56%')).toBeInTheDocument();
-    expect(screen.getByText(/Exhibiting 8, Developing 5/)).toBeInTheDocument();
+    expect(within(screen.getByRole('table', { name: 'By type' })).getByText(/Exhibiting 8, Developing 5/)).toBeInTheDocument();
   });
 
   it('lists questions by number; "Lowest first" sorts MCQs by facility', async () => {
@@ -133,5 +134,52 @@ describe('QuestionsTab', () => {
     const table = await screen.findByRole('table', { name: 'By type' });
     expect(within(table).getByText('MCQ (20)')).toBeInTheDocument();
     expect(within(table).queryByText(/median/)).toBeNull();
+  });
+  it('splits takers by test as counts, with the titles on hover', async () => {
+    render(<QuestionsTab groupId={7} />);
+    const line = await screen.findByText(/Takers 18 of 19/);
+    expect(line).toHaveTextContent('Takers 18 of 19 (16 + 2 across 2 tests)');
+    expect(line.querySelector('[title]')).toHaveAttribute('title', 'Ep 1: 16\nEp 1 *: 2');
+  });
+
+  it('opens a question from its stem text, not only from the number', async () => {
+    render(<QuestionsTab groupId={7} />);
+    const row = (await screen.findAllByTestId('question-row'))[1];
+    fireEvent.click(within(row).getByText('Hard one'));
+    expect(within(row).getByRole('button', { name: 'Q4' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('clicking Edit tags does not open the question', async () => {
+    render(<QuestionsTab groupId={7} />);
+    const row = (await screen.findAllByTestId('question-row'))[1];
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit tags' }));
+    expect(within(row).getByRole('button', { name: 'Q4' })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('keeps the whole collapsed stem and leaves the cut to CSS', async () => {
+    const long = 'Word '.repeat(60).trim();
+    getQuizStats.mockResolvedValue({ ...STATS, questions: [{ ...STATS.questions[1], stem_html: `<p>${long}</p>` }] });
+    render(<QuestionsTab groupId={7} />);
+    const row = (await screen.findAllByTestId('question-row'))[0];
+    const stem = row.querySelector('.question-stem-line');
+    expect(stem.textContent).toBe(long);
+    expect(stem).toHaveAttribute('title', long);
+  });
+
+  it('drops the letter Schoology writes at the start of an option', async () => {
+    const options = [{ letter: 'A', html: 'a. first choice', count: 2, is_key: false }, { letter: 'B', html: '<p>b) second</p>', count: 10, is_key: true }];
+    getQuizStats.mockResolvedValue({ ...STATS, questions: [{ ...STATS.questions[1], options }] });
+    render(<QuestionsTab groupId={7} />);
+    const row = (await screen.findAllByTestId('question-row'))[0];
+    fireEvent.click(within(row).getByRole('button', { name: 'Q4' }));
+    expect(within(row).getByText('first choice')).toBeInTheDocument();
+    expect(within(row).getByText('second')).toBeInTheDocument();
+    expect(within(row).queryByText(/a\. first/)).toBeNull();
+  });
+
+  it('shows an FRQ\'s level counts on its row', async () => {
+    render(<QuestionsTab groupId={7} />);
+    const row = (await screen.findAllByTestId('question-row'))[2];
+    expect(within(row).getByText('Exhibiting 8, Developing 5')).toBeInTheDocument();
   });
 });

@@ -6,6 +6,9 @@ import { getQuizStats, setQuizTags } from '../../services/api.js';
 // Stem and option HTML is the teacher's own Schoology question text, rendered as-is in this local app.
 // DOMParser is inert (no scripts, no image loads), so reading textContent here runs nothing.
 const plain = (html) => new DOMParser().parseFromString(html || '', 'text/html').body.textContent.replace(/\s+/g, ' ').trim();
+// Schoology option text often repeats its own letter ("a. ...", "b) ..."); the row already shows it.
+const stripOptionLetter = (html, letter) =>
+  (html || '').replace(new RegExp(`^((?:\\s|<[^>]+>)*)${letter}[.)](?:\\s|&nbsp;)+`, 'i'), '$1');
 const FLAG_CLASS = { critical: 'badge badge-red', warning: 'badge badge-amber', note: 'badge' };
 
 function QuestionRow({ q, groupId, onTagsSaved }) {
@@ -13,7 +16,7 @@ function QuestionRow({ q, groupId, onTagsSaved }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(q.tags.join(', '));
   const [saveError, setSaveError] = useState(null);
-  const stemText = useMemo(() => plain(q.stem_html).slice(0, 120), [q.stem_html]);
+  const stemText = useMemo(() => plain(q.stem_html), [q.stem_html]);
   const pct = q.facility == null ? null : Math.round(q.facility * 100);
   async function saveTags() {
     const tags = draft.split(',').map(t => t.trim()).filter(Boolean);
@@ -29,7 +32,12 @@ function QuestionRow({ q, groupId, onTagsSaved }) {
   }
   return (
     <div data-testid="question-row" data-position={q.position} style={{ padding: '0.6rem 1rem', borderBottom: '1px solid var(--border)' }}>
-      <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+      {/* The whole line opens the question; its own buttons and the tag input keep their clicks. */}
+      <div
+        className="question-row-head"
+        onClick={(e) => { if (!e.target.closest('button, input, a')) setOpen(o => !o); }}
+        style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}
+      >
         <button className="ghost" aria-expanded={open} onClick={() => setOpen(o => !o)} style={{ fontWeight: 700 }}>Q{q.position}</button>
         <span className="text-sm text-muted">{q.kind === 'mcq' ? 'MCQ' : q.kind === 'frq' ? 'FRQ' : 'Other'}</span>
         {q.tags.map(t => <span key={t} className="badge">{t}</span>)}
@@ -40,7 +48,7 @@ function QuestionRow({ q, groupId, onTagsSaved }) {
             <button className="secondary" onClick={saveTags}>Save tags</button>
           </>
         )}
-        <span className="text-sm" style={{ flex: 1, minWidth: 160 }}>{stemText}</span>
+        <span className="text-sm question-stem-line" title={stemText}>{stemText}</span>
         {pct != null && (
           <>
             <span aria-hidden="true" style={{ width: 90, height: 8, borderRadius: 4, background: 'var(--bg-subtle)', overflow: 'hidden', display: 'inline-block' }}>
@@ -50,6 +58,7 @@ function QuestionRow({ q, groupId, onTagsSaved }) {
             <span className="badge">{q.band}</span>
           </>
         )}
+        {q.levels?.length > 0 && <span className="text-sm">{q.levels.map(l => `${l.name} ${l.count}`).join(', ')}</span>}
       </div>
       {saveError && <div className="alert alert-warning" style={{ marginTop: '0.4rem' }}>{saveError}</div>}
       {q.options.length > 0 && (
@@ -67,7 +76,7 @@ function QuestionRow({ q, groupId, onTagsSaved }) {
           <div style={{ maxWidth: '100%' }} dangerouslySetInnerHTML={{ __html: q.stem_html }} />
           {q.options.map(o => (
             <div key={o.letter} style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', maxWidth: '100%' }}>
-              <strong>{o.letter}</strong><span dangerouslySetInnerHTML={{ __html: o.html }} /><span className="text-muted">{o.count}{o.is_key ? ' ✓' : ''}</span>
+              <strong>{o.letter}</strong><span dangerouslySetInnerHTML={{ __html: stripOptionLetter(o.html, o.letter) }} /><span className="text-muted">{o.count}{o.is_key ? ' ✓' : ''}</span>
             </div>
           ))}
         </div>
@@ -98,7 +107,12 @@ export default function QuestionsTab({ groupId, reloadKey }) {
   if (lowestFirst) {
     questions.sort((a, b) => (a.facility ?? 2) - (b.facility ?? 2) || a.position - b.position);
   }
-  const split = stats.byMember.length > 1 ? ` (${stats.byMember.map(m => `${m.title} ${m.takers}`).join(', ')})` : '';
+  // Counts only on the line; the test titles (often long and near-identical) show on hover.
+  const split = stats.byMember.length > 1 && (
+    <span title={stats.byMember.map(m => `${m.title}: ${m.takers}`).join('\n')} style={{ cursor: 'help' }}>
+      {` (${stats.byMember.map(m => m.takers).join(' + ')} across ${stats.byMember.length} tests)`}
+    </span>
+  );
 
   return (
     <div className="fade-in">

@@ -9,14 +9,17 @@
 // The CSV is optional; with it, each group's questions are tagged from its `codes` column.
 import { readFileSync } from 'fs';
 import { parse } from 'csv-parse/sync';
-import { hostname } from 'os';
+import { homedir } from 'os';
+import { join, resolve, sep } from 'path';
 import { getDb } from '../server/db/index.js';
 import { resolveAssignment, createGroup, linkResult, groupForAssignment, setQuestionTags, attemptLinks } from '../server/services/quizGroups.js';
 import { readQuestionLists, loadGroup } from '../server/services/quizLoader.js';
 import { groupStats } from '../server/services/quizStats.js';
 
-if (hostname() === 'macmini.local') { console.error('Refusing to run on the Mac mini (prod).'); process.exit(2); }
 if (!process.env.DB_PATH) { console.error('Set DB_PATH to the dev clone database.'); process.exit(2); }
+// Prod keeps its data and releases under ~/prism/ on the mini; dev clones live elsewhere.
+const prodRoot = join(homedir(), 'prism') + sep;
+if (resolve(process.env.DB_PATH).startsWith(prodRoot)) { console.error(`Refusing to run against ${prodRoot} (prod).`); process.exit(2); }
 
 const TESTS = [
   { label: 'BK 6', members: ['8544307969', '8603667595'], result: '8544307980' },

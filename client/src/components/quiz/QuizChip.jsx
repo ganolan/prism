@@ -12,7 +12,8 @@ export default function QuizChip({ group }) {
   const toggle = (e) => {
     if (pos) { setPos(null); return; }
     const r = e.currentTarget.getBoundingClientRect();
-    setPos({ left: r.left + r.width / 2, top: r.bottom + 6 });
+    // Left-aligned, not centred like a help dot's popover: the chip often sits at the content's left edge.
+    setPos({ left: r.left, top: r.bottom + 6 });
   };
   return (
     <>
@@ -21,7 +22,7 @@ export default function QuizChip({ group }) {
         {label} <span aria-hidden="true">▾</span>
       </button>
       {pos && (
-        <ul className="help-pop quiz-chip-pop" style={{ left: pos.left, top: pos.top }}>
+        <ul className="help-pop quiz-chip-pop" style={{ left: pos.left, top: pos.top, transform: 'none' }}>
           {group.members.map(m => <li key={m.id}>{m.title}</li>)}
         </ul>
       )}

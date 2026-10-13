@@ -1235,7 +1235,7 @@ The /assessment/ card header holds one line of action pills (Flag for review, Re
 - **Grading and Questions are `.tab-btn` tabs under the filter bar,** present whenever a group exists. The choice lives in `?tab=` (sticky), and Questions replaces the student cards rather than sitting beside them.
 - **One canonical page per group.** Any other member redirects (replace) to the canonical assessment and keeps the query string.
 - **The course Assessments list folds member tests** under the canonical row, which carries the `QuizChip`. Gradebook columns are not folded.
-- **The chip shows a count, never the titles.** `QuizChip` reads "2 linked tests ▾" (or "combined" without a result task) as a small accent-outlined button (`.quiz-chip`). A click lists the titles in a `.help-pop` box; the hover title holds the result task and the titles. A test and its extra-time copy have long, nearly identical titles, and printing them pushed the assessment title into a narrow column.
+- **The chip shows a count, never the titles.** `QuizChip` reads "2 linked tests ▾" (or "combined" without a result task) as a small accent-outlined button (`.quiz-chip`). A click lists the titles in a `.help-pop` box, aligned to the chip's left edge rather than centred, because the chip often sits at the content's left edge beside the sidebar; the hover title holds the result task and the titles. A test and its extra-time copy have long, nearly identical titles, and printing them pushed the assessment title into a narrow column.
 
 ## Quiz load warnings (October 2026, linked quizzes)
 

@@ -33,3 +33,13 @@ it('renders nothing without a group', () => {
   const { container } = render(<QuizChip group={null} />);
   expect(container).toBeEmptyDOMElement();
 });
+
+it('opens the list from the chip\'s left edge, so a chip near the sidebar does not push it under', () => {
+  render(<QuizChip group={linked} />);
+  const chip = screen.getByRole('button', { name: /2 linked tests/ });
+  chip.getBoundingClientRect = () => ({ left: 100, width: 80, bottom: 20, top: 0, right: 180, height: 20 });
+  fireEvent.click(chip);
+  const pop = screen.getByRole('list');
+  expect(pop.style.left).toBe('100px');
+  expect(pop.style.transform).toBe('none');
+});

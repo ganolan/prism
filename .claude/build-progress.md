@@ -1062,7 +1062,21 @@ snapshot, `scripts/verify-quiz-phase1.js`):**
   `item_analysis.csv`, which merges both sections): all 20 MCQ counts match on `n` and
   `round(facility * n)` (15 takers). No differences to explain.
 - Suites at hand-off (after the final-review fixes and a merge of `origin/main`, 2026-10-13): server
-  1555 pass, client 928 pass, `npm run build` ok. Not yet looked at in a browser; not yet on `main`.
+  1555 pass, client 928 pass, `npm run build` ok. After the browser review: server 1556, client 941.
+
+**Browser review (2026-10-13, dev clone on the mini, real Ep 1 data loaded with `scripts/verify-quiz-phase1.js`;
+the counts matched the laptop run exactly):** Graham asked for these fixes, all built test-first:
+- **Assessments list:** an unpublished result task hid the whole folded group, including its published
+  tests. A folded row now stays in the default list while any member test is published.
+- **Folded row and header:** the chip reads "2 linked tests ▾" (titles in a left-aligned `.help-pop` on
+  click), make-up chips read "Make-ups (Test 1)", and rows wrap instead of squeezing the title.
+- **Questions tab:** the whole first line opens a row, stems end in a CSS ellipsis, options drop
+  Schoology's own "a." prefix, an FRQ row shows its level counts (`quizStats` now returns `levels` per
+  FRQ), and takers read "5 + 1 across 2 tests".
+- **Verify script:** it now refuses a `DB_PATH` under `~/prism/` instead of refusing the mini's hostname.
+- **Seen and left as they are:** the Quiz setup modal shows no parity status for an existing group; the
+  gradebook's Ep 1 Result cell is plain points, so its modal (and Attempt link) cannot be opened from
+  there; the student page omits the unpublished Result task, and shows the Attempt link on the test row.
 
 **Final review fixes (2026-10-13):** load warnings shown to the teacher (copy mismatch, failed,
 unknown and multi-attempt students); folded tests keep their Make-ups chip on the canonical row; an

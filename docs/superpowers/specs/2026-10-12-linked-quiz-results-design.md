@@ -1,6 +1,6 @@
 # Linked quizzes: question stats, free-response marking and the overall result
 
-Status: **design agreed with the teacher (2026-10-12). Phase 1 and 1b on main (2026-10-13); phase 2 on main (§12); phase 3 built on the branch (§13).** The read-only probe in §2 ran
+Status: **design agreed with the teacher (2026-10-12). Phase 1 and 1b on main (2026-10-13); phase 2 on main (§12); phase 3 on main (§13); phase 4 agreed 2026-10-13 (§14).** The read-only probe in §2 ran
 on 12 October 2026, and every page shape in this document comes from it.
 
 ## Goal
@@ -448,3 +448,72 @@ fallback.
 - **Client:** the quiz line, Update numbers, the template editor (save, invalid placeholder, reset).
 - **Follow-ups:** a test for each of the four fixes.
 - **Live:** on the BK 6 group in a dev clone, write one overall suggestion and see it on the Grading tab.
+
+## 14. Phase 4 design (agreed with the teacher, 2026-10-13)
+
+Prism posts accepted FRQ marks to the student's attempt itself. The request is learned from one
+supervised probe, then replayed. Everything here follows §9: re-read before each write, never overwrite a
+hand edit, record every write, never send MCQ points.
+
+### Known before the probe
+
+The schoology plugin's `export-test-results` entered 15 FRQ marks on 12 October 2026 by driving the
+attempt page: open the rubric popup from `.grading-rubric-grading-launch` (mousedown, mouseup and click),
+choose the level by its label (`td.rating-wrapper` text `^\d\s*<Level>:`), the popup's Save
+(`button.submit-btn`), the question's Add Comment, then the form's **Save Changes**, and read every one
+back. So driving the page is proven; the requests it sends are not yet recorded.
+
+### The probe
+
+`scripts/probe-attempt-write.js`, run on the mini from the repo root with the saved Schoology session, on
+one attempt of **AP CSP: Unit 3 - Organizing Data Theory Test (S)** (2024-25, archived course 830).
+- **Stage A (read-only):** every non-GET request is aborted. It reports whether the attempt form is
+  editable in the archived section, whether the FRQ has a Schoology rubric, and the stored cell and
+  comment. It chooses an attempt whose FRQ is already marked.
+- **Stage B (one same-value save):** only with `--write` and the teacher's approval of the attempt Stage A
+  chose. It chooses the current level again by its label, saves the popup, leaves the comment text as it
+  is, and presses **Save Changes**, recording every non-GET request (URL, header names, body) to a file
+  outside the repo. It then reads the attempt back and confirms the cell, the comment and every other
+  question's points are unchanged.
+- **Accepted risk:** the values do not change, but Schoology may record a grading time or notify the
+  former student.
+- **Recorded:** the request shapes go in `.claude/schoology-api-reference.md` with the probe date, only as
+  observed in the captured file.
+
+If Stage A finds the archived form read-only, or no rubric FRQ, the probe moves to a current-year attempt
+the teacher chooses, saving the mark that student should get anyway, with the teacher watching.
+
+### Writing a mark
+
+`server/services/quizWriteback.js`, through the saved browser session (the loader's), one mark at a time:
+1. Re-read the attempt page. If Schoology's cell or comment differs from Prism's stored copy, refuse:
+   the mark becomes `failed` with "Changed in Schoology since the last load".
+2. Send the captured requests for the final cells and comment.
+3. Read the attempt back. If it shows the final cells and comment, the mark is `posted` (the stored
+   Schoology copy is updated from the read-back); otherwise `failed` with what it shows.
+
+- **Scope:** FRQs with a Schoology rubric. A points-only FRQ stays with the agent or the teacher's paste.
+- **Never sent:** MCQ points, and any field other than the FRQ's cells and comment.
+- **Errors:** an expired session stops the batch (`NO_SESSION`); any other failure is recorded for that
+  student and never thrown. Requests are sent one after another with a short pause, like the loader.
+- **Guard:** the loader's read-only guard stays; the writer allows only the URL patterns the probe
+  recorded.
+
+### Posting in the UI
+
+Only while `quiz_writeback` is on. The flag ships off; the teacher turns it on after the first real post
+looks right in Schoology.
+- **Post accepted to Schoology (n)** on the Free response tab posts the first waiting mark (by student
+  name) and shows its read-back: level, comment, posted or failed.
+- **Post the other n-1** then posts the rest, with a result line per student.
+- The cards update from the read-back; a failed mark shows its error and stays in "Failed".
+
+The agent tools (`list_frq_writebacks`, `mark_frq_writeback`) stay as they are. No new MCP tool.
+
+### Testing (phase 4)
+
+- **Server:** the writer with a fake page (as `fakeSchoologyPage.js`): conflict refusal, posted from the
+  read-back, failed on a mismatched read-back, the batch stops on `NO_SESSION`, and only the recorded URL
+  patterns are sent.
+- **Client:** the two-step post, the result lines, the flag off.
+- **Live:** the first real post of a current mark, with the teacher checking it in Schoology.

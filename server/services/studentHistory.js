@@ -16,6 +16,7 @@ import { preferredFirstName, studentFullName } from './studentNames.js';
 import { teacherText } from '../lib/statusLines.js';
 import { normalizeLevel, pointsToLevel } from '../lib/proficiencyScale.js';
 import { schoolYearOf } from '../lib/schoolYear.js';
+import { orderedRowLevels, ROW_PREFIX } from './feedbackRows.js';
 
 export class StudentHistoryError extends Error {
   constructor(code, message, details) {
@@ -221,6 +222,17 @@ function courseAssessments(db, student, courseId, { includeTeacherDrafts }) {
   `).all(String(student.schoology_uid));
   const topicsBy = {};
   for (const t of topicRows) (topicsBy[t.assignment_schoology_id] ||= []).push(t);
+  // Feedback rows (spec 2026-10-13): the teacher's published row levels on
+  // unaligned tasks, ordered by the attached rubric. Prism-only data.
+  const rowsBy = {};
+  for (const r of db.prepare(
+    'SELECT assignment_schoology_id, criterion_name, level FROM rubric_row_levels WHERE student_uid = ?'
+  ).all(String(student.schoology_uid))) (rowsBy[r.assignment_schoology_id] ||= {})[r.criterion_name] = r.level;
+  const rowOrderStmt = db.prepare(`
+    SELECT c.criterion_name FROM rubric_attachments a JOIN rubric_criteria c ON c.rubric_id = a.rubric_id
+    WHERE a.assignment_schoology_id = ? ORDER BY c.position, c.id
+  `);
+  const rowOrder = (asgSchoologyId) => rowOrderStmt.all(String(asgSchoologyId)).map((c) => c.criterion_name);
   const drafts = includeTeacherDrafts ? Object.fromEntries(db.prepare(`
     SELECT d.assignment_id, d.draft_json, d.updated_at FROM assessment_drafts d
     JOIN assignments a ON a.id = d.assignment_id WHERE d.student_id = ? AND a.course_id = ?
@@ -236,8 +248,10 @@ function courseAssessments(db, student, courseId, { includeTeacherDrafts }) {
     const topics = (topicsBy[a.schoology_assignment_id] || []).map((t) => ({
       external_id: t.external_id, title: t.title, level: normalizeLevel(t.grade) ?? pointsToLevel(t.points),
     }));
+    const rubricRows = rowsBy[a.schoology_assignment_id]
+      ? orderedRowLevels(rowOrder(a.schoology_assignment_id), rowsBy[a.schoology_assignment_id]) : [];
     const draft = drafts[a.id];
-    const assessed = a.score != null || comment.trim() !== '' || topics.length > 0 || (a.exception ?? 0) !== 0;
+    const assessed = a.score != null || comment.trim() !== '' || topics.length > 0 || rubricRows.length > 0 || (a.exception ?? 0) !== 0;
     if (!assessed && !draft) continue;
 
     const scale = scales[String(a.grading_scale_id)] ?? null;
@@ -260,17 +274,23 @@ function courseAssessments(db, student, courseId, { includeTeacherDrafts }) {
         scale: scale?.title ?? null,
       } : null,
       topics,
+      ...(rubricRows.length ? { rubric_rows: rubricRows } : {}),
       comment: comment || null,
       labels,
     };
     if (draft) {
       let parsed = {};
       try { parsed = JSON.parse(draft.draft_json || '{}'); } catch { /* keep {} */ }
+      const pending = parsed.pending || {};
       item.teacher_draft = {
         status: 'teacher_draft_unpublished',
         updated_at: draft.updated_at,
         comment: parsed.comment ?? null,
-        topic_levels: Object.fromEntries(Object.entries(parsed.pending || {}).filter(([, v]) => v !== '__remove__')),
+        topic_levels: Object.fromEntries(Object.entries(pending)
+          .filter(([k, v]) => v !== '__remove__' && k !== '__scale__' && !k.startsWith(ROW_PREFIX))),
+        row_levels: Object.fromEntries(Object.entries(pending)
+          .filter(([k, v]) => v !== '__remove__' && k.startsWith(ROW_PREFIX)).map(([k, v]) => [k.slice(ROW_PREFIX.length), v])),
+        scale_level: pending.__scale__ ?? null,
       };
     }
     out.push(item);

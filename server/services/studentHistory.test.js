@@ -105,6 +105,7 @@ function seed(db) {
 beforeEach(() => {
   const db = getDb();
   db.exec(
+    'DELETE FROM rubric_row_levels; DELETE FROM rubric_attachments; DELETE FROM rubric_criteria; DELETE FROM rubrics; ' +
     'DELETE FROM status_lines; DELETE FROM assessment_drafts; DELETE FROM feedback; ' +
     'DELETE FROM mastery_rollups; DELETE FROM mastery_scores; DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
     'DELETE FROM grading_categories; DELETE FROM grading_scales; DELETE FROM grades; DELETE FROM enrolments; ' +
@@ -286,5 +287,41 @@ describe('getStudentHistory', () => {
   test('carries no lateness data: Schoology\'s late flag overstates it, so it stays out of letters', () => {
     const h = getStudentHistory(getDb(), { student: ids.molly, include_formative: true, include_completion: true });
     expect(JSON.stringify(h)).not.toMatch(/late|timeliness|referral|resubmi/i);
+  });
+});
+
+describe('feedback rows in the history', () => {
+  // Molly's AIML course (ids.aiml) gains a GAS (Unaligned) formative with the Flappy rubric attached.
+  function seedRows(db) {
+    const asg = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, grading_scale_id, grading_category_id, published)
+      VALUES (?, 'a-aiml-rows', 'AIML Flappy (F)', '2025-09-01 15:00:00', 'GAS', 'form', 1)`).run(ids.aiml).lastInsertRowid;
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, score, max_score, grade_comment, comment_status, exception, late) VALUES (?, ?, 75, 100, 'Good', 1, 0, 0)`).run(ids.molly, asg);
+    const rubricId = db.prepare(`INSERT INTO rubrics (name, source, created_at, updated_at) VALUES ('Flappy', 'mcp', 'now', 'now')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO rubric_criteria (rubric_id, position, criterion_name) VALUES (?, 1, 'Features and Code'), (?, 2, 'Playtesting')`).run(rubricId, rubricId);
+    db.prepare(`INSERT INTO rubric_attachments (rubric_id, assignment_schoology_id, course_id, created_at) VALUES (?, 'a-aiml-rows', ?, 'now')`).run(rubricId, ids.aiml);
+    db.prepare(`INSERT INTO rubric_row_levels (assignment_schoology_id, student_uid, criterion_name, level) VALUES ('a-aiml-rows', 'uid-molly', 'Playtesting', 'ED'), ('a-aiml-rows', 'uid-molly', 'Features and Code', 'EX')`).run();
+    return asg;
+  }
+  const find = (h, title) => h.courses.flatMap((c) => c.assessments).find((a) => a.title === title);
+
+  test('a formative with feedback rows lists its row finals in rubric order (full detail only)', () => {
+    const db = getDb();
+    seedRows(db);
+    const full = getStudentHistory(db, { student: ids.molly, include_formative: true });
+    expect(find(full, 'AIML Flappy (F)').rubric_rows).toEqual([{ criterion: 'Features and Code', level: 'EX' }, { criterion: 'Playtesting', level: 'ED' }]);
+    const compact = getStudentHistory(db, { student: ids.molly, include_formative: true, detail: 'compact' });
+    expect(find(compact, 'AIML Flappy (F)').rubric_rows).toBeUndefined();
+  });
+
+  test('teacher_draft separates row and overall picks from topic levels', () => {
+    const db = getDb();
+    const asg = seedRows(db);
+    db.prepare(`INSERT INTO assessment_drafts (assignment_id, student_id, draft_json) VALUES (?, ?, ?)`)
+      .run(asg, ids.molly, JSON.stringify({ pending: { 'row:Playtesting': 'D', __scale__: 'EX', t51: 'ED' } }));
+    const h = getStudentHistory(db, { student: ids.molly, include_formative: true, include_teacher_drafts: true });
+    const d = find(h, 'AIML Flappy (F)').teacher_draft;
+    expect(d.topic_levels).toEqual({ t51: 'ED' });
+    expect(d.row_levels).toEqual({ Playtesting: 'D' });
+    expect(d.scale_level).toBe('EX');
   });
 });

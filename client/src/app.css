@@ -1113,7 +1113,8 @@ button.triage-panel__more { padding: 0.15rem 0.4rem; font-size: 0.75rem; font-we
 .frq-answer pre { white-space: pre-wrap; }
 .frq-comment { width: 100%; font: inherit; }
 .frq-tab { display: grid; gap: 0.75rem; }
-.frq-tab__bar { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; }
+.frq-tab__bar { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.frq-tab__q { width: auto; min-width: 6rem; }
 .frq-stem { line-height: 1.5; }
 .frq-student { display: grid; gap: 0.5rem; }
 .frq-student__q { margin: 0.25rem 0 0; font-size: 0.85rem; color: var(--text-muted); }

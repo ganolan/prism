@@ -1042,6 +1042,22 @@ overstates lateness). 12 archived 2023-25 CS sections were backfilled into prod 
 819-830). AP CSP 2023-24 has no mastery data in Schoology.
 
 
+## Linked quizzes, phase 2: FRQ marking (2026-10-13, branch `claude/angry-hopper-5c1f00`)
+
+Built from `docs/superpowers/plans/2026-10-13-linked-quizzes-phase-2.md` (spec §12): `frq_marks` (the
+suggestion layer and the teacher's mark side by side), `frqMarks.js` (suggest, accept, save, keep,
+write-back, detection on every load), `frqResponses.js` (the read model), REST `GET /api/quizzes/:id/frq`
+and `PUT /api/quizzes/:id/frq/:attemptId/:position`, the MCP tools `get_frq_responses`,
+`write_frq_suggestions`, `list_frq_writebacks` and `mark_frq_writeback`, the Free response tab, and a
+nightly `quizzes` sync phase (groups loaded in the last 28 days). Shuffled options are matched by text.
+
+**Live check (dev clone on the mini, 2026-10-13):** Load results on BK 6 read 6 attempts with
+`marksPosted: 0`; `get_frq_responses` returned plain answers, the rubric and MCQ scores; two example
+suggestions written with `writeFrqSuggestionsTool` showed with the sparkle, Schoology's "S" and the
+filled starting cell; Accept moved a card to Accepted and Waiting to post, and the bar to "1 waiting for
+the agent". Phase 2 only reads Schoology, so posting a mark there and its detection on the next load are
+covered by unit tests rather than live.
+
 ## Linked quizzes, phase 1 (2026-10-13, branch `claude/angry-hopper-5c1f00`)
 
 Phase 1 shipped: quiz groups (combine a test with its extra-time copy behind a question-parity gate,

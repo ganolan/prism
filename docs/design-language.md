@@ -1253,6 +1253,16 @@ The /assessment/ card header holds one line of action pills (Flag for review, Re
 - **Percent bars are one primitive.** `.pct-bar` is the thin accent bar on `var(--bg-subtle)` used for each question's facility and each tag's percent correct.
 - **Built to be reused.** `ScoreDots` and `LevelBar` live in `components/quiz/` so the score-distribution drawer (#78) can use the same charts.
 
+## Free response tab (October 2026, linked quizzes phase 2)
+
+- **Two views, one picker.** **By question** (the default) shows every student's answer to one FRQ, chosen with one picker for the whole list, under the question's stem. **By student** stacks each student's FRQs. The view and filter buttons are `.filter-btn`s in one bar, which is not sticky because the assessment page header already is.
+- **Filters name the work left.** All, To review, Accepted, Waiting to post, Posted, Failed, Changed in Schoology. While `quiz_writeback` is off the bar also shows "n waiting for the agent".
+- **Card order:** the name with the **Attempt** link and state chips; the answer on `var(--bg-subtle)`; the Schoology rubric grid; the comment; then **Accept** (`.primary`), **Save edit** (`.secondary`), **Keep mine** and **Copy comment** (`.ghost`).
+- **Three marks in one grid.** `FrqRubricGrid` shows the stored Schoology rubric with a level button per cell: the card's current cell is filled in its level colour (`LEVEL_COLORS`), the AI's cell has the fuchsia sparkle (and the AI wash when it is not the current cell), and Schoology's current cell has a small outlined "S". Clicking a cell changes the card's level.
+- **The comment starts from the closest mark:** the teacher's own, else the AI suggestion, else Schoology's comment, so an answer already marked in Schoology opens as it is there.
+- **Chips:** Suggested (`badge-pink`, the AI colour), Accepted or Edited (`badge-blue`), In Schoology or Not marked (`badge-gray`), Waiting to post (`badge-amber`), Posted (`badge-green`), Post failed (`badge-red`, the error in the hover title), Changed in Schoology (`badge-amber`), Revised suggestion (`badge-pink`).
+- **Student answers are sanitized.** Answers render only through `sanitizeAnswerHtml` (DOMPurify, with every attribute removed): formatting and code survive, and scripts, images and links are removed. The question stem goes through the same function.
+
 ## Linked quizzes: what phase 1 keeps constant (October 2026)
 
 - **Statistics stay counts.** Facility bars, bands (Strong at 90% and above, Mixed at 70% and above, otherwise Divided), option counts with the key marked, and flags. No discrimination statistics, on purpose: a class-sized cohort cannot support them.

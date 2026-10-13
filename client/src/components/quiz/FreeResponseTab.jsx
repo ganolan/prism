@@ -69,7 +69,7 @@ export default function FreeResponseTab({ groupId, reloadKey }) {
           <button type="button" className={`filter-btn${view === 'student' ? ' active' : ''}`} aria-pressed={view === 'student'} onClick={() => setView('student')}>By student</button>
         </div>
         {view === 'question' && (
-          <select aria-label="Question" value={question.position} onChange={(e) => setPosition(Number(e.target.value))}>
+          <select className="frq-tab__q" aria-label="Question" value={question.position} onChange={(e) => setPosition(Number(e.target.value))}>
             {data.questions.map(q => <option key={q.position} value={q.position}>{`Q${q.position}`}</option>)}
           </select>
         )}

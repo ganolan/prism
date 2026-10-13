@@ -1097,9 +1097,14 @@ the repo.
   (18 of each), then `op`, `form_build_id`, `form_token`, `form_id`; one **Save Changes**. It carries **only
   this question's fields** (no MCQ fields). The page also holds 18 rubric launch template entries
   (`s_grades_rubric_grading_launch_btn`, 10 args: rubric id, enrollment id, question id, grade html, two
-  numbers, attempt id, max points, two booleans), one rubric id, covering every attempt in the form. **Not
-  observed:** the request Save Changes sends from this page, and whether a rubric change there is also a
-  `rubric_grade_info` PUT per student (expected, as the popup is the same widget).
+  numbers, attempt id, max points, two booleans), one rubric id, covering every attempt in the form.
+- **Stage D, a same-value save on the by-question page (2026-10-13, Graham approved; `probe-attempt-write.js
+  byquestion`):** Save Changes sends **one** non-GET request, `POST` to the page's own path,
+  `application/x-www-form-urlencoded`, response **302**. The body was byte-identical to Prism's
+  serialization of the loaded form (112 fields). Read back: no form field changed and none of the 18
+  rubric grades changed. **Not observed:** a rubric change on this page (expected to be the same
+  per-student `rubric_grade_info` PUT, as the popup is the same widget), and a changed value through this
+  form.
 - **Not observed:** where the page takes the CSRF values for the PUT (Prism's unsubmit reads
   `Drupal.settings.s_common.csrf_token` / `csrf_key` on a loaded page); whether the PUT's `comment` alone
   saves the question comment; an essay with `override` 0 (never marked) and whether a replay must set it

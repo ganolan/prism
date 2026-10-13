@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { serializeAttemptForm, serializeForm, essayFields, withEssayMark, changedNames, essayNames, toBody, rubricLaunch } from './attemptForm.js';
+import { serializeAttemptForm, serializeForm, essayFields, withEssayMark, changedNames, essayNames, toBody, rubricLaunch, BYQ_FORM, submissionPrefix, fieldsAt, withMarkAt, namesAt, byQuestionRubrics } from './attemptForm.js';
 
 // A synthetic attempt form in the observed shape (schoology-api-reference.md, "Saving an FRQ level and comment").
 const q = (qid, { points, override = 0, original = points, max = 1, score = '', comment = '' }) => `
@@ -90,5 +90,31 @@ describe('serializeForm (any Schoology form, e.g. grade by question)', () => {
       pairs: [['students[701][submissions][5001][points]', '3'], ['students[701][submissions][5001][comment]', 'Hi'], ['op', 'Save Changes'], ['form_token', 't']],
     });
     expect(serializeForm(html, '#s-assessment-edit-submission-form')).toBeNull();
+  });
+});
+
+describe('the grade-by-question form', () => {
+  const html = String.raw`<form id="s-assessment-view-question-responses-form" action="/assignment/900/assessment_results/question_stats/5/21">
+    ${['701:5001:2', '702:5002:3'].map(x => { const [u, a, p] = x.split(':'); return `
+    <input type="hidden" name="students[${u}][submissions][${a}][points]" value="${p}"><input type="hidden" name="students[${u}][submissions][${a}][override]" value="1">
+    <input type="hidden" name="students[${u}][submissions][${a}][original_points]" value="0"><input type="hidden" name="students[${u}][submissions][${a}][max_points]" value="4">
+    <input type="hidden" name="students[${u}][submissions][${a}][rubric_score]" value="${p}"><textarea name="students[${u}][submissions][${a}][comment]">C${u}</textarea>`; }).join('')}
+    <input type="submit" name="op" value="Save Changes"><input type="hidden" name="form_token" value="t"></form>
+    <script>{"a":{"template":"s_grades_rubric_grading_launch_btn","module":"gradingRubric","args":["91","81","2001","<span>2<\/span>",1,1,"5001",4,false,false]},
+      "b":{"template":"s_grades_rubric_grading_launch_btn","module":"gradingRubric","args":["91","82","2001","x",1,1,"5002",4,false,false]}}</script>`;
+  const pairs = serializeForm(html, BYQ_FORM).pairs;
+  test('reads and sets one submission by its prefix, leaving the other student alone', () => {
+    const p = submissionPrefix('701', '5001');
+    expect(fieldsAt(pairs, p)).toEqual({ rubricScore: 2, points: 2, override: 1, comment: 'C701', maxPoints: 4 });
+    const next = withMarkAt(pairs, p, { points: 4, comment: 'New' });
+    expect(changedNames(pairs, next)).toEqual([`${p}[points]`, `${p}[rubric_score]`, `${p}[comment]`]);
+    expect(changedNames(pairs, next).every(n => namesAt(p).includes(n))).toBe(true);
+    expect(fieldsAt(next, submissionPrefix('702', '5002'))).toMatchObject({ points: 3, comment: 'C702' });
+  });
+  test('the rubric entry for each attempt on the page', () => {
+    expect(byQuestionRubrics(html)).toEqual({ 5001: { rubricId: '91', enrollmentId: '81', qid: '2001' }, 5002: { rubricId: '91', enrollmentId: '82', qid: '2001' } });
+  });
+  test('the essay wrappers still work on the attempt form', () => {
+    expect(essayNames('21')).toEqual(namesAt('components[0][21]'));
   });
 });

@@ -6,7 +6,6 @@ import { rubricButtons } from './parseQuizAttempt.js';
 
 const FORM = '#s-assessment-edit-submission-form';
 const TOKENS = new Set(['form_build_id', 'form_token']);
-const name = (qid, field) => `components[0][${qid}][${field}]`;
 const num = (v) => (v == null || String(v).trim() === '' ? null : Number(v));
 
 export const serializeAttemptForm = (html) => serializeForm(html, FORM);
@@ -38,28 +37,39 @@ export function serializeForm(html, selector) {
   return { action: form.getAttribute('action'), pairs };
 }
 
-export const essayNames = (qid) => ['points', 'override', 'rubric_score', 'comment'].map(f => name(qid, f));
+export const BYQ_FORM = '#s-assessment-view-question-responses-form';
+export const submissionPrefix = (uid, attemptId) => `students[${uid}][submissions][${attemptId}]`;
+const at = (prefix, field) => `${prefix}[${field}]`;
+const essayPrefix = (qid) => `components[0][${qid}]`;
 
-export function essayFields(pairs, qid) {
+export const namesAt = (prefix) => ['points', 'override', 'rubric_score', 'comment'].map(f => at(prefix, f));
+export function fieldsAt(pairs, prefix) {
   const m = new Map(pairs);
-  if (!m.has(name(qid, 'points'))) return null;
+  if (!m.has(at(prefix, 'points'))) return null;
   return {
-    rubricScore: num(m.get(name(qid, 'rubric_score'))),
-    points: num(m.get(name(qid, 'points'))),
-    override: num(m.get(name(qid, 'override'))),
-    comment: m.get(name(qid, 'comment')) ?? '',
-    maxPoints: num(m.get(name(qid, 'max_points'))),
+    rubricScore: num(m.get(at(prefix, 'rubric_score'))), points: num(m.get(at(prefix, 'points'))),
+    override: num(m.get(at(prefix, 'override'))), comment: m.get(at(prefix, 'comment')) ?? '',
+    maxPoints: num(m.get(at(prefix, 'max_points'))),
   };
 }
-
-export function withEssayMark(pairs, qid, { points, comment }) {
+export function withMarkAt(pairs, prefix, { points, comment }) {
   const set = {
-    [name(qid, 'points')]: String(points),
-    [name(qid, 'override')]: '1',
-    [name(qid, 'rubric_score')]: String(points),
-    [name(qid, 'comment')]: String(comment ?? '').replace(/\r?\n/g, '\r\n'),
+    [at(prefix, 'points')]: String(points), [at(prefix, 'override')]: '1', [at(prefix, 'rubric_score')]: String(points),
+    [at(prefix, 'comment')]: String(comment ?? '').replace(/\r?\n/g, '\r\n'),
   };
   return pairs.map(([k, v]) => [k, k in set ? set[k] : v]);
+}
+export const essayNames = (qid) => namesAt(essayPrefix(qid));
+export const essayFields = (pairs, qid) => fieldsAt(pairs, essayPrefix(qid));
+export const withEssayMark = (pairs, qid, mark) => withMarkAt(pairs, essayPrefix(qid), mark);
+
+// One rubric launch entry per student on the by-question page: args are rubric id, enrollment id,
+// question id, grade html, two numbers, attempt id, max points, two booleans (stage D page).
+export function byQuestionRubrics(html) {
+  const out = {};
+  const re = /"template":"s_grades_rubric_grading_launch_btn"[^{}]*?"args":\[\s*"?(\d+)"?\s*,\s*"?(\d+)"?\s*,\s*"?(\d+)"?\s*,[^\]]*?,\s*"?\d+"?\s*,\s*"?\d+"?\s*,\s*"?(\d+)"?\s*,/g;
+  for (const m of String(html).matchAll(re)) out[m[4]] = { rubricId: m[1], enrollmentId: m[2], qid: m[3] };
+  return out;
 }
 
 export function changedNames(a, b) {

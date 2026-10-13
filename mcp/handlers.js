@@ -34,6 +34,8 @@ import { loadGroup } from '../server/services/quizLoader.js';
 import { frqResponses, listWritebacks, levelsOf } from '../server/services/frqResponses.js';
 import { writeFrqSuggestions, recordWriteback } from '../server/services/frqMarks.js';
 import { plainTextLines } from '../server/lib/quizText.js';
+import { quizResults } from '../server/services/quizResults.js';
+import { writeOverallSuggestions } from '../server/services/quizOverall.js';
 
 // Active courses = not archived, not excluded, not hidden. Mirrors the
 // 'current' view in server/routes/courses.js, plus the excluded filter (#56,
@@ -538,4 +540,20 @@ export function listFrqWritebacksTool(db, { group_id }) {
 
 export function markFrqWritebackTool(db, { group_id, student, question, status, error }) {
   return recordWriteback(db, { groupId: group_id, student, position: question, status, error });
+}
+
+// Phase 3 (spec §13): the overall result on the linked result task.
+export function getQuizResultsTool(db, { group_id }) {
+  const data = quizResults(db, { groupId: group_id });
+  return {
+    ...data,
+    students: data.students.map(({ name, student_id, overall, ...rest }) => ({
+      student: name, student_id, ...rest,
+      overall: overall ? { rubric_scores: overall.rubric_scores, impression: overall.impression, status: overall.status, suggestion_state: overall.suggestion_state, stale: overall.stale } : null,
+    })),
+  };
+}
+
+export function writeQuizOverallSuggestionsTool(db, { group_id, students }) {
+  return writeOverallSuggestions(db, { groupId: group_id, students });
 }

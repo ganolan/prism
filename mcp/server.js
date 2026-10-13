@@ -5,7 +5,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { getDb } from '../server/db/index.js';
 import { getAssessmentContext } from '../server/services/assessmentContext.js';
 import { writeStudentSuggestions, upsertAssessmentAnalysis } from '../server/services/suggestions.js';
-import { listCourses, listAssignments, listStudents, listRubricsTool, readRubric, writeRubric, attachRubricTool, findStudentTool, getStudentHistoryTool, listQuizGroupsTool, loadQuizResultsTool, setQuestionTagsTool, getFrqResponsesTool, writeFrqSuggestionsTool, listFrqWritebacksTool, markFrqWritebackTool } from './handlers.js';
+import { listCourses, listAssignments, listStudents, listRubricsTool, readRubric, writeRubric, attachRubricTool, findStudentTool, getStudentHistoryTool, listQuizGroupsTool, loadQuizResultsTool, setQuestionTagsTool, getFrqResponsesTool, writeFrqSuggestionsTool, listFrqWritebacksTool, markFrqWritebackTool, getQuizResultsTool, writeQuizOverallSuggestionsTool } from './handlers.js';
 import {
   getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool, extendDeadlineTool, undoExtensionTool,
   setMakeupTrackingTool,
@@ -28,7 +28,8 @@ export const INSTRUCTIONS =
   'levels and comments verbatim, e.g. for reference letters. Also linked ' +
   'quizzes: per-question results of Schoology tests that Prism combined, and ' +
   'tags per question. FRQ marking: get_frq_responses, write_frq_suggestions, then the teacher accepts in Prism; ' +
-  'list_frq_writebacks and mark_frq_writeback for posting.';
+  'list_frq_writebacks and mark_frq_writeback for posting. Overall result: get_quiz_results, then ' +
+  'write_quiz_overall_suggestions (levels and an impression; Prism builds the comment).';
 
 // Open the shared Prism DB (resolved relative to server/db, honoring DB_PATH)
 // and set busy_timeout so a brief write collision with the Express server
@@ -235,6 +236,33 @@ export function createServer() {
       },
     },
     async ({ group_id, student, question, status, error }) => text(() => markFrqWritebackTool(getDb(), { group_id, student, question, status, error }))
+  );
+
+  server.registerTool(
+    'get_quiz_results',
+    {
+      description: "A quiz group's results per student from Prism's stored copy (no Schoology request), for suggesting the overall result on the linked result task: the MCQ score (correct, total, percent), percent correct per tag, each FRQ's confirmed level (the teacher's Prism mark, else Schoology's own mark) or why it is not confirmed (to review, not marked), ready, any existing overall suggestion (levels, impression, stale), the result task's measurement topics, the comment template, and the students who have not taken it. Apply the course's cut-off guide to these numbers, then call write_quiz_overall_suggestions.",
+      inputSchema: { group_id: z.union([z.number(), z.string()]).describe('Quiz group id from list_quiz_groups') },
+    },
+    async ({ group_id }) => text(() => getQuizResultsTool(getDb(), { group_id }))
+  );
+
+  server.registerTool(
+    'write_quiz_overall_suggestions',
+    {
+      description: 'Write the overall result of a quiz as suggestions on its linked result task, for teacher review in Prism (never sent to Schoology). Per student: rubric_scores as { topic external_id or title: level name or code } (levels only; Prism owns the points) and a short student-facing impression (British spelling, one to three sentences). Prism builds the comment from the group template, so the MCQ score and FRQ levels always match its data: do not repeat the numbers in the impression. Refused for a student whose FRQs are not all confirmed (accept them on the Free response tab first) or who has no attempt. Returns { written, results: [{ student, status: written|error, message }] }.',
+      inputSchema: {
+        group_id: z.union([z.number(), z.string()]).describe('Quiz group id from list_quiz_groups'),
+        students: z.array(z.object({
+          student: z.union([z.number(), z.string()]).describe('schoology_uid or local student id'),
+          rubric_scores: z.record(z.string(), z.string()).describe('{ topic external_id|title: proficiency level code or name }'),
+          impression: z.string().describe('Student-facing overall impression; Prism adds the numbers and the line about the attempt'),
+          reviewer_flags: z.string().nullable().optional().describe('Teacher-facing detail, one paragraph per flag'),
+          reviewer_flags_brief: z.array(z.string()).optional().describe('One short line per reviewer flag'),
+        })),
+      },
+    },
+    async ({ group_id, students }) => text(() => writeQuizOverallSuggestionsTool(getDb(), { group_id, students }))
   );
 
   server.registerTool(

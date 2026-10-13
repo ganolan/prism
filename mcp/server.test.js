@@ -522,4 +522,22 @@ describe('PrisMCP quiz tools', () => {
     expect(body.written).toBe(1);
     expect(body.results[0]).toMatchObject({ status: 'error', message: expect.stringMatching(/unknown level 3/) });
   });
+
+  test('the overall tools are registered with their schemas', async () => {
+    const client = await connect();
+    const { tools } = await client.listTools();
+    const names = tools.map(t => t.name);
+    expect(names).toEqual(expect.arrayContaining(['get_quiz_results', 'write_quiz_overall_suggestions']));
+    const w = tools.find(t => t.name === 'write_quiz_overall_suggestions');
+    expect(w.inputSchema.properties.students.items.required).toEqual(expect.arrayContaining(['student', 'impression']));
+  });
+
+  test('get_quiz_results and write_quiz_overall_suggestions answer over MCP', async () => {
+    const client = await connect();
+    const read = JSON.parse((await client.callTool({ name: 'get_quiz_results', arguments: { group_id: g } })).content[0].text);
+    expect(read.students.map(s => [s.student, s.ready, s.blocked])).toEqual([['Ana Lee', false, ['Q21 not marked']], ['Ana Ng', false, ['Q21 not marked']]]);
+    const res = await client.callTool({ name: 'write_quiz_overall_suggestions', arguments: { group_id: g, students: [{ student: '701', rubric_scores: {}, impression: 'x' }] } });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toMatch(/Link this quiz group to its result task first/);
+  });
 });

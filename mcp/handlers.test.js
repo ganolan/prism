@@ -16,6 +16,7 @@ import {
   getSubmissionStatusTool,
   listQuizGroupsTool, loadQuizResultsTool, setQuestionTagsTool,
   getFrqResponsesTool, writeFrqSuggestionsTool, listFrqWritebacksTool, markFrqWritebackTool,
+  getQuizResultsTool, writeQuizOverallSuggestionsTool,
 } from './handlers.js';
 import { saveRubric, listRubrics, getRubricByName } from '../server/services/rubricStore.js';
 import { setFrqMark } from '../server/services/frqMarks.js';
@@ -32,7 +33,7 @@ beforeEach(() => {
   getDb().exec(
     'DELETE FROM frq_marks; DELETE FROM quiz_tag_texts; DELETE FROM quiz_responses; DELETE FROM quiz_attempts; DELETE FROM quiz_question_copies; DELETE FROM quiz_questions; ' +
     'DELETE FROM quiz_group_members; DELETE FROM quiz_groups; ' +
-    'DELETE FROM status_lines; DELETE FROM feedback_snapshots; ' +
+    'DELETE FROM status_lines; DELETE FROM feedback_snapshots; DELETE FROM feedback; ' +
     'DELETE FROM referrals; DELETE FROM extensions; DELETE FROM resubmissions; DELETE FROM school_days; DELETE FROM mastery_scores; ' +
     'DELETE FROM rubric_attachment_topics; DELETE FROM rubric_attachments; ' +
     'DELETE FROM rubric_descriptors; DELETE FROM rubric_criteria; DELETE FROM rubrics; ' +
@@ -927,5 +928,34 @@ describe('quiz tools', () => {
     const { g } = seedQuiz();
     const loadGroup = async () => { throw Object.assign(new Error('No saved Schoology session'), { code: 'NO_SESSION' }); };
     await expect(loadQuizResultsTool(getDb(), { group_id: g }, { loadGroup })).rejects.toMatchObject({ code: 'NO_SESSION', message: 'No saved Schoology session' });
+  });
+
+  function seedOverall() {
+    const db = getDb();
+    const { c, g, a } = seedFrq();
+    const r = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, '950', 'Ep 1 - Result (S)')`).run(c).lastInsertRowid;
+    db.prepare(`INSERT INTO reporting_categories (id, course_id, external_id, title) VALUES ('qc', ?, 'CSP.1', 'Theory')`).run(c);
+    db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES ('qt', 'qc', ?, 'CSP.1.1', 'Knowledge')`).run(c);
+    db.prepare(`INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id) VALUES ('950', 'qt', ?)`).run(c);
+    db.prepare(`UPDATE quiz_groups SET result_assignment_id = ?, loaded_at = '2026-10-13 01:00:00' WHERE id = ?`).run(r, g);
+    return { g, a };
+  }
+
+  test('get_quiz_results gives numbers, confirmed FRQs and the result task topics', () => {
+    const { g } = seedOverall();
+    const r = getQuizResultsTool(getDb(), { group_id: g });
+    expect(r.group.result.topics).toEqual([{ external_id: 'CSP.1.1', title: 'Knowledge' }]);
+    expect(r.students[0]).toMatchObject({ student: 'Ana Lee', schoology_uid: '701', ready: true, frq: [{ question: 21, source: 'schoology', levels: [{ level: 'Developing' }] }] });
+  });
+
+  test('write_quiz_overall_suggestions writes the built comment and reports per student', () => {
+    const { g } = seedOverall();
+    const r = writeQuizOverallSuggestionsTool(getDb(), { group_id: g, students: [
+      { student: '701', rubric_scores: { 'CSP.1.1': 'Developing' }, impression: 'Part (b) needs the term abstraction.' },
+      { student: '999', rubric_scores: {}, impression: 'x' },
+    ] });
+    expect(r.written).toBe(1);
+    expect(r.results[1]).toMatchObject({ status: 'error', message: 'Student not found: 999' });
+    expect(getQuizResultsTool(getDb(), { group_id: g }).students[0].overall).toMatchObject({ impression: 'Part (b) needs the term abstraction.', stale: false });
   });
 });

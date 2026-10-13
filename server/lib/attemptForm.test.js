@@ -73,8 +73,8 @@ describe('toBody', () => {
 });
 
 describe('rubricLaunch', () => {
-  test('the rubric and enrollment ids from the question\'s launch span', () => {
-    const html = '<div><span class="grading-rubric-launch-icon grading-rubric-grading-launch" rubric-id="36010096" enrollment-id="3174490355" item-id="2128035490" editable="true"></span></div>';
+  test('the rubric and enrollment ids from the page\'s template JSON (the launch span exists only after Schoology\'s script runs)', () => {
+    const html = String.raw`<script>{"theme_js":{"a":{"template":"s_grades_rubric_grading_launch_btn","module":"gradingRubric","args":["36010096","3174490355","2128035490","x",1,1,"2247871023",4,false,false]}}}</script>`;
     expect(rubricLaunch(html, '2128035490')).toEqual({ rubricId: '36010096', enrollmentId: '3174490355' });
     expect(rubricLaunch(html, '1')).toBeNull();
   });

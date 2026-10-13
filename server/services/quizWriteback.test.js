@@ -19,7 +19,7 @@ function fakeSchoology(initial, { ignorePost = false, expireAfterPosts = Infinit
     <input type="hidden" name="components[0][1001][points]" value="${v.other}"><input type="hidden" name="components[0][1001][override]" value="0">
     <input type="hidden" name="components[0][1001][original_points]" value="1"><input type="hidden" name="components[0][1001][max_points]" value="1">
     <input type="hidden" name="components[0][1001][rubric_score]" value=""><textarea name="components[0][1001][comment]"></textarea>
-    <span class="grading-rubric-launch-icon grading-rubric-grading-launch" rubric-id="r1" enrollment-id="e1" item-id="${v.qid}"></span>
+    <script>{"theme_js":{"a":{"template":"s_grades_rubric_grading_launch_btn","module":"gradingRubric","args":["91","92","${v.qid}","x",1,1,"0",4,false,false]}}}</script>
     <input type="hidden" name="components[0][${v.qid}][points]" value="${v.points}"><input type="hidden" name="components[0][${v.qid}][override]" value="${v.override}">
     <input type="hidden" name="components[0][${v.qid}][original_points]" value="0"><input type="hidden" name="components[0][${v.qid}][max_points]" value="${maxPoints}">
     <input type="hidden" name="components[0][${v.qid}][rubric_score]" value="${v.score}"><textarea name="components[0][${v.qid}][comment]">${v.comment}</textarea>
@@ -29,7 +29,7 @@ function fakeSchoology(initial, { ignorePost = false, expireAfterPosts = Infinit
   const client = {
     get: vi.fn(async (path, opts = {}) => {
       calls.push(['GET', path]);
-      const gi = path.match(/rubric_grade_info\/r1\/(\d+)\/e1\/(\d+)$/);
+      const gi = path.match(/rubric_grade_info\/91\/(\d+)\/92\/(\d+)$/);
       if (gi) {
         const [, v] = byAttempt(gi[2]) || [];
         return { status: v ? 200 : 404, text: '', finalUrl: path, json: v ? { response_code: 200, body: { gradeInfo: { 146: { grade: String(v.grade ?? ''), comment: '' } } } } : null };
@@ -102,7 +102,7 @@ describe('postWritebacks', () => {
     const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
     expect(r).toEqual({ results: [{ student_id: expect.any(Number), name: 'Ana Lee', question: 21, level: 'Exhibiting', status: 'posted', error: null }], remaining: 1 });
     expect(f.calls.map(c => c.slice(0, 2))).toEqual([['GET', path('900', '701', '5001')], ['POST', path('900', '701', '5001')], ['GET', path('900', '701', '5001')],
-      ['GET', '/iapi/grades/assessment_component_submission_rubric_grade_info/r1/2001/e1/5001']]);
+      ['GET', '/iapi/grades/assessment_component_submission_rubric_grade_info/91/2001/92/5001']]);
     expect(mark('701')).toMatchObject({ writeback_status: 'posted', writeback_error: null, posted_comment: 'New line one\nline two' });
     const resp = db.prepare('SELECT * FROM quiz_responses WHERE attempt_id = ?').get(att['701']);
     expect([JSON.parse(resp.schoology_rubric_cells_json)[146].points, resp.schoology_comment, resp.points]).toEqual([3, 'New line one\nline two', 3]);

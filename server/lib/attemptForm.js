@@ -2,6 +2,7 @@
 // submits it: checked against the phase 4a capture, byte for byte. Only the essay's level, points,
 // override and comment are ever changed; every other field goes back exactly as Schoology sent it.
 import { parse } from 'node-html-parser';
+import { rubricButtons } from './parseQuizAttempt.js';
 
 const FORM = '#s-assessment-edit-submission-form';
 const TOKENS = new Set(['form_build_id', 'form_token']);
@@ -67,9 +68,8 @@ export function changedNames(a, b) {
 
 export const toBody = (pairs) => new URLSearchParams(pairs).toString();
 
-// The question's rubric launch span carries the ids the rubric grade read needs (phase 4a probe).
+// The ids the rubric grade read needs. The launch span is drawn by Schoology's script, so the raw page
+// holds them only in its template JSON, read as the loader does (phase 4b round trip, 2026-10-13).
 export function rubricLaunch(html, qid) {
-  const span = parse(String(html ?? '')).querySelectorAll('span.grading-rubric-grading-launch')
-    .find(s => s.getAttribute('item-id') === String(qid));
-  return span ? { rubricId: span.getAttribute('rubric-id'), enrollmentId: span.getAttribute('enrollment-id') } : null;
+  return rubricButtons(html)[String(qid)] ?? null;
 }

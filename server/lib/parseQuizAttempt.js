@@ -15,7 +15,7 @@ const num = (v) => (v === '' || v == null || !Number.isFinite(Number(v)) ? null 
 // so one malformed entry or a bad outer slice cannot drop every rubric button.
 // The match stays inside one object ([^{}]), so an entry without args cannot take
 // the args of the entry after it. Captures: rubric id, enrollment id, question id.
-function rubricButtons(html) {
+export function rubricButtons(html) {
   const out = {};
   const re = /"template":"s_grades_rubric_grading_launch_btn"[^{}]*?"args":\[\s*"?(\d+)"?\s*,\s*"?(\d+)"?\s*,\s*"?(\d+)"?/g;
   for (const m of String(html).matchAll(re)) {

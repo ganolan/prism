@@ -1058,7 +1058,20 @@ the repo.
   cannot show that a changed value persists: the first real post is the check.
 - **Launch span attributes:** besides `rubric-id`, `enrollment-id`, `item-id`, it carries
   `submission-id`, `total-rubric-points`, `editable` and `is-component`.
-- **Not observed:** an essay with `override` 0 (never marked) and whether a replay must set it to 1;
+- **Round trip with a real change (2026-10-13, Graham approved, same attempt):** posting the form with
+  the essay's `rubric_score` 3, `points` 3, `override` 1 and the comment plus " (test)" changed the form:
+  a fresh load showed rubric score 3, points 3 and the new comment. **The rubric grade did not change:**
+  `rubric_grade_info` still returned `grade` 4 for the row, on the immediate read and after a full
+  reload. So the attempt form POST does not save the rubric's selected cell; that needs another request,
+  not yet observed (the popup's Save sent nothing on the same-value save). The attempt was then restored
+  with one more form POST (rubric score and points 4, the original comment): every field equals the 4a
+  capture again and the rubric grade is 4.
+- **The rubric launch span is drawn by Schoology's script.** The raw page an in-page `fetch` returns has
+  no `span.grading-rubric-grading-launch`; the rubric and enrollment ids are only in the page's template
+  JSON (`"template":"s_grades_rubric_grading_launch_btn"`, `args[0]` rubric id, `args[1]` enrollment id,
+  `args[2]` question id), as `parseQuizAttempt` reads them.
+- **Not observed:** the request that saves a changed rubric cell; an essay with `override` 0 (never
+  marked) and whether a replay must set it to 1;
   a multi-row rubric's fields (whether `rubric_score` alone carries a one-row rubric's cell, or per-row
   values exist elsewhere); the response to the POST; and the `rubric_grade_info` read after a change.
 

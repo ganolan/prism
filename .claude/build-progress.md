@@ -1093,7 +1093,18 @@ Plan: `docs/superpowers/plans/2026-10-13-linked-quizzes-phase-4b-writer.md` (spe
 waiting BK 6 mark was the phase 2 test suggestion (lower than Graham's real Schoology mark), so it was
 removed from the dev database, never posted. The 2024-25 Unit 3 Organizing Data test was set up as dev
 quiz group 3 and loaded (18 attempts, read-only). The round trip on attempt `2247871023` (same level,
-comment plus " (test)", then the original back) waits for Graham's permission for the first real write.
+level 3 and comment plus " (test)", then the original back) ran with Graham's approval.
+
+**Round trip result (2026-10-13):** the form POST changed the form (rubric score 3, points 3, the new
+comment) but **not the rubric grade** (`rubric_grade_info` stayed 4). Prism recorded the mark `failed`,
+not posted, as designed. The attempt was restored with one direct form POST and read back: every field
+equals the 4a capture and the rubric grade is 4. The round trip also found that the launch span exists only
+after Schoology's script runs; `rubricLaunch` now reads the template JSON (fixed, tested). The final
+review's 7 Important findings were fixed before the round trip (ledger in the plan's workspace).
+
+**Not landed; `quiz_writeback` stays off.** Posting cannot work until the request that saves a changed
+rubric cell is known. **Next:** a second supervised probe (Stage C) that changes the level in the popup
+and captures every request, then restores it the same way; then the writer sends that request too.
 
 ## Linked quizzes, phase 4a: write probe (2026-10-13, branch `claude/angry-hopper-5c1f00`)
 

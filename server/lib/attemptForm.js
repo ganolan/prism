@@ -9,8 +9,12 @@ const TOKENS = new Set(['form_build_id', 'form_token']);
 const name = (qid, field) => `components[0][${qid}][${field}]`;
 const num = (v) => (v == null || String(v).trim() === '' ? null : Number(v));
 
-export function serializeAttemptForm(html) {
-  const form = parse(String(html ?? '')).querySelector(FORM);
+export const serializeAttemptForm = (html) => serializeForm(html, FORM);
+
+// Any Schoology form by its selector (the attempt page, or the grade-by-question page's
+// #s-assessment-view-question-responses-form), serialized as a browser submits it.
+export function serializeForm(html, selector) {
+  const form = parse(String(html ?? '')).querySelector(selector);
   if (!form) return null;
   const pairs = [];
   for (const el of form.querySelectorAll('input, textarea, select')) {

@@ -10,6 +10,10 @@
 //                      Stage C (refused unless --confirm equals --attempt): choose a different level in
 //                      the popup by its label, Save, Save Changes, recording every non-GET request; then
 //                      read back the form and the rubric grade. The comment is left as it is.
+//   byquestion --test <testId> --question <number> --confirm <testId>
+//                      Stage D (refused unless --confirm equals --test): on the grade-by-question page,
+//                      press Save Changes with nothing changed, recording every non-GET request; then
+//                      read the page and every student's rubric grade back.
 // Captures go to OUT_DIR, outside the repo (they hold student work).
 // Usage: OUT_DIR=<dir> [PRISM_SESSION_DIR=<dir>] node scripts/probe-attempt-write.js <command> ...
 import { chromium } from 'playwright';
@@ -21,6 +25,8 @@ import { parseQuizResults, parseStudentStats } from '../server/lib/parseQuizResu
 import { parseQuizAttempt } from '../server/lib/parseQuizAttempt.js';
 import { parseQuizRubric } from '../server/lib/parseQuizRubric.js';
 import { pickFrq, compareAttempts, captureRecord, assertOutsideRepo, selectedLevel, levelCellIndex } from './lib/attemptProbe.js';
+import { serializeForm, changedNames, toBody } from '../server/lib/attemptForm.js';
+import { parseRubricGradeInfo } from '../server/lib/parseQuizRubric.js';
 
 const BASE = 'https://schoology.hkis.edu.hk';
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -235,7 +241,64 @@ async function level() {
   } finally { await browser.close(); }
 }
 
+
+const BYQ_FORM = '#s-assessment-view-question-responses-form';
+
+async function rubricGrades(page, html) {
+  const out = {};
+  // One template entry per student here (rubricButtons keys by question id), so the args are read directly.
+  const re = /"template":"s_grades_rubric_grading_launch_btn"[^{}]*?"args":\[\s*"?(\d+)"?\s*,\s*"?(\d+)"?\s*,\s*"?(\d+)"?\s*,[^\]]*?,\s*"?(\d+)"?\s*,\s*"?(\d+)"?\s*,\s*"?(\d+)"?\s*,/g;
+  for (const m of String(html).matchAll(re)) {
+    const [, rubricId, enrollmentId, qid, , , attemptId] = m;
+    const t = await page.evaluate(async (u) => (await fetch(u, { headers: { Accept: 'application/json' } })).text(),
+      `${BASE}/iapi/grades/assessment_component_submission_rubric_grade_info/${rubricId}/${qid}/${enrollmentId}/${attemptId}`);
+    out[attemptId] = parseRubricGradeInfo(JSON.parse(t));
+    await page.waitForTimeout(250);
+  }
+  return out;
+}
+
+async function byQuestion() {
+  const testId = flag('test'), number = flag('question');
+  if (!testId || !number) throw new Error('byquestion needs --test and --question');
+  if (flag('confirm') !== testId) throw new Error('byquestion needs --confirm equal to --test (Graham approves first)');
+  const { browser, page, captured } = await open({ allowWrites: true });
+  try {
+    const statsHtml = await html(page, `/assignment/${testId}/assessment_results/question_stats`);
+    const m = statsHtml.match(new RegExp(`href="(/assignment/${testId}/assessment_results/question_stats/\\d+/${number})"`));
+    if (!m) throw new Error(`No by-question link for question ${number}`);
+    const qPath = m[1];
+    const beforeHtml = await html(page, qPath);
+    writeFileSync(`${OUT}/stageD-before-q${number}.html`, beforeHtml);
+    const before = serializeForm(beforeHtml, BYQ_FORM);
+    if (!before) throw new Error('No grade-by-question form on the page');
+    const gradesBefore = await rubricGrades(page, beforeHtml);
+    await page.waitForTimeout(1500);
+    const mark = captured.length;
+    const response = page.waitForResponse(r => r.request().method() === 'POST' && r.url().endsWith(qPath), { timeout: 60000 });
+    await page.locator(`${BYQ_FORM} input[type=submit][value="Save Changes"], ${BYQ_FORM} button[type=submit]`).first().click();
+    const res = await response;
+    await page.waitForLoadState('networkidle', { timeout: 60000 }).catch(() => {});
+    const afterHtml = await html(page, qPath);
+    writeFileSync(`${OUT}/stageD-after-q${number}.html`, afterHtml);
+    writeFileSync(`${OUT}/stageD-requests-q${number}.json`, JSON.stringify(captured, null, 1));
+    const after = serializeForm(afterHtml, BYQ_FORM);
+    const gradesAfter = await rubricGrades(page, afterHtml);
+    const formPost = captured.slice(mark).find(c => c.method === 'POST' && c.url.endsWith(qPath));
+    console.log(JSON.stringify({
+      formPostStatus: res.status(),
+      requests: captured.slice(mark).map(c => `${c.method} ${c.url} (${c.contentType})`),
+      bodyEqualsSerializedForm: formPost ? formPost.body === toBody(before.pairs) : null,
+      fieldCount: before.pairs.length,
+      fieldsChanged: after ? changedNames(before.pairs, after.pairs) : 'no form after',
+      rubricGradesChanged: Object.keys(gradesBefore).filter(k => JSON.stringify(gradesBefore[k]) !== JSON.stringify(gradesAfter[k])),
+      rubricGradesRead: Object.keys(gradesBefore).length,
+    }, null, 1));
+  } finally { await browser.close(); }
+}
+
 if (command === 'scan') await scan(rest);
+else if (command === 'byquestion') await byQuestion();
 else if (command === 'level') await level();
 else if (command === 'write') await write();
 else { console.log('Usage: scan <testId>... | write --test <id> --uid <uid> --attempt <id> --confirm <id>'); process.exitCode = 1; }

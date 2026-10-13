@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { serializeAttemptForm, essayFields, withEssayMark, changedNames, essayNames, toBody, rubricLaunch } from './attemptForm.js';
+import { serializeAttemptForm, serializeForm, essayFields, withEssayMark, changedNames, essayNames, toBody, rubricLaunch } from './attemptForm.js';
 
 // A synthetic attempt form in the observed shape (schoology-api-reference.md, "Saving an FRQ level and comment").
 const q = (qid, { points, override = 0, original = points, max = 1, score = '', comment = '' }) => `
@@ -77,5 +77,18 @@ describe('rubricLaunch', () => {
     const html = String.raw`<script>{"theme_js":{"a":{"template":"s_grades_rubric_grading_launch_btn","module":"gradingRubric","args":["36010096","3174490355","2128035490","x",1,1,"2247871023",4,false,false]}}}</script>`;
     expect(rubricLaunch(html, '2128035490')).toEqual({ rubricId: '36010096', enrollmentId: '3174490355' });
     expect(rubricLaunch(html, '1')).toBeNull();
+  });
+});
+
+describe('serializeForm (any Schoology form, e.g. grade by question)', () => {
+  test('the named form by its selector, in page order', () => {
+    const html = `<form id="s-assessment-view-question-responses-form" action="/assignment/900/assessment_results/question_stats/5/21">
+      <input type="hidden" name="students[701][submissions][5001][points]" value="3"><textarea name="students[701][submissions][5001][comment]">Hi</textarea>
+      <input type="submit" name="op" value="Save Changes"><input type="hidden" name="form_token" value="t"></form>`;
+    expect(serializeForm(html, '#s-assessment-view-question-responses-form')).toEqual({
+      action: '/assignment/900/assessment_results/question_stats/5/21',
+      pairs: [['students[701][submissions][5001][points]', '3'], ['students[701][submissions][5001][comment]', 'Hi'], ['op', 'Save Changes'], ['form_token', 't']],
+    });
+    expect(serializeForm(html, '#s-assessment-edit-submission-form')).toBeNull();
   });
 });

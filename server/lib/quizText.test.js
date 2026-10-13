@@ -1,6 +1,6 @@
 // server/lib/quizText.test.js
 import { describe, test, expect } from 'vitest';
-import { normalizeStem, optionLetter, parseUsDateTime, questionFingerprint, plainText } from './quizText.js';
+import { normalizeStem, optionLetter, parseUsDateTime, questionFingerprint, plainText, plainTextLines } from './quizText.js';
 
 describe('normalizeStem', () => {
   test('ignores tags, entities, case, spacing and the arrow', () => {
@@ -77,4 +77,9 @@ describe('plainText block handling', () => {
     expect(plainText('<p>First</p><p>Second</p>')).toBe('First Second');
     expect(plainText('<ul><li>one</li><li>two</li></ul>')).toBe('one two');
   });
+});
+
+test('plainTextLines keeps line breaks and collapses spaces within a line', () => {
+  expect(plainTextLines('<p>a)  first&nbsp;line</p><p>seconds &larr; 4<br>DISPLAY(x)</p><p></p><p></p>'))
+    .toBe('a) first line\nseconds ← 4\nDISPLAY(x)');
 });

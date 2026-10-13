@@ -19,6 +19,16 @@ export function plainText(html) {
   return parse(cleaned, { blockTextElements: {} }).text.replace(/\s+/g, ' ').trim();
 }
 
+// Like plainText, but keeps line breaks, because answers often hold code: each break or
+// block end is a newline, spaces collapse within a line, and blank lines collapse to one.
+const LINE_BREAKS = /<br\s*\/?>|<\/(p|div|li|pre|h[1-6]|tr)\s*>/gi;
+export function plainTextLines(html) {
+  const cleaned = String(html ?? '').replace(DROPPED_BLOCKS, ' ').replace(LINE_BREAKS, '\n');
+  return parse(cleaned, { blockTextElements: {} }).text
+    .split('\n').map(l => l.replace(/[ \t ]+/g, ' ').trim()).join('\n')
+    .replace(/\n{2,}/g, '\n').trim();
+}
+
 export function normalizeStem(html) {
   return plainText(html).toLowerCase().replace(/[^\p{L}\p{N}<>=+\-*/%!≠≤≥]+/gu, '');
 }

@@ -1275,3 +1275,10 @@ The /assessment/ card header holds one line of action pills (Flag for review, Re
 - **Statistics stay counts.** Facility bars, bands (Strong at 90% and above, Mixed at 70% and above, otherwise Divided), option counts with the key marked, and flags. No discrimination statistics, on purpose: a class-sized cohort cannot support them.
 - **The gradebook keeps a column per test,** because each member test still carries its own score. Only the course Assessments list folds them into one row with the chip.
 - **Read-only against Schoology.** Combining, linking and loading change nothing in Schoology; the setup modal says so before **Remove**.
+
+## Feedback rows on an unaligned task (2026-10-13)
+
+- **Layout:** the rubric grid first, labeled "Feedback rows: kept in Prism, not sent to Schoology"; the overall scale picker under it, labeled "Overall: {scale}, sent to Schoology". The grid is the aligned-task grid, unchanged.
+- **The rubric average:** staged on the overall picker by itself only while nothing is published, with the hint "Average of the rubric rows: {level}". A different pick turns the hint into the button "Use the rubric average ({level})". No override badge: one element carries the state.
+- **Insufficient Evidence:** stops the average; the hint asks the teacher to choose the overall level.
+- **Manage rubrics:** on an unaligned task the **Map criteria** tab is disabled, and an `.alert.alert-info` under the tab bar says "On an unaligned task, every criterion is a feedback row".

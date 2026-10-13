@@ -660,6 +660,7 @@ button.btn-sm { padding: 0.3rem 0.65rem; font-size: 0.78rem; }
    rubric rows (kept in Prism) and its overall level (sent to Schoology). */
 .feedback-rows-label,
 .feedback-rows-overall-label { color: var(--text-muted); font-size: 0.75rem; margin: 0.4rem 0; }
+.feedback-rows-average { margin-top: 0.4rem; font-size: 0.75rem; color: var(--text-muted); }
 
 /* ========================================================================
    MODAL

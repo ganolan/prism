@@ -5,6 +5,7 @@ import { draftBaseline } from '../lib/assessmentDraft.js';
 import { feedbackRowTopics, rowScores, rowTopicMapping, isRowKey, rowName } from '../lib/feedbackRows.js';
 import { makeDraftSaver } from '../lib/assessmentDraftSaver.js';
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
+import { rubricAverage } from '../lib/rubricAverage.js';
 import { studentFullName } from '../lib/studentNames.js';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import { LEVELS, LEVEL_LABELS, LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
@@ -330,11 +331,41 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   const commentDirty = comment !== syncedComment;
   const commentPublished = comment.trim() !== '' && !commentDirty;
 
+  // The rubric average of the effective rows (staged over final). Staged as the
+  // overall by itself only while nothing is published (spec 2026-10-13 §4). The
+  // automatic stage never turns the comment visible: only an explicit overall
+  // pick or a typed comment does.
+  const effectiveRows = {};
+  if (hasFeedbackRows) {
+    for (const t of topics) {
+      const v = (t.id in pending) ? pending[t.id] : student.scores?.[t.id]?.grade;
+      if (v && v !== REMOVE) effectiveRows[rowName(t.id)] = v;
+    }
+  }
+  const average = hasFeedbackRows ? rubricAverage(scoreScale, topics.map((t) => rowName(t.id)), effectiveRows) : { level: null, reason: null };
+  const autoScale = hasFeedbackRows && student.scale_level == null && pending[SCALE] == null ? average.level : null;
+  const stagedScale = scoreScale ? (pending[SCALE] ?? autoScale) : null;
+  const averageLabel = average.level ? scoreScale.levels.find((l) => l.code === average.level)?.label : null;
+  const currentOverall = pending[SCALE] ?? autoScale ?? student.scale_level ?? null;
+  // "Use the rubric average": drop a different pick (the average then stages by
+  // itself while nothing is published), or stage the average over a published level.
+  function useRubricAverage() {
+    flushNextRef.current = true;
+    setPending((p) => {
+      const n = { ...p };
+      if (average.level === student.scale_level || student.scale_level == null) delete n[SCALE];
+      else n[SCALE] = average.level;
+      return n;
+    });
+  }
+
   // Count every distinct unsaved change: each changed rubric topic, plus the
-  // comment edit, plus a manual display-to-student toggle. Drives the "N pending
-  // change(s)" badge so a visibility flip or comment edit is reflected too.
+  // comment edit, plus a manual display-to-student toggle, plus an overall the
+  // rubric average staged by itself. Drives the "N pending change(s)" badge so a
+  // visibility flip or comment edit is reflected too.
   const pendingCount = (
     Object.keys(pending).length +
+    (autoScale ? 1 : 0) +
     (commentDirty ? 1 : 0) +
     ((displayTouched && display !== loadedDisplay) ? 1 : 0)
   );
@@ -611,11 +642,24 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   const suggestedScale = scoreScale ? (feedbackRow?.feedback_parsed?.scale_level ?? null) : null;
   const suggestedScaleLabel = scoreScale?.levels.find(l => l.code === suggestedScale)?.label ?? null;
   const scaleEvidence = suggestedScale ? (feedbackRow?.feedback_parsed?.evidence ?? null) : null;
+  // Also stages the agent's row suggestions on a feedback-row task (each row
+  // not already staged and differing from its final).
   function acceptScaleSuggestion() {
-    if (!suggestedScaleLabel || isRubricLocked) return false;
-    if (suggestedScale === student.scale_level || pending[SCALE] != null) return false;
-    selectScaleLevel(suggestedScale);
-    return true;
+    if (isRubricLocked) return false;
+    let staged = false;
+    if (hasFeedbackRows) {
+      const updates = {};
+      for (const [topicId, level] of Object.entries(suggestedByTopic)) {
+        if (topicId in pending || student.scores?.[topicId]?.grade === level) continue;
+        updates[topicId] = level;
+      }
+      if (Object.keys(updates).length) { flushNextRef.current = true; setPending((p) => ({ ...p, ...updates })); staged = true; }
+    }
+    if (suggestedScaleLabel && suggestedScale !== student.scale_level && pending[SCALE] == null) {
+      selectScaleLevel(suggestedScale);
+      staged = true;
+    }
+    return staged;
   }
 
   // Revert all of this card's unsaved changes back to the synced Schoology
@@ -691,7 +735,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // nothing is unsaved. Same writes as handleSave, expressed as data for the
   // page to collapse into one request (#51).
   function buildSendEntry() {
-    const scaleCode = scoreScale ? (pending[SCALE] ?? null) : null;
+    const scaleCode = stagedScale;
     const hasScoreChanges = !scoreScale && Object.keys(pending).length > 0;
     const hasCommentChange = comment !== (student.grade_comment || '');
     const hasDisplayChange = display !== loadedDisplay;
@@ -766,7 +810,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     setSaving(true);
     setSaveResult(null);
     try {
-      const scaleCode = scoreScale ? (pending[SCALE] ?? null) : null;
+      const scaleCode = stagedScale;
       const hasScoreChanges = !scoreScale && Object.keys(pending).length > 0;
       const hasCommentChange = comment !== (student.grade_comment || '');
       const hasDisplayChange = display !== loadedDisplay;
@@ -1283,11 +1327,22 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             <ScaleLevelPicker
               scale={scoreScale}
               syncedCode={student.scale_level ?? null}
-              pendingCode={pending[SCALE] ?? null}
+              pendingCode={stagedScale}
               suggestedCode={suggestedScaleLabel ? suggestedScale : null}
               locked={isRubricLocked}
               onSelect={selectScaleLevel}
             />
+            {hasFeedbackRows && (
+              <div className="feedback-rows-average">
+                {average.reason === 'insufficient_evidence' && pending[SCALE] == null
+                  ? 'A row is Insufficient Evidence: choose the overall level'
+                  : average.level && currentOverall === average.level && student.scale_level == null
+                    ? `Average of the rubric rows: ${averageLabel}`
+                    : average.level && currentOverall !== average.level
+                      ? <button className="ghost accent" onClick={useRubricAverage}>{`Use the rubric average (${averageLabel})`}</button>
+                      : null}
+              </div>
+            )}
             {/* What the agent checked to suggest this level (teacher-facing). */}
             {suggestedScaleLabel && scaleEvidence && (
               <div style={{ marginTop: '0.4rem', fontSize: '0.75rem', color: 'var(--ai-suggest)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
@@ -2101,11 +2156,6 @@ export default function AssessmentSummaryPage() {
   const { assignment, topics, students } = data;
   const scoreScale = data.scoreScale || null;
   const bulkLevel = scoreScale?.bulkLevel ? scoreScale.levels.find(l => l.code === scoreScale.bulkLevel) : null;
-  // Agent scale suggestions still open: differ from the grade, on an unlocked student.
-  const openScaleSuggestions = scoreScale ? students.filter(s => {
-    const lv = feedbackByStudent[s.id]?.feedback_parsed?.scale_level;
-    return lv && lv !== s.scale_level && ![1, 2, 3].includes(s.exception);
-  }).length : 0;
   const hasAnalysis = Object.keys(feedbackByStudent).length > 0 || !!analysis;
 
   const alignedTopics = topics;
@@ -2118,6 +2168,19 @@ export default function AssessmentSummaryPage() {
     ? { ...rubricData.rubric, topicByCriterion: feedbackRowList ? rowTopicMapping(feedbackRowList) : rubricData.topicByCriterion }
     : null;
   const cardStudent = (s) => (feedbackRowList ? { ...s, scores: rowScores(s.row_levels) } : s);
+  // Agent suggestions still open, on an unlocked student: a scale level that
+  // differs from the grade, or (feedback rows) a row level that differs from
+  // the row's final.
+  const openScaleSuggestions = scoreScale ? students.filter(s => {
+    if ([1, 2, 3].includes(s.exception)) return false;
+    const parsed = feedbackByStudent[s.id]?.feedback_parsed;
+    const lv = parsed?.scale_level;
+    if (lv && lv !== s.scale_level) return true;
+    if (!feedbackRowList) return false;
+    const scores = cardStudent(s).scores;
+    return Object.entries(resolveRubricScores(parsed?.rubric_scores, cardTopics))
+      .some(([topicId, level]) => scores?.[topicId]?.grade !== level);
+  }).length : 0;
   const visibleStudents = students.filter(s => passesFilters(s, activeFilters, { assignment, topics: alignedTopics }));
 
   return (

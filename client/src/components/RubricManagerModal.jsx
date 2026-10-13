@@ -7,7 +7,9 @@ import {
 
 const fmtDate = (s) => (s ? new Date(s).toLocaleDateString('en-GB') : '');
 
-export default function RubricManagerModal({ open, onClose, courseId, assignmentId, topics, attachment, onChanged }) {
+// unaligned: a score-scale task, where an attached rubric's criteria are Prism-only
+// feedback rows (spec 2026-10-13), so there are no topics to map them to.
+export default function RubricManagerModal({ open, onClose, courseId, assignmentId, topics, attachment, onChanged, unaligned = false }) {
   const [tab, setTab] = useState('attach');
   const [rubrics, setRubrics] = useState([]);
   const [confirmId, setConfirmId] = useState(null);
@@ -38,7 +40,7 @@ export default function RubricManagerModal({ open, onClose, courseId, assignment
       await onChanged(); await refresh();
       const notes = [];
       if (info) notes.push(info);
-      if (unmatched?.length) {
+      if (unmatched?.length && !unaligned) {
         setTab('map');
         notes.push(`${unmatched.length} ${unmatched.length === 1 ? 'criterion' : 'criteria'} couldn’t be auto-matched, pick a topic below.`);
       }
@@ -95,11 +97,14 @@ export default function RubricManagerModal({ open, onClose, courseId, assignment
 
         <div role="tablist" style={{ display: 'flex', gap: '0.3rem', padding: '0.6rem 1rem 0' }}>
           <Tab id="attach" label="Attach" />
-          <Tab id="map" label="Map criteria" disabled={!hasAttachment} />
+          <Tab id="map" label="Map criteria" disabled={!hasAttachment || unaligned} />
           <Tab id="order" label="Row order" disabled={!hasAttachment} />
         </div>
 
         <div style={{ padding: '0.8rem 1rem' }}>
+          {unaligned && hasAttachment && (
+            <p className="alert alert-info">On an unaligned task, every criterion is a feedback row</p>
+          )}
           {msg && <p className="text-muted" style={{ fontSize: '0.75rem', marginTop: 6 }}>{msg}</p>}
           {tab === 'attach' && (
             <div>
@@ -145,7 +150,7 @@ export default function RubricManagerModal({ open, onClose, courseId, assignment
             </div>
           )}
 
-          {tab === 'map' && hasAttachment && (
+          {tab === 'map' && hasAttachment && !unaligned && (
             <MapTab attachment={attachment} topics={topics} onMap={doMap} />
           )}
 

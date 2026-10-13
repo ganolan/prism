@@ -163,4 +163,20 @@ describe('RubricManagerModal', () => {
     // switched to the Map tab — the criterion dropdown is visible
     expect(screen.getByLabelText('Topic for Code')).toBeInTheDocument();
   });
+
+  it('disables Map criteria on an unaligned task and states why', () => {
+    open({ attachment: { id: 1, rubric: { id: 7, name: 'Flappy', criteria: [] }, topicByCriterion: [] }, unaligned: true });
+    expect(screen.getByRole('tab', { name: 'Map criteria' })).toBeDisabled();
+    expect(screen.getByText('On an unaligned task, every criterion is a feedback row')).toBeInTheDocument();
+  });
+
+  it('stays on Attach after attaching on an unaligned task, even with unmatched criteria', async () => {
+    attachRubric.mockResolvedValueOnce({ unmatched: ['c2'] });
+    open({ attachment: ATTACHMENT, unaligned: true });
+    await screen.findByText('AIML U2');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Attach' })[0]);
+    await waitFor(() => expect(attachRubric).toHaveBeenCalled());
+    expect(screen.getByRole('tab', { name: 'Attach' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByText(/couldn’t be auto-matched/)).not.toBeInTheDocument();
+  });
 });

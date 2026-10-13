@@ -510,9 +510,12 @@ the teacher chooses, saving the mark that student should get anyway, with the te
 
 Only while `quiz_writeback` is on. The flag ships off; the teacher turns it on after the first real post
 looks right in Schoology.
-- **Post accepted to Schoology (n)** on the Free response tab posts the first waiting mark (by student
-  name) and shows its read-back: level, comment, posted or failed.
-- **Post the other n-1** then posts the rest, with a result line per student.
+- **Publish all to Schoology (n)** on the Free response tab publishes every accepted or edited mark on
+  every FRQ of the quiz (both copies) in one click, each read back, with a line per student: Published,
+  Failed with the reason, or Skipped. A mark that fails stays waiting, and the button returns for it. (The
+  first version posted one student first; the teacher dropped that step on 2026-10-13, because every write
+  is read back and feedback is usually hidden from students until the teacher releases it.)
+- The overall result is not part of it: the Result task publishes from the Grading tab as before.
 - The cards update from the read-back; a failed mark shows its error and stays in "Failed".
 
 The agent tools (`list_frq_writebacks`, `mark_frq_writeback`) stay as they are. No new MCP tool.
@@ -553,7 +556,7 @@ writer moves to that page; everything in §9 and §14 about safety stays.
   `comment` changed. The form holds only this question's fields, so MCQ points stay out of the request.
 - **Read-back:** the page once, and each posted student's rubric grade. Any other field that changed (another
   student, another field) stops the batch (`UNSAFE`).
-- **One first:** unchanged. A limit of 1 posts one student's mark through the same page.
+- **All at once:** the button publishes every waiting mark (§14). The route keeps `limit: 1` for agents.
 - **Half-written:** a student whose rubric was saved but whose form save failed is recorded as before
   ("The rubric level was saved in Schoology but the form was not: post it again").
 

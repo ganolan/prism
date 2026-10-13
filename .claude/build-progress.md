@@ -1095,6 +1095,9 @@ Graham asked whether Schoology's grade-by-question page is quicker. Plan:
   the rubric grade was 4, and a reload showed `posted`.
 - **Review fixes (fresh reviewer):** re-read before the save; every throw records each mark; honest
   messages; link by question id; tests for two FRQs and body names.
+- **Publish all (Graham, 2026-10-13):** the button became **Publish all to Schoology (n)**, one click for
+  every accepted mark on every FRQ; the one-first step was dropped (every write is read back, and feedback
+  is usually hidden from students until release).
 - **Deferred:** `byQuestionRubrics` regex edge cases (fail closed); the index is read per question;
   pagination of the by-question page above 18 takers is unobserved; a never-marked essay (`override` 0)
   through the PUT is unobserved (the form save covers it).

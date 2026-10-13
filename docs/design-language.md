@@ -1270,11 +1270,12 @@ The /assessment/ card header holds one line of action pills (Flag for review, Re
 - **A stale comment is flagged, not rewritten.** When the suggested comment no longer matches the numbers or the template, the line adds an amber "Numbers changed" badge and a small `.ghost.accent` **Update numbers** button. The update keeps the agent's impression and levels, so a comment the teacher already used comes back tagged Revised, as any revised suggestion does.
 - **The comment template lives in Quiz setup.** Shown only when the quiz is linked to its Result task: a five-row textarea under "Overall comment", with the placeholders named in one muted line above it. **Save template** (`.secondary`) is disabled until the text changes; **Reset to default** (`.ghost`) appears only for a saved template. A refused template shows its reason in the modal's existing warning alert. Saving keeps the modal open.
 
-## Posting marks to Schoology (October 2026, linked quizzes phase 4b)
+## Publishing FRQ marks to Schoology (October 2026, linked quizzes phase 4)
 
-- **One first, then the rest.** While `quiz_writeback` is on, the Free response bar shows **Post accepted to Schoology (n)** (`.primary`) in place of "n waiting for the agent". It posts the first waiting mark by student name and lists its read-back ("Posted: Name, Q21 Exhibiting" in `var(--success)`, or "Failed: Name, Q21: reason" in `var(--danger)`), with "Check it in Schoology before posting the rest." Then **Post the other n** (`.secondary`) posts the rest and adds a line for each. `PostMarksBar.jsx`.
-- **The count includes failed marks,** so a retry is the same button. A refused post (busy, expired session) shows in the bar's `.alert.alert-warning`.
-- **The cards reload after each post,** so their chips show Posted or Failed from the read-back.
+- **One button, the grading surfaces' verb.** While `quiz_writeback` is on, the Free response bar shows **Publish all to Schoology (n)** (`.primary`) in place of "n waiting for the agent", matching the Grading tab's **Publish all to Schoology**. It publishes every accepted mark on every FRQ of the quiz. Graham dropped the earlier "one student first" step (13 Oct 2026): every write is read back, and feedback is usually hidden from students until he releases it.
+- **A line per student** under the button: "Published: Name, Q21 Exhibiting" in `var(--success)`, "Failed: Name, Q21: reason" or "Skipped: Name, Q22: reason" in `var(--danger)`. A failed mark stays waiting, and the button returns with the new count. A refused publish (busy, expired session) shows in the bar's `.alert.alert-warning`. `PostMarksBar.jsx`.
+- **One muted warning:** "Close any grade-by-question page for this quiz in Schoology first: saving it later would undo these marks." Prism writes through that page's form, so a stale tab saved later sends its old values back.
+- **The cards reload after each publish,** so their chips show Posted or Failed from the read-back.
 
 ## Linked quizzes: what phase 1 keeps constant (October 2026)
 

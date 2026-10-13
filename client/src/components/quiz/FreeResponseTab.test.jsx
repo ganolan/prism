@@ -57,9 +57,9 @@ describe('FreeResponseTab', () => {
     getFeatures.mockResolvedValue({ quizzes: true, quiz_writeback: true });
     postFrqWritebacks.mockResolvedValue({ results: [{ student_id: 2, name: 'Ben Ho', question: 21, level: 'Exhibiting Depth', status: 'posted', error: null }], remaining: 0 });
     render(<FreeResponseTab groupId={7} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Post accepted to Schoology (1)' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Publish all to Schoology (1)' }));
     expect(screen.queryByText('1 waiting for the agent')).toBeNull();
-    expect(await screen.findByText('Posted: Ben Ho, Q21 Exhibiting Depth')).toBeInTheDocument();
+    expect(await screen.findByText('Published: Ben Ho, Q21 Exhibiting Depth')).toBeInTheDocument();
     expect(getFrqResponses).toHaveBeenCalledTimes(2);
   });
 
@@ -70,7 +70,7 @@ describe('FreeResponseTab', () => {
       students: [DATA.students[0], { ...DATA.students[1], responses: { ...DATA.students[1].responses, 22: { answer_html: 'Ben 22', schoology: null, mark: mark({ state: 'edited', final: { cells: { 146: 4, 147: 4 }, comment: 'c' }, writeback: { status: 'pending' } }) } } }] };
     getFrqResponses.mockResolvedValue(data);
     render(<FreeResponseTab groupId={7} />);
-    expect(await screen.findByRole('button', { name: 'Post accepted to Schoology (1)' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Publish all to Schoology (1)' })).toBeInTheDocument();
   });
 
   it('a saved card updates in place', async () => {

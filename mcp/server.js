@@ -305,10 +305,10 @@ export function createServer() {
   server.registerTool(
     'attach_rubric',
     {
-      description: "Attach a library rubric (by name) to an assignment, auto-matching its criteria to the assignment's measurement topics. Returns { attached_to, rubric, unmatched_criteria }: finish any unmatched criteria in Prism's Map-criteria tab.",
+      description: "Attach a library rubric (by name) to an assignment. On an aligned assignment its criteria are auto-matched to the measurement topics; returns { attached_to, rubric, unmatched_criteria }: finish any unmatched criteria in Prism's Map-criteria tab. On an unaligned assignment graded on a score scale (e.g. General Academic Scale (Unaligned)), every criterion becomes a feedback row: rows are marked in Prism and never sent to Schoology, and only the overall scale level is published. Returns { attached_to, rubric, mode: 'feedback_rows', score_scale, rows, hidden_row_levels } (hidden_row_levels counts stored row levels whose names are not rows of the new rubric).",
       inputSchema: {
         rubric_name: z.string().describe('Rubric name (as shown by list_rubrics)'),
-        assignment_id: z.union([z.number(), z.string()]).describe('Local Prism assignment id (from list_assignments)'),
+        assignment_id: z.union([z.number(), z.string()]).describe('Schoology or local assignment id'),
       },
     },
     async ({ rubric_name, assignment_id }) => ({ content: [{ type: 'text', text: JSON.stringify(attachRubricTool(getDb(), { rubric_name, assignment_id })) }] })

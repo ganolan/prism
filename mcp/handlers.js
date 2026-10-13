@@ -6,6 +6,7 @@
 import { listRubrics, getRubricByName, saveRubric, findRubricByContentHash } from '../server/services/rubricStore.js';
 import { hashRubricContent } from '../server/services/rubricHash.js';
 import { attachRubric } from '../server/services/rubricAttach.js';
+import { resolveAssignmentId } from '../server/services/idResolvers.js';
 import { LEVELS } from '../server/lib/proficiencyScale.js';
 import { normalizeSubmissionStatus, gradingState, getRoster, scoreScaleFor, getAlignedTopics } from '../server/services/assessmentContext.js';
 import { preferredFirstName } from '../server/services/studentNames.js';
@@ -231,18 +232,22 @@ export function writeRubric(db, { name, criteria, on_name_conflict = 'prompt' })
   return { name, match: 'created', criteria_count };
 }
 
-// Bind a library rubric (by name) to an assignment, auto-matching criteria to the
-// assignment's measurement topics (the same path the modal uses). Reports the
-// criteria that still need a topic so the agent can point the teacher at the
-// Map-criteria tab (there is no topic-mapping MCP tool).
+// Bind a library rubric (by name) to an assignment. On an aligned task the
+// criteria are auto-matched to measurement topics; unmatched ones are finished
+// in Prism's Map-criteria tab. On an unaligned score-scale task every criterion
+// becomes a feedback row (Prism-only; only the overall level is published).
 export function attachRubricTool(db, { rubric_name, assignment_id }) {
   const rubric = getRubricByName(db, rubric_name);
   if (!rubric) return { error: `rubric "${rubric_name}" not found` };
-  const asg = db.prepare(`SELECT schoology_assignment_id, course_id FROM assignments WHERE id = ?`).get(Number(assignment_id));
+  const localId = resolveAssignmentId(db, assignment_id);
+  const asg = localId ? db.prepare(`SELECT schoology_assignment_id, course_id FROM assignments WHERE id = ?`).get(localId) : null;
   if (!asg) return { error: `assignment ${assignment_id} not found` };
-  const { unmatched } = attachRubric(db, { rubricId: rubric.id, courseId: asg.course_id, assignmentId: asg.schoology_assignment_id });
+  const res = attachRubric(db, { rubricId: rubric.id, courseId: asg.course_id, assignmentId: asg.schoology_assignment_id });
+  if (res.mode === 'feedback_rows') {
+    return { attached_to: localId, rubric: rubric_name, mode: 'feedback_rows', score_scale: res.scaleName, rows: res.rows, hidden_row_levels: res.hiddenRowLevels };
+  }
   const nameById = Object.fromEntries(rubric.criteria.map((c) => [c.id, c.criterion_name]));
-  return { attached_to: Number(assignment_id), rubric: rubric_name, unmatched_criteria: unmatched.map((id) => nameById[id] ?? `<criterion id=${id}>`) };
+  return { attached_to: localId, rubric: rubric_name, unmatched_criteria: res.unmatched.map((id) => nameById[id] ?? `<criterion id=${id}>`) };
 }
 
 // ── Triage (late-work referral watch + feedback owed) ────────────────────────

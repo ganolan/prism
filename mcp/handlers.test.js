@@ -320,6 +320,31 @@ describe('attachRubricTool', () => {
     expect(res).toEqual({ attached_to: asgId, rubric: 'Design', unmatched_criteria: ['Code'] });
   });
 
+  test('accepts the Schoology assignment id as well as the local id', () => {
+    const db = getDb();
+    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s1','AIML')`).run().lastInsertRowid;
+    const asgId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, '8590105935', 'Project')`).run(courseId).lastInsertRowid;
+    saveRubric(db, { name: 'Design', source: 'csv', criteria: [
+      { position: 1, criterion_name: 'UI/UX', standard_title: 'Visual design', reporting_category: 'Produce', descriptors: { ED: 'a' } },
+    ] });
+    expect(attachRubricTool(db, { rubric_name: 'Design', assignment_id: '8590105935' }).attached_to).toBe(asgId);
+  });
+
+  test('on an unaligned GAS task it attaches feedback rows, not unmatched criteria', () => {
+    const db = getDb();
+    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s1','MGD')`).run().lastInsertRowid;
+    const asgId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, grading_scale_id) VALUES (?, 'sa-F', 'Flappy Bird (F)', '23495360')`).run(courseId).lastInsertRowid;
+    saveRubric(db, { name: 'Flappy', source: 'mcp', criteria: [
+      { position: 1, criterion_name: 'Features and Code', standard_title: 'Anchor Standard 5', reporting_category: 'PRODUCE', descriptors: { ED: 'a' } },
+      { position: 2, criterion_name: 'Playtesting', standard_title: 'Anchor Standard 3', reporting_category: 'CREATE', descriptors: { ED: 'b' } },
+    ] });
+    expect(attachRubricTool(db, { rubric_name: 'Flappy', assignment_id: 'sa-F' })).toEqual({
+      attached_to: asgId, rubric: 'Flappy', mode: 'feedback_rows',
+      score_scale: 'General Academic Scale (Unaligned)',
+      rows: ['Features and Code', 'Playtesting'], hidden_row_levels: 0,
+    });
+  });
+
   test('returns an error object when the rubric name is unknown', () => {
     const db = getDb();
     const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s1','AIML')`).run().lastInsertRowid;

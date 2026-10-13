@@ -1022,10 +1022,12 @@ the repo.
   `span.grading-rubric-grading-launch` (it carries `rubric-id`, `enrollment-id`, `item-id`). The same
   events on the outer `div.s-grades-rubric-grading-launch-btn` open nothing.
 - **Popup cells:** visible `td.rating-wrapper`, text `"<pts><Level>: <description>"`; the selected cell's
-  text starts with the screen-reader note `"This item is selected."`.
-- **The popup's Save (`button.submit-btn`) sends no request.** It only sets the question's
-  `rubric_score` field in the page (read back as 4).
-- **Save Changes sends exactly one request:** `POST` to the attempt page's own URL
+  text starts with the screen-reader note `"This item is selected."`. Source: the probe's own output
+  (the cell texts it read, and its selected-level check passing); no popup page was saved.
+- **The popup's Save (`button.submit-btn`)** sent nothing to the attempt or grades endpoints. One
+  `POST /usage/collect` (usage tracking) went before the form POST and could not be timed against it.
+  `rubric_score` was 4 before and after, so the probe does not show that the popup sets it.
+- **Save Changes sends exactly one non-GET request** (GETs, such as a redirect after it, were not recorded): `POST` to the attempt page's own URL
   (`/assignment/{testId}/assessment_results/student_stats/{uid}/{attemptId}`),
   `Content-Type: application/x-www-form-urlencoded`. Headers observed: `accept`, `content-type`,
   `cookie`, `origin`, `referer`, `sec-ch-ua*`, `upgrade-insecure-requests`, `user-agent`. **No CSRF
@@ -1033,21 +1035,32 @@ the repo.
   - `enrollment-selector-sa`: the attempt page's own path.
   - For **every** question: `components[0][{qid}][points]`, `[override]`, `[original_points]`,
     `[max_points]`, `[rubric_score]`, `[comment]`. Observed values: MCQs `override` 0, `rubric_score`
-    and `comment` empty, `original_points` 1 or 0 (the auto score); the essay `points` 4, `override` 1,
-    `original_points` 0, `max_points` 4, `rubric_score` 4, `comment` its text.
+    and `comment` empty, `original_points` equal to `points` (1 or 0, the auto score); the essay `points`
+    4, `override` 1, `original_points` 0, `max_points` 4, `rubric_score` 4, `comment` its text. The
+    essay's `override` was already 1 before the save (stored from the original grading).
+  - The posted values were identical to the loaded form's values: serializing the loaded form
+    reproduces the body. The form has `accept-charset="UTF-8"` and its `action` is the attempt path;
+    `enrollment-selector-sa` is a `<select>`.
   - `op` = `Save Changes`, `form_build_id`, `form_token`, `form_id` =
     `s_assessment_edit_submission_form` (Drupal's form tokens, taken from the loaded page).
+- **Drupal tokens:** `form_build_id` changes on every load; `form_token` stayed the same across loads in
+  one browser session and differed in another session.
 - **Read back from a fresh load:** every question's points, the essay's `rubric_score` and the comment
-  unchanged. The response status was not recorded. The "Your changes have been saved" text appears in
-  the page only inside translation strings, so the read-back is the confirmation.
+  unchanged. The post-save page was not captured (the probe's check read the page before the
+  navigation after Save Changes finished), so its status and any Drupal message were not seen. The
+  "Your changes have been saved" text is in every page inside translation strings, so it confirms
+  nothing; the fresh-load read-back is the only confirmation.
 - **Accepted risk:** the values did not change, but Schoology may have recorded a grading time.
-- **For a replay (phase 4b):** load the attempt page, take its form as it is (all fields, Drupal
-  tokens), change only the essay's `rubric_score`, `points` (and `override` 1) and `comment`, and post
-  it to the same URL. A same-value save cannot show that a changed value persists: the first real post
-  is the check.
-- **Not observed:** a multi-row rubric's fields (whether `rubric_score` alone carries a one-row
-  rubric's cell, or per-row values exist elsewhere), the response to the POST, and the
-  `rubric_grade_info` read after a change.
+- **For a replay (phase 4b):** load the attempt page, serialize its form as it is (all fields, Drupal
+  tokens), change only the essay's `rubric_score`, `points` and `comment`, and post it to the same URL.
+  **The only observed save re-sends every question's `points`, `override` and `original_points`,
+  MCQs included, unchanged.** A body with only the essay's fields was not tried. A same-value save
+  cannot show that a changed value persists: the first real post is the check.
+- **Launch span attributes:** besides `rubric-id`, `enrollment-id`, `item-id`, it carries
+  `submission-id`, `total-rubric-points`, `editable` and `is-component`.
+- **Not observed:** an essay with `override` 0 (never marked) and whether a replay must set it to 1;
+  a multi-row rubric's fields (whether `rubric_score` alone carries a one-row rubric's cell, or per-row
+  values exist elsewhere); the response to the POST; and the `rubric_grade_info` read after a change.
 
 **Consumed by Prism (phase 1, linked quizzes, 2026-10-13):** `server/services/quizLoader.js` reads the
 question list (on combine), the results page, each taker's `student_stats` page, the latest

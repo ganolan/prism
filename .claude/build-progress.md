@@ -1045,7 +1045,7 @@ overstates lateness). 12 archived 2023-25 CS sections were backfilled into prod 
 ## Linked quizzes, phase 4a: write probe (2026-10-13, branch `claude/angry-hopper-5c1f00`)
 
 Plan: `docs/superpowers/plans/2026-10-13-linked-quizzes-phase-4a-probe.md` (spec §14). Script:
-`scripts/probe-attempt-write.js` (`scan` read-only, `write` behind `--write` and `--confirm`), helpers in
+`scripts/probe-attempt-write.js` (`scan` read-only; the `write` subcommand needs `--confirm` equal to `--attempt`), helpers in
 `scripts/lib/attemptProbe.js`. Run it with `PRISM_SESSION_DIR` set to a dev clone's session (this worktree
 has none) and `OUT_DIR` outside the repo (`~/prism-probes/attempt-write`).
 
@@ -1057,8 +1057,9 @@ enabled points field. The only blocked request was Schoology's `POST /usage/coll
 
 **Stage B (same-value save, approved by Graham, 2026-10-13):** the first run stopped before any save
 (the launch selector hit the outer div; the selected cell has a screen-reader prefix); fixed, and the
-second run saved the stored level as it was. The popup's Save sends nothing; **Save Changes** sends one
-form `POST` to the attempt URL (the whole form, Drupal tokens, no CSRF header). Read-back unchanged.
+second run saved the stored level as it was. The popup's Save sent nothing to the attempt or grades
+endpoints; **Save Changes** sent one form `POST` to the attempt URL (the whole form, every question's
+points included, Drupal tokens, no CSRF header). Read-back unchanged; the post-save page was not seen.
 Details: `.claude/schoology-api-reference.md`, "Saving an FRQ level and comment". Capture on the mini in
 `~/prism-probes/attempt-write/` (holds student work; not in the repo).
 

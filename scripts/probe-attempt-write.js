@@ -3,7 +3,8 @@
 //   scan <testId>...   Stage A, read-only: every non-GET request is aborted. Finds an attempt whose
 //                      one-row rubric FRQ is marked, and reports whether its form is editable.
 //   write --test <testId> --uid <uid> --attempt <attemptId> --confirm <attemptId>
-//                      Stage B: the same level saved again, the comment unchanged, every non-GET
+//                      Stage B (refused unless --confirm equals --attempt): the stored level saved
+//                      again from the popup without clicking a cell, the comment unchanged, every non-GET
 //                      request recorded, the attempt read back. Only with Graham's approval.
 // Captures go to OUT_DIR, outside the repo (they hold student work).
 // Usage: OUT_DIR=<dir> [PRISM_SESSION_DIR=<dir>] node scripts/probe-attempt-write.js <command> ...

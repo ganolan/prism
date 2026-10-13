@@ -4,6 +4,7 @@ import { getDb } from '../db/index.js';
 import { postWritebacks, waitingMarks } from './quizWriteback.js';
 import { writeFrqSuggestions, setFrqMark, recordWriteback } from './frqMarks.js';
 import { posting } from './quizLocks.js';
+import { serializeForm, BYQ_FORM } from '../lib/attemptForm.js';
 import { QuizError } from './quizError.js';
 
 const RUBRIC = { id: '91', title: 'FRQ', rows: [{ id: '146', title: 'Content Knowledge', maxPoints: 4, levels: [
@@ -15,11 +16,14 @@ const RUBRIC = { id: '91', title: 'FRQ', rows: [{ id: '146', title: 'Content Kno
 // (qid -> number), the by-question index, and one class-wide page per question. The rubric PUT changes a
 // student's rubric grade (stage C); the page's form POST changes points, score and comment only.
 function fakeSchoology(subs, { questions = { 900: { 2001: 21 }, 901: { 3001: 21 } }, ignorePost = false, expireAfterPosts = Infinity, applyPoints = true,
-  gradeInfoStale = false, putStatus = 200, putError = null, mutateOther = false, maxPoints = 4, onPost = null, pageAttempt = {}, missingPage = false } = {}) {
+  gradeInfoStale = false, putStatus = 200, putError = null, mutateOther = false, maxPoints = 4, onPost = null, pageAttempt = {}, missingPage = false,
+  onPut = null, putThrowAt = 0, readBackThrows = false, onFirstGet = null, linkById = true } = {}) {
   const state = new Map(Object.entries(subs).map(([a, v]) => [a, { grade: v.score, ...v }]));
   const calls = [];
-  let posts = 0;
-  const pagePath = (sid, n) => `/assignment/${sid}/assessment_results/question_stats/77/${n}`;
+  let posts = 0, puts = 0, gets = 0;
+  // The real index links each question as question_stats/{question id}/{number} (stage D page).
+  const qidOf = (sid, n) => Object.entries(questions[sid] || {}).find(([, num]) => num === Number(n))?.[0];
+  const pagePath = (sid, n) => `/assignment/${sid}/assessment_results/question_stats/${linkById ? qidOf(sid, n) : 77}/${n}`;
   const onPage = (sid, n) => [...state.entries()].filter(([, v]) => v.member === sid && questions[sid]?.[v.qid] === Number(n));
   const shown = (a) => pageAttempt[a] ?? a;
   const render = (sid, n) => {
@@ -36,8 +40,11 @@ function fakeSchoology(subs, { questions = { 900: { 2001: 21 }, 901: { 3001: 21 
   const client = {
     get: vi.fn(async (path) => {
       calls.push(['GET', path]);
+      gets += 1;
+      if (gets === 1 && onFirstGet) onFirstGet();
       let m = path.match(/rubric_grade_info\/91\/(\d+)\/92\/(\d+)$/);
       if (m) {
+        if (readBackThrows && posts > 0) throw new QuizError('NO_SESSION', 'Schoology connection expired: reconnect in Settings');
         const v = state.get(m[2]);
         return { status: v ? 200 : 404, text: '', finalUrl: path, json: v ? { response_code: 200, body: { gradeInfo: { 146: { grade: String(v.grade ?? ''), comment: '' } } } } : null };
       }
@@ -48,7 +55,7 @@ function fakeSchoology(subs, { questions = { 900: { 2001: 21 }, 901: { 3001: 21 
       if ((m = path.match(/^\/assignment\/(\d+)\/assessment_results\/question_stats$/))) {
         return { status: 200, finalUrl: path, text: Object.values(questions[m[1]] || {}).map(n => `<a href="${pagePath(m[1], n)}">Q${n}</a>`).join('') };
       }
-      if ((m = path.match(/^\/assignment\/(\d+)\/assessment_results\/question_stats\/77\/(\d+)$/))) {
+      if ((m = path.match(/^\/assignment\/(\d+)\/assessment_results\/question_stats\/\d+\/(\d+)$/))) {
         if (missingPage) return { status: 404, text: '', finalUrl: path };
         return { status: 200, finalUrl: path, text: render(m[1], m[2]) };
       }
@@ -60,7 +67,7 @@ function fakeSchoology(subs, { questions = { 900: { 2001: 21 }, 901: { 3001: 21 
       if (posts > expireAfterPosts) throw new QuizError('NO_SESSION', 'Schoology connection expired: reconnect in Settings');
       if (onPost) onPost(path);
       if (ignorePost) return { status: 302, finalUrl: path };
-      const [, sid, n] = path.match(/^\/assignment\/(\d+)\/assessment_results\/question_stats\/77\/(\d+)$/);
+      const [, sid, n] = path.match(/^\/assignment\/(\d+)\/assessment_results\/question_stats\/\d+\/(\d+)$/);
       const p = new URLSearchParams(body);
       let tampered = false;
       for (const [a, v] of onPage(sid, n)) {
@@ -74,6 +81,9 @@ function fakeSchoology(subs, { questions = { 900: { 2001: 21 }, 901: { 3001: 21 
     }),
     putRubric: vi.fn(async (path, json) => {
       calls.push(['PUT', path, json]);
+      puts += 1;
+      if (putThrowAt && puts === putThrowAt) throw new QuizError('NO_SESSION', 'Schoology connection expired: reconnect in Settings');
+      if (onPut) onPut(state);
       if (putStatus !== 200) return { status: putStatus, error: putError };
       const a = path.match(/\/(\d+)$/)[1];
       if (!gradeInfoStale) state.set(a, { ...state.get(a), grade: String(json.gradeInfo['146'].grade) });
@@ -85,7 +95,8 @@ function fakeSchoology(subs, { questions = { 900: { 2001: 21 }, 901: { 3001: 21 
 }
 
 let db, g, std, ext, q, att;
-const page = (sid, n = 21) => `/assignment/${sid}/assessment_results/question_stats/77/${n}`;
+const QIDS = { 900: { 21: '2001', 22: '2002' }, 901: { 21: '3001', 5: '3001' } };
+const page = (sid, n = 21) => `/assignment/${sid}/assessment_results/question_stats/${QIDS[sid][n]}/${n}`;
 const gi = (qid, a) => `/iapi/grades/assessment_component_submission_rubric_grade_info/91/${qid}/92/${a}`;
 beforeEach(() => {
   db = getDb();
@@ -141,9 +152,9 @@ describe('postWritebacks (by question)', () => {
     const r = await run(f, 1);
     expect(r).toEqual({ results: [{ student_id: expect.any(Number), name: 'Ana Lee', question: 21, level: 'Exhibiting', status: 'posted', error: null }], remaining: 1 });
     expect(f.calls.map(c => c.slice(0, 2))).toEqual([
-      ['GET', '/assignment/900/assessment_questions'], ['GET', '/assignment/900/assessment_results/question_stats'], ['GET', page('900')],
+      ['GET', '/assignment/900/assessment_results/question_stats'], ['GET', page('900')],
       ['GET', gi('2001', '5001')], ['PUT', gi('2001', '5001')], ['GET', gi('2001', '5001')],
-      ['POST', page('900')], ['GET', page('900')], ['GET', gi('2001', '5001')],
+      ['GET', page('900')], ['POST', page('900')], ['GET', page('900')], ['GET', gi('2001', '5001')],
     ]);
     expect(f.calls.find(c => c[0] === 'PUT')[2]).toEqual({ gradeInfo: { 146: { grade: 3, comment: '' } }, overrideGrade: null, comment: 'New line one\nline two' });
     const body = postBody(f, '900');
@@ -227,7 +238,8 @@ describe('postWritebacks (by question)', () => {
 
   test('a second post while one runs is refused as busy', async () => {
     let release;
-    const slow = { get: vi.fn(() => new Promise(r => { release = () => r({ status: 404, text: '', finalUrl: '/' }); })), post: vi.fn(), putRubric: vi.fn(), close: vi.fn(async () => {}) };
+    const gate = new Promise(r => { release = r; });
+    const slow = { get: vi.fn(async () => { await gate; return { status: 404, text: '', finalUrl: '/' }; }), post: vi.fn(), putRubric: vi.fn(), close: vi.fn(async () => {}) };
     const first = postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => slow });
     await new Promise(r => setTimeout(r, 0));
     await expect(postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => slow })).rejects.toMatchObject({ code: 'BUSY' });
@@ -241,7 +253,11 @@ describe('postWritebacks (by question)', () => {
     expect(r.results[0]).toMatchObject({ status: 'failed', error: 'The question page did not load (HTTP 404)' });
   });
 
-  test('a question missing from the test\'s question list fails its students', async () => {
+  test('without a link by question id, the copy\'s own number finds the page; a question missing from both fails its students', async () => {
+    const byNumber = fakeSchoology(subsNow(), { linkById: false });
+    expect((await run(byNumber, 1)).results[0]).toMatchObject({ status: 'posted' });
+    expect(byNumber.calls.map(c => c[1])).toContain('/assignment/900/assessment_questions');
+    db.prepare(`UPDATE frq_marks SET writeback_status = 'pending' WHERE attempt_id = ?`).run(att['701']);
     const f = fakeSchoology(subsNow(), { questions: { 900: {}, 901: { 3001: 21 } } });
     const r = await run(f, 1);
     expect(r.results[0]).toMatchObject({ status: 'failed', error: 'The question was not found in this test' });
@@ -358,4 +374,60 @@ describe('postWritebacks (by question)', () => {
     subs[5001] = { ...subs[5001], points: '0', override: '0', score: '', grade: '', comment: '' };
     expect((await run(fakeSchoology(subs), 1)).results[0]).toMatchObject({ status: 'posted' });
   });
+
+  test('a hand edit in Schoology during the batch is never undone by the form save', async () => {
+    const f = fakeSchoology(subsNow(), { onPut: (state) => state.set('5003', { ...state.get('5003'), comment: 'Teacher typed this' }) });
+    const r = await run(f, 1);
+    expect(r.results[0]).toMatchObject({ status: 'failed', error: 'The rubric level was saved in Schoology but the form was not: the question page changed during the post, load the results again' });
+    expect(f.calls.some(c => c[0] === 'POST')).toBe(false);
+    expect(f.state.get('5003').comment).toBe('Teacher typed this');
+  });
+
+  test('the session expires on the second student\'s rubric save: the first is recorded half-written, the second as unknown', async () => {
+    acceptWu('Exhibiting');
+    const f = fakeSchoology(subsNow(), { putThrowAt: 2 });
+    await expect(run(f, null)).rejects.toMatchObject({ code: 'NO_SESSION' });
+    expect(mark('701')).toMatchObject({ writeback_status: 'failed', writeback_error: 'The rubric level was saved in Schoology but the form was not: post it again' });
+    expect(mark('703')).toMatchObject({ writeback_status: 'failed', writeback_error: 'The connection ended during this student\'s rubric save: load the results again, then post' });
+  });
+
+  test('the form saved but the read-back failed: recorded as unconfirmed, never left waiting', async () => {
+    acceptWu();
+    const f = fakeSchoology(subsNow(), { readBackThrows: true });
+    await expect(run(f, null)).rejects.toMatchObject({ code: 'NO_SESSION' });
+    for (const uid of ['701', '703']) expect(mark(uid)).toMatchObject({ writeback_status: 'failed', writeback_error: 'The form was saved but the read-back failed: check it in Schoology, then load the results again' });
+  });
+
+  test('a mark changed in Prism before its turn is reported as such and keeps its new text', async () => {
+    const f = fakeSchoology(subsNow(), { onFirstGet: () => setFrqMark(db, { groupId: g, attemptId: att['701'], position: 21, action: 'save', cells: { 146: 4 }, comment: 'Newer' }) });
+    const r = await run(f, 1);
+    expect(r.results[0]).toMatchObject({ status: 'failed', error: 'Changed in Prism before posting: post it again' });
+    expect(mark('701')).toMatchObject({ writeback_status: 'pending', final_comment: 'Newer' });
+  });
+
+  test('two FRQs on one test: one page and one form save each', async () => {
+    const q22 = db.prepare(`INSERT INTO quiz_questions (group_id, position, kind, stem_html, max_points, schoology_rubric_json) VALUES (?, 22, 'frq', 'E2', 4, ?)`).run(g, JSON.stringify(RUBRIC)).lastInsertRowid;
+    db.prepare(`INSERT INTO quiz_question_copies (question_id, assignment_id, schoology_question_id) VALUES (?, ?, '2002')`).run(q22, std);
+    db.prepare(`INSERT INTO quiz_responses (attempt_id, question_id, answer_html, points, schoology_rubric_cells_json, schoology_comment) VALUES (?, ?, 'a', 2, ?, 'Old')`).run(att['701'], q22, JSON.stringify({ 146: { points: 2, comment: '' } }));
+    writeFrqSuggestions(db, { groupId: g, position: 22, students: [{ student: '701', level: 'Emerging', comment: 'Q22' }] });
+    setFrqMark(db, { groupId: g, attemptId: att['701'], position: 22, action: 'accept' });
+    // The fake keeps one submission per attempt, so Q22's page has no row for Ana Lee: she is refused
+    // there, and the point is that the second question gets its own page.
+    const f = fakeSchoology(subsNow(), { questions: { 900: { 2001: 21, 2002: 22 }, 901: { 3001: 21 } } });
+    const r = await run(f, null);
+    expect(f.calls.filter(c => c[0] === 'GET' && /question_stats\/\d+\/\d+$/.test(c[1])).map(c => c[1])).toContain(page('900', 21));
+    expect(r.results.find(x => x.question === 22)).toMatchObject({ status: 'failed', error: 'The attempt on the question page is not the one Prism loaded: load the results again' });
+    expect(f.calls.some(c => c[1] === page('900', 22))).toBe(true);
+  });
+
+  test('every name the form save changes belongs to a posted student', async () => {
+    acceptWu();
+    const f = fakeSchoology(subsNow());
+    await run(f, null);
+    const posted = f.calls.find(c => c[0] === 'POST' && c[1] === page('900'))[2];
+    const before = [...new URLSearchParams(posted)].map(([k]) => k);
+    const loaded = serializeForm((await f.client.get(page('900'))).text, BYQ_FORM);
+    expect(loaded.pairs.map(([k]) => k)).toEqual(before);
+  });
 });
+

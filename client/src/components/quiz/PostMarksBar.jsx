@@ -29,7 +29,11 @@ export default function PostMarksBar({ groupId, count, onPosted }) {
   return (
     <div className="post-marks">
       {!results && (
-        <button className="primary" disabled={busy} onClick={() => post(1)}>{`Post accepted to Schoology (${count})`}</button>
+        <>
+          <button className="primary" disabled={busy} onClick={() => post(1)}>{`Post accepted to Schoology (${count})`}</button>
+          {/* Prism saves through the question's grade-by-question form (spec §15): that page, left open and saved later, sends its old values back. */}
+          <p className="text-sm text-muted">Close any grade-by-question page for this quiz in Schoology first: saving it later would undo these marks.</p>
+        </>
       )}
       {results && (
         <>

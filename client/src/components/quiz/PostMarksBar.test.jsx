@@ -54,6 +54,11 @@ describe('PostMarksBar', () => {
     expect(await screen.findByText('Schoology connection expired: reconnect in Settings')).toBeInTheDocument();
   });
 
+  it('before the first post, it warns that an open grade-by-question tab in Schoology would undo the marks', () => {
+    render(<PostMarksBar groupId={7} count={2} onPosted={vi.fn()} />);
+    expect(screen.getByText('Close any grade-by-question page for this quiz in Schoology first: saving it later would undo these marks.')).toBeInTheDocument();
+  });
+
   it('renders nothing with no marks to post', () => {
     const { container } = render(<PostMarksBar groupId={7} count={0} onPosted={vi.fn()} />);
     expect(container.innerHTML).toBe('');

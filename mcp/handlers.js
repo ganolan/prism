@@ -8,6 +8,7 @@ import { hashRubricContent } from '../server/services/rubricHash.js';
 import { attachRubric } from '../server/services/rubricAttach.js';
 import { resolveAssignmentId } from '../server/services/idResolvers.js';
 import { LEVELS } from '../server/lib/proficiencyScale.js';
+import { getFeedbackRows } from '../server/services/feedbackRows.js';
 import { normalizeSubmissionStatus, gradingState, getRoster, scoreScaleFor, getAlignedTopics } from '../server/services/assessmentContext.js';
 import { preferredFirstName } from '../server/services/studentNames.js';
 import { findStudents, getStudentHistory } from '../server/services/studentHistory.js';
@@ -124,21 +125,26 @@ export function listAssignments(db, { course_id }) {
     WHERE a.course_id = ? AND a.removed_at IS NULL
     ORDER BY a.due_date, a.id
   `).all(Number(course_id));
-  return rows.map(({ latest_submitted_at, course_id: _c, is_lti_submission, grading_scale_id, ...r }) => ({
-    ...r,
-    has_aligned_topics: !!r.has_aligned_topics,
-    // Scale an unaligned assignment is graded on (#41) — grade those by
-    // write_student_suggestions `scale_level`. null for rubric/other assignments.
-    score_scale: scoreScaleFor({ grading_scale_id }, r.has_aligned_topics ? 1 : 0)?.name ?? null,
-    // submitted_at/latest_revision_at are Unix-seconds epochs (0 = never submitted).
-    // Native: submitted_at (the REST grade time) is the submission signal. LTI:
-    // submitted_at is the REST grade time, not the submission — the grader's
-    // submission time lives in latest_revision_at (triage resubmissions,
-    // 2026-10-03), so the query above reads that column for LTI assignments.
-    // Surface the latest as an ISO string, null when nobody has submitted.
-    latest_submission_at: latest_submitted_at > 0 ? new Date(latest_submitted_at * 1000).toISOString() : null,
-    ...assignmentCounts(db, { id: r.id, schoology_assignment_id: r.schoology_assignment_id, course_id: _c, is_lti_submission }),
-  }));
+  return rows.map(({ latest_submitted_at, course_id: _c, is_lti_submission, grading_scale_id, ...r }) => {
+    const scale = scoreScaleFor({ grading_scale_id }, r.has_aligned_topics ? 1 : 0);
+    return {
+      ...r,
+      has_aligned_topics: !!r.has_aligned_topics,
+      // Scale an unaligned assignment is graded on (#41) — grade those by
+      // write_student_suggestions `scale_level`. null for rubric/other assignments.
+      score_scale: scale?.name ?? null,
+      // The rubric attached as feedback rows (spec 2026-10-13), or null.
+      feedback_rubric: getFeedbackRows(db, r.schoology_assignment_id, scale)?.rubric?.name ?? null,
+      // submitted_at/latest_revision_at are Unix-seconds epochs (0 = never submitted).
+      // Native: submitted_at (the REST grade time) is the submission signal. LTI:
+      // submitted_at is the REST grade time, not the submission — the grader's
+      // submission time lives in latest_revision_at (triage resubmissions,
+      // 2026-10-03), so the query above reads that column for LTI assignments.
+      // Surface the latest as an ISO string, null when nobody has submitted.
+      latest_submission_at: latest_submitted_at > 0 ? new Date(latest_submitted_at * 1000).toISOString() : null,
+      ...assignmentCounts(db, { id: r.id, schoology_assignment_id: r.schoology_assignment_id, course_id: _c, is_lti_submission }),
+    };
+  });
 }
 
 // Course roster (current, non-dropped enrolments), independent of any

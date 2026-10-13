@@ -12,6 +12,8 @@ import { resolveAssignmentId } from './idResolvers.js';
 import { preferredFirstName } from './studentNames.js';
 import { resubmissionByStudent } from './resubmissions.js';
 import { teacherText } from '../lib/statusLines.js';
+import { getFeedbackRows, getRowLevels, ROW_PREFIX } from './feedbackRows.js';
+import { rubricAverage } from '../lib/rubricAverage.js';
 import { timelineContext, agentTimeline } from './submissionTimeline.js';
 
 // Epoch-seconds → ISO string (null when 0/missing). Mirrors the list_assignments
@@ -186,21 +188,43 @@ export function getAssessmentDrafts(db, assignmentLocalId) {
   return byStudent;
 }
 
-// Project a stored draft into the agent-facing shape: separate real level picks
-// (rubric_scores) from staged removals (the '__remove__' sentinel → removed_topics).
-function buildDraftFeedback(draft) {
+// Project a stored draft into the agent-facing shape. Topic picks go to
+// rubric_scores and staged removals to removed_topics; feedback-row picks
+// ('row:<criterion>') to row_levels / removed_rows; the overall pick
+// ('__scale__') to scale_level. With feedback rows and no published overall,
+// the rubric average of the effective rows (staged over finals) is the
+// overall the teacher would publish: scale_level_source 'rubric_average'.
+function buildDraftFeedback(draft, { scoreScale = null, rowNames = [], finals = {}, publishedLevel = null } = {}) {
   const pending = draft.pending || {};
   const rubric_scores = {};
   const removed_topics = [];
-  for (const [topicId, level] of Object.entries(pending)) {
-    if (level === '__remove__') removed_topics.push(topicId);
-    else rubric_scores[topicId] = level;
+  const row_levels = {};
+  const removed_rows = [];
+  let pick = null;
+  for (const [key, level] of Object.entries(pending)) {
+    if (key === '__scale__') { pick = level; continue; }
+    if (key.startsWith(ROW_PREFIX)) {
+      const name = key.slice(ROW_PREFIX.length);
+      if (level === '__remove__') removed_rows.push(name); else row_levels[name] = level;
+      continue;
+    }
+    if (level === '__remove__') removed_topics.push(key);
+    else rubric_scores[key] = level;
+  }
+  let scale_level = pick;
+  let scale_level_source = pick ? 'teacher' : null;
+  if (!pick && scoreScale && rowNames.length && publishedLevel == null) {
+    const effective = { ...finals, ...row_levels };
+    for (const n of removed_rows) delete effective[n];
+    const avg = rubricAverage(scoreScale, rowNames, effective);
+    if (avg.level) { scale_level = avg.level; scale_level_source = 'rubric_average'; }
   }
   // displayTouched and base are UI-only draft state; intentionally omitted here.
   return {
     updated_at: draft.updated_at ?? null,
     rubric_scores,
     removed_topics,
+    ...(scoreScale ? { row_levels, removed_rows, scale_level, scale_level_source } : {}),
     comment: draft.comment ?? '',
     display_to_student: Boolean(draft.display),
   };
@@ -227,6 +251,9 @@ export function getAssessmentContext(db, { assignmentId }) {
 
   const topics = getAlignedTopics(db, courseId, schoolyId);
   const scoreScale = scoreScaleFor(assignmentRow, topics.length);
+  const feedbackRows = getFeedbackRows(db, schoolyId, scoreScale);
+  const rowNames = (feedbackRows?.rows ?? []).map((r) => r.criterion);
+  const rowLevelsByUid = feedbackRows ? getRowLevels(db, schoolyId) : {};
   const roster = getRoster(db, courseId, assignmentRow);
   const scoreMap = getScoreMap(db, schoolyId, topics.map((t) => t.id));
   const suggestions = getExistingSuggestions(db, assignmentRow.id);
@@ -273,6 +300,10 @@ export function getAssessmentContext(db, { assignmentId }) {
       current_scores: currentScores,
       // Level on the assignment's score scale (#41), read from the stored score; null when not a scale assignment or ungraded.
       current_scale_level: scoreScale ? levelForScore(scoreScale, meta.score) : null,
+      ...(scoreScale ? {
+        // The teacher's published row levels (feedback rows): Prism-only, for the rows of the attached rubric.
+        current_row_levels: Object.fromEntries(Object.entries(rowLevelsByUid[st.schoology_uid] || {}).filter(([n]) => rowNames.includes(n))),
+      } : {}),
       grade_comment: meta.grade_comment || '',
       display_to_student: (meta.comment_status ?? null) === 1,
       exception: meta.exception ?? 0,
@@ -319,7 +350,11 @@ export function getAssessmentContext(db, { assignmentId }) {
             evidence: sug.feedback_parsed.evidence ?? null,
           }
         : null,
-      draft_feedback: draft ? buildDraftFeedback(draft) : null,
+      draft_feedback: draft ? buildDraftFeedback(draft, {
+        scoreScale, rowNames,
+        finals: rowLevelsByUid[st.schoology_uid] || {},
+        publishedLevel: scoreScale ? levelForScore(scoreScale, meta.score) : null,
+      }) : null,
     };
   });
 
@@ -336,6 +371,9 @@ export function getAssessmentContext(db, { assignmentId }) {
     score_scale: scoreScale
       ? { name: scoreScale.name, levels: scoreScale.levels.map(l => ({ code: l.code, label: l.label })) }
       : null,
+    // Feedback rows (spec 2026-10-13): the attached rubric's criteria, marked in
+    // Prism only. null on a score-scale task with no rubric; absent when aligned.
+    ...(scoreScale ? { rubric: feedbackRows.rubric ? { name: feedbackRows.rubric.name, rows: feedbackRows.rows } : null } : {}),
     topics: topics.map((t) => ({
       id: t.id,
       external_id: t.external_id,

@@ -984,3 +984,17 @@ describe('quiz tools', () => {
     expect(getQuizResultsTool(getDb(), { group_id: g }).students[0].overall).toMatchObject({ impression: 'Part (b) needs the term abstraction.', stale: false });
   });
 });
+
+describe('listAssignments feedback_rubric', () => {
+  test('names the rubric attached to an unaligned task, null otherwise', () => {
+    const db = getDb();
+    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s1','MGD')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, grading_scale_id) VALUES (?, 'sa-F', 'Flappy (F)', '23495360')`).run(courseId);
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, grading_scale_id) VALUES (?, 'sa-G', 'Plain (F)', '23495360')`).run(courseId);
+    const rubricId = saveRubric(db, { name: 'Flappy', source: 'mcp', criteria: [{ position: 1, criterion_name: 'Playtesting' }] });
+    db.prepare(`INSERT INTO rubric_attachments (rubric_id, assignment_schoology_id, course_id, created_at) VALUES (?, 'sa-F', ?, 'now')`).run(rubricId, courseId);
+    const byId = Object.fromEntries(listAssignments(db, { course_id: courseId }).map(a => [a.schoology_assignment_id, a]));
+    expect(byId['sa-F'].feedback_rubric).toBe('Flappy');
+    expect(byId['sa-G'].feedback_rubric).toBeNull();
+  });
+});

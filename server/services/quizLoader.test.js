@@ -65,6 +65,17 @@ describe('loadGroup', () => {
     expect(db.prepare('SELECT loaded_at FROM quiz_groups WHERE id = ?').get(groupId).loaded_at).toBeTruthy();
   });
 
+  test('a mark Schoology now shows becomes posted on the next load (marksPosted)', async () => {
+    await loadGroup(db, { groupId }, { openPage: fakeOpenPage(happyPages()).openPage, pauseMs: 0 });
+    const attempt = db.prepare('SELECT id FROM quiz_attempts WHERE student_id = ?').get(studentA).id;
+    const q = db.prepare(`SELECT id FROM quiz_questions WHERE group_id = ? AND kind = 'frq'`).get(groupId).id;
+    db.prepare(`INSERT INTO frq_marks (attempt_id, question_id, final_cells_json, final_comment, state, writeback_status)
+      VALUES (?, ?, '{"146012384":2}', 'Good start on part (a).', 'accepted', 'pending')`).run(attempt, q);
+    const r = await loadGroup(db, { groupId }, { openPage: fakeOpenPage(happyPages()).openPage, pauseMs: 0 });
+    expect(r.marksPosted).toBe(1);
+    expect(db.prepare('SELECT writeback_status FROM frq_marks').get().writeback_status).toBe('posted');
+  });
+
   test('the counted attempt is the one that started latest, even when listed first', async () => {
     const pages = happyPages();
     const stats = fx('student-stats.html');

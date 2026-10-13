@@ -12,6 +12,7 @@ import { parseQuizResults, parseStudentStats } from '../lib/parseQuizResults.js'
 import { parseQuizAttempt } from '../lib/parseQuizAttempt.js';
 import { parseQuizRubric, parseRubricGradeInfo } from '../lib/parseQuizRubric.js';
 import { storeAttempt, removeAttempts, pruneOlderDuplicates, finishLoad } from './quizStore.js';
+import { reconcileMarks } from './frqMarks.js';
 
 const FETCH_TIMEOUT_MS = 30000;
 const loading = new Set();
@@ -90,7 +91,7 @@ export async function loadGroup(db, { groupId }, { openPage = () => sessionDeps.
   const group = getGroup(db, groupId);
   if (loading.has(group.id)) throw new QuizError('BUSY', 'This quiz is already loading');
   loading.add(group.id);
-  const summary = { attempts: 0, notTaken: 0, failed: [], unknownUids: [], mismatches: [], multipleAttempts: [], removed: 0 };
+  const summary = { attempts: 0, notTaken: 0, failed: [], unknownUids: [], mismatches: [], multipleAttempts: [], removed: 0, marksPosted: 0 };
   const rubrics = {};
   let reader;
   try {
@@ -151,6 +152,8 @@ export async function loadGroup(db, { groupId }, { openPage = () => sessionDeps.
       }
     }
     pruneOlderDuplicates(db, { groupId: group.id });
+    // A mark posted in Schoology (by an agent or by hand) shows in the copy just stored.
+    summary.marksPosted = reconcileMarks(db, { groupId: group.id }).posted;
     summary.attempts = db.prepare('SELECT COUNT(*) n FROM quiz_attempts WHERE group_id = ?').get(group.id).n;
     finishLoad(db, { groupId: group.id, summary, mismatches: summary.mismatches });
     return summary;

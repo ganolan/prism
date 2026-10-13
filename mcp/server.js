@@ -203,7 +203,7 @@ export function createServer() {
         question: z.number().describe('FRQ question number'),
         students: z.array(z.object({
           student: z.union([z.number(), z.string()]).describe('schoology_uid or local student id'),
-          cells: z.record(z.string(), z.string()).optional().describe('{ rubric row title or id: level name }'),
+          cells: z.record(z.string(), z.union([z.string(), z.number()])).optional().describe('{ rubric row title or id: level name }'),
           level: z.string().optional().describe('Level name, for a one-row rubric'),
           points: z.number().optional().describe('Points, for an FRQ without a rubric'),
           comment: z.string().describe('Student-facing feedback on this answer'),
@@ -225,7 +225,7 @@ export function createServer() {
   server.registerTool(
     'mark_frq_writeback',
     {
-      description: 'Record that an accepted FRQ mark was entered in Schoology (status posted), or that entering it failed (status failed, with error). Only for a mark listed by list_frq_writebacks.',
+      description: 'Record that an accepted FRQ mark was entered in Schoology (status posted), or that entering it failed (status failed, with error). Only for a mark listed by list_frq_writebacks. Refused for a mark that is not waiting to post or failed.',
       inputSchema: {
         group_id: z.union([z.number(), z.string()]).describe('Quiz group id from list_quiz_groups'),
         student: z.union([z.number(), z.string()]).describe('schoology_uid or local student id'),

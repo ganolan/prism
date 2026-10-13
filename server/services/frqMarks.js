@@ -201,6 +201,9 @@ export function recordWriteback(db, { groupId, student, position, status, error 
   if (found.error) throw new QuizError('NOT_FOUND', found.error);
   const row = markRow(db, found.attemptId, q.id);
   if (!row?.final_cells_json) throw new QuizError('NOT_ELIGIBLE', 'This answer has no accepted mark to post');
+  if (!['pending', 'failed'].includes(row.writeback_status)) {
+    throw new QuizError('NOT_ELIGIBLE', `Only a mark waiting to post or failed can be recorded (this one is ${row.writeback_status})`);
+  }
   if (status === 'posted') {
     db.prepare(`UPDATE frq_marks SET writeback_status = 'posted', writeback_at = datetime('now'), writeback_error = NULL,
         posted_cells_json = final_cells_json, posted_comment = final_comment, updated_at = datetime('now')

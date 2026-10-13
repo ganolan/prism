@@ -20,6 +20,8 @@ async function connect() {
 
 beforeEach(() => {
   getDb().exec(
+    'DELETE FROM frq_marks; DELETE FROM quiz_responses; DELETE FROM quiz_attempts; DELETE FROM quiz_question_copies; ' +
+    'DELETE FROM quiz_questions; DELETE FROM quiz_group_members; DELETE FROM quiz_groups; ' +
     'DELETE FROM referrals; DELETE FROM extensions; DELETE FROM resubmissions; DELETE FROM school_days; ' +
     'DELETE FROM rubric_attachment_topics; DELETE FROM rubric_attachments; ' +
     'DELETE FROM rubric_descriptors; DELETE FROM rubric_criteria; DELETE FROM rubrics; ' +
@@ -489,5 +491,35 @@ describe('PrisMCP status lines (Amendment B)', () => {
     const res = await client.callTool({ name: 'set_question_tags', arguments: { group_id: 999999, tags: { 1: ['X'] } } });
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toMatch(/^NOT_FOUND: /);
+  });
+});
+
+describe('PrisMCP quiz tools', () => {
+  const RUBRIC = { id: 'r1', title: 'FRQ', totalPoints: 4, rows: [{ id: '146', title: 'Content Knowledge', maxPoints: 4, levels: [
+    { points: 4, name: 'Exhibiting Depth', descriptionHtml: 'Exhibiting Depth: all' }, { points: 2, name: 'Developing', descriptionHtml: 'Developing: some' }] }] };
+  let g;
+  beforeEach(() => {
+    const db = getDb();
+    const c = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('8458134135', 'AP CSP')`).run().lastInsertRowid;
+    const t = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, is_test) VALUES (?, '900', 'Ep 1', 1)`).run(c).lastInsertRowid;
+    g = db.prepare(`INSERT INTO quiz_groups (course_id, title) VALUES (?, 'Ep 1')`).run(c).lastInsertRowid;
+    db.prepare('INSERT INTO quiz_group_members (group_id, assignment_id) VALUES (?, ?)').run(g, t);
+    const q = db.prepare(`INSERT INTO quiz_questions (group_id, position, kind, stem_html, max_points, schoology_rubric_json) VALUES (?, 21, 'frq', 'Explain', 4, ?)`).run(g, JSON.stringify(RUBRIC)).lastInsertRowid;
+    for (const [uid, last] of [['701', 'Lee'], ['702', 'Ng']]) {
+      const s = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES (?, 'Ana', ?)`).run(uid, last).lastInsertRowid;
+      const a = db.prepare(`INSERT INTO quiz_attempts (group_id, assignment_id, student_id, schoology_attempt_id, fetched_at) VALUES (?, ?, ?, ?, 'now')`).run(g, t, s, `5${uid}`).lastInsertRowid;
+      db.prepare('INSERT INTO quiz_responses (attempt_id, question_id, answer_html) VALUES (?, ?, ?)').run(a, q, '<p>a</p>');
+    }
+  });
+
+  test('write_frq_suggestions: a numeric level fails that student only', async () => {
+    const client = await connect();
+    const res = await client.callTool({ name: 'write_frq_suggestions', arguments: { group_id: g, question: 21, students: [
+      { student: '701', cells: { 146: 3 }, comment: 'x' },
+      { student: '702', level: 'Developing', comment: 'y' },
+    ] } });
+    const body = JSON.parse(res.content[0].text);
+    expect(body.written).toBe(1);
+    expect(body.results[0]).toMatchObject({ status: 'error', message: expect.stringMatching(/unknown level 3/) });
   });
 });

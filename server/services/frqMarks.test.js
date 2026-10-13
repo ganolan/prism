@@ -175,3 +175,16 @@ describe('teacher actions and write-back', () => {
     expect(v.final.cells).toEqual({ points: 4 });
   });
 });
+
+describe('recordWriteback guard', () => {
+  test('recordWriteback refuses a mark that is not waiting or failed', () => {
+    writeFrqSuggestions(db, { groupId: g, position: 21, students: [{ student: 'u1', level: 'Developing', comment: 'x' }] });
+    setFrqMark(db, { groupId: g, attemptId: a1, position: 21, action: 'accept' });
+    recordWriteback(db, { groupId: g, student: 'u1', position: 21, status: 'posted' });
+    // The teacher then changes it in Schoology; a second "posted" must not overwrite posted_*.
+    setSchoology(a1, 3, 'hand edit');
+    expect(() => recordWriteback(db, { groupId: g, student: 'u1', position: 21, status: 'posted' }))
+      .toThrow(/only a mark waiting to post or failed/i);
+    expect(cellsOf(mark(a1).posted_cells_json)).toEqual({ 146: 2 });
+  });
+});

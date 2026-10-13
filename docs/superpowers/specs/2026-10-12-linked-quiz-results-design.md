@@ -1,6 +1,6 @@
 # Linked quizzes: question stats, free-response marking and the overall result
 
-Status: **design agreed with the teacher (2026-10-12). Phase 1 and 1b on main (2026-10-13); phase 2 built on the branch (§12).** The read-only probe in §2 ran
+Status: **design agreed with the teacher (2026-10-12). Phase 1 and 1b on main (2026-10-13); phase 2 on main (§12); phase 3 agreed 2026-10-13 (§13).** The read-only probe in §2 ran
 on 12 October 2026, and every page shape in this document comes from it.
 
 ## Goal
@@ -93,7 +93,7 @@ New tables, all `CREATE TABLE IF NOT EXISTS` in `server/db/schema.sql`. No exist
 
 | Table | Columns |
 |---|---|
-| `quiz_groups` | `id`, `course_id`, `title`, `result_assignment_id` (nullable, unique), `comment_template`, `parity_status`, `parity_detail_json`, `loaded_at`, timestamps |
+| `quiz_groups` | `id`, `course_id`, `title`, `result_assignment_id` (nullable, unique), `comment_template` (phase 3, §13), `parity_status`, `parity_detail_json`, `loaded_at`, timestamps |
 | `quiz_group_members` | `group_id`, `assignment_id` (unique) |
 | `quiz_questions` | `id`, `group_id`, `position`, `kind` (`mcq`, `frq`, `other`), `stem_html`, `options_json` (`[{letter, html, is_key}]`), `max_points`, `schoology_rubric_json` (FRQ), `tags_json` |
 | `quiz_question_copies` | `question_id`, `assignment_id`, `schoology_question_id` |
@@ -339,3 +339,112 @@ route stays as the fallback for when Prism is down; nothing in it is deleted.
   it renders).
 - **Schema test:** the table list gains `frq_marks`.
 
+## 13. Phase 3 design (agreed with the teacher, 2026-10-13)
+
+The overall result is an ordinary suggestion on the linked result task, so that task grades like every
+other task in Prism. Prism builds its comment from the group's template and the stored data; the agent
+writes only the levels and the impression.
+
+### Phase 2 follow-ups first
+
+- **`write_frq_suggestions`:** a number in `cells` fails that student only (`z.union([z.string(),
+  z.number()])`; `resolveCells` refuses it).
+- **`mark_frq_writeback`:** refuses a mark whose write-back is not `pending` or `failed`.
+- **`sanitizeHtml.js`:** `ALLOW_DATA_ATTR: false` and `ALLOW_ARIA_ATTR: false`, so the comment is true.
+- **Stem images:** a stem sanitizer (`sanitizeStemHtml`) keeps `img` with an `http(s)` `src` and `alt`,
+  for the Free response tab.
+- **Left in the hand-off list:** an ungraded FRQ without a rubric (a fix needs a live example to test against).
+
+### Confirmed FRQ marks
+
+For each student and FRQ, the mark the overall result uses:
+- **Prism `accepted` or `edited`:** the final mark (source `prism`).
+- **No Prism mark, Schoology marked:** the stored Schoology mark (source `schoology`).
+- **Prism `suggested`:** not confirmed, "Q21 to review".
+- **No mark anywhere:** not confirmed, "Q21 not marked".
+
+A student is **ready** when every FRQ is confirmed. A group without an FRQ has every student ready.
+
+### The comment template
+
+- **Storage:** `quiz_groups.comment_template` (TEXT, null means the default), in `schema.sql` and
+  `MIGRATIONS`.
+- **Placeholders:** `{mcq_correct}`, `{mcq_total}`, `{mcq_percent}`, `{frq_levels}`, `{impression}`.
+- **Default:** the §7 template. Its MCQ line appears only when the group has an MCQ, and its two
+  free-response lines only when the group has an FRQ.
+- **Building:** placeholders are replaced; a line whose placeholders all resolve to empty is dropped;
+  blank lines at the start and end are removed.
+- **`{frq_levels}`:** FRQs in question order, separated by commas.
+  - **One-row rubric:** `Q21 Exhibiting`.
+  - **Several rows:** `Q21 (Content: Exhibiting, Code: Developing)`.
+  - **No rubric:** `Q21 3/4 points`.
+- **Saving:** refused for an unknown placeholder or a template without `{impression}`. An empty template
+  resets it to the default.
+- **Editing:** a textarea in the Quiz setup modal, with the placeholders listed and **Reset to default**.
+
+### Results service
+
+`server/services/quizResults.js`, built only from Prism's stored copy. `quizResults(db, { groupId })`
+returns:
+- **Group:** id, title, the linked result task (id, Schoology id, title, aligned topics), the template in
+  use and whether it is the default, `loaded_at`.
+- **Per student with an attempt:** name, ids, attempt URL; MCQ correct, total and percent; per tag
+  correct, total and percent (MCQs only, blanks counted as wrong); per FRQ the levels per row, points,
+  source and confirmed flag; `ready` and the blocking reasons; and the overall suggestion if one exists
+  (rubric levels, impression, suggestion state, `stale`).
+- **Not taken:** students in the course without an attempt.
+
+**Stale:** the suggestion stores `quiz_overall: { group_id, impression }` in `feedback_json`. It is stale
+when building again from that impression, the current numbers and the current template gives a
+comment different from the stored `narrative_feedback`.
+
+### Writing the overall suggestion
+
+`writeOverallSuggestions(db, { groupId, students })`, one entry per student: `student`,
+`rubric_scores` (as in `write_student_suggestions`), `impression`, and optionally `reviewer_flags` and
+`reviewer_flags_brief`.
+- **Refused for the group:** no linked result task, or results never loaded.
+- **Refused per student:** no attempt, or not ready (the reasons name each FRQ).
+- **Otherwise:** `upsertStudentSuggestion` on the result task, with `narrative_feedback` set to the
+  built comment and `quiz_overall` added to `feedback_json`. The suggestion history and the revised flag
+  work as for any suggestion.
+
+**Update numbers** (`rebuildOverallSuggestion`) writes the suggestion again with the stored impression,
+levels and flags, so a teacher who already used the comment sees it as revised. It is refused for a
+student who is no longer ready.
+
+### MCP tools (phase 3)
+
+| Tool | Does |
+|---|---|
+| `get_quiz_results(group)` | The results service output, with answers left out. The agent reads it before suggesting levels, then applies the course's cut-off guide |
+| `write_quiz_overall_suggestions(group, students[])` | As above. Returns `{ written, results: [{ student, status: written\|error, message }] }` |
+
+### REST
+
+- `GET /api/quizzes/:id/results`: the results service output.
+- `PUT /api/quizzes/:id/template`: `{ template }`, validated as above; returns the group.
+- `POST /api/quizzes/:id/overall/:studentId/rebuild`: Update numbers.
+
+### UI
+
+- **Grading tab cards (result task):** the quiz line beside the attempt link, `MCQ 17/20 (85%), FRQ
+  Q21: Exhibiting`, with "Q21: to review" for an unconfirmed FRQ.
+- **Stale suggestion:** the card shows "Numbers changed" and **Update numbers**.
+- **Quiz setup modal:** the template editor (above).
+
+### The grade-theory-test skill
+
+In `graham-plugins`, `assessment-grader:grade-theory-test` gains a Prism route for the overall result:
+`get_quiz_results`, the cut-off guide, then `write_quiz_overall_suggestions`. The CSV route stays as the
+fallback.
+
+### Testing (phase 3)
+
+- **Server:** confirmed marks (each source and state); per-tag percents; the builder (default by kind,
+  dropped lines, multi-row and no-rubric levels); template validation; the write gate; stale detection;
+  rebuild.
+- **MCP:** a handler test per tool, including the per-student refusals.
+- **Client:** the quiz line, Update numbers, the template editor (save, invalid placeholder, reset).
+- **Follow-ups:** a test for each of the four fixes.
+- **Live:** on the BK 6 group in a dev clone, write one overall suggestion and see it on the Grading tab.

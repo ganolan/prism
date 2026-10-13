@@ -99,5 +99,62 @@ async function scan(testIds) {
   } finally { await browser.close(); }
 }
 
+async function write() {
+  const testId = flag('test'), uid = flag('uid'), attemptId = flag('attempt');
+  if (!testId || !uid || !attemptId) throw new Error('write needs --test, --uid and --attempt');
+  if (flag('confirm') !== attemptId) throw new Error('write needs --confirm equal to --attempt (Graham approves the attempt first)');
+  const attemptPath = `/assignment/${testId}/assessment_results/student_stats/${uid}/${attemptId}`;
+  const { browser, page, captured } = await open({ allowWrites: true });
+  try {
+    const beforeHtml = await html(page, attemptPath);
+    writeFileSync(`${OUT}/stageB-before-${attemptId}.html`, beforeHtml);
+    const before = parseQuizAttempt(beforeHtml);
+    const ids = [...new Set((before?.questions || []).filter(x => x.rubric).map(x => x.rubric.rubricId))];
+    const rubrics = {};
+    for (const id of ids) rubrics[id] = await rubricOf(page, id);
+    const pick = pickFrq(before, rubrics);
+    if (pick.reason) throw new Error(`Not a candidate: ${pick.reason}`);
+    await page.waitForTimeout(1500);
+
+    // The proven route (schoology plugin, export-test-results §6): synthetic mouse events, level by label.
+    const clicked = await page.evaluate(({ qid }) => {
+      const block = document.querySelector(`[name="components[0][${qid}][points]"]`)?.closest('.question-review');
+      const launch = block?.querySelector('.grading-rubric-grading-launch, .s-grades-rubric-grading-launch-btn');
+      if (!launch) return false;
+      for (const t of ['mousedown', 'mouseup', 'click']) launch.dispatchEvent(new MouseEvent(t, { bubbles: true }));
+      return true;
+    }, { qid: pick.qid });
+    if (!clicked) throw new Error('Rubric launch not found');
+    await page.waitForTimeout(2500);
+    const chose = await page.evaluate(({ levelName }) => {
+      const re = new RegExp(`^\\d\\s*${levelName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:`);
+      const cell = [...document.querySelectorAll('td.rating-wrapper')].find(td => td.offsetParent !== null && re.test(td.textContent.trim()));
+      if (!cell) return false;
+      for (const t of ['mousedown', 'mouseup', 'click']) cell.dispatchEvent(new MouseEvent(t, { bubbles: true }));
+      return true;
+    }, { levelName: pick.levelName });
+    if (!chose) throw new Error(`Level "${pick.levelName}" not found in the popup`);
+    await page.waitForTimeout(800);
+    await page.locator('button.submit-btn', { hasText: 'Save' }).first().click();
+    await page.waitForTimeout(2500);
+    const score = await page.evaluate((qid) => document.querySelector(`[name="components[0][${qid}][rubric_score]"]`)?.value, pick.qid);
+    if (Number(score) !== pick.points) throw new Error(`rubric_score is ${score} after the popup, expected ${pick.points}: stopping before Save Changes`);
+
+    // The comment is left as it is; Save Changes posts the form with it.
+    await Promise.all([
+      page.waitForLoadState('networkidle', { timeout: 60000 }),
+      page.locator('#s-assessment-edit-submission-form input[type=submit], #s-assessment-edit-submission-form button[type=submit]').first().click(),
+    ]);
+    const saved = (await page.content()).includes('Your changes have been saved');
+
+    const afterHtml = await html(page, attemptPath);
+    writeFileSync(`${OUT}/stageB-after-${attemptId}.html`, afterHtml);
+    writeFileSync(`${OUT}/stageB-requests-${attemptId}.json`, JSON.stringify(captured, null, 1));
+    const diffs = compareAttempts(before, parseQuizAttempt(afterHtml));
+    console.log(JSON.stringify({ saved, requests: captured.map(c => `${c.method} ${c.url} (${c.contentType})`), readBack: diffs.length ? diffs : 'unchanged' }, null, 1));
+  } finally { await browser.close(); }
+}
+
 if (command === 'scan') await scan(rest);
+else if (command === 'write') await write();
 else { console.log('Usage: scan <testId>... | write --test <id> --uid <uid> --attempt <id> --confirm <id>'); process.exitCode = 1; }

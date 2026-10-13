@@ -1461,6 +1461,8 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
     card();
     fireEvent.click(screen.getByTitle('Set Features and Code to Exhibiting'));
     fireEvent.click(screen.getByTitle('Set Playtesting to Exhibiting'));
+    // Pick the overall explicitly: the automatic rubric average arrives in Task 9.
+    fireEvent.click(screen.getByRole('button', { name: /^exhibiting$/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
     await waitFor(() => expect(writeMasteryComment).toHaveBeenCalledTimes(1));
     expect(writeMasteryComment).toHaveBeenCalledWith('4', expect.objectContaining({

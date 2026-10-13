@@ -1042,6 +1042,19 @@ overstates lateness). 12 archived 2023-25 CS sections were backfilled into prod 
 819-830). AP CSP 2023-24 has no mastery data in Schoology.
 
 
+## Linked quizzes, phase 4a: write probe (2026-10-13, branch `claude/angry-hopper-5c1f00`)
+
+Plan: `docs/superpowers/plans/2026-10-13-linked-quizzes-phase-4a-probe.md` (spec §14). Script:
+`scripts/probe-attempt-write.js` (`scan` read-only, `write` behind `--write` and `--confirm`), helpers in
+`scripts/lib/attemptProbe.js`. Run it with `PRISM_SESSION_DIR` set to a dev clone's session (this worktree
+has none) and `OUT_DIR` outside the repo (`~/prism-probes/attempt-write`).
+
+**Stage A (read-only, 2026-10-13):** test `7724138299` (AP CSP: Unit 3 - Organizing Data Theory Test (S),
+2024-25, archived), 18 takers. The first attempt checked, `2247871023`, has a one-row Schoology rubric FRQ
+(rubric `36010096`) marked Exhibiting Depth (4 points) with a 66-character comment. In the archived section
+the attempt form is editable: the form, an enabled **Save Changes**, the rubric launch button, and an
+enabled points field. The only blocked request was Schoology's `POST /usage/collect` (usage tracking).
+
 ## Linked quizzes, phase 3: overall result (2026-10-13, branch `claude/angry-hopper-5c1f00`)
 
 Built from `docs/superpowers/plans/2026-10-13-linked-quizzes-phase-3.md` (spec §13):

@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import FreeResponseTab, { matchesFilter } from './FreeResponseTab.jsx';
-import { getFrqResponses, getFeatures, saveFrqMark } from '../../services/api.js';
+import { getFrqResponses, getFeatures, saveFrqMark, postFrqWritebacks } from '../../services/api.js';
 
-vi.mock('../../services/api.js', () => ({ getFrqResponses: vi.fn(), getFeatures: vi.fn(), saveFrqMark: vi.fn() }));
+vi.mock('../../services/api.js', () => ({ getFrqResponses: vi.fn(), getFeatures: vi.fn(), saveFrqMark: vi.fn(), postFrqWritebacks: vi.fn() }));
 
 const RUBRIC = { id: 'r1', rows: [{ id: '146', title: 'Content Knowledge', levels: [{ points: 4, name: 'Exhibiting Depth', descriptionHtml: 'Exhibiting Depth: all' }, { points: 2, name: 'Developing', descriptionHtml: 'Developing: some' }] }] };
 const mark = (over) => ({ state: 'suggested', suggested: { cells: { 146: 4 }, comment: 's' }, final: null, suggestion_revised: false, writeback: { status: null }, changed_in_schoology: false, ...over });
@@ -51,6 +51,16 @@ describe('FreeResponseTab', () => {
     fireEvent.click(screen.getByRole('button', { name: /Waiting to post/ }));
     expect(screen.queryByText('Ana 21')).toBeNull();
     expect(screen.getByText('Ben 21')).toBeInTheDocument();
+  });
+
+  it('with quiz_writeback on, the post bar replaces "waiting for the agent" and reloads after posting', async () => {
+    getFeatures.mockResolvedValue({ quizzes: true, quiz_writeback: true });
+    postFrqWritebacks.mockResolvedValue({ results: [{ student_id: 2, name: 'Ben Ho', question: 21, level: 'Exhibiting Depth', status: 'posted', error: null }], remaining: 0 });
+    render(<FreeResponseTab groupId={7} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Post accepted to Schoology (1)' }));
+    expect(screen.queryByText('1 waiting for the agent')).toBeNull();
+    expect(await screen.findByText('Posted: Ben Ho, Q21 Exhibiting Depth')).toBeInTheDocument();
+    expect(getFrqResponses).toHaveBeenCalledTimes(2);
   });
 
   it('a saved card updates in place', async () => {

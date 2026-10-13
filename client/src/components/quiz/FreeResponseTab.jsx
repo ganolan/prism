@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { getFrqResponses, getFeatures } from '../../services/api.js';
 import { sanitizeStemHtml } from '../../lib/sanitizeHtml.js';
 import FrqCard from './FrqCard.jsx';
+import PostMarksBar from './PostMarksBar.jsx';
 
 export const FILTERS = [
   ['all', 'All'], ['review', 'To review'], ['accepted', 'Accepted'], ['waiting', 'Waiting to post'],
@@ -32,6 +33,8 @@ export default function FreeResponseTab({ groupId, reloadKey }) {
   const [view, setView] = useState('question');
   const [position, setPosition] = useState(null);
   const [filter, setFilter] = useState('all');
+  // Bumped after posting to Schoology, so the cards show the read-back.
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -41,10 +44,12 @@ export default function FreeResponseTab({ groupId, reloadKey }) {
       .catch(e => { if (active) setError(e.message); });
     Promise.resolve().then(() => getFeatures()).then(f => { if (active) setFeatures(f || {}); }).catch(() => {});
     return () => { active = false; };
-  }, [groupId, reloadKey]);
+  }, [groupId, reloadKey, reload]);
 
-  const waiting = useMemo(() => (data ? data.students.reduce((n, s) =>
-    n + Object.values(s.responses).filter(r => r.mark?.writeback?.status === 'pending').length, 0) : 0), [data]);
+  const countMarks = (statuses) => (data ? data.students.reduce((n, s) =>
+    n + Object.values(s.responses).filter(r => statuses.includes(r.mark?.writeback?.status)).length, 0) : 0);
+  const waiting = useMemo(() => countMarks(['pending']), [data]);
+  const toPost = useMemo(() => countMarks(['pending', 'failed']), [data]);
 
   if (error) return <div className="alert alert-warning">{error}</div>;
   if (!data) return <div className="loading">Loading...</div>;
@@ -81,7 +86,9 @@ export default function FreeResponseTab({ groupId, reloadKey }) {
             <button key={key} type="button" className={`filter-btn${filter === key ? ' active' : ''}`} aria-pressed={filter === key} onClick={() => setFilter(key)}>{label}</button>
           ))}
         </div>
-        {!features.quiz_writeback && waiting > 0 && <span className="text-sm text-muted">{waiting} waiting for the agent</span>}
+        {features.quiz_writeback
+          ? <PostMarksBar groupId={groupId} count={toPost} onPosted={() => setReload(k => k + 1)} />
+          : waiting > 0 && <span className="text-sm text-muted">{waiting} waiting for the agent</span>}
       </div>
 
       {view === 'question' ? (

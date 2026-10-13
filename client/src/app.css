@@ -1125,6 +1125,10 @@ button.triage-panel__more { padding: 0.15rem 0.4rem; font-size: 0.75rem; font-we
 .frq-stem img { max-width: 100%; height: auto; }
 .quiz-result-line { display: inline-flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; font-size: 0.78rem; color: var(--text-muted); }
 .quiz-result-line button { font-size: 0.72rem; padding: 0.1rem 0.4rem; }
+.post-marks { display: grid; gap: 0.4rem; justify-items: start; }
+.post-marks__results { margin: 0; padding-left: 1.1rem; font-size: 0.85rem; }
+.post-marks__ok { color: var(--success); }
+.post-marks__fail { color: var(--danger); }
 .frq-student { display: grid; gap: 0.5rem; }
 .frq-student__q { margin: 0.25rem 0 0; font-size: 0.85rem; color: var(--text-muted); }
 .question-stem-line { flex: 1 1 160px; min-width: 160px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }

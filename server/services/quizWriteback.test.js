@@ -11,60 +11,82 @@ const RUBRIC = { id: '91', title: 'FRQ', rows: [{ id: '146', title: 'Content Kno
 
 // A fake Schoology: each attempt page holds form values; a POST stores the posted values. Options simulate
 // a save Schoology ignores or applies only in part, an expired session, and a change to another field.
-// As observed (stage C): the rubric PUT changes the rubric grade; the form POST changes points, score and comment only.
-function fakeSchoology(initial, { ignorePost = false, expireAfterPosts = Infinity, applyPoints = true, gradeInfoStale = false, putStatus = 200, putError = null, mutateOther = false, maxPoints = 4, onPost = null } = {}) {
-  const pages = new Map(Object.entries(initial).map(([k, v]) => [k, { grade: v.score, other: '1', ...v }]));
+// A fake Schoology for posting by question (spec §15, stage D). Per member test: a question list
+// (qid -> number), the by-question index, and one class-wide page per question. The rubric PUT changes a
+// student's rubric grade (stage C); the page's form POST changes points, score and comment only.
+function fakeSchoology(subs, { questions = { 900: { 2001: 21 }, 901: { 3001: 21 } }, ignorePost = false, expireAfterPosts = Infinity, applyPoints = true,
+  gradeInfoStale = false, putStatus = 200, putError = null, mutateOther = false, maxPoints = 4, onPost = null, pageAttempt = {}, missingPage = false } = {}) {
+  const state = new Map(Object.entries(subs).map(([a, v]) => [a, { grade: v.score, ...v }]));
   const calls = [];
   let posts = 0;
-  const render = (path, v) => `<form id="s-assessment-edit-submission-form" action="${path}">
-    <input type="hidden" name="components[0][1001][points]" value="${v.other}"><input type="hidden" name="components[0][1001][override]" value="0">
-    <input type="hidden" name="components[0][1001][original_points]" value="1"><input type="hidden" name="components[0][1001][max_points]" value="1">
-    <input type="hidden" name="components[0][1001][rubric_score]" value=""><textarea name="components[0][1001][comment]"></textarea>
-    <script>{"theme_js":{"a":{"template":"s_grades_rubric_grading_launch_btn","module":"gradingRubric","args":["91","92","${v.qid}","x",1,1,"0",4,false,false]}}}</script>
-    <input type="hidden" name="components[0][${v.qid}][points]" value="${v.points}"><input type="hidden" name="components[0][${v.qid}][override]" value="${v.override}">
-    <input type="hidden" name="components[0][${v.qid}][original_points]" value="0"><input type="hidden" name="components[0][${v.qid}][max_points]" value="${maxPoints}">
-    <input type="hidden" name="components[0][${v.qid}][rubric_score]" value="${v.score}"><textarea name="components[0][${v.qid}][comment]">${v.comment}</textarea>
-    <input type="submit" name="op" value="Save Changes"><input type="hidden" name="form_build_id" value="b${Math.random()}">
-    <input type="hidden" name="form_token" value="t"><input type="hidden" name="form_id" value="s_assessment_edit_submission_form"></form>`;
-  const byAttempt = (id) => [...pages.entries()].find(([k]) => k.endsWith(`/${id}`));
+  const pagePath = (sid, n) => `/assignment/${sid}/assessment_results/question_stats/77/${n}`;
+  const onPage = (sid, n) => [...state.entries()].filter(([, v]) => v.member === sid && questions[sid]?.[v.qid] === Number(n));
+  const shown = (a) => pageAttempt[a] ?? a;
+  const render = (sid, n) => {
+    const rows = onPage(sid, n);
+    return `<form id="s-assessment-view-question-responses-form" action="${pagePath(sid, n)}">${rows.map(([a, v]) => {
+      const pre = `students[${v.uid}][submissions][${shown(a)}]`;
+      return `<input type="hidden" name="${pre}[points]" value="${v.points}"><input type="hidden" name="${pre}[override]" value="${v.override}">
+        <input type="hidden" name="${pre}[original_points]" value="0"><input type="hidden" name="${pre}[max_points]" value="${maxPoints}">
+        <input type="hidden" name="${pre}[rubric_score]" value="${v.score}"><textarea name="${pre}[comment]">${v.comment}</textarea>`;
+    }).join('')}<input type="submit" name="op" value="Save Changes"><input type="hidden" name="form_build_id" value="b${Math.random()}">
+      <input type="hidden" name="form_token" value="t"><input type="hidden" name="form_id" value="s_assessment_view_question_responses_form"></form>
+      <script>{${rows.map(([a, v], i) => `"r${i}":{"template":"s_grades_rubric_grading_launch_btn","module":"gradingRubric","args":["91","92","${v.qid}","x",1,1,"${shown(a)}",${maxPoints},false,false]}`).join(',')}}</script>`;
+  };
   const client = {
-    get: vi.fn(async (path, opts = {}) => {
+    get: vi.fn(async (path) => {
       calls.push(['GET', path]);
-      const gi = path.match(/rubric_grade_info\/91\/(\d+)\/92\/(\d+)$/);
-      if (gi) {
-        const [, v] = byAttempt(gi[2]) || [];
+      let m = path.match(/rubric_grade_info\/91\/(\d+)\/92\/(\d+)$/);
+      if (m) {
+        const v = state.get(m[2]);
         return { status: v ? 200 : 404, text: '', finalUrl: path, json: v ? { response_code: 200, body: { gradeInfo: { 146: { grade: String(v.grade ?? ''), comment: '' } } } } : null };
       }
-      const v = pages.get(path);
-      return { status: v ? 200 : 404, text: v ? render(path, v) : '', finalUrl: path };
+      if ((m = path.match(/^\/assignment\/(\d+)\/assessment_questions$/))) {
+        const qs = questions[m[1]] || {};
+        return { status: 200, finalUrl: path, text: `<table>${Object.entries(qs).map(([qid, n]) => `<tr><td class="component-number">${n}</td><td><input name="components[${qid}][delta]" value="${n}"><div class="component-summary-wrapper component-essay"><div class="component-title">E</div></div></td></tr>`).join('')}</table>` };
+      }
+      if ((m = path.match(/^\/assignment\/(\d+)\/assessment_results\/question_stats$/))) {
+        return { status: 200, finalUrl: path, text: Object.values(questions[m[1]] || {}).map(n => `<a href="${pagePath(m[1], n)}">Q${n}</a>`).join('') };
+      }
+      if ((m = path.match(/^\/assignment\/(\d+)\/assessment_results\/question_stats\/77\/(\d+)$/))) {
+        if (missingPage) return { status: 404, text: '', finalUrl: path };
+        return { status: 200, finalUrl: path, text: render(m[1], m[2]) };
+      }
+      return { status: 404, text: '', finalUrl: path };
     }),
     post: vi.fn(async (path, body) => {
       calls.push(['POST', path, body]);
       posts += 1;
       if (posts > expireAfterPosts) throw new QuizError('NO_SESSION', 'Schoology connection expired: reconnect in Settings');
       if (onPost) onPost(path);
-      if (ignorePost) return { status: 200, finalUrl: path };
-      const p = new URLSearchParams(body); const v = pages.get(path);
-      const score = p.get(`components[0][${v.qid}][rubric_score]`);
-      pages.set(path, { ...v, points: applyPoints ? p.get(`components[0][${v.qid}][points]`) : v.points, override: p.get(`components[0][${v.qid}][override]`),
-        score, comment: p.get(`components[0][${v.qid}][comment]`), other: mutateOther ? '0' : v.other });
+      if (ignorePost) return { status: 302, finalUrl: path };
+      const [, sid, n] = path.match(/^\/assignment\/(\d+)\/assessment_results\/question_stats\/77\/(\d+)$/);
+      const p = new URLSearchParams(body);
+      let tampered = false;
+      for (const [a, v] of onPage(sid, n)) {
+        const pre = `students[${v.uid}][submissions][${shown(a)}]`;
+        const next = { ...v, points: applyPoints ? p.get(`${pre}[points]`) : v.points, override: p.get(`${pre}[override]`), score: p.get(`${pre}[rubric_score]`), comment: p.get(`${pre}[comment]`) };
+        const changed = next.score !== v.score || next.comment !== v.comment;
+        if (mutateOther && !changed && !tampered) { next.comment = 'tampered'; tampered = true; }
+        state.set(a, next);
+      }
       return { status: 302, finalUrl: path };
     }),
     putRubric: vi.fn(async (path, json) => {
       calls.push(['PUT', path, json]);
       if (putStatus !== 200) return { status: putStatus, error: putError };
-      const m = path.match(/rubric_grade_info\/91\/(\d+)\/92\/(\d+)$/);
-      const [key, v] = byAttempt(m[2]);
-      if (!gradeInfoStale) pages.set(key, { ...v, grade: String(json.gradeInfo['146'].grade) });
+      const a = path.match(/\/(\d+)$/)[1];
+      if (!gradeInfoStale) state.set(a, { ...state.get(a), grade: String(json.gradeInfo['146'].grade) });
       return { status: 200 };
     }),
     close: vi.fn(async () => {}),
   };
-  return { client, calls, pages };
+  return { client, calls, state };
 }
 
 let db, g, std, ext, q, att;
-const path = (sid, uid, a) => `/assignment/${sid}/assessment_results/student_stats/${uid}/${a}`;
+const page = (sid, n = 21) => `/assignment/${sid}/assessment_results/question_stats/77/${n}`;
+const gi = (qid, a) => `/iapi/grades/assessment_component_submission_rubric_grade_info/91/${qid}/92/${a}`;
 beforeEach(() => {
   db = getDb();
   db.exec('DELETE FROM frq_marks; DELETE FROM quiz_responses; DELETE FROM quiz_attempts; DELETE FROM quiz_question_copies; DELETE FROM quiz_questions; DELETE FROM quiz_group_members; DELETE FROM quiz_groups; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
@@ -76,7 +98,7 @@ beforeEach(() => {
   q = db.prepare(`INSERT INTO quiz_questions (group_id, position, kind, stem_html, max_points, schoology_rubric_json) VALUES (?, 21, 'frq', 'E', 4, ?)`).run(g, JSON.stringify(RUBRIC)).lastInsertRowid;
   db.prepare(`INSERT INTO quiz_question_copies (question_id, assignment_id, schoology_question_id) VALUES (?, ?, '2001'), (?, ?, '3001')`).run(q, std, q, ext);
   att = {};
-  for (const [uid, last, member, aid] of [['701', 'Lee', std, '5001'], ['702', 'Ng', ext, '6001']]) {
+  for (const [uid, last, member, aid] of [['701', 'Lee', std, '5001'], ['702', 'Ng', ext, '6001'], ['703', 'Wu', std, '5003']]) {
     const s = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES (?, 'Ana', ?)`).run(uid, last).lastInsertRowid;
     att[uid] = db.prepare(`INSERT INTO quiz_attempts (group_id, assignment_id, student_id, schoology_attempt_id, fetched_at) VALUES (?, ?, ?, ?, 'now')`).run(g, member, s, aid).lastInsertRowid;
     db.prepare(`INSERT INTO quiz_responses (attempt_id, question_id, answer_html, points, schoology_rubric_cells_json, schoology_comment) VALUES (?, ?, 'a', 2, ?, 'Old')`)
@@ -89,74 +111,123 @@ beforeEach(() => {
   setFrqMark(db, { groupId: g, attemptId: att['701'], position: 21, action: 'accept' });
   setFrqMark(db, { groupId: g, attemptId: att['702'], position: 21, action: 'accept' });
 });
-const pagesNow = () => ({
-  [path('900', '701', '5001')]: { qid: '2001', points: '2', override: '1', score: '2', comment: 'Old' },
-  [path('901', '702', '6001')]: { qid: '3001', points: '2', override: '1', score: '2', comment: 'Old' },
+// Ana Wu (703) sits on the standard copy's page with no Prism mark unless a test gives her one.
+const subsNow = () => ({
+  5001: { member: '900', qid: '2001', uid: '701', points: '2', override: '1', score: '2', comment: 'Old' },
+  6001: { member: '901', qid: '3001', uid: '702', points: '2', override: '1', score: '2', comment: 'Old' },
+  5003: { member: '900', qid: '2001', uid: '703', points: '2', override: '1', score: '2', comment: 'Old' },
 });
 const mark = (uid) => db.prepare('SELECT * FROM frq_marks WHERE attempt_id = ?').get(att[uid]);
+const acceptWu = (level = 'Developing', comment = 'Wu comment') => {
+  writeFrqSuggestions(db, { groupId: g, position: 21, students: [{ student: '703', level, comment }] });
+  setFrqMark(db, { groupId: g, attemptId: att['703'], position: 21, action: 'accept' });
+};
+const run = (f, limit) => postWritebacks(db, { groupId: g, limit }, { openClient: async () => f.client });
+const postBody = (f, sid) => new URLSearchParams(f.calls.find(c => c[0] === 'POST' && c[1] === page(sid))[2]);
 
 describe('waitingMarks', () => {
-  test('accepted marks with their own copy\'s question id and attempt path, by name', () => {
+  test('accepted marks with their own copy\'s question id, uid and attempt, waiting before failed, by name', () => {
     const w = waitingMarks(db, g);
-    expect(w.map(x => [x.name, x.qid, x.path, x.final.points])).toEqual([
-      ['Ana Lee', '2001', path('900', '701', '5001'), 3],
-      ['Ana Ng', '3001', path('901', '702', '6001'), 4],
+    expect(w.map(x => [x.name, x.qid, x.memberSid, x.uid, x.schoologyAttemptId, x.final.points])).toEqual([
+      ['Ana Lee', '2001', '900', '701', '5001', 3],
+      ['Ana Ng', '3001', '901', '702', '6001', 4],
     ]);
   });
 });
 
-describe('postWritebacks', () => {
-  test('one first: posts the first student, reads back, records posted, updates the stored copy', async () => {
-    const f = fakeSchoology(pagesNow());
-    const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
+describe('postWritebacks (by question)', () => {
+  test('one first: one page, the rubric save, one form save changing only that student, read back, recorded', async () => {
+    const f = fakeSchoology(subsNow());
+    const r = await run(f, 1);
     expect(r).toEqual({ results: [{ student_id: expect.any(Number), name: 'Ana Lee', question: 21, level: 'Exhibiting', status: 'posted', error: null }], remaining: 1 });
-    const gi = '/iapi/grades/assessment_component_submission_rubric_grade_info/91/2001/92/5001';
-    expect(f.calls.map(c => c.slice(0, 2))).toEqual([['GET', path('900', '701', '5001')], ['GET', gi], ['PUT', gi], ['GET', gi], ['POST', path('900', '701', '5001')],
-      ['GET', path('900', '701', '5001')], ['GET', gi]]);
+    expect(f.calls.map(c => c.slice(0, 2))).toEqual([
+      ['GET', '/assignment/900/assessment_questions'], ['GET', '/assignment/900/assessment_results/question_stats'], ['GET', page('900')],
+      ['GET', gi('2001', '5001')], ['PUT', gi('2001', '5001')], ['GET', gi('2001', '5001')],
+      ['POST', page('900')], ['GET', page('900')], ['GET', gi('2001', '5001')],
+    ]);
     expect(f.calls.find(c => c[0] === 'PUT')[2]).toEqual({ gradeInfo: { 146: { grade: 3, comment: '' } }, overrideGrade: null, comment: 'New line one\nline two' });
+    const body = postBody(f, '900');
+    expect([body.get('students[701][submissions][5001][rubric_score]'), body.get('students[703][submissions][5003][rubric_score]'), body.get('students[703][submissions][5003][comment]'), body.get('op')]).toEqual(['3', '2', 'Old', 'Save Changes']);
     expect(mark('701')).toMatchObject({ writeback_status: 'posted', writeback_error: null, posted_comment: 'New line one\nline two' });
     const resp = db.prepare('SELECT * FROM quiz_responses WHERE attempt_id = ?').get(att['701']);
     expect([JSON.parse(resp.schoology_rubric_cells_json)[146].points, resp.schoology_comment, resp.points]).toEqual([3, 'New line one\nline two', 3]);
     expect(f.client.close).toHaveBeenCalled();
   });
 
-  test('then the rest; nothing but the essay fields changes in the body', async () => {
-    const f = fakeSchoology(pagesNow());
-    await postWritebacks(db, { groupId: g, limit: null }, { openClient: async () => f.client });
-    const body = new URLSearchParams(f.calls.find(c => c[0] === 'POST' && c[1].includes('6001'))[2]);
-    expect([body.get('components[0][1001][points]'), body.get('components[0][1001][override]'), body.get('components[0][3001][rubric_score]'), body.get('op')]).toEqual(['1', '0', '4', 'Save Changes']);
-    expect(mark('702').writeback_status).toBe('posted');
+  test('then the rest: one form save per copy\'s page, each changing only its students', async () => {
+    acceptWu();
+    const f = fakeSchoology(subsNow());
+    const r = await run(f, null);
+    expect(r.results.map(x => [x.name, x.status])).toEqual([['Ana Lee', 'posted'], ['Ana Wu', 'posted'], ['Ana Ng', 'posted']]);
+    expect(f.calls.filter(c => c[0] === 'POST').map(c => c[1])).toEqual([page('900'), page('901')]);
+    const b900 = postBody(f, '900');
+    expect([b900.get('students[701][submissions][5001][points]'), b900.get('students[703][submissions][5003][points]')]).toEqual(['3', '2']);
+    expect(postBody(f, '901').get('students[702][submissions][6001][rubric_score]')).toBe('4');
+  });
+
+  test('two students on one page, one changed by hand: the other is posted in the same save, the refused one sent as loaded', async () => {
+    acceptWu();
+    const subs = subsNow();
+    subs[5001] = { ...subs[5001], points: '3' };
+    const f = fakeSchoology(subs);
+    const r = await run(f, null);
+    expect(r.results.find(x => x.name === 'Ana Lee')).toMatchObject({ status: 'failed', error: 'Changed in Schoology since the last load' });
+    expect(r.results.find(x => x.name === 'Ana Wu')).toMatchObject({ status: 'posted' });
+    const b = postBody(f, '900');
+    expect([b.get('students[701][submissions][5001][points]'), b.get('students[701][submissions][5001][comment]'), b.get('students[703][submissions][5003][rubric_score]')]).toEqual(['3', 'Old', '2']);
+    expect(f.calls.some(c => c[0] === 'PUT' && c[1] === gi('2001', '5001'))).toBe(false);
+  });
+
+  test('the extra-time copy uses its own question number for its page', async () => {
+    db.prepare(`UPDATE frq_marks SET writeback_status = 'posted' WHERE attempt_id = ?`).run(att['701']);
+    const f = fakeSchoology(subsNow(), { questions: { 900: { 2001: 21 }, 901: { 3001: 5 } } });
+    const r = await run(f, 1);
+    expect(r.results[0]).toMatchObject({ name: 'Ana Ng', status: 'posted' });
+    expect(f.calls.map(c => c[1])).toContain(page('901', 5));
   });
 
   test('a mark changed in Schoology since the last load is refused, not posted', async () => {
-    const pages = pagesNow();
-    pages[path('900', '701', '5001')] = { ...pages[path('900', '701', '5001')], score: '1', points: '1' };
-    const f = fakeSchoology(pages);
-    const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
+    const subs = subsNow();
+    subs[5001] = { ...subs[5001], score: '1', points: '1' };
+    const f = fakeSchoology(subs);
+    const r = await run(f, 1);
     expect(r.results[0]).toMatchObject({ status: 'failed', error: 'Changed in Schoology since the last load' });
-    expect(f.calls.some(c => c[0] === 'POST')).toBe(false);
+    expect(f.calls.some(c => c[0] === 'POST' || c[0] === 'PUT')).toBe(false);
     expect(mark('701').writeback_status).toBe('failed');
   });
 
-  test('a read-back that still shows the old mark is failed, not posted', async () => {
-    const f = fakeSchoology(pagesNow(), { ignorePost: true });
-    const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
+  test('a student whose page attempt is not Prism\'s stored attempt (a retake) is refused', async () => {
+    const f = fakeSchoology(subsNow(), { pageAttempt: { 5001: '9999' } });
+    const r = await run(f, 1);
+    expect(r.results[0]).toMatchObject({ status: 'failed', error: 'The attempt on the question page is not the one Prism loaded: load the results again' });
+    expect(f.calls.some(c => c[0] === 'POST' || c[0] === 'PUT')).toBe(false);
+  });
+
+  test('a read-back that still shows the old mark is half-written, not posted', async () => {
+    const f = fakeSchoology(subsNow(), { ignorePost: true });
+    const r = await run(f, 1);
     expect(r.results[0]).toMatchObject({ status: 'failed', error: expect.stringMatching(/^The rubric level was saved in Schoology but the form was not: the form shows rubric score 2/) });
     expect(mark('701').writeback_status).toBe('failed');
   });
 
-  test('an expired session stops the batch; the first result stands', async () => {
-    const f = fakeSchoology(pagesNow(), { expireAfterPosts: 1 });
-    await expect(postWritebacks(db, { groupId: g, limit: null }, { openClient: async () => f.client })).rejects.toMatchObject({ code: 'NO_SESSION' });
+  test('an expired session on the second page stops the batch; the first page\'s result stands', async () => {
+    const f = fakeSchoology(subsNow(), { expireAfterPosts: 1 });
+    await expect(run(f, null)).rejects.toMatchObject({ code: 'NO_SESSION' });
     expect(mark('701').writeback_status).toBe('posted');
-    // The second student's rubric PUT went through before the session expired on the form post.
     expect(mark('702')).toMatchObject({ writeback_status: 'failed', writeback_error: 'The rubric level was saved in Schoology but the form was not: post it again' });
     expect(f.client.close).toHaveBeenCalled();
   });
 
+  test('the form save throws after two rubric saves on one page: both are recorded half-written', async () => {
+    acceptWu();
+    const f = fakeSchoology(subsNow(), { expireAfterPosts: 0 });
+    await expect(run(f, null)).rejects.toMatchObject({ code: 'NO_SESSION' });
+    for (const uid of ['701', '703']) expect(mark(uid)).toMatchObject({ writeback_status: 'failed', writeback_error: 'The rubric level was saved in Schoology but the form was not: post it again' });
+  });
+
   test('a second post while one runs is refused as busy', async () => {
     let release;
-    const slow = { get: vi.fn(() => new Promise(r => { release = () => r({ status: 404, text: '', finalUrl: '/' }); })), post: vi.fn(), close: vi.fn(async () => {}) };
+    const slow = { get: vi.fn(() => new Promise(r => { release = () => r({ status: 404, text: '', finalUrl: '/' }); })), post: vi.fn(), putRubric: vi.fn(), close: vi.fn(async () => {}) };
     const first = postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => slow });
     await new Promise(r => setTimeout(r, 0));
     await expect(postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => slow })).rejects.toMatchObject({ code: 'BUSY' });
@@ -164,45 +235,48 @@ describe('postWritebacks', () => {
     await first;
   });
 
-  test('a page without the form is a failure for that student', async () => {
-    const f = fakeSchoology({});
-    const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
-    expect(r.results[0]).toMatchObject({ status: 'failed', error: 'The attempt page did not load (HTTP 404)' });
+  test('a question page that does not load fails its students', async () => {
+    const f = fakeSchoology(subsNow(), { missingPage: true });
+    const r = await run(f, 1);
+    expect(r.results[0]).toMatchObject({ status: 'failed', error: 'The question page did not load (HTTP 404)' });
+  });
+
+  test('a question missing from the test\'s question list fails its students', async () => {
+    const f = fakeSchoology(subsNow(), { questions: { 900: {}, 901: { 3001: 21 } } });
+    const r = await run(f, 1);
+    expect(r.results[0]).toMatchObject({ status: 'failed', error: 'The question was not found in this test' });
   });
 
   test('a save that kept the old points is failed', async () => {
-    const f = fakeSchoology(pagesNow(), { applyPoints: false });
-    const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
+    const r = await run(fakeSchoology(subsNow(), { applyPoints: false }), 1);
     expect(r.results[0]).toMatchObject({ status: 'failed', error: expect.stringMatching(/points 2/) });
   });
 
-  test('a save whose rubric grade did not change is failed, and the stored copy is not touched', async () => {
-    const f = fakeSchoology(pagesNow(), { gradeInfoStale: true });
-    const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
+  test('a rubric save that did not take stops that student before the form; the stored copy is untouched', async () => {
+    const f = fakeSchoology(subsNow(), { gradeInfoStale: true });
+    const r = await run(f, 1);
     expect(r.results[0]).toMatchObject({ status: 'failed', error: 'The rubric save did not take (Schoology shows Developing): the form was not posted' });
     expect(f.calls.some(c => c[0] === 'POST')).toBe(false);
     expect(JSON.parse(db.prepare('SELECT schoology_rubric_cells_json FROM quiz_responses WHERE attempt_id = ?').get(att['701']).schoology_rubric_cells_json)[146].points).toBe(2);
   });
 
-  test('points changed by hand in Schoology (rubric untouched) are a conflict: nothing is posted', async () => {
-    const pages = pagesNow();
-    pages[path('900', '701', '5001')] = { ...pages[path('900', '701', '5001')], points: '3' };
-    const f = fakeSchoology(pages);
-    const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
-    expect(r.results[0]).toMatchObject({ status: 'failed', error: 'Changed in Schoology since the last load' });
+  test('points changed by hand (rubric untouched) are a conflict', async () => {
+    const subs = subsNow();
+    subs[5001] = { ...subs[5001], points: '3' };
+    const f = fakeSchoology(subs);
+    expect((await run(f, 1)).results[0]).toMatchObject({ status: 'failed', error: 'Changed in Schoology since the last load' });
     expect(f.calls.some(c => c[0] === 'POST')).toBe(false);
   });
 
-  test('a question worth more than the rubric\'s top level is refused before posting', async () => {
-    const f = fakeSchoology(pagesNow(), { maxPoints: 10 });
-    const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
-    expect(r.results[0]).toMatchObject({ status: 'failed', error: expect.stringMatching(/worth 10 points/) });
-    expect(f.calls.some(c => c[0] === 'POST')).toBe(false);
+  test('a question worth more than the rubric\'s top level is refused before any write', async () => {
+    const f = fakeSchoology(subsNow(), { maxPoints: 10 });
+    expect((await run(f, 1)).results[0]).toMatchObject({ status: 'failed', error: expect.stringMatching(/worth 10 points/) });
+    expect(f.calls.some(c => c[0] === 'POST' || c[0] === 'PUT')).toBe(false);
   });
 
   test('a mark edited in Prism during the post is not recorded as posted with the new text', async () => {
-    const f = fakeSchoology(pagesNow(), { onPost: () => setFrqMark(db, { groupId: g, attemptId: att['701'], position: 21, action: 'save', cells: { 146: 4 }, comment: 'Newer' }) });
-    const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
+    const f = fakeSchoology(subsNow(), { onPost: () => setFrqMark(db, { groupId: g, attemptId: att['701'], position: 21, action: 'save', cells: { 146: 4 }, comment: 'Newer' }) });
+    const r = await run(f, 1);
     expect(r.results[0]).toMatchObject({ status: 'failed', error: expect.stringMatching(/Changed in Prism during the post/) });
     expect(mark('701')).toMatchObject({ writeback_status: 'pending', final_comment: 'Newer' });
     expect(mark('701').posted_comment).not.toBe('Newer');
@@ -215,9 +289,9 @@ describe('postWritebacks', () => {
     } finally { posting.delete(g); }
   });
 
-  test('a post that changed another field stops the batch at once', async () => {
-    const f = fakeSchoology(pagesNow(), { mutateOther: true });
-    await expect(postWritebacks(db, { groupId: g, limit: null }, { openClient: async () => f.client })).rejects.toMatchObject({ code: 'UNSAFE' });
+  test('another student\'s field changed in the read-back stops the batch at once', async () => {
+    const f = fakeSchoology(subsNow(), { mutateOther: true });
+    await expect(run(f, null)).rejects.toMatchObject({ code: 'UNSAFE' });
     expect(mark('701')).toMatchObject({ writeback_status: 'failed', writeback_error: expect.stringMatching(/other fields changed/) });
     expect(f.calls.filter(c => c[0] === 'POST')).toHaveLength(1);
     expect(mark('702').writeback_status).toBe('pending');
@@ -225,9 +299,7 @@ describe('postWritebacks', () => {
 
   test('one first picks a waiting mark before a failed one', async () => {
     db.prepare(`UPDATE frq_marks SET writeback_status = 'failed', writeback_error = 'x' WHERE attempt_id = ?`).run(att['701']);
-    const f = fakeSchoology(pagesNow());
-    const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
-    expect(r.results[0]).toMatchObject({ name: 'Ana Ng', status: 'posted' });
+    expect((await run(fakeSchoology(subsNow()), 1)).results[0]).toMatchObject({ name: 'Ana Ng', status: 'posted' });
   });
 
   test('a mark outside the scope (no one-row rubric) is reported as skipped and not counted', async () => {
@@ -236,77 +308,54 @@ describe('postWritebacks', () => {
     db.prepare(`INSERT INTO quiz_question_copies (question_id, assignment_id, schoology_question_id) VALUES (?, ?, '2002')`).run(q22, std);
     db.prepare(`INSERT INTO quiz_responses (attempt_id, question_id, answer_html) VALUES (?, ?, 'a')`).run(att['701'], q22);
     db.prepare(`INSERT INTO frq_marks (attempt_id, question_id, final_cells_json, final_comment, state, writeback_status) VALUES (?, ?, '{"146":4,"147":4}', 'c', 'edited', 'pending')`).run(att['701'], q22);
-    const f = fakeSchoology(pagesNow());
-    const r = await postWritebacks(db, { groupId: g, limit: null }, { openClient: async () => f.client });
+    const r = await run(fakeSchoology(subsNow()), null);
     expect(r.results.find(x => x.question === 22)).toMatchObject({ status: 'skipped', error: 'Post this one by hand: Prism posts only a one-row Schoology rubric' });
     expect(r.remaining).toBe(0);
   });
 
   test('limit is 1 or none', async () => {
-    await expect(postWritebacks(db, { groupId: g, limit: -1 }, { openClient: async () => fakeSchoology(pagesNow()).client })).rejects.toMatchObject({ code: 'NOT_ELIGIBLE' });
+    await expect(run(fakeSchoology(subsNow()), -1)).rejects.toMatchObject({ code: 'NOT_ELIGIBLE' });
   });
 
   test('a refused rubric save stops that student before the form is posted', async () => {
-    const f = fakeSchoology(pagesNow(), { putStatus: 403 });
-    const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
-    expect(r.results[0]).toMatchObject({ status: 'failed', error: 'Schoology refused the rubric save (HTTP 403): the form was not posted' });
+    const f = fakeSchoology(subsNow(), { putStatus: 403 });
+    expect((await run(f, 1)).results[0]).toMatchObject({ status: 'failed', error: 'Schoology refused the rubric save (HTTP 403): the form was not posted' });
     expect(f.calls.some(c => c[0] === 'POST')).toBe(false);
   });
 
   test('a rubric grade changed in Schoology since the last load is a conflict, even when the form agrees', async () => {
-    const pages = pagesNow();
-    pages[path('900', '701', '5001')] = { ...pages[path('900', '701', '5001')], grade: '1' };
-    const f = fakeSchoology(pages);
-    const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
-    expect(r.results[0]).toMatchObject({ status: 'failed', error: 'Changed in Schoology since the last load' });
+    const subs = subsNow();
+    subs[5001] = { ...subs[5001], grade: '1' };
+    const f = fakeSchoology(subs);
+    expect((await run(f, 1)).results[0]).toMatchObject({ status: 'failed', error: 'Changed in Schoology since the last load' });
     expect(f.calls.some(c => c[0] === 'PUT' || c[0] === 'POST')).toBe(false);
   });
 
   test('missing CSRF values are named in the error', async () => {
-    const f = fakeSchoology(pagesNow(), { putStatus: 0, putError: 'no CSRF values on the page' });
-    const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
+    const r = await run(fakeSchoology(subsNow(), { putStatus: 0, putError: 'no CSRF values on the page' }), 1);
     expect(r.results[0].error).toBe('Schoology refused the rubric save (no CSRF values on the page): the form was not posted');
   });
 
   test('a page whose rubric is not the stored one is refused before any write', async () => {
     db.prepare(`UPDATE quiz_questions SET schoology_rubric_json = ? WHERE id = ?`).run(JSON.stringify({ ...RUBRIC, id: '55' }), q);
-    const f = fakeSchoology(pagesNow());
-    const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
-    expect(r.results[0]).toMatchObject({ status: 'failed', error: 'Post this one by hand: the question has a different rubric in Schoology' });
+    const f = fakeSchoology(subsNow());
+    expect((await run(f, 1)).results[0]).toMatchObject({ status: 'failed', error: 'Post this one by hand: the question has a different rubric in Schoology' });
     expect(f.calls.some(c => c[0] === 'PUT' || c[0] === 'POST')).toBe(false);
   });
 
-  test('an attempt path that is not all digits is refused before any request', async () => {
-    db.prepare(`UPDATE students SET schoology_uid = 'x701' WHERE schoology_uid = '701'`).run();
-    const f = fakeSchoology(pagesNow());
-    const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
-    expect(r.results[0]).toMatchObject({ status: 'failed', error: expect.stringMatching(/not a test attempt address/) });
-    expect(f.calls).toEqual([]);
-  });
-
-  test('rubric saved, then the session expires before the form: recorded as half-written, then the batch stops', async () => {
-    const f = fakeSchoology(pagesNow(), { expireAfterPosts: 0 });
-    await expect(postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client })).rejects.toMatchObject({ code: 'NO_SESSION' });
-    expect(mark('701')).toMatchObject({ writeback_status: 'failed', writeback_error: 'The rubric level was saved in Schoology but the form was not: post it again' });
-  });
-
-  test('rubric saved, form ignored: half-written is reported, and a retry finishes it without a false conflict', async () => {
-    const f = fakeSchoology(pagesNow(), { ignorePost: true });
-    const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
-    expect(r.results[0]).toMatchObject({ status: 'failed', error: expect.stringMatching(/^The rubric level was saved in Schoology but the form was not/) });
-    const again = fakeSchoology(Object.fromEntries(f.pages));
-    const r2 = await postWritebacks(db, { groupId: g, limit: null }, { openClient: async () => again.client });
+  test('rubric saved, form ignored: half-written, and a retry finishes it without a second rubric save', async () => {
+    const f = fakeSchoology(subsNow(), { ignorePost: true });
+    expect((await run(f, 1)).results[0]).toMatchObject({ status: 'failed', error: expect.stringMatching(/^The rubric level was saved in Schoology but the form was not/) });
+    const again = fakeSchoology(Object.fromEntries(f.state));
+    const r2 = await run(again, null);
     expect(r2.results.find(x => x.name === 'Ana Lee')).toMatchObject({ status: 'posted' });
-    expect(again.calls.some(c => c[0] === 'PUT' && c[1].endsWith('/5001'))).toBe(false);
+    expect(again.calls.some(c => c[0] === 'PUT' && c[1] === gi('2001', '5001'))).toBe(false);
   });
 
   test('an ungraded answer (no stored mark, empty rubric grade) is not a conflict', async () => {
     db.prepare(`UPDATE quiz_responses SET points = 0, schoology_rubric_cells_json = NULL, schoology_comment = '' WHERE attempt_id = ?`).run(att['701']);
-    const pages = pagesNow();
-    pages[path('900', '701', '5001')] = { ...pages[path('900', '701', '5001')], points: '0', override: '0', score: '', grade: '', comment: '' };
-    const f = fakeSchoology(pages);
-    const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
-    expect(r.results[0]).toMatchObject({ status: 'posted' });
+    const subs = subsNow();
+    subs[5001] = { ...subs[5001], points: '0', override: '0', score: '', grade: '', comment: '' };
+    expect((await run(fakeSchoology(subs), 1)).results[0]).toMatchObject({ status: 'posted' });
   });
 });
-

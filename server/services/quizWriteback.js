@@ -7,14 +7,16 @@ import { sessionDeps, noteSessionLive } from './schoologySession.js';
 import { QuizError } from './quizError.js';
 import { getGroup } from './quizGroups.js';
 import { openReader } from './quizLoader.js';
-import { schoologyMarkOf, sameMark } from './frqMarks.js';
+import { schoologyMarkOf } from './frqMarks.js';
 import { levelNameFor } from '../lib/parseQuizRubric.js';
 import { studentFullName } from './studentNames.js';
-import { serializeAttemptForm, essayFields, withEssayMark, changedNames, essayNames, toBody, rubricLaunch } from '../lib/attemptForm.js';
+import { serializeForm, BYQ_FORM, submissionPrefix, fieldsAt, withMarkAt, namesAt, byQuestionRubrics, changedNames, toBody } from '../lib/attemptForm.js';
+import { parseQuizQuestions } from '../lib/parseQuizQuestions.js';
 import { parseRubricGradeInfo } from '../lib/parseQuizRubric.js';
 import { posting } from './quizLocks.js';
 
-const ATTEMPT_PATH = /^\/assignment\/\d+\/assessment_results\/student_stats\/\d+\/\d+$/;
+// The grade-by-question page (spec §15): one form for the class on one question.
+const BYQ_PATH = /^\/assignment\/\d+\/assessment_results\/question_stats\/\d+\/\d+$/;
 const GRADE_PATH = /^\/iapi\/grades\/assessment_component_submission_rubric_grade_info\/\d+\/\d+\/\d+\/\d+$/;
 const gradePath = (launch, qid, attemptId) => `/iapi/grades/assessment_component_submission_rubric_grade_info/${launch.rubricId}/${qid}/${launch.enrollmentId}/${attemptId}`;
 const parse = (t, fallback = null) => (t ? JSON.parse(t) : fallback);
@@ -46,11 +48,11 @@ async function inPagePut({ url, json, timeoutMs }) {
   }
 }
 
-// The production client: the loader's logged-in reader, the rubric PUT and the form POST.
+// The production client: the loader's logged-in reader, the rubric PUT and the by-question form POST.
 export async function openClient({ pauseMs = 400 } = {}) {
   const reader = await openReader({ openPage: () => sessionDeps.openPage(), pauseMs });
   const post = async (path, body) => {
-    if (!ATTEMPT_PATH.test(path)) throw new Error(`Refusing to post to ${path}`);
+    if (!BYQ_PATH.test(path)) throw new Error(`Refusing to post to ${path}`);
     const r = await reader.page.evaluate(inPagePost, { url: `${SCHOOLOGY_BASE}${path}`, body, timeoutMs: 30000 });
     if (r.status !== 0 && r.finalUrl && !isLoggedInUrl(r.finalUrl)) {
       noteSessionLive('expired', 'Schoology sent the saved session to the login page');
@@ -93,6 +95,7 @@ export function waitingMarks(db, groupId) {
     const base = {
       attemptId: r.attempt_id, questionId: r.question_id, position: r.position, studentId: r.student_id,
       name: studentFullName(r), qid: String(r.qid), rubric, status: r.writeback_status,
+      uid: String(r.schoology_uid), memberSid: String(r.member_sid), schoologyAttemptId: String(r.schoology_attempt_id),
       path: `/assignment/${r.member_sid}/assessment_results/student_stats/${r.schoology_uid}/${r.schoology_attempt_id}`,
       finalCellsJson: r.final_cells_json, finalComment: r.final_comment ?? '',
     };
@@ -119,86 +122,121 @@ function record(db, w, status, error) {
       w.attemptId, w.questionId, w.finalCellsJson, w.finalComment).changes === 1;
 }
 
-const formMark = (fields, rowId) => (fields.rubricScore == null && !fields.comment.trim()
-  ? null : { cells: fields.rubricScore == null ? {} : { [rowId]: fields.rubricScore }, comment: fields.comment });
-
 const HALF = 'The rubric level was saved in Schoology but the form was not';
+const failAll = (marks, error) => marks.map(w => ({ w, status: 'failed', error }));
 
-async function postOne(db, client, w) {
-  if (!ATTEMPT_PATH.test(w.path)) return { status: 'failed', error: `${w.path} is not a test attempt address: nothing was posted` };
-  const before = await client.get(w.path);
-  const form = before.status === 200 ? serializeAttemptForm(before.text) : null;
-  if (!form) return { status: 'failed', error: `The attempt page did not load (HTTP ${before.status})` };
-  const now = essayFields(form.pairs, w.qid);
-  if (!now) return { status: 'failed', error: 'The question was not found on the attempt page' };
+// Before each post the mark must still be the one listed (the teacher can edit a card during a batch).
+const stillWaiting = (db, w) => !!db.prepare(`SELECT 1 FROM frq_marks WHERE attempt_id = ? AND question_id = ?
+  AND writeback_status IN ('pending', 'failed') AND final_cells_json = ? AND COALESCE(final_comment, '') = ?`)
+  .get(w.attemptId, w.questionId, w.finalCellsJson, w.finalComment);
+
+// The checks of §14 for one student on the page: the right attempt, question and rubric, the points
+// worth the rubric's top level, and nothing changed in Schoology since the last load (the rubric grade
+// may already be Prism's own, after a half-written post). → { fields, grade, giPath } or { error }.
+async function checkOne(db, client, w, form, rubrics) {
+  if (!stillWaiting(db, w)) return { error: 'Changed in Prism before posting: post it again' };
+  const entry = rubrics[w.schoologyAttemptId];
+  if (!entry) return { error: 'The attempt on the question page is not the one Prism loaded: load the results again' };
+  if (entry.qid !== w.qid) return { error: 'The question page shows another question: load the results again' };
+  if (String(entry.rubricId) !== String(w.rubric.id)) return { error: 'Post this one by hand: the question has a different rubric in Schoology' };
+  const fields = fieldsAt(form.pairs, submissionPrefix(w.uid, w.schoologyAttemptId));
+  if (!fields) return { error: 'The attempt on the question page is not the one Prism loaded: load the results again' };
   const top = Math.max(...w.rubric.rows[0].levels.map(l => l.points));
-  if (now.maxPoints != null && now.maxPoints !== top) {
-    return { status: 'failed', error: `Post this one by hand: the question is worth ${now.maxPoints} points and the rubric's top level ${top}` };
+  if (fields.maxPoints != null && fields.maxPoints !== top) {
+    return { error: `Post this one by hand: the question is worth ${fields.maxPoints} points and the rubric's top level ${top}` };
   }
-  const attemptId = w.path.split('/').pop();
-  const launch = rubricLaunch(before.text, w.qid);
-  if (!launch) return { status: 'failed', error: 'The question\'s rubric was not found on the attempt page' };
-  if (String(launch.rubricId) !== String(w.rubric.id)) return { status: 'failed', error: 'Post this one by hand: the question has a different rubric in Schoology' };
-  const giPath = gradePath(launch, w.qid, attemptId);
-  const giBefore = await client.get(giPath, { json: true });
-  const gradeNow = giBefore.status === 200 ? parseRubricGradeInfo(giBefore.json) : null;
-  if (!gradeNow) return { status: 'failed', error: `The rubric grade did not load (HTTP ${giBefore.status})` };
-
-  // A hand edit since the last load is never overwritten: the points box, the comment, or the rubric
-  // level. The rubric level may also already be Prism's own (an earlier post saved the rubric, not the form).
+  const giPath = gradePath(entry, w.qid, w.schoologyAttemptId);
+  const gi = await client.get(giPath, { json: true });
+  const gradeNow = gi.status === 200 ? parseRubricGradeInfo(gi.json) : null;
+  if (!gradeNow) return { error: `The rubric grade did not load (HTTP ${gi.status})` };
   const response = db.prepare('SELECT * FROM quiz_responses WHERE attempt_id = ? AND question_id = ?').get(w.attemptId, w.questionId);
   const stored = schoologyMarkOf(response, w.rubric);
-  const storedGrade = stored?.cells?.[w.rowId] ?? null;
   const grade = gradeNow[w.rowId]?.points ?? null;
-  const pointsMoved = response?.points != null && now.points !== Number(response.points);
-  const commentMoved = lf(now.comment) !== lf(stored?.comment ?? '');
-  const gradeMoved = grade !== storedGrade && grade !== w.final.points;
-  if (pointsMoved || commentMoved || gradeMoved) return { status: 'failed', error: 'Changed in Schoology since the last load' };
+  const pointsMoved = response?.points != null && fields.points !== Number(response.points);
+  const commentMoved = lf(fields.comment) !== lf(stored?.comment ?? '');
+  const gradeMoved = grade !== (stored?.cells?.[w.rowId] ?? null) && grade !== w.final.points;
+  if (pointsMoved || commentMoved || gradeMoved) return { error: 'Changed in Schoology since the last load' };
+  return { fields, grade, giPath };
+}
 
-  // Two requests, as Schoology's own page sends them (stage C): the rubric cell, then the form.
-  const level = (p) => levelNameFor(w.rubric, w.rowId, p) ?? 'no level';
-  if (grade !== w.final.points) {
-    const put = await client.putRubric(giPath, { gradeInfo: { [w.rowId]: { grade: w.final.points, comment: '' } }, overrideGrade: null, comment: w.final.comment });
-    if (put.status !== 200) return { status: 'failed', error: `Schoology refused the rubric save (${put.error || `HTTP ${put.status}`}): the form was not posted` };
-    const check = await client.get(giPath, { json: true });
-    const saved = check.status === 200 ? parseRubricGradeInfo(check.json)?.[w.rowId]?.points ?? null : undefined;
-    if (saved !== w.final.points) return { status: 'failed', error: `The rubric save did not take (Schoology shows ${saved === undefined ? 'nothing readable' : level(saved)}): the form was not posted` };
+// Every mark for one member test and one question, through that question's grade-by-question page
+// (spec §15): the per-student rubric save, then one form save for the page, then one read-back.
+async function postGroup(db, client, marks) {
+  const { memberSid, qid } = marks[0];
+  const level = (w, p) => levelNameFor(w.rubric, w.rowId, p) ?? 'no level';
+  const list = await client.get(`/assignment/${memberSid}/assessment_questions`);
+  const number = (list.status === 200 ? parseQuizQuestions(list.text) : null)?.find(x => x.qid === qid)?.number;
+  if (!number) return failAll(marks, 'The question was not found in this test');
+  const index = await client.get(`/assignment/${memberSid}/assessment_results/question_stats`);
+  const qPath = String(index.text ?? '').match(new RegExp(`href="(/assignment/${memberSid}/assessment_results/question_stats/\\d+/${number})"`))?.[1];
+  if (!qPath || !BYQ_PATH.test(qPath)) return failAll(marks, 'No grade-by-question page for this question');
+  const before = await client.get(qPath);
+  const form = before.status === 200 ? serializeForm(before.text, BYQ_FORM) : null;
+  if (!form) return failAll(marks, `The question page did not load (HTTP ${before.status})`);
+  const rubrics = byQuestionRubrics(before.text);
+
+  const results = new Map();
+  const ready = [];
+  for (const w of marks) {
+    const c = await checkOne(db, client, w, form, rubrics);
+    if (c.error) { results.set(w, { w, status: 'failed', error: c.error }); continue; }
+    if (c.grade !== w.final.points) {
+      const put = await client.putRubric(c.giPath, { gradeInfo: { [w.rowId]: { grade: w.final.points, comment: '' } }, overrideGrade: null, comment: w.final.comment });
+      if (put.status !== 200) { results.set(w, { w, status: 'failed', error: `Schoology refused the rubric save (${put.error || `HTTP ${put.status}`}): the form was not posted` }); continue; }
+      const check = await client.get(c.giPath, { json: true });
+      const saved = check.status === 200 ? parseRubricGradeInfo(check.json)?.[w.rowId]?.points ?? null : undefined;
+      if (saved !== w.final.points) { results.set(w, { w, status: 'failed', error: `The rubric save did not take (Schoology shows ${saved === undefined ? 'nothing readable' : level(w, saved)}): the form was not posted` }); continue; }
+    }
+    ready.push({ w, giPath: c.giPath, prefix: submissionPrefix(w.uid, w.schoologyAttemptId) });
   }
+  const done = () => marks.map(w => results.get(w));
+  if (!ready.length) return done();
+
+  const next = ready.reduce((pairs, r) => withMarkAt(pairs, r.prefix, r.w.final), form.pairs);
   try {
-    await client.post(w.path, toBody(withEssayMark(form.pairs, w.qid, w.final)));
+    await client.post(qPath, toBody(next));
   } catch (err) {
-    err.halfWritten = true;
+    err.halfWritten = ready.map(r => r.w);
+    err.partial = done().filter(Boolean);
     throw err;
   }
 
-  const after = await client.get(w.path);
-  const afterForm = after.status === 200 ? serializeAttemptForm(after.text) : null;
-  const got = afterForm && essayFields(afterForm.pairs, w.qid);
-  if (!got) return { status: 'failed', error: `${HALF}: the attempt page did not load afterwards, check it in Schoology` };
-  const others = changedNames(form.pairs, afterForm.pairs).filter(n => !essayNames(w.qid).includes(n));
-  if (others.length) return { status: 'failed', unsafe: true, error: `Posted, but other fields changed: ${others.join(', ')}` };
-  if (got.rubricScore !== w.final.points || got.points !== w.final.points || got.override !== 1 || lf(got.comment) !== lf(w.final.comment)) {
-    return { status: 'failed', error: `${HALF}: the form shows rubric score ${got.rubricScore ?? 'empty'}, points ${got.points ?? 'empty'}${lf(got.comment) === lf(w.final.comment) ? '' : ' and a different comment'}; post it again` };
+  const after = await client.get(qPath);
+  const afterForm = after.status === 200 ? serializeForm(after.text, BYQ_FORM) : null;
+  if (!afterForm) {
+    for (const r of ready) results.set(r.w, { w: r.w, status: 'failed', error: `${HALF}: the question page did not load afterwards, check it in Schoology` });
+    return done();
   }
-  const gi = await client.get(giPath, { json: true });
-  const cells = gi.status === 200 ? parseRubricGradeInfo(gi.json) : null;
-  if (!cells || cells[w.rowId]?.points !== w.final.points) {
-    return { status: 'failed', error: `The form saved, but Schoology's rubric shows ${cells ? level(cells[w.rowId]?.points) : 'nothing readable'}: check it in Schoology` };
+  const allowed = new Set(ready.flatMap(r => namesAt(r.prefix)));
+  const others = changedNames(form.pairs, afterForm.pairs).filter(n => !allowed.has(n));
+  if (others.length) {
+    for (const r of ready) results.set(r.w, { w: r.w, status: 'failed', unsafe: true, error: `Posted, but other fields changed: ${others.join(', ')}` });
+    return done();
   }
-  db.prepare(`UPDATE quiz_responses SET points = ?, schoology_rubric_cells_json = ?, schoology_comment = ? WHERE attempt_id = ? AND question_id = ?`)
-    .run(got.points, JSON.stringify(cells), got.comment.replace(/\r\n/g, '\n'), w.attemptId, w.questionId);
-  return { status: 'posted', error: null };
+  for (const r of ready) {
+    const got = fieldsAt(afterForm.pairs, r.prefix);
+    const w = r.w;
+    if (!got || got.rubricScore !== w.final.points || got.points !== w.final.points || got.override !== 1 || lf(got.comment) !== lf(w.final.comment)) {
+      results.set(w, { w, status: 'failed', error: `${HALF}: the form shows rubric score ${got?.rubricScore ?? 'empty'}, points ${got?.points ?? 'empty'}${got && lf(got.comment) === lf(w.final.comment) ? '' : ' and a different comment'}; post it again` });
+      continue;
+    }
+    const gi = await client.get(r.giPath, { json: true });
+    const cells = gi.status === 200 ? parseRubricGradeInfo(gi.json) : null;
+    if (!cells || cells[w.rowId]?.points !== w.final.points) {
+      results.set(w, { w, status: 'failed', error: `The form saved, but Schoology's rubric shows ${cells ? level(w, cells[w.rowId]?.points) : 'nothing readable'}: check it in Schoology` });
+      continue;
+    }
+    db.prepare(`UPDATE quiz_responses SET points = ?, schoology_rubric_cells_json = ?, schoology_comment = ? WHERE attempt_id = ? AND question_id = ?`)
+      .run(got.points, JSON.stringify(cells), got.comment.replace(/\r\n/g, '\n'), w.attemptId, w.questionId);
+    results.set(w, { w, status: 'posted', error: null });
+  }
+  return done();
 }
 
 const resultLine = (w, status, error) => ({
   student_id: w.studentId, name: w.name, question: w.position,
   level: w.final ? levelNameFor(w.rubric, w.rowId, w.final.points) : null, status, error,
 });
-
-// Before each post the mark must still be the one listed (the teacher can edit a card during a batch).
-const stillWaiting = (db, w) => !!db.prepare(`SELECT 1 FROM frq_marks WHERE attempt_id = ? AND question_id = ?
-  AND writeback_status IN ('pending', 'failed') AND final_cells_json = ? AND COALESCE(final_comment, '') = ?`)
-  .get(w.attemptId, w.questionId, w.finalCellsJson, w.finalComment);
 
 export async function postWritebacks(db, { groupId, limit = null }, deps = { openClient }) {
   if (limit != null && Number(limit) !== 1) throw new QuizError('NOT_ELIGIBLE', 'limit must be 1 (one first) or empty (the rest)');
@@ -212,20 +250,31 @@ export async function postWritebacks(db, { groupId, limit = null }, deps = { ope
     const batch = limit == null ? [...eligible].sort(byName) : eligible.slice(0, 1);
     const results = limit == null ? all.filter(w => w.skip).map(w => resultLine(w, 'skipped', w.skip)) : [];
     if (batch.length) client = await deps.openClient({});
+    // One group per member test and question, in batch order (one page each).
+    const groups = new Map();
     for (const w of batch) {
-      if (!stillWaiting(db, w)) { results.push(resultLine(w, 'failed', 'Changed in Prism before posting: post it again')); continue; }
-      let r;
+      const key = `${w.memberSid}:${w.qid}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(w);
+    }
+    for (const marks of groups.values()) {
+      let out;
       try {
-        r = await postOne(db, client, w);
+        out = await postGroup(db, client, marks);
       } catch (err) {
-        if (err?.halfWritten) record(db, w, 'failed', `${HALF}: post it again`);
+        for (const r of err?.partial || []) { record(db, r.w, r.status, r.error); results.push(resultLine(r.w, r.status, r.error)); }
+        for (const w of err?.halfWritten || []) { record(db, w, 'failed', `${HALF}: post it again`); results.push(resultLine(w, 'failed', `${HALF}: post it again`)); }
         if (err?.code === 'NO_SESSION') throw err;
-        r = { status: 'failed', error: err?.halfWritten ? `${HALF}: post it again` : String(err?.message || err) };
+        out = marks.filter(w => !(err?.halfWritten || []).includes(w) && !(err?.partial || []).some(r => r.w === w))
+          .map(w => ({ w, status: 'failed', error: String(err?.message || err) }));
       }
-      const recorded = record(db, w, r.status, r.error);
-      results.push(recorded ? resultLine(w, r.status, r.error)
-        : resultLine(w, 'failed', 'Changed in Prism during the post: Schoology has the earlier version, post it again'));
-      if (r.unsafe) throw new QuizError('UNSAFE', `${w.name}: ${r.error}. Posting stopped; check this attempt in Schoology`);
+      for (const r of out) {
+        const recorded = record(db, r.w, r.status, r.error);
+        results.push(recorded ? resultLine(r.w, r.status, r.error)
+          : resultLine(r.w, 'failed', 'Changed in Prism during the post: Schoology has the earlier version, post it again'));
+      }
+      const unsafe = out.find(r => r.unsafe);
+      if (unsafe) throw new QuizError('UNSAFE', `${unsafe.w.name}: ${unsafe.error}. Posting stopped; check this question in Schoology`);
     }
     return { results, remaining: waitingMarks(db, group.id).filter(w => !w.skip).length };
   } finally {

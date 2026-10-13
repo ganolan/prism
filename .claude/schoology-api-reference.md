@@ -1082,6 +1082,12 @@ the repo.
   steps with Exhibiting Depth restored it (3 to 4); every form field then equalled the 4a capture.
 - **So a level change is two requests:** the rubric PUT (the cell, with Drupal's CSRF headers) and the
   form POST (points and comment). The form POST alone leaves the rubric grade as it was.
+- **End to end through Prism (2026-10-13, Graham approved):** Prism's writer (`quizWriteback.js`)
+  posted Exhibiting with a test comment, then Exhibiting Depth with the original, on the same attempt:
+  both `posted`, each confirmed by reading back the form and `rubric_grade_info`. Afterwards no form field
+  differed from the 4a capture, the rubric grade was 4, and a full reload showed the mark `posted`, not
+  "Changed in Schoology". The CSRF values were read from `Drupal.settings.s_common` on `/home` (the
+  reader's page).
 - **Not observed:** where the page takes the CSRF values for the PUT (Prism's unsubmit reads
   `Drupal.settings.s_common.csrf_token` / `csrf_key` on a loaded page); whether the PUT's `comment` alone
   saves the question comment; an essay with `override` 0 (never marked) and whether a replay must set it

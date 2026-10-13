@@ -1105,7 +1105,17 @@ review's 7 Important findings were fixed before the round trip (ledger in the pl
 **Stage C (2026-10-13, Graham approved):** a level change through the popup sends a JSON `PUT` to
 `rubric_grade_info` (with `x-csrf-key` / `x-csrf-token`), then Save Changes posts the form (302). Changed
 4 to 3 and restored 3 to 4; read back each time; the attempt equals the 4a capture again. Details in the API
-reference. **Next:** the writer sends the rubric PUT before the form POST.
+reference.
+
+**Writer with the rubric PUT, end to end (2026-10-13, Graham approved):** the writer pre-reads the form
+and the rubric grade, sends the rubric `PUT` (CSRF from `Drupal.settings.s_common` on `/home`), then the
+form `POST`, and reads both back. Through dev Prism: Exhibiting with " (test)", then Exhibiting Depth with
+the original comment, both `posted`; afterwards no field differs from the 4a capture, the rubric grade is
+4, and a reload shows `posted`, not "Changed in Schoology". Suites: server and MCP 1507 (server 1505 +
+scripts), client 1006.
+
+**Next:** land on `main` with `quiz_writeback` off, then Graham turns it on in `config.yaml` when he wants
+Prism to post (the first current-year post, one first, with him checking it in Schoology).
 
 ## Linked quizzes, phase 4a: write probe (2026-10-13, branch `claude/angry-hopper-5c1f00`)
 

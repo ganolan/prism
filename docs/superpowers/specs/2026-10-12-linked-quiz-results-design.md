@@ -1,6 +1,6 @@
 # Linked quizzes: question stats, free-response marking and the overall result
 
-Status: **design agreed with the teacher (2026-10-12). Phase 1 and 1b on main (2026-10-13); phase 2 on main (§12); phase 3 on main (§13); phase 4 agreed 2026-10-13 (§14).** The read-only probe in §2 ran
+Status: **design agreed with the teacher (2026-10-12). Phase 1 and 1b on main (2026-10-13); phase 2 on main (§12); phase 3 on main (§13); phase 4 built on the branch, proven end to end on a past attempt, `quiz_writeback` off (§14).** The read-only probe in §2 ran
 on 12 October 2026, and every page shape in this document comes from it.
 
 ## Goal
@@ -489,7 +489,9 @@ the teacher chooses, saving the mark that student should get anyway, with the te
 `server/services/quizWriteback.js`, through the saved browser session (the loader's), one mark at a time:
 1. Re-read the attempt page. If Schoology's cell or comment differs from Prism's stored copy, refuse:
    the mark becomes `failed` with "Changed in Schoology since the last load".
-2. Send the captured requests for the final cells and comment.
+2. Send the captured requests for the final cells and comment: the rubric cell as a JSON `PUT` to
+   `rubric_grade_info` with Drupal's CSRF headers, then the attempt form `POST` (the form alone leaves the
+   rubric grade unchanged; probe stage C and the round trip, 2026-10-13).
 3. Read the attempt back. If it shows the final cells and comment, the mark is `posted` (the stored
    Schoology copy is updated from the read-back); otherwise `failed` with what it shows.
 

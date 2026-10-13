@@ -1128,8 +1128,9 @@ id is not compared with the path; no pause between the PUT and the POST; the rea
 comment; the post bar ignores a later count once it shows results; the loader and writer locks are separate;
 a route test with the flag off; `assertOutsideRepo` in the probe accepts the main clone's folders.
 
-**Next:** land on `main` with `quiz_writeback` off, then Graham turns it on in `config.yaml` when he wants
-Prism to post (the first current-year post, one first, with him checking it in Schoology).
+**Landed on `main` 2026-10-13; `quiz_writeback` turned on in `config.yaml` the same day (Graham).** The
+first current-year post is still to come: one student first, ideally an essay not yet marked in Schoology
+(the never-marked `override` 0 case is not observed), checked by Graham in Schoology.
 
 ## Linked quizzes, phase 4a: write probe (2026-10-13, branch `claude/angry-hopper-5c1f00`)
 

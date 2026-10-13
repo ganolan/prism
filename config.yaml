@@ -11,7 +11,7 @@ features:
   schoology_writeback: false
   rubric_descriptors: true
   quizzes: true
-  quiz_writeback: false
+  quiz_writeback: true
 
 sync:
   submissionConcurrency: 6

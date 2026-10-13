@@ -1076,6 +1076,24 @@ Plan: `docs/superpowers/plans/2026-10-13-feedback-rows.md`.
 - **Bugs fixed on the way:** `attach_rubric` accepted only the local assignment id, not the Schoology
   id; `draft_feedback.rubric_scores` leaked the card's `__scale__` key.
 
+## Linked quizzes, phase 4b: Prism posts FRQ marks (2026-10-13, branch `claude/angry-hopper-5c1f00`)
+
+Plan: `docs/superpowers/plans/2026-10-13-linked-quizzes-phase-4b-writer.md` (spec §14):
+- **`server/lib/attemptForm.js`:** serializes the attempt form as a browser does (byte-identical to the
+  4a capture, 6815 characters) and changes only the essay's `rubric_score`, `points`, `override` (1)
+  and `comment`.
+- **`server/services/quizWriteback.js`:** `postWritebacks` re-reads each attempt, refuses a mark changed
+  in Schoology, posts, reads back, and records posted or failed (and the stored Schoology copy); one
+  batch per group at a time; `NO_SESSION` stops the batch. POSTs only to the attempt path.
+- **Route and UI:** `POST /api/quizzes/:id/writeback` behind `quiz_writeback`; `PostMarksBar` on the
+  Free response tab (one first, then the rest).
+- **Suites:** server and MCP 1676, client 1003, build ok. `quiz_writeback` stays false in `config.yaml`.
+
+**Live (dev copy, 2026-10-13):** `quiz_writeback` on through a config copy (`CONFIG_PATH`). The only
+waiting BK 6 mark was the phase 2 test suggestion (lower than Graham's real Schoology mark), so it was
+removed from the dev database, never posted. The 2024-25 Unit 3 Organizing Data test was set up as dev
+quiz group 3 and loaded (18 attempts, read-only). The round trip on attempt `2247871023` (same level,
+comment plus " (test)", then the original back) waits for Graham's permission for the first real write.
 
 ## Linked quizzes, phase 4a: write probe (2026-10-13, branch `claude/angry-hopper-5c1f00`)
 

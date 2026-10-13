@@ -1270,6 +1270,12 @@ The /assessment/ card header holds one line of action pills (Flag for review, Re
 - **A stale comment is flagged, not rewritten.** When the suggested comment no longer matches the numbers or the template, the line adds an amber "Numbers changed" badge and a small `.ghost.accent` **Update numbers** button. The update keeps the agent's impression and levels, so a comment the teacher already used comes back tagged Revised, as any revised suggestion does.
 - **The comment template lives in Quiz setup.** Shown only when the quiz is linked to its Result task: a five-row textarea under "Overall comment", with the placeholders named in one muted line above it. **Save template** (`.secondary`) is disabled until the text changes; **Reset to default** (`.ghost`) appears only for a saved template. A refused template shows its reason in the modal's existing warning alert. Saving keeps the modal open.
 
+## Posting marks to Schoology (October 2026, linked quizzes phase 4b)
+
+- **One first, then the rest.** While `quiz_writeback` is on, the Free response bar shows **Post accepted to Schoology (n)** (`.primary`) in place of "n waiting for the agent". It posts the first waiting mark by student name and lists its read-back ("Posted: Name, Q21 Exhibiting" in `var(--success)`, or "Failed: Name, Q21: reason" in `var(--danger)`), with "Check it in Schoology before posting the rest." Then **Post the other n** (`.secondary`) posts the rest and adds a line for each. `PostMarksBar.jsx`.
+- **The count includes failed marks,** so a retry is the same button. A refused post (busy, expired session) shows in the bar's `.alert.alert-warning`.
+- **The cards reload after each post,** so their chips show Posted or Failed from the read-back.
+
 ## Linked quizzes: what phase 1 keeps constant (October 2026)
 
 - **Statistics stay counts.** Facility bars, bands (Strong at 90% and above, Mixed at 70% and above, otherwise Divided), option counts with the key marked, and flags. No discrimination statistics, on purpose: a class-sized cohort cannot support them.

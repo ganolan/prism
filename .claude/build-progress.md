@@ -1065,7 +1065,20 @@ built comment; editing the template in Quiz setup showed "Numbers changed" on al
 numbers** rebuilt one with the new template. The check found the student name wrapping beside the
 badge; fixed (name `nowrap`). Screenshots: the review page, version 6.
 
-**Suites (2026-10-13):** server and MCP 1643 pass, client 997 pass, `npm run build` ok.
+**Final review fixes (fresh reviewer, 2026-10-13):** a numeric level in `rubric_scores` is reported per
+student over MCP instead of failing the call (also `write_student_suggestions`); a mark whose points match
+no rubric level is "not on the rubric", never "Q21 null" in a comment; the suggestion stores the comment
+as built (`quiz_overall.built`), so a teacher's edit on the Feedback page is never "Numbers changed" on
+its own and **Update numbers** never overwrites it; Update numbers refreshes the card in place instead
+of reloading the page.
+
+**Suites (2026-10-13):** server and MCP 1650 pass, client 999 pass, `npm run build` ok.
+
+**Deferred (phase 3):**
+- **`PUT /api/quizzes/:id/template` without a body** resets the template to the default; the client
+  always sends one.
+- **`quizResults` queries:** per-tag response lookups repeat, and `overallFor` re-prepares per student.
+  Class-sized data, so no real cost.
 
 **Next:** phase 4 (spec §9, §10): a teacher-approved write probe, then **Post accepted to Schoology**
 behind `quiz_writeback`.

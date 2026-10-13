@@ -387,6 +387,8 @@ CREATE TABLE IF NOT EXISTS quiz_groups (
   course_id INTEGER NOT NULL REFERENCES courses(id),
   title TEXT NOT NULL,
   result_assignment_id INTEGER UNIQUE REFERENCES assignments(id),
+  -- The overall comment's template (spec §13); NULL means the default built from the question kinds.
+  comment_template TEXT,
   -- 'ok' | 'mismatch' (a load found options, key or rubric differing between copies)
   parity_status TEXT NOT NULL DEFAULT 'ok',
   parity_detail_json TEXT,

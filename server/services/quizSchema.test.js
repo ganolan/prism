@@ -9,6 +9,10 @@ describe('quiz schema', () => {
     expect(names).toEqual(['frq_marks', 'quiz_attempts', 'quiz_group_members', 'quiz_groups', 'quiz_question_copies', 'quiz_questions', 'quiz_responses', 'quiz_tag_texts']);
   });
 
+  test('quiz_groups has the overall comment template column', () => {
+    expect(getDb().prepare('PRAGMA table_info(quiz_groups)').all().map(c => c.name)).toContain('comment_template');
+  });
+
   test('a test belongs to one group, and a result task to one group', () => {
     const db = getDb();
     const c = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('qs1', 'C')`).run().lastInsertRowid;

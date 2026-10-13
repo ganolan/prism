@@ -7,7 +7,7 @@ import { featureGate } from '../middleware/featureGate.js';
 import { QuizError } from '../services/quizError.js';
 import {
   createGroup, linkResult, unlinkResult, deleteGroup, getGroup, listGroups, groupForAssignment,
-  setQuestionTags, listCandidates, attemptLinks, attemptLinksForStudent,
+  setQuestionTags, listCandidates, attemptLinks, attemptLinksForStudent, setCommentTemplate,
 } from '../services/quizGroups.js';
 import { compareQuestionLists } from '../services/quizParity.js';
 import { readQuestionLists, loadGroup } from '../services/quizLoader.js';
@@ -67,6 +67,7 @@ router.post('/:id/load', handle(async (req, db) => {
 }));
 
 router.get('/:id/stats', handle((req, db) => groupStats(db, { groupId: req.params.id })));
+router.put('/:id/template', handle((req, db) => ({ group: setCommentTemplate(db, { groupId: req.params.id, template: req.body.template }) })));
 router.put('/:id/tags', handle((req, db) => setQuestionTags(db, { groupId: req.params.id, tags: req.body.tags, texts: req.body.texts })));
 router.get('/:id/frq', handle((req, db) => frqResponses(db, { groupId: req.params.id, position: req.query.question ?? null })));
 router.put('/:id/frq/:attemptId/:position', handle((req, db) => ({

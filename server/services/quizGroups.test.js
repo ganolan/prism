@@ -3,7 +3,7 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 import { getDb } from '../db/index.js';
 import {
   createGroup, linkResult, unlinkResult, deleteGroup, getGroup, listGroups, groupForAssignment,
-  setQuestionTags, listCandidates, attemptLinks, attemptLinksForStudent,
+  setQuestionTags, listCandidates, attemptLinks, attemptLinksForStudent, setCommentTemplate,
 } from './quizGroups.js';
 
 const Q = (qid, stem, kind = 'mcq', points = 1, delta = 0) => ({ qid, stemHtml: stem, kind, points, delta, number: delta + 1 });
@@ -170,4 +170,26 @@ test('attemptLinks: by member test, by result task, and by student', () => {
   expect(attemptLinks(db, { assignmentRef: '950' })).toEqual({ [stu]: want });
   expect(attemptLinks(db, { assignmentRef: '960' })).toEqual({});
   expect(attemptLinksForStudent(db, { studentId: stu })).toEqual({ 901: want, 950: want });
+});
+
+describe('comment template', () => {
+  test('a group shows the default built from its question kinds until a template is saved', () => {
+    const g = make().id;
+    let group = getGroup(db, g);
+    expect(group.comment_template).toBeNull();
+    expect(group.default_comment_template.split('\n')).toEqual([
+      'Multiple choice: {mcq_correct}/{mcq_total} ({mcq_percent}%)', 'Free response: {frq_levels}', '{impression}',
+      'Open your attempt on the test to read the feedback on each free-response question.']);
+    db.prepare(`DELETE FROM quiz_questions WHERE group_id = ? AND kind = 'frq'`).run(g);
+    expect(getGroup(db, g).default_comment_template).toBe('Multiple choice: {mcq_correct}/{mcq_total} ({mcq_percent}%)\n{impression}');
+    group = setCommentTemplate(db, { groupId: g, template: 'Score {mcq_percent}%\r\n{impression}' });
+    expect(group.comment_template).toBe('Score {mcq_percent}%\n{impression}');
+  });
+
+  test('refuses an invalid template; an empty one resets to the default', () => {
+    const g = make().id;
+    expect(() => setCommentTemplate(db, { groupId: g, template: '{grade}' })).toThrow(/Unknown placeholder: \{grade\}/);
+    setCommentTemplate(db, { groupId: g, template: '{impression}!' });
+    expect(setCommentTemplate(db, { groupId: g, template: '  \n ' }).comment_template).toBeNull();
+  });
 });

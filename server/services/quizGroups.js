@@ -7,6 +7,7 @@ import { SCHOOLOGY_BASE } from '../lib/browserSession.js';
 import { QuizError } from './quizError.js';
 import { compareQuestionLists, matchCopies } from './quizParity.js';
 import { normalizeStem } from '../lib/quizText.js';
+import { defaultTemplate, validateTemplate } from '../lib/quizComment.js';
 
 const ASSIGNMENT_SQL = `SELECT a.id, a.course_id, a.schoology_assignment_id, a.title, a.is_test, ${ALIGNED_SQL} AS aligned
   FROM assignments a`;
@@ -30,13 +31,30 @@ export function getGroup(db, groupId) {
   const result = g.result_assignment_id
     ? db.prepare('SELECT id, schoology_assignment_id, title FROM assignments WHERE id = ?').get(g.result_assignment_id)
     : null;
+  const kinds = db.prepare(`SELECT SUM(kind = 'mcq') AS mcq, SUM(kind = 'frq') AS frq FROM quiz_questions WHERE group_id = ?`).get(g.id);
   return {
     id: g.id, course_id: g.course_id, title: g.title, result, members,
     parity_status: g.parity_status, parity_detail: g.parity_detail_json ? JSON.parse(g.parity_detail_json) : null,
     loaded_at: g.loaded_at, load_summary: g.load_summary_json ? JSON.parse(g.load_summary_json) : null,
-    frq_count: db.prepare(`SELECT COUNT(*) AS n FROM quiz_questions WHERE group_id = ? AND kind = 'frq'`).get(g.id).n,
+    frq_count: kinds.frq || 0,
+    comment_template: g.comment_template ?? null,
+    default_comment_template: defaultTemplate({ hasMcq: kinds.mcq > 0, hasFrq: kinds.frq > 0 }),
     canonical_schoology_id: result ? result.schoology_assignment_id : members[0]?.schoology_assignment_id ?? null,
   };
+}
+
+// The overall comment's template (spec §13). Blank resets to the default.
+export function setCommentTemplate(db, { groupId, template }) {
+  const g = groupRow(db, groupId);
+  const text = String(template ?? '').replace(/\r\n?/g, '\n');
+  let stored = null;
+  if (text.trim()) {
+    const v = validateTemplate(text);
+    if (v.error) throw new QuizError('NOT_ELIGIBLE', v.error);
+    stored = text;
+  }
+  db.prepare(`UPDATE quiz_groups SET comment_template = ?, updated_at = datetime('now') WHERE id = ?`).run(stored, g.id);
+  return getGroup(db, g.id);
 }
 
 export function listGroups(db, { courseId }) {

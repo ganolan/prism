@@ -128,4 +128,12 @@ describe('/api/quizzes', () => {
     expect((await call('DELETE', `/api/quizzes/${id}`)).body).toEqual({ ok: true });
     expect((await call('GET', `/api/quizzes/${id}/stats`)).status).toBe(404);
   });
+
+  test('PUT /:id/template saves, refuses an unknown placeholder with 400', async () => {
+    const id = (await call('POST', '/api/quizzes', { course_id: course, assignment_ids: ['900'], title: 'T' })).body.group.id;
+    const ok = await call('PUT', `/api/quizzes/${id}/template`, { template: '{impression}' });
+    expect([ok.status, ok.body.group.comment_template]).toEqual([200, '{impression}']);
+    const bad = await call('PUT', `/api/quizzes/${id}/template`, { template: '{score}' });
+    expect([bad.status, bad.body.error]).toEqual([400, 'Unknown placeholder: {score}']);
+  });
 });

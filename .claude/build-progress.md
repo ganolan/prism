@@ -1076,6 +1076,29 @@ Plan: `docs/superpowers/plans/2026-10-13-feedback-rows.md`.
 - **Bugs fixed on the way:** `attach_rubric` accepted only the local assignment id, not the Schoology
   id; `draft_feedback.rubric_scores` leaked the card's `__scale__` key.
 
+## Linked quizzes, phase 4c: posting by question (2026-10-13, branch `claude/angry-hopper-5c1f00`)
+
+Graham asked whether Schoology's grade-by-question page is quicker. Plan:
+`docs/superpowers/plans/2026-10-13-linked-quizzes-phase-4c-by-question.md` (spec §15).
+- **Spike and stage D (Graham approved):** "View by Question" → `question_stats/{question id}/{number}`
+  holds one form for the class on one question; one same-value Save Changes was one form POST (302), body
+  byte-identical to Prism's serialization, nothing changed (18 students).
+- **Round trip finding:** for an essay already marked, the per-student `rubric_grade_info` PUT also saves
+  the points, rubric score and comment (its `comment` field saves the question comment).
+- **Writer (`postGroup` in `quizWriteback.js`):** per member test and question, finds the page by question
+  id, checks each student (attempt, question, rubric, points, comment, grade unchanged), sends each rubric
+  PUT and checks it, re-reads the page (a hand edit made meanwhile refuses the page), sends the form save
+  only for students the PUT did not finish, reads back, records every mark honestly. The post bar warns to
+  close a grade-by-question tab in Schoology first.
+- **Live (dev, Graham approved):** Exhibiting with " (test)" then Exhibiting Depth on attempt `2247871023`
+  through the writer: both posted with no form save; the whole Q21 page then equalled the stage D page,
+  the rubric grade was 4, and a reload showed `posted`.
+- **Review fixes (fresh reviewer):** re-read before the save; every throw records each mark; honest
+  messages; link by question id; tests for two FRQs and body names.
+- **Deferred:** `byQuestionRubrics` regex edge cases (fail closed); the index is read per question;
+  pagination of the by-question page above 18 takers is unobserved; a never-marked essay (`override` 0)
+  through the PUT is unobserved (the form save covers it).
+
 ## Linked quizzes, phase 4b: Prism posts FRQ marks (2026-10-13, branch `claude/angry-hopper-5c1f00`)
 
 Plan: `docs/superpowers/plans/2026-10-13-linked-quizzes-phase-4b-writer.md` (spec §14):

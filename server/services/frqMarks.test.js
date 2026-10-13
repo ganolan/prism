@@ -188,3 +188,16 @@ describe('recordWriteback guard', () => {
     expect(cellsOf(mark(a1).posted_cells_json)).toEqual({ 146: 2 });
   });
 });
+
+describe('reconcileMarks with points', () => {
+  test('a one-row rubric mark is posted only when the question points match the cell too', () => {
+    writeFrqSuggestions(db, { groupId: g, position: 21, students: [{ student: 'u1', level: 'Exhibiting', comment: 'Same' }] });
+    setFrqMark(db, { groupId: g, attemptId: a1, position: 21, action: 'accept' });
+    setSchoology(a1, 3, 'Same');
+    db.prepare('UPDATE quiz_responses SET points = 2 WHERE attempt_id = ? AND question_id = ?').run(a1, q);
+    expect(reconcileMarks(db, { groupId: g }).posted).toBe(0);
+    db.prepare('UPDATE quiz_responses SET points = 3 WHERE attempt_id = ? AND question_id = ?').run(a1, q);
+    expect(reconcileMarks(db, { groupId: g }).posted).toBe(1);
+  });
+});
+

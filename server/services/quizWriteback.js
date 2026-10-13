@@ -122,7 +122,10 @@ function record(db, w, status, error) {
 const formMark = (fields, rowId) => (fields.rubricScore == null && !fields.comment.trim()
   ? null : { cells: fields.rubricScore == null ? {} : { [rowId]: fields.rubricScore }, comment: fields.comment });
 
+const HALF = 'The rubric level was saved in Schoology but the form was not';
+
 async function postOne(db, client, w) {
+  if (!ATTEMPT_PATH.test(w.path)) return { status: 'failed', error: `${w.path} is not a test attempt address: nothing was posted` };
   const before = await client.get(w.path);
   const form = before.status === 200 ? serializeAttemptForm(before.text) : null;
   if (!form) return { status: 'failed', error: `The attempt page did not load (HTTP ${before.status})` };
@@ -132,42 +135,51 @@ async function postOne(db, client, w) {
   if (now.maxPoints != null && now.maxPoints !== top) {
     return { status: 'failed', error: `Post this one by hand: the question is worth ${now.maxPoints} points and the rubric's top level ${top}` };
   }
-  // A hand edit since the last load (the rubric level, the comment, or the points box) is never overwritten.
-  const response = db.prepare('SELECT * FROM quiz_responses WHERE attempt_id = ? AND question_id = ?').get(w.attemptId, w.questionId);
-  const stored = schoologyMarkOf(response, w.rubric);
-  const current = formMark(now, w.rowId);
-  const pointsMoved = response?.points != null && now.points !== Number(response.points);
-  if (pointsMoved || (!(current === null && stored === null) && !sameMark(current, stored))) {
-    return { status: 'failed', error: 'Changed in Schoology since the last load' };
-  }
-
-  // The rubric grade (what the loader stored) must also be as Prism last saw it.
   const attemptId = w.path.split('/').pop();
   const launch = rubricLaunch(before.text, w.qid);
   if (!launch) return { status: 'failed', error: 'The question\'s rubric was not found on the attempt page' };
+  if (String(launch.rubricId) !== String(w.rubric.id)) return { status: 'failed', error: 'Post this one by hand: the question has a different rubric in Schoology' };
   const giPath = gradePath(launch, w.qid, attemptId);
   const giBefore = await client.get(giPath, { json: true });
   const gradeNow = giBefore.status === 200 ? parseRubricGradeInfo(giBefore.json) : null;
   if (!gradeNow) return { status: 'failed', error: `The rubric grade did not load (HTTP ${giBefore.status})` };
-  if ((gradeNow[w.rowId]?.points ?? null) !== (stored?.cells?.[w.rowId] ?? null)) return { status: 'failed', error: 'Changed in Schoology since the last load' };
+
+  // A hand edit since the last load is never overwritten: the points box, the comment, or the rubric
+  // level. The rubric level may also already be Prism's own (an earlier post saved the rubric, not the form).
+  const response = db.prepare('SELECT * FROM quiz_responses WHERE attempt_id = ? AND question_id = ?').get(w.attemptId, w.questionId);
+  const stored = schoologyMarkOf(response, w.rubric);
+  const storedGrade = stored?.cells?.[w.rowId] ?? null;
+  const grade = gradeNow[w.rowId]?.points ?? null;
+  const pointsMoved = response?.points != null && now.points !== Number(response.points);
+  const commentMoved = lf(now.comment) !== lf(stored?.comment ?? '');
+  const gradeMoved = grade !== storedGrade && grade !== w.final.points;
+  if (pointsMoved || commentMoved || gradeMoved) return { status: 'failed', error: 'Changed in Schoology since the last load' };
 
   // Two requests, as Schoology's own page sends them (stage C): the rubric cell, then the form.
-  const put = await client.putRubric(giPath, { gradeInfo: { [w.rowId]: { grade: w.final.points, comment: '' } }, overrideGrade: null, comment: w.final.comment });
-  if (put.status !== 200) return { status: 'failed', error: `Schoology refused the rubric save (HTTP ${put.status}): nothing was posted` };
-  const next = withEssayMark(form.pairs, w.qid, w.final);
-  await client.post(w.path, toBody(next));
+  const level = (p) => levelNameFor(w.rubric, w.rowId, p) ?? 'no level';
+  if (grade !== w.final.points) {
+    const put = await client.putRubric(giPath, { gradeInfo: { [w.rowId]: { grade: w.final.points, comment: '' } }, overrideGrade: null, comment: w.final.comment });
+    if (put.status !== 200) return { status: 'failed', error: `Schoology refused the rubric save (${put.error || `HTTP ${put.status}`}): the form was not posted` };
+    const check = await client.get(giPath, { json: true });
+    const saved = check.status === 200 ? parseRubricGradeInfo(check.json)?.[w.rowId]?.points ?? null : undefined;
+    if (saved !== w.final.points) return { status: 'failed', error: `The rubric save did not take (Schoology shows ${saved === undefined ? 'nothing readable' : level(saved)}): the form was not posted` };
+  }
+  try {
+    await client.post(w.path, toBody(withEssayMark(form.pairs, w.qid, w.final)));
+  } catch (err) {
+    err.halfWritten = true;
+    throw err;
+  }
 
   const after = await client.get(w.path);
   const afterForm = after.status === 200 ? serializeAttemptForm(after.text) : null;
   const got = afterForm && essayFields(afterForm.pairs, w.qid);
-  if (!got) return { status: 'failed', error: 'After the post, the attempt page did not load: check it in Schoology' };
+  if (!got) return { status: 'failed', error: `${HALF}: the attempt page did not load afterwards, check it in Schoology` };
   const others = changedNames(form.pairs, afterForm.pairs).filter(n => !essayNames(w.qid).includes(n));
   if (others.length) return { status: 'failed', unsafe: true, error: `Posted, but other fields changed: ${others.join(', ')}` };
-  const level = (p) => levelNameFor(w.rubric, w.rowId, p) ?? 'no level';
   if (got.rubricScore !== w.final.points || got.points !== w.final.points || got.override !== 1 || lf(got.comment) !== lf(w.final.comment)) {
-    return { status: 'failed', error: `Schoology shows ${level(got.rubricScore)} (rubric score ${got.rubricScore ?? 'empty'}, points ${got.points ?? 'empty'})${lf(got.comment) === lf(w.final.comment) ? '' : ' and a different comment'}` };
+    return { status: 'failed', error: `${HALF}: the form shows rubric score ${got.rubricScore ?? 'empty'}, points ${got.points ?? 'empty'}${lf(got.comment) === lf(w.final.comment) ? '' : ' and a different comment'}; post it again` };
   }
-  // The rubric grade is what the loader reads and the student sees: it must show the new level too.
   const gi = await client.get(giPath, { json: true });
   const cells = gi.status === 200 ? parseRubricGradeInfo(gi.json) : null;
   if (!cells || cells[w.rowId]?.points !== w.final.points) {
@@ -206,8 +218,9 @@ export async function postWritebacks(db, { groupId, limit = null }, deps = { ope
       try {
         r = await postOne(db, client, w);
       } catch (err) {
+        if (err?.halfWritten) record(db, w, 'failed', `${HALF}: post it again`);
         if (err?.code === 'NO_SESSION') throw err;
-        r = { status: 'failed', error: String(err?.message || err) };
+        r = { status: 'failed', error: err?.halfWritten ? `${HALF}: post it again` : String(err?.message || err) };
       }
       const recorded = record(db, w, r.status, r.error);
       results.push(recorded ? resultLine(w, r.status, r.error)

@@ -226,8 +226,13 @@ export function reconcileMarks(db, { groupId }) {
   let posted = 0;
   for (const m of rows) {
     const final = { cells: parse(m.final_cells_json), comment: m.final_comment ?? '' };
-    const schoology = schoologyMarkOf(responseRow(db, m.attempt_id, m.question_id), parse(m.schoology_rubric_json));
+    const rubric = parse(m.schoology_rubric_json);
+    const response = responseRow(db, m.attempt_id, m.question_id);
+    const schoology = schoologyMarkOf(response, rubric);
     if (!sameMark(final, schoology)) continue;
+    // A one-row rubric's level and the question's points are saved by different requests (spec §14):
+    // the mark is in Schoology only when the points agree with the level too.
+    if (rubric?.rows?.length === 1 && response?.points != null && Number(response.points) !== Number(final.cells[rubric.rows[0].id])) continue;
     db.prepare(`UPDATE frq_marks SET writeback_status = 'posted', writeback_at = datetime('now'), writeback_error = NULL,
         posted_cells_json = final_cells_json, posted_comment = final_comment WHERE attempt_id = ? AND question_id = ?`)
       .run(m.attempt_id, m.question_id);

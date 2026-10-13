@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { pickFrq, compareAttempts, captureRecord, assertOutsideRepo, readRatingCell, selectedLevel } from './attemptProbe.js';
+import { pickFrq, compareAttempts, captureRecord, assertOutsideRepo, readRatingCell, selectedLevel, levelCellIndex } from './attemptProbe.js';
 
 const RUBRIC = { id: '77', title: 'FRQ', rows: [{ id: '5', title: 'Content Knowledge', levels: [
   { points: 4, name: 'Exhibiting Depth' }, { points: 3, name: 'Exhibiting' }, { points: 2, name: 'Developing' }, { points: 1, name: 'Emerging' }] }] };
@@ -65,5 +65,14 @@ describe('rubric popup cells', () => {
   test('selectedLevel: exactly one selected cell, else null', () => {
     expect(selectedLevel(['This item is selected.4Exhibiting Depth: x', '3Exhibiting: y'])).toEqual({ selected: true, points: 4, level: 'Exhibiting Depth' });
     expect(selectedLevel(['4Exhibiting Depth: x', '3Exhibiting: y'])).toBeNull();
+  });
+});
+
+describe('levelCellIndex', () => {
+  const texts = ['This item is selected.4Exhibiting Depth: a', '3Exhibiting: b', '2Developing: c', '1Emerging: d'];
+  test('the index of the cell with that level, matched by its whole name', () => {
+    expect(levelCellIndex(texts, 'Exhibiting')).toBe(1);
+    expect(levelCellIndex(texts, 'Exhibiting Depth')).toBe(0);
+    expect(levelCellIndex(texts, 'Great')).toBe(-1);
   });
 });

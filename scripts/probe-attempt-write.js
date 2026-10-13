@@ -6,6 +6,10 @@
 //                      Stage B (refused unless --confirm equals --attempt): the stored level saved
 //                      again from the popup without clicking a cell, the comment unchanged, every non-GET
 //                      request recorded, the attempt read back. Only with Graham's approval.
+//   level --test <testId> --uid <uid> --attempt <attemptId> --confirm <attemptId> --level <Level name>
+//                      Stage C (refused unless --confirm equals --attempt): choose a different level in
+//                      the popup by its label, Save, Save Changes, recording every non-GET request; then
+//                      read back the form and the rubric grade. The comment is left as it is.
 // Captures go to OUT_DIR, outside the repo (they hold student work).
 // Usage: OUT_DIR=<dir> [PRISM_SESSION_DIR=<dir>] node scripts/probe-attempt-write.js <command> ...
 import { chromium } from 'playwright';
@@ -16,7 +20,7 @@ import { sessionStateFile } from '../server/lib/sessionPaths.js';
 import { parseQuizResults, parseStudentStats } from '../server/lib/parseQuizResults.js';
 import { parseQuizAttempt } from '../server/lib/parseQuizAttempt.js';
 import { parseQuizRubric } from '../server/lib/parseQuizRubric.js';
-import { pickFrq, compareAttempts, captureRecord, assertOutsideRepo, selectedLevel } from './lib/attemptProbe.js';
+import { pickFrq, compareAttempts, captureRecord, assertOutsideRepo, selectedLevel, levelCellIndex } from './lib/attemptProbe.js';
 
 const BASE = 'https://schoology.hkis.edu.hk';
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -155,6 +159,83 @@ async function write() {
   } finally { await browser.close(); }
 }
 
+
+async function gradeOf(page, html, qid, attemptId) {
+  const q = parseQuizAttempt(html)?.questions.find(x => x.qid === qid);
+  if (!q?.rubric) return null;
+  const t = await page.evaluate(async (u) => (await fetch(u, { headers: { Accept: 'application/json' } })).text(),
+    `${BASE}/iapi/grades/assessment_component_submission_rubric_grade_info/${q.rubric.rubricId}/${qid}/${q.rubric.enrollmentId}/${attemptId}`);
+  return JSON.parse(t)?.body?.gradeInfo ?? null;
+}
+
+async function level() {
+  const testId = flag('test'), uid = flag('uid'), attemptId = flag('attempt'), target = flag('level');
+  if (!testId || !uid || !attemptId || !target) throw new Error('level needs --test, --uid, --attempt and --level');
+  if (flag('confirm') !== attemptId) throw new Error('level needs --confirm equal to --attempt (Graham approves the attempt first)');
+  const attemptPath = `/assignment/${testId}/assessment_results/student_stats/${uid}/${attemptId}`;
+  const { browser, page, captured } = await open({ allowWrites: true });
+  try {
+    const beforeHtml = await html(page, attemptPath);
+    const before = parseQuizAttempt(beforeHtml);
+    const ids = [...new Set((before?.questions || []).filter(x => x.rubric).map(x => x.rubric.rubricId))];
+    const rubrics = {};
+    for (const id of ids) rubrics[id] = await rubricOf(page, id);
+    const pick = pickFrq(before, rubrics);
+    if (pick.reason) throw new Error(`Not a candidate: ${pick.reason}`);
+    const want = rubrics[pick.rubricId].rows[0].levels.find(l => l.name === target);
+    if (!want) throw new Error(`No level "${target}" in the rubric`);
+    if (want.points === pick.points) throw new Error(`The attempt is already ${target}`);
+    const gradeBefore = await gradeOf(page, beforeHtml, pick.qid, attemptId);
+    await page.waitForTimeout(1500);
+    const mark = captured.length;
+
+    await page.evaluate(({ qid }) => {
+      const s = document.querySelector(`[name="components[0][${qid}][points]"]`).closest('.question-review').querySelector('span.grading-rubric-grading-launch');
+      for (const t of ['mousedown', 'mouseup', 'click']) s.dispatchEvent(new MouseEvent(t, { bubbles: true }));
+    }, { qid: pick.qid });
+    await page.waitForTimeout(2500);
+    const texts = await page.evaluate(() => [...document.querySelectorAll('td.rating-wrapper')].filter(td => td.offsetParent !== null).map(td => td.textContent));
+    const shown = selectedLevel(texts);
+    if (!shown || shown.points !== pick.points) throw new Error(`The popup shows ${shown ? shown.level : 'no single selected level'}, expected ${pick.levelName}: stopping before any change`);
+    const idx = levelCellIndex(texts, target);
+    if (idx < 0) throw new Error(`Level "${target}" not found in the popup`);
+    await page.evaluate((i) => {
+      const cell = [...document.querySelectorAll('td.rating-wrapper')].filter(td => td.offsetParent !== null)[i];
+      for (const t of ['mousedown', 'mouseup', 'click']) cell.dispatchEvent(new MouseEvent(t, { bubbles: true }));
+    }, idx);
+    await page.waitForTimeout(1000);
+    const nowSelected = selectedLevel(await page.evaluate(() => [...document.querySelectorAll('td.rating-wrapper')].filter(td => td.offsetParent !== null).map(td => td.textContent)));
+    if (nowSelected?.level !== target) throw new Error(`After the click the popup shows ${nowSelected ? nowSelected.level : 'no single selected level'}: stopping before Save`);
+    await page.locator('button.submit-btn', { hasText: 'Save' }).first().click();
+    await page.waitForTimeout(3000);
+    const afterPopup = captured.length;
+    const score = await page.evaluate((qid) => document.querySelector(`[name="components[0][${qid}][rubric_score]"]`)?.value, pick.qid);
+    const points = await page.evaluate((qid) => document.querySelector(`[name="components[0][${qid}][points]"]`)?.value, pick.qid);
+    console.log(JSON.stringify({ afterPopupSave: { rubric_score: score, points, requests: captured.slice(mark).map(c => `${c.method} ${c.url}`) } }));
+    if (Number(score) !== want.points) throw new Error(`rubric_score is ${score} after the popup, expected ${want.points}: stopping before Save Changes`);
+
+    const response = page.waitForResponse(r => r.request().method() === 'POST' && r.url().includes(attemptPath), { timeout: 60000 });
+    await page.locator('#s-assessment-edit-submission-form input[type=submit][value="Save Changes"], #s-assessment-edit-submission-form button[type=submit]').first().click();
+    const res = await response;
+    await page.waitForLoadState('networkidle', { timeout: 60000 }).catch(() => {});
+
+    const afterHtml = await html(page, attemptPath);
+    writeFileSync(`${OUT}/stageC-${target.replace(/\W+/g, '-')}-after-${attemptId}.html`, afterHtml);
+    writeFileSync(`${OUT}/stageC-${target.replace(/\W+/g, '-')}-requests-${attemptId}.json`, JSON.stringify(captured, null, 1));
+    const after = parseQuizAttempt(afterHtml);
+    const q = after?.questions.find(x => x.qid === pick.qid);
+    console.log(JSON.stringify({
+      formPostStatus: res.status(),
+      popupRequests: captured.slice(mark, afterPopup).map(c => `${c.method} ${c.url} (${c.contentType})`),
+      allRequests: captured.slice(mark).map(c => `${c.method} ${c.url} (${c.contentType})`),
+      readBack: { rubricScore: q?.rubricScore, points: q?.points, commentUnchanged: q?.comment === before.questions.find(x => x.qid === pick.qid).comment,
+        otherDiffs: compareAttempts(before, after).filter(d => !d.startsWith(`question ${pick.qid}:`)) },
+      gradeBefore, gradeAfter: await gradeOf(page, afterHtml, pick.qid, attemptId),
+    }, null, 1));
+  } finally { await browser.close(); }
+}
+
 if (command === 'scan') await scan(rest);
+else if (command === 'level') await level();
 else if (command === 'write') await write();
 else { console.log('Usage: scan <testId>... | write --test <id> --uid <uid> --attempt <id> --confirm <id>'); process.exitCode = 1; }

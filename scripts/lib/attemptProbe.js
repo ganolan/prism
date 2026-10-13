@@ -53,3 +53,8 @@ export function selectedLevel(texts) {
   const selected = texts.map(readRatingCell).filter(c => c?.selected);
   return selected.length === 1 ? selected[0] : null;
 }
+
+// The visible popup cell for a level, by its whole name (never by position).
+export function levelCellIndex(texts, levelName) {
+  return texts.findIndex(t => readRatingCell(t)?.level === levelName);
+}

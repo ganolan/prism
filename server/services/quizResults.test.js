@@ -59,6 +59,13 @@ describe('confirmedMark', () => {
   });
 });
 
+describe('confirmedMark: points off the rubric', () => {
+  test('a cell whose points match no level is not confirmed, from either source', () => {
+    expect(confirmedMark(null, { cells: { 146: 2.5 }, comment: '' }, RUBRIC)).toEqual({ reason: 'not on the rubric' });
+    expect(confirmedMark({ state: 'accepted', final_cells_json: '{"146":7}' }, null, RUBRIC)).toEqual({ reason: 'not on the rubric' });
+  });
+});
+
 describe('quizResults', () => {
   test('numbers per student, by tag with blanks as wrong, readiness and not taken', () => {
     const r = quizResults(db, { groupId: g });

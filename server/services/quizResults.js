@@ -14,12 +14,21 @@ const byName = (x, y) => (x.name < y.name ? -1 : x.name > y.name ? 1 : 0);
 
 // The mark the overall result may use: the teacher's Prism mark, else Schoology's own mark
 // when it covers every rubric row. A Prism suggestion the teacher has not acted on blocks.
+// A cell whose points match no level of its row (the rubric changed, or Schoology holds odd points)
+// is never confirmed, so a comment can never print an empty level.
+const onRubric = (rubric, cells) => !rubric || rubric.rows.every(r => r.levels.some(l => l.points === Number(cells[r.id])));
+
 export function confirmedMark(markRow, schoology, rubric) {
-  if (markRow?.final_cells_json && markRow.state !== 'suggested') return { source: 'prism', cells: parse(markRow.final_cells_json) };
-  if (markRow?.state === 'suggested') return { reason: 'to review' };
-  const cells = schoology?.cells || {};
-  const complete = rubric ? rubric.rows.every(r => cells[r.id] != null) : cells.points != null;
-  return complete ? { source: 'schoology', cells } : { reason: 'not marked' };
+  let found;
+  if (markRow?.final_cells_json && markRow.state !== 'suggested') found = { source: 'prism', cells: parse(markRow.final_cells_json) };
+  else if (markRow?.state === 'suggested') return { reason: 'to review' };
+  else {
+    const cells = schoology?.cells || {};
+    const complete = rubric ? rubric.rows.every(r => cells[r.id] != null) : cells.points != null;
+    if (!complete) return { reason: 'not marked' };
+    found = { source: 'schoology', cells };
+  }
+  return onRubric(rubric, found.cells) ? found : { reason: 'not on the rubric' };
 }
 
 function overallFor(db, group, studentId, template, values, ready) {

@@ -1,6 +1,6 @@
 # Linked quizzes: question stats, free-response marking and the overall result
 
-Status: **design agreed with the teacher (2026-10-12). Phase 1 and 1b on main (2026-10-13); phase 2 on main (§12); phase 3 on main (§13); phase 4 built on the branch, proven end to end on a past attempt, `quiz_writeback` off (§14).** The read-only probe in §2 ran
+Status: **design agreed with the teacher (2026-10-12). Phase 1 and 1b on main (2026-10-13); phase 2 on main (§12); phase 3 on main (§13); phase 4 on main with `quiz_writeback` on (§14); posting by question agreed 2026-10-13 (§15).** The read-only probe in §2 ran
 on 12 October 2026, and every page shape in this document comes from it.
 
 ## Goal
@@ -524,3 +524,42 @@ The agent tools (`list_frq_writebacks`, `mark_frq_writeback`) stay as they are. 
   patterns are sent.
 - **Client:** the two-step post, the result lines, the flag off.
 - **Live:** the first real post of a current mark, with the teacher checking it in Schoology.
+
+## 15. Posting by question (agreed with the teacher, 2026-10-13)
+
+The teacher asked whether Schoology's grade-by-question page is quicker. A read-only spike and a supervised
+same-value save (stage D) showed that the FRQ's by-question page holds one form for the whole class and
+that one form POST saves it (`.claude/schoology-api-reference.md`, "Grade by question" and "Stage D"). The
+writer moves to that page; everything in §9 and §14 about safety stays.
+
+### What changes
+
+- **One page per question and member test.** The writer groups the marks to post by member test and
+  question. For each group it reads the copy's question list (`assessment_questions`, for the copy's own
+  question number), the `question_stats` index (for the page link), and the question's page.
+- **Checks before any write, per student:** the page's rubric entry for the attempt names the copy's
+  question id and Prism's stored rubric id; the student's points, comment and rubric grade are as Prism
+  last saw them (else "Changed in Schoology since the last load"). The question's points must equal the
+  rubric's top level.
+- **The rubric cell:** the same per-student `rubric_grade_info` PUT as §14, each re-read before the form.
+- **One form POST** for the page: the loaded form, with only the posted students' `rubric_score`,
+  `points`, `override` and `comment` changed. The form holds only this question's fields, so MCQ points stay out of the request.
+- **Read-back:** the page once, and each posted student's rubric grade. Any other field that changed (another
+  student, another field) stops the batch (`UNSAFE`).
+- **One first:** unchanged. A limit of 1 posts one student's mark through the same page.
+- **Half-written:** a student whose rubric was saved but whose form save failed is recorded as before
+  ("The rubric level was saved in Schoology but the form was not: post it again").
+
+### Effect
+
+For a class of 20 on one FRQ: about 2 page loads, 20 rubric saves and 1 form save, in place of 40 attempt
+page loads and 20 form saves.
+
+### Testing
+
+- **Server:** the writer against a fake by-question page (grouping by copy and question, the copy's own
+  question number, checks per student, one POST changing only the posted students, read-back, half-written,
+  `UNSAFE`, one first).
+- **Live:** with the teacher's approval, a round trip on the 2024-25 test through Prism (one student changed
+  and restored), read back field by field.
+

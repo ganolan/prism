@@ -1042,6 +1042,35 @@ overstates lateness). 12 archived 2023-25 CS sections were backfilled into prod 
 819-830). AP CSP 2023-24 has no mastery data in Schoology.
 
 
+## Feedback rows on unaligned tasks (2026-10-13, branch `worktree-bridge-cse_01RCi5khQXnDS4VQjd4GXMTD`)
+
+A rubric attached to a General Academic Scale (Unaligned) task, or any score-scale task, now gives
+the teacher one feedback row per criterion. Row levels are Prism-only; only the overall scale level
+and the comment go to Schoology. Spec: `docs/superpowers/specs/2026-10-13-feedback-rows-design.md`.
+Plan: `docs/superpowers/plans/2026-10-13-feedback-rows.md`.
+- **Storage:** new table `rubric_row_levels`, keyed by criterion name (`schema.sql` only, no
+  `MIGRATIONS` entry because the table is new). Service: `server/services/feedbackRows.js`.
+- **Rubric average:** `server/lib/rubricAverage.js` with a client copy in `client/src/lib/`, both
+  tested against one shared case table. Ties round up, and a row at Insufficient Evidence gives no
+  level.
+- **Publish:** `write-comment` and `send-all` carry `rowLevels`, stored only after Schoology accepts
+  the write. `PUT /api/rubrics/row-levels/:assignmentSchoologyId/:studentUid` saves rows with no
+  Schoology call.
+- **Card:** a rows grid and an overall picker. The rubric average is staged only while nothing is
+  published, and a row pick never turns the comment visible.
+- **MCP:**
+  - `attach_rubric` attaches feedback rows on score-scale tasks and accepts a Schoology assignment
+    id.
+  - `write_student_suggestions` resolves `rubric_scores` against the rows and reports
+    `unresolved_rows`.
+  - `get_assignment_context` returns `rubric`, `current_row_levels` and
+    `draft_feedback.row_levels`, `removed_rows`, `scale_level`, `scale_level_source`.
+  - `list_assignments` returns `feedback_rubric`.
+  - `get_student_history` returns `rubric_rows` (full detail only) and splits the teacher-draft keys.
+- **Bugs fixed on the way:** `attach_rubric` accepted only the local assignment id, not the Schoology
+  id; `draft_feedback.rubric_scores` leaked the card's `__scale__` key.
+
+
 ## Linked quizzes, phase 4a: write probe (2026-10-13, branch `claude/angry-hopper-5c1f00`)
 
 Plan: `docs/superpowers/plans/2026-10-13-linked-quizzes-phase-4a-probe.md` (spec §14). Script:

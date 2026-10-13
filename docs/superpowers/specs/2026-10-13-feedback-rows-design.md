@@ -1,6 +1,6 @@
 # Feedback rows on unaligned tasks
 
-Status: **design agreed with the teacher (2026-10-13).** Not built yet.
+Status: **design agreed with the teacher (2026-10-13); built on main (2026-10-13).**
 
 ## Goal
 

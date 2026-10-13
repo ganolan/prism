@@ -26,7 +26,7 @@ const Q = (qid, stem) => ({ qid, stemHtml: stem, kind: 'mcq', points: 1, delta: 
 let course;
 beforeEach(() => {
   const db = getDb();
-  db.exec('DELETE FROM quiz_responses; DELETE FROM quiz_attempts; DELETE FROM quiz_question_copies; DELETE FROM quiz_questions; DELETE FROM quiz_group_members; DELETE FROM quiz_groups; DELETE FROM mastery_alignments; DELETE FROM measurement_topics; DELETE FROM reporting_categories; DELETE FROM assignments; DELETE FROM courses;');
+  db.exec('DELETE FROM quiz_tag_texts; DELETE FROM quiz_responses; DELETE FROM quiz_attempts; DELETE FROM quiz_question_copies; DELETE FROM quiz_questions; DELETE FROM quiz_group_members; DELETE FROM quiz_groups; DELETE FROM mastery_alignments; DELETE FROM measurement_topics; DELETE FROM reporting_categories; DELETE FROM assignments; DELETE FROM courses;');
   course = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s', 'C')`).run().lastInsertRowid;
   db.prepare(`INSERT INTO reporting_categories (id, course_id, external_id, title) VALUES ('cat', ?, 'X', 'C')`).run(course);
   db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES ('t', 'cat', ?, 'X.1', 'T')`).run(course);
@@ -99,6 +99,8 @@ describe('/api/quizzes', () => {
     const id = (await call('POST', '/api/quizzes', { course_id: course, assignment_ids: ['900'], title: 'T' })).body.group.id;
     expect((await call('GET', `/api/quizzes/${id}/stats`)).body.questions).toHaveLength(1);
     expect((await call('PUT', `/api/quizzes/${id}/tags`, { tags: { 1: ['AAP-1.A'] } })).body).toEqual({ updated: 1, unknownPositions: [] });
+    expect((await call('PUT', `/api/quizzes/${id}/tags`, { texts: { 'AAP-1.A': 'Represent a value with a variable.' } })).body)
+      .toEqual({ updated: 0, unknownPositions: [], textsSaved: 1 });
     expect((await call('GET', '/api/quizzes/attempt-links?assignment_id=900')).body).toEqual({ links: {} });
     expect((await call('GET', `/api/quizzes/candidates?course_id=${course}`)).body.tests.map(t => t.schoology_assignment_id)).toEqual(['901']);
     expect((await call('DELETE', `/api/quizzes/${id}`)).body).toEqual({ ok: true });

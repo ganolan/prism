@@ -1075,6 +1075,25 @@ button.triage-panel__more { padding: 0.15rem 0.4rem; font-size: 0.75rem; font-we
 .quiz-chip { border: 1px solid var(--accent); background: var(--accent-subtle); color: var(--accent); cursor: pointer; font-size: 0.68rem; font-weight: 600; flex-shrink: 0; }
 .quiz-chip-pop { margin: 0; padding-left: 1.6rem; max-width: 420px; }
 .question-row-head { cursor: pointer; }
+/* Questions tab charts: thin percent bars, the score chart (ScoreDots) and the level bar (LevelBar). */
+.pct-bar { display: inline-block; width: 70px; height: 8px; border-radius: 4px; background: var(--bg-subtle); overflow: hidden; vertical-align: middle; }
+.pct-bar > span { display: block; height: 100%; background: var(--accent); }
+.pct-bar--row { width: 90px; }
+.pct-cell { display: inline-flex; align-items: center; gap: 6px; }
+.tag-has-text { cursor: help; text-decoration: underline dotted; text-underline-offset: 2px; }
+.type-chart { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.score-dots { display: grid; gap: 4px; max-width: 380px; }
+.score-dots__toggle { display: flex; gap: 4px; }
+.score-dots__toggle .filter-btn { padding: 1px 8px; font-size: 0.7rem; }
+.score-dot { cursor: pointer; }
+.score-dots__pop { transform: translate(-50%, -100%); }
+.level-bar { display: grid; gap: 6px; width: 100%; }
+.level-bar__track { display: flex; gap: 2px; }
+.level-seg { flex-basis: 0; min-width: 4px; height: 22px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; }
+.level-bar--mini .level-seg { height: 10px; border-radius: 3px; }
+.level-bar__legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 0.68rem; color: var(--text-muted); }
+.level-bar__legend > span { display: inline-flex; align-items: center; gap: 4px; }
+.level-bar__swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
 .question-stem-line { flex: 1 1 160px; min-width: 160px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .triage-row__text { min-width: 0; display: flex; flex-direction: column; }
 .triage-row__line { display: flex; align-items: center; gap: 0.35rem; min-width: 0; flex-wrap: wrap; row-gap: 0.15rem; /* Tags wrap under name instead of crushing it */ }

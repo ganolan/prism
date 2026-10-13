@@ -7,6 +7,7 @@
 // so each attempt row here is one student.
 import { getGroup } from './quizGroups.js';
 import { levelNameFor } from '../lib/parseQuizRubric.js';
+import { studentFullName } from './studentNames.js';
 
 const band = (p) => (p == null ? null : p >= 0.9 ? 'Strong' : p >= 0.7 ? 'Mixed' : 'Divided');
 
@@ -59,7 +60,8 @@ function frqLevels(q, rs) {
 
 export function groupStats(db, { groupId }) {
   const group = getGroup(db, groupId);
-  const attempts = db.prepare('SELECT id, assignment_id, student_id FROM quiz_attempts WHERE group_id = ?').all(group.id);
+  const attempts = db.prepare(`SELECT qa.id, qa.assignment_id, qa.student_id, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher
+    FROM quiz_attempts qa JOIN students s ON s.id = qa.student_id WHERE qa.group_id = ?`).all(group.id);
   const classSize = db.prepare('SELECT COUNT(*) AS n FROM enrolments WHERE course_id = ? AND dropped_at IS NULL').get(group.course_id).n;
   const questions = db.prepare('SELECT * FROM quiz_questions WHERE group_id = ? ORDER BY position').all(group.id);
   const responses = db.prepare(`SELECT r.* FROM quiz_responses r JOIN quiz_attempts qa ON qa.id = r.attempt_id WHERE qa.group_id = ?`).all(group.id);
@@ -92,13 +94,12 @@ export function groupStats(db, { groupId }) {
     };
   });
 
-  // Per-student MCQ percent, then the median across students who sat the group.
-  const mcqPercents = attempts.map(a => {
-    if (!mcqIds.size) return null;
+  // Per-student MCQ score (lowest first, for the score chart), then the median across students who sat the group.
+  const mcqStudents = !mcqIds.size ? [] : attempts.map(a => {
     const correct = (byAttempt.get(a.id) || []).filter(r => mcqIds.has(r.question_id) && r.is_correct === 1).length;
-    return (100 * correct) / mcqIds.size;
-  }).filter(x => x != null);
-  const medianPercent = median(mcqPercents);
+    return { student_id: a.student_id, name: studentFullName(a), correct, total: mcqIds.size, percent: Math.round((100 * correct) / mcqIds.size) };
+  }).sort((x, y) => x.percent - y.percent || (x.name < y.name ? -1 : x.name > y.name ? 1 : 0));
+  const medianPercent = median(mcqStudents.map(s => (100 * s.correct) / s.total));
 
   // The group's FRQ levels: each question's counts summed, in the rubrics' level order, "Not marked" last.
   const frqQuestions = questions.filter(q => q.kind === 'frq');
@@ -126,8 +127,10 @@ export function groupStats(db, { groupId }) {
       tagAgg.set(tag, t);
     }
   }
+  const tagTexts = Object.fromEntries(db.prepare('SELECT tag, text FROM quiz_tag_texts WHERE course_id = ?').all(group.course_id)
+    .filter(r => outQuestions.some(q => q.tags.includes(r.tag))).map(r => [r.tag, r.text]));
   const byTag = [...tagAgg.values()]
-    .map(t => ({ ...t, percent: t.total ? Math.round((100 * t.correct) / t.total) : null }))
+    .map(t => ({ ...t, text: tagTexts[t.tag] ?? null, percent: t.total ? Math.round((100 * t.correct) / t.total) : null }))
     .sort((a, b) => (a.percent ?? 101) - (b.percent ?? 101) || (a.tag < b.tag ? -1 : a.tag > b.tag ? 1 : 0));
 
   return {
@@ -138,9 +141,10 @@ export function groupStats(db, { groupId }) {
       title: m.title,
       takers: attempts.filter(a => a.assignment_id === m.id).length,
     })),
-    mcq: { count: mcqQuestions.length, median_percent: medianPercent == null ? null : Math.round(medianPercent) },
+    mcq: { count: mcqQuestions.length, median_percent: medianPercent == null ? null : Math.round(medianPercent), students: mcqStudents },
     frq: { count: frqQuestions.length, levels },
     byTag,
+    tagTexts,
     questions: outQuestions,
   };
 }

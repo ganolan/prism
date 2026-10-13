@@ -28,7 +28,7 @@ beforeEach(() => {
   vi.stubEnv('SCHOOLOGY_CONSUMER_KEY', 'key');
   vi.stubEnv('SCHOOLOGY_CONSUMER_SECRET', 'secret');
   getDb().exec(
-    'DELETE FROM quiz_responses; DELETE FROM quiz_attempts; DELETE FROM quiz_question_copies; DELETE FROM quiz_questions; ' +
+    'DELETE FROM quiz_tag_texts; DELETE FROM quiz_responses; DELETE FROM quiz_attempts; DELETE FROM quiz_question_copies; DELETE FROM quiz_questions; ' +
     'DELETE FROM quiz_group_members; DELETE FROM quiz_groups; ' +
     'DELETE FROM status_lines; DELETE FROM feedback_snapshots; ' +
     'DELETE FROM referrals; DELETE FROM extensions; DELETE FROM resubmissions; DELETE FROM school_days; DELETE FROM mastery_scores; ' +
@@ -875,6 +875,13 @@ describe('quiz tools', () => {
     expect(setQuestionTagsTool(db, { group_id: g, tags: { 1: ['CRD-2.G', 'CRD-2.G', ' '] } })).toEqual({ updated: 1, unknownPositions: [] });
     expect(JSON.parse(db.prepare('SELECT tags_json FROM quiz_questions WHERE group_id = ? AND position = 1').get(g).tags_json)).toEqual(['CRD-2.G']);
     expect(setQuestionTagsTool(db, { group_id: g, tags: { 1: ['AAP-1.A'], 9: ['X'] } })).toEqual({ updated: 1, unknownPositions: [9] });
+  });
+
+  test('set_question_tags stores tag texts, with or without tags', () => {
+    const db = getDb();
+    const { g } = seedQuiz();
+    expect(setQuestionTagsTool(db, { group_id: g, texts: { 'AAP-1.A': 'Represent a value with a variable.' } })).toEqual({ updated: 0, unknownPositions: [], textsSaved: 1 });
+    expect(db.prepare("SELECT text FROM quiz_tag_texts WHERE tag = 'AAP-1.A'").get().text).toBe('Represent a value with a variable.');
   });
 
   test('load_quiz_results returns the loader summary', async () => {

@@ -1244,6 +1244,15 @@ The /assessment/ card header holds one line of action pills (Flag for review, Re
 - **A folded row wraps before it squeezes.** Assessment rows wrap (`flexWrap`), and the title keeps at least 20rem, so chips move below the title instead of narrowing it.
 - **Published tests keep their folded row visible.** A result task is often unpublished until grades are released. Its folded row stays in the default list while any member test is published, still with the grey "Unpublished" badge for the result task itself.
 
+## Questions tab charts (October 2026, linked quizzes phase 1b)
+
+- **MCQ scores are a dot plot first.** `ScoreDots` draws one dot per student on a fixed 0 to 100% axis, stacking dots that fall in the same column, with the median as a dashed line. Graham chose it over a plain box plot because the dots never overlap and a class of 6 to 22 is easy to count. A **Dots / Box** toggle (two `.filter-btn`s) switches to box and whiskers (Tukey hinges, minimum to maximum) with the dots over the box, which suits looking at individual students. The choice is stored per browser (`localStorage`, `prism.quiz.scoreChart`).
+- **A dot names its student on hover.** The name and "17/20 (85%)" show in a `.help-pop` above the dot; the dot's `aria-label` holds the same text, and the chart's own label states the count, median and range.
+- **Levels are a stacked bar in the rubric-grid colours.** `LevelBar` uses `LEVEL_COLORS` header fills, best level on the left, with "ED 2" inside a segment wide enough for it (12% of the bar) and a legend of full names under the summary bar. A level name outside Prism's five, and "Not marked", is neutral `var(--bg-subtle)`. The FRQ question row uses the thin `mini` bar beside "ED 2, D 4".
+- **Tags show their full text on hover.** A tag with stored text (`quiz_tag_texts`, imported by an agent from the CED) has a dotted underline and the text as its hover title, on the question row and in the By tag table. Teachers do not hold code wordings in their heads.
+- **Percent bars are one primitive.** `.pct-bar` is the thin accent bar on `var(--bg-subtle)` used for each question's facility and each tag's percent correct.
+- **Built to be reused.** `ScoreDots` and `LevelBar` live in `components/quiz/` so the score-distribution drawer (#78) can use the same charts.
+
 ## Linked quizzes: what phase 1 keeps constant (October 2026)
 
 - **Statistics stay counts.** Facility bars, bands (Strong at 90% and above, Mixed at 70% and above, otherwise Divided), option counts with the key marked, and flags. No discrimination statistics, on purpose: a class-sized cohort cannot support them.

@@ -99,6 +99,7 @@ New tables, all `CREATE TABLE IF NOT EXISTS` in `server/db/schema.sql`. No exist
 | `quiz_question_copies` | `question_id`, `assignment_id`, `schoology_question_id` |
 | `quiz_attempts` | `id`, `group_id`, `assignment_id`, `student_id`, `schoology_attempt_id`, `enrollment_id`, `started_at`, `completed_at`, `score`, `max_score`, `attempt_count`, `fetched_at` |
 | `quiz_responses` | `attempt_id`, `question_id`, `chosen_letter`, `is_correct`, `points`, `answer_html`, `schoology_rubric_cells_json`, `schoology_comment` |
+| `quiz_tag_texts` | `course_id`, `tag`, `text` (phase 1b: the full wording of a tag, shown on hover) |
 | `frq_marks` | `attempt_id`, `question_id`, `suggested_cells_json`, `suggested_comment`, `final_cells_json`, `final_comment`, `state` (`suggested`, `accepted`, `edited`), `writeback_status` (`pending`, `posted`, `failed`), `writeback_at`, `writeback_error`, `posted_cells_json`, `posted_comment` |
 
 - **The overall result reuses `feedback`:** the suggestion on the result task is an ordinary
@@ -134,7 +135,7 @@ Combining and linking stay in the UI in v1.
 | `load_quiz_results(group)` | Runs §5; returns counts and warnings |
 | `get_frq_responses(group, question?)` | Per student: answer text, the Schoology rubric (levels and descriptions), the current Schoology mark, any Prism mark |
 | `write_frq_suggestions(group, question, students[])` | Per student: a cell per rubric row and a comment, upserted as `suggested` |
-| `set_question_tags(group, tags)` | Tags per question number (for example from `<title> - Codes.csv`) |
+| `set_question_tags(group, tags?, texts?)` | Tags per question number (for example from `<title> - Codes.csv`), and each tag's full text for the course (for AP CSP, from the CED) |
 | `get_quiz_results(group)` | Per student: MCQ correct, total and percent, percent by tag, confirmed FRQ levels |
 | `write_quiz_overall_suggestions(group, students[])` | Per student: levels per measurement topic and a short impression. Prism builds the comment (§7). Refuses a student with an FRQ mark still `suggested`. |
 | `list_frq_writebacks(group)` | Accepted or edited marks not yet posted, each with its attempt URL, cells and comment |
@@ -220,6 +221,9 @@ Each phase ships and is useful on its own.
 
 1. **Read and stats:** tables, parsers, loader, parity, Quiz setup, Questions tab, the attempt
    link on cards, `list_quiz_groups`, `load_quiz_results`, `set_question_tags`.
+1b. **Charts and tag text (agreed 2026-10-13):** the MCQ dot plot with a box toggle, the level bar
+   in the summary and on FRQ rows, percent bars per tag, and tag texts shown on hover. Clicking a tag
+   for course-wide results is issue #139.
 2. **FRQ marking:** Free response tab, `get_frq_responses`, `write_frq_suggestions`, the agent
    write-back tools, and the `grade-theory-test` change.
 3. **Overall:** `get_quiz_results`, `write_quiz_overall_suggestions`, the comment template.

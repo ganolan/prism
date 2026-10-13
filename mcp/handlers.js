@@ -491,6 +491,6 @@ export async function loadQuizResultsTool(db, { group_id }, deps = { loadGroup }
   return { summary: await deps.loadGroup(db, { groupId: group_id }) };
 }
 
-export function setQuestionTagsTool(db, { group_id, tags }) {
-  return setQuestionTags(db, { groupId: group_id, tags });
+export function setQuestionTagsTool(db, { group_id, tags, texts }) {
+  return setQuestionTags(db, { groupId: group_id, tags, texts });
 }

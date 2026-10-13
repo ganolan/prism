@@ -135,7 +135,8 @@ export function deleteGroup(db, { groupId }) {
   })();
 }
 
-export function setQuestionTags(db, { groupId, tags }) {
+// texts: { tag: full text } for the group's course; an empty text removes the tag's text.
+export function setQuestionTags(db, { groupId, tags, texts }) {
   const g = groupRow(db, groupId);
   const update = db.prepare('UPDATE quiz_questions SET tags_json = ? WHERE group_id = ? AND position = ?');
   let updated = 0;
@@ -145,7 +146,18 @@ export function setQuestionTags(db, { groupId, tags }) {
     const r = update.run(JSON.stringify(clean), g.id, Number(pos));
     if (r.changes) updated++; else unknownPositions.push(Number(pos));
   }
-  return { updated, unknownPositions };
+  if (texts == null) return { updated, unknownPositions };
+  const upsert = db.prepare(`INSERT INTO quiz_tag_texts (course_id, tag, text) VALUES (?, ?, ?)
+    ON CONFLICT (course_id, tag) DO UPDATE SET text = excluded.text`);
+  const remove = db.prepare('DELETE FROM quiz_tag_texts WHERE course_id = ? AND tag = ?');
+  let textsSaved = 0;
+  for (const [rawTag, rawText] of Object.entries(texts)) {
+    const tag = String(rawTag).trim();
+    const text = String(rawText ?? '').trim();
+    if (!tag) continue;
+    if (text) { upsert.run(g.course_id, tag, text); textsSaved++; } else remove.run(g.course_id, tag);
+  }
+  return { updated, unknownPositions, textsSaved };
 }
 
 // Titles count as similar when one normalized title starts with the other

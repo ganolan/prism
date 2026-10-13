@@ -65,6 +65,6 @@ router.post('/:id/load', handle(async (req, db) => {
 }));
 
 router.get('/:id/stats', handle((req, db) => groupStats(db, { groupId: req.params.id })));
-router.put('/:id/tags', handle((req, db) => setQuestionTags(db, { groupId: req.params.id, tags: req.body.tags })));
+router.put('/:id/tags', handle((req, db) => setQuestionTags(db, { groupId: req.params.id, tags: req.body.tags, texts: req.body.texts })));
 
 export default router;

@@ -1078,6 +1078,12 @@ the counts matched the laptop run exactly):** Graham asked for these fixes, all 
   gradebook's Ep 1 Result cell is plain points, so its modal (and Attempt link) cannot be opened from
   there; the student page omits the unpublished Result task, and shows the Attempt link on the test row.
 
+**Phase 1b, charts and tag text (2026-10-13, approved by Graham from screenshots):** `ScoreDots` (MCQ
+dot plot, Dots / Box toggle, name on hover), `LevelBar` (level-coloured stacked bar in the summary and
+on FRQ rows), percent bars per tag, and `quiz_tag_texts` with `set_question_tags(texts)` for each tag's
+full CED wording on hover. `groupStats` returns `mcq.students` and `tagTexts`. Course-wide results per
+tag: #139. Charts are meant for reuse in #78.
+
 **Final review fixes (2026-10-13):** load warnings shown to the teacher (copy mismatch, failed,
 unknown and multi-attempt students); folded tests keep their Make-ups chip on the canonical row; an
 unreachable Schoology is `UNREACHABLE` (502), not an expired session; attempts deleted in Schoology are

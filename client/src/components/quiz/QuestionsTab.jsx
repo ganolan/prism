@@ -2,6 +2,8 @@
 // and distractor flags only; no discrimination statistics.
 import { useEffect, useMemo, useState } from 'react';
 import { getQuizStats, setQuizTags } from '../../services/api.js';
+import ScoreDots from './ScoreDots.jsx';
+import LevelBar, { levelShort } from './LevelBar.jsx';
 
 // Stem and option HTML is the teacher's own Schoology question text, rendered as-is in this local app.
 // DOMParser is inert (no scripts, no image loads), so reading textContent here runs nothing.
@@ -11,7 +13,17 @@ const stripOptionLetter = (html, letter) =>
   (html || '').replace(new RegExp(`^((?:\\s|<[^>]+>)*)${letter}[.)](?:\\s|&nbsp;)+`, 'i'), '$1');
 const FLAG_CLASS = { critical: 'badge badge-red', warning: 'badge badge-amber', note: 'badge' };
 
-function QuestionRow({ q, groupId, onTagsSaved }) {
+// A tag with stored text shows it on hover (dotted underline as the cue).
+function Tag({ tag, text, badge = false }) {
+  return <span className={`${badge ? 'badge ' : ''}${text ? 'tag-has-text' : ''}`.trim() || undefined} title={text || undefined}>{tag}</span>;
+}
+
+// A thin percent bar, as on the question rows.
+const PercentBar = ({ pct, label }) => (
+  <span className="pct-bar" role="img" aria-label={label}><span style={{ width: `${pct}%` }} /></span>
+);
+
+function QuestionRow({ q, groupId, tagTexts, onTagsSaved }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(q.tags.join(', '));
@@ -40,7 +52,7 @@ function QuestionRow({ q, groupId, onTagsSaved }) {
       >
         <button className="ghost" aria-expanded={open} onClick={() => setOpen(o => !o)} style={{ fontWeight: 700 }}>Q{q.position}</button>
         <span className="text-sm text-muted">{q.kind === 'mcq' ? 'MCQ' : q.kind === 'frq' ? 'FRQ' : 'Other'}</span>
-        {q.tags.map(t => <span key={t} className="badge">{t}</span>)}
+        {q.tags.map(t => <Tag key={t} tag={t} text={tagTexts[t]} badge />)}
         {!editing && <button className="ghost" onClick={() => { setDraft(q.tags.join(', ')); setSaveError(null); setEditing(true); }} style={{ fontSize: '0.75rem' }}>Edit tags</button>}
         {editing && (
           <>
@@ -51,14 +63,17 @@ function QuestionRow({ q, groupId, onTagsSaved }) {
         <span className="text-sm question-stem-line" title={stemText}>{stemText}</span>
         {pct != null && (
           <>
-            <span aria-hidden="true" style={{ width: 90, height: 8, borderRadius: 4, background: 'var(--bg-subtle)', overflow: 'hidden', display: 'inline-block' }}>
-              <span style={{ display: 'block', height: '100%', width: `${pct}%`, background: 'var(--accent)' }} />
-            </span>
+            <span aria-hidden="true" className="pct-bar pct-bar--row"><span style={{ width: `${pct}%` }} /></span>
             <span className="text-sm">{pct}%</span>
             <span className="badge">{q.band}</span>
           </>
         )}
-        {q.levels?.length > 0 && <span className="text-sm">{q.levels.map(l => `${l.name} ${l.count}`).join(', ')}</span>}
+        {q.levels?.length > 0 && (
+          <>
+            <span style={{ width: 160 }}><LevelBar levels={q.levels} mini /></span>
+            <span className="text-sm">{q.levels.map(l => `${levelShort(l.name)} ${l.count}`).join(', ')}</span>
+          </>
+        )}
       </div>
       {saveError && <div className="alert alert-warning" style={{ marginTop: '0.4rem' }}>{saveError}</div>}
       {q.options.length > 0 && (
@@ -126,15 +141,27 @@ export default function QuestionsTab({ groupId, reloadKey }) {
             <table aria-label="By tag" className="text-sm">
               <thead><tr><th>Tag</th><th>Questions</th><th>Correct</th><th>%</th></tr></thead>
               <tbody>{stats.byTag.map(t => (
-                <tr key={t.tag}><td>{t.tag}</td><td>{t.positions.map(p => `Q${p}`).join(' ')}</td><td>{t.correct}/{t.total}</td><td>{t.percent}%</td></tr>
+                <tr key={t.tag}>
+                  <td><Tag tag={t.tag} text={t.text} /></td>
+                  <td>{t.positions.map(p => `Q${p}`).join(' ')}</td>
+                  <td>{t.correct}/{t.total}</td>
+                  <td>{t.percent != null && <span className="pct-cell"><PercentBar pct={t.percent} label={`${t.percent}% correct`} />{t.percent}%</span>}</td>
+                </tr>
               ))}</tbody>
             </table>
           )}
           <table aria-label="By type" className="text-sm">
             <thead><tr><th>Type</th><th>Result</th></tr></thead>
             <tbody>
-              {stats.mcq.count > 0 && <tr><td>MCQ ({stats.mcq.count})</td><td>{stats.mcq.median_percent != null && `median ${stats.mcq.median_percent}%`}</td></tr>}
-              {stats.frq.count > 0 && <tr><td>FRQ ({stats.frq.count})</td><td>{stats.frq.levels.map(l => `${l.name} ${l.count}`).join(', ')}</td></tr>}
+              {stats.mcq.count > 0 && (
+                <tr><td>MCQ ({stats.mcq.count})</td><td>
+                  <div className="type-chart">
+                    <ScoreDots students={stats.mcq.students || []} />
+                    {stats.mcq.median_percent != null && <span>median {stats.mcq.median_percent}%</span>}
+                  </div>
+                </td></tr>
+              )}
+              {stats.frq.count > 0 && <tr><td>FRQ ({stats.frq.count})</td><td><div style={{ maxWidth: 380 }}><LevelBar levels={stats.frq.levels} legend /></div></td></tr>}
             </tbody>
           </table>
         </div>
@@ -143,7 +170,7 @@ export default function QuestionsTab({ groupId, reloadKey }) {
         <div style={{ padding: '0.6rem 1rem', borderBottom: '1px solid var(--border)' }}>
           <button className={`filter-btn${lowestFirst ? ' active' : ''}`} onClick={() => setLowestFirst(v => !v)}>Lowest first</button>
         </div>
-        {questions.map(q => <QuestionRow key={q.position} q={q} groupId={groupId} onTagsSaved={() => setVersion(v => v + 1)} />)}
+        {questions.map(q => <QuestionRow key={q.position} q={q} groupId={groupId} tagTexts={stats.tagTexts || {}} onTagsSaved={() => setVersion(v => v + 1)} />)}
       </div>
     </div>
   );

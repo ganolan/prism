@@ -9,7 +9,7 @@ const RUBRIC = { id: 'r', rows: [{ id: '9', title: 'Row', maxPoints: 4, levels: 
 
 beforeEach(() => {
   db = getDb();
-  db.exec('DELETE FROM quiz_responses; DELETE FROM quiz_attempts; DELETE FROM quiz_question_copies; DELETE FROM quiz_questions; DELETE FROM quiz_group_members; DELETE FROM quiz_groups; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
+  db.exec('DELETE FROM quiz_tag_texts; DELETE FROM quiz_responses; DELETE FROM quiz_attempts; DELETE FROM quiz_question_copies; DELETE FROM quiz_questions; DELETE FROM quiz_group_members; DELETE FROM quiz_groups; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
   const c = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s', 'C')`).run().lastInsertRowid;
   const t = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, is_test) VALUES (?, '900', 'T', 1)`).run(c).lastInsertRowid;
   g = db.prepare(`INSERT INTO quiz_groups (course_id, title) VALUES (?, 'T')`).run(c).lastInsertRowid;
@@ -37,8 +37,25 @@ describe('groupStats', () => {
     const s = groupStats(db, { groupId: g });
     expect([s.takers, s.classSize]).toEqual([4, 5]);
     expect(s.byMember).toEqual([{ schoology_assignment_id: '900', title: 'T', takers: 4 }]);
-    expect(s.mcq).toEqual({ count: 1, median_percent: 0 });
+    expect(s.mcq).toEqual({ count: 1, median_percent: 0, students: expect.any(Array) });
     expect(s.frq).toEqual({ count: 1, levels: [{ name: 'Exhibiting', count: 1 }, { name: 'Developing', count: 2 }, { name: 'Not marked', count: 1 }] });
+  });
+
+  test('each student\'s MCQ score, lowest first, with the name the teacher uses', () => {
+    expect(groupStats(db, { groupId: g }).mcq.students).toEqual([
+      { student_id: expect.any(Number), name: 'S S1', correct: 0, total: 1, percent: 0 },
+      { student_id: expect.any(Number), name: 'S S2', correct: 0, total: 1, percent: 0 },
+      { student_id: expect.any(Number), name: 'S S3', correct: 0, total: 1, percent: 0 },
+      { student_id: expect.any(Number), name: 'S S0', correct: 1, total: 1, percent: 100 },
+    ]);
+  });
+
+  test('tag texts for the course come back by tag and on the tag rollup', () => {
+    const course = db.prepare('SELECT course_id FROM quiz_groups WHERE id = ?').get(g).course_id;
+    db.prepare(`INSERT INTO quiz_tag_texts (course_id, tag, text) VALUES (?, 'CRD-2.G', 'Describe the purpose of a code segment.')`).run(course);
+    const s = groupStats(db, { groupId: g });
+    expect(s.tagTexts).toEqual({ 'CRD-2.G': 'Describe the purpose of a code segment.' });
+    expect(s.byTag[0].text).toBe('Describe the purpose of a code segment.');
   });
 
   test('an FRQ question carries its own level counts', () => {
@@ -58,7 +75,7 @@ describe('groupStats', () => {
   });
 
   test('by tag, lowest first', () => {
-    expect(groupStats(db, { groupId: g }).byTag).toEqual([{ tag: 'CRD-2.G', positions: [1], correct: 1, total: 4, percent: 25 }]);
+    expect(groupStats(db, { groupId: g }).byTag).toEqual([{ tag: 'CRD-2.G', text: null, positions: [1], correct: 1, total: 4, percent: 25 }]);
   });
 
   test('an unchosen distractor is noted once there are ten answers', () => {
@@ -128,7 +145,7 @@ describe('groupStats', () => {
   });
 
   test('a group with no attempts has empty statistics', () => {
-    db.exec('DELETE FROM quiz_responses; DELETE FROM quiz_attempts;');
+    db.exec('DELETE FROM quiz_tag_texts; DELETE FROM quiz_responses; DELETE FROM quiz_attempts;');
     const s = groupStats(db, { groupId: g });
     expect([s.takers, s.mcq.median_percent, s.questions[0].facility, s.questions[0].band]).toEqual([0, null, null, null]);
   });

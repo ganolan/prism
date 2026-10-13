@@ -13,7 +13,7 @@ const COPY = [Q('2003', 'Explain', 'frq', 4, 0), Q('2001', 'Which is true?', 'mc
 let db, course, std, ext, result, other, formative, stu;
 beforeEach(() => {
   db = getDb();
-  db.exec('DELETE FROM quiz_responses; DELETE FROM quiz_attempts; DELETE FROM quiz_question_copies; DELETE FROM quiz_questions; DELETE FROM quiz_group_members; DELETE FROM quiz_groups; DELETE FROM mastery_alignments; DELETE FROM measurement_topics; DELETE FROM reporting_categories; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
+  db.exec('DELETE FROM quiz_tag_texts; DELETE FROM quiz_responses; DELETE FROM quiz_attempts; DELETE FROM quiz_question_copies; DELETE FROM quiz_questions; DELETE FROM quiz_group_members; DELETE FROM quiz_groups; DELETE FROM mastery_alignments; DELETE FROM measurement_topics; DELETE FROM reporting_categories; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
   course = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s1', 'AP CSP')`).run().lastInsertRowid;
   // Foreign keys are on (server/db/index.js), so an alignment needs a real topic.
   db.prepare(`INSERT INTO reporting_categories (id, course_id, external_id, title) VALUES ('cat', ?, 'X', 'C')`).run(course);
@@ -126,6 +126,23 @@ test('setQuestionTags trims, drops blanks, and reports unknown positions', () =>
   const g = make();
   expect(setQuestionTags(db, { groupId: g.id, tags: { 1: [' CRD-2.G ', ''], 9: ['X'] } })).toEqual({ updated: 1, unknownPositions: [9] });
   expect(JSON.parse(db.prepare('SELECT tags_json FROM quiz_questions WHERE group_id = ? AND position = 1').get(g.id).tags_json)).toEqual(['CRD-2.G']);
+});
+
+test('setQuestionTags stores tag texts for the course, replaces them, and accepts texts without tags', () => {
+  const g = make();
+  expect(setQuestionTags(db, { groupId: g.id, tags: { 1: ['CRD-2.G'] }, texts: { 'CRD-2.G': ' Explain how a code segment works. ', ' ': 'x' } }))
+    .toEqual({ updated: 1, unknownPositions: [], textsSaved: 1 });
+  expect(setQuestionTags(db, { groupId: g.id, texts: { 'CRD-2.G': 'Describe the purpose of a code segment.' } }))
+    .toEqual({ updated: 0, unknownPositions: [], textsSaved: 1 });
+  expect(db.prepare('SELECT course_id, tag, text FROM quiz_tag_texts').all())
+    .toEqual([{ course_id: course, tag: 'CRD-2.G', text: 'Describe the purpose of a code segment.' }]);
+});
+
+test('setQuestionTags removes a tag text set to an empty string', () => {
+  const g = make();
+  setQuestionTags(db, { groupId: g.id, texts: { 'CRD-2.G': 'Text' } });
+  expect(setQuestionTags(db, { groupId: g.id, texts: { 'CRD-2.G': '' } })).toEqual({ updated: 0, unknownPositions: [], textsSaved: 0 });
+  expect(db.prepare('SELECT COUNT(*) AS n FROM quiz_tag_texts').get().n).toBe(0);
 });
 
 test('listCandidates: ungrouped unaligned tests with similar-title suggestions, and unlinked aligned tasks', () => {

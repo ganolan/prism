@@ -169,13 +169,16 @@ export function createServer() {
   server.registerTool(
     'set_question_tags',
     {
-      description: "Set free-text tags on a quiz group's questions by question number, for example College Board codes from the test's Codes.csv: { \"1\": [\"CRD-2.G\"], \"2\": [\"AAP-1.A\", \"AAP-1.B\"] }. Replaces each listed question's tags.",
+      description: "Set free-text tags on a quiz group's questions by question number, for example College Board codes from the test's Codes.csv: { \"1\": [\"CRD-2.G\"], \"2\": [\"AAP-1.A\", \"AAP-1.B\"] }. Replaces each listed question's tags. " +
+        "texts gives each tag's full wording for the course (for AP CSP, the learning objective or essential knowledge text from the CED), which the teacher sees when hovering over the tag: { \"CRD-2.G\": \"Describe the purpose of a code segment or program.\" }. An empty text removes it. Either argument may be given alone. " +
+        "Returns { updated, unknownPositions, textsSaved (only when texts was given) }.",
       inputSchema: {
         group_id: z.union([z.number(), z.string()]).describe('Quiz group id from list_quiz_groups'),
-        tags: z.record(z.string(), z.array(z.string())).describe('{ question number: [tag, ...] }'),
+        tags: z.record(z.string(), z.array(z.string())).optional().describe('{ question number: [tag, ...] }'),
+        texts: z.record(z.string(), z.string()).optional().describe('{ tag: full text }, stored for the group\'s course'),
       },
     },
-    async ({ group_id, tags }) => text(() => setQuestionTagsTool(getDb(), { group_id, tags }))
+    async ({ group_id, tags, texts }) => text(() => setQuestionTagsTool(getDb(), { group_id, tags, texts }))
   );
 
   server.registerTool(

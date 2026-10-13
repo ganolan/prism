@@ -455,6 +455,15 @@ CREATE TABLE IF NOT EXISTS quiz_responses (
   PRIMARY KEY (attempt_id, question_id)
 );
 
+-- The full text of a question tag in one course (for AP CSP, a College Board code's CED
+-- wording), shown when the teacher hovers over the tag. Set through set_question_tags.
+CREATE TABLE IF NOT EXISTS quiz_tag_texts (
+  course_id INTEGER NOT NULL REFERENCES courses(id),
+  tag TEXT NOT NULL,
+  text TEXT NOT NULL,
+  PRIMARY KEY (course_id, tag)
+);
+
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_enrolments_student ON enrolments(student_id);
 CREATE INDEX IF NOT EXISTS idx_enrolments_course ON enrolments(course_id);

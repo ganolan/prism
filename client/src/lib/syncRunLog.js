@@ -41,6 +41,7 @@ export function describeOptions(options) {
   if (options.syncBlocks) parts.push('blocks');
   const n = options.masteryCourseIds?.length || 0;
   if (n) parts.push(plural(n, 'mastery course'));
+  if (options.refreshQuizzes) parts.push('quiz results');
   return parts.join(' · ');
 }
 
@@ -49,6 +50,7 @@ const ICON = { running: '●', done: '✓', error: '✕' };
 function phaseLabel(evt) {
   if (evt.phase === 'schoology') return 'Schoology data';
   if (evt.phase === 'blocks') return 'PowerSchool blocks';
+  if (evt.phase === 'quizzes') return 'Quiz results';
   if (evt.phase === 'mastery') return `Mastery · ${evt.courseName || `course ${evt.courseId}`}`;
   return evt.phase;
 }

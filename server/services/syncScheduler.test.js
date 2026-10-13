@@ -46,7 +46,7 @@ describe('scheduledSyncOptions', () => {
     });
     expect(opts).toEqual({
       masteryCourseIds: [live], skipSchoology: false, includeHidden: false, recentOnly: false, recentDays: 30,
-      syncBlocks: true, trigger: 'scheduled',
+      syncBlocks: true, refreshQuizzes: true, trigger: 'scheduled',
     });
   });
 

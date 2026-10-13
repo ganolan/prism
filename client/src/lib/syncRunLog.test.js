@@ -61,3 +61,10 @@ describe('describeRunEvent', () => {
     expect(describeRunEvent({ type: 'run', runId: 1 })).toBe(null);
   });
 });
+
+describe('quiz results', () => {
+  it('names the quizzes phase and option', () => {
+    expect(describeRunEvent({ phase: 'quizzes', status: 'running' }).text).toMatch(/^Quiz results/);
+    expect(describeOptions({ trigger: 'scheduled', skipSchoology: false, refreshQuizzes: true })).toBe('Scheduled · Schoology · quiz results');
+  });
+});

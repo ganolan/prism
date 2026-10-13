@@ -12,10 +12,13 @@ vi.mock('../db/index.js', async (importOriginal) => {
 vi.mock('./sync.js', () => ({ fullSync: vi.fn() }));
 vi.mock('./masterySync.js', () => ({ syncMasteryForCourse: vi.fn() }));
 vi.mock('./psAttendanceSync.js', () => ({ syncPsAttendance: vi.fn() }));
+vi.mock('./quizRefresh.js', () => ({ refreshRecentQuizzes: vi.fn() }));
+vi.mock('../middleware/featureGate.js', async (orig) => ({ ...(await orig()), getFeatures: () => ({ quizzes: true }) }));
 
 import { fullSync } from './sync.js';
 import { syncMasteryForCourse } from './masterySync.js';
 import { syncPsAttendance } from './psAttendanceSync.js';
+import { refreshRecentQuizzes } from './quizRefresh.js';
 import { runUnifiedSync, classifyMasteryError } from './syncOrchestrator.js';
 
 function seedCourse(db, name) {
@@ -44,6 +47,21 @@ describe('runUnifiedSync', () => {
     fullSync.mockResolvedValue({ success: true, records: 42 });
     syncMasteryForCourse.mockResolvedValue({ scoresCount: 7 });
     syncPsAttendance.mockResolvedValue({ updated: 0, skipped: 0 });
+  });
+
+  test('refreshQuizzes runs the quizzes phase last; a failure is not fatal', async () => {
+    refreshRecentQuizzes.mockResolvedValue([{ status: 'done' }, { status: 'error', message: 'HTTP 500' }]);
+    const events = [];
+    const summary = await runUnifiedSync({ refreshQuizzes: true, syncBlocks: false }, (e) => events.push(e));
+    const phases = events.filter(e => e.phase).map(e => `${e.phase}:${e.status}`);
+    expect(phases).toEqual(['schoology:running', 'schoology:done', 'quizzes:running', 'quizzes:error']);
+    expect(summary.quizzes).toEqual({ refreshed: 1, failed: 1 });
+  });
+
+  test('no quizzes phase without refreshQuizzes', async () => {
+    const events = [];
+    await runUnifiedSync({ syncBlocks: false }, (e) => events.push(e));
+    expect(events.some(e => e.phase === 'quizzes')).toBe(false);
   });
 
   test('runs Schoology before mastery and emits ordered events', async () => {

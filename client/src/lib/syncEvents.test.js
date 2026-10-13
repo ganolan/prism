@@ -91,4 +91,8 @@ describe('reduceSyncEvents', () => {
     expect(phases[2]).toMatchObject({ status: 'running' });
     expect(logLines).toEqual(['Fetched 4 sections', '[A] loading']);
   });
+  it('reduces the quizzes phase', () => {
+    const s = reduceSyncEvents([{ phase: 'quizzes', status: 'running' }, { phase: 'quizzes', status: 'done', records: 2 }]);
+    expect(s.phases).toEqual([{ key: 'quizzes', kind: 'quizzes', label: 'Quiz results', status: 'done', records: 2 }]);
+  });
 });

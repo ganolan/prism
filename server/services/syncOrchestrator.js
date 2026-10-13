@@ -1,6 +1,8 @@
 import { getDb } from '../db/index.js';
 import { fullSync } from './sync.js';
 import { syncMasteryForCourse } from './masterySync.js';
+import { refreshRecentQuizzes } from './quizRefresh.js';
+import { getFeatures } from '../middleware/featureGate.js';
 import { syncPsAttendance } from './psAttendanceSync.js';
 import { captureFeedbackSnapshots } from './feedbackSnapshots.js';
 import { settleResubmissions } from './resubmissions.js';
@@ -23,13 +25,13 @@ export function classifyMasteryError(err) {
 //   { type:'log', message }
 //   { type:'summary', schoology, mastery, elapsedMs, fatal? }
 export async function runUnifiedSync(
-  { masteryCourseIds = [], skipSchoology = false, includeHidden = false, recentOnly = false, recentDays = 30, syncBlocks = true },
+  { masteryCourseIds = [], skipSchoology = false, includeHidden = false, recentOnly = false, recentDays = 30, syncBlocks = true, refreshQuizzes = false },
   onEvent
 ) {
   const emit = (evt) => onEvent?.(evt);
   const db = getDb();
   const startedAt = Date.now();
-  const summary = { schoology: null, blocks: null, mastery: [] };
+  const summary = { schoology: null, blocks: null, mastery: [], quizzes: null };
 
   if (!skipSchoology) {
     emit({ phase: 'schoology', status: 'running' });
@@ -122,6 +124,25 @@ export async function runUnifiedSync(
       failSyncLog.run(err.message, new Date().toISOString(), syncId);
       summary.mastery.push({ courseId, courseName, status: 'error', errorKind, message: err.message });
       emit({ phase: 'mastery', courseId, courseName, status: 'error', errorKind, message: err.message });
+    }
+  }
+
+  // Spec §12: the nightly run reloads quizzes loaded in the last 28 days. Best effort: a
+  // failure is reported in the run and never fails the sync.
+  if (refreshQuizzes && getFeatures().quizzes) {
+    emit({ phase: 'quizzes', status: 'running' });
+    try {
+      const results = await refreshRecentQuizzes(db, {
+        onGroup: (r) => emit({ type: 'log', message: `[quizzes] ${r.title}: ${r.status === 'done' ? `${r.attempts} attempts` : r.message}` }),
+      });
+      const failed = results.filter(r => r.status === 'error');
+      summary.quizzes = { refreshed: results.length - failed.length, failed: failed.length };
+      emit(failed.length
+        ? { phase: 'quizzes', status: 'error', message: `${failed.length} of ${results.length} quizzes not refreshed: ${failed[0].message}` }
+        : { phase: 'quizzes', status: 'done', records: results.length });
+    } catch (err) {
+      summary.quizzes = { error: err.message };
+      emit({ phase: 'quizzes', status: 'error', message: err.message });
     }
   }
 

@@ -30,6 +30,12 @@ export function reduceSyncEvents(events) {
       if (evt.notReady != null) p.notReady = evt.notReady;
       if (evt.errorKind) p.errorKind = evt.errorKind;
       if (evt.message) p.message = evt.message;
+    } else if (evt.phase === 'quizzes') {
+      let p = find('quizzes');
+      if (!p) { p = { key: 'quizzes', kind: 'quizzes', label: 'Quiz results' }; phases.push(p); }
+      p.status = evt.status;
+      if (evt.records != null) p.records = evt.records;
+      if (evt.message) p.message = evt.message;
     } else if (evt.phase === 'mastery') {
       const key = `mastery:${evt.courseId}`;
       let p = find(key);

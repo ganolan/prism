@@ -15,7 +15,7 @@ import { sessionStateFile } from '../server/lib/sessionPaths.js';
 import { parseQuizResults, parseStudentStats } from '../server/lib/parseQuizResults.js';
 import { parseQuizAttempt } from '../server/lib/parseQuizAttempt.js';
 import { parseQuizRubric } from '../server/lib/parseQuizRubric.js';
-import { pickFrq, compareAttempts, captureRecord, assertOutsideRepo } from './lib/attemptProbe.js';
+import { pickFrq, compareAttempts, captureRecord, assertOutsideRepo, selectedLevel } from './lib/attemptProbe.js';
 
 const BASE = 'https://schoology.hkis.edu.hk';
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -116,25 +116,24 @@ async function write() {
     if (pick.reason) throw new Error(`Not a candidate: ${pick.reason}`);
     await page.waitForTimeout(1500);
 
-    // The proven route (schoology plugin, export-test-results §6): synthetic mouse events, level by label.
+    // Open the popup the proven way (schoology plugin, export-test-results §6): synthetic mouse events on
+    // the inner launch span. The outer div of the same widget does nothing.
     const clicked = await page.evaluate(({ qid }) => {
       const block = document.querySelector(`[name="components[0][${qid}][points]"]`)?.closest('.question-review');
-      const launch = block?.querySelector('.grading-rubric-grading-launch, .s-grades-rubric-grading-launch-btn');
+      const launch = block?.querySelector('span.grading-rubric-grading-launch');
       if (!launch) return false;
       for (const t of ['mousedown', 'mouseup', 'click']) launch.dispatchEvent(new MouseEvent(t, { bubbles: true }));
       return true;
     }, { qid: pick.qid });
     if (!clicked) throw new Error('Rubric launch not found');
     await page.waitForTimeout(2500);
-    const chose = await page.evaluate(({ levelName }) => {
-      const re = new RegExp(`^\\d\\s*${levelName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:`);
-      const cell = [...document.querySelectorAll('td.rating-wrapper')].find(td => td.offsetParent !== null && re.test(td.textContent.trim()));
-      if (!cell) return false;
-      for (const t of ['mousedown', 'mouseup', 'click']) cell.dispatchEvent(new MouseEvent(t, { bubbles: true }));
-      return true;
-    }, { levelName: pick.levelName });
-    if (!chose) throw new Error(`Level "${pick.levelName}" not found in the popup`);
-    await page.waitForTimeout(800);
+    // Same-value save: no cell is clicked (clicking the selected cell could clear it). The popup must
+    // already show the stored level as selected, then its Save is pressed as it is.
+    const cellTexts = await page.evaluate(() => [...document.querySelectorAll('td.rating-wrapper')].filter(td => td.offsetParent !== null).map(td => td.textContent));
+    const shown = selectedLevel(cellTexts);
+    if (!shown || shown.level !== pick.levelName || shown.points !== pick.points) {
+      throw new Error(`The popup shows ${shown ? `${shown.level} (${shown.points})` : 'no single selected level'}, expected ${pick.levelName}: stopping before any save`);
+    }
     await page.locator('button.submit-btn', { hasText: 'Save' }).first().click();
     await page.waitForTimeout(2500);
     const score = await page.evaluate((qid) => document.querySelector(`[name="components[0][${qid}][rubric_score]"]`)?.value, pick.qid);

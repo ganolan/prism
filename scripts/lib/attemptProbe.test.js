@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { pickFrq, compareAttempts, captureRecord, assertOutsideRepo } from './attemptProbe.js';
+import { pickFrq, compareAttempts, captureRecord, assertOutsideRepo, readRatingCell, selectedLevel } from './attemptProbe.js';
 
 const RUBRIC = { id: '77', title: 'FRQ', rows: [{ id: '5', title: 'Content Knowledge', levels: [
   { points: 4, name: 'Exhibiting Depth' }, { points: 3, name: 'Exhibiting' }, { points: 2, name: 'Developing' }, { points: 1, name: 'Emerging' }] }] };
@@ -53,5 +53,17 @@ describe('assertOutsideRepo', () => {
     expect(() => assertOutsideRepo('/r/prism', '/r/prism')).toThrow(/outside the repo/);
     expect(() => assertOutsideRepo('/tmp/probe', '/r/prism')).not.toThrow();
     expect(() => assertOutsideRepo('/r/prism-other', '/r/prism')).not.toThrow();
+  });
+});
+
+describe('rubric popup cells', () => {
+  test('a cell text gives its points, level and whether it is selected', () => {
+    expect(readRatingCell('This item is selected.4Exhibiting Depth: The response shows')).toEqual({ selected: true, points: 4, level: 'Exhibiting Depth' });
+    expect(readRatingCell('3Exhibiting: The response demonstrates')).toEqual({ selected: false, points: 3, level: 'Exhibiting' });
+    expect(readRatingCell('Not a cell')).toBeNull();
+  });
+  test('selectedLevel: exactly one selected cell, else null', () => {
+    expect(selectedLevel(['This item is selected.4Exhibiting Depth: x', '3Exhibiting: y'])).toEqual({ selected: true, points: 4, level: 'Exhibiting Depth' });
+    expect(selectedLevel(['4Exhibiting Depth: x', '3Exhibiting: y'])).toBeNull();
   });
 });

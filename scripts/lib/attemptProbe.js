@@ -42,3 +42,14 @@ export function assertOutsideRepo(dir, repoRoot) {
   const rel = path.relative(path.resolve(repoRoot), path.resolve(dir));
   if (rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))) throw new Error(`OUT_DIR must be outside the repo: ${dir}`);
 }
+
+// A visible rubric-popup cell, as text: Schoology prefixes the selected one with a screen-reader note.
+export function readRatingCell(text) {
+  const m = String(text ?? '').replace(/\s+/g, ' ').trim().match(/^(This item is selected\.)?\s*(\d+)\s*([^:]+):/);
+  return m ? { selected: !!m[1], points: Number(m[2]), level: m[3].trim() } : null;
+}
+
+export function selectedLevel(texts) {
+  const selected = texts.map(readRatingCell).filter(c => c?.selected);
+  return selected.length === 1 ? selected[0] : null;
+}

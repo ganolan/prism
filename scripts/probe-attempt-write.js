@@ -18,6 +18,7 @@
 // Usage: OUT_DIR=<dir> [PRISM_SESSION_DIR=<dir>] node scripts/probe-attempt-write.js <command> ...
 import { chromium } from 'playwright';
 import { writeFileSync, mkdirSync } from 'fs';
+import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import { sessionStateFile } from '../server/lib/sessionPaths.js';
@@ -25,13 +26,17 @@ import { parseQuizResults, parseStudentStats } from '../server/lib/parseQuizResu
 import { parseQuizAttempt } from '../server/lib/parseQuizAttempt.js';
 import { parseQuizRubric } from '../server/lib/parseQuizRubric.js';
 import { pickFrq, compareAttempts, captureRecord, assertOutsideRepo, selectedLevel, levelCellIndex } from './lib/attemptProbe.js';
-import { serializeForm, changedNames, toBody } from '../server/lib/attemptForm.js';
+import { serializeForm, changedNames, toBody, byQuestionRubrics } from '../server/lib/attemptForm.js';
 import { parseRubricGradeInfo } from '../server/lib/parseQuizRubric.js';
 
 const BASE = 'https://schoology.hkis.edu.hk';
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// From a worktree, the main clone (the parent of git's common dir) holds every worktree: refuse it too.
+const mainClone = () => {
+  try { return path.dirname(execFileSync('git', ['-C', REPO, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8' }).trim()); } catch { return REPO; }
+};
 const OUT = process.env.OUT_DIR;
-assertOutsideRepo(OUT, REPO);
+assertOutsideRepo(OUT, [REPO, mainClone()]);
 mkdirSync(OUT, { recursive: true });
 
 const [command, ...rest] = process.argv.slice(2);
@@ -246,10 +251,8 @@ const BYQ_FORM = '#s-assessment-view-question-responses-form';
 
 async function rubricGrades(page, html) {
   const out = {};
-  // One template entry per student here (rubricButtons keys by question id), so the args are read directly.
-  const re = /"template":"s_grades_rubric_grading_launch_btn"[^{}]*?"args":\[\s*"?(\d+)"?\s*,\s*"?(\d+)"?\s*,\s*"?(\d+)"?\s*,[^\]]*?,\s*"?(\d+)"?\s*,\s*"?(\d+)"?\s*,\s*"?(\d+)"?\s*,/g;
-  for (const m of String(html).matchAll(re)) {
-    const [, rubricId, enrollmentId, qid, , , attemptId] = m;
+  // One template entry per student here, keyed by attempt (the writer's own reading).
+  for (const [attemptId, { rubricId, enrollmentId, qid }] of Object.entries(byQuestionRubrics(html))) {
     const t = await page.evaluate(async (u) => (await fetch(u, { headers: { Accept: 'application/json' } })).text(),
       `${BASE}/iapi/grades/assessment_component_submission_rubric_grade_info/${rubricId}/${qid}/${enrollmentId}/${attemptId}`);
     out[attemptId] = parseRubricGradeInfo(JSON.parse(t));

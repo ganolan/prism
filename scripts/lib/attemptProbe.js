@@ -37,10 +37,13 @@ export function captureRecord(request) {
   };
 }
 
-export function assertOutsideRepo(dir, repoRoot) {
+// `repoRoots`: this checkout, and from a worktree the main clone as well (its folders hold every worktree).
+export function assertOutsideRepo(dir, repoRoots) {
   if (!dir) throw new Error('Set OUT_DIR to a folder outside the repo (captures hold student work)');
-  const rel = path.relative(path.resolve(repoRoot), path.resolve(dir));
-  if (rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))) throw new Error(`OUT_DIR must be outside the repo: ${dir}`);
+  for (const root of [repoRoots].flat()) {
+    const rel = path.relative(path.resolve(root), path.resolve(dir));
+    if (rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))) throw new Error(`OUT_DIR must be outside the repo: ${dir}`);
+  }
 }
 
 // A visible rubric-popup cell, as text: Schoology prefixes the selected one with a screen-reader note.

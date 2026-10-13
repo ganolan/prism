@@ -31,10 +31,10 @@ export function confirmedMark(markRow, schoology, rubric) {
   return onRubric(rubric, found.cells) ? found : { reason: 'not on the rubric' };
 }
 
-function overallFor(db, group, studentId, template, values, ready) {
+// `latestFeedback`: the prepared query for a student's latest feedback row on the Result task.
+function overallFor(latestFeedback, group, studentId, template, values, ready) {
   if (!group.result) return null;
-  const fb = db.prepare(`SELECT * FROM feedback WHERE student_id = ? AND assignment_id = ?
-    ORDER BY updated_at DESC, id DESC LIMIT 1`).get(studentId, group.result.id);
+  const fb = latestFeedback.get(studentId, group.result.id);
   const fj = parse(fb?.feedback_json, {});
   if (!fb || fj.quiz_overall?.group_id !== group.id) return null;
   const rebuilt = buildComment(template, { ...values, impression: fj.quiz_overall.impression });
@@ -53,32 +53,39 @@ function overallFor(db, group, studentId, template, values, ready) {
 export function quizResults(db, { groupId }) {
   const group = getGroup(db, groupId);
   const questions = db.prepare('SELECT * FROM quiz_questions WHERE group_id = ? ORDER BY position').all(group.id);
-  const mcqs = questions.filter(q => q.kind === 'mcq');
-  const frqs = questions.filter(q => q.kind === 'frq');
+  // Tags and rubrics are parsed once for the class, not once per student.
+  const mcqs = questions.filter(q => q.kind === 'mcq').map(q => ({ ...q, tags: parse(q.tags_json, []) }));
+  const frqs = questions.filter(q => q.kind === 'frq').map(q => ({ ...q, rubric: parse(q.schoology_rubric_json) }));
   const template = group.comment_template ?? group.default_comment_template;
 
   const attempts = db.prepare(`SELECT qa.id, qa.student_id, qa.schoology_attempt_id, qa.completed_at,
       s.schoology_uid, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher, a.schoology_assignment_id AS member_sid
     FROM quiz_attempts qa JOIN students s ON s.id = qa.student_id JOIN assignments a ON a.id = qa.assignment_id
     WHERE qa.group_id = ?`).all(group.id);
-  const responseQ = db.prepare('SELECT * FROM quiz_responses WHERE attempt_id = ? AND question_id = ?');
-  const markQ = db.prepare('SELECT * FROM frq_marks WHERE attempt_id = ? AND question_id = ?');
+  // One read per attempt for its responses and its marks, keyed by question.
+  const responsesQ = db.prepare('SELECT * FROM quiz_responses WHERE attempt_id = ?');
+  const marksQ = db.prepare('SELECT * FROM frq_marks WHERE attempt_id = ?');
+  const latestFeedback = db.prepare(`SELECT * FROM feedback WHERE student_id = ? AND assignment_id = ?
+    ORDER BY updated_at DESC, id DESC LIMIT 1`);
+  const byQuestion = (rows) => new Map(rows.map(r => [r.question_id, r]));
 
   const students = attempts.map((a) => {
-    const correctOf = (q) => responseQ.get(a.id, q.id)?.is_correct === 1;
-    const mcqCorrect = mcqs.filter(correctOf).length;
+    const responses = byQuestion(responsesQ.all(a.id));
+    const marks = byQuestion(marksQ.all(a.id));
+    const correct = new Set(mcqs.filter(q => responses.get(q.id)?.is_correct === 1).map(q => q.id));
+    const mcqCorrect = correct.size;
     const tags = new Map();
     for (const q of mcqs) {
-      for (const tag of parse(q.tags_json, [])) {
+      for (const tag of q.tags) {
         const t = tags.get(tag) || { tag, correct: 0, total: 0 };
         t.total += 1;
-        if (correctOf(q)) t.correct += 1;
+        if (correct.has(q.id)) t.correct += 1;
         tags.set(tag, t);
       }
     }
     const frq = frqs.map((q) => {
-      const rubric = parse(q.schoology_rubric_json);
-      const c = confirmedMark(markQ.get(a.id, q.id), schoologyMarkOf(responseQ.get(a.id, q.id), rubric), rubric);
+      const { rubric } = q;
+      const c = confirmedMark(marks.get(q.id), schoologyMarkOf(responses.get(q.id), rubric), rubric);
       const base = { question: q.position, has_rubric: !!rubric, max_points: q.max_points };
       if (!c.cells) return { ...base, confirmed: false, source: null, reason: c.reason, levels: [], points: null };
       const levels = levelsOf(rubric, c.cells);
@@ -95,7 +102,7 @@ export function quizResults(db, { groupId }) {
       student_id: a.student_id, name: studentFullName(a), schoology_uid: a.schoology_uid, attempt_url: attemptUrl(a),
       mcq, by_tag: [...tags.values()].map(t => ({ ...t, percent: pct(t.correct, t.total) })),
       frq, ready, blocked, comment_values,
-      overall: overallFor(db, group, a.student_id, template, comment_values, ready),
+      overall: overallFor(latestFeedback, group, a.student_id, template, comment_values, ready),
     };
   }).sort(byName);
 

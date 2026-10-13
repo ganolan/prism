@@ -44,8 +44,11 @@ export function getGroup(db, groupId) {
 }
 
 // The overall comment's template (spec §13). Blank resets to the default.
+// An empty template resets to the default; a missing one is refused, so a request that lost its body
+// never resets the teacher's template.
 export function setCommentTemplate(db, { groupId, template }) {
   const g = groupRow(db, groupId);
+  if (typeof template !== 'string') throw new QuizError('NOT_ELIGIBLE', 'template is required (an empty template resets to the default)');
   const text = String(template ?? '').replace(/\r\n?/g, '\n');
   let stored = null;
   if (text.trim()) {

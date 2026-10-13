@@ -54,6 +54,12 @@ describe('assertOutsideRepo', () => {
     expect(() => assertOutsideRepo('/tmp/probe', '/r/prism')).not.toThrow();
     expect(() => assertOutsideRepo('/r/prism-other', '/r/prism')).not.toThrow();
   });
+  test('from a worktree, the main clone\'s folders are refused too', () => {
+    const roots = ['/r/prism/.claude/worktrees/w', '/r/prism'];
+    expect(() => assertOutsideRepo('/r/prism/tmp', roots)).toThrow(/outside the repo/);
+    expect(() => assertOutsideRepo('/r/prism/.claude/worktrees/other/x', roots)).toThrow(/outside the repo/);
+    expect(() => assertOutsideRepo('/r/probes', roots)).not.toThrow();
+  });
 });
 
 describe('rubric popup cells', () => {

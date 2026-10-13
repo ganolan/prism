@@ -3,7 +3,10 @@ import express from 'express';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 vi.mock('../services/quizLoader.js', () => ({ readQuestionLists: vi.fn(), loadGroup: vi.fn() }));
 vi.mock('../services/quizWriteback.js', () => ({ postWritebacks: vi.fn(async () => ({ results: [], remaining: 0 })) }));
-vi.mock('../middleware/featureGate.js', async (orig) => ({ ...(await orig()), featureGate: () => (req, res, next) => next() }));
+// Every flag is on unless a test turns it off (flagsOff), so a route's own gate can be checked.
+const flagsOff = vi.hoisted(() => new Set());
+vi.mock('../middleware/featureGate.js', async (orig) => ({ ...(await orig()),
+  featureGate: (name) => (req, res, next) => (flagsOff.has(name) ? res.status(403).json({ error: `Feature "${name}" is not enabled` }) : next()) }));
 
 import router from './quizzes.js';
 import { getDb } from '../db/index.js';
@@ -145,6 +148,27 @@ describe('/api/quizzes', () => {
     expect([r.status, r.body.students, r.body.group.result]).toEqual([200, [], null]);
     const rebuilt = await call('POST', `/api/quizzes/${id}/overall/1/rebuild`);
     expect([rebuilt.status, rebuilt.body.code]).toEqual([400, 'NOT_ELIGIBLE']);
+  });
+
+  test('POST /:id/writeback with quiz_writeback off: 403, nothing posted', async () => {
+    const id = (await call('POST', '/api/quizzes', { course_id: course, assignment_ids: ['900'], title: 'T' })).body.group.id;
+    vi.mocked(postWritebacks).mockClear();
+    flagsOff.add('quiz_writeback');
+    try {
+      const r = await call('POST', `/api/quizzes/${id}/writeback`, {});
+      expect(r.status).toBe(403);
+      expect(vi.mocked(postWritebacks)).not.toHaveBeenCalled();
+    } finally { flagsOff.delete('quiz_writeback'); }
+  });
+
+  test('PUT /:id/template with no template in the body: 400, the stored template kept', async () => {
+    const id = (await call('POST', '/api/quizzes', { course_id: course, assignment_ids: ['900'], title: 'T' })).body.group.id;
+    expect((await call('PUT', `/api/quizzes/${id}/template`, { template: 'Well done. {impression}' })).status).toBe(200);
+    const r = await call('PUT', `/api/quizzes/${id}/template`, {});
+    expect([r.status, r.body.code]).toEqual([400, 'NOT_ELIGIBLE']);
+    expect(getDb().prepare('SELECT comment_template FROM quiz_groups WHERE id = ?').get(id).comment_template).toBe('Well done. {impression}');
+    const reset = await call('PUT', `/api/quizzes/${id}/template`, { template: '' });
+    expect([reset.status, reset.body.group.comment_template]).toEqual([200, null]);
   });
 
   test('POST /:id/writeback posts with the limit given', async () => {

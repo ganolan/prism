@@ -563,6 +563,21 @@ CREATE TABLE IF NOT EXISTS rubric_attachment_topics (
   UNIQUE(attachment_id, criterion_id)
 );
 
+-- Feedback rows (2026-10-13): the teacher's published row levels for a rubric
+-- attached to an UNALIGNED (score-scale) task. Prism-only: never synced, never
+-- sent to Schoology. Keyed by criterion name, because write_rubric "update"
+-- re-inserts criteria with new ids.
+CREATE TABLE IF NOT EXISTS rubric_row_levels (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  assignment_schoology_id TEXT NOT NULL,
+  student_uid TEXT NOT NULL,
+  criterion_name TEXT NOT NULL,
+  level TEXT NOT NULL CHECK (level IN ('ED','EX','D','EM','IE')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (assignment_schoology_id, student_uid, criterion_name)
+);
+CREATE INDEX IF NOT EXISTS idx_rubric_row_levels_student ON rubric_row_levels(student_uid);
+
 CREATE INDEX IF NOT EXISTS idx_rubric_criteria_rubric ON rubric_criteria(rubric_id);
 CREATE INDEX IF NOT EXISTS idx_rubric_attach_assignment ON rubric_attachments(assignment_schoology_id);
 CREATE INDEX IF NOT EXISTS idx_rubric_attach_topics_topic ON rubric_attachment_topics(topic_id);

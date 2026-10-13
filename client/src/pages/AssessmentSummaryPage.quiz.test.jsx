@@ -7,6 +7,7 @@ import { formatDateTime } from '../lib/formatDate.js';
 
 vi.mock('../lib/assessmentDraftSaver.js', () => ({ makeDraftSaver: () => ({ save: vi.fn(), remove: vi.fn(), flush: vi.fn(), dispose: vi.fn() }) }));
 vi.mock('../components/quiz/QuestionsTab.jsx', () => ({ default: ({ groupId }) => <div>Questions for group {groupId}</div> }));
+vi.mock('../components/quiz/FreeResponseTab.jsx', () => ({ default: ({ groupId }) => <div>Free response for group {groupId}</div> }));
 vi.mock('../services/api.js', () => ({
   getMasteryForAssignment: vi.fn(),
   getSubmissionLinks: vi.fn().mockResolvedValue({ status: 'not_lti', links: {} }),
@@ -165,5 +166,19 @@ describe('AssessmentSummaryPage with a quiz group', () => {
     getQuizGroupFor.mockResolvedValue({ group: { ...GROUP, canonical_schoology_id: 950 } });
     renderAt('/course/5/assessment/950');
     expect(await screen.findByText(/1 linked test/)).toBeInTheDocument();
+  });
+
+  it('shows a Free response tab only when the group has an FRQ', async () => {
+    getQuizGroupFor.mockResolvedValue({ group: { ...GROUP, frq_count: 1 } });
+    renderAt('/course/5/assessment/950');
+    fireEvent.click(await screen.findByRole('tab', { name: 'Free response' }));
+    expect(await screen.findByText('Free response for group 7')).toBeInTheDocument();
+  });
+
+  it('no Free response tab without an FRQ', async () => {
+    getQuizGroupFor.mockResolvedValue({ group: { ...GROUP, frq_count: 0 } });
+    renderAt('/course/5/assessment/950');
+    await screen.findByRole('tab', { name: 'Questions' });
+    expect(screen.queryByRole('tab', { name: 'Free response' })).toBeNull();
   });
 });

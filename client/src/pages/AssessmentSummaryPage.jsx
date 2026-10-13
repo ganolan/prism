@@ -17,6 +17,7 @@ import AttemptLink from '../components/quiz/AttemptLink.jsx';
 import QuizChip from '../components/quiz/QuizChip.jsx';
 import QuizSetupModal from '../components/quiz/QuizSetupModal.jsx';
 import QuestionsTab from '../components/quiz/QuestionsTab.jsx';
+import FreeResponseTab from '../components/quiz/FreeResponseTab.jsx';
 import QuizLoadWarnings from '../components/quiz/QuizLoadWarnings.jsx';
 import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
 import { useQuizGroup } from '../hooks/useQuizGroup.js';
@@ -2163,12 +2164,17 @@ export default function AssessmentSummaryPage() {
           <div role="tablist" aria-label="Quiz views" style={{ display: 'flex', gap: '0.25rem', marginTop: '0.4rem' }}>
             <button role="tab" aria-selected={quizTab === 'grading'} className={`tab-btn${quizTab === 'grading' ? ' active' : ''}`} onClick={() => setQuizTab('grading')}>Grading</button>
             <button role="tab" aria-selected={quizTab === 'questions'} className={`tab-btn${quizTab === 'questions' ? ' active' : ''}`} onClick={() => setQuizTab('questions')}>Questions</button>
+            {quizGroup.frq_count > 0 && (
+              <button role="tab" aria-selected={quizTab === 'frq'} className={`tab-btn${quizTab === 'frq' ? ' active' : ''}`} onClick={() => setQuizTab('frq')}>Free response</button>
+            )}
           </div>
         )}
       </div>
 
       {quizGroup && quizTab === 'questions' ? (
         <QuestionsTab groupId={quizGroup.id} reloadKey={quizGroup.loaded_at} />
+      ) : quizGroup && quizTab === 'frq' && quizGroup.frq_count > 0 ? (
+        <FreeResponseTab groupId={quizGroup.id} reloadKey={quizGroup.loaded_at} />
       ) : students.length === 0 ? (
         <div className="card">
           <p className="text-muted">No students found. Run a mastery sync for this course first.</p>

@@ -1,0 +1,79 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, within } from '@testing-library/react';
+import FreeResponseTab, { matchesFilter } from './FreeResponseTab.jsx';
+import { getFrqResponses, getFeatures, saveFrqMark } from '../../services/api.js';
+
+vi.mock('../../services/api.js', () => ({ getFrqResponses: vi.fn(), getFeatures: vi.fn(), saveFrqMark: vi.fn() }));
+
+const RUBRIC = { id: 'r1', rows: [{ id: '146', title: 'Content Knowledge', levels: [{ points: 4, name: 'Exhibiting Depth', descriptionHtml: 'Exhibiting Depth: all' }, { points: 2, name: 'Developing', descriptionHtml: 'Developing: some' }] }] };
+const mark = (over) => ({ state: 'suggested', suggested: { cells: { 146: 4 }, comment: 's' }, final: null, suggestion_revised: false, writeback: { status: null }, changed_in_schoology: false, ...over });
+const DATA = {
+  group_id: 7,
+  questions: [{ id: 1, position: 21, stem_html: '<p>Q21 stem</p>', max_points: 4, rubric: RUBRIC }, { id: 2, position: 22, stem_html: '<p>Q22 stem</p>', max_points: 4, rubric: RUBRIC }],
+  students: [
+    { student_id: 1, name: 'Ana Lee', attempt_id: 11, attempt_url: 'u1', responses: { 21: { answer_html: 'Ana 21', schoology: null, mark: mark() }, 22: { answer_html: 'Ana 22', schoology: null, mark: null } } },
+    { student_id: 2, name: 'Ben Ho', attempt_id: 12, attempt_url: 'u2', responses: { 21: { answer_html: 'Ben 21', schoology: null, mark: mark({ state: 'accepted', final: { cells: { 146: 4 }, comment: 's' }, writeback: { status: 'pending' } }) }, 22: { answer_html: 'Ben 22', schoology: { cells: { 146: 2 }, comment: 'c' }, mark: null } } },
+  ],
+};
+
+beforeEach(() => { vi.clearAllMocks(); getFrqResponses.mockResolvedValue(DATA); getFeatures.mockResolvedValue({ quizzes: true, quiz_writeback: false }); });
+
+describe('FreeResponseTab', () => {
+  it('opens by question: the first FRQ for every student', async () => {
+    render(<FreeResponseTab groupId={7} />);
+    expect(await screen.findByText('Ana 21')).toBeInTheDocument();
+    expect(screen.getByText('Ben 21')).toBeInTheDocument();
+    expect(screen.queryByText('Ana 22')).toBeNull();
+    expect(screen.getByText('Q21 stem')).toBeInTheDocument();
+  });
+
+  it('the picker sets the FRQ for every card', async () => {
+    render(<FreeResponseTab groupId={7} />);
+    await screen.findByText('Ana 21');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Question' }), { target: { value: '22' } });
+    expect(screen.getByText('Ana 22')).toBeInTheDocument();
+    expect(screen.queryByText('Ana 21')).toBeNull();
+  });
+
+  it('by student stacks each student\'s FRQs', async () => {
+    render(<FreeResponseTab groupId={7} />);
+    await screen.findByText('Ana 21');
+    fireEvent.click(screen.getByRole('button', { name: 'By student' }));
+    expect(screen.getByText('Ana 21')).toBeInTheDocument();
+    expect(screen.getByText('Ana 22')).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Question' })).toBeNull();
+  });
+
+  it('filters, and shows how many marks wait for the agent', async () => {
+    render(<FreeResponseTab groupId={7} />);
+    await screen.findByText('Ana 21');
+    expect(screen.getByText('1 waiting for the agent')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Waiting to post/ }));
+    expect(screen.queryByText('Ana 21')).toBeNull();
+    expect(screen.getByText('Ben 21')).toBeInTheDocument();
+  });
+
+  it('a saved card updates in place', async () => {
+    saveFrqMark.mockResolvedValue({ mark: mark({ state: 'accepted', final: { cells: { 146: 4 }, comment: 's' }, writeback: { status: 'pending' } }) });
+    render(<FreeResponseTab groupId={7} />);
+    await screen.findByText('Ana 21');
+    const ana = screen.getAllByTestId('frq-card')[0];
+    fireEvent.click(within(ana).getByRole('button', { name: 'Accept' }));
+    expect(await screen.findByText('2 waiting for the agent')).toBeInTheDocument();
+  });
+
+  it('shows a load error', async () => {
+    getFrqResponses.mockRejectedValue(new Error('No quiz group 7'));
+    render(<FreeResponseTab groupId={7} />);
+    expect(await screen.findByText('No quiz group 7')).toBeInTheDocument();
+  });
+});
+
+describe('matchesFilter', () => {
+  it('to review: unmarked with nothing in Schoology, a suggestion not yet acted on, or a revised one', () => {
+    expect(matchesFilter({ schoology: null, mark: null }, 'review')).toBe(true);
+    expect(matchesFilter({ schoology: { cells: {}, comment: 'x' }, mark: null }, 'review')).toBe(false);
+    expect(matchesFilter({ mark: mark() }, 'review')).toBe(true);
+    expect(matchesFilter({ mark: mark({ state: 'edited', suggestion_revised: true }) }, 'review')).toBe(true);
+  });
+});

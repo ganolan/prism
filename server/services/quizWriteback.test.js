@@ -3,7 +3,7 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 import { getDb } from '../db/index.js';
 import { postWritebacks, waitingMarks } from './quizWriteback.js';
 import { writeFrqSuggestions, setFrqMark, recordWriteback } from './frqMarks.js';
-import { posting } from './quizLocks.js';
+import { holdGroup } from './quizLocks.js';
 import { serializeForm, BYQ_FORM } from '../lib/attemptForm.js';
 import { QuizError } from './quizError.js';
 
@@ -303,10 +303,34 @@ describe('postWritebacks (by question)', () => {
   });
 
   test('an agent cannot record a write-back while Prism is posting the group', () => {
-    posting.add(g);
+    const release = holdGroup(g, 'posting');
     try {
       expect(() => recordWriteback(db, { groupId: g, student: '701', position: 21, status: 'posted' })).toThrow(/being posted/);
-    } finally { posting.delete(g); }
+    } finally { release(); }
+  });
+
+  test('one lock per group: no post while the group loads, and no record either', async () => {
+    const release = holdGroup(g, 'loading');
+    try {
+      const f = fakeSchoology(subsNow());
+      await expect(run(f, null)).rejects.toMatchObject({ code: 'BUSY', message: expect.stringMatching(/loading/) });
+      expect(f.calls).toEqual([]);
+      expect(() => recordWriteback(db, { groupId: g, student: '701', position: 21, status: 'posted' })).toThrow(/loading/);
+    } finally { release(); }
+    expect((await run(fakeSchoology(subsNow()), 1)).results[0]).toMatchObject({ status: 'posted' });
+  });
+
+  test('an unreachable Schoology stops the batch like an expired session', async () => {
+    const f = fakeSchoology(subsNow());
+    const get = f.client.get.getMockImplementation();
+    f.client.get.mockImplementation(async (path, o) => {
+      if (path === page('901')) throw new QuizError('UNREACHABLE', 'Could not reach Schoology: try again');
+      return get(path, o);
+    });
+    acceptWu();
+    await expect(run(f, null)).rejects.toMatchObject({ code: 'UNREACHABLE' });
+    expect(mark('701').writeback_status).toBe('posted');
+    expect(mark('702')).toMatchObject({ writeback_status: 'failed', writeback_error: expect.stringMatching(/Could not reach Schoology/) });
   });
 
   test('another student\'s field changed in the read-back stops the batch at once', async () => {
@@ -409,7 +433,7 @@ describe('postWritebacks (by question)', () => {
     expect(mark('701')).toMatchObject({ writeback_status: 'pending', final_comment: 'Newer' });
   });
 
-  test('two FRQs on one test: one page and one form save each', async () => {
+  test('two FRQs on one test: one page each, the test\'s question index read once', async () => {
     const q22 = db.prepare(`INSERT INTO quiz_questions (group_id, position, kind, stem_html, max_points, schoology_rubric_json) VALUES (?, 22, 'frq', 'E2', 4, ?)`).run(g, JSON.stringify(RUBRIC)).lastInsertRowid;
     db.prepare(`INSERT INTO quiz_question_copies (question_id, assignment_id, schoology_question_id) VALUES (?, ?, '2002')`).run(q22, std);
     db.prepare(`INSERT INTO quiz_responses (attempt_id, question_id, answer_html, points, schoology_rubric_cells_json, schoology_comment) VALUES (?, ?, 'a', 2, ?, 'Old')`).run(att['701'], q22, JSON.stringify({ 146: { points: 2, comment: '' } }));
@@ -422,6 +446,7 @@ describe('postWritebacks (by question)', () => {
     expect(f.calls.filter(c => c[0] === 'GET' && /question_stats\/\d+\/\d+$/.test(c[1])).map(c => c[1])).toContain(page('900', 21));
     expect(r.results.find(x => x.question === 22)).toMatchObject({ status: 'failed', error: 'The attempt on the question page is not the one Prism loaded: load the results again' });
     expect(f.calls.some(c => c[1] === page('900', 22))).toBe(true);
+    expect(f.calls.filter(c => c[1] === '/assignment/900/assessment_results/question_stats')).toHaveLength(1);
   });
 
   test('every name the form save changes belongs to a posted student', async () => {

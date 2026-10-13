@@ -114,6 +114,18 @@ describe('the grade-by-question form', () => {
   test('the rubric entry for each attempt on the page', () => {
     expect(byQuestionRubrics(html)).toEqual({ 5001: { rubricId: '91', enrollmentId: '81', qid: '2001' }, 5002: { rubricId: '91', enrollmentId: '82', qid: '2001' } });
   });
+  test('the rubric entries are read as JSON: brackets, braces and quotes inside the grade html do not matter', () => {
+    const page = String.raw`<script>{"a":{"template":"s_grades_rubric_grading_launch_btn","module":"gradingRubric","args":["91","81","2001","<span title=\"[a] {b}\">2<\/span>]",1,1,"5001",4,false,false]},
+      "b":{"template":"s_grades_rubric_grading_launch_btn","module":"gradingRubric","args":[91,82,2001,"x",1,1,5002,4,false,false]}}</script>`;
+    expect(byQuestionRubrics(page)).toEqual({ 5001: { rubricId: '91', enrollmentId: '81', qid: '2001' }, 5002: { rubricId: '91', enrollmentId: '82', qid: '2001' } });
+  });
+  test('a rubric entry whose args do not parse, or are not ids, is left out; the others are read', () => {
+    const page = String.raw`<script>{"a":{"template":"s_grades_rubric_grading_launch_btn","module":"gradingRubric","args":["91","81","2001","x",1,1,"5001",4,false,false,]},
+      "n":{"template":"s_grades_rubric_grading_launch_btn","module":"gradingRubric"},
+      "c":{"template":"s_grades_rubric_grading_launch_btn","module":"gradingRubric","args":["91","8x","2001","x",1,1,"5003",4,false,false]},
+      "b":{"template":"s_grades_rubric_grading_launch_btn","module":"gradingRubric","args":["91","82","2001","x",1,1,"5002",4,false,false]}}</script>`;
+    expect(byQuestionRubrics(page)).toEqual({ 5002: { rubricId: '91', enrollmentId: '82', qid: '2001' } });
+  });
   test('the essay wrappers still work on the attempt form', () => {
     expect(essayNames('21')).toEqual(namesAt('components[0][21]'));
   });

@@ -5,6 +5,7 @@ import { readFileSync } from 'fs';
 import { getDb } from '../db/index.js';
 import { createGroup } from './quizGroups.js';
 import { loadGroup, readQuestionLists, assertReadOnlyUrl } from './quizLoader.js';
+import { holdGroup } from './quizLocks.js';
 import { parseQuizQuestions } from '../lib/parseQuizQuestions.js';
 
 const fx = (n) => readFileSync(new URL(`../lib/__fixtures__/quiz/${n}`, import.meta.url), 'utf8');
@@ -13,11 +14,18 @@ const RUBRIC = JSON.stringify({ response_code: 200, body: { id: 55233026, title:
 const GRADE = JSON.stringify({ response_code: 200, body: { gradeInfo: { 146012384: { grade: '2', comment: '' } } } });
 
 // A fake session page: `pages` maps a path (no host) to { status, text }, or to a function.
-function fakeOpenPage(pages, { landing = `${BASE}/home` } = {}) {
+// `landings` lists where each later visit to /home lands (a URL, or an Error the visit throws).
+function fakeOpenPage(pages, { landing = `${BASE}/home`, landings = [] } = {}) {
   const requested = [];
+  let at = landing;
+  let visits = 0;
   const page = {
-    goto: vi.fn(async () => {}),
-    url: () => landing,
+    goto: vi.fn(async () => {
+      const next = visits++ === 0 ? landing : (landings.shift() ?? landing);
+      if (next instanceof Error) { at = 'about:blank'; throw next; }
+      at = next;
+    }),
+    url: () => at,
     evaluate: vi.fn(async (_fn, { url }) => {
       const path = url.replace(BASE, '');
       requested.push(path);
@@ -181,6 +189,29 @@ describe('loadGroup', () => {
     expect(db.prepare('SELECT loaded_at FROM quiz_groups WHERE id = ?').get(groupId).loaded_at).toBeTruthy();
   });
 
+  describe('a read that fails outright (HTTP 0) checks the session before going on', () => {
+    const failing = () => {
+      const pages = happyPages();
+      pages['/assignment/900/assessment_results/student_stats/701/5002'] = () => { throw new Error('Failed to fetch'); };
+      return pages;
+    };
+    test('Schoology still shows home: only that student fails', async () => {
+      const f = fakeOpenPage(failing());
+      const r = await loadGroup(db, { groupId }, { openPage: f.openPage, pauseMs: 0 });
+      expect(r.failed).toEqual([{ uid: '701', reason: 'attempt page HTTP 0' }]);
+      expect(r.attempts).toBe(1);
+    });
+    test('a sign-in page instead (an SSO bounce the browser hid): NO_SESSION, the load stops', async () => {
+      const f = fakeOpenPage(failing(), { landings: ['https://login.microsoftonline.com/x'] });
+      await expect(loadGroup(db, { groupId }, { openPage: f.openPage, pauseMs: 0 })).rejects.toMatchObject({ code: 'NO_SESSION' });
+      expect(f.requested).not.toContain('/assignment/900/assessment_results/student_stats/703');
+    });
+    test('Schoology unreachable: UNREACHABLE, the load stops', async () => {
+      const f = fakeOpenPage(failing(), { landings: [new Error('net::ERR_INTERNET_DISCONNECTED')] });
+      await expect(loadGroup(db, { groupId }, { openPage: f.openPage, pauseMs: 0 })).rejects.toMatchObject({ code: 'UNREACHABLE' });
+    });
+  });
+
   test('an unexpected exception while storing one student is reported and the rest load', async () => {
     db.exec(`CREATE TRIGGER boom BEFORE INSERT ON quiz_attempts WHEN NEW.student_id = ${studentA} BEGIN SELECT RAISE(ABORT, 'boom'); END;`);
     try {
@@ -271,6 +302,15 @@ describe('loadGroup', () => {
     await expect(loadGroup(db, { groupId }, { openPage: f.openPage, pauseMs: 0 })).rejects.toMatchObject({ code: 'BUSY' });
     release();
     await first;
+  });
+
+  test('a load while Prism posts this quiz\'s marks: BUSY before any request', async () => {
+    const release = holdGroup(groupId, 'posting');
+    const f = fakeOpenPage(happyPages());
+    try {
+      await expect(loadGroup(db, { groupId }, { openPage: f.openPage, pauseMs: 0 })).rejects.toMatchObject({ code: 'BUSY', message: expect.stringMatching(/posted/) });
+      expect(f.openPage).not.toHaveBeenCalled();
+    } finally { release(); }
   });
 });
 

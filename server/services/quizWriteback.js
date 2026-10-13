@@ -13,7 +13,7 @@ import { studentFullName } from './studentNames.js';
 import { serializeForm, BYQ_FORM, submissionPrefix, fieldsAt, withMarkAt, namesAt, byQuestionRubrics, changedNames, toBody } from '../lib/attemptForm.js';
 import { parseQuizQuestions } from '../lib/parseQuizQuestions.js';
 import { parseRubricGradeInfo } from '../lib/parseQuizRubric.js';
-import { posting } from './quizLocks.js';
+import { holdGroup } from './quizLocks.js';
 
 // The grade-by-question page (spec §15): one form for the class on one question.
 const BYQ_PATH = /^\/assignment\/\d+\/assessment_results\/question_stats\/\d+\/\d+$/;
@@ -48,26 +48,29 @@ async function inPagePut({ url, json, timeoutMs }) {
   }
 }
 
+const EXPIRED = 'Schoology connection expired while posting: reconnect in Settings';
+
 // The production client: the loader's logged-in reader, the rubric PUT and the by-question form POST.
-export async function openClient({ pauseMs = 400 } = {}) {
-  const reader = await openReader({ openPage: () => sessionDeps.openPage(), pauseMs });
-  const post = async (path, body) => {
-    if (!BYQ_PATH.test(path)) throw new Error(`Refusing to post to ${path}`);
-    const r = await reader.page.evaluate(inPagePost, { url: `${SCHOOLOGY_BASE}${path}`, body, timeoutMs: 30000 });
+// Each request that fails outright (HTTP 0) checks the session as the reader does: a sign-in bounce
+// stops the batch with NO_SESSION, an unreachable Schoology with UNREACHABLE.
+export async function openClient({ pauseMs = 400, openPage = () => sessionDeps.openPage() } = {}) {
+  const reader = await openReader({ openPage, pauseMs, expired: EXPIRED });
+  const send = async (fn, arg) => {
+    const r = await reader.page.evaluate(fn, arg);
     if (r.status !== 0 && r.finalUrl && !isLoggedInUrl(r.finalUrl)) {
       noteSessionLive('expired', 'Schoology sent the saved session to the login page');
-      throw new QuizError('NO_SESSION', 'Schoology connection expired while posting: reconnect in Settings');
+      throw new QuizError('NO_SESSION', EXPIRED);
     }
+    if (r.status === 0) await reader.recheck();
     return r;
+  };
+  const post = async (path, body) => {
+    if (!BYQ_PATH.test(path)) throw new Error(`Refusing to post to ${path}`);
+    return send(inPagePost, { url: `${SCHOOLOGY_BASE}${path}`, body, timeoutMs: 30000 });
   };
   const putRubric = async (path, json) => {
     if (!GRADE_PATH.test(path)) throw new Error(`Refusing to put to ${path}`);
-    const r = await reader.page.evaluate(inPagePut, { url: `${SCHOOLOGY_BASE}${path}`, json, timeoutMs: 30000 });
-    if (r.status !== 0 && r.finalUrl && !isLoggedInUrl(r.finalUrl)) {
-      noteSessionLive('expired', 'Schoology sent the saved session to the login page');
-      throw new QuizError('NO_SESSION', 'Schoology connection expired while posting: reconnect in Settings');
-    }
-    return r;
+    return send(inPagePut, { url: `${SCHOOLOGY_BASE}${path}`, json, timeoutMs: 30000 });
   };
   return { get: reader.get, post, putRubric, close: reader.close };
 }
@@ -165,13 +168,18 @@ const UNCONFIRMED = 'The form was saved but the read-back failed: check it in Sc
 const RUBRIC_ONLY = 'The rubric level was saved in Schoology; the rest is not confirmed: load the results again, then post';
 
 // Finds the question's grade-by-question page: by question id, as the real index links it
-// (question_stats/{question id}/{number}), else by the copy's own question number.
-async function questionPage(client, memberSid, qid) {
-  const index = await client.get(`/assignment/${memberSid}/assessment_results/question_stats`);
-  const text = String(index.text ?? '');
+// (question_stats/{question id}/{number}), else by the copy's own question number. The member test's
+// index and question list are read once per batch (`pages`, keyed by member test).
+async function questionPage(client, memberSid, qid, pages) {
+  const once = (path) => {
+    if (!pages.has(path)) pages.set(path, client.get(path).catch((err) => { pages.delete(path); throw err; }));
+    return pages.get(path);
+  };
+  const index = await once(`/assignment/${memberSid}/assessment_results/question_stats`);
+  const text = index.status === 200 ? String(index.text ?? '') : '';
   const byId = text.match(new RegExp(`href="(/assignment/${memberSid}/assessment_results/question_stats/${qid}/\\d+)"`))?.[1];
   if (byId) return byId;
-  const list = await client.get(`/assignment/${memberSid}/assessment_questions`);
+  const list = await once(`/assignment/${memberSid}/assessment_questions`);
   const number = (list.status === 200 ? parseQuizQuestions(list.text) : null)?.find(x => x.qid === qid)?.number;
   if (!number) return null;
   return text.match(new RegExp(`href="(/assignment/${memberSid}/assessment_results/question_stats/\\d+/${number})"`))?.[1] ?? null;
@@ -181,7 +189,7 @@ async function questionPage(client, memberSid, qid) {
 // (spec §15): the per-student rubric save, a fresh read of the page, then one form save only for the
 // students the rubric save did not finish, and one read-back.
 // Whatever happens, each mark leaves with a result; a throw carries them (err.results).
-async function postGroup(db, client, marks) {
+async function postGroup(db, client, marks, pages = new Map()) {
   const { memberSid, qid } = marks[0];
   const level = (w, p) => levelNameFor(w.rubric, w.rowId, p) ?? 'no level';
   const results = new Map();
@@ -192,7 +200,7 @@ async function postGroup(db, client, marks) {
   let current = null;
   let posted = false;
   try {
-    const qPath = await questionPage(client, memberSid, qid);
+    const qPath = await questionPage(client, memberSid, qid, pages);
     if (!qPath || !BYQ_PATH.test(qPath)) { marks.forEach(w => set(w, 'failed', qPath === null ? 'The question was not found in this test' : 'No grade-by-question page for this question')); return done(); }
     const before = await client.get(qPath);
     const form = before.status === 200 ? serializeForm(before.text, BYQ_FORM) : null;
@@ -306,8 +314,7 @@ const resultLine = (w, status, error) => ({
 export async function postWritebacks(db, { groupId, limit = null }, deps = { openClient }) {
   if (limit != null && Number(limit) !== 1) throw new QuizError('NOT_ELIGIBLE', 'limit must be 1 (one first) or empty (the rest)');
   const group = getGroup(db, groupId);
-  if (posting.has(group.id)) throw new QuizError('BUSY', 'Marks for this quiz are already being posted');
-  posting.add(group.id);
+  const release = holdGroup(group.id, 'posting');
   let client = null;
   try {
     const all = waitingMarks(db, group.id);
@@ -322,11 +329,12 @@ export async function postWritebacks(db, { groupId, limit = null }, deps = { ope
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(w);
     }
+    const pages = new Map();
     for (const marks of groups.values()) {
       let out;
       let thrown = null;
       try {
-        out = await postGroup(db, client, marks);
+        out = await postGroup(db, client, marks, pages);
       } catch (err) {
         thrown = err;
         out = err?.results || marks.map(w => ({ w, status: 'failed', error: String(err?.message || err) }));
@@ -340,13 +348,13 @@ export async function postWritebacks(db, { groupId, limit = null }, deps = { ope
             ? 'Changed in Prism during the post: Schoology has the earlier version, post it again'
             : 'Changed in Prism before posting: post it again'));
       }
-      if (thrown?.code === 'NO_SESSION') throw thrown;
+      if (thrown?.code === 'NO_SESSION' || thrown?.code === 'UNREACHABLE') throw thrown;
       const unsafe = out.find(r => r.unsafe);
       if (unsafe) throw new QuizError('UNSAFE', `${unsafe.w.name}: ${unsafe.error}. Posting stopped; check this question in Schoology`);
     }
     return { results, remaining: waitingMarks(db, group.id).filter(w => !w.skip).length };
   } finally {
-    posting.delete(group.id);
+    release();
     if (client) await client.close().catch(() => {});
   }
 }

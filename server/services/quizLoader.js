@@ -13,9 +13,9 @@ import { parseQuizAttempt } from '../lib/parseQuizAttempt.js';
 import { parseQuizRubric, parseRubricGradeInfo } from '../lib/parseQuizRubric.js';
 import { storeAttempt, removeAttempts, pruneOlderDuplicates, finishLoad } from './quizStore.js';
 import { reconcileMarks } from './frqMarks.js';
+import { holdGroup } from './quizLocks.js';
 
 const FETCH_TIMEOUT_MS = 30000;
-const loading = new Set();
 
 export function assertReadOnlyUrl(path) {
   if (/unsubmit|delete/i.test(path)) throw new Error(`Refusing a write-action URL: ${path}`);
@@ -30,22 +30,35 @@ async function inPageFetch({ url, accept, timeoutMs }) {
   }
 }
 
-export async function openReader({ openPage, pauseMs }) {
+// Opens Schoology's home page in the session page. Mirrors checkSessionLive: no page, or a browser error
+// page, means Schoology was not reached, which says nothing about the session (UNREACHABLE). Only a real
+// landing on another page (SSO) is expiry (NO_SESSION).
+async function checkHome(page, expired) {
+  let navError = null;
+  await page.goto(`${SCHOOLOGY_BASE}/home`, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch((err) => { navError = err; });
+  const landed = page.url();
+  if (isLoggedInUrl(landed)) return;
+  if (navError || !landed || landed.startsWith('about:') || landed.startsWith('chrome-error:')) {
+    throw new QuizError('UNREACHABLE', 'Could not reach Schoology: try again');
+  }
+  noteSessionLive('expired', 'Schoology sent the saved session to the login page');
+  throw new QuizError('NO_SESSION', expired);
+}
+
+// `expired`: the NO_SESSION message for a session that ends after the reader opened.
+export async function openReader({ openPage, pauseMs, expired = 'Schoology connection expired during the load: reconnect in Settings' }) {
   const session = await openPage();
   if (!session) throw new QuizError('NO_SESSION', 'No saved Schoology session: reconnect in Settings');
-  let navError = null;
-  await session.page.goto(`${SCHOOLOGY_BASE}/home`, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch((err) => { navError = err; });
-  const landed = session.page.url();
-  if (!isLoggedInUrl(landed)) {
+  try {
+    await checkHome(session.page, 'Schoology connection expired: reconnect in Settings');
+  } catch (err) {
     await session.close().catch(() => {});
-    // Mirrors checkSessionLive: no page, or a browser error page, means Schoology was not reached,
-    // which says nothing about the session. Only a real landing on another page (SSO) is expiry.
-    if (navError || !landed || landed.startsWith('about:') || landed.startsWith('chrome-error:')) {
-      throw new QuizError('UNREACHABLE', 'Could not reach Schoology: try again');
-    }
-    noteSessionLive('expired', 'Schoology sent the saved session to the login page');
-    throw new QuizError('NO_SESSION', 'Schoology connection expired: reconnect in Settings');
+    throw err;
   }
+  // A read that fails outright (HTTP 0) may be a sign-in bounce: an in-page fetch redirected to SSO on
+  // another origin is blocked, so it never shows the login URL. Home is opened again to tell a bounce
+  // (NO_SESSION) and an unreachable Schoology (UNREACHABLE) from one failed read, which is returned.
+  const recheck = () => checkHome(session.page, expired);
   let first = true;
   const get = async (path, { json = false } = {}) => {
     assertReadOnlyUrl(path);
@@ -61,12 +74,13 @@ export async function openReader({ openPage, pauseMs }) {
     }
     if (r.status !== 0 && r.finalUrl && !isLoggedInUrl(r.finalUrl)) {
       noteSessionLive('expired', 'Schoology sent the saved session to the login page');
-      throw new QuizError('NO_SESSION', 'Schoology connection expired during the load: reconnect in Settings');
+      throw new QuizError('NO_SESSION', expired);
     }
+    if (r.status === 0) await recheck();
     if (!json) return r;
     try { return { ...r, json: JSON.parse(r.text) }; } catch { return { ...r, json: null }; }
   };
-  return { get, page: session.page, close: () => session.close().catch(() => {}) };
+  return { get, recheck, page: session.page, close: () => session.close().catch(() => {}) };
 }
 
 export async function readQuestionLists(db, { assignmentRefs }, { openPage = () => sessionDeps.openPage(), pauseMs = 400 } = {}) {
@@ -89,8 +103,7 @@ export async function readQuestionLists(db, { assignmentRefs }, { openPage = () 
 
 export async function loadGroup(db, { groupId }, { openPage = () => sessionDeps.openPage(), pauseMs = 400, onProgress = () => {} } = {}) {
   const group = getGroup(db, groupId);
-  if (loading.has(group.id)) throw new QuizError('BUSY', 'This quiz is already loading');
-  loading.add(group.id);
+  const release = holdGroup(group.id, 'loading');
   const summary = { attempts: 0, notTaken: 0, failed: [], unknownUids: [], mismatches: [], multipleAttempts: [], removed: 0, marksPosted: 0 };
   const rubrics = {};
   let reader;
@@ -146,7 +159,7 @@ export async function loadGroup(db, { groupId }, { openPage = () => sessionDeps.
           const problem = await loadStudent(row.uid, studentId, member);
           if (problem) summary.failed.push({ uid: row.uid, reason: problem });
         } catch (err) {
-          if (err instanceof QuizError && err.code === 'NO_SESSION') throw err;
+          if (err instanceof QuizError && (err.code === 'NO_SESSION' || err.code === 'UNREACHABLE')) throw err;
           summary.failed.push({ uid: row.uid, reason: String(err?.message || err) });
         }
       }
@@ -158,7 +171,7 @@ export async function loadGroup(db, { groupId }, { openPage = () => sessionDeps.
     finishLoad(db, { groupId: group.id, summary, mismatches: summary.mismatches });
     return summary;
   } finally {
-    loading.delete(group.id);
+    release();
     await reader?.close();
   }
 }

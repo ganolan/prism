@@ -6,7 +6,7 @@ import { QuizError } from './quizError.js';
 import { getGroup } from './quizGroups.js';
 import { resolveStudentId } from './idResolvers.js';
 import { normalizeLevel } from '../lib/proficiencyScale.js';
-import { posting } from './quizLocks.js';
+import { assertGroupFree } from './quizLocks.js';
 
 export const POINTS_KEY = 'points';
 const parse = (t, fallback = null) => (t ? JSON.parse(t) : fallback);
@@ -197,7 +197,7 @@ export function setFrqMark(db, { groupId, attemptId, position, action, cells, co
 export function recordWriteback(db, { groupId, student, position, status, error }) {
   if (!['posted', 'failed'].includes(status)) throw new QuizError('NOT_ELIGIBLE', 'status must be posted or failed');
   const group = getGroup(db, groupId);
-  if (posting.has(group.id)) throw new QuizError('BUSY', 'Marks for this quiz are being posted by Prism: try again when it finishes');
+  assertGroupFree(group.id);
   const q = questionAt(db, group.id, position);
   const found = attemptForStudent(db, group.id, student);
   if (found.error) throw new QuizError('NOT_FOUND', found.error);

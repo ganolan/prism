@@ -2,7 +2,7 @@
 // submits it: checked against the phase 4a capture, byte for byte. Only the essay's level, points,
 // override and comment are ever changed; every other field goes back exactly as Schoology sent it.
 import { parse } from 'node-html-parser';
-import { rubricButtons } from './parseQuizAttempt.js';
+import { rubricButtons, rubricLaunchArgs, launchId } from './parseQuizAttempt.js';
 
 const FORM = '#s-assessment-edit-submission-form';
 const TOKENS = new Set(['form_build_id', 'form_token']);
@@ -67,8 +67,11 @@ export const withEssayMark = (pairs, qid, mark) => withMarkAt(pairs, essayPrefix
 // question id, grade html, two numbers, attempt id, max points, two booleans (stage D page).
 export function byQuestionRubrics(html) {
   const out = {};
-  const re = /"template":"s_grades_rubric_grading_launch_btn"[^{}]*?"args":\[\s*"?(\d+)"?\s*,\s*"?(\d+)"?\s*,\s*"?(\d+)"?\s*,[^\]]*?,\s*"?\d+"?\s*,\s*"?\d+"?\s*,\s*"?(\d+)"?\s*,/g;
-  for (const m of String(html).matchAll(re)) out[m[4]] = { rubricId: m[1], enrollmentId: m[2], qid: m[3] };
+  for (const args of rubricLaunchArgs(html)) {
+    const [rubricId, enrollmentId, qid] = args.slice(0, 3).map(launchId);
+    const attemptId = launchId(args[6]);
+    if (rubricId && enrollmentId && qid && attemptId) out[attemptId] = { rubricId, enrollmentId, qid };
+  }
   return out;
 }
 

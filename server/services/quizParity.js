@@ -44,13 +44,24 @@ export function matchCopies(reference, other) {
   return out;
 }
 
+// Copies and attempts may show a question's options in another order, so options and the
+// key are compared by their text as sets; letters are display positions only.
 export function compareLoadedQuestion(a, b) {
   if (a.options && b.options) {
-    const texts = (o) => o.map(x => normalizeStem(x.html)).join('|');
+    const texts = (o) => o.map(x => normalizeStem(x.html)).sort().join('|');
     if (texts(a.options) !== texts(b.options)) return 'different answer options';
-    const key = (o) => o.filter(x => x.isKey).map(x => x.letter).join('');
-    if (key(a.options) !== key(b.options)) return 'a different key';
+    const keyTexts = (o) => o.filter(x => x.isKey).map(x => normalizeStem(x.html)).sort().join('|');
+    if (keyTexts(a.options) !== keyTexts(b.options)) return 'a different key';
   }
   if (a.rubricId && b.rubricId && a.rubricId !== b.rubricId) return 'a different rubric';
   return null;
+}
+
+// The stored letter for the option shown under `letter` on a loaded attempt, matched by text.
+export function storedLetterFor(storedOptions, loadedOptions, letter) {
+  if (letter == null) return null;
+  const chosen = loadedOptions.find(o => o.letter === letter);
+  if (!chosen) return null;
+  const text = normalizeStem(chosen.html);
+  return storedOptions.find(o => normalizeStem(o.html) === text)?.letter ?? null;
 }

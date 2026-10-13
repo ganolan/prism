@@ -1,7 +1,7 @@
 // Stores what a load read (spec §5). One counted attempt per student per member
 // test; responses keyed by logical question. Never touches anything a teacher
 // writes in Prism (FRQ marks arrive in phase 2 in their own table).
-import { compareLoadedQuestion } from './quizParity.js';
+import { compareLoadedQuestion, storedLetterFor } from './quizParity.js';
 import { QuizError } from './quizError.js';
 
 const json = (v) => (v == null ? null : JSON.stringify(v));
@@ -53,8 +53,14 @@ export function storeAttempt(db, { groupId, assignmentId, studentId, attempt, at
       }
       if (!l.options_json && options) db.prepare('UPDATE quiz_questions SET options_json = ? WHERE id = ?').run(json(options), l.id);
       if (!l.schoology_rubric_json && rubric) db.prepare('UPDATE quiz_questions SET schoology_rubric_json = ? WHERE id = ?').run(json(rubric), l.id);
+      // A shuffled attempt shows the options in another order: store the choice under the stored
+      // letter with the same text (isCorrect comes from the attempt's own key, so it holds).
+      const storedOptions = l.options_json ? JSON.parse(l.options_json) : null;
+      const chosenLetter = storedOptions && q.options
+        ? storedLetterFor(storedOptions, q.options, q.chosenLetter) ?? q.chosenLetter
+        : q.chosenLetter;
       addResponse.run(
-        attemptRowId, l.id, q.chosenLetter, q.isCorrect == null ? null : (q.isCorrect ? 1 : 0),
+        attemptRowId, l.id, chosenLetter, q.isCorrect == null ? null : (q.isCorrect ? 1 : 0),
         q.points, q.maxPoints, q.answerHtml, json(gradeInfo[q.qid] ?? null), q.comment || null,
       );
     }

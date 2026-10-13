@@ -106,6 +106,24 @@ describe('storeAttempt', () => {
     expect(r.mismatches).toEqual(['Question 1: a different key']);
   });
 
+  test('an attempt that shows the options in another order is stored under the stored letters', () => {
+    store(std, ATTEMPT);
+    const orig = ATTEMPT.questions[0];
+    expect(orig.chosenLetter).toBeTruthy();
+    const reordered = copyParsed();
+    const q0 = reordered.questions[0];
+    q0.options = [...orig.options.slice(1), orig.options[0]].map((o, i) => ({ ...o, letter: String.fromCharCode(65 + i) }));
+    const chosenText = orig.options.find(o => o.letter === orig.chosenLetter).html;
+    q0.chosenLetter = q0.options.find(o => o.html === chosenText).letter;
+    expect(q0.chosenLetter).not.toBe(orig.chosenLetter);
+    const s2 = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('702', 'C', 'D')`).run().lastInsertRowid;
+    const r = storeAttempt(db, { groupId, assignmentId: ext, studentId: s2, attempt: { attemptId: '6001' }, attemptCount: 1, parsed: reordered, rubrics: {}, gradeInfo: {} });
+    expect(r.mismatches).toEqual([]);
+    const row = db.prepare(`SELECT r.chosen_letter, r.is_correct FROM quiz_responses r JOIN quiz_attempts a ON a.id = r.attempt_id
+      JOIN quiz_questions q ON q.id = r.question_id WHERE a.student_id = ? AND q.position = 1`).get(s2);
+    expect(row).toEqual({ chosen_letter: orig.chosenLetter, is_correct: orig.isCorrect ? 1 : 0 });
+  });
+
   test('refuses an attempt for a test that is not a member of the group', () => {
     const courseId = db.prepare('SELECT course_id FROM quiz_groups WHERE id = ?').get(groupId).course_id;
     const stranger = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, is_test) VALUES (?, '777', 'Other', 1)`).run(courseId).lastInsertRowid;

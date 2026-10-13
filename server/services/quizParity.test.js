@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { compareQuestionLists, matchCopies, compareLoadedQuestion } from './quizParity.js';
+import { compareQuestionLists, matchCopies, compareLoadedQuestion, storedLetterFor } from './quizParity.js';
 
 const q = (qid, stem, kind = 'mcq', points = 1) => ({ qid, stemHtml: stem, kind, points });
 const STD = [q('1', 'Which is true?'), q('2', 'Which is true?'), q('3', 'Explain', 'frq', 4)];
@@ -45,5 +45,28 @@ describe('compareLoadedQuestion', () => {
   });
   test('a different rubric is reported', () => {
     expect(compareLoadedQuestion({ options: null, rubricId: '1' }, { options: null, rubricId: '2' })).toMatch(/rubric/);
+  });
+  test('the same options in another order are not a mismatch', () => {
+    const a = [{ letter: 'A', html: 'x', isKey: false }, { letter: 'B', html: 'y', isKey: true }, { letter: 'C', html: 'z', isKey: false }];
+    const b = [{ letter: 'A', html: 'z', isKey: false }, { letter: 'B', html: 'x', isKey: false }, { letter: 'C', html: 'y', isKey: true }];
+    expect(compareLoadedQuestion({ options: a }, { options: b })).toBeNull();
+  });
+  test('a key on a different option text is still a different key', () => {
+    const a = [{ letter: 'A', html: 'x', isKey: true }, { letter: 'B', html: 'y', isKey: false }];
+    const b = [{ letter: 'A', html: 'y', isKey: true }, { letter: 'B', html: 'x', isKey: false }];
+    expect(compareLoadedQuestion({ options: a }, { options: b })).toMatch(/key/);
+  });
+});
+
+describe('storedLetterFor', () => {
+  const stored = [{ letter: 'A', html: '<p>x</p>' }, { letter: 'B', html: 'y' }, { letter: 'C', html: 'z' }];
+  const loaded = [{ letter: 'A', html: 'z' }, { letter: 'B', html: 'x' }, { letter: 'C', html: 'y' }];
+  test('maps a chosen letter to the stored letter with the same text', () => {
+    expect(storedLetterFor(stored, loaded, 'A')).toBe('C');
+    expect(storedLetterFor(stored, loaded, 'B')).toBe('A');
+  });
+  test('null for no answer or an unknown letter', () => {
+    expect(storedLetterFor(stored, loaded, null)).toBeNull();
+    expect(storedLetterFor(stored, loaded, 'E')).toBeNull();
   });
 });

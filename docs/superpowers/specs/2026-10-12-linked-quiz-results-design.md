@@ -287,9 +287,9 @@ logged in the sync run and never fails the sync.
 ### Shuffle guard
 
 The probe of a test with shuffled options is skipped (no test of Graham's shuffles). Instead the
-loader compares each MCQ option's normalized text with the letter it was stored under; text found
-under a different letter on another attempt or copy is a load warning ("Question 4: options appear in
-a different order"), and that question's option counts are left out.
+loader compares options and the key by their text as sets, and stores each chosen option under the
+stored letter with the same text, so counts stay correct when a copy or attempt shows the options in
+another order. Options whose texts differ as a set remain a "different answer options" warning.
 
 ### Student answer HTML
 

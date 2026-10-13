@@ -8,6 +8,7 @@ import { resolveStudentId, resolveAssignmentId } from './idResolvers.js';
 import { getAlignedTopics, scoreScaleFor } from './assessmentContext.js';
 import { normalizeScaleLevel } from '../lib/scoreScales.js';
 import { normalizeLevel } from '../lib/proficiencyScale.js';
+import { getFeedbackRows, resolveRowKey } from './feedbackRows.js';
 
 // Upsert the single active suggestion for one (student, assignment). Normalizes
 // levels, resolves rubric keys against the assignment's aligned topics
@@ -30,6 +31,7 @@ export function upsertStudentSuggestion(db, {
   // that checked a third-party platform suggesting "Completed". Validated
   // against the assignment's own scale; anything else is reported, not stored.
   const scoreScale = scoreScaleFor(assignmentRow, topics.length);
+  const feedbackRows = getFeedbackRows(db, assignmentRow.schoology_assignment_id, scoreScale);
   let storedScaleLevel = null;
   let scaleNote = null;
   if (scale_level != null) {
@@ -45,19 +47,27 @@ export function upsertStudentSuggestion(db, {
     if (t.title) byKey.set(String(t.title).toLowerCase(), t);
   }
 
+  const rows = feedbackRows?.rows ?? [];
   const storedScores = {};
   const unresolvedTopics = [];
+  const unresolvedRows = [];
   const invalidLevels = {};
   const numericLevels = [];
   for (const [key, rawLevel] of Object.entries(rubric_scores || {})) {
-    if (!byKey.has(String(key).toLowerCase())) { unresolvedTopics.push(key); continue; }
+    // Feedback rows: store under the exact criterion name so the card and the
+    // image skill read one spelling. Aligned topics: stored as sent (unchanged).
+    let storeKey = key;
+    if (rows.length) {
+      storeKey = resolveRowKey(rows, key);
+      if (!storeKey) { unresolvedRows.push(key); continue; }
+    } else if (!byKey.has(String(key).toLowerCase())) { unresolvedTopics.push(key); continue; }
     const code = normalizeLevel(rawLevel);
     if (!code) {
       if (/^\s*\d+(\.\d+)?\s*$/.test(String(rawLevel))) numericLevels.push(key);
       else invalidLevels[key] = rawLevel;
       continue;
     }
-    storedScores[key] = code;
+    storedScores[storeKey] = code;
   }
 
   const feedbackJson = JSON.stringify({
@@ -114,7 +124,10 @@ export function upsertStudentSuggestion(db, {
   const feedbackId = write();
   const result = { student, status: 'written', feedback_id: feedbackId };
   if (unresolvedTopics.length) result.unresolved_topics = unresolvedTopics;
+  if (unresolvedRows.length) result.unresolved_rows = unresolvedRows;
   const notes = [];
+  if (unresolvedRows.length) notes.push(`Unknown row(s) ${unresolvedRows.join(', ')}: the rows of "${feedbackRows.rubric.name}" are ${rows.map(r => r.criterion).join(', ')}.`);
+  if (scoreScale && !rows.length && unresolvedTopics.length) notes.push(`This assignment is graded on ${scoreScale.name} with no rubric: attach a rubric (attach_rubric) to send row levels, or send scale_level only.`);
   if (numericLevels.length) notes.push(`Ignored numeric value(s) for ${numericLevels.join(', ')}: emit proficiency levels; Prism owns the points conversion.`);
   if (Object.keys(invalidLevels).length) notes.push(`Ignored out-of-vocabulary levels: ${JSON.stringify(invalidLevels)}`);
   if (scaleNote) notes.push(scaleNote);

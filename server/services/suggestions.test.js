@@ -4,6 +4,7 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../db/index.js';
 import { upsertStudentSuggestion, writeStudentSuggestions, upsertAssessmentAnalysis } from './suggestions.js';
+import { saveRubric } from './rubricStore.js';
 
 // A course with one aligned measurement topic (ART.5.1 / "Generates media"),
 // an assignment (Schoology id 'sa-1'), and one enrolled student (uid-1).
@@ -19,6 +20,7 @@ function seed(db) {
 
 beforeEach(() => {
   getDb().exec(
+    'DELETE FROM rubric_row_levels; DELETE FROM rubric_attachments; DELETE FROM rubric_criteria; DELETE FROM rubrics; ' +
     'DELETE FROM assessment_analysis; DELETE FROM feedback; DELETE FROM mastery_alignments; ' +
     'DELETE FROM mastery_scores; DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
     'DELETE FROM grades; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
@@ -263,4 +265,45 @@ test('quiz_overall is stored in feedback_json when given, and absent otherwise',
   expect(JSON.parse(db.prepare('SELECT feedback_json FROM feedback WHERE id = ?').get(a.feedback_id).feedback_json).quiz_overall).toEqual({ group_id: 4, impression: 'Good.' });
   const b = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'n2' });
   expect(JSON.parse(db.prepare('SELECT feedback_json FROM feedback WHERE id = ?').get(b.feedback_id).feedback_json)).not.toHaveProperty('quiz_overall');
+});
+
+describe('row suggestions on a task with feedback rows', () => {
+  function seedRows(db) {
+    const { courseId } = seed(db);
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, grading_scale_id) VALUES (?, 'sa-F', 'Flappy (F)', '23495360')`).run(courseId);
+    const rubricId = saveRubric(db, { name: 'Flappy', source: 'mcp', criteria: [
+      { position: 1, criterion_name: 'Features and Code', standard_title: 'Anchor Standard 5: Develop', reporting_category: 'PRODUCE' },
+      { position: 2, criterion_name: 'Playtesting', standard_title: 'Anchor Standard 3: Refine', reporting_category: 'CREATE' },
+    ] });
+    db.prepare(`INSERT INTO rubric_attachments (rubric_id, assignment_schoology_id, course_id, created_at) VALUES (?, 'sa-F', ?, 'now')`).run(rubricId, courseId);
+  }
+  const fj = (db, id) => JSON.parse(db.prepare('SELECT feedback_json FROM feedback WHERE id = ?').get(id).feedback_json);
+
+  test('stores row levels under the exact criterion name, from a name in any case or the standard text', () => {
+    const db = getDb();
+    seedRows(db);
+    const r = upsertStudentSuggestion(db, { assignmentId: 'sa-F', student: 'uid-1',
+      rubric_scores: { 'features and code': 'Exhibiting', 'Anchor Standard 3: Refine': 'ED' } });
+    expect(r.unresolved_rows).toBeUndefined();
+    expect(fj(db, r.feedback_id).rubric_scores).toEqual({ 'Features and Code': 'EX', Playtesting: 'ED' });
+  });
+
+  test('reports an unknown row with the valid names, keeps the rest, and stores an optional scale_level', () => {
+    const db = getDb();
+    seedRows(db);
+    const r = upsertStudentSuggestion(db, { assignmentId: 'sa-F', student: 'uid-1',
+      rubric_scores: { Evaluation: 'EX', Playtesting: 'IE' }, scale_level: 'Developing' });
+    expect(r.unresolved_rows).toEqual(['Evaluation']);
+    expect(r.message).toMatch(/Features and Code, Playtesting/);
+    expect(fj(db, r.feedback_id)).toMatchObject({ rubric_scores: { Playtesting: 'IE' }, scale_level: 'D' });
+  });
+
+  test('a score-scale task with no rubric states that one must be attached', () => {
+    const db = getDb();
+    const { courseId } = seed(db);
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, grading_scale_id) VALUES (?, 'sa-G', 'Plain (F)', '23495360')`).run(courseId);
+    const r = upsertStudentSuggestion(db, { assignmentId: 'sa-G', student: 'uid-1', rubric_scores: { Playtesting: 'EX' } });
+    expect(r.unresolved_topics).toEqual(['Playtesting']);
+    expect(r.message).toMatch(/attach a rubric/i);
+  });
 });

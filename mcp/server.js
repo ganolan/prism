@@ -107,7 +107,7 @@ export function createServer() {
     'write_student_suggestions',
     {
       description:
-        'Write AI grading suggestions (narrative + per-topic levels + reviewer flags) for a whole class in one batched call. For an assignment with a `score_scale` (Completion, General Academic Scale (Unaligned), Approaches to Learning), send `scale_level` instead of rubric_scores, e.g. after checking a third-party platform, "Completed" plus an `evidence` note saying what you checked. Upserts one draft suggestion per student for teacher review in Prism (the teacher accepts and publishes); never writes to Schoology.',
+        'Write AI grading suggestions (narrative + per-topic levels + reviewer flags) for a whole class in one batched call. For an assignment with a `score_scale` (Completion, General Academic Scale (Unaligned), Approaches to Learning) and no `rubric`, send `scale_level` instead of rubric_scores, e.g. after checking a third-party platform, "Completed" plus an `evidence` note saying what you checked. When get_assignment_context also returns a `rubric` (feedback rows), send each row\'s level in `rubric_scores` keyed by the row\'s `criterion`; Prism stages the rubric average as the overall level, so send `scale_level` only when your judgment differs from that average or a row is Insufficient Evidence. Upserts one draft suggestion per student for teacher review in Prism (the teacher accepts and publishes); never writes to Schoology.',
       inputSchema: {
         course_id: z.union([z.number(), z.string()]).describe('Local Prism course id'),
         assignment_id: z.union([z.number(), z.string()]).describe('Schoology or local assignment id'),
@@ -116,12 +116,12 @@ export function createServer() {
             z.object({
               student: z.union([z.number(), z.string()]).describe('schoology_uid or local student id'),
               narrative_feedback: z.string().optional(),
-              rubric_scores: z.record(z.string(), z.union([z.string(), z.number()])).optional().describe('{ topic external_id|title: proficiency level code or name }: levels only; Prism owns the points conversion'),
+              rubric_scores: z.record(z.string(), z.union([z.string(), z.number()])).optional().describe('{ topic external_id|title, or a feedback row\'s criterion: proficiency level code or name }: levels only; Prism owns the points conversion'),
               reviewer_flags: z.string().nullable().optional().describe('Teacher-facing detail, one paragraph per flag'),
               reviewer_flags_brief: z.array(z.string()).optional().describe('One short line per reviewer flag (~12 words each), shown at a glance above strengths/suggestions; the full reviewer_flags text sits behind "Show detailed flags". Without it Prism shows the first sentence of each flag paragraph.'),
               strengths: z.array(z.string()).optional(),
               suggestions: z.array(z.string()).optional(),
-              scale_level: z.string().optional().describe('Score-scale assignments only: a level code or label from get_assignment_context score_scale, e.g. "Completed"'),
+              scale_level: z.string().optional().describe('Score-scale assignments only: a level code or label from get_assignment_context score_scale, e.g. "Completed". With feedback rows, only when it differs from the rubric average or a row is IE'),
               evidence: z.string().optional().describe('Teacher-facing note on what backs scale_level, e.g. "Codecademy: lesson 4 complete 26/09"'),
             })
           )

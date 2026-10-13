@@ -1756,6 +1756,7 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
     vi.mocked(getSectionGrades).mockReset();
     const db = getDb();
     db.exec(
+      'DELETE FROM rubric_row_levels; DELETE FROM rubric_attachments; DELETE FROM rubrics; ' +
       'DELETE FROM feedback_snapshots; DELETE FROM mastery_rollups; DELETE FROM mastery_scores; DELETE FROM mastery_alignments; ' +
       'DELETE FROM measurement_topics; DELETE FROM reporting_categories; DELETE FROM assignment_assignees; ' +
       'DELETE FROM flags; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; ' +
@@ -1862,5 +1863,76 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
     });
     expect(status).toBe(400);
     expect(pushGradeComments).not.toHaveBeenCalled();
+  });
+
+  describe('feedback rows (spec 2026-10-13)', () => {
+    beforeEach(() => {
+      const db = getDb();
+      db.exec('DELETE FROM rubric_row_levels; DELETE FROM rubric_attachments; DELETE FROM rubrics;');
+      db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, grading_scale_id) VALUES (?, 'sa-F', 'Flappy (F)', '23495360')`).run(courseId);
+      const rubricId = db.prepare(`INSERT INTO rubrics (name, source, created_at, updated_at) VALUES ('Flappy', 'mcp', 'now', 'now')`).run().lastInsertRowid;
+      db.prepare(`INSERT INTO rubric_criteria (rubric_id, position, criterion_name) VALUES (?, 1, 'Features and Code'), (?, 2, 'Playtesting')`).run(rubricId, rubricId);
+      db.prepare(`INSERT INTO rubric_attachments (rubric_id, assignment_schoology_id, course_id, created_at) VALUES (?, 'sa-F', ?, 'now')`).run(rubricId, courseId);
+      vi.mocked(getSectionGrades).mockResolvedValue([{ assignment_id: 'sa-F', enrollment_id: 'eB', grade: null, exception: 0, timestamp: '0' }]);
+      vi.mocked(pushGradeComments).mockResolvedValue({ status: 207 });
+    });
+    const rowsOf = (uid) => Object.fromEntries(getDb().prepare(
+      `SELECT criterion_name, level FROM rubric_row_levels WHERE assignment_schoology_id = 'sa-F' AND student_uid = ?`).all(uid).map(r => [r.criterion_name, r.level]));
+
+    test('GET returns each student\'s row levels', async () => {
+      getDb().prepare(`INSERT INTO rubric_row_levels (assignment_schoology_id, student_uid, criterion_name, level) VALUES ('sa-F', 'uid-B', 'Playtesting', 'ED')`).run();
+      const { body } = await get(`/api/mastery/${courseId}/assignment/sa-F`);
+      const byUid = Object.fromEntries(body.students.map(s => [s.schoology_uid, s]));
+      expect(byUid['uid-B'].row_levels).toEqual({ Playtesting: 'ED' });
+      expect(byUid['uid-A'].row_levels).toEqual({});
+    });
+
+    test('write-comment sends only the overall to Schoology and then stores the rows', async () => {
+      const { status } = await post(`/api/mastery/${courseId}/write-comment`, {
+        enrollmentId: 'eB', assignmentId: 'sa-F', points: 75, comment: 'Good', commentStatus: true,
+        rowLevels: { 'Features and Code': 'EX', Playtesting: 'D' },
+      });
+      expect(status).toBe(200);
+      const sent = vi.mocked(pushGradeComments).mock.calls[0][1][0];
+      expect(sent).toEqual({ assignment_id: 'sa-F', enrollment_id: 'eB', comment: 'Good', comment_status: 1, grade: '75', exception: 0 });
+      expect(rowsOf('uid-B')).toEqual({ 'Features and Code': 'EX', Playtesting: 'D' });
+    });
+
+    test('write-comment stores no rows when Schoology rejects the write', async () => {
+      vi.mocked(pushGradeComments).mockResolvedValue({ status: 500, data: {} });
+      const { status } = await post(`/api/mastery/${courseId}/write-comment`, {
+        enrollmentId: 'eB', assignmentId: 'sa-F', points: 75, comment: '', commentStatus: true, rowLevels: { Playtesting: 'D' },
+      });
+      expect(status).toBe(502);
+      expect(rowsOf('uid-B')).toEqual({});
+    });
+
+    test('write-comment refuses an unknown row before any Schoology call', async () => {
+      const { status } = await post(`/api/mastery/${courseId}/write-comment`, {
+        enrollmentId: 'eB', assignmentId: 'sa-F', points: 75, comment: '', rowLevels: { Evaluation: 'EX' },
+      });
+      expect(status).toBe(400);
+      expect(getSectionGrades).not.toHaveBeenCalled();
+      expect(pushGradeComments).not.toHaveBeenCalled();
+    });
+
+    test('send-all with only row changes makes no Schoology call and stores the rows', async () => {
+      const { status } = await post(`/api/mastery/${courseId}/send-all`, {
+        entries: [{ uid: 'uid-B', enrollmentId: 'eB', assignmentId: 'sa-F', scores: null, grade: null, comment: null, rowLevels: { Playtesting: 'EX' } }],
+      });
+      expect(status).toBe(200);
+      expect(getSectionGrades).not.toHaveBeenCalled();
+      expect(pushGradeComments).not.toHaveBeenCalled();
+      expect(rowsOf('uid-B')).toEqual({ Playtesting: 'EX' });
+    });
+
+    test('send-all stores rows only after the comment PUT succeeds', async () => {
+      vi.mocked(pushGradeComments).mockResolvedValue({ status: 500, data: {} });
+      await post(`/api/mastery/${courseId}/send-all`, {
+        entries: [{ uid: 'uid-B', enrollmentId: 'eB', assignmentId: 'sa-F', scores: null,
+          grade: { points: 75 }, comment: { comment: 'Good', commentStatus: true }, rowLevels: { Playtesting: 'EX' } }],
+      });
+      expect(rowsOf('uid-B')).toEqual({});
+    });
   });
 });

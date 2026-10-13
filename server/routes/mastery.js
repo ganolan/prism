@@ -5,6 +5,7 @@ import { pushGradeComments, getSectionGrades } from '../services/schoology.js';
 import { settleResubmissions, resubmissionByStudent, arrivedKeys, pairResubmissionFields } from '../services/resubmissions.js';
 import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
 import { STATUS_LINE_KINDS, putSucceeded, checkLine, lockPair, withCheckedLine } from '../services/statusLinePublisher.js';
+import { getFeedbackRows, getRowLevels, rowLevelsError, saveRowLevels } from '../services/feedbackRows.js';
 import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows, scoreScaleFor } from '../services/assessmentContext.js';
 import { getSchoologyConfig, getScoreScales } from '../middleware/featureGate.js';
 import { findScoreScale, levelForScore, isScalePoints } from '../lib/scoreScales.js';
@@ -573,6 +574,7 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
   // plain gradebook grade: ship the scale (levels best → worst) and each
   // student's current level, read from the stored score by cutoff.
   const scoreScale = scoreScaleFor(assignmentRow, topics.length);
+  const rowLevelsByUid = scoreScale ? getRowLevels(db, assignmentId) : {};
 
   // Which class this is — the page names it (block + course) so sections of
   // the same course can't be confused.
@@ -615,12 +617,28 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
         submitted_at: submittedAtMap[s.schoology_uid] ?? 0,
         score: scoreValueMap[s.schoology_uid] ?? null,
         scale_level: scoreScale ? levelForScore(scoreScale, scoreValueMap[s.schoology_uid]) : null,
+        row_levels: rowLevelsByUid[s.schoology_uid] || {},
         timeline: timelines ? timelines.timeline(assignmentRow, s.id, gradeByUid[s.schoology_uid] || null, resubmission) : null,
         late_work: lateWork.get(s.id) || null,
       };
     }),
   });
 });
+
+// The feedback rows (spec 2026-10-13) of an assignment in this course, or [].
+function feedbackRowsFor(db, courseId, assignmentId) {
+  const row = db.prepare('SELECT * FROM assignments WHERE schoology_assignment_id = ? AND course_id = ?')
+    .get(String(assignmentId), courseId);
+  if (!row) return [];
+  const scale = scoreScaleFor(row, getAlignedTopics(db, row.course_id, row.schoology_assignment_id).length);
+  return getFeedbackRows(db, row.schoology_assignment_id, scale)?.rows ?? [];
+}
+
+// The student's schoology_uid for an enrolment id, or null.
+function uidForEnrolment(db, enrollmentId) {
+  return db.prepare(`SELECT s.schoology_uid FROM students s JOIN enrolments e ON e.student_id = s.id
+    WHERE e.schoology_enrolment_id = ?`).get(String(enrollmentId))?.schoology_uid ?? null;
+}
 
 // The saved pair's post-save resubmission fields for the card (final review I2):
 // what the server now decides — a hidden-only or unchanged save keeps an arrival
@@ -680,7 +698,7 @@ function echoFreshGrade(db, studentId, assignmentId, fresh, label) {
 // POST /api/mastery/:courseId/write-comment — write grade comment back to Schoology
 router.post('/:courseId/write-comment', async (req, res) => {
   const { courseId } = req.params;
-  const { enrollmentId, assignmentId, commentStatus, points, statusLine, statusLineKind, rubricSaved } = req.body;
+  const { enrollmentId, assignmentId, commentStatus, points, statusLine, statusLineKind, rubricSaved, rowLevels } = req.body;
   let { comment } = req.body;
 
   if (!enrollmentId || !assignmentId) {
@@ -719,6 +737,14 @@ router.post('/:courseId/write-comment', async (req, res) => {
   if (hasPoints) {
     const scaleError = scalePointsError(db, courseId, assignmentId, points);
     if (scaleError) return res.status(400).json({ error: scaleError });
+  }
+
+  // Feedback rows (spec 2026-10-13): Prism-only. Validated before any Schoology
+  // call; written only after Schoology accepts the overall write below.
+  const hasRowLevels = rowLevels != null;
+  if (hasRowLevels) {
+    const rowError = rowLevelsError(feedbackRowsFor(db, courseId, assignmentId), rowLevels);
+    if (rowError) return res.status(400).json({ error: rowError });
   }
 
   // Public OAuth API uses integer 1 = visible, null = hidden.
@@ -832,6 +858,10 @@ router.post('/:courseId/write-comment', async (req, res) => {
       let resubmissionFields = null;
       if (studentRow && assignmentRow) {
         const now = new Date().toISOString();
+        if (hasRowLevels) {
+          const uid = uidForEnrolment(db, enrollmentId);
+          if (uid) saveRowLevels(db, { assignmentSchoologyId: String(assignmentId), studentUid: uid, rowLevels });
+        }
         // Round 5: judge/absorb what other writers put in the DB, then the Schoology-side
         // part of the fresh echo — unless the teacher wrote the score in this save (a
         // rubric write just before this request, or a scale grade's points).
@@ -942,6 +972,12 @@ router.post('/:courseId/send-all', async (req, res) => {
       ? 'a scale grade must be sent with its comment'
       : scalePointsError(db, courseId, e.assignmentId, e.grade.points);
     if (scaleError) return res.status(400).json({ error: scaleError, results: entries.map(x => ({ uid: x.uid, ok: false })) });
+  }
+
+  // Feedback rows: validate every entry's rows before any write.
+  for (const e of entries.filter(x => x.rowLevels != null)) {
+    const rowError = rowLevelsError(feedbackRowsFor(db, courseId, e.assignmentId), e.rowLevels);
+    if (rowError) return res.status(400).json({ error: rowError, results: entries.map(x => ({ uid: x.uid, ok: false })) });
   }
 
   // Optional Prism status lines (triage resubmissions, Amendment B — the card's
@@ -1166,6 +1202,12 @@ router.post('/:courseId/send-all', async (req, res) => {
         upsertStatusLine.run(studentRow.id, assignmentRow.id, checkLine(e.comment.statusLine), e.comment.statusLineKind ?? 'received');
       }
       touch(assignmentRow.id, studentRow.id, e.uid);
+    }
+    // Feedback rows: Prism-only, mirrored now that every Schoology write succeeded
+    // (a rows-only entry made no Schoology call at all).
+    for (const e of entries.filter(x => x.rowLevels != null)) {
+      const uid = uidForEnrolment(db, e.enrollmentId);
+      if (uid) saveRowLevels(db, { assignmentSchoologyId: String(e.assignmentId), studentUid: uid, rowLevels: e.rowLevels });
     }
     // Best-effort: local grades just landed — snapshot their visible feedback
     // (Amendment B) and settle requests they fulfilled, once per distinct

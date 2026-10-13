@@ -1094,6 +1094,18 @@ button.triage-panel__more { padding: 0.15rem 0.4rem; font-size: 0.75rem; font-we
 .level-bar__legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 0.68rem; color: var(--text-muted); }
 .level-bar__legend > span { display: inline-flex; align-items: center; gap: 4px; }
 .level-bar__swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+/* Free response tab (linked quizzes phase 2): the stored Schoology rubric as level buttons. */
+.frq-grid { border-collapse: collapse; width: 100%; table-layout: fixed; font-size: 0.74rem; }
+.frq-grid td, .frq-grid th { border: 1px solid var(--border); padding: 0; vertical-align: top; }
+.frq-grid__row { width: 9rem; padding: 0.4rem 0.5rem; text-align: left; font-weight: 600; background: var(--bg-subtle); }
+.frq-cell { display: flex; flex-direction: column; gap: 0.3rem; width: 100%; height: 100%; padding: 0; border: 0; background: var(--card-bg); color: var(--text); text-align: left; cursor: pointer; font: inherit; }
+.frq-cell:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.frq-cell--ai:not(.frq-cell--final) { background: var(--ai-suggest-wash); }
+.frq-cell__head { display: flex; align-items: center; gap: 0.3rem; padding: 0.25rem 0.45rem; font-weight: 700; }
+.frq-cell__head svg { color: var(--ai-suggest); margin-left: auto; }
+.frq-cell__pts { font-weight: 400; color: var(--text-muted); }
+.frq-cell__s { margin-left: auto; font-size: 0.62rem; font-weight: 800; border: 1px solid currentColor; border-radius: 3px; padding: 0 3px; }
+.frq-cell__desc { padding: 0 0.45rem 0.4rem; line-height: 1.35; white-space: pre-line; }
 .question-stem-line { flex: 1 1 160px; min-width: 160px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .triage-row__text { min-width: 0; display: flex; flex-direction: column; }
 .triage-row__line { display: flex; align-items: center; gap: 0.35rem; min-width: 0; flex-wrap: wrap; row-gap: 0.15rem; /* Tags wrap under name instead of crushing it */ }

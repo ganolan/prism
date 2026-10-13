@@ -2,12 +2,14 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 vi.mock('../services/quizLoader.js', () => ({ readQuestionLists: vi.fn(), loadGroup: vi.fn() }));
+vi.mock('../services/quizWriteback.js', () => ({ postWritebacks: vi.fn(async () => ({ results: [], remaining: 0 })) }));
 vi.mock('../middleware/featureGate.js', async (orig) => ({ ...(await orig()), featureGate: () => (req, res, next) => next() }));
 
 import router from './quizzes.js';
 import { getDb } from '../db/index.js';
 import { readQuestionLists, loadGroup } from '../services/quizLoader.js';
 import { QuizError } from '../services/quizError.js';
+import { postWritebacks } from '../services/quizWriteback.js';
 
 async function call(method, path, body) {
   const app = express();
@@ -143,5 +145,12 @@ describe('/api/quizzes', () => {
     expect([r.status, r.body.students, r.body.group.result]).toEqual([200, [], null]);
     const rebuilt = await call('POST', `/api/quizzes/${id}/overall/1/rebuild`);
     expect([rebuilt.status, rebuilt.body.code]).toEqual([400, 'NOT_ELIGIBLE']);
+  });
+
+  test('POST /:id/writeback posts with the limit given', async () => {
+    const id = (await call('POST', '/api/quizzes', { course_id: course, assignment_ids: ['900'], title: 'T' })).body.group.id;
+    const r = await call('POST', `/api/quizzes/${id}/writeback`, { limit: 1 });
+    expect([r.status, r.body]).toEqual([200, { results: [], remaining: 0 }]);
+    expect(vi.mocked(postWritebacks)).toHaveBeenCalledWith(expect.anything(), { groupId: String(id), limit: 1 });
   });
 });

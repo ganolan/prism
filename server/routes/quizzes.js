@@ -16,6 +16,7 @@ import { frqResponses } from '../services/frqResponses.js';
 import { setFrqMark } from '../services/frqMarks.js';
 import { quizResults } from '../services/quizResults.js';
 import { rebuildOverallSuggestion } from '../services/quizOverall.js';
+import { postWritebacks } from '../services/quizWriteback.js';
 
 const router = Router();
 router.use(featureGate('quizzes'));
@@ -75,6 +76,9 @@ router.get('/:id/results', handle((req, db) => quizResults(db, { groupId: req.pa
 router.post('/:id/overall/:studentId/rebuild', handle((req, db) => ({
   student: rebuildOverallSuggestion(db, { groupId: req.params.id, studentId: req.params.studentId }),
 })));
+// Post accepted FRQ marks to Schoology (spec §14): limit 1 posts the first one only.
+router.post('/:id/writeback', featureGate('quiz_writeback'), handle((req, db) =>
+  postWritebacks(db, { groupId: req.params.id, limit: req.body?.limit ?? null })));
 router.get('/:id/frq', handle((req, db) => frqResponses(db, { groupId: req.params.id, position: req.query.question ?? null })));
 router.put('/:id/frq/:attemptId/:position', handle((req, db) => ({
   mark: setFrqMark(db, {

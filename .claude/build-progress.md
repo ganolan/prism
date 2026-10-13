@@ -1042,10 +1042,10 @@ overstates lateness). 12 archived 2023-25 CS sections were backfilled into prod 
 819-830). AP CSP 2023-24 has no mastery data in Schoology.
 
 
-## Feedback rows on unaligned tasks (2026-10-13, branch `worktree-bridge-cse_01RCi5khQXnDS4VQjd4GXMTD`)
+## Feedback rows on unaligned tasks (2026-10-13)
 
-A rubric attached to a General Academic Scale (Unaligned) task, or any score-scale task, now gives
-the teacher one feedback row per criterion. Row levels are Prism-only; only the overall scale level
+A rubric can be attached to any score-scale task, and gives the teacher one feedback row per
+criterion. Row levels are Prism-only; only the overall scale level
 and the comment go to Schoology. Spec: `docs/superpowers/specs/2026-10-13-feedback-rows-design.md`.
 Plan: `docs/superpowers/plans/2026-10-13-feedback-rows.md`.
 - **Storage:** new table `rubric_row_levels`, keyed by criterion name (`schema.sql` only, no
@@ -1056,8 +1056,13 @@ Plan: `docs/superpowers/plans/2026-10-13-feedback-rows.md`.
 - **Publish:** `write-comment` and `send-all` carry `rowLevels`, stored only after Schoology accepts
   the write. `PUT /api/rubrics/row-levels/:assignmentSchoologyId/:studentUid` saves rows with no
   Schoology call.
-- **Card:** a rows grid and an overall picker. The rubric average is staged only while nothing is
-  published, and a row pick never turns the comment visible.
+- **Card:** a rows grid and an overall picker. The rubric average is staged only on the General
+  Academic Scale (Unaligned), whose levels match the row levels, and only while nothing is
+  published and the student has no Excused, Incomplete or Missing exception. A row pick never
+  turns the comment visible.
+- **Drafts:** on a score-scale task the draft baseline holds the row finals, not the rows, so a
+  draft stays valid while the rubric loads and after one is attached. The page loads the rubric
+  with the mastery data, so a card never mounts without its rows.
 - **MCP:**
   - `attach_rubric` attaches feedback rows on score-scale tasks and accepts a Schoology assignment
     id.

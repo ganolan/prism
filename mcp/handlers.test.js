@@ -28,7 +28,7 @@ beforeEach(() => {
   vi.stubEnv('SCHOOLOGY_CONSUMER_KEY', 'key');
   vi.stubEnv('SCHOOLOGY_CONSUMER_SECRET', 'secret');
   getDb().exec(
-    'DELETE FROM quiz_tag_texts; DELETE FROM quiz_responses; DELETE FROM quiz_attempts; DELETE FROM quiz_question_copies; DELETE FROM quiz_questions; ' +
+    'DELETE FROM frq_marks; DELETE FROM quiz_tag_texts; DELETE FROM quiz_responses; DELETE FROM quiz_attempts; DELETE FROM quiz_question_copies; DELETE FROM quiz_questions; ' +
     'DELETE FROM quiz_group_members; DELETE FROM quiz_groups; ' +
     'DELETE FROM status_lines; DELETE FROM feedback_snapshots; ' +
     'DELETE FROM referrals; DELETE FROM extensions; DELETE FROM resubmissions; DELETE FROM school_days; DELETE FROM mastery_scores; ' +

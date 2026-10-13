@@ -4,9 +4,9 @@ import { getDb } from '../db/index.js';
 import { QuizError } from './quizError.js';
 
 describe('quiz schema', () => {
-  test('creates the seven quiz tables', () => {
-    const names = getDb().prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'quiz_%' ORDER BY name`).all().map(r => r.name);
-    expect(names).toEqual(['quiz_attempts', 'quiz_group_members', 'quiz_groups', 'quiz_question_copies', 'quiz_questions', 'quiz_responses', 'quiz_tag_texts']);
+  test('creates the quiz tables and frq_marks', () => {
+    const names = getDb().prepare(`SELECT name FROM sqlite_master WHERE type='table' AND (name LIKE 'quiz_%' OR name = 'frq_marks') ORDER BY name`).all().map(r => r.name);
+    expect(names).toEqual(['frq_marks', 'quiz_attempts', 'quiz_group_members', 'quiz_groups', 'quiz_question_copies', 'quiz_questions', 'quiz_responses', 'quiz_tag_texts']);
   });
 
   test('a test belongs to one group, and a result task to one group', () => {

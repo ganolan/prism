@@ -34,6 +34,7 @@ export function getGroup(db, groupId) {
     id: g.id, course_id: g.course_id, title: g.title, result, members,
     parity_status: g.parity_status, parity_detail: g.parity_detail_json ? JSON.parse(g.parity_detail_json) : null,
     loaded_at: g.loaded_at, load_summary: g.load_summary_json ? JSON.parse(g.load_summary_json) : null,
+    frq_count: db.prepare(`SELECT COUNT(*) AS n FROM quiz_questions WHERE group_id = ? AND kind = 'frq'`).get(g.id).n,
     canonical_schoology_id: result ? result.schoology_assignment_id : members[0]?.schoology_assignment_id ?? null,
   };
 }
@@ -191,10 +192,10 @@ const ATTEMPT_SQL = `SELECT qa.student_id, qa.schoology_attempt_id, qa.completed
   JOIN quiz_groups g ON g.id = qa.group_id
   LEFT JOIN assignments ra ON ra.id = g.result_assignment_id`;
 
-const linkOf = (r) => ({
-  url: `${SCHOOLOGY_BASE}/assignment/${r.member_sid}/assessment_results/student_stats/${r.schoology_uid}/${r.schoology_attempt_id}`,
-  completedAt: r.completed_at,
-});
+export const attemptUrl = (r) =>
+  `${SCHOOLOGY_BASE}/assignment/${r.member_sid}/assessment_results/student_stats/${r.schoology_uid}/${r.schoology_attempt_id}`;
+
+const linkOf = (r) => ({ url: attemptUrl(r), completedAt: r.completed_at });
 
 // Links for every attempt in the group the ref belongs to (member or result task).
 export function attemptLinks(db, { assignmentRef }) {

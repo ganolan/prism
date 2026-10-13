@@ -21,7 +21,7 @@ const copyParsed = () => {
 let db, groupId, std, ext, s1;
 beforeEach(() => {
   db = getDb();
-  db.exec('DELETE FROM quiz_responses; DELETE FROM quiz_attempts; DELETE FROM quiz_question_copies; DELETE FROM quiz_questions; DELETE FROM quiz_group_members; DELETE FROM quiz_groups; DELETE FROM mastery_alignments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
+  db.exec('DELETE FROM frq_marks; DELETE FROM quiz_responses; DELETE FROM quiz_attempts; DELETE FROM quiz_question_copies; DELETE FROM quiz_questions; DELETE FROM quiz_group_members; DELETE FROM quiz_groups; DELETE FROM mastery_alignments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
   const c = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s1', 'C')`).run().lastInsertRowid;
   std = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, is_test) VALUES (?, '900', 'T', 1)`).run(c).lastInsertRowid;
   ext = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, is_test) VALUES (?, '901', 'T *', 1)`).run(c).lastInsertRowid;
@@ -39,6 +39,32 @@ const storeAs = (studentId, assignmentId, parsed, attempt = {}) => storeAttempt(
 const store = (assignmentId, parsed, extra = {}) => storeAs(s1, assignmentId, parsed, extra);
 const attemptsFor = (studentId) => db.prepare('SELECT assignment_id FROM quiz_attempts WHERE student_id = ? ORDER BY assignment_id').all(studentId).map(r => r.assignment_id);
 const responseCount = () => db.prepare('SELECT COUNT(*) n FROM quiz_responses').get().n;
+
+describe('FRQ marks follow their attempt', () => {
+  const addMark = (attemptId) => {
+    const q = db.prepare(`SELECT id FROM quiz_questions WHERE group_id = ? AND kind = 'frq'`).get(groupId).id;
+    db.prepare(`INSERT INTO frq_marks (attempt_id, question_id, state) VALUES (?, ?, 'suggested')`).run(attemptId, q);
+  };
+  const marks = () => db.prepare('SELECT attempt_id FROM frq_marks').all().map(r => r.attempt_id);
+
+  test('deleting an attempt deletes its marks', () => {
+    store(std, ATTEMPT);
+    const a = db.prepare('SELECT id FROM quiz_attempts').get().id;
+    addMark(a);
+    db.prepare('DELETE FROM quiz_attempts WHERE id = ?').run(a);
+    expect(marks()).toEqual([]);
+  });
+
+  test('pruning the older attempt of a retake deletes its mark and keeps the newer one', () => {
+    store(std, ATTEMPT, { completedAt: '2026-10-10 09:35' });
+    store(ext, copyParsed(), { attemptId: '6001', completedAt: '2026-10-12 09:35' });
+    const [older, newer] = db.prepare('SELECT id FROM quiz_attempts ORDER BY completed_at').all().map(r => r.id);
+    addMark(older);
+    addMark(newer);
+    pruneOlderDuplicates(db, { groupId });
+    expect(marks()).toEqual([newer]);
+  });
+});
 
 describe('storeAttempt', () => {
   test('stores the attempt and one response per logical question; fills options and rubric once', () => {

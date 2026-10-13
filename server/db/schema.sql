@@ -464,6 +464,31 @@ CREATE TABLE IF NOT EXISTS quiz_tag_texts (
   PRIMARY KEY (course_id, tag)
 );
 
+-- Phase 2: a Prism mark on one free-response answer (spec §12). The suggestion layer
+-- (suggested_*, history, revised flag) and the teacher's mark (final_*) are separate, so a
+-- new suggestion never replaces the teacher's work. Cells: { "<rowId>": points }, or
+-- { "points": n } without a rubric. state: 'suggested' | 'accepted' | 'edited'.
+-- writeback_status: NULL (no teacher mark) | 'pending' | 'posted' | 'failed'.
+-- Deleting the attempt (removed in Schoology, or replaced by a newer one) deletes its marks.
+CREATE TABLE IF NOT EXISTS frq_marks (
+  attempt_id INTEGER NOT NULL REFERENCES quiz_attempts(id) ON DELETE CASCADE,
+  question_id INTEGER NOT NULL REFERENCES quiz_questions(id) ON DELETE CASCADE,
+  suggested_cells_json TEXT,
+  suggested_comment TEXT,
+  suggestion_history_json TEXT NOT NULL DEFAULT '[]',
+  suggestion_revised INTEGER NOT NULL DEFAULT 0,
+  final_cells_json TEXT,
+  final_comment TEXT,
+  state TEXT NOT NULL DEFAULT 'suggested',
+  writeback_status TEXT,
+  writeback_at TEXT,
+  writeback_error TEXT,
+  posted_cells_json TEXT,
+  posted_comment TEXT,
+  updated_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (attempt_id, question_id)
+);
+
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_enrolments_student ON enrolments(student_id);
 CREATE INDEX IF NOT EXISTS idx_enrolments_course ON enrolments(course_id);

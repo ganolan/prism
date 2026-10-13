@@ -17,7 +17,7 @@ const RUBRIC = { id: '91', title: 'FRQ', rows: [{ id: '146', title: 'Content Kno
 // student's rubric grade (stage C); the page's form POST changes points, score and comment only.
 function fakeSchoology(subs, { questions = { 900: { 2001: 21 }, 901: { 3001: 21 } }, ignorePost = false, expireAfterPosts = Infinity, applyPoints = true,
   gradeInfoStale = false, putStatus = 200, putError = null, mutateOther = false, maxPoints = 4, onPost = null, pageAttempt = {}, missingPage = false,
-  onPut = null, putThrowAt = 0, readBackThrows = false, onFirstGet = null, linkById = true } = {}) {
+  onPut = null, putThrowAt = 0, readBackThrows = false, onFirstGet = null, linkById = true, putSetsForm = false } = {}) {
   const state = new Map(Object.entries(subs).map(([a, v]) => [a, { grade: v.score, ...v }]));
   const calls = [];
   let posts = 0, puts = 0, gets = 0;
@@ -86,7 +86,9 @@ function fakeSchoology(subs, { questions = { 900: { 2001: 21 }, 901: { 3001: 21 
       if (onPut) onPut(state);
       if (putStatus !== 200) return { status: putStatus, error: putError };
       const a = path.match(/\/(\d+)$/)[1];
-      if (!gradeInfoStale) state.set(a, { ...state.get(a), grade: String(json.gradeInfo['146'].grade) });
+      const grade = String(json.gradeInfo['146'].grade);
+      // As observed for an essay already marked: the PUT also sets points, rubric score and comment.
+      if (!gradeInfoStale) state.set(a, { ...state.get(a), grade, ...(putSetsForm ? { points: grade, score: grade, comment: json.comment } : {}) });
       return { status: 200 };
     }),
     close: vi.fn(async () => {}),
@@ -428,6 +430,37 @@ describe('postWritebacks (by question)', () => {
     const before = [...new URLSearchParams(posted)].map(([k]) => k);
     const loaded = serializeForm((await f.client.get(page('900'))).text, BYQ_FORM);
     expect(loaded.pairs.map(([k]) => k)).toEqual(before);
+  });
+
+  test('the rubric save alone saves an essay already marked: no form save', async () => {
+    const f = fakeSchoology(subsNow(), { putSetsForm: true });
+    const r = await run(f, 1);
+    expect(r.results[0]).toMatchObject({ name: 'Ana Lee', status: 'posted' });
+    expect(f.calls.map(c => c.slice(0, 2))).toEqual([
+      ['GET', '/assignment/900/assessment_results/question_stats'], ['GET', page('900')],
+      ['GET', gi('2001', '5001')], ['PUT', gi('2001', '5001')], ['GET', gi('2001', '5001')], ['GET', page('900')],
+    ]);
+    const resp = db.prepare('SELECT * FROM quiz_responses WHERE attempt_id = ?').get(att['701']);
+    expect([JSON.parse(resp.schoology_rubric_cells_json)[146].points, resp.schoology_comment, resp.points]).toEqual([3, 'New line one\nline two', 3]);
+    expect(mark('701').writeback_status).toBe('posted');
+  });
+
+  test('two students whose rubric saves set their marks: still no form save', async () => {
+    acceptWu('Exhibiting Depth');
+    const f = fakeSchoology(subsNow(), { putSetsForm: true });
+    const r = await run(f, null);
+    expect(r.results.filter(x => x.status === 'posted').map(x => x.name)).toEqual(['Ana Lee', 'Ana Wu', 'Ana Ng']);
+    expect(f.calls.some(c => c[0] === 'POST')).toBe(false);
+  });
+
+  test('an essay never marked (override 0) keeps its form save after the rubric save', async () => {
+    db.prepare(`UPDATE quiz_responses SET points = 0, schoology_rubric_cells_json = NULL, schoology_comment = '' WHERE attempt_id = ?`).run(att['701']);
+    const subs = subsNow();
+    subs[5001] = { ...subs[5001], points: '0', override: '0', score: '', grade: '', comment: '' };
+    const f = fakeSchoology(subs, { putSetsForm: true });
+    const r = await run(f, 1);
+    expect(r.results[0]).toMatchObject({ status: 'posted' });
+    expect(postBody(f, '900').get('students[701][submissions][5001][override]')).toBe('1');
   });
 });
 

@@ -175,7 +175,8 @@ async function questionPage(client, memberSid, qid) {
 }
 
 // Every mark for one member test and one question, through that question's grade-by-question page
-// (spec §15): the per-student rubric save, a fresh read of the page, one form save, one read-back.
+// (spec §15): the per-student rubric save, a fresh read of the page, then one form save only for the
+// students the rubric save did not finish, and one read-back.
 // Whatever happens, each mark leaves with a result; a throw carries them (err.results).
 async function postGroup(db, client, marks) {
   const { memberSid, qid } = marks[0];
@@ -202,45 +203,63 @@ async function postGroup(db, client, marks) {
         const put = await client.putRubric(c.giPath, { gradeInfo: { [w.rowId]: { grade: w.final.points, comment: '' } }, overrideGrade: null, comment: w.final.comment });
         if (put.status !== 200) { set(w, 'failed', `Schoology refused the rubric save (${put.error || `HTTP ${put.status}`}): the form was not posted`); continue; }
         const check = await client.get(c.giPath, { json: true });
-        const saved = check.status === 200 ? parseRubricGradeInfo(check.json)?.[w.rowId]?.points ?? null : undefined;
+        const cells = check.status === 200 ? parseRubricGradeInfo(check.json) : null;
+        const saved = cells ? cells[w.rowId]?.points ?? null : undefined;
         if (saved !== w.final.points) { set(w, 'failed', `The rubric save did not take (Schoology shows ${saved === undefined ? 'nothing readable' : level(w, saved)}): the form was not posted`); continue; }
+        ready.push({ w, giPath: c.giPath, prefix: submissionPrefix(w.uid, w.schoologyAttemptId), cells });
+        continue;
       }
-      ready.push({ w, giPath: c.giPath, prefix: submissionPrefix(w.uid, w.schoologyAttemptId) });
+      ready.push({ w, giPath: c.giPath, prefix: submissionPrefix(w.uid, w.schoologyAttemptId), cells: null });
     }
     current = null;
     if (!ready.length) return done();
 
-    // Read the page again just before the save: a hand edit made while the rubric saves ran (another
-    // student, any field) would otherwise be sent back as it was. Only the ready students' points and
-    // rubric score may differ, and only to Prism's values (the rubric save can set them).
+    // Read the page again. The rubric save also sets an already-marked essay's points, rubric score and
+    // comment (2026-10-13 round trip), so those may now equal Prism's values; any other difference is a
+    // hand edit made meanwhile and is never sent back. Students already at Prism's mark need no form save.
     const fresh = await client.get(qPath);
     const freshForm = fresh.status === 200 ? serializeForm(fresh.text, BYQ_FORM) : null;
-    const settable = new Map(ready.flatMap(r => [[`${r.prefix}[points]`, String(r.w.final.points)], [`${r.prefix}[rubric_score]`, String(r.w.final.points)]]));
-    const moved = freshForm ? changedNames(form.pairs, freshForm.pairs).filter(n => !(settable.has(n) && new Map(freshForm.pairs).get(n) === settable.get(n))) : ['the page'];
+    const target = new Map(ready.flatMap(r => [
+      [`${r.prefix}[points]`, String(r.w.final.points)], [`${r.prefix}[rubric_score]`, String(r.w.final.points)],
+      [`${r.prefix}[override]`, '1'], [`${r.prefix}[comment]`, lf(r.w.final.comment)],
+    ]));
+    const freshValues = freshForm ? new Map(freshForm.pairs) : null;
+    const reachedTarget = (n) => target.has(n) && (n.endsWith('[comment]') ? lf(freshValues.get(n)) : freshValues.get(n)) === target.get(n);
+    const moved = freshForm ? changedNames(form.pairs, freshForm.pairs).filter(n => !reachedTarget(n)) : ['the page'];
     if (moved.length || ready.some(r => !stillWaiting(db, r.w))) {
       for (const r of ready) set(r.w, 'failed', `${HALF}: the question page changed during the post, load the results again`);
       return done();
     }
+    const atFinal = (pairs, r) => {
+      const f = fieldsAt(pairs, r.prefix);
+      return !!f && f.points === r.w.final.points && f.rubricScore === r.w.final.points && f.override === 1 && lf(f.comment) === lf(r.w.final.comment);
+    };
+    const needForm = ready.filter(r => !atFinal(freshForm.pairs, r));
 
-    const next = ready.reduce((pairs, r) => withMarkAt(pairs, r.prefix, r.w.final), freshForm.pairs);
-    await client.post(qPath, toBody(next));
-    posted = true;
-
-    const after = await client.get(qPath);
-    const afterForm = after.status === 200 ? serializeForm(after.text, BYQ_FORM) : null;
-    if (!afterForm) { for (const r of ready) set(r.w, 'failed', UNCONFIRMED); return done(); }
-    const allowed = new Set(ready.flatMap(r => namesAt(r.prefix)));
-    const others = changedNames(freshForm.pairs, afterForm.pairs).filter(n => !allowed.has(n));
-    if (others.length) { for (const r of ready) set(r.w, 'failed', `Posted, but other fields changed: ${others.join(', ')}`, { unsafe: true }); return done(); }
+    let afterForm = freshForm;
+    if (needForm.length) {
+      await client.post(qPath, toBody(needForm.reduce((pairs, r) => withMarkAt(pairs, r.prefix, r.w.final), freshForm.pairs)));
+      posted = true;
+      const after = await client.get(qPath);
+      afterForm = after.status === 200 ? serializeForm(after.text, BYQ_FORM) : null;
+      if (!afterForm) { for (const r of ready) set(r.w, 'failed', UNCONFIRMED); return done(); }
+      const allowed = new Set(needForm.flatMap(r => namesAt(r.prefix)));
+      const others = changedNames(freshForm.pairs, afterForm.pairs).filter(n => !allowed.has(n));
+      if (others.length) { for (const r of ready) set(r.w, 'failed', `Posted, but other fields changed: ${others.join(', ')}`, { unsafe: true }); return done(); }
+    }
     for (const r of ready) {
       const w = r.w;
       const got = fieldsAt(afterForm.pairs, r.prefix);
-      if (!got || got.rubricScore !== w.final.points || got.points !== w.final.points || got.override !== 1 || lf(got.comment) !== lf(w.final.comment)) {
+      if (!atFinal(afterForm.pairs, r)) {
         set(w, 'failed', `${HALF}: the form shows rubric score ${got?.rubricScore ?? 'empty'}, points ${got?.points ?? 'empty'}${got && lf(got.comment) === lf(w.final.comment) ? '' : ' and a different comment'}; post it again`);
         continue;
       }
-      const gi = await client.get(r.giPath, { json: true });
-      const cells = gi.status === 200 ? parseRubricGradeInfo(gi.json) : null;
+      // The grade the PUT step just confirmed stands when no form save followed; otherwise read it back.
+      let cells = needForm.includes(r) || !r.cells ? null : r.cells;
+      if (!cells) {
+        const gi = await client.get(r.giPath, { json: true });
+        cells = gi.status === 200 ? parseRubricGradeInfo(gi.json) : null;
+      }
       if (!cells || cells[w.rowId]?.points !== w.final.points) {
         set(w, 'failed', `The form saved, but Schoology's rubric shows ${cells ? level(w, cells[w.rowId]?.points) : 'nothing readable'}: check it in Schoology`);
         continue;

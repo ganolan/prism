@@ -1105,6 +1105,14 @@ the repo.
   rubric grades changed. **Not observed:** a rubric change on this page (expected to be the same
   per-student `rubric_grade_info` PUT, as the popup is the same widget), and a changed value through this
   form.
+- **The rubric PUT alone saves the whole mark (2026-10-13, by-question round trip, Graham approved):**
+  after one `rubric_grade_info` PUT (grade 3, `comment` = the old comment plus " (test)") and **no form
+  save**, the by-question page showed that student's `points` 3, `rubric_score` 3 and the new comment
+  (`override` stayed 1), and `rubric_grade_info` showed 3. One PUT back (grade 4, the original comment)
+  restored it: every field on the whole Q21 page equalled the stage D page and the grade was 4. So the
+  PUT's `comment` saves the question comment, and for an essay already marked (`override` 1) the PUT is
+  the complete save. **Not observed:** an essay never marked (`override` 0): whether the PUT sets
+  `points` and `override` there.
 - **Not observed:** where the page takes the CSRF values for the PUT (Prism's unsubmit reads
   `Drupal.settings.s_common.csrf_token` / `csrf_key` on a loaded page); whether the PUT's `comment` alone
   saves the question comment; an essay with `override` 0 (never marked) and whether a replay must set it

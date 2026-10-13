@@ -542,8 +542,15 @@ writer moves to that page; everything in §9 and §14 about safety stays.
   last saw them (else "Changed in Schoology since the last load"). The question's points must equal the
   rubric's top level.
 - **The rubric cell:** the same per-student `rubric_grade_info` PUT as §14, each re-read before the form.
-- **One form POST** for the page: the loaded form, with only the posted students' `rubric_score`,
-  `points`, `override` and `comment` changed. The form holds only this question's fields, so MCQ points stay out of the request.
+- **The rubric PUT usually completes the mark.** The by-question round trip (2026-10-13) showed that for
+  an essay already marked, the PUT also saves the points, the rubric score and the comment. After the PUTs
+  the writer reads the page again: a student whose four fields now equal Prism's mark is done; only the
+  others go into the form save.
+- **A hand edit made meanwhile is never sent back:** in that fresh read, any difference other than the
+  posted students' fields reaching Prism's values refuses the page.
+- **One form POST**, only when a student still needs it (for example an essay never marked, not yet
+  observed): the fresh form, with only those students' `rubric_score`, `points`, `override` and
+  `comment` changed. The form holds only this question's fields, so MCQ points stay out of the request.
 - **Read-back:** the page once, and each posted student's rubric grade. Any other field that changed (another
   student, another field) stops the batch (`UNSAFE`).
 - **One first:** unchanged. A limit of 1 posts one student's mark through the same page.
@@ -552,8 +559,8 @@ writer moves to that page; everything in §9 and §14 about safety stays.
 
 ### Effect
 
-For a class of 20 on one FRQ: about 2 page loads, 20 rubric saves and 1 form save, in place of 40 attempt
-page loads and 20 form saves.
+For a class of 20 on one FRQ, essays already marked: 2 page loads and, per student, a grade read, the
+rubric save and its check; no form save. Phase 4b needed 40 attempt page loads and 20 form saves.
 
 ### Testing
 

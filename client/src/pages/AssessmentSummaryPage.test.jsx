@@ -3,8 +3,9 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 import AssessmentSummaryPage, { StudentRubricCard } from './AssessmentSummaryPage.jsx';
-import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, getAttemptLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale, requestResubmission, undoResubmission, getFeatures, getQuizGroupFor, getQuizResults, rebuildQuizOverall } from '../services/api.js';
+import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, getAttemptLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale, requestResubmission, undoResubmission, getFeatures, getQuizGroupFor, getQuizResults, rebuildQuizOverall, saveRowLevels } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
+import { feedbackRowTopics, rowScores, rowTopicMapping } from '../lib/feedbackRows.js';
 
 // Stub the DB saver so tests assert wiring, not I/O.
 let mockSaver;
@@ -40,6 +41,7 @@ vi.mock('../services/api.js', () => ({
   previewStatusLine: vi.fn().mockResolvedValue({ currentComment: '', visible: true, storedLine: null, hiddenWarning: false }),
   getLessonPlan: vi.fn().mockResolvedValue(null), getStatusLineUntil: vi.fn().mockResolvedValue({ until: '2026-10-15', lessons: 3 }),
   getRubricForAssignment: vi.fn().mockResolvedValue(null),
+  saveRowLevels: vi.fn().mockResolvedValue({ ok: true, row_levels: {} }),
   getRubricConfig: vi.fn().mockResolvedValue({ reportingCategoryColors: {} }),
   rubricTemplateUrl: vi.fn(() => '/api/rubrics/template'),
   uploadRubricCsv: vi.fn().mockResolvedValue({ id: 1 }),
@@ -2177,5 +2179,84 @@ describe('AssessmentSummaryPage - quiz line (linked quizzes, phase 3)', () => {
     );
     expect(await screen.findByText('MCQ 17/20 (85%), FRQ Q21: Exhibiting')).toBeInTheDocument();
     expect(getQuizResults).toHaveBeenCalledWith(7);
+  });
+});
+
+describe('StudentRubricCard - feedback rows on an unaligned task', () => {
+  const GAS = { name: 'General Academic Scale (Unaligned)', levels: [
+    { code: 'ED', label: 'Exhibiting Depth', points: 100, cutoff: 87.5 },
+    { code: 'EX', label: 'Exhibiting', points: 75, cutoff: 62.5 },
+    { code: 'D', label: 'Developing', points: 50, cutoff: 37.5 },
+    { code: 'EM', label: 'Emerging', points: 25, cutoff: 12.5 },
+    { code: 'IE', label: 'Insufficient Evidence', points: 0, cutoff: 0 },
+  ] };
+  const CRITERIA = [
+    { id: 11, position: 1, criterion_name: 'Features and Code', reporting_category: 'PRODUCE', descriptors: { ED: 'a', EX: 'b', D: 'c', EM: 'd', IE: 'Insufficient Evidence' } },
+    { id: 12, position: 2, criterion_name: 'Playtesting', reporting_category: 'CREATE', descriptors: { ED: 'e', EX: 'f', D: 'g', EM: 'h', IE: 'Insufficient Evidence' } },
+  ];
+  const ROWS = feedbackRowTopics(CRITERIA);
+  const rubric = { criteria: CRITERIA, topicByCriterion: rowTopicMapping(ROWS) };
+  const ROW = { id: 50, mastery_grading_period_id: 1, mastery_grading_category_id: 2 };
+  const card = (extra = {}) => renderCard({ topics: ROWS, scoreScale: GAS, rubric, assignmentRow: ROW, ...extra });
+
+  it('shows the rows grid with its label and the overall picker', () => {
+    card();
+    expect(screen.getByText('Feedback rows: kept in Prism, not sent to Schoology')).toBeInTheDocument();
+    expect(screen.getByText('Features and Code')).toBeInTheDocument();
+    expect(screen.getByText('Overall: General Academic Scale (Unaligned), sent to Schoology')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'General Academic Scale (Unaligned)' })).toBeInTheDocument();
+  });
+
+  it('Save publishes the overall and carries the rows', async () => {
+    card();
+    fireEvent.click(screen.getByTitle('Set Features and Code to Exhibiting'));
+    fireEvent.click(screen.getByTitle('Set Playtesting to Exhibiting'));
+    // Pick the overall explicitly: the automatic rubric average arrives in Task 9.
+    fireEvent.click(screen.getByRole('button', { name: /^exhibiting$/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+    await waitFor(() => expect(writeMasteryComment).toHaveBeenCalledTimes(1));
+    expect(writeMasteryComment).toHaveBeenCalledWith('4', expect.objectContaining({
+      points: 75, rowLevels: { 'Features and Code': 'EX', Playtesting: 'EX' },
+    }));
+    expect(writeMasteryScores).not.toHaveBeenCalled();
+  });
+
+  it('a rows-only change on a published student saves in Prism only', async () => {
+    card({ student: { ...makeStudent(), score: 75, scale_level: 'EX', grade_comment: 'Hi', comment_status: 1,
+      scores: rowScores({ 'Features and Code': 'EX', Playtesting: 'EX' }) } });
+    fireEvent.click(screen.getByTitle('Set Playtesting to Developing'));
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+    await waitFor(() => expect(saveRowLevels).toHaveBeenCalledWith('8', 'uid-1', { Playtesting: 'D' }));
+    expect(writeMasteryComment).not.toHaveBeenCalled();
+  });
+
+  it('Send all: a rows-only change is a rows-only entry, and the overall carries the rows', () => {
+    const handlers = {};
+    card({
+      student: { ...makeStudent(), score: 75, scale_level: 'EX', grade_comment: 'Hi', comment_status: 1,
+        scores: rowScores({ 'Features and Code': 'EX', Playtesting: 'EX' }) },
+      registerCard: (uid, h) => { handlers[uid] = h; }, unregisterCard: () => {},
+    });
+    // Clicking a synced final stages its removal: null clears the row.
+    fireEvent.click(screen.getByTitle('Set Features and Code to Exhibiting'));
+    fireEvent.click(screen.getByTitle('Set Playtesting to Developing'));
+    const rowsOnly = handlers['uid-1'].getEntry();
+    expect(rowsOnly.entry).toMatchObject({ scores: null, grade: null, comment: null,
+      rowLevels: { 'Features and Code': null, Playtesting: 'D' } });
+    expect(rowsOnly.patch).toEqual({ row_levels: { Playtesting: 'D' } });
+
+    fireEvent.click(screen.getByRole('button', { name: /^developing$/i }));
+    const withOverall = handlers['uid-1'].getEntry();
+    expect(withOverall.entry.grade).toEqual({ points: 50 });
+    expect(withOverall.entry.comment).toMatchObject({ comment: 'Hi', commentStatus: true });
+    expect(withOverall.entry.rowLevels).toEqual({ 'Features and Code': null, Playtesting: 'D' });
+    expect(withOverall.patch).toMatchObject({ score: 50, scale_level: 'D', row_levels: { Playtesting: 'D' }, grade_comment: 'Hi' });
+  });
+
+  it('a score-scale task with no rows shows the picker alone', () => {
+    renderCard({ topics: [], scoreScale: GAS, rubric, assignmentRow: ROW });
+    expect(screen.getByRole('group', { name: 'General Academic Scale (Unaligned)' })).toBeInTheDocument();
+    expect(screen.queryByText('Feedback rows: kept in Prism, not sent to Schoology')).not.toBeInTheDocument();
+    expect(screen.queryByText('Features and Code')).not.toBeInTheDocument();
   });
 });

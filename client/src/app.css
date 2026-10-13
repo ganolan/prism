@@ -656,6 +656,11 @@ button.btn-sm { padding: 0.3rem 0.65rem; font-size: 0.78rem; }
   100% { outline: 3px solid transparent; outline-offset: 2px; }
 }
 
+/* Feedback rows (spec 2026-10-13): the captions above a score-scale card's
+   rubric rows (kept in Prism) and its overall level (sent to Schoology). */
+.feedback-rows-label,
+.feedback-rows-overall-label { color: var(--text-muted); font-size: 0.75rem; margin: 0.4rem 0; }
+
 /* ========================================================================
    MODAL
    ======================================================================== */

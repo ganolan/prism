@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link, useSearchParams, Navigate, useLocation } from 'react-router-dom';
-import { getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, getTriagePair, loadQuizResults, rebuildQuizOverall } from '../services/api.js';
+import { getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, getTriagePair, loadQuizResults, rebuildQuizOverall, saveRowLevels } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
+import { feedbackRowTopics, rowScores, rowTopicMapping, isRowKey, rowName } from '../lib/feedbackRows.js';
 import { makeDraftSaver } from '../lib/assessmentDraftSaver.js';
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
 import { studentFullName } from '../lib/studentNames.js';
@@ -174,7 +175,11 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   const flushNextRef = useRef(false);
   // Signature of the synced Schoology values this card was rendered against.
   // A stored draft is only valid while this is unchanged (#47).
-  const currentBaseline = draftBaseline(student, topics);
+  // Feedback rows (spec 2026-10-13): a score-scale task whose `topics` are the
+  // attached rubric's criteria. Row levels stay in Prism; only the overall
+  // scale level is published.
+  const hasFeedbackRows = !!scoreScale && topics.length > 0;
+  const currentBaseline = draftBaseline(student, topics, { includeScore: !!scoreScale });
 
   // Reviewer rubric suggestions resolved to topic ids (spec §5). Best-effort:
   // unresolved keys / out-of-set values are silently dropped by the resolver.
@@ -666,6 +671,21 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     return newScores;
   }
 
+  // Feedback rows: row picks in `pending` → { criterion: level | null } (null = clear a final).
+  function rowLevelsToSave() {
+    const keys = Object.keys(pending).filter(isRowKey);
+    if (!hasFeedbackRows || keys.length === 0) return null;
+    return Object.fromEntries(keys.map((k) => [rowName(k), pending[k] === REMOVE ? null : pending[k]]));
+  }
+  // The student's row levels after a save: synced finals with the saved picks
+  // merged over them (null clears one), for the in-place patch.
+  function savedRowLevels(rowLevels) {
+    const out = {};
+    for (const t of topics) { const g = student.scores?.[t.id]?.grade; if (g) out[rowName(t.id)] = g; }
+    for (const [n, l] of Object.entries(rowLevels || {})) { if (l == null) delete out[n]; else out[n] = l; }
+    return out;
+  }
+
   // This card's batched "Send all" entry + its in-place patch, or null when
   // nothing is unsaved. Same writes as handleSave, expressed as data for the
   // page to collapse into one request (#51).
@@ -674,9 +694,11 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     const hasScoreChanges = !scoreScale && Object.keys(pending).length > 0;
     const hasCommentChange = comment !== (student.grade_comment || '');
     const hasDisplayChange = display !== loadedDisplay;
-    if (!hasScoreChanges && !scaleCode && !hasCommentChange && !hasDisplayChange) return null;
+    if (!hasScoreChanges && !scaleCode && !hasCommentChange && !hasDisplayChange && !rowLevelsToSave()) return null;
     if (scoreScale) {
-      // One PUT carries grade + comment + visibility, so the comment always rides along.
+      const rowLevels = rowLevelsToSave();
+      const overallChanged = scaleCode != null || hasCommentChange || hasDisplayChange;
+      if (!overallChanged && !rowLevels) return null;
       return {
         entry: {
           uid: student.schoology_uid,
@@ -684,12 +706,15 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           assignmentId,
           scores: null,
           grade: scaleCode ? { points: scalePointsFor(scaleCode) } : null,
-          comment: { comment, commentStatus: display, ...statusLineFields() },
+          // One PUT carries grade + comment + visibility, so the comment rides
+          // along; a rows-only entry sends nothing to Schoology.
+          comment: overallChanged ? { comment, commentStatus: display, ...statusLineFields() } : null,
+          ...(rowLevels ? { rowLevels } : {}),
         },
         patch: {
           ...(scaleCode ? { score: scalePointsFor(scaleCode), scale_level: scaleCode } : {}),
-          grade_comment: comment, comment_status: display ? 1 : null,
-          ...statusLinePatch(),
+          ...(rowLevels ? { row_levels: savedRowLevels(rowLevels) } : {}),
+          ...(overallChanged ? { grade_comment: comment, comment_status: display ? 1 : null, ...statusLinePatch() } : {}),
         },
       };
     }
@@ -747,26 +772,39 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
 
       if (scoreScale) {
         // Score-scale grade (#41): grade + comment + visibility in one write.
-        const saved = await writeMasteryComment(courseId, {
-          enrollmentId: student.enrollment_id,
-          assignmentId,
-          comment,
-          commentStatus: display,
-          ...(scaleCode ? { points: scalePointsFor(scaleCode) } : {}),
-          ...statusLineFields(),
-        });
+        // Feedback rows ride along with it, or save alone (no Schoology call)
+        // when only the rows changed.
+        const rowLevels = rowLevelsToSave();
+        const overallChanged = scaleCode != null || hasCommentChange || hasDisplayChange;
+        let saved = null;
+        if (overallChanged) {
+          saved = await writeMasteryComment(courseId, {
+            enrollmentId: student.enrollment_id,
+            assignmentId,
+            comment,
+            commentStatus: display,
+            ...(scaleCode ? { points: scalePointsFor(scaleCode) } : {}),
+            ...(rowLevels ? { rowLevels } : {}),
+            ...statusLineFields(),
+          });
+        } else if (rowLevels) {
+          await saveRowLevels(assignmentId, student.schoology_uid, rowLevels);
+        }
         setSaveResult('saved');
         setPending({});
         setInsertedLine(null);
         saverRef.current.remove({ immediate: true });
         onSaved?.(student.schoology_uid, {
           ...(scaleCode ? { score: scalePointsFor(scaleCode), scale_level: scaleCode } : {}),
-          grade_comment: comment,
-          comment_status: display ? 1 : null,
-          ...resubmissionFieldsPatch(saved?.resubmissionFields),
-          ...statusLinePatch(),
+          ...(rowLevels ? { row_levels: savedRowLevels(rowLevels) } : {}),
+          ...(overallChanged ? {
+            grade_comment: comment,
+            comment_status: display ? 1 : null,
+            ...resubmissionFieldsPatch(saved?.resubmissionFields),
+            ...statusLinePatch(),
+          } : {}),
         });
-        setNotesCollapsed(true);
+        if (overallChanged) setNotesCollapsed(true);
         return true;
       }
 
@@ -1089,25 +1127,10 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         opacity: isRubricLocked ? 0.45 : 1,
         pointerEvents: isRubricLocked ? 'none' : 'auto',
       }}>
-        {scoreScale ? (
-          <>
-            <ScaleLevelPicker
-              scale={scoreScale}
-              syncedCode={student.scale_level ?? null}
-              pendingCode={pending[SCALE] ?? null}
-              suggestedCode={suggestedScaleLabel ? suggestedScale : null}
-              locked={isRubricLocked}
-              onSelect={selectScaleLevel}
-            />
-            {/* What the agent checked to suggest this level (teacher-facing). */}
-            {suggestedScaleLabel && scaleEvidence && (
-              <div style={{ marginTop: '0.4rem', fontSize: '0.75rem', color: 'var(--ai-suggest)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                <AiSparkle size={12} />
-                {`Suggested ${suggestedScaleLabel}: ${scaleEvidence}`}
-              </div>
-            )}
-          </>
-        ) : showDescriptors ? (
+        {hasFeedbackRows && (
+          <div className="feedback-rows-label">Feedback rows: kept in Prism, not sent to Schoology</div>
+        )}
+        {(!scoreScale || hasFeedbackRows) && (showDescriptors ? (
           <RubricDescriptorGrid
             rows={descriptorRows}
             levels={LEVELS}
@@ -1155,7 +1178,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
                     fontSize: '0.78rem', color: 'var(--text)',
                   }}>
                     {t.title}
-                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', opacity: 0.7 }}>{t.category_title} · {t.external_id}</div>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', opacity: 0.7 }}>{[t.category_title, t.external_id].filter(Boolean).join(' · ')}</div>
                   </td>
                   {LEVELS.map(l => {
                     const c = LEVEL_COLORS[l];
@@ -1250,6 +1273,28 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             })}
           </tbody>
         </table>
+        ))}
+        {hasFeedbackRows && (
+          <div className="feedback-rows-overall-label">Overall: {scoreScale.name}, sent to Schoology</div>
+        )}
+        {scoreScale && (
+          <>
+            <ScaleLevelPicker
+              scale={scoreScale}
+              syncedCode={student.scale_level ?? null}
+              pendingCode={pending[SCALE] ?? null}
+              suggestedCode={suggestedScaleLabel ? suggestedScale : null}
+              locked={isRubricLocked}
+              onSelect={selectScaleLevel}
+            />
+            {/* What the agent checked to suggest this level (teacher-facing). */}
+            {suggestedScaleLabel && scaleEvidence && (
+              <div style={{ marginTop: '0.4rem', fontSize: '0.75rem', color: 'var(--ai-suggest)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                <AiSparkle size={12} />
+                {`Suggested ${suggestedScaleLabel}: ${scaleEvidence}`}
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -2063,6 +2108,15 @@ export default function AssessmentSummaryPage() {
   const hasAnalysis = Object.keys(feedbackByStudent).length > 0 || !!analysis;
 
   const alignedTopics = topics;
+  // Feedback rows (spec 2026-10-13): a rubric attached to a score-scale task.
+  // Its criteria become the card's topics ('row:<name>'), with each student's
+  // row levels as the scores, so the grid, drafts and suggestions work unchanged.
+  const feedbackRowList = scoreScale && rubricData?.rubric ? feedbackRowTopics(rubricData.rubric.criteria) : null;
+  const cardTopics = feedbackRowList ?? topics;
+  const cardRubric = rubricData
+    ? { ...rubricData.rubric, topicByCriterion: feedbackRowList ? rowTopicMapping(feedbackRowList) : rubricData.topicByCriterion }
+    : null;
+  const cardStudent = (s) => (feedbackRowList ? { ...s, scores: rowScores(s.row_levels) } : s);
   const visibleStudents = students.filter(s => passesFilters(s, activeFilters, { assignment, topics: alignedTopics }));
 
   return (
@@ -2124,8 +2178,8 @@ export default function AssessmentSummaryPage() {
           {/* Rubric view toggle (Task 13) — Descriptors (default) shows the
               student-language descriptor prose per level; Compact falls back to
               the dense level-code table. Hidden for a score scale (#41), whose
-              one-row picker has no compact form. */}
-          {!scoreScale && (
+              one-row picker has no compact form, unless it has feedback rows. */}
+          {(!scoreScale || feedbackRowList) && (
             <div role="group" aria-label="Rubric view" style={{ display: 'inline-flex', gap: '0.25rem' }}>
               <button className={`filter-btn${viewMode === 'descriptors' ? ' active' : ''}`}
                 onClick={() => setViewMode('descriptors')}>Descriptors</button>
@@ -2206,14 +2260,14 @@ export default function AssessmentSummaryPage() {
           {visibleStudents.map((student) => (
             <StudentRubricCard
               key={student.schoology_uid}
-              student={student}
-              topics={alignedTopics}
+              student={cardStudent(student)}
+              topics={cardTopics}
               courseId={courseId}
               assignmentId={assignmentId}
               assignmentRow={assignment}
               feedbackRow={feedbackByStudent[student.id] || null}
               draftRow={draftByStudent[student.id] || null}
-              rubric={rubricData ? { ...rubricData.rubric, topicByCriterion: rubricData.topicByCriterion } : null}
+              rubric={cardRubric}
               viewMode={viewMode}
               rubricPalette={rubricPalette}
               submissionLink={workLinks.links[student.schoology_uid] || null}
@@ -2392,7 +2446,7 @@ export default function AssessmentSummaryPage() {
               >✕</button>
             </div>
             <ReviewerAnalysisBody
-              topics={topics}
+              topics={cardTopics}
               feedbackRows={Object.values(feedbackByStudent)}
               analysis={analysis?.analysis_parsed || null}
             />
@@ -2416,6 +2470,7 @@ export default function AssessmentSummaryPage() {
         courseId={courseId}
         assignmentId={assignmentId}
         topics={alignedTopics}
+        unaligned={!!scoreScale}
         attachment={rubricData}
         onChanged={reloadRubric}
       />

@@ -36,4 +36,10 @@ describe('draftBaseline', () => {
     const b = draftBaseline({ grade_comment: 'x', comment_status: 1, exception: null, scores: {} }, []);
     expect(a).toBe(b);
   });
+
+  it('includes the score when asked, even with topics (feedback rows)', () => {
+    const s = { grade_comment: '', comment_status: 0, exception: null, scores: {}, score: 75 };
+    expect(draftBaseline(s, topics, { includeScore: true })).not.toBe(draftBaseline({ ...s, score: 50 }, topics, { includeScore: true }));
+    expect(draftBaseline(s, topics)).toBe(draftBaseline({ ...s, score: 50 }, topics));
+  });
 });

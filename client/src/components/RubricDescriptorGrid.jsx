@@ -26,9 +26,11 @@ export default function RubricDescriptorGrid({
               background: categoryColor(topic.category_title, palette), verticalAlign: 'top' }}>
               {criterion?.criterion_name && (
                 <div style={{ fontWeight: 700, fontSize: '0.82rem' }}>{criterion.criterion_name}</div>)}
-              <div style={{ fontSize: '0.72rem', fontWeight: 600 }}>{topic.title}</div>
+              {/* A feedback row (spec 2026-10-13) is titled by its criterion: no repeat. */}
+              {topic.title !== criterion?.criterion_name && (
+                <div style={{ fontSize: '0.72rem', fontWeight: 600 }}>{topic.title}</div>)}
               <div style={{ fontSize: '0.62rem', color: '#3a3a3a' }}>
-                {topic.category_title} · {topic.external_id}</div>
+                {[topic.category_title, topic.external_id].filter(Boolean).join(' · ')}</div>
             </td>
             {levels.map(l => {
               const st = cellState(topic.id, l) || {};

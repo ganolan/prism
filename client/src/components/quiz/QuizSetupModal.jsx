@@ -3,9 +3,9 @@
 // suggests tests with similar titles; the teacher confirms every combine, and a
 // parity check of the ticked tests must pass first.
 import { useEffect, useState } from 'react';
-import { getQuizCandidates, checkQuizParity, createQuizGroup, linkQuizResult, deleteQuizGroup } from '../../services/api.js';
+import { getQuizCandidates, checkQuizParity, createQuizGroup, linkQuizResult, deleteQuizGroup, setQuizTemplate } from '../../services/api.js';
 
-export default function QuizSetupModal({ open, courseId, currentAssignment, group, onClose, onChanged }) {
+export default function QuizSetupModal({ open, courseId, currentAssignment, group, onClose, onChanged, onUpdated = () => {} }) {
   const [candidates, setCandidates] = useState(null);
   const [ticked, setTicked] = useState([]);
   const [title, setTitle] = useState('');
@@ -15,6 +15,9 @@ export default function QuizSetupModal({ open, courseId, currentAssignment, grou
   // null = show the saved link; a string is the teacher's pick ('' = Not linked).
   const [resultId, setResultId] = useState(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const savedTemplate = group?.comment_template ?? group?.default_comment_template ?? '';
+  const [template, setTemplate] = useState(savedTemplate);
+  useEffect(() => { setTemplate(savedTemplate); }, [savedTemplate]);
 
   const currentId = currentAssignment?.schoology_assignment_id;
   const linkedId = group?.result?.schoology_assignment_id || '';
@@ -147,6 +150,24 @@ export default function QuizSetupModal({ open, courseId, currentAssignment, grou
                 )}
               <button className="ghost" onClick={onClose}>Close</button>
             </div>
+            {group.result && (
+              <div style={{ marginTop: '1rem' }}>
+                <label className="text-sm" htmlFor="quiz-comment-template"><strong>Overall comment</strong></label>
+                <p className="text-sm text-muted" style={{ margin: '0.2rem 0' }}>
+                  Prism fills {'{mcq_correct}'}, {'{mcq_total}'}, {'{mcq_percent}'} and {'{frq_levels}'} from the results; {'{impression}'} is the suggestion's own text.
+                </p>
+                <textarea id="quiz-comment-template" aria-label="Overall comment template" rows={5} style={{ width: '100%' }}
+                  value={template} onChange={(e) => setTemplate(e.target.value)} />
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.4rem' }}>
+                  <button className="secondary" disabled={busy || template === savedTemplate}
+                    onClick={() => run(async () => onUpdated((await setQuizTemplate(group.id, template)).group))}>Save template</button>
+                  {group.comment_template != null && (
+                    <button className="ghost" disabled={busy}
+                      onClick={() => run(async () => onUpdated((await setQuizTemplate(group.id, '')).group))}>Reset to default</button>
+                  )}
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>

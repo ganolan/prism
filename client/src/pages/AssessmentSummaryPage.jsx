@@ -2404,6 +2404,7 @@ export default function AssessmentSummaryPage() {
         group={quizGroup}
         onClose={() => setQuizSetupOpen(false)}
         onChanged={(g) => { setQuizGroup(g); setQuizSetupOpen(false); }}
+        onUpdated={(g) => setQuizGroup(g)}
       />
 
       <RubricManagerModal

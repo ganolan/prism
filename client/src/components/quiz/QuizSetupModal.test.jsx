@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useState } from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import QuizSetupModal from './QuizSetupModal.jsx';
-import { getQuizCandidates, checkQuizParity, createQuizGroup, linkQuizResult, deleteQuizGroup } from '../../services/api.js';
+import { getQuizCandidates, checkQuizParity, createQuizGroup, linkQuizResult, deleteQuizGroup, setQuizTemplate } from '../../services/api.js';
 
 vi.mock('../../services/api.js', () => ({
-  getQuizCandidates: vi.fn(), checkQuizParity: vi.fn(), createQuizGroup: vi.fn(), linkQuizResult: vi.fn(), deleteQuizGroup: vi.fn(),
+  getQuizCandidates: vi.fn(), checkQuizParity: vi.fn(), createQuizGroup: vi.fn(), linkQuizResult: vi.fn(), deleteQuizGroup: vi.fn(), setQuizTemplate: vi.fn(),
 }));
 
 const CANDIDATES = {
@@ -189,5 +189,43 @@ describe('QuizSetupModal', () => {
       rerender(<QuizSetupModal open courseId={5} currentAssignment={CURRENT} group={other} onClose={() => {}} onChanged={() => {}} />);
       expect(screen.getByRole('combobox', { name: 'Result task' })).toHaveValue('960');
     });
+  });
+});
+
+describe('QuizSetupModal - comment template', () => {
+  const WITH_TEMPLATE = { ...LINKED, comment_template: null, default_comment_template: 'Multiple choice: {mcq_percent}%\n{impression}' };
+
+  it('shows the default, lists the placeholders, saves an edit and stays open', async () => {
+    const onUpdated = vi.fn();
+    setQuizTemplate.mockResolvedValue({ group: { ...WITH_TEMPLATE, comment_template: 'Score {mcq_percent}%\n{impression}' } });
+    render(<QuizSetupModal open courseId={5} currentAssignment={CURRENT} group={WITH_TEMPLATE} onClose={() => {}} onChanged={() => {}} onUpdated={onUpdated} />);
+    const box = await screen.findByRole('textbox', { name: 'Overall comment template' });
+    expect(box.value).toBe('Multiple choice: {mcq_percent}%\n{impression}');
+    expect(screen.getByText(/\{mcq_correct\}/)).toBeInTheDocument();
+    fireEvent.change(box, { target: { value: 'Score {mcq_percent}%\n{impression}' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save template' }));
+    await waitFor(() => expect(setQuizTemplate).toHaveBeenCalledWith(7, 'Score {mcq_percent}%\n{impression}'));
+    expect(onUpdated).toHaveBeenCalledWith(expect.objectContaining({ comment_template: 'Score {mcq_percent}%\n{impression}' }));
+  });
+
+  it('shows a refused template', async () => {
+    setQuizTemplate.mockRejectedValue(new Error('Unknown placeholder: {score}'));
+    render(<QuizSetupModal open courseId={5} currentAssignment={CURRENT} group={WITH_TEMPLATE} onClose={() => {}} onChanged={() => {}} onUpdated={() => {}} />);
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Overall comment template' }), { target: { value: '{score}' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save template' }));
+    expect(await screen.findByText('Unknown placeholder: {score}')).toBeInTheDocument();
+  });
+
+  it('Reset to default saves an empty template', async () => {
+    setQuizTemplate.mockResolvedValue({ group: WITH_TEMPLATE });
+    render(<QuizSetupModal open courseId={5} currentAssignment={CURRENT} group={{ ...WITH_TEMPLATE, comment_template: 'Hi {impression}' }} onClose={() => {}} onChanged={() => {}} onUpdated={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Reset to default' }));
+    await waitFor(() => expect(setQuizTemplate).toHaveBeenCalledWith(7, ''));
+  });
+
+  it('no editor for an unlinked group', async () => {
+    render(<QuizSetupModal open courseId={5} currentAssignment={CURRENT} group={{ ...GROUP, default_comment_template: '{impression}' }} onClose={() => {}} onChanged={() => {}} onUpdated={() => {}} />);
+    await screen.findByText(/Result task/);
+    expect(screen.queryByRole('textbox', { name: 'Overall comment template' })).not.toBeInTheDocument();
   });
 });

@@ -255,3 +255,12 @@ describe('suggestion_state across agent re-runs', () => {
     expect(state(db, r.feedback_id)).toBeNull();
   });
 });
+
+test('quiz_overall is stored in feedback_json when given, and absent otherwise', () => {
+  const db = getDb();
+  seed(db);
+  const a = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'n', quiz_overall: { group_id: 4, impression: 'Good.' } });
+  expect(JSON.parse(db.prepare('SELECT feedback_json FROM feedback WHERE id = ?').get(a.feedback_id).feedback_json).quiz_overall).toEqual({ group_id: 4, impression: 'Good.' });
+  const b = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'n2' });
+  expect(JSON.parse(db.prepare('SELECT feedback_json FROM feedback WHERE id = ?').get(b.feedback_id).feedback_json)).not.toHaveProperty('quiz_overall');
+});

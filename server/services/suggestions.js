@@ -16,7 +16,7 @@ import { normalizeLevel } from '../lib/proficiencyScale.js';
 // status='draft' row, pushing any prior feedback_json to revision_history.
 export function upsertStudentSuggestion(db, {
   assignmentId, student, narrative_feedback, rubric_scores, reviewer_flags, strengths, suggestions,
-  scale_level, evidence, reviewer_flags_brief,
+  scale_level, evidence, reviewer_flags_brief, quiz_overall,
 }) {
   const studentLocalId = resolveStudentId(db, student);
   if (!studentLocalId) return { student, status: 'error', message: `Student not found: ${student}` };
@@ -71,6 +71,9 @@ export function upsertStudentSuggestion(db, {
     suggestions: suggestions ?? [],
     scale_level: storedScaleLevel,
     evidence: evidence ?? null,
+    // A quiz's overall result (spec §13): the group and the agent's impression, so Prism can
+    // tell when the built comment is out of date and rebuild it.
+    ...(quiz_overall ? { quiz_overall } : {}),
   });
 
   const write = db.transaction(() => {

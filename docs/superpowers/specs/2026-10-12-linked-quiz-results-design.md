@@ -206,7 +206,8 @@ linked tests as a chip, the **Load results** button and the load time.
 Behind `quiz_writeback`, off until proven.
 
 - **What is written:** the FRQ's rubric cells (the points follow) and the comment. MCQ points are
-  never sent.
+  never changed. Schoology's save posts the whole attempt form, so every other field is sent exactly as
+  the page loaded it (decided by the teacher after the phase 4a probe, 2026-10-13).
 - **The request is unknown.** A write probe, approved by the teacher, saves one mark in the browser
   on a throwaway copy of a test with one attempt, and captures the request. The candidates are the
   attempt form itself or the rubric popup's own save.
@@ -453,7 +454,7 @@ fallback.
 
 Prism posts accepted FRQ marks to the student's attempt itself. The request is learned from one
 supervised probe, then replayed. Everything here follows §9: re-read before each write, never overwrite a
-hand edit, record every write, never send MCQ points.
+hand edit, record every write, never change MCQ points.
 
 ### Known before the probe
 
@@ -493,7 +494,11 @@ the teacher chooses, saving the mark that student should get anyway, with the te
    Schoology copy is updated from the read-back); otherwise `failed` with what it shows.
 
 - **Scope:** FRQs with a Schoology rubric. A points-only FRQ stays with the agent or the teacher's paste.
-- **Never sent:** MCQ points, and any field other than the FRQ's cells and comment.
+- **Never changed:** MCQ points, and any field other than the FRQ's level, points and comment. The
+  probe showed that **Save Changes** posts the whole form (every question's points included), so the
+  writer serializes the freshly loaded form, changes only those fields, and refuses if any other field
+  it would send differs from the loaded page (`.claude/schoology-api-reference.md`, "Saving an FRQ level
+  and comment").
 - **Errors:** an expired session stops the batch (`NO_SESSION`); any other failure is recorded for that
   student and never thrown. Requests are sent one after another with a short pause, like the loader.
 - **Guard:** the loader's read-only guard stays; the writer allows only the URL patterns the probe

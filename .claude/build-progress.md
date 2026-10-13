@@ -1055,6 +1055,16 @@ has none) and `OUT_DIR` outside the repo (`~/prism-probes/attempt-write`).
 the attempt form is editable: the form, an enabled **Save Changes**, the rubric launch button, and an
 enabled points field. The only blocked request was Schoology's `POST /usage/collect` (usage tracking).
 
+**Stage B (same-value save, approved by Graham, 2026-10-13):** the first run stopped before any save
+(the launch selector hit the outer div; the selected cell has a screen-reader prefix); fixed, and the
+second run saved the stored level as it was. The popup's Save sends nothing; **Save Changes** sends one
+form `POST` to the attempt URL (the whole form, Drupal tokens, no CSRF header). Read-back unchanged.
+Details: `.claude/schoology-api-reference.md`, "Saving an FRQ level and comment". Capture on the mini in
+`~/prism-probes/attempt-write/` (holds student work; not in the repo).
+
+**Next:** the phase 4b plan (writer, two-step posting, tests) from this request; the first real post of
+a current mark, with Graham watching, is the check that a changed value persists.
+
 ## Linked quizzes, phase 3: overall result (2026-10-13, branch `claude/angry-hopper-5c1f00`)
 
 Built from `docs/superpowers/plans/2026-10-13-linked-quizzes-phase-3.md` (spec §13):

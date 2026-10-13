@@ -1006,8 +1006,48 @@ MCQ, `2` on the graded essay), `comment` (textarea). The visible score is
   → `{response_code:200, body:{gradeInfo:{<rowId>:{grade: "2", comment: ""}}, overrideGrade: null}}`.
 
 **Not observed:** a test with more than one attempt, an ungraded essay (`rubric_score` empty?), a
-rubric with more than one row, an MCQ left blank, and the write request a rubric or comment save
-sends (not probed; needs a teacher-approved write on a throwaway copy).
+rubric with more than one row, and an MCQ left blank. The write request is recorded below (2026-10-13).
+
+### Saving an FRQ level and comment (write probe, 2026-10-13)
+
+One teacher-approved same-value save (`scripts/probe-attempt-write.js write`), on attempt `2247871023`
+of `7724138299` (AP CSP: Unit 3 - Organizing Data Theory Test (S), 2024-25, archived section). 21
+questions: 20 MCQ and 1 essay with a one-row Schoology rubric `36010096`, marked 4 (Exhibiting Depth)
+with a comment. Capture (bodies hold student work) in `~/prism-probes/attempt-write/` on the mini, not in
+the repo.
+
+- **The archived section is still editable:** the attempt form, an enabled **Save Changes**, the rubric
+  launch, and enabled points fields.
+- **Opening the rubric popup:** synthetic mousedown, mouseup and click on the inner
+  `span.grading-rubric-grading-launch` (it carries `rubric-id`, `enrollment-id`, `item-id`). The same
+  events on the outer `div.s-grades-rubric-grading-launch-btn` open nothing.
+- **Popup cells:** visible `td.rating-wrapper`, text `"<pts><Level>: <description>"`; the selected cell's
+  text starts with the screen-reader note `"This item is selected."`.
+- **The popup's Save (`button.submit-btn`) sends no request.** It only sets the question's
+  `rubric_score` field in the page (read back as 4).
+- **Save Changes sends exactly one request:** `POST` to the attempt page's own URL
+  (`/assignment/{testId}/assessment_results/student_stats/{uid}/{attemptId}`),
+  `Content-Type: application/x-www-form-urlencoded`. Headers observed: `accept`, `content-type`,
+  `cookie`, `origin`, `referer`, `sec-ch-ua*`, `upgrade-insecure-requests`, `user-agent`. **No CSRF
+  header.** Body: the whole form, 131 fields, in page order:
+  - `enrollment-selector-sa`: the attempt page's own path.
+  - For **every** question: `components[0][{qid}][points]`, `[override]`, `[original_points]`,
+    `[max_points]`, `[rubric_score]`, `[comment]`. Observed values: MCQs `override` 0, `rubric_score`
+    and `comment` empty, `original_points` 1 or 0 (the auto score); the essay `points` 4, `override` 1,
+    `original_points` 0, `max_points` 4, `rubric_score` 4, `comment` its text.
+  - `op` = `Save Changes`, `form_build_id`, `form_token`, `form_id` =
+    `s_assessment_edit_submission_form` (Drupal's form tokens, taken from the loaded page).
+- **Read back from a fresh load:** every question's points, the essay's `rubric_score` and the comment
+  unchanged. The response status was not recorded. The "Your changes have been saved" text appears in
+  the page only inside translation strings, so the read-back is the confirmation.
+- **Accepted risk:** the values did not change, but Schoology may have recorded a grading time.
+- **For a replay (phase 4b):** load the attempt page, take its form as it is (all fields, Drupal
+  tokens), change only the essay's `rubric_score`, `points` (and `override` 1) and `comment`, and post
+  it to the same URL. A same-value save cannot show that a changed value persists: the first real post
+  is the check.
+- **Not observed:** a multi-row rubric's fields (whether `rubric_score` alone carries a one-row
+  rubric's cell, or per-row values exist elsewhere), the response to the POST, and the
+  `rubric_grade_info` read after a change.
 
 **Consumed by Prism (phase 1, linked quizzes, 2026-10-13):** `server/services/quizLoader.js` reads the
 question list (on combine), the results page, each taker's `student_stats` page, the latest

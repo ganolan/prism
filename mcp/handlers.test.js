@@ -15,8 +15,10 @@ import {
   requestResubmissionTool, gradeStandsTool, listResubmissionsTool, previewStatusLineTool,
   getSubmissionStatusTool,
   listQuizGroupsTool, loadQuizResultsTool, setQuestionTagsTool,
+  getFrqResponsesTool, writeFrqSuggestionsTool, listFrqWritebacksTool, markFrqWritebackTool,
 } from './handlers.js';
 import { saveRubric, listRubrics, getRubricByName } from '../server/services/rubricStore.js';
+import { setFrqMark } from '../server/services/frqMarks.js';
 import { askLine, extendResubmissionLine, gradeStandsLine, extensionLine, makeUpLine } from '../server/lib/statusLines.js';
 import { sessionDeps, resetSessionStatusCache } from '../server/services/schoologySession.js';
 import { fakeSchoologyPage } from '../server/testing/fakeSchoologyPage.js';
@@ -882,6 +884,37 @@ describe('quiz tools', () => {
     const { g } = seedQuiz();
     expect(setQuestionTagsTool(db, { group_id: g, texts: { 'AAP-1.A': 'Represent a value with a variable.' } })).toEqual({ updated: 0, unknownPositions: [], textsSaved: 1 });
     expect(db.prepare("SELECT text FROM quiz_tag_texts WHERE tag = 'AAP-1.A'").get().text).toBe('Represent a value with a variable.');
+  });
+
+  function seedFrq() {
+    const db = getDb();
+    const { c, g } = seedQuiz();
+    const t = db.prepare('SELECT assignment_id FROM quiz_group_members WHERE group_id = ?').get(g).assignment_id;
+    const rubric = { id: 'r1', title: 'FRQ', totalPoints: 4, rows: [{ id: '146', title: 'Content Knowledge', maxPoints: 4, levels: [
+      { points: 4, name: 'Exhibiting Depth', descriptionHtml: 'Exhibiting Depth: all' }, { points: 2, name: 'Developing', descriptionHtml: 'Developing: some' }] }] };
+    const q = db.prepare(`INSERT INTO quiz_questions (group_id, position, kind, stem_html, max_points, schoology_rubric_json) VALUES (?, 21, 'frq', '<p>Explain</p>', 4, ?)`).run(g, JSON.stringify(rubric)).lastInsertRowid;
+    const s = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('701', 'Ana', 'Lee')`).run().lastInsertRowid;
+    const a = db.prepare(`INSERT INTO quiz_attempts (group_id, assignment_id, student_id, schoology_attempt_id, fetched_at) VALUES (?, ?, ?, '5001', 'now')`).run(g, t, s).lastInsertRowid;
+    db.prepare(`INSERT INTO quiz_responses (attempt_id, question_id, answer_html, schoology_rubric_cells_json, schoology_comment) VALUES (?, ?, ?, ?, 'Old')`)
+      .run(a, q, '<p>a) because</p><p>b) abstraction</p>', JSON.stringify({ 146: { points: 2, comment: '' } }));
+    return { c, g, a };
+  }
+
+  test('get_frq_responses gives plain answers, levels by name and the attempt link', () => {
+    const { g } = seedFrq();
+    const r = getFrqResponsesTool(getDb(), { group_id: g });
+    expect(r.questions[0]).toMatchObject({ position: 21, stem: 'Explain', rubric: [{ row: 'Content Knowledge', levels: [{ name: 'Exhibiting Depth', points: 4, description: 'all' }, { name: 'Developing', points: 2, description: 'some' }] }] });
+    expect(r.students[0]).toMatchObject({ student: 'Ana Lee', schoology_uid: '701', attempt_url: expect.stringContaining('/student_stats/701/5001') });
+    expect(r.students[0].answers[0]).toMatchObject({ question: 21, answer_text: 'a) because\nb) abstraction', schoology: { levels: [{ row: 'Content Knowledge', level: 'Developing', points: 2 }], comment: 'Old' }, prism: null });
+  });
+
+  test('write_frq_suggestions, then list and mark the write-back', () => {
+    const { g, a } = seedFrq();
+    expect(writeFrqSuggestionsTool(getDb(), { group_id: g, question: 21, students: [{ student: '701', level: 'Exhibiting Depth', comment: 'All correct.' }] })).toMatchObject({ written: 1 });
+    setFrqMark(getDb(), { groupId: g, attemptId: a, position: 21, action: 'accept' });
+    expect(listFrqWritebacksTool(getDb(), { group_id: g }).writebacks).toHaveLength(1);
+    expect(markFrqWritebackTool(getDb(), { group_id: g, student: '701', question: 21, status: 'posted' }).writeback.status).toBe('posted');
+    expect(listFrqWritebacksTool(getDb(), { group_id: g }).writebacks).toHaveLength(0);
   });
 
   test('load_quiz_results returns the loader summary', async () => {

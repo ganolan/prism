@@ -31,6 +31,9 @@ import { todayLocal } from '../server/lib/schoolDays.js';
 import { statusLineUntil } from '../server/services/statusLineDue.js';
 import { listGroups, setQuestionTags } from '../server/services/quizGroups.js';
 import { loadGroup } from '../server/services/quizLoader.js';
+import { frqResponses, listWritebacks, levelsOf } from '../server/services/frqResponses.js';
+import { writeFrqSuggestions, recordWriteback } from '../server/services/frqMarks.js';
+import { plainTextLines } from '../server/lib/quizText.js';
 
 // Active courses = not archived, not excluded, not hidden. Mirrors the
 // 'current' view in server/routes/courses.js, plus the excluded filter (#56,
@@ -493,4 +496,46 @@ export async function loadQuizResultsTool(db, { group_id }, deps = { loadGroup }
 
 export function setQuestionTagsTool(db, { group_id, tags, texts }) {
   return setQuestionTags(db, { groupId: group_id, tags, texts });
+}
+
+// Phase 2 (spec §12): FRQ marking. Answers go out as plain text; levels by name.
+const describeLevel = (l) => l.descriptionHtml.replace(/^[^:]*:\s*/, '').trim();
+
+export function getFrqResponsesTool(db, { group_id, question }) {
+  const data = frqResponses(db, { groupId: group_id, position: question ?? null });
+  const layer = (rubric, m) => (m ? { levels: levelsOf(rubric, m.cells), comment: m.comment } : null);
+  return {
+    questions: data.questions.map(q => ({
+      position: q.position, stem: plainTextLines(q.stem_html), max_points: q.max_points,
+      rubric: q.rubric ? q.rubric.rows.map(r => ({ row: r.title, levels: r.levels.map(l => ({ name: l.name, points: l.points, description: plainTextLines(describeLevel(l)) })) })) : null,
+    })),
+    students: data.students.map(s => ({
+      student: s.name, student_id: s.student_id, schoology_uid: s.schoology_uid, attempt_url: s.attempt_url, mcq: s.mcq,
+      answers: data.questions.map(q => {
+        const r = s.responses[q.position];
+        const m = r.mark;
+        return {
+          question: q.position,
+          answer_text: plainTextLines(r.answer_html),
+          schoology: layer(q.rubric, r.schoology),
+          prism: m ? {
+            state: m.state, suggestion: layer(q.rubric, m.suggested), final: layer(q.rubric, m.final),
+            suggestion_revised: m.suggestion_revised, writeback: m.writeback.status, changed_in_schoology: m.changed_in_schoology,
+          } : null,
+        };
+      }),
+    })),
+  };
+}
+
+export function writeFrqSuggestionsTool(db, { group_id, question, students }) {
+  return writeFrqSuggestions(db, { groupId: group_id, position: question, students });
+}
+
+export function listFrqWritebacksTool(db, { group_id }) {
+  return listWritebacks(db, { groupId: group_id });
+}
+
+export function markFrqWritebackTool(db, { group_id, student, question, status, error }) {
+  return recordWriteback(db, { groupId: group_id, student, position: question, status, error });
 }

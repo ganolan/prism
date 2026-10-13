@@ -5,7 +5,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { getDb } from '../server/db/index.js';
 import { getAssessmentContext } from '../server/services/assessmentContext.js';
 import { writeStudentSuggestions, upsertAssessmentAnalysis } from '../server/services/suggestions.js';
-import { listCourses, listAssignments, listStudents, listRubricsTool, readRubric, writeRubric, attachRubricTool, findStudentTool, getStudentHistoryTool, listQuizGroupsTool, loadQuizResultsTool, setQuestionTagsTool } from './handlers.js';
+import { listCourses, listAssignments, listStudents, listRubricsTool, readRubric, writeRubric, attachRubricTool, findStudentTool, getStudentHistoryTool, listQuizGroupsTool, loadQuizResultsTool, setQuestionTagsTool, getFrqResponsesTool, writeFrqSuggestionsTool, listFrqWritebacksTool, markFrqWritebackTool } from './handlers.js';
 import {
   getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool, extendDeadlineTool, undoExtensionTool,
   setMakeupTrackingTool,
@@ -27,7 +27,8 @@ export const INSTRUCTIONS =
   'course and year with the teacher (archived included), with the teacher\'s ' +
   'levels and comments verbatim, e.g. for reference letters. Also linked ' +
   'quizzes: per-question results of Schoology tests that Prism combined, and ' +
-  'tags per question.';
+  'tags per question. FRQ marking: get_frq_responses, write_frq_suggestions, then the teacher accepts in Prism; ' +
+  'list_frq_writebacks and mark_frq_writeback for posting.';
 
 // Open the shared Prism DB (resolved relative to server/db, honoring DB_PATH)
 // and set busy_timeout so a brief write collision with the Express server
@@ -160,7 +161,7 @@ export function createServer() {
   server.registerTool(
     'load_quiz_results',
     {
-      description: "Read the group's attempts from Schoology through the saved browser session. Sends nothing to Schoology. Stores the attempts and responses in Prism, replacing any earlier load, and records when they were loaded. An attempt deleted in Schoology (its results row now reads not attempted) is removed from Prism. Takes about a minute for a class. Returns { summary: { attempts (number), notTaken (number), failed: [{uid, reason}], unknownUids: [uid], mismatches: [text], multipleAttempts: [uid], removed (number: stored attempts dropped because Schoology no longer has them) } }. Fails with NO_SESSION (the teacher must reconnect Schoology in Prism's Settings), UNREACHABLE (Schoology could not be reached, which says nothing about the session: try again) or BUSY (this quiz is already loading).",
+      description: "Read the group's attempts from Schoology through the saved browser session. Sends nothing to Schoology. Stores the attempts and responses in Prism, replacing any earlier load, and records when they were loaded. An attempt deleted in Schoology (its results row now reads not attempted) is removed from Prism. Takes about a minute for a class. Returns { summary: { attempts (number), notTaken (number), failed: [{uid, reason}], unknownUids: [uid], mismatches: [text], multipleAttempts: [uid], removed (number: stored attempts dropped because Schoology no longer has them), marksPosted (number: accepted FRQ marks that Schoology now shows, so recorded as posted) } }. Fails with NO_SESSION (the teacher must reconnect Schoology in Prism's Settings), UNREACHABLE (Schoology could not be reached, which says nothing about the session: try again) or BUSY (this quiz is already loading).",
       inputSchema: { group_id: z.union([z.number(), z.string()]).describe('Quiz group id from list_quiz_groups') },
     },
     async ({ group_id }) => text(() => loadQuizResultsTool(getDb(), { group_id }))
@@ -179,6 +180,61 @@ export function createServer() {
       },
     },
     async ({ group_id, tags, texts }) => text(() => setQuestionTagsTool(getDb(), { group_id, tags, texts }))
+  );
+
+  server.registerTool(
+    'get_frq_responses',
+    {
+      description: "Read a quiz group's free-response answers from Prism's stored copy (no Schoology request). For each FRQ: the stem and the Schoology rubric (rows, level names, points, descriptions). For each student: the MCQ score, the attempt URL, and per FRQ the answer as plain text with line breaks kept, Schoology's current mark (level per row, comment), and any Prism mark (state suggested/accepted/edited, the suggestion, the teacher's final mark, write-back pending/posted/failed). Load the results first (load_quiz_results) if they are old.",
+      inputSchema: {
+        group_id: z.union([z.number(), z.string()]).describe('Quiz group id from list_quiz_groups'),
+        question: z.number().optional().describe('One FRQ by question number; omit for every FRQ'),
+      },
+    },
+    async ({ group_id, question }) => text(() => getFrqResponsesTool(getDb(), { group_id, question }))
+  );
+
+  server.registerTool(
+    'write_frq_suggestions',
+    {
+      description: 'Write suggested FRQ marks for teacher review in Prism (never sent to Schoology). Per student: cells as { rubric row title or id: level name } (for example { "Content Knowledge": "Exhibiting" }), or level alone for a one-row rubric, or points for an FRQ without a rubric; and a student-facing comment. Levels are names or codes (ED, EX, D, EM), never numbers: Prism converts them to points. A new suggestion replaces the earlier one and never changes a mark the teacher accepted or edited; if it differs, the teacher sees it as a revised suggestion. Returns { written, results: [{ student, status: written|error, message }] }.',
+      inputSchema: {
+        group_id: z.union([z.number(), z.string()]).describe('Quiz group id from list_quiz_groups'),
+        question: z.number().describe('FRQ question number'),
+        students: z.array(z.object({
+          student: z.union([z.number(), z.string()]).describe('schoology_uid or local student id'),
+          cells: z.record(z.string(), z.string()).optional().describe('{ rubric row title or id: level name }'),
+          level: z.string().optional().describe('Level name, for a one-row rubric'),
+          points: z.number().optional().describe('Points, for an FRQ without a rubric'),
+          comment: z.string().describe('Student-facing feedback on this answer'),
+        })),
+      },
+    },
+    async ({ group_id, question, students }) => text(() => writeFrqSuggestionsTool(getDb(), { group_id, question, students }))
+  );
+
+  server.registerTool(
+    'list_frq_writebacks',
+    {
+      description: "FRQ marks the teacher accepted or edited that Schoology does not show yet (write-back pending or failed): student, question number, the attempt URL to open, the level and points per rubric row, and the comment to enter. After entering one in Schoology, record it with mark_frq_writeback; the next load_quiz_results also detects it.",
+      inputSchema: { group_id: z.union([z.number(), z.string()]).describe('Quiz group id from list_quiz_groups') },
+    },
+    async ({ group_id }) => text(() => listFrqWritebacksTool(getDb(), { group_id }))
+  );
+
+  server.registerTool(
+    'mark_frq_writeback',
+    {
+      description: 'Record that an accepted FRQ mark was entered in Schoology (status posted), or that entering it failed (status failed, with error). Only for a mark listed by list_frq_writebacks.',
+      inputSchema: {
+        group_id: z.union([z.number(), z.string()]).describe('Quiz group id from list_quiz_groups'),
+        student: z.union([z.number(), z.string()]).describe('schoology_uid or local student id'),
+        question: z.number().describe('FRQ question number'),
+        status: z.enum(['posted', 'failed']),
+        error: z.string().optional().describe('What went wrong, for status failed'),
+      },
+    },
+    async ({ group_id, student, question, status, error }) => text(() => markFrqWritebackTool(getDb(), { group_id, student, question, status, error }))
   );
 
   server.registerTool(

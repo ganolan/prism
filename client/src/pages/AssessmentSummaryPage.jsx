@@ -378,6 +378,11 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     ((displayTouched && display !== loadedDisplay) ? 1 : 0)
   );
   const hasPendingChanges = pendingCount > 0;
+  // A save that touches only feedback rows stays in Prism (no Schoology call), so its
+  // button reads "Save in Prism"; the condition mirrors handleSave's overallChanged.
+  const rowsOnlySave = hasFeedbackRows && stagedScale == null
+    && comment === (student.grade_comment || '') && display === loadedDisplay
+    && rowLevelsToSave() != null;
 
   // Track whether this card has ever held a draft, so an untouched card does NOT
   // fire a spurious DELETE on first mount (only a real draft→clear transition does).
@@ -1193,6 +1198,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             levelHeaderColors={Object.fromEntries(LEVELS.map(l => [l, LEVEL_COLORS[l].headerFill]))}
             levelBorderColors={Object.fromEntries(LEVELS.map(l => [l, LEVEL_COLORS[l].finalBorder]))}
             levelDraftColors={Object.fromEntries(LEVELS.map(l => [l, LEVEL_COLORS[l].draftFill]))}
+            firstColumnLabel={hasFeedbackRows ? 'Criteria' : undefined}
           />
         ) : (
         <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.8rem' }}>
@@ -1203,7 +1209,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
                 background: 'var(--bg-subtle)', border: '1px solid var(--border)',
                 fontWeight: 600, fontSize: '0.75rem', color: 'var(--text-muted)', minWidth: 160,
               }}>
-                Measurement Topic
+                {hasFeedbackRows ? 'Criteria' : 'Measurement Topic'}
               </th>
               {LEVELS.map(l => (
                 <th key={l} style={{
@@ -1338,6 +1344,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
               pendingCode={stagedScale}
               suggestedCode={suggestedScaleLabel ? suggestedScale : null}
               locked={isRubricLocked}
+              // Under feedback rows the overall picker follows the Descriptors/Compact toggle.
+              showDescriptors={!hasFeedbackRows || viewMode === 'descriptors'}
               onSelect={selectScaleLevel}
             />
             {hasFeedbackRows && (
@@ -1690,9 +1698,9 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             className="primary"
             onClick={handleSave}
             disabled={saving || !hasPendingChanges || (!scoreScale && !scale.ready)}
-            title="Publish scores & comment to Schoology"
+            title={rowsOnlySave ? 'Save the feedback rows in Prism (nothing is sent to Schoology)' : 'Publish scores & comment to Schoology'}
           >
-            {saving ? 'Publishing...' : 'Publish to Schoology'}
+            {saving ? (rowsOnlySave ? 'Saving...' : 'Publishing...') : (rowsOnlySave ? 'Save in Prism' : 'Publish to Schoology')}
           </button>
 
           {/* Discard — undo arrow + label, always shown, disabled when nothing pending.

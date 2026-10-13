@@ -1282,3 +1282,7 @@ The /assessment/ card header holds one line of action pills (Flag for review, Re
 - **The rubric average:** staged on the overall picker by itself only while nothing is published, with the hint "Average of the rubric rows: {level}". A different pick turns the hint into the button "Use the rubric average ({level})". No override badge: one element carries the state.
 - **Insufficient Evidence:** stops the average; the hint asks the teacher to choose the overall level.
 - **Manage rubrics:** on an unaligned task the **Map criteria** tab is disabled, and an `.alert.alert-info` under the tab bar says "On an unaligned task, every criterion is a feedback row".
+- **Same grid as an aligned row (Graham, 13 Oct 2026):** the first column reads "Criteria", and the second line of a row is its standard (the rubric's Measurement Topic text), where an aligned row shows its topic title.
+- **Overall picker follows the view toggle:** Descriptors shows each level's description; Compact shows the level names only, so the rows carry the detail.
+- **Save button:** a save that changes only feedback rows reads "Save in Prism" (nothing goes to Schoology); any change to the overall level, comment or visibility reads "Publish to Schoology".
+- **Category colours:** criterion cells take the `reportingCategoryColors` keyword match, so rows whose rubric category is "PRODUCE" or "CREATE" are filled while aligned rows titled "HS Art: Producing" stay neutral. Left as is by Graham's choice (13 Oct 2026).

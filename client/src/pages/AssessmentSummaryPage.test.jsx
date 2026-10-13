@@ -2206,6 +2206,36 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
   const ROW = { id: 50, mastery_grading_period_id: 1, mastery_grading_category_id: 2 };
   const card = (extra = {}) => renderCard({ topics: ROWS, scoreScale: GAS, rubric, assignmentRow: ROW, ...extra });
 
+  it('titles the first column Criteria and shows each row\'s standard, as an aligned row shows its topic', () => {
+    const withStandards = CRITERIA.map((c, i) => ({ ...c, standard_title: i ? 'Anchor Standard 3: Refine' : 'Anchor Standard 5: Develop' }));
+    const rows = feedbackRowTopics(withStandards);
+    renderCard({ topics: rows, scoreScale: GAS, rubric: { criteria: withStandards, topicByCriterion: rowTopicMapping(rows) }, assignmentRow: ROW });
+    expect(screen.getByText('Criteria')).toBeInTheDocument();
+    expect(screen.queryByText('Measurement Topic')).not.toBeInTheDocument();
+    expect(screen.getByText('Anchor Standard 5: Develop')).toBeInTheDocument();
+    expect(screen.getByText('Anchor Standard 3: Refine')).toBeInTheDocument();
+  });
+
+  it('follows the view toggle: Compact hides the overall level descriptions', () => {
+    const described = { ...GAS, levels: GAS.levels.map(l => ({ ...l, descriptor: `about ${l.code}` })) };
+    const { unmount } = card({ scoreScale: described });
+    expect(screen.getByText('about EX')).toBeInTheDocument();
+    unmount();
+    card({ scoreScale: described, viewMode: 'compact' });
+    expect(screen.queryByText('about EX')).not.toBeInTheDocument();
+    expect(screen.getByText('Criteria')).toBeInTheDocument();
+  });
+
+  it('labels a rows-only save "Save in Prism" and an overall change "Publish to Schoology"', () => {
+    card({ student: { ...makeStudent(), score: 75, scale_level: 'EX', grade_comment: 'Hi', comment_status: 1,
+      scores: rowScores({ 'Features and Code': 'EX', Playtesting: 'EX' }) } });
+    fireEvent.click(screen.getByTitle('Set Playtesting to Developing'));
+    expect(screen.getByRole('button', { name: 'Save in Prism' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: /^developing$/i }));
+    expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Save in Prism' })).not.toBeInTheDocument();
+  });
+
   it('shows the rows grid with its label and the overall picker', () => {
     card();
     expect(screen.getByText('Feedback rows: kept in Prism, not sent to Schoology')).toBeInTheDocument();
@@ -2232,7 +2262,7 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
     card({ student: { ...makeStudent(), score: 75, scale_level: 'EX', grade_comment: 'Hi', comment_status: 1,
       scores: rowScores({ 'Features and Code': 'EX', Playtesting: 'EX' }) } });
     fireEvent.click(screen.getByTitle('Set Playtesting to Developing'));
-    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save in Prism' }));
     await waitFor(() => expect(saveRowLevels).toHaveBeenCalledWith('8', 'uid-1', { Playtesting: 'D' }));
     expect(writeMasteryComment).not.toHaveBeenCalled();
   });
@@ -2260,11 +2290,11 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
     expect(withOverall.patch).toMatchObject({ score: 50, scale_level: 'D', row_levels: { Playtesting: 'D' }, grade_comment: 'Hi' });
   });
 
-  it('a row pick on a new student does not turn the comment visible, so Publish saves rows in Prism only', async () => {
+  it('a row pick on a new student does not turn the comment visible, so Save in Prism saves rows in Prism only', async () => {
     card(); // makeStudent(): comment_status 0, grade_comment '' (auto-flip armed)
     fireEvent.click(screen.getByTitle('Set Playtesting to Developing'));
     expect(screen.getByRole('switch', { name: /display to student/i })).toHaveAttribute('aria-checked', 'false');
-    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save in Prism' }));
     await waitFor(() => expect(saveRowLevels).toHaveBeenCalledWith('8', 'uid-1', { Playtesting: 'D' }));
     expect(writeMasteryComment).not.toHaveBeenCalled();
   });

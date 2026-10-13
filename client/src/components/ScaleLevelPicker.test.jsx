@@ -46,6 +46,12 @@ describe('ScaleLevelPicker', () => {
     expect(screen.getByText('about EX')).toBeInTheDocument();
   });
 
+  it('hides descriptor text when showDescriptors is false', () => {
+    render(<ScaleLevelPicker scale={GAS} showDescriptors={false} onSelect={() => {}} />);
+    expect(screen.queryByText('about EX')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'EX' })).toBeInTheDocument();
+  });
+
   it('top-aligns each level so labels line up whatever the descriptor length', () => {
     render(<ScaleLevelPicker scale={GAS} onSelect={() => {}} />);
     for (const b of screen.getAllByRole('button')) {

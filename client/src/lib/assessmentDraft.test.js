@@ -42,4 +42,29 @@ describe('draftBaseline', () => {
     expect(draftBaseline(s, topics, { includeScore: true })).not.toBe(draftBaseline({ ...s, score: 50 }, topics, { includeScore: true }));
     expect(draftBaseline(s, topics)).toBe(draftBaseline({ ...s, score: 50 }, topics));
   });
+
+  describe('row levels (feedback rows)', () => {
+    const s = { grade_comment: 'c', comment_status: 1, exception: null, scores: {}, score: 75 };
+
+    it('empty or missing row levels give the plain score-scale signature', () => {
+      const plain = draftBaseline(s, [], { includeScore: true });
+      expect(draftBaseline(s, [], { includeScore: true, rowLevels: {} })).toBe(plain);
+      expect(draftBaseline(s, [], { includeScore: true, rowLevels: undefined })).toBe(plain);
+      expect(draftBaseline(s, [], { includeScore: true, rowLevels: null })).toBe(plain);
+    });
+
+    it('row finals change the signature', () => {
+      const plain = draftBaseline(s, [], { includeScore: true });
+      const a = draftBaseline(s, [], { includeScore: true, rowLevels: { Playtesting: 'EX' } });
+      const b = draftBaseline(s, [], { includeScore: true, rowLevels: { Playtesting: 'D' } });
+      expect(a).not.toBe(plain);
+      expect(a).not.toBe(b);
+    });
+
+    it('row key order does not change the signature', () => {
+      const a = draftBaseline(s, [], { includeScore: true, rowLevels: { Playtesting: 'EX', 'Features and Code': 'D' } });
+      const b = draftBaseline(s, [], { includeScore: true, rowLevels: { 'Features and Code': 'D', Playtesting: 'EX' } });
+      expect(a).toBe(b);
+    });
+  });
 });

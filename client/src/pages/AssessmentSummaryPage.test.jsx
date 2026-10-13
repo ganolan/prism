@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 import AssessmentSummaryPage, { StudentRubricCard } from './AssessmentSummaryPage.jsx';
-import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, getAttemptLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale, requestResubmission, undoResubmission, getFeatures, getQuizGroupFor, getQuizResults, rebuildQuizOverall, saveRowLevels } from '../services/api.js';
+import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, getAttemptLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale, requestResubmission, undoResubmission, getFeatures, getQuizGroupFor, getQuizResults, rebuildQuizOverall, saveRowLevels, getDraftsForAssignment } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 import { feedbackRowTopics, rowScores, rowTopicMapping } from '../lib/feedbackRows.js';
 
@@ -2352,6 +2352,60 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
     expect(screen.getByRole('button', { name: /^developing$/i, pressed: true })).toBeInTheDocument();
     expect(screen.getByText('1 pending change')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Use the rubric average/ })).not.toBeInTheDocument();
+  });
+
+  it('a locked student (Excused) with every row final stages no average', () => {
+    const handlers = {};
+    card({
+      student: { ...makeStudent(), exception: 1, scores: rowScores({ 'Features and Code': 'EX', Playtesting: 'EX' }) },
+      registerCard: (uid, h) => { handlers[uid] = h; }, unregisterCard: () => {},
+    });
+    expect(screen.queryByText(/pending change/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Average of the rubric rows/)).not.toBeInTheDocument();
+    expect(handlers['uid-1'].getEntry()).toBeNull();
+  });
+
+  it('a published student with an IE row and nothing pending shows no IE hint', () => {
+    card({ student: { ...makeStudent(), score: 75, scale_level: 'EX', grade_comment: 'Hi', comment_status: 1,
+      scores: rowScores({ 'Features and Code': 'EX', Playtesting: 'IE' }) } });
+    expect(screen.queryByText('A row is Insufficient Evidence: choose the overall level')).not.toBeInTheDocument();
+  });
+
+  it('a draft saved before the rubric was attached survives once the rows appear', () => {
+    const student = { ...makeStudent(), score: null, scale_level: null, row_levels: {} };
+    // The baseline the card computed while the task had no rubric (topics []).
+    const base = draftBaseline(student, [], { includeScore: true });
+    const draftRow = { pending: {}, comment: 'Typed before the rubric', display: false, displayTouched: false, base };
+    card({ student: { ...student, scores: rowScores(student.row_levels) }, draftRow });
+    expect(screen.getByDisplayValue('Typed before the rubric')).toBeInTheDocument();
+    expect(mockSaver.remove).not.toHaveBeenCalled();
+  });
+
+  it('a rows draft is restored when the rubric arrives after the mastery data', async () => {
+    const student = { ...makeStudent(), score: null, scale_level: null, row_levels: { 'Features and Code': 'EX' } };
+    getMasteryForAssignment.mockResolvedValue({
+      assignment: { id: 50, schoology_assignment_id: '8', title: 'Flappy (F)', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+      topics: [], scoreScale: GAS, students: [student],
+    });
+    const base = draftBaseline(student, [], { includeScore: true, rowLevels: student.row_levels });
+    getDraftsForAssignment.mockResolvedValueOnce({
+      1: { pending: { 'row:Playtesting': 'EM' }, comment: 'Half done', display: false, displayTouched: false, base },
+    });
+    let resolveRubric;
+    getRubricForAssignment.mockImplementationOnce(() => new Promise((r) => { resolveRubric = r; }));
+    renderAssessmentPage();
+    // Let the mastery data and drafts land before the rubric does.
+    await waitFor(() => expect(getMasteryForAssignment).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    // Cards never mount without their rows: the page waits for the rubric.
+    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    resolveRubric({ id: 1, rubric: { id: 7, name: 'Flappy', criteria: CRITERIA }, topicByCriterion: [] });
+    expect(await screen.findByDisplayValue('Half done')).toBeInTheDocument();
+    expect(screen.getByText('Feedback rows: kept in Prism, not sent to Schoology')).toBeInTheDocument();
+    // The row pick, the average it stages (EX and EM average to Developing), the comment.
+    expect(screen.getByText('3 pending changes')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^developing$/i, pressed: true })).toBeInTheDocument();
+    expect(mockSaver.remove).not.toHaveBeenCalled();
   });
 
   function renderAssessmentPage() {

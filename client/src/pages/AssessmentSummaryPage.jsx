@@ -180,7 +180,13 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // attached rubric's criteria. Row levels stay in Prism; only the overall
   // scale level is published.
   const hasFeedbackRows = !!scoreScale && topics.length > 0;
-  const currentBaseline = draftBaseline(student, topics, { includeScore: !!scoreScale });
+  // On a score-scale task the baseline never depends on the rows (topics): it
+  // reads the row finals directly, so a draft stays valid while the rubric
+  // loads and after one is attached (a draft saved before has no row finals).
+  const currentBaseline = draftBaseline(student, scoreScale ? [] : topics, {
+    includeScore: !!scoreScale,
+    rowLevels: scoreScale ? student.row_levels : undefined,
+  });
 
   // Reviewer rubric suggestions resolved to topic ids (spec §5). Best-effort:
   // unresolved keys / out-of-set values are silently dropped by the resolver.
@@ -343,7 +349,9 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     }
   }
   const average = hasFeedbackRows ? rubricAverage(scoreScale, topics.map((t) => rowName(t.id)), effectiveRows) : { level: null, reason: null };
-  const autoScale = hasFeedbackRows && student.scale_level == null && pending[SCALE] == null ? average.level : null;
+  // Never on a locked student (Excused/Incomplete/Missing): a grade would be
+  // written over the exception.
+  const autoScale = hasFeedbackRows && !isRubricLocked && student.scale_level == null && pending[SCALE] == null ? average.level : null;
   const stagedScale = scoreScale ? (pending[SCALE] ?? autoScale) : null;
   const averageLabel = average.level ? scoreScale.levels.find((l) => l.code === average.level)?.label : null;
   const currentOverall = pending[SCALE] ?? autoScale ?? student.scale_level ?? null;
@@ -1334,7 +1342,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             />
             {hasFeedbackRows && (
               <div className="feedback-rows-average">
-                {average.reason === 'insufficient_evidence' && pending[SCALE] == null
+                {average.reason === 'insufficient_evidence' && pending[SCALE] == null && student.scale_level == null
                   ? 'A row is Insufficient Evidence: choose the overall level'
                   : average.level && currentOverall === average.level && student.scale_level == null
                     ? `Average of the rubric rows: ${averageLabel}`
@@ -2068,9 +2076,13 @@ export default function AssessmentSummaryPage() {
       getFeedbackForAssignment(assignmentId).catch(() => ({})),
       getAssessmentAnalysis(assignmentId).catch(() => null),
       getDraftsForAssignment(assignmentId).catch(() => ({})),
+      // With the rest, so a card never mounts without its feedback rows.
+      // Best-effort: a missing rubric never blocks the grade grid.
+      getRubricForAssignment(assignmentId).catch(() => null),
     ])
-      .then(([mastery, feedback, analysisRow, drafts]) => {
+      .then(([mastery, feedback, analysisRow, drafts, rubric]) => {
         setData(mastery);
+        setRubricData(rubric || null);
         setFeedbackByStudent(feedback || {});
         setAnalysis(analysisRow || null);
         setDraftByStudent(drafts || {});
@@ -2112,12 +2124,10 @@ export default function AssessmentSummaryPage() {
     if (isLti) loadWorkLinks();
   }, [courseId, assignmentId, isLti]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load the attached rubric + the reporting-category colour palette (Task 13).
-  // Best-effort: a missing rubric / config failure leaves the page in compact-
-  // capable state with no descriptors, never blocking the grade grid.
+  // The reporting-category colour palette (Task 13); the attached rubric loads
+  // in load(). Best-effort: a config failure never blocks the grade grid.
   useEffect(() => {
     let active = true;
-    getRubricForAssignment(assignmentId).then(r => active && setRubricData(r)).catch(() => {});
     getRubricConfig().then(c => active && setRubricPalette(c.reportingCategoryColors || {})).catch(() => {});
     return () => { active = false; };
   }, [assignmentId]);

@@ -136,4 +136,12 @@ describe('/api/quizzes', () => {
     const bad = await call('PUT', `/api/quizzes/${id}/template`, { template: '{score}' });
     expect([bad.status, bad.body.error]).toEqual([400, 'Unknown placeholder: {score}']);
   });
+
+  test('GET /:id/results and POST rebuild', async () => {
+    const id = (await call('POST', '/api/quizzes', { course_id: course, assignment_ids: ['900'], title: 'T' })).body.group.id;
+    const r = await call('GET', `/api/quizzes/${id}/results`);
+    expect([r.status, r.body.students, r.body.group.result]).toEqual([200, [], null]);
+    const rebuilt = await call('POST', `/api/quizzes/${id}/overall/1/rebuild`);
+    expect([rebuilt.status, rebuilt.body.code]).toEqual([400, 'NOT_ELIGIBLE']);
+  });
 });

@@ -14,6 +14,8 @@ import { readQuestionLists, loadGroup } from '../services/quizLoader.js';
 import { groupStats } from '../services/quizStats.js';
 import { frqResponses } from '../services/frqResponses.js';
 import { setFrqMark } from '../services/frqMarks.js';
+import { quizResults } from '../services/quizResults.js';
+import { rebuildOverallSuggestion } from '../services/quizOverall.js';
 
 const router = Router();
 router.use(featureGate('quizzes'));
@@ -69,6 +71,10 @@ router.post('/:id/load', handle(async (req, db) => {
 router.get('/:id/stats', handle((req, db) => groupStats(db, { groupId: req.params.id })));
 router.put('/:id/template', handle((req, db) => ({ group: setCommentTemplate(db, { groupId: req.params.id, template: req.body.template }) })));
 router.put('/:id/tags', handle((req, db) => setQuestionTags(db, { groupId: req.params.id, tags: req.body.tags, texts: req.body.texts })));
+router.get('/:id/results', handle((req, db) => quizResults(db, { groupId: req.params.id })));
+router.post('/:id/overall/:studentId/rebuild', handle((req, db) => ({
+  student: rebuildOverallSuggestion(db, { groupId: req.params.id, studentId: req.params.studentId }),
+})));
 router.get('/:id/frq', handle((req, db) => frqResponses(db, { groupId: req.params.id, position: req.query.question ?? null })));
 router.put('/:id/frq/:attemptId/:position', handle((req, db) => ({
   mark: setFrqMark(db, {

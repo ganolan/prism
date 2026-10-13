@@ -311,6 +311,8 @@ export const loadQuizResults = (groupId) => request(`/quizzes/${groupId}/load`, 
 export const getQuizStats = (groupId) => request(`/quizzes/${groupId}/stats`);
 export const setQuizTags = (groupId, tags, texts) => request(`/quizzes/${groupId}/tags`, { method: 'PUT', body: JSON.stringify({ tags, texts }) });
 export const setQuizTemplate = (groupId, template) => request(`/quizzes/${groupId}/template`, { method: 'PUT', body: JSON.stringify({ template }) });
+export const getQuizResults = (groupId) => request(`/quizzes/${groupId}/results`);
+export const rebuildQuizOverall = (groupId, studentId) => request(`/quizzes/${groupId}/overall/${studentId}/rebuild`, { method: 'POST' });
 export const getFrqResponses = (groupId) => request(`/quizzes/${groupId}/frq`);
 export const saveFrqMark = (groupId, attemptId, position, body) =>
   request(`/quizzes/${groupId}/frq/${attemptId}/${position}`, { method: 'PUT', body: JSON.stringify(body) });

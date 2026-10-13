@@ -1102,9 +1102,10 @@ equals the 4a capture and the rubric grade is 4. The round trip also found that 
 after Schoology's script runs; `rubricLaunch` now reads the template JSON (fixed, tested). The final
 review's 7 Important findings were fixed before the round trip (ledger in the plan's workspace).
 
-**Not landed; `quiz_writeback` stays off.** Posting cannot work until the request that saves a changed
-rubric cell is known. **Next:** a second supervised probe (Stage C) that changes the level in the popup
-and captures every request, then restores it the same way; then the writer sends that request too.
+**Stage C (2026-10-13, Graham approved):** a level change through the popup sends a JSON `PUT` to
+`rubric_grade_info` (with `x-csrf-key` / `x-csrf-token`), then Save Changes posts the form (302). Changed
+4 to 3 and restored 3 to 4; read back each time; the attempt equals the 4a capture again. Details in the API
+reference. **Next:** the writer sends the rubric PUT before the form POST.
 
 ## Linked quizzes, phase 4a: write probe (2026-10-13, branch `claude/angry-hopper-5c1f00`)
 

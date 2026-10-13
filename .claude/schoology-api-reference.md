@@ -1070,8 +1070,22 @@ the repo.
   no `span.grading-rubric-grading-launch`; the rubric and enrollment ids are only in the page's template
   JSON (`"template":"s_grades_rubric_grading_launch_btn"`, `args[0]` rubric id, `args[1]` enrollment id,
   `args[2]` question id), as `parseQuizAttempt` reads them.
-- **Not observed:** the request that saves a changed rubric cell; an essay with `override` 0 (never
-  marked) and whether a replay must set it to 1;
+- **Stage C, a level change through the popup (2026-10-13, Graham approved, same attempt;
+  `probe-attempt-write.js level`):** choosing a different cell in the popup and pressing its Save sends
+  **`PUT /iapi/grades/assessment_component_submission_rubric_grade_info/{rubricId}/{qid}/{enrollmentId}/{attemptId}`**,
+  `Content-Type: application/json;charset=UTF-8`, headers `accept`, `content-type`, `cookie`, `origin`,
+  `referer`, `sec-ch-ua*`, `user-agent`, **`x-csrf-key`, `x-csrf-token`**. Body:
+  `{"gradeInfo":{"<rowId>":{"grade":<points as a number>,"comment":""}},"overrideGrade":null,"comment":"<the question's comment>"}`.
+  It also sets the form's `rubric_score` and `points` in the page. **Save Changes** then posts the form
+  as before; the response was **302**. Read back: the form showed the new score and points, the comment
+  unchanged, no other field different, and `rubric_grade_info` showed the new grade (4 to 3). The same
+  steps with Exhibiting Depth restored it (3 to 4); every form field then equalled the 4a capture.
+- **So a level change is two requests:** the rubric PUT (the cell, with Drupal's CSRF headers) and the
+  form POST (points and comment). The form POST alone leaves the rubric grade as it was.
+- **Not observed:** where the page takes the CSRF values for the PUT (Prism's unsubmit reads
+  `Drupal.settings.s_common.csrf_token` / `csrf_key` on a loaded page); whether the PUT's `comment` alone
+  saves the question comment; an essay with `override` 0 (never marked) and whether a replay must set it
+  to 1;
   a multi-row rubric's fields (whether `rubric_score` alone carries a one-row rubric's cell, or per-row
   values exist elsewhere); the response to the POST; and the `rubric_grade_info` read after a change.
 

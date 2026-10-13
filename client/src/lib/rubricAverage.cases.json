@@ -1,0 +1,20 @@
+{
+  "scale": { "name": "General Academic Scale (Unaligned)", "levels": [
+    { "code": "ED", "label": "Exhibiting Depth", "points": 100, "cutoff": 87.5 },
+    { "code": "EX", "label": "Exhibiting", "points": 75, "cutoff": 62.5 },
+    { "code": "D", "label": "Developing", "points": 50, "cutoff": 37.5 },
+    { "code": "EM", "label": "Emerging", "points": 25, "cutoff": 12.5 },
+    { "code": "IE", "label": "Insufficient Evidence", "points": 0, "cutoff": 0 }
+  ] },
+  "cases": [
+    { "name": "all the same", "levels": ["EX", "EX", "EX", "EX"], "expect": { "level": "EX", "reason": null } },
+    { "name": "a tie rounds up", "levels": ["EX", "EX", "D", "D"], "expect": { "level": "EX", "reason": null } },
+    { "name": "nearest level", "levels": ["EX", "D", "D"], "expect": { "level": "D", "reason": null } },
+    { "name": "ED and EX tie rounds up", "levels": ["ED", "EX"], "expect": { "level": "ED", "reason": null } },
+    { "name": "EM and D tie rounds up", "levels": ["EM", "D"], "expect": { "level": "D", "reason": null } },
+    { "name": "any IE stops the average", "levels": ["ED", "ED", "IE", "ED"], "expect": { "level": null, "reason": "insufficient_evidence" } },
+    { "name": "IE wins over an unmarked row", "levels": ["IE", null], "expect": { "level": null, "reason": "insufficient_evidence" } },
+    { "name": "an unmarked row", "levels": ["EX", null, "EX"], "expect": { "level": null, "reason": "incomplete" } },
+    { "name": "no rows", "levels": [], "expect": { "level": null, "reason": "incomplete" } }
+  ]
+}

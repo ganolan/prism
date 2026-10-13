@@ -1,6 +1,6 @@
 # Linked quizzes: question stats, free-response marking and the overall result
 
-Status: **design agreed with the teacher (2026-10-12), not built.** The read-only probe in §2 ran
+Status: **design agreed with the teacher (2026-10-12). Phase 1 and 1b on main (2026-10-13); phase 2 designed (§12).** The read-only probe in §2 ran
 on 12 October 2026, and every page shape in this document comes from it.
 
 ## Goal
@@ -100,7 +100,7 @@ New tables, all `CREATE TABLE IF NOT EXISTS` in `server/db/schema.sql`. No exist
 | `quiz_attempts` | `id`, `group_id`, `assignment_id`, `student_id`, `schoology_attempt_id`, `enrollment_id`, `started_at`, `completed_at`, `score`, `max_score`, `attempt_count`, `fetched_at` |
 | `quiz_responses` | `attempt_id`, `question_id`, `chosen_letter`, `is_correct`, `points`, `answer_html`, `schoology_rubric_cells_json`, `schoology_comment` |
 | `quiz_tag_texts` | `course_id`, `tag`, `text` (phase 1b: the full wording of a tag, shown on hover) |
-| `frq_marks` | `attempt_id`, `question_id`, `suggested_cells_json`, `suggested_comment`, `final_cells_json`, `final_comment`, `state` (`suggested`, `accepted`, `edited`), `writeback_status` (`pending`, `posted`, `failed`), `writeback_at`, `writeback_error`, `posted_cells_json`, `posted_comment` |
+| `frq_marks` | `attempt_id`, `question_id`, `suggested_cells_json`, `suggested_comment`, `suggestion_history_json`, `suggestion_revised`, `final_cells_json`, `final_comment`, `state` (`suggested`, `accepted`, `edited`), `writeback_status` (`pending`, `posted`, `failed`), `writeback_at`, `writeback_error`, `posted_cells_json`, `posted_comment` (phase 2, §12) |
 
 - **The overall result reuses `feedback`:** the suggestion on the result task is an ordinary
   suggestion (levels per measurement topic and a narrative), so that task grades like every other
@@ -116,8 +116,8 @@ New tables, all `CREATE TABLE IF NOT EXISTS` in `server/db/schema.sql`. No exist
    the counted attempt page, and `rubric_grade_info` for each FRQ with a rubric. Each rubric is
    fetched once.
 2. About 2 pages per taker, about 45 requests for a 20-student section, one after another with a
-   short pause. Loading is on demand (the **Load results** button, or `load_quiz_results`), never
-   in the nightly sync.
+   short pause. Loading is on demand (the **Load results** button, or `load_quiz_results`), and from
+   phase 2 the nightly sync also reloads each group loaded in the last 28 days (§12).
 3. **Reloading is safe:** attempts and responses are upserted; `frq_marks` is never touched. A
    response whose Schoology cell or comment differs from `posted_*` is flagged.
 4. A student without an attempt on any member test shows as "not taken". Make-up tracking is unchanged.
@@ -188,7 +188,7 @@ linked tests as a chip, the **Load results** button and the load time.
     student's answer to it.
   - **View by student:** each card stacks all of one student's FRQs.
   - **Card:** name, **Open attempt** link, state and write-back chips, the full answer, the
-    Schoology rubric in `RubricDescriptorGrid` with the AI cell in fuchsia, and the comment
+    Schoology rubric in a grid (`FrqRubricGrid`, §12) with the AI cell in fuchsia, and the comment
     (prefilled, editable) with **Accept** and **Save edit**.
   - **Filter:** to review, accepted, posted, failed.
   - **Command bar:** **Post accepted to Schoology (n)** (accepted or edited marks). While `quiz_writeback` is off, it shows
@@ -243,7 +243,97 @@ Each phase ships and is useful on its own.
 ## Out of scope for v1
 
 - A view that compares sections.
-- Loading in the nightly sync.
 - Reading `attempts_scoring` (latest attempt, with a warning, until then).
 - A level-to-points map for FRQs without a Schoology rubric.
 - Combining or linking through MCP.
+
+## 12. Phase 2 design (agreed with the teacher, 2026-10-13)
+
+Prism keeps a full copy of every answer and mark; nothing on a page or in a tool reads Schoology
+live. The copy is refreshed by **Load results**, by `load_quiz_results`, and nightly (below).
+
+### Marks and their states
+
+- **No Prism mark yet:** the card shows the stored copy of Schoology's mark (`quiz_responses`) as the
+  current mark, labelled "In Schoology". Nothing is written to `frq_marks` until an agent suggests or
+  the teacher acts.
+- **The suggestion layer works like assessment suggestions** (`server/services/suggestions.js`). A new
+  `write_frq_suggestions` call replaces `suggested_*` and pushes the old suggestion onto
+  `suggestion_history_json`; it never changes `final_*`. When the teacher has already accepted or edited
+  the mark and the new suggestion differs, `suggestion_revised` is set and the card shows **Revised
+  suggestion** until the teacher accepts it or keeps their own.
+- **Teacher states:** `suggested` (no teacher action), `accepted` (final equals the suggestion), `edited`
+  (the teacher changed the cell or the comment). A card started from Schoology's mark and then edited is
+  `edited` with no suggestion.
+- **Write-back states:** a mark whose final cells and comment differ from the stored Schoology copy is
+  `pending`; `posted` and `failed` are recorded by an agent (`mark_frq_writeback`) or detected on load.
+- **Detection on every load:** after the responses are stored, each `pending` or `failed` mark whose
+  Schoology cell and comment now match its final cell and comment becomes `posted` (posted by an agent
+  or pasted by hand, it makes no difference). A `posted` mark whose Schoology copy later differs from
+  `posted_*` is flagged "Changed in Schoology" and is never overwritten.
+
+### Posting until phase 4
+
+Both routes, and the load detects either:
+- **An agent** posts from `list_frq_writebacks` with a browser and records each with `mark_frq_writeback`.
+- **The teacher** pastes by hand: the card has **Copy comment** and **Open attempt**.
+
+### Nightly refresh
+
+The scheduled sync reloads every quiz group whose `loaded_at` is within the last 28 days, after the
+section sync, through the same saved browser session and the same read-only loader. A failure is
+logged in the sync run and never fails the sync.
+
+### Shuffle guard
+
+The probe of a test with shuffled options is skipped (no test of Graham's shuffles). Instead the
+loader compares each MCQ option's normalized text with the letter it was stored under; text found
+under a different letter on another attempt or copy is a load warning ("Question 4: options appear in
+a different order"), and that question's option counts are left out.
+
+### Student answer HTML
+
+Answers are student-authored. The client renders `answer_html` only through DOMPurify (a client
+dependency), allowing text formatting, lists, `pre`/`code` and line breaks, and nothing that runs or
+loads. MCP tools return the answer as plain text with line breaks kept.
+
+### MCP tools (phase 2)
+
+| Tool | Does |
+|---|---|
+| `get_frq_responses(group, question?)` | Per student and FRQ: the answer as plain text, the Schoology rubric (rows, level names, points, descriptions), the stored Schoology mark (level per row, comment), any Prism mark (state, suggestion, final, write-back), and the attempt URL |
+| `write_frq_suggestions(group, question, students[])` | Per student: `cells` as `{ row title or id: level name }` (Prism converts to points, as `write_student_suggestions` does), or `level` alone for a one-row rubric, or `points` for an FRQ without a rubric; and a `comment`. Reports unknown students, rows and levels per student |
+| `list_frq_writebacks(group)` | Marks with write-back `pending` or `failed`: student, question number, attempt URL, level and points per row, comment |
+| `mark_frq_writeback(group, student, question, status, error?)` | Records `posted` (copies final to `posted_*`) or `failed` |
+
+### Free response tab
+
+Shown when the group has an FRQ.
+- **Command bar:** **By question** (default) or **By student**; in By question, one picker sets the FRQ
+  for every card. Filter chips: To review, Accepted, Waiting to post, Posted, Failed, Changed in
+  Schoology. While `quiz_writeback` is off, a note shows "n waiting for the agent".
+- **Card:** name, **Open attempt**, state and write-back chips, the answer (sanitized), the Schoology
+  rubric grid (`FrqRubricGrid`: rows by levels from the stored rubric, level colours by name), the
+  comment, and **Accept**, **Save edit** and **Copy comment**.
+- **Grid marks:** the final cell filled in its level colour, the AI cell with the fuchsia sparkle, and
+  the stored Schoology cell with a small "S" corner mark. Clicking a cell sets the final cell.
+- **Comment box:** prefilled from the final comment, else the suggestion, else Schoology's comment.
+- **FRQ without a rubric:** a points field (0 to `max_points`) in place of the grid.
+
+### The grade-theory-test skill
+
+In `graham-plugins`, `assessment-grader:grade-theory-test` reads FRQs with `get_frq_responses` and
+writes with `write_frq_suggestions` when Prism is reachable and the test is in a quiz group. The CSV
+route stays as the fallback for when Prism is down; nothing in it is deleted.
+
+### Testing (phase 2)
+
+- **Server:** the suggestion layer (replace, history, revised flag, final untouched); state changes on
+  accept and edit; posted detection and "changed in Schoology"; the shuffle guard; the nightly selection
+  (28 days, failure isolated).
+- **MCP:** a handler test per tool, including level-name conversion and the per-student error report.
+- **Client:** both views, the picker, filters, accept, edit (cell and comment), copy, the revised tag,
+  the no-rubric points field, and sanitizing (an answer's `<script>` and `onerror` are removed before
+  it renders).
+- **Schema test:** the table list gains `frq_marks`.
+

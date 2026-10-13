@@ -1754,10 +1754,13 @@ export default function AssessmentSummaryPage() {
     enabled: !!quizGroup?.result,
     reloadKey: `${dataVersion}|${quizGroup?.loaded_at ?? ''}|${quizGroup?.comment_template ?? ''}|${quizTab}|${quizResultsKey}`,
   });
+  // Update numbers: refetch only the suggestions and the quiz line, so the cards stay mounted and the
+  // teacher keeps their place (a full load() would show Loading... and scroll to the top).
   async function handleRebuildQuiz(studentId) {
     await rebuildQuizOverall(quizGroup.id, studentId);
     setQuizResultsKey(k => k + 1);
-    load();
+    const feedback = await getFeedbackForAssignment(assignmentId).catch(() => null);
+    if (feedback) setFeedbackByStudent(feedback);
   }
   const [quizSetupOpen, setQuizSetupOpen] = useState(false);
   const [quizLoad, setQuizLoad] = useState({ busy: false, message: null });

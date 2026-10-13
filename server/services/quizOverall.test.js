@@ -67,7 +67,7 @@ describe('writeOverallSuggestions', () => {
     const fj = JSON.parse(latest(stu.u1).feedback_json);
     expect(fj.narrative_feedback).toBe('Multiple choice: 1/2 (50%)\nFree response: Q21 Exhibiting\nA secure start on variables.\nOpen your attempt on the test to read the feedback on each free-response question.');
     expect(fj.rubric_scores).toEqual({ 'CSP.1.1': 'EX' });
-    expect(fj.quiz_overall).toEqual({ group_id: g, impression: 'A secure start on variables.' });
+    expect(fj.quiz_overall).toEqual({ group_id: g, impression: 'A secure start on variables.', built: fj.narrative_feedback });
   });
 
   test('requires an impression', () => {
@@ -123,3 +123,44 @@ describe('rebuildOverallSuggestion', () => {
     expect(() => rebuildOverallSuggestion(db, { groupId: g, studentId: stu.u1 })).toThrow(/no overall suggestion/i);
   });
 });
+
+describe('a teacher edit on the Feedback page', () => {
+  // FeedbackPage saves { ...feedback_json, narrative_feedback } and keeps quiz_overall.
+  const editNarrative = (text) => {
+    const row = latest(stu.u1);
+    const fj = JSON.parse(row.feedback_json);
+    db.prepare(`UPDATE feedback SET feedback_json = ?, status = 'teacher_modified' WHERE id = ?`).run(JSON.stringify({ ...fj, narrative_feedback: text }), row.id);
+  };
+  const write = () => writeOverallSuggestions(db, { groupId: g, students: [{ student: 'u1', rubric_scores: { 'CSP.1.1': 'EX' }, impression: 'Good.' }] });
+
+  test('the built comment is stored with the impression', () => {
+    write();
+    const fj = JSON.parse(latest(stu.u1).feedback_json);
+    expect(fj.quiz_overall.built).toBe(fj.narrative_feedback);
+  });
+
+  test('an edit alone is not "numbers changed", and is reported as edited', () => {
+    write();
+    editNarrative('My own words.');
+    expect(quizResults(db, { groupId: g }).students[0].overall).toMatchObject({ stale: false, edited: true });
+  });
+
+  test('after an edit, changed numbers are stale but Update numbers never overwrites the edit', () => {
+    write();
+    editNarrative('My own words.');
+    db.prepare('UPDATE quiz_responses SET is_correct = 1 WHERE attempt_id = ? AND question_id = ?').run(att.u1, q2);
+    expect(quizResults(db, { groupId: g }).students[0].overall).toMatchObject({ stale: true, edited: true });
+    expect(() => rebuildOverallSuggestion(db, { groupId: g, studentId: stu.u1 })).toThrow(/edited/);
+    expect(JSON.parse(latest(stu.u1).feedback_json).narrative_feedback).toBe('My own words.');
+  });
+
+  test('a suggestion written before built was stored compares with its comment', () => {
+    write();
+    const row = latest(stu.u1);
+    const fj = JSON.parse(row.feedback_json);
+    delete fj.quiz_overall.built;
+    db.prepare('UPDATE feedback SET feedback_json = ? WHERE id = ?').run(JSON.stringify(fj), row.id);
+    expect(quizResults(db, { groupId: g }).students[0].overall).toMatchObject({ stale: false, edited: false });
+  });
+});
+

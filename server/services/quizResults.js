@@ -38,10 +38,15 @@ function overallFor(db, group, studentId, template, values, ready) {
   const fj = parse(fb?.feedback_json, {});
   if (!fb || fj.quiz_overall?.group_id !== group.id) return null;
   const rebuilt = buildComment(template, { ...values, impression: fj.quiz_overall.impression });
+  // `built` is the comment as Prism built it; a different narrative is the teacher's edit (on the
+  // Feedback page), which is never stale on its own and never overwritten. Older rows have no `built`.
+  const narrative = fj.narrative_feedback ?? '';
+  const built = fj.quiz_overall.built ?? narrative;
   return {
     feedback_id: fb.id, rubric_scores: fj.rubric_scores || {}, impression: fj.quiz_overall.impression,
     status: fb.status, suggestion_state: fb.suggestion_state ?? null,
-    stale: ready && rebuilt !== (fj.narrative_feedback ?? ''),
+    stale: ready && rebuilt !== built,
+    edited: narrative !== built,
   };
 }
 

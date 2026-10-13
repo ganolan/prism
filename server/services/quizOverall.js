@@ -15,11 +15,13 @@ function eligibleResults(db, groupId) {
 }
 
 function store(db, data, st, fields) {
+  const narrative = buildComment(data.group.template, { ...st.comment_values, impression: fields.quiz_overall.impression });
   return upsertStudentSuggestion(db, {
     ...fields,
     assignmentId: data.group.result.schoology_assignment_id,
     student: st.student_id,
-    narrative_feedback: buildComment(data.group.template, { ...st.comment_values, impression: fields.quiz_overall.impression }),
+    narrative_feedback: narrative,
+    quiz_overall: { group_id: fields.quiz_overall.group_id, impression: fields.quiz_overall.impression, built: narrative },
   });
 }
 
@@ -50,6 +52,7 @@ export function rebuildOverallSuggestion(db, { groupId, studentId }) {
   if (!st) throw new QuizError('NOT_FOUND', 'No attempt on this quiz for that student');
   if (!st.overall) throw new QuizError('NOT_ELIGIBLE', 'There is no overall suggestion to update');
   if (!st.ready) throw new QuizError('NOT_ELIGIBLE', `Not ready: ${st.blocked.join(', ')}`);
+  if (st.overall.edited) throw new QuizError('NOT_ELIGIBLE', 'The comment was edited on the Feedback page: update it there, or write the overall result again');
   const fj = JSON.parse(db.prepare('SELECT feedback_json FROM feedback WHERE id = ?').get(st.overall.feedback_id).feedback_json);
   store(db, data, st, {
     rubric_scores: fj.rubric_scores, reviewer_flags: fj.reviewer_flags, reviewer_flags_brief: fj.reviewer_flags_brief,

@@ -40,6 +40,12 @@ describe('QuizResultLine', () => {
     expect(await screen.findByText('Not ready: Q21 to review')).toBeInTheDocument();
   });
 
+  it('after a teacher edit, changed numbers show without Update numbers, so the edit is never overwritten', () => {
+    render(<QuizResultLine result={{ ...BASE, overall: { stale: true, edited: true } }} onRebuild={vi.fn()} />);
+    expect(screen.getByText('Numbers changed').getAttribute('title')).toMatch(/edited on the Feedback page/);
+    expect(screen.queryByRole('button', { name: 'Update numbers' })).not.toBeInTheDocument();
+  });
+
   it('renders nothing without a result', () => {
     const { container } = render(<QuizResultLine result={null} />);
     expect(container.innerHTML).toBe('');

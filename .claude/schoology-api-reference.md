@@ -1088,6 +1088,18 @@ the repo.
   differed from the 4a capture, the rubric grade was 4, and a full reload showed the mark `posted`, not
   "Changed in Schoology". The CSRF values were read from `Drupal.settings.s_common` on `/home` (the
   reader's page).
+- **Grade by question (read-only spike, 2026-10-13, same test `7724138299`):** the results page links
+  "View by Question" to `/assignment/{testId}/assessment_results/question_stats`, which links each question
+  to `/assignment/{testId}/assessment_results/question_stats/{id}/{number}` (`{id}` not identified). The
+  FRQ's page (number 21, 18 takers) holds **one form for the whole class,
+  `#s-assessment-view-question-responses-form`**, `method="post"`, `action` = the page's own path, 112
+  fields: for each submission `students[{uid}][submissions][{attemptId}][points|override|original_points|max_points|rubric_score|comment]`
+  (18 of each), then `op`, `form_build_id`, `form_token`, `form_id`; one **Save Changes**. It carries **only
+  this question's fields** (no MCQ fields). The page also holds 18 rubric launch template entries
+  (`s_grades_rubric_grading_launch_btn`, 10 args: rubric id, enrollment id, question id, grade html, two
+  numbers, attempt id, max points, two booleans), one rubric id, covering every attempt in the form. **Not
+  observed:** the request Save Changes sends from this page, and whether a rubric change there is also a
+  `rubric_grade_info` PUT per student (expected, as the popup is the same widget).
 - **Not observed:** where the page takes the CSRF values for the PUT (Prism's unsubmit reads
   `Drupal.settings.s_common.csrf_token` / `csrf_key` on a loaded page); whether the PUT's `comment` alone
   saves the question comment; an essay with `override` 0 (never marked) and whether a replay must set it

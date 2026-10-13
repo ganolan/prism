@@ -95,6 +95,28 @@ describe('/api/quizzes', () => {
     expect((await call('POST', `/api/quizzes/${id}/load`)).status).toBe(409);
   });
 
+  test('FRQ responses and a teacher action', async () => {
+    const db = getDb();
+    const id = (await call('POST', '/api/quizzes', { course_id: course, assignment_ids: ['900'], title: 'T' })).body.group.id;
+    const rubric = { id: 'r1', title: 'FRQ', totalPoints: 4, rows: [{ id: '146', title: 'Content Knowledge', maxPoints: 4, levels: [
+      { points: 4, name: 'Exhibiting Depth', descriptionHtml: 'Exhibiting Depth: all' }, { points: 3, name: 'Exhibiting', descriptionHtml: 'Exhibiting: most' }] }] };
+    const q = db.prepare(`INSERT INTO quiz_questions (group_id, position, kind, stem_html, max_points, schoology_rubric_json) VALUES (?, 21, 'frq', 'Explain', 4, ?)`).run(id, JSON.stringify(rubric)).lastInsertRowid;
+    db.prepare(`INSERT OR IGNORE INTO students (schoology_uid, first_name, last_name) VALUES ('frq-route-1', 'Ana', 'Lee')`).run();
+    const student = db.prepare(`SELECT id FROM students WHERE schoology_uid = 'frq-route-1'`).get().id;
+    const t = db.prepare(`SELECT id FROM assignments WHERE schoology_assignment_id = '900'`).get().id;
+    const a = db.prepare(`INSERT INTO quiz_attempts (group_id, assignment_id, student_id, schoology_attempt_id, fetched_at) VALUES (?, ?, ?, '5001', 'now')`).run(id, t, student).lastInsertRowid;
+    db.prepare('INSERT INTO quiz_responses (attempt_id, question_id, answer_html) VALUES (?, ?, ?)').run(a, q, '<p>because</p>');
+
+    const r = await call('GET', `/api/quizzes/${id}/frq`);
+    expect(r.status).toBe(200);
+    expect(r.body.questions[0].position).toBe(21);
+    const attemptId = r.body.students[0].attempt_id;
+    const saved = await call('PUT', `/api/quizzes/${id}/frq/${attemptId}/21`, { action: 'save', cells: { 146: 3 }, comment: 'Good' });
+    expect(saved.body.mark).toMatchObject({ state: 'edited', final: { cells: { 146: 3 }, comment: 'Good' }, writeback: { status: 'pending' } });
+    expect((await call('PUT', `/api/quizzes/${id}/frq/${attemptId}/21`, { action: 'accept' })).status).toBe(400);
+    expect((await call('GET', `/api/quizzes/${id}/frq?question=5`)).status).toBe(404);
+  });
+
   test('stats, tags, attempt links, candidates and delete', async () => {
     const id = (await call('POST', '/api/quizzes', { course_id: course, assignment_ids: ['900'], title: 'T' })).body.group.id;
     expect((await call('GET', `/api/quizzes/${id}/stats`)).body.questions).toHaveLength(1);

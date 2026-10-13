@@ -12,6 +12,8 @@ import {
 import { compareQuestionLists } from '../services/quizParity.js';
 import { readQuestionLists, loadGroup } from '../services/quizLoader.js';
 import { groupStats } from '../services/quizStats.js';
+import { frqResponses } from '../services/frqResponses.js';
+import { setFrqMark } from '../services/frqMarks.js';
 
 const router = Router();
 router.use(featureGate('quizzes'));
@@ -66,5 +68,12 @@ router.post('/:id/load', handle(async (req, db) => {
 
 router.get('/:id/stats', handle((req, db) => groupStats(db, { groupId: req.params.id })));
 router.put('/:id/tags', handle((req, db) => setQuestionTags(db, { groupId: req.params.id, tags: req.body.tags, texts: req.body.texts })));
+router.get('/:id/frq', handle((req, db) => frqResponses(db, { groupId: req.params.id, position: req.query.question ?? null })));
+router.put('/:id/frq/:attemptId/:position', handle((req, db) => ({
+  mark: setFrqMark(db, {
+    groupId: req.params.id, attemptId: req.params.attemptId, position: req.params.position,
+    action: req.body.action, cells: req.body.cells, comment: req.body.comment,
+  }),
+})));
 
 export default router;

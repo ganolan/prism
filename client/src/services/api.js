@@ -310,5 +310,8 @@ export const deleteQuizGroup = (groupId) => request(`/quizzes/${groupId}`, { met
 export const loadQuizResults = (groupId) => request(`/quizzes/${groupId}/load`, { method: 'POST' });
 export const getQuizStats = (groupId) => request(`/quizzes/${groupId}/stats`);
 export const setQuizTags = (groupId, tags, texts) => request(`/quizzes/${groupId}/tags`, { method: 'PUT', body: JSON.stringify({ tags, texts }) });
+export const getFrqResponses = (groupId) => request(`/quizzes/${groupId}/frq`);
+export const saveFrqMark = (groupId, attemptId, position, body) =>
+  request(`/quizzes/${groupId}/frq/${attemptId}/${position}`, { method: 'PUT', body: JSON.stringify(body) });
 export const getAttemptLinks = ({ assignmentId, studentId }) =>
   request(`/quizzes/attempt-links?${studentId ? `student_id=${studentId}` : `assignment_id=${assignmentId}`}`);

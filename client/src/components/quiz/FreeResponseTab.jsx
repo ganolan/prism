@@ -2,7 +2,7 @@
 // Reads Prism's stored copy only; a saved card replaces its mark in place.
 import { useEffect, useMemo, useState } from 'react';
 import { getFrqResponses, getFeatures } from '../../services/api.js';
-import { sanitizeAnswerHtml } from '../../lib/sanitizeHtml.js';
+import { sanitizeStemHtml } from '../../lib/sanitizeHtml.js';
 import FrqCard from './FrqCard.jsx';
 
 export const FILTERS = [
@@ -86,7 +86,7 @@ export default function FreeResponseTab({ groupId, reloadKey }) {
 
       {view === 'question' ? (
         <>
-          <div className="card frq-stem" dangerouslySetInnerHTML={{ __html: sanitizeAnswerHtml(question.stem_html) }} />
+          <div className="card frq-stem" dangerouslySetInnerHTML={{ __html: sanitizeStemHtml(question.stem_html) }} />
           {data.students.filter(s => matchesFilter(s.responses[question.position], filter)).map(s => card(s, question))}
         </>
       ) : (

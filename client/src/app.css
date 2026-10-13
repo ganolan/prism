@@ -1116,6 +1116,7 @@ button.triage-panel__more { padding: 0.15rem 0.4rem; font-size: 0.75rem; font-we
 .frq-tab__bar { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
 .frq-tab__q { width: auto; min-width: 6rem; }
 .frq-stem { line-height: 1.5; }
+.frq-stem img { max-width: 100%; height: auto; }
 .frq-student { display: grid; gap: 0.5rem; }
 .frq-student__q { margin: 0.25rem 0 0; font-size: 0.85rem; color: var(--text-muted); }
 .question-stem-line { flex: 1 1 160px; min-width: 160px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }

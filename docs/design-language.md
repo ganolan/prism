@@ -1261,7 +1261,14 @@ The /assessment/ card header holds one line of action pills (Flag for review, Re
 - **Three marks in one grid.** `FrqRubricGrid` shows the stored Schoology rubric with a level button per cell: the card's current cell is filled in its level colour (`LEVEL_COLORS`), the AI's cell has the fuchsia sparkle (and the AI wash when it is not the current cell), and Schoology's current cell has a small outlined "S". Clicking a cell changes the card's level.
 - **The comment starts from the closest mark:** the teacher's own, else the AI suggestion, else Schoology's comment, so an answer already marked in Schoology opens as it is there.
 - **Chips:** Suggested (`badge-pink`, the AI colour), Accepted or Edited (`badge-blue`), In Schoology or Not marked (`badge-gray`), Waiting to post (`badge-amber`), Posted (`badge-green`), Post failed (`badge-red`, the error in the hover title), Changed in Schoology (`badge-amber`), Revised suggestion (`badge-pink`).
-- **Student answers are sanitized.** Answers render only through `sanitizeAnswerHtml` (DOMPurify, with every attribute removed): formatting and code survive, and scripts, images and links are removed. The question stem goes through the same function.
+- **Student answers are sanitized.** Answers render only through `sanitizeAnswerHtml` (DOMPurify, with every attribute removed): formatting and code survive, and scripts, images and links are removed. The question stem goes through `sanitizeStemHtml`, which also keeps an image from an http(s) address with its alt text (phase 3), so a stem diagram shows.
+
+## Overall result on the Result task (October 2026, linked quizzes phase 3)
+
+- **The quiz line sits beside the Attempt link.** On a linked Result task each Grading card shows "MCQ 17/20 (85%), FRQ Q21: Exhibiting" in `var(--text-muted)` at 0.78rem (`.quiz-result-line`, `QuizResultLine.jsx`). An FRQ that is not confirmed shows its reason ("Q21: to review", "Q21: not marked"). The numbers are live from Prism's copy, not from the suggestion.
+- **The student name stays on one line.** The card's name link is `white-space: nowrap`, so a long quiz line wraps its own badge and button instead of breaking the name.
+- **A stale comment is flagged, not rewritten.** When the suggested comment no longer matches the numbers or the template, the line adds an amber "Numbers changed" badge and a small `.ghost.accent` **Update numbers** button. The update keeps the agent's impression and levels, so a comment the teacher already used comes back tagged Revised, as any revised suggestion does.
+- **The comment template lives in Quiz setup.** Shown only when the quiz is linked to its Result task: a five-row textarea under "Overall comment", with the placeholders named in one muted line above it. **Save template** (`.secondary`) is disabled until the text changes; **Reset to default** (`.ghost`) appears only for a saved template. A refused template shows its reason in the modal's existing warning alert. Saving keeps the modal open.
 
 ## Linked quizzes: what phase 1 keeps constant (October 2026)
 

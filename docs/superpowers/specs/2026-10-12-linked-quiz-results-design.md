@@ -1,6 +1,6 @@
 # Linked quizzes: question stats, free-response marking and the overall result
 
-Status: **design agreed with the teacher (2026-10-12). Phase 1 and 1b on main (2026-10-13); phase 2 on main (§12); phase 3 agreed 2026-10-13 (§13).** The read-only probe in §2 ran
+Status: **design agreed with the teacher (2026-10-12). Phase 1 and 1b on main (2026-10-13); phase 2 on main (§12); phase 3 built on the branch (§13).** The read-only probe in §2 ran
 on 12 October 2026, and every page shape in this document comes from it.
 
 ## Goal

@@ -1042,6 +1042,34 @@ overstates lateness). 12 archived 2023-25 CS sections were backfilled into prod 
 819-830). AP CSP 2023-24 has no mastery data in Schoology.
 
 
+## Linked quizzes, phase 3: overall result (2026-10-13, branch `claude/angry-hopper-5c1f00`)
+
+Built from `docs/superpowers/plans/2026-10-13-linked-quizzes-phase-3.md` (spec §13):
+- **Comment builder:** `server/lib/quizComment.js` (default template by question kinds, placeholders,
+  dropped empty lines, `{frq_levels}` text).
+- **Template:** `quiz_groups.comment_template` (schema and `MIGRATIONS`), `setCommentTemplate`,
+  `PUT /api/quizzes/:id/template`, and the editor in Quiz setup.
+- **Read model:** `server/services/quizResults.js` (MCQ score, percent by tag, confirmed FRQ marks,
+  readiness, the overall suggestion and whether it is stale), `GET /api/quizzes/:id/results`.
+- **Write:** `server/services/quizOverall.js` stores an ordinary suggestion on the Result task through
+  `upsertStudentSuggestion`, with `quiz_overall: { group_id, impression }` in `feedback_json`;
+  **Update numbers** is `POST /api/quizzes/:id/overall/:studentId/rebuild`.
+- **MCP:** `get_quiz_results`, `write_quiz_overall_suggestions`.
+- **UI:** the quiz line and **Update numbers** on the Result task's Grading cards.
+- **Phase 2 follow-ups fixed:** numeric FRQ level, write-back guard, sanitizer attributes, stem images.
+
+**Live check (dev clone on the mini, 2026-10-13, BK 6):** `GET /results` read 6 students, 5 ready (4
+confirmed from Schoology, 1 from Prism) and 1 "Q21 to review". `writeQuizOverallSuggestionsTool` wrote 3
+and refused the fourth with "Not ready: Q21 to review". The Grading tab showed the quiz line and the
+built comment; editing the template in Quiz setup showed "Numbers changed" on all three, and **Update
+numbers** rebuilt one with the new template. The check found the student name wrapping beside the
+badge; fixed (name `nowrap`). Screenshots: the review page, version 6.
+
+**Suites (2026-10-13):** server and MCP 1643 pass, client 997 pass, `npm run build` ok.
+
+**Next:** phase 4 (spec §9, §10): a teacher-approved write probe, then **Post accepted to Schoology**
+behind `quiz_writeback`.
+
 ## Linked quizzes, phase 2: FRQ marking (2026-10-13, branch `claude/angry-hopper-5c1f00`)
 
 Built from `docs/superpowers/plans/2026-10-13-linked-quizzes-phase-2.md` (spec §12): `frq_marks` (the
@@ -1067,15 +1095,8 @@ shows the new mark; the nightly window follows the latest attempt (or the group'
 reload renews `loaded_at`; comments compare by spacing only (HTML parsing cut text at `a<b`).
 
 **Deferred follow-ups (phase 2):**
-- **`write_frq_suggestions` schema:** `cells` values are `z.string()`, so a numeric level fails the
-  whole call instead of that student; accept `z.union([z.string(), z.number()])` and let `resolveCells`
-  refuse it.
-- **`mark_frq_writeback`:** refuse unless the mark is `pending` or `failed`; today it can overwrite
-  `posted_*` on a mark changed in Schoology and clear "Changed in Schoology".
-- **`sanitizeHtml.js` comment:** states "no attributes", but DOMPurify keeps `data-`/`aria-`; set
-  `ALLOW_DATA_ATTR: false` or correct the comment.
-- **Stem images:** the Free response tab sanitizes the stem with the answer rules, so a stem diagram is
-  dropped there (the Questions tab shows it).
+- **Fixed in phase 3:** the `write_frq_suggestions` numeric level, the `mark_frq_writeback` guard, the
+  sanitizer's `data-`/`aria-` attributes, and stem images on the Free response tab.
 - **Ungraded no-rubric FRQ:** if Schoology stores 0 points for an ungraded answer, a Prism mark of 0 with
   no comment counts as posted at once.
 
@@ -1090,13 +1111,7 @@ through `list_frq_writebacks`, the schoology plugin's `export-test-results` entr
 - **Showing Graham screenshots:** publish them on the review page `https://claude.ai/artifact/6G95czH7tcXdzZG4oxBgc3` (student names replaced); images opened with Read did not reach him in a remote session.
 - **Dev server:** a background `npm run dev` stops at the 2-hour task limit; restart it when needed.
 
-**Next:** phase 3 (spec §6/§7/§10): `get_quiz_results` (per student: MCQ correct, total and percent,
-percent by tag, confirmed FRQ levels), `write_quiz_overall_suggestions` (levels per measurement topic and
-a short impression; Prism builds the comment from the group's template, §7; refuses a student with an
-FRQ mark still `suggested`), and the comment template on the group. Then phase 4: a teacher-approved
-write probe (capture the request Schoology's attempt page sends when a mark is saved; the browser route
-in `export-test-results` is proven), then **Post accepted to Schoology** behind `quiz_writeback`.
-Related issues: #83 (comment added), #139 (course-wide results per tag), #78 (reuse `ScoreDots` and
+**Next:** phase 3 is built (see "Linked quizzes, phase 3" above); then phase 4. Related issues: #83 (comment added), #139 (course-wide results per tag), #78 (reuse `ScoreDots` and
 `LevelBar`), #135.
 
 ## Linked quizzes, phase 1 (2026-10-13, branch `claude/angry-hopper-5c1f00`)

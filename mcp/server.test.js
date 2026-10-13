@@ -540,4 +540,27 @@ describe('PrisMCP quiz tools', () => {
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toMatch(/Link this quiz group to its result task first/);
   });
+
+  test('write_quiz_overall_suggestions: a numeric level is reported, not a rejected call', async () => {
+    const db = getDb();
+    const c = db.prepare('SELECT course_id FROM quiz_groups WHERE id = ?').get(g).course_id;
+    const r = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, '950', 'Ep 1 - Result (S)')`).run(c).lastInsertRowid;
+    db.prepare(`UPDATE quiz_groups SET result_assignment_id = ?, loaded_at = '2026-10-13 01:00:00' WHERE id = ?`).run(r, g);
+    db.prepare(`UPDATE quiz_responses SET schoology_rubric_cells_json = '{"146":{"points":2,"comment":""}}'`).run();
+    const client = await connect();
+    const res = await client.callTool({ name: 'write_quiz_overall_suggestions', arguments: { group_id: g, students: [{ student: '701', rubric_scores: { 'CSP.1.1': 3 }, impression: 'Good.' }] } });
+    expect(res.isError).toBeFalsy();
+    const body = JSON.parse(res.content[0].text);
+    expect(body.results[0]).toMatchObject({ status: 'written' });
+  });
+
+  test('write_student_suggestions: a numeric level is reported, not a rejected call', async () => {
+    const db = getDb();
+    const c = db.prepare('SELECT course_id FROM quiz_groups WHERE id = ?').get(g).course_id;
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, '951', 'Project')`).run(c);
+    const client = await connect();
+    const res = await client.callTool({ name: 'write_student_suggestions', arguments: { course_id: c, assignment_id: '951', students: [{ student: '701', rubric_scores: { 'X.1': 3 } }] } });
+    expect(res.isError).toBeFalsy();
+    expect(JSON.parse(res.content[0].text).results[0]).toMatchObject({ status: 'written' });
+  });
 });

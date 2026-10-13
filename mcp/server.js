@@ -116,7 +116,7 @@ export function createServer() {
             z.object({
               student: z.union([z.number(), z.string()]).describe('schoology_uid or local student id'),
               narrative_feedback: z.string().optional(),
-              rubric_scores: z.record(z.string(), z.string()).optional().describe('{ topic external_id|title: proficiency level code or name }: levels only; Prism owns the points conversion'),
+              rubric_scores: z.record(z.string(), z.union([z.string(), z.number()])).optional().describe('{ topic external_id|title: proficiency level code or name }: levels only; Prism owns the points conversion'),
               reviewer_flags: z.string().nullable().optional().describe('Teacher-facing detail, one paragraph per flag'),
               reviewer_flags_brief: z.array(z.string()).optional().describe('One short line per reviewer flag (~12 words each), shown at a glance above strengths/suggestions; the full reviewer_flags text sits behind "Show detailed flags". Without it Prism shows the first sentence of each flag paragraph.'),
               strengths: z.array(z.string()).optional(),
@@ -255,7 +255,7 @@ export function createServer() {
         group_id: z.union([z.number(), z.string()]).describe('Quiz group id from list_quiz_groups'),
         students: z.array(z.object({
           student: z.union([z.number(), z.string()]).describe('schoology_uid or local student id'),
-          rubric_scores: z.record(z.string(), z.string()).describe('{ topic external_id|title: proficiency level code or name }'),
+          rubric_scores: z.record(z.string(), z.union([z.string(), z.number()])).describe('{ topic external_id|title: proficiency level code or name }'),
           impression: z.string().describe('Student-facing overall impression; Prism adds the numbers and the line about the attempt'),
           reviewer_flags: z.string().nullable().optional().describe('Teacher-facing detail, one paragraph per flag'),
           reviewer_flags_brief: z.array(z.string()).optional().describe('One short line per reviewer flag'),

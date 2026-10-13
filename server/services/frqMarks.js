@@ -6,11 +6,12 @@ import { QuizError } from './quizError.js';
 import { getGroup } from './quizGroups.js';
 import { resolveStudentId } from './idResolvers.js';
 import { normalizeLevel } from '../lib/proficiencyScale.js';
-import { plainText } from '../lib/quizText.js';
 
 export const POINTS_KEY = 'points';
 const parse = (t, fallback = null) => (t ? JSON.parse(t) : fallback);
-const normComment = (c) => plainText(c ?? '');
+// Comments are plain text on both sides (the Schoology copy is the attempt form's decoded textarea),
+// so only spacing is normalized: parsing them as HTML would cut text at a comparison like a<b.
+const normComment = (c) => String(c ?? '').replace(/\s+/g, ' ').trim();
 
 export function schoologyMarkOf(response, rubric) {
   if (!response) return null;

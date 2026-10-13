@@ -117,7 +117,7 @@ New tables, all `CREATE TABLE IF NOT EXISTS` in `server/db/schema.sql`. No exist
    fetched once.
 2. About 2 pages per taker, about 45 requests for a 20-student section, one after another with a
    short pause. Loading is on demand (the **Load results** button, or `load_quiz_results`), and from
-   phase 2 the nightly sync also reloads each group loaded in the last 28 days (§12).
+   phase 2 the nightly sync also reloads each loaded group that students sat in the last 28 days (§12).
 3. **Reloading is safe:** attempts and responses are upserted; `frq_marks` is never touched. A
    response whose Schoology cell or comment differs from `posted_*` is flagged.
 4. A student without an attempt on any member test shows as "not taken". Make-up tracking is unchanged.
@@ -280,9 +280,11 @@ Both routes, and the load detects either:
 
 ### Nightly refresh
 
-The scheduled sync reloads every quiz group whose `loaded_at` is within the last 28 days, after the
-section sync, through the same saved browser session and the same read-only loader. A failure is
-logged in the sync run and never fails the sync.
+The scheduled sync reloads every quiz group that has been loaded at least once and that students sat
+in the last 28 days (its latest attempt; before anyone has sat it, the day the group was made), after
+the section sync, through the same saved browser session and the same read-only loader. The window
+follows the attempts rather than `loaded_at`, because each nightly reload renews `loaded_at`. A failure
+is logged in the sync run and never fails the sync.
 
 ### Shuffle guard
 

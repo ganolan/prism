@@ -17,7 +17,13 @@ export function storeAttempt(db, { groupId, assignmentId, studentId, attempt, at
   const mismatches = [];
 
   db.transaction(() => {
-    // Upsert so the attempt keeps its id across loads (frq_marks will hang off it).
+    // A retake of the same test keeps the row but is a new answer: the old attempt's FRQ marks
+    // must never follow it (a mark accepted for the old answer would be posted onto the new one).
+    const previous = db.prepare('SELECT id, schoology_attempt_id FROM quiz_attempts WHERE assignment_id = ? AND student_id = ?').get(assignmentId, studentId);
+    if (previous && previous.schoology_attempt_id !== String(attempt.attemptId)) {
+      db.prepare('DELETE FROM frq_marks WHERE attempt_id = ?').run(previous.id);
+    }
+    // Upsert so the attempt keeps its id across loads (frq_marks hang off it).
     db.prepare(`INSERT INTO quiz_attempts
       (group_id, assignment_id, student_id, schoology_attempt_id, started_at, completed_at, score, max_score, attempt_count, fetched_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))

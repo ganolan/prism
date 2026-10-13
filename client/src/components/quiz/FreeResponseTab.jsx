@@ -23,6 +23,8 @@ export function matchesFilter(response, key) {
   }
 }
 
+const markKey = (m) => (m ? JSON.stringify([m.state, m.final, m.suggested, m.suggestion_revised]) : 'none');
+
 export default function FreeResponseTab({ groupId, reloadKey }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -55,7 +57,8 @@ export default function FreeResponseTab({ groupId, reloadKey }) {
       : { ...s, responses: { ...s.responses, [pos]: { ...s.responses[pos], mark } } })),
   }));
   const card = (s, q) => (
-    <FrqCard key={`${s.student_id}-${q.position}-${s.responses[q.position].mark?.state ?? 'none'}`}
+    // Keyed by the mark's content, so a saved change (even one that keeps the state) restarts the card from it.
+    <FrqCard key={`${s.student_id}-${q.position}-${markKey(s.responses[q.position].mark)}`}
       groupId={groupId} student={s} question={q} response={s.responses[q.position]}
       onSaved={(m) => replaceMark(s.student_id, q.position, m)} />
   );

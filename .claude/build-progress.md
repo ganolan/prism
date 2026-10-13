@@ -1049,7 +1049,7 @@ suggestion layer and the teacher's mark side by side), `frqMarks.js` (suggest, a
 write-back, detection on every load), `frqResponses.js` (the read model), REST `GET /api/quizzes/:id/frq`
 and `PUT /api/quizzes/:id/frq/:attemptId/:position`, the MCP tools `get_frq_responses`,
 `write_frq_suggestions`, `list_frq_writebacks` and `mark_frq_writeback`, the Free response tab, and a
-nightly `quizzes` sync phase (groups loaded in the last 28 days). Shuffled options are matched by text.
+nightly `quizzes` sync phase (loaded groups that students sat in the last 28 days). Shuffled options are matched by text.
 
 **Live check (dev clone on the mini, 2026-10-13):** Load results on BK 6 read 6 attempts with
 `marksPosted: 0`; `get_frq_responses` returned plain answers, the rubric and MCQ scores; two example

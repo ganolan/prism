@@ -127,7 +127,7 @@ export async function runUnifiedSync(
     }
   }
 
-  // Spec §12: the nightly run reloads quizzes loaded in the last 28 days. Best effort: a
+  // Spec §12: the nightly run reloads loaded quizzes that students sat in the last 28 days. Best effort: a
   // failure is reported in the run and never fails the sync.
   if (refreshQuizzes && getFeatures().quizzes) {
     emit({ phase: 'quizzes', status: 'running' });

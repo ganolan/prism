@@ -43,8 +43,9 @@ describe('Schoology mark and comparison', () => {
     expect(schoologyMarkOf(r, RUBRIC)).toEqual({ cells: { 146: 2 }, comment: 'Good start' });
     expect(schoologyMarkOf({ points: null, schoology_comment: null }, null)).toBeNull();
   });
-  test('sameMark compares points per row and the comment, ignoring spacing and HTML', () => {
-    expect(sameMark({ cells: { 146: 2 }, comment: '<p>Good  start</p>' }, { cells: { 146: '2' }, comment: 'Good start' })).toBe(true);
+  test('sameMark compares points per row and the comment, ignoring spacing only', () => {
+    expect(sameMark({ cells: { 146: 2 }, comment: ' Good\n\n start ' }, { cells: { 146: '2' }, comment: 'Good start' })).toBe(true);
+    expect(sameMark({ cells: { 146: 2 }, comment: 'if a<b then good' }, { cells: { 146: 2 }, comment: 'if a<b then bad' })).toBe(false);
     expect(sameMark({ cells: { 146: 2 }, comment: 'a' }, { cells: { 146: 3 }, comment: 'a' })).toBe(false);
     expect(sameMark({ cells: { 146: 2 }, comment: 'a' }, null)).toBe(false);
   });

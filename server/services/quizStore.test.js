@@ -55,6 +55,16 @@ describe('FRQ marks follow their attempt', () => {
     expect(marks()).toEqual([]);
   });
 
+  test('a retake of the same test (a new Schoology attempt id) drops the old attempt\'s marks', () => {
+    store(std, ATTEMPT, { attemptId: '5001' });
+    const a = db.prepare('SELECT id FROM quiz_attempts').get().id;
+    addMark(a);
+    store(std, ATTEMPT, { attemptId: '5001' });
+    expect(marks()).toEqual([a]);
+    store(std, ATTEMPT, { attemptId: '5002' });
+    expect(marks()).toEqual([]);
+  });
+
   test('pruning the older attempt of a retake deletes its mark and keeps the newer one', () => {
     store(std, ATTEMPT, { completedAt: '2026-10-10 09:35' });
     store(ext, copyParsed(), { attemptId: '6001', completedAt: '2026-10-12 09:35' });

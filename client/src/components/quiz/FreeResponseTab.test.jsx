@@ -62,6 +62,20 @@ describe('FreeResponseTab', () => {
     expect(await screen.findByText('2 waiting for the agent')).toBeInTheDocument();
   });
 
+  it('accepting a revised suggestion shows the new mark in the card', async () => {
+    const before = mark({ state: 'accepted', final: { cells: { 146: 2 }, comment: 'Old mark' }, suggested: { cells: { 146: 4 }, comment: 'New suggestion' }, suggestion_revised: true });
+    getFrqResponses.mockResolvedValue({ ...DATA, students: [{ ...DATA.students[0], responses: { ...DATA.students[0].responses, 21: { answer_html: 'Ana 21', schoology: null, mark: before } } }] });
+    saveFrqMark.mockResolvedValue({ mark: { ...before, final: { cells: { 146: 4 }, comment: 'New suggestion' }, suggestion_revised: false, writeback: { status: 'pending' } } });
+    render(<FreeResponseTab groupId={7} />);
+    const card = (await screen.findAllByTestId('frq-card'))[0];
+    expect(within(card).getByRole('textbox', { name: 'Comment for Ana Lee' })).toHaveValue('Old mark');
+    fireEvent.click(within(card).getByRole('button', { name: 'Accept' }));
+    const updated = await screen.findByDisplayValue('New suggestion');
+    expect(updated).toHaveAccessibleName('Comment for Ana Lee');
+    expect(screen.getByRole('button', { name: 'Content Knowledge: Exhibiting Depth' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByText('Revised suggestion')).toBeNull();
+  });
+
   it('shows a load error', async () => {
     getFrqResponses.mockRejectedValue(new Error('No quiz group 7'));
     render(<FreeResponseTab groupId={7} />);

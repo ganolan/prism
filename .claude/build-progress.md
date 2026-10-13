@@ -1058,6 +1058,47 @@ filled starting cell; Accept moved a card to Accepted and Waiting to post, and t
 the agent". Phase 2 only reads Schoology, so posting a mark there and its detection on the next load are
 covered by unit tests rather than live.
 
+**On main 2026-10-13 (`ce95d5e..b39c813`):** server 1604 and client 981 pass, build ok. CI and the
+prod deploy were not checked from the session (`gh run list` was blocked by the permission check).
+
+**Final review fixes (fresh reviewer, 2026-10-13):** a retake of the same test drops the old attempt's
+marks (`storeAttempt`); FRQ cards are keyed by the mark's content, so accepting a revised suggestion
+shows the new mark; the nightly window follows the latest attempt (or the group's creation), because each
+reload renews `loaded_at`; comments compare by spacing only (HTML parsing cut text at `a<b`).
+
+**Deferred follow-ups (phase 2):**
+- **`write_frq_suggestions` schema:** `cells` values are `z.string()`, so a numeric level fails the
+  whole call instead of that student; accept `z.union([z.string(), z.number()])` and let `resolveCells`
+  refuse it.
+- **`mark_frq_writeback`:** refuse unless the mark is `pending` or `failed`; today it can overwrite
+  `posted_*` on a mark changed in Schoology and clear "Changed in Schoology".
+- **`sanitizeHtml.js` comment:** states "no attributes", but DOMPurify keeps `data-`/`aria-`; set
+  `ALLOW_DATA_ATTR: false` or correct the comment.
+- **Stem images:** the Free response tab sanitizes the stem with the answer rules, so a stem diagram is
+  dropped there (the Questions tab shows it).
+- **Ungraded no-rubric FRQ:** if Schoology stores 0 points for an ungraded answer, a Prism mark of 0 with
+  no comment counts as posted at once.
+
+**Companion change:** `graham-plugins` 8de8cf9, assessment-grader 0.7.0: `grade-theory-test` has a Prism
+route (load, `get_frq_responses`, `write_frq_suggestions`, review on the Free response tab, then posting
+through `list_frq_writebacks`, the schoology plugin's `export-test-results` entry step, and
+`mark_frq_writeback`). The export route is unchanged as the fallback.
+
+**Working notes for the next session (on the mini):**
+- **Dev clone:** a worktree on `claude/angry-hopper-5c1f00` with its own DB (`DB_PATH=<clone>/server/db/students.db npm run db:refresh`); load the Ep 1 data with `scripts/verify-quiz-phase1.js` (it refuses a `DB_PATH` under `~/prism/`, so it runs on the mini).
+- **Client tests:** `npm --prefix client run test -- run` from the repo root (`npm --prefix client exec vitest` keeps the root as cwd and runs the server suite).
+- **Showing Graham screenshots:** publish them on the review page `https://claude.ai/artifact/6G95czH7tcXdzZG4oxBgc3` (student names replaced); images opened with Read did not reach him in a remote session.
+- **Dev server:** a background `npm run dev` stops at the 2-hour task limit; restart it when needed.
+
+**Next:** phase 3 (spec §6/§7/§10): `get_quiz_results` (per student: MCQ correct, total and percent,
+percent by tag, confirmed FRQ levels), `write_quiz_overall_suggestions` (levels per measurement topic and
+a short impression; Prism builds the comment from the group's template, §7; refuses a student with an
+FRQ mark still `suggested`), and the comment template on the group. Then phase 4: a teacher-approved
+write probe (capture the request Schoology's attempt page sends when a mark is saved; the browser route
+in `export-test-results` is proven), then **Post accepted to Schoology** behind `quiz_writeback`.
+Related issues: #83 (comment added), #139 (course-wide results per tag), #78 (reuse `ScoreDots` and
+`LevelBar`), #135.
+
 ## Linked quizzes, phase 1 (2026-10-13, branch `claude/angry-hopper-5c1f00`)
 
 Phase 1 shipped: quiz groups (combine a test with its extra-time copy behind a question-parity gate,
@@ -1130,5 +1171,4 @@ phase 2's `frq_marks` can key on `attempt_id`.
 - **Scripts:** `scripts/parity-quiz-results.js` passes vacuously if Prism has no MCQs for the groups;
   `scripts/verify-quiz-phase1.js` prints raw failure reasons and mismatch kinds as `unknown`.
 
-**Next:** phase 2 (FRQ marking: `frq_marks`, Free response tab, agent tools), phase 3 (overall
-results and comment template), phase 4 (Prism write-back, starting with a teacher-approved write probe).
+**Next:** see "Linked quizzes, phase 2" above (phase 3, then phase 4).

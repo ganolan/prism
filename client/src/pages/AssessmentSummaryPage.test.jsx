@@ -2128,6 +2128,11 @@ describe('AssessmentSummaryPage - quiz line (linked quizzes, phase 3)', () => {
   const RESULT = { student_id: 1, mcq: { correct: 17, total: 20, percent: 85 }, frq: [
     { question: 21, has_rubric: true, confirmed: true, levels: [{ row: 'C', level: 'Exhibiting', points: 3 }], points: 3, max_points: 4 }], overall: { stale: true } };
 
+  it('the student name stays on one line beside a long quiz line', () => {
+    renderCard({ quizResult: RESULT, onRebuildQuiz: vi.fn() });
+    expect(screen.getByRole('link', { name: 'Ada Lovelace' })).toHaveStyle({ whiteSpace: 'nowrap' });
+  });
+
   it('StudentRubricCard shows the quiz line and Update numbers', async () => {
     const onRebuildQuiz = vi.fn().mockResolvedValue();
     renderCard({ quizResult: RESULT, onRebuildQuiz });

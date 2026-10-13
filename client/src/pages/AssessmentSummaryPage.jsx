@@ -936,7 +936,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             {(student.first_name?.[0] || '')}{(student.last_name?.[0] || '')}
           </div>
         )}
-        <Link to={`/student/${student.id}`} className="link" style={{ fontWeight: 600, fontSize: '0.95rem' }}>
+        <Link to={`/student/${student.id}`} className="link" style={{ fontWeight: 600, fontSize: '0.95rem', whiteSpace: 'nowrap' }}>
           {displayName(student)}
         </Link>
         <SubmissionStatusPill student={student} assignment={assignmentRow} />

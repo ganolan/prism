@@ -1111,8 +1111,22 @@ reference.
 and the rubric grade, sends the rubric `PUT` (CSRF from `Drupal.settings.s_common` on `/home`), then the
 form `POST`, and reads both back. Through dev Prism: Exhibiting with " (test)", then Exhibiting Depth with
 the original comment, both `posted`; afterwards no field differs from the 4a capture, the rubric grade is
-4, and a reload shows `posted`, not "Changed in Schoology". Suites: server and MCP 1507 (server 1505 +
-scripts), client 1006.
+4, and a reload shows `posted`, not "Changed in Schoology".
+
+**Review of the rubric PUT (fresh reviewer) and fixes, 2026-10-13:** after the PUT the rubric grade is
+re-read before the form is posted; a session that expires between the two records the mark as
+half-written ("The rubric level was saved in Schoology but the form was not: post it again"), and a retry
+skips the PUT when the grade is already Prism's; the conflict check compares the points box, the comment
+and the rubric grade; a page whose rubric id differs from Prism's, or a non-numeric attempt path, is
+refused before any write; `reconcileMarks` needs the points to agree with a one-row level. Checked
+read-only on the real attempt afterwards (rubric id matches, nothing moved). Suites: server, MCP and
+scripts 1697, client 1006, build ok.
+
+**Deferred (phase 4b):** an SSO bounce mid-batch likely reads as HTTP 0 per student, not `NO_SESSION`
+(nothing is written); `openClient` (URL guards, CSRF, `NO_SESSION`) has no unit test; the template's attempt
+id is not compared with the path; no pause between the PUT and the POST; the read-back message omits the
+comment; the post bar ignores a later count once it shows results; the loader and writer locks are separate;
+a route test with the flag off; `assertOutsideRepo` in the probe accepts the main clone's folders.
 
 **Next:** land on `main` with `quiz_writeback` off, then Graham turns it on in `config.yaml` when he wants
 Prism to post (the first current-year post, one first, with him checking it in Schoology).

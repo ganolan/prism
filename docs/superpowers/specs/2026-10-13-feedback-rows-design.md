@@ -170,10 +170,13 @@ On a score-scale task with feedback rows (`AssessmentSummaryPage.jsx`, `StudentR
 
 | State | Overall picker | Hint |
 |---|---|---|
-| All rows marked, no IE, no pick | average staged (dashed) | "Average of the rubric rows: Exhibiting" |
+| Nothing published; all rows marked, no IE, no pick | average staged (dashed) | "Average of the rubric rows: Exhibiting" |
 | The teacher picked another level | the pick staged | button "Use the rubric average (Exhibiting)" |
 | A row is IE, no pick | nothing staged | "A row is Insufficient Evidence: choose the overall level" |
-| Saved, rows unchanged | published level | the button, only when the average differs |
+| An overall level is published | published level | the button, only when the average differs |
+
+Prism stages the average by itself only while the student has no published overall level. After
+that, a change to the rows shows the button, so a published level is never replaced without a click.
 
 - **Accept all suggestions** stages the AI row levels, and the agent's `scale_level` when it sent
   one, as a pick.

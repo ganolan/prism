@@ -28,7 +28,8 @@ export const INSTRUCTIONS =
   'levels and comments verbatim, e.g. for reference letters. Also linked ' +
   'quizzes: per-question results of Schoology tests that Prism combined, and ' +
   'tags per question. FRQ marking: get_frq_responses, write_frq_suggestions, then the teacher accepts in Prism; ' +
-  'list_frq_writebacks and mark_frq_writeback for posting. Overall result: get_quiz_results, then ' +
+  'the teacher publishes accepted marks with Publish all to Schoology on the Free response tab; ' +
+  'list_frq_writebacks and mark_frq_writeback are the fallback when that button is absent. Overall result: get_quiz_results, then ' +
   'write_quiz_overall_suggestions (levels and an impression; Prism builds the comment).';
 
 // Open the shared Prism DB (resolved relative to server/db, honoring DB_PATH)
@@ -217,7 +218,7 @@ export function createServer() {
   server.registerTool(
     'list_frq_writebacks',
     {
-      description: "FRQ marks the teacher accepted or edited that Schoology does not show yet (write-back pending or failed): student, question number, the attempt URL to open, the level and points per rubric row, and the comment to enter. After entering one in Schoology, record it with mark_frq_writeback; the next load_quiz_results also detects it.",
+      description: "FRQ marks the teacher accepted or edited that Schoology does not show yet (write-back pending or failed): student, question number, the attempt URL to open, the level and points per rubric row, and the comment to enter. After entering one in Schoology, record it with mark_frq_writeback; the next load_quiz_results also detects it. While Prism's quiz write-back is on, the teacher publishes these with Publish all to Schoology on the Free response tab; use this list for a mark it reports as \"Post this one by hand\", or when the teacher asks.",
       inputSchema: { group_id: z.union([z.number(), z.string()]).describe('Quiz group id from list_quiz_groups') },
     },
     async ({ group_id }) => text(() => listFrqWritebacksTool(getDb(), { group_id }))

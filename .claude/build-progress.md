@@ -1072,6 +1072,7 @@ Plan: `docs/superpowers/plans/2026-10-13-feedback-rows.md`.
     `draft_feedback.row_levels`, `removed_rows`, `scale_level`, `scale_level_source`.
   - `list_assignments` returns `feedback_rubric`.
   - `get_student_history` returns `rubric_rows` (full detail only) and splits the teacher-draft keys.
+- **Follow-ups (same day):** the grid matches an aligned row ("Criteria" header, the standard as the second line); the overall picker follows the Descriptors/Compact toggle; a rows-only save reads "Save in Prism"; every criterion cell is coloured by its reporting category (stem keywords plus the two AP CS colours); a row save that fails after Schoology accepted the grade is reported ("Published to Schoology, but the feedback rows were not saved in Prism: save again") with the grade still mirrored; no average hint on a locked student; the page gets row levels for the attached rubric's rows only; a standard text two rows share resolves to no row.
 - **Bugs fixed on the way:** `attach_rubric` accepted only the local assignment id, not the Schoology
   id; `draft_feedback.rubric_scores` leaked the card's `__scale__` key.
 

@@ -94,6 +94,15 @@ describe('row levels', () => {
     expect(resolveRowKey(rows, 'Evaluation')).toBeNull();
   });
 
+  test('resolveRowKey refuses a standard text that two rows share (never the first one silently)', () => {
+    const rows = [
+      { criterion: 'Features', standard: 'AS5' }, { criterion: 'Code quality', standard: 'AS5' }, { criterion: 'Reflection', standard: 'AS9' },
+    ];
+    expect(resolveRowKey(rows, 'as5')).toBeNull();
+    expect(resolveRowKey(rows, 'AS9')).toBe('Reflection');
+    expect(resolveRowKey(rows, 'Code quality')).toBe('Code quality');
+  });
+
   test('hiddenRowLevelCount counts finals whose names are not rows', () => {
     saveRowLevels(db, { assignmentSchoologyId: 'sa-F', studentUid: 'u1', rowLevels: { Aesthetic: 'EX', Playtesting: 'D' } });
     expect(hiddenRowLevelCount(db, 'sa-F', ['Features and Code', 'Playtesting'])).toBe(1);

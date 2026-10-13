@@ -1348,7 +1348,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
               showDescriptors={!hasFeedbackRows || viewMode === 'descriptors'}
               onSelect={selectScaleLevel}
             />
-            {hasFeedbackRows && (
+            {/* No hint or button on a locked student (an exception): nothing can be staged there. */}
+            {hasFeedbackRows && !isRubricLocked && (
               <div className="feedback-rows-average">
                 {average.reason === 'insufficient_evidence' && pending[SCALE] == null && student.scale_level == null
                   ? 'A row is Insufficient Evidence: choose the overall level'

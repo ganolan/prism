@@ -72,8 +72,9 @@ export function resolveRowKey(rows, key) {
   if (!k) return null;
   const byName = rows.find((r) => String(r.criterion ?? '').trim().toLowerCase() === k);
   if (byName) return byName.criterion;
-  const byStandard = rows.find((r) => String(r.standard ?? '').trim().toLowerCase() === k);
-  return byStandard ? byStandard.criterion : null;
+  // A standard text two rows share names no single row: unresolved, never the first one.
+  const byStandard = rows.filter((r) => String(r.standard ?? '').trim().toLowerCase() === k);
+  return byStandard.length === 1 ? byStandard[0].criterion : null;
 }
 
 export function hiddenRowLevelCount(db, assignmentSchoologyId, rowNames) {

@@ -574,7 +574,11 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
   // plain gradebook grade: ship the scale (levels best → worst) and each
   // student's current level, read from the stored score by cutoff.
   const scoreScale = scoreScaleFor(assignmentRow, topics.length);
-  const rowLevelsByUid = scoreScale ? getRowLevels(db, assignmentId) : {};
+  // Feedback rows: only the levels of the attached rubric's rows. A level kept for a row
+  // of an earlier rubric would make the card's draft baseline differ from its saved rows.
+  const rowNames = new Set((getFeedbackRows(db, assignmentId, scoreScale)?.rows ?? []).map(r => r.criterion));
+  const rowLevelsByUid = scoreScale ? Object.fromEntries(Object.entries(getRowLevels(db, assignmentId))
+    .map(([uid, levels]) => [uid, Object.fromEntries(Object.entries(levels).filter(([name]) => rowNames.has(name)))])) : {};
 
   // Which class this is — the page names it (block + course) so sections of
   // the same course can't be confused.
@@ -633,6 +637,9 @@ function feedbackRowsFor(db, courseId, assignmentId) {
   const scale = scoreScaleFor(row, getAlignedTopics(db, row.course_id, row.schoology_assignment_id).length);
   return getFeedbackRows(db, row.schoology_assignment_id, scale)?.rows ?? [];
 }
+
+// A row save that failed after Schoology accepted the grade (spec 2026-10-13 §5).
+const ROWS_NOT_SAVED = 'Published to Schoology, but the feedback rows were not saved in Prism: save again';
 
 // The student's schoology_uid for an enrolment id, or null.
 function uidForEnrolment(db, enrollmentId) {
@@ -856,12 +863,9 @@ router.post('/:courseId/write-comment', async (req, res) => {
         SELECT id FROM assignments WHERE schoology_assignment_id = ?
       `).get(String(assignmentId));
       let resubmissionFields = null;
+      let rowsSaveFailed = false;
       if (studentRow && assignmentRow) {
         const now = new Date().toISOString();
-        if (hasRowLevels) {
-          const uid = uidForEnrolment(db, enrollmentId);
-          if (uid) saveRowLevels(db, { assignmentSchoologyId: String(assignmentId), studentUid: uid, rowLevels });
-        }
         // Round 5: judge/absorb what other writers put in the DB, then the Schoology-side
         // part of the fresh echo — unless the teacher wrote the score in this save (a
         // rubric write just before this request, or a scale grade's points).
@@ -921,6 +925,18 @@ router.post('/:courseId/write-comment', async (req, res) => {
               written_at = excluded.written_at, source_type = NULL, source_id = NULL
           `).run(studentRow.id, assignmentRow.id, line, lineKind);
         }
+        // Feedback rows (Prism-only), after the grade mirror so a failure here never
+        // leaves the published grade unmirrored. A failure is reported, not swallowed:
+        // the rows exist nowhere else, and the card keeps them for a second Save.
+        if (hasRowLevels) {
+          try {
+            const uid = uidForEnrolment(db, enrollmentId);
+            if (uid) saveRowLevels(db, { assignmentSchoologyId: String(assignmentId), studentUid: uid, rowLevels });
+          } catch (err) {
+            console.error('[mastery write-comment] feedback rows not saved:', err.message);
+            rowsSaveFailed = true;
+          }
+        }
         // Best-effort: a local grade just landed — snapshot its visible feedback
         // (Amendment B) and settle any request it fulfilled. Never fails the save.
         try {
@@ -932,6 +948,9 @@ router.post('/:courseId/write-comment', async (req, res) => {
         resubmissionFields = savedPairFields(db, studentRow.id, assignmentRow.id, 'write-comment');
       }
 
+      if (rowsSaveFailed) {
+        return res.status(500).json({ error: ROWS_NOT_SAVED, published: true, resubmissionFields });
+      }
       res.json({ ...result, resubmissionFields });
     } catch (err) {
       console.error('[mastery write-comment] Error:', err);
@@ -1205,9 +1224,17 @@ router.post('/:courseId/send-all', async (req, res) => {
     }
     // Feedback rows: Prism-only, mirrored now that every Schoology write succeeded
     // (a rows-only entry made no Schoology call at all).
+    // A failed row save marks only that entry not ok: its grade and comment are already
+    // in Schoology and mirrored, and the card keeps the rows for another send.
+    const rowsFailed = new Set();
     for (const e of entries.filter(x => x.rowLevels != null)) {
-      const uid = uidForEnrolment(db, e.enrollmentId);
-      if (uid) saveRowLevels(db, { assignmentSchoologyId: String(e.assignmentId), studentUid: uid, rowLevels: e.rowLevels });
+      try {
+        const uid = uidForEnrolment(db, e.enrollmentId);
+        if (uid) saveRowLevels(db, { assignmentSchoologyId: String(e.assignmentId), studentUid: uid, rowLevels: e.rowLevels });
+      } catch (err) {
+        console.error('[mastery send-all] feedback rows not saved:', e.uid, err.message);
+        rowsFailed.add(e.uid);
+      }
     }
     // Best-effort: local grades just landed — snapshot their visible feedback
     // (Amendment B) and settle requests they fulfilled, once per distinct
@@ -1225,7 +1252,9 @@ router.post('/:courseId/send-all', async (req, res) => {
     res.json({
       results: entries.map((e) => {
         const p = pairByUid.get(e.uid);
-        return { uid: e.uid, ok: true, resubmissionFields: p ? savedPairFields(db, p.studentId, p.assignmentId, 'send-all') : null };
+        const resubmissionFields = p ? savedPairFields(db, p.studentId, p.assignmentId, 'send-all') : null;
+        if (rowsFailed.has(e.uid)) return { uid: e.uid, ok: false, error: ROWS_NOT_SAVED, resubmissionFields };
+        return { uid: e.uid, ok: true, resubmissionFields };
       }),
     });
   } catch (err) {

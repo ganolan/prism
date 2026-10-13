@@ -18,6 +18,11 @@ vi.mock('../services/masterySync.js', () => ({
   getRubricScoresForStudent: vi.fn(),
   interactiveLogin: vi.fn(),
 }));
+// The real feedback-rows service, with saveRowLevels wrapped so one test can make it fail.
+vi.mock('../services/feedbackRows.js', async (importOriginal) => {
+  const real = await importOriginal();
+  return { ...real, saveRowLevels: vi.fn(real.saveRowLevels) };
+});
 vi.mock('../services/schoology.js', () => ({
   pushGradeComments: vi.fn(),
   getSectionGrades: vi.fn(),
@@ -28,6 +33,7 @@ vi.mock('../services/oneDriveLinks.js', () => ({ getAssignmentFiles: vi.fn() }))
 import router from './mastery.js';
 import triageRouter from './triage.js';
 import { getDb } from '../db/index.js';
+import { saveRowLevels } from '../services/feedbackRows.js';
 import { getMasteryForCourse, writeMasteryScoresBatch, writeMasteryOverride } from '../services/masterySync.js';
 import { getSectionGrades, pushGradeComments } from '../services/schoology.js';
 import { getAssignmentFiles } from '../services/oneDriveLinks.js';
@@ -1878,6 +1884,35 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
     });
     const rowsOf = (uid) => Object.fromEntries(getDb().prepare(
       `SELECT criterion_name, level FROM rubric_row_levels WHERE assignment_schoology_id = 'sa-F' AND student_uid = ?`).all(uid).map(r => [r.criterion_name, r.level]));
+
+    test('GET returns only the row levels of the attached rubric\'s rows (an orphan from an old rubric is left out)', async () => {
+      getDb().prepare(`INSERT INTO rubric_row_levels (assignment_schoology_id, student_uid, criterion_name, level) VALUES ('sa-F', 'uid-B', 'Playtesting', 'ED'), ('sa-F', 'uid-B', 'Aesthetic', 'D')`).run();
+      const { body } = await get(`/api/mastery/${courseId}/assignment/sa-F`);
+      expect(body.students.find(s => s.schoology_uid === 'uid-B').row_levels).toEqual({ Playtesting: 'ED' });
+    });
+
+    test('write-comment: if the rows cannot be saved after Schoology accepted, the grade is still mirrored and the error states that', async () => {
+      vi.mocked(saveRowLevels).mockImplementationOnce(() => { throw new Error('disk I/O error'); });
+      const { status, body } = await post(`/api/mastery/${courseId}/write-comment`, {
+        enrollmentId: 'eB', assignmentId: 'sa-F', points: 75, comment: 'Good', commentStatus: true, rowLevels: { Playtesting: 'D' },
+      });
+      expect(status).toBe(500);
+      expect(body).toMatchObject({ published: true });
+      expect(body.error).toMatch(/published to Schoology.*rows were not saved/i);
+      const g = getDb().prepare(`SELECT g.score, g.grade_comment FROM grades g JOIN students s ON s.id = g.student_id JOIN assignments a ON a.id = g.assignment_id WHERE s.schoology_uid = 'uid-B' AND a.schoology_assignment_id = 'sa-F'`).get();
+      expect(g).toEqual({ score: 75, grade_comment: 'Good' });
+    });
+
+    test('send-all: an entry whose rows cannot be saved is reported not ok; the others are ok', async () => {
+      vi.mocked(saveRowLevels).mockImplementationOnce(() => { throw new Error('disk I/O error'); });
+      const { status, body } = await post(`/api/mastery/${courseId}/send-all`, {
+        entries: [{ uid: 'uid-B', enrollmentId: 'eB', assignmentId: 'sa-F', scores: null,
+          grade: { points: 75 }, comment: { comment: 'Good', commentStatus: true }, rowLevels: { Playtesting: 'EX' } }],
+      });
+      expect(status).toBe(200);
+      expect(body.results[0]).toMatchObject({ uid: 'uid-B', ok: false });
+      expect(body.results[0].error).toMatch(/rows were not saved/i);
+    });
 
     test('GET returns each student\'s row levels', async () => {
       getDb().prepare(`INSERT INTO rubric_row_levels (assignment_schoology_id, student_uid, criterion_name, level) VALUES ('sa-F', 'uid-B', 'Playtesting', 'ED')`).run();

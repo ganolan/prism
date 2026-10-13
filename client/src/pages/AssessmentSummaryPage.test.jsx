@@ -2392,6 +2392,7 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
     });
     expect(screen.queryByText(/pending change/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Average of the rubric rows/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Use the rubric average/ })).not.toBeInTheDocument();
     expect(handlers['uid-1'].getEntry()).toBeNull();
   });
 

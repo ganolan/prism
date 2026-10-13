@@ -30,7 +30,7 @@ async function inPageFetch({ url, accept, timeoutMs }) {
   }
 }
 
-async function openReader({ openPage, pauseMs }) {
+export async function openReader({ openPage, pauseMs }) {
   const session = await openPage();
   if (!session) throw new QuizError('NO_SESSION', 'No saved Schoology session: reconnect in Settings');
   let navError = null;
@@ -66,7 +66,7 @@ async function openReader({ openPage, pauseMs }) {
     if (!json) return r;
     try { return { ...r, json: JSON.parse(r.text) }; } catch { return { ...r, json: null }; }
   };
-  return { get, close: () => session.close().catch(() => {}) };
+  return { get, page: session.page, close: () => session.close().catch(() => {}) };
 }
 
 export async function readQuestionLists(db, { assignmentRefs }, { openPage = () => sessionDeps.openPage(), pauseMs = 400 } = {}) {

@@ -66,3 +66,10 @@ export function changedNames(a, b) {
 }
 
 export const toBody = (pairs) => new URLSearchParams(pairs).toString();
+
+// The question's rubric launch span carries the ids the rubric grade read needs (phase 4a probe).
+export function rubricLaunch(html, qid) {
+  const span = parse(String(html ?? '')).querySelectorAll('span.grading-rubric-grading-launch')
+    .find(s => s.getAttribute('item-id') === String(qid));
+  return span ? { rubricId: span.getAttribute('rubric-id'), enrollmentId: span.getAttribute('enrollment-id') } : null;
+}

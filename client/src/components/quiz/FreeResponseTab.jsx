@@ -46,10 +46,12 @@ export default function FreeResponseTab({ groupId, reloadKey }) {
     return () => { active = false; };
   }, [groupId, reloadKey, reload]);
 
-  const countMarks = (statuses) => (data ? data.students.reduce((n, s) =>
-    n + Object.values(s.responses).filter(r => statuses.includes(r.mark?.writeback?.status)).length, 0) : 0);
+  // Prism posts only FRQs with a one-row Schoology rubric; others stay with the agent or a paste.
+  const countMarks = (statuses, postableOnly = false) => (data ? data.students.reduce((n, s) =>
+    n + data.questions.filter(q => !postableOnly || q.rubric?.rows?.length === 1)
+      .filter(q => statuses.includes(s.responses[q.position]?.mark?.writeback?.status)).length, 0) : 0);
   const waiting = useMemo(() => countMarks(['pending']), [data]);
-  const toPost = useMemo(() => countMarks(['pending', 'failed']), [data]);
+  const toPost = useMemo(() => countMarks(['pending', 'failed'], true), [data]);
 
   if (error) return <div className="alert alert-warning">{error}</div>;
   if (!data) return <div className="loading">Loading...</div>;

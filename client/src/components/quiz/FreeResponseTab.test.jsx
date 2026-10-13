@@ -63,6 +63,16 @@ describe('FreeResponseTab', () => {
     expect(getFrqResponses).toHaveBeenCalledTimes(2);
   });
 
+  it('the post count leaves out marks on a rubric with more than one row', async () => {
+    getFeatures.mockResolvedValue({ quizzes: true, quiz_writeback: true });
+    const two = { ...RUBRIC, rows: [RUBRIC.rows[0], { ...RUBRIC.rows[0], id: '147' }] };
+    const data = { ...DATA, questions: [DATA.questions[0], { ...DATA.questions[1], rubric: two }],
+      students: [DATA.students[0], { ...DATA.students[1], responses: { ...DATA.students[1].responses, 22: { answer_html: 'Ben 22', schoology: null, mark: mark({ state: 'edited', final: { cells: { 146: 4, 147: 4 }, comment: 'c' }, writeback: { status: 'pending' } }) } } }] };
+    getFrqResponses.mockResolvedValue(data);
+    render(<FreeResponseTab groupId={7} />);
+    expect(await screen.findByRole('button', { name: 'Post accepted to Schoology (1)' })).toBeInTheDocument();
+  });
+
   it('a saved card updates in place', async () => {
     saveFrqMark.mockResolvedValue({ mark: mark({ state: 'accepted', final: { cells: { 146: 4 }, comment: 's' }, writeback: { status: 'pending' } }) });
     render(<FreeResponseTab groupId={7} />);

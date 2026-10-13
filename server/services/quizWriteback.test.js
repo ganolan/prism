@@ -2,35 +2,51 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 import { getDb } from '../db/index.js';
 import { postWritebacks, waitingMarks } from './quizWriteback.js';
-import { writeFrqSuggestions, setFrqMark } from './frqMarks.js';
+import { writeFrqSuggestions, setFrqMark, recordWriteback } from './frqMarks.js';
+import { posting } from './quizLocks.js';
 import { QuizError } from './quizError.js';
 
 const RUBRIC = { id: 'r1', title: 'FRQ', rows: [{ id: '146', title: 'Content Knowledge', maxPoints: 4, levels: [
   { points: 4, name: 'Exhibiting Depth' }, { points: 3, name: 'Exhibiting' }, { points: 2, name: 'Developing' }, { points: 1, name: 'Emerging' }] }] };
 
-// A fake Schoology: each attempt page holds form values; a POST stores the posted values (unless ignore).
-function fakeSchoology(initial, { ignorePost = false, expireAfterPosts = Infinity } = {}) {
-  const pages = new Map(Object.entries(initial));
+// A fake Schoology: each attempt page holds form values; a POST stores the posted values. Options simulate
+// a save Schoology ignores or applies only in part, an expired session, and a change to another field.
+function fakeSchoology(initial, { ignorePost = false, expireAfterPosts = Infinity, applyPoints = true, gradeInfoStale = false, mutateOther = false, maxPoints = 4, onPost = null } = {}) {
+  const pages = new Map(Object.entries(initial).map(([k, v]) => [k, { grade: v.score, other: '1', ...v }]));
   const calls = [];
   let posts = 0;
   const render = (path, v) => `<form id="s-assessment-edit-submission-form" action="${path}">
-    <input type="hidden" name="components[0][1001][points]" value="1"><input type="hidden" name="components[0][1001][override]" value="0">
+    <input type="hidden" name="components[0][1001][points]" value="${v.other}"><input type="hidden" name="components[0][1001][override]" value="0">
     <input type="hidden" name="components[0][1001][original_points]" value="1"><input type="hidden" name="components[0][1001][max_points]" value="1">
     <input type="hidden" name="components[0][1001][rubric_score]" value=""><textarea name="components[0][1001][comment]"></textarea>
+    <span class="grading-rubric-launch-icon grading-rubric-grading-launch" rubric-id="r1" enrollment-id="e1" item-id="${v.qid}"></span>
     <input type="hidden" name="components[0][${v.qid}][points]" value="${v.points}"><input type="hidden" name="components[0][${v.qid}][override]" value="${v.override}">
-    <input type="hidden" name="components[0][${v.qid}][original_points]" value="0"><input type="hidden" name="components[0][${v.qid}][max_points]" value="4">
+    <input type="hidden" name="components[0][${v.qid}][original_points]" value="0"><input type="hidden" name="components[0][${v.qid}][max_points]" value="${maxPoints}">
     <input type="hidden" name="components[0][${v.qid}][rubric_score]" value="${v.score}"><textarea name="components[0][${v.qid}][comment]">${v.comment}</textarea>
     <input type="submit" name="op" value="Save Changes"><input type="hidden" name="form_build_id" value="b${Math.random()}">
     <input type="hidden" name="form_token" value="t"><input type="hidden" name="form_id" value="s_assessment_edit_submission_form"></form>`;
+  const byAttempt = (id) => [...pages.entries()].find(([k]) => k.endsWith(`/${id}`));
   const client = {
-    get: vi.fn(async (path) => { calls.push(['GET', path]); const v = pages.get(path); return { status: v ? 200 : 404, text: v ? render(path, v) : '', finalUrl: path }; }),
+    get: vi.fn(async (path, opts = {}) => {
+      calls.push(['GET', path]);
+      const gi = path.match(/rubric_grade_info\/r1\/(\d+)\/e1\/(\d+)$/);
+      if (gi) {
+        const [, v] = byAttempt(gi[2]) || [];
+        return { status: v ? 200 : 404, text: '', finalUrl: path, json: v ? { response_code: 200, body: { gradeInfo: { 146: { grade: String(v.grade ?? ''), comment: '' } } } } : null };
+      }
+      const v = pages.get(path);
+      return { status: v ? 200 : 404, text: v ? render(path, v) : '', finalUrl: path };
+    }),
     post: vi.fn(async (path, body) => {
       calls.push(['POST', path, body]);
       posts += 1;
       if (posts > expireAfterPosts) throw new QuizError('NO_SESSION', 'Schoology connection expired: reconnect in Settings');
+      if (onPost) onPost(path);
       if (ignorePost) return { status: 200, finalUrl: path };
       const p = new URLSearchParams(body); const v = pages.get(path);
-      pages.set(path, { ...v, points: p.get(`components[0][${v.qid}][points]`), override: p.get(`components[0][${v.qid}][override]`), score: p.get(`components[0][${v.qid}][rubric_score]`), comment: p.get(`components[0][${v.qid}][comment]`) });
+      const score = p.get(`components[0][${v.qid}][rubric_score]`);
+      pages.set(path, { ...v, points: applyPoints ? p.get(`components[0][${v.qid}][points]`) : v.points, override: p.get(`components[0][${v.qid}][override]`),
+        score, grade: gradeInfoStale ? v.grade : score, comment: p.get(`components[0][${v.qid}][comment]`), other: mutateOther ? '0' : v.other });
       return { status: 200, finalUrl: path };
     }),
     close: vi.fn(async () => {}),
@@ -85,7 +101,8 @@ describe('postWritebacks', () => {
     const f = fakeSchoology(pagesNow());
     const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
     expect(r).toEqual({ results: [{ student_id: expect.any(Number), name: 'Ana Lee', question: 21, level: 'Exhibiting', status: 'posted', error: null }], remaining: 1 });
-    expect(f.calls.map(c => c.slice(0, 2))).toEqual([['GET', path('900', '701', '5001')], ['POST', path('900', '701', '5001')], ['GET', path('900', '701', '5001')]]);
+    expect(f.calls.map(c => c.slice(0, 2))).toEqual([['GET', path('900', '701', '5001')], ['POST', path('900', '701', '5001')], ['GET', path('900', '701', '5001')],
+      ['GET', '/iapi/grades/assessment_component_submission_rubric_grade_info/r1/2001/e1/5001']]);
     expect(mark('701')).toMatchObject({ writeback_status: 'posted', writeback_error: null, posted_comment: 'New line one\nline two' });
     const resp = db.prepare('SELECT * FROM quiz_responses WHERE attempt_id = ?').get(att['701']);
     expect([JSON.parse(resp.schoology_rubric_cells_json)[146].points, resp.schoology_comment, resp.points]).toEqual([3, 'New line one\nline two', 3]);
@@ -113,7 +130,7 @@ describe('postWritebacks', () => {
   test('a read-back that still shows the old mark is failed, not posted', async () => {
     const f = fakeSchoology(pagesNow(), { ignorePost: true });
     const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
-    expect(r.results[0]).toMatchObject({ status: 'failed', error: expect.stringMatching(/^Schoology still shows/) });
+    expect(r.results[0]).toMatchObject({ status: 'failed', error: expect.stringMatching(/^Schoology shows/) });
     expect(mark('701').writeback_status).toBe('failed');
   });
 
@@ -139,5 +156,80 @@ describe('postWritebacks', () => {
     const f = fakeSchoology({});
     const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
     expect(r.results[0]).toMatchObject({ status: 'failed', error: 'The attempt page did not load (HTTP 404)' });
+  });
+
+  test('a save that kept the old points is failed', async () => {
+    const f = fakeSchoology(pagesNow(), { applyPoints: false });
+    const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
+    expect(r.results[0]).toMatchObject({ status: 'failed', error: expect.stringMatching(/points 2/) });
+  });
+
+  test('a save whose rubric grade did not change is failed, and the stored copy is not touched', async () => {
+    const f = fakeSchoology(pagesNow(), { gradeInfoStale: true });
+    const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
+    expect(r.results[0]).toMatchObject({ status: 'failed', error: expect.stringMatching(/rubric/) });
+    expect(JSON.parse(db.prepare('SELECT schoology_rubric_cells_json FROM quiz_responses WHERE attempt_id = ?').get(att['701']).schoology_rubric_cells_json)[146].points).toBe(2);
+  });
+
+  test('points changed by hand in Schoology (rubric untouched) are a conflict: nothing is posted', async () => {
+    const pages = pagesNow();
+    pages[path('900', '701', '5001')] = { ...pages[path('900', '701', '5001')], points: '3' };
+    const f = fakeSchoology(pages);
+    const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
+    expect(r.results[0]).toMatchObject({ status: 'failed', error: 'Changed in Schoology since the last load' });
+    expect(f.calls.some(c => c[0] === 'POST')).toBe(false);
+  });
+
+  test('a question worth more than the rubric\'s top level is refused before posting', async () => {
+    const f = fakeSchoology(pagesNow(), { maxPoints: 10 });
+    const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
+    expect(r.results[0]).toMatchObject({ status: 'failed', error: expect.stringMatching(/worth 10 points/) });
+    expect(f.calls.some(c => c[0] === 'POST')).toBe(false);
+  });
+
+  test('a mark edited in Prism during the post is not recorded as posted with the new text', async () => {
+    const f = fakeSchoology(pagesNow(), { onPost: () => setFrqMark(db, { groupId: g, attemptId: att['701'], position: 21, action: 'save', cells: { 146: 4 }, comment: 'Newer' }) });
+    const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
+    expect(r.results[0]).toMatchObject({ status: 'failed', error: expect.stringMatching(/Changed in Prism during the post/) });
+    expect(mark('701')).toMatchObject({ writeback_status: 'pending', final_comment: 'Newer' });
+    expect(mark('701').posted_comment).not.toBe('Newer');
+  });
+
+  test('an agent cannot record a write-back while Prism is posting the group', () => {
+    posting.add(g);
+    try {
+      expect(() => recordWriteback(db, { groupId: g, student: '701', position: 21, status: 'posted' })).toThrow(/being posted/);
+    } finally { posting.delete(g); }
+  });
+
+  test('a post that changed another field stops the batch at once', async () => {
+    const f = fakeSchoology(pagesNow(), { mutateOther: true });
+    await expect(postWritebacks(db, { groupId: g, limit: null }, { openClient: async () => f.client })).rejects.toMatchObject({ code: 'UNSAFE' });
+    expect(mark('701')).toMatchObject({ writeback_status: 'failed', writeback_error: expect.stringMatching(/other fields changed/) });
+    expect(f.calls.filter(c => c[0] === 'POST')).toHaveLength(1);
+    expect(mark('702').writeback_status).toBe('pending');
+  });
+
+  test('one first picks a waiting mark before a failed one', async () => {
+    db.prepare(`UPDATE frq_marks SET writeback_status = 'failed', writeback_error = 'x' WHERE attempt_id = ?`).run(att['701']);
+    const f = fakeSchoology(pagesNow());
+    const r = await postWritebacks(db, { groupId: g, limit: 1 }, { openClient: async () => f.client });
+    expect(r.results[0]).toMatchObject({ name: 'Ana Ng', status: 'posted' });
+  });
+
+  test('a mark outside the scope (no one-row rubric) is reported as skipped and not counted', async () => {
+    const two = { ...RUBRIC, rows: [RUBRIC.rows[0], { ...RUBRIC.rows[0], id: '147', title: 'Code' }] };
+    const q22 = db.prepare(`INSERT INTO quiz_questions (group_id, position, kind, stem_html, max_points, schoology_rubric_json) VALUES (?, 22, 'frq', 'E2', 8, ?)`).run(g, JSON.stringify(two)).lastInsertRowid;
+    db.prepare(`INSERT INTO quiz_question_copies (question_id, assignment_id, schoology_question_id) VALUES (?, ?, '2002')`).run(q22, std);
+    db.prepare(`INSERT INTO quiz_responses (attempt_id, question_id, answer_html) VALUES (?, ?, 'a')`).run(att['701'], q22);
+    db.prepare(`INSERT INTO frq_marks (attempt_id, question_id, final_cells_json, final_comment, state, writeback_status) VALUES (?, ?, '{"146":4,"147":4}', 'c', 'edited', 'pending')`).run(att['701'], q22);
+    const f = fakeSchoology(pagesNow());
+    const r = await postWritebacks(db, { groupId: g, limit: null }, { openClient: async () => f.client });
+    expect(r.results.find(x => x.question === 22)).toMatchObject({ status: 'skipped', error: 'Post this one by hand: Prism posts only a one-row Schoology rubric' });
+    expect(r.remaining).toBe(0);
+  });
+
+  test('limit is 1 or none', async () => {
+    await expect(postWritebacks(db, { groupId: g, limit: -1 }, { openClient: async () => fakeSchoology(pagesNow()).client })).rejects.toMatchObject({ code: 'NOT_ELIGIBLE' });
   });
 });

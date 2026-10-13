@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { serializeAttemptForm, essayFields, withEssayMark, changedNames, essayNames, toBody } from './attemptForm.js';
+import { serializeAttemptForm, essayFields, withEssayMark, changedNames, essayNames, toBody, rubricLaunch } from './attemptForm.js';
 
 // A synthetic attempt form in the observed shape (schoology-api-reference.md, "Saving an FRQ level and comment").
 const q = (qid, { points, override = 0, original = points, max = 1, score = '', comment = '' }) => `
@@ -69,5 +69,13 @@ describe('the essay', () => {
 describe('toBody', () => {
   test('url-encoded as a browser sends it: spaces as +, UTF-8, CRLF kept', () => {
     expect(toBody([['a', 'x y'], ['c', 'é\r\n&']])).toBe('a=x+y&c=%C3%A9%0D%0A%26');
+  });
+});
+
+describe('rubricLaunch', () => {
+  test('the rubric and enrollment ids from the question\'s launch span', () => {
+    const html = '<div><span class="grading-rubric-launch-icon grading-rubric-grading-launch" rubric-id="36010096" enrollment-id="3174490355" item-id="2128035490" editable="true"></span></div>';
+    expect(rubricLaunch(html, '2128035490')).toEqual({ rubricId: '36010096', enrollmentId: '3174490355' });
+    expect(rubricLaunch(html, '1')).toBeNull();
   });
 });

@@ -19,10 +19,32 @@ describe('PostMarksBar', () => {
       { student_id: 2, name: 'Ana Ng', question: 21, level: 'Developing', status: 'posted', error: null },
       { student_id: 3, name: 'Bo Wu', question: 21, level: 'Exhibiting', status: 'failed', error: 'Changed in Schoology since the last load' },
     ], remaining: 1 });
-    fireEvent.click(screen.getByRole('button', { name: 'Post the other 2' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Post the remaining 2' }));
     expect(await screen.findByText('Failed: Bo Wu, Q21: Changed in Schoology since the last load')).toBeInTheDocument();
     expect(postFrqWritebacks).toHaveBeenLastCalledWith(7, null);
     expect(onPosted).toHaveBeenCalledTimes(2);
+  });
+
+  it('after a failed first post, it offers one again, never the rest', async () => {
+    postFrqWritebacks.mockResolvedValueOnce({ results: [{ student_id: 1, name: 'Ana Lee', question: 21, level: 'Exhibiting', status: 'failed', error: 'Changed in Schoology since the last load' }], remaining: 3 });
+    render(<PostMarksBar groupId={7} count={3} onPosted={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Post accepted to Schoology (3)' }));
+    expect(await screen.findByText('Failed: Ana Lee, Q21: Changed in Schoology since the last load')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /remaining/ })).toBeNull();
+    postFrqWritebacks.mockResolvedValueOnce({ results: [{ student_id: 2, name: 'Ana Ng', question: 21, level: 'Developing', status: 'posted', error: null }], remaining: 1 });
+    fireEvent.click(screen.getByRole('button', { name: 'Post one more first' }));
+    expect(await screen.findByText('Posted: Ana Ng, Q21 Developing')).toBeInTheDocument();
+    expect(postFrqWritebacks).toHaveBeenLastCalledWith(7, 1);
+    expect(screen.getByRole('button', { name: 'Post the remaining 1' })).toBeInTheDocument();
+  });
+
+  it('a skipped mark shows its reason', async () => {
+    postFrqWritebacks.mockResolvedValueOnce({ results: [{ student_id: 1, name: 'Ana Lee', question: 21, level: 'Exhibiting', status: 'posted', error: null }], remaining: 1 });
+    render(<PostMarksBar groupId={7} count={2} onPosted={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Post accepted to Schoology (2)' }));
+    postFrqWritebacks.mockResolvedValueOnce({ results: [{ student_id: 3, name: 'Bo Wu', question: 22, level: null, status: 'skipped', error: 'Post this one by hand: Prism posts only a one-row Schoology rubric' }], remaining: 0 });
+    fireEvent.click(await screen.findByRole('button', { name: 'Post the remaining 1' }));
+    expect(await screen.findByText('Skipped: Bo Wu, Q22: Post this one by hand: Prism posts only a one-row Schoology rubric')).toBeInTheDocument();
   });
 
   it('shows a refused post (busy, expired session) as an alert', async () => {

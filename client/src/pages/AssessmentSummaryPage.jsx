@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link, useSearchParams, Navigate, useLocation } from 'react-router-dom';
-import { getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, getTriagePair, loadQuizResults } from '../services/api.js';
+import { getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, getTriagePair, loadQuizResults, rebuildQuizOverall } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 import { makeDraftSaver } from '../lib/assessmentDraftSaver.js';
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
@@ -19,8 +19,10 @@ import QuizSetupModal from '../components/quiz/QuizSetupModal.jsx';
 import QuestionsTab from '../components/quiz/QuestionsTab.jsx';
 import FreeResponseTab from '../components/quiz/FreeResponseTab.jsx';
 import QuizLoadWarnings from '../components/quiz/QuizLoadWarnings.jsx';
+import QuizResultLine from '../components/quiz/QuizResultLine.jsx';
 import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
 import { useQuizGroup } from '../hooks/useQuizGroup.js';
+import { useQuizResults } from '../hooks/useQuizResults.js';
 import SubmissionStatusPill from '../components/SubmissionStatusPill.jsx';
 import SubmissionTimeline from '../components/SubmissionTimeline.jsx';
 import ExtendControl from '../components/ExtendControl.jsx';
@@ -154,7 +156,7 @@ function HeaderPill({ active, accent, activeBg, activeText, icon, label, clearLa
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
-export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, attemptLink = null, scoreScale = null, resubmitLessonsDefault = 3, resubmitEnabled = true, highlight = false, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
+export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, attemptLink = null, quizResult = null, onRebuildQuiz = null, scoreScale = null, resubmitLessonsDefault = 3, resubmitEnabled = true, highlight = false, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
   const scale = useProficiencyScale();
   // The card's action-panel row (ActionPanel portals into it).
   const [panelHost, setPanelHost] = useState(null);
@@ -950,6 +952,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         )}
         {/* The student's attempt on a linked or combined Schoology test. */}
         <AttemptLink link={attemptLink} name={displayName(student)} />
+        {/* The student's quiz numbers on a linked result task (linked quizzes, phase 3). */}
+        <QuizResultLine result={quizResult} onRebuild={() => onRebuildQuiz(student.id)} />
         {saveResult === 'saved' && (
           <span className="badge badge-green" style={{ fontSize: '0.68rem' }}>Saved ✓</span>
         )}
@@ -1743,6 +1747,18 @@ export default function AssessmentSummaryPage() {
   // Attempt links refresh after Load results (the group's loaded_at changes).
   const attemptLinks = useAttemptLinks({ assignmentId, reloadKey: `${dataVersion}|${quizGroup?.loaded_at ?? ''}` });
   const [quizTab, setQuizTab] = useStickyTab('assessment-quiz', 'grading', { param: 'tab' });
+  const [quizResultsKey, setQuizResultsKey] = useState(0);
+  // Only on the linked result task; refetched after a load, an FRQ change on the other tabs, or an update.
+  const quizResults = useQuizResults({
+    groupId: quizGroup?.id ?? null,
+    enabled: !!quizGroup?.result,
+    reloadKey: `${dataVersion}|${quizGroup?.loaded_at ?? ''}|${quizGroup?.comment_template ?? ''}|${quizTab}|${quizResultsKey}`,
+  });
+  async function handleRebuildQuiz(studentId) {
+    await rebuildQuizOverall(quizGroup.id, studentId);
+    setQuizResultsKey(k => k + 1);
+    load();
+  }
   const [quizSetupOpen, setQuizSetupOpen] = useState(false);
   const [quizLoad, setQuizLoad] = useState({ busy: false, message: null });
   // The group id currently on screen; a Load results response for another
@@ -2199,6 +2215,8 @@ export default function AssessmentSummaryPage() {
               rubricPalette={rubricPalette}
               submissionLink={workLinks.links[student.schoology_uid] || null}
               attemptLink={attemptLinks[student.id] || null}
+              quizResult={quizResults[student.id] || null}
+              onRebuildQuiz={handleRebuildQuiz}
               scoreScale={scoreScale}
               resubmitLessonsDefault={resubmitLessonsDefault}
               resubmitEnabled={!data.course?.archived && !data.course?.excluded}

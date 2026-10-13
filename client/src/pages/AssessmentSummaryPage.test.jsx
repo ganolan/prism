@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 import AssessmentSummaryPage, { StudentRubricCard } from './AssessmentSummaryPage.jsx';
-import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, getAttemptLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale, requestResubmission, undoResubmission } from '../services/api.js';
+import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, getAttemptLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale, requestResubmission, undoResubmission, getFeatures, getQuizGroupFor, getQuizResults } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 
 // Stub the DB saver so tests assert wiring, not I/O.
@@ -21,6 +21,8 @@ vi.mock('../services/api.js', () => ({
   getAttemptLinks: vi.fn().mockResolvedValue({ links: {} }),
   getFeatures: vi.fn().mockResolvedValue({}),
   getQuizGroupFor: vi.fn().mockResolvedValue({ group: null }),
+  getQuizResults: vi.fn().mockResolvedValue({ students: [] }),
+  rebuildQuizOverall: vi.fn(),
   setSuggestionState: vi.fn().mockResolvedValue({}),
   getFeedbackForAssignment: vi.fn().mockResolvedValue({}),
   getAssessmentAnalysis: vi.fn().mockResolvedValue(null),
@@ -2118,5 +2120,36 @@ describe('StudentRubricCard — triage actions on the card', () => {
     });
     expect(screen.getByRole('button', { name: 'Waive' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Extend' })).not.toBeInTheDocument();
+  });
+});
+
+describe('AssessmentSummaryPage - quiz line (linked quizzes, phase 3)', () => {
+  afterEach(() => { getFeatures.mockResolvedValue({}); getQuizGroupFor.mockResolvedValue({ group: null }); });
+  const RESULT = { student_id: 1, mcq: { correct: 17, total: 20, percent: 85 }, frq: [
+    { question: 21, has_rubric: true, confirmed: true, levels: [{ row: 'C', level: 'Exhibiting', points: 3 }], points: 3, max_points: 4 }], overall: { stale: true } };
+
+  it('StudentRubricCard shows the quiz line and Update numbers', async () => {
+    const onRebuildQuiz = vi.fn().mockResolvedValue();
+    renderCard({ quizResult: RESULT, onRebuildQuiz });
+    expect(screen.getByText('MCQ 17/20 (85%), FRQ Q21: Exhibiting')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Update numbers' }));
+    await waitFor(() => expect(onRebuildQuiz).toHaveBeenCalledWith(1));
+  });
+
+  it('the page fetches results for a linked group on the result task and passes them to the card', async () => {
+    getFeatures.mockResolvedValue({ quizzes: true });
+    getQuizGroupFor.mockResolvedValue({ group: { id: 7, title: 'Ep 1', members: [], result: { id: 50, schoology_assignment_id: '8', title: 'Launch' }, canonical_schoology_id: '8', frq_count: 1, loaded_at: '2026-10-13 01:00:00' } });
+    getMasteryForAssignment.mockResolvedValue({
+      assignment: { id: 50, schoology_assignment_id: '8', title: 'Launch', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+      topics: TOPICS, students: [makeStudent()],
+    });
+    getQuizResults.mockResolvedValue({ students: [RESULT] });
+    render(
+      <MemoryRouter initialEntries={['/course/4/assessment/8']}>
+        <Routes><Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} /></Routes>
+      </MemoryRouter>
+    );
+    expect(await screen.findByText('MCQ 17/20 (85%), FRQ Q21: Exhibiting')).toBeInTheDocument();
+    expect(getQuizResults).toHaveBeenCalledWith(7);
   });
 });

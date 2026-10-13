@@ -17,7 +17,7 @@ const RUBRIC = { id: '91', title: 'FRQ', rows: [{ id: '146', title: 'Content Kno
 // student's rubric grade (stage C); the page's form POST changes points, score and comment only.
 function fakeSchoology(subs, { questions = { 900: { 2001: 21 }, 901: { 3001: 21 } }, ignorePost = false, expireAfterPosts = Infinity, applyPoints = true,
   gradeInfoStale = false, putStatus = 200, putError = null, mutateOther = false, maxPoints = 4, onPost = null, pageAttempt = {}, missingPage = false,
-  onPut = null, putThrowAt = 0, readBackThrows = false, onFirstGet = null, linkById = true, putSetsForm = false } = {}) {
+  onPut = null, putThrowAt = 0, readBackThrows = false, onFirstGet = null, linkById = true, putSetsForm = false, putAppliedButFails = null } = {}) {
   const state = new Map(Object.entries(subs).map(([a, v]) => [a, { grade: v.score, ...v }]));
   const calls = [];
   let posts = 0, puts = 0, gets = 0;
@@ -83,12 +83,14 @@ function fakeSchoology(subs, { questions = { 900: { 2001: 21 }, 901: { 3001: 21 
       calls.push(['PUT', path, json]);
       puts += 1;
       if (putThrowAt && puts === putThrowAt) throw new QuizError('NO_SESSION', 'Schoology connection expired: reconnect in Settings');
-      if (onPut) onPut(state);
+      if (onPut) onPut(state, path);
       if (putStatus !== 200) return { status: putStatus, error: putError };
       const a = path.match(/\/(\d+)$/)[1];
       const grade = String(json.gradeInfo['146'].grade);
       // As observed for an essay already marked: the PUT also sets points, rubric score and comment.
+      // (For a never-marked essay, override 0, this is NOT observed; the fake assumes the same.)
       if (!gradeInfoStale) state.set(a, { ...state.get(a), grade, ...(putSetsForm ? { points: grade, score: grade, comment: json.comment } : {}) });
+      if (putAppliedButFails === a) return { status: 0, error: 'timed out' };
       return { status: 200 };
     }),
     close: vi.fn(async () => {}),
@@ -227,7 +229,7 @@ describe('postWritebacks (by question)', () => {
     const f = fakeSchoology(subsNow(), { expireAfterPosts: 1 });
     await expect(run(f, null)).rejects.toMatchObject({ code: 'NO_SESSION' });
     expect(mark('701').writeback_status).toBe('posted');
-    expect(mark('702')).toMatchObject({ writeback_status: 'failed', writeback_error: 'The rubric level was saved in Schoology but the form was not: post it again' });
+    expect(mark('702')).toMatchObject({ writeback_status: 'failed', writeback_error: 'The rubric level was saved in Schoology; the rest is not confirmed: load the results again, then post' });
     expect(f.client.close).toHaveBeenCalled();
   });
 
@@ -235,7 +237,7 @@ describe('postWritebacks (by question)', () => {
     acceptWu();
     const f = fakeSchoology(subsNow(), { expireAfterPosts: 0 });
     await expect(run(f, null)).rejects.toMatchObject({ code: 'NO_SESSION' });
-    for (const uid of ['701', '703']) expect(mark(uid)).toMatchObject({ writeback_status: 'failed', writeback_error: 'The rubric level was saved in Schoology but the form was not: post it again' });
+    for (const uid of ['701', '703']) expect(mark(uid)).toMatchObject({ writeback_status: 'failed', writeback_error: 'The rubric level was saved in Schoology; the rest is not confirmed: load the results again, then post' });
   });
 
   test('a second post while one runs is refused as busy', async () => {
@@ -389,7 +391,7 @@ describe('postWritebacks (by question)', () => {
     acceptWu('Exhibiting');
     const f = fakeSchoology(subsNow(), { putThrowAt: 2 });
     await expect(run(f, null)).rejects.toMatchObject({ code: 'NO_SESSION' });
-    expect(mark('701')).toMatchObject({ writeback_status: 'failed', writeback_error: 'The rubric level was saved in Schoology but the form was not: post it again' });
+    expect(mark('701')).toMatchObject({ writeback_status: 'failed', writeback_error: 'The rubric level was saved in Schoology; the rest is not confirmed: load the results again, then post' });
     expect(mark('703')).toMatchObject({ writeback_status: 'failed', writeback_error: 'The connection ended during this student\'s rubric save: load the results again, then post' });
   });
 
@@ -461,6 +463,39 @@ describe('postWritebacks (by question)', () => {
     const r = await run(f, 1);
     expect(r.results[0]).toMatchObject({ status: 'posted' });
     expect(postBody(f, '900').get('students[701][submissions][5001][override]')).toBe('1');
+  });
+
+  test('a hand edit to a student made before that student\'s turn is refused, not overwritten by the rubric save', async () => {
+    acceptWu('Exhibiting');
+    const f = fakeSchoology(subsNow(), { putSetsForm: true,
+      onPut: (state, path) => { if (path.endsWith('/5001')) state.set('5003', { ...state.get('5003'), comment: 'Teacher typed this' }); } });
+    const r = await run(f, null);
+    expect(r.results.find(x => x.name === 'Ana Wu')).toMatchObject({ status: 'failed', error: 'Changed in Schoology since the last load' });
+    expect(r.results.find(x => x.name === 'Ana Lee')).toMatchObject({ status: 'posted' });
+    expect(f.state.get('5003').comment).toBe('Teacher typed this');
+    expect(f.calls.some(c => c[0] === 'PUT' && c[1].endsWith('/5003'))).toBe(false);
+  });
+
+  test('a mixed page: one essay finished by the rubric save, one needing the form save', async () => {
+    acceptWu('Exhibiting');
+    db.prepare(`UPDATE quiz_responses SET points = 0, schoology_rubric_cells_json = NULL, schoology_comment = '' WHERE attempt_id = ?`).run(att['703']);
+    const subs = subsNow();
+    subs[5003] = { ...subs[5003], points: '0', override: '0', score: '', grade: '', comment: '' };
+    const f = fakeSchoology(subs, { putSetsForm: true });
+    const r = await run(f, null);
+    expect(r.results.filter(x => x.status === 'posted').map(x => x.name)).toEqual(['Ana Lee', 'Ana Wu', 'Ana Ng']);
+    const posts = f.calls.filter(c => c[0] === 'POST');
+    expect(posts).toHaveLength(1);
+    const before = new URLSearchParams(posts[0][2]);
+    expect([before.get('students[703][submissions][5003][override]'), before.get('students[701][submissions][5001][rubric_score]')]).toEqual(['1', '3']);
+  });
+
+  test('a rubric save reported as failed but applied does not sink the other students on the page', async () => {
+    acceptWu('Exhibiting');
+    const f = fakeSchoology(subsNow(), { putSetsForm: true, putAppliedButFails: '5001' });
+    const r = await run(f, null);
+    expect(r.results.find(x => x.name === 'Ana Lee')).toMatchObject({ status: 'failed', error: expect.stringMatching(/refused the rubric save \(timed out\)/) });
+    expect(r.results.find(x => x.name === 'Ana Wu')).toMatchObject({ status: 'posted' });
   });
 });
 

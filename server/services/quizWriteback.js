@@ -160,6 +160,9 @@ async function checkOne(db, client, w, form, rubrics) {
 // Every mark for one member test and one question, through that question's grade-by-question page
 // (spec §15): the per-student rubric save, then one form save for the page, then one read-back.
 const UNCONFIRMED = 'The form was saved but the read-back failed: check it in Schoology, then load the results again';
+// After a rubric save the whole mark may already be in Schoology (the PUT saves an already-marked essay's
+// points and comment too), so a retry starts from a fresh load.
+const RUBRIC_ONLY = 'The rubric level was saved in Schoology; the rest is not confirmed: load the results again, then post';
 
 // Finds the question's grade-by-question page: by question id, as the real index links it
 // (question_stats/{question id}/{number}), else by the copy's own question number.
@@ -185,6 +188,7 @@ async function postGroup(db, client, marks) {
   const set = (w, status, error, extra = {}) => results.set(w, { w, status, error, ...extra });
   const done = () => marks.map(w => results.get(w)).filter(Boolean);
   const ready = [];
+  const putSent = [];
   let current = null;
   let posted = false;
   try {
@@ -193,13 +197,22 @@ async function postGroup(db, client, marks) {
     const before = await client.get(qPath);
     const form = before.status === 200 ? serializeForm(before.text, BYQ_FORM) : null;
     if (!form || form.action !== qPath) { marks.forEach(w => set(w, 'failed', `The question page did not load (HTTP ${before.status})`)); return done(); }
-    const rubrics = byQuestionRubrics(before.text);
 
-    for (const w of marks) {
+    for (const [i, w] of marks.entries()) {
       current = w;
-      const c = await checkOne(db, client, w, form, rubrics);
+      // Each student is checked against a fresh read of the page: the rubric save writes the comment and
+      // points, so a hand edit made since the page loaded would otherwise be overwritten unseen.
+      let page = { form, text: before.text };
+      if (i > 0) {
+        const again = await client.get(qPath);
+        const againForm = again.status === 200 ? serializeForm(again.text, BYQ_FORM) : null;
+        if (!againForm) { set(w, 'failed', `The question page did not load (HTTP ${again.status})`); continue; }
+        page = { form: againForm, text: again.text };
+      }
+      const c = await checkOne(db, client, w, page.form, byQuestionRubrics(page.text));
       if (c.error) { set(w, 'failed', c.error, { unrecorded: !!c.unrecorded }); continue; }
       if (c.grade !== w.final.points) {
+        putSent.push({ w, prefix: submissionPrefix(w.uid, w.schoologyAttemptId) });
         const put = await client.putRubric(c.giPath, { gradeInfo: { [w.rowId]: { grade: w.final.points, comment: '' } }, overrideGrade: null, comment: w.final.comment });
         if (put.status !== 200) { set(w, 'failed', `Schoology refused the rubric save (${put.error || `HTTP ${put.status}`}): the form was not posted`); continue; }
         const check = await client.get(c.giPath, { json: true });
@@ -219,13 +232,18 @@ async function postGroup(db, client, marks) {
     // hand edit made meanwhile and is never sent back. Students already at Prism's mark need no form save.
     const fresh = await client.get(qPath);
     const freshForm = fresh.status === 200 ? serializeForm(fresh.text, BYQ_FORM) : null;
-    const target = new Map(ready.flatMap(r => [
+    // Every student whose rubric save was sent may now show Prism's values, even one Prism saw fail.
+    const target = new Map([...ready, ...putSent].flatMap(r => [
       [`${r.prefix}[points]`, String(r.w.final.points)], [`${r.prefix}[rubric_score]`, String(r.w.final.points)],
       [`${r.prefix}[override]`, '1'], [`${r.prefix}[comment]`, lf(r.w.final.comment)],
     ]));
     const freshValues = freshForm ? new Map(freshForm.pairs) : null;
-    const reachedTarget = (n) => target.has(n) && (n.endsWith('[comment]') ? lf(freshValues.get(n)) : freshValues.get(n)) === target.get(n);
-    const moved = freshForm ? changedNames(form.pairs, freshForm.pairs).filter(n => !reachedTarget(n)) : ['the page'];
+    const reachedTarget = (n) => target.has(n) && freshValues.has(n) && (n.endsWith('[comment]') ? lf(freshValues.get(n)) : freshValues.get(n)) === target.get(n);
+    // A student refused this run keeps whatever Schoology now holds: they are not posted, and the form
+    // save is built from this fresh read, so their own fields are left out of the comparison.
+    const readyOrSent = new Set([...ready, ...putSent].map(r => r.w));
+    const refusedNames = new Set(marks.filter(w => !readyOrSent.has(w) && results.has(w)).flatMap(w => namesAt(submissionPrefix(w.uid, w.schoologyAttemptId))));
+    const moved = freshForm ? changedNames(form.pairs, freshForm.pairs).filter(n => !reachedTarget(n) && !refusedNames.has(n)) : ['the page'];
     if (moved.length || ready.some(r => !stillWaiting(db, r.w))) {
       for (const r of ready) set(r.w, 'failed', `${HALF}: the question page changed during the post, load the results again`);
       return done();
@@ -255,7 +273,7 @@ async function postGroup(db, client, marks) {
         continue;
       }
       // The grade the PUT step just confirmed stands when no form save followed; otherwise read it back.
-      let cells = needForm.includes(r) || !r.cells ? null : r.cells;
+      let cells = posted || !r.cells ? null : r.cells;
       if (!cells) {
         const gi = await client.get(r.giPath, { json: true });
         cells = gi.status === 200 ? parseRubricGradeInfo(gi.json) : null;
@@ -272,7 +290,7 @@ async function postGroup(db, client, marks) {
   } catch (err) {
     // Every mark leaves with an honest result: a rubric saved without its form is half-written; after the
     // form save, an unchecked mark is unconfirmed; the mark whose request failed is unknown.
-    for (const r of ready) if (!results.has(r.w)) set(r.w, 'failed', posted ? UNCONFIRMED : `${HALF}: post it again`);
+    for (const r of ready) if (!results.has(r.w)) set(r.w, 'failed', posted ? UNCONFIRMED : RUBRIC_ONLY);
     if (current && !results.has(current)) set(current, 'failed', 'The connection ended during this student\'s rubric save: load the results again, then post');
     for (const w of marks) if (!results.has(w)) set(w, 'failed', `Not posted: ${String(err?.message || err)}`);
     err.results = done();

@@ -76,6 +76,16 @@ describe('openClient', () => {
       .toEqual([`${BASE}${GI}`, 'PUT', 'tok', 'key', 'application/json;charset=UTF-8', json]);
   });
 
+  test('each save waits the pause first, like each read', async () => {
+    const s = fakeSession();
+    const sleep = vi.fn(async () => {});
+    const c = await openClient({ pauseMs: 400, openPage: s.openPage, sleep });
+    await c.putRubric(GI, {});
+    await c.post(BYQ, 'a=1');
+    expect(sleep.mock.calls).toEqual([[400], [400]]);
+    expect(s.requests).toHaveLength(2);
+  });
+
   test('no CSRF values on the page: no rubric save is sent', async () => {
     const s = fakeSession({ csrf: {} });
     const c = await open(s);

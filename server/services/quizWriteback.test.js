@@ -218,6 +218,19 @@ describe('postWritebacks (by question)', () => {
     expect(f.calls.some(c => c[0] === 'POST' || c[0] === 'PUT')).toBe(false);
   });
 
+  test('a read-back with the level right but the comment not saved is half-written, and the message names the comment', async () => {
+    const f = fakeSchoology(subsNow());
+    const post = f.client.post.getMockImplementation();
+    f.client.post.mockImplementation(async (path, body) => {
+      const r = await post(path, body);
+      f.state.set('5001', { ...f.state.get('5001'), comment: 'Old' });
+      return r;
+    });
+    const r = await run(f, 1);
+    expect(r.results[0]).toMatchObject({ status: 'failed', error: 'The rubric level was saved in Schoology but the form was not: the form shows rubric score 3, points 3 and a different comment; post it again' });
+    expect(mark('701').writeback_status).toBe('failed');
+  });
+
   test('a read-back that still shows the old mark is half-written, not posted', async () => {
     const f = fakeSchoology(subsNow(), { ignorePost: true });
     const r = await run(f, 1);

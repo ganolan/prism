@@ -1100,7 +1100,7 @@ Order agreed with Graham: the skill, writer robustness, small items, then the ph
 - **Review (fresh reviewer):** nothing serious; fixed the hung-recheck case, the cached failed index and
   a missing course giving a 500. Left: after a form save that throws, marks read "the rest is not
   confirmed" (accurate); an empty results cell is unknown (safe; only `-` observed).
-- **Suites:** server, MCP and scripts 1792, client 1050.
+- **Suites:** server, MCP and scripts 1794, client 1053 (after the phase 4b fixes).
 
 **Still open:**
 - **First real publish:** when Graham next marks a test, check the result in Schoology, especially an essay
@@ -1111,9 +1111,12 @@ Order agreed with Graham: the skill, writer robustness, small items, then the ph
 - **Phase 1 list, accepted as they are (Graham, 2026-10-14):** BUSY is per process (server and PrisMCP);
   the parser notes (multi-select MCQ, a row without a wrapper, image-only stems); the Quiz setup UI notes;
   no indexes on the quiz tables; the parity and verify script notes.
-- **Phase 4b list, still deferred (not yet raised with Graham):** no pause between the PUT and the POST;
-  the read-back message omits the comment; the post bar ignores a later count once it shows results. (The
-  template's attempt id check is covered: the by-question writer keys each entry by attempt.)
+- **Phase 4b list, fixed 2026-10-14 (Graham):** each save waits the client's pause, like each read, so the
+  rubric save and the form save never go back to back; the half-written message names a comment that did
+  not save (behaviour from phase 4c, now tested); after a publish the bar shows what the publish left
+  waiting until the count changes, then the current count. The template's attempt id check is covered:
+  the by-question writer keys each entry by attempt.
+- **Can only be checked when they come up:** the first real publish and the three unobserved shapes above.
 
 ## Linked quizzes, phase 4c: posting by question (2026-10-13, branch `claude/angry-hopper-5c1f00`)
 

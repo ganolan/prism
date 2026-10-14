@@ -52,10 +52,12 @@ const EXPIRED = 'Schoology connection expired while posting: reconnect in Settin
 
 // The production client: the loader's logged-in reader, the rubric PUT and the by-question form POST.
 // Each request that fails outright (HTTP 0) checks the session as the reader does: a sign-in bounce
-// stops the batch with NO_SESSION, an unreachable Schoology with UNREACHABLE.
-export async function openClient({ pauseMs = 400, openPage = () => sessionDeps.openPage() } = {}) {
+// stops the batch with NO_SESSION, an unreachable Schoology with UNREACHABLE. Each save waits the same
+// short pause as each read (spec §14), so the rubric save and the form save never go back to back.
+export async function openClient({ pauseMs = 400, openPage = () => sessionDeps.openPage(), sleep = (ms) => new Promise(r => setTimeout(r, ms)) } = {}) {
   const reader = await openReader({ openPage, pauseMs, expired: EXPIRED });
   const send = async (fn, arg) => {
+    if (pauseMs) await sleep(pauseMs);
     const r = await reader.page.evaluate(fn, arg);
     if (r.status !== 0 && r.finalUrl && !isLoggedInUrl(r.finalUrl)) {
       noteSessionLive('expired', 'Schoology sent the saved session to the login page');

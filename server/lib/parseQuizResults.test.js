@@ -12,6 +12,11 @@ describe('parseQuizResults', () => {
       { uid: '703', attempted: true },
     ]);
   });
+  test('a submissions cell other than "-" or a count is unknown (null), never "not attempted"', () => {
+    const row = (cell) => `<tr class="student-row-9 odd"><td class="cell-submissions">${cell}</td></tr>`;
+    expect(['-', '0/1', '1/1', '', 'In progress', 'Late'].map(c => parseQuizResults(row(c))[0].attempted))
+      .toEqual([false, false, true, null, null, null]);
+  });
   test('null with no student rows', () => {
     expect(parseQuizResults('<table></table>')).toBeNull();
   });

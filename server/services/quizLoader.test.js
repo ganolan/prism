@@ -225,6 +225,34 @@ describe('loadGroup', () => {
     }
   });
 
+  test('a results cell Prism does not know keeps the stored attempt and is reported', async () => {
+    await loadGroup(db, { groupId }, { openPage: fakeOpenPage(happyPages()).openPage, pauseMs: 0 });
+    const pages = happyPages();
+    pages['/assignment/900/assessment_results'] = { status: 200, text: fx('results.html').replace('<td class="cell-submissions">1/1</td>', '<td class="cell-submissions">In progress</td>') };
+    const f = fakeOpenPage(pages);
+    const r = await loadGroup(db, { groupId }, { openPage: f.openPage, pauseMs: 0 });
+    expect(r.failed).toEqual([{ uid: '701', reason: 'results page shows "In progress"' }]);
+    expect([r.removed, r.notTaken, r.attempts]).toEqual([0, 1, 2]);
+    expect(f.requested).not.toContain('/assignment/900/assessment_results/student_stats/701');
+  });
+
+  test('a student who sat one copy is not counted as not taken on the other', async () => {
+    const c = db.prepare('SELECT id FROM courses').get().id;
+    const t2 = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, is_test) VALUES (?, '901', 'T2', 1)`).run(c).lastInsertRowid;
+    const t1 = db.prepare(`SELECT id FROM assignments WHERE schoology_assignment_id = '900'`).get().id;
+    db.exec('DELETE FROM quiz_questions; DELETE FROM quiz_group_members; DELETE FROM quiz_groups;');
+    const g = createGroup(db, { courseId: c, assignmentRefs: ['900', '901'], title: 'Two', questionLists: [
+      { assignmentId: t1, questions: parseQuizQuestions(fx('questions.html')) },
+      { assignmentId: t2, questions: parseQuizQuestions(fx('questions.html')) },
+    ] });
+    // 901 lists all three; only 703 sat it there. 701 sat 900, 702 sat neither.
+    const pages = happyPages();
+    pages['/assignment/901/assessment_results'] = { status: 200, text: fx('results.html').replace('<td class="cell-submissions">1/1</td>', '<td class="cell-submissions">-</td>') };
+    for (const k of Object.keys(happyPages())) if (k.startsWith('/assignment/900/assessment_results/student_stats/703')) pages[k.replace('/assignment/900/', '/assignment/901/')] = pages[k];
+    const r = await loadGroup(db, { groupId: g.id }, { openPage: fakeOpenPage(pages).openPage, pauseMs: 0 });
+    expect(r.notTaken).toBe(1);
+  });
+
   test('uids are listed once even when the group has two member tests', async () => {
     const c = db.prepare('SELECT id FROM courses').get().id;
     const t2 = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, is_test) VALUES (?, '901', 'T2', 1)`).run(c).lastInsertRowid;

@@ -150,6 +150,19 @@ describe('/api/quizzes', () => {
     expect([rebuilt.status, rebuilt.body.code]).toEqual([400, 'NOT_ELIGIBLE']);
   });
 
+  test('creating or checking a group refuses bad input before reading Schoology', async () => {
+    vi.mocked(readQuestionLists).mockClear();
+    const results = [
+      await call('POST', '/api/quizzes', { course_id: course, assignment_ids: ['950'], title: 'T' }),
+      await call('POST', '/api/quizzes', { course_id: course, assignment_ids: ['900', '900'], title: 'T' }),
+      await call('POST', '/api/quizzes', { course_id: course, assignment_ids: ['999'], title: 'T' }),
+      await call('POST', '/api/quizzes/check-parity', { assignment_ids: ['999'] }),
+      await call('POST', '/api/quizzes/check-parity', { assignment_ids: ['950'] }),
+    ];
+    expect(results.map(r => [r.status, r.body.code])).toEqual([[400, 'NOT_ELIGIBLE'], [400, 'NOT_ELIGIBLE'], [404, 'NOT_FOUND'], [404, 'NOT_FOUND'], [400, 'NOT_ELIGIBLE']]);
+    expect(vi.mocked(readQuestionLists)).not.toHaveBeenCalled();
+  });
+
   test('POST /:id/writeback with quiz_writeback off: 403, nothing posted', async () => {
     const id = (await call('POST', '/api/quizzes', { course_id: course, assignment_ids: ['900'], title: 'T' })).body.group.id;
     vi.mocked(postWritebacks).mockClear();

@@ -7,7 +7,7 @@ import { featureGate } from '../middleware/featureGate.js';
 import { QuizError } from '../services/quizError.js';
 import {
   createGroup, linkResult, unlinkResult, deleteGroup, getGroup, listGroups, groupForAssignment,
-  setQuestionTags, listCandidates, attemptLinks, attemptLinksForStudent, setCommentTemplate,
+  setQuestionTags, listCandidates, attemptLinks, attemptLinksForStudent, setCommentTemplate, checkGroupTests,
 } from '../services/quizGroups.js';
 import { compareQuestionLists } from '../services/quizParity.js';
 import { readQuestionLists, loadGroup } from '../services/quizLoader.js';
@@ -45,13 +45,14 @@ router.get('/attempt-links', handle((req, db) => ({
 
 router.post('/check-parity', handle(async (req, db) => {
   const refs = req.body.assignment_ids || [];
-  if (!refs.length) throw new QuizError('NOT_ELIGIBLE', 'Choose at least one test');
+  checkGroupTests(db, { assignmentRefs: refs });
   const lists = await readQuestionLists(db, { assignmentRefs: refs });
   return compareQuestionLists(lists);
 }));
 
 router.post('/', handle(async (req, db) => {
   const refs = req.body.assignment_ids || [];
+  checkGroupTests(db, { courseId: req.body.course_id, assignmentRefs: refs });
   const lists = await readQuestionLists(db, { assignmentRefs: refs });
   return { group: createGroup(db, { courseId: req.body.course_id, assignmentRefs: refs, title: req.body.title, questionLists: lists }) };
 }));

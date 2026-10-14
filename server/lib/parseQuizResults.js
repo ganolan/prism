@@ -15,7 +15,11 @@ export function parseQuizResults(html) {
     if (!m) continue;
     const cell = tr.querySelector('td.cell-submissions')?.text.trim() || '';
     const count = cell.match(/^(\d+)\s*\//);
-    out.push({ uid: m[1], attempted: !!count && Number(count[1]) >= 1 });
+    // Only "-" (observed) and a count are known; any other text is unknown (null), with the text, so a
+    // stored attempt is never removed on a cell Prism cannot read.
+    if (count) out.push({ uid: m[1], attempted: Number(count[1]) >= 1 });
+    else if (cell === '-') out.push({ uid: m[1], attempted: false });
+    else out.push({ uid: m[1], attempted: null, text: cell });
   }
   return out.length ? out : null;
 }

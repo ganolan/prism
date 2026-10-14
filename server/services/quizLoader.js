@@ -140,6 +140,9 @@ export async function loadGroup(db, { groupId }, { openPage = () => sessionDeps.
       if (attempts.length > 1 && !summary.multipleAttempts.includes(uid)) summary.multipleAttempts.push(uid);
       return null;
     };
+    // A student assigned both copies sits one: "not taken" counts a student no copy shows as sat.
+    const notSat = new Set();
+    const sat = new Set();
     for (const member of group.members) {
       const sid = member.schoology_assignment_id;
       const res = await reader.get(`/assignment/${sid}/assessment_results`);
@@ -148,10 +151,12 @@ export async function loadGroup(db, { groupId }, { openPage = () => sessionDeps.
       if (!rows) { summary.failed.push({ uid: null, reason: `results page for "${member.title}" HTTP ${res.status}` }); continue; }
       // The page parsed, so a student it lists as not attempted has no attempt in Schoology now:
       // drop any stored one (the teacher deleted it there). Failed, unknown and unlisted students are left alone.
-      const gone = rows.filter(r => !r.attempted).map(r => studentByUid.get(r.uid)).filter(Boolean);
+      const gone = rows.filter(r => r.attempted === false).map(r => studentByUid.get(r.uid)).filter(Boolean);
       summary.removed += removeAttempts(db, { assignmentId: member.id, studentIds: gone });
       for (const row of rows) {
-        if (!row.attempted) { summary.notTaken++; continue; }
+        if (row.attempted === false) { notSat.add(row.uid); continue; }
+        sat.add(row.uid);
+        if (row.attempted === null) { summary.failed.push({ uid: row.uid, reason: `results page shows "${row.text}"` }); continue; }
         const studentId = studentByUid.get(row.uid);
         if (!studentId) { if (!summary.unknownUids.includes(row.uid)) summary.unknownUids.push(row.uid); continue; }
         onProgress({ uid: row.uid, member: sid });
@@ -164,6 +169,7 @@ export async function loadGroup(db, { groupId }, { openPage = () => sessionDeps.
         }
       }
     }
+    summary.notTaken = [...notSat].filter(uid => !sat.has(uid)).length;
     pruneOlderDuplicates(db, { groupId: group.id });
     // A mark posted in Schoology (by an agent or by hand) shows in the copy just stored.
     summary.marksPosted = reconcileMarks(db, { groupId: group.id }).posted;

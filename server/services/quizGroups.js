@@ -82,16 +82,28 @@ function assertEligibleTest(db, a, courseId) {
   }
 }
 
+// The checks that need no Schoology read, run before the question lists are read so an expired session
+// cannot hide a plain input error. Without a course (the parity check) only test-ness is checked. -> tests
+export function checkGroupTests(db, { courseId = null, assignmentRefs }) {
+  if (!assignmentRefs?.length) throw new QuizError('NOT_ELIGIBLE', 'Choose at least one test');
+  const tests = assignmentRefs.map(ref => resolveAssignment(db, ref));
+  for (const a of tests) {
+    if (courseId != null) assertEligibleTest(db, a, courseId);
+    else if (!a) throw new QuizError('NOT_FOUND', 'Unknown assignment');
+    else if (a.is_test !== 1) throw new QuizError('NOT_ELIGIBLE', `"${a.title}" is not a Schoology test or quiz`);
+  }
+  if (new Set(tests.map(t => t.id)).size !== tests.length) {
+    throw new QuizError('NOT_ELIGIBLE', 'The same test is listed twice');
+  }
+  return tests;
+}
+
 export function createGroup(db, { courseId, assignmentRefs, title, questionLists }) {
   if (!assignmentRefs?.length) throw new QuizError('NOT_ELIGIBLE', 'Choose at least one test');
   if (!questionLists || questionLists.length !== assignmentRefs.length) {
     throw new QuizError('NOT_ELIGIBLE', 'Each test needs its question list');
   }
-  const tests = assignmentRefs.map(ref => resolveAssignment(db, ref));
-  tests.forEach(a => assertEligibleTest(db, a, courseId));
-  if (new Set(tests.map(t => t.id)).size !== tests.length) {
-    throw new QuizError('NOT_ELIGIBLE', 'The same test is listed twice');
-  }
+  const tests = checkGroupTests(db, { courseId, assignmentRefs });
   // questionLists are positional: a list must belong to the test at the same index.
   questionLists.forEach((l, i) => {
     if (l.assignmentId !== undefined && Number(l.assignmentId) !== tests[i].id) {

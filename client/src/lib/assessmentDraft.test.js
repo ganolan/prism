@@ -68,3 +68,23 @@ describe('draftBaseline', () => {
     });
   });
 });
+
+// Triage's Loose ends checks draft validity on the server with a mirror of this module.
+import * as server from '../../../server/lib/assessmentDraft.js';
+
+describe('parity with server/lib/assessmentDraft.js', () => {
+  const student = {
+    scores: { t2: { grade: 'EX' }, t1: { grade: 'D' } }, grade_comment: 'Good', comment_status: 1,
+    exception: 0, score: 3, row_levels: { Design: 'EX', Build: 'D' },
+  };
+  const topics = [{ id: 't2' }, { id: 't1' }];
+  it.each([
+    ['aligned', [student, topics, {}]],
+    ['score scale with rows', [student, [], { includeScore: true, rowLevels: student.row_levels }]],
+    ['score scale, no rows', [student, [], { includeScore: true, rowLevels: {} }]],
+    ['no topics, default', [{}, []]],
+    ['includeScore false', [student, [], { includeScore: false }]],
+  ])('%s', (_name, args) => {
+    expect(server.draftBaseline(...args)).toBe(draftBaseline(...args));
+  });
+});

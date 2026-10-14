@@ -33,7 +33,7 @@ beforeEach(() => {
   getDb().exec(
     'DELETE FROM frq_marks; DELETE FROM quiz_tag_texts; DELETE FROM quiz_responses; DELETE FROM quiz_attempts; DELETE FROM quiz_question_copies; DELETE FROM quiz_questions; ' +
     'DELETE FROM quiz_group_members; DELETE FROM quiz_groups; ' +
-    'DELETE FROM status_lines; DELETE FROM feedback_snapshots; DELETE FROM feedback; ' +
+    'DELETE FROM flags; DELETE FROM assessment_drafts; DELETE FROM status_lines; DELETE FROM feedback_snapshots; DELETE FROM feedback; ' +
     'DELETE FROM referrals; DELETE FROM extensions; DELETE FROM resubmissions; DELETE FROM school_days; DELETE FROM mastery_scores; ' +
     'DELETE FROM rubric_attachment_topics; DELETE FROM rubric_attachments; ' +
     'DELETE FROM rubric_descriptors; DELETE FROM rubric_criteria; DELETE FROM rubrics; ' +
@@ -687,6 +687,18 @@ describe('triage tools', () => {
     seedLate(db);
     expect(getTriageTool(db, { student: 'maya' }).lateWork).toHaveLength(1);
     expect(getTriageTool(db, { student: 'zed' }).lateWork).toEqual([]);
+  });
+
+  test('get_triage looseEnds: per assessment, recounted for a student filter', () => {
+    const db = getDb();
+    const { courseId, studentId, assignmentId } = seedLate(db);
+    const bo = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u2', 'Bo', 'Li')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id) VALUES (?, ?)`).run(bo, courseId);
+    for (const sid of [studentId, bo]) db.prepare(`INSERT INTO flags (student_id, assignment_id, flag_type) VALUES (?, ?, 'review_needed')`).run(sid, assignmentId);
+    expect(getTriageTool(db, {}).looseEnds).toEqual([expect.objectContaining({ title: 'CP2', flagged: 2, drafts: 0, feedbackHidden: 0 })]);
+    const one = getTriageTool(db, { student: 'maya' }).looseEnds;
+    expect(one).toEqual([expect.objectContaining({ flagged: 1, students: [expect.objectContaining({ studentName: 'Maya Chen', reasons: ['flagged'] })] })]);
+    expect(getTriageTool(db, { student: 'zed' }).looseEnds).toEqual([]);
   });
 
   test('getTriageTool limits counts.atReferralLimit to the filtered student, not the whole class', () => {

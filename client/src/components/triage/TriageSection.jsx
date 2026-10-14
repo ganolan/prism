@@ -11,10 +11,11 @@ import LateWorkPanel from './LateWorkPanel.jsx';
 import FeedbackOwedPanel from './FeedbackOwedPanel.jsx';
 import MakeUpPanel from './MakeUpPanel.jsx';
 import ResubmissionsPanel from './ResubmissionsPanel.jsx';
+import LooseEndsPanel from './LooseEndsPanel.jsx';
 
 // The triage rail: an <aside> of stacked panels — make-up tests first (the most
 // urgent: a missed test can be invalidated), then late work, then resubmissions,
-// then feedback owed — across all current courses (no courseId — Dashboard) or
+// then feedback owed, then loose ends (unfinished work with no clock) — across all current courses (no courseId — Dashboard) or
 // for one course (CoursePage). The page lays it out beside its main column (.triage-layout).
 // Owns its fetch; onLoaded hands the payload up (the Dashboard uses it for
 // course-card chips and the school-day header, the course page for the Gradebook
@@ -158,6 +159,7 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
         rows={data.feedbackOwed} settings={data.settings} showCourse={showCourse} scope={scope}
         includeFormative={data.includeFormative} onToggleFormative={setIncludeFormative}
       />
+      <LooseEndsPanel rows={data.looseEnds ?? []} showCourse={showCourse} scope={scope} />
       {confirm && <StatusLineModal key={confirm.key} {...confirm.props} onCancel={() => setConfirm(null)} />}
     </>,
   );

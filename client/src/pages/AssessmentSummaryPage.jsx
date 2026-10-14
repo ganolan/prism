@@ -31,7 +31,7 @@ import ExtendControl from '../components/ExtendControl.jsx';
 import ReferControl from '../components/ReferControl.jsx';
 import ScaleLevelPicker from '../components/ScaleLevelPicker.jsx';
 import AssessmentFilterBar from '../components/AssessmentFilterBar.jsx';
-import { passesFilters, studentReasons, reasonText, reasonTone, TONE_VARS, REASONS, filterGroups } from '../lib/assessmentFilters.js';
+import { passesFilters, studentReasons, reasonText, reasonTone, TONE_VARS, REASONS, filterGroups, parseFilterParam } from '../lib/assessmentFilters.js';
 import { useStickyTab } from '../hooks/useStickyTab.js';
 import { formatDateTime } from '../lib/formatDate.js';
 import { briefFlags, textSignature } from '../lib/reviewerFlags.js';
@@ -1937,7 +1937,11 @@ export default function AssessmentSummaryPage() {
   useEffect(() => {
     getSettings().then((s) => setResubmitLessonsDefault(s?.triage?.resubmitLessonsDefault ?? 3)).catch(() => {});
   }, []);
-  const [activeFilters, setActiveFilters] = useState(() => new Set());
+  // ?filter=to_grade,draft (triage links) preselects pills; a new task or link resets them.
+  const [urlParams] = useSearchParams();
+  const filterParam = urlParams.get('filter');
+  const [activeFilters, setActiveFilters] = useState(() => parseFilterParam(filterParam));
+  useEffect(() => { setActiveFilters(parseFilterParam(filterParam)); }, [filterParam, assignmentId]);
   const toggleFilter = (id) => setActiveFilters(prev => {
     const next = new Set(prev);
     next.has(id) ? next.delete(id) : next.add(id);
@@ -2022,6 +2026,9 @@ export default function AssessmentSummaryPage() {
     if (!data || activeFilters.size === 0) return null;
     return new Set(data.students.filter(st => passesFilters(st, activeFilters, filterCtx)).map(st => st.schoology_uid));
   }, [activeFilters, filterEpoch, data?.assignment]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Each card reports its draft once mounted, after the data arrives: work the filter
+  // out again then, so a link to "Draft not published" finds the drafts.
+  useEffect(() => { if (data) setFilterEpoch(n => n + 1); }, [data?.assignment]); // eslint-disable-line react-hooks/exhaustive-deps
   const isShown = (uid) => !shownUids || shownUids.has(uid);
   // Shown cards whose reasons no longer match (resolved since the filter ran).
   const resolvedCount = shownUids && data

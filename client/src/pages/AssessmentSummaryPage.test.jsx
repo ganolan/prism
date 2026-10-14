@@ -1780,6 +1780,47 @@ describe('AssessmentSummaryPage Needs action / Watch', () => {
   });
 });
 
+describe('AssessmentSummaryPage ?filter= links (triage)', () => {
+  const base = { scores: {}, grade_comment: '', exception: 0, comment_status: 0, submission_type: null, late: 0, draft: 0, submitted_at: 0, review_flag: null, resubmit_flag: null, lti_submission_state: 'submitted', attention: { handedIn: true, reasons: [] } };
+  const topics = [{ id: 't1', title: 'T1', category_title: 'C', external_id: 'X1' }];
+  const mastery = {
+    assignment: { id: 50, title: 'Notebook 4', is_lti_submission: 1, due_date: '2026-06-01', lti_fetch_status: 'ok' },
+    topics,
+    students: [
+      { ...base, id: 1, schoology_uid: 'u1', first_name: 'Ada', last_name: 'L' },
+      { ...base, id: 2, schoology_uid: 'u2', first_name: 'Bob', last_name: 'M', review_flag: { id: 9, flag_reason: 'x' } },
+    ],
+  };
+  const renderAt = (entry) => {
+    getMasteryForAssignment.mockResolvedValue(mastery);
+    return render(
+      <MR initialEntries={[entry]}>
+        <Rs><Rt path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} /></Rs>
+      </MR>,
+    );
+  };
+
+  it('preselects the reasons named in ?filter= (unknown ids ignored)', async () => {
+    renderAt('/course/4/assessment/8?filter=flagged,nonsense');
+    await waitFor(() => expect(screen.getByText('Bob M')).toBeInTheDocument());
+    expect(screen.getByText('Bob M')).toBeVisible();
+    expect(screen.getByText('Ada L')).not.toBeVisible();
+    expect(within(document.querySelector('.assessment-filter-bar')).getByRole('button', { name: /^Flagged for review/ }))
+      .toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('a "Draft not published" link finds a card with a stored draft', async () => {
+    const ada = mastery.students[0];
+    getDraftsForAssignment.mockResolvedValueOnce({
+      1: { pending: { t1: 'EX' }, comment: '', display: false, displayTouched: false, base: draftBaseline(ada, topics, { includeScore: false }) },
+    });
+    renderAt('/course/4/assessment/8?filter=draft');
+    await waitFor(() => expect(screen.getByText('Ada L')).toBeVisible());
+    expect(screen.getByText('Bob M')).not.toBeVisible();
+    expect(document.querySelector('#student-card-1 [data-reason="draft"]')).toHaveTextContent('Draft not published');
+  });
+});
+
 // The Descriptors/Compact toggle is sticky (?view=…) so it survives stepping
 // out to a student page and back. Mechanism: src/hooks/useStickyTab.test.jsx.
 describe('AssessmentSummaryPage sticky view mode', () => {

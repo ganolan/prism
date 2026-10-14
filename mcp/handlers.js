@@ -18,6 +18,7 @@ import {
   assertCanExtend, TriageError,
 } from '../server/services/triage.js';
 import { getSubmissionStatus } from '../server/services/submissionStatus.js';
+import { getLooseEnds } from '../server/services/looseEnds.js';
 import {
   extendResubmission, gradeStands, listResubmissions,
   assertCanExtendRequest, assertCanGradeStand,
@@ -286,7 +287,8 @@ const matchesStudent = (r, student) =>
   String(r.studentId) === String(student) || r.studentName.toLowerCase().includes(String(student).toLowerCase());
 
 export function getTriageTool(db, { course, student, include_formative } = {}) {
-  const t = getTriage(db, { courseId: resolveCourseRef(db, course), includeFormative: include_formative });
+  const courseId = resolveCourseRef(db, course);
+  const t = { ...getTriage(db, { courseId, includeFormative: include_formative }), looseEnds: getLooseEnds(db, { courseId }) };
   if (student != null && student !== '') {
     t.lateWork = t.lateWork.filter((r) => matchesStudent(r, student));
     t.makeUps = t.makeUps.filter((r) => matchesStudent(r, student));
@@ -298,6 +300,12 @@ export function getTriageTool(db, { course, student, include_formative } = {}) {
     t.counts.makeUpsOverdue = t.makeUps.filter((r) => r.tone === 'red').length;
     t.resubmissions = t.resubmissions.filter((r) => matchesStudent(r, student));
     t.counts.resubmissionsOverdue = t.resubmissions.filter((r) => r.tone === 'red').length;
+    // Loose ends: keep that student's entries, recounted.
+    t.looseEnds = t.looseEnds.map((r) => {
+      const students = r.students.filter((s) => matchesStudent(s, student));
+      const count = (x) => students.filter((s) => s.reasons.includes(x)).length;
+      return { ...r, students, drafts: count('draft'), feedbackHidden: count('feedback_hidden'), flagged: count('flagged') };
+    }).filter((r) => r.students.length > 0);
     t.studentFilter = String(student);
   }
   return t;

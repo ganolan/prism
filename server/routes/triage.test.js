@@ -51,6 +51,7 @@ describe('/api/triage', () => {
     expect(status).toBe(200);
     expect(body.lateWork).toHaveLength(1);
     expect(body.feedbackOwed).toEqual([]);
+    expect(body.looseEnds).toEqual([]); // the Loose ends panel (looseEnds.test.js has the cases)
     expect(body.calendar.source).toBe('weekdays');
   });
 

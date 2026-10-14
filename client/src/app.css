@@ -1148,6 +1148,9 @@ button.triage-panel__more { padding: 0.15rem 0.4rem; font-size: 0.75rem; font-we
 .triage-row__title { font-weight: 600; font-size: 0.82rem; color: var(--text); text-decoration: none; text-underline-offset: 2px; }
 a.triage-row__name:hover,
 a.triage-row__title:hover { text-decoration: underline; }
+/* Loose ends rows: no ring and no action column, only the text. */
+.triage-row.triage-row--plain { grid-template-columns: minmax(0, 1fr); }
+.triage-row__sub { font-size: 0.75rem; }
 .triage-row__course { max-width: 100%; font-size: 0.64rem; font-weight: 700; letter-spacing: 0.02em; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .triage-row__task { font-size: 0.75rem; color: var(--text); }
 .triage-row__tag { flex-shrink: 0; font-size: 0.65rem; padding: 0.05rem 0.45rem; white-space: nowrap; }

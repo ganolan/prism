@@ -1,0 +1,144 @@
+import { describe, test, expect, vi, beforeEach } from 'vitest';
+import express from 'express';
+
+vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
+// The /assessment/ route (for the draft parity check) imports these; none run here.
+vi.mock('./masterySync.js', () => ({
+  hasMasterySession: () => true, syncMasteryForCourse: vi.fn(), syncMasteryForAssignment: vi.fn(),
+  writeMasteryScores: vi.fn(), writeMasteryScoresBatch: vi.fn(), writeMasteryOverride: vi.fn(),
+  getMasteryForCourse: vi.fn(), getRubricScoresForStudent: vi.fn(), interactiveLogin: vi.fn(),
+}));
+vi.mock('./schoology.js', () => ({ pushGradeComments: vi.fn(), getSectionGrades: vi.fn() }));
+vi.mock('./oneDriveLinks.js', () => ({ getAssignmentFiles: vi.fn() }));
+
+import { getDb } from '../db/index.js';
+import masteryRouter from '../routes/mastery.js';
+import { draftBaseline } from '../../client/src/lib/assessmentDraft.js';
+import { getLooseEnds } from './looseEnds.js';
+
+let db, courseId, n;
+function student(uid, first, { dropped = false } = {}) {
+  const id = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES (?, ?, 'X')`).run(uid, first).lastInsertRowid;
+  db.prepare(`INSERT INTO enrolments (student_id, course_id, dropped_at) VALUES (?, ?, ?)`).run(id, courseId, dropped ? '2026-09-10' : null);
+  return id;
+}
+function assignment(title, { summative = true } = {}) {
+  n += 1;
+  const sid = `sa-${n}`;
+  const id = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, published) VALUES (?, ?, ?, '2026-10-12 15:00:00', 1)`)
+    .run(courseId, sid, title).lastInsertRowid;
+  if (summative) {
+    db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES (?, 'cat-1', ?, ?, 'T')`).run(`topic-${sid}`, courseId, `X.${n}`);
+    db.prepare(`INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id) VALUES (?, ?, ?)`).run(sid, `topic-${sid}`, courseId);
+  }
+  return { id, sid };
+}
+const grade = (sid, aid, cols) => {
+  const keys = Object.keys(cols);
+  db.prepare(`INSERT INTO grades (student_id, assignment_id, ${keys.join(', ')}) VALUES (?, ?, ${keys.map(() => '?').join(', ')})`)
+    .run(sid, aid, ...keys.map((k) => cols[k]));
+};
+const saveDraft = (aid, sid, base, updatedAt = '2026-10-10 02:00:00') => db.prepare(
+  `INSERT INTO assessment_drafts (assignment_id, student_id, draft_json, updated_at) VALUES (?, ?, ?, ?)`,
+).run(aid, sid, JSON.stringify({ pending: { t: 'EX' }, comment: 'Draft', base }), updatedAt);
+
+// The /assessment/ card's own baseline for a student, from the page's real payload.
+async function cardBase(sa, uid) {
+  const app = express();
+  app.use('/api/mastery', masteryRouter);
+  const server = app.listen(0);
+  try {
+    const res = await fetch(`http://localhost:${server.address().port}/api/mastery/${courseId}/assignment/${sa}`);
+    const body = await res.json();
+    const s = body.students.find((x) => x.schoology_uid === uid);
+    return draftBaseline(s, body.scoreScale ? [] : body.topics, { includeScore: !!body.scoreScale, rowLevels: body.scoreScale ? s.row_levels : undefined });
+  } finally {
+    server.close();
+  }
+}
+
+beforeEach(() => {
+  db = getDb();
+  db.exec(
+    'DELETE FROM assessment_drafts; DELETE FROM flags; DELETE FROM status_lines; DELETE FROM mastery_scores; DELETE FROM mastery_alignments; ' +
+    'DELETE FROM assignment_assignees; DELETE FROM grades; DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
+    'DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;',
+  );
+  n = 0;
+  courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name, block_number) VALUES ('sec-1', 'AP CSP', '7')`).run().lastInsertRowid;
+  db.prepare(`INSERT INTO reporting_categories (id, course_id, external_id, title) VALUES ('cat-1', ?, 'X', 'Cat')`).run(courseId);
+});
+
+describe('getLooseEnds: Prism drafts', () => {
+  test('a live draft counts (same baseline as the card); one Schoology changed under is stale', async () => {
+    const maya = student('u1', 'Maya');
+    const a = assignment('CPT 2');
+    grade(maya, a.id, { grade_comment: 'Good start.', comment_status: 1 });
+    db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('u1', ?, ?, 75, 'EX')`).run(a.sid, `topic-${a.sid}`);
+    saveDraft(a.id, maya, await cardBase(a.sid, 'u1'));
+
+    expect(getLooseEnds(db)).toEqual([expect.objectContaining({
+      courseName: 'AP CSP', blockNumber: '7', title: 'CPT 2', schoologyAssignmentId: a.sid, aligned: true,
+      drafts: 1, feedbackHidden: 0, flagged: 0, oldestDraftOn: '2026-10-10',
+      students: [{ studentId: maya, studentName: 'Maya X', reasons: ['draft'] }],
+    })]);
+
+    db.prepare(`UPDATE grades SET grade_comment = 'Changed in Schoology.' WHERE student_id = ?`).run(maya);
+    expect(getLooseEnds(db)).toEqual([]);
+  });
+
+  test('a dropped student\'s draft is left out', async () => {
+    const bo = student('u2', 'Bo', { dropped: true });
+    const a = assignment('CPT 2');
+    saveDraft(a.id, bo, 'anything');
+    expect(getLooseEnds(db)).toEqual([]);
+  });
+});
+
+describe('getLooseEnds: feedback hidden and flags', () => {
+  test('hidden = a teacher comment the student cannot see (not excused, not a status line alone)', () => {
+    const ids = ['Ana', 'Ben', 'Cal', 'Dee', 'Eve'].map((name, i) => student(`u${i}`, name));
+    const a = assignment('Brick Breaker');
+    grade(ids[0], a.id, { grade_comment: 'Nice work.', comment_status: null }); // hidden
+    grade(ids[1], a.id, { grade_comment: 'Nice work.', comment_status: 1 }); // visible
+    grade(ids[2], a.id, { grade_comment: 'Nice work.', comment_status: 0, exception: 1 }); // excused
+    grade(ids[3], a.id, { grade_comment: '', comment_status: 0 }); // nothing to show
+    grade(ids[4], a.id, { grade_comment: 'Resubmission requested - due Thu 15/10.', comment_status: 0 });
+    db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, 'Resubmission requested - due Thu 15/10.', 'ask')`).run(ids[4], a.id);
+    const [row] = getLooseEnds(db);
+    expect(row).toMatchObject({ feedbackHidden: 1, drafts: 0, flagged: 0 });
+    expect(row.students.map((s) => s.studentName)).toEqual(['Ana X']);
+  });
+
+  test('flags, several reasons per student, and the student filter', () => {
+    const ana = student('u1', 'Ana');
+    const ben = student('u2', 'Ben');
+    const a = assignment('Notebook 4');
+    grade(ana, a.id, { grade_comment: 'Check sources.', comment_status: 0 });
+    db.prepare(`INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason) VALUES (?, ?, 'review_needed', 'x')`).run(ana, a.id);
+    db.prepare(`INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason) VALUES (?, ?, 'review_needed', 'y')`).run(ben, a.id);
+    expect(getLooseEnds(db)[0]).toMatchObject({
+      feedbackHidden: 1, flagged: 2,
+      students: [
+        { studentName: 'Ana X', reasons: ['feedback_hidden', 'flagged'] },
+        { studentName: 'Ben X', reasons: ['flagged'] },
+      ],
+    });
+    expect(getLooseEnds(db, { studentId: ben })[0]).toMatchObject({ feedbackHidden: 0, flagged: 1, students: [{ studentName: 'Ben X' }] });
+  });
+
+  test('tasks with drafts first (oldest first), then the most loose ends; archived courses are left out', async () => {
+    const ana = student('u1', 'Ana');
+    const ben = student('u2', 'Ben');
+    const flagged = assignment('A flagged task');
+    const busy = assignment('B two hidden');
+    const drafted = assignment('C drafted', { summative: false });
+    db.prepare(`INSERT INTO flags (student_id, assignment_id, flag_type) VALUES (?, ?, 'review_needed')`).run(ana, flagged.id);
+    grade(ana, busy.id, { grade_comment: 'One.', comment_status: 0 });
+    grade(ben, busy.id, { grade_comment: 'Two.', comment_status: 0 });
+    saveDraft(drafted.id, ana, await cardBase(drafted.sid, 'u1'));
+    expect(getLooseEnds(db).map((r) => r.title)).toEqual(['C drafted', 'B two hidden', 'A flagged task']);
+    db.prepare('UPDATE courses SET archived = 1').run();
+    expect(getLooseEnds(db)).toEqual([]);
+  });
+});

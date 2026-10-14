@@ -222,3 +222,10 @@ export function countReasons(students, ctx) {
   for (const s of students) for (const r of studentReasons(s, ctx)) counts[r.id] += 1;
   return counts;
 }
+
+// Every pill id the page knows (reasons + Refine), for reading ?filter= from a link.
+const REFINE_IDS = ['submitted', 'in_progress', 'not_started', 'ungraded', 'partial', 'graded', 'visible', 'not_visible', 'review', 'resubmit'];
+export function parseFilterParam(param) {
+  const known = new Set([...REASON_IDS, ...REFINE_IDS]);
+  return new Set(String(param || '').split(',').map(x => x.trim()).filter(x => known.has(x)));
+}

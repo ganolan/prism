@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   normalizedSubmissionState, gradingStateOf, studentMatchesPill, passesFilters,
-  countMatches, filterGroups, pillTone, TONE_VARS, studentReasons, reasonText, reasonTone, countReasons,
+  countMatches, filterGroups, pillTone, TONE_VARS, studentReasons, reasonText, reasonTone, countReasons, parseFilterParam,
 } from './assessmentFilters.js';
 
 const LTI = { is_lti_submission: 1, due_date: '2026-06-01' };
@@ -197,5 +197,12 @@ describe('reasonText / reasonTone', () => {
     expect(reasonTone({ id: 'late', tone: 'green' })).toBe('neutral');
     expect(reasonTone({ id: 'referral', tone: 'red' })).toBe('red');
     expect(reasonTone({ id: 'draft' })).toBe('blue');
+  });
+});
+
+describe('parseFilterParam', () => {
+  it('keeps known reason and Refine ids, drops the rest', () => {
+    expect([...parseFilterParam('to_grade, draft,submitted,bogus')]).toEqual(['to_grade', 'draft', 'submitted']);
+    expect(parseFilterParam(null).size).toBe(0);
   });
 });

@@ -1076,6 +1076,45 @@ Plan: `docs/superpowers/plans/2026-10-13-feedback-rows.md`.
 - **Bugs fixed on the way:** `attach_rubric` accepted only the local assignment id, not the Schoology
   id; `draft_feedback.rubric_scores` leaked the card's `__scale__` key.
 
+## Linked quizzes, loose ends (2026-10-14, branch `claude/angry-hopper-5c1f00`)
+
+Order agreed with Graham: the skill, writer robustness, small items, then the phase 1 list.
+- **grade-theory-test (graham-plugins `de6eef5`, assessment-grader 0.12.0):** the Prism route's step 5 is
+  Graham pressing **Publish all to Schoology** on the Free response tab; the agent route
+  (`list_frq_writebacks`, `export-test-results`, `mark_frq_writeback`) is the fallback when the button is
+  absent, for "Post this one by hand", or on request. Prism's MCP instructions match.
+- **Writer and loader:** a read or save with HTTP 0 opens home again (`checkHome`): sign-in is `NO_SESSION`,
+  no page (or a visit that left the page where it was) is `UNREACHABLE`, and either stops the load or the
+  publish. One lock per group (`quizLocks.holdGroup`) for loader, writer and `mark_frq_writeback`. Rubric
+  launch args are JSON-parsed per entry (`rubricLaunchArgs`, shared by the attempt parser, the writer and
+  the probe). The question index is read once per member test per batch (only a page that loaded is kept).
+  `openClient` has unit tests (`quizWritebackClient.test.js`).
+- **Small items:** `PUT /template` without a template is 400 (empty still resets); `quizResults` reads each
+  attempt once; a route test with `quiz_writeback` off; the probe refuses an `OUT_DIR` in the main clone.
+- **Phase 1 list (Graham chose 3):** an unknown results cell keeps the stored attempt and is reported
+  (only `-` and a count are known); `notTaken` counts a student once across copies; Quiz setup checks its
+  input (course, tests, duplicates) before reading Schoology.
+- **Parity (offline, the 13 Oct captures in `~/prism-probes/`):** the new parser equals the old regex on the
+  real Q21 grade-by-question page (18 of 18 entries, before and after stage D) and on the attempt pages;
+  the 2024-25 results page has 18 rows, every cell known.
+- **Review (fresh reviewer):** nothing serious; fixed the hung-recheck case, the cached failed index and
+  a missing course giving a 500. Left: after a form save that throws, marks read "the rest is not
+  confirmed" (accurate); an empty results cell is unknown (safe; only `-` observed).
+- **Suites:** server, MCP and scripts 1792, client 1050.
+
+**Still open:**
+- **First real publish:** when Graham next marks a test, check the result in Schoology, especially an essay
+  with no mark before (`override` 0 through the PUT is unobserved; the form save covers it). Record it in
+  the API reference.
+- **Unobserved shapes, probe if they come up:** a by-question page with more than 18 takers (pagination),
+  a multi-row FRQ rubric (skipped today), an ungraded no-rubric FRQ (phase 2 note).
+- **Phase 1 list, accepted as they are (Graham, 2026-10-14):** BUSY is per process (server and PrisMCP);
+  the parser notes (multi-select MCQ, a row without a wrapper, image-only stems); the Quiz setup UI notes;
+  no indexes on the quiz tables; the parity and verify script notes.
+- **Phase 4b list, accepted:** the template's attempt id is not compared with the path (the by-question
+  writer keys by attempt); no pause between the PUT and the POST; the read-back message omits the comment;
+  the post bar ignores a later count once it shows results.
+
 ## Linked quizzes, phase 4c: posting by question (2026-10-13, branch `claude/angry-hopper-5c1f00`)
 
 Graham asked whether Schoology's grade-by-question page is quicker. Plan:

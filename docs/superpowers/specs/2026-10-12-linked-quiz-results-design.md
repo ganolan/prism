@@ -503,6 +503,11 @@ the teacher chooses, saving the mark that student should get anyway, with the te
   and comment").
 - **Errors:** an expired session stops the batch (`NO_SESSION`); any other failure is recorded for that
   student and never thrown. Requests are sent one after another with a short pause, like the loader.
+  A request that fails outright (HTTP 0, for example a sign-in redirect the browser blocks) opens
+  Schoology's home again: a sign-in page stops the batch with `NO_SESSION`, no page with `UNREACHABLE`
+  (2026-10-14; the loader does the same).
+- **One lock per quiz group:** a load, a publish and `mark_frq_writeback` never run at once on the same
+  group (`BUSY`), per process.
 - **Guard:** the loader's read-only guard stays; the writer allows only the URL patterns the probe
   recorded.
 

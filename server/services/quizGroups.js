@@ -83,9 +83,10 @@ function assertEligibleTest(db, a, courseId) {
 }
 
 // The checks that need no Schoology read, run before the question lists are read so an expired session
-// cannot hide a plain input error. Without a course (the parity check) only test-ness is checked. -> tests
-export function checkGroupTests(db, { courseId = null, assignmentRefs }) {
+// cannot hide a plain input error. The parity check (parityOnly) has no course: only test-ness is checked. -> tests
+export function checkGroupTests(db, { courseId = null, assignmentRefs, parityOnly = false }) {
   if (!assignmentRefs?.length) throw new QuizError('NOT_ELIGIBLE', 'Choose at least one test');
+  if (!parityOnly && courseId == null) throw new QuizError('NOT_ELIGIBLE', 'Choose a course');
   const tests = assignmentRefs.map(ref => resolveAssignment(db, ref));
   for (const a of tests) {
     if (courseId != null) assertEligibleTest(db, a, courseId);

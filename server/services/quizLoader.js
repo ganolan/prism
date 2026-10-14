@@ -35,8 +35,11 @@ async function inPageFetch({ url, accept, timeoutMs }) {
 // landing on another page (SSO) is expiry (NO_SESSION).
 async function checkHome(page, expired) {
   let navError = null;
+  const from = page.url();
   await page.goto(`${SCHOOLOGY_BASE}/home`, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch((err) => { navError = err; });
   const landed = page.url();
+  // A failed visit that left the page where it was reached nothing (on a recheck that is already home).
+  if (navError && landed === from) throw new QuizError('UNREACHABLE', 'Could not reach Schoology: try again');
   if (isLoggedInUrl(landed)) return;
   if (navError || !landed || landed.startsWith('about:') || landed.startsWith('chrome-error:')) {
     throw new QuizError('UNREACHABLE', 'Could not reach Schoology: try again');

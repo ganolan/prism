@@ -172,7 +172,12 @@ const RUBRIC_ONLY = 'The rubric level was saved in Schoology; the rest is not co
 // index and question list are read once per batch (`pages`, keyed by member test).
 async function questionPage(client, memberSid, qid, pages) {
   const once = (path) => {
-    if (!pages.has(path)) pages.set(path, client.get(path).catch((err) => { pages.delete(path); throw err; }));
+    // Only a page that loaded is kept: a failed read is tried again by the next question.
+    if (!pages.has(path)) {
+      pages.set(path, client.get(path).then(
+        (r) => { if (r.status !== 200) pages.delete(path); return r; },
+        (err) => { pages.delete(path); throw err; }));
+    }
     return pages.get(path);
   };
   const index = await once(`/assignment/${memberSid}/assessment_results/question_stats`);

@@ -23,7 +23,7 @@ function fakeSession({ respond = (url) => ({ status: 200, url }), csrf = { csrf_
   const page = {
     goto: vi.fn(async () => {
       const next = visits++ === 0 ? `${BASE}/home` : (landings.shift() ?? `${BASE}/home`);
-      if (next instanceof Error) { at = 'about:blank'; throw next; }
+      if (next instanceof Error) { if (!next.stay) at = 'about:blank'; throw next; }
       at = next;
     }),
     url: () => at,
@@ -105,6 +105,11 @@ describe('openClient', () => {
       const s = fakeSession({ respond: blocked, landings: [LOGIN] });
       const c = await open(s);
       await expect(call(c)).rejects.toMatchObject({ code: 'NO_SESSION', message: 'Schoology connection expired while posting: reconnect in Settings' });
+    });
+    test('home times out and the page stays where it was: UNREACHABLE, not a live session', async () => {
+      const s = fakeSession({ respond: blocked, landings: [Object.assign(new Error('Timeout 30000ms exceeded'), { stay: true })] });
+      const c = await open(s);
+      await expect(c.get(BYQ)).rejects.toMatchObject({ code: 'UNREACHABLE' });
     });
     test('home does not load: UNREACHABLE', async () => {
       const s = fakeSession({ respond: blocked, landings: [new Error('net::ERR_INTERNET_DISCONNECTED')] });

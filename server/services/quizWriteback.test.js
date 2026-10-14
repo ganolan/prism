@@ -449,6 +449,23 @@ describe('postWritebacks (by question)', () => {
     expect(f.calls.filter(c => c[1] === '/assignment/900/assessment_results/question_stats')).toHaveLength(1);
   });
 
+  test('a failed index read is not kept for the batch: the next question reads it again', async () => {
+    const q22 = db.prepare(`INSERT INTO quiz_questions (group_id, position, kind, stem_html, max_points, schoology_rubric_json) VALUES (?, 22, 'frq', 'E2', 4, ?)`).run(g, JSON.stringify(RUBRIC)).lastInsertRowid;
+    db.prepare(`INSERT INTO quiz_question_copies (question_id, assignment_id, schoology_question_id) VALUES (?, ?, '2002')`).run(q22, std);
+    db.prepare(`INSERT INTO quiz_responses (attempt_id, question_id, answer_html, points, schoology_rubric_cells_json, schoology_comment) VALUES (?, ?, 'a', 2, ?, 'Old')`).run(att['701'], q22, JSON.stringify({ 146: { points: 2, comment: '' } }));
+    writeFrqSuggestions(db, { groupId: g, position: 22, students: [{ student: '701', level: 'Emerging', comment: 'Q22' }] });
+    setFrqMark(db, { groupId: g, attemptId: att['701'], position: 22, action: 'accept' });
+    const f = fakeSchoology(subsNow(), { questions: { 900: { 2001: 21, 2002: 22 }, 901: { 3001: 21 } } });
+    const get = f.client.get.getMockImplementation();
+    let indexFails = 1;
+    f.client.get.mockImplementation(async (path, o) => {
+      if (/question_stats$/.test(path) && indexFails-- > 0) return { status: 500, text: '', finalUrl: path };
+      return get(path, o);
+    });
+    await run(f, null);
+    expect(f.calls.some(c => c[1] === page('900', 22))).toBe(true);
+  });
+
   test('every name the form save changes belongs to a posted student', async () => {
     acceptWu();
     const f = fakeSchoology(subsNow());

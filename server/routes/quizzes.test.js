@@ -158,8 +158,9 @@ describe('/api/quizzes', () => {
       await call('POST', '/api/quizzes', { course_id: course, assignment_ids: ['999'], title: 'T' }),
       await call('POST', '/api/quizzes/check-parity', { assignment_ids: ['999'] }),
       await call('POST', '/api/quizzes/check-parity', { assignment_ids: ['950'] }),
+      await call('POST', '/api/quizzes', { assignment_ids: ['900'], title: 'T' }),
     ];
-    expect(results.map(r => [r.status, r.body.code])).toEqual([[400, 'NOT_ELIGIBLE'], [400, 'NOT_ELIGIBLE'], [404, 'NOT_FOUND'], [404, 'NOT_FOUND'], [400, 'NOT_ELIGIBLE']]);
+    expect(results.map(r => [r.status, r.body.code])).toEqual([[400, 'NOT_ELIGIBLE'], [400, 'NOT_ELIGIBLE'], [404, 'NOT_FOUND'], [404, 'NOT_FOUND'], [400, 'NOT_ELIGIBLE'], [400, 'NOT_ELIGIBLE']]);
     expect(vi.mocked(readQuestionLists)).not.toHaveBeenCalled();
   });
 

@@ -45,7 +45,7 @@ router.get('/attempt-links', handle((req, db) => ({
 
 router.post('/check-parity', handle(async (req, db) => {
   const refs = req.body.assignment_ids || [];
-  checkGroupTests(db, { assignmentRefs: refs });
+  checkGroupTests(db, { assignmentRefs: refs, parityOnly: true });
   const lists = await readQuestionLists(db, { assignmentRefs: refs });
   return compareQuestionLists(lists);
 }));

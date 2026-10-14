@@ -1111,9 +1111,9 @@ Order agreed with Graham: the skill, writer robustness, small items, then the ph
 - **Phase 1 list, accepted as they are (Graham, 2026-10-14):** BUSY is per process (server and PrisMCP);
   the parser notes (multi-select MCQ, a row without a wrapper, image-only stems); the Quiz setup UI notes;
   no indexes on the quiz tables; the parity and verify script notes.
-- **Phase 4b list, accepted:** the template's attempt id is not compared with the path (the by-question
-  writer keys by attempt); no pause between the PUT and the POST; the read-back message omits the comment;
-  the post bar ignores a later count once it shows results.
+- **Phase 4b list, still deferred (not yet raised with Graham):** no pause between the PUT and the POST;
+  the read-back message omits the comment; the post bar ignores a later count once it shows results. (The
+  template's attempt id check is covered: the by-question writer keys each entry by attempt.)
 
 ## Linked quizzes, phase 4c: posting by question (2026-10-13, branch `claude/angry-hopper-5c1f00`)
 

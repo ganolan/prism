@@ -149,6 +149,11 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — review and res
     expect(body.students[0].review_flag).toBeNull();
   });
 
+  test('each student carries attention: handedIn + the calendar reasons (cardAttention.test.js has the cases)', async () => {
+    const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
+    expect(body.students[0].attention).toEqual({ handedIn: expect.any(Boolean), reasons: expect.any(Array) });
+  });
+
   test('review_flag carries id and reason for a review_needed flag', async () => {
     const db = getDb();
     const flagId = db.prepare(

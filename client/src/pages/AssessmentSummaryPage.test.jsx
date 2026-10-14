@@ -35,6 +35,7 @@ vi.mock('../services/api.js', () => ({
   createFlag: vi.fn().mockResolvedValue({ id: 99, flag_reason: 'Check citations' }),
   deleteFlag: vi.fn().mockResolvedValue({ success: true }),
   getSettings: vi.fn().mockResolvedValue({ triage: { resubmitLessonsDefault: 3 } }),
+  getTriagePair: vi.fn().mockResolvedValue(null),
   requestResubmission: vi.fn(),
   updateResubmission: vi.fn(),
   undoResubmission: vi.fn(),
@@ -1724,9 +1725,58 @@ describe('AssessmentSummaryPage filtering', () => {
     renderPage(mastery);
     await waitFor(() => expect(screen.getByText('Ada L')).toBeInTheDocument());
     expect(screen.getByText('Bob M')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Refine/ }));
     fireEvent.click(screen.getByRole('button', { name: /Submitted1/ }));
-    expect(screen.queryByText('Bob M')).toBeNull();
-    expect(screen.getByText('Ada L')).toBeInTheDocument();
+    // Filtered-out cards stay mounted (their drafts survive) but are hidden.
+    expect(screen.getByText('Bob M')).not.toBeVisible();
+    expect(screen.getByText('Ada L')).toBeVisible();
+  });
+});
+
+describe('AssessmentSummaryPage Needs action / Watch', () => {
+  const base = { scores: {}, grade_comment: '', exception: 0, comment_status: 0, submission_type: null, late: 0, draft: 0, submitted_at: 0, review_flag: null, resubmit_flag: null };
+  const mastery = {
+    assignment: { id: 50, title: 'Notebook 4', is_lti_submission: 1, due_date: '2026-06-01', lti_fetch_status: 'ok' },
+    topics: [{ id: 't1', title: 'T1', category_title: 'C', external_id: 'X1' }],
+    students: [
+      { ...base, id: 1, schoology_uid: 'u1', first_name: 'Ada', last_name: 'L', lti_submission_state: 'submitted', attention: { handedIn: true, reasons: [] } },
+      { ...base, id: 2, schoology_uid: 'u2', first_name: 'Bob', last_name: 'M', lti_submission_state: 'not_started', attention: { handedIn: false, reasons: [{ id: 'late', daysLate: 4, tone: 'green' }] } },
+      { ...base, id: 3, schoology_uid: 'u3', first_name: 'Cy', last_name: 'N', lti_submission_state: 'submitted', scores: { t1: { grade: 'EX' } }, grade_comment: 'Great work.', review_flag: { id: 7, flag_reason: 'Re-mark' }, comment_status: 1, attention: { handedIn: true, reasons: [] } },
+    ],
+  };
+  const pill = (re) => within(document.querySelector('.assessment-filter-bar')).getByRole('button', { name: re });
+
+  it('opens with every student shown and a chip on each card naming its reasons', async () => {
+    renderPage(mastery);
+    await waitFor(() => expect(screen.getByText('Ada L')).toBeInTheDocument());
+    for (const name of ['Ada L', 'Bob M', 'Cy N']) expect(screen.getByText(name)).toBeVisible();
+    expect(document.querySelector('#student-card-1 [data-reason="to_grade"]')).toHaveTextContent('To grade');
+    expect(document.querySelector('#student-card-2 [data-reason="late"]')).toHaveTextContent('Late, 4 school days');
+  });
+
+  it('reasons combine as "any of", across Needs action and Watch', async () => {
+    renderPage(mastery);
+    await waitFor(() => expect(screen.getByText('Ada L')).toBeInTheDocument());
+    fireEvent.click(pill(/^To grade1/));
+    fireEvent.click(pill(/^Late, before the limit1/));
+    expect(screen.getByText('Ada L')).toBeVisible();
+    expect(screen.getByText('Bob M')).toBeVisible();
+    expect(screen.getByText('Cy N')).not.toBeVisible();
+  });
+
+  it('a card stays shown once its reason is resolved, until the list is updated', async () => {
+    renderPage(mastery);
+    await waitFor(() => expect(screen.getByText('Cy N')).toBeInTheDocument());
+    fireEvent.click(pill(/^Flagged for review1/));
+    expect(screen.getByText('Ada L')).not.toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear review flag' }));
+    await waitFor(() => expect(screen.getByText(/1 shown student no longer matches/)).toBeInTheDocument());
+    expect(screen.getByText('Cy N')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Update the list' }));
+    expect(screen.getByText('Cy N')).not.toBeVisible();
+    expect(screen.getByText(/No students match Flagged for review/)).toBeInTheDocument();
+    fireEvent.click(within(screen.getByText(/No students match/).parentElement).getByRole('button', { name: 'Clear filters' }));
+    expect(screen.getByText('Cy N')).toBeVisible();
   });
 });
 

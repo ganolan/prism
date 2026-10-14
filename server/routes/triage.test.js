@@ -710,12 +710,14 @@ describe('GET /api/triage/pair', () => {
     expect(status).toBe(200);
     expect(body.timeline).toMatchObject({ due: { date: '2020-01-06' }, referral: null });
     expect(body.late_work).toMatchObject({ kind: 'outstanding', tone: 'red' });
+    expect(body.attention.reasons).toEqual([expect.objectContaining({ id: 'referral', kind: 'outstanding' })]);
   });
 
   test('after a referral: no Late work row; the timeline carries the referral with its id', async () => {
     const r = await call('POST', '/api/triage/referrals', { studentId, assignmentId, action: 'referred' });
     const { body } = await call('GET', `/api/triage/pair?studentId=${studentId}&assignmentId=${assignmentId}`);
     expect(body.late_work).toBeNull();
+    expect(body.attention.reasons).toEqual([]);
     expect(body.timeline.referral).toMatchObject({ id: r.body.id, action: 'referred' });
     await call('DELETE', `/api/triage/referrals/${r.body.id}`);
   });

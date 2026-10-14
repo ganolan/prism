@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, Link, useSearchParams, Navigate, useLocation } from 'react-router-dom';
 import { getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, getTriagePair, loadQuizResults, rebuildQuizOverall, saveRowLevels } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
@@ -31,7 +31,7 @@ import ExtendControl from '../components/ExtendControl.jsx';
 import ReferControl from '../components/ReferControl.jsx';
 import ScaleLevelPicker from '../components/ScaleLevelPicker.jsx';
 import AssessmentFilterBar from '../components/AssessmentFilterBar.jsx';
-import { passesFilters } from '../lib/assessmentFilters.js';
+import { passesFilters, studentReasons, reasonText, reasonTone, TONE_VARS, REASONS, filterGroups } from '../lib/assessmentFilters.js';
 import { useStickyTab } from '../hooks/useStickyTab.js';
 import { formatDateTime } from '../lib/formatDate.js';
 import { briefFlags, textSignature } from '../lib/reviewerFlags.js';
@@ -158,7 +158,7 @@ function HeaderPill({ active, accent, activeBg, activeText, icon, label, clearLa
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
-export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, attemptLink = null, quizResult = null, onRebuildQuiz = null, scoreScale = null, resubmitLessonsDefault = 3, resubmitEnabled = true, highlight = false, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
+export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, attemptLink = null, quizResult = null, onRebuildQuiz = null, scoreScale = null, resubmitLessonsDefault = 3, resubmitEnabled = true, highlight = false, reasons = [], onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
   const scale = useProficiencyScale();
   // The card's action-panel row (ActionPanel portals into it).
   const [panelHost, setPanelHost] = useState(null);
@@ -530,6 +530,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // extra: other card fields the action changed (an Ask's unsubmit → the work is in progress).
   function handleResubmitChange(resubmission, commentChange = null, extra = null) {
     applyCardChange({ resubmission, resubmit_flag: resubmission?.request ? { id: resubmission.request.id } : null, ...(extra || {}) }, commentChange);
+    // The card's Needs action / Watch reasons (resubmission pending / overdue) follow the ask.
+    if (assignmentRow?.id) getTriagePair(student.id, assignmentRow.id).then(handlePairChange).catch(() => {});
   }
 
   // The card's Extend control: the pair's fresh timeline + what the status line did;
@@ -541,7 +543,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
 
   // Refer / Waive / Undo (and after an extension): { timeline, late_work } for this student.
   function handlePairChange(state) {
-    if (state) onSaved?.(student.schoology_uid, { timeline: state.timeline, late_work: state.late_work });
+    if (state) onSaved?.(student.schoology_uid, { timeline: state.timeline, late_work: state.late_work, attention: state.attention });
   }
 
   // Patch the student and keep the comment editor in step with a published / removed
@@ -931,6 +933,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         flag_reason: reason,
       });
       setReviewFlag({ id: flag.id, flag_reason: flag.flag_reason });
+      // The page's Flagged for review reason + count follow the card.
+      onSaved?.(student.schoology_uid, { review_flag: { id: flag.id, flag_reason: flag.flag_reason } });
       setShowFlagInput(false);
       setFlagReason('');
     } catch (err) {
@@ -947,6 +951,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     try {
       await deleteFlag(reviewFlag.id);
       setReviewFlag(null);
+      onSaved?.(student.schoology_uid, { review_flag: null });
     } catch (err) {
       setFlagError(`Clear failed: ${err.message}`);
     } finally {
@@ -1170,6 +1175,22 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
       {/* The open action's editor (Extend, Ask to resubmit, Waive) draws here, full width
           under the header, so the header's buttons never wrap (ActionPanel portal). */}
       <div ref={setPanelHost} className="card-action-panel" />
+
+      {/* Why this student needs attention: the Needs action / Watch reasons, the
+          same names as the filter pills above the cards. */}
+      {reasons.length > 0 && (
+        <div className="reason-chips" aria-label="Needs attention" style={{ padding: '0.45rem 1rem 0', paddingLeft: 'calc(1rem + 70px + 0.75rem)' }}>
+          {reasons.map((r) => {
+            const v = TONE_VARS[reasonTone(r)] || TONE_VARS.neutral;
+            return (
+              <span key={r.id} className="reason-chip" data-reason={r.id}
+                style={{ background: v.bg, color: v.text, boxShadow: `inset 0 0 0 1px ${v.text}` }}>
+                {reasonText(r)}
+              </span>
+            );
+          })}
+        </div>
+      )}
 
       {/* The full submission picture: due / extension, submitted when and how late
           (or the clock day it is missing on), resubmission, referral. */}
@@ -1989,10 +2010,29 @@ export default function AssessmentSummaryPage() {
     });
   }, []);
 
-  const totalPending = Object.keys(pendingByUid).length;
+  // A card has an unpublished Prism draft while it reports pending changes. Every
+  // card stays mounted (filtered-out cards are only hidden), so this covers them all.
+  const hasDraft = useCallback((st) => Boolean(pendingByUid[st.schoology_uid]), [pendingByUid]);
+  // Who the filter shows is worked out when the filter changes (or the data reloads,
+  // or the teacher asks), not on every save: a card stays in view while it is being
+  // worked on, even once its reason is resolved.
+  const [filterEpoch, setFilterEpoch] = useState(0);
+  const filterCtx = data ? { assignment: data.assignment, topics: data.topics, hasDraft } : null;
+  const shownUids = useMemo(() => {
+    if (!data || activeFilters.size === 0) return null;
+    return new Set(data.students.filter(st => passesFilters(st, activeFilters, filterCtx)).map(st => st.schoology_uid));
+  }, [activeFilters, filterEpoch, data?.assignment]); // eslint-disable-line react-hooks/exhaustive-deps
+  const isShown = (uid) => !shownUids || shownUids.has(uid);
+  // Shown cards whose reasons no longer match (resolved since the filter ran).
+  const resolvedCount = shownUids && data
+    ? data.students.filter(st => shownUids.has(st.schoology_uid) && !passesFilters(st, activeFilters, filterCtx)).length
+    : 0;
+
+  // The class-wide bar acts on the cards shown.
+  const totalPending = Object.keys(pendingByUid).filter(isShown).length;
 
   // Class-wide visibility aggregate for the bulk "show all to students" toggle.
-  const visUids = Object.keys(displayByUid);
+  const visUids = Object.keys(displayByUid).filter(isShown);
   const visibleCount = visUids.filter(u => displayByUid[u]).length;
   const allVisible = visUids.length > 0 && visibleCount === visUids.length;
   const noneVisible = visibleCount === 0;
@@ -2001,11 +2041,11 @@ export default function AssessmentSummaryPage() {
   // Push a visibility value to every card (each marks itself pending only if the
   // value differs from its synced state). Used by the bulk toggle.
   function handleSetAllVisible(value) {
-    for (const uid of Object.keys(cardsRef.current)) cardsRef.current[uid]?.setDisplay?.(value);
+    for (const uid of Object.keys(cardsRef.current).filter(isShown)) cardsRef.current[uid]?.setDisplay?.(value);
   }
 
   async function handleSendAll() {
-    const uids = Object.keys(pendingByUid);
+    const uids = Object.keys(pendingByUid).filter(isShown);
     if (uids.length === 0) return;
     setBulkSaving(true);
     setBulkResult(null);
@@ -2048,8 +2088,8 @@ export default function AssessmentSummaryPage() {
     if (!markAllArmed) { setMarkAllArmed(true); return; }
     setMarkAllArmed(false);
     let staged = 0;
-    for (const card of Object.values(cardsRef.current)) {
-      if (card?.stageScaleLevel?.(level.code)) staged++;
+    for (const [uid, card] of Object.entries(cardsRef.current)) {
+      if (isShown(uid) && card?.stageScaleLevel?.(level.code)) staged++;
     }
     setBulkResult(staged
       ? `Marked ${staged} student${staged !== 1 ? 's' : ''} ${level.label}: review, then publish`
@@ -2060,8 +2100,8 @@ export default function AssessmentSummaryPage() {
   // that differs from its grade. Staging only — the teacher still publishes.
   function handleAcceptAllSuggestions() {
     let staged = 0;
-    for (const card of Object.values(cardsRef.current)) {
-      if (card?.acceptScaleSuggestion?.()) staged++;
+    for (const [uid, card] of Object.entries(cardsRef.current)) {
+      if (isShown(uid) && card?.acceptScaleSuggestion?.()) staged++;
     }
     setBulkResult(`Accepted ${staged} suggestion${staged !== 1 ? 's' : ''}: review, then publish`);
   }
@@ -2071,10 +2111,11 @@ export default function AssessmentSummaryPage() {
   // Each pending card discards its own local draft; the cards' pending-change
   // reports then clear pendingByUid.
   function handleDiscardAll() {
-    if (Object.keys(pendingByUid).length === 0) return;
+    const uids = Object.keys(pendingByUid).filter(isShown);
+    if (uids.length === 0) return;
     if (!discardAllArmed) { setDiscardAllArmed(true); return; }
     setDiscardAllArmed(false);
-    for (const uid of Object.keys(pendingByUid)) cardsRef.current[uid]?.discard?.();
+    for (const uid of uids) cardsRef.current[uid]?.discard?.();
     setBulkResult(null);
   }
 
@@ -2158,7 +2199,7 @@ export default function AssessmentSummaryPage() {
     const s = data.students.find((x) => x.id === focusStudentId);
     if (!s) return;
     focusedForRef.current = focusStudentId;
-    if (!passesFilters(s, activeFilters, { assignment: data.assignment, topics: data.topics })) setActiveFilters(new Set());
+    if (shownUids && !shownUids.has(s.schoology_uid)) setActiveFilters(new Set());
     setHighlightId(focusStudentId);
     requestAnimationFrame(() => document.getElementById(`student-card-${focusStudentId}`)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' }));
     const t = setTimeout(() => setHighlightId(null), 2000);
@@ -2200,7 +2241,13 @@ export default function AssessmentSummaryPage() {
     return Object.entries(resolveRubricScores(parsed?.rubric_scores, cardTopics))
       .some(([topicId, level]) => scores?.[topicId]?.grade !== level);
   }).length : 0;
-  const visibleStudents = students.filter(s => passesFilters(s, activeFilters, { assignment, topics: alignedTopics }));
+  const shownCount = shownUids ? shownUids.size : students.length;
+  // The selected pills, named for the empty-filter message.
+  const pillLabels = Object.fromEntries([
+    ...Object.entries(REASONS).map(([id, r]) => [id, r.label]),
+    ...filterGroups(assignment).flatMap(g => g.pills.map(p => [p.id, p.label])),
+  ]);
+  const activeLabels = [...activeFilters].map(id => pillLabels[id] || id);
 
   return (
     <div className="fade-in">
@@ -2314,7 +2361,15 @@ export default function AssessmentSummaryPage() {
           topics={alignedTopics}
           active={activeFilters}
           onToggle={toggleFilter}
+          onClear={() => setActiveFilters(new Set())}
+          hasDraft={hasDraft}
         />
+        {resolvedCount > 0 && (
+          <p className="text-sm text-muted" style={{ margin: '0.35rem 0 0' }}>
+            {resolvedCount} shown {resolvedCount === 1 ? 'student no longer matches' : 'students no longer match'} the filter.{' '}
+            <button type="button" className="ghost btn-sm" onClick={() => setFilterEpoch(n => n + 1)}>Update the list</button>
+          </p>
+        )}
         {quizGroup && <QuizLoadWarnings group={quizGroup} students={students} />}
         {quizGroup && (
           <div role="tablist" aria-label="Quiz views" style={{ display: 'flex', gap: '0.25rem', marginTop: '0.4rem' }}>
@@ -2337,12 +2392,18 @@ export default function AssessmentSummaryPage() {
         </div>
       ) : (
         <>
-          {visibleStudents.length === 0 && (
-            <div className="card"><p className="text-muted">No students match the current filters.</p></div>
+          {shownCount === 0 && (
+            <div className="card">
+              <p className="text-muted" style={{ marginTop: 0 }}>No students match {activeLabels.join(' + ')}.</p>
+              <button type="button" className="secondary btn-sm" onClick={() => setActiveFilters(new Set())}>Clear filters</button>
+            </div>
           )}
-          {visibleStudents.map((student) => (
+          {/* Every card stays mounted (a hidden card keeps its unsaved draft and still
+              reports it); the filter only hides the cards it leaves out. */}
+          {students.map((student) => (
+            <div key={student.schoology_uid} hidden={!isShown(student.schoology_uid)}>
             <StudentRubricCard
-              key={student.schoology_uid}
+              reasons={studentReasons(student, filterCtx)}
               student={cardStudent(student)}
               topics={cardTopics}
               courseId={courseId}
@@ -2367,6 +2428,7 @@ export default function AssessmentSummaryPage() {
               registerCard={registerCard}
               unregisterCard={unregisterCard}
             />
+            </div>
           ))}
 
           {/* Whole-class command bar (#51) — sticky so it stays reachable during

@@ -651,6 +651,13 @@ button.btn-sm { padding: 0.3rem 0.65rem; font-size: 0.78rem; }
    boxShadow (the resubmit-conflict ring), which an animated box-shadow
    property would fight with; outline is a separate box the card never sets. */
 .student-card--highlight { animation: student-card-pulse 2s ease-out; }
+/* /assessment/ filter rows (Needs action, Watch, Refine) and the matching reason
+   chips under each card header. */
+.assessment-filter-bar { display: flex; flex-direction: column; gap: 0.35rem; padding-top: 0.5rem; }
+.assessment-filter-row { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.assessment-filter-row__label { min-width: 6.5rem; }
+.reason-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.reason-chip { display: inline-flex; align-items: center; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; }
 @keyframes student-card-pulse {
   0%, 60% { outline: 3px solid var(--accent); outline-offset: 2px; }
   100% { outline: 3px solid transparent; outline-offset: 2px; }

@@ -16,6 +16,7 @@ import { isSubmitted, extensionUntil, getTriage } from './triage.js';
 import { ALIGNED_SQL, laterOf } from './triageCommon.js';
 import { todayLocal, epochToLocalDate } from '../lib/schoolDays.js';
 import { sqliteUtcToEpoch } from '../lib/resubmission.js';
+import { attentionByStudent } from './cardAttention.js';
 
 const EXCUSED = 1;
 const LATE_EXCEPTION = 4;
@@ -188,10 +189,11 @@ export function lateWorkByStudent(db, { courseId, assignmentId, studentId = null
 
 // One pair's card state after a triage action: { timeline, late_work }.
 export function pairState(db, { studentId, assignmentId }) {
-  const a = db.prepare('SELECT course_id FROM assignments WHERE id = ?').get(Number(assignmentId));
+  const a = db.prepare('SELECT * FROM assignments WHERE id = ?').get(Number(assignmentId));
   if (!a) return null;
   return {
     timeline: timelineForPair(db, { studentId, assignmentId }),
     late_work: lateWorkByStudent(db, { courseId: a.course_id, assignmentId, studentId: Number(studentId) }).get(Number(studentId)) || null,
+    attention: attentionByStudent(db, { assignment: a, students: [{ id: Number(studentId) }] }).get(Number(studentId)),
   };
 }

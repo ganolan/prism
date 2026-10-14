@@ -17,6 +17,7 @@ import { epochToLocalDate } from '../lib/schoolDays.js';
 import { sessionStatus, resetSessionStatusCache } from '../services/schoologySession.js';
 import { canUnsubmit } from '../services/ltiUnsubmit.js';
 import { timelineContext, lateWorkByStudent } from '../services/submissionTimeline.js';
+import { attentionByStudent } from '../services/cardAttention.js';
 
 const router = Router();
 const syncsInProgress = new Set();
@@ -569,6 +570,8 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
   const timelines = assignmentRow ? timelineContext(db, { courseId: assignmentRow.course_id }) : null;
   // The Late work row per student (Refer / Waive on the card), as the dashboard shows it.
   const lateWork = assignmentRow ? lateWorkByStudent(db, { courseId: assignmentRow.course_id, assignmentId: assignmentRow.id }) : new Map();
+  // The page's calendar-based "Needs action" / "Watch" reasons + whether each student handed it in.
+  const attention = attentionByStudent(db, { assignment: assignmentRow, students });
 
   // An unaligned assignment on a Schoology scale Prism can grade (#41) is one
   // plain gradebook grade: ship the scale (levels best → worst) and each
@@ -624,6 +627,7 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
         row_levels: rowLevelsByUid[s.schoology_uid] || {},
         timeline: timelines ? timelines.timeline(assignmentRow, s.id, gradeByUid[s.schoology_uid] || null, resubmission) : null,
         late_work: lateWork.get(s.id) || null,
+        attention: attention.get(s.id) || { handedIn: false, reasons: [] },
       };
     }),
   });

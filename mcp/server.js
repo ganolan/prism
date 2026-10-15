@@ -5,7 +5,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { getDb } from '../server/db/index.js';
 import { getAssessmentContext } from '../server/services/assessmentContext.js';
 import { writeStudentSuggestions, upsertAssessmentAnalysis } from '../server/services/suggestions.js';
-import { listCourses, listAssignments, listStudents, listRubricsTool, readRubric, writeRubric, attachRubricTool, findStudentTool, getStudentHistoryTool } from './handlers.js';
+import { listCourses, listAssignments, listStudents, listRubricsTool, readRubric, writeRubric, attachRubricTool, findStudentTool, getStudentHistoryTool, listQuizGroupsTool, loadQuizResultsTool, setQuestionTagsTool, getFrqResponsesTool, writeFrqSuggestionsTool, listFrqWritebacksTool, markFrqWritebackTool, getQuizResultsTool, writeQuizOverallSuggestionsTool } from './handlers.js';
 import {
   getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool, extendDeadlineTool, undoExtensionTool,
   setMakeupTrackingTool,
@@ -25,7 +25,12 @@ export const INSTRUCTIONS =
   '(all in school days, numbered with the due/test date as day 1), and ' +
   'school-calendar arithmetic. Also a student\'s full history across every ' +
   'course and year with the teacher (archived included), with the teacher\'s ' +
-  'levels and comments verbatim, e.g. for reference letters.';
+  'levels and comments verbatim, e.g. for reference letters. Also linked ' +
+  'quizzes: per-question results of Schoology tests that Prism combined, and ' +
+  'tags per question. FRQ marking: get_frq_responses, write_frq_suggestions, then the teacher accepts in Prism; ' +
+  'the teacher publishes accepted marks with Publish all to Schoology on the Free response tab; ' +
+  'list_frq_writebacks and mark_frq_writeback are the fallback when that button is absent. Overall result: get_quiz_results, then ' +
+  'write_quiz_overall_suggestions (levels and an impression; Prism builds the comment).';
 
 // Open the shared Prism DB (resolved relative to server/db, honoring DB_PATH)
 // and set busy_timeout so a brief write collision with the Express server
@@ -59,7 +64,7 @@ export function createServer() {
     'list_assignments',
     {
       description:
-        "List a course's assignments (with aligned-topic + latest-submission hints) to resolve which assignment to grade. `score_scale` names the Schoology scale an unaligned assignment is graded on (e.g. \"Completion Scale\"), null for rubric-graded ones.",
+        "List a course's assignments (with aligned-topic + latest-submission hints) to resolve which assignment to grade. `score_scale` names the Schoology scale an unaligned assignment is graded on (e.g. \"Completion Scale\"), null for rubric-graded ones. `feedback_rubric` names the rubric attached to an unaligned assignment as feedback rows (null otherwise).",
       inputSchema: { course_id: z.union([z.number(), z.string()]).describe('Local Prism course id') },
     },
     async ({ course_id }) => ({
@@ -86,7 +91,7 @@ export function createServer() {
     'get_assignment_context',
     {
       description:
-        'Load an assignment\'s roster, aligned measurement topics (rubric skeleton); or, for an unaligned assignment, its `score_scale` (levels best → worst) and each student\'s `current_scale_level`; current finals/comments/display-status, any existing AI suggestions, and the teacher\'s in-progress unpublished draft (draft_feedback: their staged proficiency picks, removed topics, comment, and display-to-student toggle), to grade against. Address each student in feedback by their roster `preferred_first_name` (the teacher-honored display name); `first_name`/`last_name` are the legal name, for matching submissions. Each student\'s `submission_timeline` is the full submission picture, as on the /assessment/ card: due (+ extension: school days and the date it moved to), submission { state (submitted | in_progress | not_started | not_submitted | excused | untracked = paper work | not_assigned = sits the other test copy | unknown = no signal synced, never treat as missing), firstSubmittedAt / latestSubmittedAt (ISO), late (judged against any extension; null = unknown), schoolDaysLate (school days after the deadline it came in; say this to the teacher, never "day N", which reads as a timetable cycle day), day (the same as a clock day = schoolDaysLate + 1), lateMinutes (late on the due date itself), schoologyLate (Schoology\'s own flag, which ignores Prism extensions) }, overdue { schoolDaysOverdue, day, overLimit } for missing work, resubmission { askedOn, until, arrivedOn, afterDeadline } and referral { on, day }. Day numbers are the triage clock: SCHOOL days, the due date (or extended date) = day 1, the teacher\'s referral limit (default 8) the last allowed day.',
+        'Load an assignment\'s roster, aligned measurement topics (rubric skeleton); or, for an unaligned assignment, its `score_scale` (levels best → worst) and each student\'s `current_scale_level`; when that assignment has a rubric attached, also `rubric` { name, rows: [{ criterion, standard, category, descriptors }] } and each student\'s `current_row_levels` { criterion: level } (the teacher\'s published row levels; feedback rows are Prism-only and never sent to Schoology), with draft_feedback.row_levels and draft_feedback.scale_level (scale_level_source: teacher | rubric_average); current finals/comments/display-status, any existing AI suggestions, and the teacher\'s in-progress unpublished draft (draft_feedback: their staged proficiency picks, removed topics, comment, and display-to-student toggle), to grade against. Address each student in feedback by their roster `preferred_first_name` (the teacher-honored display name); `first_name`/`last_name` are the legal name, for matching submissions. Each student\'s `submission_timeline` is the full submission picture, as on the /assessment/ card: due (+ extension: school days and the date it moved to), submission { state (submitted | in_progress | not_started | not_submitted | excused | untracked = paper work | not_assigned = sits the other test copy | unknown = no signal synced, never treat as missing), firstSubmittedAt / latestSubmittedAt (ISO), late (judged against any extension; null = unknown), schoolDaysLate (school days after the deadline it came in; say this to the teacher, never "day N", which reads as a timetable cycle day), day (the same as a clock day = schoolDaysLate + 1), lateMinutes (late on the due date itself), schoologyLate (Schoology\'s own flag, which ignores Prism extensions) }, overdue { schoolDaysOverdue, day, overLimit } for missing work, resubmission { askedOn, until, arrivedOn, afterDeadline } and referral { on, day }. Day numbers are the triage clock: SCHOOL days, the due date (or extended date) = day 1, the teacher\'s referral limit (default 8) the last allowed day.',
       inputSchema: {
         course_id: z.union([z.number(), z.string()]).describe('Local Prism course id'),
         assignment_id: z.union([z.number(), z.string()]).describe('Schoology or local assignment id'),
@@ -103,7 +108,7 @@ export function createServer() {
     'write_student_suggestions',
     {
       description:
-        'Write AI grading suggestions (narrative + per-topic levels + reviewer flags) for a whole class in one batched call. For an assignment with a `score_scale` (Completion, General Academic Scale (Unaligned), Approaches to Learning), send `scale_level` instead of rubric_scores, e.g. after checking a third-party platform, "Completed" plus an `evidence` note saying what you checked. Upserts one draft suggestion per student for teacher review in Prism (the teacher accepts and publishes); never writes to Schoology.',
+        'Write AI grading suggestions (narrative + per-topic levels + reviewer flags) for a whole class in one batched call. For an assignment with a `score_scale` (Completion, General Academic Scale (Unaligned), Approaches to Learning) and no `rubric`, send `scale_level` instead of rubric_scores, e.g. after checking a third-party platform, "Completed" plus an `evidence` note saying what you checked. When get_assignment_context also returns a `rubric` (feedback rows), send each row\'s level in `rubric_scores` keyed by the row\'s `criterion`; Prism stages the rubric average as the overall level, so send `scale_level` only when your judgment differs from that average or a row is Insufficient Evidence. Upserts one draft suggestion per student for teacher review in Prism (the teacher accepts and publishes); never writes to Schoology.',
       inputSchema: {
         course_id: z.union([z.number(), z.string()]).describe('Local Prism course id'),
         assignment_id: z.union([z.number(), z.string()]).describe('Schoology or local assignment id'),
@@ -112,12 +117,12 @@ export function createServer() {
             z.object({
               student: z.union([z.number(), z.string()]).describe('schoology_uid or local student id'),
               narrative_feedback: z.string().optional(),
-              rubric_scores: z.record(z.string(), z.string()).optional().describe('{ topic external_id|title: proficiency level code or name }: levels only; Prism owns the points conversion'),
+              rubric_scores: z.record(z.string(), z.union([z.string(), z.number()])).optional().describe('{ topic external_id|title, or a feedback row\'s criterion: proficiency level code or name }: levels only; Prism owns the points conversion'),
               reviewer_flags: z.string().nullable().optional().describe('Teacher-facing detail, one paragraph per flag'),
               reviewer_flags_brief: z.array(z.string()).optional().describe('One short line per reviewer flag (~12 words each), shown at a glance above strengths/suggestions; the full reviewer_flags text sits behind "Show detailed flags". Without it Prism shows the first sentence of each flag paragraph.'),
               strengths: z.array(z.string()).optional(),
               suggestions: z.array(z.string()).optional(),
-              scale_level: z.string().optional().describe('Score-scale assignments only: a level code or label from get_assignment_context score_scale, e.g. "Completed"'),
+              scale_level: z.string().optional().describe('Score-scale assignments only: a level code or label from get_assignment_context score_scale, e.g. "Completed". With feedback rows, only when it differs from the rubric average or a row is IE'),
               evidence: z.string().optional().describe('Teacher-facing note on what backs scale_level, e.g. "Codecademy: lesson 4 complete 26/09"'),
             })
           )
@@ -144,6 +149,121 @@ export function createServer() {
     async ({ assignment_id, noticings, moderation_note }) => ({
       content: [{ type: 'text', text: JSON.stringify(upsertAssessmentAnalysis(getDb(), { assignmentId: assignment_id, noticings, moderation_note })) }],
     })
+  );
+
+  server.registerTool(
+    'list_quiz_groups',
+    {
+      description: 'List the quiz groups in a course: each is one or more Schoology tests Prism treats as one quiz, with its member tests, the linked result task (if any), parity status and when results were last loaded.',
+      inputSchema: { course: z.union([z.number(), z.string()]).describe('Local course id, or a course name or code fragment') },
+    },
+    async ({ course }) => text(() => listQuizGroupsTool(getDb(), { course }))
+  );
+
+  server.registerTool(
+    'load_quiz_results',
+    {
+      description: "Read the group's attempts from Schoology through the saved browser session. Sends nothing to Schoology. Stores the attempts and responses in Prism, replacing any earlier load, and records when they were loaded. An attempt deleted in Schoology (its results row now reads not attempted) is removed from Prism. Takes about a minute for a class. Returns { summary: { attempts (number), notTaken (number), failed: [{uid, reason}], unknownUids: [uid], mismatches: [text], multipleAttempts: [uid], removed (number: stored attempts dropped because Schoology no longer has them), marksPosted (number: accepted FRQ marks that Schoology now shows, so recorded as posted) } }. Fails with NO_SESSION (the teacher must reconnect Schoology in Prism's Settings), UNREACHABLE (Schoology could not be reached, which says nothing about the session: try again) or BUSY (this quiz is loading, or Prism is posting its marks to Schoology).",
+      inputSchema: { group_id: z.union([z.number(), z.string()]).describe('Quiz group id from list_quiz_groups') },
+    },
+    async ({ group_id }) => text(() => loadQuizResultsTool(getDb(), { group_id }))
+  );
+
+  server.registerTool(
+    'set_question_tags',
+    {
+      description: "Set free-text tags on a quiz group's questions by question number, for example College Board codes from the test's Codes.csv: { \"1\": [\"CRD-2.G\"], \"2\": [\"AAP-1.A\", \"AAP-1.B\"] }. Replaces each listed question's tags. " +
+        "texts gives each tag's full wording for the course (for AP CSP, the learning objective or essential knowledge text from the CED), which the teacher sees when hovering over the tag: { \"CRD-2.G\": \"Describe the purpose of a code segment or program.\" }. An empty text removes it. Either argument may be given alone. " +
+        "Returns { updated, unknownPositions, textsSaved (only when texts was given) }.",
+      inputSchema: {
+        group_id: z.union([z.number(), z.string()]).describe('Quiz group id from list_quiz_groups'),
+        tags: z.record(z.string(), z.array(z.string())).optional().describe('{ question number: [tag, ...] }'),
+        texts: z.record(z.string(), z.string()).optional().describe('{ tag: full text }, stored for the group\'s course'),
+      },
+    },
+    async ({ group_id, tags, texts }) => text(() => setQuestionTagsTool(getDb(), { group_id, tags, texts }))
+  );
+
+  server.registerTool(
+    'get_frq_responses',
+    {
+      description: "Read a quiz group's free-response answers from Prism's stored copy (no Schoology request). For each FRQ: the stem and the Schoology rubric (rows, level names, points, descriptions). For each student: the MCQ score, the attempt URL, and per FRQ the answer as plain text with line breaks kept, Schoology's current mark (level per row, comment), and any Prism mark (state suggested/accepted/edited, the suggestion, the teacher's final mark, write-back pending/posted/failed). Load the results first (load_quiz_results) if they are old.",
+      inputSchema: {
+        group_id: z.union([z.number(), z.string()]).describe('Quiz group id from list_quiz_groups'),
+        question: z.number().optional().describe('One FRQ by question number; omit for every FRQ'),
+      },
+    },
+    async ({ group_id, question }) => text(() => getFrqResponsesTool(getDb(), { group_id, question }))
+  );
+
+  server.registerTool(
+    'write_frq_suggestions',
+    {
+      description: 'Write suggested FRQ marks for teacher review in Prism (never sent to Schoology). Per student: cells as { rubric row title or id: level name } (for example { "Content Knowledge": "Exhibiting" }), or level alone for a one-row rubric, or points for an FRQ without a rubric; and a student-facing comment. Levels are names or codes (ED, EX, D, EM), never numbers: Prism converts them to points. A new suggestion replaces the earlier one and never changes a mark the teacher accepted or edited; if it differs, the teacher sees it as a revised suggestion. Returns { written, results: [{ student, status: written|error, message }] }.',
+      inputSchema: {
+        group_id: z.union([z.number(), z.string()]).describe('Quiz group id from list_quiz_groups'),
+        question: z.number().describe('FRQ question number'),
+        students: z.array(z.object({
+          student: z.union([z.number(), z.string()]).describe('schoology_uid or local student id'),
+          cells: z.record(z.string(), z.union([z.string(), z.number()])).optional().describe('{ rubric row title or id: level name }'),
+          level: z.string().optional().describe('Level name, for a one-row rubric'),
+          points: z.number().optional().describe('Points, for an FRQ without a rubric'),
+          comment: z.string().describe('Student-facing feedback on this answer'),
+        })),
+      },
+    },
+    async ({ group_id, question, students }) => text(() => writeFrqSuggestionsTool(getDb(), { group_id, question, students }))
+  );
+
+  server.registerTool(
+    'list_frq_writebacks',
+    {
+      description: "FRQ marks the teacher accepted or edited that Schoology does not show yet (write-back pending or failed): student, question number, the attempt URL to open, the level and points per rubric row, and the comment to enter. After entering one in Schoology, record it with mark_frq_writeback; the next load_quiz_results also detects it. While Prism's quiz write-back is on, the teacher publishes these with Publish all to Schoology on the Free response tab; use this list for a mark it reports as \"Post this one by hand\", or when the teacher asks.",
+      inputSchema: { group_id: z.union([z.number(), z.string()]).describe('Quiz group id from list_quiz_groups') },
+    },
+    async ({ group_id }) => text(() => listFrqWritebacksTool(getDb(), { group_id }))
+  );
+
+  server.registerTool(
+    'mark_frq_writeback',
+    {
+      description: 'Record that an accepted FRQ mark was entered in Schoology (status posted), or that entering it failed (status failed, with error). Only for a mark listed by list_frq_writebacks. Refused for a mark that is not waiting to post or failed.',
+      inputSchema: {
+        group_id: z.union([z.number(), z.string()]).describe('Quiz group id from list_quiz_groups'),
+        student: z.union([z.number(), z.string()]).describe('schoology_uid or local student id'),
+        question: z.number().describe('FRQ question number'),
+        status: z.enum(['posted', 'failed']),
+        error: z.string().optional().describe('What went wrong, for status failed'),
+      },
+    },
+    async ({ group_id, student, question, status, error }) => text(() => markFrqWritebackTool(getDb(), { group_id, student, question, status, error }))
+  );
+
+  server.registerTool(
+    'get_quiz_results',
+    {
+      description: "A quiz group's results per student from Prism's stored copy (no Schoology request), for suggesting the overall result on the linked result task: the MCQ score (correct, total, percent), percent correct per tag, each FRQ's confirmed level (the teacher's Prism mark, else Schoology's own mark) or why it is not confirmed (to review, not marked), ready, any existing overall suggestion (levels, impression, stale), the result task's measurement topics, the comment template, and the students who have not taken it. Apply the course's cut-off guide to these numbers, then call write_quiz_overall_suggestions.",
+      inputSchema: { group_id: z.union([z.number(), z.string()]).describe('Quiz group id from list_quiz_groups') },
+    },
+    async ({ group_id }) => text(() => getQuizResultsTool(getDb(), { group_id }))
+  );
+
+  server.registerTool(
+    'write_quiz_overall_suggestions',
+    {
+      description: 'Write the overall result of a quiz as suggestions on its linked result task, for teacher review in Prism (never sent to Schoology). Per student: rubric_scores as { topic external_id or title: level name or code } (levels only; Prism owns the points) and a short student-facing impression (British spelling, one to three sentences). Prism builds the comment from the group template, so the MCQ score and FRQ levels always match its data: do not repeat the numbers in the impression. Refused for a student whose FRQs are not all confirmed (accept them on the Free response tab first) or who has no attempt. Returns { written, results: [{ student, status: written|error, message }] }.',
+      inputSchema: {
+        group_id: z.union([z.number(), z.string()]).describe('Quiz group id from list_quiz_groups'),
+        students: z.array(z.object({
+          student: z.union([z.number(), z.string()]).describe('schoology_uid or local student id'),
+          rubric_scores: z.record(z.string(), z.union([z.string(), z.number()])).describe('{ topic external_id|title: proficiency level code or name }'),
+          impression: z.string().describe('Student-facing overall impression; Prism adds the numbers and the line about the attempt'),
+          reviewer_flags: z.string().nullable().optional().describe('Teacher-facing detail, one paragraph per flag'),
+          reviewer_flags_brief: z.array(z.string()).optional().describe('One short line per reviewer flag'),
+        })),
+      },
+    },
+    async ({ group_id, students }) => text(() => writeQuizOverallSuggestionsTool(getDb(), { group_id, students }))
   );
 
   server.registerTool(
@@ -186,10 +306,10 @@ export function createServer() {
   server.registerTool(
     'attach_rubric',
     {
-      description: "Attach a library rubric (by name) to an assignment, auto-matching its criteria to the assignment's measurement topics. Returns { attached_to, rubric, unmatched_criteria }: finish any unmatched criteria in Prism's Map-criteria tab.",
+      description: "Attach a library rubric (by name) to an assignment. On an aligned assignment its criteria are auto-matched to the measurement topics; returns { attached_to, rubric, unmatched_criteria }: finish any unmatched criteria in Prism's Map-criteria tab. On an unaligned assignment graded on a score scale (e.g. General Academic Scale (Unaligned)), every criterion becomes a feedback row: rows are marked in Prism and never sent to Schoology, and only the overall scale level is published. Returns { attached_to, rubric, mode: 'feedback_rows', score_scale, rows, hidden_row_levels } (hidden_row_levels counts stored row levels whose names are not rows of the new rubric).",
       inputSchema: {
         rubric_name: z.string().describe('Rubric name (as shown by list_rubrics)'),
-        assignment_id: z.union([z.number(), z.string()]).describe('Local Prism assignment id (from list_assignments)'),
+        assignment_id: z.union([z.number(), z.string()]).describe('Schoology or local assignment id'),
       },
     },
     async ({ rubric_name, assignment_id }) => ({ content: [{ type: 'text', text: JSON.stringify(attachRubricTool(getDb(), { rubric_name, assignment_id })) }] })
@@ -233,10 +353,11 @@ export function createServer() {
         'Rows carry courseName + blockNumber (sections of one course share a name) and extension ({ id, lessons (= school days), until, note } or null; dueDate stays the original). Includes the limits (settings), calendar source (approx = weekday fallback) and lastSyncAt: ' +
         'say when data may be stale. Use for "who is close to referral?", "what should I grade first?" or "who still has to sit the test?". ' +
         'resubmissions: per student × assessment, state "waiting" (asked to resubmit; day 1 = the ask day; limit = lessons (school days) + 1, red after `until`; source schoology_unsubmit = the teacher unsubmitted OneDrive work) or "arrived" (a resubmission newer than the last feedback; day 1 = the resubmission date, overdue after day {feedbackLimitDays}; afterDeadline = came in after the ask deadline). Explicit asks show for any alignment; unrequested arrivals follow include_formative. ' +
-        "lateWork, makeUps and resubmissions rows also carry studentEmail (the student's school email, null when Prism has none), e.g. for building an email list.",
+        "lateWork, makeUps and resubmissions rows also carry studentEmail (the student's school email, null when Prism has none), e.g. for building an email list. " +
+        'looseEnds: unfinished grading work with no clock, per assessment (any alignment): drafts = students with grades or a comment entered in Prism but not yet published to Schoology (a live draft; one Schoology changed under is left out), feedbackHidden = students with a teacher comment in Schoology they cannot see (Display to student off), flagged = students the teacher flagged for review; students[] names each with its reasons. Tasks with a draft come first, oldest draft (oldestDraftOn) first. Use for "what have I left unfinished?".',
       inputSchema: {
         course: z.union([z.number(), z.string()]).optional().describe('Course id (list_courses) or a name/code fragment; omit for all current courses'),
-        student: z.union([z.number(), z.string()]).optional().describe('Student id or name fragment to filter lateWork and makeUps'),
+        student: z.union([z.number(), z.string()]).optional().describe('Student id or name fragment to filter lateWork, makeUps, resubmissions and looseEnds'),
         include_formative: z.boolean().optional().describe('Include formative work in feedbackOwed (default: the teacher setting)'),
       },
     },
@@ -437,7 +558,7 @@ export function createServer() {
   server.registerTool(
     'get_student_history',
     {
-      description: "Everything Prism holds on one student across every course and year they took with the teacher (archived included), e.g. for a reference letter: per course (oldest first) the end-of-course proficiency per measurement topic, and per assessed assignment its title, due date, overall level, levels per measurement topic and the teacher's grade comment VERBATIM (quote it as written, never correct it). Only the teacher's published finals; AI suggestions are never included; `labels` mark anything unusual (unpublished assignment, comment hidden from the student). By default only summative work: `omitted` counts formative and completion-scale work left out (and how many of those have comments); ask for them with include_formative / include_completion. Large histories page: follow page.next_offset, or use detail: 'compact' (title, date, level, comment only). Dates are ISO; show them to the teacher as DD/MM/YYYY. Read-only.",
+      description: "Everything Prism holds on one student across every course and year they took with the teacher (archived included), e.g. for a reference letter: per course (oldest first) the end-of-course proficiency per measurement topic, and per assessed assignment its title, due date, overall level, levels per measurement topic and the teacher's grade comment VERBATIM (quote it as written, never correct it). Only the teacher's published finals; AI suggestions are never included; `labels` mark anything unusual (unpublished assignment, comment hidden from the student). A formative with feedback rows (a rubric on an unaligned task) also lists `rubric_rows` [{ criterion, level }], the teacher's published row levels (full detail only). By default only summative work: `omitted` counts formative and completion-scale work left out (and how many of those have comments); ask for them with include_formative / include_completion. Large histories page: follow page.next_offset, or use detail: 'compact' (title, date, level, comment only). Dates are ISO; show them to the teacher as DD/MM/YYYY. Read-only.",
       inputSchema: {
         student: z.union([z.string(), z.number()]).describe('Prism student id (from find_student), schoology_uid, email, or a name that matches exactly one student'),
         course: z.union([z.string(), z.number()]).optional().describe('Only this course: a Prism course id or part of the course name'),
@@ -528,8 +649,11 @@ export function createServer() {
               `per flag), also send \`reviewer_flags_brief\`: one short line per flag (about 12 words), in the same ` +
               `order. The paragraphs sit behind "Show detailed flags".\n` +
               `- **Scale assignments:** if \`get_assignment_context\` returns a \`score_scale\` (Completion, General ` +
-              `Academic Scale (Unaligned), Approaches to Learning), grade with \`scale_level\` (a level from ` +
-              `\`score_scale.levels\`) plus an \`evidence\` note saying what you checked, instead of \`rubric_scores\`.\n` +
+              `Academic Scale (Unaligned), Approaches to Learning) and no \`rubric\`, grade with \`scale_level\` (a level from ` +
+              `\`score_scale.levels\`) plus an \`evidence\` note saying what you checked, instead of \`rubric_scores\`. If it ` +
+              `also returns a \`rubric\` (feedback rows), send each row's level in \`rubric_scores\` keyed by \`criterion\`; ` +
+              `Prism stages the rubric average as the overall level, so add \`scale_level\` only when your judgment differs ` +
+              `from that average or a row is Insufficient Evidence.\n` +
               `- **Re-runs:** each student's \`existing_suggestion.suggestion_state\` says how the teacher handled your ` +
               `last narrative: \`used\` (it is in their comment), \`ignored\` (they dismissed it), \`revised\` (a ` +
               `previous re-run changed it). Only rewrite \`narrative_feedback\` when you have something new: a changed ` +

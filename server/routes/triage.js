@@ -18,6 +18,7 @@ import { loadCalendar } from '../services/schoolCalendar.js';
 import { lessonPlan } from '../services/lessonPlan.js';
 import { timelineForPair, pairState } from '../services/submissionTimeline.js';
 import { todayLocal } from '../lib/schoolDays.js';
+import { getLooseEnds } from '../services/looseEnds.js';
 
 const router = Router();
 const STATUS = {
@@ -88,10 +89,13 @@ router.get('/status-line/until', (req, res) => {
 
 // GET /api/triage?courseId=&includeFormative= — both lists (all current courses when no courseId).
 router.get('/', (req, res) => {
-  res.json(getTriage(getDb(), {
-    courseId: req.query.courseId ?? null,
-    includeFormative: optBool(req.query.includeFormative),
-  }));
+  const db = getDb();
+  const courseId = req.query.courseId ?? null;
+  res.json({
+    ...getTriage(db, { courseId, includeFormative: optBool(req.query.includeFormative) }),
+    // Unfinished work with no clock (drafts, hidden feedback, flags): the Loose ends panel.
+    looseEnds: getLooseEnds(db, { courseId }),
+  });
 });
 
 // GET /api/triage/calendar — school-calendar freshness only (source,

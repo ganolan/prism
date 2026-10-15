@@ -114,3 +114,18 @@ describe('rubrics route', () => {
     expect(getDb().prepare(`SELECT COUNT(*) c FROM rubric_attachments`).get().c).toBe(0);
   });
 });
+
+test('PUT /row-levels saves Prism-only row levels and validates them', async () => {
+  const db = getDb();
+  db.exec('DELETE FROM rubric_row_levels; DELETE FROM rubric_attachments; DELETE FROM assignments; DELETE FROM courses;');
+  const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-F', 'MGD')`).run().lastInsertRowid;
+  db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, grading_scale_id) VALUES (?, 'sa-F', 'Flappy (F)', '23495360')`).run(courseId);
+  const rubricId = saveRubric(db, { name: 'Flappy', source: 'mcp', criteria: [{ position: 1, criterion_name: 'Playtesting' }] });
+  db.prepare(`INSERT INTO rubric_attachments (rubric_id, assignment_schoology_id, course_id, created_at) VALUES (?, 'sa-F', ?, 'now')`).run(rubricId, courseId);
+  const put = (path, body) => call('PUT', path, body);
+  const ok = await put('/api/rubrics/row-levels/sa-F/uid-B', { rowLevels: { Playtesting: 'EX' } });
+  expect(ok.status).toBe(200);
+  expect(ok.body).toEqual({ ok: true, row_levels: { Playtesting: 'EX' } });
+  const bad = await put('/api/rubrics/row-levels/sa-F/uid-B', { rowLevels: { Evaluation: 'EX' } });
+  expect(bad.status).toBe(400);
+});

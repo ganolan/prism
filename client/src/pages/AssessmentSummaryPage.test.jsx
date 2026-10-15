@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 import AssessmentSummaryPage, { StudentRubricCard } from './AssessmentSummaryPage.jsx';
-import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale, requestResubmission, undoResubmission } from '../services/api.js';
+import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, getAttemptLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale, requestResubmission, undoResubmission, getFeatures, getQuizGroupFor, getQuizResults, rebuildQuizOverall, saveRowLevels, getDraftsForAssignment } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
+import { feedbackRowTopics, rowScores, rowTopicMapping } from '../lib/feedbackRows.js';
 
 // Stub the DB saver so tests assert wiring, not I/O.
 let mockSaver;
@@ -18,6 +19,11 @@ vi.mock('../lib/assessmentDraftSaver.js', () => ({
 vi.mock('../services/api.js', () => ({
   getMasteryForAssignment: vi.fn(),
   getSubmissionLinks: vi.fn().mockResolvedValue({ status: 'not_lti', links: {} }),
+  getAttemptLinks: vi.fn().mockResolvedValue({ links: {} }),
+  getFeatures: vi.fn().mockResolvedValue({}),
+  getQuizGroupFor: vi.fn().mockResolvedValue({ group: null }),
+  getQuizResults: vi.fn().mockResolvedValue({ students: [] }),
+  rebuildQuizOverall: vi.fn(),
   setSuggestionState: vi.fn().mockResolvedValue({}),
   getFeedbackForAssignment: vi.fn().mockResolvedValue({}),
   getAssessmentAnalysis: vi.fn().mockResolvedValue(null),
@@ -29,12 +35,14 @@ vi.mock('../services/api.js', () => ({
   createFlag: vi.fn().mockResolvedValue({ id: 99, flag_reason: 'Check citations' }),
   deleteFlag: vi.fn().mockResolvedValue({ success: true }),
   getSettings: vi.fn().mockResolvedValue({ triage: { resubmitLessonsDefault: 3 } }),
+  getTriagePair: vi.fn().mockResolvedValue(null),
   requestResubmission: vi.fn(),
   updateResubmission: vi.fn(),
   undoResubmission: vi.fn(),
   previewStatusLine: vi.fn().mockResolvedValue({ currentComment: '', visible: true, storedLine: null, hiddenWarning: false }),
   getLessonPlan: vi.fn().mockResolvedValue(null), getStatusLineUntil: vi.fn().mockResolvedValue({ until: '2026-10-15', lessons: 3 }),
   getRubricForAssignment: vi.fn().mockResolvedValue(null),
+  saveRowLevels: vi.fn().mockResolvedValue({ ok: true, row_levels: {} }),
   getRubricConfig: vi.fn().mockResolvedValue({ reportingCategoryColors: {} }),
   rubricTemplateUrl: vi.fn(() => '/api/rubrics/template'),
   uploadRubricCsv: vi.fn().mockResolvedValue({ id: 1 }),
@@ -763,6 +771,51 @@ describe('AssessmentSummaryPage — OneDrive work links (#120)', () => {
   });
 });
 
+describe('AssessmentSummaryPage - test attempt links (linked quizzes)', () => {
+  const ATTEMPT = { url: 'https://schoology.hkis.edu.hk/assignment/9/assessment_results/student_stats/u/2', completedAt: '2026-10-09 09:31' };
+
+  function renderPage() {
+    return render(
+      <MemoryRouter initialEntries={['/course/4/assessment/8']}>
+        <Routes>
+          <Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+  }
+
+  it('shows an Attempt link on the card when the student has a test attempt', async () => {
+    getMasteryForAssignment.mockResolvedValue({
+      assignment: { id: 50, schoology_assignment_id: '8', title: 'Launch', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+      topics: TOPICS,
+      students: [makeStudent()],
+    });
+    getAttemptLinks.mockResolvedValueOnce({ links: { 1: ATTEMPT } });
+    renderPage();
+    const link = await screen.findByRole('link', { name: /^Attempt: open .* test attempt in Schoology$/ });
+    expect(link).toHaveAttribute('href', ATTEMPT.url);
+    expect(getAttemptLinks).toHaveBeenCalledWith({ assignmentId: '8' });
+  });
+
+  it('shows no Attempt link when the student has none', async () => {
+    getMasteryForAssignment.mockResolvedValue({
+      assignment: { id: 50, schoology_assignment_id: '8', title: 'Launch', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+      topics: TOPICS,
+      students: [makeStudent()],
+    });
+    renderPage();
+    await screen.findByText('Launch');
+    await waitFor(() => expect(getAttemptLinks).toHaveBeenCalled());
+    await new Promise(r => setTimeout(r, 0));
+    expect(screen.queryByRole('link', { name: /test attempt in schoology/i })).not.toBeInTheDocument();
+  });
+
+  it('StudentRubricCard renders the attemptLink beside the name', () => {
+    renderCard({ attemptLink: ATTEMPT });
+    expect(screen.getByRole('link', { name: "Attempt: open Ada Lovelace's test attempt in Schoology" })).toHaveAttribute('href', ATTEMPT.url);
+  });
+});
+
 const COMPLETION_SCALE = {
   schoologyScaleId: 7165818, name: 'Completion Scale', bulkLevel: 'C',
   levels: [{ code: 'C', label: 'Completed', points: 100 }, { code: 'I', label: 'Incomplete', points: 0 }],
@@ -1070,6 +1123,13 @@ describe('StudentRubricCard — card chrome (Slice 5)', () => {
     const toggle = screen.getByRole('switch', { name: /display to student/i });
     expect(toggle).toBeInTheDocument();
     expect(screen.queryByText('Display to student')).not.toBeInTheDocument();
+  });
+
+  it('a topic pick on a new student turns the comment visible (aligned auto-flip)', () => {
+    renderCard();
+    expect(screen.getByRole('switch', { name: /display to student/i })).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    expect(screen.getByRole('switch', { name: /display to student/i })).toHaveAttribute('aria-checked', 'true');
   });
 
   it('counts a visibility toggle as a pending change', () => {
@@ -1665,9 +1725,99 @@ describe('AssessmentSummaryPage filtering', () => {
     renderPage(mastery);
     await waitFor(() => expect(screen.getByText('Ada L')).toBeInTheDocument());
     expect(screen.getByText('Bob M')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Refine/ }));
     fireEvent.click(screen.getByRole('button', { name: /Submitted1/ }));
-    expect(screen.queryByText('Bob M')).toBeNull();
-    expect(screen.getByText('Ada L')).toBeInTheDocument();
+    // Filtered-out cards stay mounted (their drafts survive) but are hidden.
+    expect(screen.getByText('Bob M')).not.toBeVisible();
+    expect(screen.getByText('Ada L')).toBeVisible();
+  });
+});
+
+describe('AssessmentSummaryPage Needs action / Watch', () => {
+  const base = { scores: {}, grade_comment: '', exception: 0, comment_status: 0, submission_type: null, late: 0, draft: 0, submitted_at: 0, review_flag: null, resubmit_flag: null };
+  const mastery = {
+    assignment: { id: 50, title: 'Notebook 4', is_lti_submission: 1, due_date: '2026-06-01', lti_fetch_status: 'ok' },
+    topics: [{ id: 't1', title: 'T1', category_title: 'C', external_id: 'X1' }],
+    students: [
+      { ...base, id: 1, schoology_uid: 'u1', first_name: 'Ada', last_name: 'L', lti_submission_state: 'submitted', attention: { handedIn: true, reasons: [] } },
+      { ...base, id: 2, schoology_uid: 'u2', first_name: 'Bob', last_name: 'M', lti_submission_state: 'not_started', attention: { handedIn: false, reasons: [{ id: 'late', daysLate: 4, tone: 'green' }] } },
+      { ...base, id: 3, schoology_uid: 'u3', first_name: 'Cy', last_name: 'N', lti_submission_state: 'submitted', scores: { t1: { grade: 'EX' } }, grade_comment: 'Great work.', review_flag: { id: 7, flag_reason: 'Re-mark' }, comment_status: 1, attention: { handedIn: true, reasons: [] } },
+    ],
+  };
+  const pill = (re) => within(document.querySelector('.assessment-filter-bar')).getByRole('button', { name: re });
+
+  it('opens with every student shown and a chip on each card naming its reasons', async () => {
+    renderPage(mastery);
+    await waitFor(() => expect(screen.getByText('Ada L')).toBeInTheDocument());
+    for (const name of ['Ada L', 'Bob M', 'Cy N']) expect(screen.getByText(name)).toBeVisible();
+    expect(document.querySelector('#student-card-1 [data-reason="to_grade"]')).toHaveTextContent('To grade');
+    expect(document.querySelector('#student-card-2 [data-reason="late"]')).toHaveTextContent('Late, 4 school days');
+  });
+
+  it('reasons combine as "any of", across Needs action and Watch', async () => {
+    renderPage(mastery);
+    await waitFor(() => expect(screen.getByText('Ada L')).toBeInTheDocument());
+    fireEvent.click(pill(/^To grade1/));
+    fireEvent.click(pill(/^Late, before the limit1/));
+    expect(screen.getByText('Ada L')).toBeVisible();
+    expect(screen.getByText('Bob M')).toBeVisible();
+    expect(screen.getByText('Cy N')).not.toBeVisible();
+  });
+
+  it('a card stays shown once its reason is resolved, until the list is updated', async () => {
+    renderPage(mastery);
+    await waitFor(() => expect(screen.getByText('Cy N')).toBeInTheDocument());
+    fireEvent.click(pill(/^Flagged for review1/));
+    expect(screen.getByText('Ada L')).not.toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear review flag' }));
+    await waitFor(() => expect(screen.getByText(/1 shown student no longer matches/)).toBeInTheDocument());
+    expect(screen.getByText('Cy N')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Update the list' }));
+    expect(screen.getByText('Cy N')).not.toBeVisible();
+    expect(screen.getByText(/No students match Flagged for review/)).toBeInTheDocument();
+    fireEvent.click(within(screen.getByText(/No students match/).parentElement).getByRole('button', { name: 'Clear filters' }));
+    expect(screen.getByText('Cy N')).toBeVisible();
+  });
+});
+
+describe('AssessmentSummaryPage ?filter= links (triage)', () => {
+  const base = { scores: {}, grade_comment: '', exception: 0, comment_status: 0, submission_type: null, late: 0, draft: 0, submitted_at: 0, review_flag: null, resubmit_flag: null, lti_submission_state: 'submitted', attention: { handedIn: true, reasons: [] } };
+  const topics = [{ id: 't1', title: 'T1', category_title: 'C', external_id: 'X1' }];
+  const mastery = {
+    assignment: { id: 50, title: 'Notebook 4', is_lti_submission: 1, due_date: '2026-06-01', lti_fetch_status: 'ok' },
+    topics,
+    students: [
+      { ...base, id: 1, schoology_uid: 'u1', first_name: 'Ada', last_name: 'L' },
+      { ...base, id: 2, schoology_uid: 'u2', first_name: 'Bob', last_name: 'M', review_flag: { id: 9, flag_reason: 'x' } },
+    ],
+  };
+  const renderAt = (entry) => {
+    getMasteryForAssignment.mockResolvedValue(mastery);
+    return render(
+      <MR initialEntries={[entry]}>
+        <Rs><Rt path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} /></Rs>
+      </MR>,
+    );
+  };
+
+  it('preselects the reasons named in ?filter= (unknown ids ignored)', async () => {
+    renderAt('/course/4/assessment/8?filter=flagged,nonsense');
+    await waitFor(() => expect(screen.getByText('Bob M')).toBeInTheDocument());
+    expect(screen.getByText('Bob M')).toBeVisible();
+    expect(screen.getByText('Ada L')).not.toBeVisible();
+    expect(within(document.querySelector('.assessment-filter-bar')).getByRole('button', { name: /^Flagged for review/ }))
+      .toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('a "Draft not published" link finds a card with a stored draft', async () => {
+    const ada = mastery.students[0];
+    getDraftsForAssignment.mockResolvedValueOnce({
+      1: { pending: { t1: 'EX' }, comment: '', display: false, displayTouched: false, base: draftBaseline(ada, topics, { includeScore: false }) },
+    });
+    renderAt('/course/4/assessment/8?filter=draft');
+    await waitFor(() => expect(screen.getByText('Ada L')).toBeVisible());
+    expect(screen.getByText('Bob M')).not.toBeVisible();
+    expect(document.querySelector('#student-card-1 [data-reason="draft"]')).toHaveTextContent('Draft not published');
   });
 });
 
@@ -2070,5 +2220,354 @@ describe('StudentRubricCard — triage actions on the card', () => {
     });
     expect(screen.getByRole('button', { name: 'Waive' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Extend' })).not.toBeInTheDocument();
+  });
+});
+
+describe('AssessmentSummaryPage - quiz line (linked quizzes, phase 3)', () => {
+  afterEach(() => { getFeatures.mockResolvedValue({}); getQuizGroupFor.mockResolvedValue({ group: null }); });
+  const RESULT = { student_id: 1, mcq: { correct: 17, total: 20, percent: 85 }, frq: [
+    { question: 21, has_rubric: true, confirmed: true, levels: [{ row: 'C', level: 'Exhibiting', points: 3 }], points: 3, max_points: 4 }], overall: { stale: true } };
+
+  it('the student name stays on one line beside a long quiz line', () => {
+    renderCard({ quizResult: RESULT, onRebuildQuiz: vi.fn() });
+    expect(screen.getByRole('link', { name: 'Ada Lovelace' })).toHaveStyle({ whiteSpace: 'nowrap' });
+  });
+
+  it('StudentRubricCard shows the quiz line and Update numbers', async () => {
+    const onRebuildQuiz = vi.fn().mockResolvedValue();
+    renderCard({ quizResult: RESULT, onRebuildQuiz });
+    expect(screen.getByText('MCQ 17/20 (85%), FRQ Q21: Exhibiting')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Update numbers' }));
+    await waitFor(() => expect(onRebuildQuiz).toHaveBeenCalledWith(1));
+  });
+
+  it('Update numbers refreshes the feedback in place, without reloading the page', async () => {
+    getFeatures.mockResolvedValue({ quizzes: true });
+    getQuizGroupFor.mockResolvedValue({ group: { id: 7, title: 'Ep 1', members: [], result: { id: 50, schoology_assignment_id: '8', title: 'Launch' }, canonical_schoology_id: '8', frq_count: 1, loaded_at: '2026-10-13 01:00:00' } });
+    getMasteryForAssignment.mockResolvedValue({
+      assignment: { id: 50, schoology_assignment_id: '8', title: 'Launch', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+      topics: TOPICS, students: [makeStudent()],
+    });
+    getQuizResults.mockResolvedValue({ students: [RESULT] });
+    rebuildQuizOverall.mockResolvedValue({ student: { ...RESULT, overall: { stale: false } } });
+    render(
+      <MemoryRouter initialEntries={['/course/4/assessment/8']}>
+        <Routes><Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} /></Routes>
+      </MemoryRouter>
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Update numbers' }));
+    await waitFor(() => expect(rebuildQuizOverall).toHaveBeenCalledWith(7, 1));
+    await waitFor(() => expect(getFeedbackForAssignment.mock.calls.length).toBeGreaterThanOrEqual(2));
+    expect(getMasteryForAssignment).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
+  });
+
+  it('the page fetches results for a linked group on the result task and passes them to the card', async () => {
+    getFeatures.mockResolvedValue({ quizzes: true });
+    getQuizGroupFor.mockResolvedValue({ group: { id: 7, title: 'Ep 1', members: [], result: { id: 50, schoology_assignment_id: '8', title: 'Launch' }, canonical_schoology_id: '8', frq_count: 1, loaded_at: '2026-10-13 01:00:00' } });
+    getMasteryForAssignment.mockResolvedValue({
+      assignment: { id: 50, schoology_assignment_id: '8', title: 'Launch', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+      topics: TOPICS, students: [makeStudent()],
+    });
+    getQuizResults.mockResolvedValue({ students: [RESULT] });
+    render(
+      <MemoryRouter initialEntries={['/course/4/assessment/8']}>
+        <Routes><Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} /></Routes>
+      </MemoryRouter>
+    );
+    expect(await screen.findByText('MCQ 17/20 (85%), FRQ Q21: Exhibiting')).toBeInTheDocument();
+    expect(getQuizResults).toHaveBeenCalledWith(7);
+  });
+});
+
+describe('StudentRubricCard - feedback rows on an unaligned task', () => {
+  const GAS = { name: 'General Academic Scale (Unaligned)', levels: [
+    { code: 'ED', label: 'Exhibiting Depth', points: 100, cutoff: 87.5 },
+    { code: 'EX', label: 'Exhibiting', points: 75, cutoff: 62.5 },
+    { code: 'D', label: 'Developing', points: 50, cutoff: 37.5 },
+    { code: 'EM', label: 'Emerging', points: 25, cutoff: 12.5 },
+    { code: 'IE', label: 'Insufficient Evidence', points: 0, cutoff: 0 },
+  ] };
+  const CRITERIA = [
+    { id: 11, position: 1, criterion_name: 'Features and Code', reporting_category: 'PRODUCE', descriptors: { ED: 'a', EX: 'b', D: 'c', EM: 'd', IE: 'Insufficient Evidence' } },
+    { id: 12, position: 2, criterion_name: 'Playtesting', reporting_category: 'CREATE', descriptors: { ED: 'e', EX: 'f', D: 'g', EM: 'h', IE: 'Insufficient Evidence' } },
+  ];
+  const ROWS = feedbackRowTopics(CRITERIA);
+  const rubric = { criteria: CRITERIA, topicByCriterion: rowTopicMapping(ROWS) };
+  const ROW = { id: 50, mastery_grading_period_id: 1, mastery_grading_category_id: 2 };
+  const card = (extra = {}) => renderCard({ topics: ROWS, scoreScale: GAS, rubric, assignmentRow: ROW, ...extra });
+
+  it('titles the first column Criteria and shows each row\'s standard, as an aligned row shows its topic', () => {
+    const withStandards = CRITERIA.map((c, i) => ({ ...c, standard_title: i ? 'Anchor Standard 3: Refine' : 'Anchor Standard 5: Develop' }));
+    const rows = feedbackRowTopics(withStandards);
+    renderCard({ topics: rows, scoreScale: GAS, rubric: { criteria: withStandards, topicByCriterion: rowTopicMapping(rows) }, assignmentRow: ROW });
+    expect(screen.getByText('Criteria')).toBeInTheDocument();
+    expect(screen.queryByText('Measurement Topic')).not.toBeInTheDocument();
+    expect(screen.getByText('Anchor Standard 5: Develop')).toBeInTheDocument();
+    expect(screen.getByText('Anchor Standard 3: Refine')).toBeInTheDocument();
+  });
+
+  it('follows the view toggle: Compact hides the overall level descriptions', () => {
+    const described = { ...GAS, levels: GAS.levels.map(l => ({ ...l, descriptor: `about ${l.code}` })) };
+    const { unmount } = card({ scoreScale: described });
+    expect(screen.getByText('about EX')).toBeInTheDocument();
+    unmount();
+    card({ scoreScale: described, viewMode: 'compact' });
+    expect(screen.queryByText('about EX')).not.toBeInTheDocument();
+    expect(screen.getByText('Criteria')).toBeInTheDocument();
+  });
+
+  it('labels a rows-only save "Save in Prism" and an overall change "Publish to Schoology"', () => {
+    card({ student: { ...makeStudent(), score: 75, scale_level: 'EX', grade_comment: 'Hi', comment_status: 1,
+      scores: rowScores({ 'Features and Code': 'EX', Playtesting: 'EX' }) } });
+    fireEvent.click(screen.getByTitle('Set Playtesting to Developing'));
+    expect(screen.getByRole('button', { name: 'Save in Prism' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: /^developing$/i }));
+    expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Save in Prism' })).not.toBeInTheDocument();
+  });
+
+  it('shows the rows grid with its label and the overall picker', () => {
+    card();
+    expect(screen.getByText('Feedback rows: kept in Prism, not sent to Schoology')).toBeInTheDocument();
+    expect(screen.getByText('Features and Code')).toBeInTheDocument();
+    expect(screen.getByText('Overall: General Academic Scale (Unaligned), sent to Schoology')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'General Academic Scale (Unaligned)' })).toBeInTheDocument();
+  });
+
+  it('Save publishes the overall and carries the rows', async () => {
+    card();
+    fireEvent.click(screen.getByTitle('Set Features and Code to Exhibiting'));
+    fireEvent.click(screen.getByTitle('Set Playtesting to Exhibiting'));
+    // An explicit pick of the level the rubric average already staged.
+    fireEvent.click(screen.getByRole('button', { name: /^exhibiting$/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+    await waitFor(() => expect(writeMasteryComment).toHaveBeenCalledTimes(1));
+    expect(writeMasteryComment).toHaveBeenCalledWith('4', expect.objectContaining({
+      points: 75, rowLevels: { 'Features and Code': 'EX', Playtesting: 'EX' },
+    }));
+    expect(writeMasteryScores).not.toHaveBeenCalled();
+  });
+
+  it('a rows-only change on a published student saves in Prism only', async () => {
+    card({ student: { ...makeStudent(), score: 75, scale_level: 'EX', grade_comment: 'Hi', comment_status: 1,
+      scores: rowScores({ 'Features and Code': 'EX', Playtesting: 'EX' }) } });
+    fireEvent.click(screen.getByTitle('Set Playtesting to Developing'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save in Prism' }));
+    await waitFor(() => expect(saveRowLevels).toHaveBeenCalledWith('8', 'uid-1', { Playtesting: 'D' }));
+    expect(writeMasteryComment).not.toHaveBeenCalled();
+  });
+
+  it('Send all: a rows-only change is a rows-only entry, and the overall carries the rows', () => {
+    const handlers = {};
+    card({
+      student: { ...makeStudent(), score: 75, scale_level: 'EX', grade_comment: 'Hi', comment_status: 1,
+        scores: rowScores({ 'Features and Code': 'EX', Playtesting: 'EX' }) },
+      registerCard: (uid, h) => { handlers[uid] = h; }, unregisterCard: () => {},
+    });
+    // Clicking a synced final stages its removal: null clears the row.
+    fireEvent.click(screen.getByTitle('Set Features and Code to Exhibiting'));
+    fireEvent.click(screen.getByTitle('Set Playtesting to Developing'));
+    const rowsOnly = handlers['uid-1'].getEntry();
+    expect(rowsOnly.entry).toMatchObject({ scores: null, grade: null, comment: null,
+      rowLevels: { 'Features and Code': null, Playtesting: 'D' } });
+    expect(rowsOnly.patch).toEqual({ row_levels: { Playtesting: 'D' } });
+
+    fireEvent.click(screen.getByRole('button', { name: /^developing$/i }));
+    const withOverall = handlers['uid-1'].getEntry();
+    expect(withOverall.entry.grade).toEqual({ points: 50 });
+    expect(withOverall.entry.comment).toMatchObject({ comment: 'Hi', commentStatus: true });
+    expect(withOverall.entry.rowLevels).toEqual({ 'Features and Code': null, Playtesting: 'D' });
+    expect(withOverall.patch).toMatchObject({ score: 50, scale_level: 'D', row_levels: { Playtesting: 'D' }, grade_comment: 'Hi' });
+  });
+
+  it('a row pick on a new student does not turn the comment visible, so Save in Prism saves rows in Prism only', async () => {
+    card(); // makeStudent(): comment_status 0, grade_comment '' (auto-flip armed)
+    fireEvent.click(screen.getByTitle('Set Playtesting to Developing'));
+    expect(screen.getByRole('switch', { name: /display to student/i })).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'Save in Prism' }));
+    await waitFor(() => expect(saveRowLevels).toHaveBeenCalledWith('8', 'uid-1', { Playtesting: 'D' }));
+    expect(writeMasteryComment).not.toHaveBeenCalled();
+  });
+
+  it('Send all: a row pick on a new student is a rows-only entry with no comment', () => {
+    const handlers = {};
+    card({ registerCard: (uid, h) => { handlers[uid] = h; }, unregisterCard: () => {} });
+    fireEvent.click(screen.getByTitle('Set Features and Code to Exhibiting'));
+    const sent = handlers['uid-1'].getEntry();
+    expect(sent.entry).toMatchObject({ grade: null, comment: null, rowLevels: { 'Features and Code': 'EX' } });
+    expect(sent.patch).toEqual({ row_levels: { 'Features and Code': 'EX' } });
+  });
+
+  it('the overall pick on a new student still turns the comment visible', () => {
+    card();
+    fireEvent.click(screen.getByRole('button', { name: /^exhibiting$/i }));
+    expect(screen.getByRole('switch', { name: /display to student/i })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('a score-scale task with no rows shows the picker alone', () => {
+    renderCard({ topics: [], scoreScale: GAS, rubric, assignmentRow: ROW });
+    expect(screen.getByRole('group', { name: 'General Academic Scale (Unaligned)' })).toBeInTheDocument();
+    expect(screen.queryByText('Feedback rows: kept in Prism, not sent to Schoology')).not.toBeInTheDocument();
+    expect(screen.queryByText('Features and Code')).not.toBeInTheDocument();
+  });
+
+  it('stages the rubric average when every row is marked and nothing is published', async () => {
+    card();
+    fireEvent.click(screen.getByTitle('Set Features and Code to Exhibiting'));
+    fireEvent.click(screen.getByTitle('Set Playtesting to Developing'));
+    expect(screen.getByText('Average of the rubric rows: Exhibiting')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^exhibiting$/i, pressed: true })).toBeInTheDocument(); // the picker's EX, staged
+  });
+
+  it('the staged average publishes as the overall and does not turn the comment visible', async () => {
+    card();
+    fireEvent.click(screen.getByTitle('Set Features and Code to Exhibiting'));
+    fireEvent.click(screen.getByTitle('Set Playtesting to Exhibiting'));
+    expect(screen.getByRole('switch', { name: /display to student/i })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByText('3 pending changes')).toBeInTheDocument(); // two rows + the staged overall
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+    await waitFor(() => expect(writeMasteryComment).toHaveBeenCalledTimes(1));
+    expect(writeMasteryComment).toHaveBeenCalledWith('4', expect.objectContaining({
+      points: 75, commentStatus: false, rowLevels: { 'Features and Code': 'EX', Playtesting: 'EX' },
+    }));
+  });
+
+  it('Send all carries the staged average as the grade', () => {
+    const handlers = {};
+    card({ registerCard: (uid, h) => { handlers[uid] = h; }, unregisterCard: () => {} });
+    fireEvent.click(screen.getByTitle('Set Features and Code to Developing'));
+    fireEvent.click(screen.getByTitle('Set Playtesting to Developing'));
+    const sent = handlers['uid-1'].getEntry();
+    expect(sent.entry.grade).toEqual({ points: 50 });
+    expect(sent.patch).toMatchObject({ score: 50, scale_level: 'D' });
+  });
+
+  it('a different pick shows the reset button, which restores the average', async () => {
+    card();
+    fireEvent.click(screen.getByTitle('Set Features and Code to Exhibiting'));
+    fireEvent.click(screen.getByTitle('Set Playtesting to Exhibiting'));
+    fireEvent.click(screen.getByRole('button', { name: /^developing$/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use the rubric average (Exhibiting)' }));
+    expect(screen.getByText('Average of the rubric rows: Exhibiting')).toBeInTheDocument();
+  });
+
+  it('an IE row stages nothing and asks for the overall', () => {
+    card({ student: { ...makeStudent(), scores: rowScores({ 'Features and Code': 'EX', Playtesting: 'IE' }) } });
+    expect(screen.getByText('A row is Insufficient Evidence: choose the overall level')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { pressed: true })).not.toBeInTheDocument();
+  });
+
+  it('a published student is never re-staged; the button appears when the rows differ', () => {
+    card({ student: { ...makeStudent(), score: 75, scale_level: 'EX', grade_comment: 'Hi', comment_status: 1,
+      scores: rowScores({ 'Features and Code': 'D', Playtesting: 'D' }) } });
+    expect(screen.queryByText(/Average of the rubric rows/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Use the rubric average (Developing)' })).toBeInTheDocument();
+    expect(screen.queryByText(/pending change/i)).not.toBeInTheDocument();
+  });
+
+  it('on a published student, the button stages the average as the overall', () => {
+    card({ student: { ...makeStudent(), score: 75, scale_level: 'EX', grade_comment: 'Hi', comment_status: 1,
+      scores: rowScores({ 'Features and Code': 'D', Playtesting: 'D' }) } });
+    fireEvent.click(screen.getByRole('button', { name: 'Use the rubric average (Developing)' }));
+    expect(screen.getByRole('button', { name: /^developing$/i, pressed: true })).toBeInTheDocument();
+    expect(screen.getByText('1 pending change')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Use the rubric average/ })).not.toBeInTheDocument();
+  });
+
+  it('a locked student (Excused) with every row final stages no average', () => {
+    const handlers = {};
+    card({
+      student: { ...makeStudent(), exception: 1, scores: rowScores({ 'Features and Code': 'EX', Playtesting: 'EX' }) },
+      registerCard: (uid, h) => { handlers[uid] = h; }, unregisterCard: () => {},
+    });
+    expect(screen.queryByText(/pending change/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Average of the rubric rows/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Use the rubric average/ })).not.toBeInTheDocument();
+    expect(handlers['uid-1'].getEntry()).toBeNull();
+  });
+
+  it('a published student with an IE row and nothing pending shows no IE hint', () => {
+    card({ student: { ...makeStudent(), score: 75, scale_level: 'EX', grade_comment: 'Hi', comment_status: 1,
+      scores: rowScores({ 'Features and Code': 'EX', Playtesting: 'IE' }) } });
+    expect(screen.queryByText('A row is Insufficient Evidence: choose the overall level')).not.toBeInTheDocument();
+  });
+
+  it('a draft saved before the rubric was attached survives once the rows appear', () => {
+    const student = { ...makeStudent(), score: null, scale_level: null, row_levels: {} };
+    // The baseline the card computed while the task had no rubric (topics []).
+    const base = draftBaseline(student, [], { includeScore: true });
+    const draftRow = { pending: {}, comment: 'Typed before the rubric', display: false, displayTouched: false, base };
+    card({ student: { ...student, scores: rowScores(student.row_levels) }, draftRow });
+    expect(screen.getByDisplayValue('Typed before the rubric')).toBeInTheDocument();
+    expect(mockSaver.remove).not.toHaveBeenCalled();
+  });
+
+  it('a rows draft is restored when the rubric arrives after the mastery data', async () => {
+    const student = { ...makeStudent(), score: null, scale_level: null, row_levels: { 'Features and Code': 'EX' } };
+    getMasteryForAssignment.mockResolvedValue({
+      assignment: { id: 50, schoology_assignment_id: '8', title: 'Flappy (F)', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+      topics: [], scoreScale: GAS, students: [student],
+    });
+    const base = draftBaseline(student, [], { includeScore: true, rowLevels: student.row_levels });
+    getDraftsForAssignment.mockResolvedValueOnce({
+      1: { pending: { 'row:Playtesting': 'EM' }, comment: 'Half done', display: false, displayTouched: false, base },
+    });
+    let resolveRubric;
+    getRubricForAssignment.mockImplementationOnce(() => new Promise((r) => { resolveRubric = r; }));
+    renderAssessmentPage();
+    // Let the mastery data and drafts land before the rubric does.
+    await waitFor(() => expect(getMasteryForAssignment).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    // Cards never mount without their rows: the page waits for the rubric.
+    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    resolveRubric({ id: 1, rubric: { id: 7, name: 'Flappy', criteria: CRITERIA }, topicByCriterion: [] });
+    expect(await screen.findByDisplayValue('Half done')).toBeInTheDocument();
+    expect(screen.getByText('Feedback rows: kept in Prism, not sent to Schoology')).toBeInTheDocument();
+    // The row pick, the average it stages (EX and EM average to Developing), the comment.
+    expect(screen.getByText('3 pending changes')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^developing$/i, pressed: true })).toBeInTheDocument();
+    expect(mockSaver.remove).not.toHaveBeenCalled();
+  });
+
+  function renderAssessmentPage() {
+    return render(
+      <MemoryRouter initialEntries={['/course/4/assessment/8']}>
+        <Routes><Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} /></Routes>
+      </MemoryRouter>
+    );
+  }
+
+  it('Accept all suggestions stages the row suggestions', async () => {
+    getMasteryForAssignment.mockResolvedValue({
+      assignment: { id: 50, schoology_assignment_id: '8', title: 'Flappy (F)', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+      topics: [], scoreScale: GAS,
+      students: [{ ...makeStudent(), row_levels: {} }],
+    });
+    getRubricForAssignment.mockResolvedValueOnce({ id: 1, rubric: { id: 7, name: 'Flappy', criteria: CRITERIA }, topicByCriterion: [] });
+    getFeedbackForAssignment.mockResolvedValueOnce({ 1: { feedback_parsed: { rubric_scores: { Playtesting: 'ED' } } } });
+    renderAssessmentPage();
+    fireEvent.click(await screen.findByRole('button', { name: /accept all suggestions \(1\)/i }));
+    expect(screen.getByText('1 pending change')).toBeInTheDocument();
+  });
+
+  it('Accept all does not count a row suggestion that matches the row final, or a locked student', async () => {
+    getMasteryForAssignment.mockResolvedValue({
+      assignment: { id: 50, schoology_assignment_id: '8', title: 'Flappy (F)', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+      topics: [], scoreScale: GAS,
+      students: [
+        { ...makeStudent(), row_levels: { Playtesting: 'ED' } },
+        { ...makeStudent(), id: 2, enrollment_id: 'enr-2', schoology_uid: 'uid-2', first_name: 'Grace', last_name: 'Hopper', exception: 1, row_levels: {} },
+        { ...makeStudent(), id: 3, enrollment_id: 'enr-3', schoology_uid: 'uid-3', first_name: 'Alan', last_name: 'Turing', row_levels: {} },
+      ],
+    });
+    getRubricForAssignment.mockResolvedValueOnce({ id: 1, rubric: { id: 7, name: 'Flappy', criteria: CRITERIA }, topicByCriterion: [] });
+    getFeedbackForAssignment.mockResolvedValueOnce({
+      1: { feedback_parsed: { rubric_scores: { Playtesting: 'ED' } } },
+      2: { feedback_parsed: { rubric_scores: { Playtesting: 'ED' } } },
+      3: { feedback_parsed: { rubric_scores: { Playtesting: 'D' } } },
+    });
+    renderAssessmentPage();
+    expect(await screen.findByRole('button', { name: /accept all suggestions \(1\)/i })).toBeInTheDocument();
   });
 });

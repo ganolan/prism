@@ -18,7 +18,9 @@ export function paletteKeyFor(scale, index) {
   return 'D';
 }
 
-export default function ScaleLevelPicker({ scale, syncedCode = null, pendingCode = null, suggestedCode = null, locked = false, onSelect }) {
+// showDescriptors=false gives the compact form (level names only), used by the
+// overall picker under feedback rows in the Compact view (2026-10-13).
+export default function ScaleLevelPicker({ scale, syncedCode = null, pendingCode = null, suggestedCode = null, locked = false, showDescriptors = true, onSelect }) {
   return (
     <div
       role="group"
@@ -58,7 +60,7 @@ export default function ScaleLevelPicker({ scale, syncedCode = null, pendingCode
                 </span>
               )}
             </strong>
-            {level.descriptor && (
+            {showDescriptors && level.descriptor && (
               <span style={{ display: 'block', marginTop: '0.2rem', fontSize: '0.72rem', opacity: 0.8, lineHeight: 1.35 }}>
                 {level.descriptor}
               </span>

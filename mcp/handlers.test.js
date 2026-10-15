@@ -14,8 +14,12 @@ import {
   extendDeadlineTool, undoExtensionTool, setMakeupTrackingTool,
   requestResubmissionTool, gradeStandsTool, listResubmissionsTool, previewStatusLineTool,
   getSubmissionStatusTool,
+  listQuizGroupsTool, loadQuizResultsTool, setQuestionTagsTool,
+  getFrqResponsesTool, writeFrqSuggestionsTool, listFrqWritebacksTool, markFrqWritebackTool,
+  getQuizResultsTool, writeQuizOverallSuggestionsTool,
 } from './handlers.js';
 import { saveRubric, listRubrics, getRubricByName } from '../server/services/rubricStore.js';
+import { setFrqMark } from '../server/services/frqMarks.js';
 import { askLine, extendResubmissionLine, gradeStandsLine, extensionLine, makeUpLine } from '../server/lib/statusLines.js';
 import { sessionDeps, resetSessionStatusCache } from '../server/services/schoologySession.js';
 import { fakeSchoologyPage } from '../server/testing/fakeSchoologyPage.js';
@@ -27,7 +31,9 @@ beforeEach(() => {
   vi.stubEnv('SCHOOLOGY_CONSUMER_KEY', 'key');
   vi.stubEnv('SCHOOLOGY_CONSUMER_SECRET', 'secret');
   getDb().exec(
-    'DELETE FROM status_lines; DELETE FROM feedback_snapshots; ' +
+    'DELETE FROM frq_marks; DELETE FROM quiz_tag_texts; DELETE FROM quiz_responses; DELETE FROM quiz_attempts; DELETE FROM quiz_question_copies; DELETE FROM quiz_questions; ' +
+    'DELETE FROM quiz_group_members; DELETE FROM quiz_groups; ' +
+    'DELETE FROM flags; DELETE FROM assessment_drafts; DELETE FROM status_lines; DELETE FROM feedback_snapshots; DELETE FROM feedback; ' +
     'DELETE FROM referrals; DELETE FROM extensions; DELETE FROM resubmissions; DELETE FROM school_days; DELETE FROM mastery_scores; ' +
     'DELETE FROM rubric_attachment_topics; DELETE FROM rubric_attachments; ' +
     'DELETE FROM rubric_descriptors; DELETE FROM rubric_criteria; DELETE FROM rubrics; ' +
@@ -312,6 +318,31 @@ describe('attachRubricTool', () => {
 
     const res = attachRubricTool(db, { rubric_name: 'Design', assignment_id: asgId });
     expect(res).toEqual({ attached_to: asgId, rubric: 'Design', unmatched_criteria: ['Code'] });
+  });
+
+  test('accepts the Schoology assignment id as well as the local id', () => {
+    const db = getDb();
+    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s1','AIML')`).run().lastInsertRowid;
+    const asgId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, '8590105935', 'Project')`).run(courseId).lastInsertRowid;
+    saveRubric(db, { name: 'Design', source: 'csv', criteria: [
+      { position: 1, criterion_name: 'UI/UX', standard_title: 'Visual design', reporting_category: 'Produce', descriptors: { ED: 'a' } },
+    ] });
+    expect(attachRubricTool(db, { rubric_name: 'Design', assignment_id: '8590105935' }).attached_to).toBe(asgId);
+  });
+
+  test('on an unaligned GAS task it attaches feedback rows, not unmatched criteria', () => {
+    const db = getDb();
+    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s1','MGD')`).run().lastInsertRowid;
+    const asgId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, grading_scale_id) VALUES (?, 'sa-F', 'Flappy Bird (F)', '23495360')`).run(courseId).lastInsertRowid;
+    saveRubric(db, { name: 'Flappy', source: 'mcp', criteria: [
+      { position: 1, criterion_name: 'Features and Code', standard_title: 'Anchor Standard 5', reporting_category: 'PRODUCE', descriptors: { ED: 'a' } },
+      { position: 2, criterion_name: 'Playtesting', standard_title: 'Anchor Standard 3', reporting_category: 'CREATE', descriptors: { ED: 'b' } },
+    ] });
+    expect(attachRubricTool(db, { rubric_name: 'Flappy', assignment_id: 'sa-F' })).toEqual({
+      attached_to: asgId, rubric: 'Flappy', mode: 'feedback_rows',
+      score_scale: 'General Academic Scale (Unaligned)',
+      rows: ['Features and Code', 'Playtesting'], hidden_row_levels: 0,
+    });
   });
 
   test('returns an error object when the rubric name is unknown', () => {
@@ -658,6 +689,18 @@ describe('triage tools', () => {
     expect(getTriageTool(db, { student: 'zed' }).lateWork).toEqual([]);
   });
 
+  test('get_triage looseEnds: per assessment, recounted for a student filter', () => {
+    const db = getDb();
+    const { courseId, studentId, assignmentId } = seedLate(db);
+    const bo = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u2', 'Bo', 'Li')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id) VALUES (?, ?)`).run(bo, courseId);
+    for (const sid of [studentId, bo]) db.prepare(`INSERT INTO flags (student_id, assignment_id, flag_type) VALUES (?, ?, 'review_needed')`).run(sid, assignmentId);
+    expect(getTriageTool(db, {}).looseEnds).toEqual([expect.objectContaining({ title: 'CP2', flagged: 2, drafts: 0, feedbackHidden: 0 })]);
+    const one = getTriageTool(db, { student: 'maya' }).looseEnds;
+    expect(one).toEqual([expect.objectContaining({ flagged: 1, students: [expect.objectContaining({ studentName: 'Maya Chen', reasons: ['flagged'] })] })]);
+    expect(getTriageTool(db, { student: 'zed' }).looseEnds).toEqual([]);
+  });
+
   test('getTriageTool limits counts.atReferralLimit to the filtered student, not the whole class', () => {
     const db = getDb();
     const { courseId } = seedLate(db);
@@ -846,5 +889,124 @@ describe('request_resubmission unsubmit (Phase 2, LTI unsubmit on Ask)', () => {
     const fake = fakeSchoologyPage({ uid: 'ru1', aid: 'rs-a1', post: (respond) => respond(503, '') });
     const r = await requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId }, { unsubmitOpts: { openPage: async () => fake.session } });
     expect(r.unsubmit).toMatchObject({ ok: false, uncertain: true, message: expect.stringMatching(/may still be submitted/) });
+  });
+});
+
+describe('quiz tools', () => {
+  function seedQuiz() {
+    const db = getDb();
+    const c = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('8458134135', 'AP CSP')`).run().lastInsertRowid;
+    const t = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, is_test) VALUES (?, '900', 'Ep 1 Theory Test', 1)`).run(c).lastInsertRowid;
+    const g = db.prepare(`INSERT INTO quiz_groups (course_id, title) VALUES (?, 'Ep 1 Theory Test')`).run(c).lastInsertRowid;
+    db.prepare('INSERT INTO quiz_group_members (group_id, assignment_id) VALUES (?, ?)').run(g, t);
+    db.prepare(`INSERT INTO quiz_questions (group_id, position, kind, stem_html, max_points) VALUES (?, 1, 'mcq', 'Q', 1)`).run(g);
+    return { c, g };
+  }
+
+  test('list_quiz_groups by course id or course name', () => {
+    const { c, g } = seedQuiz();
+    expect(listQuizGroupsTool(getDb(), { course: c }).map(x => x.id)).toEqual([g]);
+    expect(listQuizGroupsTool(getDb(), { course: 'AP CSP' })[0].members[0].schoology_assignment_id).toBe('900');
+  });
+
+  test('set_question_tags stores the tags and reports unknown positions', () => {
+    const db = getDb();
+    const { g } = seedQuiz();
+    expect(setQuestionTagsTool(db, { group_id: g, tags: { 1: ['CRD-2.G', 'CRD-2.G', ' '] } })).toEqual({ updated: 1, unknownPositions: [] });
+    expect(JSON.parse(db.prepare('SELECT tags_json FROM quiz_questions WHERE group_id = ? AND position = 1').get(g).tags_json)).toEqual(['CRD-2.G']);
+    expect(setQuestionTagsTool(db, { group_id: g, tags: { 1: ['AAP-1.A'], 9: ['X'] } })).toEqual({ updated: 1, unknownPositions: [9] });
+  });
+
+  test('set_question_tags stores tag texts, with or without tags', () => {
+    const db = getDb();
+    const { g } = seedQuiz();
+    expect(setQuestionTagsTool(db, { group_id: g, texts: { 'AAP-1.A': 'Represent a value with a variable.' } })).toEqual({ updated: 0, unknownPositions: [], textsSaved: 1 });
+    expect(db.prepare("SELECT text FROM quiz_tag_texts WHERE tag = 'AAP-1.A'").get().text).toBe('Represent a value with a variable.');
+  });
+
+  function seedFrq() {
+    const db = getDb();
+    const { c, g } = seedQuiz();
+    const t = db.prepare('SELECT assignment_id FROM quiz_group_members WHERE group_id = ?').get(g).assignment_id;
+    const rubric = { id: 'r1', title: 'FRQ', totalPoints: 4, rows: [{ id: '146', title: 'Content Knowledge', maxPoints: 4, levels: [
+      { points: 4, name: 'Exhibiting Depth', descriptionHtml: 'Exhibiting Depth: all' }, { points: 2, name: 'Developing', descriptionHtml: 'Developing: some' }] }] };
+    const q = db.prepare(`INSERT INTO quiz_questions (group_id, position, kind, stem_html, max_points, schoology_rubric_json) VALUES (?, 21, 'frq', '<p>Explain</p>', 4, ?)`).run(g, JSON.stringify(rubric)).lastInsertRowid;
+    const s = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('701', 'Ana', 'Lee')`).run().lastInsertRowid;
+    const a = db.prepare(`INSERT INTO quiz_attempts (group_id, assignment_id, student_id, schoology_attempt_id, fetched_at) VALUES (?, ?, ?, '5001', 'now')`).run(g, t, s).lastInsertRowid;
+    db.prepare(`INSERT INTO quiz_responses (attempt_id, question_id, answer_html, schoology_rubric_cells_json, schoology_comment) VALUES (?, ?, ?, ?, 'Old')`)
+      .run(a, q, '<p>a) because</p><p>b) abstraction</p>', JSON.stringify({ 146: { points: 2, comment: '' } }));
+    return { c, g, a };
+  }
+
+  test('get_frq_responses gives plain answers, levels by name and the attempt link', () => {
+    const { g } = seedFrq();
+    const r = getFrqResponsesTool(getDb(), { group_id: g });
+    expect(r.questions[0]).toMatchObject({ position: 21, stem: 'Explain', rubric: [{ row: 'Content Knowledge', levels: [{ name: 'Exhibiting Depth', points: 4, description: 'all' }, { name: 'Developing', points: 2, description: 'some' }] }] });
+    expect(r.students[0]).toMatchObject({ student: 'Ana Lee', schoology_uid: '701', attempt_url: expect.stringContaining('/student_stats/701/5001') });
+    expect(r.students[0].answers[0]).toMatchObject({ question: 21, answer_text: 'a) because\nb) abstraction', schoology: { levels: [{ row: 'Content Knowledge', level: 'Developing', points: 2 }], comment: 'Old' }, prism: null });
+  });
+
+  test('write_frq_suggestions, then list and mark the write-back', () => {
+    const { g, a } = seedFrq();
+    expect(writeFrqSuggestionsTool(getDb(), { group_id: g, question: 21, students: [{ student: '701', level: 'Exhibiting Depth', comment: 'All correct.' }] })).toMatchObject({ written: 1 });
+    setFrqMark(getDb(), { groupId: g, attemptId: a, position: 21, action: 'accept' });
+    expect(listFrqWritebacksTool(getDb(), { group_id: g }).writebacks).toHaveLength(1);
+    expect(markFrqWritebackTool(getDb(), { group_id: g, student: '701', question: 21, status: 'posted' }).writeback.status).toBe('posted');
+    expect(listFrqWritebacksTool(getDb(), { group_id: g }).writebacks).toHaveLength(0);
+  });
+
+  test('load_quiz_results returns the loader summary', async () => {
+    const { g } = seedQuiz();
+    const ok = await loadQuizResultsTool(getDb(), { group_id: g }, { loadGroup: async () => ({ attempts: 2 }) });
+    expect(ok).toEqual({ summary: { attempts: 2 } });
+  });
+
+  test('load_quiz_results lets a loader error propagate with its code', async () => {
+    const { g } = seedQuiz();
+    const loadGroup = async () => { throw Object.assign(new Error('No saved Schoology session'), { code: 'NO_SESSION' }); };
+    await expect(loadQuizResultsTool(getDb(), { group_id: g }, { loadGroup })).rejects.toMatchObject({ code: 'NO_SESSION', message: 'No saved Schoology session' });
+  });
+
+  function seedOverall() {
+    const db = getDb();
+    const { c, g, a } = seedFrq();
+    const r = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, '950', 'Ep 1 - Result (S)')`).run(c).lastInsertRowid;
+    db.prepare(`INSERT INTO reporting_categories (id, course_id, external_id, title) VALUES ('qc', ?, 'CSP.1', 'Theory')`).run(c);
+    db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES ('qt', 'qc', ?, 'CSP.1.1', 'Knowledge')`).run(c);
+    db.prepare(`INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id) VALUES ('950', 'qt', ?)`).run(c);
+    db.prepare(`UPDATE quiz_groups SET result_assignment_id = ?, loaded_at = '2026-10-13 01:00:00' WHERE id = ?`).run(r, g);
+    return { g, a };
+  }
+
+  test('get_quiz_results gives numbers, confirmed FRQs and the result task topics', () => {
+    const { g } = seedOverall();
+    const r = getQuizResultsTool(getDb(), { group_id: g });
+    expect(r.group.result.topics).toEqual([{ external_id: 'CSP.1.1', title: 'Knowledge' }]);
+    expect(r.students[0]).toMatchObject({ student: 'Ana Lee', schoology_uid: '701', ready: true, frq: [{ question: 21, source: 'schoology', levels: [{ level: 'Developing' }] }] });
+  });
+
+  test('write_quiz_overall_suggestions writes the built comment and reports per student', () => {
+    const { g } = seedOverall();
+    const r = writeQuizOverallSuggestionsTool(getDb(), { group_id: g, students: [
+      { student: '701', rubric_scores: { 'CSP.1.1': 'Developing' }, impression: 'Part (b) needs the term abstraction.' },
+      { student: '999', rubric_scores: {}, impression: 'x' },
+    ] });
+    expect(r.written).toBe(1);
+    expect(r.results[1]).toMatchObject({ status: 'error', message: 'Student not found: 999' });
+    expect(getQuizResultsTool(getDb(), { group_id: g }).students[0].overall).toMatchObject({ impression: 'Part (b) needs the term abstraction.', stale: false });
+  });
+});
+
+describe('listAssignments feedback_rubric', () => {
+  test('names the rubric attached to an unaligned task, null otherwise', () => {
+    const db = getDb();
+    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s1','MGD')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, grading_scale_id) VALUES (?, 'sa-F', 'Flappy (F)', '23495360')`).run(courseId);
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, grading_scale_id) VALUES (?, 'sa-G', 'Plain (F)', '23495360')`).run(courseId);
+    const rubricId = saveRubric(db, { name: 'Flappy', source: 'mcp', criteria: [{ position: 1, criterion_name: 'Playtesting' }] });
+    db.prepare(`INSERT INTO rubric_attachments (rubric_id, assignment_schoology_id, course_id, created_at) VALUES (?, 'sa-F', ?, 'now')`).run(rubricId, courseId);
+    const byId = Object.fromEntries(listAssignments(db, { course_id: courseId }).map(a => [a.schoology_assignment_id, a]));
+    expect(byId['sa-F'].feedback_rubric).toBe('Flappy');
+    expect(byId['sa-G'].feedback_rubric).toBeNull();
   });
 });

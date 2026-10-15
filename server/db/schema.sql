@@ -379,6 +379,118 @@ CREATE TABLE IF NOT EXISTS mastery_rollups (
   PRIMARY KEY (student_uid, objective_id, course_id)
 );
 
+-- Linked quizzes (docs/superpowers/specs/2026-10-12-linked-quiz-results-design.md).
+-- A quiz group: one or more unaligned Schoology tests in one course, treated as one
+-- quiz, optionally linked to one aligned summative (the result task).
+CREATE TABLE IF NOT EXISTS quiz_groups (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  course_id INTEGER NOT NULL REFERENCES courses(id),
+  title TEXT NOT NULL,
+  result_assignment_id INTEGER UNIQUE REFERENCES assignments(id),
+  -- The overall comment's template (spec §13); NULL means the default built from the question kinds.
+  comment_template TEXT,
+  -- 'ok' | 'mismatch' (a load found options, key or rubric differing between copies)
+  parity_status TEXT NOT NULL DEFAULT 'ok',
+  parity_detail_json TEXT,
+  loaded_at TEXT,
+  load_summary_json TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS quiz_group_members (
+  group_id INTEGER NOT NULL REFERENCES quiz_groups(id) ON DELETE CASCADE,
+  assignment_id INTEGER NOT NULL UNIQUE REFERENCES assignments(id),
+  PRIMARY KEY (group_id, assignment_id)
+);
+
+-- One logical question per group. kind: 'mcq' | 'frq' | 'other'.
+-- options_json: [{letter, html, is_key}] (filled by a load). schoology_rubric_json: the
+-- FRQ's Schoology rubric, parsed (parseQuizRubric). tags_json: ["CRD-2.G", ...].
+CREATE TABLE IF NOT EXISTS quiz_questions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  group_id INTEGER NOT NULL REFERENCES quiz_groups(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  stem_html TEXT,
+  options_json TEXT,
+  max_points REAL,
+  schoology_rubric_json TEXT,
+  tags_json TEXT NOT NULL DEFAULT '[]',
+  UNIQUE (group_id, position)
+);
+
+-- Each member test's own Schoology question id for a logical question (copies get new ids).
+CREATE TABLE IF NOT EXISTS quiz_question_copies (
+  question_id INTEGER NOT NULL REFERENCES quiz_questions(id) ON DELETE CASCADE,
+  assignment_id INTEGER NOT NULL REFERENCES assignments(id),
+  schoology_question_id TEXT NOT NULL,
+  PRIMARY KEY (assignment_id, schoology_question_id)
+);
+
+-- The counted attempt per student per member test (latest when there are several).
+CREATE TABLE IF NOT EXISTS quiz_attempts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  group_id INTEGER NOT NULL REFERENCES quiz_groups(id) ON DELETE CASCADE,
+  assignment_id INTEGER NOT NULL REFERENCES assignments(id),
+  student_id INTEGER NOT NULL REFERENCES students(id),
+  schoology_attempt_id TEXT NOT NULL,
+  started_at TEXT,
+  completed_at TEXT,
+  score REAL,
+  max_score REAL,
+  attempt_count INTEGER NOT NULL DEFAULT 1,
+  fetched_at TEXT NOT NULL,
+  UNIQUE (assignment_id, student_id)
+);
+
+CREATE TABLE IF NOT EXISTS quiz_responses (
+  attempt_id INTEGER NOT NULL REFERENCES quiz_attempts(id) ON DELETE CASCADE,
+  question_id INTEGER NOT NULL REFERENCES quiz_questions(id) ON DELETE CASCADE,
+  chosen_letter TEXT,
+  is_correct INTEGER,
+  points REAL,
+  max_points REAL,
+  answer_html TEXT,
+  schoology_rubric_cells_json TEXT,
+  schoology_comment TEXT,
+  PRIMARY KEY (attempt_id, question_id)
+);
+
+-- The full text of a question tag in one course (for AP CSP, a College Board code's CED
+-- wording), shown when the teacher hovers over the tag. Set through set_question_tags.
+CREATE TABLE IF NOT EXISTS quiz_tag_texts (
+  course_id INTEGER NOT NULL REFERENCES courses(id),
+  tag TEXT NOT NULL,
+  text TEXT NOT NULL,
+  PRIMARY KEY (course_id, tag)
+);
+
+-- Phase 2: a Prism mark on one free-response answer (spec §12). The suggestion layer
+-- (suggested_*, history, revised flag) and the teacher's mark (final_*) are separate, so a
+-- new suggestion never replaces the teacher's work. Cells: { "<rowId>": points }, or
+-- { "points": n } without a rubric. state: 'suggested' | 'accepted' | 'edited'.
+-- writeback_status: NULL (no teacher mark) | 'pending' | 'posted' | 'failed'.
+-- Deleting the attempt (removed in Schoology, or replaced by a newer one) deletes its marks.
+CREATE TABLE IF NOT EXISTS frq_marks (
+  attempt_id INTEGER NOT NULL REFERENCES quiz_attempts(id) ON DELETE CASCADE,
+  question_id INTEGER NOT NULL REFERENCES quiz_questions(id) ON DELETE CASCADE,
+  suggested_cells_json TEXT,
+  suggested_comment TEXT,
+  suggestion_history_json TEXT NOT NULL DEFAULT '[]',
+  suggestion_revised INTEGER NOT NULL DEFAULT 0,
+  final_cells_json TEXT,
+  final_comment TEXT,
+  state TEXT NOT NULL DEFAULT 'suggested',
+  writeback_status TEXT,
+  writeback_at TEXT,
+  writeback_error TEXT,
+  posted_cells_json TEXT,
+  posted_comment TEXT,
+  updated_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (attempt_id, question_id)
+);
+
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_enrolments_student ON enrolments(student_id);
 CREATE INDEX IF NOT EXISTS idx_enrolments_course ON enrolments(course_id);
@@ -450,6 +562,21 @@ CREATE TABLE IF NOT EXISTS rubric_attachment_topics (
   topic_id TEXT NOT NULL REFERENCES measurement_topics(id),
   UNIQUE(attachment_id, criterion_id)
 );
+
+-- Feedback rows (2026-10-13): the teacher's published row levels for a rubric
+-- attached to an UNALIGNED (score-scale) task. Prism-only: never synced, never
+-- sent to Schoology. Keyed by criterion name, because write_rubric "update"
+-- re-inserts criteria with new ids.
+CREATE TABLE IF NOT EXISTS rubric_row_levels (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  assignment_schoology_id TEXT NOT NULL,
+  student_uid TEXT NOT NULL,
+  criterion_name TEXT NOT NULL,
+  level TEXT NOT NULL CHECK (level IN ('ED','EX','D','EM','IE')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (assignment_schoology_id, student_uid, criterion_name)
+);
+CREATE INDEX IF NOT EXISTS idx_rubric_row_levels_student ON rubric_row_levels(student_uid);
 
 CREATE INDEX IF NOT EXISTS idx_rubric_criteria_rubric ON rubric_criteria(rubric_id);
 CREATE INDEX IF NOT EXISTS idx_rubric_attach_assignment ON rubric_attachments(assignment_schoology_id);

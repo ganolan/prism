@@ -10,7 +10,7 @@ async function request(path, options = {}) {
     // code / published / comment ride along (e.g. triage RECORD_FAILED_AFTER_PUBLISH:
     // the Schoology comment WAS changed even though the action failed).
     throw Object.assign(new Error(err.error || `Request failed: ${res.status}`), {
-      status: res.status, code: err.code, published: err.published, comment: err.comment,
+      status: res.status, code: err.code, published: err.published, comment: err.comment, differences: err.differences,
     });
   }
   return res.json();
@@ -221,6 +221,8 @@ export const uploadPowerSchoolCSV = (file) => {
 export const getRubricConfig = () => request('/rubrics/config');
 export const listRubrics = () => request('/rubrics');
 export const getRubricForAssignment = (assignmentId) => request(`/rubrics/assignment/${assignmentId}`);
+export const saveRowLevels = (assignmentId, studentUid, rowLevels) =>
+  request(`/rubrics/row-levels/${assignmentId}/${studentUid}`, { method: 'PUT', body: JSON.stringify({ rowLevels }) });
 export const attachRubric = (body) => request('/rubrics/attach', { method: 'POST', body: JSON.stringify(body) });
 export const setRubricMapping = (attachmentId, criterionId, topicId) =>
   request(`/rubrics/attachment/${attachmentId}/mapping`, { method: 'PUT', body: JSON.stringify({ criterionId, topicId }) });
@@ -296,3 +298,26 @@ export const getLessonPlan = (courseId, from) => request(`/triage/lesson-plan?co
 // Settings (server-side, shared by every device and PrisMCP).
 export const getSettings = () => request('/settings');
 export const updateSettings = (body) => request('/settings', { method: 'PUT', body: JSON.stringify(body) });
+
+// Linked quizzes (docs/superpowers/specs/2026-10-12-linked-quiz-results-design.md).
+export const getQuizGroups = (courseId) => request(`/quizzes?course_id=${courseId}`);
+export const getQuizCandidates = (courseId) => request(`/quizzes/candidates?course_id=${courseId}`);
+export const getQuizGroupFor = (assignmentRef) => request(`/quizzes/for-assignment/${assignmentRef}`);
+export const checkQuizParity = (assignmentIds) => request('/quizzes/check-parity', { method: 'POST', body: JSON.stringify({ assignment_ids: assignmentIds }) });
+export const createQuizGroup = ({ courseId, assignmentIds, title }) =>
+  request('/quizzes', { method: 'POST', body: JSON.stringify({ course_id: courseId, assignment_ids: assignmentIds, title }) });
+export const linkQuizResult = (groupId, resultAssignmentId) =>
+  request(`/quizzes/${groupId}/link`, { method: 'PUT', body: JSON.stringify({ result_assignment_id: resultAssignmentId }) });
+export const deleteQuizGroup = (groupId) => request(`/quizzes/${groupId}`, { method: 'DELETE' });
+export const loadQuizResults = (groupId) => request(`/quizzes/${groupId}/load`, { method: 'POST' });
+export const getQuizStats = (groupId) => request(`/quizzes/${groupId}/stats`);
+export const setQuizTags = (groupId, tags, texts) => request(`/quizzes/${groupId}/tags`, { method: 'PUT', body: JSON.stringify({ tags, texts }) });
+export const setQuizTemplate = (groupId, template) => request(`/quizzes/${groupId}/template`, { method: 'PUT', body: JSON.stringify({ template }) });
+export const getQuizResults = (groupId) => request(`/quizzes/${groupId}/results`);
+export const rebuildQuizOverall = (groupId, studentId) => request(`/quizzes/${groupId}/overall/${studentId}/rebuild`, { method: 'POST' });
+export const postFrqWritebacks = (groupId, limit = null) => request(`/quizzes/${groupId}/writeback`, { method: 'POST', body: JSON.stringify({ limit }) });
+export const getFrqResponses = (groupId) => request(`/quizzes/${groupId}/frq`);
+export const saveFrqMark = (groupId, attemptId, position, body) =>
+  request(`/quizzes/${groupId}/frq/${attemptId}/${position}`, { method: 'PUT', body: JSON.stringify(body) });
+export const getAttemptLinks = ({ assignmentId, studentId }) =>
+  request(`/quizzes/attempt-links?${studentId ? `student_id=${studentId}` : `assignment_id=${assignmentId}`}`);

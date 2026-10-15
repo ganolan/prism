@@ -5,6 +5,8 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 import { getDb } from '../db/index.js';
 import { getAssessmentContext, getGradeMetaRows, normalizeSubmissionStatus, gradingState, getFlagsByStudent } from './assessmentContext.js';
 import { requestResubmission } from './resubmissions.js';
+import { saveRubric } from './rubricStore.js';
+import { saveRowLevels } from './feedbackRows.js';
 
 // Seed one fully-populated assignment context: a course, a reporting category +
 // aligned measurement topic, an assignment, a roster of one enrolled student
@@ -39,6 +41,7 @@ function seedContext(db) {
 
 beforeEach(() => {
   getDb().exec(
+    'DELETE FROM rubric_row_levels; DELETE FROM rubric_attachments; DELETE FROM rubric_criteria; DELETE FROM rubrics; ' +
     'DELETE FROM status_lines; DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM assessment_drafts; DELETE FROM assessment_analysis; DELETE FROM feedback; DELETE FROM mastery_alignments; DELETE FROM mastery_scores; ' +
     'DELETE FROM grades; DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
     'DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
@@ -440,5 +443,88 @@ describe('getAssessmentContext - submission timeline', () => {
       submission: { state: 'submitted', late: false },
     });
     expect(ctx.students[0].submission_timeline.submission.firstSubmittedAt).toMatch(/^2026-10-05T/);
+  });
+});
+
+describe('feedback rows on an unaligned GAS task', () => {
+  // A course, a GAS (Unaligned) assignment 'sa-F' with the Flappy rubric attached,
+  // and two enrolled students: uid-1 (published EX overall, with row finals) and uid-2 (ungraded).
+  function seedRows(db) {
+    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-F', 'MGD')`).run().lastInsertRowid;
+    const asg = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, grading_scale_id) VALUES (?, 'sa-F', 'Flappy (F)', '23495360')`).run(courseId).lastInsertRowid;
+    const s1 = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-1', 'Ada', 'Lovelace')`).run().lastInsertRowid;
+    const s2 = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-2', 'Alan', 'Turing')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'enr-1'), (?, ?, 'enr-2')`).run(s1, courseId, s2, courseId);
+    const rubricId = saveRubric(db, { name: 'Flappy', source: 'mcp', criteria: [
+      { position: 1, criterion_name: 'Features and Code', standard_title: 'AS5', reporting_category: 'PRODUCE', descriptors: { ED: 'a', EX: 'b', D: 'c', EM: 'd' } },
+      { position: 2, criterion_name: 'Playtesting', standard_title: 'AS3', reporting_category: 'CREATE', descriptors: { ED: 'e', EX: 'f', D: 'g', EM: 'h' } },
+    ] });
+    db.prepare(`INSERT INTO rubric_attachments (rubric_id, assignment_schoology_id, course_id, created_at) VALUES (?, 'sa-F', ?, 'now')`).run(rubricId, courseId);
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, score, grade_comment, exception, comment_status) VALUES (?, ?, 75, 'Well done', 0, 1)`).run(s1, asg);
+    saveRowLevels(db, { assignmentSchoologyId: 'sa-F', studentUid: 'uid-1', rowLevels: { 'Features and Code': 'EX', Playtesting: 'ED' } });
+    return { courseId, asg, s1, s2 };
+  }
+
+  test('returns the rubric rows, finals, suggestions and an empty topic set', () => {
+    const db = getDb();
+    seedRows(db);
+    const ctx = getAssessmentContext(db, { assignmentId: 'sa-F' });
+    expect(ctx.topics).toEqual([]);
+    expect(ctx.rubric.name).toBe('Flappy');
+    expect(ctx.rubric.rows[0]).toEqual({ criterion: 'Features and Code', standard: 'AS5', category: 'PRODUCE',
+      descriptors: { ED: 'a', EX: 'b', D: 'c', EM: 'd', IE: 'Insufficient Evidence' } });
+    const s1 = ctx.students.find(s => s.schoology_uid === 'uid-1');
+    expect(s1).toMatchObject({ current_scale_level: 'EX', current_scores: {}, grade_comment: 'Well done', display_to_student: true,
+      current_row_levels: { 'Features and Code': 'EX', Playtesting: 'ED' } });
+    expect(ctx.students.find(s => s.schoology_uid === 'uid-2').current_row_levels).toEqual({});
+  });
+
+  test('draft_feedback separates row picks and the overall, with its source', () => {
+    const db = getDb();
+    seedRows(db);
+    const uid2 = db.prepare(`SELECT id FROM students WHERE schoology_uid = 'uid-2'`).get().id;
+    const asg = db.prepare(`SELECT id FROM assignments WHERE schoology_assignment_id = 'sa-F'`).get().id;
+    const put = (studentId, pending) => db.prepare(
+      `INSERT OR REPLACE INTO assessment_drafts (assignment_id, student_id, draft_json, updated_at) VALUES (?, ?, ?, datetime('now'))`
+    ).run(asg, studentId, JSON.stringify({ pending, comment: 'x', display: true }));
+
+    put(uid2, { 'row:Features and Code': 'EX', 'row:Playtesting': 'D' });
+    let d = getAssessmentContext(db, { assignmentId: 'sa-F' }).students.find(s => s.id === uid2).draft_feedback;
+    expect(d).toMatchObject({ rubric_scores: {}, row_levels: { 'Features and Code': 'EX', Playtesting: 'D' }, scale_level: 'EX', scale_level_source: 'rubric_average' });
+
+    put(uid2, { 'row:Features and Code': 'EX', 'row:Playtesting': 'D', __scale__: 'D' });
+    d = getAssessmentContext(db, { assignmentId: 'sa-F' }).students.find(s => s.id === uid2).draft_feedback;
+    expect(d).toMatchObject({ scale_level: 'D', scale_level_source: 'teacher' });
+    expect(d.rubric_scores).toEqual({});
+  });
+
+  test('a published student is never given a rubric_average overall', () => {
+    const db = getDb();
+    seedRows(db);
+    const uid1 = db.prepare(`SELECT id FROM students WHERE schoology_uid = 'uid-1'`).get().id;
+    const asg = db.prepare(`SELECT id FROM assignments WHERE schoology_assignment_id = 'sa-F'`).get().id;
+    db.prepare(`INSERT INTO assessment_drafts (assignment_id, student_id, draft_json, updated_at) VALUES (?, ?, ?, datetime('now'))`)
+      .run(asg, uid1, JSON.stringify({ pending: { 'row:Playtesting': 'D' } }));
+    const d = getAssessmentContext(db, { assignmentId: 'sa-F' }).students.find(s => s.id === uid1).draft_feedback;
+    expect(d).toMatchObject({ scale_level: null, scale_level_source: null });
+  });
+
+  test('a scale task without a rubric returns rubric null; __scale__ never leaks into rubric_scores', () => {
+    const db = getDb();
+    const { courseId, s2 } = seedRows(db);
+    const asgG = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, grading_scale_id) VALUES (?, 'sa-G', 'Plain (F)', '23495360')`).run(courseId).lastInsertRowid;
+    db.prepare(`INSERT INTO assessment_drafts (assignment_id, student_id, draft_json, updated_at) VALUES (?, ?, ?, datetime('now'))`)
+      .run(asgG, s2, JSON.stringify({ pending: { __scale__: 'EX' } }));
+    const ctx = getAssessmentContext(db, { assignmentId: 'sa-G' });
+    expect(ctx.rubric).toBeNull();
+    const d = ctx.students.find(s => s.id === s2).draft_feedback;
+    expect(d.rubric_scores).toEqual({});
+    expect(d).toMatchObject({ scale_level: 'EX', scale_level_source: 'teacher' });
+  });
+
+  test('an aligned task has no rubric key', () => {
+    const db = getDb();
+    seedContext(db);
+    expect('rubric' in getAssessmentContext(db, { assignmentId: 'sa-1' })).toBe(false);
   });
 });

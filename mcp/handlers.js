@@ -6,7 +6,9 @@
 import { listRubrics, getRubricByName, saveRubric, findRubricByContentHash } from '../server/services/rubricStore.js';
 import { hashRubricContent } from '../server/services/rubricHash.js';
 import { attachRubric } from '../server/services/rubricAttach.js';
+import { resolveAssignmentId } from '../server/services/idResolvers.js';
 import { LEVELS } from '../server/lib/proficiencyScale.js';
+import { getFeedbackRows } from '../server/services/feedbackRows.js';
 import { normalizeSubmissionStatus, gradingState, getRoster, scoreScaleFor, getAlignedTopics } from '../server/services/assessmentContext.js';
 import { preferredFirstName } from '../server/services/studentNames.js';
 import { findStudents, getStudentHistory } from '../server/services/studentHistory.js';
@@ -16,6 +18,7 @@ import {
   assertCanExtend, TriageError,
 } from '../server/services/triage.js';
 import { getSubmissionStatus } from '../server/services/submissionStatus.js';
+import { getLooseEnds } from '../server/services/looseEnds.js';
 import {
   extendResubmission, gradeStands, listResubmissions,
   assertCanExtendRequest, assertCanGradeStand,
@@ -29,6 +32,13 @@ import { askLine, extendResubmissionLine, gradeStandsLine, extensionLine, makeUp
 import { loadCalendar } from '../server/services/schoolCalendar.js';
 import { todayLocal } from '../server/lib/schoolDays.js';
 import { statusLineUntil } from '../server/services/statusLineDue.js';
+import { listGroups, setQuestionTags } from '../server/services/quizGroups.js';
+import { loadGroup } from '../server/services/quizLoader.js';
+import { frqResponses, listWritebacks, levelsOf } from '../server/services/frqResponses.js';
+import { writeFrqSuggestions, recordWriteback } from '../server/services/frqMarks.js';
+import { plainTextLines } from '../server/lib/quizText.js';
+import { quizResults } from '../server/services/quizResults.js';
+import { writeOverallSuggestions } from '../server/services/quizOverall.js';
 
 // Active courses = not archived, not excluded, not hidden. Mirrors the
 // 'current' view in server/routes/courses.js, plus the excluded filter (#56,
@@ -116,21 +126,26 @@ export function listAssignments(db, { course_id }) {
     WHERE a.course_id = ? AND a.removed_at IS NULL
     ORDER BY a.due_date, a.id
   `).all(Number(course_id));
-  return rows.map(({ latest_submitted_at, course_id: _c, is_lti_submission, grading_scale_id, ...r }) => ({
-    ...r,
-    has_aligned_topics: !!r.has_aligned_topics,
-    // Scale an unaligned assignment is graded on (#41) — grade those by
-    // write_student_suggestions `scale_level`. null for rubric/other assignments.
-    score_scale: scoreScaleFor({ grading_scale_id }, r.has_aligned_topics ? 1 : 0)?.name ?? null,
-    // submitted_at/latest_revision_at are Unix-seconds epochs (0 = never submitted).
-    // Native: submitted_at (the REST grade time) is the submission signal. LTI:
-    // submitted_at is the REST grade time, not the submission — the grader's
-    // submission time lives in latest_revision_at (triage resubmissions,
-    // 2026-10-03), so the query above reads that column for LTI assignments.
-    // Surface the latest as an ISO string, null when nobody has submitted.
-    latest_submission_at: latest_submitted_at > 0 ? new Date(latest_submitted_at * 1000).toISOString() : null,
-    ...assignmentCounts(db, { id: r.id, schoology_assignment_id: r.schoology_assignment_id, course_id: _c, is_lti_submission }),
-  }));
+  return rows.map(({ latest_submitted_at, course_id: _c, is_lti_submission, grading_scale_id, ...r }) => {
+    const scale = scoreScaleFor({ grading_scale_id }, r.has_aligned_topics ? 1 : 0);
+    return {
+      ...r,
+      has_aligned_topics: !!r.has_aligned_topics,
+      // Scale an unaligned assignment is graded on (#41) — grade those by
+      // write_student_suggestions `scale_level`. null for rubric/other assignments.
+      score_scale: scale?.name ?? null,
+      // The rubric attached as feedback rows (spec 2026-10-13), or null.
+      feedback_rubric: getFeedbackRows(db, r.schoology_assignment_id, scale)?.rubric?.name ?? null,
+      // submitted_at/latest_revision_at are Unix-seconds epochs (0 = never submitted).
+      // Native: submitted_at (the REST grade time) is the submission signal. LTI:
+      // submitted_at is the REST grade time, not the submission — the grader's
+      // submission time lives in latest_revision_at (triage resubmissions,
+      // 2026-10-03), so the query above reads that column for LTI assignments.
+      // Surface the latest as an ISO string, null when nobody has submitted.
+      latest_submission_at: latest_submitted_at > 0 ? new Date(latest_submitted_at * 1000).toISOString() : null,
+      ...assignmentCounts(db, { id: r.id, schoology_assignment_id: r.schoology_assignment_id, course_id: _c, is_lti_submission }),
+    };
+  });
 }
 
 // Course roster (current, non-dropped enrolments), independent of any
@@ -224,18 +239,22 @@ export function writeRubric(db, { name, criteria, on_name_conflict = 'prompt' })
   return { name, match: 'created', criteria_count };
 }
 
-// Bind a library rubric (by name) to an assignment, auto-matching criteria to the
-// assignment's measurement topics (the same path the modal uses). Reports the
-// criteria that still need a topic so the agent can point the teacher at the
-// Map-criteria tab (there is no topic-mapping MCP tool).
+// Bind a library rubric (by name) to an assignment. On an aligned task the
+// criteria are auto-matched to measurement topics; unmatched ones are finished
+// in Prism's Map-criteria tab. On an unaligned score-scale task every criterion
+// becomes a feedback row (Prism-only; only the overall level is published).
 export function attachRubricTool(db, { rubric_name, assignment_id }) {
   const rubric = getRubricByName(db, rubric_name);
   if (!rubric) return { error: `rubric "${rubric_name}" not found` };
-  const asg = db.prepare(`SELECT schoology_assignment_id, course_id FROM assignments WHERE id = ?`).get(Number(assignment_id));
+  const localId = resolveAssignmentId(db, assignment_id);
+  const asg = localId ? db.prepare(`SELECT schoology_assignment_id, course_id FROM assignments WHERE id = ?`).get(localId) : null;
   if (!asg) return { error: `assignment ${assignment_id} not found` };
-  const { unmatched } = attachRubric(db, { rubricId: rubric.id, courseId: asg.course_id, assignmentId: asg.schoology_assignment_id });
+  const res = attachRubric(db, { rubricId: rubric.id, courseId: asg.course_id, assignmentId: asg.schoology_assignment_id });
+  if (res.mode === 'feedback_rows') {
+    return { attached_to: localId, rubric: rubric_name, mode: 'feedback_rows', score_scale: res.scaleName, rows: res.rows, hidden_row_levels: res.hiddenRowLevels };
+  }
   const nameById = Object.fromEntries(rubric.criteria.map((c) => [c.id, c.criterion_name]));
-  return { attached_to: Number(assignment_id), rubric: rubric_name, unmatched_criteria: unmatched.map((id) => nameById[id] ?? `<criterion id=${id}>`) };
+  return { attached_to: localId, rubric: rubric_name, unmatched_criteria: res.unmatched.map((id) => nameById[id] ?? `<criterion id=${id}>`) };
 }
 
 // ── Triage (late-work referral watch + feedback owed) ────────────────────────
@@ -268,7 +287,8 @@ const matchesStudent = (r, student) =>
   String(r.studentId) === String(student) || r.studentName.toLowerCase().includes(String(student).toLowerCase());
 
 export function getTriageTool(db, { course, student, include_formative } = {}) {
-  const t = getTriage(db, { courseId: resolveCourseRef(db, course), includeFormative: include_formative });
+  const courseId = resolveCourseRef(db, course);
+  const t = { ...getTriage(db, { courseId, includeFormative: include_formative }), looseEnds: getLooseEnds(db, { courseId }) };
   if (student != null && student !== '') {
     t.lateWork = t.lateWork.filter((r) => matchesStudent(r, student));
     t.makeUps = t.makeUps.filter((r) => matchesStudent(r, student));
@@ -280,6 +300,12 @@ export function getTriageTool(db, { course, student, include_formative } = {}) {
     t.counts.makeUpsOverdue = t.makeUps.filter((r) => r.tone === 'red').length;
     t.resubmissions = t.resubmissions.filter((r) => matchesStudent(r, student));
     t.counts.resubmissionsOverdue = t.resubmissions.filter((r) => r.tone === 'red').length;
+    // Loose ends: keep that student's entries, recounted.
+    t.looseEnds = t.looseEnds.map((r) => {
+      const students = r.students.filter((s) => matchesStudent(s, student));
+      const count = (x) => students.filter((s) => s.reasons.includes(x)).length;
+      return { ...r, students, drafts: count('draft'), feedbackHidden: count('feedback_hidden'), flagged: count('flagged') };
+    }).filter((r) => r.students.length > 0);
     t.studentFilter = String(student);
   }
   return t;
@@ -478,4 +504,75 @@ export function listResubmissionsTool(db, { course, student, since, state } = {}
   const rows = listResubmissions(db, { courseId: resolveCourseRef(db, course), since: since || null });
   return rows.filter((r) => (state ? r.outcome === state : true))
     .filter((r) => (student != null && student !== '' ? matchesStudent(r, student) : true));
+}
+
+// Linked quizzes (spec 2026-10-12). Combining and linking stay in Prism's UI in v1.
+export function listQuizGroupsTool(db, { course }) {
+  return listGroups(db, { courseId: resolveCourseRef(db, course) });
+}
+
+export async function loadQuizResultsTool(db, { group_id }, deps = { loadGroup }) {
+  return { summary: await deps.loadGroup(db, { groupId: group_id }) };
+}
+
+export function setQuestionTagsTool(db, { group_id, tags, texts }) {
+  return setQuestionTags(db, { groupId: group_id, tags, texts });
+}
+
+// Phase 2 (spec §12): FRQ marking. Answers go out as plain text; levels by name.
+const describeLevel = (l) => l.descriptionHtml.replace(/^[^:]*:\s*/, '').trim();
+
+export function getFrqResponsesTool(db, { group_id, question }) {
+  const data = frqResponses(db, { groupId: group_id, position: question ?? null });
+  const layer = (rubric, m) => (m ? { levels: levelsOf(rubric, m.cells), comment: m.comment } : null);
+  return {
+    questions: data.questions.map(q => ({
+      position: q.position, stem: plainTextLines(q.stem_html), max_points: q.max_points,
+      rubric: q.rubric ? q.rubric.rows.map(r => ({ row: r.title, levels: r.levels.map(l => ({ name: l.name, points: l.points, description: plainTextLines(describeLevel(l)) })) })) : null,
+    })),
+    students: data.students.map(s => ({
+      student: s.name, student_id: s.student_id, schoology_uid: s.schoology_uid, attempt_url: s.attempt_url, mcq: s.mcq,
+      answers: data.questions.map(q => {
+        const r = s.responses[q.position];
+        const m = r.mark;
+        return {
+          question: q.position,
+          answer_text: plainTextLines(r.answer_html),
+          schoology: layer(q.rubric, r.schoology),
+          prism: m ? {
+            state: m.state, suggestion: layer(q.rubric, m.suggested), final: layer(q.rubric, m.final),
+            suggestion_revised: m.suggestion_revised, writeback: m.writeback.status, changed_in_schoology: m.changed_in_schoology,
+          } : null,
+        };
+      }),
+    })),
+  };
+}
+
+export function writeFrqSuggestionsTool(db, { group_id, question, students }) {
+  return writeFrqSuggestions(db, { groupId: group_id, position: question, students });
+}
+
+export function listFrqWritebacksTool(db, { group_id }) {
+  return listWritebacks(db, { groupId: group_id });
+}
+
+export function markFrqWritebackTool(db, { group_id, student, question, status, error }) {
+  return recordWriteback(db, { groupId: group_id, student, position: question, status, error });
+}
+
+// Phase 3 (spec §13): the overall result on the linked result task.
+export function getQuizResultsTool(db, { group_id }) {
+  const data = quizResults(db, { groupId: group_id });
+  return {
+    ...data,
+    students: data.students.map(({ name, student_id, overall, ...rest }) => ({
+      student: name, student_id, ...rest,
+      overall: overall ? { rubric_scores: overall.rubric_scores, impression: overall.impression, status: overall.status, suggestion_state: overall.suggestion_state, stale: overall.stale } : null,
+    })),
+  };
+}
+
+export function writeQuizOverallSuggestionsTool(db, { group_id, students }) {
+  return writeOverallSuggestions(db, { groupId: group_id, students });
 }

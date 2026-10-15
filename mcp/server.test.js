@@ -20,6 +20,8 @@ async function connect() {
 
 beforeEach(() => {
   getDb().exec(
+    'DELETE FROM frq_marks; DELETE FROM quiz_responses; DELETE FROM quiz_attempts; DELETE FROM quiz_question_copies; ' +
+    'DELETE FROM quiz_questions; DELETE FROM quiz_group_members; DELETE FROM quiz_groups; ' +
     'DELETE FROM referrals; DELETE FROM extensions; DELETE FROM resubmissions; DELETE FROM school_days; ' +
     'DELETE FROM rubric_attachment_topics; DELETE FROM rubric_attachments; ' +
     'DELETE FROM rubric_descriptors; DELETE FROM rubric_criteria; DELETE FROM rubrics; ' +
@@ -476,5 +478,89 @@ describe('PrisMCP status lines (Amendment B)', () => {
     const res = await client.callTool({ name: 'grade_stands', arguments: { id } });
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toMatch(/^NOT_AT_DEADLINE: /);
+  });
+
+  test('lists the quiz tools', async () => {
+    const client = await connect();
+    const { tools } = await client.listTools();
+    expect(tools.map(t => t.name)).toEqual(expect.arrayContaining(['list_quiz_groups', 'load_quiz_results', 'set_question_tags', 'get_frq_responses', 'write_frq_suggestions', 'list_frq_writebacks', 'mark_frq_writeback']));
+  });
+
+  test('set_question_tags on an unknown group is a tool error with its code', async () => {
+    const client = await connect();
+    const res = await client.callTool({ name: 'set_question_tags', arguments: { group_id: 999999, tags: { 1: ['X'] } } });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toMatch(/^NOT_FOUND: /);
+  });
+});
+
+describe('PrisMCP quiz tools', () => {
+  const RUBRIC = { id: 'r1', title: 'FRQ', totalPoints: 4, rows: [{ id: '146', title: 'Content Knowledge', maxPoints: 4, levels: [
+    { points: 4, name: 'Exhibiting Depth', descriptionHtml: 'Exhibiting Depth: all' }, { points: 2, name: 'Developing', descriptionHtml: 'Developing: some' }] }] };
+  let g;
+  beforeEach(() => {
+    const db = getDb();
+    const c = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('8458134135', 'AP CSP')`).run().lastInsertRowid;
+    const t = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, is_test) VALUES (?, '900', 'Ep 1', 1)`).run(c).lastInsertRowid;
+    g = db.prepare(`INSERT INTO quiz_groups (course_id, title) VALUES (?, 'Ep 1')`).run(c).lastInsertRowid;
+    db.prepare('INSERT INTO quiz_group_members (group_id, assignment_id) VALUES (?, ?)').run(g, t);
+    const q = db.prepare(`INSERT INTO quiz_questions (group_id, position, kind, stem_html, max_points, schoology_rubric_json) VALUES (?, 21, 'frq', 'Explain', 4, ?)`).run(g, JSON.stringify(RUBRIC)).lastInsertRowid;
+    for (const [uid, last] of [['701', 'Lee'], ['702', 'Ng']]) {
+      const s = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES (?, 'Ana', ?)`).run(uid, last).lastInsertRowid;
+      const a = db.prepare(`INSERT INTO quiz_attempts (group_id, assignment_id, student_id, schoology_attempt_id, fetched_at) VALUES (?, ?, ?, ?, 'now')`).run(g, t, s, `5${uid}`).lastInsertRowid;
+      db.prepare('INSERT INTO quiz_responses (attempt_id, question_id, answer_html) VALUES (?, ?, ?)').run(a, q, '<p>a</p>');
+    }
+  });
+
+  test('write_frq_suggestions: a numeric level fails that student only', async () => {
+    const client = await connect();
+    const res = await client.callTool({ name: 'write_frq_suggestions', arguments: { group_id: g, question: 21, students: [
+      { student: '701', cells: { 146: 3 }, comment: 'x' },
+      { student: '702', level: 'Developing', comment: 'y' },
+    ] } });
+    const body = JSON.parse(res.content[0].text);
+    expect(body.written).toBe(1);
+    expect(body.results[0]).toMatchObject({ status: 'error', message: expect.stringMatching(/unknown level 3/) });
+  });
+
+  test('the overall tools are registered with their schemas', async () => {
+    const client = await connect();
+    const { tools } = await client.listTools();
+    const names = tools.map(t => t.name);
+    expect(names).toEqual(expect.arrayContaining(['get_quiz_results', 'write_quiz_overall_suggestions']));
+    const w = tools.find(t => t.name === 'write_quiz_overall_suggestions');
+    expect(w.inputSchema.properties.students.items.required).toEqual(expect.arrayContaining(['student', 'impression']));
+  });
+
+  test('get_quiz_results and write_quiz_overall_suggestions answer over MCP', async () => {
+    const client = await connect();
+    const read = JSON.parse((await client.callTool({ name: 'get_quiz_results', arguments: { group_id: g } })).content[0].text);
+    expect(read.students.map(s => [s.student, s.ready, s.blocked])).toEqual([['Ana Lee', false, ['Q21 not marked']], ['Ana Ng', false, ['Q21 not marked']]]);
+    const res = await client.callTool({ name: 'write_quiz_overall_suggestions', arguments: { group_id: g, students: [{ student: '701', rubric_scores: {}, impression: 'x' }] } });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toMatch(/Link this quiz group to its result task first/);
+  });
+
+  test('write_quiz_overall_suggestions: a numeric level is reported, not a rejected call', async () => {
+    const db = getDb();
+    const c = db.prepare('SELECT course_id FROM quiz_groups WHERE id = ?').get(g).course_id;
+    const r = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, '950', 'Ep 1 - Result (S)')`).run(c).lastInsertRowid;
+    db.prepare(`UPDATE quiz_groups SET result_assignment_id = ?, loaded_at = '2026-10-13 01:00:00' WHERE id = ?`).run(r, g);
+    db.prepare(`UPDATE quiz_responses SET schoology_rubric_cells_json = '{"146":{"points":2,"comment":""}}'`).run();
+    const client = await connect();
+    const res = await client.callTool({ name: 'write_quiz_overall_suggestions', arguments: { group_id: g, students: [{ student: '701', rubric_scores: { 'CSP.1.1': 3 }, impression: 'Good.' }] } });
+    expect(res.isError).toBeFalsy();
+    const body = JSON.parse(res.content[0].text);
+    expect(body.results[0]).toMatchObject({ status: 'written' });
+  });
+
+  test('write_student_suggestions: a numeric level is reported, not a rejected call', async () => {
+    const db = getDb();
+    const c = db.prepare('SELECT course_id FROM quiz_groups WHERE id = ?').get(g).course_id;
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, '951', 'Project')`).run(c);
+    const client = await connect();
+    const res = await client.callTool({ name: 'write_student_suggestions', arguments: { course_id: c, assignment_id: '951', students: [{ student: '701', rubric_scores: { 'X.1': 3 } }] } });
+    expect(res.isError).toBeFalsy();
+    expect(JSON.parse(res.content[0].text).results[0]).toMatchObject({ status: 'written' });
   });
 });

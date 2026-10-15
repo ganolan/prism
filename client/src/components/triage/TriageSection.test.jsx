@@ -438,7 +438,7 @@ describe('TriageSection — compact rows', () => {
     const lines = [...textOf(row).children];
     expect(lines.map((el) => el.className)).toEqual(['triage-row__line', 'triage-row__course']);
     const title = within(lines[0]).getByRole('link', { name: 'Model Card' });
-    expect(title).toHaveAttribute('href', '/course/6/assessment/a4');
+    expect(title).toHaveAttribute('href', '/course/6/assessment/a4?filter=to_grade,partly_graded,draft');
     expect(title).toHaveAttribute('title', 'Model Card');
     expect(lines[1]).toHaveTextContent('[BK 7] AP CSP');
     expect(lines[1]).not.toHaveTextContent(/ungraded/);
@@ -785,9 +785,12 @@ describe('Resubmissions panel', () => {
     await waitFor(() => expect(api.updateResubmission).toHaveBeenCalledWith(42, { lessons: 3, commentLine: line }));
   });
 
-  it('row names link to the student card on the assessment page', async () => {
+  it('row names link to the student card on the assessment page, with the row\'s state selected', async () => {
     const panel = await resubPanel();
-    expect(within(panel).getByRole('link', { name: 'Lena Ho' }).getAttribute('href')).toBe('/course/5/assessment/r30?student=11');
+    expect(within(panel).getByRole('link', { name: 'Lena Ho' }).getAttribute('href')).toBe('/course/5/assessment/r30?student=11&filter=resubmitted');
+    const waiting = RESUB3.find((r) => r.state === 'waiting');
+    expect(within(panel).getByRole('link', { name: waiting.studentName }).getAttribute('href'))
+      .toBe(`/course/${waiting.courseId}/assessment/${waiting.schoologyAssignmentId}?student=${waiting.studentId}&filter=resubmission_pending,resubmission_overdue`);
   });
 
   it('stays mounted after acting on the last row: "All caught up." and the history link remain', async () => {
@@ -988,5 +991,32 @@ describe('TriageSection — email (#137)', () => {
     renderSection();
     await screen.findByText('Maya Chen');
     expect(screen.queryByRole('link', { name: /^Email / })).not.toBeInTheDocument();
+  });
+});
+
+describe('Loose ends panel', () => {
+  const ROWS = [
+    { courseId: 5, courseName: 'AP CSP', blockNumber: '7', assignmentId: 40, schoologyAssignmentId: 'a40', title: 'CPT 2', aligned: true,
+      drafts: 2, feedbackHidden: 1, flagged: 0, oldestDraftOn: '2026-10-09', students: [] },
+    { courseId: 6, courseName: 'MGD', assignmentId: 41, schoologyAssignmentId: 'a41', title: 'Brick Breaker', aligned: false,
+      drafts: 0, feedbackHidden: 0, flagged: 1, oldestDraftOn: null, students: [] },
+  ];
+
+  it('lists each task with its loose ends and links to the page with those reasons selected', async () => {
+    api.getTriage.mockResolvedValue({ ...PAYLOAD, looseEnds: ROWS });
+    renderSection();
+    const panel = await screen.findByLabelText('Loose ends');
+    expect(within(panel).getByRole('link', { name: 'CPT 2' })).toHaveAttribute('href', '/course/5/assessment/a40?filter=draft,feedback_hidden');
+    expect(within(panel).getByText(/2 drafts not published, 1 with feedback hidden/)).toHaveTextContent('oldest draft 09/10/2026');
+    expect(within(panel).getByRole('link', { name: 'Brick Breaker' })).toHaveAttribute('href', '/course/6/assessment/a41?filter=flagged');
+    expect(within(panel).getByText('1 flagged')).toBeInTheDocument();
+    expect(within(panel).getByText('[BK 7] AP CSP')).toBeInTheDocument();
+  });
+
+  it('is hidden when there are no loose ends', async () => {
+    api.getTriage.mockResolvedValue({ ...PAYLOAD, looseEnds: [] });
+    renderSection();
+    await screen.findByLabelText('Feedback owed');
+    expect(screen.queryByLabelText('Loose ends')).toBeNull();
   });
 });

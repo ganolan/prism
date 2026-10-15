@@ -6,6 +6,7 @@ import ExtendEditor from './ExtendEditor.jsx';
 import { PanelHead, ShowAllToggle, useShowAll, limitRows } from './panelParts.jsx';
 import ReferralHistory from './ReferralHistory.jsx';
 import { formatDate } from '../../lib/formatDate.js';
+import { assessmentLink } from '../../lib/triage.js';
 import UnsubmitFailedNote from '../UnsubmitFailedNote.jsx';
 import EmailMenu, { MailLink } from './EmailMenu.jsx';
 
@@ -25,6 +26,12 @@ import EmailMenu, { MailLink } from './EmailMenu.jsx';
 // the work in progress.
 // "@ ▾" (EmailMenu) copies still-owing students' addresses; ✉ (MailLink) on each row opens a mailto.
 export const cardLink = (r) => `/course/${r.courseId}/assessment/${r.schoologyAssignmentId}?student=${r.studentId}`;
+// A resubmission row opens the card with its reason selected, so the page also lists the
+// task's other resubmissions in the same state.
+const resubLink = (r) => assessmentLink(r, {
+  studentId: r.studentId,
+  filter: r.state === 'arrived' ? ['resubmitted'] : ['resubmission_pending', 'resubmission_overdue'],
+});
 const left = (r) => (r.limit - r.day > 0 ? `${r.limit - r.day} left` : 'last day');
 
 export default function ResubmissionsPanel({
@@ -56,7 +63,7 @@ export default function ResubmissionsPanel({
             <UrgencyRing day={r.day} limit={r.limit} tone={r.tone} approx={r.approx} size={28} />
             <div className="triage-row__text">
               <div className="triage-row__line">
-                <Link to={cardLink(r)} className="triage-row__name" title={r.studentName}>{r.studentName}</Link>
+                <Link to={resubLink(r)} className="triage-row__name" title={r.studentName}>{r.studentName}</Link>
                 <MailLink row={r} kind="resubmissions" />
                 {arrived
                   ? <span className="badge badge-resubmitted triage-row__tag">↩ arrived · awaiting feedback</span>

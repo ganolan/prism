@@ -83,6 +83,12 @@ and is never a caller or teacher input.** The numeric mapping is configured once
 - **Letter-grade scales (HS Letter Grade, HKIS Grade Scale) are vestigial.** They are
   never used; don't build grading support for them or for numeric scales.
 - Every scale renders **best on the left → worst on the right**.
+- **Feedback rows**: a rubric attached to a score-scale task. Each criterion is a row the
+  teacher marks in Prism; row levels are Prism-only feedback data (`rubric_row_levels`) and
+  never reach Schoology. Only the overall scale level is published. On the General Academic
+  Scale (Unaligned), Prism stages the rubric average as the overall level (ties round up; an
+  Insufficient Evidence row stops it) until a level is published. On other score scales the
+  row levels do not match the scale's levels, so no average is staged.
 
 ## Archived-course surfaces (avoid label collisions)
 

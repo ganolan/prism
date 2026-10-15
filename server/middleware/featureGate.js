@@ -34,7 +34,7 @@ export function getRubricConfig() {
   return {
     suggestionAccent: '#e21ad6',
     suggestionWash: '#fbe6fb',
-    reportingCategoryColors: { produce: '#B4A7D6', create: '#9FC5E8' },
+    reportingCategoryColors: { produc: '#B4A7D6', creat: '#9FC5E8', 'computational thinking': '#F9CB9C', 'content knowledge': '#D5A6BD' },
     ...(config.rubrics || {}),
   };
 }

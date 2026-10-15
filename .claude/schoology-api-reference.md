@@ -956,3 +956,174 @@ stores each returned cell as `grades.test_attempt` ('took' → also `submission_
 'none', 'not_assigned'); a student with no cell is left untouched (unknown). A payload without a `body.grades` object,
 or a test with no cells, is recorded as `assignments.test_fetch_status = 'failed'` (unknown). The
 results/`student_stats` pages are not fetched.
+
+### Questions, attempts and FRQ rubrics (read-only probe, 2026-10-12)
+
+Probed on the AP CSP Ep 1 theory test `8544307969` and its extra-time copy `8603667595` (section
+`8458134135`), one taker's attempt. GET only; the rubric capture aborted every non-GET request.
+Scripts: `scripts/probe-assessment-attempt.js` (saves raw pages outside the repo),
+`scripts/probe-assessment-rubric.js` (opens the rubric popup, captures its XHRs). Design that uses
+it: `docs/superpowers/specs/2026-10-12-linked-quiz-results-design.md`.
+
+**Question list: `GET /assignment/{id}/assessment_questions`** (200, HTML, ~300 KB for 21
+questions). One `tr.draggable` per question, holding hidden `components[{qid}][delta]` (the order,
+0-based; not contiguous: the essay added later had `37`), `.component-summary-wrapper` classed
+`component-multiple_choice` or `component-essay`, `td.component-number` (1-based display number),
+`.component-title.s-rte` (stem HTML, code segments as `<pre>` with `<br />` line breaks), and
+`.component-attributes` → `span.component-type` ("Multiple Choice") and `span.component-points`
+("1 point"). Links: `assessment_questions/edit_question/{qid}`, `export_to_resources?cids={qid}`,
+and the write action `assessment_questions/delete_question/{qid}`, which is never fetched. **No
+answer options and no key** on this page. **A copy gets new question ids:** the standard test's 21
+ids were `2327504483` to `2327504502` plus `2315300994` (the essay), the copy's were
+`2329012780` to `2329012800`. Match copies by content, never by id.
+
+**Attempt page: `GET /assignment/{id}/assessment_results/student_stats/{uid}/{attemptId}`** (200,
+HTML, ~255 KB). The attempt id came from the `student_stats/{uid}` page (one attempt observed).
+Form `#s-assessment-edit-submission-form`; other fields `form_build_id`, `form_token`, `form_id`,
+`op`. Per question, all inside `components[0][{qid}]`: `points` (text input), `override` (hidden,
+`1` on the graded essay), `original_points`, `max_points`, `rubric_score` (hidden; empty for an
+MCQ, `2` on the graded essay), `comment` (textarea). The visible score is
+`.score-grade-score` (`<span>1</span>/1`).
+- **MCQ:** `ul.multiple-choice-review#question-{qid}-review`, one `li` per option in display order.
+  Classes: `selected correct` (chosen, right), `selected incorrect` (chosen, wrong), `correct` (the
+  key, not chosen), empty otherwise. Option text in `.option-span`. So the attempt page shows the
+  chosen letter, the key and the option text.
+- **Essay:** `.question-review.question-essay`; the full answer HTML in `.essay-review` (not
+  truncated, unlike the CSV export). Labeled "Requires manual grading".
+- **Rubric button:** `span.grading-rubric-grading-launch` with attributes `rubric-id`,
+  `enrollment-id`, `item-id` (= qid); the same values are in
+  `Drupal.settings.theme_js.s_grades_rubric_grading_launch_btn_0.args`
+  (`[rubricId, enrollmentId, qid, gradeHtml, 1, 1, attemptId, maxPoints, false, false]`).
+
+**Rubric on an essay question.** Clicking the rubric button fires two GETs:
+- `GET /iapi/grades/rubric/{rubricId}` → `{response_code, body:{id, created, created_by, title,
+  total_points, realm: "course", realm_id: <sectionId>, is_tracked, rows:[{id, is_published,
+  term_id, guid, title, description, columns:[{pts, description}], max_points, weight}],
+  num_assigned_gi}}`. Observed: rubric `55233026` "AP CSP Free Response Question", 1 row
+  (`146012384`, "AP CS: Content Knowledge"), 4 columns, pts 4/3/2/1, each `description` opening
+  with the level name and a colon ("Exhibiting Depth:", "Exhibiting:", "Developing:", "Emerging:").
+- `GET /iapi/grades/assessment_component_submission_rubric_grade_info/{rubricId}/{qid}/{enrollmentId}/{attemptId}`
+  → `{response_code:200, body:{gradeInfo:{<rowId>:{grade: "2", comment: ""}}, overrideGrade: null}}`.
+
+**Not observed:** a test with more than one attempt, an ungraded essay (`rubric_score` empty?), a
+rubric with more than one row, and an MCQ left blank. The write request is recorded below (2026-10-13).
+
+### Saving an FRQ level and comment (write probe, 2026-10-13)
+
+One teacher-approved same-value save (`scripts/probe-attempt-write.js write`), on attempt `2247871023`
+of `7724138299` (AP CSP: Unit 3 - Organizing Data Theory Test (S), 2024-25, archived section). 21
+questions: 20 MCQ and 1 essay with a one-row Schoology rubric `36010096`, marked 4 (Exhibiting Depth)
+with a comment. Capture (bodies hold student work) in `~/prism-probes/attempt-write/` on the mini, not in
+the repo.
+
+- **The archived section is still editable:** the attempt form, an enabled **Save Changes**, the rubric
+  launch, and enabled points fields.
+- **Opening the rubric popup:** synthetic mousedown, mouseup and click on the inner
+  `span.grading-rubric-grading-launch` (it carries `rubric-id`, `enrollment-id`, `item-id`). The same
+  events on the outer `div.s-grades-rubric-grading-launch-btn` open nothing.
+- **Popup cells:** visible `td.rating-wrapper`, text `"<pts><Level>: <description>"`; the selected cell's
+  text starts with the screen-reader note `"This item is selected."`. Source: the probe's own output
+  (the cell texts it read, and its selected-level check passing); no popup page was saved.
+- **The popup's Save (`button.submit-btn`)** sent nothing to the attempt or grades endpoints. One
+  `POST /usage/collect` (usage tracking) went before the form POST and could not be timed against it.
+  `rubric_score` was 4 before and after, so the probe does not show that the popup sets it.
+- **Save Changes sends exactly one non-GET request** (GETs, such as a redirect after it, were not recorded): `POST` to the attempt page's own URL
+  (`/assignment/{testId}/assessment_results/student_stats/{uid}/{attemptId}`),
+  `Content-Type: application/x-www-form-urlencoded`. Headers observed: `accept`, `content-type`,
+  `cookie`, `origin`, `referer`, `sec-ch-ua*`, `upgrade-insecure-requests`, `user-agent`. **No CSRF
+  header.** Body: the whole form, 131 fields, in page order:
+  - `enrollment-selector-sa`: the attempt page's own path.
+  - For **every** question: `components[0][{qid}][points]`, `[override]`, `[original_points]`,
+    `[max_points]`, `[rubric_score]`, `[comment]`. Observed values: MCQs `override` 0, `rubric_score`
+    and `comment` empty, `original_points` equal to `points` (1 or 0, the auto score); the essay `points`
+    4, `override` 1, `original_points` 0, `max_points` 4, `rubric_score` 4, `comment` its text. The
+    essay's `override` was already 1 before the save (stored from the original grading).
+  - The posted values were identical to the loaded form's values: serializing the loaded form
+    reproduces the body. The form has `accept-charset="UTF-8"` and its `action` is the attempt path;
+    `enrollment-selector-sa` is a `<select>`.
+  - `op` = `Save Changes`, `form_build_id`, `form_token`, `form_id` =
+    `s_assessment_edit_submission_form` (Drupal's form tokens, taken from the loaded page).
+- **Drupal tokens:** `form_build_id` changes on every load; `form_token` stayed the same across loads in
+  one browser session and differed in another session.
+- **Read back from a fresh load:** every question's points, the essay's `rubric_score` and the comment
+  unchanged. The post-save page was not captured (the probe's check read the page before the
+  navigation after Save Changes finished), so its status and any Drupal message were not seen. The
+  "Your changes have been saved" text is in every page inside translation strings, so it confirms
+  nothing; the fresh-load read-back is the only confirmation.
+- **Accepted risk:** the values did not change, but Schoology may have recorded a grading time.
+- **For a replay (phase 4b):** load the attempt page, serialize its form as it is (all fields, Drupal
+  tokens), change only the essay's `rubric_score`, `points` and `comment`, and post it to the same URL.
+  **The only observed save re-sends every question's `points`, `override` and `original_points`,
+  MCQs included, unchanged.** A body with only the essay's fields was not tried. A same-value save
+  cannot show that a changed value persists: the first real post is the check.
+- **Launch span attributes:** besides `rubric-id`, `enrollment-id`, `item-id`, it carries
+  `submission-id`, `total-rubric-points`, `editable` and `is-component`.
+- **Round trip with a real change (2026-10-13, Graham approved, same attempt):** posting the form with
+  the essay's `rubric_score` 3, `points` 3, `override` 1 and the comment plus " (test)" changed the form:
+  a fresh load showed rubric score 3, points 3 and the new comment. **The rubric grade did not change:**
+  `rubric_grade_info` still returned `grade` 4 for the row, on the immediate read and after a full
+  reload. So the attempt form POST does not save the rubric's selected cell; that needs another request,
+  not yet observed (the popup's Save sent nothing on the same-value save). The attempt was then restored
+  with one more form POST (rubric score and points 4, the original comment): every field equals the 4a
+  capture again and the rubric grade is 4.
+- **The rubric launch span is drawn by Schoology's script.** The raw page an in-page `fetch` returns has
+  no `span.grading-rubric-grading-launch`; the rubric and enrollment ids are only in the page's template
+  JSON (`"template":"s_grades_rubric_grading_launch_btn"`, `args[0]` rubric id, `args[1]` enrollment id,
+  `args[2]` question id), as `parseQuizAttempt` reads them.
+- **Stage C, a level change through the popup (2026-10-13, Graham approved, same attempt;
+  `probe-attempt-write.js level`):** choosing a different cell in the popup and pressing its Save sends
+  **`PUT /iapi/grades/assessment_component_submission_rubric_grade_info/{rubricId}/{qid}/{enrollmentId}/{attemptId}`**,
+  `Content-Type: application/json;charset=UTF-8`, headers `accept`, `content-type`, `cookie`, `origin`,
+  `referer`, `sec-ch-ua*`, `user-agent`, **`x-csrf-key`, `x-csrf-token`**. Body:
+  `{"gradeInfo":{"<rowId>":{"grade":<points as a number>,"comment":""}},"overrideGrade":null,"comment":"<the question's comment>"}`.
+  It also sets the form's `rubric_score` and `points` in the page. **Save Changes** then posts the form
+  as before; the response was **302**. Read back: the form showed the new score and points, the comment
+  unchanged, no other field different, and `rubric_grade_info` showed the new grade (4 to 3). The same
+  steps with Exhibiting Depth restored it (3 to 4); every form field then equalled the 4a capture.
+- **So a level change is two requests:** the rubric PUT (the cell, with Drupal's CSRF headers) and the
+  form POST (points and comment). The form POST alone leaves the rubric grade as it was.
+- **End to end through Prism (2026-10-13, Graham approved):** Prism's writer (`quizWriteback.js`)
+  posted Exhibiting with a test comment, then Exhibiting Depth with the original, on the same attempt:
+  both `posted`, each confirmed by reading back the form and `rubric_grade_info`. Afterwards no form field
+  differed from the 4a capture, the rubric grade was 4, and a full reload showed the mark `posted`, not
+  "Changed in Schoology". The CSRF values were read from `Drupal.settings.s_common` on `/home` (the
+  reader's page).
+- **Grade by question (read-only spike, 2026-10-13, same test `7724138299`):** the results page links
+  "View by Question" to `/assignment/{testId}/assessment_results/question_stats`, which links each question
+  to `/assignment/{testId}/assessment_results/question_stats/{id}/{number}` (`{id}` not identified). The
+  FRQ's page (number 21, 18 takers) holds **one form for the whole class,
+  `#s-assessment-view-question-responses-form`**, `method="post"`, `action` = the page's own path, 112
+  fields: for each submission `students[{uid}][submissions][{attemptId}][points|override|original_points|max_points|rubric_score|comment]`
+  (18 of each), then `op`, `form_build_id`, `form_token`, `form_id`; one **Save Changes**. It carries **only
+  this question's fields** (no MCQ fields). The page also holds 18 rubric launch template entries
+  (`s_grades_rubric_grading_launch_btn`, 10 args: rubric id, enrollment id, question id, grade html, two
+  numbers, attempt id, max points, two booleans), one rubric id, covering every attempt in the form.
+- **Stage D, a same-value save on the by-question page (2026-10-13, Graham approved; `probe-attempt-write.js
+  byquestion`):** Save Changes sends **one** non-GET request, `POST` to the page's own path,
+  `application/x-www-form-urlencoded`, response **302**. The body was byte-identical to Prism's
+  serialization of the loaded form (112 fields). Read back: no form field changed and none of the 18
+  rubric grades changed. **Not observed:** a rubric change on this page (expected to be the same
+  per-student `rubric_grade_info` PUT, as the popup is the same widget), and a changed value through this
+  form.
+- **The rubric PUT alone saves the whole mark (2026-10-13, by-question round trip, Graham approved):**
+  after one `rubric_grade_info` PUT (grade 3, `comment` = the old comment plus " (test)") and **no form
+  save**, the by-question page showed that student's `points` 3, `rubric_score` 3 and the new comment
+  (`override` stayed 1), and `rubric_grade_info` showed 3. One PUT back (grade 4, the original comment)
+  restored it: every field on the whole Q21 page equalled the stage D page and the grade was 4. So the
+  PUT's `comment` saves the question comment, and for an essay already marked (`override` 1) the PUT is
+  the complete save. **Not observed:** an essay never marked (`override` 0): whether the PUT sets
+  `points` and `override` there.
+- **Not observed:** where the page takes the CSRF values for the PUT (Prism's unsubmit reads
+  `Drupal.settings.s_common.csrf_token` / `csrf_key` on a loaded page); whether the PUT's `comment` alone
+  saves the question comment; an essay with `override` 0 (never marked) and whether a replay must set it
+  to 1;
+  a multi-row rubric's fields (whether `rubric_score` alone carries a one-row rubric's cell, or per-row
+  values exist elsewhere); the response to the POST; and the `rubric_grade_info` read after a change.
+
+**Consumed by Prism (phase 1, linked quizzes, 2026-10-13):** `server/services/quizLoader.js` reads the
+question list (on combine), the results page, each taker's `student_stats` page, the latest
+attempt page, and for each essay with a rubric the two rubric GETs, one request at a time, GET
+only (URLs with `unsubmit` or `delete` are refused). Parsers: `server/lib/parseQuizQuestions.js`,
+`parseQuizResults.js`, `parseQuizAttempt.js`, `parseQuizRubric.js`. Live check on 2026-10-13
+(`scripts/verify-quiz-phase1.js`, `scripts/parity-quiz-results.js`): both Ep 1 groups loaded with
+no failed pages, and the MCQ counts matched csp-tools' `item_analysis.csv` on all 20 questions.

@@ -10,6 +10,8 @@ features:
   people_search: true
   schoology_writeback: false
   rubric_descriptors: true
+  quizzes: true
+  quiz_writeback: true
 
 sync:
   submissionConcurrency: 6
@@ -32,9 +34,15 @@ microsoft:
 rubrics:
   suggestionAccent: '#e21ad6'
   suggestionWash: '#fbe6fb'
+  # Criterion-cell fill by reporting category: a lowercase keyword contained in the
+  # category title. Stems ("produc", "creat") match both the aligned titles
+  # ("HS Art: Producing") and the rubric files ("PRODUCE"). Colours are the house
+  # rubric style, the same as the rubric files and rubric images.
   reportingCategoryColors:
-    produce: '#B4A7D6'
-    create: '#9FC5E8'
+    produc: '#B4A7D6'
+    creat: '#9FC5E8'
+    computational thinking: '#F9CB9C'
+    content knowledge: '#D5A6BD'
 
 grading:
   proficiencyScale:

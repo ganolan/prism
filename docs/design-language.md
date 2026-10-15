@@ -1208,3 +1208,105 @@ The /assessment/ card header holds one line of action pills (Flag for review, Re
 - **Assessments tab:** the Summative / Formative toggles gain a third pill, **Unpublished** (grey, `badge-gray` colours), off by default. It appears only when the course has unpublished assignments. Turned on, unpublished rows show a muted italic title and a small grey "Unpublished" badge. The type pills still apply to them (OR within types, AND with Unpublished).
 - **Gradebook tab:** the same three toggles in a **compact** size (`TypeFilterBar compact`, `.type-filter-bar--compact`) sit right-aligned in the course tab row beside "Triage ▸", so they take no vertical room from the diagonal headers. An unpublished column's diagonal title is muted italic; its hover popover adds "Unpublished on Schoology".
 - **One rule, two tabs:** `client/src/lib/assessmentTypeFilter.js` holds the filter and counts. Each tab keeps its own selection in memory (resets each visit). The `/gradebook` endpoint returns unpublished assignments with `published: 0`; the other course listings still exclude them.
+
+## Test attempt link (October 2026, linked quizzes)
+
+- **"Attempt" is the #120 "Open" pattern again.** One small outbound link labelled **Attempt**, beside the submission-status pill on the `/assessment/` cards, in the gradebook rubric modal's badge row and in the status cell of the student page. The full sentence is the accessible name ("Attempt: open Ada's test attempt in Schoology"); the completion time (day-first) is in the tooltip. Nothing renders when the student has no attempt. The shared component is `components/quiz/AttemptLink.jsx`.
+
+## Quiz setup modal (October 2026, linked quizzes)
+
+- **Combine is gated on a parity check, and the gate is visible.** The modal ticks the current test and its suggested copies. Combine stays disabled until **Check questions** passes for exactly that ticked set; a single ticked test needs no check. A mismatch lists each test's missing and extra questions inside `.alert.alert-warning`, and a match shows "Same questions" in `.alert.alert-success`. Any change to the ticks drops the old result, so the teacher cannot combine on a stale check.
+- **Remove is two steps.** "Remove quiz group" reveals an inline sentence that says loaded results are removed and Schoology is not changed, with a second **Remove** button. Nothing is deleted on the first click.
+- **The result-task select lists each summative once.** The linked result is listed first; the other summatives follow, with "Not linked" as the empty choice. The shared component is `components/quiz/QuizSetupModal.jsx`, built on the existing `.modal-overlay` / `.modal-content` pair.
+
+## Questions tab (October 2026, linked quizzes)
+
+- **Facility is a bar, then the number, then the band.** Each MCQ row shows a thin `var(--accent)` fill on `var(--bg-subtle)`, the percentage, and the band as a plain `.badge` (Strong, Mixed, Divided). FRQ rows carry no facility bar: they show their own level counts ("Exhibiting Depth 2, Developing 4") in its place, in full level names, because initials collide (Exhibiting and Emerging).
+- **The key is marked, never coloured.** Option counts read "B 10 ✓" in bold. Colour is reserved for flags, so a correct answer is not confused with a warning.
+- **Flags map to the existing badge tones.** Critical flags use `.badge-red`, warnings `.badge-amber`, and notes a neutral `.badge`. Flags are counts and distractor observations only; there are no discrimination indices.
+- **Rows expand, not navigate.** The whole first line opens the row (`.question-row-head`); its own buttons and the tag field keep their clicks. The question number stays the `aria-expanded` button for keyboard users. The collapsed stem is one line cut by a CSS ellipsis (`.question-stem-line`), with the full stem in the hover title. The expanded options drop the "a." or "b)" that Schoology writes at the start of an option, because the row already shows the letter.
+- **Takers are counts, not titles.** "Takers 6 of 6 (5 + 1 across 2 tests)"; the test titles and their counts are in the hover title.
+- **"Lowest first" is a `.filter-btn` toggle.** It sorts by facility, with FRQ rows last. It changes order only, never hides a question.
+- **Tags are edited in place.** "Edit tags" opens a comma-separated field inside the row; saving reloads the stats so the tag rollup stays in step. The shared component is `components/quiz/QuestionsTab.jsx`.
+
+## Quiz controls on the assessment page (October 2026, linked quizzes)
+
+- **Quiz controls sit in the existing header row.** **Quiz setup…**, the chip, **Load results** and a "loaded {date} / not loaded" line follow **Manage rubrics…** as `.secondary` buttons and small muted text. They show only when the `quizzes` flag is on and the assessment is a test or already in a group. The load result line ("18 attempts loaded, 1 failed") replaces the loaded-at text until the page is reopened.
+- **Grading and Questions are `.tab-btn` tabs under the filter bar,** present whenever a group exists. The choice lives in `?tab=` (sticky), and Questions replaces the student cards rather than sitting beside them.
+- **One canonical page per group.** Any other member redirects (replace) to the canonical assessment and keeps the query string.
+- **The course Assessments list folds member tests** under the canonical row, which carries the `QuizChip`. Gradebook columns are not folded.
+- **The chip shows a count, never the titles.** `QuizChip` reads "2 linked tests ▾" (or "combined" without a result task) as a small accent-outlined button (`.quiz-chip`). A click lists the titles in a `.help-pop` box, aligned to the chip's left edge rather than centred, because the chip often sits at the content's left edge beside the sidebar; the hover title holds the result task and the titles. A test and its extra-time copy have long, nearly identical titles, and printing them pushed the assessment title into a narrow column.
+
+## Quiz load warnings (October 2026, linked quizzes)
+
+- **One compact `.alert.alert-warning` under the header, above the Grading / Questions tabs,** so both tabs see what the last load could not do cleanly. It lists, in order: copies that differ ("The combined tests differ:" plus each line, e.g. "Question 4: a different key"), students who could not be loaded (count, then each reason, by name when Prism knows the student), students Prism does not know ("Sync the course, then load again."), and students with more than one attempt ("Prism used the latest."). Nothing renders when all four are empty. The shared component is `components/quiz/QuizLoadWarnings.jsx`.
+- **Folded tests keep their make-up chips.** On the course Assessments list a canonical row also shows each member test's make-up chip, using the same toggle as a test's own chip, so folding never hides make-up tracking. With two or more tests the chips read "Make-ups (Test 1): tracked", numbered in group order, with the full test title in the hover title. The chips sit in one wrapping group, so they move to a second line together.
+- **A folded row wraps before it squeezes.** Assessment rows wrap (`flexWrap`), and the title keeps at least 20rem, so chips move below the title instead of narrowing it.
+- **Published tests keep their folded row visible.** A result task is often unpublished until grades are released. Its folded row stays in the default list while any member test is published, still with the grey "Unpublished" badge for the result task itself.
+
+## Questions tab charts (October 2026, linked quizzes phase 1b)
+
+- **MCQ scores are a dot plot first.** `ScoreDots` draws one dot per student on a fixed 0 to 100% axis, stacking dots that fall in the same column, with the median as a dashed line. Graham chose it over a plain box plot because the dots never overlap and a class of 6 to 22 is easy to count. A **Dots / Box** toggle (two `.filter-btn`s) switches to box and whiskers (Tukey hinges, minimum to maximum) with the dots over the box, which suits looking at individual students. The choice is stored per browser (`localStorage`, `prism.quiz.scoreChart`).
+- **A dot names its student on hover.** The name and "17/20 (85%)" show in a `.help-pop` above the dot; the dot's `aria-label` holds the same text, and the chart's own label states the count, median and range.
+- **Levels are a stacked bar in the rubric-grid colours.** `LevelBar` uses `LEVEL_COLORS` header fills, best level on the left, with "ED 2" inside a segment wide enough for it (12% of the bar) and a legend of full names under the summary bar. A level name outside Prism's five, and "Not marked", is neutral `var(--bg-subtle)`. The FRQ question row uses the thin `mini` bar beside "ED 2, D 4".
+- **Tags show their full text on hover.** A tag with stored text (`quiz_tag_texts`, imported by an agent from the CED) has a dotted underline and the text as its hover title, on the question row and in the By tag table. Teachers do not hold code wordings in their heads.
+- **Percent bars are one primitive.** `.pct-bar` is the thin accent bar on `var(--bg-subtle)` used for each question's facility and each tag's percent correct.
+- **Built to be reused.** `ScoreDots` and `LevelBar` live in `components/quiz/` so the score-distribution drawer (#78) can use the same charts.
+
+## Free response tab (October 2026, linked quizzes phase 2)
+
+- **Two views, one picker.** **By question** (the default) shows every student's answer to one FRQ, chosen with one picker for the whole list, under the question's stem. **By student** stacks each student's FRQs. The view and filter buttons are `.filter-btn`s in one bar, which is not sticky because the assessment page header already is.
+- **Filters name the work left.** All, To review, Accepted, Waiting to post, Posted, Failed, Changed in Schoology. While `quiz_writeback` is off the bar also shows "n waiting for the agent".
+- **Card order:** the name with the **Attempt** link and state chips; the answer on `var(--bg-subtle)`; the Schoology rubric grid; the comment; then **Accept** (`.primary`), **Save edit** (`.secondary`), **Keep mine** and **Copy comment** (`.ghost`).
+- **Three marks in one grid.** `FrqRubricGrid` shows the stored Schoology rubric with a level button per cell: the card's current cell is filled in its level colour (`LEVEL_COLORS`), the AI's cell has the fuchsia sparkle (and the AI wash when it is not the current cell), and Schoology's current cell has a small outlined "S". Clicking a cell changes the card's level.
+- **The comment starts from the closest mark:** the teacher's own, else the AI suggestion, else Schoology's comment, so an answer already marked in Schoology opens as it is there.
+- **Chips:** Suggested (`badge-pink`, the AI colour), Accepted or Edited (`badge-blue`), In Schoology or Not marked (`badge-gray`), Waiting to post (`badge-amber`), Posted (`badge-green`), Post failed (`badge-red`, the error in the hover title), Changed in Schoology (`badge-amber`), Revised suggestion (`badge-pink`).
+- **Student answers are sanitized.** Answers render only through `sanitizeAnswerHtml` (DOMPurify, with every attribute removed): formatting and code survive, and scripts, images and links are removed. The question stem goes through `sanitizeStemHtml`, which also keeps an image from an http(s) address with its alt text (phase 3), so a stem diagram shows.
+
+## Overall result on the Result task (October 2026, linked quizzes phase 3)
+
+- **The quiz line sits beside the Attempt link.** On a linked Result task each Grading card shows "MCQ 17/20 (85%), FRQ Q21: Exhibiting" in `var(--text-muted)` at 0.78rem (`.quiz-result-line`, `QuizResultLine.jsx`). An FRQ that is not confirmed shows its reason ("Q21: to review", "Q21: not marked"). The numbers are live from Prism's copy, not from the suggestion.
+- **The student name stays on one line.** The card's name link is `white-space: nowrap`, so a long quiz line wraps its own badge and button instead of breaking the name.
+- **A stale comment is flagged, not rewritten.** When the suggested comment no longer matches the numbers or the template, the line adds an amber "Numbers changed" badge and a small `.ghost.accent` **Update numbers** button. The update keeps the agent's impression and levels, so a comment the teacher already used comes back tagged Revised, as any revised suggestion does.
+- **The comment template lives in Quiz setup.** Shown only when the quiz is linked to its Result task: a five-row textarea under "Overall comment", with the placeholders named in one muted line above it. **Save template** (`.secondary`) is disabled until the text changes; **Reset to default** (`.ghost`) appears only for a saved template. A refused template shows its reason in the modal's existing warning alert. Saving keeps the modal open.
+
+## Publishing FRQ marks to Schoology (October 2026, linked quizzes phase 4)
+
+- **One button, the grading surfaces' verb.** While `quiz_writeback` is on, the Free response bar shows **Publish all to Schoology (n)** (`.primary`) in place of "n waiting for the agent", matching the Grading tab's **Publish all to Schoology**. It publishes every accepted mark on every FRQ of the quiz. Graham dropped the earlier "one student first" step (13 Oct 2026): every write is read back, and feedback is usually hidden from students until he releases it.
+- **A line per student** under the button: "Published: Name, Q21 Exhibiting" in `var(--success)`, "Failed: Name, Q21: reason" or "Skipped: Name, Q22: reason" in `var(--danger)`. A failed mark stays waiting, and the button returns with the new count. A refused publish (busy, expired session) shows in the bar's `.alert.alert-warning`. `PostMarksBar.jsx`.
+- **One muted warning:** "Close any grade-by-question page for this quiz in Schoology first: saving it later would undo these marks." Prism writes through that page's form, so a stale tab saved later sends its old values back.
+- **The cards reload after each publish,** so their chips show Posted or Failed from the read-back.
+
+## Linked quizzes: what phase 1 keeps constant (October 2026)
+
+- **Statistics stay counts.** Facility bars, bands (Strong at 90% and above, Mixed at 70% and above, otherwise Divided), option counts with the key marked, and flags. No discrimination statistics, on purpose: a class-sized cohort cannot support them.
+- **The gradebook keeps a column per test,** because each member test still carries its own score. Only the course Assessments list folds them into one row with the chip.
+- **Read-only against Schoology.** Combining, linking and loading change nothing in Schoology; the setup modal says so before **Remove**.
+
+## Feedback rows on an unaligned task (2026-10-13)
+
+- **Layout:** the rubric grid first, labeled "Feedback rows: kept in Prism, not sent to Schoology"; the overall scale picker under it, labeled "Overall: {scale}, sent to Schoology". The grid is the aligned-task grid, unchanged.
+- **The rubric average:** staged on the overall picker by itself only while nothing is published, with the hint "Average of the rubric rows: {level}". A different pick turns the hint into the button "Use the rubric average ({level})". No override badge: one element carries the state.
+- **Insufficient Evidence:** stops the average; the hint asks the teacher to choose the overall level.
+- **Manage rubrics:** on an unaligned task the **Map criteria** tab is disabled, and an `.alert.alert-info` under the tab bar says "On an unaligned task, every criterion is a feedback row".
+- **Same grid as an aligned row (Graham, 13 Oct 2026):** the first column reads "Criteria", and the second line of a row is its standard (the rubric's Measurement Topic text), where an aligned row shows its topic title.
+- **Overall picker follows the view toggle:** Descriptors shows each level's description; Compact shows the level names only, so the rows carry the detail.
+- **Save button:** a save that changes only feedback rows reads "Save in Prism" (nothing goes to Schoology); any change to the overall level, comment or visibility reads "Publish to Schoology".
+- **Category colours (Graham, 13 Oct 2026):** every criterion cell, on aligned rubrics and feedback rows alike, is filled by its reporting category in the house rubric style: Producing purple `#B4A7D6`, Creating, Responding, Connecting blue `#9FC5E8`, Computational Thinking orange `#F9CB9C`, Content Knowledge pink `#D5A6BD`. The `config.yaml` keywords are stems ("produc", "creat") so the aligned titles ("HS Art: Producing") and the rubric files ("PRODUCE") both match.
+
+## Assessment page: Needs action and Watch (October 2026)
+
+The /assessment/ filter used to be one row of descriptive pills: OR within a group, AND across groups. Picking every pill that meant "unfinished" (Ungraded + Partially graded + Not visible + Ask to resubmit) showed nobody, because no student had all of them. The page now answers "who needs me?" first.
+
+- **Two reason rows, "any of":** **Needs action** (your move now: To grade, Partly graded, Draft not published, Feedback hidden, Resubmitted, Referral to decide, Resubmission overdue, Make-up test, Flagged for review) and **Watch** (may need a word with the student: Not started, due soon; In progress, past due; Late, before the limit; Resubmission pending). Every selected reason in both rows combines as "any of". A pill shows only while some student has that reason (or it is selected); an empty row reads "Nothing needs action" / "Nothing to watch". The page opens with nothing selected: all students.
+- **Refine (collapsed):** the old descriptive pills, still OR within a group and AND across groups, narrowing whatever the reasons selected. "Not visible" now counts only feedback that exists. Refine opens by itself while one of its pills is active.
+- **Reason chips on each card:** a row under the header, aligned past the avatar like the timeline, with the same names as the pills plus the detail ("Referral to decide, 11 school days late", "Resubmission due 20/10"). Late clocks take triage's green / amber / red.
+- **The list holds still while you work:** who matches is worked out when the filter changes, not on every save, so a card stays in view after its reason is resolved. "N shown students no longer match the filter. Update the list" refreshes it. Filtered-out cards stay mounted and are only hidden, so an unsaved draft survives a filter change. The class-wide bar (Publish all, Discard all, Show all, Mark all, Accept all) acts on the shown cards.
+- **One source per reason:** the calendar reasons come from triage's own rows (`server/services/cardAttention.js`), so a card never disagrees with the dashboard; the grading reasons are worked out on the page (`client/src/lib/assessmentFilters.js`) and follow each save at once.
+
+## Triage: Loose ends and filtered links (October 2026)
+
+- **Loose ends panel:** the last panel in the triage rail (Dashboard and course page), one row per task with unfinished work that runs on no clock: drafts not published (a live Prism draft; one Schoology changed under is left out, the same check the card makes), feedback hidden (a teacher comment the student cannot see), flagged for review. No ring and no action column, because nothing here is late: title, then "2 drafts not published, 1 with feedback hidden, 1 flagged, oldest draft 09/10/2026", then the course line. Tasks with a draft come first, oldest first. Hidden when empty, like Resubmissions. No Stats strip tile: the tiles are for overdue work.
+- **Links open the page already filtered (`?filter=`):** a Loose ends title selects that row's reasons; a Feedback owed title selects To grade + Partly graded + Draft not published; a Resubmissions name focuses the student and selects Resubmitted (arrived) or Resubmission pending + overdue (waiting). Late work and Make-up names still only focus the student.
+- **Feedback owed is unchanged:** hidden feedback is its own count, not a reason to keep the feedback clock running, because feedback is sometimes held on purpose (moderation).
+- **Draft validity on the server:** `server/lib/assessmentDraft.js` mirrors the client's `draftBaseline` (parity test in `client/src/lib/assessmentDraft.test.js`), and `looseEnds.test.js` checks the server baseline against the one the card computes from the real `/api/mastery/.../assignment/...` payload.

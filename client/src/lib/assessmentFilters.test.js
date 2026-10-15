@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   normalizedSubmissionState, gradingStateOf, studentMatchesPill, passesFilters,
-  countMatches, filterGroups, pillTone, TONE_VARS,
+  countMatches, filterGroups, pillTone, TONE_VARS, studentReasons, reasonText, reasonTone, countReasons, parseFilterParam,
 } from './assessmentFilters.js';
 
 const LTI = { is_lti_submission: 1, due_date: '2026-06-01' };
@@ -121,9 +121,10 @@ describe('studentMatchesPill (visibility + flag + resubmit)', () => {
     expect(studentMatchesPill(stu({ comment_status: 1 }), 'visible', ctx)).toBe(true);
     expect(studentMatchesPill(stu({ comment_status: 0 }), 'visible', ctx)).toBe(false);
   });
-  it('not_visible matches comment_status !== 1', () => {
-    expect(studentMatchesPill(stu({ comment_status: 0 }), 'not_visible', ctx)).toBe(true);
-    expect(studentMatchesPill(stu({ comment_status: 1 }), 'not_visible', ctx)).toBe(false);
+  it('not_visible matches feedback that exists but is hidden', () => {
+    expect(studentMatchesPill(stu({ grade_comment: 'Good', comment_status: 0 }), 'not_visible', ctx)).toBe(true);
+    expect(studentMatchesPill(stu({ grade_comment: 'Good', comment_status: 1 }), 'not_visible', ctx)).toBe(false);
+    expect(studentMatchesPill(stu({ comment_status: 0 }), 'not_visible', ctx)).toBe(false); // nothing to show yet
   });
   it('review matches a review_flag', () => {
     expect(studentMatchesPill(stu({ review_flag: { id: 1 } }), 'review', ctx)).toBe(true);
@@ -132,5 +133,76 @@ describe('studentMatchesPill (visibility + flag + resubmit)', () => {
   it('resubmit matches a resubmit_flag', () => {
     expect(studentMatchesPill(stu({ resubmit_flag: { id: 2 } }), 'resubmit', ctx)).toBe(true);
     expect(studentMatchesPill(stu(), 'resubmit', ctx)).toBe(false);
+  });
+});
+
+describe('studentReasons (Needs action + Watch)', () => {
+  const ctx = { assignment: LTI, topics: TOPICS, hasDraft: () => false };
+  const ids = (s, c = ctx) => studentReasons(s, c).map(r => r.id);
+
+  it('to grade: handed in (server) and nothing graded', () => {
+    expect(ids(stu({ attention: { handedIn: true, reasons: [] } }))).toEqual(['to_grade']);
+    expect(ids(stu({ attention: { handedIn: false, reasons: [] } }))).toEqual([]);
+  });
+  it('without server attention, falls back to the submission state', () => {
+    expect(ids(stu({ lti_submission_state: 'submitted' }))).toEqual(['to_grade']);
+  });
+  it('a Prism draft replaces to grade / partly graded', () => {
+    const drafted = { ...ctx, hasDraft: () => true };
+    expect(ids(stu({ attention: { handedIn: true, reasons: [] } }), drafted)).toEqual(['draft']);
+    expect(ids(stu({ scores: { t1: { grade: 'EX' } } }), drafted)).toEqual(['draft']);
+  });
+  it('partly graded, feedback hidden, resubmitted and flagged', () => {
+    expect(ids(stu({ scores: { t1: { grade: 'EX' } }, grade_comment: 'Good', comment_status: 0 })))
+      .toEqual(['partly_graded', 'feedback_hidden']);
+    expect(ids(stu({ resubmission: { state: 'arrived' }, scores: { t1: { grade: 'EX' }, t2: { grade: 'EX' } }, grade_comment: 'x', comment_status: 1 })))
+      .toEqual(['resubmitted']);
+    expect(ids(stu({ review_flag: { id: 1 }, exception: 1 }))).toEqual(['flagged']);
+  });
+  it('excused: no grading reasons', () => {
+    expect(ids(stu({ exception: 1, attention: { handedIn: true, reasons: [] } }))).toEqual([]);
+  });
+  it('server reasons join in REASONS order; unknown ids are dropped', () => {
+    const s = stu({ attention: { handedIn: true, reasons: [{ id: 'resubmission_pending', until: '2026-10-20' }, { id: 'referral', kind: 'outstanding', daysLate: 9 }, { id: 'nope' }] } });
+    expect(ids(s)).toEqual(['to_grade', 'referral', 'resubmission_pending']);
+  });
+  it('passesFilters: any selected reason matches; Refine still narrows', () => {
+    const late = stu({ attention: { handedIn: false, reasons: [{ id: 'late', daysLate: 2, tone: 'green' }] } });
+    const toGrade = stu({ lti_submission_state: 'submitted', attention: { handedIn: true, reasons: [] } });
+    const sel = new Set(['to_grade', 'late']);
+    expect(passesFilters(late, sel, ctx)).toBe(true);
+    expect(passesFilters(toGrade, sel, ctx)).toBe(true);
+    expect(passesFilters(late, new Set(['to_grade', 'late', 'submitted']), ctx)).toBe(false);
+  });
+  it('countReasons counts each reason across students', () => {
+    const c = countReasons([stu({ attention: { handedIn: true, reasons: [] } }), stu({ review_flag: { id: 2 } })], ctx);
+    expect(c).toMatchObject({ to_grade: 1, flagged: 1, late: 0 });
+  });
+});
+
+describe('reasonText / reasonTone', () => {
+  it('names the detail in school days and DD/MM dates', () => {
+    expect(reasonText({ id: 'referral', kind: 'outstanding', daysLate: 9 })).toBe('Referral to decide, 9 school days late');
+    expect(reasonText({ id: 'referral', kind: 'submitted_late', daysLate: 8 })).toBe('Referral to decide, submitted 8 school days late');
+    expect(reasonText({ id: 'late', daysLate: 1 })).toBe('Late, 1 school day');
+    expect(reasonText({ id: 'in_progress_late', daysLate: 3 })).toBe('In progress, 3 school days late');
+    expect(reasonText({ id: 'not_started_soon', schoolDaysLeft: 0 })).toBe('Not started, due today');
+    expect(reasonText({ id: 'not_started_soon', schoolDaysLeft: 2 })).toBe('Not started, due in 2 school days');
+    expect(reasonText({ id: 'resubmission_pending', until: '2026-10-20' })).toBe('Resubmission due 20/10');
+    expect(reasonText({ id: 'resubmission_overdue', until: '2026-10-14' })).toBe('Resubmission overdue, due 14/10');
+    expect(reasonText({ id: 'to_grade' })).toBe('To grade');
+  });
+  it('late clocks take the triage tone; others their fixed tone', () => {
+    expect(reasonTone({ id: 'late', tone: 'amber' })).toBe('yellow');
+    expect(reasonTone({ id: 'late', tone: 'green' })).toBe('neutral');
+    expect(reasonTone({ id: 'referral', tone: 'red' })).toBe('red');
+    expect(reasonTone({ id: 'draft' })).toBe('blue');
+  });
+});
+
+describe('parseFilterParam', () => {
+  it('keeps known reason and Refine ids, drops the rest', () => {
+    expect([...parseFilterParam('to_grade, draft,submitted,bogus')]).toEqual(['to_grade', 'draft', 'submitted']);
+    expect(parseFilterParam(null).size).toBe(0);
   });
 });

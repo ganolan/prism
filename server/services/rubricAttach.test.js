@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { migrate } from '../db/index.js';
 import { saveRubric } from './rubricStore.js';
+import { saveRowLevels } from './feedbackRows.js';
 import { attachRubric, getAttachmentForAssignment, setMapping, reorderCriteria } from './rubricAttach.js';
 
 let db, rubricId;
@@ -82,5 +83,29 @@ describe('rubricAttach', () => {
     setMapping(db, att.id, c2.id, '');
     expect(getAttachmentForAssignment(db, '800').topicByCriterion
       .find(m => m.criterion_id === c2.id)).toBeUndefined();
+  });
+});
+
+describe('rubricAttach on an unaligned score-scale task (feedback rows)', () => {
+  beforeEach(() => {
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, grading_scale_id) VALUES (4, '900', 'Flappy (F)', '23495360')`).run();
+  });
+
+  test('attaches every criterion as a row, reports none unmatched', () => {
+    const res = attachRubric(db, { rubricId, courseId: 4, assignmentId: '900' });
+    expect(res).toMatchObject({ mode: 'feedback_rows', unmatched: [], rows: ['UI/UX', 'Func'], hiddenRowLevels: 0, scaleName: 'General Academic Scale (Unaligned)' });
+    expect(db.prepare(`SELECT COUNT(*) c FROM rubric_attachment_topics`).get().c).toBe(0);
+    expect(getAttachmentForAssignment(db, '900').rubric.name).toBe('R');
+  });
+
+  test('re-attaching keeps finals and counts the ones that no longer match a row', () => {
+    saveRowLevels(db, { assignmentSchoologyId: '900', studentUid: 'u1', rowLevels: { 'UI/UX': 'EX', Aesthetic: 'D' } });
+    const res = attachRubric(db, { rubricId, courseId: 4, assignmentId: '900' });
+    expect(res.hiddenRowLevels).toBe(1);
+    expect(db.prepare(`SELECT COUNT(*) c FROM rubric_row_levels`).get().c).toBe(2);
+  });
+
+  test('an aligned task keeps topic matching (mode topics)', () => {
+    expect(attachRubric(db, { rubricId, courseId: 4, assignmentId: '800' }).mode).toBe('topics');
   });
 });

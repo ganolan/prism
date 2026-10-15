@@ -1,9 +1,15 @@
-// Grouped filter toggle pills for the assessment summary page. Mirrors the
-// Summative/Formative TypeFilterToggle pattern (themed pill, dot, label, count;
-// muted when inactive). OR within a group, AND across groups is applied by the
-// page via passesFilters — this component only renders + reports toggles.
+// Filter rows for the assessment summary page.
+//  - Needs action / Watch: one pill per reason a student needs attention (a pill
+//    shows only while some student has that reason, or while it is selected).
+//    Any of the selected reasons matches.
+//  - Refine (collapsed): the descriptive pills (submission status, grading,
+//    visibility, flag, resubmit request). OR within a group, AND across groups,
+//    applied by the page via passesFilters. This component only renders + reports.
 
-import { filterGroups, pillTone, countMatches, TONE_VARS } from '../lib/assessmentFilters.js';
+import { useState } from 'react';
+import {
+  filterGroups, pillTone, countMatches, TONE_VARS, REASONS, reasonIdsIn, countReasons,
+} from '../lib/assessmentFilters.js';
 
 function FilterPill({ label, count, active, tone, onClick }) {
   const v = TONE_VARS[tone] || TONE_VARS.neutral;
@@ -25,21 +31,53 @@ function FilterPill({ label, count, active, tone, onClick }) {
   );
 }
 
-export default function AssessmentFilterBar({ students, assignment, topics, active, onToggle }) {
-  const groups = filterGroups(assignment);
-  const ctx = { assignment, topics };
+function ReasonRow({ label, group, counts, active, onToggle, empty }) {
+  const ids = reasonIdsIn(group).filter(id => counts[id] > 0 || active.has(id));
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', paddingTop: '0.5rem' }}>
-      <span className="text-sm text-muted" style={{ marginRight: '0.1rem' }}>Filter:</span>
-      {groups.map((g, gi) => (
-        <span key={g.key} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
-          {gi > 0 && <span aria-hidden="true" style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 0.2rem' }} />}
-          {g.pills.map(p => (
-            <FilterPill key={p.id} label={p.label} count={countMatches(students, p.id, ctx)}
-              active={active.has(p.id)} tone={pillTone(p.id, assignment)} onClick={() => onToggle(p.id)} />
-          ))}
-        </span>
+    <div role="group" aria-label={label} className="assessment-filter-row">
+      <span className="assessment-filter-row__label text-sm text-muted">{label}:</span>
+      {ids.length === 0 && <span className="text-sm text-muted">{empty}</span>}
+      {ids.map(id => (
+        <FilterPill key={id} label={REASONS[id].label} count={counts[id]}
+          active={active.has(id)} tone={REASONS[id].tone} onClick={() => onToggle(id)} />
       ))}
+    </div>
+  );
+}
+
+// hasDraft(student): the page's live "this card has an unpublished Prism draft".
+export default function AssessmentFilterBar({ students, assignment, topics, active, onToggle, onClear, hasDraft }) {
+  const groups = filterGroups(assignment);
+  const ctx = { assignment, topics, hasDraft };
+  const counts = countReasons(students, ctx);
+  const refineActive = groups.reduce((n, g) => n + g.pills.filter(p => active.has(p.id)).length, 0);
+  const [refineOpen, setRefineOpen] = useState(refineActive > 0);
+  const open = refineOpen || refineActive > 0;
+  return (
+    <div className="assessment-filter-bar">
+      <ReasonRow label="Needs action" group="action" counts={counts} active={active} onToggle={onToggle} empty="Nothing needs action" />
+      <ReasonRow label="Watch" group="watch" counts={counts} active={active} onToggle={onToggle} empty="Nothing to watch" />
+      <div className="assessment-filter-row">
+        <button type="button" className="ghost btn-sm" aria-expanded={open} onClick={() => setRefineOpen(o => !o)}>
+          <span aria-hidden="true">{open ? '▾' : '▸'}</span> Refine{refineActive > 0 ? ` (${refineActive})` : ''}
+        </button>
+        {active.size > 0 && onClear && (
+          <button type="button" className="ghost btn-sm" onClick={onClear}>Clear filters</button>
+        )}
+      </div>
+      {open && (
+        <div role="group" aria-label="Refine" className="assessment-filter-row">
+          {groups.map((g, gi) => (
+            <span key={g.key} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+              {gi > 0 && <span aria-hidden="true" style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 0.2rem' }} />}
+              {g.pills.map(p => (
+                <FilterPill key={p.id} label={p.label} count={countMatches(students, p.id, ctx)}
+                  active={active.has(p.id)} tone={pillTone(p.id, assignment)} onClick={() => onToggle(p.id)} />
+              ))}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

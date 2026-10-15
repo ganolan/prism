@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, triggerMasterySync, triggerMasteryLogin, getSubmissionLinks, getTriage, setMakeUpIgnored } from '../services/api.js';
+import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, triggerMasterySync, triggerMasteryLogin, getSubmissionLinks, getTriage, setMakeUpIgnored, getQuizGroups } from '../services/api.js';
 import AnalyticsView from '../components/AnalyticsView.jsx';
 import OverridePopup from '../components/OverridePopup.jsx';
 import TriageSection from '../components/triage/TriageSection.jsx';
@@ -20,6 +20,9 @@ import { useStickyTab } from '../hooks/useStickyTab.js';
 import CompactRubric from '../components/CompactRubric.jsx';
 import SubmissionBadges from '../components/SubmissionBadges.jsx';
 import SchoologyLink from '../components/SchoologyLink.jsx';
+import AttemptLink from '../components/quiz/AttemptLink.jsx';
+import QuizChip from '../components/quiz/QuizChip.jsx';
+import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
 import { formatDateTime } from '../lib/formatDate.js';
 import SubmissionTimeline from '../components/SubmissionTimeline.jsx';
 import { timelineSummary } from '../lib/submissionTimeline.js';
@@ -642,6 +645,8 @@ export function RubricModal({ student, assignment, courseId, topics, comment, gr
       .catch(() => {});
     return () => { active = false; };
   }, [courseId, assignment.schoology_assignment_id, assignment.is_lti_submission, student.schoology_uid]);
+  // The student's attempt on a linked or combined Schoology test (linked quizzes).
+  const attemptLink = useAttemptLinks({ assignmentId: assignment.schoology_assignment_id })[student.id] || null;
   // Submission state + flags, shown above the rubric — matching the /student/ page.
   const status = submissionStatus({
     score: grade.score, exception: grade.exception, late: timeline?.submission?.late ?? grade.late,
@@ -653,7 +658,7 @@ export function RubricModal({ student, assignment, courseId, topics, comment, gr
     ...(grade.review_needed || []).map(f => ({ ...f, flag_type: 'review_needed' })),
     ...(grade.resubmit_requested ? [{ id: 'resubmit', flag_type: 'resubmit_requested' }] : []),
   ];
-  const hasBadges = status.length > 0 || flags.length > 0 || grade.resubmitted || !!workLink;
+  const hasBadges = status.length > 0 || flags.length > 0 || grade.resubmitted || !!workLink || !!attemptLink;
   return (
     <div
       style={{
@@ -703,6 +708,7 @@ export function RubricModal({ student, assignment, courseId, topics, comment, gr
                   style={{ fontSize: '0.78rem', fontWeight: 600 }}
                 />
               )}
+              <AttemptLink link={attemptLink} name={fullName} />
             </div>
           )}
           {/* The full submission picture (due, extension, submitted when and how late,
@@ -1303,6 +1309,24 @@ function TypeFilterToggle({ label, count, active, type, compact = false, title, 
   );
 }
 
+// "Make-ups: tracked / ignored" chip for one Schoology test/quiz. On a folded quiz row,
+// `label` ("Test 2") names which member it is and `title` is that test's full title.
+function MakeUpChip({ a, onFlip, label, title }) {
+  return (
+    <button
+      type="button"
+      className={`badge makeup-chip ${a.makeup_ignored ? 'badge-gray' : 'badge-blue'}`}
+      aria-pressed={!a.makeup_ignored}
+      title={a.makeup_ignored
+        ? `Ignored for make-ups (all students)${title ? `: ${title}` : ''}. Click to track it again.`
+        : `Students who miss ${title ? `"${title}"` : 'this test'} show under Make-up tests. Click to ignore it for all students.`}
+      onClick={() => onFlip(a)}
+    >
+      {label ? `Make-ups (${label})` : 'Make-ups'}: {a.makeup_ignored ? 'ignored' : 'tracked'}
+    </button>
+  );
+}
+
 // Summative / Formative / Unpublished toggles over `filter` (see
 // lib/assessmentTypeFilter.js). Full size on the Assessments tab; `compact` in
 // the Course page tab row for the Gradebook, where vertical room is scarce.
@@ -1341,6 +1365,32 @@ export function TypeFilterBar({ assignments, filter, onChange, compact = false }
 export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10, onToggleMakeUp }) {
   const [filter, setFilter] = useState(DEFAULT_TYPE_FILTER);
   const [makeUpError, setMakeUpError] = useState(null);
+  // Combined tests (linked quizzes): member tests fold under the canonical row.
+  const [quizGroups, setQuizGroups] = useState([]);
+  useEffect(() => {
+    let active = true;
+    // Promise.resolve().then: a test's api mock without getQuizGroups must not crash the list.
+    Promise.resolve().then(() => getQuizGroups(courseId))
+      .then(r => { if (active) setQuizGroups(r?.groups || []); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [courseId]);
+  const groupByCanonical = new Map(quizGroups.map(g => [String(g.canonical_schoology_id), g]));
+  const foldedIds = new Set(quizGroups.flatMap(g => g.members.map(m => String(m.schoology_assignment_id)))
+    .filter(sid => !groupByCanonical.has(sid)));
+
+  // A canonical row's member tests, in group order (the canonical one included when it is a member).
+  const assignmentBySid = new Map((data?.assignments || []).map(x => [String(x.schoology_assignment_id), x]));
+  const memberTests = (a) => {
+    const g = groupByCanonical.get(String(a.schoology_assignment_id));
+    if (!g) return null;
+    return g.members
+      .map(m => assignmentBySid.get(String(m.schoology_assignment_id)))
+      .filter(m => m && m.is_test === 1);
+  };
+  // A result task is often left unpublished until grades go out; its row still shows by
+  // default while any of its tests is published, so the folded tests do not vanish with it.
+  const forFilter = (a) => (isUnpublished(a) && memberTests(a)?.some(m => !isUnpublished(m)) ? { ...a, published: 1 } : a);
 
   async function flipMakeUp(a) {
     try {
@@ -1356,7 +1406,9 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
   }
 
   const { assignments, folders } = data;
-  const visible = assignments.filter(a => passesTypeFilter(a, filter));
+  const visible = assignments
+    .filter(a => !foldedIds.has(String(a.schoology_assignment_id)))
+    .filter(a => passesTypeFilter(forFilter(a), filter));
   const groups = groupAssignmentsByFolder(visible, folders);
 
   return (
@@ -1389,7 +1441,7 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
                 <div
                   key={a.id}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: '0.6rem',
+                    display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap',
                     padding: '0.55rem 1.25rem',
                     borderBottom: '1px solid var(--border)',
                   }}
@@ -1403,7 +1455,8 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
                   </span>
                   {/* Title + its outbound Schoology link travel together (#76);
                       the group flexes so the due date stays right-aligned. */}
-                  <span style={{ flex: 1, display: 'inline-flex', alignItems: 'center', gap: '0.4rem', minWidth: 0 }}>
+                  {/* The row wraps its chips to a second line before the title gets narrower than this. */}
+                  <span style={{ flex: '1 1 20rem', display: 'inline-flex', alignItems: 'center', gap: '0.4rem', minWidth: 'min(100%, 20rem)', flexWrap: 'wrap' }}>
                     <Link
                       to={`/course/${courseId}/assessment/${a.schoology_assignment_id}`}
                       className="link"
@@ -1412,25 +1465,26 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
                       {a.title}
                     </Link>
                     <SchoologyLink url={a.web_url} ariaLabel={`View "${a.title}" in Schoology`} />
+                    <QuizChip group={groupByCanonical.get(String(a.schoology_assignment_id))} />
                     {unpublished && (
                       <span className="badge badge-gray" style={{ fontSize: '0.62rem', flexShrink: 0 }} title="Not published on Schoology">
                         Unpublished
                       </span>
                     )}
                   </span>
-                  {onToggleMakeUp && a.is_test === 1 && (
-                    <button
-                      type="button"
-                      className={`badge makeup-chip ${a.makeup_ignored ? 'badge-gray' : 'badge-blue'}`}
-                      aria-pressed={!a.makeup_ignored}
-                      title={a.makeup_ignored
-                        ? 'Ignored for make-ups (all students). Click to track it again.'
-                        : 'Students who miss this test show under Make-up tests. Click to ignore it for all students.'}
-                      onClick={() => flipMakeUp(a)}
-                    >
-                      Make-ups: {a.makeup_ignored ? 'ignored' : 'tracked'}
-                    </button>
-                  )}
+                  {/* Folded member tests have no row of their own, so their make-up tracking shows here,
+                      labelled by place in the group (the full title is in the chip's hover text). */}
+                  {onToggleMakeUp && (() => {
+                    const tests = memberTests(a);
+                    if (!tests) return a.is_test === 1 && <MakeUpChip a={a} onFlip={flipMakeUp} />;
+                    return (
+                      <span style={{ display: 'inline-flex', gap: '0.4rem', flexWrap: 'wrap', marginLeft: 'auto' }}>
+                        {tests.map((m, i) => (
+                          <MakeUpChip key={m.id} a={m} onFlip={flipMakeUp} label={tests.length > 1 ? `Test ${i + 1}` : null} title={m.title} />
+                        ))}
+                      </span>
+                    );
+                  })()}
                   {waits[a.schoology_assignment_id] && (() => {
                     const w = waits[a.schoology_assignment_id];
                     return (

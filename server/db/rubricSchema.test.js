@@ -10,14 +10,14 @@ function freshDb() {
 }
 
 describe('rubric schema', () => {
-  test('creates the five rubric tables', () => {
+  test('creates the six rubric tables', () => {
     const db = freshDb();
     const names = db.prepare(
       `SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'rubric%'`
     ).all().map(r => r.name).sort();
     expect(names).toEqual([
       'rubric_attachment_topics', 'rubric_attachments',
-      'rubric_criteria', 'rubric_descriptors', 'rubrics',
+      'rubric_criteria', 'rubric_descriptors', 'rubric_row_levels', 'rubrics',
     ]);
   });
 

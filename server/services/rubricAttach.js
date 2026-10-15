@@ -1,15 +1,21 @@
 import { getDb } from '../db/index.js';
-import { getAlignedTopics } from './assessmentContext.js';
+import { getAlignedTopics, scoreScaleFor } from './assessmentContext.js';
 import { getRubric } from './rubricStore.js';
 import { autoMatch } from './rubricMatch.js';
+import { hiddenRowLevelCount } from './feedbackRows.js';
 
-// Attach rubric to an assignment (replacing any existing attachment), auto-match
-// its criteria to the assignment's aligned topics, persist the mapping.
+// Attach rubric to an assignment (replacing any existing attachment). On an
+// aligned task, auto-match its criteria to the aligned topics and persist the
+// mapping. On an UNALIGNED score-scale task, every criterion is a feedback row
+// (spec 2026-10-13): no topic mapping, and stored row finals are kept.
 export function attachRubric(db = getDb(), { rubricId, courseId, assignmentId }) {
   const rubric = getRubric(db, rubricId);
   if (!rubric) throw new Error(`rubric ${rubricId} not found`);
   const topics = getAlignedTopics(db, courseId, assignmentId);
-  const { mapping, unmatched } = autoMatch(rubric.criteria, topics);
+  const assignmentRow = db.prepare('SELECT grading_scale_id FROM assignments WHERE schoology_assignment_id = ?')
+    .get(String(assignmentId));
+  const scale = scoreScaleFor(assignmentRow, topics.length);
+  const { mapping, unmatched } = scale ? { mapping: [], unmatched: [] } : autoMatch(rubric.criteria, topics);
   const now = new Date().toISOString();
   const txn = db.transaction(() => {
     db.prepare(`DELETE FROM rubric_attachments WHERE assignment_schoology_id = ?`).run(assignmentId);
@@ -23,7 +29,10 @@ export function attachRubric(db = getDb(), { rubricId, courseId, assignmentId })
     for (const m of mapping) insM.run(attachmentId, m.criterion_id, m.topic_id);
     return attachmentId;
   });
-  return { attachmentId: txn(), unmatched };
+  const attachmentId = txn();
+  if (!scale) return { attachmentId, unmatched, mode: 'topics' };
+  const rows = rubric.criteria.map((c) => c.criterion_name);
+  return { attachmentId, unmatched: [], mode: 'feedback_rows', rows, hiddenRowLevels: hiddenRowLevelCount(db, assignmentId, rows), scaleName: scale.name };
 }
 
 export function detachAttachment(db = getDb(), attachmentId) {

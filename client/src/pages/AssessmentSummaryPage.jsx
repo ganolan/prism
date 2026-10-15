@@ -1,9 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, Link, useSearchParams } from 'react-router-dom';
-import { getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, getTriagePair } from '../services/api.js';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useParams, Link, useSearchParams, Navigate, useLocation } from 'react-router-dom';
+import { getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, getTriagePair, loadQuizResults, rebuildQuizOverall, saveRowLevels } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
+import { feedbackRowTopics, rowScores, rowTopicMapping, isRowKey, rowName } from '../lib/feedbackRows.js';
 import { makeDraftSaver } from '../lib/assessmentDraftSaver.js';
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
+import { rubricAverage } from '../lib/rubricAverage.js';
 import { studentFullName } from '../lib/studentNames.js';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import { LEVELS, LEVEL_LABELS, LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
@@ -13,13 +15,23 @@ import ResubmitControl from '../components/ResubmitControl.jsx';
 import RubricManagerModal from '../components/RubricManagerModal.jsx';
 import AiSparkle from '../components/AiSparkle.jsx';
 import SchoologyLink from '../components/SchoologyLink.jsx';
+import AttemptLink from '../components/quiz/AttemptLink.jsx';
+import QuizChip from '../components/quiz/QuizChip.jsx';
+import QuizSetupModal from '../components/quiz/QuizSetupModal.jsx';
+import QuestionsTab from '../components/quiz/QuestionsTab.jsx';
+import FreeResponseTab from '../components/quiz/FreeResponseTab.jsx';
+import QuizLoadWarnings from '../components/quiz/QuizLoadWarnings.jsx';
+import QuizResultLine from '../components/quiz/QuizResultLine.jsx';
+import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
+import { useQuizGroup } from '../hooks/useQuizGroup.js';
+import { useQuizResults } from '../hooks/useQuizResults.js';
 import SubmissionStatusPill from '../components/SubmissionStatusPill.jsx';
 import SubmissionTimeline from '../components/SubmissionTimeline.jsx';
 import ExtendControl from '../components/ExtendControl.jsx';
 import ReferControl from '../components/ReferControl.jsx';
 import ScaleLevelPicker from '../components/ScaleLevelPicker.jsx';
 import AssessmentFilterBar from '../components/AssessmentFilterBar.jsx';
-import { passesFilters } from '../lib/assessmentFilters.js';
+import { passesFilters, studentReasons, reasonText, reasonTone, TONE_VARS, REASONS, filterGroups, parseFilterParam } from '../lib/assessmentFilters.js';
 import { useStickyTab } from '../hooks/useStickyTab.js';
 import { formatDateTime } from '../lib/formatDate.js';
 import { briefFlags, textSignature } from '../lib/reviewerFlags.js';
@@ -146,7 +158,7 @@ function HeaderPill({ active, accent, activeBg, activeText, icon, label, clearLa
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
-export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, scoreScale = null, resubmitLessonsDefault = 3, resubmitEnabled = true, highlight = false, onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
+export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, attemptLink = null, quizResult = null, onRebuildQuiz = null, scoreScale = null, resubmitLessonsDefault = 3, resubmitEnabled = true, highlight = false, reasons = [], onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
   const scale = useProficiencyScale();
   // The card's action-panel row (ActionPanel portals into it).
   const [panelHost, setPanelHost] = useState(null);
@@ -164,7 +176,17 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   const flushNextRef = useRef(false);
   // Signature of the synced Schoology values this card was rendered against.
   // A stored draft is only valid while this is unchanged (#47).
-  const currentBaseline = draftBaseline(student, topics);
+  // Feedback rows (spec 2026-10-13): a score-scale task whose `topics` are the
+  // attached rubric's criteria. Row levels stay in Prism; only the overall
+  // scale level is published.
+  const hasFeedbackRows = !!scoreScale && topics.length > 0;
+  // On a score-scale task the baseline never depends on the rows (topics): it
+  // reads the row finals directly, so a draft stays valid while the rubric
+  // loads and after one is attached (a draft saved before has no row finals).
+  const currentBaseline = draftBaseline(student, scoreScale ? [] : topics, {
+    includeScore: !!scoreScale,
+    rowLevels: scoreScale ? student.row_levels : undefined,
+  });
 
   // Reviewer rubric suggestions resolved to topic ids (spec §5). Best-effort:
   // unresolved keys / out-of-set values are silently dropped by the resolver.
@@ -315,15 +337,52 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   const commentDirty = comment !== syncedComment;
   const commentPublished = comment.trim() !== '' && !commentDirty;
 
+  // The rubric average of the effective rows (staged over final). Staged as the
+  // overall by itself only while nothing is published (spec 2026-10-13 §4). The
+  // automatic stage never turns the comment visible: only an explicit overall
+  // pick or a typed comment does.
+  const effectiveRows = {};
+  if (hasFeedbackRows) {
+    for (const t of topics) {
+      const v = (t.id in pending) ? pending[t.id] : student.scores?.[t.id]?.grade;
+      if (v && v !== REMOVE) effectiveRows[rowName(t.id)] = v;
+    }
+  }
+  const average = hasFeedbackRows ? rubricAverage(scoreScale, topics.map((t) => rowName(t.id)), effectiveRows) : { level: null, reason: null };
+  // Never on a locked student (Excused/Incomplete/Missing): a grade would be
+  // written over the exception.
+  const autoScale = hasFeedbackRows && !isRubricLocked && student.scale_level == null && pending[SCALE] == null ? average.level : null;
+  const stagedScale = scoreScale ? (pending[SCALE] ?? autoScale) : null;
+  const averageLabel = average.level ? scoreScale.levels.find((l) => l.code === average.level)?.label : null;
+  const currentOverall = pending[SCALE] ?? autoScale ?? student.scale_level ?? null;
+  // "Use the rubric average": drop a different pick (the average then stages by
+  // itself while nothing is published), or stage the average over a published level.
+  function useRubricAverage() {
+    flushNextRef.current = true;
+    setPending((p) => {
+      const n = { ...p };
+      if (average.level === student.scale_level || student.scale_level == null) delete n[SCALE];
+      else n[SCALE] = average.level;
+      return n;
+    });
+  }
+
   // Count every distinct unsaved change: each changed rubric topic, plus the
-  // comment edit, plus a manual display-to-student toggle. Drives the "N pending
-  // change(s)" badge so a visibility flip or comment edit is reflected too.
+  // comment edit, plus a manual display-to-student toggle, plus an overall the
+  // rubric average staged by itself. Drives the "N pending change(s)" badge so a
+  // visibility flip or comment edit is reflected too.
   const pendingCount = (
     Object.keys(pending).length +
+    (autoScale ? 1 : 0) +
     (commentDirty ? 1 : 0) +
     ((displayTouched && display !== loadedDisplay) ? 1 : 0)
   );
   const hasPendingChanges = pendingCount > 0;
+  // A save that touches only feedback rows stays in Prism (no Schoology call), so its
+  // button reads "Save in Prism"; the condition mirrors handleSave's overallChanged.
+  const rowsOnlySave = hasFeedbackRows && stagedScale == null
+    && comment === (student.grade_comment || '') && display === loadedDisplay
+    && rowLevelsToSave() != null;
 
   // Track whether this card has ever held a draft, so an untouched card does NOT
   // fire a spurious DELETE on first mount (only a real draft→clear transition does).
@@ -471,6 +530,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // extra: other card fields the action changed (an Ask's unsubmit → the work is in progress).
   function handleResubmitChange(resubmission, commentChange = null, extra = null) {
     applyCardChange({ resubmission, resubmit_flag: resubmission?.request ? { id: resubmission.request.id } : null, ...(extra || {}) }, commentChange);
+    // The card's Needs action / Watch reasons (resubmission pending / overdue) follow the ask.
+    if (assignmentRow?.id) getTriagePair(student.id, assignmentRow.id).then(handlePairChange).catch(() => {});
   }
 
   // The card's Extend control: the pair's fresh timeline + what the status line did;
@@ -482,7 +543,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
 
   // Refer / Waive / Undo (and after an extension): { timeline, late_work } for this student.
   function handlePairChange(state) {
-    if (state) onSaved?.(student.schoology_uid, { timeline: state.timeline, late_work: state.late_work });
+    if (state) onSaved?.(student.schoology_uid, { timeline: state.timeline, late_work: state.late_work, attention: state.attention });
   }
 
   // Patch the student and keep the comment editor in step with a published / removed
@@ -542,7 +603,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         setPending(p => { const n = { ...p }; delete n[topicId]; return n; });
       } else {
         // Nothing pending → stage this synced final for removal.
-        armAutoFlip();
+        // A feedback row stays in Prism, so it never turns the comment visible.
+        if (!hasFeedbackRows) armAutoFlip();
         setPending(p => ({ ...p, [topicId]: REMOVE }));
       }
       return;
@@ -555,7 +617,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     }
 
     // Otherwise set/replace a draft on this level.
-    armAutoFlip();
+    if (!hasFeedbackRows) armAutoFlip();
     setPending(p => ({ ...p, [topicId]: level }));
   }
 
@@ -595,11 +657,24 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   const suggestedScale = scoreScale ? (feedbackRow?.feedback_parsed?.scale_level ?? null) : null;
   const suggestedScaleLabel = scoreScale?.levels.find(l => l.code === suggestedScale)?.label ?? null;
   const scaleEvidence = suggestedScale ? (feedbackRow?.feedback_parsed?.evidence ?? null) : null;
+  // Also stages the agent's row suggestions on a feedback-row task (each row
+  // not already staged and differing from its final).
   function acceptScaleSuggestion() {
-    if (!suggestedScaleLabel || isRubricLocked) return false;
-    if (suggestedScale === student.scale_level || pending[SCALE] != null) return false;
-    selectScaleLevel(suggestedScale);
-    return true;
+    if (isRubricLocked) return false;
+    let staged = false;
+    if (hasFeedbackRows) {
+      const updates = {};
+      for (const [topicId, level] of Object.entries(suggestedByTopic)) {
+        if (topicId in pending || student.scores?.[topicId]?.grade === level) continue;
+        updates[topicId] = level;
+      }
+      if (Object.keys(updates).length) { flushNextRef.current = true; setPending((p) => ({ ...p, ...updates })); staged = true; }
+    }
+    if (suggestedScaleLabel && suggestedScale !== student.scale_level && pending[SCALE] == null) {
+      selectScaleLevel(suggestedScale);
+      staged = true;
+    }
+    return staged;
   }
 
   // Revert all of this card's unsaved changes back to the synced Schoology
@@ -656,17 +731,34 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     return newScores;
   }
 
+  // Feedback rows: row picks in `pending` → { criterion: level | null } (null = clear a final).
+  function rowLevelsToSave() {
+    const keys = Object.keys(pending).filter(isRowKey);
+    if (!hasFeedbackRows || keys.length === 0) return null;
+    return Object.fromEntries(keys.map((k) => [rowName(k), pending[k] === REMOVE ? null : pending[k]]));
+  }
+  // The student's row levels after a save: synced finals with the saved picks
+  // merged over them (null clears one), for the in-place patch.
+  function savedRowLevels(rowLevels) {
+    const out = {};
+    for (const t of topics) { const g = student.scores?.[t.id]?.grade; if (g) out[rowName(t.id)] = g; }
+    for (const [n, l] of Object.entries(rowLevels || {})) { if (l == null) delete out[n]; else out[n] = l; }
+    return out;
+  }
+
   // This card's batched "Send all" entry + its in-place patch, or null when
   // nothing is unsaved. Same writes as handleSave, expressed as data for the
   // page to collapse into one request (#51).
   function buildSendEntry() {
-    const scaleCode = scoreScale ? (pending[SCALE] ?? null) : null;
+    const scaleCode = stagedScale;
     const hasScoreChanges = !scoreScale && Object.keys(pending).length > 0;
     const hasCommentChange = comment !== (student.grade_comment || '');
     const hasDisplayChange = display !== loadedDisplay;
-    if (!hasScoreChanges && !scaleCode && !hasCommentChange && !hasDisplayChange) return null;
+    if (!hasScoreChanges && !scaleCode && !hasCommentChange && !hasDisplayChange && !rowLevelsToSave()) return null;
     if (scoreScale) {
-      // One PUT carries grade + comment + visibility, so the comment always rides along.
+      const rowLevels = rowLevelsToSave();
+      const overallChanged = scaleCode != null || hasCommentChange || hasDisplayChange;
+      if (!overallChanged && !rowLevels) return null;
       return {
         entry: {
           uid: student.schoology_uid,
@@ -674,12 +766,15 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           assignmentId,
           scores: null,
           grade: scaleCode ? { points: scalePointsFor(scaleCode) } : null,
-          comment: { comment, commentStatus: display, ...statusLineFields() },
+          // One PUT carries grade + comment + visibility, so the comment rides
+          // along; a rows-only entry sends nothing to Schoology.
+          comment: overallChanged ? { comment, commentStatus: display, ...statusLineFields() } : null,
+          ...(rowLevels ? { rowLevels } : {}),
         },
         patch: {
           ...(scaleCode ? { score: scalePointsFor(scaleCode), scale_level: scaleCode } : {}),
-          grade_comment: comment, comment_status: display ? 1 : null,
-          ...statusLinePatch(),
+          ...(rowLevels ? { row_levels: savedRowLevels(rowLevels) } : {}),
+          ...(overallChanged ? { grade_comment: comment, comment_status: display ? 1 : null, ...statusLinePatch() } : {}),
         },
       };
     }
@@ -730,33 +825,46 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     setSaving(true);
     setSaveResult(null);
     try {
-      const scaleCode = scoreScale ? (pending[SCALE] ?? null) : null;
+      const scaleCode = stagedScale;
       const hasScoreChanges = !scoreScale && Object.keys(pending).length > 0;
       const hasCommentChange = comment !== (student.grade_comment || '');
       const hasDisplayChange = display !== loadedDisplay;
 
       if (scoreScale) {
         // Score-scale grade (#41): grade + comment + visibility in one write.
-        const saved = await writeMasteryComment(courseId, {
-          enrollmentId: student.enrollment_id,
-          assignmentId,
-          comment,
-          commentStatus: display,
-          ...(scaleCode ? { points: scalePointsFor(scaleCode) } : {}),
-          ...statusLineFields(),
-        });
+        // Feedback rows ride along with it, or save alone (no Schoology call)
+        // when only the rows changed.
+        const rowLevels = rowLevelsToSave();
+        const overallChanged = scaleCode != null || hasCommentChange || hasDisplayChange;
+        let saved = null;
+        if (overallChanged) {
+          saved = await writeMasteryComment(courseId, {
+            enrollmentId: student.enrollment_id,
+            assignmentId,
+            comment,
+            commentStatus: display,
+            ...(scaleCode ? { points: scalePointsFor(scaleCode) } : {}),
+            ...(rowLevels ? { rowLevels } : {}),
+            ...statusLineFields(),
+          });
+        } else if (rowLevels) {
+          await saveRowLevels(assignmentId, student.schoology_uid, rowLevels);
+        }
         setSaveResult('saved');
         setPending({});
         setInsertedLine(null);
         saverRef.current.remove({ immediate: true });
         onSaved?.(student.schoology_uid, {
           ...(scaleCode ? { score: scalePointsFor(scaleCode), scale_level: scaleCode } : {}),
-          grade_comment: comment,
-          comment_status: display ? 1 : null,
-          ...resubmissionFieldsPatch(saved?.resubmissionFields),
-          ...statusLinePatch(),
+          ...(rowLevels ? { row_levels: savedRowLevels(rowLevels) } : {}),
+          ...(overallChanged ? {
+            grade_comment: comment,
+            comment_status: display ? 1 : null,
+            ...resubmissionFieldsPatch(saved?.resubmissionFields),
+            ...statusLinePatch(),
+          } : {}),
         });
-        setNotesCollapsed(true);
+        if (overallChanged) setNotesCollapsed(true);
         return true;
       }
 
@@ -825,6 +933,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         flag_reason: reason,
       });
       setReviewFlag({ id: flag.id, flag_reason: flag.flag_reason });
+      // The page's Flagged for review reason + count follow the card.
+      onSaved?.(student.schoology_uid, { review_flag: { id: flag.id, flag_reason: flag.flag_reason } });
       setShowFlagInput(false);
       setFlagReason('');
     } catch (err) {
@@ -841,6 +951,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     try {
       await deleteFlag(reviewFlag.id);
       setReviewFlag(null);
+      onSaved?.(student.schoology_uid, { review_flag: null });
     } catch (err) {
       setFlagError(`Clear failed: ${err.message}`);
     } finally {
@@ -926,7 +1037,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             {(student.first_name?.[0] || '')}{(student.last_name?.[0] || '')}
           </div>
         )}
-        <Link to={`/student/${student.id}`} className="link" style={{ fontWeight: 600, fontSize: '0.95rem' }}>
+        <Link to={`/student/${student.id}`} className="link" style={{ fontWeight: 600, fontSize: '0.95rem', whiteSpace: 'nowrap' }}>
           {displayName(student)}
         </Link>
         <SubmissionStatusPill student={student} assignment={assignmentRow} />
@@ -940,6 +1051,10 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             style={{ fontSize: '0.78rem', fontWeight: 600 }}
           />
         )}
+        {/* The student's attempt on a linked or combined Schoology test. */}
+        <AttemptLink link={attemptLink} name={displayName(student)} />
+        {/* The student's quiz numbers on a linked result task (linked quizzes, phase 3). */}
+        <QuizResultLine result={quizResult} onRebuild={() => onRebuildQuiz(student.id)} />
         {saveResult === 'saved' && (
           <span className="badge badge-green" style={{ fontSize: '0.68rem' }}>Saved ✓</span>
         )}
@@ -1061,6 +1176,22 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           under the header, so the header's buttons never wrap (ActionPanel portal). */}
       <div ref={setPanelHost} className="card-action-panel" />
 
+      {/* Why this student needs attention: the Needs action / Watch reasons, the
+          same names as the filter pills above the cards. */}
+      {reasons.length > 0 && (
+        <div className="reason-chips" aria-label="Needs attention" style={{ padding: '0.45rem 1rem 0', paddingLeft: 'calc(1rem + 70px + 0.75rem)' }}>
+          {reasons.map((r) => {
+            const v = TONE_VARS[reasonTone(r)] || TONE_VARS.neutral;
+            return (
+              <span key={r.id} className="reason-chip" data-reason={r.id}
+                style={{ background: v.bg, color: v.text, boxShadow: `inset 0 0 0 1px ${v.text}` }}>
+                {reasonText(r)}
+              </span>
+            );
+          })}
+        </div>
+      )}
+
       {/* The full submission picture: due / extension, submitted when and how late
           (or the clock day it is missing on), resubmission, referral. */}
       {student.timeline && (
@@ -1075,25 +1206,10 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         opacity: isRubricLocked ? 0.45 : 1,
         pointerEvents: isRubricLocked ? 'none' : 'auto',
       }}>
-        {scoreScale ? (
-          <>
-            <ScaleLevelPicker
-              scale={scoreScale}
-              syncedCode={student.scale_level ?? null}
-              pendingCode={pending[SCALE] ?? null}
-              suggestedCode={suggestedScaleLabel ? suggestedScale : null}
-              locked={isRubricLocked}
-              onSelect={selectScaleLevel}
-            />
-            {/* What the agent checked to suggest this level (teacher-facing). */}
-            {suggestedScaleLabel && scaleEvidence && (
-              <div style={{ marginTop: '0.4rem', fontSize: '0.75rem', color: 'var(--ai-suggest)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                <AiSparkle size={12} />
-                {`Suggested ${suggestedScaleLabel}: ${scaleEvidence}`}
-              </div>
-            )}
-          </>
-        ) : showDescriptors ? (
+        {hasFeedbackRows && (
+          <div className="feedback-rows-label">Feedback rows: kept in Prism, not sent to Schoology</div>
+        )}
+        {(!scoreScale || hasFeedbackRows) && (showDescriptors ? (
           <RubricDescriptorGrid
             rows={descriptorRows}
             levels={LEVELS}
@@ -1103,6 +1219,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             levelHeaderColors={Object.fromEntries(LEVELS.map(l => [l, LEVEL_COLORS[l].headerFill]))}
             levelBorderColors={Object.fromEntries(LEVELS.map(l => [l, LEVEL_COLORS[l].finalBorder]))}
             levelDraftColors={Object.fromEntries(LEVELS.map(l => [l, LEVEL_COLORS[l].draftFill]))}
+            firstColumnLabel={hasFeedbackRows ? 'Criteria' : undefined}
           />
         ) : (
         <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.8rem' }}>
@@ -1113,7 +1230,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
                 background: 'var(--bg-subtle)', border: '1px solid var(--border)',
                 fontWeight: 600, fontSize: '0.75rem', color: 'var(--text-muted)', minWidth: 160,
               }}>
-                Measurement Topic
+                {hasFeedbackRows ? 'Criteria' : 'Measurement Topic'}
               </th>
               {LEVELS.map(l => (
                 <th key={l} style={{
@@ -1141,7 +1258,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
                     fontSize: '0.78rem', color: 'var(--text)',
                   }}>
                     {t.title}
-                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', opacity: 0.7 }}>{t.category_title} · {t.external_id}</div>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', opacity: 0.7 }}>{[t.category_title, t.external_id].filter(Boolean).join(' · ')}</div>
                   </td>
                   {LEVELS.map(l => {
                     const c = LEVEL_COLORS[l];
@@ -1236,6 +1353,42 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             })}
           </tbody>
         </table>
+        ))}
+        {hasFeedbackRows && (
+          <div className="feedback-rows-overall-label">Overall: {scoreScale.name}, sent to Schoology</div>
+        )}
+        {scoreScale && (
+          <>
+            <ScaleLevelPicker
+              scale={scoreScale}
+              syncedCode={student.scale_level ?? null}
+              pendingCode={stagedScale}
+              suggestedCode={suggestedScaleLabel ? suggestedScale : null}
+              locked={isRubricLocked}
+              // Under feedback rows the overall picker follows the Descriptors/Compact toggle.
+              showDescriptors={!hasFeedbackRows || viewMode === 'descriptors'}
+              onSelect={selectScaleLevel}
+            />
+            {/* No hint or button on a locked student (an exception): nothing can be staged there. */}
+            {hasFeedbackRows && !isRubricLocked && (
+              <div className="feedback-rows-average">
+                {average.reason === 'insufficient_evidence' && pending[SCALE] == null && student.scale_level == null
+                  ? 'A row is Insufficient Evidence: choose the overall level'
+                  : average.level && currentOverall === average.level && student.scale_level == null
+                    ? `Average of the rubric rows: ${averageLabel}`
+                    : average.level && currentOverall !== average.level
+                      ? <button className="ghost accent" onClick={useRubricAverage}>{`Use the rubric average (${averageLabel})`}</button>
+                      : null}
+              </div>
+            )}
+            {/* What the agent checked to suggest this level (teacher-facing). */}
+            {suggestedScaleLabel && scaleEvidence && (
+              <div style={{ marginTop: '0.4rem', fontSize: '0.75rem', color: 'var(--ai-suggest)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                <AiSparkle size={12} />
+                {`Suggested ${suggestedScaleLabel}: ${scaleEvidence}`}
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -1567,9 +1720,9 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             className="primary"
             onClick={handleSave}
             disabled={saving || !hasPendingChanges || (!scoreScale && !scale.ready)}
-            title="Publish scores & comment to Schoology"
+            title={rowsOnlySave ? 'Save the feedback rows in Prism (nothing is sent to Schoology)' : 'Publish scores & comment to Schoology'}
           >
-            {saving ? 'Publishing...' : 'Publish to Schoology'}
+            {saving ? (rowsOnlySave ? 'Saving...' : 'Publishing...') : (rowsOnlySave ? 'Save in Prism' : 'Publish to Schoology')}
           </button>
 
           {/* Discard — undo arrow + label, always shown, disabled when nothing pending.
@@ -1727,6 +1880,48 @@ export default function AssessmentSummaryPage() {
   // moved to another assignment mid-fetch) is dropped, so a card can never
   // link to a different assignment's file.
   const workLinksReq = useRef(0);
+  // Each student's attempt on a linked or combined Schoology test (linked quizzes, phase 1).
+  const location = useLocation();
+  const { group: quizGroup, setGroup: setQuizGroup, enabled: quizzesEnabled } = useQuizGroup(assignmentId);
+  // Attempt links refresh after Load results (the group's loaded_at changes).
+  const attemptLinks = useAttemptLinks({ assignmentId, reloadKey: `${dataVersion}|${quizGroup?.loaded_at ?? ''}` });
+  const [quizTab, setQuizTab] = useStickyTab('assessment-quiz', 'grading', { param: 'tab' });
+  const [quizResultsKey, setQuizResultsKey] = useState(0);
+  // Only on the linked result task; refetched after a load, an FRQ change on the other tabs, or an update.
+  const quizResults = useQuizResults({
+    groupId: quizGroup?.id ?? null,
+    enabled: !!quizGroup?.result,
+    reloadKey: `${dataVersion}|${quizGroup?.loaded_at ?? ''}|${quizGroup?.comment_template ?? ''}|${quizTab}|${quizResultsKey}`,
+  });
+  // Update numbers: refetch only the suggestions and the quiz line, so the cards stay mounted and the
+  // teacher keeps their place (a full load() would show Loading... and scroll to the top).
+  async function handleRebuildQuiz(studentId) {
+    await rebuildQuizOverall(quizGroup.id, studentId);
+    setQuizResultsKey(k => k + 1);
+    const feedback = await getFeedbackForAssignment(assignmentId).catch(() => null);
+    if (feedback) setFeedbackByStudent(feedback);
+  }
+  const [quizSetupOpen, setQuizSetupOpen] = useState(false);
+  const [quizLoad, setQuizLoad] = useState({ busy: false, message: null });
+  // The group id currently on screen; a Load results response for another
+  // group (the teacher navigated mid-load) is dropped.
+  const quizGroupIdRef = useRef(null);
+  quizGroupIdRef.current = quizGroup?.id ?? null;
+  useEffect(() => { setQuizLoad({ busy: false, message: null }); }, [quizGroup?.id]);
+  async function handleLoadQuiz() {
+    const groupId = quizGroup.id;
+    setQuizLoad({ busy: true, message: null });
+    try {
+      const r = await loadQuizResults(groupId);
+      if (quizGroupIdRef.current !== groupId) return;
+      setQuizGroup(r.group);
+      const failed = r.summary.failed?.length ? `, ${r.summary.failed.length} failed` : '';
+      setQuizLoad({ busy: false, message: `${r.summary.attempts} attempts loaded${failed}` });
+    } catch (e) {
+      if (quizGroupIdRef.current !== groupId) return;
+      setQuizLoad({ busy: false, message: e.message });
+    }
+  }
 
   // Attached rubric + reporting-category colour palette for this assignment (Task 13).
   // rubricData: { id, rubric:{...criteria...}, topicByCriterion:[...] } | null.
@@ -1742,7 +1937,11 @@ export default function AssessmentSummaryPage() {
   useEffect(() => {
     getSettings().then((s) => setResubmitLessonsDefault(s?.triage?.resubmitLessonsDefault ?? 3)).catch(() => {});
   }, []);
-  const [activeFilters, setActiveFilters] = useState(() => new Set());
+  // ?filter=to_grade,draft (triage links) preselects pills; a new task or link resets them.
+  const [urlParams] = useSearchParams();
+  const filterParam = urlParams.get('filter');
+  const [activeFilters, setActiveFilters] = useState(() => parseFilterParam(filterParam));
+  useEffect(() => { setActiveFilters(parseFilterParam(filterParam)); }, [filterParam, assignmentId]);
   const toggleFilter = (id) => setActiveFilters(prev => {
     const next = new Set(prev);
     next.has(id) ? next.delete(id) : next.add(id);
@@ -1815,10 +2014,32 @@ export default function AssessmentSummaryPage() {
     });
   }, []);
 
-  const totalPending = Object.keys(pendingByUid).length;
+  // A card has an unpublished Prism draft while it reports pending changes. Every
+  // card stays mounted (filtered-out cards are only hidden), so this covers them all.
+  const hasDraft = useCallback((st) => Boolean(pendingByUid[st.schoology_uid]), [pendingByUid]);
+  // Who the filter shows is worked out when the filter changes (or the data reloads,
+  // or the teacher asks), not on every save: a card stays in view while it is being
+  // worked on, even once its reason is resolved.
+  const [filterEpoch, setFilterEpoch] = useState(0);
+  const filterCtx = data ? { assignment: data.assignment, topics: data.topics, hasDraft } : null;
+  const shownUids = useMemo(() => {
+    if (!data || activeFilters.size === 0) return null;
+    return new Set(data.students.filter(st => passesFilters(st, activeFilters, filterCtx)).map(st => st.schoology_uid));
+  }, [activeFilters, filterEpoch, data?.assignment]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Each card reports its draft once mounted, after the data arrives: work the filter
+  // out again then, so a link to "Draft not published" finds the drafts.
+  useEffect(() => { if (data) setFilterEpoch(n => n + 1); }, [data?.assignment]); // eslint-disable-line react-hooks/exhaustive-deps
+  const isShown = (uid) => !shownUids || shownUids.has(uid);
+  // Shown cards whose reasons no longer match (resolved since the filter ran).
+  const resolvedCount = shownUids && data
+    ? data.students.filter(st => shownUids.has(st.schoology_uid) && !passesFilters(st, activeFilters, filterCtx)).length
+    : 0;
+
+  // The class-wide bar acts on the cards shown.
+  const totalPending = Object.keys(pendingByUid).filter(isShown).length;
 
   // Class-wide visibility aggregate for the bulk "show all to students" toggle.
-  const visUids = Object.keys(displayByUid);
+  const visUids = Object.keys(displayByUid).filter(isShown);
   const visibleCount = visUids.filter(u => displayByUid[u]).length;
   const allVisible = visUids.length > 0 && visibleCount === visUids.length;
   const noneVisible = visibleCount === 0;
@@ -1827,11 +2048,11 @@ export default function AssessmentSummaryPage() {
   // Push a visibility value to every card (each marks itself pending only if the
   // value differs from its synced state). Used by the bulk toggle.
   function handleSetAllVisible(value) {
-    for (const uid of Object.keys(cardsRef.current)) cardsRef.current[uid]?.setDisplay?.(value);
+    for (const uid of Object.keys(cardsRef.current).filter(isShown)) cardsRef.current[uid]?.setDisplay?.(value);
   }
 
   async function handleSendAll() {
-    const uids = Object.keys(pendingByUid);
+    const uids = Object.keys(pendingByUid).filter(isShown);
     if (uids.length === 0) return;
     setBulkSaving(true);
     setBulkResult(null);
@@ -1874,8 +2095,8 @@ export default function AssessmentSummaryPage() {
     if (!markAllArmed) { setMarkAllArmed(true); return; }
     setMarkAllArmed(false);
     let staged = 0;
-    for (const card of Object.values(cardsRef.current)) {
-      if (card?.stageScaleLevel?.(level.code)) staged++;
+    for (const [uid, card] of Object.entries(cardsRef.current)) {
+      if (isShown(uid) && card?.stageScaleLevel?.(level.code)) staged++;
     }
     setBulkResult(staged
       ? `Marked ${staged} student${staged !== 1 ? 's' : ''} ${level.label}: review, then publish`
@@ -1886,8 +2107,8 @@ export default function AssessmentSummaryPage() {
   // that differs from its grade. Staging only — the teacher still publishes.
   function handleAcceptAllSuggestions() {
     let staged = 0;
-    for (const card of Object.values(cardsRef.current)) {
-      if (card?.acceptScaleSuggestion?.()) staged++;
+    for (const [uid, card] of Object.entries(cardsRef.current)) {
+      if (isShown(uid) && card?.acceptScaleSuggestion?.()) staged++;
     }
     setBulkResult(`Accepted ${staged} suggestion${staged !== 1 ? 's' : ''}: review, then publish`);
   }
@@ -1897,10 +2118,11 @@ export default function AssessmentSummaryPage() {
   // Each pending card discards its own local draft; the cards' pending-change
   // reports then clear pendingByUid.
   function handleDiscardAll() {
-    if (Object.keys(pendingByUid).length === 0) return;
+    const uids = Object.keys(pendingByUid).filter(isShown);
+    if (uids.length === 0) return;
     if (!discardAllArmed) { setDiscardAllArmed(true); return; }
     setDiscardAllArmed(false);
-    for (const uid of Object.keys(pendingByUid)) cardsRef.current[uid]?.discard?.();
+    for (const uid of uids) cardsRef.current[uid]?.discard?.();
     setBulkResult(null);
   }
 
@@ -1911,9 +2133,13 @@ export default function AssessmentSummaryPage() {
       getFeedbackForAssignment(assignmentId).catch(() => ({})),
       getAssessmentAnalysis(assignmentId).catch(() => null),
       getDraftsForAssignment(assignmentId).catch(() => ({})),
+      // With the rest, so a card never mounts without its feedback rows.
+      // Best-effort: a missing rubric never blocks the grade grid.
+      getRubricForAssignment(assignmentId).catch(() => null),
     ])
-      .then(([mastery, feedback, analysisRow, drafts]) => {
+      .then(([mastery, feedback, analysisRow, drafts, rubric]) => {
         setData(mastery);
+        setRubricData(rubric || null);
         setFeedbackByStudent(feedback || {});
         setAnalysis(analysisRow || null);
         setDraftByStudent(drafts || {});
@@ -1955,12 +2181,10 @@ export default function AssessmentSummaryPage() {
     if (isLti) loadWorkLinks();
   }, [courseId, assignmentId, isLti]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load the attached rubric + the reporting-category colour palette (Task 13).
-  // Best-effort: a missing rubric / config failure leaves the page in compact-
-  // capable state with no descriptors, never blocking the grade grid.
+  // The reporting-category colour palette (Task 13); the attached rubric loads
+  // in load(). Best-effort: a config failure never blocks the grade grid.
   useEffect(() => {
     let active = true;
-    getRubricForAssignment(assignmentId).then(r => active && setRubricData(r)).catch(() => {});
     getRubricConfig().then(c => active && setRubricPalette(c.reportingCategoryColors || {})).catch(() => {});
     return () => { active = false; };
   }, [assignmentId]);
@@ -1982,7 +2206,7 @@ export default function AssessmentSummaryPage() {
     const s = data.students.find((x) => x.id === focusStudentId);
     if (!s) return;
     focusedForRef.current = focusStudentId;
-    if (!passesFilters(s, activeFilters, { assignment: data.assignment, topics: data.topics })) setActiveFilters(new Set());
+    if (shownUids && !shownUids.has(s.schoology_uid)) setActiveFilters(new Set());
     setHighlightId(focusStudentId);
     requestAnimationFrame(() => document.getElementById(`student-card-${focusStudentId}`)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' }));
     const t = setTimeout(() => setHighlightId(null), 2000);
@@ -1992,19 +2216,45 @@ export default function AssessmentSummaryPage() {
   if (loading) return <div className="loading">Loading...</div>;
   if (error) return <div className="error-msg">{error}</div>;
   if (!data) return null;
+  if (quizGroup && quizGroup.canonical_schoology_id && String(quizGroup.canonical_schoology_id) !== String(assignmentId)) {
+    return <Navigate replace to={`/course/${courseId}/assessment/${quizGroup.canonical_schoology_id}${location.search}`} />;
+  }
 
   const { assignment, topics, students } = data;
   const scoreScale = data.scoreScale || null;
   const bulkLevel = scoreScale?.bulkLevel ? scoreScale.levels.find(l => l.code === scoreScale.bulkLevel) : null;
-  // Agent scale suggestions still open: differ from the grade, on an unlocked student.
-  const openScaleSuggestions = scoreScale ? students.filter(s => {
-    const lv = feedbackByStudent[s.id]?.feedback_parsed?.scale_level;
-    return lv && lv !== s.scale_level && ![1, 2, 3].includes(s.exception);
-  }).length : 0;
   const hasAnalysis = Object.keys(feedbackByStudent).length > 0 || !!analysis;
 
   const alignedTopics = topics;
-  const visibleStudents = students.filter(s => passesFilters(s, activeFilters, { assignment, topics: alignedTopics }));
+  // Feedback rows (spec 2026-10-13): a rubric attached to a score-scale task.
+  // Its criteria become the card's topics ('row:<name>'), with each student's
+  // row levels as the scores, so the grid, drafts and suggestions work unchanged.
+  const feedbackRowList = scoreScale && rubricData?.rubric ? feedbackRowTopics(rubricData.rubric.criteria) : null;
+  const cardTopics = feedbackRowList ?? topics;
+  const cardRubric = rubricData
+    ? { ...rubricData.rubric, topicByCriterion: feedbackRowList ? rowTopicMapping(feedbackRowList) : rubricData.topicByCriterion }
+    : null;
+  const cardStudent = (s) => (feedbackRowList ? { ...s, scores: rowScores(s.row_levels) } : s);
+  // Agent suggestions still open, on an unlocked student: a scale level that
+  // differs from the grade, or (feedback rows) a row level that differs from
+  // the row's final.
+  const openScaleSuggestions = scoreScale ? students.filter(s => {
+    if ([1, 2, 3].includes(s.exception)) return false;
+    const parsed = feedbackByStudent[s.id]?.feedback_parsed;
+    const lv = parsed?.scale_level;
+    if (lv && lv !== s.scale_level) return true;
+    if (!feedbackRowList) return false;
+    const scores = cardStudent(s).scores;
+    return Object.entries(resolveRubricScores(parsed?.rubric_scores, cardTopics))
+      .some(([topicId, level]) => scores?.[topicId]?.grade !== level);
+  }).length : 0;
+  const shownCount = shownUids ? shownUids.size : students.length;
+  // The selected pills, named for the empty-filter message.
+  const pillLabels = Object.fromEntries([
+    ...Object.entries(REASONS).map(([id, r]) => [id, r.label]),
+    ...filterGroups(assignment).flatMap(g => g.pills.map(p => [p.id, p.label])),
+  ]);
+  const activeLabels = [...activeFilters].map(id => pillLabels[id] || id);
 
   return (
     <div className="fade-in">
@@ -2065,8 +2315,8 @@ export default function AssessmentSummaryPage() {
           {/* Rubric view toggle (Task 13) — Descriptors (default) shows the
               student-language descriptor prose per level; Compact falls back to
               the dense level-code table. Hidden for a score scale (#41), whose
-              one-row picker has no compact form. */}
-          {!scoreScale && (
+              one-row picker has no compact form, unless it has feedback rows. */}
+          {(!scoreScale || feedbackRowList) && (
             <div role="group" aria-label="Rubric view" style={{ display: 'inline-flex', gap: '0.25rem' }}>
               <button className={`filter-btn${viewMode === 'descriptors' ? ' active' : ''}`}
                 onClick={() => setViewMode('descriptors')}>Descriptors</button>
@@ -2078,6 +2328,23 @@ export default function AssessmentSummaryPage() {
           {/* Single entry point to the rubric hub (attach existing / upload / map / reorder / delete). */}
           <button className="secondary" style={{ fontSize: '0.78rem' }}
             onClick={() => setRubricModalOpen(true)}>Manage rubrics…</button>
+
+          {quizzesEnabled && (assignment.is_test === 1 || quizGroup) && (
+            <>
+              <button className="secondary" style={{ fontSize: '0.78rem' }} onClick={() => setQuizSetupOpen(true)}>Quiz setup…</button>
+              {quizGroup && (
+                <>
+                  <QuizChip group={quizGroup} />
+                  <button className="secondary" style={{ fontSize: '0.78rem' }} disabled={quizLoad.busy} onClick={handleLoadQuiz}>
+                    {quizLoad.busy ? 'Loading results…' : 'Load results'}
+                  </button>
+                  <span className="text-sm text-muted" style={{ fontSize: '0.75rem' }}>
+                    {quizLoad.message || (quizGroup.loaded_at ? `loaded ${formatDateTime(`${quizGroup.loaded_at.replace(' ', 'T')}Z`)}` : 'not loaded')}
+                  </span>
+                </>
+              )}
+            </>
+          )}
 
           {hasAnalysis && (
             <button
@@ -2101,32 +2368,63 @@ export default function AssessmentSummaryPage() {
           topics={alignedTopics}
           active={activeFilters}
           onToggle={toggleFilter}
+          onClear={() => setActiveFilters(new Set())}
+          hasDraft={hasDraft}
         />
+        {resolvedCount > 0 && (
+          <p className="text-sm text-muted" style={{ margin: '0.35rem 0 0' }}>
+            {resolvedCount} shown {resolvedCount === 1 ? 'student no longer matches' : 'students no longer match'} the filter.{' '}
+            <button type="button" className="ghost btn-sm" onClick={() => setFilterEpoch(n => n + 1)}>Update the list</button>
+          </p>
+        )}
+        {quizGroup && <QuizLoadWarnings group={quizGroup} students={students} />}
+        {quizGroup && (
+          <div role="tablist" aria-label="Quiz views" style={{ display: 'flex', gap: '0.25rem', marginTop: '0.4rem' }}>
+            <button role="tab" aria-selected={quizTab === 'grading'} className={`tab-btn${quizTab === 'grading' ? ' active' : ''}`} onClick={() => setQuizTab('grading')}>Grading</button>
+            <button role="tab" aria-selected={quizTab === 'questions'} className={`tab-btn${quizTab === 'questions' ? ' active' : ''}`} onClick={() => setQuizTab('questions')}>Questions</button>
+            {quizGroup.frq_count > 0 && (
+              <button role="tab" aria-selected={quizTab === 'frq'} className={`tab-btn${quizTab === 'frq' ? ' active' : ''}`} onClick={() => setQuizTab('frq')}>Free response</button>
+            )}
+          </div>
+        )}
       </div>
 
-      {students.length === 0 ? (
+      {quizGroup && quizTab === 'questions' ? (
+        <QuestionsTab groupId={quizGroup.id} reloadKey={quizGroup.loaded_at} />
+      ) : quizGroup && quizTab === 'frq' && quizGroup.frq_count > 0 ? (
+        <FreeResponseTab groupId={quizGroup.id} reloadKey={quizGroup.loaded_at} />
+      ) : students.length === 0 ? (
         <div className="card">
           <p className="text-muted">No students found. Run a mastery sync for this course first.</p>
         </div>
       ) : (
         <>
-          {visibleStudents.length === 0 && (
-            <div className="card"><p className="text-muted">No students match the current filters.</p></div>
+          {shownCount === 0 && (
+            <div className="card">
+              <p className="text-muted" style={{ marginTop: 0 }}>No students match {activeLabels.join(' + ')}.</p>
+              <button type="button" className="secondary btn-sm" onClick={() => setActiveFilters(new Set())}>Clear filters</button>
+            </div>
           )}
-          {visibleStudents.map((student) => (
+          {/* Every card stays mounted (a hidden card keeps its unsaved draft and still
+              reports it); the filter only hides the cards it leaves out. */}
+          {students.map((student) => (
+            <div key={student.schoology_uid} hidden={!isShown(student.schoology_uid)}>
             <StudentRubricCard
-              key={student.schoology_uid}
-              student={student}
-              topics={alignedTopics}
+              reasons={studentReasons(student, filterCtx)}
+              student={cardStudent(student)}
+              topics={cardTopics}
               courseId={courseId}
               assignmentId={assignmentId}
               assignmentRow={assignment}
               feedbackRow={feedbackByStudent[student.id] || null}
               draftRow={draftByStudent[student.id] || null}
-              rubric={rubricData ? { ...rubricData.rubric, topicByCriterion: rubricData.topicByCriterion } : null}
+              rubric={cardRubric}
               viewMode={viewMode}
               rubricPalette={rubricPalette}
               submissionLink={workLinks.links[student.schoology_uid] || null}
+              attemptLink={attemptLinks[student.id] || null}
+              quizResult={quizResults[student.id] || null}
+              onRebuildQuiz={handleRebuildQuiz}
               scoreScale={scoreScale}
               resubmitLessonsDefault={resubmitLessonsDefault}
               resubmitEnabled={!data.course?.archived && !data.course?.excluded}
@@ -2137,6 +2435,7 @@ export default function AssessmentSummaryPage() {
               registerCard={registerCard}
               unregisterCard={unregisterCard}
             />
+            </div>
           ))}
 
           {/* Whole-class command bar (#51) — sticky so it stays reachable during
@@ -2299,7 +2598,7 @@ export default function AssessmentSummaryPage() {
               >✕</button>
             </div>
             <ReviewerAnalysisBody
-              topics={topics}
+              topics={cardTopics}
               feedbackRows={Object.values(feedbackByStudent)}
               analysis={analysis?.analysis_parsed || null}
             />
@@ -2307,12 +2606,23 @@ export default function AssessmentSummaryPage() {
         </>
       )}
 
+      <QuizSetupModal
+        open={quizSetupOpen}
+        courseId={courseId}
+        currentAssignment={{ schoology_assignment_id: String(assignmentId), title: assignment.title }}
+        group={quizGroup}
+        onClose={() => setQuizSetupOpen(false)}
+        onChanged={(g) => { setQuizGroup(g); setQuizSetupOpen(false); }}
+        onUpdated={(g) => setQuizGroup(g)}
+      />
+
       <RubricManagerModal
         open={rubricModalOpen}
         onClose={() => setRubricModalOpen(false)}
         courseId={courseId}
         assignmentId={assignmentId}
         topics={alignedTopics}
+        unaligned={!!scoreScale}
         attachment={rubricData}
         onChanged={reloadRubric}
       />

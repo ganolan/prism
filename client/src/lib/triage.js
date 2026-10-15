@@ -67,3 +67,15 @@ export function redCount(triage) {
   return ['makeUps', 'lateWork', 'resubmissions', 'feedbackOwed']
     .reduce((n, list) => n + (triage?.[list] || []).filter((r) => r.tone === 'red').length, 0);
 }
+
+// A task's /assessment/ page with Needs action / Watch reasons already selected
+// (?filter=, read by AssessmentSummaryPage) and optionally one student's card in focus.
+export function assessmentLink(row, { filter = [], studentId = null } = {}) {
+  const q = new URLSearchParams();
+  if (studentId != null) q.set('student', String(studentId));
+  if (filter.length) q.set('filter', filter.join(','));
+  const qs = q.toString().replace(/%2C/g, ',');
+  return `/course/${row.courseId}/assessment/${row.schoologyAssignmentId}${qs ? `?${qs}` : ''}`;
+}
+// Feedback owed opens on the students still to be graded or published.
+export const FEEDBACK_OWED_FILTER = ['to_grade', 'partly_graded', 'draft'];

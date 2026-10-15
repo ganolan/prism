@@ -651,10 +651,23 @@ button.btn-sm { padding: 0.3rem 0.65rem; font-size: 0.78rem; }
    boxShadow (the resubmit-conflict ring), which an animated box-shadow
    property would fight with; outline is a separate box the card never sets. */
 .student-card--highlight { animation: student-card-pulse 2s ease-out; }
+/* /assessment/ filter rows (Needs action, Watch, Refine) and the matching reason
+   chips under each card header. */
+.assessment-filter-bar { display: flex; flex-direction: column; gap: 0.35rem; padding-top: 0.5rem; }
+.assessment-filter-row { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.assessment-filter-row__label { min-width: 6.5rem; }
+.reason-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.reason-chip { display: inline-flex; align-items: center; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; }
 @keyframes student-card-pulse {
   0%, 60% { outline: 3px solid var(--accent); outline-offset: 2px; }
   100% { outline: 3px solid transparent; outline-offset: 2px; }
 }
+
+/* Feedback rows (spec 2026-10-13): the captions above a score-scale card's
+   rubric rows (kept in Prism) and its overall level (sent to Schoology). */
+.feedback-rows-label,
+.feedback-rows-overall-label { color: var(--text-muted); font-size: 0.75rem; margin: 0.4rem 0; }
+.feedback-rows-average { margin-top: 0.4rem; font-size: 0.75rem; color: var(--text-muted); }
 
 /* ========================================================================
    MODAL
@@ -1068,6 +1081,64 @@ button.triage-panel__more { padding: 0.15rem 0.4rem; font-size: 0.75rem; font-we
 /* Assessments tab: click-to-flip make-up tracking chip on a Schoology test/quiz. */
 .makeup-chip { border: 0; cursor: pointer; font-size: 0.72rem; flex-shrink: 0; }
 .makeup-chip:hover { box-shadow: inset 0 0 0 1px var(--accent); }
+
+/* Linked quizzes: Questions tab rows open from anywhere on their first line; the
+   collapsed stem is one line, cut by an ellipsis at whatever width is left. */
+/* Quiz group chip ("2 linked tests"): the count only; titles in a .help-pop list on click. */
+.quiz-chip { border: 1px solid var(--accent); background: var(--accent-subtle); color: var(--accent); cursor: pointer; font-size: 0.68rem; font-weight: 600; flex-shrink: 0; }
+.quiz-chip-pop { margin: 0; padding-left: 1.6rem; max-width: 420px; }
+.question-row-head { cursor: pointer; }
+/* Questions tab charts: thin percent bars, the score chart (ScoreDots) and the level bar (LevelBar). */
+.pct-bar { display: inline-block; width: 70px; height: 8px; border-radius: 4px; background: var(--bg-subtle); overflow: hidden; vertical-align: middle; }
+.pct-bar > span { display: block; height: 100%; background: var(--accent); }
+.pct-bar--row { width: 90px; }
+.pct-cell { display: inline-flex; align-items: center; gap: 6px; }
+.tag-has-text { cursor: help; text-decoration: underline dotted; text-underline-offset: 2px; }
+.type-chart { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.score-dots { display: grid; gap: 4px; max-width: 380px; }
+.score-dots__toggle { display: flex; gap: 4px; }
+.score-dots__toggle .filter-btn { padding: 1px 8px; font-size: 0.7rem; }
+.score-dot { cursor: pointer; }
+.score-dots__pop { transform: translate(-50%, -100%); }
+.level-bar { display: grid; gap: 6px; width: 100%; }
+.level-bar__track { display: flex; gap: 2px; }
+.level-seg { flex-basis: 0; min-width: 4px; height: 22px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; }
+.level-bar--mini .level-seg { height: 10px; border-radius: 3px; }
+.level-bar__legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 0.68rem; color: var(--text-muted); }
+.level-bar__legend > span { display: inline-flex; align-items: center; gap: 4px; }
+.level-bar__swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+/* Free response tab (linked quizzes phase 2): the stored Schoology rubric as level buttons. */
+.frq-grid { border-collapse: collapse; width: 100%; table-layout: fixed; font-size: 0.74rem; }
+.frq-grid td, .frq-grid th { border: 1px solid var(--border); padding: 0; vertical-align: top; }
+.frq-grid__row { width: 9rem; padding: 0.4rem 0.5rem; text-align: left; font-weight: 600; background: var(--bg-subtle); }
+.frq-cell { display: flex; flex-direction: column; gap: 0.3rem; width: 100%; height: 100%; padding: 0; border: 0; background: var(--card-bg); color: var(--text); text-align: left; cursor: pointer; font: inherit; }
+.frq-cell:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.frq-cell--ai:not(.frq-cell--final) { background: var(--ai-suggest-wash); }
+.frq-cell__head { display: flex; align-items: center; gap: 0.3rem; padding: 0.25rem 0.45rem; font-weight: 700; }
+.frq-cell__head svg { color: var(--ai-suggest); margin-left: auto; }
+.frq-cell__pts { font-weight: 400; color: var(--text-muted); }
+.frq-cell__s { margin-left: auto; font-size: 0.62rem; font-weight: 800; border: 1px solid currentColor; border-radius: 3px; padding: 0 3px; }
+.frq-cell__desc { padding: 0 0.45rem 0.4rem; line-height: 1.35; white-space: pre-line; }
+.frq-card { display: grid; gap: 0.6rem; }
+.frq-card__head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.frq-card__actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.frq-answer { background: var(--bg-subtle); border-radius: 6px; padding: 0.6rem 0.8rem; line-height: 1.5; overflow-x: auto; }
+.frq-answer pre { white-space: pre-wrap; }
+.frq-comment { width: 100%; font: inherit; }
+.frq-tab { display: grid; gap: 0.75rem; }
+.frq-tab__bar { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.frq-tab__q { width: auto; min-width: 6rem; }
+.frq-stem { line-height: 1.5; }
+.frq-stem img { max-width: 100%; height: auto; }
+.quiz-result-line { display: inline-flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; font-size: 0.78rem; color: var(--text-muted); }
+.quiz-result-line button { font-size: 0.72rem; padding: 0.1rem 0.4rem; }
+.post-marks { display: grid; gap: 0.4rem; justify-items: start; }
+.post-marks__results { margin: 0; padding-left: 1.1rem; font-size: 0.85rem; }
+.post-marks__ok { color: var(--success); }
+.post-marks__fail { color: var(--danger); }
+.frq-student { display: grid; gap: 0.5rem; }
+.frq-student__q { margin: 0.25rem 0 0; font-size: 0.85rem; color: var(--text-muted); }
+.question-stem-line { flex: 1 1 160px; min-width: 160px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .triage-row__text { min-width: 0; display: flex; flex-direction: column; }
 .triage-row__line { display: flex; align-items: center; gap: 0.35rem; min-width: 0; flex-wrap: wrap; row-gap: 0.15rem; /* Tags wrap under name instead of crushing it */ }
 .triage-row__name,
@@ -1077,6 +1148,9 @@ button.triage-panel__more { padding: 0.15rem 0.4rem; font-size: 0.75rem; font-we
 .triage-row__title { font-weight: 600; font-size: 0.82rem; color: var(--text); text-decoration: none; text-underline-offset: 2px; }
 a.triage-row__name:hover,
 a.triage-row__title:hover { text-decoration: underline; }
+/* Loose ends rows: no ring and no action column, only the text. */
+.triage-row.triage-row--plain { grid-template-columns: minmax(0, 1fr); }
+.triage-row__sub { font-size: 0.75rem; }
 .triage-row__course { max-width: 100%; font-size: 0.64rem; font-weight: 700; letter-spacing: 0.02em; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .triage-row__task { font-size: 0.75rem; color: var(--text); }
 .triage-row__tag { flex-shrink: 0; font-size: 0.65rem; padding: 0.05rem 0.45rem; white-space: nowrap; }

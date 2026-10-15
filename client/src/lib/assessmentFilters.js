@@ -86,7 +86,8 @@ export function studentMatchesPill(student, pillId, { assignment, topics }) {
     case 'visible':
       return student.comment_status === 1;
     case 'not_visible':
-      return student.comment_status !== 1;
+      // Only feedback that exists can be hidden: a student with no comment is not "not visible".
+      return hasTeacherComment(student) && student.comment_status !== 1;
     case 'review':
       return student.review_flag != null;
     case 'resubmit':
@@ -96,7 +97,14 @@ export function studentMatchesPill(student, pillId, { assignment, topics }) {
   }
 }
 
+// Reason pills (Needs action + Watch) combine as "any of"; the Refine groups then
+// narrow that set (OR within a group, AND across groups).
 export function passesFilters(student, activeSet, ctx) {
+  const activeReasons = REASON_IDS.filter(id => activeSet.has(id));
+  if (activeReasons.length > 0) {
+    const mine = new Set(studentReasons(student, ctx).map(r => r.id));
+    if (!activeReasons.some(id => mine.has(id))) return false;
+  }
   for (const group of filterGroups(ctx.assignment)) {
     const activePills = group.pills.filter(p => activeSet.has(p.id));
     if (activePills.length === 0) continue; // group imposes no constraint
@@ -130,4 +138,94 @@ export function pillTone(pillId, assignment) {
     return badges[0]?.tone || (pillId === 'submitted' ? 'green' : pillId === 'in_progress' ? 'blue' : 'neutral');
   }
   return NONSTATUS_TONE[pillId] || 'neutral';
+}
+
+const hasTeacherComment = (student) => teacherText(student.grade_comment, student.status_line?.line || null).length > 0;
+
+// ─── Needs action + Watch reasons ───────────────────────────────────────────
+// Each reason is a pill in its row and a chip on the student's card. The ones the
+// teacher's own grading changes (to grade, partly graded, draft, feedback hidden,
+// resubmitted, flagged) are worked out here, so they follow each save at once. The
+// school-calendar ones come from the server (server/services/cardAttention.js:
+// student.attention.reasons), built from triage's Late work, Resubmissions and
+// Make-up tests rows.
+
+export const REASONS = {
+  to_grade: { group: 'action', label: 'To grade', tone: 'blue' },
+  partly_graded: { group: 'action', label: 'Partly graded', tone: 'yellow' },
+  draft: { group: 'action', label: 'Draft not published', tone: 'blue' },
+  feedback_hidden: { group: 'action', label: 'Feedback hidden', tone: 'neutral' },
+  resubmitted: { group: 'action', label: 'Resubmitted', tone: 'resubmit' },
+  referral: { group: 'action', label: 'Referral to decide', tone: 'red' },
+  resubmission_overdue: { group: 'action', label: 'Resubmission overdue', tone: 'red' },
+  make_up: { group: 'action', label: 'Make-up test', tone: 'amber' },
+  flagged: { group: 'action', label: 'Flagged for review', tone: 'yellow' },
+  not_started_soon: { group: 'watch', label: 'Not started, due soon', tone: 'yellow' },
+  in_progress_late: { group: 'watch', label: 'In progress, past due', tone: 'blue' },
+  late: { group: 'watch', label: 'Late, before the limit', tone: 'yellow' },
+  resubmission_pending: { group: 'watch', label: 'Resubmission pending', tone: 'resubmit' },
+};
+export const REASON_IDS = Object.keys(REASONS);
+export const reasonIdsIn = (group) => REASON_IDS.filter(id => REASONS[id].group === group);
+
+// Triage clock tones (green / amber / red) → pill tones.
+const CLOCK_TONE = { green: 'neutral', amber: 'yellow', red: 'red' };
+const schoolDays = (n) => `${n} school day${n === 1 ? '' : 's'}`;
+const ddmm = (iso) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : '');
+
+// The chip text for one reason, with its detail (days, deadline).
+export function reasonText(r) {
+  switch (r.id) {
+    case 'referral':
+      return r.kind === 'submitted_late'
+        ? `Referral to decide, submitted ${schoolDays(r.daysLate)} late`
+        : `Referral to decide, ${schoolDays(r.daysLate)} late`;
+    case 'late': return `Late, ${schoolDays(r.daysLate)}`;
+    case 'in_progress_late': return `In progress, ${schoolDays(r.daysLate)} late`;
+    case 'not_started_soon':
+      return r.schoolDaysLeft === 0 ? 'Not started, due today' : `Not started, due in ${schoolDays(r.schoolDaysLeft)}`;
+    case 'resubmission_pending': return r.until ? `Resubmission due ${ddmm(r.until)}` : 'Resubmission pending';
+    case 'resubmission_overdue': return r.until ? `Resubmission overdue, due ${ddmm(r.until)}` : 'Resubmission overdue';
+    default: return REASONS[r.id]?.label ?? r.id;
+  }
+}
+
+export function reasonTone(r) {
+  if (r.tone && CLOCK_TONE[r.tone] && (r.id === 'late' || r.id === 'in_progress_late')) return CLOCK_TONE[r.tone];
+  return REASONS[r.id]?.tone ?? 'neutral';
+}
+
+// ctx: { assignment, topics, hasDraft(student) → boolean }.
+// → [{ id, ...detail }] in REASONS order.
+export function studentReasons(student, ctx) {
+  const out = [];
+  const excused = Number(student.exception) === 1;
+  if (!excused) {
+    const grading = gradingStateOf(student, ctx.topics || []);
+    const handedIn = student.attention
+      ? student.attention.handedIn
+      : normalizedSubmissionState(student, ctx.assignment || {}) === 'submitted';
+    // A Prism draft is the next step whatever Schoology holds, so it replaces to grade / partly graded.
+    if (ctx.hasDraft?.(student)) out.push({ id: 'draft' });
+    else if (grading === 'ungraded' && handedIn) out.push({ id: 'to_grade' });
+    else if (grading === 'partial') out.push({ id: 'partly_graded' });
+    if (hasTeacherComment(student) && student.comment_status !== 1) out.push({ id: 'feedback_hidden' });
+    if (student.resubmission?.state === 'arrived' || student.resubmitted) out.push({ id: 'resubmitted' });
+  }
+  if (student.review_flag != null) out.push({ id: 'flagged' });
+  for (const r of student.attention?.reasons || []) if (REASONS[r.id]) out.push(r);
+  return out.sort((a, b) => REASON_IDS.indexOf(a.id) - REASON_IDS.indexOf(b.id));
+}
+
+export function countReasons(students, ctx) {
+  const counts = Object.fromEntries(REASON_IDS.map(id => [id, 0]));
+  for (const s of students) for (const r of studentReasons(s, ctx)) counts[r.id] += 1;
+  return counts;
+}
+
+// Every pill id the page knows (reasons + Refine), for reading ?filter= from a link.
+const REFINE_IDS = ['submitted', 'in_progress', 'not_started', 'ungraded', 'partial', 'graded', 'visible', 'not_visible', 'review', 'resubmit'];
+export function parseFilterParam(param) {
+  const known = new Set([...REASON_IDS, ...REFINE_IDS]);
+  return new Set(String(param || '').split(',').map(x => x.trim()).filter(x => known.has(x)));
 }

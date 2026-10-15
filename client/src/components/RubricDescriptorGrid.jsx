@@ -4,6 +4,7 @@ import { LEVEL_LABELS } from '../lib/masteryLevels.js';
 
 export default function RubricDescriptorGrid({
   rows, levels, cellState, onSelect, palette, levelHeaderColors, levelBorderColors, levelDraftColors,
+  firstColumnLabel = 'Measurement Topic',
 }) {
   return (
     <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.8rem' }}>
@@ -11,7 +12,7 @@ export default function RubricDescriptorGrid({
         <tr>
           <th style={{ padding: '0.3rem 0.6rem', textAlign: 'left', background: 'var(--bg-subtle)',
             border: '1px solid var(--border)', fontWeight: 600, fontSize: '0.75rem',
-            color: 'var(--text-muted)', minWidth: 180 }}>Measurement Topic</th>
+            color: 'var(--text-muted)', minWidth: 180 }}>{firstColumnLabel}</th>
           {levels.map(l => (
             <th key={l} style={{ padding: '0.3rem 0.5rem', textAlign: 'center', width: '15%',
               background: levelHeaderColors[l], color: '#1a1a1a', border: '1px solid var(--border)',
@@ -26,9 +27,15 @@ export default function RubricDescriptorGrid({
               background: categoryColor(topic.category_title, palette), verticalAlign: 'top' }}>
               {criterion?.criterion_name && (
                 <div style={{ fontWeight: 700, fontSize: '0.82rem' }}>{criterion.criterion_name}</div>)}
-              <div style={{ fontSize: '0.72rem', fontWeight: 600 }}>{topic.title}</div>
+              {/* The second line names the standard: an aligned row's topic title, or a
+                  feedback row's standard (its title is the criterion, spec 2026-10-13). */}
+              {(() => {
+                const isRow = topic.title === criterion?.criterion_name;
+                const second = isRow ? criterion?.standard_title : topic.title;
+                return second ? <div style={{ fontSize: '0.72rem', fontWeight: 600 }}>{second}</div> : null;
+              })()}
               <div style={{ fontSize: '0.62rem', color: '#3a3a3a' }}>
-                {topic.category_title} · {topic.external_id}</div>
+                {[topic.category_title, topic.external_id].filter(Boolean).join(' · ')}</div>
             </td>
             {levels.map(l => {
               const st = cellState(topic.id, l) || {};

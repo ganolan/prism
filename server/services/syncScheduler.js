@@ -42,6 +42,7 @@ export function scheduledSyncOptions(db, s) {
     recentOnly: s.recentOnly,
     recentDays: clampDays(s.recentDays),
     syncBlocks: s.syncBlocks,
+    refreshQuizzes: true,
     trigger: 'scheduled',
   };
 }

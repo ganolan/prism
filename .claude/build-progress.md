@@ -1040,3 +1040,346 @@ questions (archived backfill, prod browser session, defaults):
 optional timeliness summary was then removed at the teacher's request (Schoology's late flag
 overstates lateness). 12 archived 2023-25 CS sections were backfilled into prod (courses
 819-830). AP CSP 2023-24 has no mastery data in Schoology.
+
+
+## Feedback rows on unaligned tasks (2026-10-13)
+
+A rubric can be attached to any score-scale task, and gives the teacher one feedback row per
+criterion. Row levels are Prism-only; only the overall scale level
+and the comment go to Schoology. Spec: `docs/superpowers/specs/2026-10-13-feedback-rows-design.md`.
+Plan: `docs/superpowers/plans/2026-10-13-feedback-rows.md`.
+- **Storage:** new table `rubric_row_levels`, keyed by criterion name (`schema.sql` only, no
+  `MIGRATIONS` entry because the table is new). Service: `server/services/feedbackRows.js`.
+- **Rubric average:** `server/lib/rubricAverage.js` with a client copy in `client/src/lib/`, both
+  tested against one shared case table. Ties round up, and a row at Insufficient Evidence gives no
+  level.
+- **Publish:** `write-comment` and `send-all` carry `rowLevels`, stored only after Schoology accepts
+  the write. `PUT /api/rubrics/row-levels/:assignmentSchoologyId/:studentUid` saves rows with no
+  Schoology call.
+- **Card:** a rows grid and an overall picker. The rubric average is staged only on the General
+  Academic Scale (Unaligned), whose levels match the row levels, and only while nothing is
+  published and the student has no Excused, Incomplete or Missing exception. A row pick never
+  turns the comment visible.
+- **Drafts:** on a score-scale task the draft baseline holds the row finals, not the rows, so a
+  draft stays valid while the rubric loads and after one is attached. The page loads the rubric
+  with the mastery data, so a card never mounts without its rows.
+- **MCP:**
+  - `attach_rubric` attaches feedback rows on score-scale tasks and accepts a Schoology assignment
+    id.
+  - `write_student_suggestions` resolves `rubric_scores` against the rows and reports
+    `unresolved_rows`.
+  - `get_assignment_context` returns `rubric`, `current_row_levels` and
+    `draft_feedback.row_levels`, `removed_rows`, `scale_level`, `scale_level_source`.
+  - `list_assignments` returns `feedback_rubric`.
+  - `get_student_history` returns `rubric_rows` (full detail only) and splits the teacher-draft keys.
+- **Follow-ups (same day):** the grid matches an aligned row ("Criteria" header, the standard as the second line); the overall picker follows the Descriptors/Compact toggle; a rows-only save reads "Save in Prism"; every criterion cell is coloured by its reporting category (stem keywords plus the two AP CS colours); a row save that fails after Schoology accepted the grade is reported ("Published to Schoology, but the feedback rows were not saved in Prism: save again") with the grade still mirrored; no average hint on a locked student; the page gets row levels for the attached rubric's rows only; a standard text two rows share resolves to no row.
+- **Bugs fixed on the way:** `attach_rubric` accepted only the local assignment id, not the Schoology
+  id; `draft_feedback.rubric_scores` leaked the card's `__scale__` key.
+
+## Linked quizzes, loose ends (2026-10-14, branch `claude/angry-hopper-5c1f00`)
+
+Order agreed with Graham: the skill, writer robustness, small items, then the phase 1 list.
+- **grade-theory-test (graham-plugins `de6eef5`, assessment-grader 0.12.0):** the Prism route's step 5 is
+  Graham pressing **Publish all to Schoology** on the Free response tab; the agent route
+  (`list_frq_writebacks`, `export-test-results`, `mark_frq_writeback`) is the fallback when the button is
+  absent, for "Post this one by hand", or on request. Prism's MCP instructions match.
+- **Writer and loader:** a read or save with HTTP 0 opens home again (`checkHome`): sign-in is `NO_SESSION`,
+  no page (or a visit that left the page where it was) is `UNREACHABLE`, and either stops the load or the
+  publish. One lock per group (`quizLocks.holdGroup`) for loader, writer and `mark_frq_writeback`. Rubric
+  launch args are JSON-parsed per entry (`rubricLaunchArgs`, shared by the attempt parser, the writer and
+  the probe). The question index is read once per member test per batch (only a page that loaded is kept).
+  `openClient` has unit tests (`quizWritebackClient.test.js`).
+- **Small items:** `PUT /template` without a template is 400 (empty still resets); `quizResults` reads each
+  attempt once; a route test with `quiz_writeback` off; the probe refuses an `OUT_DIR` in the main clone.
+- **Phase 1 list (Graham chose 3):** an unknown results cell keeps the stored attempt and is reported
+  (only `-` and a count are known); `notTaken` counts a student once across copies; Quiz setup checks its
+  input (course, tests, duplicates) before reading Schoology.
+- **Parity (offline, the 13 Oct captures in `~/prism-probes/`):** the new parser equals the old regex on the
+  real Q21 grade-by-question page (18 of 18 entries, before and after stage D) and on the attempt pages;
+  the 2024-25 results page has 18 rows, every cell known.
+- **Review (fresh reviewer):** nothing serious; fixed the hung-recheck case, the cached failed index and
+  a missing course giving a 500. Left: after a form save that throws, marks read "the rest is not
+  confirmed" (accurate); an empty results cell is unknown (safe; only `-` observed).
+- **Suites:** server, MCP and scripts 1794, client 1053 (after the phase 4b fixes).
+
+**Still open:**
+- **First real publish:** when Graham next marks a test, check the result in Schoology, especially an essay
+  with no mark before (`override` 0 through the PUT is unobserved; the form save covers it). Record it in
+  the API reference.
+- **Unobserved shapes, probe if they come up:** a by-question page with more than 18 takers (pagination),
+  a multi-row FRQ rubric (skipped today), an ungraded no-rubric FRQ (phase 2 note).
+- **Phase 1 list, accepted as they are (Graham, 2026-10-14):** BUSY is per process (server and PrisMCP);
+  the parser notes (multi-select MCQ, a row without a wrapper, image-only stems); the Quiz setup UI notes;
+  no indexes on the quiz tables; the parity and verify script notes.
+- **Phase 4b list, fixed 2026-10-14 (Graham):** each save waits the client's pause, like each read, so the
+  rubric save and the form save never go back to back; the half-written message names a comment that did
+  not save (behaviour from phase 4c, now tested); after a publish the bar shows what the publish left
+  waiting until the count changes, then the current count. The template's attempt id check is covered:
+  the by-question writer keys each entry by attempt.
+- **Can only be checked when they come up:** the first real publish and the three unobserved shapes above.
+
+## Linked quizzes, phase 4c: posting by question (2026-10-13, branch `claude/angry-hopper-5c1f00`)
+
+Graham asked whether Schoology's grade-by-question page is quicker. Plan:
+`docs/superpowers/plans/2026-10-13-linked-quizzes-phase-4c-by-question.md` (spec §15).
+- **Spike and stage D (Graham approved):** "View by Question" → `question_stats/{question id}/{number}`
+  holds one form for the class on one question; one same-value Save Changes was one form POST (302), body
+  byte-identical to Prism's serialization, nothing changed (18 students).
+- **Round trip finding:** for an essay already marked, the per-student `rubric_grade_info` PUT also saves
+  the points, rubric score and comment (its `comment` field saves the question comment).
+- **Writer (`postGroup` in `quizWriteback.js`):** per member test and question, finds the page by question
+  id, checks each student (attempt, question, rubric, points, comment, grade unchanged), sends each rubric
+  PUT and checks it, re-reads the page (a hand edit made meanwhile refuses the page), sends the form save
+  only for students the PUT did not finish, reads back, records every mark honestly. The post bar warns to
+  close a grade-by-question tab in Schoology first.
+- **Live (dev, Graham approved):** Exhibiting with " (test)" then Exhibiting Depth on attempt `2247871023`
+  through the writer: both posted with no form save; the whole Q21 page then equalled the stage D page,
+  the rubric grade was 4, and a reload showed `posted`.
+- **Review fixes (fresh reviewer):** re-read before the save; every throw records each mark; honest
+  messages; link by question id; tests for two FRQs and body names.
+- **Publish all (Graham, 2026-10-13):** the button became **Publish all to Schoology (n)**, one click for
+  every accepted mark on every FRQ; the one-first step was dropped (every write is read back, and feedback
+  is usually hidden from students until release).
+- **Deferred:** `byQuestionRubrics` regex edge cases (fail closed); the index is read per question;
+  pagination of the by-question page above 18 takers is unobserved; a never-marked essay (`override` 0)
+  through the PUT is unobserved (the form save covers it).
+
+## Linked quizzes, phase 4b: Prism posts FRQ marks (2026-10-13, branch `claude/angry-hopper-5c1f00`)
+
+Plan: `docs/superpowers/plans/2026-10-13-linked-quizzes-phase-4b-writer.md` (spec §14):
+- **`server/lib/attemptForm.js`:** serializes the attempt form as a browser does (byte-identical to the
+  4a capture, 6815 characters) and changes only the essay's `rubric_score`, `points`, `override` (1)
+  and `comment`.
+- **`server/services/quizWriteback.js`:** `postWritebacks` re-reads each attempt, refuses a mark changed
+  in Schoology, posts, reads back, and records posted or failed (and the stored Schoology copy); one
+  batch per group at a time; `NO_SESSION` stops the batch. POSTs only to the attempt path.
+- **Route and UI:** `POST /api/quizzes/:id/writeback` behind `quiz_writeback`; `PostMarksBar` on the
+  Free response tab (one first, then the rest).
+- **Suites:** server and MCP 1676, client 1003, build ok. `quiz_writeback` stays false in `config.yaml`.
+
+**Live (dev copy, 2026-10-13):** `quiz_writeback` on through a config copy (`CONFIG_PATH`). The only
+waiting BK 6 mark was the phase 2 test suggestion (lower than Graham's real Schoology mark), so it was
+removed from the dev database, never posted. The 2024-25 Unit 3 Organizing Data test was set up as dev
+quiz group 3 and loaded (18 attempts, read-only). The round trip on attempt `2247871023` (same level,
+level 3 and comment plus " (test)", then the original back) ran with Graham's approval.
+
+**Round trip result (2026-10-13):** the form POST changed the form (rubric score 3, points 3, the new
+comment) but **not the rubric grade** (`rubric_grade_info` stayed 4). Prism recorded the mark `failed`,
+not posted, as designed. The attempt was restored with one direct form POST and read back: every field
+equals the 4a capture and the rubric grade is 4. The round trip also found that the launch span exists only
+after Schoology's script runs; `rubricLaunch` now reads the template JSON (fixed, tested). The final
+review's 7 Important findings were fixed before the round trip (ledger in the plan's workspace).
+
+**Stage C (2026-10-13, Graham approved):** a level change through the popup sends a JSON `PUT` to
+`rubric_grade_info` (with `x-csrf-key` / `x-csrf-token`), then Save Changes posts the form (302). Changed
+4 to 3 and restored 3 to 4; read back each time; the attempt equals the 4a capture again. Details in the API
+reference.
+
+**Writer with the rubric PUT, end to end (2026-10-13, Graham approved):** the writer pre-reads the form
+and the rubric grade, sends the rubric `PUT` (CSRF from `Drupal.settings.s_common` on `/home`), then the
+form `POST`, and reads both back. Through dev Prism: Exhibiting with " (test)", then Exhibiting Depth with
+the original comment, both `posted`; afterwards no field differs from the 4a capture, the rubric grade is
+4, and a reload shows `posted`, not "Changed in Schoology".
+
+**Review of the rubric PUT (fresh reviewer) and fixes, 2026-10-13:** after the PUT the rubric grade is
+re-read before the form is posted; a session that expires between the two records the mark as
+half-written ("The rubric level was saved in Schoology but the form was not: post it again"), and a retry
+skips the PUT when the grade is already Prism's; the conflict check compares the points box, the comment
+and the rubric grade; a page whose rubric id differs from Prism's, or a non-numeric attempt path, is
+refused before any write; `reconcileMarks` needs the points to agree with a one-row level. Checked
+read-only on the real attempt afterwards (rubric id matches, nothing moved). Suites: server, MCP and
+scripts 1697, client 1006, build ok.
+
+**Deferred (phase 4b):** an SSO bounce mid-batch likely reads as HTTP 0 per student, not `NO_SESSION`
+(nothing is written); `openClient` (URL guards, CSRF, `NO_SESSION`) has no unit test; the template's attempt
+id is not compared with the path; no pause between the PUT and the POST; the read-back message omits the
+comment; the post bar ignores a later count once it shows results; the loader and writer locks are separate;
+a route test with the flag off; `assertOutsideRepo` in the probe accepts the main clone's folders.
+
+**Landed on `main` 2026-10-13; `quiz_writeback` turned on in `config.yaml` the same day (Graham).** Since
+phase 4c the button is **Publish all to Schoology (n)** (no one-first step). The first current-year
+publish is still to come: check an essay that was not yet marked in Schoology afterwards (the never-marked
+`override` 0 case is not observed live; the form save covers it).
+
+## Linked quizzes, phase 4a: write probe (2026-10-13, branch `claude/angry-hopper-5c1f00`)
+
+Plan: `docs/superpowers/plans/2026-10-13-linked-quizzes-phase-4a-probe.md` (spec §14). Script:
+`scripts/probe-attempt-write.js` (`scan` read-only; the `write` subcommand needs `--confirm` equal to `--attempt`), helpers in
+`scripts/lib/attemptProbe.js`. Run it with `PRISM_SESSION_DIR` set to a dev clone's session (this worktree
+has none) and `OUT_DIR` outside the repo (`~/prism-probes/attempt-write`).
+
+**Stage A (read-only, 2026-10-13):** test `7724138299` (AP CSP: Unit 3 - Organizing Data Theory Test (S),
+2024-25, archived), 18 takers. The first attempt checked, `2247871023`, has a one-row Schoology rubric FRQ
+(rubric `36010096`) marked Exhibiting Depth (4 points) with a 66-character comment. In the archived section
+the attempt form is editable: the form, an enabled **Save Changes**, the rubric launch button, and an
+enabled points field. The only blocked request was Schoology's `POST /usage/collect` (usage tracking).
+
+**Stage B (same-value save, approved by Graham, 2026-10-13):** the first run stopped before any save
+(the launch selector hit the outer div; the selected cell has a screen-reader prefix); fixed, and the
+second run saved the stored level as it was. The popup's Save sent nothing to the attempt or grades
+endpoints; **Save Changes** sent one form `POST` to the attempt URL (the whole form, every question's
+points included, Drupal tokens, no CSRF header). Read-back unchanged; the post-save page was not seen.
+Details: `.claude/schoology-api-reference.md`, "Saving an FRQ level and comment". Capture on the mini in
+`~/prism-probes/attempt-write/` (holds student work; not in the repo).
+
+**Next:** the phase 4b plan (writer, two-step posting, tests) from this request; the first real post of
+a current mark, with Graham watching, is the check that a changed value persists.
+
+## Linked quizzes, phase 3: overall result (2026-10-13, branch `claude/angry-hopper-5c1f00`)
+
+Built from `docs/superpowers/plans/2026-10-13-linked-quizzes-phase-3.md` (spec §13):
+- **Comment builder:** `server/lib/quizComment.js` (default template by question kinds, placeholders,
+  dropped empty lines, `{frq_levels}` text).
+- **Template:** `quiz_groups.comment_template` (schema and `MIGRATIONS`), `setCommentTemplate`,
+  `PUT /api/quizzes/:id/template`, and the editor in Quiz setup.
+- **Read model:** `server/services/quizResults.js` (MCQ score, percent by tag, confirmed FRQ marks,
+  readiness, the overall suggestion and whether it is stale), `GET /api/quizzes/:id/results`.
+- **Write:** `server/services/quizOverall.js` stores an ordinary suggestion on the Result task through
+  `upsertStudentSuggestion`, with `quiz_overall: { group_id, impression }` in `feedback_json`;
+  **Update numbers** is `POST /api/quizzes/:id/overall/:studentId/rebuild`.
+- **MCP:** `get_quiz_results`, `write_quiz_overall_suggestions`.
+- **UI:** the quiz line and **Update numbers** on the Result task's Grading cards.
+- **Phase 2 follow-ups fixed:** numeric FRQ level, write-back guard, sanitizer attributes, stem images.
+
+**Live check (dev clone on the mini, 2026-10-13, BK 6):** `GET /results` read 6 students, 5 ready (4
+confirmed from Schoology, 1 from Prism) and 1 "Q21 to review". `writeQuizOverallSuggestionsTool` wrote 3
+and refused the fourth with "Not ready: Q21 to review". The Grading tab showed the quiz line and the
+built comment; editing the template in Quiz setup showed "Numbers changed" on all three, and **Update
+numbers** rebuilt one with the new template. The check found the student name wrapping beside the
+badge; fixed (name `nowrap`). Screenshots: the review page, version 6.
+
+**Final review fixes (fresh reviewer, 2026-10-13):** a numeric level in `rubric_scores` is reported per
+student over MCP instead of failing the call (also `write_student_suggestions`); a mark whose points match
+no rubric level is "not on the rubric", never "Q21 null" in a comment; the suggestion stores the comment
+as built (`quiz_overall.built`), so a teacher's edit on the Feedback page is never "Numbers changed" on
+its own and **Update numbers** never overwrites it; Update numbers refreshes the card in place instead
+of reloading the page.
+
+**Suites (2026-10-13):** server and MCP 1650 pass, client 999 pass, `npm run build` ok.
+
+**Deferred (phase 3):**
+- **`PUT /api/quizzes/:id/template` without a body** resets the template to the default; the client
+  always sends one.
+- **`quizResults` queries:** per-tag response lookups repeat, and `overallFor` re-prepares per student.
+  Class-sized data, so no real cost.
+
+**Next:** phase 4 (spec §9, §10): a teacher-approved write probe, then **Post accepted to Schoology**
+behind `quiz_writeback`.
+
+## Linked quizzes, phase 2: FRQ marking (2026-10-13, branch `claude/angry-hopper-5c1f00`)
+
+Built from `docs/superpowers/plans/2026-10-13-linked-quizzes-phase-2.md` (spec §12): `frq_marks` (the
+suggestion layer and the teacher's mark side by side), `frqMarks.js` (suggest, accept, save, keep,
+write-back, detection on every load), `frqResponses.js` (the read model), REST `GET /api/quizzes/:id/frq`
+and `PUT /api/quizzes/:id/frq/:attemptId/:position`, the MCP tools `get_frq_responses`,
+`write_frq_suggestions`, `list_frq_writebacks` and `mark_frq_writeback`, the Free response tab, and a
+nightly `quizzes` sync phase (loaded groups that students sat in the last 28 days). Shuffled options are matched by text.
+
+**Live check (dev clone on the mini, 2026-10-13):** Load results on BK 6 read 6 attempts with
+`marksPosted: 0`; `get_frq_responses` returned plain answers, the rubric and MCQ scores; two example
+suggestions written with `writeFrqSuggestionsTool` showed with the sparkle, Schoology's "S" and the
+filled starting cell; Accept moved a card to Accepted and Waiting to post, and the bar to "1 waiting for
+the agent". Phase 2 only reads Schoology, so posting a mark there and its detection on the next load are
+covered by unit tests rather than live.
+
+**On main 2026-10-13 (`ce95d5e..b39c813`):** server 1604 and client 981 pass, build ok. CI and the
+prod deploy were not checked from the session (`gh run list` was blocked by the permission check).
+
+**Final review fixes (fresh reviewer, 2026-10-13):** a retake of the same test drops the old attempt's
+marks (`storeAttempt`); FRQ cards are keyed by the mark's content, so accepting a revised suggestion
+shows the new mark; the nightly window follows the latest attempt (or the group's creation), because each
+reload renews `loaded_at`; comments compare by spacing only (HTML parsing cut text at `a<b`).
+
+**Deferred follow-ups (phase 2):**
+- **Fixed in phase 3:** the `write_frq_suggestions` numeric level, the `mark_frq_writeback` guard, the
+  sanitizer's `data-`/`aria-` attributes, and stem images on the Free response tab.
+- **Ungraded no-rubric FRQ:** if Schoology stores 0 points for an ungraded answer, a Prism mark of 0 with
+  no comment counts as posted at once.
+
+**Companion change:** `graham-plugins` 8de8cf9, assessment-grader 0.7.0: `grade-theory-test` has a Prism
+route (load, `get_frq_responses`, `write_frq_suggestions`, review on the Free response tab, then posting
+through `list_frq_writebacks`, the schoology plugin's `export-test-results` entry step, and
+`mark_frq_writeback`). The export route is unchanged as the fallback.
+
+**Working notes for the next session (on the mini):**
+- **Dev clone:** a worktree on `claude/angry-hopper-5c1f00` with its own DB (`DB_PATH=<clone>/server/db/students.db npm run db:refresh`); load the Ep 1 data with `scripts/verify-quiz-phase1.js` (it refuses a `DB_PATH` under `~/prism/`, so it runs on the mini).
+- **Client tests:** `npm --prefix client run test -- run` from the repo root (`npm --prefix client exec vitest` keeps the root as cwd and runs the server suite).
+- **Showing Graham screenshots:** publish them on the review page `https://claude.ai/artifact/6G95czH7tcXdzZG4oxBgc3` (student names replaced); images opened with Read did not reach him in a remote session.
+- **Dev server:** a background `npm run dev` stops at the 2-hour task limit; restart it when needed.
+
+**Next:** phase 3 is built (see "Linked quizzes, phase 3" above); then phase 4. Related issues: #83 (comment added), #139 (course-wide results per tag), #78 (reuse `ScoreDots` and
+`LevelBar`), #135.
+
+## Linked quizzes, phase 1 (2026-10-13, branch `claude/angry-hopper-5c1f00`)
+
+Phase 1 shipped: quiz groups (combine a test with its extra-time copy behind a question-parity gate,
+link an aligned Result task), a read-only loader (results page, per-student attempt pages, essay
+rubrics; GET only), the Questions tab (facility, bands, option counts, flags, tags), the Attempt
+link on the cards, gradebook modal and student page, and the quiz controls on the assessment page.
+Spec: `docs/superpowers/specs/2026-10-12-linked-quiz-results-design.md`.
+
+**Live verification (scripted, dev clone on the laptop, DB restored from the 2026-10-11 prod
+snapshot, `scripts/verify-quiz-phase1.js`):**
+- BK 6 (`8544307969` + `8603667595`, Result `8544307980`): 21 questions (20 MCQ, 1 FRQ), parity ok,
+  6 attempts loaded (5 standard, 1 extra-time), 0 failed, 0 unknown uids, MCQ median 85%, FRQ levels
+  Exhibiting Depth 2 and Developing 4, 6 attempt links on the Result task.
+- BK 7 (`8544307924` + `8602127760`, Result `8544307944`): 21 questions (20 MCQ, 1 FRQ), parity ok,
+  9 attempts loaded (8 standard, 1 extra-time), 0 failed, 0 unknown uids, MCQ median 100%, FRQ levels
+  Exhibiting Depth 7, Developing 1 and Emerging 1, 9 attempt links on the Result task.
+- Parity (`scripts/parity-quiz-results.js`, both groups summed against csp-tools'
+  `item_analysis.csv`, which merges both sections): all 20 MCQ counts match on `n` and
+  `round(facility * n)` (15 takers). No differences to explain.
+- Suites at hand-off (after the final-review fixes and a merge of `origin/main`, 2026-10-13): server
+  1555 pass, client 928 pass, `npm run build` ok. After the browser review: server 1556, client 941.
+
+**Browser review (2026-10-13, dev clone on the mini, real Ep 1 data loaded with `scripts/verify-quiz-phase1.js`;
+the counts matched the laptop run exactly):** Graham asked for these fixes, all built test-first:
+- **Assessments list:** an unpublished result task hid the whole folded group, including its published
+  tests. A folded row now stays in the default list while any member test is published.
+- **Folded row and header:** the chip reads "2 linked tests ▾" (titles in a left-aligned `.help-pop` on
+  click), make-up chips read "Make-ups (Test 1)", and rows wrap instead of squeezing the title.
+- **Questions tab:** the whole first line opens a row, stems end in a CSS ellipsis, options drop
+  Schoology's own "a." prefix, an FRQ row shows its level counts (`quizStats` now returns `levels` per
+  FRQ), and takers read "5 + 1 across 2 tests".
+- **Verify script:** it now refuses a `DB_PATH` under `~/prism/` instead of refusing the mini's hostname.
+- **Seen and left as they are:** the Quiz setup modal shows no parity status for an existing group; the
+  gradebook's Ep 1 Result cell is plain points, so its modal (and Attempt link) cannot be opened from
+  there; the student page omits the unpublished Result task, and shows the Attempt link on the test row.
+
+**Phase 1b, charts and tag text (2026-10-13, approved by Graham from screenshots):** `ScoreDots` (MCQ
+dot plot, Dots / Box toggle, name on hover), `LevelBar` (level-coloured stacked bar in the summary and
+on FRQ rows), percent bars per tag, and `quiz_tag_texts` with `set_question_tags(texts)` for each tag's
+full CED wording on hover. `groupStats` returns `mcq.students` and `tagTexts`. Course-wide results per
+tag: #139. Charts are meant for reuse in #78.
+
+**Final review fixes (2026-10-13):** load warnings shown to the teacher (copy mismatch, failed,
+unknown and multi-attempt students); folded tests keep their Make-ups chip on the canonical row; an
+unreachable Schoology is `UNREACHABLE` (502), not an expired session; attempts deleted in Schoology are
+removed on the next load (`summary.removed`); attempt row ids are stable across loads (upsert), so
+phase 2's `frq_marks` can key on `attempt_id`.
+
+**Follow-ups deferred from phase 1 review (do these first where marked):**
+- **Before phase 2 renders student answers:** sanitise HTML. `QuestionsTab.jsx` renders Schoology
+  stem/option HTML with `dangerouslySetInnerHTML` (teacher-authored, accepted for now);
+  `answer_html` is student-authored and must not go in unsanitised.
+- **Before phase 2:** the schema test pins the exact `quiz_%` table list; update it when `frq_marks`
+  is added.
+- **Verify on a live test:** answer options shuffled per student. The parser takes option letters
+  from display order on the attempt page; the 20/20 letter match on Ep 1 suggests review pages use
+  the canonical order, but a test with "randomize answers" on has not been probed. If shuffled, key
+  responses by option content (normalized option HTML) instead of letter.
+- **Loader:** a sign-in bounce mid-load probably shows as `HTTP 0` per student (an in-page fetch that
+  redirects cross-origin to SSO is blocked by CORS), not `NO_SESSION`; consider re-checking `/home`
+  after two consecutive status-0 reads. `summary.notTaken` overcounts when assignees overlap across
+  copies. BUSY is per process (server and PrisMCP can load the same group at once).
+- **Parsers:** an unrecognised `cell-submissions` text reads as not attempted (only `-` observed);
+  `parseQuizQuestions` silently drops a row without a wrapper; multi-select MCQ would be reported as a
+  single choice; image-only stems normalise to `''` and pair by position.
+- **Routes/UI:** `readQuestionLists` runs before the eligibility checks (a 503 can mask a 400);
+  Quiz setup shows on aligned tests; the opening test can be unticked in the modal; the member-page
+  redirect happens after the page has loaded its own data; attempt links are fetched for every
+  assignment, not only quizzes; no indexes on the new tables (class-sized data).
+- **Scripts:** `scripts/parity-quiz-results.js` passes vacuously if Prism has no MCQs for the groups;
+  `scripts/verify-quiz-phase1.js` prints raw failure reasons and mismatch kinds as `unknown`.
+
+**Next:** see "Linked quizzes, phase 2" above (phase 3, then phase 4).

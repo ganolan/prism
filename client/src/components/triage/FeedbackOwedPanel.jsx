@@ -2,11 +2,13 @@ import { Link } from 'react-router-dom';
 import UrgencyRing from './UrgencyRing.jsx';
 import CourseLine from './CourseLine.jsx';
 import { PanelHead, ShowAllToggle, useShowAll, limitRows } from './panelParts.jsx';
+import { assessmentLink, FEEDBACK_OWED_FILTER } from '../../lib/triage.js';
 
 // Assessments with ungraded submissions, longest wait first. The ring shows the
 // school-day number of the oldest wait; day 1 = the start of the wait (the due
 // date, or a late student's submission date). Overdue after day `limit`. The
-// count sits right-aligned as "X/Y" (title: "X of Y ungraded"); no row actions.
+// count sits right-aligned as "X/Y" (title: "X of Y ungraded"); no row actions. A title
+// opens the task's page on To grade + Partly graded + Draft not published.
 // Ids are fixed (triage-feedback) for the Dashboard stats tiles.
 export default function FeedbackOwedPanel({ rows, settings, showCourse, scope, includeFormative, onToggleFormative }) {
   const [showAll, toggleShowAll] = useShowAll(`feedback.${scope}`);
@@ -28,7 +30,7 @@ export default function FeedbackOwedPanel({ rows, settings, showCourse, scope, i
           <UrgencyRing day={r.day} limit={limit} tone={r.tone} approx={r.approx} size={28} />
           <div className="triage-row__text">
             <div className="triage-row__line">
-              <Link className="triage-row__title" to={`/course/${r.courseId}/assessment/${r.schoologyAssignmentId}`} title={r.title}>
+              <Link className="triage-row__title" to={assessmentLink(r, { filter: FEEDBACK_OWED_FILTER })} title={r.title}>
                 {r.title}
               </Link>
               {!r.aligned && <span className="badge badge-formative triage-row__tag">F</span>}

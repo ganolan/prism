@@ -5,6 +5,8 @@ import { getDb } from '../db/index.js';
 import { listRubrics, saveRubric, getRubric, deleteRubric, renameRubric, findRubricByContentHash } from '../services/rubricStore.js';
 import { hashRubricContent } from '../services/rubricHash.js';
 import { parseRubricCsv, templateCsv, exportRubricCsv } from '../services/rubricCsv.js';
+import { getFeedbackRows, rowLevelsError, saveRowLevels, getRowLevels } from '../services/feedbackRows.js';
+import { getAlignedTopics, scoreScaleFor } from '../services/assessmentContext.js';
 import { attachRubric, getAttachmentForAssignment, setMapping, reorderCriteria, detachAttachment } from '../services/rubricAttach.js';
 
 const router = Router();
@@ -77,6 +79,20 @@ router.put('/:id/reorder', (req, res) => {
 router.delete('/attachment/:attachmentId', (req, res) => {
   detachAttachment(getDb(), Number(req.params.attachmentId));
   res.json({ ok: true });
+});
+
+// Save a student's feedback-row levels without touching Schoology (spec
+// 2026-10-13 §5): the card's Save when only rows changed.
+router.put('/row-levels/:assignmentSchoologyId/:studentUid', (req, res) => {
+  const db = getDb();
+  const { assignmentSchoologyId, studentUid } = req.params;
+  const row = db.prepare('SELECT * FROM assignments WHERE schoology_assignment_id = ?').get(String(assignmentSchoologyId));
+  const scale = row ? scoreScaleFor(row, getAlignedTopics(db, row.course_id, row.schoology_assignment_id).length) : null;
+  const rows = getFeedbackRows(db, assignmentSchoologyId, scale)?.rows ?? [];
+  const error = rowLevelsError(rows, req.body?.rowLevels);
+  if (error) return res.status(400).json({ error });
+  saveRowLevels(db, { assignmentSchoologyId, studentUid, rowLevels: req.body.rowLevels });
+  res.json({ ok: true, row_levels: getRowLevels(db, assignmentSchoologyId)[studentUid] || {} });
 });
 
 router.patch('/:id', (req, res) => {

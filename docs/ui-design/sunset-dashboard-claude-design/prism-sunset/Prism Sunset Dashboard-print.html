@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="twilight" data-density="regular">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Prism · Sunset — Mastery Report (Print)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=Spline+Sans+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="theme.css" />
+  <link rel="stylesheet" href="pages.css" />
+  <style>
+    :root { --mono: 'Spline Sans Mono', ui-monospace, monospace; }
+
+    /* ── screen + print shared: static document layout ───────────────────── */
+    body { background: var(--bg); }
+    .pr-doc { max-width: 1040px; margin: 0 auto; padding: 26px 22px 40px; }
+
+    /* unclip the matrix: no scroll cap, no sticky, show everything */
+    .mx-scroll { overflow: visible !important; max-height: none !important; }
+    .mx thead th, .mx tbody th.mx-name, .mx tfoot th.mx-name,
+    .mx-avg, .mx-roll, .mx-foot th, .mx-foot td { position: static !important; }
+    .card { box-shadow: none !important; border-color: var(--border) !important; }
+    .tip, .twk-launcher, .tweaks-root { display: none !important; }
+
+    /* cover */
+    .pr-cover { display: flex; flex-direction: column; gap: 18px; padding-bottom: 20px; margin-bottom: 22px; border-bottom: 2px solid var(--accent-line); }
+    .pr-cover-brand { display: flex; align-items: center; gap: 14px; color: var(--accent); }
+    .pr-cover-name { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; color: var(--text); line-height: 1; }
+    .pr-cover-tag { font-size: 13px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; margin-top: 4px; }
+    .pr-cover-meta { display: grid; grid-template-columns: repeat(5, auto); gap: 10px 34px; }
+    .pr-cover-meta div { display: flex; flex-direction: column; gap: 2px; }
+    .pr-cover-meta span { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-faint); }
+    .pr-cover-meta b { font-size: 13.5px; font-weight: 600; color: var(--text); }
+
+    /* sections */
+    .pr-section { margin-bottom: 26px; }
+    .pr-sec-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 13px; }
+    .pr-sec-n { font-size: 13px; font-weight: 700; color: #fff; background: var(--accent); width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; flex-shrink: 0; }
+    .pr-sec-title { font-size: 18px; font-weight: 800; letter-spacing: -0.02em; }
+    .pr-sec-sub { font-size: 12.5px; color: var(--text-muted); margin-top: 1px; }
+    .pr-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+    .pr-foot { margin-top: 30px; padding-top: 14px; border-top: 1px solid var(--hairline); font-size: 11px; color: var(--text-faint); text-align: center; }
+
+    /* keep cards & rows whole across page breaks */
+    .pr-section .card, .stat, .brk-row, .dv-row, .s2p-result { break-inside: avoid; }
+    .stat-strip { break-inside: avoid; }
+
+    @page { size: portrait; margin: 1.2cm 1cm; }
+
+    @media print {
+      html, body { background: #fff !important; }
+      body { background-image: none !important; }
+      * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+      .pr-doc { max-width: none; margin: 0; padding: 0; }
+      .pr-break { break-before: page; }
+      .pr-section { margin-bottom: 22px; }
+      /* the heatmap page is wide — give it landscape-ish breathing room by shrinking */
+      .mx { font-size: 11px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script src="data.js"></script>
+  <script type="text/babel" src="components.jsx"></script>
+  <script type="text/babel" src="viz.jsx"></script>
+  <script type="text/babel" src="charts.jsx"></script>
+  <script type="text/babel" src="matrix.jsx"></script>
+  <script type="text/babel" src="pages.jsx"></script>
+  <script type="text/babel" src="app-print.jsx"></script>
+</body>
+</html>

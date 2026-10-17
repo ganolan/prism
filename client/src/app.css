@@ -949,6 +949,12 @@ button.filter-btn-link { background: none; border: none; padding: 0; color: var(
   border-top: 1px solid var(--border); padding-top: 0.85rem; margin-top: 0.5rem;
 }
 .sync-foot-actions { display: flex; gap: 0.5rem; }
+/* #143: the run's time per phase, one line each under "Finished in Ns". */
+.sync-foot-summary { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.sync-timings { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.05rem; }
+.sync-timings li { display: flex; justify-content: space-between; gap: 1rem; }
+.sync-timing-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sync-timing-value { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .sync-progress-head h2 { margin: 0; display: flex; align-items: center; gap: 0.5rem; font-size: 1.15rem; }
 .sync-head-ok h2 { color: var(--success); }

@@ -315,6 +315,20 @@ describe('sync runs + events', () => {
     }
   });
 
+  test('GET /sync/metrics returns the per-phase times (#143)', async () => {
+    getDb().prepare(`
+      INSERT INTO sync_metrics (started_at, duration_ms, schoology_ms, blocks_ms, mastery_ms, quizzes_ms, total_ms, failed_assignment_ids)
+      VALUES ('2026-10-17T00:00:00Z', 59000, 60000, 8500, NULL, 4000, 72500, '[]')
+    `).run();
+    const { server, port } = startServer();
+    try {
+      const m = await (await fetch(`http://localhost:${port}/api/sync/metrics`)).json();
+      expect(m).toMatchObject({ schoology_ms: 60000, blocks_ms: 8500, mastery_ms: null, quizzes_ms: 4000, total_ms: 72500, failed_assignment_ids: [] });
+    } finally {
+      server.close();
+    }
+  });
+
   test('keeps only the newest 30 runs', async () => {
     h.impl = async (opts, onEvent) => { onEvent({ type: 'summary', mastery: [], elapsedMs: 1 }); };
     const { server, port } = startServer();

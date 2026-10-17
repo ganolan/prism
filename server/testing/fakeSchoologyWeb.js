@@ -1,5 +1,6 @@
 // A stand-in for Schoology's web surface over HTTP (server/services/schoologyWeb.js):
-// the dropbox view page, the plupload upload endpoint and the AJAX form post.
+// the dropbox view page, the plupload upload endpoint and the AJAX form post,
+// plus any GET routes a test lists (the /iapi and /iapi2 JSON reads, pages).
 // Records every request; never reaches the network.
 export const VIEW_HTML = ({ formAction = '/assignment/A/dropbox/view/U' } = {}) => `<html><head>
 <script type="text/javascript">
@@ -20,13 +21,25 @@ jQuery.extend(Drupal.settings, {"s_common":{"csrf_token":"tok","csrf_key":"key"}
 <input type="hidden" name="form_id" id="edit-s-drop-item-add-comment-form" value="s_drop_item_add_comment_form" />
 </form></body></html>`;
 
-export function fakeSchoologyWeb({ html = VIEW_HTML(), loginRedirect = false, uploadAnswer, onSubmit } = {}) {
+// `routes` answers other GETs: { '/iapi2/x/': spec | (entry) => spec } keyed by
+// pathname, where spec is { status = 200, json, headers? } | { status, text, headers? } | { login: true }
+// (a 302 to sign-in) | { throws: Error } (the request fails outright). entry
+// carries the query string as `query` (URLSearchParams).
+export function fakeSchoologyWeb({ html = VIEW_HTML(), loginRedirect = false, uploadAnswer, onSubmit, routes = {} } = {}) {
   const requests = [];
   const answer = (status, body, headers = {}) => new Response(body, { status, headers });
   async function fetchImpl(url, opts = {}) {
     const u = new URL(url);
-    const entry = { method: opts.method || 'GET', path: u.pathname, headers: opts.headers || {}, body: opts.body };
+    const entry = { method: opts.method || 'GET', path: u.pathname, query: u.searchParams, headers: opts.headers || {}, body: opts.body };
     requests.push(entry);
+    if (entry.method === 'GET' && Object.hasOwn(routes, u.pathname)) {
+      const route = routes[u.pathname];
+      const spec = typeof route === 'function' ? await route(entry) : route;
+      if (spec.throws) throw spec.throws;
+      if (spec.login) return answer(302, '', { location: 'https://login.microsoftonline.com/x' });
+      if ('json' in spec) return answer(spec.status ?? 200, JSON.stringify(spec.json), { 'content-type': 'application/json', ...spec.headers });
+      return answer(spec.status ?? 200, spec.text ?? '', { 'content-type': 'text/html', ...spec.headers });
+    }
     if (entry.method === 'GET' && u.pathname.includes('/dropbox/view/')) {
       if (loginRedirect) return answer(302, '', { location: 'https://login.microsoftonline.com/x' });
       return answer(200, html, { 'set-cookie': 'SESS=new; path=/' });

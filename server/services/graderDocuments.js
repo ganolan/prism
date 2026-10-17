@@ -1,40 +1,41 @@
 /**
  * graderDocuments.js
  *
- * Browser-session fetch for the grader's per-assignment document lists, which
- * carry the true lti_submission state (submitted / in_progress / not_started).
- * Reuses an existing Playwright BrowserContext (the same session as GHD/mastery)
- * — see graderSubmissions.createSubmissionFetcher. Best-effort: returns null on
- * any failure so the caller falls back cleanly. Never throws into the sync.
+ * Reads the grader's per-assignment document lists, which carry the true
+ * lti_submission state (submitted / in_progress / not_started):
+ * `GET /iapi2/assignments/{aid}/submitted-documents/` and `/in-progress-documents/`.
+ * Plain HTTP with the saved session's cookies (schoologyWeb.js, #141), no browser:
+ * the browser path ran the same two GETs as an in-page fetch after loading /home.
+ * `web` is the sync's shared { jar, fetchImpl, onSessionExpired? }
+ * (graderSubmissions.createSubmissionFetcher).
+ * Best-effort: returns null on any failure so the caller falls back cleanly.
+ * Never throws into the sync.
  */
 import { buildSubmissionResult } from '../lib/parseGraderDocuments.js';
-import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
+import { getJson, WebSessionError } from './schoologyWeb.js';
 
 /**
- * @param {import('playwright').BrowserContext} context  logged-in context
+ * @param {{ jar, fetchImpl?: typeof fetch, onSessionExpired?: () => void }} web
  * @param {string} assignmentId
  * @returns {Promise<{ states: Map<string,string>, details: Map<string,{submittedAt:number|null, late:0|1}> } | null>}
  *   states = uid → 3-way submission state; details = submittedAt/late for the
  *   submitted students (#125). null on total failure.
  */
-export async function fetchAssignmentSubmissionState(context, assignmentId) {
-  const page = await context.newPage();
+export async function fetchAssignmentSubmissionState(web, assignmentId) {
+  const io = { fetchImpl: web.fetchImpl };
+  // A list that is not a 200 JSON answer counts as missing, as before (a test's
+  // lists are 403: dropbox / LTI only).
+  const get = async (list) => {
+    const r = await getJson(web.jar, `/iapi2/assignments/${encodeURIComponent(assignmentId)}/${list}/`, io);
+    return r.status === 200 ? r.json : null;
+  };
   try {
-    await page.goto(`${SCHOOLOGY_BASE}/home`, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    if (!isLoggedInUrl(page.url())) return null;
-    const get = (path) => page.evaluate(async (u) => {
-      const r = await fetch(u, { headers: { Accept: 'application/json' }, credentials: 'include' });
-      if (r.status !== 200) return null;
-      try { return JSON.parse(await r.text()); } catch { return null; }
-    }, `${SCHOOLOGY_BASE}/iapi2/assignments/${assignmentId}/${path}/`);
-    // Sequential, NOT Promise.all: two concurrent page.evaluate() calls on the
-    // same page race, and the in-progress fetch can silently drop (#62 e2e).
-    const submitted = await get('submitted-documents');
-    const inProgress = await get('in-progress-documents');
+    // Plain HTTP, so the two reads can run together (the browser path had to run
+    // them one after the other: two page.evaluate() calls on one page raced, #62).
+    const [submitted, inProgress] = await Promise.all([get('submitted-documents'), get('in-progress-documents')]);
     return buildSubmissionResult(submitted, inProgress);
-  } catch {
+  } catch (err) {
+    if (err instanceof WebSessionError && err.code === 'SESSION_EXPIRED') web.onSessionExpired?.();
     return null;
-  } finally {
-    await page.close().catch(() => {});
   }
 }

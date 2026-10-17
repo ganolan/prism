@@ -26,17 +26,20 @@ jQuery.extend(Drupal.settings, {"s_common":{"csrf_token":"tok","csrf_key":"key"}
 // (a 302 to sign-in) | { throws: Error } (the request fails outright). entry
 // carries the query string as `query` (URLSearchParams). `routes` may instead be
 // one function (entry) => spec | undefined, for paths a test builds as it goes
-// (undefined → the default handlers, then 404).
+// (undefined → the default handlers, then 404). A key 'POST /path' answers a
+// POST (entry.json holds a JSON body, parsed); a bare path answers GETs only.
 export function fakeSchoologyWeb({ html = VIEW_HTML(), loginRedirect = false, uploadAnswer, onSubmit, routes = {} } = {}) {
   const requests = [];
   const answer = (status, body, headers = {}) => new Response(body, { status, headers });
   async function fetchImpl(url, opts = {}) {
     const u = new URL(url);
     const entry = { method: opts.method || 'GET', path: u.pathname, query: u.searchParams, headers: opts.headers || {}, body: opts.body };
+    if (typeof opts.body === 'string') { try { entry.json = JSON.parse(opts.body); } catch { /* not JSON */ } }
     requests.push(entry);
-    const route = entry.method !== 'GET' ? undefined
-      : typeof routes === 'function' ? routes
-        : Object.hasOwn(routes, u.pathname) ? routes[u.pathname] : undefined;
+    const keyed = `${entry.method} ${u.pathname}`;
+    const route = typeof routes === 'function' ? routes
+      : Object.hasOwn(routes, keyed) ? routes[keyed]
+        : entry.method === 'GET' && Object.hasOwn(routes, u.pathname) ? routes[u.pathname] : undefined;
     const spec = typeof route === 'function' ? await route(entry) : route;
     if (spec) {
       if (spec.throws) throw spec.throws;

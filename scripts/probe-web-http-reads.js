@@ -4,7 +4,7 @@
 // Refuses any path holding "unsubmit" or "delete" (GET-href write actions).
 // Usage (repo root): node scripts/probe-web-http-reads.js <path> [<path>...]
 //   e.g. /iapi2/assignments/123/submitted-documents/
-import { cookieJar, getResource } from '../server/services/schoologyWeb.js';
+import { cookieJar, getResource, drupalSettings } from '../server/services/schoologyWeb.js';
 
 const paths = process.argv.slice(2);
 if (!paths.length) { console.error('Usage: node scripts/probe-web-http-reads.js <path> [<path>...]'); process.exit(1); }
@@ -30,6 +30,21 @@ for (const path of paths) {
     try { summary = shape(JSON.parse(r.text)); } catch { summary = `non-JSON ${r.text.length} bytes`; }
     const limits = [...r.headers].filter(([k]) => /retry-after|ratelimit|rate-limit/i.test(k)).map(([k, v]) => `${k}=${v}`).join(' ');
     console.log(`${mask(path)}: ${r.status} ${r.contentType || ''} ${Date.now() - t} ms ${summary}${limits ? ` [${limits}]` : ''}`);
+    // SETTINGS=1: the page's merged Drupal.settings, top-level keys only, and whether the CSRF pair is there.
+    if (process.env.SETTINGS) {
+      const s = drupalSettings(r.text);
+      console.log(`  Drupal.settings: ${s ? Object.keys(s).length : 0} keys; s_common CSRF pair: ${Boolean(s?.s_common?.csrf_token && s?.s_common?.csrf_key)}; s_attachment: ${Boolean(s?.s_attachment)}`);
+    }
+    // GREP=<regex>: where the answer mentions it (40 characters either side, digit runs masked).
+    if (process.env.GREP) {
+      const re = new RegExp(process.env.GREP, 'gi');
+      let n = 0;
+      for (const m of r.text.matchAll(re)) {
+        if (n++ >= 8) break;
+        console.log(`  …${r.text.slice(Math.max(0, m.index - 40), m.index + m[0].length + 40).replace(/\s+/g, ' ').replace(/\d{5,}/g, (d) => `<${d.length} digits …${d.slice(-3)}>`)}…`);
+      }
+      console.log(`  ${[...r.text.matchAll(re)].length} match(es) for /${process.env.GREP}/`);
+    }
     if (r.status === 429 && process.env.SHOW_429) console.log([...r.headers].map(([k, v]) => `  ${k}: ${k === 'set-cookie' ? '<…>' : v}`).join('\n'), `\n  body: ${r.text.slice(0, 200).replace(/\s+/g, ' ')}`);
   } catch (err) {
     console.log(`${mask(path)}: ${err.code || 'ERROR'} ${err.message} (${Date.now() - t} ms)`);

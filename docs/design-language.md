@@ -1326,3 +1326,12 @@ A student's Schoology submission comment thread, read in Prism (spec `docs/super
 - **Files on comments:** each file is a link chip with its size, served through Prism (`.comment-file`); a student's file is amber (`.comment-file--student`). A student file without typed text badges the card **File in comments**, and turns the chip and cell bubble amber like typed text.
 - **Attach file:** a secondary button beside Post comment; the chosen file shows as a chip with Remove (`.comment-file`), and the confirmation names it.
 - **Writes confirm inline:** Post comment and Delete each open a red confirmation (`.comment-confirm`) naming the student, because a post reaches the student at once. Delete appears only on your own comments.
+
+## Assessment page filter controls (October 2026)
+
+Chosen 17/10/2026 from three mockups (tri-state pill, tray, segmented): option A, with Refine moved to the end of the Watch row.
+
+- **Group pill:** each reason row opens with an outlined pill holding a select-all checkbox: empty box = none on, dash = some on, tick on a filled pill = all on. Its count is how many students have any reason in that row. Needs action uses the accent; Watch the muted ink. A thin divider separates it from the row's pills. It shows only when the row has a pill.
+- **Refine:** an outline button with a filter icon at the end of the Watch row, a count badge for its active pills and a ▾/▴ chevron. Its pills open in a white box under the rows, groups separated by space (dividers left a stray line when the pills wrapped). "Ask to resubmit" is gone: Resubmission pending + overdue cover it.
+- **Status line:** under the rows, "Showing 10 of 20 students" (or "Showing all 20 students"), the "N no longer match. Update the list" note when the frozen list has resolved cards, and a red-outlined **Clear all** with an × icon while any filter is on.
+- **Watch labels:** "Late" (was "Late, before the limit"); new **Referred, not submitted** for a referred student whose work has still not come in (chip "Referred 12/10, not submitted"). Past the limit and not yet referred stays **Referral to decide** in Needs action.

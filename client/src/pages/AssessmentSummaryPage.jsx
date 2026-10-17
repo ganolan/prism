@@ -2408,13 +2408,15 @@ export default function AssessmentSummaryPage() {
           })}
           onClear={() => setActiveFilters(new Set())}
           hasDraft={hasDraft}
+          shown={shownCount}
+          total={students.length}
+          footer={resolvedCount > 0 && (
+            <>
+              {'. '}{resolvedCount} no longer {resolvedCount === 1 ? 'matches' : 'match'}.{' '}
+              <button type="button" className="filter-btn-link" onClick={() => setFilterEpoch(n => n + 1)}>Update the list</button>
+            </>
+          )}
         />
-        {resolvedCount > 0 && (
-          <p className="text-sm text-muted" style={{ margin: '0.35rem 0 0' }}>
-            {resolvedCount} shown {resolvedCount === 1 ? 'student no longer matches' : 'students no longer match'} the filter.{' '}
-            <button type="button" className="ghost btn-sm" onClick={() => setFilterEpoch(n => n + 1)}>Update the list</button>
-          </p>
-        )}
         {quizGroup && <QuizLoadWarnings group={quizGroup} students={students} />}
         {quizGroup && (
           <div role="tablist" aria-label="Quiz views" style={{ display: 'flex', gap: '0.25rem', marginTop: '0.4rem' }}>

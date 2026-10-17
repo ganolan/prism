@@ -1758,7 +1758,7 @@ describe('AssessmentSummaryPage Needs action / Watch', () => {
     renderPage(mastery);
     await waitFor(() => expect(screen.getByText('Ada L')).toBeInTheDocument());
     fireEvent.click(pill(/^To grade1/));
-    fireEvent.click(pill(/^Late, before the limit1/));
+    fireEvent.click(pill(/^Late1/));
     expect(screen.getByText('Ada L')).toBeVisible();
     expect(screen.getByText('Bob M')).toBeVisible();
     expect(screen.getByText('Cy N')).not.toBeVisible();
@@ -1770,7 +1770,7 @@ describe('AssessmentSummaryPage Needs action / Watch', () => {
     fireEvent.click(pill(/^Flagged for review1/));
     expect(screen.getByText('Ada L')).not.toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Clear review flag' }));
-    await waitFor(() => expect(screen.getByText(/1 shown student no longer matches/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/1 no longer matches/)).toBeInTheDocument());
     expect(screen.getByText('Cy N')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Update the list' }));
     expect(screen.getByText('Cy N')).not.toBeVisible();

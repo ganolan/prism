@@ -67,7 +67,6 @@ export function filterGroups(assignment) {
       { id: 'not_visible', label: 'Not visible' },
     ] },
     { key: 'flag', pills: [{ id: 'review', label: 'Flag for review' }] },
-    { key: 'resubmit', pills: [{ id: 'resubmit', label: 'Ask to resubmit' }] },
   ];
 }
 
@@ -90,8 +89,6 @@ export function studentMatchesPill(student, pillId, { assignment, topics }) {
       return hasTeacherComment(student) && student.comment_status !== 1;
     case 'review':
       return student.review_flag != null;
-    case 'resubmit':
-      return student.resubmit_flag != null;
     default:
       return true;
   }
@@ -120,7 +117,7 @@ export function countMatches(students, pillId, ctx) {
 const NONSTATUS_TONE = {
   ungraded: 'neutral', partial: 'yellow', graded: 'green',
   visible: 'blue', not_visible: 'neutral',
-  review: 'yellow', resubmit: 'resubmit',
+  review: 'yellow',
 };
 
 // Status pills take the gradebook's due-date-aware tone for a hypothetical
@@ -162,7 +159,8 @@ export const REASONS = {
   flagged: { group: 'action', label: 'Flagged for review', tone: 'yellow' },
   not_started_soon: { group: 'watch', label: 'Not started, due soon', tone: 'yellow' },
   in_progress_late: { group: 'watch', label: 'In progress, past due', tone: 'blue' },
-  late: { group: 'watch', label: 'Late, before the limit', tone: 'yellow' },
+  late: { group: 'watch', label: 'Late', tone: 'yellow' },
+  referred_missing: { group: 'watch', label: 'Referred, not submitted', tone: 'red' },
   resubmission_pending: { group: 'watch', label: 'Resubmission pending', tone: 'resubmit' },
 };
 export const REASON_IDS = Object.keys(REASONS);
@@ -181,6 +179,7 @@ export function reasonText(r) {
         ? `Referral to decide, submitted ${schoolDays(r.daysLate)} late`
         : `Referral to decide, ${schoolDays(r.daysLate)} late`;
     case 'late': return `Late, ${schoolDays(r.daysLate)}`;
+    case 'referred_missing': return r.referredOn ? `Referred ${ddmm(r.referredOn)}, not submitted` : 'Referred, not submitted';
     case 'in_progress_late': return `In progress, ${schoolDays(r.daysLate)} late`;
     case 'not_started_soon':
       return r.schoolDaysLeft === 0 ? 'Not started, due today' : `Not started, due in ${schoolDays(r.schoolDaysLeft)}`;
@@ -225,7 +224,7 @@ export function countReasons(students, ctx) {
 
 // Every pill id the page knows (reasons + Refine), for reading ?filter= from a link.
 // A group name ('action', 'watch') stands for every reason in that row.
-const REFINE_IDS = ['submitted', 'in_progress', 'not_started', 'ungraded', 'partial', 'graded', 'visible', 'not_visible', 'review', 'resubmit'];
+const REFINE_IDS = ['submitted', 'in_progress', 'not_started', 'ungraded', 'partial', 'graded', 'visible', 'not_visible', 'review'];
 export function parseFilterParam(param) {
   const known = new Set([...REASON_IDS, ...REFINE_IDS]);
   const ids = String(param || '').split(',').map(x => x.trim())

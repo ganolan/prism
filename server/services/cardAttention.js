@@ -11,12 +11,14 @@
 //
 // → Map(studentId → { handedIn, reasons: [{ id, ...detail }] }). Reason ids:
 //   action: 'referral', 'resubmission_overdue', 'make_up'
-//   watch:  'late', 'in_progress_late', 'not_started_soon', 'resubmission_pending'
+//   watch:  'late', 'in_progress_late', 'not_started_soon', 'resubmission_pending',
+//           'referred_missing' (referred, and the work has still not come in)
 
-import { todayLocal } from '../lib/schoolDays.js';
+import { todayLocal, epochToLocalDate } from '../lib/schoolDays.js';
+import { sqliteUtcToEpoch } from '../lib/resubmission.js';
 import { loadCalendar } from './schoolCalendar.js';
 import { getTriageSettings } from './settings.js';
-import { getTriage, isSubmitted, extensionUntil } from './triage.js';
+import { getTriage, isSubmitted, extensionUntil, assignmentFacts, studentState } from './triage.js';
 
 export function attentionByStudent(db, { assignment, students, today = todayLocal() }) {
   const out = new Map(students.map((s) => [s.id, { handedIn: false, reasons: [] }]));
@@ -72,9 +74,22 @@ export function attentionByStudent(db, { assignment, students, today = todayLoca
   `).all(assignment.id).map((r) => r.student_id));
   const lti = Number(assignment.is_lti_submission) === 1;
 
+  // Referred students whose work has still not come in (a referral takes the pair off
+  // Late work for good; waived pairs had already handed it in).
+  const referred = new Map(db.prepare(`SELECT student_id, created_at FROM referrals WHERE assignment_id = ? AND action = 'referred'`)
+    .all(assignment.id).map((r) => [r.student_id, r.created_at]));
+  const facts = referred.size ? assignmentFacts(db, assignment) : null;
+
   for (const s of students) {
     const g = grades.get(s.id) || {};
     if (Number(g.exception) === 1) continue; // excused
+    if (referred.has(s.id)) {
+      const st = studentState(assignment, facts, s);
+      if (!st.submitted && !st.scored) {
+        add(s.id, { id: 'referred_missing', referredOn: epochToLocalDate(sqliteUtcToEpoch(referred.get(s.id))), tone: 'red' });
+      }
+      continue;
+    }
     const late = lateRow.get(s.id);
     if (late?.tone === 'red') continue; // already a referral to decide
     const state = lti ? g.lti_submission_state : null;

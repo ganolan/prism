@@ -652,15 +652,44 @@ button.btn-sm { padding: 0.3rem 0.65rem; font-size: 0.78rem; }
    property would fight with; outline is a separate box the card never sets. */
 .student-card--highlight { animation: student-card-pulse 2s ease-out; }
 /* /assessment/ filter rows (Needs action, Watch, Refine) and the matching reason
-   chips under each card header. */
-.assessment-filter-bar { display: flex; flex-direction: column; gap: 0.35rem; padding-top: 0.5rem; }
+   chips under each card header. Design: docs/design-language.md, "Assessment page
+   filter controls" (option A, 17/10/2026). */
+.assessment-filter-bar { display: flex; flex-direction: column; gap: 0.4rem; padding-top: 0.5rem; }
 .assessment-filter-row { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
-.assessment-filter-row__label { min-width: 6.5rem; }
-/* The row label as a button: selects (or clears) the whole row. Text-styled, so the
-   row reads the same; underlined on hover and accent-coloured while the row is all on. */
-button.assessment-filter-row__group { background: none; border: none; padding: 0; text-align: left; cursor: pointer; font: inherit; font-size: 0.85rem; color: var(--text-muted); }
-button.assessment-filter-row__group:hover { color: var(--accent); text-decoration: underline; }
-button.assessment-filter-row__group[aria-pressed="true"] { color: var(--accent); font-weight: 600; }
+.assessment-filter-row__sep { width: 1px; height: 20px; background: var(--border); margin: 0 0.15rem; }
+/* Group pill: an outlined pill with a select-all checkbox (empty = none, dash = some,
+   tick on a filled pill = all). Needs action in the accent; Watch in the muted ink. */
+button.group-pill { --gp: var(--accent); display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.28rem 0.75rem 0.28rem 0.55rem;
+  border-radius: 999px; border: 1.5px solid var(--gp); background: var(--card-bg); color: var(--gp); font-size: 0.78rem; font-weight: 700; cursor: pointer; }
+button.group-pill--watch { --gp: var(--text-muted); }
+button.group-pill:hover { background: var(--accent-subtle); }
+.group-pill__box { width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid currentColor; display: grid; place-items: center; }
+.group-pill__box::after { content: ''; width: 8px; height: 2px; border-radius: 1px; background: currentColor; opacity: 0; }
+.group-pill[data-state="some"] .group-pill__box::after { opacity: 1; }
+button.group-pill[data-state="all"] { background: var(--gp); color: #fff; }
+.group-pill[data-state="all"] .group-pill__box { background: #fff; border-color: #fff; }
+.group-pill[data-state="all"] .group-pill__box::after { opacity: 1; width: 4px; height: 8px; background: none; border: solid var(--gp);
+  border-width: 0 2px 2px 0; border-radius: 0; transform: rotate(45deg) translate(-1px, -1px); }
+.group-pill__n { font-weight: 700; opacity: 0.8; }
+/* Refine (end of the Watch row) and Clear all (status line): real buttons with icons. */
+.filter-icon { width: 13px; height: 13px; flex-shrink: 0; }
+button.filter-btn-outline { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.3rem 0.7rem; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--card-bg); color: var(--text); font-size: 0.78rem; font-weight: 600; cursor: pointer; }
+button.filter-btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+.filter-btn-outline__badge { background: var(--accent); color: #fff; border-radius: 999px; font-size: 0.68rem; padding: 0 0.4rem; line-height: 16px; }
+.filter-btn-outline__chev { font-size: 0.7rem; opacity: 0.7; }
+button.filter-btn-clear { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.3rem 0.7rem; border-radius: 8px;
+  border: 1px solid var(--badge-red-bg); background: var(--card-bg); color: var(--badge-red-text); font-size: 0.78rem; font-weight: 600; cursor: pointer; }
+button.filter-btn-clear:hover { background: var(--badge-red-bg); }
+button.filter-btn-link { background: none; border: none; padding: 0; color: var(--accent); font: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.assessment-filter-refine { padding: 0.45rem 0.6rem; background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; }
+.assessment-filter-refine { column-gap: 1rem; }
+.assessment-filter-refine__group { display: inline-flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.assessment-filter-refine__label { font-size: 0.78rem; font-weight: 600; color: var(--text-muted); margin-right: 0.2rem; }
+.assessment-filter-status { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap;
+  padding-top: 0.4rem; border-top: 1px solid var(--border); min-height: 2.1rem; }
+.assessment-filter-status__count { font-size: 0.82rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.assessment-filter-status__count b { color: var(--text); }
 .reason-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 .reason-chip { display: inline-flex; align-items: center; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; }
 @keyframes student-card-pulse {

@@ -46,7 +46,7 @@ describe('AssessmentFilterBar', () => {
   });
   it('opens Refine by itself when one of its pills is active', () => {
     render(<AssessmentFilterBar students={students} assignment={LTI} topics={TOPICS} active={new Set(['submitted'])} onToggle={() => {}} />);
-    expect(screen.getByRole('button', { name: /Refine \(1\)/ })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: /^Refine\s*1/ })).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('shows Needs action and Watch pills only for reasons some student has', () => {
@@ -55,14 +55,14 @@ describe('AssessmentFilterBar', () => {
     const action = screen.getByRole('group', { name: 'Needs action' });
     expect(within(action).getByText('Nothing needs action')).toBeInTheDocument();
     expect(within(action).queryByRole('button')).toBeNull();
-    expect(within(screen.getByRole('group', { name: 'Watch' })).getByRole('button', { name: /Late, before the limit1/ })).toBeInTheDocument();
+    expect(within(screen.getByRole('group', { name: 'Watch' })).getByRole('button', { name: /^Late1/ })).toBeInTheDocument();
   });
 
-  it('names an empty row and offers Clear filters while anything is selected', () => {
+  it('names an empty row and offers Clear all while anything is selected', () => {
     const onClear = vi.fn();
     render(<AssessmentFilterBar students={[]} assignment={LTI} topics={TOPICS} active={new Set(['late'])} onToggle={() => {}} onClear={onClear} />);
     expect(screen.getByText('Nothing needs action')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear all' }));
     expect(onClear).toHaveBeenCalled();
   });
   it('hides a reason pill no student has, even while it is selected', () => {
@@ -73,23 +73,33 @@ describe('AssessmentFilterBar', () => {
     expect(within(action).queryByRole('button', { name: /Draft not published/ })).toBeNull();
   });
 
-  it('the row label selects every pill in its row, then clears the whole row', () => {
+  it('the group pill shows none / some / all, selects every pill in its row, then clears the whole row', () => {
     const many = [
       { ...students[0], scores: {}, grade_comment: '', attention: { handedIn: true, reasons: [] } },
       { ...students[1], review_flag: { id: 1 }, attention: { handedIn: false, reasons: [] } },
     ];
     const onSetMany = vi.fn();
-    const { rerender } = render(<AssessmentFilterBar students={many} assignment={LTI} topics={TOPICS} active={new Set(['to_grade'])} onToggle={() => {}} onSetMany={onSetMany} />);
-    const label = screen.getByRole('button', { name: 'Needs action:' });
-    expect(label).toHaveAttribute('aria-pressed', 'false');
-    fireEvent.click(label);
+    const bar = (active) => <AssessmentFilterBar students={many} assignment={LTI} topics={TOPICS} active={new Set(active)} onToggle={() => {}} onSetMany={onSetMany} />;
+    const { rerender } = render(bar([]));
+    const group = screen.getByRole('button', { name: /^Needs action\s*2$/ }); // 2 students have a Needs action reason
+    expect(group).toHaveAttribute('aria-pressed', 'false');
+    rerender(bar(['to_grade']));
+    expect(group).toHaveAttribute('aria-pressed', 'mixed');
+    fireEvent.click(group);
     expect(onSetMany).toHaveBeenLastCalledWith(['to_grade', 'flagged'], true);
-    rerender(<AssessmentFilterBar students={many} assignment={LTI} topics={TOPICS} active={new Set(['to_grade', 'flagged'])} onToggle={() => {}} onSetMany={onSetMany} />);
-    expect(label).toHaveAttribute('aria-pressed', 'true');
-    fireEvent.click(label);
+    rerender(bar(['to_grade', 'flagged']));
+    expect(group).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(group);
     const [ids, on] = onSetMany.mock.lastCall;
     expect(on).toBe(false);
     expect(ids).toEqual(expect.arrayContaining(['to_grade', 'flagged', 'draft', 'feedback_hidden', 'referral']));
   });
+
+  it('states how many students show; Refine sits at the end of the Watch row', () => {
+    render(<AssessmentFilterBar students={students} assignment={LTI} topics={TOPICS} active={new Set(['submitted'])} onToggle={() => {}} shown={1} total={2} />);
+    expect(screen.getByText(/Showing/)).toHaveTextContent('Showing 1 of 2 students');
+    expect(within(screen.getByRole('group', { name: 'Watch' })).getByRole('button', { name: /^Refine/ })).toBeInTheDocument();
+  });
+
 });
 

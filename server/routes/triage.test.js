@@ -718,7 +718,7 @@ describe('GET /api/triage/pair', () => {
     const r = await call('POST', '/api/triage/referrals', { studentId, assignmentId, action: 'referred' });
     const { body } = await call('GET', `/api/triage/pair?studentId=${studentId}&assignmentId=${assignmentId}`);
     expect(body.late_work).toBeNull();
-    expect(body.attention.reasons).toEqual([]);
+    expect(body.attention.reasons).toEqual([expect.objectContaining({ id: 'referred_missing' })]); // still not handed in
     expect(body.timeline.referral).toMatchObject({ id: r.body.id, action: 'referred' });
     await call('DELETE', `/api/triage/referrals/${r.body.id}`);
   });

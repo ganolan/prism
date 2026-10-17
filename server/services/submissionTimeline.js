@@ -194,6 +194,9 @@ export function pairState(db, { studentId, assignmentId }) {
   return {
     timeline: timelineForPair(db, { studentId, assignmentId }),
     late_work: lateWorkByStudent(db, { courseId: a.course_id, assignmentId, studentId: Number(studentId) }).get(Number(studentId)) || null,
-    attention: attentionByStudent(db, { assignment: a, students: [{ id: Number(studentId) }] }).get(Number(studentId)),
+    attention: attentionByStudent(db, {
+      assignment: a,
+      students: [db.prepare('SELECT id, schoology_uid FROM students WHERE id = ?').get(Number(studentId)) || { id: Number(studentId) }],
+    }).get(Number(studentId)),
   };
 }

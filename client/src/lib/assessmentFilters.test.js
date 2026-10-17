@@ -130,10 +130,6 @@ describe('studentMatchesPill (visibility + flag + resubmit)', () => {
     expect(studentMatchesPill(stu({ review_flag: { id: 1 } }), 'review', ctx)).toBe(true);
     expect(studentMatchesPill(stu(), 'review', ctx)).toBe(false);
   });
-  it('resubmit matches a resubmit_flag', () => {
-    expect(studentMatchesPill(stu({ resubmit_flag: { id: 2 } }), 'resubmit', ctx)).toBe(true);
-    expect(studentMatchesPill(stu(), 'resubmit', ctx)).toBe(false);
-  });
 });
 
 describe('studentReasons (Needs action + Watch)', () => {
@@ -190,6 +186,7 @@ describe('reasonText / reasonTone', () => {
     expect(reasonText({ id: 'not_started_soon', schoolDaysLeft: 2 })).toBe('Not started, due in 2 school days');
     expect(reasonText({ id: 'resubmission_pending', until: '2026-10-20' })).toBe('Resubmission due 20/10');
     expect(reasonText({ id: 'resubmission_overdue', until: '2026-10-14' })).toBe('Resubmission overdue, due 14/10');
+    expect(reasonText({ id: 'referred_missing', referredOn: '2026-10-12' })).toBe('Referred 12/10, not submitted');
     expect(reasonText({ id: 'to_grade' })).toBe('To grade');
   });
   it('late clocks take the triage tone; others their fixed tone', () => {
@@ -207,6 +204,6 @@ describe('parseFilterParam', () => {
   });
   it('a group name stands for every reason in its row', () => {
     expect([...parseFilterParam('action')]).toEqual(['to_grade', 'partly_graded', 'draft', 'feedback_hidden', 'resubmitted', 'referral', 'resubmission_overdue', 'make_up', 'flagged']);
-    expect([...parseFilterParam('watch,submitted')]).toEqual(['not_started_soon', 'in_progress_late', 'late', 'resubmission_pending', 'submitted']);
+    expect([...parseFilterParam('watch,submitted,resubmit')]).toEqual(['not_started_soon', 'in_progress_late', 'late', 'referred_missing', 'resubmission_pending', 'submitted']);
   });
 });

@@ -71,12 +71,15 @@ describe('attentionByStudent: late work (summative)', () => {
     expect(reasonsFor(recent, [maya])[0]).toEqual([{ id: 'late', daysLate: 4, tone: 'green' }]);
   });
 
-  test('a referred pair needs no decision', () => {
+  test('a referred pair needs no decision; while the work is missing it is "referred, not submitted"', () => {
     const maya = student('u1', 'Maya');
     const a = assignment('2026-10-05');
     recordReferral(db, { studentId: maya.id, assignmentId: a.id, action: 'referred', today: TODAY });
+    expect(reasonsFor(a, [maya])[0]).toEqual([{ id: 'referred_missing', referredOn: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), tone: 'red' }]);
+    grade(maya.id, a.id, { submission_type: 'drop', submitted_at: 1, late: 1 });
     expect(reasonsFor(a, [maya])[0]).toEqual([]);
   });
+
 
   test('excused students, and submitted work, are left out', () => {
     const maya = student('u1', 'Maya');

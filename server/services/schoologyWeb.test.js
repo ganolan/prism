@@ -1,11 +1,18 @@
 import { describe, test, expect } from 'vitest';
-import { drupalSettings, formFields, uploadAttachment, getPage, getResource, getJson } from './schoologyWeb.js';
+import { drupalSettings, formFields, uploadAttachment, getPage, getResource, getJson, postJson } from './schoologyWeb.js';
 import { VIEW_HTML, fakeSchoologyWeb } from '../testing/fakeSchoologyWeb.js';
 
 describe('schoologyWeb parsing', () => {
   test('reads Drupal.settings from the page', () => {
     expect(drupalSettings(VIEW_HTML())).toMatchObject({ s_common: { csrf_token: 'tok' }, s_attachment: { chunk_size: 70000 } });
     expect(drupalSettings('<html></html>')).toBeNull();
+  });
+  test('merges every Drupal.settings block, in page order, in the real `}); //--><!]]> </script>` form', () => {
+    const block = (o) => `<script type="text/javascript"> <!--//--><![CDATA[//><!-- jQuery.extend(Drupal.settings, ${JSON.stringify(o)}); //--><!]]> </script>`;
+    const html = `<html>${block({ basePath: '/', a: 1 })}<p>x</p>${block({ s_common: { csrf_token: 't', csrf_key: 'k' }, a: 2 })}</html>`;
+    expect(drupalSettings(html)).toEqual({ basePath: '/', a: 2, s_common: { csrf_token: 't', csrf_key: 'k' } });
+    expect(drupalSettings(`<script>jQuery.extend(Drupal.settings, {"x":1});</script>`)).toEqual({ x: 1 });
+    expect(drupalSettings(`<script>jQuery.extend(Drupal.settings, {not json});</script>`)).toBeNull();
   });
   test('reads one form: hidden fields decoded, the textarea, the submit button', () => {
     const f = formFields(VIEW_HTML(), 's-drop-item-add-comment-form');
@@ -57,6 +64,22 @@ describe('getResource / getJson', () => {
     const web = fakeSchoologyWeb({ routes: { '/t/': { throws: timeout }, '/l/': { login: true } } });
     await expect(getResource(web.jar, '/t/', { fetchImpl: web.fetchImpl })).rejects.toMatchObject({ code: 'HTTP', message: expect.stringContaining('timed out') });
     await expect(getJson(web.jar, '/l/', { fetchImpl: web.fetchImpl })).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });
+  });
+});
+
+describe('postJson', () => {
+  const csrf = { csrf_token: 't', csrf_key: 'k' };
+  test('a JSON POST with the CSRF pair and X-Requested-With; any status is an answer', async () => {
+    const web = fakeSchoologyWeb({ routes: { 'POST /api/search': (e) => ({ status: e.json.q === 1 ? 200 : 403, json: { data: e.json.q === 1 ? [1] : null } }) } });
+    expect(await postJson(web.jar, '/api/search', { q: 1 }, { csrf, fetchImpl: web.fetchImpl })).toMatchObject({ status: 200, json: { data: [1] } });
+    expect(await postJson(web.jar, '/api/search', { q: 2 }, { csrf, fetchImpl: web.fetchImpl })).toMatchObject({ status: 403, json: { data: null } });
+    expect(web.requests[0].headers).toMatchObject({ cookie: 'SESS=old', 'Content-Type': 'application/json', Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-Token': 't', 'X-CSRF-Key': 'k' });
+  });
+  test('no CSRF pair: refused before sending; a redirect to sign-in is SESSION_EXPIRED', async () => {
+    const web = fakeSchoologyWeb({ routes: { 'POST /api/search': { login: true } } });
+    await expect(postJson(web.jar, '/api/search', {}, { csrf: {}, fetchImpl: web.fetchImpl })).rejects.toMatchObject({ code: 'NO_CSRF' });
+    expect(web.requests).toHaveLength(0);
+    await expect(postJson(web.jar, '/api/search', {}, { csrf, fetchImpl: web.fetchImpl })).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });
   });
 });
 

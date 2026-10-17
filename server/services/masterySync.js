@@ -1,18 +1,25 @@
 /**
  * masterySync.js
  *
- * Playwright-based service for reading and writing mastery (SBG) data via
- * Schoology's internal school-domain APIs. These endpoints are not available
- * through the public OAuth API.
+ * Reads and writes mastery (SBG) data via Schoology's internal school-domain
+ * APIs. These endpoints are not available through the public OAuth API.
  *
- * READ:  GET /course/{id}/district_mastery/api/aligned-objectives
- *        GET /course/{id}/district_mastery/api/material-observations/search
- *        GET /iapi2/district-mastery/course/{id}/materials
+ * READ (plain HTTP with the saved session's cookies, no browser, #141;
+ * openMasteryReader, checked with scripts/parity-mastery-reads.js):
+ *        GET  /course/{id}/district_mastery (building id + CSRF pair)
+ *        GET  /course/{id}/district_mastery/api/aligned-objectives
+ *        POST /course/{id}/district_mastery/api/alignments/search
+ *        POST /course/{id}/district_mastery/api/material-observations/search
+ *        GET  /course/{id}/district_mastery/api/material-observations/search (one topic)
+ *        GET  /iapi2/district-mastery/course/{id}/materials
+ *        POST /course/{id}/district_mastery/api/outcomes/objectives
+ *        GET  /course/{id}/district_mastery/api/observations/search (one student)
  *
- * WRITE: POST /iapi2/district-mastery/course/{courseId}/observations
+ * WRITE (still a headless browser page with the saved session; #141 has not
+ * moved the writes): POST /iapi2/district-mastery/course/{courseId}/observations,
+ *        POST /course/{id}/district_mastery/api/nodes/{objectiveId}/outcome-override
  *
- * Requires a live browser session — launches with the user's existing Chrome
- * profile so no separate login is needed.
+ * Signing in (interactiveLogin) is a visible browser either way.
  */
 
 // Playwright is loaded lazily inside the functions that actually launch a
@@ -28,6 +35,7 @@ import { groupObservationsByTopic, normalizeObservation } from '../lib/masteryOb
 import { pointsToLevel, levelToLabel, schoologyScaleId } from '../lib/proficiencyScale.js';
 import { sessionStateFile, ensureSessionDir } from '../lib/sessionPaths.js';
 import { noteSessionLive } from './schoologySession.js';
+import { cookieJar, getPage, getJson, postJson, drupalSettings, WebSessionError } from './schoologyWeb.js';
 
 const SCHOOLOGY_BASE = 'https://schoology.hkis.edu.hk';
 
@@ -113,23 +121,8 @@ export async function interactiveLogin() {
 }
 
 /**
- * Fetch JSON from a Schoology internal API endpoint using an existing
- * browser page (inherits cookies/session).
- */
-async function fetchInternal(page, url) {
-  const result = await page.evaluate(async (fetchUrl) => {
-    const res = await fetch(fetchUrl, {
-      credentials: 'include',
-      headers: { Accept: 'application/json' },
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status} for ${fetchUrl}`);
-    return res.json();
-  }, url);
-  return result;
-}
-
-/**
- * POST JSON to an internal district_mastery API endpoint. These POSTs require
+ * POST JSON to an internal district_mastery API endpoint from a browser page
+ * (the override write; reads use openMasteryReader). These POSTs require
  * both X-CSRF-Token and X-CSRF-Key, read from Drupal.settings.s_common in the
  * page. Without them the server returns 403 {"data":null}.
  */
@@ -165,6 +158,83 @@ function getCourseRow(db, courseId) {
   return db.prepare('SELECT * FROM courses WHERE id = ?').get(courseId);
 }
 
+// Swappable for tests: the saved session's cookies for plain HTTP, and the
+// headed relogin (a real browser: the one place a person signs in).
+export const masteryDeps = {
+  web: () => ({ jar: cookieJar(), fetchImpl: fetch }),
+  interactiveLogin: () => interactiveLogin(),
+};
+
+// The building id the district_mastery API wants (97989879 for the HKIS HS
+// building, not the school id): the page carries it as "buildingId" in its
+// Drupal.settings (the React app's props), the value its own API calls send as
+// building_id (#141). Falls back to a building_id= in the page markup.
+export function masteryBuildingId(settings, html = '') {
+  const seen = new Set();
+  const walk = (v) => {
+    if (!v || typeof v !== 'object' || seen.has(v)) return null;
+    seen.add(v);
+    if (v.buildingId != null && /^\d+$/.test(String(v.buildingId))) return String(v.buildingId);
+    for (const x of Object.values(v)) { const hit = walk(x); if (hit) return hit; }
+    return null;
+  };
+  return walk(settings)
+    || html.match(/"buildingId"\s*:\s*"?(\d+)/)?.[1]
+    || html.match(/building_id=(\d+)/)?.[1]
+    || null;
+}
+
+/**
+ * A read client for one section's district_mastery API over plain HTTP with the
+ * saved session's cookies (#141; the browser page it replaces is kept only for
+ * the mastery writes). GETs /course/{sectionId}/district_mastery once for the
+ * building id and the CSRF pair the POST searches need.
+ * Signed out (no saved session, or Schoology sends the page to sign-in): opens the
+ * headed login when allowed and tries once more, else throws.
+ * → { buildingId, getJson(url), postJson(url, body) }; getJson/postJson throw
+ * "HTTP {status} for …" on a non-2xx answer, as the in-page fetches did.
+ */
+export async function openMasteryReader(sectionId, {
+  allowInteractiveLogin = true, log = () => {},
+  stillMessage = 'Still not logged in. Run `npm run mastery:login` and try again.',
+} = {}) {
+  const path = `/course/${sectionId}/district_mastery`;
+  const open = async () => {
+    let web;
+    try { web = masteryDeps.web(); } catch { web = { jar: null }; }
+    if (!web?.jar) throw new WebSessionError('SESSION_EXPIRED', 'No saved Schoology session');
+    return { web, page: await getPage(web.jar, path, { fetchImpl: web.fetchImpl }) };
+  };
+  const signedOut = (err) => err instanceof WebSessionError && err.code === 'SESSION_EXPIRED';
+  let opened;
+  try {
+    opened = await open();
+  } catch (err) {
+    if (!signedOut(err)) throw err;
+    noteSessionLive('expired', 'A mastery read was sent to the login page');
+    if (!allowInteractiveLogin) throw new Error('Not logged in to Schoology: the mastery session has expired. Log in and retry.');
+    log('Not logged in: opening browser for Schoology login...');
+    await masteryDeps.interactiveLogin();
+    try { opened = await open(); } catch (err2) { if (signedOut(err2)) throw new Error(stillMessage); throw err2; }
+  }
+  noteSessionLive('connected');
+  const { web, page } = opened;
+  const settings = drupalSettings(page.html);
+  const buildingId = masteryBuildingId(settings, page.html);
+  if (!buildingId) throw new Error('Could not determine building_id from the mastery page. The page may not have loaded correctly.');
+  const io = { fetchImpl: web.fetchImpl };
+  const ok = (r, what) => {
+    if (r.status < 200 || r.status > 299) throw new Error(`HTTP ${r.status} for ${what}`);
+    if (r.json == null) throw new Error(`No JSON in the answer for ${what}`);
+    return r.json;
+  };
+  return {
+    buildingId,
+    getJson: async (url) => ok(await getJson(web.jar, url, io), url),
+    postJson: async (url, body) => ok(await postJson(web.jar, url, body, { ...io, csrf: settings?.s_common }), `POST ${url}`),
+  };
+}
+
 /**
  * Sync all mastery data for a course from Schoology into the local DB.
  *
@@ -173,6 +243,178 @@ function getCourseRow(db, courseId) {
  * @param {Function} [opts.onProgress] — called with { message } as work proceeds
  * @returns {{ categories, topics, assignments, scores }}
  */
+/**
+ * Read one section's mastery data through a reader (openMasteryReader: plain
+ * HTTP, #141): reporting categories + topics, alignments, observations, material
+ * names and Schoology's rollups. Read-only (the POSTs are searches). Exported for
+ * scripts/parity-mastery-reads.js, which runs it through the old browser transport.
+ */
+export async function readCourseMastery(reader, sectionId, log = () => {}) {
+  const { buildingId } = reader;
+
+  // ── Step 2: Fetch reporting categories + measurement topics ────────────
+  const objectivesUrl = `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/aligned-objectives?building_id=${buildingId}&section_id=${sectionId}`;
+
+  log('Fetching aligned objectives...');
+  const objectivesData = await reader.getJson(objectivesUrl);
+
+  // The API may return data under different keys depending on version
+  const categories = objectivesData.data || objectivesData || [];
+  log(`Found ${categories.length} reporting categories`);
+  if (categories.length > 0) {
+    log(`  Category keys: ${Object.keys(categories[0]).join(', ')}`);
+  }
+
+  // ── Step 3: Collect all material IDs across all topics ─────────────────
+  const allMaterialIds = new Set();
+  const allTopics = [];
+
+  for (const cat of categories) {
+    // Topics may be under: objectives, measurementTopics, measurement_topics, children
+    const topics = cat.child_objectives || cat.objectives || cat.measurementTopics || cat.measurement_topics || cat.children || [];
+    for (const topic of topics) {
+      allTopics.push({ ...topic, categoryId: cat.id });
+    }
+  }
+
+  // ── Step 3.5: Fetch authoritative (topic ↔ assignment) alignments ──────
+  // Using POST /alignments/search rather than inferring from scores means
+  // we see alignments even for assignments nobody has been graded on yet.
+  const alignmentRows = []; // { assignment_schoology_id, topic_id }
+  if (allTopics.length) {
+    try {
+      const alignUrl = `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/alignments/search`;
+      const alignData = await reader.postJson(alignUrl, {
+        building_id: Number(buildingId),
+        section_id: Number(sectionId),
+        objective_ids: allTopics.map(t => t.id).join(','),
+        include_gradeable_materials_only: true,
+      });
+      for (const a of (alignData.data || [])) {
+        const matId = a.gradeable_material?.material?.id;
+        const topicId = a.objective?.id;
+        if (matId && topicId) {
+          alignmentRows.push({
+            assignment_schoology_id: String(matId),
+            topic_id: String(topicId),
+          });
+        }
+      }
+      log(`  Got ${alignmentRows.length} topic↔assignment alignments`);
+    } catch (err) {
+      log(`Warning: alignments/search failed: ${err.message}`);
+    }
+  }
+
+  // ── Step 4: Fetch observations for ALL topics in ONE POST (#104) ────────
+  // The per-topic GET loop (one call/topic) was the ~20–40s/course mastery
+  // floor. The POST form of material-observations/search batches across
+  // objective_ids (verified 2026-06-07); regroup by objective_id to rebuild
+  // observationsByTopic exactly as the per-topic loop did.
+  log(`Fetching observations for ${allTopics.length} measurement topics (batched POST)...`);
+  let observationsByTopic = {};
+  if (allTopics.length) {
+    const obsUrl = `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/material-observations/search`;
+    const obsResp = await reader.postJson(obsUrl, {
+      building_id: Number(buildingId),
+      section_id: Number(sectionId),
+      objective_ids: allTopics.map(t => t.id).join(','),
+    });
+    // The POST shape differs from the per-topic GET (gradeable_material.material.id
+    // + string points) — normalize each row to the GET shape so the persist step
+    // (which reads gradeable_material.material_id + numeric points) is unchanged.
+    const allObs = (obsResp.data || []).map(normalizeObservation);
+    observationsByTopic = groupObservationsByTopic(allObs, allTopics.map(t => t.id));
+    for (const obs of allObs) {
+      const mid = obs.gradeable_material?.material_id;
+      if (mid) allMaterialIds.add(String(mid));
+    }
+    for (const topic of allTopics) {
+      const n = (observationsByTopic[topic.id] || []).length;
+      log(`  ${topic.external_id || topic.externalId || topic.id} ${topic.title}: ${n} observations`);
+    }
+  }
+
+  // ── Step 5: Fetch full assignment names ────────────────────────────────
+  const materialMap = {}; // materialId -> { title, gradingPeriodId, gradingCategoryId }
+
+  if (allMaterialIds.size > 0) {
+    log(`Fetching names for ${allMaterialIds.size} assignments...`);
+    const ids = [...allMaterialIds];
+    const params = ids.map((id, i) => `material_id_types[${i}]=${id}|ASSIGNMENT`).join('&');
+    const materialsUrl = `${SCHOOLOGY_BASE}/iapi2/district-mastery/course/${sectionId}/materials?${params}`;
+
+    try {
+      const materialsData = await reader.getJson(materialsUrl);
+      const materials = materialsData.data || materialsData.materials || [];
+      for (const m of materials) {
+        materialMap[String(m.id || m.material_id)] = {
+          title: m.title,
+          gradingPeriodId: m.grading_period_id || m.gradingPeriodId || null,
+          gradingCategoryId: m.grading_category_id || m.gradingCategoryId || null,
+        };
+      }
+    } catch (err) {
+      log(`Warning: could not fetch material names: ${err.message}`);
+    }
+  }
+
+  // ── Step 5.5: Fetch Schoology's per-(student, objective) rollups ───────
+  // This is what the Schoology mastery gradebook UI displays — the
+  // "officially reported" level for each student per measurement topic and
+  // per reporting category. Includes teacher overrides.
+  const rollupRows = []; // { student_uid, objective_id, is_category, grade_percentage, grade_scaled_rounded, override_value }
+  const studentUidSet = new Set();
+  for (const obsList of Object.values(observationsByTopic)) {
+    for (const o of obsList) studentUidSet.add(String(o.student_uid));
+  }
+  const studentUids = [...studentUidSet];
+  const categoryIdSet = new Set(categories.map(c => c.id));
+  const allObjectiveIds = [...categoryIdSet, ...allTopics.map(t => t.id)];
+
+  if (studentUids.length && allObjectiveIds.length) {
+    log(`Fetching Schoology rollups for ${studentUids.length} students × ${allObjectiveIds.length} objectives...`);
+    try {
+      const rollupUrl = `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/outcomes/objectives`;
+      const rollupData = await reader.postJson(rollupUrl, {
+        building_id: Number(buildingId),
+        section_id: Number(sectionId),
+        student_uids: studentUids.join(','),
+        ids: allObjectiveIds.join(','),
+      });
+
+      for (const row of (rollupData.data || [])) {
+        const objId = row.objective_id;
+        const isCategory = categoryIdSet.has(objId) ? 1 : 0;
+        for (const so of (row.student_outcomes || [])) {
+          const outcome = so.outcome || {};
+          const ov = so.outcome_override;
+          // Override shape unknown (never non-null in observed data) — store
+          // numeric value if plain number, else stringify for later inspection.
+          let overrideValue = null;
+          if (ov != null) {
+            if (typeof ov === 'number') overrideValue = ov;
+            else if (typeof ov === 'object') overrideValue = Number(ov.grade_scaled_rounded ?? ov.grade_percentage ?? ov.value ?? NaN) || null;
+          }
+          rollupRows.push({
+            student_uid: String(so.student_uid),
+            objective_id: objId,
+            is_category: isCategory,
+            grade_percentage: outcome.grade_percentage != null ? Number(outcome.grade_percentage) : null,
+            grade_scaled_rounded: outcome.grade_scaled_rounded != null ? Number(outcome.grade_scaled_rounded) : null,
+            override_value: overrideValue,
+          });
+        }
+      }
+      log(`  Got ${rollupRows.length} rollup rows`);
+    } catch (err) {
+      log(`Warning: rollup fetch failed: ${err.message}`);
+    }
+  }
+
+  return { categories, allTopics, alignmentRows, observationsByTopic, allMaterialIds, materialMap, rollupRows };
+}
+
 export async function syncMasteryForCourse(courseId, { onProgress, allowInteractiveLogin = true } = {}) {
   const log = (msg) => {
     console.log(`[masterySync] ${msg}`);
@@ -186,349 +428,124 @@ export async function syncMasteryForCourse(courseId, { onProgress, allowInteract
   const sectionId = courseRow.schoology_section_id;
   log(`Starting mastery sync for course ${courseRow.course_name} (section ${sectionId})`);
 
-  let { browser, page } = await openPage();
+  const reader = await openMasteryReader(sectionId, {
+    allowInteractiveLogin, log,
+    stillMessage: 'Still not logged in after login attempt. Please try again.',
+  });
+  log('Logged in OK');
+  log(`Found building_id: ${reader.buildingId}`);
 
-  try {
-    // ── Step 1: Navigate and extract building_id ────────────────────────────
-    log('Navigating to district mastery page...');
+  const { categories, alignmentRows, observationsByTopic, allMaterialIds, materialMap, rollupRows } = await readCourseMastery(reader, sectionId, log);
 
-    // Intercept the page's own API requests to capture building_id
-    let buildingId = null;
-    page.on('request', req => {
-      const match = req.url().match(/building_id=(\d+)/);
-      if (match) buildingId = match[1];
-    });
+  // ── Step 6: Persist to DB ──────────────────────────────────────────────
+  log('Writing to database...');
+  const now = new Date().toISOString();
 
-    await page.goto(`${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery`, {
-      waitUntil: 'load',
-      timeout: 30000,
-    });
+  const upsertCategory = db.prepare(`
+    INSERT INTO reporting_categories (id, course_id, external_id, title, weight, synced_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      external_id = excluded.external_id,
+      title = excluded.title,
+      weight = excluded.weight,
+      synced_at = excluded.synced_at
+  `);
 
-    // Check if we're logged in — if not, open a visible browser for the user
-    const loggedIn = checkLoggedIn(page);
-    if (!loggedIn) {
-      if (!allowInteractiveLogin) {
-        throw new Error('Not logged in to Schoology: the mastery session has expired. Log in and retry.');
-      }
-      log('Not logged in: opening browser for Schoology login...');
-      await browser.close();
+  const upsertTopic = db.prepare(`
+    INSERT INTO measurement_topics (id, category_id, course_id, external_id, title, weight, synced_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      category_id = excluded.category_id,
+      external_id = excluded.external_id,
+      title = excluded.title,
+      weight = excluded.weight,
+      synced_at = excluded.synced_at
+  `);
 
-      // Open a visible browser so the user can log in to Schoology
-      await interactiveLogin();
+  const upsertScore = db.prepare(`
+    INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade, synced_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(student_uid, assignment_schoology_id, topic_id) DO UPDATE SET
+      points = excluded.points,
+      grade = excluded.grade,
+      synced_at = excluded.synced_at
+  `);
 
-      // Re-open headless and retry navigation
-      ({ browser, page } = await openPage());
-      page.on('request', req => {
-        const match = req.url().match(/building_id=(\d+)/);
-        if (match) buildingId = match[1];
-      });
-      await page.goto(`${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery`, {
-        waitUntil: 'load',
-        timeout: 30000,
-      });
-      if (!checkLoggedIn(page)) {
-        throw new Error('Still not logged in after login attempt. Please try again.');
-      }
-    }
-    log('Logged in OK');
+  let categoriesCount = 0;
+  let topicsCount = 0;
+  let scoresCount = 0;
 
-    // If network interception didn't capture building_id, try DOM/globals
-    if (!buildingId) {
-      try {
-        // Wait for Drupal settings to initialize
-        await page.waitForFunction(
-          () => window.Drupal?.settings?.s_common?.school_id || window.sSchoolId,
-          { timeout: 10000 }
-        );
-        buildingId = await page.evaluate(() => {
-          return String(window.Drupal?.settings?.s_common?.school_id || window.sSchoolId || '');
-        });
-      } catch {
-        log('Warning: Drupal settings not found, trying data attributes...');
-        buildingId = await page.evaluate(() => {
-          const el = document.querySelector('[data-building-id]');
-          return el ? el.getAttribute('data-building-id') : null;
-        });
-      }
-    }
+  for (const cat of categories) {
+    upsertCategory.run(cat.id, courseId, cat.external_id || cat.externalId || null, cat.title, cat.weight ?? null, now);
+    categoriesCount++;
 
-    if (!buildingId) {
-      throw new Error('Could not determine building_id from the mastery page. The page may not have loaded correctly.');
-    }
-    log(`Found building_id: ${buildingId}`);
+    const catTopics = cat.child_objectives || cat.objectives || cat.measurementTopics || cat.measurement_topics || cat.children || [];
+    for (const topic of catTopics) {
+      upsertTopic.run(topic.id, cat.id, courseId, topic.external_id || topic.externalId || null, topic.title, topic.weight ?? null, now);
+      topicsCount++;
 
-    // ── Step 2: Fetch reporting categories + measurement topics ────────────
-    const objectivesUrl = `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/aligned-objectives?building_id=${buildingId}&section_id=${sectionId}`;
-
-    log('Fetching aligned objectives...');
-    const objectivesData = await fetchInternal(page, objectivesUrl);
-
-    // The API may return data under different keys depending on version
-    const categories = objectivesData.data || objectivesData || [];
-    log(`Found ${categories.length} reporting categories`);
-    if (categories.length > 0) {
-      log(`  Category keys: ${Object.keys(categories[0]).join(', ')}`);
-    }
-
-    // ── Step 3: Collect all material IDs across all topics ─────────────────
-    const allMaterialIds = new Set();
-    const allTopics = [];
-
-    for (const cat of categories) {
-      // Topics may be under: objectives, measurementTopics, measurement_topics, children
-      const topics = cat.child_objectives || cat.objectives || cat.measurementTopics || cat.measurement_topics || cat.children || [];
-      for (const topic of topics) {
-        allTopics.push({ ...topic, categoryId: cat.id });
+      const observations = observationsByTopic[topic.id] || [];
+      for (const obs of observations) {
+        const uid = String(obs.student_uid);
+        const assignId = String(obs.gradeable_material?.material_id);
+        const points = obs.points ?? null;
+        const grade = points !== null ? pointsToLevel(points) : null;
+        upsertScore.run(uid, assignId, topic.id, points, grade, now);
+        scoresCount++;
       }
     }
-
-    // ── Step 3.5: Fetch authoritative (topic ↔ assignment) alignments ──────
-    // Using POST /alignments/search rather than inferring from scores means
-    // we see alignments even for assignments nobody has been graded on yet.
-    const alignmentRows = []; // { assignment_schoology_id, topic_id }
-    if (allTopics.length) {
-      try {
-        const alignUrl = `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/alignments/search`;
-        const alignData = await postInternal(page, alignUrl, {
-          building_id: Number(buildingId),
-          section_id: Number(sectionId),
-          objective_ids: allTopics.map(t => t.id).join(','),
-          include_gradeable_materials_only: true,
-        });
-        for (const a of (alignData.data || [])) {
-          const matId = a.gradeable_material?.material?.id;
-          const topicId = a.objective?.id;
-          if (matId && topicId) {
-            alignmentRows.push({
-              assignment_schoology_id: String(matId),
-              topic_id: String(topicId),
-            });
-          }
-        }
-        log(`  Got ${alignmentRows.length} topic↔assignment alignments`);
-      } catch (err) {
-        log(`Warning: alignments/search failed: ${err.message}`);
-      }
-    }
-
-    // ── Step 4: Fetch observations for ALL topics in ONE POST (#104) ────────
-    // The per-topic GET loop (one call/topic) was the ~20–40s/course mastery
-    // floor. The POST form of material-observations/search batches across
-    // objective_ids (verified 2026-06-07); regroup by objective_id to rebuild
-    // observationsByTopic exactly as the per-topic loop did.
-    log(`Fetching observations for ${allTopics.length} measurement topics (batched POST)...`);
-    let observationsByTopic = {};
-    if (allTopics.length) {
-      const obsUrl = `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/material-observations/search`;
-      const obsResp = await postInternal(page, obsUrl, {
-        building_id: Number(buildingId),
-        section_id: Number(sectionId),
-        objective_ids: allTopics.map(t => t.id).join(','),
-      });
-      // The POST shape differs from the per-topic GET (gradeable_material.material.id
-      // + string points) — normalize each row to the GET shape so the persist step
-      // (which reads gradeable_material.material_id + numeric points) is unchanged.
-      const allObs = (obsResp.data || []).map(normalizeObservation);
-      observationsByTopic = groupObservationsByTopic(allObs, allTopics.map(t => t.id));
-      for (const obs of allObs) {
-        const mid = obs.gradeable_material?.material_id;
-        if (mid) allMaterialIds.add(String(mid));
-      }
-      for (const topic of allTopics) {
-        const n = (observationsByTopic[topic.id] || []).length;
-        log(`  ${topic.external_id || topic.externalId || topic.id} ${topic.title}: ${n} observations`);
-      }
-    }
-
-    // ── Step 5: Fetch full assignment names ────────────────────────────────
-    const materialMap = {}; // materialId -> { title, gradingPeriodId, gradingCategoryId }
-
-    if (allMaterialIds.size > 0) {
-      log(`Fetching names for ${allMaterialIds.size} assignments...`);
-      const ids = [...allMaterialIds];
-      const params = ids.map((id, i) => `material_id_types[${i}]=${id}|ASSIGNMENT`).join('&');
-      const materialsUrl = `${SCHOOLOGY_BASE}/iapi2/district-mastery/course/${sectionId}/materials?${params}`;
-
-      try {
-        const materialsData = await fetchInternal(page, materialsUrl);
-        const materials = materialsData.data || materialsData.materials || [];
-        for (const m of materials) {
-          materialMap[String(m.id || m.material_id)] = {
-            title: m.title,
-            gradingPeriodId: m.grading_period_id || m.gradingPeriodId || null,
-            gradingCategoryId: m.grading_category_id || m.gradingCategoryId || null,
-          };
-        }
-      } catch (err) {
-        log(`Warning: could not fetch material names: ${err.message}`);
-      }
-    }
-
-    // ── Step 5.5: Fetch Schoology's per-(student, objective) rollups ───────
-    // This is what the Schoology mastery gradebook UI displays — the
-    // "officially reported" level for each student per measurement topic and
-    // per reporting category. Includes teacher overrides.
-    const rollupRows = []; // { student_uid, objective_id, is_category, grade_percentage, grade_scaled_rounded, override_value }
-    const studentUidSet = new Set();
-    for (const obsList of Object.values(observationsByTopic)) {
-      for (const o of obsList) studentUidSet.add(String(o.student_uid));
-    }
-    const studentUids = [...studentUidSet];
-    const categoryIdSet = new Set(categories.map(c => c.id));
-    const allObjectiveIds = [...categoryIdSet, ...allTopics.map(t => t.id)];
-
-    if (studentUids.length && allObjectiveIds.length) {
-      log(`Fetching Schoology rollups for ${studentUids.length} students × ${allObjectiveIds.length} objectives...`);
-      try {
-        const rollupUrl = `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/outcomes/objectives`;
-        const rollupData = await postInternal(page, rollupUrl, {
-          building_id: Number(buildingId),
-          section_id: Number(sectionId),
-          student_uids: studentUids.join(','),
-          ids: allObjectiveIds.join(','),
-        });
-
-        for (const row of (rollupData.data || [])) {
-          const objId = row.objective_id;
-          const isCategory = categoryIdSet.has(objId) ? 1 : 0;
-          for (const so of (row.student_outcomes || [])) {
-            const outcome = so.outcome || {};
-            const ov = so.outcome_override;
-            // Override shape unknown (never non-null in observed data) — store
-            // numeric value if plain number, else stringify for later inspection.
-            let overrideValue = null;
-            if (ov != null) {
-              if (typeof ov === 'number') overrideValue = ov;
-              else if (typeof ov === 'object') overrideValue = Number(ov.grade_scaled_rounded ?? ov.grade_percentage ?? ov.value ?? NaN) || null;
-            }
-            rollupRows.push({
-              student_uid: String(so.student_uid),
-              objective_id: objId,
-              is_category: isCategory,
-              grade_percentage: outcome.grade_percentage != null ? Number(outcome.grade_percentage) : null,
-              grade_scaled_rounded: outcome.grade_scaled_rounded != null ? Number(outcome.grade_scaled_rounded) : null,
-              override_value: overrideValue,
-            });
-          }
-        }
-        log(`  Got ${rollupRows.length} rollup rows`);
-      } catch (err) {
-        log(`Warning: rollup fetch failed: ${err.message}`);
-      }
-    }
-
-    // ── Step 6: Persist to DB ──────────────────────────────────────────────
-    log('Writing to database...');
-    const now = new Date().toISOString();
-
-    const upsertCategory = db.prepare(`
-      INSERT INTO reporting_categories (id, course_id, external_id, title, weight, synced_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        external_id = excluded.external_id,
-        title = excluded.title,
-        weight = excluded.weight,
-        synced_at = excluded.synced_at
-    `);
-
-    const upsertTopic = db.prepare(`
-      INSERT INTO measurement_topics (id, category_id, course_id, external_id, title, weight, synced_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        category_id = excluded.category_id,
-        external_id = excluded.external_id,
-        title = excluded.title,
-        weight = excluded.weight,
-        synced_at = excluded.synced_at
-    `);
-
-    const upsertScore = db.prepare(`
-      INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade, synced_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(student_uid, assignment_schoology_id, topic_id) DO UPDATE SET
-        points = excluded.points,
-        grade = excluded.grade,
-        synced_at = excluded.synced_at
-    `);
-
-    let categoriesCount = 0;
-    let topicsCount = 0;
-    let scoresCount = 0;
-
-    for (const cat of categories) {
-      upsertCategory.run(cat.id, courseId, cat.external_id || cat.externalId || null, cat.title, cat.weight ?? null, now);
-      categoriesCount++;
-
-      const catTopics = cat.child_objectives || cat.objectives || cat.measurementTopics || cat.measurement_topics || cat.children || [];
-      for (const topic of catTopics) {
-        upsertTopic.run(topic.id, cat.id, courseId, topic.external_id || topic.externalId || null, topic.title, topic.weight ?? null, now);
-        topicsCount++;
-
-        const observations = observationsByTopic[topic.id] || [];
-        for (const obs of observations) {
-          const uid = String(obs.student_uid);
-          const assignId = String(obs.gradeable_material?.material_id);
-          const points = obs.points ?? null;
-          const grade = points !== null ? pointsToLevel(points) : null;
-          upsertScore.run(uid, assignId, topic.id, points, grade, now);
-          scoresCount++;
-        }
-      }
-    }
-
-    // Update assignment metadata (title, grading period/category) from materialMap
-    const upsertAssignment = db.prepare(`
-      INSERT INTO assignments (course_id, schoology_assignment_id, title, max_points, assignment_type, mastery_grading_period_id, mastery_grading_category_id, synced_at)
-      VALUES (?, ?, ?, 100, 'summative', ?, ?, ?)
-      ON CONFLICT(schoology_assignment_id) DO UPDATE SET
-        title = CASE WHEN excluded.title IS NOT NULL AND excluded.title != '' THEN excluded.title ELSE assignments.title END,
-        max_points = 100,
-        assignment_type = 'summative',
-        mastery_grading_period_id = COALESCE(excluded.mastery_grading_period_id, assignments.mastery_grading_period_id),
-        mastery_grading_category_id = COALESCE(excluded.mastery_grading_category_id, assignments.mastery_grading_category_id),
-        synced_at = excluded.synced_at
-    `);
-
-    for (const [mid, info] of Object.entries(materialMap)) {
-      if (info.title) {
-        upsertAssignment.run(
-          courseId, mid, info.title,
-          info.gradingPeriodId ? String(info.gradingPeriodId) : null,
-          info.gradingCategoryId ? String(info.gradingCategoryId) : null,
-          now
-        );
-      }
-    }
-
-    // Persist authoritative alignments. Clear this course's alignments first
-    // so removed topic↔assignment pairs don't linger.
-    if (alignmentRows.length > 0) {
-      db.prepare(`DELETE FROM mastery_alignments WHERE course_id = ?`).run(courseId);
-    }
-    const upsertAlignment = db.prepare(`
-      INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id, synced_at)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(assignment_schoology_id, topic_id) DO UPDATE SET
-        course_id = excluded.course_id,
-        synced_at = excluded.synced_at
-    `);
-    let alignmentsCount = 0;
-    for (const a of alignmentRows) {
-      upsertAlignment.run(a.assignment_schoology_id, a.topic_id, courseId, now);
-      alignmentsCount++;
-    }
-
-    // Persist Schoology rollups for this course (clears this course's rollups
-    // first so a student who no longer has one doesn't linger). Per-course
-    // keyed — see persistRollups + #127.
-    const rollupsCount = persistRollups(db, courseId, rollupRows, now);
-
-    log(`Done: ${categoriesCount} categories, ${topicsCount} topics, ${scoresCount} scores, ${rollupsCount} rollups, ${alignmentsCount} alignments`);
-    return { categoriesCount, topicsCount, scoresCount, rollupsCount, alignmentsCount, materialsCount: allMaterialIds.size };
-
-  } finally {
-    await browser.close();
   }
+
+  // Update assignment metadata (title, grading period/category) from materialMap
+  const upsertAssignment = db.prepare(`
+    INSERT INTO assignments (course_id, schoology_assignment_id, title, max_points, assignment_type, mastery_grading_period_id, mastery_grading_category_id, synced_at)
+    VALUES (?, ?, ?, 100, 'summative', ?, ?, ?)
+    ON CONFLICT(schoology_assignment_id) DO UPDATE SET
+      title = CASE WHEN excluded.title IS NOT NULL AND excluded.title != '' THEN excluded.title ELSE assignments.title END,
+      max_points = 100,
+      assignment_type = 'summative',
+      mastery_grading_period_id = COALESCE(excluded.mastery_grading_period_id, assignments.mastery_grading_period_id),
+      mastery_grading_category_id = COALESCE(excluded.mastery_grading_category_id, assignments.mastery_grading_category_id),
+      synced_at = excluded.synced_at
+  `);
+
+  for (const [mid, info] of Object.entries(materialMap)) {
+    if (info.title) {
+      upsertAssignment.run(
+        courseId, mid, info.title,
+        info.gradingPeriodId ? String(info.gradingPeriodId) : null,
+        info.gradingCategoryId ? String(info.gradingCategoryId) : null,
+        now
+      );
+    }
+  }
+
+  // Persist authoritative alignments. Clear this course's alignments first
+  // so removed topic↔assignment pairs don't linger.
+  if (alignmentRows.length > 0) {
+    db.prepare(`DELETE FROM mastery_alignments WHERE course_id = ?`).run(courseId);
+  }
+  const upsertAlignment = db.prepare(`
+    INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id, synced_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(assignment_schoology_id, topic_id) DO UPDATE SET
+      course_id = excluded.course_id,
+      synced_at = excluded.synced_at
+  `);
+  let alignmentsCount = 0;
+  for (const a of alignmentRows) {
+    upsertAlignment.run(a.assignment_schoology_id, a.topic_id, courseId, now);
+    alignmentsCount++;
+  }
+
+  // Persist Schoology rollups for this course (clears this course's rollups
+  // first so a student who no longer has one doesn't linger). Per-course
+  // keyed — see persistRollups + #127.
+  const rollupsCount = persistRollups(db, courseId, rollupRows, now);
+
+  log(`Done: ${categoriesCount} categories, ${topicsCount} topics, ${scoresCount} scores, ${rollupsCount} rollups, ${alignmentsCount} alignments`);
+  return { categoriesCount, topicsCount, scoresCount, rollupsCount, alignmentsCount, materialsCount: allMaterialIds.size };
+
 }
 
 /**
@@ -604,133 +621,96 @@ export async function syncMasteryForAssignment(courseId, assignmentId) {
   }
   const topicIds = topicRows.map(r => r.topic_id);
 
-  let { browser, page } = await openPage();
+  const reader = await openMasteryReader(sectionId);
+  const { buildingId } = reader;
 
-  async function gotoMasteryPage(p) {
-    let captured = null;
-    p.on('request', req => {
-      const m = req.url().match(/building_id=(\d+)/);
-      if (m) captured = m[1];
-    });
-    await p.goto(`${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery`, {
-      waitUntil: 'load',
-      timeout: 30000,
-    });
-    return captured;
+  const upsertScore = db.prepare(`
+    INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade, synced_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(student_uid, assignment_schoology_id, topic_id) DO UPDATE SET
+      points = excluded.points,
+      grade = excluded.grade,
+      synced_at = excluded.synced_at
+  `);
+  const deleteScore = db.prepare(`
+    DELETE FROM mastery_scores
+    WHERE assignment_schoology_id = ? AND topic_id = ? AND student_uid = ?
+  `);
+
+  const now = new Date().toISOString();
+  let scoresCount = 0;
+
+  for (const topicId of topicIds) {
+    const url = `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/material-observations/search?building_id=${buildingId}&objective_id=${topicId}&section_id=${sectionId}`;
+    const obsData = await reader.getJson(url);
+    const observations = obsData.data || [];
+
+    const seenUids = new Set();
+    for (const obs of observations) {
+      const obsAssignment = String(obs.gradeable_material?.material_id || '');
+      if (obsAssignment !== String(assignmentId)) continue;
+      const uid = String(obs.student_uid);
+      const points = obs.points ?? null;
+      const grade = points !== null ? pointsToLevel(points) : null;
+      if (points === null) {
+        deleteScore.run(String(assignmentId), topicId, uid);
+      } else {
+        upsertScore.run(uid, String(assignmentId), topicId, points, grade, now);
+        scoresCount++;
+      }
+      seenUids.add(uid);
+    }
+
+    // Any local row for this (assignment, topic) whose student is no longer
+    // in Schoology's response means the score was cleared in Schoology.
+    const existing = db.prepare(`
+      SELECT student_uid FROM mastery_scores
+      WHERE assignment_schoology_id = ? AND topic_id = ?
+    `).all(String(assignmentId), topicId);
+    for (const row of existing) {
+      if (!seenUids.has(row.student_uid)) {
+        deleteScore.run(String(assignmentId), topicId, row.student_uid);
+      }
+    }
   }
 
+  // Also pull grade comments + comment_status + exception + score from the
+  // public grades endpoint for this assignment. Mastery observations alone
+  // don't carry comments, and the assessment-page Refresh button is the
+  // only sync the user runs from there — without this, comments edited in
+  // Schoology never make it back into Prism.
+  let commentsCount = 0;
   try {
-    let buildingId = await gotoMasteryPage(page);
-
-    if (!checkLoggedIn(page)) {
-      await browser.close();
-      await interactiveLogin();
-      ({ browser, page } = await openPage());
-      buildingId = await gotoMasteryPage(page);
-      if (!checkLoggedIn(page)) {
-        throw new Error('Still not logged in. Run `npm run mastery:login` and try again.');
-      }
-    }
-
-    if (!buildingId) {
-      try {
-        buildingId = await page.evaluate(() =>
-          String(window.Drupal?.settings?.s_common?.school_id || window.sSchoolId || '')
-        );
-      } catch { /* fall through */ }
-    }
-    if (!buildingId) throw new Error('Could not determine building_id from the mastery page.');
-
-    const upsertScore = db.prepare(`
-      INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade, synced_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(student_uid, assignment_schoology_id, topic_id) DO UPDATE SET
-        points = excluded.points,
-        grade = excluded.grade,
-        synced_at = excluded.synced_at
+    const allGrades = await getSectionGrades(sectionId);
+    const forAssignment = allGrades.filter(g => String(g.assignment_id) === String(assignmentId));
+    const updateGrade = db.prepare(`
+      UPDATE grades
+      SET score = ?, grade_comment = ?, comment_status = ?, exception = ?
+      WHERE student_id = (
+        SELECT s.id FROM students s
+        JOIN enrolments e ON e.student_id = s.id
+        WHERE e.schoology_enrolment_id = ?
+      )
+      AND assignment_id = (
+        SELECT id FROM assignments WHERE schoology_assignment_id = ?
+      )
     `);
-    const deleteScore = db.prepare(`
-      DELETE FROM mastery_scores
-      WHERE assignment_schoology_id = ? AND topic_id = ? AND student_uid = ?
-    `);
-
-    const now = new Date().toISOString();
-    let scoresCount = 0;
-
-    for (const topicId of topicIds) {
-      const url = `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/material-observations/search?building_id=${buildingId}&objective_id=${topicId}&section_id=${sectionId}`;
-      const obsData = await fetchInternal(page, url);
-      const observations = obsData.data || [];
-
-      const seenUids = new Set();
-      for (const obs of observations) {
-        const obsAssignment = String(obs.gradeable_material?.material_id || '');
-        if (obsAssignment !== String(assignmentId)) continue;
-        const uid = String(obs.student_uid);
-        const points = obs.points ?? null;
-        const grade = points !== null ? pointsToLevel(points) : null;
-        if (points === null) {
-          deleteScore.run(String(assignmentId), topicId, uid);
-        } else {
-          upsertScore.run(uid, String(assignmentId), topicId, points, grade, now);
-          scoresCount++;
-        }
-        seenUids.add(uid);
-      }
-
-      // Any local row for this (assignment, topic) whose student is no longer
-      // in Schoology's response means the score was cleared in Schoology.
-      const existing = db.prepare(`
-        SELECT student_uid FROM mastery_scores
-        WHERE assignment_schoology_id = ? AND topic_id = ?
-      `).all(String(assignmentId), topicId);
-      for (const row of existing) {
-        if (!seenUids.has(row.student_uid)) {
-          deleteScore.run(String(assignmentId), topicId, row.student_uid);
-        }
-      }
+    for (const g of forAssignment) {
+      const info = updateGrade.run(
+        g.grade ?? null,
+        g.comment || null,
+        g.comment_status ?? null,
+        g.exception ?? 0,
+        String(g.enrollment_id),
+        String(assignmentId),
+      );
+      if (info.changes > 0) commentsCount++;
     }
-
-    // Also pull grade comments + comment_status + exception + score from the
-    // public grades endpoint for this assignment. Mastery observations alone
-    // don't carry comments, and the assessment-page Refresh button is the
-    // only sync the user runs from there — without this, comments edited in
-    // Schoology never make it back into Prism.
-    let commentsCount = 0;
-    try {
-      const allGrades = await getSectionGrades(sectionId);
-      const forAssignment = allGrades.filter(g => String(g.assignment_id) === String(assignmentId));
-      const updateGrade = db.prepare(`
-        UPDATE grades
-        SET score = ?, grade_comment = ?, comment_status = ?, exception = ?
-        WHERE student_id = (
-          SELECT s.id FROM students s
-          JOIN enrolments e ON e.student_id = s.id
-          WHERE e.schoology_enrolment_id = ?
-        )
-        AND assignment_id = (
-          SELECT id FROM assignments WHERE schoology_assignment_id = ?
-        )
-      `);
-      for (const g of forAssignment) {
-        const info = updateGrade.run(
-          g.grade ?? null,
-          g.comment || null,
-          g.comment_status ?? null,
-          g.exception ?? 0,
-          String(g.enrollment_id),
-          String(assignmentId),
-        );
-        if (info.changes > 0) commentsCount++;
-      }
-    } catch (err) {
-      console.warn(`[mastery sync] grade-comment pull failed for assignment ${assignmentId}: ${err.message}`);
-    }
-
-    return { topicsCount: topicIds.length, scoresCount, commentsCount };
-  } finally {
-    await browser.close();
+  } catch (err) {
+    console.warn(`[mastery sync] grade-comment pull failed for assignment ${assignmentId}: ${err.message}`);
   }
+
+  return { topicsCount: topicIds.length, scoresCount, commentsCount };
 }
 
 /**
@@ -993,22 +973,27 @@ export function getMasteryForCourse(courseId) {
  *
  * Returns an array of { alignment_id (= topic UUID), points, grade_percentage, ... }
  */
+// One GET over plain HTTP with the saved session's cookies (#141): the browser
+// path loaded the mastery page first, which this GET does not need.
 export async function getRubricScoresForStudent({ sectionId, studentUid, assignmentId }) {
-  const { browser, page } = await openPage();
-
+  const url =
+    `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/observations/search` +
+    `?student_uids=${studentUid}&section_id=${sectionId}&material_type=ASSIGNMENT&material_id=${assignmentId}`;
+  let web;
+  try { web = masteryDeps.web(); } catch { web = { jar: null }; }
+  if (!web?.jar) throw new Error('No saved Schoology session: run `npm run mastery:login`.');
+  let r;
   try {
-    await page.goto(`${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery`, {
-      waitUntil: 'domcontentloaded',
-    });
-
-    const url =
-      `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/observations/search` +
-      `?student_uids=${studentUid}&section_id=${sectionId}&material_type=ASSIGNMENT&material_id=${assignmentId}`;
-
-    const data = await fetchInternal(page, url);
-    return data.data || [];
-  } finally {
-    await browser.close();
+    r = await getJson(web.jar, url, { fetchImpl: web.fetchImpl });
+  } catch (err) {
+    if (err instanceof WebSessionError && err.code === 'SESSION_EXPIRED') {
+      noteSessionLive('expired', 'A mastery read was sent to the login page');
+      throw new Error('Not logged in to Schoology: the mastery session has expired. Log in and retry.');
+    }
+    throw err;
   }
+  if (r.status < 200 || r.status > 299) throw new Error(`HTTP ${r.status} for ${url}`);
+  if (r.json == null) throw new Error(`No JSON in the answer for ${url}`);
+  return r.json.data || [];
 }
 

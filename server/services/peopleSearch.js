@@ -5,9 +5,11 @@
  * NOT in the teacher's own sections. This is the only confirmed way to reach
  * users outside your enrollments: the public OAuth `/search` is 403 and the
  * `/users` multi-get ignores filters. So we drive Schoology's internal
- * `GET /search/user?s={q}&page={n}` (server-rendered HTML) using the same
- * browser session as the mastery sync, and parse each page (see
- * ../lib/parseUserSearch.js for the verified row structure).
+ * `GET /search/user?s={q}&page={n}` (server-rendered HTML) with the same
+ * saved session as the mastery sync, over plain HTTP with its cookies
+ * (schoologyWeb.js, #141; no browser), and parse each page (see
+ * ../lib/parseUserSearch.js for the verified row structure). Checked against
+ * the old browser read with scripts/parity-page-reads.js.
  *
  * Pagination: 10 results per page; a page with < 10 rows is the last one.
  * Each result row already carries name/role/school/photo — enough for a
@@ -18,8 +20,8 @@
 import { existsSync } from 'fs';
 import { parseUserSearchResults, PAGE_SIZE } from '../lib/parseUserSearch.js';
 import { sessionStateFile } from '../lib/sessionPaths.js';
-
-const SCHOOLOGY_BASE = 'https://schoology.hkis.edu.hk';
+import { cookieJar, getResource, WebSessionError } from './schoologyWeb.js';
+import { noteSessionLive } from './schoologySession.js';
 
 // Bound a single search: 5 pages × 10 = up to 50 results. Broad queries
 // (e.g. a common surname) have many more; when we hit this cap the result is
@@ -61,64 +63,52 @@ export async function paginatePeopleSearch(getPage, query, { maxPages = DEFAULT_
   return { query, results, pagesFetched: page, complete };
 }
 
-async function openPage() {
-  const { chromium } = await import('playwright');
-  const browser = await chromium.launch({ headless: true });
-  const contextOpts = existsSync(sessionStateFile()) ? { storageState: sessionStateFile() } : {};
-  const context = await browser.newContext(contextOpts);
-  const page = await context.newPage();
-  return { browser, page };
-}
-
-// Fetch one search-results page's raw HTML through the authenticated session.
-async function fetchSearchHtml(page, query, pageNum) {
+// The path of one search-results page (page 0 carries no page parameter).
+export function searchPath(query, pageNum) {
   const qs = pageNum > 0
     ? `s=${encodeURIComponent(query)}&page=${pageNum}`
     : `s=${encodeURIComponent(query)}`;
-  return page.evaluate(async ({ base, qs }) => {
-    const res = await fetch(`${base}/search/user?${qs}`, {
-      credentials: 'include',
-      headers: { Accept: 'text/html' },
-    });
-    return { status: res.status, html: await res.text() };
-  }, { base: SCHOOLOGY_BASE, qs });
+  return `/search/user?${qs}`;
 }
 
+const needsLogin = () => {
+  const e = new Error('Schoology browser session expired: run `npm run mastery:login`.');
+  e.needsLogin = true;
+  return e;
+};
+
 /**
- * Run a school-wide people search. Requires a live Schoology browser session
- * (same one as mastery sync). Throws an error with `.needsLogin = true` if the
- * session has expired.
+ * Run a school-wide people search. Requires a live saved Schoology session
+ * (same one as mastery sync). Throws an error with `.needsLogin = true` if there
+ * is no saved session or it has expired.
  *
  * @param {string} query
- * @param {{maxPages?: number}} opts
+ * @param {{maxPages?: number, jar?: object|null, fetchImpl?: typeof fetch}} opts  jar / fetchImpl: test seam
  * @returns {Promise<{ query, results, pagesFetched, complete }>}
  */
-export async function searchPeople(query, { maxPages = DEFAULT_MAX_PAGES } = {}) {
+export async function searchPeople(query, { maxPages = DEFAULT_MAX_PAGES, jar, fetchImpl = fetch } = {}) {
   const q = (query || '').trim();
   if (!q) return { query: '', results: [], pagesFetched: 0, complete: true };
 
-  const { browser, page } = await openPage();
-  try {
-    await page.goto(`${SCHOOLOGY_BASE}/home`, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    const url = page.url();
-    const loggedIn = url.includes('schoology.hkis.edu.hk') &&
-      !/\/login|\/saml|accounts\.google\.com|microsoftonline/.test(url);
-    if (!loggedIn) {
-      const e = new Error('Schoology browser session expired: run `npm run mastery:login`.');
-      e.needsLogin = true;
-      throw e;
+  const cookies = jar === undefined ? cookieJar() : jar;
+  if (!cookies) throw needsLogin();
+
+  const getPage = async (qq, p) => {
+    let r;
+    try {
+      r = await getResource(cookies, searchPath(qq, p), { fetchImpl, accept: 'text/html' });
+    } catch (err) {
+      if (err instanceof WebSessionError && err.code === 'SESSION_EXPIRED') {
+        noteSessionLive('expired', 'Schoology sent a people search to the login page');
+        throw needsLogin();
+      }
+      throw err;
     }
+    if (r.status !== 200) throw new Error(`Schoology /search/user returned HTTP ${r.status}`);
+    return parseUserSearchResults(r.text);
+  };
 
-    const getPage = async (qq, p) => {
-      const { status, html } = await fetchSearchHtml(page, qq, p);
-      if (status !== 200) throw new Error(`Schoology /search/user returned HTTP ${status}`);
-      return parseUserSearchResults(html);
-    };
-
-    return await paginatePeopleSearch(getPage, q, { maxPages });
-  } finally {
-    await browser.close();
-  }
+  return paginatePeopleSearch(getPage, q, { maxPages });
 }
 
 export { PAGE_SIZE };

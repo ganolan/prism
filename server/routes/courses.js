@@ -13,7 +13,7 @@ import { timelineContext } from '../services/submissionTimeline.js';
 const router = Router();
 
 // GET /api/courses/archived/discover — enumerate archived (past) sections by
-// scraping Schoology's /courses/mycourses/past source page (browser session).
+// scraping Schoology's /courses/mycourses/past source page (saved session, plain HTTP).
 // Annotates each with whether it's already imported and whether it lacks a
 // course code. The two-segment path can't be captured by `/:id`. "Archived" is
 // the app term; "past" only names Schoology's page (see CONTEXT.md). Issue #5.

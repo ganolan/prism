@@ -590,6 +590,17 @@ verified live (an earlier draft of this doc guessed "Parent/Student/Staff" from 
 (`GET /v1/users/{uid}.role_id`) per user. This is the only confirmed way to reach users outside your enrollments (public REST `/search` 403s;
 `/users` multi-get ignores filters). Browser-session auth (same Playwright session as mastery sync), not OAuth. Each
 `/user/{id}` then joins to the documented public profile read (`GET /v1/users/{uid}`, 200 via OAuth).
+*(2026-10-17, #141: Prism now sends this GET over **plain HTTP**, no browser: the saved session's school-host cookies
+plus `Accept: text/html` → `200 text/html` (about 100 KB a page); a sign-in bounce is a 302 to the login/SSO host.
+`server/services/peopleSearch.js`. Parity, `scripts/parity-page-reads.js` (old browser code vs HTTP; the final run
+13 queries, 3 broad surnames and 10 full student names from the DB; earlier runs 18 more, one with no hits): **every
+user both reads returned parsed to identical fields**, and every one-page search returned exactly the same rows. Timing: a one-page search 3.5–3.9 s
+in the browser (launch + `/home` + fetch), 0.9–1.2 s over HTTP; a 5-page search 5.5–6.1 s against 3.2–3.9 s.
+⚠️ **The result order is not stable between reads**, whatever the transport: two plain-HTTP reads of the same broad
+query in a row returned different users, so the pages of a multi-page search shift and a user can fall between two
+pages or show on both (`paginatePeopleSearch` dedupes, which is why a 5-page search can return 44–49 users, not 50,
+and why a complete 2–4-page search of a full name sometimes differed by 1–4 users). A one-page answer was always the
+same.)*
 
 **2. Archived / past courses — HTML parse confirmed; NO clean JSON exists; archived sections ARE API-readable.**
 `GET /courses/mycourses/past` → **200 text/html** (~338 KB). Verified structure: **45 `li.course-item.list-item`** rows
@@ -607,6 +618,11 @@ include past courses; parse the HTML. **Section-level reads work on archived sec
 OAuth): for 5 archived `{sectionId}` (all `active:0`), `GET /v1/sections/{id}`, `/assignments`, `/grades`,
 `/enrollments` all returned 200 with real data (one section: 12 assignments / 192 grades / 17 enrollments; an empty
 template section: 0 / 0 / 3). So once you scrape a past `{sectionId}`, all the normal Prism section reads apply (feeds #5).
+*(2026-10-17, #141: Prism now reads this page over **plain HTTP**, no browser: the saved session's school-host cookies
+→ `200 text/html` (356 KB). `server/services/archivedCourses.js`. The old code parsed the browser's `page.content()`
+(the DOM after `domcontentloaded`); the server HTML parses to the **same 58 sections** (16 terms, 2 with no course
+code), `parsePastCourses` output identical, `scripts/parity-page-reads.js`. Timing: browser 4.0–4.3 s (launch + page),
+HTTP 2.0–2.1 s.)*
 
 **Student history sweep (2026-10-08, read-only, student-history spec; probes `scripts/probe-student-history.js`,
 `scripts/probe-student-grades.js`, `scripts/probe-past-sections.js`, `scripts/probe-archived-inventory.js`):**

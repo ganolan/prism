@@ -13,7 +13,7 @@ router.get('/session-status', (req, res) => {
 
 // GET /api/people/search?q=...&maxPages=N — school-wide people search.
 // Finds users outside the teacher's own sections via Schoology's internal
-// /search/user (browser-session auth). Feature-gated.
+// /search/user (saved-session auth, plain HTTP). Feature-gated.
 router.get('/search', featureGate('people_search'), async (req, res) => {
   const q = (req.query.q || '').toString().trim();
   if (!q) return res.json({ query: '', results: [], pagesFetched: 0, complete: true });

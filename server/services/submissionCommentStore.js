@@ -23,14 +23,14 @@ export function storeThread(db, { assignmentId, studentId, rows, readAt = Math.f
   db.transaction(() => {
     db.prepare('DELETE FROM submission_comments WHERE assignment_id = ? AND student_id = ?').run(assignmentId, studentId);
     const ins = db.prepare(`
-      INSERT INTO submission_comments (schoology_comment_id, assignment_id, student_id, author_uid, author_role, author_name, is_mine, body, created)
-      VALUES (@schoology_comment_id, @assignment_id, @student_id, @author_uid, @author_role, @author_name, @is_mine, @body, @created)
+      INSERT INTO submission_comments (schoology_comment_id, assignment_id, student_id, author_uid, author_role, author_name, is_mine, body, created, attachments)
+      VALUES (@schoology_comment_id, @assignment_id, @student_id, @author_uid, @author_role, @author_name, @is_mine, @body, @created, @attachments)
       ON CONFLICT(schoology_comment_id) DO UPDATE SET
         assignment_id = excluded.assignment_id, student_id = excluded.student_id, author_uid = excluded.author_uid,
         author_role = excluded.author_role, author_name = excluded.author_name, is_mine = excluded.is_mine,
-        body = excluded.body, created = excluded.created
+        body = excluded.body, created = excluded.created, attachments = excluded.attachments
     `);
-    for (const r of rows) ins.run({ ...r, assignment_id: assignmentId, student_id: studentId });
+    for (const r of rows) ins.run({ attachments: null, ...r, assignment_id: assignmentId, student_id: studentId });
     db.prepare(`
       INSERT INTO submission_comment_reads (assignment_id, student_id, read_at, error) VALUES (?, ?, ?, NULL)
       ON CONFLICT(assignment_id, student_id) DO UPDATE SET read_at = excluded.read_at, error = NULL

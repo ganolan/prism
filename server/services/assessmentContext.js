@@ -360,6 +360,7 @@ export function getAssessmentContext(db, { assignmentId }) {
       submission_comments: (commentThreads[st.id]?.comments ?? []).map((c) => ({
         id: c.id, author_uid: c.author_uid, author_role: c.author_role, created: c.created,
         text: c.text, is_automatic: c.is_automatic, student_text: c.student_text,
+        attachments: c.attachments.map((f) => ({ filename: f.filename, filemime: f.filemime, filesize: f.filesize })),
       })),
       submission_comments_read_at: commentThreads[st.id]?.read_at ?? null,
       draft_feedback: draft ? buildDraftFeedback(draft, {

@@ -222,13 +222,15 @@ export async function pushGradeComments(sectionId, gradeUpdates) {
 
 // One student's submission comment thread, oldest first. Pages by start/limit
 // until `total` is reached (verified 2026-10-17; threads seen hold 0 to 3).
+// with_attachments=1 adds each comment's files (attachments.files.file[]) in the
+// same call; a comment with no file has no attachments key.
 export async function getSubmissionComments(sectionId, assignmentId, userId) {
   const base = `/sections/${sectionId}/submissions/${assignmentId}/${userId}/comments`;
-  const first = await apiGet(`${base}?start=0&limit=200`);
+  const first = await apiGet(`${base}?with_attachments=1&start=0&limit=200`);
   const items = [...(first?.comment || [])];
   const total = Number(first?.total ?? items.length);
   for (let page = 0; items.length < total && page < 50; page++) {
-    const more = (await apiGet(`${base}?start=${items.length}&limit=200`))?.comment || [];
+    const more = (await apiGet(`${base}?with_attachments=1&start=${items.length}&limit=200`))?.comment || [];
     if (!more.length) break;
     items.push(...more);
   }
@@ -244,6 +246,25 @@ export async function postSubmissionComment(sectionId, assignmentId, userId, tex
 
 export async function deleteSubmissionComment(sectionId, assignmentId, userId, commentId) {
   return apiDelete(`/sections/${sectionId}/submissions/${assignmentId}/${userId}/comments/${commentId}`);
+}
+
+// A file from a signed api.schoology.com download_path → { status, contentType, body (Buffer) }.
+// The OAuth header goes only to the API host; a redirect elsewhere (file storage) is
+// followed without it.
+export async function downloadFile(downloadPath) {
+  let url = downloadPath;
+  for (let i = 0; i < 5; i++) {
+    const onApi = new URL(url).host === new URL(API).host;
+    const headers = onApi ? oauth.toHeader(oauth.authorize({ url, method: 'GET' }, token)) : {};
+    const res = await fetch(url, { headers, redirect: 'manual' });
+    if ([301, 302, 303, 307, 308].includes(res.status)) {
+      const location = res.headers.get('location');
+      url = location.startsWith('http') ? location : new URL(location, url).href;
+      continue;
+    }
+    return { status: res.status, contentType: res.headers.get('content-type'), body: Buffer.from(await res.arrayBuffer()) };
+  }
+  throw new Error('Too many redirects downloading a file');
 }
 
 export { apiGet, apiPut, apiPost, apiDelete };

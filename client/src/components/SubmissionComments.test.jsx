@@ -16,9 +16,9 @@ const thread = (comments) => ({
   summary: { count: comments.length, student_text: comments.some((c) => c.student_text), student_words: 0 },
   read_at: '2026-10-17T02:02:00.000Z',
 });
-const auto = { id: '1', author_role: 'student', author_name: 'Ana Lee', is_mine: false, created: '2026-10-14T07:12:00.000Z', text: 'Revision 1 submitted', automatic_lines: ['Revision 1 submitted'], is_automatic: true, student_text: null };
-const wrote = { id: '2', author_role: 'student', author_name: 'Ana Lee', is_mine: false, created: '2026-10-16T01:40:00.000Z', text: 'Revision 2 submitted\nPlaytest notes', automatic_lines: ['Revision 2 submitted'], is_automatic: false, student_text: 'Playtest notes' };
-const mine = { id: '3', author_role: 'teacher', author_name: 'Graham Nolan', is_mine: true, created: '2026-10-16T10:05:00.000Z', text: 'Your rubric feedback is attached.', automatic_lines: [], is_automatic: false, student_text: null };
+const auto = { attachments: [], id: '1', author_role: 'student', author_name: 'Ana Lee', is_mine: false, created: '2026-10-14T07:12:00.000Z', text: 'Revision 1 submitted', automatic_lines: ['Revision 1 submitted'], is_automatic: true, student_text: null };
+const wrote = { attachments: [], id: '2', author_role: 'student', author_name: 'Ana Lee', is_mine: false, created: '2026-10-16T01:40:00.000Z', text: 'Revision 2 submitted\nPlaytest notes', automatic_lines: ['Revision 2 submitted'], is_automatic: false, student_text: 'Playtest notes' };
+const mine = { attachments: [], id: '3', author_role: 'teacher', author_name: 'Graham Nolan', is_mine: true, created: '2026-10-16T10:05:00.000Z', text: 'Your rubric feedback is attached.', automatic_lines: [], is_automatic: false, student_text: null };
 
 function renderCard(summary = { count: 3, student_text: true, read_at: 'x' }, onSummary = vi.fn()) {
   render(<SubmissionComments assignmentId="8590105935" studentId={7} studentName="Ana Lee" title="Flappy Bird (F)"
@@ -120,6 +120,17 @@ describe('SubmissionComments', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
     rerender(<SubmissionComments variant="cell" assignmentId="a" studentId={1} studentName="Ana" summary={{ count: 2, student_text: true, read_at: 'x' }} />);
     expect(screen.getByRole('button')).toHaveClass('comment-dot--wrote');
+  });
+
+  test('files show as links through Prism; a student file earns the badge', async () => {
+    const file = { ...wrote, id: '5', student_text: null, automatic_lines: ['Revision 3 submitted'], attachments: [{ fid: '77', filename: 'notes.pdf', title: 'notes.pdf', filesize: 2048, filemime: 'application/pdf' }] };
+    getSubmissionCommentThread.mockResolvedValue(thread([auto, file]));
+    renderCard({ count: 2, student_text: false, student_files: 1, read_at: 'x' });
+    expect(screen.getByText('File in comments')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /attached a file. Open the thread/ }));
+    const link = await screen.findByRole('link', { name: /notes.pdf/ });
+    expect(link).toHaveAttribute('href', '/api/submission-comments/8590105935/7/5/files/77');
+    expect(link).toHaveClass('comment-file--student');
   });
 
   test('a never-read card chip still opens', () => {

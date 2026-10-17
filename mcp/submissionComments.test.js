@@ -26,7 +26,8 @@ beforeEach(() => {
   Object.assign(commentDeps, {
     getSubmissionComments: vi.fn(async () => [
       { id: '1', uid: '555', comment: 'Revision 1 submitted\nPlaytest: my brother played 5 rounds.', created: '1792300000' },
-      { id: '2', uid: '114956593', comment: 'Thank you.', created: '1792300500' },
+      { id: '2', uid: '114956593', comment: 'Thank you.', created: '1792300500',
+        attachments: { files: { file: [{ fid: 9, filename: 'Lee_Ana.png', filemime: 'image/png', filesize: 12, download_path: 'https://api.schoology.com/v1/f/a.png' }] } } },
     ]),
     getMyUserId: vi.fn(async () => '114956593'),
     getSectionEnrollments: vi.fn(async () => []),
@@ -42,8 +43,9 @@ describe('get_assignment_context submission comments', () => {
     expect(a.submission_comments).toEqual([
       { id: '1', author_uid: '555', author_role: 'student', created: new Date(1792300000 * 1000).toISOString(),
         text: 'Revision 1 submitted\nPlaytest: my brother played 5 rounds.', is_automatic: false,
-        student_text: 'Playtest: my brother played 5 rounds.' },
-      expect.objectContaining({ id: '2', author_role: 'teacher', student_text: null, is_automatic: false }),
+        student_text: 'Playtest: my brother played 5 rounds.', attachments: [] },
+      expect.objectContaining({ id: '2', author_role: 'teacher', student_text: null, is_automatic: false,
+        attachments: [{ filename: 'Lee_Ana.png', filemime: 'image/png', filesize: 12 }] }),
     ]);
     expect(a.submission_comments_read_at).not.toBeNull();
     // Cy has not submitted: not read, so an empty list and read_at null.

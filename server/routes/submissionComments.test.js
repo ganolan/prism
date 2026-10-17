@@ -94,7 +94,7 @@ describe('POST a comment with a file', () => {
             locator: loc, first() { return this; }, waitFor: async () => {}, count: async () => 1,
             setInputFiles: async (p) => { seenPath = p; seenBytes = await readFile(p, 'utf8'); },
             inputValue: async () => '1', fill: async () => {},
-            click: async () => { commentDeps.getSubmissionComments = vi.fn(async () => [{ id: '9', uid: '1', comment: 'hi', created: '1792300500' }]); },
+            click: async () => { commentDeps.getSubmissionComments = vi.fn(async () => [{ id: '9', uid: '1', comment: 'hi', created: '1792300500', attachments: { files: { file: [{ fid: 5, filename: 'Chen_Victor.png' }] } } }]); },
           };
         },
       },
@@ -103,7 +103,7 @@ describe('POST a comment with a file', () => {
     const r = await call('POST', `/api/submission-comments/8590105935/${studentId}/file`,
       { text: 'hi', fileName: '../Chen, Victor.png', data: Buffer.from('PNGDATA').toString('base64') });
     expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({ posted_id: '9', file_shown: true });
+    expect(r.body.posted_id).toBe('9');
     expect(seenPath.endsWith('/Chen, Victor.png')).toBe(true);
     expect(seenBytes).toBe('PNGDATA');
   });

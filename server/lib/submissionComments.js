@@ -38,10 +38,23 @@ export function authorRole(authorUid, { studentUid, teacherUids }) {
   return teacherUids?.has(uid) ? 'teacher' : 'other';
 }
 
+// The files of a stored row (JSON), without the signed download path.
+export function commentFiles(row) {
+  let files = [];
+  try { files = JSON.parse(row.attachments || '[]') || []; } catch { files = []; }
+  return files.map((f) => ({
+    fid: f.fid != null ? String(f.fid) : null, filename: f.filename, title: f.title ?? f.filename,
+    filesize: f.filesize ?? 0, filemime: f.filemime ?? null, extension: f.extension ?? null,
+  }));
+}
+
 // A stored submission_comments row → the shape the UI and PrisMCP read.
+// A student comment is automatic only when it holds nothing but Schoology's
+// Revision lines: typed text or an attached file makes it the student's own.
 export function describeComment(row) {
   const text = commentPlainText(row.body);
   const isStudent = row.author_role === 'student';
+  const attachments = commentFiles(row);
   const { automatic, text: typed } = isStudent ? splitAutomatic(text) : { automatic: [], text };
   return {
     id: String(row.schoology_comment_id),
@@ -52,8 +65,9 @@ export function describeComment(row) {
     created: row.created ? new Date(Number(row.created) * 1000).toISOString() : null,
     text,
     automatic_lines: automatic,
-    is_automatic: isStudent && automatic.length > 0 && !typed,
+    is_automatic: isStudent && automatic.length > 0 && !typed && !attachments.length,
     student_text: isStudent && typed ? typed : null,
+    attachments,
   };
 }
 
@@ -63,5 +77,8 @@ export function threadSummary(comments) {
     count: comments.length,
     student_text: written.length > 0,
     student_words: written.reduce((n, c) => n + c.student_text.split(/\s+/).filter(Boolean).length, 0),
+    // Files the student attached in a comment (evidence, like typed text), and all files.
+    student_files: comments.filter((c) => c.author_role === 'student').reduce((n, c) => n + (c.attachments?.length || 0), 0),
+    files: comments.reduce((n, c) => n + (c.attachments?.length || 0), 0),
   };
 }

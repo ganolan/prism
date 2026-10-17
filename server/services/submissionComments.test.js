@@ -10,7 +10,7 @@ vi.mock('./schoology.js', () => ({
 import { getDb } from '../db/index.js';
 import {
   commentDeps, resetCommentCaches, threadFor, refreshAssignment, postComment, deleteComment, studentsToRefresh, CommentError,
-  postCommentWithFile,
+  postCommentWithFile, commentFile,
 } from './submissionComments.js';
 import { readThread, summariesForCourse } from './submissionCommentStore.js';
 
@@ -74,7 +74,7 @@ describe('threadFor', () => {
     expect(t.comments.map((c) => c.id)).toEqual(['1', '2']);
     expect(t.comments[0]).toMatchObject({ author_role: 'student', author_name: 'Ana Lee', is_automatic: true, student_text: null });
     expect(t.comments[1]).toMatchObject({ is_automatic: false, student_text: 'Playtest: 5 rounds.' });
-    expect(t.summary).toEqual({ count: 2, student_text: true, student_words: 3 });
+    expect(t.summary).toEqual({ count: 2, student_text: true, student_words: 3, student_files: 0, files: 0 });
     expect(t.read_at).toBe(new Date(clock * 1000).toISOString());
   });
 
@@ -215,8 +215,8 @@ describe('postCommentWithFile', () => {
   test('uploads through the form, fills the text, posts, and confirms from the thread', async () => {
     const db = getDb(); const { ben } = seed(db);
     const fake = fakeFormPage({ onSubmit: () => {
-      threads[666].push({ id: '50', uid: TEACHER, comment: 'Your rubric', created: String(clock) });
-      return '<div class="comment">Your rubric <a>Chen, Victor.png</a></div>';
+      threads[666].push({ id: '50', uid: TEACHER, comment: 'Your rubric', created: String(clock),
+        attachments: { files: { file: [{ fid: 77, filename: 'Chen_Victor.png', filesize: 9, filemime: 'image/png', download_path: 'https://api.schoology.com/v1/f/x.png' }] } } });
     } });
     commentDeps.openPage = async () => fake.session;
     const t = await postCommentWithFile(db, { assignmentId: '8590105935', studentId: ben, text: 'Your rubric', filePath: '/tmp/x/Chen, Victor.png' });
@@ -224,7 +224,8 @@ describe('postCommentWithFile', () => {
     expect(fake.calls).toContainEqual(['file', '/tmp/x/Chen, Victor.png']);
     expect(fake.calls).toContainEqual(['fill', 'Your rubric']);
     expect(fake.calls.filter((c) => c[0] === 'click')).toHaveLength(1);
-    expect(t).toMatchObject({ posted_id: '50', file_shown: true });
+    expect(t.posted_id).toBe('50');
+    expect(t.comments.at(-1).attachments).toEqual([expect.objectContaining({ fid: '77', filename: 'Chen_Victor.png' })]);
     expect(fake.session.close).toHaveBeenCalled();
   });
 
@@ -245,10 +246,30 @@ describe('postCommentWithFile', () => {
     expect(fake.session.close).toHaveBeenCalled();
   }, 70000);
 
+  test('a new comment without its file is reported, not passed as posted', async () => {
+    const db = getDb(); const { ben } = seed(db);
+    const fake = fakeFormPage({ onSubmit: () => { threads[666].push({ id: '51', uid: TEACHER, comment: 'x', created: String(clock) }); } });
+    commentDeps.openPage = async () => fake.session;
+    await expect(postCommentWithFile(db, { assignmentId: '8590105935', studentId: ben, filePath: '/tmp/a.png' })).rejects.toMatchObject({ code: 'FILE_MISSING' });
+  });
+
   test('a submit that adds no comment is reported as unconfirmed', async () => {
     const db = getDb(); const { ben } = seed(db);
     const fake = fakeFormPage();
     commentDeps.openPage = async () => fake.session;
     await expect(postCommentWithFile(db, { assignmentId: '8590105935', studentId: ben, filePath: '/tmp/a.png' })).rejects.toMatchObject({ code: 'UNCONFIRMED' });
+  });
+});
+
+describe('commentFile', () => {
+  test('downloads a cached file with the signed path; an unknown fid is a 404', async () => {
+    const db = getDb(); const { ben } = seed(db);
+    threads[666][0].attachments = { files: { file: [{ fid: 77, filename: 'Chen_Victor.png', filemime: 'image/png', filesize: 3, download_path: 'https://api.schoology.com/v1/f/x.png' }] } };
+    await threadFor(db, { assignmentId: '8590105935', studentId: ben });
+    commentDeps.downloadFile = vi.fn(async () => ({ status: 200, contentType: 'image/png', body: Buffer.from('PNG') }));
+    const f = await commentFile(db, { assignmentId: '8590105935', studentId: ben, commentId: '3', fid: '77' });
+    expect(commentDeps.downloadFile).toHaveBeenCalledWith('https://api.schoology.com/v1/f/x.png');
+    expect(f).toMatchObject({ filename: 'Chen_Victor.png', filemime: 'image/png' });
+    await expect(commentFile(db, { assignmentId: '8590105935', studentId: ben, commentId: '3', fid: '1' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 });

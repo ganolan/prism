@@ -755,7 +755,8 @@ CREATE TABLE IF NOT EXISTS submission_comments (
   author_name TEXT,
   is_mine INTEGER NOT NULL DEFAULT 0,
   body TEXT NOT NULL DEFAULT '',
-  created INTEGER NOT NULL DEFAULT 0  -- epoch seconds
+  created INTEGER NOT NULL DEFAULT 0, -- epoch seconds
+  attachments TEXT                  -- JSON [{fid, filename, title, filesize, filemime, extension, md5, download_path}] or NULL
 );
 CREATE INDEX IF NOT EXISTS idx_submission_comments_pair ON submission_comments(assignment_id, student_id);
 

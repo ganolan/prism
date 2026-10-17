@@ -19,12 +19,18 @@ function Bubble() {
   );
 }
 
+// The student put their own work in the thread: typed text or an attached file.
+const studentWork = (summary) => !!(summary?.student_text || summary?.student_files > 0);
+
 function summaryLabel(summary) {
   if (!summary?.read_at) return 'Submission comments: not read yet';
   if (!summary.count) return 'Submission comments: none';
   const n = `${summary.count} submission comment${summary.count === 1 ? '' : 's'}`;
-  return summary.student_text ? `${n}, the student wrote text` : n;
+  const parts = [summary.student_text && 'the student wrote text', summary.student_files > 0 && 'the student attached a file'].filter(Boolean);
+  return parts.length ? `${n}, ${parts.join(' and ')}` : n;
 }
+
+const sizeLabel = (bytes) => (bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
 
 export default function SubmissionComments({ assignmentId, studentId, studentName, title, summary, onSummary, variant = 'card' }) {
   const [anchor, setAnchor] = useState(null);
@@ -39,21 +45,23 @@ export default function SubmissionComments({ assignmentId, studentId, studentNam
   return (
     <>
       {variant === 'cell' ? (
-        <button ref={btn} type="button" className={`comment-dot${summary?.student_text ? ' comment-dot--wrote' : ''}`}
+        <button ref={btn} type="button" className={`comment-dot${studentWork(summary) ? ' comment-dot--wrote' : ''}`}
           title={label} aria-label={`${label}. Open the thread`} aria-expanded={!!anchor}
           onClick={(e) => { e.stopPropagation(); anchor ? close() : open(); }}>
           <Bubble />
         </button>
       ) : (
         <>
-          <button ref={btn} type="button" className={`comment-chip${summary?.count ? '' : ' comment-chip--empty'}${summary?.student_text ? ' comment-chip--wrote' : ''}`}
+          <button ref={btn} type="button" className={`comment-chip${summary?.count ? '' : ' comment-chip--empty'}${studentWork(summary) ? ' comment-chip--wrote' : ''}`}
             title={label} aria-label={`${label}. Open the thread`} aria-expanded={!!anchor}
             onClick={() => (anchor ? close() : open())}>
             <Bubble />
             {summary?.count > 0 && <span>{summary.count}</span>}
           </button>
-          {summary?.student_text && (
+          {summary?.student_text ? (
             <span className="comment-wrote" title="The student typed their own text in a submission comment">Wrote in comments</span>
+          ) : summary?.student_files > 0 && (
+            <span className="comment-wrote" title="The student attached a file in a submission comment">File in comments</span>
           )}
         </>
       )}
@@ -151,7 +159,13 @@ export function CommentPopover({ assignmentId, studentId, studentName, title, an
               <div className="comment-student-text"><span className="comment-student-tag">Student wrote</span>{c.student_text}</div>
             )}
             {c.author_role !== 'student' && c.text && <div className="comment-text">{c.text}</div>}
-            {c.author_role === 'student' && !c.student_text && !c.automatic_lines.length && (
+            {c.attachments?.map((f) => (
+              <a key={f.fid} className={`comment-file${c.author_role === 'student' ? ' comment-file--student' : ''}`}
+                href={`/api/submission-comments/${assignmentId}/${studentId}/${c.id}/files/${f.fid}`} target="_blank" rel="noreferrer">
+                {f.title || f.filename} <span className="comment-file-size">{sizeLabel(f.filesize)}</span>
+              </a>
+            ))}
+            {c.author_role === 'student' && !c.student_text && !c.automatic_lines.length && !c.attachments?.length && (
               <div className="comment-auto">(empty comment)</div>
             )}
             {confirmDelete === c.id && (

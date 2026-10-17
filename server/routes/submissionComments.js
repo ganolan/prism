@@ -7,7 +7,7 @@ import { tmpdir } from 'os';
 import { join, basename } from 'path';
 import { getDb } from '../db/index.js';
 import { featureGate } from '../middleware/featureGate.js';
-import { CommentError, threadFor, refreshAssignment, postComment, deleteComment, postCommentWithFile } from '../services/submissionComments.js';
+import { CommentError, threadFor, refreshAssignment, postComment, deleteComment, postCommentWithFile, commentFile } from '../services/submissionComments.js';
 import { summariesForAssignment, summariesForCourse } from '../services/submissionCommentStore.js';
 import { resolveAssignmentId } from '../services/idResolvers.js';
 
@@ -66,6 +66,23 @@ router.post('/:assignmentId/:studentId/file', express.json({ limit: '25mb' }), h
     await rm(dir, { recursive: true, force: true });
   }
 }));
+
+// A comment's file, fetched from Schoology with the API signature. Images and PDFs
+// open in the browser; anything else downloads.
+router.get('/:assignmentId/:studentId/:commentId/files/:fid', async (req, res) => {
+  try {
+    const f = await commentFile(getDb(), req.params);
+    const inline = /^image\/|^application\/pdf$/.test(f.filemime);
+    res.set('Content-Type', f.filemime);
+    res.set('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(f.filename)}`);
+    res.set('X-Content-Type-Options', 'nosniff');
+    res.send(f.body);
+  } catch (err) {
+    if (err instanceof CommentError) return res.status(err.status).json({ error: err.message, code: err.code });
+    console.error('submission comment file failed:', err);
+    res.status(500).json({ error: `Could not fetch the file: ${err.message}`, code: 'INTERNAL' });
+  }
+});
 
 router.delete('/:assignmentId/:studentId/:commentId', handle((req, db) =>
   deleteComment(db, { assignmentId: req.params.assignmentId, studentId: req.params.studentId, commentId: req.params.commentId })));

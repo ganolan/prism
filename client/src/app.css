@@ -1385,6 +1385,9 @@ button.ghost.sync-run-row {
 .comment-compose textarea { width: 100%; min-height: 60px; resize: vertical; font-size: 0.8rem; }
 .comment-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .comment-post { margin-left: auto; }
+.comment-file--student { border-color: var(--badge-amber-text); background: var(--badge-amber-bg); color: var(--badge-amber-text); }
+.comment-file-size { color: var(--text-muted); font-size: 0.68rem; }
+a.comment-file { width: max-content; max-width: 100%; text-decoration: none; }
 .comment-file { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); border-radius: 6px; padding: 2px 4px 2px 8px; font-size: 0.74rem; color: var(--accent); min-width: 0; overflow-wrap: anywhere; }
 .comment-confirm { background: var(--danger-bg); color: var(--badge-red-text); border-radius: 6px; padding: 8px 10px; font-size: 0.78rem; display: grid; gap: 6px; }
 .comment-error { margin: 0; font-size: 0.75rem; }

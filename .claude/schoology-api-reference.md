@@ -144,9 +144,19 @@ unless stated.
   `comment, target_DOM_id, sid, file[files], file[recording], annotation_files, form_build_id, form_token,
   form_id, op, drupal_ajax` → `200 application/json`. Prism drives the form itself (Playwright, the saved session)
   rather than replaying these, because `form_build_id`/`form_token` are per page load.
-- **A comment with a file, read back:** the REST comment object still has only `{id, uid, comment, created}`
-  (no attachment field), so the API cannot show which comment holds a file. The web page shows the file name inside
-  that comment's `div.comment` (one `<a>`/`<img>` per comment there, the author picture included).
+- **Comment files: `?with_attachments=1` (VERIFIED 2026-10-17, read-only).** *(Corrected the same day: an
+  earlier note here said the REST comment has no attachment field. That held only without the parameter.)* The
+  same comments GET with `?with_attachments=1` (or `=true`) adds `attachments: {files: {file: [ … ]}}` to each
+  comment that has a file. A comment with no file has no `attachments` key, and paging (`start`/`limit`) works
+  with the flag. Observed file keys: `id` (null), `fid` (number), `type` ("file"), `title`, `filename`,
+  `filesize` (number), `md5_checksum`, `timestamp` (number), `filemime`, `download_path`, `extension`,
+  `converted_status` (string), `converted_type` (number). Schoology renames on upload: "Chen, Victor.png" is
+  stored as `Chen_Victor.png`. `download_path` is
+  `https://api.schoology.com/v1/system/files/drop_items/m/{yyyymm}/course/{n}/{name}_{hash}.{ext}`; it needs
+  the OAuth signature (unsigned → 403). Signed download through Prism: 671,044 bytes with an MD5 equal to the
+  original file. `?richtext=1` changes nothing, and `GET …/comments/{id}` (a single comment) does not return
+  JSON. The same flag on the per-student submission read (`…/submissions/{aid}/{uid}?with_attachments=1`) adds
+  each revision's files (`id` set, `fid` null, `download_path` under `/v1/submission/…`).
 - **Delete through Prism, verified 2026-10-17:** `DELETE …/comments/3659117104` (the probe's image comment) removed
   it; the next REST read no longer held it. The final image comment (`3659117138`) was then posted through
   Prism's popover (Attach file) and stays: the page shows three comments and the file name once, on that comment.

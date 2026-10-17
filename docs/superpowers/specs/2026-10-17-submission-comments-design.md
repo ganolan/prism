@@ -60,8 +60,8 @@ lines) and `student_text` (the rest of a student comment, or null).
 - **Popover:** the thread oldest first, author and school-time date (`formatDateTime`, DD/MM/YYYY); automatic
   lines faint and italic; student text in an amber block labelled "Student wrote"; teacher comments plain.
 - **Post:** a textarea, Attach file and Post comment, then an inline confirmation ("Students see a submission
-  comment at once", naming the file) before anything is sent. The REST thread does not mark which comment holds
-  a file, so the popover shows the text only.
+  comment at once", naming the file) before anything is sent. Each comment's files come from the same read
+  (`?with_attachments=1`) and show as links served through Prism.
 - **Delete:** only on Graham's own comments, with its own confirmation.
 - **Grid cell:** a small bubble beside the submission state, amber when the student wrote text; a click opens
   the same popover.

@@ -97,6 +97,11 @@ npm run test:api   # Schoology API smoke test
 
 ## API Spikes & Probes
 
+**Spike before you settle (Graham, 17 Oct 2026).** Prism is becoming a reliable replacement for much of Schoology's functionality, so **performance and data integrity come first**, and API spikes are encouraged, not a detour. Don't give up on the first surface tried:
+- **Before calling data unavailable,** try the endpoint's parameter variants (`with_attachments`, `with_comments`, `richtext`, paging), the single-item and bulk forms, `/multiget`, then the internal API and the page's own XHRs. Example: submission comment files were first written up as "not in the REST comment"; one more probe found them behind `?with_attachments=1` on the same call, at no extra cost.
+- **No headless browser where an HTTP route exists.** Order of preference: public REST, then the internal API over plain HTTP (session cookies plus the `X-Csrf-Token`/`X-Csrf-Key` from `Drupal.settings.s_common`), and a browser only as a last resort. A browser path that ships is debt: name it in the code and the API reference, and keep looking for its HTTP route.
+- **Prove integrity, not just status codes:** read back what you wrote, and compare checksums for files.
+
 Read `.claude/api-exploration-playbook.md` first — a spike is a *lower bound*, not a conclusion (if a probe didn't find data the UI shows, the wrong surface was tested). Operational gotchas that have silently produced false results:
 
 - **Run Playwright/probe scripts from the repo root, never `/tmp`** — elsewhere they can't resolve the repo's `node_modules` (`ERR_MODULE_NOT_FOUND` on `import 'playwright'`). Keep probes under `scripts/`.

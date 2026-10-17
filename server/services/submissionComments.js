@@ -4,7 +4,7 @@
 // There is no bulk read, so each (assignment, student) costs one GET: reads are
 // lazy (on open) plus a background queue over an assignment's submitted cells.
 import {
-  getSubmissionComments, postSubmissionComment, deleteSubmissionComment, getMyUserId, getSectionEnrollments,
+  getSubmissionComments, postSubmissionComment, deleteSubmissionComment, getMyUserId, getSectionEnrollments, downloadFile,
 } from './schoology.js';
 import { authorRole } from '../lib/submissionComments.js';
 import { resolveAssignmentId } from './idResolvers.js';
@@ -22,6 +22,7 @@ export const commentDeps = {
   deleteSubmissionComment: (...a) => deleteSubmissionComment(...a),
   getMyUserId: (...a) => getMyUserId(...a),
   getSectionEnrollments: (...a) => getSectionEnrollments(...a),
+  downloadFile: (...a) => downloadFile(...a),
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   now: () => Math.floor(Date.now() / 1000),
   openPage: () => sessionDeps.openPage(),
@@ -67,6 +68,16 @@ function pairOf(db, { assignmentId, studentId }) {
   return { assignment, course, student };
 }
 
+// A comment's files as stored: the fields Prism uses, or null when it has none.
+export function storedAttachments(c) {
+  const files = c?.attachments?.files?.file;
+  if (!Array.isArray(files) || !files.length) return null;
+  return JSON.stringify(files.map((f) => ({
+    fid: f.fid ?? f.id ?? null, filename: f.filename ?? null, title: f.title ?? null, filesize: Number(f.filesize) || 0,
+    filemime: f.filemime ?? null, extension: f.extension ?? null, md5: f.md5_checksum ?? null, download_path: f.download_path ?? null,
+  })));
+}
+
 function studentName(st) {
   return [st.preferred_name_teacher || st.preferred_name || st.first_name, st.last_name].filter(Boolean).join(' ');
 }
@@ -91,6 +102,7 @@ async function fetchPair(db, { assignment, course, student }) {
         is_mine: uid === teachers.myUid ? 1 : 0,
         body: String(c.comment ?? ''),
         created: Number(c.created) || 0,
+        attachments: storedAttachments(c),
       };
     });
     storeThread(db, { assignmentId: assignment.id, studentId: student.id, rows, readAt: commentDeps.now() });
@@ -199,8 +211,9 @@ export async function deleteComment(db, { assignmentId, studentId, commentId }) 
 // through Schoology's own form on the dropbox view page with the saved browser
 // session: the file input uploads first and fills the hidden file[files], then
 // the textarea and Post (see the reference, "Submission comment threads").
-// Verified afterwards in two ways: the REST thread holds a new comment of ours,
-// and the reloaded page shows the file name.
+// Confirmed afterwards from the REST thread (?with_attachments=1): a new comment
+// of ours that carries a file. Schoology renames the file ("Chen, Victor.png" is
+// stored as Chen_Victor.png), so the check is the file field, not the name.
 const FORM = '#s-drop-item-add-comment-form';
 const UPLOAD_WAIT_MS = 60000;
 const SESSION_MESSAGE = 'The saved Schoology session has expired: sign in again from Settings (Schoology connection), then post again. Nothing was posted.';
@@ -222,7 +235,6 @@ export async function postCommentWithFile(db, { assignmentId, studentId, text = 
   }
   if (!session) throw new CommentError('SCHOOLOGY_SESSION', SESSION_MESSAGE, 503);
   const { page } = session;
-  let fileShown = false;
   const viewUrl = `${SCHOOLOGY_BASE}/assignment/${pair.assignment.schoology_assignment_id}/dropbox/view/${pair.student.schoology_uid}`;
   try {
     await page.goto(viewUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -248,9 +260,7 @@ export async function postCommentWithFile(db, { assignmentId, studentId, text = 
     if (body) await form.locator('textarea[name=comment]').fill(body);
     await form.locator('input[type=submit][name=op]').click();
     await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
-    await page.waitForTimeout(3000);
-    await page.goto(viewUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    fileShown = (await page.content()).includes(fileName);
+    await page.waitForTimeout(2000);
   } finally {
     await session.close().catch(() => {});
   }
@@ -260,5 +270,24 @@ export async function postCommentWithFile(db, { assignmentId, studentId, text = 
   if (!added.length) {
     throw new CommentError('UNCONFIRMED', 'Schoology took the form, but no new comment shows in the thread. Refresh the thread before posting again.', 502);
   }
-  return { ...thread, posted_id: added.at(-1).id, file_shown: fileShown };
+  const withFile = added.filter((c) => c.attachments.length);
+  if (!withFile.length) {
+    throw new CommentError('FILE_MISSING', `The comment was posted, but Schoology shows no file on it. Delete it and post ${fileName} again.`, 502);
+  }
+  return { ...thread, posted_id: withFile.at(-1).id };
+}
+
+// One file of a cached comment, downloaded with the API's OAuth signature (the
+// download path refuses an unsigned request) → { filename, filemime, body }.
+export async function commentFile(db, { assignmentId, studentId, commentId, fid }) {
+  const pair = pairOf(db, { assignmentId, studentId });
+  const row = db.prepare('SELECT attachments FROM submission_comments WHERE schoology_comment_id = ? AND assignment_id = ? AND student_id = ?')
+    .get(String(commentId), pair.assignment.id, pair.student.id);
+  let files = [];
+  try { files = JSON.parse(row?.attachments || '[]') || []; } catch { files = []; }
+  const f = files.find((x) => String(x.fid) === String(fid));
+  if (!f?.download_path) throw new CommentError('NOT_FOUND', 'That file is not in this thread. Refresh the thread and try again.', 404);
+  const res = await commentDeps.downloadFile(f.download_path);
+  if (res.status !== 200) throw new CommentError('SCHOOLOGY', `Schoology refused the download (${res.status}).`, 502);
+  return { filename: f.filename || 'file', filemime: f.filemime || res.contentType || 'application/octet-stream', body: res.body };
 }

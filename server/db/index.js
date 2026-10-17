@@ -156,6 +156,8 @@ const MIGRATIONS = [
   // with a link to Schoology's Unsubmit button until a sync sees the work in progress.
   `ALTER TABLE resubmissions ADD COLUMN unsubmit_error TEXT`,
   `ALTER TABLE quiz_groups ADD COLUMN comment_template TEXT`,
+  // Submission comments: each comment's files (JSON), from ?with_attachments=1.
+  `ALTER TABLE submission_comments ADD COLUMN attachments TEXT`,
 ];
 
 // Remove orphaned auto-flag rows. The auto-flag feature that wrote 'missing',

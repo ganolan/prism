@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { drupalSettings, formFields, uploadAttachment, getPage } from './schoologyWeb.js';
+import { drupalSettings, formFields, uploadAttachment, getPage, getResource, getJson } from './schoologyWeb.js';
 import { VIEW_HTML, fakeSchoologyWeb } from '../testing/fakeSchoologyWeb.js';
 
 describe('schoologyWeb parsing', () => {
@@ -24,6 +24,39 @@ describe('uploadAttachment', () => {
     expect(web.requests.map((r) => [r.form.chunk, r.form.chunks, r.form.fid, r.form.file])).toEqual([
       ['0', '3', undefined, '<blob 1024>'], ['1', '3', '4242', '<blob 1024>'], ['2', '3', '4242', '<blob 452>'],
     ]);
+  });
+});
+
+describe('getResource / getJson', () => {
+  test('a non-200 is an answer, not an error; JSON is parsed when it is JSON', async () => {
+    const web = fakeSchoologyWeb({ routes: { '/iapi2/a/': { status: 403, json: { data: null } }, '/iapi2/b/': { text: '<html>' } } });
+    expect(await getJson(web.jar, '/iapi2/a/', { fetchImpl: web.fetchImpl })).toMatchObject({ status: 403, json: { data: null } });
+    expect(await getJson(web.jar, '/iapi2/b/', { fetchImpl: web.fetchImpl })).toMatchObject({ status: 200, json: null });
+    expect(web.requests[0].headers).toMatchObject({ Accept: 'application/json', cookie: 'SESS=old' });
+    const page = await getResource(web.jar, '/iapi2/b/', { fetchImpl: web.fetchImpl });
+    expect(page).toMatchObject({ status: 200, text: '<html>', url: 'https://schoology.hkis.edu.hk/iapi2/b/' });
+    expect(web.requests[2].headers.Accept).toBeUndefined();
+  });
+  test('a 429 is waited out (Retry-After, capped at 10 s; else 2 s then 4 s) and asked again; the last 429 is the answer', async () => {
+    let n = 0;
+    const web = fakeSchoologyWeb({ routes: {
+      '/a/': () => (++n === 1 ? { status: 429, text: '', headers: { 'retry-after': '3' } } : { json: { ok: 1 } }),
+      '/b/': { status: 429, text: 'slow down' },
+    } });
+    const waits = [];
+    const sleep = async (ms) => { waits.push(ms); };
+    expect(await getJson(web.jar, '/a/', { fetchImpl: web.fetchImpl, sleep })).toMatchObject({ status: 200, json: { ok: 1 } });
+    expect(waits).toEqual([3000]);
+    waits.length = 0;
+    expect(await getResource(web.jar, '/b/', { fetchImpl: web.fetchImpl, sleep })).toMatchObject({ status: 429, text: 'slow down' });
+    expect(waits).toEqual([2000, 4000]);
+    expect(await getResource(web.jar, '/b/', { fetchImpl: web.fetchImpl, sleep, retries429: 0 })).toMatchObject({ status: 429 });
+  });
+  test('a failed or timed-out request is an HTTP error; a sign-in bounce is SESSION_EXPIRED', async () => {
+    const timeout = Object.assign(new Error('aborted'), { name: 'TimeoutError' });
+    const web = fakeSchoologyWeb({ routes: { '/t/': { throws: timeout }, '/l/': { login: true } } });
+    await expect(getResource(web.jar, '/t/', { fetchImpl: web.fetchImpl })).rejects.toMatchObject({ code: 'HTTP', message: expect.stringContaining('timed out') });
+    await expect(getJson(web.jar, '/l/', { fetchImpl: web.fetchImpl })).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });
   });
 });
 

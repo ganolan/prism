@@ -57,6 +57,7 @@ let assignmentId;
 beforeEach(() => {
   const db = getDb();
   db.exec(
+    'DELETE FROM student_ps_alerts; DELETE FROM student_powerschool; ' +
     'DELETE FROM feedback_snapshots; DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM enrolments; ' +
     'DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
   );
@@ -297,6 +298,24 @@ describe('GET /api/courses/:id/students — individually-assigned aggregate (#54
     // applied, only the open-to-all 75/100 counts.
     expect(row.avg_pct).toBe(75);
     expect(row.graded_count).toBe(1);
+  });
+});
+
+describe('GET /api/courses/:id/students — PowerSchool alerts (#117)', () => {
+  test('each student carries ps_alerts (labels only, [] when none), never the contact fields', async () => {
+    const db = getDb();
+    const other = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-2', 'Grace', 'Hopper')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'enr-2')`).run(other, courseId);
+    db.prepare(`INSERT INTO student_ps_alerts (student_id, alert_key, ps_alert_id) VALUES (?, 'epipen', '10593828'), (?, 'accommodation_plan', '10593860')`).run(studentId, studentId);
+    db.prepare(`INSERT INTO student_powerschool (student_id, alerts_synced_at, dnc_g1) VALUES (?, '2026-10-17T00:00:00Z', '1')`).run(studentId);
+    const { body } = await get(`/api/courses/${courseId}/students`);
+    const ada = body.find((s) => s.id === studentId);
+    expect(ada.ps_alerts).toEqual([
+      { key: 'accommodation_plan', label: 'Accommodation plan', category: 'learning' },
+      { key: 'epipen', label: 'EpiPen', category: 'health' },
+    ]);
+    expect(body.find((s) => s.id === other).ps_alerts).toEqual([]);
+    expect(JSON.stringify(body)).not.toMatch(/dnc_g1/);
   });
 });
 

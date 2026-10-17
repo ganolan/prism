@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeEach, vi } from 'vitest';
+import { ALERT_DEFS } from '../server/lib/psAlerts.js';
 
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
@@ -345,6 +346,18 @@ describe('PrisMCP triage tools', () => {
     expect(desc('get_triage')).toMatch(/makeUps/);
     expect(desc('get_triage')).toMatch(/makeUpsUnchecked/);
     expect(desc('extend_deadline')).toMatch(/make-up/i);
+  });
+
+  test('#117: list_students and get_assignment_context describe the PowerSchool alert fields', async () => {
+    const client = await connect();
+    const tools = (await client.listTools()).tools;
+    const desc = (name) => tools.find((t) => t.name === name).description;
+    for (const name of ['list_students', 'get_assignment_context']) {
+      expect(desc(name)).toMatch(/powerschool_alerts/);
+      expect(desc(name)).toMatch(/powerschool_alerts_read_at/);
+      expect(desc(name)).toMatch(/never put them in student feedback/);
+      for (const d of ALERT_DEFS) expect(desc(name)).toContain(d.key);
+    }
   });
 
   test('day numbers: get_triage says `day` is the dashboard number (due/test date = day 1) and to quote it', async () => {

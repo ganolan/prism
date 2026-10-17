@@ -12,6 +12,7 @@ import { getFeedbackRows } from '../server/services/feedbackRows.js';
 import { normalizeSubmissionStatus, gradingState, getRoster, scoreScaleFor, getAlignedTopics, getAssessmentContext } from '../server/services/assessmentContext.js';
 import { refreshAssignment } from '../server/services/submissionComments.js';
 import { getFeatures } from '../server/middleware/featureGate.js';
+import { psAlertFieldsForAgents } from '../server/services/psAlertStore.js';
 
 // A grading run reads threads at most a minute old.
 const MCP_COMMENT_MAX_AGE_SEC = 60;
@@ -174,13 +175,16 @@ export function listStudents(db, { course_id, include_dropped = false }) {
     SELECT s.id, s.grad_year FROM students s JOIN enrolments e ON e.student_id = s.id WHERE e.course_id = ?
   `).all(Number(course_id)).map((r) => [r.id, r.grad_year]));
   const current = getRoster(db, Number(course_id)).map((st) => shape({ ...st, grad_year: gradYears.get(st.id) }));
-  if (!include_dropped) return current;
-  const dropped = db.prepare(`
+  const dropped = !include_dropped ? [] : db.prepare(`
     SELECT s.*, e.dropped_at FROM students s JOIN enrolments e ON e.student_id = s.id
     WHERE e.course_id = ? AND e.dropped_at IS NOT NULL
     ORDER BY s.last_name, s.first_name
   `).all(Number(course_id)).map((st) => ({ ...shape(st), dropped_at: st.dropped_at }));
-  return [...current, ...dropped];
+  const all = [...current, ...dropped];
+  // #117: PowerSchool alerts (labels only, never the guardian-contact fields).
+  if (!getFeatures().powerschool_alerts) return all;
+  const alerts = psAlertFieldsForAgents(db, all.map((st) => st.id));
+  return all.map((st) => ({ ...st, ...alerts.get(st.id) }));
 }
 
 // ── Student history (reference letters) ─────────────────────────────────────

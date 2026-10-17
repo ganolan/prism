@@ -19,6 +19,7 @@ import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import { useStickyTab } from '../hooks/useStickyTab.js';
 import CompactRubric from '../components/CompactRubric.jsx';
 import SubmissionBadges from '../components/SubmissionBadges.jsx';
+import PsAlertBadges from '../components/PsAlertBadges.jsx';
 import SchoologyLink from '../components/SchoologyLink.jsx';
 import AttemptLink from '../components/quiz/AttemptLink.jsx';
 import QuizChip from '../components/quiz/QuizChip.jsx';
@@ -491,6 +492,7 @@ export function RosterView({ students, mastery, courseId, displayName, onOverrid
                       dropped {new Date(s.dropped_at).toLocaleDateString('en-GB')}
                     </span>
                   )}
+                  <PsAlertBadges alerts={s.ps_alerts} compact />
                 </td>
                 <td className="text-sm">{s.email || '-'}</td>
                 <td className="text-sm">

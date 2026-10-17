@@ -84,3 +84,28 @@ describe('RosterView dropped students', () => {
     expect(screen.queryByRole('button', { name: /dropped/i })).not.toBeInTheDocument();
   });
 });
+
+// ── PowerSchool alerts (#117) ──
+describe('RosterView PowerSchool alerts', () => {
+  const renderRoster = (rows) => render(
+    <MemoryRouter>
+      <RosterView students={rows} mastery={null} courseId={1} displayName={(s) => s.first_name} onOverrideClick={() => {}} />
+    </MemoryRouter>
+  );
+
+  it('shows each student\'s alerts as compact badges beside the name', () => {
+    renderRoster([
+      { id: 1, first_name: 'Ana', last_name: 'Lee', ps_alerts: [{ key: 'accommodation_plan', label: 'Accommodation plan', category: 'learning' }, { key: 'epipen', label: 'EpiPen', category: 'health' }] },
+      { id: 2, first_name: 'Ben', last_name: 'Ng', ps_alerts: [] },
+    ]);
+    const nameCell = screen.getByRole('link', { name: 'Ana Lee' }).closest('td');
+    expect(nameCell).toHaveTextContent('Accommodation plan');
+    expect(nameCell).toHaveTextContent('EpiPen');
+    expect(screen.getAllByLabelText('PowerSchool alerts')).toHaveLength(1);
+  });
+
+  it('shows no badges when the API sends no alerts (feature off)', () => {
+    renderRoster([{ id: 1, first_name: 'Ana', last_name: 'Lee' }]);
+    expect(screen.queryByLabelText('PowerSchool alerts')).not.toBeInTheDocument();
+  });
+});

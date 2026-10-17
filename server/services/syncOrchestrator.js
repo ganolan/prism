@@ -4,6 +4,7 @@ import { syncMasteryForCourse } from './masterySync.js';
 import { refreshRecentQuizzes } from './quizRefresh.js';
 import { getFeatures } from '../middleware/featureGate.js';
 import { syncPsAttendance } from './psAttendanceSync.js';
+import { syncPsAlerts } from './psAlertsSync.js';
 import { captureFeedbackSnapshots } from './feedbackSnapshots.js';
 import { settleResubmissions } from './resubmissions.js';
 
@@ -31,7 +32,7 @@ export async function runUnifiedSync(
   const emit = (evt) => onEvent?.(evt);
   const db = getDb();
   const startedAt = Date.now();
-  const summary = { schoology: null, blocks: null, mastery: [], quizzes: null };
+  const summary = { schoology: null, blocks: null, alerts: null, mastery: [], quizzes: null };
 
   if (!skipSchoology) {
     emit({ phase: 'schoology', status: 'running' });
@@ -81,6 +82,23 @@ export async function runUnifiedSync(
       const errorKind = classifyMasteryError(err);
       summary.blocks = { error: err.message, errorKind, elapsedMs: Date.now() - blocksStartedAt };
       emit({ phase: 'blocks', status: 'error', errorKind, message: err.message });
+    }
+  }
+
+  // #117: PowerSchool student alerts (accommodation, health), over plain HTTP,
+  // on the same "Sync from PowerSchool" opt-out and behind powerschool_alerts.
+  // Best-effort: a failure is reported in the run and never fails the sync.
+  if (syncBlocks && getFeatures().powerschool_alerts) {
+    emit({ phase: 'alerts', status: 'running' });
+    const alertsStartedAt = Date.now();
+    try {
+      const r = await syncPsAlerts({ onProgress: (p) => emit({ type: 'log', message: `[alerts] ${p.message}` }) });
+      summary.alerts = { students: r.students, withAlerts: r.withAlerts, failed: r.failed, elapsedMs: Date.now() - alertsStartedAt };
+      emit({ phase: 'alerts', status: 'done', records: r.students, failed: r.failed, elapsedMs: summary.alerts.elapsedMs });
+    } catch (err) {
+      const errorKind = classifyMasteryError(err);
+      summary.alerts = { error: err.message, errorKind, elapsedMs: Date.now() - alertsStartedAt };
+      emit({ phase: 'alerts', status: 'error', errorKind, message: err.message });
     }
   }
 

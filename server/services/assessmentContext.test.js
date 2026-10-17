@@ -41,6 +41,7 @@ function seedContext(db) {
 
 beforeEach(() => {
   getDb().exec(
+    'DELETE FROM student_ps_alerts; DELETE FROM student_powerschool; ' +
     'DELETE FROM rubric_row_levels; DELETE FROM rubric_attachments; DELETE FROM rubric_criteria; DELETE FROM rubrics; ' +
     'DELETE FROM status_lines; DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM assessment_drafts; DELETE FROM assessment_analysis; DELETE FROM feedback; DELETE FROM mastery_alignments; DELETE FROM mastery_scores; ' +
     'DELETE FROM grades; DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
@@ -526,5 +527,26 @@ describe('feedback rows on an unaligned GAS task', () => {
     const db = getDb();
     seedContext(db);
     expect('rubric' in getAssessmentContext(db, { assignmentId: 'sa-1' })).toBe(false);
+  });
+});
+
+describe('getAssessmentContext — PowerSchool alerts (#117)', () => {
+  test('each student carries powerschool_alerts (labels only) and when they were read', () => {
+    const db = getDb();
+    const { assignmentId, studentId } = seedContext(db);
+    db.prepare(`INSERT INTO student_ps_alerts (student_id, alert_key) VALUES (?, 'accommodation_plan')`).run(studentId);
+    db.prepare(`INSERT INTO student_powerschool (student_id, alerts_synced_at, dnc_g1) VALUES (?, '2026-10-17T00:00:00.000Z', '1')`).run(studentId);
+    const ctx = getAssessmentContext(db, { assignmentId });
+    expect(ctx.students[0]).toMatchObject({
+      powerschool_alerts: [{ key: 'accommodation_plan', label: 'Accommodation plan', category: 'learning' }],
+      powerschool_alerts_read_at: '2026-10-17T00:00:00.000Z',
+    });
+    expect(JSON.stringify(ctx)).not.toMatch(/dnc_g1/);
+  });
+
+  test('never read: an empty list and read_at null', () => {
+    const db = getDb();
+    const { assignmentId } = seedContext(db);
+    expect(getAssessmentContext(db, { assignmentId }).students[0]).toMatchObject({ powerschool_alerts: [], powerschool_alerts_read_at: null });
   });
 });

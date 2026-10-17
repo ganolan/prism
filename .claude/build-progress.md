@@ -1089,9 +1089,12 @@ POSTed to PowerSchool with `fetch` (`server/services/powerschoolWeb.js`), then f
   and the raw `X_DNC_G1/G2`, `X_G1DECEASED/G2DECEASED` values for #66, store only). A student read this sync gets
   exactly the alerts that fire now; a section that fails keeps its students' last-known rows; a sync that reads
   no section throws (the phase shows the error, the sync carries on).
-- **Show:** badges on the roster (Name cell) and the student page (with "from PowerSchool, read DD/MM/YYYY");
-  PrisMCP `list_students` and `get_assignment_context` add `powerschool_alerts` + `powerschool_alerts_read_at`
-  per student. Labels only; the contact fields never leave the database.
+- **Show (revised 2026-10-18 with Graham):** family alerts added (correspondence G1 / G2 / G1+G2,
+  divorced/separated, staff child, siblings). Student page: every alert hidden behind **Show alerts (N)**, not
+  remembered. Roster: learning, health and other only (never family), behind a **PowerSchool alerts** toggle,
+  off by default, remembered per browser. PrisMCP `list_students` and `get_assignment_context` add
+  `powerschool_alerts` (family included) + `powerschool_alerts_read_at` per student, as labels for the teacher only.
+  The contact fields never leave the database. No other view shows alerts yet.
 - **Verified live (2026-10-17, dev DB copy):** 9 of 9 active courses read, 96 students, 6.2 s
   (`scripts/parity-ps-alerts.js`). Shapes in `.claude/powerschool-api-reference.md` "Student alerts over plain
   HTTP (#117)".

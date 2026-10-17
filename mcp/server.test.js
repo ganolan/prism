@@ -356,6 +356,8 @@ describe('PrisMCP triage tools', () => {
       expect(desc(name)).toMatch(/powerschool_alerts/);
       expect(desc(name)).toMatch(/powerschool_alerts_read_at/);
       expect(desc(name)).toMatch(/never put them in student feedback/);
+      expect(desc(name)).toMatch(/labels for the teacher only/);
+      expect(desc(name)).toMatch(/family: correspondence_g1/);
       for (const d of ALERT_DEFS) expect(desc(name)).toContain(d.key);
     }
   });

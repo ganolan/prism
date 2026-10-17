@@ -433,14 +433,14 @@ calls `getStudentsInSection`, then per student `getAlerts` (man), `stuFieldValue
 | 10593855 | adv | `allergies.html` (field shown `X_ALLERGYCNF`, operand `Y`) | | Allergies | `allergies` |
 | 10593867 / 10593869 | sf | `X_APIABOVE100` | in `1` / in `3` | AQHI 6 or Above Inside At All Times / Except Events | |
 | 10593864 / 10733416 | sf | `X_G1DECEASED` / `X_G2DECEASED` | in `1` | Deceased Guardian 1 / 2 | raw value stored (#66) |
-| 10593857 | sf | `X_G1G2Relationship` | in `Divorced,Separated` | Divorced | |
+| 10593857 | sf | `X_G1G2Relationship` | in `Divorced,Separated` | Divorced | `divorced` (family) |
 | 10672509 / 10672510 | sf | `X_DNC_G1` / `X_DNC_G2` | notblank | Do Not Contact Guardian 1 / 2 | raw value stored (#66) |
 | 11290939 | man | | | Early Dismissal | |
 | 10672527 | sf | `X_ELEVATORALERT` | notblank | Elevator Alert | `elevator` |
 | 39945753 | sf | `U_STUDENTS_EXTENSION3.X_HEALTHCAREPLANACTIVE`, ext table **`U_DEF_EXT_STUDENTS0`** | in `X` | Emergency Health Care Plan | `health_care_plan` |
-| 27330244 | adv | `employee_child.html` | | Employee Child | |
+| 27330244 | adv | `employee_child.html` | | Employee Child | `employee_child` (family) |
 | 10593828 | sf | `X_ALLERGYEPI` | in `Y` | EpiPen | `epipen` |
-| 32012482 / 32012479 / 32012481 | sf | `X_HomeEmail` | in `3` / `1` / `2` | G1 and G2 / G1 / G2 Correspondence | |
+| 32012482 / 32012479 / 32012481 | sf | `X_HomeEmail` | in `3` / `1` / `2` | G1 and G2 / G1 / G2 Correspondence | `correspondence_both` / `_g1` / `_g2` (family) |
 | 10593859 | sf | `X_ILP` | in `1` | Individual Learning Plan | `ilp` |
 | 10593862 / 10593861 / 10593863 | sf | `X_LS_SUPPORT_LEVEL` | in `1` / `2` / `3` | Learning Support Level 1 / 2 / 3 | `learning_support_1/2/3` |
 | 10672526 | sf | `X_LIBRARYALERT` | notblank | Library Alert | |
@@ -448,7 +448,7 @@ calls `getStudentsInSection`, then per student `getAlerts` (man), `stuFieldValue
 | 11361898 | sf | `X_MedicalConfirm` | notin `1` | Missing Health Form | |
 | 39472338 | man | | | Mobility | `mobility` |
 | 10593856 | sf | `X_PublicityNotice` | in `N` | No Photo | `no_photo` |
-| 11290961 | adv | `sibling.html` | | Siblings List | |
+| 11290961 | adv | `sibling.html` | | Siblings List | `siblings` (family) |
 | 11290981 | adv | `studentsupportsummary.html` | | Student Support Summary | `support_summary` |
 
 Unless shown, an sf entry's `student_field` is `U_Students_Extension.{FIELD}` and its `ext_table_name` is
@@ -488,7 +488,9 @@ observed**: `id`, `u_aet_customalerts_typesid`, `studentsdcid`, `expired`, `inac
 **Live sync, 2026-10-17** (`scripts/parity-ps-alerts.js`, dev database copy): 9 active courses, 9 read, 0 failed;
 96 students stored, 39 with at least one kept alert (accommodation_plan 8, allergies 27, epipen 2,
 learning_support_2 2, no_photo 3, support_summary 13). One active Prism student was on no PowerSchool roster read
-(a roster difference, not a read failure).
+(a roster difference, not a read failure). **2026-10-18, with the family alerts added** (same 96 students, 8.2 s):
+correspondence_both 84, correspondence_g1 7, correspondence_g2 5 (exactly one each: 84 + 7 + 5 = 96), divorced 3,
+siblings 69, employee_child 0; the other counts unchanged.
 
 **Still open:** the alert *detail* (what the accommodation is, the extra-time amount) lives in the SPP and Student
 Support Summary popups (`aet_customalert_custompopup.html?url=mbapop_spp.html` / `mbapop_studentsupportsummary.html`),

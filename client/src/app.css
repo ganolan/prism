@@ -312,6 +312,9 @@ tr:last-child td { border-bottom: none; }
 .ps-alerts { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; vertical-align: middle; }
 .ps-alerts-compact { margin-left: 0.5rem; }
 .ps-alerts-compact .badge { font-size: 0.62rem; padding: 0.05rem 0.4rem; }
+.ps-alerts-revealed { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+button.ps-alerts-reveal { font-size: 0.78rem; padding: 0.15rem 0.55rem; }
+.roster-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
 
 /* #76: gradebook cell marker for an lti_submission assignment whose OneDrive
    document fetch failed at the last sync — the teacher should re-sync. Amber

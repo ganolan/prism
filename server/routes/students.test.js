@@ -66,6 +66,13 @@ describe('GET /api/students/:id — PowerSchool alerts (#117)', () => {
     expect(body).not.toHaveProperty('g2_deceased');
   });
 
+  test('the student page gets every alert, family ones included', async () => {
+    const db = getDb();
+    db.prepare(`INSERT INTO student_ps_alerts (student_id, alert_key) VALUES (?, 'siblings'), (?, 'epipen')`).run(studentId, studentId);
+    const { body } = await get(`/api/students/${studentId}`);
+    expect(body.ps_alerts.map((a) => [a.key, a.category])).toEqual([['epipen', 'health'], ['siblings', 'family']]);
+  });
+
   test('never read: an empty list and no time', async () => {
     const { body } = await get(`/api/students/${studentId}`);
     expect(body.ps_alerts).toEqual([]);

@@ -17,7 +17,10 @@
  * stored as raw field values for #66 and never shown as badges.
  */
 
-// Category drives the badge colour: learning support, health, other.
+// Category drives the badge colour: learning support, health, other, family.
+// Family alerts (guardians, correspondence, siblings) are for the teacher only:
+// shown on the student page behind a click and returned to PrisMCP, never on a
+// roster (ROSTER_CATEGORIES).
 export const ALERT_DEFS = [
   { key: 'accommodation_plan', label: 'Accommodation plan', category: 'learning', psAlertIds: ['10593860'] },
   { key: 'accommodations_only', label: 'Accommodations only', category: 'learning', psAlertIds: ['11361904'] },
@@ -32,7 +35,17 @@ export const ALERT_DEFS = [
   { key: 'mobility', label: 'Mobility', category: 'other', psAlertIds: ['39472338'] },
   { key: 'elevator', label: 'Elevator', category: 'other', psAlertIds: ['10672527'] },
   { key: 'no_photo', label: 'No photo', category: 'other', psAlertIds: ['10593856'] },
+  { key: 'correspondence_g1', label: 'Correspondence G1', category: 'family', psAlertIds: ['32012479'], title: 'Correspondence to guardian 1' },
+  { key: 'correspondence_g2', label: 'Correspondence G2', category: 'family', psAlertIds: ['32012481'], title: 'Correspondence to guardian 2' },
+  { key: 'correspondence_both', label: 'Correspondence G1+G2', category: 'family', psAlertIds: ['32012482'], title: 'Correspondence to both guardians' },
+  { key: 'divorced', label: 'Divorced/separated', category: 'family', psAlertIds: ['10593857'], title: 'Guardians divorced or separated' },
+  { key: 'employee_child', label: 'Staff child', category: 'family', psAlertIds: ['27330244'], title: 'Child of a school employee' },
+  { key: 'siblings', label: 'Siblings', category: 'family', psAlertIds: ['11290961'], title: 'Siblings at the school' },
 ];
+
+// The categories a roster may show (a roster may be projected to a class).
+export const ROSTER_CATEGORIES = ['learning', 'health', 'other'];
+export const forRoster = (alerts) => (alerts || []).filter((a) => ROSTER_CATEGORIES.includes(a.category));
 
 const DEF_BY_KEY = new Map(ALERT_DEFS.map((d) => [d.key, d]));
 const DEF_BY_PS_ID = new Map(ALERT_DEFS.flatMap((d) => d.psAlertIds.map((id) => [id, d])));

@@ -93,9 +93,12 @@ and is never a caller or teacher input.** The numeric mapping is configured once
 ### PowerSchool alerts vs flags (#117)
 
 - **PowerSchool alert**: an alert PowerSchool's custom-alerts plugin shows beside a student's
-  name (accommodation plan, learning support level, EpiPen, ...), read on each sync and shown as
-  a badge (`student_ps_alerts`, feature `powerschool_alerts`). It says a plan exists, not what
-  it contains.
+  name (accommodation plan, learning support level, EpiPen, siblings, ...), read on each sync and
+  shown as a badge (`student_ps_alerts`, feature `powerschool_alerts`). It says a plan exists, not
+  what it contains. Categories: learning, health, other, and **family** (correspondence,
+  divorced/separated, staff child, siblings). Family alerts appear on the student page (behind
+  "Show alerts") and in PrisMCP only, never on a roster. Every view hides alerts until the
+  teacher asks for them.
 - **Flag**: the teacher's own Prism marker on a student or an assignment (`flags`, feature
   `student_flags`, e.g. review needed). Never call a PowerSchool alert a flag.
 

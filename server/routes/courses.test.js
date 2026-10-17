@@ -317,6 +317,14 @@ describe('GET /api/courses/:id/students — PowerSchool alerts (#117)', () => {
     expect(body.find((s) => s.id === other).ps_alerts).toEqual([]);
     expect(JSON.stringify(body)).not.toMatch(/dnc_g1/);
   });
+
+  test('family alerts (correspondence, divorced, staff child, siblings) never reach the roster', async () => {
+    const db = getDb();
+    db.prepare(`INSERT INTO student_ps_alerts (student_id, alert_key) VALUES (?, 'divorced'), (?, 'siblings'), (?, 'correspondence_g1'), (?, 'employee_child'), (?, 'no_photo')`)
+      .run(studentId, studentId, studentId, studentId, studentId);
+    const { body } = await get(`/api/courses/${courseId}/students`);
+    expect(body.find((s) => s.id === studentId).ps_alerts.map((a) => a.key)).toEqual(['no_photo']);
+  });
 });
 
 describe('GET /api/courses/archived/discover', () => {

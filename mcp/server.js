@@ -17,11 +17,11 @@ import { ALERT_DEFS } from '../server/lib/psAlerts.js';
 
 // #117: the PowerSchool alert fields list_students and get_assignment_context add per
 // student (when powerschool_alerts is on in config.yaml). Labels only, per ADR 0002.
-const ALERT_KEYS_BY_CATEGORY = ['learning', 'health', 'other']
+const ALERT_KEYS_BY_CATEGORY = ['learning', 'health', 'other', 'family']
   .map((c) => `${c}: ${ALERT_DEFS.filter((d) => d.category === c).map((d) => d.key).join(', ')}`).join('; ');
 const POWERSCHOOL_ALERTS_NOTE =
   `Each student also has \`powerschool_alerts\` [{ key, label, category }]: the PowerSchool alerts Prism keeps (${ALERT_KEYS_BY_CATEGORY}), as of \`powerschool_alerts_read_at\` (ISO, read on each sync; null = never read, so an empty list then means unknown, not none). ` +
-  'They say a plan or alert exists, not what it contains (e.g. how much extra time): check PowerSchool for the detail. Use them for the teacher\'s decisions (who needs accommodations in a test); never put them in student feedback.';
+  'They say a plan or alert exists, not what it contains (e.g. how much extra time): check PowerSchool for the detail. They are labels for the teacher only: use them for the teacher\'s decisions (who needs accommodations in a test; which guardian gets correspondence); never put them in student feedback or anything a student or parent reads. Family alerts (correspondence, divorced, employee_child, siblings) are especially private.';
 
 // <2KB tool-search hint (spec §3.4) so a client knows when to surface PrisMCP.
 export const INSTRUCTIONS =

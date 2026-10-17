@@ -277,6 +277,19 @@ describe('listStudents — PowerSchool alerts (#117)', () => {
     expect(rows.find((r) => r.id === b)).toMatchObject({ powerschool_alerts: [{ key: 'ilp', label: 'ILP', category: 'learning' }], powerschool_alerts_read_at: null });
     expect(JSON.stringify(rows)).not.toMatch(/dnc_g2/);
   });
+
+  test('family alerts are returned to the agent (the teacher sees them), unlike the roster', () => {
+    const db = getDb();
+    const courseId = seedCourse(db);
+    const a = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u1', 'A', 'One')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'e1')`).run(a, courseId);
+    db.prepare(`INSERT INTO student_ps_alerts (student_id, alert_key) VALUES (?, 'siblings'), (?, 'divorced'), (?, 'ilp')`).run(a, a, a);
+    expect(listStudents(db, { course_id: courseId })[0].powerschool_alerts).toEqual([
+      { key: 'ilp', label: 'ILP', category: 'learning' },
+      { key: 'divorced', label: 'Divorced/separated', category: 'family' },
+      { key: 'siblings', label: 'Siblings', category: 'family' },
+    ]);
+  });
 });
 
 const C = (over = {}) => ({ criterion_name: 'UI/UX', standard_title: 'Visual', reporting_category: 'Produce', descriptors: { ED: 'a' }, ...over });

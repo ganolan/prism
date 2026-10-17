@@ -18,6 +18,11 @@ describe('PsAlertBadges (#117)', () => {
     expect(screen.getByText('No photo')).toHaveClass('badge', 'badge-gray');
   });
 
+  it('family alerts are pink', () => {
+    render(<PsAlertBadges alerts={[{ key: 'siblings', label: 'Siblings', category: 'family' }]} />);
+    expect(screen.getByText('Siblings')).toHaveClass('badge', 'badge-pink');
+  });
+
   it('names the source, and the read date day-first, on hover', () => {
     render(<PsAlertBadges alerts={ALERTS} syncedAt="2026-10-07T03:00:00.000Z" />);
     expect(screen.getByText('ILP')).toHaveAttribute('title', 'Individual learning plan. From PowerSchool, read 07/10/2026');

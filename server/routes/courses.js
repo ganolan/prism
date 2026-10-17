@@ -8,6 +8,7 @@ import { getArchivedSections } from '../services/archivedCourses.js';
 import { syncPsAttendance } from '../services/psAttendanceSync.js';
 import { getSchoologyConfig, getFeatures } from '../middleware/featureGate.js';
 import { psAlertsByStudent } from '../services/psAlertStore.js';
+import { forRoster } from '../lib/psAlerts.js';
 import { toSchoologyWebUrl } from '../lib/schoologyWebUrl.js';
 import { timelineContext } from '../services/submissionTimeline.js';
 
@@ -124,13 +125,14 @@ router.get('/:id/students', (req, res) => {
 
   const summaryMap = Object.fromEntries(gradeSummary.map(s => [s.student_id, s]));
   // #117: PowerSchool alerts as badges (labels only), when the feature is on.
+  // Learning, health and other only: family alerts never reach a roster.
   const alerts = getFeatures().powerschool_alerts ? psAlertsByStudent(db, students.map(s => s.id)) : null;
 
   const enriched = students.map(s => ({
     ...s,
     graded_count: summaryMap[s.id]?.graded_count || 0,
     avg_pct: summaryMap[s.id]?.avg_pct || null,
-    ...(alerts ? { ps_alerts: alerts.get(s.id) || [] } : {}),
+    ...(alerts ? { ps_alerts: forRoster(alerts.get(s.id)) } : {}),
   }));
 
   res.json(enriched);

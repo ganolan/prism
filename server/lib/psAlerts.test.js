@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import {
-  ALERT_DEFS, alertPlan, fieldOf, fieldValuesParams, sfAlertFires, advMatchedIds, sectionAlerts, describeAlerts, dropMeta,
+  ALERT_DEFS, ROSTER_CATEGORIES, forRoster, alertPlan, fieldOf, fieldValuesParams, sfAlertFires, advMatchedIds, sectionAlerts, describeAlerts, dropMeta,
 } from './psAlerts.js';
 
 // Catalogue entries in the getAlertTypes.json shape (all values strings), with a
@@ -17,7 +17,7 @@ const CATALOGUE = [
   sf('10593828', 'X_ALLERGYEPI', 'in', 'Y,1'),
   sf('39945753', 'X_HEALTHCAREPLANACTIVE', 'notblank', '', { ext_table_name: 'U_DEF_EXT_STUDENTS0', student_field: 'U_STUDENTS_EXTENSION3.X_HEALTHCAREPLANACTIVE' }),
   sf('10672509', 'X_DNC_G1', 'notblank'), // contact: stored raw, not a badge
-  sf('32012479', 'X_HomeEmail', 'in', '1'), // not kept
+  sf('10593867', 'X_APIABOVE100', 'in', '1'), // AQHI: not kept
   { id: '10593855', trigger_type: 'adv', disabled: '0', trigger_url: 'allergies.html', querystring: '' },
   { id: '11290981', trigger_type: 'adv', disabled: '0', trigger_url: 'studentsupportsummary.html', querystring: '' },
   { id: '39472338', trigger_type: 'man', disabled: '0' },
@@ -158,4 +158,40 @@ describe('describeAlerts', () => {
 test('dropMeta drops the trailing meta element', () => {
   expect(dropMeta([{ id: 1 }, {}])).toEqual([{ id: 1 }]);
   expect(dropMeta('x')).toEqual([]);
+});
+
+describe('family alerts (#117 follow-up)', () => {
+  test('correspondence, divorced, staff child and siblings are kept as family alerts', () => {
+    const family = ALERT_DEFS.filter((d) => d.category === 'family').map((d) => [d.key, d.psAlertIds[0]]);
+    expect(family).toEqual([
+      ['correspondence_g1', '32012479'], ['correspondence_g2', '32012481'], ['correspondence_both', '32012482'],
+      ['divorced', '10593857'], ['employee_child', '27330244'], ['siblings', '11290961'],
+    ]);
+  });
+
+  test('the three correspondence alerts read one field once and fire by its value', () => {
+    const cat = [
+      sf('32012479', 'X_HomeEmail', 'in', '1'), sf('32012481', 'X_HomeEmail', 'in', '2'), sf('32012482', 'X_HomeEmail', 'in', '3'),
+      sf('10593857', 'X_G1G2Relationship', 'in', 'Divorced,Separated'),
+      { id: '27330244', trigger_type: 'adv', disabled: '0', trigger_url: 'employee_child.html', querystring: '' },
+      { id: '11290961', trigger_type: 'adv', disabled: '0', trigger_url: 'sibling.html', querystring: '' },
+    ];
+    const plan = alertPlan(cat);
+    const fields = [...fieldValuesParams(['1'], plan.sf).entries()].filter(([k]) => /^field\d+$/.test(k)).map(([, v]) => v);
+    expect(fields.filter((f) => f === 'x_homeemail')).toHaveLength(1);
+    const out = sectionAlerts({
+      plan,
+      roster: [{ studentid: '1', studentdcid: '11' }, { studentid: '2', studentdcid: '22' }],
+      values: [{ id: 1, dcid: 11, x_homeemail: '3', x_g1g2relationship: 'Separated' }, { id: 2, dcid: 22, x_homeemail: '1', x_g1g2relationship: 'Married' }],
+      adv: [{ type: plan.adv[0], answer: { 2: 'x', '-1': '' } }, { type: plan.adv[1], answer: { 1: 'x', 2: 'x', '-1': '' } }],
+    });
+    expect(out.get('11').alerts).toEqual(['correspondence_both', 'divorced', 'siblings']);
+    expect(out.get('22').alerts).toEqual(['correspondence_g1', 'employee_child', 'siblings']);
+  });
+
+  test('forRoster keeps learning, health and other only', () => {
+    expect(ROSTER_CATEGORIES).toEqual(['learning', 'health', 'other']);
+    expect(forRoster(describeAlerts(['siblings', 'ilp', 'divorced', 'epipen', 'mobility'])).map((a) => a.key)).toEqual(['ilp', 'epipen', 'mobility']);
+    expect(forRoster(undefined)).toEqual([]);
+  });
 });

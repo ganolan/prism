@@ -90,6 +90,15 @@ and is never a caller or teacher input.** The numeric mapping is configured once
   Insufficient Evidence row stops it) until a level is published. On other score scales the
   row levels do not match the scale's levels, so no average is staged.
 
+### PowerSchool alerts vs flags (#117)
+
+- **PowerSchool alert**: an alert PowerSchool's custom-alerts plugin shows beside a student's
+  name (accommodation plan, learning support level, EpiPen, ...), read on each sync and shown as
+  a badge (`student_ps_alerts`, feature `powerschool_alerts`). It says a plan exists, not what
+  it contains.
+- **Flag**: the teacher's own Prism marker on a student or an assignment (`flags`, feature
+  `student_flags`, e.g. review needed). Never call a PowerSchool alert a flag.
+
 ## Archived-course surfaces (avoid label collisions)
 
 After #69 the **Sync dialog** has a single archived-course surface — the **Step 2 →

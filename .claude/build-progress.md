@@ -1076,6 +1076,29 @@ Plan: `docs/superpowers/plans/2026-10-13-feedback-rows.md`.
 - **Bugs fixed on the way:** `attach_rubric` accepted only the local assignment id, not the Schoology
   id; `draft_feedback.rubric_scores` leaked the card's `__scale__` key.
 
+## PowerSchool student alerts (2026-10-17, branch `issue-117-ps-sen-alert-flags`, issue #117)
+
+Each sync (with "Sync from PowerSchool" ticked and `powerschool_alerts` on) reads the alerts PowerSchool's MBA
+custom-alerts plugin shows beside each student of every active course: accommodation plan, accommodations only,
+ILP, learning support 1/2/3, support summary, EpiPen, allergies, health care plan, mobility, elevator, no photo
+(`ALERT_DEFS`, `server/lib/psAlerts.js`). Plain HTTP, no browser (#141): the attendance LTI launch form is
+POSTed to PowerSchool with `fetch` (`server/services/powerschoolWeb.js`), then four reads per section
+(`server/services/psAlertsSync.js`). The trigger rules come from the live catalogue each sync.
+
+- **Store:** `student_ps_alerts` (Prism key + PowerSchool alert id) and `student_powerschool` (`alerts_synced_at`
+  and the raw `X_DNC_G1/G2`, `X_G1DECEASED/G2DECEASED` values for #66, store only). A student read this sync gets
+  exactly the alerts that fire now; a section that fails keeps its students' last-known rows; a sync that reads
+  no section throws (the phase shows the error, the sync carries on).
+- **Show:** badges on the roster (Name cell) and the student page (with "from PowerSchool, read DD/MM/YYYY");
+  PrisMCP `list_students` and `get_assignment_context` add `powerschool_alerts` + `powerschool_alerts_read_at`
+  per student. Labels only; the contact fields never leave the database.
+- **Verified live (2026-10-17, dev DB copy):** 9 of 9 active courses read, 96 students, 6.2 s
+  (`scripts/parity-ps-alerts.js`). Shapes in `.claude/powerschool-api-reference.md` "Student alerts over plain
+  HTTP (#117)".
+- **Follow-ups:** the extra-time amount and other detail in the SPP / Support Summary popups (HTML, not probed);
+  #66 decides how the contact fields show; the same plain-HTTP session answers `/ws/attendance/section_info`, so
+  the block pass can drop its browser (#141).
+
 ## Linked quizzes, loose ends (2026-10-14, branch `claude/angry-hopper-5c1f00`)
 
 Order agreed with Graham: the skill, writer robustness, small items, then the phase 1 list.

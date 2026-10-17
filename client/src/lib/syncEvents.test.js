@@ -14,6 +14,15 @@ describe('reduceSyncEvents', () => {
     expect(phases[1]).toMatchObject({ kind: 'mastery', courseId: 5, status: 'done', records: 7 });
   });
 
+  it('#117: an alerts phase is tracked like the blocks phase', () => {
+    const { phases, failures } = reduceSyncEvents([
+      { phase: 'alerts', status: 'running' },
+      { phase: 'alerts', status: 'error', errorKind: 'login', message: 'expired' },
+    ]);
+    expect(phases).toEqual([expect.objectContaining({ key: 'alerts', kind: 'alerts', label: 'PowerSchool alerts', status: 'error', errorKind: 'login' })]);
+    expect(failures).toHaveLength(1);
+  });
+
   it('collects log lines and the summary', () => {
     const { logLines, summary } = reduceSyncEvents([
       { type: 'log', message: 'Fetched 4 sections' },

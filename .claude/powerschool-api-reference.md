@@ -10,6 +10,7 @@ Last probed: 2026-04-05 (OAuth path, script: `test-powerschool-probe.js`)
 Session-auth path discovered: 2026-05-30 (via the Schoology "attendance" LTI app — resolves issue #43's "run a probe for this page" ask).
 Endpoint-discovery crawl: 2026-05-30 — captured the attendance LTI app's full `/ws/...` surface (incl. new `/ws/pt/v1/...` PowerTeacher API) and resolved #66; see "Endpoint-discovery crawl" below.
 Block-number resolved: 2026-06-08 (#106) — the displayed "Block N" = `section_info.bellScheduleItems[].period.name`; see "Block number" below. Probes: `scripts/probe-ps-block-number.js`, `scripts/probe-ps-sectiondcid.js`.
+Student alerts over plain HTTP: 2026-10-17 (#117) — the LTI launch, the MBA alert catalogue, rosters, field values and advanced-alert matches all read with `fetch`, no browser; see "Student alerts over plain HTTP (#117)" below. Probes: `scripts/probe-ps-alerts-http.js`, `scripts/parity-ps-alerts.js`.
 
 ## Server Details
 
@@ -359,20 +360,139 @@ The per-student alert icons in the attendance grid come from PowerSchool's **MBA
 | No Photo (publicity) | `X_PublicityNotice` | 10593856 |
 | Elevator / Library / AQHI | `X_ELEVATORALERT` / `X_LIBRARYALERT` / `X_APIABOVE100` | — |
 
+*(2026-10-17, #117: the catalogue gives Allergies (10593855) `trigger_type: adv` (`allergies.html`), not sf, though
+its `student_field` names `X_ALLERGYCNF`; EpiPen is 10593828 and Missing Health Form 11361898 (both sf). Full
+id/rule table in "Student alerts over plain HTTP (#117)".)*
+
 **Reading an `sf` field value (confirmed end-to-end):**
 ```
 GET /teachers/alerts/aet_customalert_sf.html?frn=001{dcid}&mba_frn=001{dcid}&id={alertId}
     &student_field=U_DEF_EXT_STUDENTS.{FIELD}&tableName=U_DEF_EXT_STUDENTS
 → HTML: "{Student Name}  U_DEF_EXT_STUDENTS.{FIELD}: {value}"   (parse after the last ': ')
 ```
-⚠️ **Table-name gotcha:** the working table is **`U_DEF_EXT_STUDENTS`**, *not* the catalog's `student_field` prefix (`U_Students_Extension`) — the latter returns the icon but no value. Verified: Claire Tse (`frn=00138590`, `X_G2DECEASED`) → `1` (deceased Guardian 2 = true). Empty body = flag not set. Batch read also exists: `GET stuFieldValues.json?stuList={ids}&student_id={ids}&field1={f}&fieldTbl1={tbl}&table1={tbl}` (params per the plugin JS; finalize against a live call).
+⚠️ **Table-name gotcha:** the working table is **`U_DEF_EXT_STUDENTS`**, *not* the catalog's `student_field` prefix (`U_Students_Extension`) — the latter returns the icon but no value. Verified: Claire Tse (`frn=00138590`, `X_G2DECEASED`) → `1` (deceased Guardian 2 = true). Empty body = flag not set. Batch read also exists: `GET stuFieldValues.json?stuList={ids}&student_id={ids}&field1={f}&fieldTbl1={tbl}&table1={tbl}` (params per the plugin JS; finalize against a live call). *(Finalized 2026-10-17, #117: `{ids}` are PowerSchool **studentid**s, not dcids, and `field{n}` is the lower-case field name; see "Student alerts over plain HTTP (#117)" below.)*
 
 **Implication (supersedes earlier "scrape HTML" framing):** most safeguarding/SEN flags are **structured `field: value` reads** (boolean-ish or short text), not brittle table-scraping. Only the `adv` popups (siblings/MAP/support-summary detail) are HTML tables. So the do-not-contact/deceased/divorced data (#66) is cleanly readable. Still session-auth (expires → re-login). PII stance now per **ADR `docs/adr/0002-pii-handling-philosophy.md`** — teacher-accessible data, surface it under local-first / teacher-scoped / feature-flagged guardrails (this **supersedes** the earlier "human-implemented + display-only, treat as blocker" framing). OAuth `/ws/v1/` + PowerQuery remains the cleaner long-term source if credentials arrive. Tier A (`onTrack`, `enrolled`, enrollment dates, attendance tallies) needs none of this.
 
 **Update 2026-06-11 (#43 shipped → #117 spun out):**
 - **`section_attendance` is already fetched + mostly discarded.** `psAttendanceSync` pulls it every sync (over a ~15-in-session-day range) and keeps only `gradeLevel`. The same `studentAttendance[]` rows already carry **Tier A** — `onTrack`, `enrolled`, `ccDateEnrolled`/`ccDateLeft`, per-day `meetingAttendance[].code`, and range-scoped `studentAbsentCount`/`studentTardyCount`. So #65 (on-track/enrollment) and #39 (attendance read) are "store fields already in hand," no new call.
 - **`includeStudentAlerts=true` is NOT the accommodation source.** #43 sets it `false`. Flipping `true` only populates `section_attendance.studentAlerts` (the **standard** channel — empty for these students). The real per-student SEN/accommodation flags are the **MBA custom-alerts plugin** above (`stuFieldValues.json` `sf` flags + `adv` popups).
-- **Open probe for #117:** the `sf` flags are *presence* booleans (`X_SPP` = has-accommodation-plan). The **detail** — "what accommodation / how much extra time" — lives in the `adv` **SPP / Student Support Summary** popup (`mbapop_spp.html` / support-summary), which is **HTML and not yet shape-probed**. Capturing that (JSON endpoint vs HTML scrape) is the first step of #117.
+- **Open probe for #117:** the `sf` flags are *presence* booleans (`X_SPP` = has-accommodation-plan). The **detail** — "what accommodation / how much extra time" — lives in the `adv` **SPP / Student Support Summary** popup (`mbapop_spp.html` / support-summary), which is **HTML and not yet shape-probed**. Capturing that (JSON endpoint vs HTML scrape) is the first step of #117. *(2026-10-17: the presence flags shipped in #117 over plain HTTP, see "Student alerts over plain HTTP (#117)" below; the detail popups are still not shape-probed and the extra-time amount is a follow-up. `mbapop_spp.html` is the SPP alert's `stub_url` (its popup); the alert itself is `sf` on `X_SPP`, not `adv`.)*
+
+### Student alerts over plain HTTP (#117, verified 2026-10-17)
+
+Read only, values masked: every probe printed status codes, field names, value *types* and counts, never a value
+or a name. Probes: `scripts/probe-ps-alerts-http.js <schoologySectionId> [launch|catalogue|roster|wsinfo|insertions]`
+(one section; no step = launch → catalogue → roster → values → adv → manual) and `scripts/parity-ps-alerts.js`
+(the sync itself, against a database copy). Code: `server/services/powerschoolWeb.js` (session),
+`server/lib/psAlerts.js` (rules, Prism's kept set), `server/services/psAlertsSync.js` (sync).
+
+**1. Session, no browser.** `storage-state.json` holds **no** PowerSchool cookies (only Schoology and Microsoft
+ones), so the session is made fresh from the attendance LTI tool each sync:
+- `GET https://schoology.hkis.edu.hk/apps/lti/4980125287/run/course/{schoologySectionId}` with the Schoology session
+  cookies → **200** HTML with one form. Field names observed: `lti_message_type`, `lti_version`,
+  `launch_presentation_document_target`, `tool_consumer_info_product_family_code`, `tool_consumer_info_version`,
+  `ext_lms`, `ext_submit`, `oauth_callback`, `user_id`, `roles`, `launch_presentation_locale`, `lis_person_name_given`,
+  `lis_person_name_family`, `lis_person_name_full`, `lis_person_contact_email_primary`, `lis_person_sourcedid`,
+  `context_id`, `context_type`, `context_title`, `context_label`, `resource_link_id`, `resource_link_title`,
+  `resource_link_description`, `launch_presentation_return_url`, `tool_consumer_instance_guid`,
+  `tool_consumer_instance_name`, `custom_sectiondcid`, `custom_userdcid`, `custom_username`, `oauth_signature_method`,
+  `oauth_signature`, `oauth_nonce`, `oauth_timestamp`, `oauth_token`, `oauth_consumer_key`, `oauth_version`.
+  Form `action` = `https://powerschool.hkis.edu.hk/integrations/attendance/index.html`.
+- `POST` those fields (urlencoded) to the action → **200** `text/html` (~53 KB, the attendance app), no redirect,
+  with `Set-Cookie` **`JSESSIONID`, `psaid`, `currentSchool`**. Those cookies carry every read below.
+- One launch served all 9 active sections of a sync (6.2 s for 96 students, 2026-10-17). The form is signed with a
+  nonce, so a relaunch reads a fresh form first. The same session also answered
+  `GET /ws/attendance/section_info` (200, `bellScheduleItems` present, 308 `calenderDays`), so the block pass
+  (`psAttendanceSync.js`) can likely drop its browser too: **a lead for #141**, not done in #117.
+
+**2. The plugin code.** The MBA custom-alerts plugin's JS is served inline by
+`POST /ws/pagecustomizations/insertions?_={unix}`, JSON body `{ "path": "/integrations/attendance/index.html",
+"insertions": ["content.footer"], "parameters": [{ sectionid, frn: "003{sectionDcid}", att_period, att_date,
+Att_Mode_Code, pagetype, ATT_Source_Code, Period_ID }] }` (the attendance bundle's `getCustomizationsBody`). It
+answered **400** until the request also carried `Origin` and `Referer` (the attendance page) and
+`Accept: application/json, text/plain, */*` (which of the three it needs was not isolated), then **200**: JSON
+`{ "content.footer": "<html with the plugin's <script>s>" }`. In that code every read is `jQuery.post(path, params,
+'json')` (`getData`), which **pops the last element** of an array answer (a trailing meta entry). Per section the page
+calls `getStudentsInSection`, then per student `getAlerts` (man), `stuFieldValues` (sf) and `getAdvTriggerMatches`
+(adv, skipping `trigger_url: QUERY_CHECK.html`). Prism makes the same reads once per section instead (below).
+
+**3. Catalogue — `POST /teachers/mba_alerts/queries/getAlertTypes.json`** (`disabled=0&student_schoolid=40`) → 200,
+**34 entries = 33 alerts + a trailing `{}`** (31 alerts on 2026-05-30). Every value is a string. Keys: `color`,
+`disabled`, `icon`, `icon_type`, `id`, `name`, `public_visibility`, `querystring`, `additional_params`, `school_number`,
+`stub_url`, `student_field`, `student_field_invert`, `student_field_operand`, `student_field_operator`,
+`disable_student_field`, `sub_visible`, `teacher_visible`, `trigger_type`, `trigger_url`, `report_exclusion`,
+`school_abbreviation`, `ext_table_name`, `sort_order`. The rules as configured (school configuration, not student data):
+
+| id | type | field (sf) or `trigger_url` (adv) | rule | name (as PowerSchool spells it) | Prism key |
+|---|---|---|---|---|---|
+| 18746902 / 18746903 / 18746904 | adv | `mba_attendance.html`, `querystring` `vtotcount=10` / `15` / `20` | | Absence Alert (10) / (15) / (20+) | |
+| 18729467 | adv | `mba_attendance.html`, `vtotcount=1` | | Absence Alert (Current Semester) | |
+| 10593860 | sf | `X_SPP` | in `1` | Accomodation Plan | `accommodation_plan` |
+| 11361904 | adv | `ls_accomodating.html` (field shown `X_LS_SUPPORT_LEVEL`, operand `0`) | | Accomodations Only | `accommodations_only` |
+| 10593855 | adv | `allergies.html` (field shown `X_ALLERGYCNF`, operand `Y`) | | Allergies | `allergies` |
+| 10593867 / 10593869 | sf | `X_APIABOVE100` | in `1` / in `3` | AQHI 6 or Above Inside At All Times / Except Events | |
+| 10593864 / 10733416 | sf | `X_G1DECEASED` / `X_G2DECEASED` | in `1` | Deceased Guardian 1 / 2 | raw value stored (#66) |
+| 10593857 | sf | `X_G1G2Relationship` | in `Divorced,Separated` | Divorced | |
+| 10672509 / 10672510 | sf | `X_DNC_G1` / `X_DNC_G2` | notblank | Do Not Contact Guardian 1 / 2 | raw value stored (#66) |
+| 11290939 | man | | | Early Dismissal | |
+| 10672527 | sf | `X_ELEVATORALERT` | notblank | Elevator Alert | `elevator` |
+| 39945753 | sf | `U_STUDENTS_EXTENSION3.X_HEALTHCAREPLANACTIVE`, ext table **`U_DEF_EXT_STUDENTS0`** | in `X` | Emergency Health Care Plan | `health_care_plan` |
+| 27330244 | adv | `employee_child.html` | | Employee Child | |
+| 10593828 | sf | `X_ALLERGYEPI` | in `Y` | EpiPen | `epipen` |
+| 32012482 / 32012479 / 32012481 | sf | `X_HomeEmail` | in `3` / `1` / `2` | G1 and G2 / G1 / G2 Correspondence | |
+| 10593859 | sf | `X_ILP` | in `1` | Individual Learning Plan | `ilp` |
+| 10593862 / 10593861 / 10593863 | sf | `X_LS_SUPPORT_LEVEL` | in `1` / `2` / `3` | Learning Support Level 1 / 2 / 3 | `learning_support_1/2/3` |
+| 10672526 | sf | `X_LIBRARYALERT` | notblank | Library Alert | |
+| 27462703 | adv | `nwea_map.html` | | MAP Test | |
+| 11361898 | sf | `X_MedicalConfirm` | notin `1` | Missing Health Form | |
+| 39472338 | man | | | Mobility | `mobility` |
+| 10593856 | sf | `X_PublicityNotice` | in `N` | No Photo | `no_photo` |
+| 11290961 | adv | `sibling.html` | | Siblings List | |
+| 11290981 | adv | `studentsupportsummary.html` | | Student Support Summary | `support_summary` |
+
+Unless shown, an sf entry's `student_field` is `U_Students_Extension.{FIELD}` and its `ext_table_name` is
+`U_DEF_EXT_STUDENTS`: the catalogue now carries the table to read (the 2026-05-30 table-name gotcha). The new Emergency
+Health Care Plan alert reads a **different** extension table, `U_DEF_EXT_STUDENTS0`. `stub_url` is each alert's popup
+(`mbapop_*.html`, e.g. SPP → `mbapop_spp.html`); Prism does not read popups. The plugin's sf rule (from its code): the
+operand is a comma list, trimmed and lower-cased, an empty item matching an empty value; operators `notblank` /
+`blank` (value null or not), `in` / `notin`, `contains` / `notcontain` (first operand). Prism evaluates the live
+catalogue's rule each sync, never a copy, and keeps the alerts by `id` (`ALERT_DEFS` in `server/lib/psAlerts.js`).
+
+**4. Roster — `POST getStudentsInSection.json`** (`sectionIds={sectionDcid}`) → array of
+`{ ccid, sectionid, lastfirst, studentid, studentdcid }` (all strings) **plus a trailing `{}`** (19 entries for 18
+students).
+
+**5. Field values — `GET stuFieldValues.json`** (POST answered the same). Params, as the plugin builds them:
+`stuList` and `student_id` = comma list of **PowerSchool `studentid`s** (passing dcids returns other students);
+`field{n}` = the field name **lower-cased** (`x_spp`); `fieldTbl{n}` = its `ext_table_name` (`students` for a column
+of `students`); `table{n}` = each distinct extension table once. **One call per section works** (18 studentids → 18
+records). Answer: array of `{ id: number, dcid: number, <field>: string | null, … }` plus a trailing `{}`; `id` is the
+`studentid` and `dcid` the roster's `studentdcid` (18 of 18 matched); every requested field is on every record,
+`null` = not set. Value types in one section of 18: `x_spp` string(1) | null; `x_apiabove100` string(1) | null;
+`x_allergyepi` string(1) | null; `x_g1g2relationship` string(7 to 16) on all 18; `x_homeemail`, `x_medicalconfirm`,
+`x_publicitynotice` string(1) on all 18; `x_dnc_g1/g2`, `x_g1deceased/g2deceased`, `x_ilp`, `x_ls_support_level`,
+`x_elevatoralert`, `x_libraryalert`, `x_healthcareplanactive` null on all 18. The four contact fields were null for
+all 96 students synced, so the only set value seen is still the 2026-05-30 `X_G2DECEASED` → `1`.
+
+**6. Advanced alerts — `POST getAdvTriggerMatches.html{?querystring}`** (form `trigger_url`, `studentIds`, `frn`,
+`querystring`). `studentIds` takes a **comma list** (the plugin sends one student with `frn=001{dcid}`; Prism sends the
+section with `frn` empty). Answer: `text/html` content type, but a **JSON object keyed by each matched `studentid`**
+(string values, not read by Prism) plus a `"-1": ""` meta key. In one section of 18: Allergies 3 keys, Student
+Support Summary 1, MAP Test 17, Siblings List 14; Accomodations Only, Employee Child and the four Absence Alerts 0.
+
+**7. Manual alerts — `POST getAlerts.json`** (`typeIds`, `studentIds`) → array plus a trailing `{}`; only that meta
+element came back in the probed section (no manual alerts there), so the row shape is **from the plugin code, not
+observed**: `id`, `u_aet_customalerts_typesid`, `studentsdcid`, `expired`, `inactive`.
+
+**Live sync, 2026-10-17** (`scripts/parity-ps-alerts.js`, dev database copy): 9 active courses, 9 read, 0 failed;
+96 students stored, 39 with at least one kept alert (accommodation_plan 8, allergies 27, epipen 2,
+learning_support_2 2, no_photo 3, support_summary 13). One active Prism student was on no PowerSchool roster read
+(a roster difference, not a read failure).
+
+**Still open:** the alert *detail* (what the accommodation is, the extra-time amount) lives in the SPP and Student
+Support Summary popups (`aet_customalert_custompopup.html?url=mbapop_spp.html` / `mbapop_studentsupportsummary.html`),
+HTML, not shape-probed: a follow-up to #117.
 
 ### Endpoint-discovery crawl (2026-05-30): attendance-app surface + #66 resolution
 
@@ -383,7 +503,9 @@ surface of the Schoology→PowerSchool "attendance" LTI app**. Scope caveat: thi
 
 **Launch mechanism note:** the LTI run URL (`GET /apps/lti/4980125287/run/course/{sgySectionId}`)
 returns an auto-submitting form whose `action` is `https://powerschool.hkis.edu.hk/ltigw/launch`
-(`target=_self`). Under Playwright the inline auto-submit does **not** fire on `page.goto`; you
+(`target=_self`). *(2026-10-17, #117: a plain-HTTP GET of the run URL returned a form whose `action` was
+`https://powerschool.hkis.edu.hk/integrations/attendance/index.html`, and POSTing its fields there started the
+session without a browser; see "Student alerts over plain HTTP (#117)".)* Under Playwright the inline auto-submit does **not** fire on `page.goto`; you
 must explicitly `document.forms[0].submit()`, then the top page navigates to PS and the app loads
 at `/integrations/attendance/index.html`. The embedded PS frame **detaches mid-loop** (playbook's
 iframe-fragility warning) — for multi-read sweeps, do an **independent `page.goto` per request**

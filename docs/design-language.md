@@ -1335,3 +1335,14 @@ Chosen 17/10/2026 from three mockups (tri-state pill, tray, segmented): option A
 - **Refine:** an outline button with a filter icon at the end of the Watch row, a count badge for its active pills and a ▾/▴ chevron. Its pills open in a white box under the rows, groups separated by space (dividers left a stray line when the pills wrapped). "Ask to resubmit" is gone: Resubmission pending + overdue cover it.
 - **Status line:** under the rows, "Showing 10 of 20 students" (or "Showing all 20 students"), the "N no longer match. Update the list" note when the frozen list has resolved cards, and a red-outlined **Clear all** with an × icon while any filter is on.
 - **Watch labels:** "Late" (was "Late, before the limit"); new **Referred, not submitted** for a referred student whose work has still not come in (chip "Referred 12/10, not submitted"). Past the limit and not yet referred stays **Referral to decide** in Needs action.
+
+## PowerSchool alerts (October 2026, #117)
+
+The alerts PowerSchool shows beside a student's name (accommodation plans, learning support, health), as badges. Shown only when the `powerschool_alerts` feature is on and the student has one (`PsAlertBadges`, `.ps-alerts`).
+
+- **Plain badges, coloured by kind:** learning support and accommodations `badge-blue`, health (EpiPen, allergies, health care plan) `badge-amber`, other (mobility, elevator, no photo) `badge-gray`. No red: an alert is information for planning, not an error or a destructive action.
+- **Short, neutral labels written by Prism,** not PowerSchool's own names (which carry typos such as "Accomodation"): "Accommodation plan", "Learning support 2", "ILP" (full name in the hover title), "EpiPen", "No photo". They say a plan exists, never what it contains.
+- **Roster:** a compact group (`.ps-alerts-compact`, 0.62rem) after the name in the Name cell, so no new column and no height change for students without alerts.
+- **Student page:** a row under the name: the badges, then muted "from PowerSchool, read DD/MM/YYYY". The date is always visible because the alerts are only as fresh as the last sync.
+- **Hover:** each badge's title names the source and the read date ("EpiPen. From PowerSchool, read 17/10/2026").
+- **Guardian-contact fields** (do not contact, deceased guardian) are stored for #66 but never shown as badges here.

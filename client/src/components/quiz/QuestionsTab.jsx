@@ -1,9 +1,11 @@
 // Per-question statistics for a quiz group (spec §8). Counts, percentages, bands
-// and distractor flags only; no discrimination statistics.
+// and distractor flags only; no discrimination statistics. With a courseId, each tag
+// opens TagResultsDrawer: that tag across every quiz group in the course (#139).
 import { useEffect, useMemo, useState } from 'react';
 import { getQuizStats, setQuizTags } from '../../services/api.js';
 import ScoreDots from './ScoreDots.jsx';
 import LevelBar, { levelShort } from './LevelBar.jsx';
+import TagResultsDrawer from './TagResultsDrawer.jsx';
 
 // Stem and option HTML is the teacher's own Schoology question text, rendered as-is in this local app.
 // DOMParser is inert (no scripts, no image loads), so reading textContent here runs nothing.
@@ -13,9 +15,15 @@ const stripOptionLetter = (html, letter) =>
   (html || '').replace(new RegExp(`^((?:\\s|<[^>]+>)*)${letter}[.)](?:\\s|&nbsp;)+`, 'i'), '$1');
 const FLAG_CLASS = { critical: 'badge badge-red', warning: 'badge badge-amber', note: 'badge' };
 
-// A tag with stored text shows it on hover (dotted underline as the cue).
-function Tag({ tag, text, badge = false }) {
-  return <span className={`${badge ? 'badge ' : ''}${text ? 'tag-has-text' : ''}`.trim() || undefined} title={text || undefined}>{tag}</span>;
+// A tag with stored text shows it on hover (dotted underline as the cue). With onOpen it is a
+// button that opens the tag's course-wide results.
+function Tag({ tag, text, badge = false, onOpen }) {
+  const cls = [badge && 'badge', text && 'tag-has-text', onOpen && 'tag-btn'].filter(Boolean).join(' ') || undefined;
+  if (!onOpen) return <span className={cls} title={text || undefined}>{tag}</span>;
+  return (
+    <button type="button" className={cls} aria-haspopup="dialog" onClick={(e) => onOpen(tag, e.currentTarget)}
+      title={text ? `${text}\nOpen this tag across the course` : 'Open this tag across the course'}>{tag}</button>
+  );
 }
 
 // A thin percent bar, as on the question rows.
@@ -23,7 +31,7 @@ const PercentBar = ({ pct, label }) => (
   <span className="pct-bar" role="img" aria-label={label}><span style={{ width: `${pct}%` }} /></span>
 );
 
-function QuestionRow({ q, groupId, tagTexts, onTagsSaved }) {
+function QuestionRow({ q, groupId, tagTexts, onTagsSaved, onOpenTag }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(q.tags.join(', '));
@@ -52,7 +60,7 @@ function QuestionRow({ q, groupId, tagTexts, onTagsSaved }) {
       >
         <button className="ghost" aria-expanded={open} onClick={() => setOpen(o => !o)} style={{ fontWeight: 700 }}>Q{q.position}</button>
         <span className="text-sm text-muted">{q.kind === 'mcq' ? 'MCQ' : q.kind === 'frq' ? 'FRQ' : 'Other'}</span>
-        {q.tags.map(t => <Tag key={t} tag={t} text={tagTexts[t]} badge />)}
+        {q.tags.map(t => <Tag key={t} tag={t} text={tagTexts[t]} badge onOpen={onOpenTag} />)}
         {!editing && <button className="ghost" onClick={() => { setDraft(q.tags.join(', ')); setSaveError(null); setEditing(true); }} style={{ fontSize: '0.75rem' }}>Edit tags</button>}
         {editing && (
           <>
@@ -100,13 +108,15 @@ function QuestionRow({ q, groupId, tagTexts, onTagsSaved }) {
   );
 }
 
-export default function QuestionsTab({ groupId, reloadKey }) {
+export default function QuestionsTab({ groupId, courseId = null, reloadKey }) {
   // Stats are tagged with the group they belong to, so another group never shows them while its own load runs.
   const [loaded, setLoaded] = useState({ groupId: null, stats: null });
   const stats = loaded.groupId === groupId ? loaded.stats : null;
   const [error, setError] = useState(null);
   const [lowestFirst, setLowestFirst] = useState(false);
   const [version, setVersion] = useState(0);
+  const [openTag, setOpenTag] = useState(null); // { tag, opener }
+  const onOpenTag = courseId == null ? undefined : (tag, opener) => setOpenTag({ tag, opener });
   useEffect(() => {
     let active = true;
     setError(null);
@@ -142,7 +152,7 @@ export default function QuestionsTab({ groupId, reloadKey }) {
               <thead><tr><th>Tag</th><th>Questions</th><th>Correct</th><th>%</th></tr></thead>
               <tbody>{stats.byTag.map(t => (
                 <tr key={t.tag}>
-                  <td><Tag tag={t.tag} text={t.text} /></td>
+                  <td><Tag tag={t.tag} text={t.text} onOpen={onOpenTag} /></td>
                   <td>{t.positions.map(p => `Q${p}`).join(' ')}</td>
                   <td>{t.correct}/{t.total}</td>
                   <td>{t.percent != null && <span className="pct-cell"><PercentBar pct={t.percent} label={`${t.percent}% correct`} />{t.percent}%</span>}</td>
@@ -170,8 +180,9 @@ export default function QuestionsTab({ groupId, reloadKey }) {
         <div style={{ padding: '0.6rem 1rem', borderBottom: '1px solid var(--border)' }}>
           <button className={`filter-btn${lowestFirst ? ' active' : ''}`} onClick={() => setLowestFirst(v => !v)}>Lowest first</button>
         </div>
-        {questions.map(q => <QuestionRow key={q.position} q={q} groupId={groupId} tagTexts={stats.tagTexts || {}} onTagsSaved={() => setVersion(v => v + 1)} />)}
+        {questions.map(q => <QuestionRow key={q.position} q={q} groupId={groupId} tagTexts={stats.tagTexts || {}} onTagsSaved={() => setVersion(v => v + 1)} onOpenTag={onOpenTag} />)}
       </div>
+      {openTag && <TagResultsDrawer key={openTag.tag} courseId={courseId} tag={openTag.tag} groupId={groupId} returnFocus={openTag.opener} onClose={() => setOpenTag(null)} />}
     </div>
   );
 }

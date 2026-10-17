@@ -12,6 +12,7 @@ import {
 import { compareQuestionLists } from '../services/quizParity.js';
 import { readQuestionLists, loadGroup } from '../services/quizLoader.js';
 import { groupStats } from '../services/quizStats.js';
+import { courseTagResults } from '../services/quizTagResults.js';
 import { frqResponses } from '../services/frqResponses.js';
 import { setFrqMark } from '../services/frqMarks.js';
 import { quizResults } from '../services/quizResults.js';
@@ -36,6 +37,8 @@ const handle = (fn) => async (req, res) => {
 
 router.get('/', handle((req, db) => ({ groups: listGroups(db, { courseId: req.query.course_id }) })));
 router.get('/candidates', handle((req, db) => listCandidates(db, { courseId: req.query.course_id })));
+// One tag across every quiz group in a course (#139). The tag goes in the query: codes carry dots.
+router.get('/tag-results', handle((req, db) => courseTagResults(db, { courseId: req.query.course_id, tag: req.query.tag })));
 router.get('/for-assignment/:ref', handle((req, db) => ({ group: groupForAssignment(db, req.params.ref) })));
 router.get('/attempt-links', handle((req, db) => ({
   links: req.query.student_id

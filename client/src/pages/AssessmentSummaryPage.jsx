@@ -2430,7 +2430,7 @@ export default function AssessmentSummaryPage() {
       </div>
 
       {quizGroup && quizTab === 'questions' ? (
-        <QuestionsTab groupId={quizGroup.id} reloadKey={quizGroup.loaded_at} />
+        <QuestionsTab groupId={quizGroup.id} courseId={quizGroup.course_id} reloadKey={quizGroup.loaded_at} />
       ) : quizGroup && quizTab === 'frq' && quizGroup.frq_count > 0 ? (
         <FreeResponseTab groupId={quizGroup.id} reloadKey={quizGroup.loaded_at} />
       ) : students.length === 0 ? (

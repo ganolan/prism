@@ -14,7 +14,7 @@ import {
   extendDeadlineTool, undoExtensionTool, setMakeupTrackingTool,
   requestResubmissionTool, gradeStandsTool, listResubmissionsTool, previewStatusLineTool,
   getSubmissionStatusTool,
-  listQuizGroupsTool, loadQuizResultsTool, setQuestionTagsTool,
+  listQuizGroupsTool, loadQuizResultsTool, setQuestionTagsTool, getTagResultsTool,
   getFrqResponsesTool, writeFrqSuggestionsTool, listFrqWritebacksTool, markFrqWritebackTool,
   getQuizResultsTool, writeQuizOverallSuggestionsTool,
 } from './handlers.js';
@@ -922,6 +922,15 @@ describe('quiz tools', () => {
     const { g } = seedQuiz();
     expect(setQuestionTagsTool(db, { group_id: g, texts: { 'AAP-1.A': 'Represent a value with a variable.' } })).toEqual({ updated: 0, unknownPositions: [], textsSaved: 1 });
     expect(db.prepare("SELECT text FROM quiz_tag_texts WHERE tag = 'AAP-1.A'").get().text).toBe('Represent a value with a variable.');
+  });
+
+  test('get_tag_results follows one tag across the course, by course name', () => {
+    const db = getDb();
+    const { g } = seedQuiz();
+    setQuestionTagsTool(db, { group_id: g, tags: { 1: ['CRD-2.G'] }, texts: { 'CRD-2.G': 'Describe the purpose of a code segment.' } });
+    const r = getTagResultsTool(db, { course: 'AP CSP', tag: 'CRD-2.G' });
+    expect(r).toMatchObject({ tag: 'CRD-2.G', text: 'Describe the purpose of a code segment.', courseTags: ['CRD-2.G'], students: [] });
+    expect(r.tests.map(t => [t.group_id, t.title, t.percent])).toEqual([[g, 'Ep 1 Theory Test', null]]);
   });
 
   function seedFrq() {

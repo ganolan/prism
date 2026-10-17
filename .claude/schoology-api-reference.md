@@ -115,6 +115,10 @@ unless stated.
 - **Attachments (16 Oct 2026, schoology plugin):** a POST with `"attachments": {"files": {"file": [{"id": <id from
   POST /upload>}]}}` returns 201 but posts the text only; the file is dropped. Files need the web form below
   (`~/repos/graham-plugins/schoology/scripts/post_comments.mjs` posted 22 rubric images that way on 16 Oct).
+- **Prism's post path, verified live 2026-10-17 (Graham's approval):** Prism's `POST /api/submission-comments/
+  8590105935/{studentId}` (→ `postSubmissionComment`, flat `{comment}`) posted one appreciation to one Flappy Bird
+  student at 08:40 UTC. The thread read straight after held it as comment `3659116961`, `uid` = Graham's uid, text
+  intact, `created` = the post time. Whether the student was notified is still unknown.
 - **Not the same thing:** the gradebook overall comment (`PUT /v1/sections/{id}/grades`, `comment` +
   `comment_status`) and assignment discussion comments (`/v1/sections/{id}/assignments/{aid}/comments`).
 - **Paging:** `?start=0&limit=1` on a 2-comment thread → 1 comment, `total: 2`, `links: {self, next}`; `start=1` →

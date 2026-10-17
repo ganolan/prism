@@ -10,6 +10,8 @@ vi.mock('../services/schoology.js', () => ({
 import router from './submissionComments.js';
 import { getDb } from '../db/index.js';
 import { commentDeps, resetCommentCaches } from '../services/submissionComments.js';
+import { fakeSchoologyWeb } from '../testing/fakeSchoologyWeb.js';
+import { createHash } from 'crypto';
 
 async function call(method, path, body) {
   const app = express();
@@ -82,30 +84,18 @@ describe('/api/submission-comments', () => {
 });
 
 describe('POST a comment with a file', () => {
-  test('writes the upload under its own name and hands it to the form path', async () => {
-    let seenPath = null; let seenBytes = null;
-    const { readFile } = await import('fs/promises');
-    commentDeps.openPage = async () => ({
-      page: {
-        goto: async () => {}, url: () => 'https://schoology.hkis.edu.hk/x', waitForTimeout: async () => {},
-        waitForLoadState: async () => {}, content: async () => 'Chen, Victor.png',
-        locator: function loc() {
-          return {
-            locator: loc, first() { return this; }, waitFor: async () => {}, count: async () => 1,
-            setInputFiles: async (p) => { seenPath = p; seenBytes = await readFile(p, 'utf8'); },
-            inputValue: async () => '1', fill: async () => {},
-            click: async () => { commentDeps.getSubmissionComments = vi.fn(async () => [{ id: '9', uid: '1', comment: 'hi', created: '1792300500', attachments: { files: { file: [{ fid: 5, filename: 'Chen_Victor.png' }] } } }]); },
-          };
-        },
-      },
-      close: async () => {},
-    });
+  test('writes the upload under its own name and posts it over HTTP', async () => {
+    const sum = createHash('md5').update('PNGDATA').digest('hex');
+    const web = fakeSchoologyWeb({ onSubmit: () => {
+      commentDeps.getSubmissionComments = vi.fn(async () => [{ id: '9', uid: '1', comment: 'hi', created: '1792300500',
+        attachments: { files: { file: [{ fid: 5, filename: 'Chen_Victor.png', md5_checksum: sum }] } } }]);
+    } });
+    commentDeps.cookieJar = () => web.jar; commentDeps.fetch = web.fetchImpl;
     const r = await call('POST', `/api/submission-comments/8590105935/${studentId}/file`,
       { text: 'hi', fileName: '../Chen, Victor.png', data: Buffer.from('PNGDATA').toString('base64') });
     expect(r.status).toBe(200);
     expect(r.body.posted_id).toBe('9');
-    expect(seenPath.endsWith('/Chen, Victor.png')).toBe(true);
-    expect(seenBytes).toBe('PNGDATA');
+    expect(web.requests.find((q) => q.path === '/s_attachment_upload_chunked/2').form).toMatchObject({ name: 'Chen, Victor.png', file: '<blob 7>' });
   });
 
   test('no file is a 400', async () => {

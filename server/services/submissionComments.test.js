@@ -13,6 +13,11 @@ import {
   postCommentWithFile, commentFile,
 } from './submissionComments.js';
 import { readThread, summariesForCourse } from './submissionCommentStore.js';
+import { fakeSchoologyWeb } from '../testing/fakeSchoologyWeb.js';
+import { createHash } from 'crypto';
+import { mkdtempSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 const TEACHER = '114956593';
 let clock;
@@ -63,7 +68,8 @@ beforeEach(() => {
     ]),
     sleep: vi.fn(async () => {}),
     now: () => clock,
-    openPage: async () => { throw new Error('tests must inject a fake page'); },
+    cookieJar: () => { throw new Error('tests must inject a fake web session'); },
+    fetch: async () => { throw new Error('tests must inject a fake fetch'); },
   });
 });
 
@@ -191,73 +197,58 @@ describe('deleteComment', () => {
   });
 });
 
-// A stand-in for the Schoology dropbox view page: records what the service does.
-function fakeFormPage({ url = 'https://schoology.hkis.edu.hk/assignment/8590105935/dropbox/view/666', hasInput = true, uploadValue = '987', onSubmit } = {}) {
-  const calls = []; let html = '';
-  const loc = (sel) => ({
-    locator: (s) => loc(`${sel} ${s}`),
-    first() { return this; },
-    waitFor: async () => {},
-    count: async () => (sel.includes('type=file') ? (hasInput ? 1 : 0) : 1),
-    setInputFiles: async (p) => { calls.push(['file', p]); },
-    inputValue: async () => uploadValue,
-    fill: async (t) => { calls.push(['fill', t]); },
-    click: async () => { calls.push(['click']); html = onSubmit?.() ?? html; },
+describe('postCommentWithFile (plain HTTP, no browser)', () => {
+  const md5 = (b) => createHash('md5').update(b).digest('hex');
+  let dir; let file;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'prism-test-'));
+    file = join(dir, 'Chen, Victor.png');
+    writeFileSync(file, 'PNGBYTES');
   });
-  const page = {
-    goto: async (u) => { calls.push(['goto', u]); }, url: () => url, locator: loc,
-    waitForTimeout: async () => {}, waitForLoadState: async () => {}, content: async () => html,
-  };
-  return { calls, session: { page, close: vi.fn(async () => {}) } };
-}
+  const use = (web) => { commentDeps.cookieJar = () => web.jar; commentDeps.fetch = web.fetchImpl; };
+  const withFile = (id, sum) => ({ id, uid: TEACHER, comment: 'Your rubric', created: String(clock),
+    attachments: { files: { file: [{ fid: 4242, filename: 'Chen_Victor.png', filesize: 8, filemime: 'image/png', md5_checksum: sum, download_path: 'https://api.schoology.com/v1/f/x.png' }] } } });
 
-describe('postCommentWithFile', () => {
-  test('uploads through the form, fills the text, posts, and confirms from the thread', async () => {
+  test('reads the page, uploads with the CSRF headers, submits the form, and confirms by checksum', async () => {
     const db = getDb(); const { ben } = seed(db);
-    const fake = fakeFormPage({ onSubmit: () => {
-      threads[666].push({ id: '50', uid: TEACHER, comment: 'Your rubric', created: String(clock),
-        attachments: { files: { file: [{ fid: 77, filename: 'Chen_Victor.png', filesize: 9, filemime: 'image/png', download_path: 'https://api.schoology.com/v1/f/x.png' }] } } });
-    } });
-    commentDeps.openPage = async () => fake.session;
-    const t = await postCommentWithFile(db, { assignmentId: '8590105935', studentId: ben, text: 'Your rubric', filePath: '/tmp/x/Chen, Victor.png' });
-    expect(fake.calls[0]).toEqual(['goto', 'https://schoology.hkis.edu.hk/assignment/8590105935/dropbox/view/666']);
-    expect(fake.calls).toContainEqual(['file', '/tmp/x/Chen, Victor.png']);
-    expect(fake.calls).toContainEqual(['fill', 'Your rubric']);
-    expect(fake.calls.filter((c) => c[0] === 'click')).toHaveLength(1);
+    const web = fakeSchoologyWeb({ onSubmit: () => { threads[666].push(withFile('50', md5('PNGBYTES'))); } });
+    use(web);
+    const t = await postCommentWithFile(db, { assignmentId: '8590105935', studentId: ben, text: 'Your rubric', filePath: file });
+    const [get, upload, submit] = web.requests;
+    expect(get).toMatchObject({ method: 'GET', path: '/assignment/8590105935/dropbox/view/666' });
+    expect(upload.headers).toMatchObject({ 'X-Csrf-Token': 'tok', 'X-Csrf-Key': 'key', cookie: 'SESS=new' });
+    expect(upload.form).toEqual({ use_plain: '1', name: 'Chen, Victor.png', chunk: '0', chunks: '1', file: '<blob 8>' });
+    expect(submit.headers['X-Requested-With']).toBe('XMLHttpRequest');
+    expect(submit.form).toMatchObject({
+      comment: 'Your rubric', 'file[files]': '{"4242":""}', op: 'Post', drupal_ajax: '1',
+      sid: 's&1', form_build_id: 'form-abc', form_token: 'ftok', form_id: 's_drop_item_add_comment_form',
+    });
     expect(t.posted_id).toBe('50');
-    expect(t.comments.at(-1).attachments).toEqual([expect.objectContaining({ fid: '77', filename: 'Chen_Victor.png' })]);
-    expect(fake.session.close).toHaveBeenCalled();
   });
 
-  test('a dead session, a page with no upload, or a failed upload posts nothing', async () => {
+  test('a file Schoology stored with a different checksum is reported, not passed as posted', async () => {
     const db = getDb(); const { ben } = seed(db);
-    commentDeps.openPage = async () => null;
-    await expect(postCommentWithFile(db, { assignmentId: '8590105935', studentId: ben, filePath: '/tmp/a.png' })).rejects.toMatchObject({ code: 'SCHOOLOGY_SESSION' });
-    let fake = fakeFormPage({ url: 'https://login.microsoftonline.com/x' });
-    commentDeps.openPage = async () => fake.session;
-    await expect(postCommentWithFile(db, { assignmentId: '8590105935', studentId: ben, filePath: '/tmp/a.png' })).rejects.toMatchObject({ code: 'SCHOOLOGY_SESSION' });
-    fake = fakeFormPage({ hasInput: false });
-    commentDeps.openPage = async () => fake.session;
-    await expect(postCommentWithFile(db, { assignmentId: '8590105935', studentId: ben, filePath: '/tmp/a.png' })).rejects.toMatchObject({ code: 'NO_UPLOAD' });
-    fake = fakeFormPage({ uploadValue: '' });
-    commentDeps.openPage = async () => fake.session;
-    await expect(postCommentWithFile(db, { assignmentId: '8590105935', studentId: ben, filePath: '/tmp/a.png' })).rejects.toMatchObject({ code: 'UPLOAD_FAILED' });
-    expect(fake.calls.some((c) => c[0] === 'click')).toBe(false);
-    expect(fake.session.close).toHaveBeenCalled();
-  }, 70000);
+    use(fakeSchoologyWeb({ onSubmit: () => { threads[666].push(withFile('51', 'other')); } }));
+    await expect(postCommentWithFile(db, { assignmentId: '8590105935', studentId: ben, filePath: file })).rejects.toMatchObject({ code: 'FILE_MISSING' });
+  });
 
-  test('a new comment without its file is reported, not passed as posted', async () => {
+  test('no session, an expired session, a refused upload or a page without the form posts nothing', async () => {
     const db = getDb(); const { ben } = seed(db);
-    const fake = fakeFormPage({ onSubmit: () => { threads[666].push({ id: '51', uid: TEACHER, comment: 'x', created: String(clock) }); } });
-    commentDeps.openPage = async () => fake.session;
-    await expect(postCommentWithFile(db, { assignmentId: '8590105935', studentId: ben, filePath: '/tmp/a.png' })).rejects.toMatchObject({ code: 'FILE_MISSING' });
+    commentDeps.cookieJar = () => null;
+    await expect(postCommentWithFile(db, { assignmentId: '8590105935', studentId: ben, filePath: file })).rejects.toMatchObject({ code: 'SCHOOLOGY_SESSION' });
+    let web = fakeSchoologyWeb({ loginRedirect: true }); use(web);
+    await expect(postCommentWithFile(db, { assignmentId: '8590105935', studentId: ben, filePath: file })).rejects.toMatchObject({ code: 'SCHOOLOGY_SESSION' });
+    web = fakeSchoologyWeb({ uploadAnswer: () => new Response(JSON.stringify({ error: { message: 'too big' } }), { status: 200 }) }); use(web);
+    await expect(postCommentWithFile(db, { assignmentId: '8590105935', studentId: ben, filePath: file })).rejects.toMatchObject({ code: 'UPLOAD_FAILED' });
+    expect(web.requests.some((r) => r.method === 'POST' && r.path.includes('/dropbox/view/'))).toBe(false);
+    web = fakeSchoologyWeb({ html: '<html>no form</html>' }); use(web);
+    await expect(postCommentWithFile(db, { assignmentId: '8590105935', studentId: ben, filePath: file })).rejects.toMatchObject({ code: 'NO_UPLOAD' });
   });
 
   test('a submit that adds no comment is reported as unconfirmed', async () => {
     const db = getDb(); const { ben } = seed(db);
-    const fake = fakeFormPage();
-    commentDeps.openPage = async () => fake.session;
-    await expect(postCommentWithFile(db, { assignmentId: '8590105935', studentId: ben, filePath: '/tmp/a.png' })).rejects.toMatchObject({ code: 'UNCONFIRMED' });
+    use(fakeSchoologyWeb());
+    await expect(postCommentWithFile(db, { assignmentId: '8590105935', studentId: ben, filePath: file })).rejects.toMatchObject({ code: 'UNCONFIRMED' });
   });
 });
 

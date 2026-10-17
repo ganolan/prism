@@ -143,7 +143,27 @@ unless stated.
   `/assignment/{aid}/dropbox/view/{uid}` (`application/x-www-form-urlencoded`, header `X-Requested-With`), fields
   `comment, target_DOM_id, sid, file[files], file[recording], annotation_files, form_build_id, form_token,
   form_id, op, drupal_ajax` → `200 application/json`. Prism drives the form itself (Playwright, the saved session)
-  rather than replaying these, because `form_build_id`/`form_token` are per page load.
+  rather than replaying these, because `form_build_id`/`form_token` are per page load. *(Superseded the same day:
+  Prism now sends these requests over plain HTTP, no browser; see the next bullet.)*
+- **Browser-free file post (2026-10-17, read-only steps live-verified).** Everything the form needs is reachable with
+  `fetch` and the saved session's cookies (`storage-state.json`, school host):
+  - `GET /assignment/{aid}/dropbox/view/{uid}` → 200 HTML in about 1.4 s (a redirect to the login/SSO host = dead
+    session). The page carries `jQuery.extend(Drupal.settings, {...})` with `s_common.csrf_token`/`csrf_key` and
+    `s_attachment = {upload_url: "/s_attachment_upload_chunked/2", chunk_size: 70000, max_filesize: 512,
+    max_num_uploads: 100, ...}`, and the form's hidden fields (`target_DOM_id`, `sid`, `file[files]`,
+    `file[recording]`, `annotation_files`, `form_build_id`, `form_token`, `form_id`), the `comment` textarea and the
+    submit `op=Post`. **The file input is not in the server HTML** (plupload adds it in JS), so its absence in a
+    rendered or fetched page says nothing about whether a task allows files. (The OneDrive-task observation above,
+    "without a file input in the rendered DOM", is that, not a missing upload.)
+  - Upload, from `s_attachment_form_*.js` and `plupload_*.js` on asset-cdn: multipart `POST {upload_url}` with
+    headers `X-Csrf-Token`/`X-Csrf-Key`, fields `use_plain=1`, `name`, `chunk`, `chunks`, `file` (the blob), and
+    `fid` (from the first answer) on every later chunk. `chunk_size` is in **KB** (the script appends `'kb'`; the
+    captured 671 KB upload was one request). Answer: plain-text JSON `{file: {fid, ...}}` (or `fileMetadataId`), or
+    `{error: {code, message}}`. Live: one upload of the 671 KB PNG over plain HTTP returned a 10-digit fid in 1.7 s.
+    That upload was **not attached** to any comment (an orphan file, invisible to students).
+  - The form then gets `file[files] = {"<fid>": ""}` (JSON, one key per file) and is submitted as the captured AJAX
+    POST plus `drupal_ajax=1`. This last step is implemented (`server/services/schoologyWeb.js`) but **not yet run
+    live**.
 - **Comment files: `?with_attachments=1` (VERIFIED 2026-10-17, read-only).** *(Corrected the same day: an
   earlier note here said the REST comment has no attachment field. That held only without the parameter.)* The
   same comments GET with `?with_attachments=1` (or `=true`) adds `attachments: {files: {file: [ … ]}}` to each

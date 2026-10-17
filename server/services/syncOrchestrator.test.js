@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { migrate } from '../db/index.js';
 
 // Shared mutable DB handle the mocked getDb() returns.
-const h = vi.hoisted(() => ({ db: null }));
+const h = vi.hoisted(() => ({ db: null, features: { quizzes: true } }));
 
 vi.mock('../db/index.js', async (importOriginal) => {
   const actual = await importOriginal();
@@ -12,12 +12,14 @@ vi.mock('../db/index.js', async (importOriginal) => {
 vi.mock('./sync.js', () => ({ fullSync: vi.fn() }));
 vi.mock('./masterySync.js', () => ({ syncMasteryForCourse: vi.fn() }));
 vi.mock('./psAttendanceSync.js', () => ({ syncPsAttendance: vi.fn() }));
+vi.mock('./psAlertsSync.js', () => ({ syncPsAlerts: vi.fn() }));
 vi.mock('./quizRefresh.js', () => ({ refreshRecentQuizzes: vi.fn() }));
-vi.mock('../middleware/featureGate.js', async (orig) => ({ ...(await orig()), getFeatures: () => ({ quizzes: true }) }));
+vi.mock('../middleware/featureGate.js', async (orig) => ({ ...(await orig()), getFeatures: () => h.features }));
 
 import { fullSync } from './sync.js';
 import { syncMasteryForCourse } from './masterySync.js';
 import { syncPsAttendance } from './psAttendanceSync.js';
+import { syncPsAlerts } from './psAlertsSync.js';
 import { refreshRecentQuizzes } from './quizRefresh.js';
 import { runUnifiedSync, classifyMasteryError } from './syncOrchestrator.js';
 
@@ -47,6 +49,38 @@ describe('runUnifiedSync', () => {
     fullSync.mockResolvedValue({ success: true, records: 42 });
     syncMasteryForCourse.mockResolvedValue({ scoresCount: 7 });
     syncPsAttendance.mockResolvedValue({ updated: 0, skipped: 0 });
+    syncPsAlerts.mockReset();
+    syncPsAlerts.mockResolvedValue({ students: 0, withAlerts: 0, failed: 0 });
+    h.features = { quizzes: true };
+  });
+
+  test('#117: with powerschool_alerts on, the alerts phase runs after blocks; a failure is not fatal', async () => {
+    h.features = { quizzes: true, powerschool_alerts: true };
+    const cid = seedCourse(h.db, 'Chem');
+    syncPsAlerts.mockResolvedValueOnce({ students: 40, withAlerts: 9, failed: 1 });
+    const events = [];
+    const summary = await runUnifiedSync({ masteryCourseIds: [cid] }, (e) => events.push(e));
+    expect(events.filter((e) => e.phase).map((e) => `${e.phase}:${e.status}`)).toEqual([
+      'schoology:running', 'schoology:done', 'blocks:running', 'blocks:done',
+      'alerts:running', 'alerts:done', 'mastery:running', 'mastery:done',
+    ]);
+    expect(events.find((e) => e.phase === 'alerts' && e.status === 'done')).toMatchObject({ records: 40, failed: 1 });
+    expect(summary.alerts).toMatchObject({ students: 40, withAlerts: 9, failed: 1 });
+
+    syncPsAlerts.mockRejectedValueOnce(new Error('Not logged in to Schoology: run `npm run mastery:login` and retry.'));
+    const again = [];
+    await runUnifiedSync({ masteryCourseIds: [cid] }, (e) => again.push(e));
+    expect(again.find((e) => e.phase === 'alerts' && e.status === 'error')).toMatchObject({ errorKind: 'login' });
+    expect(again.some((e) => e.phase === 'mastery' && e.status === 'done')).toBe(true);
+    expect(again.at(-1).fatal).toBeUndefined();
+  });
+
+  test('#117: no alerts phase when the feature is off or PowerSchool is opted out', async () => {
+    await runUnifiedSync({}, () => {});
+    expect(syncPsAlerts).not.toHaveBeenCalled();
+    h.features = { powerschool_alerts: true };
+    await runUnifiedSync({ syncBlocks: false }, () => {});
+    expect(syncPsAlerts).not.toHaveBeenCalled();
   });
 
   test('refreshQuizzes runs the quizzes phase last; a failure is not fatal', async () => {

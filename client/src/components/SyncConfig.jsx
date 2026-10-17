@@ -129,7 +129,7 @@ export default function SyncConfig({ courses, calendar, loggedIn, busy, onStart,
               checked={syncBlocks}
               onChange={(e) => setSyncBlocks(e.target.checked)}
             />
-            <span>Sync from PowerSchool (block numbers + school calendar){syncBlocksReason}</span>
+            <span>Sync from PowerSchool (block numbers, school calendar, student alerts){syncBlocksReason}</span>
           </label>
           <div className="sync-toggle-row">
             <label>

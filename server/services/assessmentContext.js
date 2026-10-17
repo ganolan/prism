@@ -6,7 +6,8 @@
 // Each helper takes an open better-sqlite3 db. getAssessmentContext composes
 // them into the PrisMCP get_assignment_context shape (spec §3.1).
 
-import { getScoreScales } from '../middleware/featureGate.js';
+import { getScoreScales, getFeatures } from '../middleware/featureGate.js';
+import { psAlertFieldsForAgents } from './psAlertStore.js';
 import { findScoreScale, levelForScore } from '../lib/scoreScales.js';
 import { resolveAssignmentId } from './idResolvers.js';
 import { preferredFirstName } from './studentNames.js';
@@ -274,6 +275,8 @@ export function getAssessmentContext(db, { assignmentId }) {
   // Cached submission comment threads (students often answer a task's written
   // questions there); get_assignment_context refreshes them first when it can.
   const commentThreads = threadsForAssignment(db, assignmentRow.id);
+  // #117: PowerSchool alerts per student (labels only), when the feature is on.
+  const alertFields = getFeatures().powerschool_alerts ? psAlertFieldsForAgents(db, roster.map((st) => st.id)) : null;
 
   const students = roster.map((st) => {
     const meta = metaByUid[st.schoology_uid] || {};
@@ -363,6 +366,7 @@ export function getAssessmentContext(db, { assignmentId }) {
         attachments: c.attachments.map((f) => ({ filename: f.filename, filemime: f.filemime, filesize: f.filesize })),
       })),
       submission_comments_read_at: commentThreads[st.id]?.read_at ?? null,
+      ...(alertFields ? alertFields.get(st.id) : {}),
       draft_feedback: draft ? buildDraftFeedback(draft, {
         scoreScale, rowNames,
         finals: rowLevelsByUid[st.schoology_uid] || {},

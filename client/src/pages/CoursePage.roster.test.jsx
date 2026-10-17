@@ -84,3 +84,68 @@ describe('RosterView dropped students', () => {
     expect(screen.queryByRole('button', { name: /dropped/i })).not.toBeInTheDocument();
   });
 });
+
+// ── PowerSchool alerts (#117) ──
+// A roster may be projected to a class: alerts are off until the teacher turns
+// them on (remembered per browser), and family alerts never show here.
+describe('RosterView PowerSchool alerts', () => {
+  const renderRoster = (rows) => render(
+    <MemoryRouter>
+      <RosterView students={rows} mastery={null} courseId={1} displayName={(s) => s.first_name} onOverrideClick={() => {}} />
+    </MemoryRouter>
+  );
+  const ROWS = [
+    { id: 1, first_name: 'Ana', last_name: 'Lee', ps_alerts: [
+      { key: 'accommodation_plan', label: 'Accommodation plan', category: 'learning' },
+      { key: 'epipen', label: 'EpiPen', category: 'health' },
+      { key: 'siblings', label: 'Siblings', category: 'family' },
+    ] },
+    { id: 2, first_name: 'Ben', last_name: 'Ng', ps_alerts: [] },
+  ];
+  const toggle = () => screen.getByRole('button', { name: 'PowerSchool alerts' });
+
+  beforeEach(() => localStorage.clear());
+
+  it('hides every alert by default, with the toggle off', () => {
+    renderRoster(ROWS);
+    expect(toggle()).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByLabelText('PowerSchool alerts')).not.toBeInTheDocument();
+    expect(screen.queryByText('Accommodation plan')).not.toBeInTheDocument();
+  });
+
+  it('the toggle shows learning, health and other alerts beside the name, never family ones, and is remembered', () => {
+    const { unmount } = renderRoster(ROWS);
+    fireEvent.click(toggle());
+    expect(toggle()).toHaveAttribute('aria-pressed', 'true');
+    const nameCell = screen.getByRole('link', { name: 'Ana Lee' }).closest('td');
+    expect(nameCell).toHaveTextContent('Accommodation plan');
+    expect(nameCell).toHaveTextContent('EpiPen');
+    expect(screen.queryByText('Siblings')).not.toBeInTheDocument();
+    expect(localStorage.getItem('prism:roster:show-ps-alerts')).toBe('true');
+    unmount();
+
+    renderRoster(ROWS); // a later visit in this browser
+    expect(toggle()).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('EpiPen')).toBeInTheDocument();
+    fireEvent.click(toggle());
+    expect(screen.queryByText('EpiPen')).not.toBeInTheDocument();
+    expect(localStorage.getItem('prism:roster:show-ps-alerts')).toBe('false');
+  });
+
+  it('still works when storage throws (stays off, toggles for the page)', () => {
+    const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked'); });
+    const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked'); });
+    try {
+      renderRoster(ROWS);
+      expect(toggle()).toHaveAttribute('aria-pressed', 'false');
+      fireEvent.click(toggle());
+      expect(screen.getByText('EpiPen')).toBeInTheDocument();
+    } finally { get.mockRestore(); set.mockRestore(); }
+  });
+
+  it('no toggle and no badges when the API sends no alerts (feature off)', () => {
+    renderRoster([{ id: 1, first_name: 'Ana', last_name: 'Lee' }]);
+    expect(screen.queryByRole('button', { name: 'PowerSchool alerts' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('PowerSchool alerts')).not.toBeInTheDocument();
+  });
+});

@@ -177,6 +177,20 @@ describe('SyncProgress', () => {
     expect(onRetryBlocks).toHaveBeenCalled();
   });
 
+  it('#117: a PowerSchool alerts failure gets a banner whose Retry re-runs the PowerSchool pass', () => {
+    const onRetryBlocks = vi.fn();
+    const failure = { key: 'alerts', kind: 'alerts', label: 'PowerSchool alerts', status: 'error', message: 'PowerSchool alerts not read: boom' };
+    const reduced = { ...RUNNING, phases: [...RUNNING.phases, failure], failures: [failure] };
+    render(
+      <SyncProgress reduced={reduced} mode="done" retryEnabled={true}
+        onDone={noop} onRetry={noop} onRetryBlocks={onRetryBlocks} onLogin={noop} />
+    );
+    const banner = screen.getByTestId('remedy-alerts');
+    expect(banner).toHaveTextContent('PowerSchool alerts failed: PowerSchool alerts not read: boom');
+    fireEvent.click(within(banner).getByRole('button', { name: /retry/i }));
+    expect(onRetryBlocks).toHaveBeenCalled();
+  });
+
   it('shows no remedy banner for a Schoology-phase failure (no courseId)', () => {
     const reduced = {
       ...RUNNING,

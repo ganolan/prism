@@ -20,7 +20,7 @@ async function get(path) {
 let studentId, assignmentId;
 beforeEach(() => {
   const db = getDb();
-  db.exec('DELETE FROM feedback_snapshots; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
+  db.exec('DELETE FROM student_ps_alerts; DELETE FROM student_powerschool; DELETE FROM feedback_snapshots; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
   const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-1', 'AIML')`).run().lastInsertRowid;
   studentId = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u1', 'Maya', 'Chen')`).run().lastInsertRowid;
   db.prepare(`INSERT INTO enrolments (student_id, course_id) VALUES (?, ?)`).run(studentId, courseId);
@@ -52,5 +52,30 @@ describe('GET /api/students/:id — submission timeline per assignment', () => {
     const { body } = await get(`/api/students/${studentId}`);
     const row = body.grades.find((g) => g.assignment_id === assignmentId);
     expect(row.timeline).toMatchObject({ due: { date: '2026-10-06' }, submission: { state: 'submitted', late: true, day: 3 } });
+  });
+});
+
+describe('GET /api/students/:id — PowerSchool alerts (#117)', () => {
+  test('ps_alerts and when they were last read; never the contact fields', async () => {
+    const db = getDb();
+    db.prepare(`INSERT INTO student_ps_alerts (student_id, alert_key) VALUES (?, 'ilp')`).run(studentId);
+    db.prepare(`INSERT INTO student_powerschool (student_id, alerts_synced_at, g2_deceased) VALUES (?, '2026-10-17T01:00:00.000Z', '1')`).run(studentId);
+    const { body } = await get(`/api/students/${studentId}`);
+    expect(body.ps_alerts).toEqual([{ key: 'ilp', label: 'ILP', category: 'learning', title: 'Individual learning plan' }]);
+    expect(body.ps_alerts_synced_at).toBe('2026-10-17T01:00:00.000Z');
+    expect(body).not.toHaveProperty('g2_deceased');
+  });
+
+  test('the student page gets every alert, family ones included', async () => {
+    const db = getDb();
+    db.prepare(`INSERT INTO student_ps_alerts (student_id, alert_key) VALUES (?, 'siblings'), (?, 'epipen')`).run(studentId, studentId);
+    const { body } = await get(`/api/students/${studentId}`);
+    expect(body.ps_alerts.map((a) => [a.key, a.category])).toEqual([['epipen', 'health'], ['siblings', 'family']]);
+  });
+
+  test('never read: an empty list and no time', async () => {
+    const { body } = await get(`/api/students/${studentId}`);
+    expect(body.ps_alerts).toEqual([]);
+    expect(body.ps_alerts_synced_at).toBeNull();
   });
 });

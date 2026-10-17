@@ -13,6 +13,7 @@ features:
   quizzes: true
   quiz_writeback: true
   submission_comments: true
+  powerschool_alerts: true          # #117: PowerSchool student alerts (accommodation, health) on the roster, student page and PrisMCP
 
 sync:
   submissionConcurrency: 6

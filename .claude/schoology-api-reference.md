@@ -99,6 +99,45 @@ Last live re-verification: 2026-05-30 — spot-checked the public REST inventory
 | GET | `/v1/sections/{id}/submissions/{aid}` (**no uid — BULK, #55, SHIPPED 2026-06-07**) | 200 | **Every student's LATEST revision for an assignment in ONE call** — `{ revision: [{ revision_id, uid, created, num_items, late, draft }], total, links }`, paginated (`links.next`; ~20/page). ⚠️ **CORRECTION (2026-06-07 parity check):** the bulk form returns only the **latest revision per student**, **NOT** the full revision history — the earlier "All students' revisions" claim was wrong (it only cross-checked one single-revision student, uid 11862763, which couldn't reveal the truncation). Re-verified across MAD (`8230636099`/`8347039321`/`8376973073`) and AP CSP CPT projects (`7957396557`/`8030139112`/`8112119711`/`8202978174`/`8275878296`): per-student returned `[1,2,3…]` where bulk returned only the latest (up to 5/8 students truncated on MAD). **This is still sync-equivalent for NATIVE dropbox** and is what `getAssignmentSubmissions` + `syncSectionData` now use: the sync only needs the latest revision's late/draft and the newest **non-draft** `created`, and a genuine resubmit (newer non-draft) IS the bulk's latest — so `summarizeRevisions` derives the identical per-student summary (**0 summary-mismatches** across all probed assignments, incl. the heavy-resubmit ones; the only divergent case, "latest-by-id is a draft over an earlier non-draft", would surface as a summary mismatch and was never observed). Probe: `scripts/parity-bulk-submissions.js`. ⚠️ For **lti_submission** work the public revisions API is blind (auto-provisioned empty drafts only) — lti uses the `/iapi2/.../{submitted,in-progress}-documents/` endpoints instead (#62), which **403 for native dropbox**. So: lti → documents endpoints; native dropbox → this bulk endpoint. Together they retire the per-cell walk. |
 | GET | `/v1/sections/{id}/submissions/{aid}/{uid}/comments` | 200 | Per-student submission comments. |
 | POST | `/v1/sections/{id}/submissions/{aid}/{uid}/comments` | 201 | Post submission comment. Body: `{ "comment": "text" }`. |
+| DELETE | `/v1/sections/{id}/submissions/{aid}/{uid}/comments/{commentId}` | 204 | Delete one submission comment (verified 16 Oct 2026, schoology plugin session). |
+
+**Submission comment threads (verified 2026-10-17, read-only, `scripts/probe-submission-comments.js` and
+`scripts/probe-submission-comments-web.js`).** What follows was observed in tool output on MGD Flappy Bird (F)
+(section `8458134323`, assignment `8590105935`, `assignment_type: basic`, native dropbox, 12 active students)
+unless stated.
+- **Read shape:** `GET …/{uid}/comments` → `200 {comment: [{id, uid, comment, created}], total, links}`. The four
+  comment keys were the full key union over 17 comments. `uid` is the author. `created` is epoch seconds. A student
+  with no comments returns `{comment: [], total: 0}` with 200. The default order is ascending by `created`.
+  `comment` held no HTML tags in any of the 17; treat it as possibly holding HTML anyway (16 Oct report).
+- **Classes observed:** 12 comments that hold only the automatic `Revision N submitted` line, 5 where the student
+  typed text after it, 0 by a teacher or anyone else on this task. Teacher comments sit in the same thread (16 Oct,
+  Brick Breaker, uid `114956593`). A student with 2 submissions had 2 automatic comments, one per revision.
+- **Attachments (16 Oct 2026, schoology plugin):** a POST with `"attachments": {"files": {"file": [{"id": <id from
+  POST /upload>}]}}` returns 201 but posts the text only; the file is dropped. Files need the web form below
+  (`~/repos/graham-plugins/schoology/scripts/post_comments.mjs` posted 22 rubric images that way on 16 Oct).
+- **Not the same thing:** the gradebook overall comment (`PUT /v1/sections/{id}/grades`, `comment` +
+  `comment_status`) and assignment discussion comments (`/v1/sections/{id}/assignments/{aid}/comments`).
+- **Paging:** `?start=0&limit=1` on a 2-comment thread → 1 comment, `total: 2`, `links: {self, next}`; `start=1` →
+  the other comment. So `start`/`limit` page normally. Threads seen hold 0 to 3 comments.
+- **No bulk read found** (lower bound, public surface and the dropbox web page only):
+  - `GET /v1/sections/{id}/submissions/{aid}/comments` (no uid) → **500**.
+  - `?with_comments=1` on the bulk and per-student submission reads is ignored (plain revisions come back).
+  - `POST /v1/multiget` with comment paths → 207, but **every entry 400** with a `null` body, with or without
+    `?start&limit`. The same multiget returns 200 for `/v1/sections/{id}/assignments/{aid}`, so multiget itself
+    works; it rejects `/submissions/...` paths (the per-student revisions path also 400s inside multiget).
+  - So the cost is one GET per (student, assignment).
+- **Web surface:** `/assignment/{aid}/dropbox/view/{uid}` renders the thread **server-side** (`#dropbox-viewer-comments`
+  → `#s_comments` → `div.comment` per comment, with `.comment-author`, `.comment-body-wrapper`, `.comment-time`); the
+  page makes **no JSON XHR** for comments. The add form `#s-drop-item-add-comment-form` is a classic Drupal form:
+  `POST` multipart to the page's own URL, fields `comment`, `target_DOM_id`, `sid`, `file[files]`, `file[recording]`,
+  `annotation_files`, `op`, `form_build_id`, `form_token`, `form_id`, plus a file input that uploads first and fills
+  `file[files]`. `Drupal.settings.s_common.csrf_token`/`csrf_key` are on the page. The upload request and the form
+  POST were **not captured** (needs a write).
+- **OneDrive (`lti_submission`):** MGD Color Switch (S) (`8590106104`): all 12 threads `200 {comment: [], total: 0}`,
+  and the web page for one student shows the same comment form (without a file input in the rendered DOM) and
+  `.no-comments`. 60 random graded cells of archived `lti_submission` tasks: 60 × 200, all empty. So the read
+  works for LTI tasks, but **no LTI thread holding a comment has been seen**; LTI tasks have no automatic
+  `Revision N submitted` line to expect.
 | GET | `/v1/sections/{id}/assignments/{aid}/comments` | 200 | Assignment-level discussion comments. |
 | POST | `/v1/sections/{id}/assignments/{aid}/comments` | 201 | Post assignment comment. |
 

@@ -37,6 +37,9 @@ const HOST = resolveHost();
 
 const app = express();
 app.use(cors());
+// A submission comment with a file carries it as base64 (up to 15 MB), past the
+// default 100 KB; parsed here first, so the general parser below skips it.
+app.use('/api/submission-comments', express.json({ limit: '25mb' }));
 app.use(express.json());
 
 // Serve static client build in production

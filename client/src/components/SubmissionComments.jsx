@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { getSubmissionCommentThread, postSubmissionComment, deleteSubmissionComment } from '../services/api.js';
+import { getSubmissionCommentThread, postSubmissionComment, postSubmissionCommentFile, deleteSubmissionComment } from '../services/api.js';
 import { formatDateTime } from '../lib/formatDate.js';
 
 // A student's Schoology submission comment thread (spec
@@ -74,7 +74,9 @@ export function CommentPopover({ assignmentId, studentId, studentName, title, an
   const [confirmPost, setConfirmPost] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [file, setFile] = useState(null);
   const pop = useRef(null);
+  const fileInput = useRef(null);
 
   const take = (t) => {
     setThread(t);
@@ -104,8 +106,10 @@ export function CommentPopover({ assignmentId, studentId, studentName, title, an
   const post = async () => {
     setBusy(true); setError(null);
     try {
-      take(await postSubmissionComment(assignmentId, studentId, text));
-      setText(''); setConfirmPost(false);
+      take(file
+        ? await postSubmissionCommentFile(assignmentId, studentId, text, file)
+        : await postSubmissionComment(assignmentId, studentId, text));
+      setText(''); setFile(null); setConfirmPost(false);
     } catch (e) { setError(e.message); }
     finally { setBusy(false); }
   };
@@ -166,14 +170,24 @@ export function CommentPopover({ assignmentId, studentId, studentName, title, an
         <label htmlFor={`comment-${assignmentId}-${studentId}`} className="comment-label">Reply to {studentName}</label>
         <textarea id={`comment-${assignmentId}-${studentId}`} value={text} disabled={busy}
           onChange={(e) => { setText(e.target.value); setConfirmPost(false); }} />
+        <input ref={fileInput} type="file" hidden data-testid="comment-file"
+          onChange={(e) => { setFile(e.target.files?.[0] || null); setConfirmPost(false); e.target.value = ''; }} />
         {!confirmPost ? (
           <div className="comment-row">
-            <button type="button" className="primary comment-post" disabled={busy || !text.trim()}
+            {file ? (
+              <span className="comment-file">
+                {file.name}
+                <button type="button" className="ghost" disabled={busy} aria-label={`Remove ${file.name}`} onClick={() => setFile(null)}>Remove</button>
+              </span>
+            ) : (
+              <button type="button" className="secondary" disabled={busy} onClick={() => fileInput.current?.click()}>Attach file</button>
+            )}
+            <button type="button" className="primary comment-post" disabled={busy || (!text.trim() && !file)}
               onClick={() => setConfirmPost(true)}>Post comment</button>
           </div>
         ) : (
           <div className="comment-confirm" role="alert">
-            <span>Post this to {studentName} now? Students see a submission comment at once, and it stays until you delete it.</span>
+            <span>Post this{file ? ` with ${file.name}` : ''} to {studentName} now? Students see a submission comment at once, and it stays until you delete it.</span>
             <div className="comment-row">
               <button type="button" className="primary" disabled={busy} onClick={post}>{busy ? 'Posting…' : 'Post now'}</button>
               <button type="button" className="ghost" disabled={busy} onClick={() => setConfirmPost(false)}>Cancel</button>

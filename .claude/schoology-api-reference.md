@@ -135,8 +135,21 @@ unless stated.
   page makes **no JSON XHR** for comments. The add form `#s-drop-item-add-comment-form` is a classic Drupal form:
   `POST` multipart to the page's own URL, fields `comment`, `target_DOM_id`, `sid`, `file[files]`, `file[recording]`,
   `annotation_files`, `op`, `form_build_id`, `form_token`, `form_id`, plus a file input that uploads first and fills
-  `file[files]`. `Drupal.settings.s_common.csrf_token`/`csrf_key` are on the page. The upload request and the form
-  POST were **not captured** (needs a write).
+  `file[files]`. `Drupal.settings.s_common.csrf_token`/`csrf_key` are on the page.
+- **The form's requests, CAPTURED 2026-10-17** (one approved post of a rubric image to one Flappy Bird student,
+  `scripts/probe-submission-comment-file.js`; names only, no values logged). Choosing the file fires
+  `POST /s_attachment_upload_chunked/2` (XHR, `multipart/form-data`, headers `X-Csrf-Token` + `X-Csrf-Key`) →
+  `200 text/plain`, which fills the hidden `file[files]`. Post then sends an **AJAX** `POST` to the page's own URL
+  `/assignment/{aid}/dropbox/view/{uid}` (`application/x-www-form-urlencoded`, header `X-Requested-With`), fields
+  `comment, target_DOM_id, sid, file[files], file[recording], annotation_files, form_build_id, form_token,
+  form_id, op, drupal_ajax` → `200 application/json`. Prism drives the form itself (Playwright, the saved session)
+  rather than replaying these, because `form_build_id`/`form_token` are per page load.
+- **A comment with a file, read back:** the REST comment object still has only `{id, uid, comment, created}`
+  (no attachment field), so the API cannot show which comment holds a file. The web page shows the file name inside
+  that comment's `div.comment` (one `<a>`/`<img>` per comment there, the author picture included).
+- **Delete through Prism, verified 2026-10-17:** `DELETE …/comments/3659117104` (the probe's image comment) removed
+  it; the next REST read no longer held it. The final image comment (`3659117138`) was then posted through
+  Prism's popover (Attach file) and stays: the page shows three comments and the file name once, on that comment.
 - **OneDrive (`lti_submission`):** MGD Color Switch (S) (`8590106104`): all 12 threads `200 {comment: [], total: 0}`,
   and the web page for one student shows the same comment form (without a file input in the rendered DOM) and
   `.no-comments`. 60 random graded cells of archived `lti_submission` tasks: 60 × 200, all empty. So the read

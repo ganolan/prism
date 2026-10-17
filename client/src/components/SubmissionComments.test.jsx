@@ -4,11 +4,12 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 vi.mock('../services/api.js', () => ({
   getSubmissionCommentThread: vi.fn(),
   postSubmissionComment: vi.fn(),
+  postSubmissionCommentFile: vi.fn(),
   deleteSubmissionComment: vi.fn(),
 }));
 
 import SubmissionComments from './SubmissionComments.jsx';
-import { getSubmissionCommentThread, postSubmissionComment, deleteSubmissionComment } from '../services/api.js';
+import { getSubmissionCommentThread, postSubmissionComment, postSubmissionCommentFile, deleteSubmissionComment } from '../services/api.js';
 
 const thread = (comments) => ({
   comments,
@@ -63,6 +64,23 @@ describe('SubmissionComments', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Post now' }));
     await waitFor(() => expect(postSubmissionComment).toHaveBeenCalledWith('8590105935', 7, 'Thanks'));
     await waitFor(() => expect(screen.getByLabelText('Reply to Ana Lee')).toHaveValue(''));
+  });
+
+  test('Attach file posts the file through the file route, after the confirmation names it', async () => {
+    postSubmissionCommentFile.mockResolvedValue(thread([auto, wrote, mine]));
+    renderCard();
+    fireEvent.click(screen.getByRole('button', { name: /Open the thread/ }));
+    await screen.findByText('Playtest notes');
+    const png = new File(['x'], 'Chen, Victor.png', { type: 'image/png' });
+    fireEvent.change(screen.getByTestId('comment-file'), { target: { files: [png] } });
+    expect(screen.getByText('Chen, Victor.png')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Reply to Ana Lee'), { target: { value: 'Your rubric feedback is attached.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Post comment' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('with Chen, Victor.png');
+    fireEvent.click(screen.getByRole('button', { name: 'Post now' }));
+    await waitFor(() => expect(postSubmissionCommentFile).toHaveBeenCalledWith('8590105935', 7, 'Your rubric feedback is attached.', png));
+    expect(postSubmissionComment).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Attach file' })).toBeInTheDocument());
   });
 
   test('Delete confirms, then deletes', async () => {

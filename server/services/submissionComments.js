@@ -10,6 +10,9 @@ import { authorRole } from '../lib/submissionComments.js';
 import { resolveAssignmentId } from './idResolvers.js';
 import { normalizeSubmissionStatus, getGradeMetaRows, getRoster } from './assessmentContext.js';
 import { readThread, storeThread, storeReadError } from './submissionCommentStore.js';
+import { sessionDeps, noteSessionLive } from './schoologySession.js';
+import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
+import { basename } from 'path';
 
 // Replaced in tests; the real calls reach Schoology. Wrapped so a test that
 // mocks schoology.js without these exports can still import this module.
@@ -21,6 +24,7 @@ export const commentDeps = {
   getSectionEnrollments: (...a) => getSectionEnrollments(...a),
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   now: () => Math.floor(Date.now() / 1000),
+  openPage: () => sessionDeps.openPage(),
 };
 
 export const OPEN_MAX_AGE_SEC = 300;        // a popover re-reads a thread older than 5 minutes
@@ -188,4 +192,73 @@ export async function deleteComment(db, { assignmentId, studentId, commentId }) 
     db.prepare('DELETE FROM submission_comments WHERE id = ?').run(row.id);
     return { ...readThread(db, { assignmentId: pair.assignment.id, studentId: pair.student.id }), error: err.message };
   });
+}
+
+// ── Post with a file: the web form ──
+// The REST endpoint drops attachments (16 Oct 2026), so a comment with a file goes
+// through Schoology's own form on the dropbox view page with the saved browser
+// session: the file input uploads first and fills the hidden file[files], then
+// the textarea and Post (see the reference, "Submission comment threads").
+// Verified afterwards in two ways: the REST thread holds a new comment of ours,
+// and the reloaded page shows the file name.
+const FORM = '#s-drop-item-add-comment-form';
+const UPLOAD_WAIT_MS = 60000;
+const SESSION_MESSAGE = 'The saved Schoology session has expired: sign in again from Settings (Schoology connection), then post again. Nothing was posted.';
+
+// filePath is a local file whose name is the one Schoology shows (the route writes
+// the upload under its own name in a temporary folder).
+export async function postCommentWithFile(db, { assignmentId, studentId, text = '', filePath }) {
+  const body = String(text ?? '').trim();
+  if (body.length > MAX_COMMENT_LENGTH) throw new CommentError('TOO_LONG', `A comment holds at most ${MAX_COMMENT_LENGTH} characters.`);
+  if (!filePath) throw new CommentError('NO_FILE', 'Choose a file to attach.');
+  const fileName = basename(filePath);
+  const pair = pairOf(db, { assignmentId, studentId });
+  const before = new Set((await commentDeps.getSubmissionComments(
+    pair.course.schoology_section_id, pair.assignment.schoology_assignment_id, pair.student.schoology_uid)).map((c) => String(c.id)));
+
+  let session;
+  try { session = await commentDeps.openPage(); } catch (err) {
+    throw new CommentError('BROWSER', `Could not open a browser for Schoology (${err.message}). Nothing was posted.`, 502);
+  }
+  if (!session) throw new CommentError('SCHOOLOGY_SESSION', SESSION_MESSAGE, 503);
+  const { page } = session;
+  let fileShown = false;
+  const viewUrl = `${SCHOOLOGY_BASE}/assignment/${pair.assignment.schoology_assignment_id}/dropbox/view/${pair.student.schoology_uid}`;
+  try {
+    await page.goto(viewUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    if (!isLoggedInUrl(page.url())) {
+      noteSessionLive('expired', 'A submission comment post was sent to the login page');
+      throw new CommentError('SCHOOLOGY_SESSION', SESSION_MESSAGE, 503);
+    }
+    noteSessionLive('connected');
+    const form = page.locator(FORM);
+    await form.waitFor({ state: 'attached', timeout: 20000 }).catch(() => {});
+    const input = form.locator('input[type=file]');
+    if (!(await input.count())) {
+      throw new CommentError('NO_UPLOAD', 'Schoology shows no file upload on this submission (OneDrive tasks may not have one). Nothing was posted.', 409);
+    }
+    await input.first().setInputFiles(filePath);
+    const uploaded = form.locator('input[name="file[files]"]');
+    let value = '';
+    for (let waited = 0; !value && waited < UPLOAD_WAIT_MS; waited += 1000) {
+      await page.waitForTimeout(1000);
+      value = await uploaded.inputValue().catch(() => '');
+    }
+    if (!value) throw new CommentError('UPLOAD_FAILED', 'Schoology did not accept the file upload. Nothing was posted.', 502);
+    if (body) await form.locator('textarea[name=comment]').fill(body);
+    await form.locator('input[type=submit][name=op]').click();
+    await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+    await page.waitForTimeout(3000);
+    await page.goto(viewUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    fileShown = (await page.content()).includes(fileName);
+  } finally {
+    await session.close().catch(() => {});
+  }
+
+  const thread = await fetchPair(db, pair);
+  const added = thread.comments.filter((c) => !before.has(c.id) && c.is_mine);
+  if (!added.length) {
+    throw new CommentError('UNCONFIRMED', 'Schoology took the form, but no new comment shows in the thread. Refresh the thread before posting again.', 502);
+  }
+  return { ...thread, posted_id: added.at(-1).id, file_shown: fileShown };
 }

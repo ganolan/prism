@@ -1,10 +1,13 @@
 // Submission comment threads (docs/superpowers/specs/2026-10-17-submission-comments-design.md).
 // Reads are cached and lazy; posting and deleting reach Schoology at once, and
 // the client confirms before calling them because students see a post at once.
-import { Router } from 'express';
+import express, { Router } from 'express';
+import { mkdtemp, writeFile, rm } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join, basename } from 'path';
 import { getDb } from '../db/index.js';
 import { featureGate } from '../middleware/featureGate.js';
-import { CommentError, threadFor, refreshAssignment, postComment, deleteComment } from '../services/submissionComments.js';
+import { CommentError, threadFor, refreshAssignment, postComment, deleteComment, postCommentWithFile } from '../services/submissionComments.js';
 import { summariesForAssignment, summariesForCourse } from '../services/submissionCommentStore.js';
 import { resolveAssignmentId } from '../services/idResolvers.js';
 
@@ -43,6 +46,26 @@ router.get('/:assignmentId/:studentId', handle((req, db) =>
 
 router.post('/:assignmentId/:studentId', handle((req, db) =>
   postComment(db, { assignmentId: req.params.assignmentId, studentId: req.params.studentId, text: req.body?.text })));
+
+// A comment with a file: { text, fileName, data (base64) }. Goes through
+// Schoology's web form with the saved browser session (the REST API drops files).
+const MAX_FILE_BYTES = 15 * 1024 * 1024;
+router.post('/:assignmentId/:studentId/file', express.json({ limit: '25mb' }), handle(async (req, db) => {
+  const { text, fileName, data } = req.body || {};
+  const name = basename(String(fileName || '')).replace(/[\\/:*?"<>|]/g, '_').trim();
+  if (!name || !data) throw new CommentError('NO_FILE', 'Choose a file to attach.');
+  const bytes = Buffer.from(String(data), 'base64');
+  if (!bytes.length) throw new CommentError('NO_FILE', 'The file is empty.');
+  if (bytes.length > MAX_FILE_BYTES) throw new CommentError('TOO_LARGE', 'A file can be at most 15 MB.');
+  const dir = await mkdtemp(join(tmpdir(), 'prism-comment-'));
+  try {
+    const filePath = join(dir, name);
+    await writeFile(filePath, bytes);
+    return await postCommentWithFile(db, { assignmentId: req.params.assignmentId, studentId: req.params.studentId, text, filePath });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}));
 
 router.delete('/:assignmentId/:studentId/:commentId', handle((req, db) =>
   deleteComment(db, { assignmentId: req.params.assignmentId, studentId: req.params.studentId, commentId: req.params.commentId })));

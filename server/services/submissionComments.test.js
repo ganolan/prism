@@ -10,6 +10,7 @@ vi.mock('./schoology.js', () => ({
 import { getDb } from '../db/index.js';
 import {
   commentDeps, resetCommentCaches, threadFor, refreshAssignment, postComment, deleteComment, studentsToRefresh, CommentError,
+  postCommentWithFile,
 } from './submissionComments.js';
 import { readThread, summariesForCourse } from './submissionCommentStore.js';
 
@@ -62,6 +63,7 @@ beforeEach(() => {
     ]),
     sleep: vi.fn(async () => {}),
     now: () => clock,
+    openPage: async () => { throw new Error('tests must inject a fake page'); },
   });
 });
 
@@ -186,5 +188,67 @@ describe('deleteComment', () => {
     await expect(deleteComment(db, { assignmentId: '8590105935', studentId: ana, commentId: '1' })).rejects.toMatchObject({ code: 'NOT_YOURS' });
     await expect(deleteComment(db, { assignmentId: '8590105935', studentId: ana, commentId: '42' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
     expect(commentDeps.deleteSubmissionComment).not.toHaveBeenCalled();
+  });
+});
+
+// A stand-in for the Schoology dropbox view page: records what the service does.
+function fakeFormPage({ url = 'https://schoology.hkis.edu.hk/assignment/8590105935/dropbox/view/666', hasInput = true, uploadValue = '987', onSubmit } = {}) {
+  const calls = []; let html = '';
+  const loc = (sel) => ({
+    locator: (s) => loc(`${sel} ${s}`),
+    first() { return this; },
+    waitFor: async () => {},
+    count: async () => (sel.includes('type=file') ? (hasInput ? 1 : 0) : 1),
+    setInputFiles: async (p) => { calls.push(['file', p]); },
+    inputValue: async () => uploadValue,
+    fill: async (t) => { calls.push(['fill', t]); },
+    click: async () => { calls.push(['click']); html = onSubmit?.() ?? html; },
+  });
+  const page = {
+    goto: async (u) => { calls.push(['goto', u]); }, url: () => url, locator: loc,
+    waitForTimeout: async () => {}, waitForLoadState: async () => {}, content: async () => html,
+  };
+  return { calls, session: { page, close: vi.fn(async () => {}) } };
+}
+
+describe('postCommentWithFile', () => {
+  test('uploads through the form, fills the text, posts, and confirms from the thread', async () => {
+    const db = getDb(); const { ben } = seed(db);
+    const fake = fakeFormPage({ onSubmit: () => {
+      threads[666].push({ id: '50', uid: TEACHER, comment: 'Your rubric', created: String(clock) });
+      return '<div class="comment">Your rubric <a>Chen, Victor.png</a></div>';
+    } });
+    commentDeps.openPage = async () => fake.session;
+    const t = await postCommentWithFile(db, { assignmentId: '8590105935', studentId: ben, text: 'Your rubric', filePath: '/tmp/x/Chen, Victor.png' });
+    expect(fake.calls[0]).toEqual(['goto', 'https://schoology.hkis.edu.hk/assignment/8590105935/dropbox/view/666']);
+    expect(fake.calls).toContainEqual(['file', '/tmp/x/Chen, Victor.png']);
+    expect(fake.calls).toContainEqual(['fill', 'Your rubric']);
+    expect(fake.calls.filter((c) => c[0] === 'click')).toHaveLength(1);
+    expect(t).toMatchObject({ posted_id: '50', file_shown: true });
+    expect(fake.session.close).toHaveBeenCalled();
+  });
+
+  test('a dead session, a page with no upload, or a failed upload posts nothing', async () => {
+    const db = getDb(); const { ben } = seed(db);
+    commentDeps.openPage = async () => null;
+    await expect(postCommentWithFile(db, { assignmentId: '8590105935', studentId: ben, filePath: '/tmp/a.png' })).rejects.toMatchObject({ code: 'SCHOOLOGY_SESSION' });
+    let fake = fakeFormPage({ url: 'https://login.microsoftonline.com/x' });
+    commentDeps.openPage = async () => fake.session;
+    await expect(postCommentWithFile(db, { assignmentId: '8590105935', studentId: ben, filePath: '/tmp/a.png' })).rejects.toMatchObject({ code: 'SCHOOLOGY_SESSION' });
+    fake = fakeFormPage({ hasInput: false });
+    commentDeps.openPage = async () => fake.session;
+    await expect(postCommentWithFile(db, { assignmentId: '8590105935', studentId: ben, filePath: '/tmp/a.png' })).rejects.toMatchObject({ code: 'NO_UPLOAD' });
+    fake = fakeFormPage({ uploadValue: '' });
+    commentDeps.openPage = async () => fake.session;
+    await expect(postCommentWithFile(db, { assignmentId: '8590105935', studentId: ben, filePath: '/tmp/a.png' })).rejects.toMatchObject({ code: 'UPLOAD_FAILED' });
+    expect(fake.calls.some((c) => c[0] === 'click')).toBe(false);
+    expect(fake.session.close).toHaveBeenCalled();
+  }, 70000);
+
+  test('a submit that adds no comment is reported as unconfirmed', async () => {
+    const db = getDb(); const { ben } = seed(db);
+    const fake = fakeFormPage();
+    commentDeps.openPage = async () => fake.session;
+    await expect(postCommentWithFile(db, { assignmentId: '8590105935', studentId: ben, filePath: '/tmp/a.png' })).rejects.toMatchObject({ code: 'UNCONFIRMED' });
   });
 });

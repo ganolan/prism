@@ -328,6 +328,19 @@ export const getSubmissionCommentThread = (assignmentId, studentId, { refresh = 
   request(`/submission-comments/${assignmentId}/${studentId}${refresh ? '?refresh=1' : ''}`);
 export const postSubmissionComment = (assignmentId, studentId, text) =>
   request(`/submission-comments/${assignmentId}/${studentId}`, { method: 'POST', body: JSON.stringify({ text }) });
+// A comment with a file goes through Schoology's web form (the API drops files),
+// so it takes a few seconds; the file travels as base64.
+export async function postSubmissionCommentFile(assignmentId, studentId, text, file) {
+  const data = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+    reader.readAsDataURL(file);
+  });
+  return request(`/submission-comments/${assignmentId}/${studentId}/file`, {
+    method: 'POST', body: JSON.stringify({ text, fileName: file.name, data }),
+  });
+}
 export const deleteSubmissionComment = (assignmentId, studentId, commentId) =>
   request(`/submission-comments/${assignmentId}/${studentId}/${commentId}`, { method: 'DELETE' });
 // Badges for one assignment, keyed by student id; also queues a background read

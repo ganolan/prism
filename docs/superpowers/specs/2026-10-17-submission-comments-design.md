@@ -17,8 +17,9 @@ Public REST API first (verified in `.claude/schoology-api-reference.md`, "Submis
 - **Read:** `GET /v1/sections/{sec}/submissions/{aid}/{uid}/comments`, paged by `start`/`limit`.
 - **Post text:** `POST` the same path, body `{"comment": text}` (flat).
 - **Delete:** `DELETE …/comments/{id}`.
-- **Post with a file:** the web form only (the API drops attachments). Built after the form's requests are
-  captured on a test or archived section with Graham's approval.
+- **Post with a file:** the web form only (the API drops attachments). Prism drives the form with the saved
+  browser session (`postCommentWithFile`), then confirms from the REST thread and the reloaded page. The form's
+  requests were captured 17 Oct 2026 on one approved post.
 
 No bulk read exists on the surfaces tested (multiget rejects the path), so a read costs one GET per
 (student, assignment).
@@ -58,8 +59,9 @@ lines) and `student_text` (the rest of a student comment, or null).
   student comment holds student text.
 - **Popover:** the thread oldest first, author and school-time date (`formatDateTime`, DD/MM/YYYY); automatic
   lines faint and italic; student text in an amber block labelled "Student wrote"; teacher comments plain.
-- **Post:** a textarea and Post comment, then an inline confirmation ("Students see a submission comment at
-  once") before the POST. Attach file appears once the form route is built.
+- **Post:** a textarea, Attach file and Post comment, then an inline confirmation ("Students see a submission
+  comment at once", naming the file) before anything is sent. The REST thread does not mark which comment holds
+  a file, so the popover shows the text only.
 - **Delete:** only on Graham's own comments, with its own confirmation.
 - **Grid cell:** a small bubble beside the submission state, amber when the student wrote text; a click opens
   the same popover.

@@ -4,57 +4,47 @@
  * Best-effort reader for the teacher's archived (past) course inventory via
  * Schoology's server-rendered page (GET /courses/mycourses/past — Schoology's
  * own name for the source page; "archived" is the app's term, see CONTEXT.md).
- * Browser-session auth (same saved Playwright session as the mastery sync).
- * There is no JSON endpoint, so the page HTML is scraped and parsed
- * (parsePastCourses, named after Schoology's page). Issue #5.
+ * Session auth (the saved session the mastery sync uses), over plain HTTP with
+ * its cookies (schoologyWeb.js, #141): no browser. There is no JSON endpoint, so
+ * the page HTML is scraped and parsed (parsePastCourses, named after Schoology's
+ * page). Issue #5. Checked against the old browser read with
+ * scripts/parity-page-reads.js.
  *
- * Everything is best-effort: no saved session / expired session / launch or
- * navigation failure → returns null, and the caller treats discovery as
- * unavailable. It never throws.
+ * Everything is best-effort: no saved session / expired session / a failed
+ * request → returns null, and the caller treats discovery as unavailable. It
+ * never throws.
  */
-import { existsSync } from 'fs';
 import { parsePastCourses } from '../lib/parsePastCourses.js';
-import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
-import { sessionStateFile } from '../lib/sessionPaths.js';
+import { cookieJar, getPage, WebSessionError } from './schoologyWeb.js';
+import { noteSessionLive } from './schoologySession.js';
 
+export const PAST_COURSES_PATH = '/courses/mycourses/past';
 
 /**
- * Fetch the raw archived-courses HTML (Schoology's /mycourses/past page) via the
- * saved browser session. Returns the page HTML, or null when there is no session
- * / it has expired / anything fails.
+ * Fetch the raw archived-courses HTML (Schoology's /mycourses/past page) with
+ * the saved session. Returns the page HTML, or null when there is no session /
+ * it has expired / anything fails.
+ * @param {{ jar?: object|null, fetchImpl?: typeof fetch }} [deps]  test seam
  */
-export async function fetchArchivedCoursesHtml() {
-  if (!existsSync(sessionStateFile())) return null;
-
-  let chromium;
+export async function fetchArchivedCoursesHtml({ jar, fetchImpl = fetch } = {}) {
   try {
-    ({ chromium } = await import('playwright'));
-  } catch {
+    const cookies = jar === undefined ? cookieJar() : jar;
+    if (!cookies) return null;
+    const page = await getPage(cookies, PAST_COURSES_PATH, { fetchImpl });
+    noteSessionLive('connected');
+    return page.html;
+  } catch (err) {
+    if (err instanceof WebSessionError && err.code === 'SESSION_EXPIRED') {
+      noteSessionLive('expired', 'Schoology sent the archived-courses read to the login page');
+    }
     return null;
-  }
-
-  let browser;
-  try {
-    browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext({ storageState: sessionStateFile() });
-    const page = await context.newPage();
-    await page.goto(`${SCHOOLOGY_BASE}/courses/mycourses/past`, {
-      waitUntil: 'domcontentloaded',
-      timeout: 30000,
-    });
-    if (!isLoggedInUrl(page.url())) return null; // session expired → redirected to login
-    return await page.content();
-  } catch {
-    return null;
-  } finally {
-    if (browser) await browser.close().catch(() => {});
   }
 }
 
 /**
  * Enumerate archived sections. `fetchHtml` is injectable for testing (defaults
- * to the real browser fetch). Returns the parsed section list, or null when the
- * HTML is unavailable (so the caller can report discovery as unavailable).
+ * to the real fetch). Returns the parsed section list, or null when the HTML is
+ * unavailable (so the caller can report discovery as unavailable).
  *
  * @param {() => Promise<string|null>} [fetchHtml]
  * @returns {Promise<Array<object>|null>}

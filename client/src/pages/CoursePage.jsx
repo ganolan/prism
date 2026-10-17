@@ -17,6 +17,7 @@ import { preferredFirstName } from '../lib/studentNames.js';
 import { indexMastery, buildAssignmentRubric } from '../lib/gradebookMastery.js';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import { useStickyTab } from '../hooks/useStickyTab.js';
+import { useStickyTypeFilter } from '../hooks/useStickyTypeFilter.js';
 import CompactRubric from '../components/CompactRubric.jsx';
 import SubmissionBadges from '../components/SubmissionBadges.jsx';
 import SchoologyLink from '../components/SchoologyLink.jsx';
@@ -51,7 +52,8 @@ export default function CoursePage() {
   const [railOnGradebook, setRailOnGradebook] = useState(false);
   const [triageRed, setTriageRed] = useState(0);
   // Gradebook tab's compact Summative / Formative / Unpublished filter (lives in the tab row).
-  const [gradebookFilter, setGradebookFilter] = useState(DEFAULT_TYPE_FILTER);
+  // Remembered across visits, one setting for all courses (#144).
+  const [gradebookFilter, setGradebookFilter] = useStickyTypeFilter('gradebook');
 
   useEffect(() => {
     // includeDropped so RosterView can show the "N dropped" toggle without a

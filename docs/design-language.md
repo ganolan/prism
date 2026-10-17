@@ -1335,3 +1335,9 @@ Chosen 17/10/2026 from three mockups (tri-state pill, tray, segmented): option A
 - **Refine:** an outline button with a filter icon at the end of the Watch row, a count badge for its active pills and a ▾/▴ chevron. Its pills open in a white box under the rows, groups separated by space (dividers left a stray line when the pills wrapped). "Ask to resubmit" is gone: Resubmission pending + overdue cover it.
 - **Status line:** under the rows, "Showing 10 of 20 students" (or "Showing all 20 students"), the "N no longer match. Update the list" note when the frozen list has resolved cards, and a red-outlined **Clear all** with an × icon while any filter is on.
 - **Watch labels:** "Late" (was "Late, before the limit"); new **Referred, not submitted** for a referred student whose work has still not come in (chip "Referred 12/10, not submitted"). Past the limit and not yet referred stays **Referral to decide** in Needs action.
+
+## Sync dialog: time per phase (October 2026, #143)
+
+- **One line per phase under "Finished in Ns":** the dialog foot's left column lists each phase that ran with its wall time (`.sync-foot-summary`, `.sync-timings`), in the phase-list order, mastery one line per course. Label left, time right in tabular figures, muted small text like the total, so it reads as a footnote to the result and not as a second phase list.
+- **Shown only when the sync is done,** and only for phases with a recorded time, so a run joined from a log written before #143 shows the total alone.
+- **Time format:** tenths under 10s ("8.5s"), whole seconds to a minute ("42s"), then "1m 3s" (`formatPhaseTime` in `client/src/lib/syncEvents.js`). Tenths keep a fast phase (blocks) readable as a number for the #108 lazy-or-eager decision.

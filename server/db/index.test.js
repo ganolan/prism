@@ -1,5 +1,8 @@
 import { describe, test, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import { migrate, migrateMasteryRollupsPk, migrateResubmitFlags, purgeLegacyAutoFlags, purgeStudentScopedFlags } from './index.js';
 
 function seedFlag(db, studentId, flagType) {
@@ -92,6 +95,25 @@ describe('migration: feedback_snapshots.arrival_write_at (residual review R2)', 
     db.prepare(`INSERT INTO feedback_snapshots (student_id, assignment_id, fingerprint) VALUES (1, 2, '{}')`).run();
     migrate(db);
     expect(db.prepare('SELECT arrival_write_at, fingerprint_at FROM feedback_snapshots').get()).toEqual({ arrival_write_at: 0, fingerprint_at: 0 });
+  });
+});
+
+describe('migration: sync_metrics per-phase timing (#143)', () => {
+  test('a DB whose sync_metrics predates the timing columns gains them (NULL on old rows)', () => {
+    const db = new Database(':memory:');
+    db.exec(`CREATE TABLE sync_metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, sync_log_id INTEGER, started_at TEXT NOT NULL,
+      duration_ms INTEGER, submission_calls INTEGER DEFAULT 0, failed_assignment_ids TEXT)`);
+    db.prepare(`INSERT INTO sync_metrics (started_at, duration_ms) VALUES ('2026-10-01T00:00:00Z', 1000)`).run();
+    migrate(db);
+    expect(db.prepare('SELECT schoology_ms, blocks_ms, mastery_ms, quizzes_ms, total_ms FROM sync_metrics').get())
+      .toEqual({ schoology_ms: null, blocks_ms: null, mastery_ms: null, quizzes_ms: null, total_ms: null });
+  });
+
+  test('a fresh DB has the timing columns from schema.sql', () => {
+    const db = new Database(':memory:');
+    db.exec(readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'schema.sql'), 'utf-8'));
+    const cols = db.prepare('PRAGMA table_info(sync_metrics)').all().map((c) => c.name);
+    expect(cols).toEqual(expect.arrayContaining(['schoology_ms', 'blocks_ms', 'mastery_ms', 'quizzes_ms', 'total_ms']));
   });
 });
 

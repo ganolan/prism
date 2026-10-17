@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { reduceSyncEvents } from './syncEvents.js';
+import { reduceSyncEvents, formatPhaseTime } from './syncEvents.js';
 
 describe('reduceSyncEvents', () => {
   it('builds an ordered phase list, updating status in place', () => {
@@ -21,6 +21,24 @@ describe('reduceSyncEvents', () => {
     ]);
     expect(logLines).toEqual(['Fetched 4 sections']);
     expect(summary).toMatchObject({ elapsedMs: 100 });
+  });
+
+  it('keeps each finished phase elapsedMs (#143)', () => {
+    const { phases } = reduceSyncEvents([
+      { phase: 'schoology', status: 'running' },
+      { phase: 'schoology', status: 'done', records: 4, elapsedMs: 61000 },
+      { phase: 'blocks', status: 'error', message: 'x', elapsedMs: 8500 },
+      { phase: 'mastery', courseId: 5, courseName: 'Biology 9', status: 'done', records: 7, elapsedMs: 30000 },
+      { phase: 'quizzes', status: 'done', records: 2, elapsedMs: 4000 },
+    ]);
+    expect(phases.map((p) => p.elapsedMs)).toEqual([61000, 8500, 30000, 4000]);
+  });
+
+  it('formats a phase time: tenths under 10s, whole seconds, then minutes', () => {
+    expect(formatPhaseTime(8500)).toBe('8.5s');
+    expect(formatPhaseTime(400)).toBe('0.4s');
+    expect(formatPhaseTime(42400)).toBe('42s');
+    expect(formatPhaseTime(63000)).toBe('1m 3s');
   });
 
   it('records failures with their errorKind', () => {

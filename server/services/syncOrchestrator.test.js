@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, vi } from 'vitest';
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { migrate } from '../db/index.js';
 
@@ -55,7 +55,7 @@ describe('runUnifiedSync', () => {
     const summary = await runUnifiedSync({ refreshQuizzes: true, syncBlocks: false }, (e) => events.push(e));
     const phases = events.filter(e => e.phase).map(e => `${e.phase}:${e.status}`);
     expect(phases).toEqual(['schoology:running', 'schoology:done', 'quizzes:running', 'quizzes:error']);
-    expect(summary.quizzes).toEqual({ refreshed: 1, failed: 1 });
+    expect(summary.quizzes).toMatchObject({ refreshed: 1, failed: 1 });
   });
 
   test('no quizzes phase without refreshQuizzes', async () => {
@@ -249,5 +249,124 @@ describe('runUnifiedSync — snapshots after each mastery pull', () => {
     });
     const summary = await runUnifiedSync({ masteryCourseIds: [cid], skipSchoology: true, syncBlocks: false }, () => {});
     expect(summary.mastery).toMatchObject([{ status: 'done' }]);
+  });
+});
+
+// #143: per-phase wall time, in the run summary and in sync_metrics, so the
+// lazy-or-eager decision in #108 rests on numbers. A fake clock that each
+// mocked phase advances makes the durations exact.
+describe('runUnifiedSync — per-phase timing (#143)', () => {
+  let clock;
+  const advance = (ms) => { clock += ms; };
+
+  beforeEach(() => {
+    h.db = new Database(':memory:');
+    migrate(h.db);
+    clock = 1_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => clock);
+    fullSync.mockReset();
+    syncMasteryForCourse.mockReset();
+    syncPsAttendance.mockReset();
+    refreshRecentQuizzes.mockReset();
+    fullSync.mockImplementation(async () => { advance(60_000); return { success: true, records: 42 }; });
+    syncPsAttendance.mockImplementation(async () => { advance(8_500); return { updated: 1, skipped: 0 }; });
+    syncMasteryForCourse.mockImplementation(async () => { advance(20_000); return { scoresCount: 3 }; });
+    refreshRecentQuizzes.mockImplementation(async () => { advance(4_000); return [{ status: 'done' }]; });
+  });
+
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  const metricsRows = () => h.db.prepare(
+    'SELECT schoology_ms, blocks_ms, mastery_ms, quizzes_ms, total_ms FROM sync_metrics ORDER BY id'
+  ).all();
+
+  test('the summary carries an elapsedMs for every phase that ran', async () => {
+    const c1 = seedCourse(h.db, 'Bio');
+    const c2 = seedCourse(h.db, 'Chem');
+    const events = [];
+    const summary = await runUnifiedSync({ masteryCourseIds: [c1, c2], refreshQuizzes: true }, (e) => events.push(e));
+
+    expect(summary.phaseMs).toEqual({ schoology: 60_000, blocks: 8_500, mastery: 40_000, quizzes: 4_000 });
+    expect(summary.schoology.elapsedMs).toBe(60_000);
+    expect(summary.blocks.elapsedMs).toBe(8_500);
+    expect(summary.mastery.map((m) => m.elapsedMs)).toEqual([20_000, 20_000]);
+    expect(summary.quizzes.elapsedMs).toBe(4_000);
+
+    expect(events.at(-1)).toMatchObject({ type: 'summary', elapsedMs: 112_500, phaseMs: summary.phaseMs });
+  });
+
+  test('every finished phase event carries its own elapsedMs', async () => {
+    const cid = seedCourse(h.db, 'Bio');
+    syncMasteryForCourse.mockImplementation(async () => { advance(5_000); throw new Error('page timeout'); });
+    const events = [];
+    await runUnifiedSync({ masteryCourseIds: [cid], refreshQuizzes: true }, (e) => events.push(e));
+    const finished = events.filter((e) => e.phase && e.status !== 'running');
+    expect(finished.map((e) => [e.phase, e.status, e.elapsedMs])).toEqual([
+      ['schoology', 'done', 60_000],
+      ['blocks', 'done', 8_500],
+      ['mastery', 'error', 5_000],
+      ['quizzes', 'done', 4_000],
+    ]);
+  });
+
+  test('a blocks or quizzes failure still reports its time', async () => {
+    syncPsAttendance.mockImplementation(async () => { advance(3_000); throw new Error('PowerSchool down'); });
+    refreshRecentQuizzes.mockImplementation(async () => { advance(1_000); throw new Error('HTTP 500'); });
+    const events = [];
+    const summary = await runUnifiedSync({ refreshQuizzes: true }, (e) => events.push(e));
+    expect(summary.phaseMs).toEqual({ schoology: 60_000, blocks: 3_000, mastery: null, quizzes: 1_000 });
+    expect(events.find((e) => e.phase === 'blocks' && e.status === 'error').elapsedMs).toBe(3_000);
+    expect(events.find((e) => e.phase === 'quizzes' && e.status === 'error').elapsedMs).toBe(1_000);
+  });
+
+  test('a phase that did not run has a null time', async () => {
+    const summary = await runUnifiedSync({ syncBlocks: false }, () => {});
+    expect(summary.phaseMs).toEqual({ schoology: 60_000, blocks: null, mastery: null, quizzes: null });
+  });
+
+  test('a fatal Schoology failure still reports how long it ran', async () => {
+    fullSync.mockImplementation(async () => { advance(7_000); throw new Error('schoology API down'); });
+    const events = [];
+    const summary = await runUnifiedSync({}, (e) => events.push(e));
+    expect(events.find((e) => e.phase === 'schoology' && e.status === 'error').elapsedMs).toBe(7_000);
+    expect(events.at(-1)).toMatchObject({ type: 'summary', fatal: true, elapsedMs: 7_000 });
+    expect(summary.phaseMs.schoology).toBe(7_000);
+    expect(metricsRows()).toEqual([{ schoology_ms: 7_000, blocks_ms: null, mastery_ms: null, quizzes_ms: null, total_ms: 7_000 }]);
+  });
+
+  test('the times land on the sync_metrics row the Schoology phase wrote', async () => {
+    const id = h.db.prepare(
+      `INSERT INTO sync_metrics (started_at, duration_ms, submission_calls) VALUES ('2026-10-17T00:00:00Z', 59000, 12)`
+    ).run().lastInsertRowid;
+    fullSync.mockImplementation(async () => { advance(60_000); return { success: true, records: 42, metricsId: Number(id) }; });
+    const cid = seedCourse(h.db, 'Bio');
+    await runUnifiedSync({ masteryCourseIds: [cid], refreshQuizzes: true }, () => {});
+
+    const rows = h.db.prepare('SELECT * FROM sync_metrics').all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      duration_ms: 59000, submission_calls: 12,
+      schoology_ms: 60_000, blocks_ms: 8_500, mastery_ms: 20_000, quizzes_ms: 4_000, total_ms: 92_500,
+    });
+  });
+
+  test('a run without a Schoology phase writes its own sync_metrics row', async () => {
+    const cid = seedCourse(h.db, 'Bio');
+    await runUnifiedSync({ masteryCourseIds: [cid], skipSchoology: true, syncBlocks: false }, () => {});
+    const rows = h.db.prepare('SELECT started_at, schoology_ms, blocks_ms, mastery_ms, quizzes_ms, total_ms FROM sync_metrics').all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ schoology_ms: null, blocks_ms: null, mastery_ms: 20_000, quizzes_ms: null, total_ms: 20_000 });
+    expect(rows[0].started_at).toBe(new Date(1_000_000).toISOString());
+  });
+
+  test('a sync_metrics write failure never fails the sync', async () => {
+    h.db.exec('DROP TABLE sync_metrics');
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const events = [];
+    const summary = await runUnifiedSync({ syncBlocks: false }, (e) => events.push(e));
+    expect(summary.phaseMs.schoology).toBe(60_000);
+    expect(events.at(-1)).toMatchObject({ type: 'summary' });
+    expect(events.at(-1).fatal).toBeUndefined();
+    expect(errSpy).toHaveBeenCalled();
   });
 });

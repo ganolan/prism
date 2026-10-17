@@ -224,8 +224,11 @@ export function countReasons(students, ctx) {
 }
 
 // Every pill id the page knows (reasons + Refine), for reading ?filter= from a link.
+// A group name ('action', 'watch') stands for every reason in that row.
 const REFINE_IDS = ['submitted', 'in_progress', 'not_started', 'ungraded', 'partial', 'graded', 'visible', 'not_visible', 'review', 'resubmit'];
 export function parseFilterParam(param) {
   const known = new Set([...REASON_IDS, ...REFINE_IDS]);
-  return new Set(String(param || '').split(',').map(x => x.trim()).filter(x => known.has(x)));
+  const ids = String(param || '').split(',').map(x => x.trim())
+    .flatMap(x => (x === 'action' || x === 'watch' ? reasonIdsIn(x) : [x]));
+  return new Set(ids.filter(x => known.has(x)));
 }

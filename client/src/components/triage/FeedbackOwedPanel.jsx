@@ -8,7 +8,7 @@ import { assessmentLink, FEEDBACK_OWED_FILTER } from '../../lib/triage.js';
 // school-day number of the oldest wait; day 1 = the start of the wait (the due
 // date, or a late student's submission date). Overdue after day `limit`. The
 // count sits right-aligned as "X/Y" (title: "X of Y ungraded"); no row actions. A title
-// opens the task's page on To grade + Partly graded + Draft not published.
+// opens the task's page with its whole Needs action row selected.
 // Ids are fixed (triage-feedback) for the Dashboard stats tiles.
 export default function FeedbackOwedPanel({ rows, settings, showCourse, scope, includeFormative, onToggleFormative }) {
   const [showAll, toggleShowAll] = useShowAll(`feedback.${scope}`);

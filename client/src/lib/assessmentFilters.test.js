@@ -205,4 +205,8 @@ describe('parseFilterParam', () => {
     expect([...parseFilterParam('to_grade, draft,submitted,bogus')]).toEqual(['to_grade', 'draft', 'submitted']);
     expect(parseFilterParam(null).size).toBe(0);
   });
+  it('a group name stands for every reason in its row', () => {
+    expect([...parseFilterParam('action')]).toEqual(['to_grade', 'partly_graded', 'draft', 'feedback_hidden', 'resubmitted', 'referral', 'resubmission_overdue', 'make_up', 'flagged']);
+    expect([...parseFilterParam('watch,submitted')]).toEqual(['not_started_soon', 'in_progress_late', 'late', 'resubmission_pending', 'submitted']);
+  });
 });

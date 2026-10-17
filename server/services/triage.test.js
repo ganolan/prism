@@ -889,13 +889,13 @@ describe('resubmissions list', () => {
     expect(rows.map((r) => [r.studentName, r.state])).toEqual([['Maya Chen', 'arrived'], ['Ethan Wong', 'waiting']]);
     expect(rows[0].afterDeadline).toBe(true);
   });
-  test('formative: unrequested arrivals only with includeFormative; asks always', () => {
+  test('formative: arrivals and asks show whatever the Formative setting', () => {
     const s = student('u1', 'Maya', 'Chen'); const s2 = student('u2', 'Ethan', 'Wong');
     const f = assignment('f1', 'Warm-up', '2026-09-21', { summative: false });
     grade(s, f, { score: null, grade_comment: 'try again', comment_status: 1, submitted_at: epoch('2026-09-25'), latest_revision_at: epoch('2026-10-14') });
     requestResubmission(db, { studentId: s2, assignmentId: f, requestedAt: sqlAt('2026-10-15') });
     captureFeedbackSnapshots(db);
-    expect(getTriage(db, { today: TODAY, includeFormative: false }).resubmissions.map((r) => r.studentName)).toEqual(['Ethan Wong']);
+    expect(getTriage(db, { today: TODAY, includeFormative: false }).resubmissions).toHaveLength(2);
     expect(getTriage(db, { today: TODAY, includeFormative: true }).resubmissions).toHaveLength(2);
   });
   test('requested arrival on ungraded work clears when visible feedback is given', () => {

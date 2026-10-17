@@ -1,4 +1,4 @@
-// Triage's Loose ends: unfinished work on a task that runs on no clock, so it never
+// Triage's Unfinished grading: unfinished work on a task that runs on no clock, so it never
 // shows in the other panels. Per assignment in the current courses, the students with
 //  - a Prism draft not yet published (a stored /assessment/ draft that is still live:
 //    Schoology has not changed under it, the same check the card makes when it opens),
@@ -15,7 +15,7 @@ import { currentCourses, ALIGNED_SQL, fullName } from './triageCommon.js';
 import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows, scoreScaleFor } from './assessmentContext.js';
 import { getFeedbackRows, getRowLevels } from './feedbackRows.js';
 
-export const LOOSE_END_REASONS = ['draft', 'feedback_hidden', 'flagged'];
+export const UNFINISHED_GRADING_REASONS = ['draft', 'feedback_hidden', 'flagged'];
 
 // The baseline signature the /assessment/ card computes for a student of this
 // assignment (AssessmentSummaryPage's currentBaseline over the GET
@@ -49,8 +49,8 @@ function parseDraft(json) {
 
 // → [{ courseId, courseName, blockNumber, assignmentId, schoologyAssignmentId, title, aligned,
 //      drafts, feedbackHidden, flagged, oldestDraftOn, students: [{ studentId, studentName, reasons }] }]
-// Tasks with a draft come first (oldest draft first), then the most loose ends.
-export function getLooseEnds(db, { courseId = null, studentId = null } = {}) {
+// Tasks with a draft come first (oldest draft first), then the most unfinished grading.
+export function getUnfinishedGrading(db, { courseId = null, studentId = null } = {}) {
   const out = [];
   for (const c of currentCourses(db, courseId)) {
     const inCourse = 'a.course_id = ? AND a.published = 1 AND a.removed_at IS NULL';
@@ -109,7 +109,7 @@ export function getLooseEnds(db, { courseId = null, studentId = null } = {}) {
 
       const students = [...reasons].map(([sid, set]) => ({
         studentId: sid, studentName: fullName(roster.get(sid)),
-        reasons: LOOSE_END_REASONS.filter((r) => set.has(r)),
+        reasons: UNFINISHED_GRADING_REASONS.filter((r) => set.has(r)),
       })).sort((x, y) => x.studentName.localeCompare(y.studentName));
       const count = (r) => students.filter((s) => s.reasons.includes(r)).length;
       out.push({

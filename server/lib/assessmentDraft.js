@@ -1,5 +1,5 @@
 // server/lib/assessmentDraft.js: a mirror of client/src/lib/assessmentDraft.js, so
-// triage's Loose ends can tell a live Prism draft from a stale one (Schoology changed
+// triage's Unfinished grading panel can tell a live Prism draft from a stale one (Schoology changed
 // under it; the /assessment/ card discards those when it opens). Keep the two
 // identical: client/src/lib/assessmentDraft.test.js checks parity against this module.
 

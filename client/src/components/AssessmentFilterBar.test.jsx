@@ -65,4 +65,31 @@ describe('AssessmentFilterBar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
     expect(onClear).toHaveBeenCalled();
   });
+  it('hides a reason pill no student has, even while it is selected', () => {
+    const toGrade = [{ ...students[0], scores: {}, grade_comment: '', attention: { handedIn: true, reasons: [] } }];
+    render(<AssessmentFilterBar students={toGrade} assignment={LTI} topics={TOPICS} active={new Set(['to_grade', 'draft'])} onToggle={() => {}} />);
+    const action = screen.getByRole('group', { name: 'Needs action' });
+    expect(within(action).getByRole('button', { name: /^To grade1/ })).toBeInTheDocument();
+    expect(within(action).queryByRole('button', { name: /Draft not published/ })).toBeNull();
+  });
+
+  it('the row label selects every pill in its row, then clears the whole row', () => {
+    const many = [
+      { ...students[0], scores: {}, grade_comment: '', attention: { handedIn: true, reasons: [] } },
+      { ...students[1], review_flag: { id: 1 }, attention: { handedIn: false, reasons: [] } },
+    ];
+    const onSetMany = vi.fn();
+    const { rerender } = render(<AssessmentFilterBar students={many} assignment={LTI} topics={TOPICS} active={new Set(['to_grade'])} onToggle={() => {}} onSetMany={onSetMany} />);
+    const label = screen.getByRole('button', { name: 'Needs action:' });
+    expect(label).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(label);
+    expect(onSetMany).toHaveBeenLastCalledWith(['to_grade', 'flagged'], true);
+    rerender(<AssessmentFilterBar students={many} assignment={LTI} topics={TOPICS} active={new Set(['to_grade', 'flagged'])} onToggle={() => {}} onSetMany={onSetMany} />);
+    expect(label).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(label);
+    const [ids, on] = onSetMany.mock.lastCall;
+    expect(on).toBe(false);
+    expect(ids).toEqual(expect.arrayContaining(['to_grade', 'flagged', 'draft', 'feedback_hidden', 'referral']));
+  });
 });
+

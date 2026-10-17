@@ -378,9 +378,10 @@ export function openRequestKeys(db, courseId) {
     .all(courseId).map((r) => `${r.student_id}:${r.assignment_id}`));
 }
 
-// Triage rows for one current course. Requests show whatever the alignment;
-// unrequested arrivals follow Feedback owed (summative, or formative when shown).
-export function resubmissionRows(db, { course, students, cal, today, settings, formative, studentId = null }) {
+// Triage rows for one current course, whatever the alignment: a resubmission is the
+// student answering the teacher's feedback, so a response is owed on formative work too
+// (Graham, 17/10/2026; it used to follow Feedback owed's Formative tick).
+export function resubmissionRows(db, { course, students, cal, today, settings, studentId = null }) {
   const { feedbackLimitDays, warnLeadDays } = settings;
   const assignments = new Map(db.prepare(`
     SELECT a.id, a.schoology_assignment_id, a.title, a.num_assignees, ${ALIGNED_SQL} AS aligned
@@ -401,7 +402,6 @@ export function resubmissionRows(db, { course, students, cal, today, settings, f
       const { state, request, snapshot, grade } = pair;
       if (state !== 'waiting' && state !== 'arrived') continue;
       if (Number(grade?.exception) === 1) continue; // excused
-      if (!request && !a.aligned && !formative) continue;
       if (!assigneeCache.has(a.id)) assigneeCache.set(a.id, assigneesOf(a));
       const assignees = assigneeCache.get(a.id);
       if (assignees && !assignees.has(st.schoology_uid)) continue;

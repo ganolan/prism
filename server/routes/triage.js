@@ -18,7 +18,7 @@ import { loadCalendar } from '../services/schoolCalendar.js';
 import { lessonPlan } from '../services/lessonPlan.js';
 import { timelineForPair, pairState } from '../services/submissionTimeline.js';
 import { todayLocal } from '../lib/schoolDays.js';
-import { getLooseEnds } from '../services/looseEnds.js';
+import { getUnfinishedGrading } from '../services/unfinishedGrading.js';
 
 const router = Router();
 const STATUS = {
@@ -93,8 +93,8 @@ router.get('/', (req, res) => {
   const courseId = req.query.courseId ?? null;
   res.json({
     ...getTriage(db, { courseId, includeFormative: optBool(req.query.includeFormative) }),
-    // Unfinished work with no clock (drafts, hidden feedback, flags): the Loose ends panel.
-    looseEnds: getLooseEnds(db, { courseId }),
+    // Unfinished work with no clock (drafts, hidden feedback, flags): the Unfinished grading panel.
+    unfinishedGrading: getUnfinishedGrading(db, { courseId }),
   });
 });
 

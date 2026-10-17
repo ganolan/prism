@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import TriageSection from './TriageSection.jsx';
+import TriageSection, { orderPanels } from './TriageSection.jsx';
 import * as api from '../../services/api.js';
 
 vi.mock('../../services/api.js', () => ({
@@ -438,7 +438,7 @@ describe('TriageSection — compact rows', () => {
     const lines = [...textOf(row).children];
     expect(lines.map((el) => el.className)).toEqual(['triage-row__line', 'triage-row__course']);
     const title = within(lines[0]).getByRole('link', { name: 'Model Card' });
-    expect(title).toHaveAttribute('href', '/course/6/assessment/a4?filter=to_grade,partly_graded,draft');
+    expect(title).toHaveAttribute('href', '/course/6/assessment/a4?filter=action');
     expect(title).toHaveAttribute('title', 'Model Card');
     expect(lines[1]).toHaveTextContent('[BK 7] AP CSP');
     expect(lines[1]).not.toHaveTextContent(/ungraded/);
@@ -994,7 +994,7 @@ describe('TriageSection — email (#137)', () => {
   });
 });
 
-describe('Loose ends panel', () => {
+describe('Unfinished grading panel', () => {
   const ROWS = [
     { courseId: 5, courseName: 'AP CSP', blockNumber: '7', assignmentId: 40, schoologyAssignmentId: 'a40', title: 'CPT 2', aligned: true,
       drafts: 2, feedbackHidden: 1, flagged: 0, oldestDraftOn: '2026-10-09', students: [] },
@@ -1002,10 +1002,10 @@ describe('Loose ends panel', () => {
       drafts: 0, feedbackHidden: 0, flagged: 1, oldestDraftOn: null, students: [] },
   ];
 
-  it('lists each task with its loose ends and links to the page with those reasons selected', async () => {
-    api.getTriage.mockResolvedValue({ ...PAYLOAD, looseEnds: ROWS });
+  it('lists each task with its unfinished grading and links to the page with those reasons selected', async () => {
+    api.getTriage.mockResolvedValue({ ...PAYLOAD, unfinishedGrading: ROWS });
     renderSection();
-    const panel = await screen.findByLabelText('Loose ends');
+    const panel = await screen.findByLabelText('Unfinished grading');
     expect(within(panel).getByRole('link', { name: 'CPT 2' })).toHaveAttribute('href', '/course/5/assessment/a40?filter=draft,feedback_hidden');
     expect(within(panel).getByText(/2 drafts not published, 1 with feedback hidden/)).toHaveTextContent('oldest draft 09/10/2026');
     expect(within(panel).getByRole('link', { name: 'Brick Breaker' })).toHaveAttribute('href', '/course/6/assessment/a41?filter=flagged');
@@ -1013,10 +1013,40 @@ describe('Loose ends panel', () => {
     expect(within(panel).getByText('[BK 7] AP CSP')).toBeInTheDocument();
   });
 
-  it('is hidden when there are no loose ends', async () => {
-    api.getTriage.mockResolvedValue({ ...PAYLOAD, looseEnds: [] });
+  it('is hidden when there are no unfinished grading', async () => {
+    api.getTriage.mockResolvedValue({ ...PAYLOAD, unfinishedGrading: [] });
     renderSection();
     await screen.findByLabelText('Feedback owed');
-    expect(screen.queryByLabelText('Loose ends')).toBeNull();
+    expect(screen.queryByLabelText('Unfinished grading')).toBeNull();
+  });
+});
+
+describe('panel order (most urgent first)', () => {
+  const p = (key, tones, extra = {}) => ({ key, rows: tones.map((tone) => ({ tone })), ...extra });
+  const keys = (panels) => orderPanels(panels).map((x) => x.key);
+
+  it('Unfinished grading on top when it has rows, then red, then amber, then the rest in the given order', () => {
+    expect(keys([
+      p('unfinished', ['x'], { pinned: true }), p('makeups', ['green']), p('late', ['amber', 'green']),
+      p('resubmissions', []), p('feedback', ['green', 'red']),
+    ])).toEqual(['unfinished', 'feedback', 'late', 'makeups', 'resubmissions']);
+  });
+
+  it('an empty Unfinished grading drops to the bottom; ties keep the default order', () => {
+    expect(keys([p('unfinished', [], { pinned: true }), p('makeups', ['red']), p('late', ['red']), p('feedback', [])]))
+      .toEqual(['makeups', 'late', 'feedback', 'unfinished']);
+  });
+
+  it('the rail renders in that order', async () => {
+    api.getTriage.mockResolvedValue({
+      ...PAYLOAD,
+      unfinishedGrading: [{ courseId: 5, courseName: 'AP CSP', assignmentId: 40, schoologyAssignmentId: 'a40', title: 'CPT 2', aligned: true, drafts: 1, feedbackHidden: 0, flagged: 0, oldestDraftOn: null, students: [] }],
+      makeUps: [], lateWork: [], resubmissions: [],
+      feedbackOwed: [{ ...PAYLOAD.feedbackOwed[0], tone: 'red' }],
+    });
+    renderSection();
+    await screen.findByLabelText('Unfinished grading');
+    const order = [...document.querySelectorAll('.triage-panel')].map((el) => el.getAttribute('aria-label'));
+    expect(order.slice(0, 2)).toEqual(['Unfinished grading', 'Feedback owed']);
   });
 });

@@ -4,13 +4,13 @@ import { PanelHead, ShowAllToggle, useShowAll, limitRows } from './panelParts.js
 import { assessmentLink } from '../../lib/triage.js';
 import { formatDate } from '../../lib/formatDate.js';
 
-// Loose ends: unfinished grading work with no clock, per task (server/services/looseEnds.js):
+// Unfinished grading: grading work with no clock, per task (server/services/unfinishedGrading.js):
 // Prism drafts not yet published, feedback the student cannot see, review flags. No ring:
 // nothing here is late, it is only unfinished. Tasks with a draft come first (oldest
 // first). A title opens the task's page with those reasons selected. Hidden when empty.
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
-export function looseEndsText(r) {
+export function unfinishedGradingText(r) {
   return [
     r.drafts > 0 && plural(r.drafts, 'draft not published', 'drafts not published'),
     r.feedbackHidden > 0 && `${r.feedbackHidden} with feedback hidden`,
@@ -21,12 +21,12 @@ export function looseEndsText(r) {
 const FILTER_OF = { drafts: 'draft', feedbackHidden: 'feedback_hidden', flagged: 'flagged' };
 const filterFor = (r) => Object.entries(FILTER_OF).filter(([k]) => r[k] > 0).map(([, id]) => id);
 
-export default function LooseEndsPanel({ rows, showCourse, scope }) {
-  const [showAll, toggleShowAll] = useShowAll(`looseEnds.${scope}`);
+export default function UnfinishedGradingPanel({ rows, showCourse, scope }) {
+  const [showAll, toggleShowAll] = useShowAll(`unfinishedGrading.${scope}`);
   if (rows.length === 0) return null;
   return (
-    <section className="card triage-panel" id="triage-loose-ends" aria-label="Loose ends">
-      <PanelHead title="Loose ends">
+    <section className="card triage-panel" id="triage-unfinished-grading" aria-label="Unfinished grading">
+      <PanelHead title="Unfinished grading">
         <ShowAllToggle total={rows.length} showAll={showAll} onToggle={toggleShowAll} />
       </PanelHead>
       <p className="triage-panel__sub">drafts not published, feedback hidden, flagged for review</p>
@@ -40,7 +40,7 @@ export default function LooseEndsPanel({ rows, showCourse, scope }) {
               {!r.aligned && <span className="badge badge-formative triage-row__tag">F</span>}
             </div>
             <div className="triage-row__sub">
-              {looseEndsText(r)}
+              {unfinishedGradingText(r)}
               {r.oldestDraftOn && <span className="text-muted">, oldest draft {formatDate(r.oldestDraftOn)}</span>}
             </div>
             {showCourse && <CourseLine row={r} />}

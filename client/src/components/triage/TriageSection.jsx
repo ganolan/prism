@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import {
   getTriage, recordReferral, recordExtension, setMakeUpIgnored,
   updateResubmission, getStatusLineUntil,
@@ -11,11 +11,13 @@ import LateWorkPanel from './LateWorkPanel.jsx';
 import FeedbackOwedPanel from './FeedbackOwedPanel.jsx';
 import MakeUpPanel from './MakeUpPanel.jsx';
 import ResubmissionsPanel from './ResubmissionsPanel.jsx';
-import LooseEndsPanel from './LooseEndsPanel.jsx';
+import UnfinishedGradingPanel from './UnfinishedGradingPanel.jsx';
 
-// The triage rail: an <aside> of stacked panels — make-up tests first (the most
-// urgent: a missed test can be invalidated), then late work, then resubmissions,
-// then feedback owed, then loose ends (unfinished work with no clock) — across all current courses (no courseId — Dashboard) or
+// The triage rail: an <aside> of stacked panels, most urgent first (orderPanels):
+// Unfinished grading on top whenever it has rows (quick fixes, a standing reminder),
+// then the clocked panels by their most urgent row (red, then amber, then the rest),
+// keeping the default order make-up tests, late work, resubmissions, feedback owed
+// within a level — across all current courses (no courseId — Dashboard) or
 // for one course (CoursePage). The page lays it out beside its main column (.triage-layout).
 // Owns its fetch; onLoaded hands the payload up (the Dashboard uses it for
 // course-card chips and the school-day header, the course page for the Gradebook
@@ -25,6 +27,19 @@ import LooseEndsPanel from './LooseEndsPanel.jsx';
 // Actions that publish a status line to the student's Schoology comment (extensions,
 // make-up extensions, resubmission Extend / Grade stands) open one StatusLineModal
 // confirm here; nothing is written until Publish, and Cancel writes nothing.
+// Unfinished grading first when it has rows; then panels with an overdue (red) row,
+// then one nearing a limit (amber), then the rest; ties keep the given order.
+const URGENCY = { red: 0, amber: 1 };
+export function orderPanels(panels) {
+  const level = (p) => {
+    if (p.pinned) return p.rows.length > 0 ? -1 : 3;
+    return Math.min(2, ...p.rows.map((r) => URGENCY[r.tone] ?? 2));
+  };
+  return panels.map((p, i) => ({ p, i, l: level(p) }))
+    .sort((a, b) => a.l - b.l || a.i - b.i)
+    .map(({ p }) => p);
+}
+
 export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnored, version = 0, hidden = false, id }) {
   const dataVersion = useDataVersion();
   const [data, setData] = useState(null);
@@ -134,32 +149,57 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
       {!showCourse && data.lastSyncAt && (
         <p className="text-sm text-muted triage__asof">Counts as of the last sync, {formatDateTime(data.lastSyncAt)}</p>
       )}
-      <MakeUpPanel
-        rows={data.makeUps ?? []} settings={data.settings} showCourse={showCourse} scope={scope}
-        unchecked={data.makeUpsUnchecked ?? 0} ignored={data.makeUpsIgnored ?? 0}
-        onExtend={handleExtendMakeUp} onIgnore={handleIgnore}
-      />
-      <LateWorkPanel
-        rows={data.lateWork} settings={data.settings} showCourse={showCourse} scope={scope}
-        onRecord={handleRecord} onExtend={handleExtend}
-        historyCount={data.historyCount}
-        historyOpen={showHistory} onToggleHistory={() => setShowHistory((v) => !v)}
-        courseId={courseId} historyVersion={historyVersion}
-        onCloseHistory={() => setShowHistory(false)} onHistoryChanged={load}
-      />
-      <ResubmissionsPanel
-        rows={data.resubmissions ?? []} settings={data.settings} showCourse={showCourse} scope={scope}
-        onGradeStands={handleGradeStands} onExtend={handleExtendResub}
-        historyCount={data.resubmissionHistoryCount ?? 0}
-        historyOpen={showResubHistory} onToggleHistory={() => setShowResubHistory((v) => !v)}
-        courseId={courseId} historyVersion={historyVersion}
-        onCloseHistory={() => setShowResubHistory(false)} onHistoryChanged={load}
-      />
-      <FeedbackOwedPanel
-        rows={data.feedbackOwed} settings={data.settings} showCourse={showCourse} scope={scope}
-        includeFormative={data.includeFormative} onToggleFormative={setIncludeFormative}
-      />
-      <LooseEndsPanel rows={data.looseEnds ?? []} showCourse={showCourse} scope={scope} />
+      {orderPanels([
+        {
+          key: 'unfinished', rows: data.unfinishedGrading ?? [], pinned: true,
+          el: <UnfinishedGradingPanel rows={data.unfinishedGrading ?? []} showCourse={showCourse} scope={scope} />,
+        },
+        {
+          key: 'makeups', rows: data.makeUps ?? [],
+          el: (
+            <MakeUpPanel
+              rows={data.makeUps ?? []} settings={data.settings} showCourse={showCourse} scope={scope}
+              unchecked={data.makeUpsUnchecked ?? 0} ignored={data.makeUpsIgnored ?? 0}
+              onExtend={handleExtendMakeUp} onIgnore={handleIgnore}
+            />
+          ),
+        },
+        {
+          key: 'late', rows: data.lateWork,
+          el: (
+            <LateWorkPanel
+              rows={data.lateWork} settings={data.settings} showCourse={showCourse} scope={scope}
+              onRecord={handleRecord} onExtend={handleExtend}
+              historyCount={data.historyCount}
+              historyOpen={showHistory} onToggleHistory={() => setShowHistory((v) => !v)}
+              courseId={courseId} historyVersion={historyVersion}
+              onCloseHistory={() => setShowHistory(false)} onHistoryChanged={load}
+            />
+          ),
+        },
+        {
+          key: 'resubmissions', rows: data.resubmissions ?? [],
+          el: (
+            <ResubmissionsPanel
+              rows={data.resubmissions ?? []} settings={data.settings} showCourse={showCourse} scope={scope}
+              onGradeStands={handleGradeStands} onExtend={handleExtendResub}
+              historyCount={data.resubmissionHistoryCount ?? 0}
+              historyOpen={showResubHistory} onToggleHistory={() => setShowResubHistory((v) => !v)}
+              courseId={courseId} historyVersion={historyVersion}
+              onCloseHistory={() => setShowResubHistory(false)} onHistoryChanged={load}
+            />
+          ),
+        },
+        {
+          key: 'feedback', rows: data.feedbackOwed,
+          el: (
+            <FeedbackOwedPanel
+              rows={data.feedbackOwed} settings={data.settings} showCourse={showCourse} scope={scope}
+              includeFormative={data.includeFormative} onToggleFormative={setIncludeFormative}
+            />
+          ),
+        },
+      ]).map((p) => <Fragment key={p.key}>{p.el}</Fragment>)}
       {confirm && <StatusLineModal key={confirm.key} {...confirm.props} onCancel={() => setConfirm(null)} />}
     </>,
   );

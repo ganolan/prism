@@ -1,7 +1,7 @@
 // Filter rows for the assessment summary page.
-//  - Needs action / Watch: one pill per reason a student needs attention (a pill
-//    shows only while some student has that reason, or while it is selected).
-//    Any of the selected reasons matches.
+//  - Needs action / Watch: one pill per reason a student needs attention, shown only
+//    while some student has that reason. Any of the selected reasons matches. The
+//    row's label is a button that selects (or clears) every pill in its row.
 //  - Refine (collapsed): the descriptive pills (submission status, grading,
 //    visibility, flag, resubmit request). OR within a group, AND across groups,
 //    applied by the page via passesFilters. This component only renders + reports.
@@ -31,11 +31,24 @@ function FilterPill({ label, count, active, tone, onClick }) {
   );
 }
 
-function ReasonRow({ label, group, counts, active, onToggle, empty }) {
-  const ids = reasonIdsIn(group).filter(id => counts[id] > 0 || active.has(id));
+function ReasonRow({ label, group, counts, active, onToggle, onSetMany, empty }) {
+  const ids = reasonIdsIn(group).filter(id => counts[id] > 0);
+  const all = ids.length > 0 && ids.every(id => active.has(id));
   return (
     <div role="group" aria-label={label} className="assessment-filter-row">
-      <span className="assessment-filter-row__label text-sm text-muted">{label}:</span>
+      {ids.length > 0 && onSetMany ? (
+        <button
+          type="button" className="assessment-filter-row__label assessment-filter-row__group"
+          aria-pressed={all}
+          title={all ? `Clear every ${label} filter` : `Select every ${label} filter`}
+          // Clearing removes the whole group, including reasons no student has now.
+          onClick={() => onSetMany(all ? reasonIdsIn(group) : ids, !all)}
+        >
+          {label}:
+        </button>
+      ) : (
+        <span className="assessment-filter-row__label text-sm text-muted">{label}:</span>
+      )}
       {ids.length === 0 && <span className="text-sm text-muted">{empty}</span>}
       {ids.map(id => (
         <FilterPill key={id} label={REASONS[id].label} count={counts[id]}
@@ -46,7 +59,8 @@ function ReasonRow({ label, group, counts, active, onToggle, empty }) {
 }
 
 // hasDraft(student): the page's live "this card has an unpublished Prism draft".
-export default function AssessmentFilterBar({ students, assignment, topics, active, onToggle, onClear, hasDraft }) {
+// onSetMany(ids, on): select or clear several pills at once (a row's label button).
+export default function AssessmentFilterBar({ students, assignment, topics, active, onToggle, onSetMany, onClear, hasDraft }) {
   const groups = filterGroups(assignment);
   const ctx = { assignment, topics, hasDraft };
   const counts = countReasons(students, ctx);
@@ -55,8 +69,8 @@ export default function AssessmentFilterBar({ students, assignment, topics, acti
   const open = refineOpen || refineActive > 0;
   return (
     <div className="assessment-filter-bar">
-      <ReasonRow label="Needs action" group="action" counts={counts} active={active} onToggle={onToggle} empty="Nothing needs action" />
-      <ReasonRow label="Watch" group="watch" counts={counts} active={active} onToggle={onToggle} empty="Nothing to watch" />
+      <ReasonRow label="Needs action" group="action" counts={counts} active={active} onToggle={onToggle} onSetMany={onSetMany} empty="Nothing needs action" />
+      <ReasonRow label="Watch" group="watch" counts={counts} active={active} onToggle={onToggle} onSetMany={onSetMany} empty="Nothing to watch" />
       <div className="assessment-filter-row">
         <button type="button" className="ghost btn-sm" aria-expanded={open} onClick={() => setRefineOpen(o => !o)}>
           <span aria-hidden="true">{open ? '▾' : '▸'}</span> Refine{refineActive > 0 ? ` (${refineActive})` : ''}

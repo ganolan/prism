@@ -14,7 +14,7 @@ vi.mock('./oneDriveLinks.js', () => ({ getAssignmentFiles: vi.fn() }));
 import { getDb } from '../db/index.js';
 import masteryRouter from '../routes/mastery.js';
 import { draftBaseline } from '../../client/src/lib/assessmentDraft.js';
-import { getLooseEnds } from './looseEnds.js';
+import { getUnfinishedGrading } from './unfinishedGrading.js';
 
 let db, courseId, n;
 function student(uid, first, { dropped = false } = {}) {
@@ -69,7 +69,7 @@ beforeEach(() => {
   db.prepare(`INSERT INTO reporting_categories (id, course_id, external_id, title) VALUES ('cat-1', ?, 'X', 'Cat')`).run(courseId);
 });
 
-describe('getLooseEnds: Prism drafts', () => {
+describe('getUnfinishedGrading: Prism drafts', () => {
   test('a live draft counts (same baseline as the card); one Schoology changed under is stale', async () => {
     const maya = student('u1', 'Maya');
     const a = assignment('CPT 2');
@@ -77,25 +77,25 @@ describe('getLooseEnds: Prism drafts', () => {
     db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('u1', ?, ?, 75, 'EX')`).run(a.sid, `topic-${a.sid}`);
     saveDraft(a.id, maya, await cardBase(a.sid, 'u1'));
 
-    expect(getLooseEnds(db)).toEqual([expect.objectContaining({
+    expect(getUnfinishedGrading(db)).toEqual([expect.objectContaining({
       courseName: 'AP CSP', blockNumber: '7', title: 'CPT 2', schoologyAssignmentId: a.sid, aligned: true,
       drafts: 1, feedbackHidden: 0, flagged: 0, oldestDraftOn: '2026-10-10',
       students: [{ studentId: maya, studentName: 'Maya X', reasons: ['draft'] }],
     })]);
 
     db.prepare(`UPDATE grades SET grade_comment = 'Changed in Schoology.' WHERE student_id = ?`).run(maya);
-    expect(getLooseEnds(db)).toEqual([]);
+    expect(getUnfinishedGrading(db)).toEqual([]);
   });
 
   test('a dropped student\'s draft is left out', async () => {
     const bo = student('u2', 'Bo', { dropped: true });
     const a = assignment('CPT 2');
     saveDraft(a.id, bo, 'anything');
-    expect(getLooseEnds(db)).toEqual([]);
+    expect(getUnfinishedGrading(db)).toEqual([]);
   });
 });
 
-describe('getLooseEnds: feedback hidden and flags', () => {
+describe('getUnfinishedGrading: feedback hidden and flags', () => {
   test('hidden = a teacher comment the student cannot see (not excused, not a status line alone)', () => {
     const ids = ['Ana', 'Ben', 'Cal', 'Dee', 'Eve'].map((name, i) => student(`u${i}`, name));
     const a = assignment('Brick Breaker');
@@ -105,7 +105,7 @@ describe('getLooseEnds: feedback hidden and flags', () => {
     grade(ids[3], a.id, { grade_comment: '', comment_status: 0 }); // nothing to show
     grade(ids[4], a.id, { grade_comment: 'Resubmission requested - due Thu 15/10.', comment_status: 0 });
     db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, 'Resubmission requested - due Thu 15/10.', 'ask')`).run(ids[4], a.id);
-    const [row] = getLooseEnds(db);
+    const [row] = getUnfinishedGrading(db);
     expect(row).toMatchObject({ feedbackHidden: 1, drafts: 0, flagged: 0 });
     expect(row.students.map((s) => s.studentName)).toEqual(['Ana X']);
   });
@@ -117,17 +117,17 @@ describe('getLooseEnds: feedback hidden and flags', () => {
     grade(ana, a.id, { grade_comment: 'Check sources.', comment_status: 0 });
     db.prepare(`INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason) VALUES (?, ?, 'review_needed', 'x')`).run(ana, a.id);
     db.prepare(`INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason) VALUES (?, ?, 'review_needed', 'y')`).run(ben, a.id);
-    expect(getLooseEnds(db)[0]).toMatchObject({
+    expect(getUnfinishedGrading(db)[0]).toMatchObject({
       feedbackHidden: 1, flagged: 2,
       students: [
         { studentName: 'Ana X', reasons: ['feedback_hidden', 'flagged'] },
         { studentName: 'Ben X', reasons: ['flagged'] },
       ],
     });
-    expect(getLooseEnds(db, { studentId: ben })[0]).toMatchObject({ feedbackHidden: 0, flagged: 1, students: [{ studentName: 'Ben X' }] });
+    expect(getUnfinishedGrading(db, { studentId: ben })[0]).toMatchObject({ feedbackHidden: 0, flagged: 1, students: [{ studentName: 'Ben X' }] });
   });
 
-  test('tasks with drafts first (oldest first), then the most loose ends; archived courses are left out', async () => {
+  test('tasks with drafts first (oldest first), then the most unfinished grading; archived courses are left out', async () => {
     const ana = student('u1', 'Ana');
     const ben = student('u2', 'Ben');
     const flagged = assignment('A flagged task');
@@ -137,8 +137,8 @@ describe('getLooseEnds: feedback hidden and flags', () => {
     grade(ana, busy.id, { grade_comment: 'One.', comment_status: 0 });
     grade(ben, busy.id, { grade_comment: 'Two.', comment_status: 0 });
     saveDraft(drafted.id, ana, await cardBase(drafted.sid, 'u1'));
-    expect(getLooseEnds(db).map((r) => r.title)).toEqual(['C drafted', 'B two hidden', 'A flagged task']);
+    expect(getUnfinishedGrading(db).map((r) => r.title)).toEqual(['C drafted', 'B two hidden', 'A flagged task']);
     db.prepare('UPDATE courses SET archived = 1').run();
-    expect(getLooseEnds(db)).toEqual([]);
+    expect(getUnfinishedGrading(db)).toEqual([]);
   });
 });

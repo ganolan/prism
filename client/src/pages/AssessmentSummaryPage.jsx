@@ -2368,6 +2368,11 @@ export default function AssessmentSummaryPage() {
           topics={alignedTopics}
           active={activeFilters}
           onToggle={toggleFilter}
+          onSetMany={(ids, on) => setActiveFilters(prev => {
+            const next = new Set(prev);
+            for (const id of ids) { if (on) next.add(id); else next.delete(id); }
+            return next;
+          })}
           onClear={() => setActiveFilters(new Set())}
           hasDraft={hasDraft}
         />
@@ -2401,7 +2406,7 @@ export default function AssessmentSummaryPage() {
         <>
           {shownCount === 0 && (
             <div className="card">
-              <p className="text-muted" style={{ marginTop: 0 }}>No students match {activeLabels.join(' + ')}.</p>
+              <p className="text-muted" style={{ marginTop: 0 }}>No students match {activeLabels.length <= 3 ? activeLabels.join(' + ') : 'the selected filters'}.</p>
               <button type="button" className="secondary btn-sm" onClick={() => setActiveFilters(new Set())}>Clear filters</button>
             </div>
           )}

@@ -689,16 +689,16 @@ describe('triage tools', () => {
     expect(getTriageTool(db, { student: 'zed' }).lateWork).toEqual([]);
   });
 
-  test('get_triage looseEnds: per assessment, recounted for a student filter', () => {
+  test('get_triage unfinishedGrading: per assessment, recounted for a student filter', () => {
     const db = getDb();
     const { courseId, studentId, assignmentId } = seedLate(db);
     const bo = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u2', 'Bo', 'Li')`).run().lastInsertRowid;
     db.prepare(`INSERT INTO enrolments (student_id, course_id) VALUES (?, ?)`).run(bo, courseId);
     for (const sid of [studentId, bo]) db.prepare(`INSERT INTO flags (student_id, assignment_id, flag_type) VALUES (?, ?, 'review_needed')`).run(sid, assignmentId);
-    expect(getTriageTool(db, {}).looseEnds).toEqual([expect.objectContaining({ title: 'CP2', flagged: 2, drafts: 0, feedbackHidden: 0 })]);
-    const one = getTriageTool(db, { student: 'maya' }).looseEnds;
+    expect(getTriageTool(db, {}).unfinishedGrading).toEqual([expect.objectContaining({ title: 'CP2', flagged: 2, drafts: 0, feedbackHidden: 0 })]);
+    const one = getTriageTool(db, { student: 'maya' }).unfinishedGrading;
     expect(one).toEqual([expect.objectContaining({ flagged: 1, students: [expect.objectContaining({ studentName: 'Maya Chen', reasons: ['flagged'] })] })]);
-    expect(getTriageTool(db, { student: 'zed' }).looseEnds).toEqual([]);
+    expect(getTriageTool(db, { student: 'zed' }).unfinishedGrading).toEqual([]);
   });
 
   test('getTriageTool limits counts.atReferralLimit to the filtered student, not the whole class', () => {

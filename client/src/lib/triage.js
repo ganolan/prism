@@ -77,5 +77,6 @@ export function assessmentLink(row, { filter = [], studentId = null } = {}) {
   const qs = q.toString().replace(/%2C/g, ',');
   return `/course/${row.courseId}/assessment/${row.schoologyAssignmentId}${qs ? `?${qs}` : ''}`;
 }
-// Feedback owed opens on the students still to be graded or published.
-export const FEEDBACK_OWED_FILTER = ['to_grade', 'partly_graded', 'draft'];
+// Feedback owed opens with the whole Needs action row selected: grading, drafts,
+// hidden feedback and every other reason a student needs the teacher now.
+export const FEEDBACK_OWED_FILTER = ['action'];

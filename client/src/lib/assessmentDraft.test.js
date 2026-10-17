@@ -69,7 +69,7 @@ describe('draftBaseline', () => {
   });
 });
 
-// Triage's Loose ends checks draft validity on the server with a mirror of this module.
+// Triage's Unfinished grading panel checks draft validity on the server with a mirror of this module.
 import * as server from '../../../server/lib/assessmentDraft.js';
 
 describe('parity with server/lib/assessmentDraft.js', () => {

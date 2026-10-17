@@ -168,7 +168,7 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
   for (const c of courses) {
     const students = roster(db, c.id);
     const courseFields = { courseId: c.id, courseName: c.course_name, blockNumber: c.block_number ?? null };
-    resubmissions.push(...resubmissionRows(db, { course: c, students, cal, today, settings, formative, studentId }));
+    resubmissions.push(...resubmissionRows(db, { course: c, students, cal, today, settings, studentId }));
 
     // Make-up tests: a Schoology test/quiz is over and a targeted, active,
     // non-excused student's cell explicitly says "no attempt" (test_attempt

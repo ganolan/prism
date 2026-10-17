@@ -168,3 +168,36 @@ describe('getUserProfilesBatch (POST /multiget #105)', () => {
     expect(map.size).toBe(0);
   });
 });
+
+describe('submission files (#107)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  test('getSubmissionRevisions reads one student with ?with_attachments=1', async () => {
+    const { getSubmissionRevisions } = await import('./schoology.js');
+    const calls = [];
+    vi.stubGlobal('fetch', vi.fn(async (url) => { calls.push(url); return jsonResponse({ revision: [{ revision_id: 1 }] }); }));
+    expect(await getSubmissionRevisions('8458134323', '8590105935', '555')).toEqual([{ revision_id: 1 }]);
+    expect(calls).toEqual(['https://api.schoology.com/v1/sections/8458134323/submissions/8590105935/555?with_attachments=1']);
+  });
+
+  test('openFile signs the API host only, follows a redirect without the header, and leaves the body unread', async () => {
+    const { openFile, downloadFile } = await import('./schoology.js');
+    const seen = [];
+    vi.stubGlobal('fetch', vi.fn(async (url, opts) => {
+      seen.push({ url, auth: !!opts.headers?.Authorization });
+      if (url.startsWith('https://api.schoology.com')) {
+        return new Response(null, { status: 302, headers: { location: 'https://files.example.com/x.zip' } });
+      }
+      return new Response('ZIPDATA', { status: 200, headers: { 'content-type': 'application/zip', 'content-length': '7' } });
+    }));
+    const r = await openFile('https://api.schoology.com/v1/submission/1/source/x.zip');
+    expect(r).toMatchObject({ status: 200, contentType: 'application/zip', contentLength: 7 });
+    expect(await new Response(r.body).text()).toBe('ZIPDATA');
+    expect(seen).toEqual([
+      { url: 'https://api.schoology.com/v1/submission/1/source/x.zip', auth: true },
+      { url: 'https://files.example.com/x.zip', auth: false },
+    ]);
+    const d = await downloadFile('https://api.schoology.com/v1/submission/1/source/x.zip');
+    expect(d.body.toString()).toBe('ZIPDATA');
+  });
+});

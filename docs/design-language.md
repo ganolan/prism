@@ -1327,6 +1327,15 @@ A student's Schoology submission comment thread, read in Prism (spec `docs/super
 - **Attach file:** a secondary button beside Post comment; the chosen file shows as a chip with Remove (`.comment-file`), and the confirmation names it.
 - **Writes confirm inline:** Post comment and Delete each open a red confirmation (`.comment-confirm`) naming the student, because a post reaches the student at once. Delete appears only on your own comments.
 
+## Native dropbox files (October 2026, #107)
+
+A student's own Schoology uploads, every revision, for tasks that take files in Schoology rather than OneDrive.
+
+- **Chip, not a list:** a paperclip chip (`.comment-chip .files-chip`) beside the status pill (where an OneDrive task shows its "Open" link), shown only when the sync saw a native upload (`hasNativeSubmission`: not OneDrive, not a test, `submission_type` "drop"). It reuses the comment chip so the two read as one family. Before a read it says **Files** (outlined); after, **3 files** (filled) or **No files** (outlined). The page reads cached counts only, so no chip costs a Schoology call until it is opened.
+- **Popover:** the comment popover's frame (`.comment-pop`), titled **Submitted files**. Revisions newest first, each headed **Revision N** with its `formatDateTime` time and small tags (`.files-tag`): **Latest** (only when there are two or more), **Late** (amber, `.files-tag--late`), **Draft**. Each file is a `.comment-file` link chip with its size, opened through Prism. The foot states when the list was read, with Refresh.
+- **Gradebook pop-up:** the same chip in the badges row; it reads the student's files when the pop-up opens, because opening the pop-up is opening the student's work.
+- **Files open safely:** images and PDFs open in a tab; anything else (a student's `.html` included) downloads, sandboxed, so it never runs inside Prism.
+
 ## Assessment page filter controls (October 2026)
 
 Chosen 17/10/2026 from three mockups (tri-state pill, tray, segmented): option A, with Refine moved to the end of the Watch row.

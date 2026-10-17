@@ -95,7 +95,7 @@ Last live re-verification: 2026-05-30 — spot-checked the public REST inventory
 
 | Method | Endpoint | Status | Notes |
 |--------|----------|--------|-------|
-| GET | `/v1/sections/{id}/submissions/{aid}/{uid}` | 200 | Submission revisions for one student. Returns `{ revision: [{ revision_id, uid, created, num_items, late, draft }] }`. `late: 0/1`, `draft: 0/1`. |
+| GET | `/v1/sections/{id}/submissions/{aid}/{uid}` | 200 | Submission revisions for one student. Returns `{ revision: [{ revision_id, uid, created, num_items, late, draft }] }`. `late: 0/1`, `draft: 0/1`. With `?with_attachments=1` each revision also carries its files; Prism reads them on demand (#107, 2026-10-17), see "Native dropbox submission files" below. |
 | GET | `/v1/sections/{id}/submissions/{aid}` (**no uid — BULK, #55, SHIPPED 2026-06-07**) | 200 | **Every student's LATEST revision for an assignment in ONE call** — `{ revision: [{ revision_id, uid, created, num_items, late, draft }], total, links }`, paginated (`links.next`; ~20/page). ⚠️ **CORRECTION (2026-06-07 parity check):** the bulk form returns only the **latest revision per student**, **NOT** the full revision history — the earlier "All students' revisions" claim was wrong (it only cross-checked one single-revision student, uid 11862763, which couldn't reveal the truncation). Re-verified across MAD (`8230636099`/`8347039321`/`8376973073`) and AP CSP CPT projects (`7957396557`/`8030139112`/`8112119711`/`8202978174`/`8275878296`): per-student returned `[1,2,3…]` where bulk returned only the latest (up to 5/8 students truncated on MAD). **This is still sync-equivalent for NATIVE dropbox** and is what `getAssignmentSubmissions` + `syncSectionData` now use: the sync only needs the latest revision's late/draft and the newest **non-draft** `created`, and a genuine resubmit (newer non-draft) IS the bulk's latest — so `summarizeRevisions` derives the identical per-student summary (**0 summary-mismatches** across all probed assignments, incl. the heavy-resubmit ones; the only divergent case, "latest-by-id is a draft over an earlier non-draft", would surface as a summary mismatch and was never observed). Probe: `scripts/parity-bulk-submissions.js`. ⚠️ For **lti_submission** work the public revisions API is blind (auto-provisioned empty drafts only) — lti uses the `/iapi2/.../{submitted,in-progress}-documents/` endpoints instead (#62), which **403 for native dropbox**. So: lti → documents endpoints; native dropbox → this bulk endpoint. Together they retire the per-cell walk. |
 | GET | `/v1/sections/{id}/submissions/{aid}/{uid}/comments` | 200 | Per-student submission comments. |
 | POST | `/v1/sections/{id}/submissions/{aid}/{uid}/comments` | 201 | Post submission comment. Body: `{ "comment": "text" }`. |
@@ -179,7 +179,34 @@ unless stated.
   the OAuth signature (unsigned → 403). Signed download through Prism: 671,044 bytes with an MD5 equal to the
   original file. `?richtext=1` changes nothing, and `GET …/comments/{id}` (a single comment) does not return
   JSON. The same flag on the per-student submission read (`…/submissions/{aid}/{uid}?with_attachments=1`) adds
-  each revision's files (`id` set, `fid` null, `download_path` under `/v1/submission/…`).
+  each revision's files (`id` set, `fid` null, `download_path` under `/v1/submission/…`). Full shape and the
+  download check: "Native dropbox submission files" below.
+- **Native dropbox submission files (#107, VERIFIED 2026-10-17, read-only, `scripts/parity-submission-files.js`).**
+  Observed on MGD Flappy Bird (F) (section `8458134323`, assignment `8590105935`, native dropbox, 12 active
+  students: 11 with revisions, 7 of them with 2, 28 files in all).
+  - **Read shape:** `GET /v1/sections/{id}/submissions/{aid}/{uid}?with_attachments=1` → `200 {revision: [...]}`.
+    The envelope held only `revision` (no `total`, no `links`), so the per-student read is not paged. Revision keys:
+    `revision_id`, `uid`, `created`, `num_items`, `late`, `draft` (all numbers) and `attachments`
+    (`{files: {file: [...]}}`). Every revision holds its own files, not just the latest (unlike the bulk read,
+    which returns only the latest revision and no files). `num_items` equalled the file count on every revision.
+    A student with no submission returns `{revision: []}`.
+  - **File keys** (union over 28 files): `id` (number, the file's key), `fid` (null), `type` ("file"), `title`,
+    `filename`, `filesize` (number), `md5_checksum`, `timestamp` (number, the upload: 2 to 502 s before the
+    revision's `created` on the 6 checked), `filemime`, `download_path`, `extension`. Converted files also carry
+    `converted_status` (string), `converted_type` (number), `converted_filename`, `converted_download_path`,
+    `converted_extension`, `converted_filesize`, `converted_md5_checksum`, `converted_filemime`: 12 `.mov` files had
+    an `mp4` conversion (`converted_type` 1), 5 `.html` files a `pdf` one (`converted_type` 4); the 11 `.zip` files
+    had no `converted_*` keys. `title` equalled `filename` on all 28. Prism serves the originals only.
+  - **Download:** `download_path` is `https://api.schoology.com/v1/submission/{n}/source/{name}.{ext}` (conversions:
+    `/v1/submission/{n}/conversion/{name}.{ext}`). Unsigned → **403**; signed (OAuth PLAINTEXT, as `apiGet`) → **302**
+    to `https://files-cdn.schoology.com/...`, which needs no header. **MD5 parity:** the signed download's MD5
+    equalled `md5_checksum` on 4/4 files through `downloadFile()` (a 3.6 MB `.zip`, a 12.8 MB `.mov`, a 1.6 KB
+    `.html` from a revision 2, a 179 KB `.zip`), and on 3/3 through Prism's own streamed route
+    `GET /api/submission-files/{aid}/{studentId}/{revisionId}/files/{id}` on a dev server.
+  - **Prism (#107):** reads this per student when the teacher opens the files chip (or the gradebook pop-up),
+    caches it in `submission_revisions` for 5 minutes, and streams each file through the route above. No sync reads
+    it (the bulk read keeps #55's savings). OneDrive tasks are refused (the API is blind to them; they keep the
+    OneDrive "Open" link).
 - **Delete through Prism, verified 2026-10-17:** `DELETE …/comments/3659117104` (the probe's image comment) removed
   it; the next REST read no longer held it. The final image comment (`3659117138`) was then posted through
   Prism's popover (Attach file) and stays: the page shows three comments and the file name once, on that comment.

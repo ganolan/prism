@@ -248,10 +248,20 @@ export async function deleteSubmissionComment(sectionId, assignmentId, userId, c
   return apiDelete(`/sections/${sectionId}/submissions/${assignmentId}/${userId}/comments/${commentId}`);
 }
 
-// A file from a signed api.schoology.com download_path → { status, contentType, body (Buffer) }.
-// The OAuth header goes only to the API host; a redirect elsewhere (file storage) is
-// followed without it.
-export async function downloadFile(downloadPath) {
+// Every revision of one student's native dropbox submission, with each revision's
+// files (attachments.files.file[], from ?with_attachments=1; verified 2026-10-17,
+// #107). The per-student read is not paged (the envelope holds only `revision`).
+export async function getSubmissionRevisions(sectionId, assignmentId, userId) {
+  const data = await apiGet(`/sections/${sectionId}/submissions/${assignmentId}/${userId}?with_attachments=1`);
+  return data?.revision || [];
+}
+
+// A file from a signed api.schoology.com download_path, unread →
+// { status, contentType, contentLength, body (a web ReadableStream or null) }.
+// The OAuth header goes only to the API host; a redirect elsewhere (file
+// storage) is followed without it. A caller that does not read the body
+// cancels it.
+export async function openFile(downloadPath) {
   let url = downloadPath;
   for (let i = 0; i < 5; i++) {
     const onApi = new URL(url).host === new URL(API).host;
@@ -259,12 +269,20 @@ export async function downloadFile(downloadPath) {
     const res = await fetch(url, { headers, redirect: 'manual' });
     if ([301, 302, 303, 307, 308].includes(res.status)) {
       const location = res.headers.get('location');
+      await res.body?.cancel();
       url = location.startsWith('http') ? location : new URL(location, url).href;
       continue;
     }
-    return { status: res.status, contentType: res.headers.get('content-type'), body: Buffer.from(await res.arrayBuffer()) };
+    const length = Number(res.headers.get('content-length'));
+    return { status: res.status, contentType: res.headers.get('content-type'), contentLength: length > 0 ? length : null, body: res.body };
   }
   throw new Error('Too many redirects downloading a file');
+}
+
+// The same file read into memory → { status, contentType, body (Buffer) }.
+export async function downloadFile(downloadPath) {
+  const res = await openFile(downloadPath);
+  return { status: res.status, contentType: res.contentType, body: Buffer.from(res.body ? await new Response(res.body).arrayBuffer() : new ArrayBuffer(0)) };
 }
 
 export { apiGet, apiPut, apiPost, apiDelete };

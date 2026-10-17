@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 import AssessmentSummaryPage, { StudentRubricCard } from './AssessmentSummaryPage.jsx';
-import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, getAttemptLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale, requestResubmission, undoResubmission, getFeatures, getQuizGroupFor, getQuizResults, rebuildQuizOverall, saveRowLevels, getDraftsForAssignment } from '../services/api.js';
+import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, getAttemptLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale, requestResubmission, undoResubmission, getFeatures, getQuizGroupFor, getQuizResults, rebuildQuizOverall, saveRowLevels, getDraftsForAssignment, getAssignmentFileSummaries } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 import { feedbackRowTopics, rowScores, rowTopicMapping } from '../lib/feedbackRows.js';
 
@@ -18,6 +18,8 @@ vi.mock('../lib/assessmentDraftSaver.js', () => ({
 
 vi.mock('../services/api.js', () => ({
   getMasteryForAssignment: vi.fn(),
+  getAssignmentFileSummaries: vi.fn().mockRejectedValue(Object.assign(new Error('off'), { status: 403 })),
+  getSubmissionFiles: vi.fn(),
   getSubmissionLinks: vi.fn().mockResolvedValue({ status: 'not_lti', links: {} }),
   getAttemptLinks: vi.fn().mockResolvedValue({ links: {} }),
   getFeatures: vi.fn().mockResolvedValue({}),
@@ -768,6 +770,41 @@ describe('AssessmentSummaryPage — OneDrive work links (#120)', () => {
     getSubmissionLinks.mockResolvedValue({ status: 'sso_failed', links: {} });
     renderPage();
     expect(await screen.findByText(/onedrive links unavailable/i)).toBeInTheDocument();
+  });
+});
+
+describe('Native dropbox files (#107)', () => {
+  const native = (extra = {}) => ({ ...makeStudent(), submission_type: 'drop', late: 0, draft: 0, submitted_at: 0, ...extra });
+  const row = (extra = {}) => ({ id: 50, is_lti_submission: 0, title: 'Flappy', mastery_grading_period_id: 1, mastery_grading_category_id: 2, ...extra });
+
+  it('the card shows a files chip beside the status pill for a native submission', () => {
+    renderCard({ student: native(), assignmentRow: row(), filesEnabled: true, fileSummary: { revisions: 2, files: 3, read_at: 'x' } });
+    expect(screen.getByRole('button', { name: /Submitted files: 3 files in 2 revisions/ })).toHaveTextContent('3 files');
+  });
+
+  it('no chip on an OneDrive task, without a submission, or with the feature off', () => {
+    renderCard({ student: native(), assignmentRow: row({ is_lti_submission: 1 }), filesEnabled: true });
+    renderCard({ student: native({ submission_type: null }), assignmentRow: row(), filesEnabled: true });
+    renderCard({ student: native(), assignmentRow: row(), filesEnabled: false });
+    expect(screen.queryByRole('button', { name: /Submitted files/ })).not.toBeInTheDocument();
+  });
+
+  it('the page reads the cached counts once and puts each on its student\'s card', async () => {
+    getMasteryForAssignment.mockResolvedValue({
+      assignment: { id: 50, schoology_assignment_id: '8', title: 'Flappy', is_lti_submission: 0, mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+      topics: TOPICS,
+      students: [native()],
+    });
+    getAssignmentFileSummaries.mockResolvedValueOnce({ students: { 1: { revisions: 1, files: 2, read_at: '2026-10-17T02:02:00.000Z' } } });
+    render(
+      <MemoryRouter initialEntries={['/course/4/assessment/8']}>
+        <Routes>
+          <Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    expect(await screen.findByRole('button', { name: /Submitted files: 2 files in 1 revision\b/ })).toBeInTheDocument();
+    expect(getAssignmentFileSummaries).toHaveBeenCalledWith('8');
   });
 });
 

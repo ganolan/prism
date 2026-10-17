@@ -26,6 +26,7 @@ import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
 import { formatDateTime } from '../lib/formatDate.js';
 import SubmissionTimeline from '../components/SubmissionTimeline.jsx';
 import SubmissionComments from '../components/SubmissionComments.jsx';
+import SubmissionFiles, { hasNativeSubmission } from '../components/SubmissionFiles.jsx';
 import { timelineSummary } from '../lib/submissionTimeline.js';
 import { DEFAULT_TYPE_FILTER, isUnpublished, passesTypeFilter, typeFilterCounts } from '../lib/assessmentTypeFilter.js';
 
@@ -659,7 +660,9 @@ export function RubricModal({ student, assignment, courseId, topics, comment, gr
     ...(grade.review_needed || []).map(f => ({ ...f, flag_type: 'review_needed' })),
     ...(grade.resubmit_requested ? [{ id: 'resubmit', flag_type: 'resubmit_requested' }] : []),
   ];
-  const hasBadges = status.length > 0 || flags.length > 0 || grade.resubmitted || !!workLink || !!attemptLink;
+  // The student's own Schoology uploads, every revision (#107).
+  const showFiles = hasNativeSubmission(assignment, grade);
+  const hasBadges = status.length > 0 || flags.length > 0 || grade.resubmitted || !!workLink || !!attemptLink || showFiles;
   return (
     <div
       style={{
@@ -708,6 +711,10 @@ export function RubricModal({ student, assignment, courseId, topics, comment, gr
                   title={`Open ${fullName}'s work in OneDrive: last edited ${formatDateTime(workLink.modifiedAt)}`}
                   style={{ fontSize: '0.78rem', fontWeight: 600 }}
                 />
+              )}
+              {showFiles && (
+                <SubmissionFiles autoLoad assignmentId={assignment.schoology_assignment_id} studentId={student.id}
+                  studentName={fullName} title={assignment.title} />
               )}
               <AttemptLink link={attemptLink} name={fullName} />
             </div>

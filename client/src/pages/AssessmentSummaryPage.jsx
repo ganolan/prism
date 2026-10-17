@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, Link, useSearchParams, Navigate, useLocation } from 'react-router-dom';
-import { getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, getTriagePair, loadQuizResults, rebuildQuizOverall, saveRowLevels, getAssignmentCommentSummaries } from '../services/api.js';
+import { getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, getTriagePair, loadQuizResults, rebuildQuizOverall, saveRowLevels, getAssignmentCommentSummaries, getAssignmentFileSummaries } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 import { feedbackRowTopics, rowScores, rowTopicMapping, isRowKey, rowName } from '../lib/feedbackRows.js';
 import { makeDraftSaver } from '../lib/assessmentDraftSaver.js';
@@ -28,6 +28,7 @@ import { useQuizResults } from '../hooks/useQuizResults.js';
 import SubmissionStatusPill from '../components/SubmissionStatusPill.jsx';
 import SubmissionTimeline from '../components/SubmissionTimeline.jsx';
 import SubmissionComments from '../components/SubmissionComments.jsx';
+import SubmissionFiles, { hasNativeSubmission } from '../components/SubmissionFiles.jsx';
 import ExtendControl from '../components/ExtendControl.jsx';
 import ReferControl from '../components/ReferControl.jsx';
 import ScaleLevelPicker from '../components/ScaleLevelPicker.jsx';
@@ -159,7 +160,7 @@ function HeaderPill({ active, accent, activeBg, activeText, icon, label, clearLa
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
-export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, attemptLink = null, quizResult = null, onRebuildQuiz = null, commentsEnabled = false, commentSummary = null, onCommentSummary = null, scoreScale = null, resubmitLessonsDefault = 3, resubmitEnabled = true, highlight = false, reasons = [], onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
+export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, attemptLink = null, quizResult = null, onRebuildQuiz = null, commentsEnabled = false, commentSummary = null, onCommentSummary = null, filesEnabled = false, fileSummary = null, onFileSummary = null, scoreScale = null, resubmitLessonsDefault = 3, resubmitEnabled = true, highlight = false, reasons = [], onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
   const scale = useProficiencyScale();
   // The card's action-panel row (ActionPanel portals into it).
   const [panelHost, setPanelHost] = useState(null);
@@ -1052,6 +1053,12 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             style={{ fontSize: '0.78rem', fontWeight: 600 }}
           />
         )}
+        {/* The student's own Schoology uploads, every revision (#107). */}
+        {filesEnabled && hasNativeSubmission(assignmentRow, student) && (
+          <SubmissionFiles assignmentId={assignmentId} studentId={student.id} studentName={displayName(student)}
+            title={assignmentRow?.title} summary={fileSummary}
+            onSummary={(s) => onFileSummary?.(student.id, s)} />
+        )}
         {/* The student's attempt on a linked or combined Schoology test. */}
         <AttemptLink link={attemptLink} name={displayName(student)} />
         {/* The student's quiz numbers on a linked result task (linked quizzes, phase 3). */}
@@ -1886,6 +1893,9 @@ export default function AssessmentSummaryPage() {
   const [workLinks, setWorkLinks] = useState({ status: null, links: {} });
   const [commentSummaries, setCommentSummaries] = useState(null);
   const commentPoll = useRef(null);
+  // Native dropbox file chips (#107): cached counts only; a chip reads the
+  // student's files from Schoology when opened. null = the feature is off.
+  const [fileSummaries, setFileSummaries] = useState(null);
   // Bumped per lookup; a response for a superseded lookup (e.g. the teacher
   // moved to another assignment mid-fetch) is dropped, so a card can never
   // link to a different assignment's file.
@@ -2206,6 +2216,17 @@ export default function AssessmentSummaryPage() {
   const handleCommentSummary = useCallback((studentId, summary) => {
     setCommentSummaries((prev) => ({ ...(prev || {}), [studentId]: summary }));
   }, []);
+  useEffect(() => {
+    let active = true;
+    setFileSummaries(null);
+    Promise.resolve().then(() => getAssignmentFileSummaries(assignmentId))
+      .then((r) => { if (active) setFileSummaries(r.students || {}); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [assignmentId]);
+  const handleFileSummary = useCallback((studentId, summary) => {
+    setFileSummaries((prev) => ({ ...(prev || {}), [studentId]: summary }));
+  }, []);
 
   const isLti = !!data?.assignment?.is_lti_submission;
   useEffect(() => {
@@ -2468,6 +2489,9 @@ export default function AssessmentSummaryPage() {
               commentsEnabled={commentSummaries !== null}
               commentSummary={commentSummaries?.[student.id] || null}
               onCommentSummary={handleCommentSummary}
+              filesEnabled={fileSummaries !== null}
+              fileSummary={fileSummaries?.[student.id] || null}
+              onFileSummary={handleFileSummary}
               scoreScale={scoreScale}
               resubmitLessonsDefault={resubmitLessonsDefault}
               resubmitEnabled={!data.course?.archived && !data.course?.excluded}

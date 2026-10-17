@@ -1422,6 +1422,10 @@ a.comment-file { width: max-content; max-width: 100%; text-decoration: none; }
 .comment-error { margin: 0; font-size: 0.75rem; }
 .comment-pop-foot { border-top: 1px solid var(--border); padding: 6px 14px; color: var(--text-muted); font-size: 0.7rem; display: flex; gap: 8px; align-items: center; }
 .comment-pop-foot button { margin-left: auto; }
+/* Native dropbox files (#107): the same chip and popover as submission comments. */
+.files-tag { border-radius: 999px; padding: 0 7px; font-size: 0.66rem; font-weight: 600; background: var(--bg-subtle); color: var(--text-muted); }
+.files-tag--late { background: var(--badge-amber-bg); color: var(--badge-amber-text); }
+.files-error { margin: 0 14px 8px; }
 
 /* ========================================================================
    PHONE LAYOUT

@@ -1383,3 +1383,28 @@ phase 2's `frq_marks` can key on `attempt_id`.
   `scripts/verify-quiz-phase1.js` prints raw failure reasons and mismatch kinds as `unknown`.
 
 **Next:** see "Linked quizzes, phase 2" above (phase 3, then phase 4).
+
+## Native dropbox submission files (2026-10-17, branch `issue-107-native-dropbox-files`, issue #107)
+
+Every revision's files of a student's native Schoology dropbox submission, on demand. Pattern copied from
+submission comments.
+
+- **Read:** `getSubmissionRevisions()` (`server/services/schoology.js`) =
+  `GET /v1/sections/{sid}/submissions/{aid}/{uid}?with_attachments=1`, one call per (student, assignment), when the
+  teacher opens the chip. `server/services/submissionFiles.js` caches it in `submission_revisions` +
+  `submission_revision_reads` (5-minute freshness, a failed read keeps the cache and reports the error). No sync
+  capture, no background queue. OneDrive tasks get 409 `NOT_NATIVE`.
+- **Download:** `openFile()` streams a signed `download_path` (the API host gets the OAuth header, the
+  `files-cdn` redirect does not); `downloadFile()` now buffers through it. Route
+  `GET /api/submission-files/:aid/:studentId/:revisionId/files/:fileId` (`server/routes/submissionFiles.js`, feature
+  `submission_files`) streams it: images and PDFs inline, the rest as a sandboxed attachment.
+- **UI:** `client/src/components/SubmissionFiles.jsx`: a chip on the /assessment/ card (cached counts from
+  `GET /api/submission-files/assignment/:aid`) and in the gradebook `RubricModal` badges row (reads on open). Only
+  when `hasNativeSubmission()` holds.
+- **Verified:** `scripts/parity-submission-files.js` on MGD Flappy Bird (F): MD5 = `md5_checksum` on 4/4 signed
+  downloads; 3/3 through Prism's route on a dev server. Shape in `.claude/schoology-api-reference.md`
+  ("Native dropbox submission files").
+- **Not done:** PrisMCP does not list these files yet; the student page has no chip (#135's shared feedback layout
+  is the natural home); Schoology's converted copies (`.mov` → `.mp4`, `.html` → `.pdf`) are not offered.
+
+**Tests:** 1870 server + 1106 client Vitest tests pass; `npm run build` succeeds (2026-10-17).

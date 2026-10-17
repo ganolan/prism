@@ -349,3 +349,10 @@ export const getAssignmentCommentSummaries = (assignmentId, { refresh = true } =
   request(`/submission-comments/assignment/${assignmentId}${refresh ? '' : '?refresh=0'}`);
 // Cached badges for a course: { assignments: { [schoology aid]: { [student id]: summary } } }.
 export const getCourseCommentSummaries = (courseId) => request(`/submission-comments/course/${courseId}`);
+
+// Native dropbox submission files (#107): every revision with its files for one
+// student, read from Schoology on demand (cached 5 minutes) unless refresh.
+export const getSubmissionFiles = (assignmentId, studentId, { refresh = false } = {}) =>
+  request(`/submission-files/${assignmentId}/${studentId}${refresh ? '?refresh=1' : ''}`);
+// Cached chip counts for one assignment: { students: { [student id]: { revisions, files, read_at } } }.
+export const getAssignmentFileSummaries = (assignmentId) => request(`/submission-files/assignment/${assignmentId}`);

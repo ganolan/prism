@@ -162,8 +162,11 @@ unless stated.
     `{error: {code, message}}`. Live: one upload of the 671 KB PNG over plain HTTP returned a 10-digit fid in 1.7 s.
     That upload was **not attached** to any comment (an orphan file, invisible to students).
   - The form then gets `file[files] = {"<fid>": ""}` (JSON, one key per file) and is submitted as the captured AJAX
-    POST plus `drupal_ajax=1`. This last step is implemented (`server/services/schoologyWeb.js`) but **not yet run
-    live**.
+    POST plus `drupal_ajax=1` → `200 application/json`. **Verified live 2026-10-17** (Graham's approval, one
+    comment to one Flappy Bird student, deleted straight after through Prism): page 1.1 s, upload 1.6 s, form 1.0 s,
+    6.1 s in all with the REST reads before and after. The new comment's file came back from
+    `?with_attachments=1` with the **same MD5** as the file sent. This is Prism's only file-post path
+    (`server/services/schoologyWeb.js`); there is no headless browser in it.
 - **Comment files: `?with_attachments=1` (VERIFIED 2026-10-17, read-only).** *(Corrected the same day: an
   earlier note here said the REST comment has no attachment field. That held only without the parameter.)* The
   same comments GET with `?with_attachments=1` (or `=true`) adds `attachments: {files: {file: [ … ]}}` to each

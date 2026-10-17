@@ -17,8 +17,9 @@ Public REST API first (verified in `.claude/schoology-api-reference.md`, "Submis
 - **Read:** `GET /v1/sections/{sec}/submissions/{aid}/{uid}/comments`, paged by `start`/`limit`.
 - **Post text:** `POST` the same path, body `{"comment": text}` (flat).
 - **Delete:** `DELETE …/comments/{id}`.
-- **Post with a file:** the web form only (the API drops attachments). Prism drives the form with the saved
-  browser session (`postCommentWithFile`), then confirms from the REST thread and the reloaded page. The form's
+- **Post with a file:** the web form only (the API drops attachments). Prism sends the form's own requests over
+  plain HTTP with the saved session's cookies (no browser), then confirms from the REST thread that the new
+  comment's file has the same MD5 as the file sent. The form's
   requests were captured 17 Oct 2026 on one approved post.
 
 No bulk read exists on the surfaces tested (multiget rejects the path), so a read costs one GET per

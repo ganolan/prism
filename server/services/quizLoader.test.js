@@ -2,6 +2,7 @@
 import { describe, test, expect, beforeEach, vi } from 'vitest';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 import { readFileSync } from 'fs';
+import { fakeSchoologyWeb } from '../testing/fakeSchoologyWeb.js';
 import { getDb } from '../db/index.js';
 import { createGroup } from './quizGroups.js';
 import { loadGroup, readQuestionLists, assertReadOnlyUrl } from './quizLoader.js';
@@ -13,30 +14,32 @@ const BASE = 'https://schoology.hkis.edu.hk';
 const RUBRIC = JSON.stringify({ response_code: 200, body: { id: 55233026, title: 'FRQ', total_points: 4, rows: [{ id: 146012384, title: 'Row', max_points: 4, columns: [{ pts: 2, description: 'Developing: x' }] }] } });
 const GRADE = JSON.stringify({ response_code: 200, body: { gradeInfo: { 146012384: { grade: '2', comment: '' } } } });
 
-// A fake session page: `pages` maps a path (no host) to { status, text }, or to a function.
-// `landings` lists where each later visit to /home lands (a URL, or an Error the visit throws).
-function fakeOpenPage(pages, { landing = `${BASE}/home`, landings = [] } = {}) {
-  const requested = [];
-  let at = landing;
-  let visits = 0;
-  const page = {
-    goto: vi.fn(async () => {
-      const next = visits++ === 0 ? landing : (landings.shift() ?? landing);
-      if (next instanceof Error) { at = 'about:blank'; throw next; }
-      at = next;
-    }),
-    url: () => at,
-    evaluate: vi.fn(async (_fn, { url }) => {
-      const path = url.replace(BASE, '');
-      requested.push(path);
-      const hit = pages[path];
-      if (!hit) return { status: 404, text: '', finalUrl: url };
-      const r = typeof hit === 'function' ? await hit() : hit;
-      return { finalUrl: url, ...r };
-    }),
+// Schoology over plain HTTP (the fake web seam): `pages` maps a path (no host) to
+// { status, text } or to a function returning one (a thrown error = the request
+// fails outright; a finalUrl off the school host = a redirect to sign-in).
+// `homes` lists how each visit to /home answers: 'ok', 'login' or an Error.
+function fakeWeb(pages, { homes = [] } = {}) {
+  const fake = fakeSchoologyWeb({
+    routes: async (entry) => {
+      if (entry.path === '/home') {
+        const next = homes.shift() ?? 'ok';
+        if (next instanceof Error) return { throws: next };
+        return next === 'login' ? { login: true } : { text: '<html>home</html>' };
+      }
+      const hit = pages[entry.path];
+      if (!hit) return { status: 404, text: '' };
+      let r;
+      try { r = typeof hit === 'function' ? await hit() : hit; } catch (err) { return { throws: err }; }
+      if (r.finalUrl && !r.finalUrl.startsWith(BASE)) return { login: true };
+      return { status: r.status, text: r.text };
+    },
+  });
+  return {
+    web: { jar: fake.jar, fetchImpl: fake.fetchImpl },
+    get requested() { return fake.requests.map((q) => q.path).filter((p) => p !== '/home'); },
+    get homeVisits() { return fake.requests.filter((q) => q.path === '/home').length; },
+    requests: fake.requests,
   };
-  const close = vi.fn(async () => {});
-  return { openPage: vi.fn(async () => ({ page, close })), requested, close };
 }
 
 let db, groupId, studentA, studentC;
@@ -62,24 +65,27 @@ const happyPages = () => ({
 
 describe('loadGroup', () => {
   test('reads results, the latest attempt for each taker, and each rubric once; stores them', async () => {
-    const f = fakeOpenPage(happyPages());
-    const r = await loadGroup(db, { groupId }, { openPage: f.openPage, pauseMs: 0 });
+    const f = fakeWeb(happyPages());
+    const r = await loadGroup(db, { groupId }, { web: f.web, pauseMs: 0 });
     expect(r).toMatchObject({ attempts: 2, notTaken: 1, failed: [], unknownUids: [], mismatches: [], multipleAttempts: ['701', '703'] });
     expect(db.prepare('SELECT student_id, schoology_attempt_id FROM quiz_attempts ORDER BY student_id').all())
       .toEqual([{ student_id: studentA, schoology_attempt_id: '5002' }, { student_id: studentC, schoology_attempt_id: '5002' }]);
     expect(f.requested.filter(p => p === '/iapi/grades/rubric/55233026')).toHaveLength(1);
     expect(f.requested.some(p => /unsubmit|delete/.test(p))).toBe(false);
-    expect(f.close).toHaveBeenCalled();
+    expect(f.homeVisits).toBe(0); // no browser-style /home check before the reads
+    for (const q of f.requests) expect(q.headers.cookie).toBe('SESS=old');
+    expect(f.requests.find((q) => q.path.startsWith('/iapi/')).headers.Accept).toBe('application/json');
+    expect(f.requests.find((q) => q.path.endsWith('/assessment_results')).headers.Accept).toBeUndefined();
     expect(db.prepare('SELECT loaded_at FROM quiz_groups WHERE id = ?').get(groupId).loaded_at).toBeTruthy();
   });
 
   test('a mark Schoology now shows becomes posted on the next load (marksPosted)', async () => {
-    await loadGroup(db, { groupId }, { openPage: fakeOpenPage(happyPages()).openPage, pauseMs: 0 });
+    await loadGroup(db, { groupId }, { web: fakeWeb(happyPages()).web, pauseMs: 0 });
     const attempt = db.prepare('SELECT id FROM quiz_attempts WHERE student_id = ?').get(studentA).id;
     const q = db.prepare(`SELECT id FROM quiz_questions WHERE group_id = ? AND kind = 'frq'`).get(groupId).id;
     db.prepare(`INSERT INTO frq_marks (attempt_id, question_id, final_cells_json, final_comment, state, writeback_status)
       VALUES (?, ?, '{"146012384":2}', 'Good start on part (a).', 'accepted', 'pending')`).run(attempt, q);
-    const r = await loadGroup(db, { groupId }, { openPage: fakeOpenPage(happyPages()).openPage, pauseMs: 0 });
+    const r = await loadGroup(db, { groupId }, { web: fakeWeb(happyPages()).web, pauseMs: 0 });
     expect(r.marksPosted).toBe(1);
     expect(db.prepare('SELECT writeback_status FROM frq_marks').get().writeback_status).toBe('posted');
   });
@@ -91,8 +97,8 @@ describe('loadGroup', () => {
     const rows = stats.split('\n');
     const swapped = [rows[0], rows[2], rows[1], ...rows.slice(3)].join('\n').replaceAll('/703/', '/701/');
     pages['/assignment/900/assessment_results/student_stats/701'] = { status: 200, text: swapped };
-    const f = fakeOpenPage(pages);
-    const r = await loadGroup(db, { groupId }, { openPage: f.openPage, pauseMs: 0 });
+    const f = fakeWeb(pages);
+    const r = await loadGroup(db, { groupId }, { web: f.web, pauseMs: 0 });
     expect(r.failed).toEqual([]);
     expect(f.requested).toContain('/assignment/900/assessment_results/student_stats/701/5002');
     expect(f.requested).not.toContain('/assignment/900/assessment_results/student_stats/701/5001');
@@ -101,7 +107,7 @@ describe('loadGroup', () => {
 
   test('an unknown uid is skipped with a warning and the rest still load', async () => {
     db.prepare(`DELETE FROM students WHERE schoology_uid = '701'`).run();
-    const r = await loadGroup(db, { groupId }, { openPage: fakeOpenPage(happyPages()).openPage, pauseMs: 0 });
+    const r = await loadGroup(db, { groupId }, { web: fakeWeb(happyPages()).web, pauseMs: 0 });
     expect(r.unknownUids).toEqual(['701']);
     expect(r.attempts).toBe(1);
   });
@@ -109,7 +115,7 @@ describe('loadGroup', () => {
   test('a failed attempt page is reported for that student only', async () => {
     const pages = happyPages();
     pages['/assignment/900/assessment_results/student_stats/701/5002'] = { status: 500, text: '' };
-    const r = await loadGroup(db, { groupId }, { openPage: fakeOpenPage(pages).openPage, pauseMs: 0 });
+    const r = await loadGroup(db, { groupId }, { web: fakeWeb(pages).web, pauseMs: 0 });
     expect(r.failed).toEqual([{ uid: '701', reason: 'attempt page HTTP 500' }]);
     expect(r.attempts).toBe(1);
   });
@@ -118,8 +124,8 @@ describe('loadGroup', () => {
     const pages = happyPages();
     let n = 0;
     pages['/iapi/grades/rubric/55233026'] = () => (++n === 1 ? { status: 500, text: '' } : { status: 200, text: RUBRIC });
-    const f = fakeOpenPage(pages);
-    const r = await loadGroup(db, { groupId }, { openPage: f.openPage, pauseMs: 0 });
+    const f = fakeWeb(pages);
+    const r = await loadGroup(db, { groupId }, { web: f.web, pauseMs: 0 });
     expect(r.failed).toEqual([{ uid: '701', reason: 'rubric HTTP 500' }]);
     expect(r.attempts).toBe(1);
     expect(f.requested.filter(p => p === '/iapi/grades/rubric/55233026')).toHaveLength(2);
@@ -133,7 +139,7 @@ describe('loadGroup', () => {
     const gi = '/iapi/grades/assessment_component_submission_rubric_grade_info/55233026/1003/3561143308/5002';
     let n = 0;
     pages[gi] = () => (++n === 1 ? { status: 503, text: '' } : { status: 200, text: GRADE });
-    const r = await loadGroup(db, { groupId }, { openPage: fakeOpenPage(pages).openPage, pauseMs: 0 });
+    const r = await loadGroup(db, { groupId }, { web: fakeWeb(pages).web, pauseMs: 0 });
     expect(r.failed).toEqual([{ uid: '701', reason: 'grade info HTTP 503' }]);
     expect(r.attempts).toBe(1);
   });
@@ -151,7 +157,7 @@ describe('loadGroup', () => {
     };
     const gone = seed(notTaken);
     seed(absent);
-    const r = await loadGroup(db, { groupId }, { openPage: fakeOpenPage(happyPages()).openPage, pauseMs: 0 });
+    const r = await loadGroup(db, { groupId }, { web: fakeWeb(happyPages()).web, pauseMs: 0 });
     expect(r.removed).toBe(1);
     expect(db.prepare('SELECT 1 FROM quiz_attempts WHERE id = ?').get(gone)).toBeUndefined();
     expect(db.prepare('SELECT COUNT(*) n FROM quiz_responses WHERE attempt_id = ?').get(gone).n).toBe(0);
@@ -161,9 +167,9 @@ describe('loadGroup', () => {
 
   test('a student who failed to load keeps the stored attempt (never removed on a failure)', async () => {
     const pages = happyPages();
-    await loadGroup(db, { groupId }, { openPage: fakeOpenPage(pages).openPage, pauseMs: 0 });
+    await loadGroup(db, { groupId }, { web: fakeWeb(pages).web, pauseMs: 0 });
     pages['/assignment/900/assessment_results/student_stats/701/5002'] = { status: 500, text: '' };
-    const r = await loadGroup(db, { groupId }, { openPage: fakeOpenPage(pages).openPage, pauseMs: 0 });
+    const r = await loadGroup(db, { groupId }, { web: fakeWeb(pages).web, pauseMs: 0 });
     expect(r.failed).toEqual([{ uid: '701', reason: 'attempt page HTTP 500' }]);
     expect(r.removed).toBe(0);
     expect(db.prepare('SELECT COUNT(*) n FROM quiz_attempts WHERE student_id = ?').get(studentA).n).toBe(1);
@@ -175,7 +181,7 @@ describe('loadGroup', () => {
     db.prepare(`INSERT INTO quiz_attempts (group_id, assignment_id, student_id, schoology_attempt_id, fetched_at) VALUES (?, ?, ?, '1', datetime('now'))`).run(groupId, stdId, s);
     const pages = happyPages();
     pages['/assignment/900/assessment_results'] = { status: 500, text: '' };
-    const r = await loadGroup(db, { groupId }, { openPage: fakeOpenPage(pages).openPage, pauseMs: 0 });
+    const r = await loadGroup(db, { groupId }, { web: fakeWeb(pages).web, pauseMs: 0 });
     expect(r.removed).toBe(0);
     expect(db.prepare('SELECT COUNT(*) n FROM quiz_attempts WHERE student_id = ?').get(s).n).toBe(1);
   });
@@ -183,7 +189,7 @@ describe('loadGroup', () => {
   test('a rejected page.evaluate fails that student only; the load still finishes', async () => {
     const pages = happyPages();
     pages['/assignment/900/assessment_results/student_stats/701/5002'] = () => { throw new Error('page crashed'); };
-    const r = await loadGroup(db, { groupId }, { openPage: fakeOpenPage(pages).openPage, pauseMs: 0 });
+    const r = await loadGroup(db, { groupId }, { web: fakeWeb(pages).web, pauseMs: 0 });
     expect(r.failed).toEqual([{ uid: '701', reason: 'attempt page HTTP 0' }]);
     expect(r.attempts).toBe(1);
     expect(db.prepare('SELECT loaded_at FROM quiz_groups WHERE id = ?').get(groupId).loaded_at).toBeTruthy();
@@ -196,26 +202,26 @@ describe('loadGroup', () => {
       return pages;
     };
     test('Schoology still shows home: only that student fails', async () => {
-      const f = fakeOpenPage(failing());
-      const r = await loadGroup(db, { groupId }, { openPage: f.openPage, pauseMs: 0 });
+      const f = fakeWeb(failing());
+      const r = await loadGroup(db, { groupId }, { web: f.web, pauseMs: 0 });
       expect(r.failed).toEqual([{ uid: '701', reason: 'attempt page HTTP 0' }]);
       expect(r.attempts).toBe(1);
     });
     test('a sign-in page instead (an SSO bounce the browser hid): NO_SESSION, the load stops', async () => {
-      const f = fakeOpenPage(failing(), { landings: ['https://login.microsoftonline.com/x'] });
-      await expect(loadGroup(db, { groupId }, { openPage: f.openPage, pauseMs: 0 })).rejects.toMatchObject({ code: 'NO_SESSION' });
+      const f = fakeWeb(failing(), { homes: ['login'] });
+      await expect(loadGroup(db, { groupId }, { web: f.web, pauseMs: 0 })).rejects.toMatchObject({ code: 'NO_SESSION' });
       expect(f.requested).not.toContain('/assignment/900/assessment_results/student_stats/703');
     });
     test('Schoology unreachable: UNREACHABLE, the load stops', async () => {
-      const f = fakeOpenPage(failing(), { landings: [new Error('net::ERR_INTERNET_DISCONNECTED')] });
-      await expect(loadGroup(db, { groupId }, { openPage: f.openPage, pauseMs: 0 })).rejects.toMatchObject({ code: 'UNREACHABLE' });
+      const f = fakeWeb(failing(), { homes: [new Error('getaddrinfo ENOTFOUND schoology.hkis.edu.hk')] });
+      await expect(loadGroup(db, { groupId }, { web: f.web, pauseMs: 0 })).rejects.toMatchObject({ code: 'UNREACHABLE' });
     });
   });
 
   test('an unexpected exception while storing one student is reported and the rest load', async () => {
     db.exec(`CREATE TRIGGER boom BEFORE INSERT ON quiz_attempts WHEN NEW.student_id = ${studentA} BEGIN SELECT RAISE(ABORT, 'boom'); END;`);
     try {
-      const r = await loadGroup(db, { groupId }, { openPage: fakeOpenPage(happyPages()).openPage, pauseMs: 0 });
+      const r = await loadGroup(db, { groupId }, { web: fakeWeb(happyPages()).web, pauseMs: 0 });
       expect(r.failed).toEqual([{ uid: '701', reason: expect.stringContaining('boom') }]);
       expect(r.attempts).toBe(1);
       expect(r.multipleAttempts).toEqual(['703']);
@@ -226,11 +232,11 @@ describe('loadGroup', () => {
   });
 
   test('a results cell Prism does not know keeps the stored attempt and is reported', async () => {
-    await loadGroup(db, { groupId }, { openPage: fakeOpenPage(happyPages()).openPage, pauseMs: 0 });
+    await loadGroup(db, { groupId }, { web: fakeWeb(happyPages()).web, pauseMs: 0 });
     const pages = happyPages();
     pages['/assignment/900/assessment_results'] = { status: 200, text: fx('results.html').replace('<td class="cell-submissions">1/1</td>', '<td class="cell-submissions">In progress</td>') };
-    const f = fakeOpenPage(pages);
-    const r = await loadGroup(db, { groupId }, { openPage: f.openPage, pauseMs: 0 });
+    const f = fakeWeb(pages);
+    const r = await loadGroup(db, { groupId }, { web: f.web, pauseMs: 0 });
     expect(r.failed).toEqual([{ uid: '701', reason: 'results page shows "In progress"' }]);
     expect([r.removed, r.notTaken, r.attempts]).toEqual([0, 1, 2]);
     expect(f.requested).not.toContain('/assignment/900/assessment_results/student_stats/701');
@@ -249,7 +255,7 @@ describe('loadGroup', () => {
     const pages = happyPages();
     pages['/assignment/901/assessment_results'] = { status: 200, text: fx('results.html').replace('<td class="cell-submissions">1/1</td>', '<td class="cell-submissions">-</td>') };
     for (const k of Object.keys(happyPages())) if (k.startsWith('/assignment/900/assessment_results/student_stats/703')) pages[k.replace('/assignment/900/', '/assignment/901/')] = pages[k];
-    const r = await loadGroup(db, { groupId: g.id }, { openPage: fakeOpenPage(pages).openPage, pauseMs: 0 });
+    const r = await loadGroup(db, { groupId: g.id }, { web: fakeWeb(pages).web, pauseMs: 0 });
     expect(r.notTaken).toBe(1);
   });
 
@@ -265,87 +271,84 @@ describe('loadGroup', () => {
     db.prepare(`DELETE FROM students WHERE schoology_uid = '701'`).run();
     const pages = happyPages();
     for (const k of Object.keys(happyPages())) if (k.startsWith('/assignment/900/')) pages[k.replace('/assignment/900/', '/assignment/901/')] = pages[k];
-    const r = await loadGroup(db, { groupId: g.id }, { openPage: fakeOpenPage(pages).openPage, pauseMs: 0 });
+    const r = await loadGroup(db, { groupId: g.id }, { web: fakeWeb(pages).web, pauseMs: 0 });
     expect(r.unknownUids).toEqual(['701']);
     expect(r.multipleAttempts).toEqual(['703']);
   });
 
   test('after a NO_SESSION stop the group is not left BUSY', async () => {
-    await expect(loadGroup(db, { groupId }, { openPage: async () => null, pauseMs: 0 })).rejects.toMatchObject({ code: 'NO_SESSION' });
-    const r = await loadGroup(db, { groupId }, { openPage: fakeOpenPage(happyPages()).openPage, pauseMs: 0 });
+    await expect(loadGroup(db, { groupId }, { web: { jar: null }, pauseMs: 0 })).rejects.toMatchObject({ code: 'NO_SESSION' });
+    const r = await loadGroup(db, { groupId }, { web: fakeWeb(happyPages()).web, pauseMs: 0 });
     expect(r.attempts).toBe(2);
   });
 
   test('a bounce to sign-in mid-load stops with NO_SESSION and keeps what was stored', async () => {
     const pages = happyPages();
     pages['/assignment/900/assessment_results/student_stats/703/5002'] = () => ({ status: 200, text: '<html>sign in</html>', finalUrl: 'https://login.microsoftonline.com/x' });
-    await expect(loadGroup(db, { groupId }, { openPage: fakeOpenPage(pages).openPage, pauseMs: 0 }))
-      .rejects.toMatchObject({ code: 'NO_SESSION' });
+    await expect(loadGroup(db, { groupId }, { web: fakeWeb(pages).web, pauseMs: 0 }))
+      .rejects.toMatchObject({ code: 'NO_SESSION', message: 'Schoology connection expired during the load: reconnect in Settings' });
     expect(db.prepare('SELECT COUNT(*) n FROM quiz_attempts').get().n).toBe(1);
   });
 
   describe('an unreachable Schoology is not an expired session', () => {
     const live = async () => (await import('./schoologySession.js'));
-    const sessionWith = ({ gotoError, url }) => {
-      const close = vi.fn(async () => {});
-      const page = { goto: vi.fn(async () => { if (gotoError) throw new Error(gotoError); }), url: () => url, evaluate: vi.fn() };
-      return { openPage: async () => ({ page, close }), close, page };
+    // Every request fails outright (no answer), the first read and the /home check alike.
+    const down = (message) => {
+      const fake = fakeSchoologyWeb({ routes: () => ({ throws: new Error(message) }) });
+      return { web: { jar: fake.jar, fetchImpl: fake.fetchImpl }, requests: fake.requests };
     };
     beforeEach(async () => { (await live()).resetSessionStatusCache(); });
 
     test.each([
-      ['navigation failed', { gotoError: 'net::ERR_INTERNET_DISCONNECTED', url: 'about:blank' }],
-      ['navigation failed, stale url', { gotoError: 'Timeout 30000ms exceeded', url: 'https://example.com/x' }],
-      ['empty url', { url: '' }],
-      ['about: url', { url: 'about:blank' }],
-      ['chrome-error: url', { url: 'chrome-error://chromewebdata/' }],
-    ])('%s: UNREACHABLE, session closed, not noted expired', async (_n, opts) => {
-      const f = sessionWith(opts);
-      await expect(loadGroup(db, { groupId }, { openPage: f.openPage, pauseMs: 0 }))
+      ['no answer', 'getaddrinfo ENOTFOUND schoology.hkis.edu.hk'],
+      ['timed out', 'The operation was aborted due to timeout'],
+    ])('%s: UNREACHABLE, nothing stored, not noted expired', async (_n, message) => {
+      const f = down(message);
+      await expect(loadGroup(db, { groupId }, { web: f.web, pauseMs: 0 }))
         .rejects.toMatchObject({ code: 'UNREACHABLE', message: 'Could not reach Schoology: try again' });
-      expect(f.close).toHaveBeenCalled();
-      expect(f.page.evaluate).not.toHaveBeenCalled();
+      expect(f.requests.map((q) => q.path)).toEqual(['/assignment/900/assessment_results', '/home']);
       expect((await (await live()).sessionStatus({ check: false, hasSession: () => true })).live).not.toBe('expired');
     });
 
-    test('a real landing on the login page is NO_SESSION and noted expired', async () => {
-      const f = sessionWith({ url: 'https://login.microsoftonline.com/x' });
-      await expect(loadGroup(db, { groupId }, { openPage: f.openPage, pauseMs: 0 })).rejects.toMatchObject({ code: 'NO_SESSION' });
-      expect(f.close).toHaveBeenCalled();
+    test('the first read sent to sign-in is NO_SESSION ("reconnect") and noted expired', async () => {
+      const fake = fakeSchoologyWeb({ routes: () => ({ login: true }) });
+      await expect(loadGroup(db, { groupId }, { web: { jar: fake.jar, fetchImpl: fake.fetchImpl }, pauseMs: 0 }))
+        .rejects.toMatchObject({ code: 'NO_SESSION', message: 'Schoology connection expired: reconnect in Settings' });
+      expect(fake.requests).toHaveLength(1);
       expect((await (await live()).sessionStatus({ check: false, hasSession: () => true })).live).toBe('expired');
     });
   });
 
   test('no saved session: NO_SESSION before any request', async () => {
-    await expect(loadGroup(db, { groupId }, { openPage: async () => null, pauseMs: 0 })).rejects.toMatchObject({ code: 'NO_SESSION' });
+    await expect(loadGroup(db, { groupId }, { web: { jar: null }, pauseMs: 0 })).rejects.toMatchObject({ code: 'NO_SESSION' });
   });
 
   test('a second load of the same group while one runs: BUSY', async () => {
     let release;
     const pages = happyPages();
     pages['/assignment/900/assessment_results'] = () => new Promise(r => { release = () => r({ status: 200, text: fx('results.html') }); });
-    const f = fakeOpenPage(pages);
-    const first = loadGroup(db, { groupId }, { openPage: f.openPage, pauseMs: 0 });
+    const f = fakeWeb(pages);
+    const first = loadGroup(db, { groupId }, { web: f.web, pauseMs: 0 });
     await vi.waitFor(() => expect(release).toBeTypeOf('function'));
-    await expect(loadGroup(db, { groupId }, { openPage: f.openPage, pauseMs: 0 })).rejects.toMatchObject({ code: 'BUSY' });
+    await expect(loadGroup(db, { groupId }, { web: f.web, pauseMs: 0 })).rejects.toMatchObject({ code: 'BUSY' });
     release();
     await first;
   });
 
   test('a load while Prism posts this quiz\'s marks: BUSY before any request', async () => {
     const release = holdGroup(groupId, 'posting');
-    const f = fakeOpenPage(happyPages());
+    const f = fakeWeb(happyPages());
     try {
-      await expect(loadGroup(db, { groupId }, { openPage: f.openPage, pauseMs: 0 })).rejects.toMatchObject({ code: 'BUSY', message: expect.stringMatching(/posted/) });
-      expect(f.openPage).not.toHaveBeenCalled();
+      await expect(loadGroup(db, { groupId }, { web: f.web, pauseMs: 0 })).rejects.toMatchObject({ code: 'BUSY', message: expect.stringMatching(/posted/) });
+      expect(f.requests).toHaveLength(0);
     } finally { release(); }
   });
 });
 
 describe('readQuestionLists', () => {
   test('one parsed list per test', async () => {
-    const f = fakeOpenPage({ '/assignment/900/assessment_questions': { status: 200, text: fx('questions.html') } });
-    const lists = await readQuestionLists(db, { assignmentRefs: ['900'] }, { openPage: f.openPage, pauseMs: 0 });
+    const f = fakeWeb({ '/assignment/900/assessment_questions': { status: 200, text: fx('questions.html') } });
+    const lists = await readQuestionLists(db, { assignmentRefs: ['900'] }, { web: f.web, pauseMs: 0 });
     expect(lists[0]).toMatchObject({ schoologyId: '900', title: 'T' });
     expect(lists[0].questions).toHaveLength(3);
   });

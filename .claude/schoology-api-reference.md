@@ -1120,6 +1120,20 @@ MCQ, `2` on the graded essay), `comment` (textarea). The visible score is
 **Not observed:** a test with more than one attempt, an ungraded essay (`rubric_score` empty?), a
 rubric with more than one row, and an MCQ left blank. The write request is recorded below (2026-10-13).
 
+**Plain HTTP, no browser (#141, VERIFIED 2026-10-17, read-only).** Every read a quiz load makes
+(`assessment_questions`, `assessment_results`, `student_stats/{uid}`, `student_stats/{uid}/{attemptId}`,
+`/iapi/grades/rubric/{id}`, `/iapi/grades/assessment_component_submission_rubric_grade_info/…`) answers a
+plain `fetch` with the saved session's school-host cookies: the HTML pages with no Accept header, the two
+`/iapi` reads with `Accept: application/json`. No `/home` load, no CSRF header. Prism's quiz loads now
+read this way (`quizLoader.openHttpReader`); the browser reader stays only for the FRQ write-back
+(`quizWriteback.js`). **Parity** (`scripts/parity-quiz-reads.js`: each test loaded both ways into two
+fresh in-memory databases, stored rows compared): two AP CSP tests in sections `…140` / `…135`, 4
+questions each, 7 and 6 attempts, 28 and 24 responses (26 FRQ responses with rubric cells, through
+both `/iapi` reads), load summaries and stored questions, attempts and responses **identical, 0
+mismatches**. Timing: question list 4.4–5.4 s in the browser, 1.2–1.5 s over HTTP; a whole load
+27–29 s against 24–27 s. Both use loadGroup's 400 ms pause between requests, which is most of a
+load's time.
+
 ### Saving an FRQ level and comment (write probe, 2026-10-13)
 
 One teacher-approved same-value save (`scripts/probe-attempt-write.js write`), on attempt `2247871023`

@@ -24,7 +24,9 @@ jQuery.extend(Drupal.settings, {"s_common":{"csrf_token":"tok","csrf_key":"key"}
 // `routes` answers other GETs: { '/iapi2/x/': spec | (entry) => spec } keyed by
 // pathname, where spec is { status = 200, json, headers? } | { status, text, headers? } | { login: true }
 // (a 302 to sign-in) | { throws: Error } (the request fails outright). entry
-// carries the query string as `query` (URLSearchParams).
+// carries the query string as `query` (URLSearchParams). `routes` may instead be
+// one function (entry) => spec | undefined, for paths a test builds as it goes
+// (undefined → the default handlers, then 404).
 export function fakeSchoologyWeb({ html = VIEW_HTML(), loginRedirect = false, uploadAnswer, onSubmit, routes = {} } = {}) {
   const requests = [];
   const answer = (status, body, headers = {}) => new Response(body, { status, headers });
@@ -32,9 +34,11 @@ export function fakeSchoologyWeb({ html = VIEW_HTML(), loginRedirect = false, up
     const u = new URL(url);
     const entry = { method: opts.method || 'GET', path: u.pathname, query: u.searchParams, headers: opts.headers || {}, body: opts.body };
     requests.push(entry);
-    if (entry.method === 'GET' && Object.hasOwn(routes, u.pathname)) {
-      const route = routes[u.pathname];
-      const spec = typeof route === 'function' ? await route(entry) : route;
+    const route = entry.method !== 'GET' ? undefined
+      : typeof routes === 'function' ? routes
+        : Object.hasOwn(routes, u.pathname) ? routes[u.pathname] : undefined;
+    const spec = typeof route === 'function' ? await route(entry) : route;
+    if (spec) {
       if (spec.throws) throw spec.throws;
       if (spec.login) return answer(302, '', { location: 'https://login.microsoftonline.com/x' });
       if ('json' in spec) return answer(spec.status ?? 200, JSON.stringify(spec.json), { 'content-type': 'application/json', ...spec.headers });

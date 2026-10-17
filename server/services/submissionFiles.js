@@ -43,12 +43,18 @@ function pairOf(db, { assignmentId, studentId }) {
 
 // A revision's files as stored: the fields Prism uses, or null when it has none.
 // A revision file's own key is `id` (`fid` is null on revisions, unlike comment files).
+// `converted` is Schoology's own converted copy (a video as H.264 .mp4, a document
+// or an image as .pdf; 2026-10-18), or null when it lists none.
 export function storedRevisionFiles(r) {
   const files = r?.attachments?.files?.file;
   if (!Array.isArray(files) || !files.length) return null;
   return JSON.stringify(files.map((f) => ({
     id: f.id ?? f.fid ?? null, filename: f.filename ?? null, title: f.title ?? null, filesize: Number(f.filesize) || 0,
     filemime: f.filemime ?? null, extension: f.extension ?? null, md5: f.md5_checksum ?? null, download_path: f.download_path ?? null,
+    converted: f.converted_download_path && String(f.converted_status) === '1' ? {
+      filename: f.converted_filename ?? null, filesize: Number(f.converted_filesize) || 0, filemime: f.converted_filemime ?? null,
+      extension: f.converted_extension ?? null, md5: f.converted_md5_checksum ?? null, download_path: f.converted_download_path,
+    } : null,
   })));
 }
 
@@ -86,21 +92,34 @@ export async function revisionsFor(db, { assignmentId, studentId, force = false,
   }
 }
 
-// One cached file, opened with the API signature (the download path refuses an
-// unsigned request) → { filename, filemime, filesize, body (web stream) }.
-export async function openSubmissionFile(db, { assignmentId, studentId, revisionId, fileId }) {
+// One cached file (or, with copy 'converted', Schoology's converted copy of it),
+// opened with the API signature (the download path refuses an unsigned request)
+// → { status (200 or 206), filename, filemime, filesize, contentRange, body (web stream) }.
+// `range` is the browser's Range header, passed on so a video can seek.
+export async function openSubmissionFile(db, { assignmentId, studentId, revisionId, fileId, copy = 'original', range = null }) {
   const pair = pairOf(db, { assignmentId, studentId });
-  const f = storedFile(db, { assignmentId: pair.assignment.id, studentId: pair.student.id, revisionId, fileId });
-  if (!f?.download_path) throw new FileError('NOT_FOUND', 'That file is not in this submission. Refresh the list and try again.', 404);
-  const res = await fileDeps.openFile(f.download_path);
-  if (res.status !== 200) {
+  const stored = storedFile(db, { assignmentId: pair.assignment.id, studentId: pair.student.id, revisionId, fileId });
+  const f = copy === 'converted' ? stored?.converted : stored;
+  if (!f?.download_path) {
+    throw new FileError('NOT_FOUND', copy === 'converted'
+      ? 'Schoology has no converted copy of that file.'
+      : 'That file is not in this submission. Refresh the list and try again.', 404);
+  }
+  const res = await fileDeps.openFile(f.download_path, { range });
+  if (res.status === 416) {
+    await res.body?.cancel?.().catch(() => {});
+    throw new FileError('RANGE', 'That part of the file is out of range.', 416);
+  }
+  if (res.status !== 200 && res.status !== 206) {
     await res.body?.cancel?.().catch(() => {});
     throw new FileError('SCHOOLOGY', `Schoology refused the download (${res.status}).`, 502);
   }
   return {
-    filename: f.filename || 'file',
+    status: res.status,
+    filename: f.filename || stored.filename || 'file',
     filemime: f.filemime || res.contentType || 'application/octet-stream',
     filesize: res.contentLength || null, // Schoology's own length; the cached filesize could disagree
+    contentRange: res.status === 206 ? res.contentRange : null,
     body: res.body,
   };
 }

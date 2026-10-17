@@ -17,6 +17,7 @@ export function describeRevision(r) {
     draft: !!r.draft,
     files: parseFiles(r.files).map((f) => ({
       id: f.id, filename: f.filename, title: f.title, filesize: f.filesize, filemime: f.filemime, extension: f.extension,
+      converted: f.converted ? { filesize: f.converted.filesize, filemime: f.converted.filemime, extension: f.converted.extension } : null,
     })),
   };
 }

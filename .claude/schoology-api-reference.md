@@ -203,10 +203,40 @@ unless stated.
     equalled `md5_checksum` on 4/4 files through `downloadFile()` (a 3.6 MB `.zip`, a 12.8 MB `.mov`, a 1.6 KB
     `.html` from a revision 2, a 179 KB `.zip`), and on 3/3 through Prism's own streamed route
     `GET /api/submission-files/{aid}/{studentId}/{revisionId}/files/{id}` on a dev server.
+  - **Converted copies and playback (VERIFIED 2026-10-18, read-only, `scripts/probe-submission-file-playback.js`
+    plus one-off tallies).** *(Refines "Prism serves the originals only" above: Prism now also serves converted
+    copies, for viewing.)*
+    - **Where:** the copy's path comes from the same `?with_attachments=1` file object:
+      `converted_download_path` = `https://api.schoology.com/v1/submission/{n}/conversion/{name}.{ext}`, signed like
+      the original (302 to `files-cdn`). Its MD5 equalled `converted_md5_checksum` on 2/2 checked (an `.mp4` of a
+      `.mov`, a `.pdf` of an `.html`); 7 video copies matched `converted_filesize` in length.
+    - **Which files have one** (over 40 current native tasks, 6 submitters each, 118 files; lower bound):
+      `.mov` (28) and `.mp4` (8) and `.webm` (1) → `mp4`, `converted_type` 1; `.pdf` (39), `.html` (5), `.docx` (1)
+      → `pdf`, `converted_type` 4; `.png` (7) → `pdf`, `converted_type` 3. None: `.zip`, `.swift`, `.json`, Xcode
+      project files. Every listed copy had `converted_status` "1". No `.heic`, `.jpg` or `.mp3` was seen.
+    - **What the copies are:** every video copy checked (7) was H.264 (`avc1`) in an `mp42` MP4 with `moov` before
+      `mdat` (streams from the start), about 5 to 30 times smaller than the original. One portrait 590 x 1166
+      recording's copy played in Chrome at 640 x 360. The originals were all H.264 too (`avc1`): `.mov` files are
+      QuickTime (brand `qt  `) with `moov` after `mdat` (macOS screen recordings), so a player needs byte ranges
+      to start them; no HEVC (`hvc1`/`hev1`) was seen.
+    - **Byte ranges:** the redirect target is a CloudFront signed URL (`files-cdn.schoology.com/{hash}?content-type&
+      content-disposition&Expires&Signature&Key-Pair-Id`) that **expires 60 s after it is issued**. It answers a
+      `Range` request with **206** and `Content-Range` (start and mid-file, originals and copies), sends no
+      `Accept-Ranges` header, and carries `ETag` and `Last-Modified`. The API path itself ignores `Range` (it only
+      redirects). So a player cannot be handed the storage URL; Prism signs and passes the range on.
+    - **The dropbox view page** (`/assignment/{aid}/dropbox/view/{uid}`, plain HTTP): its server HTML has no
+      player (0 `<video>`, 0 `.mp4`, 0 `/conversion/`, 0 `files-cdn`), only download links
+      `https://{school host}/submission/{id}/source`. Any player it shows is drawn by JS (not captured; lower bound).
+    - **Playback in Prism, by eye on a dev server (Chrome 155, macOS):** an original H.264 `.mov` played and seeked
+      through Prism's route (206 answers), although Chrome's `canPlayType('video/quicktime')` is `""`; the
+      converted `.mp4` played and seeked; an `.html`'s PDF copy showed in Chrome's PDF viewer in an iframe. Not
+      checked by eye: Safari, images, HEIC.
   - **Prism (#107):** reads this per student when the teacher opens the files chip (or the gradebook pop-up),
     caches it in `submission_revisions` for 5 minutes, and streams each file through the route above. No sync reads
     it (the bulk read keeps #55's savings). OneDrive tasks are refused (the API is blind to them; they keep the
-    OneDrive "Open" link).
+    OneDrive "Open" link). The route passes `Range` on (206 + `Content-Range`), reuses a storage URL for 40 s, and
+    serves the converted copy with `?copy=converted`; Prism's viewer plays a video's original first and falls back
+    to the copy, and shows a document's PDF copy.
 - **Delete through Prism, verified 2026-10-17:** `DELETE …/comments/3659117104` (the probe's image comment) removed
   it; the next REST read no longer held it. The final image comment (`3659117138`) was then posted through
   Prism's popover (Attach file) and stays: the page shows three comments and the file name once, on that comment.

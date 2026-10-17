@@ -8,12 +8,12 @@ import router from './submissionFiles.js';
 import { getDb } from '../db/index.js';
 import { fileDeps } from '../services/submissionFiles.js';
 
-async function call(path) {
+async function call(path, headers = {}) {
   const app = express();
   app.use('/api/submission-files', router);
   const server = app.listen(0);
   try {
-    const res = await fetch(`http://localhost:${server.address().port}${path}`);
+    const res = await fetch(`http://localhost:${server.address().port}${path}`, { headers });
     const type = res.headers.get('content-type') || '';
     return {
       status: res.status, headers: res.headers,
@@ -43,7 +43,10 @@ beforeEach(() => {
   Object.assign(fileDeps, {
     getSubmissionRevisions: vi.fn(async () => [
       rev(1, [file(11, 'game.zip', 'application/zip')]),
-      rev(2, [file(21, 'shot.png', 'image/png'), file(22, 'page.html', 'text/html')]),
+      rev(2, [file(21, 'shot.png', 'image/png'), file(22, 'page.html', 'text/html'), {
+        ...file(23, 'demo.mov', 'video/quicktime'), converted_status: '1', converted_filename: 'demo.mp4', converted_filemime: 'video/mp4',
+        converted_extension: 'mp4', converted_filesize: 100, converted_download_path: 'https://api.schoology.com/v1/submission/23/conversion/demo.mp4',
+      }]),
     ]),
     openFile: vi.fn(async () => ({ status: 200, contentType: 'x', contentLength: 7, body: new Response('BODYDAT').body })),
     now: () => 1792400000,
@@ -55,9 +58,9 @@ describe('/api/submission-files', () => {
     const r = await call(`/api/submission-files/8590105935/${studentId}`);
     expect(r.status).toBe(200);
     expect(r.body.revisions.map((x) => x.revision_id)).toEqual(['2', '1']);
-    expect(r.body.summary).toEqual({ revisions: 2, files: 3 });
+    expect(r.body.summary).toEqual({ revisions: 2, files: 4 });
     const s = await call('/api/submission-files/assignment/8590105935');
-    expect(s.body.students[studentId]).toMatchObject({ revisions: 2, files: 3 });
+    expect(s.body.students[studentId]).toMatchObject({ revisions: 2, files: 4 });
     expect(fileDeps.getSubmissionRevisions).toHaveBeenCalledTimes(1);
     await call(`/api/submission-files/8590105935/${studentId}?refresh=1`);
     expect(fileDeps.getSubmissionRevisions).toHaveBeenCalledTimes(2);
@@ -70,13 +73,34 @@ describe('/api/submission-files', () => {
     expect(zip.body.toString()).toBe('BODYDAT');
     expect(zip.headers.get('content-type')).toBe('application/zip');
     expect(zip.headers.get('content-disposition')).toBe("attachment; filename*=UTF-8''game.zip");
-    expect(fileDeps.openFile).toHaveBeenCalledWith('https://api.schoology.com/v1/submission/11/source/game.zip');
+    expect(fileDeps.openFile).toHaveBeenCalledWith('https://api.schoology.com/v1/submission/11/source/game.zip', { range: null });
+    expect(zip.headers.get('content-security-policy')).toBe('sandbox');
     const png = await call(`/api/submission-files/8590105935/${studentId}/2/files/21`);
     expect(png.headers.get('content-disposition')).toMatch(/^inline;/);
     const html = await call(`/api/submission-files/8590105935/${studentId}/2/files/22`);
     expect(html.headers.get('content-disposition')).toMatch(/^attachment;/);
     expect(html.headers.get('content-security-policy')).toBe('sandbox');
     expect(html.headers.get('x-content-type-options')).toBe('nosniff');
+    const forced = await call(`/api/submission-files/8590105935/${studentId}/2/files/21?download=1`);
+    expect(forced.headers.get('content-disposition')).toMatch(/^attachment;/);
+  });
+
+  test('a video plays in the page: inline, ranges passed through as 206, and the converted copy on request', async () => {
+    await call(`/api/submission-files/8590105935/${studentId}`);
+    fileDeps.openFile.mockResolvedValueOnce({ status: 206, contentType: 'video/mp4', contentLength: 4, contentRange: 'bytes 0-3/100', body: new Response('MP4!').body });
+    const part = await call(`/api/submission-files/8590105935/${studentId}/2/files/23?copy=converted`, { Range: 'bytes=0-3' });
+    expect(part.status).toBe(206);
+    expect(part.body.toString()).toBe('MP4!');
+    expect(part.headers.get('content-range')).toBe('bytes 0-3/100');
+    expect(part.headers.get('content-length')).toBe('4');
+    expect(part.headers.get('accept-ranges')).toBe('bytes');
+    expect(part.headers.get('content-type')).toBe('video/mp4');
+    expect(part.headers.get('content-disposition')).toBe("inline; filename*=UTF-8''demo.mp4");
+    expect(part.headers.get('content-security-policy')).toBeNull();
+    expect(fileDeps.openFile).toHaveBeenLastCalledWith('https://api.schoology.com/v1/submission/23/conversion/demo.mp4', { range: 'bytes=0-3' });
+    const original = await call(`/api/submission-files/8590105935/${studentId}/2/files/23`);
+    expect(original.headers.get('content-disposition')).toBe("inline; filename*=UTF-8''demo.mov");
+    expect((await call(`/api/submission-files/8590105935/${studentId}/1/files/11?copy=converted`)).status).toBe(404);
   });
 
   test('an unknown file is a 404, a refused download a 502, an OneDrive task a 409, an unknown assignment a 404', async () => {

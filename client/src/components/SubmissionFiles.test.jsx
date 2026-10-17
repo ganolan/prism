@@ -1,14 +1,15 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 vi.mock('../services/api.js', () => ({ getSubmissionFiles: vi.fn() }));
 
 import SubmissionFiles, { hasNativeSubmission } from './SubmissionFiles.jsx';
 import { getSubmissionFiles } from '../services/api.js';
 
-const zip = { id: 11, filename: 'game.zip', title: 'game.zip', filesize: 3646421, filemime: 'application/zip', extension: 'zip' };
-const mov = { id: 12, filename: 'demo.mov', title: 'demo.mov', filesize: 12794355, filemime: 'video/quicktime', extension: 'mov' };
-const v2 = { id: 21, filename: 'game-v2.zip', title: 'game-v2.zip', filesize: 179260, filemime: 'application/zip', extension: 'zip' };
+const zip = { id: 11, filename: 'game.zip', title: 'game.zip', filesize: 3646421, filemime: 'application/zip', extension: 'zip', converted: null };
+const mov = { id: 12, filename: 'demo.mov', title: 'demo.mov', filesize: 12794355, filemime: 'video/quicktime', extension: 'mov',
+  converted: { filesize: 1082365, filemime: 'video/mp4', extension: 'mp4' } };
+const v2 = { id: 21, filename: 'game-v2.zip', title: 'game-v2.zip', filesize: 179260, filemime: 'application/zip', extension: 'zip', converted: null };
 const data = {
   revisions: [
     { revision_id: '2', created: '2026-10-16T01:40:00.000Z', late: true, draft: false, files: [v2] },
@@ -52,16 +53,36 @@ describe('SubmissionFiles', () => {
     expect(items[0]).toHaveTextContent('Late');
     expect(items[1]).toHaveTextContent('Revision 1');
     expect(screen.getByText('14/10/2026', { exact: false })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /demo\.mov/ })).toHaveAttribute('href', '/api/submission-files/8590105935/7/1/files/12');
-    expect(screen.getByRole('link', { name: /demo\.mov/ })).toHaveTextContent('12.2 MB');
+    // Every file downloads; a video opens in the viewer, a zip does not.
+    expect(screen.getByRole('link', { name: 'Download demo.mov' })).toHaveAttribute('href', '/api/submission-files/8590105935/7/1/files/12?download=1');
+    expect(screen.getByRole('link', { name: 'Download game.zip' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /demo\.mov/ })).toHaveTextContent('12.2 MB');
+    expect(screen.queryByRole('button', { name: /game\.zip/ })).not.toBeInTheDocument();
     expect(onSummary).toHaveBeenCalledWith({ revisions: 2, files: 3, read_at: data.read_at });
+  });
+
+  test('a video opens in the viewer over the list; Escape closes the viewer, not the list', async () => {
+    render(<SubmissionFiles assignmentId="a" studentId={7} studentName="Ana Lee" summary={null} />);
+    fireEvent.click(screen.getByRole('button', { name: /Open the list/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /demo\.mov/ }));
+    const viewer = screen.getByRole('dialog', { name: 'View demo.mov' });
+    expect(viewer.querySelector('video')).toHaveAttribute('src', '/api/submission-files/a/7/1/files/12');
+    expect(viewer).toHaveTextContent('Ana Lee, revision 1');
+    fireEvent.mouseDown(viewer);
+    expect(screen.queryByRole('dialog', { name: 'View demo.mov' })).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Submitted files for Ana Lee' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /demo\.mov/ }));
+    const again = screen.getByRole('dialog', { name: 'View demo.mov' });
+    fireEvent.keyDown(within(again).getByRole('button', { name: 'Close' }), { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'View demo.mov' })).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Submitted files for Ana Lee' })).toBeInTheDocument();
   });
 
   test('before a read the chip says Files; Refresh asks Schoology again; Escape closes', async () => {
     render(<SubmissionFiles assignmentId="a" studentId={7} studentName="Ana Lee" summary={null} />);
     expect(screen.getByRole('button', { name: /not read yet/ })).toHaveTextContent('Files');
     fireEvent.click(screen.getByRole('button', { name: /Open the list/ }));
-    await screen.findByText('game.zip', { exact: false });
+    await screen.findAllByText('game.zip', { exact: false });
     expect(screen.getByRole('button', { name: /3 files in 2 revisions/ })).toHaveTextContent('3 files');
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     expect(getSubmissionFiles).toHaveBeenLastCalledWith('a', 7, { refresh: true });

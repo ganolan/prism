@@ -200,4 +200,30 @@ describe('submission files (#107)', () => {
     const d = await downloadFile('https://api.schoology.com/v1/submission/1/source/x.zip');
     expect(d.body.toString()).toBe('ZIPDATA');
   });
+
+  test('a range goes to the storage hop only; the storage URL is reused, and signed again once it expires', async () => {
+    const { openFile, resetStorageUrls } = await import('./schoology.js');
+    resetStorageUrls();
+    const seen = [];
+    let expired = false;
+    vi.stubGlobal('fetch', vi.fn(async (url, opts) => {
+      seen.push({ host: new URL(url).host, range: opts.headers?.Range ?? null });
+      if (url.startsWith('https://api.schoology.com')) {
+        return new Response(null, { status: 302, headers: { location: 'https://files-cdn.schoology.com/v.mp4?Expires=1' } });
+      }
+      if (expired) { expired = false; return new Response('', { status: 403 }); }
+      return new Response('0123456789', { status: 206, headers: { 'content-range': 'bytes 0-9/100', 'content-length': '10' } });
+    }));
+    const path = 'https://api.schoology.com/v1/submission/2/conversion/v.mp4';
+    const r = await openFile(path, { range: 'bytes=0-9' });
+    expect(r).toMatchObject({ status: 206, contentRange: 'bytes 0-9/100', contentLength: 10 });
+    expect(seen).toEqual([{ host: 'api.schoology.com', range: null }, { host: 'files-cdn.schoology.com', range: 'bytes=0-9' }]);
+    seen.length = 0;
+    await openFile(path, { range: 'bytes=10-19' });
+    expect(seen).toEqual([{ host: 'files-cdn.schoology.com', range: 'bytes=10-19' }]);
+    seen.length = 0;
+    expired = true;
+    expect((await openFile(path)).status).toBe(206);
+    expect(seen.map((x) => x.host)).toEqual(['files-cdn.schoology.com', 'api.schoology.com', 'files-cdn.schoology.com']);
+  });
 });

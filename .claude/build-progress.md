@@ -1404,7 +1404,14 @@ submission comments.
 - **Verified:** `scripts/parity-submission-files.js` on MGD Flappy Bird (F): MD5 = `md5_checksum` on 4/4 signed
   downloads; 3/3 through Prism's route on a dev server. Shape in `.claude/schoology-api-reference.md`
   ("Native dropbox submission files").
+- **Viewer (2026-10-18):** `client/src/components/FileViewer.jsx` shows images, videos and PDFs inside Prism from
+  the files list, Download kept. Schoology's converted copies (`converted_download_path`: videos as H.264 `.mp4`,
+  documents and images as `.pdf`) are cached with each file and served with `?copy=converted`; a video plays the
+  original first and falls back to the copy. The route passes `Range` on (206), since `files-cdn` honours ranges and
+  its signed URL lives only 60 s; `openFile()` reuses that URL for 40 s. Probe:
+  `scripts/probe-submission-file-playback.js`. Checked by eye in Chrome on a dev server (a `.mov` original and its
+  `.mp4` copy played and seeked; an `.html`'s PDF copy showed).
 - **Not done:** PrisMCP does not list these files yet; the student page has no chip (#135's shared feedback layout
-  is the natural home); Schoology's converted copies (`.mov` → `.mp4`, `.html` → `.pdf`) are not offered.
+  is the natural home); Safari and images not checked by eye; comment files do not use the viewer yet.
 
-**Tests:** 1870 server + 1106 client Vitest tests pass; `npm run build` succeeds (2026-10-17).
+**Tests:** 1873 server + 1114 client Vitest tests pass; `npm run build` succeeds (2026-10-18).

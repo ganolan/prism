@@ -39,7 +39,11 @@ beforeEach(() => {
   revisions = {
     555: [
       { revision_id: 1, uid: 555, created: 1792300000, num_items: 2, late: 0, draft: 0,
-        attachments: { files: { file: [file(11, 'game.zip'), file(12, 'demo.mov', { filemime: 'video/quicktime', extension: 'mov' })] } } },
+        attachments: { files: { file: [file(11, 'game.zip'), file(12, 'demo.mov', {
+          filemime: 'video/quicktime', extension: 'mov', converted_status: '1', converted_type: 1, converted_filename: 'demo.mp4',
+          converted_extension: 'mp4', converted_filemime: 'video/mp4', converted_filesize: 1082365, converted_md5_checksum: 'c-md5',
+          converted_download_path: 'https://api.schoology.com/v1/submission/12/conversion/demo.mp4',
+        })] } } },
       { revision_id: 2, uid: 555, created: 1792390000, num_items: 1, late: 1, draft: 0,
         attachments: { files: { file: [file(21, 'game-v2.zip')] } } },
     ],
@@ -59,8 +63,8 @@ describe('revisionsFor', () => {
     expect(r.revisions.map((x) => x.revision_id)).toEqual(['2', '1']);
     expect(r.revisions[0]).toMatchObject({ late: true, draft: false, created: new Date(1792390000 * 1000).toISOString() });
     expect(r.revisions[1].files).toEqual([
-      { id: 11, filename: 'game.zip', title: 'game.zip', filesize: 179260, filemime: 'application/zip', extension: 'zip' },
-      expect.objectContaining({ id: 12, filemime: 'video/quicktime' }),
+      { id: 11, filename: 'game.zip', title: 'game.zip', filesize: 179260, filemime: 'application/zip', extension: 'zip', converted: null },
+      expect.objectContaining({ id: 12, filemime: 'video/quicktime', converted: { filesize: 1082365, filemime: 'video/mp4', extension: 'mp4' } }),
     ]);
     // The download path stays on the server.
     expect(JSON.stringify(r)).not.toContain('download_path');
@@ -124,9 +128,23 @@ describe('openSubmissionFile', () => {
     const db = getDb(); const { ana } = seed(db);
     await revisionsFor(db, { assignmentId: '8590105935', studentId: ana });
     const f = await openSubmissionFile(db, { assignmentId: '8590105935', studentId: ana, revisionId: '2', fileId: '21' });
-    expect(fileDeps.openFile).toHaveBeenCalledWith('https://api.schoology.com/v1/submission/21/source/game-v2.zip');
-    expect(f).toMatchObject({ filename: 'game-v2.zip', filemime: 'application/zip', filesize: 7 });
+    expect(fileDeps.openFile).toHaveBeenCalledWith('https://api.schoology.com/v1/submission/21/source/game-v2.zip', { range: null });
+    expect(f).toMatchObject({ status: 200, filename: 'game-v2.zip', filemime: 'application/zip', filesize: 7, contentRange: null });
     expect(await new Response(f.body).text()).toBe('ZIPDATA');
+  });
+
+  test('the converted copy, with a range passed on; a file with no converted copy is a 404', async () => {
+    const db = getDb(); const { ana } = seed(db);
+    await revisionsFor(db, { assignmentId: '8590105935', studentId: ana });
+    fileDeps.openFile.mockResolvedValueOnce({ status: 206, contentType: 'video/mp4', contentLength: 100, contentRange: 'bytes 0-99/1082365', body: new Response('x').body });
+    const f = await openSubmissionFile(db, { assignmentId: '8590105935', studentId: ana, revisionId: '1', fileId: '12', copy: 'converted', range: 'bytes=0-99' });
+    expect(fileDeps.openFile).toHaveBeenCalledWith('https://api.schoology.com/v1/submission/12/conversion/demo.mp4', { range: 'bytes=0-99' });
+    expect(f).toMatchObject({ status: 206, filename: 'demo.mp4', filemime: 'video/mp4', contentRange: 'bytes 0-99/1082365' });
+    await expect(openSubmissionFile(db, { assignmentId: '8590105935', studentId: ana, revisionId: '1', fileId: '11', copy: 'converted' }))
+      .rejects.toMatchObject({ code: 'NOT_FOUND' });
+    fileDeps.openFile.mockResolvedValueOnce({ status: 416, body: null });
+    await expect(openSubmissionFile(db, { assignmentId: '8590105935', studentId: ana, revisionId: '1', fileId: '12', range: 'bytes=999999999-' }))
+      .rejects.toMatchObject({ code: 'RANGE', status: 416 });
   });
 
   test('a file of another revision or an unknown id is a 404; a refused download is a 502', async () => {

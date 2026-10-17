@@ -1,0 +1,82 @@
+import { describe, test, expect, beforeEach, vi } from 'vitest';
+import express from 'express';
+
+vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
+vi.mock('../services/schoology.js', () => ({
+  getSubmissionComments: vi.fn(), postSubmissionComment: vi.fn(), deleteSubmissionComment: vi.fn(),
+  getMyUserId: vi.fn(), getSectionEnrollments: vi.fn(),
+}));
+
+import router from './submissionComments.js';
+import { getDb } from '../db/index.js';
+import { commentDeps, resetCommentCaches } from '../services/submissionComments.js';
+
+async function call(method, path, body) {
+  const app = express();
+  app.use(express.json());
+  app.use('/api/submission-comments', router);
+  const server = app.listen(0);
+  try {
+    const res = await fetch(`http://localhost:${server.address().port}${path}`, {
+      method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined,
+    });
+    return { status: res.status, body: await res.json() };
+  } finally { server.close(); }
+}
+
+let studentId; let courseId;
+beforeEach(() => {
+  const db = getDb();
+  db.exec('DELETE FROM submission_comments; DELETE FROM submission_comment_reads; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
+  resetCommentCaches();
+  courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec', 'MGD')`).run().lastInsertRowid;
+  const aid = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, '8590105935', 'Flappy')`).run(courseId).lastInsertRowid;
+  studentId = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('555', 'Ana', 'Lee')`).run().lastInsertRowid;
+  db.prepare('INSERT INTO enrolments (student_id, course_id) VALUES (?, ?)').run(studentId, courseId);
+  db.prepare(`INSERT INTO grades (student_id, assignment_id, submitted_at, submission_type) VALUES (?, ?, 1, 'drop')`).run(studentId, aid);
+  Object.assign(commentDeps, {
+    getSubmissionComments: vi.fn(async () => [{ id: '1', uid: '555', comment: 'Revision 1 submitted\nMy notes', created: '1792300000' }]),
+    postSubmissionComment: vi.fn(async () => ({ status: 201 })),
+    deleteSubmissionComment: vi.fn(async () => ({ status: 204 })),
+    getMyUserId: vi.fn(async () => '1'),
+    getSectionEnrollments: vi.fn(async () => []),
+    sleep: async () => {},
+  });
+});
+
+describe('/api/submission-comments', () => {
+  test('GET a thread', async () => {
+    const r = await call('GET', `/api/submission-comments/8590105935/${studentId}`);
+    expect(r.status).toBe(200);
+    expect(r.body.comments[0]).toMatchObject({ student_text: 'My notes', author_role: 'student' });
+  });
+
+  test('GET the assignment queues a background read and returns badges', async () => {
+    const first = await call('GET', '/api/submission-comments/assignment/8590105935');
+    expect(first.body.refresh.queued).toBe(1);
+    await vi.waitFor(() => expect(commentDeps.getSubmissionComments).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 20));
+    const again = await call('GET', '/api/submission-comments/assignment/8590105935?refresh=0');
+    expect(again.body.students[studentId]).toMatchObject({ count: 1, student_text: true });
+    const course = await call('GET', `/api/submission-comments/course/${courseId}`);
+    expect(course.body.assignments['8590105935'][studentId].count).toBe(1);
+  });
+
+  test('POST maps an empty comment to 400 and posts nothing', async () => {
+    const r = await call('POST', `/api/submission-comments/8590105935/${studentId}`, { text: '' });
+    expect(r.status).toBe(400);
+    expect(r.body.code).toBe('EMPTY');
+    expect(commentDeps.postSubmissionComment).not.toHaveBeenCalled();
+  });
+
+  test('DELETE of a student comment is 403', async () => {
+    await call('GET', `/api/submission-comments/8590105935/${studentId}`);
+    const r = await call('DELETE', `/api/submission-comments/8590105935/${studentId}/1`);
+    expect(r.status).toBe(403);
+  });
+
+  test('unknown assignment is 404', async () => {
+    const r = await call('GET', '/api/submission-comments/assignment/nope');
+    expect(r.status).toBe(404);
+  });
+});

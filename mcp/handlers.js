@@ -9,7 +9,12 @@ import { attachRubric } from '../server/services/rubricAttach.js';
 import { resolveAssignmentId } from '../server/services/idResolvers.js';
 import { LEVELS } from '../server/lib/proficiencyScale.js';
 import { getFeedbackRows } from '../server/services/feedbackRows.js';
-import { normalizeSubmissionStatus, gradingState, getRoster, scoreScaleFor, getAlignedTopics } from '../server/services/assessmentContext.js';
+import { normalizeSubmissionStatus, gradingState, getRoster, scoreScaleFor, getAlignedTopics, getAssessmentContext } from '../server/services/assessmentContext.js';
+import { refreshAssignment } from '../server/services/submissionComments.js';
+import { getFeatures } from '../server/middleware/featureGate.js';
+
+// A grading run reads threads at most a minute old.
+const MCP_COMMENT_MAX_AGE_SEC = 60;
 import { preferredFirstName } from '../server/services/studentNames.js';
 import { findStudents, getStudentHistory } from '../server/services/studentHistory.js';
 import { schoolYearOf } from '../server/lib/schoolYear.js';
@@ -369,6 +374,30 @@ export function assertSchoologyConfigured(env = process.env) {
     `PrisMCP cannot reach Schoology: ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not set in its environment: nothing was read, published or recorded. ` +
     'Add SCHOOLOGY_BASE_URL, SCHOOLOGY_CONSUMER_KEY and SCHOOLOGY_CONSUMER_SECRET to the prism MCP server\'s "env" block ' +
     '(docs/prismcp-install-and-verify.md), then restart it, or leave out comment_line / remove_line to keep the action Prism-only.');
+}
+
+// get_assignment_context: refresh the submitted students' submission comment
+// threads from Schoology first (students often type their answers there), then
+// compose the context from the cache. Without Schoology credentials, or when the
+// refresh fails, the cached threads are returned and the source says so.
+export async function getAssignmentContextTool(db, { course_id, assignment_id } = {}, env = process.env) {
+  const missing = SCHOOLOGY_ENV.filter((k) => !String(env[k] ?? '').trim());
+  let source;
+  if (!getFeatures().submission_comments) {
+    source = { refreshed: 0, failed: 0, cached_only: true, note: 'submission_comments is off in config.yaml' };
+  } else if (missing.length) {
+    source = { refreshed: 0, failed: 0, cached_only: true, note: `Schoology credentials are not set (${missing.join(', ')}): comments are as last read in Prism (see submission_comments_read_at)` };
+  } else {
+    try {
+      const job = refreshAssignment(db, assignment_id, { maxAgeSec: MCP_COMMENT_MAX_AGE_SEC });
+      const r = job.done ? await job.done : { refreshed: 0, failed: 0 };
+      source = { refreshed: r.refreshed, failed: r.failed, cached_only: false };
+    } catch (err) {
+      source = { refreshed: 0, failed: 0, cached_only: true, note: `could not refresh: ${err.message}` };
+    }
+  }
+  const ctx = getAssessmentContext(db, { courseId: course_id, assignmentId: assignment_id });
+  return ctx ? { ...ctx, submission_comments_source: source } : ctx;
 }
 
 // extend_deadline, both paths, gain comment_line? (published via the shared

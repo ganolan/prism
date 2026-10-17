@@ -15,6 +15,7 @@ import { teacherText } from '../lib/statusLines.js';
 import { getFeedbackRows, getRowLevels, ROW_PREFIX } from './feedbackRows.js';
 import { rubricAverage } from '../lib/rubricAverage.js';
 import { timelineContext, agentTimeline } from './submissionTimeline.js';
+import { threadsForAssignment } from './submissionCommentStore.js';
 
 // Epoch-seconds → ISO string (null when 0/missing). Mirrors the list_assignments
 // timestamp convention so agents get a parseable submission time.
@@ -270,6 +271,9 @@ export function getAssessmentContext(db, { assignmentId }) {
   const metaByUid = {};
   for (const g of getGradeMetaRows(db, schoolyId)) metaByUid[g.schoology_uid] = g;
   const timelines = timelineContext(db, { courseId });
+  // Cached submission comment threads (students often answer a task's written
+  // questions there); get_assignment_context refreshes them first when it can.
+  const commentThreads = threadsForAssignment(db, assignmentRow.id);
 
   const students = roster.map((st) => {
     const meta = metaByUid[st.schoology_uid] || {};
@@ -350,6 +354,14 @@ export function getAssessmentContext(db, { assignmentId }) {
             evidence: sug.feedback_parsed.evidence ?? null,
           }
         : null,
+      // Submission comment thread, oldest first. student_text is what the student
+      // typed in the comment box (read it as part of the submission); is_automatic
+      // marks Schoology's own "Revision N submitted" lines. read_at null = never read.
+      submission_comments: (commentThreads[st.id]?.comments ?? []).map((c) => ({
+        id: c.id, author_uid: c.author_uid, author_role: c.author_role, created: c.created,
+        text: c.text, is_automatic: c.is_automatic, student_text: c.student_text,
+      })),
+      submission_comments_read_at: commentThreads[st.id]?.read_at ?? null,
       draft_feedback: draft ? buildDraftFeedback(draft, {
         scoreScale, rowNames,
         finals: rowLevelsByUid[st.schoology_uid] || {},

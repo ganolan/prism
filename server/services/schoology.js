@@ -69,6 +69,13 @@ async function apiPost(path, body) {
   return { status: res.status, data };
 }
 
+async function apiDelete(path) {
+  const url = `${API}${path}`;
+  const authHeader = oauth.toHeader(oauth.authorize({ url, method: 'DELETE' }, token));
+  const res = await fetch(url, { method: 'DELETE', headers: { ...authHeader, Accept: 'application/json' } });
+  return { status: res.status };
+}
+
 // Paginate through a Schoology list endpoint
 async function paginateGet(path, listKey) {
   let all = [];
@@ -213,4 +220,30 @@ export async function pushGradeComments(sectionId, gradeUpdates) {
   });
 }
 
-export { apiGet, apiPut, apiPost };
+// One student's submission comment thread, oldest first. Pages by start/limit
+// until `total` is reached (verified 2026-10-17; threads seen hold 0 to 3).
+export async function getSubmissionComments(sectionId, assignmentId, userId) {
+  const base = `/sections/${sectionId}/submissions/${assignmentId}/${userId}/comments`;
+  const first = await apiGet(`${base}?start=0&limit=200`);
+  const items = [...(first?.comment || [])];
+  const total = Number(first?.total ?? items.length);
+  for (let page = 0; items.length < total && page < 50; page++) {
+    const more = (await apiGet(`${base}?start=${items.length}&limit=200`))?.comment || [];
+    if (!more.length) break;
+    items.push(...more);
+  }
+  return items.sort((a, b) => (Number(a.created) - Number(b.created)) || (Number(a.id) - Number(b.id)));
+}
+
+// Post a text comment on a student's submission. The body must be flat
+// ({comment}); the nested form posts a blank comment. Attachments are dropped
+// by this endpoint (16 Oct 2026), so it is text only. Returns {status, data}.
+export async function postSubmissionComment(sectionId, assignmentId, userId, text) {
+  return apiPost(`/sections/${sectionId}/submissions/${assignmentId}/${userId}/comments`, { comment: text });
+}
+
+export async function deleteSubmissionComment(sectionId, assignmentId, userId, commentId) {
+  return apiDelete(`/sections/${sectionId}/submissions/${assignmentId}/${userId}/comments/${commentId}`);
+}
+
+export { apiGet, apiPut, apiPost, apiDelete };

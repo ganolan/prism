@@ -738,3 +738,32 @@ CREATE TABLE IF NOT EXISTS feedback_snapshots (
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (student_id, assignment_id)
 );
+
+-- Submission comment threads (a student's dropbox comments on Schoology), read
+-- lazily per (assignment, student) and cached here. A refresh replaces the
+-- pair's rows. author_role is fixed at read time: 'student' (the student's own
+-- uid) | 'teacher' (Prism's teacher or a section admin) | 'other'. body is the
+-- comment as Schoology returns it; server/lib/submissionComments.js derives
+-- the plain text, automatic "Revision N submitted" lines and student text.
+CREATE TABLE IF NOT EXISTS submission_comments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  schoology_comment_id TEXT UNIQUE NOT NULL,
+  assignment_id INTEGER NOT NULL REFERENCES assignments(id),
+  student_id INTEGER NOT NULL REFERENCES students(id),
+  author_uid TEXT NOT NULL,
+  author_role TEXT NOT NULL,
+  author_name TEXT,
+  is_mine INTEGER NOT NULL DEFAULT 0,
+  body TEXT NOT NULL DEFAULT '',
+  created INTEGER NOT NULL DEFAULT 0  -- epoch seconds
+);
+CREATE INDEX IF NOT EXISTS idx_submission_comments_pair ON submission_comments(assignment_id, student_id);
+
+-- When each pair's thread was last read (a row with no comments = read, empty).
+CREATE TABLE IF NOT EXISTS submission_comment_reads (
+  assignment_id INTEGER NOT NULL REFERENCES assignments(id),
+  student_id INTEGER NOT NULL REFERENCES students(id),
+  read_at INTEGER NOT NULL,           -- epoch seconds of the last successful read
+  error TEXT,                         -- the last failed read's error, cleared by a good one
+  PRIMARY KEY (assignment_id, student_id)
+);

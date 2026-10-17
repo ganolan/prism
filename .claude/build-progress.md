@@ -87,9 +87,9 @@ Tracks implementation status across Prism's development phases. Check this befor
 - [x] Feature flags enabled: feedback_inbox, feedback_review, revision_workflow
 - [x] Validated: inbox ingestion, edit with revision history, approve/revision workflow, manual entry, filters
 
-## Phase 5 Schoology Write-Back — ON HOLD
+## Phase 5 Schoology Write-Back — SUPERSEDED (17 Oct 2026)
 
-On hold pending a safe test plan for write-back without risking live student data.
+*Was: on hold pending a safe test plan for write-back without risking live student data.* Write-back shipped piece by piece, each verified with one approved live write and a read-back: grade comments and levels (bulk grades PUT), status lines, LTI unsubmit (2026-10-03), FRQ Publish all (2026-10-13), submission comments with files (2026-10-17). Remaining write-back work is the GitHub milestone "Schoology write-back".
 
 Key discovery: bulk `PUT /sections/{id}/grades` works for writing grade comments. Individual PUT returns 405.
 

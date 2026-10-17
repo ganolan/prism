@@ -83,7 +83,7 @@ to make it enforceable rather than copy-pasted.
 
 ### Rubric cell language (deliberate inline exception)
 Per measurement level (`ED/EX/D/EM/IE`), five families — the **only** place
-colour carries grade meaning, so it stays inline (`CELL_COLORS` in the page):
+colour carries grade meaning, so it stays inline (`LEVEL_COLORS` in `client/src/lib/masteryLevels.js`):
 
 | Role | Treatment |
 |---|---|

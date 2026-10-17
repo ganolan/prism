@@ -474,7 +474,9 @@ The user wants student **home / postal address** surfaced in Prism. Where it liv
   requirement above.
 - **#42 (parent-contact flags):** `includeStudentAlerts=true` returns `studentAlerts`, and the app's alert
   links expose siblings, MAP scores, Student Support Summary, and Accommodation Plan (SPP) popups — but the
-  "do not contact this parent" flag is more likely a Schoology field; not yet confirmed here.
+  "do not contact this parent" flag is more likely a Schoology field; not yet confirmed here. *(Superseded 2026-10-17:
+  the flag is PowerSchool's `X_DNC_G1`/`X_DNC_G2`, read through `sf` (see the safeguarding fields above); #42 was
+  closed as a duplicate of #66.)*
 
 ## Probe Results Summary
 

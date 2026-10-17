@@ -22,6 +22,7 @@ import settingsRouter from './routes/settings.js';
 import triageRouter from './routes/triage.js';
 import quizzesRouter from './routes/quizzes.js';
 import submissionCommentsRouter from './routes/submissionComments.js';
+import submissionFilesRouter from './routes/submissionFiles.js';
 import { getGradingScalesMap } from './db/scales.js';
 import { getFeatures } from './middleware/featureGate.js';
 import { getScaleTable, schoologyScaleId } from './lib/proficiencyScale.js';
@@ -65,6 +66,7 @@ app.use('/api/settings', settingsRouter);
 app.use('/api/triage', triageRouter);
 app.use('/api/quizzes', quizzesRouter);
 app.use('/api/submission-comments', submissionCommentsRouter);
+app.use('/api/submission-files', submissionFilesRouter);
 
 // Feature flags endpoint
 app.get('/api/features', (req, res) => {

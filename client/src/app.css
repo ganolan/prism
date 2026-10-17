@@ -1422,6 +1422,30 @@ a.comment-file { width: max-content; max-width: 100%; text-decoration: none; }
 .comment-error { margin: 0; font-size: 0.75rem; }
 .comment-pop-foot { border-top: 1px solid var(--border); padding: 6px 14px; color: var(--text-muted); font-size: 0.7rem; display: flex; gap: 8px; align-items: center; }
 .comment-pop-foot button { margin-left: auto; }
+/* Native dropbox files (#107): the same chip and popover as submission comments. */
+.files-tag { border-radius: 999px; padding: 0 7px; font-size: 0.66rem; font-weight: 600; background: var(--bg-subtle); color: var(--text-muted); }
+.files-tag--late { background: var(--badge-amber-bg); color: var(--badge-amber-text); }
+.files-error { margin: 0 14px 8px; }
+.files-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+button.files-view { background: var(--card-bg); cursor: pointer; text-align: left; font: inherit; font-size: 0.74rem; padding: 2px 8px; }
+button.files-view:hover { border-color: var(--accent); background: var(--accent-subtle); }
+.files-plain { color: var(--text); }
+.files-download { font-size: 0.7rem; color: var(--text-muted); white-space: nowrap; }
+.files-download:hover { color: var(--accent); }
+/* The in-Prism file viewer (#107): a lightbox above the files popover. */
+.file-viewer { position: fixed; inset: 0; z-index: 1400; background: rgba(0, 0, 0, 0.72); display: flex; align-items: center; justify-content: center; padding: 24px; }
+.file-viewer-panel { background: var(--card-bg); color: var(--text); border-radius: 10px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35); display: flex; flex-direction: column; max-width: 100%; max-height: 100%; min-width: min(420px, 100%); overflow: hidden; }
+.file-viewer-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 0.8rem; }
+.file-viewer-name { font-size: 0.85rem; overflow-wrap: anywhere; }
+.file-viewer-note { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 0.74rem; }
+.file-viewer-note button { padding: 1px 6px; font-size: 0.72rem; }
+.file-viewer-download { margin-left: auto; font-size: 0.78rem; font-weight: 600; color: var(--accent); border: 1px solid var(--border); border-radius: 6px; padding: 3px 10px; text-decoration: none; }
+.file-viewer-download:hover { border-color: var(--accent); }
+.file-viewer-body { display: flex; align-items: center; justify-content: center; background: var(--bg-subtle); min-height: 0; flex: 1 1 auto; }
+.file-viewer-media { display: block; max-width: calc(100vw - 48px); max-height: calc(100vh - 120px); object-fit: contain; background: var(--text); }
+img.file-viewer-media { background: transparent; }
+.file-viewer-frame { width: min(1000px, calc(100vw - 48px)); height: calc(100vh - 120px); border: 0; background: var(--card-bg); }
+.file-viewer-fail { padding: 40px 24px; color: var(--text-muted); font-size: 0.85rem; text-align: center; }
 
 /* ========================================================================
    PHONE LAYOUT
@@ -1435,6 +1459,11 @@ a.comment-file { width: max-content; max-width: 100%; text-decoration: none; }
      badge, so the bubble chip itself turns amber instead. */
   .comment-wrote { display: none; }
   .comment-chip--wrote { border-color: var(--badge-amber-text); background: var(--badge-amber-bg); color: var(--badge-amber-text); }
+  /* The file viewer fills the screen. */
+  .file-viewer { padding: 0; }
+  .file-viewer-panel { width: 100%; height: 100%; border-radius: 0; }
+  .file-viewer-media { max-width: 100vw; max-height: calc(100vh - 96px); }
+  .file-viewer-frame { width: 100vw; height: calc(100vh - 96px); }
 
   .app { flex-direction: column; }
 

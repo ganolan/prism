@@ -248,23 +248,64 @@ export async function deleteSubmissionComment(sectionId, assignmentId, userId, c
   return apiDelete(`/sections/${sectionId}/submissions/${assignmentId}/${userId}/comments/${commentId}`);
 }
 
-// A file from a signed api.schoology.com download_path → { status, contentType, body (Buffer) }.
-// The OAuth header goes only to the API host; a redirect elsewhere (file storage) is
-// followed without it.
-export async function downloadFile(downloadPath) {
-  let url = downloadPath;
-  for (let i = 0; i < 5; i++) {
+// Every revision of one student's native dropbox submission, with each revision's
+// files (attachments.files.file[], from ?with_attachments=1; verified 2026-10-17,
+// #107). The per-student read is not paged (the envelope holds only `revision`).
+export async function getSubmissionRevisions(sectionId, assignmentId, userId) {
+  const data = await apiGet(`/sections/${sectionId}/submissions/${assignmentId}/${userId}?with_attachments=1`);
+  return data?.revision || [];
+}
+
+// A file from a signed api.schoology.com download_path, unread →
+// { status, contentType, contentLength, contentRange, body (a web ReadableStream or null) }.
+// The OAuth header goes only to the API host; the redirect to file storage
+// (files-cdn.schoology.com, a signed URL that expires 60 s after it is issued;
+// verified 2026-10-18) is followed without it. `range` (an HTTP Range value) is
+// sent to the storage hop, which answers 206 with Content-Range, so a <video>
+// can seek. That storage URL is reused for 40 s, because a video sends many
+// range requests; an expired one (403) is dropped and the path signed again. A
+// caller that does not read the body cancels it.
+const STORAGE_URL_TTL_MS = 40_000;
+const storageUrls = new Map(); // download_path → { url, at }
+export function resetStorageUrls() { storageUrls.clear(); }
+
+export async function openFile(downloadPath, { range = null } = {}) {
+  const cached = storageUrls.get(downloadPath);
+  const fresh = cached && Date.now() - cached.at < STORAGE_URL_TTL_MS;
+  if (cached && !fresh) storageUrls.delete(downloadPath);
+  let url = fresh ? cached.url : downloadPath;
+  for (let i = 0; i < 6; i++) {
     const onApi = new URL(url).host === new URL(API).host;
     const headers = onApi ? oauth.toHeader(oauth.authorize({ url, method: 'GET' }, token)) : {};
+    if (range && !onApi) headers.Range = range;
     const res = await fetch(url, { headers, redirect: 'manual' });
     if ([301, 302, 303, 307, 308].includes(res.status)) {
       const location = res.headers.get('location');
+      await res.body?.cancel();
       url = location.startsWith('http') ? location : new URL(location, url).href;
+      if (onApi && new URL(url).host !== new URL(API).host) storageUrls.set(downloadPath, { url, at: Date.now() });
       continue;
     }
-    return { status: res.status, contentType: res.headers.get('content-type'), body: Buffer.from(await res.arrayBuffer()) };
+    if (res.status === 403 && !onApi && storageUrls.get(downloadPath)?.url === url) {
+      // The reused storage URL expired: sign the path again.
+      await res.body?.cancel();
+      storageUrls.delete(downloadPath);
+      url = downloadPath;
+      continue;
+    }
+    const length = Number(res.headers.get('content-length'));
+    return {
+      status: res.status, contentType: res.headers.get('content-type'), contentLength: length > 0 ? length : null,
+      contentRange: res.headers.get('content-range'), body: res.body,
+    };
   }
   throw new Error('Too many redirects downloading a file');
+}
+
+// The same file read into memory → { status, contentType, body (Buffer) }.
+export async function downloadFile(downloadPath) {
+  const res = await openFile(downloadPath);
+  return { status: res.status, contentType: res.contentType, body: Buffer.from(res.body ? await new Response(res.body).arrayBuffer() : new ArrayBuffer(0)) };
 }
 
 export { apiGet, apiPut, apiPost, apiDelete };

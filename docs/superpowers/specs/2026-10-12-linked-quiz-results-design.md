@@ -137,6 +137,7 @@ Combining and linking stay in the UI in v1.
 | `write_frq_suggestions(group, question, students[])` | Per student: a cell per rubric row and a comment, upserted as `suggested` |
 | `set_question_tags(group, tags?, texts?)` | Tags per question number (for example from `<title> - Codes.csv`), and each tag's full text for the course (for AP CSP, from the CED) |
 | `get_quiz_results(group)` | Per student: MCQ correct, total and percent, percent by tag, confirmed FRQ levels |
+| `get_tag_results(course, tag)` | One tag across every group in the course, MCQs only: per test (date, questions, percent) and per student (#139) |
 | `write_quiz_overall_suggestions(group, students[])` | Per student: levels per measurement topic and a short impression. Prism builds the comment (§7). Refuses a student with an FRQ mark still `suggested`. |
 | `list_frq_writebacks(group)` | Accepted or edited marks not yet posted, each with its attempt URL, cells and comment |
 | `mark_frq_writeback(group, attempt, question, status, error?)` | Records an agent's post |
@@ -224,7 +225,8 @@ Each phase ships and is useful on its own.
    link on cards, `list_quiz_groups`, `load_quiz_results`, `set_question_tags`.
 1b. **Charts and tag text (agreed 2026-10-13):** the MCQ dot plot with a box toggle, the level bar
    in the summary and on FRQ rows, percent bars per tag, and tag texts shown on hover. Clicking a tag
-   for course-wide results is issue #139.
+   for course-wide results is issue #139 (built 17/10/2026: `TagResultsDrawer`, `GET /api/quizzes/tag-results`,
+   `get_tag_results`).
 2. **FRQ marking:** Free response tab, `get_frq_responses`, `write_frq_suggestions`, the agent
    write-back tools, and the `grade-theory-test` change.
 3. **Overall:** `get_quiz_results`, `write_quiz_overall_suggestions`, the comment template.

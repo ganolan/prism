@@ -5,7 +5,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { getDb } from '../server/db/index.js';
 import { getAssessmentContext } from '../server/services/assessmentContext.js';
 import { writeStudentSuggestions, upsertAssessmentAnalysis } from '../server/services/suggestions.js';
-import { getAssignmentContextTool, listCourses, listAssignments, listStudents, listRubricsTool, readRubric, writeRubric, attachRubricTool, findStudentTool, getStudentHistoryTool, listQuizGroupsTool, loadQuizResultsTool, setQuestionTagsTool, getFrqResponsesTool, writeFrqSuggestionsTool, listFrqWritebacksTool, markFrqWritebackTool, getQuizResultsTool, writeQuizOverallSuggestionsTool } from './handlers.js';
+import { getAssignmentContextTool, listCourses, listAssignments, listStudents, listRubricsTool, readRubric, writeRubric, attachRubricTool, findStudentTool, getStudentHistoryTool, listQuizGroupsTool, loadQuizResultsTool, setQuestionTagsTool, getTagResultsTool, getFrqResponsesTool, writeFrqSuggestionsTool, listFrqWritebacksTool, markFrqWritebackTool, getQuizResultsTool, writeQuizOverallSuggestionsTool } from './handlers.js';
 import {
   getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool, extendDeadlineTool, undoExtensionTool,
   setMakeupTrackingTool,
@@ -27,7 +27,7 @@ export const INSTRUCTIONS =
   'course and year with the teacher (archived included), with the teacher\'s ' +
   'levels and comments verbatim, e.g. for reference letters. Also linked ' +
   'quizzes: per-question results of Schoology tests that Prism combined, and ' +
-  'tags per question. FRQ marking: get_frq_responses, write_frq_suggestions, then the teacher accepts in Prism; ' +
+  'tags per question; get_tag_results follows one tag across a course. FRQ marking: get_frq_responses, write_frq_suggestions, then the teacher accepts in Prism; ' +
   'the teacher publishes accepted marks with Publish all to Schoology on the Free response tab; ' +
   'list_frq_writebacks and mark_frq_writeback are the fallback when that button is absent. Overall result: get_quiz_results, then ' +
   'write_quiz_overall_suggestions (levels and an impression; Prism builds the comment).';
@@ -182,6 +182,22 @@ export function createServer() {
       },
     },
     async ({ group_id, tags, texts }) => text(() => setQuestionTagsTool(getDb(), { group_id, tags, texts }))
+  );
+
+  server.registerTool(
+    'get_tag_results',
+    {
+      description: "One question tag across every quiz group in a course, from Prism's stored copy (no Schoology request), counted over MCQs only, as the Questions tab counts tags (blanks count as wrong). " +
+        'Returns { tag, text (its stored full wording, or null), overall: { correct, total, percent }, ' +
+        'tests: [{ group_id, title, date, takers, correct, total, percent, questions: [{ position, correct, total, percent }] }] in date order, ' +
+        'students: [{ student_id, name, correct, total, percent, tests: { group_id: { correct, total } } }] lowest percent first, ' +
+        'courseTags: [every MCQ tag in the course, most questions first] }. Use it to follow one learning objective over several tests, or to find who has not met it.',
+      inputSchema: {
+        course: z.union([z.number(), z.string()]).describe('Local course id, or a course name or code fragment'),
+        tag: z.string().describe('The tag exactly as set with set_question_tags, for example "CRD-2.G"'),
+      },
+    },
+    async ({ course, tag }) => text(() => getTagResultsTool(getDb(), { course, tag }))
   );
 
   server.registerTool(

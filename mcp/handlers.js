@@ -38,6 +38,7 @@ import { loadCalendar } from '../server/services/schoolCalendar.js';
 import { todayLocal } from '../server/lib/schoolDays.js';
 import { statusLineUntil } from '../server/services/statusLineDue.js';
 import { listGroups, setQuestionTags } from '../server/services/quizGroups.js';
+import { courseTagResults } from '../server/services/quizTagResults.js';
 import { loadGroup } from '../server/services/quizLoader.js';
 import { frqResponses, listWritebacks, levelsOf } from '../server/services/frqResponses.js';
 import { writeFrqSuggestions, recordWriteback } from '../server/services/frqMarks.js';
@@ -546,6 +547,11 @@ export async function loadQuizResultsTool(db, { group_id }, deps = { loadGroup }
 
 export function setQuestionTagsTool(db, { group_id, tags, texts }) {
   return setQuestionTags(db, { groupId: group_id, tags, texts });
+}
+
+// #139: one tag across every quiz group in a course, MCQs only (the Questions tab's tag drawer).
+export function getTagResultsTool(db, { course, tag }) {
+  return courseTagResults(db, { courseId: resolveCourseRef(db, course), tag });
 }
 
 // Phase 2 (spec §12): FRQ marking. Answers go out as plain text; levels by name.

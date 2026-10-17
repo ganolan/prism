@@ -1,0 +1,84 @@
+import { describe, it, expect } from 'vitest';
+import { render, screen, within } from '@testing-library/react';
+import AssignmentFeedback from './AssignmentFeedback.jsx';
+
+const TOPICS = [{ topic_id: 't1', title: 'Select, analyze', external_id: 'ART.5.1', category_title: 'HS Art: Producing', grade: 'EX' }];
+const ATTACHMENT = {
+  id: 1,
+  rubric: { criteria: [{ id: 'c1', position: 1, criterion_name: 'UI/UX',
+    descriptors: { ED: 'Polished and intuitive.', EX: 'Clear and usable.', D: 'Inconsistent.', EM: 'Hard to use.' } }] },
+  topicByCriterion: [{ criterion_id: 'c1', topic_id: 't1' }],
+};
+const TIMELINE = {
+  due: { date: '2026-10-06', time: '15:00' }, extension: null, deadline: '2026-10-06',
+  submission: { state: 'submitted', firstAt: Math.floor(new Date('2026-10-06T09:00:00').getTime() / 1000), latestAt: null, late: false, day: 1, lateMinutes: null, schoologyLate: false },
+  overdue: null, resubmission: null, referral: null, limit: 8,
+};
+
+const follows = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+describe('AssignmentFeedback', () => {
+  it('reads badges with the work links, then the timeline, the rubric and the comment', () => {
+    render(
+      <AssignmentFeedback
+        status={[{ kind: 'submitted', label: 'Submitted', tone: 'green' }]}
+        links={<a href="https://example.test/work">Open</a>}
+        timeline={TIMELINE}
+        topics={TOPICS}
+        comment="Great use of evidence."
+      />
+    );
+    const badge = screen.getByText('Submitted');
+    const link = screen.getByRole('link', { name: 'Open' });
+    const timeline = screen.getByTestId('submission-timeline');
+    const rubric = screen.getByText('Select, analyze');
+    const comment = screen.getByText('Great use of evidence.');
+    // The work link shares the badges row.
+    expect(link.parentElement).toBe(badge.parentElement);
+    expect(follows(link, timeline)).toBe(true);
+    expect(follows(timeline, rubric)).toBe(true);
+    expect(follows(rubric, comment)).toBe(true);
+  });
+
+  it('with an attached rubric shows the full descriptors and highlights the awarded level', () => {
+    render(<AssignmentFeedback topics={TOPICS} attachment={ATTACHMENT} />);
+    expect(screen.getByText('Polished and intuitive.')).toBeInTheDocument();
+    const awarded = screen.getByText('Clear and usable.').closest('td');
+    expect(awarded).toHaveAttribute('data-awarded', 'true');
+    expect(screen.getByText('Polished and intuitive.').closest('td')).not.toHaveAttribute('data-awarded');
+    // Read-only: nothing offers to set a level.
+    expect(screen.queryByTitle(/^Set /)).not.toBeInTheDocument();
+  });
+
+  it('without an attached rubric falls back to the compact grid', () => {
+    render(<AssignmentFeedback topics={TOPICS} attachment={null} />);
+    const row = screen.getByText('Select, analyze').closest('tr');
+    expect(within(row).getByText('EX')).toBeInTheDocument();
+    expect(screen.queryByText('Clear and usable.')).not.toBeInTheDocument();
+  });
+
+  it('an attachment that maps none of the topics falls back to the compact grid', () => {
+    render(<AssignmentFeedback topics={TOPICS} attachment={{ ...ATTACHMENT, topicByCriterion: [] }} />);
+    expect(screen.queryByText('Clear and usable.')).not.toBeInTheDocument();
+    expect(screen.getByText('Measurement Topic')).toBeInTheDocument();
+  });
+
+  it('a points-only task shows its score in the rubric\'s place, with no rubric', () => {
+    render(<AssignmentFeedback score={{ text: '50 / 100', kind: 'numeric' }} comment="Revise question 3." />);
+    expect(screen.getByText('50 / 100')).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(follows(screen.getByText('50 / 100'), screen.getByText('Revise question 3.'))).toBe(true);
+  });
+
+  it('hides the rubric while an exception has deleted the scores', () => {
+    render(<AssignmentFeedback topics={TOPICS} attachment={ATTACHMENT} exception={1} />);
+    expect(screen.getByText('Excused')).toBeInTheDocument();
+    expect(screen.getByText(/rubric hidden because Schoology deletes scores/)).toBeInTheDocument();
+    expect(screen.queryByText('Clear and usable.')).not.toBeInTheDocument();
+  });
+
+  it('renders no empty badges row', () => {
+    const { container } = render(<AssignmentFeedback topics={TOPICS} />);
+    expect(container.querySelector('.assignment-feedback__badges')).toBeNull();
+  });
+});

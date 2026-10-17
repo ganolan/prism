@@ -221,6 +221,9 @@ export const uploadPowerSchoolCSV = (file) => {
 export const getRubricConfig = () => request('/rubrics/config');
 export const listRubrics = () => request('/rubrics');
 export const getRubricForAssignment = (assignmentId) => request(`/rubrics/assignment/${assignmentId}`);
+// Every attached rubric for many assignments in one request → { attachments: { [aid]: attachment } }.
+export const getRubricsForAssignments = (assignmentIds) =>
+  request(`/rubrics/assignments?ids=${assignmentIds.map(encodeURIComponent).join(',')}`);
 export const saveRowLevels = (assignmentId, studentUid, rowLevels) =>
   request(`/rubrics/row-levels/${assignmentId}/${studentUid}`, { method: 'PUT', body: JSON.stringify({ rowLevels }) });
 export const attachRubric = (body) => request('/rubrics/attach', { method: 'POST', body: JSON.stringify(body) });

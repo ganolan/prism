@@ -2,6 +2,8 @@ import AiSparkle from './AiSparkle.jsx';
 import { categoryColor } from '../lib/rubricColors.js';
 import { LEVEL_LABELS } from '../lib/masteryLevels.js';
 
+// Without `onSelect` the grid is read-only (the shared feedback view, #135): no
+// click, no pointer, no "Set ... to ..." hint; the awarded cell keeps its fill.
 export default function RubricDescriptorGrid({
   rows, levels, cellState, onSelect, palette, levelHeaderColors, levelBorderColors, levelDraftColors,
   firstColumnLabel = 'Measurement Topic',
@@ -44,7 +46,7 @@ export default function RubricDescriptorGrid({
               const text = (l === 'IE' && !raw) ? 'Insufficient Evidence' : raw;
               const base = {
                 padding: '0.35rem 0.45rem', border: '1px solid var(--border)', verticalAlign: 'top',
-                background: '#fff', color: '#1a1a1a', cursor: 'pointer', position: 'relative',
+                background: '#fff', color: '#1a1a1a', cursor: onSelect ? 'pointer' : 'default', position: 'relative',
                 lineHeight: 1.32, fontSize: '0.74rem',
               };
               if (st.final) Object.assign(base, {
@@ -55,8 +57,9 @@ export default function RubricDescriptorGrid({
                 outline: '2px dotted #ef4444', outlineOffset: '-1px', background: '#fff' });
               else if (st.suggested) base.background = 'var(--ai-suggest-wash)';
               return (
-                <td key={l} style={base} onClick={() => onSelect(topic.id, l)}
-                    title={`Set ${topic.title} to ${LEVEL_LABELS[l]}`}>
+                <td key={l} style={base} data-awarded={st.final ? 'true' : undefined}
+                    onClick={onSelect ? () => onSelect(topic.id, l) : undefined}
+                    title={onSelect ? `Set ${topic.title} to ${LEVEL_LABELS[l]}` : undefined}>
                   {/* Corner marks FLOAT (first, before the text) rather than sit
                       absolutely on top: the descriptor's first line wraps around
                       the mark instead of running underneath it. */}

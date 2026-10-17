@@ -44,6 +44,22 @@ export function getAttachmentForAssignment(db = getDb(), assignmentId) {
     `SELECT * FROM rubric_attachments WHERE assignment_schoology_id = ?`
   ).get(assignmentId);
   if (!att) return null;
+  return attachmentPayload(db, att);
+}
+
+// Every attached rubric for a list of assignments at once (the student page shows
+// many assignments; one request instead of one per assignment, #135).
+// → { [assignment_schoology_id]: attachment }, assignments without one left out.
+export function getAttachmentsForAssignments(db = getDb(), assignmentIds = []) {
+  const ids = [...new Set(assignmentIds.map(String).filter(Boolean))];
+  if (ids.length === 0) return {};
+  const rows = db.prepare(
+    `SELECT * FROM rubric_attachments WHERE assignment_schoology_id IN (${ids.map(() => '?').join(',')})`
+  ).all(...ids);
+  return Object.fromEntries(rows.map((att) => [String(att.assignment_schoology_id), attachmentPayload(db, att)]));
+}
+
+function attachmentPayload(db, att) {
   const rubric = getRubric(db, att.rubric_id);
   const maps = db.prepare(
     `SELECT criterion_id, topic_id FROM rubric_attachment_topics WHERE attachment_id = ?`

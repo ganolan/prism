@@ -129,3 +129,24 @@ test('PUT /row-levels saves Prism-only row levels and validates them', async () 
   const bad = await put('/api/rubrics/row-levels/sa-F/uid-B', { rowLevels: { Evaluation: 'EX' } });
   expect(bad.status).toBe(400);
 });
+
+describe('GET /assignments?ids= (shared feedback view, #135)', () => {
+  test('returns every attached rubric for the listed assignments in one request', async () => {
+    const db = getDb();
+    db.exec('DELETE FROM rubric_attachments;');
+    const id = saveRubric(db, { name: 'Batch', source: 'csv', criteria: [
+      { position: 1, criterion_name: 'UI/UX', standard_title: 'S', reporting_category: 'Produce', descriptors: { ED: 'Polished.', EX: 'Clear.' } },
+    ] });
+    db.prepare(`INSERT INTO rubric_attachments (rubric_id, assignment_schoology_id, course_id, created_at) VALUES (?, 'sa-1', NULL, 'now')`).run(id);
+    const { status, body } = await call('GET', '/api/rubrics/assignments?ids=sa-1,sa-2');
+    expect(status).toBe(200);
+    expect(Object.keys(body.attachments)).toEqual(['sa-1']);
+    expect(body.attachments['sa-1'].rubric.criteria[0].descriptors.ED).toBe('Polished.');
+  });
+
+  test('no ids is an empty result, not an error', async () => {
+    const { status, body } = await call('GET', '/api/rubrics/assignments');
+    expect(status).toBe(200);
+    expect(body).toEqual({ attachments: {} });
+  });
+});

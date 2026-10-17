@@ -1335,3 +1335,12 @@ Chosen 17/10/2026 from three mockups (tri-state pill, tray, segmented): option A
 - **Refine:** an outline button with a filter icon at the end of the Watch row, a count badge for its active pills and a ▾/▴ chevron. Its pills open in a white box under the rows, groups separated by space (dividers left a stray line when the pills wrapped). "Ask to resubmit" is gone: Resubmission pending + overdue cover it.
 - **Status line:** under the rows, "Showing 10 of 20 students" (or "Showing all 20 students"), the "N no longer match. Update the list" note when the frozen list has resolved cards, and a red-outlined **Clear all** with an × icon while any filter is on.
 - **Watch labels:** "Late" (was "Late, before the limit"); new **Referred, not submitted** for a referred student whose work has still not come in (chip "Referred 12/10, not submitted"). Past the limit and not yet referred stays **Referral to decide** in Needs action.
+
+## Undo in the card comment box (October 2026, #75)
+
+The comment box on an /assessment/ card writes its own value (a cleaned paste, the "resubmission received" line, Use suggestion), and that breaks the browser's own undo. The box now keeps its own history (`client/src/hooks/useUndoableText.js`, reusable for any box like it).
+
+- **Keys, while the box has focus:** Cmd+Z undoes; Shift+Cmd+Z redoes. On Windows, Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y. The shortcut always stops the browser's undo, even with nothing left to undo, because its stack no longer matches the text.
+- **Steps:** a paste, the chip line and Use suggestion are one step each. Typing is grouped: a typing step ends at a pause of one second or more, or when typing switches between adding and deleting text. After an undo or redo the caret sits at the end of the text that changed.
+- **Boundaries:** Publish (the card's or Send all), Discard, and an Ask / Extend that rewrites the comment clear the history, so undo never brings back text from before them. No buttons: the box has no room, and the keys are what teachers try first.
+- **Draft:** an undo is a change like typing, so the draft saver mirrors it.

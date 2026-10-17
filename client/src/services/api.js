@@ -222,8 +222,9 @@ export const getRubricConfig = () => request('/rubrics/config');
 export const listRubrics = () => request('/rubrics');
 export const getRubricForAssignment = (assignmentId) => request(`/rubrics/assignment/${assignmentId}`);
 // Every attached rubric for many assignments in one request → { attachments: { [aid]: attachment } }.
-export const getRubricsForAssignments = (assignmentIds) =>
-  request(`/rubrics/assignments?ids=${assignmentIds.map(encodeURIComponent).join(',')}`);
+// With studentUid, feedback-row tasks carry that student's row levels (`rowLevels`).
+export const getRubricsForAssignments = (assignmentIds, { studentUid = null } = {}) =>
+  request(`/rubrics/assignments?ids=${assignmentIds.map(encodeURIComponent).join(',')}${studentUid ? `&student_uid=${encodeURIComponent(studentUid)}` : ''}`);
 export const saveRowLevels = (assignmentId, studentUid, rowLevels) =>
   request(`/rubrics/row-levels/${assignmentId}/${studentUid}`, { method: 'PUT', body: JSON.stringify({ rowLevels }) });
 export const attachRubric = (body) => request('/rubrics/attach', { method: 'POST', body: JSON.stringify(body) });
@@ -350,5 +351,12 @@ export const deleteSubmissionComment = (assignmentId, studentId, commentId) =>
 // of its submitted cells unless refresh is false.
 export const getAssignmentCommentSummaries = (assignmentId, { refresh = true } = {}) =>
   request(`/submission-comments/assignment/${assignmentId}${refresh ? '' : '?refresh=0'}`);
+// One student's badges (the student page): { assignments: { [schoology aid]: summary }, refresh };
+// also queues a background read of their submitted threads unless refresh is false.
+export const getStudentCommentSummaries = (studentId, { refresh = true } = {}) =>
+  request(`/submission-comments/student/${studentId}${refresh ? '' : '?refresh=0'}`);
+// One student's own OneDrive copies of a few lti assignments: { links: { [aid]: link | null }, status }.
+export const getStudentWorkLinks = (studentId, assignmentIds) =>
+  request(`/students/${studentId}/work-links?assignments=${assignmentIds.map(encodeURIComponent).join(',')}`);
 // Cached badges for a course: { assignments: { [schoology aid]: { [student id]: summary } } }.
 export const getCourseCommentSummaries = (courseId) => request(`/submission-comments/course/${courseId}`);

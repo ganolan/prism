@@ -61,12 +61,14 @@ router.get('/assignment/:assignmentId', (req, res) => {
   res.json(getAttachmentForAssignment(getDb(), req.params.assignmentId));
 });
 
-// GET /api/rubrics/assignments?ids=a,b,c → { attachments: { [schoology aid]: attachment } }.
+// GET /api/rubrics/assignments?ids=a,b,c[&student_uid=u] → { attachments: { [schoology aid]: attachment } }.
 // One request for a page that lists many assignments (the student page, #135).
+// With student_uid, feedback-row tasks carry that student's row levels only.
 const MAX_BATCH_IDS = 500;
 router.get('/assignments', (req, res) => {
   const ids = String(req.query.ids || '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, MAX_BATCH_IDS);
-  res.json({ attachments: getAttachmentsForAssignments(getDb(), ids) });
+  const studentUid = req.query.student_uid ? String(req.query.student_uid) : null;
+  res.json({ attachments: getAttachmentsForAssignments(getDb(), ids, { studentUid }) });
 });
 
 router.put('/attachment/:attachmentId/mapping', (req, res) => {

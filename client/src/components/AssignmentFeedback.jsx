@@ -6,14 +6,16 @@
 //      later link component: it is a plain slot, so new ones drop straight in);
 //   2. the submission timeline;
 //   3. the rubric: full descriptors (RubricDescriptorGrid, read-only) when a
-//      rubric is attached and mapped, otherwise the compact grid; a task with no
+//      rubric is attached and mapped, otherwise the compact grid; an unaligned
+//      task with a rubric attached shows its feedback rows (the student's row
+//      levels) and then "Overall:" its scale level; any other task with no
 //      topics (points only, "50 / 100") shows its score here instead;
 //   4. the teacher's comment.
 import SubmissionBadges from './SubmissionBadges.jsx';
 import SubmissionTimeline from './SubmissionTimeline.jsx';
 import CompactRubric from './CompactRubric.jsx';
 import RubricDescriptorGrid from './RubricDescriptorGrid.jsx';
-import { feedbackDescriptorRows } from '../lib/rubricDescriptorRows.js';
+import { feedbackDescriptorRows, feedbackRowView } from '../lib/rubricDescriptorRows.js';
 import { LEVELS, LEVEL_COLORS, CELL_TEXT, masteryCodeForLevel } from '../lib/masteryLevels.js';
 
 // Schoology deletes rubric scores while one of these exceptions is set (the
@@ -53,9 +55,34 @@ export default function AssignmentFeedback({
   const lock = topics.length > 0 ? RUBRIC_LOCKING_EXCEPTIONS[exception] : null;
   const rows = lock ? null : feedbackDescriptorRows(topics, attachment);
   const gradeByTopic = Object.fromEntries(topics.map((t) => [t.topic_id, t.grade]));
+  // Feedback rows: an unaligned score-scale task with a rubric attached in Prism.
+  const rowView = topics.length === 0 ? feedbackRowView(attachment) : null;
 
   let rubric = null;
-  if (lock) {
+  if (rowView) {
+    rubric = (
+      <>
+        <div className="assignment-feedback__rubric assignment-feedback__rubric--descriptors">
+          <RubricDescriptorGrid
+            rows={rowView.rows}
+            levels={LEVELS}
+            cellState={(topicId, l) => ({ final: rowView.gradeByTopic[topicId] === l })}
+            palette={palette}
+            levelHeaderColors={HEADER}
+            levelBorderColors={BORDER}
+            levelDraftColors={DRAFT}
+            firstColumnLabel="Criteria"
+          />
+        </div>
+        {score && (
+          <div className="assignment-feedback__score">
+            <span className="assignment-feedback__label">Overall:</span>
+            <ScoreLabel label={score} />
+          </div>
+        )}
+      </>
+    );
+  } else if (lock) {
     rubric = (
       <div className="assignment-feedback__notice text-sm">
         <strong>{lock}</strong>

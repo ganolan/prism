@@ -19,7 +19,7 @@ import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import { useStickyTab } from '../hooks/useStickyTab.js';
 import AssignmentFeedback from '../components/AssignmentFeedback.jsx';
 import { useAttachedRubrics } from '../hooks/useAttachedRubrics.js';
-import { feedbackDescriptorRows } from '../lib/rubricDescriptorRows.js';
+import { showsDescriptors } from '../lib/rubricDescriptorRows.js';
 import SchoologyLink from '../components/SchoologyLink.jsx';
 import AttemptLink from '../components/quiz/AttemptLink.jsx';
 import QuizChip from '../components/quiz/QuizChip.jsx';
@@ -663,11 +663,12 @@ export function RubricModal({
     ...(grade.review_needed || []).map(f => ({ ...f, flag_type: 'review_needed' })),
     ...(grade.resubmit_requested ? [{ id: 'resubmit', flag_type: 'resubmit_requested' }] : []),
   ];
-  // The attached rubric's descriptors, fetched once per opened aligned task.
+  // The attached rubric (descriptors, or an unaligned task's feedback rows with this
+  // student's row levels), fetched once when the modal opens.
   const aid = assignment.schoology_assignment_id;
-  const { attachments, palette } = useAttachedRubrics(topics.length > 0 ? [aid] : []);
+  const { attachments, palette } = useAttachedRubrics([aid], 0, { studentUid: student.schoology_uid });
   const attachment = attachments[aid] || null;
-  const wide = !!feedbackDescriptorRows(topics, attachment);
+  const wide = showsDescriptors(topics, attachment);
   const summative = !!assignment.aligned || topics.length > 0;
   // The badges row's links: the student's own work (#120: in progress or
   // submitted; the assignment's Schoology page is on the gradebook column

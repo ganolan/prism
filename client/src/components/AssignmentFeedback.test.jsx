@@ -77,6 +77,26 @@ describe('AssignmentFeedback', () => {
     expect(screen.queryByText('Clear and usable.')).not.toBeInTheDocument();
   });
 
+  it('a feedback-row task shows its rows with the student\'s levels, then the overall level', () => {
+    const rowsAttachment = {
+      mode: 'feedback_rows',
+      rubric: { criteria: [
+        { id: 'c1', position: 1, criterion_name: 'Playtesting', standard_title: 'Refine work', reporting_category: 'Producing',
+          descriptors: { ED: 'Iterates from evidence.', EX: 'Tests and fixes.', D: 'Tests once.', EM: 'No testing.' } },
+      ] },
+      topicByCriterion: [],
+      rowLevels: { Playtesting: 'EX' },
+    };
+    render(<AssignmentFeedback attachment={rowsAttachment} score={{ text: 'Exhibiting', kind: 'scale' }} comment="Good loop." />);
+    expect(screen.getByText('Criteria')).toBeInTheDocument();
+    expect(screen.getByText('Tests and fixes.').closest('td')).toHaveAttribute('data-awarded', 'true');
+    expect(screen.getByText('Iterates from evidence.').closest('td')).not.toHaveAttribute('data-awarded');
+    const overall = screen.getByText('Overall:').parentElement;
+    expect(within(overall).getByText('Exhibiting')).toBeInTheDocument();
+    expect(follows(screen.getByText('Tests and fixes.'), overall)).toBe(true);
+    expect(follows(overall, screen.getByText('Good loop.'))).toBe(true);
+  });
+
   it('renders no empty badges row', () => {
     const { container } = render(<AssignmentFeedback topics={TOPICS} />);
     expect(container.querySelector('.assignment-feedback__badges')).toBeNull();

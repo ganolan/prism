@@ -50,7 +50,7 @@ describe('RubricModal: rubric descriptors (#135)', () => {
     renderModal();
     const awarded = (await screen.findByText('Clear and usable.')).closest('td');
     expect(awarded).toHaveAttribute('data-awarded', 'true');
-    expect(getRubricsForAssignments).toHaveBeenCalledWith(['sa-1']);
+    expect(getRubricsForAssignments).toHaveBeenCalledWith(['sa-1'], { studentUid: 'u1' });
     expect(screen.getByRole('dialog')).toHaveClass('feedback-modal--wide');
     // The comment stays below the rubric.
     expect(awarded.compareDocumentPosition(screen.getByText('Great use of evidence.')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -66,7 +66,7 @@ describe('RubricModal: rubric descriptors (#135)', () => {
 });
 
 describe('RubricModal: points-only task', () => {
-  it('shows the score, timeline and comment, with no rubric and no rubric lookup', () => {
+  it('shows the score, timeline and comment, with no rubric', async () => {
     renderModal({
       topics: [],
       assignment: { title: 'Ep 1 Result', schoology_assignment_id: 'sa-2', due_date: null, is_lti_submission: 0, aligned: 0 },
@@ -76,10 +76,31 @@ describe('RubricModal: points-only task', () => {
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByText('50 / 100')).toBeInTheDocument();
     expect(within(dialog).getByText('Revise question 3.')).toBeInTheDocument();
-    expect(within(dialog).queryByRole('table')).not.toBeInTheDocument();
-    expect(getRubricsForAssignments).not.toHaveBeenCalled();
     // A formative task is marked F, not S.
     expect(within(dialog).getByText('F')).toBeInTheDocument();
+    await vi.waitFor(() => expect(getRubricsForAssignments).toHaveBeenCalled());
+    expect(within(dialog).queryByRole('table')).not.toBeInTheDocument();
+    expect(dialog).not.toHaveClass('feedback-modal--wide');
+  });
+});
+
+describe('RubricModal: feedback rows on an unaligned task', () => {
+  it('shows the attached rows with this student\'s levels, then the overall level, and widens', async () => {
+    getRubricsForAssignments.mockResolvedValueOnce({ attachments: { 'sa-3': {
+      id: 4, mode: 'feedback_rows', topicByCriterion: [], rowLevels: { Playtesting: 'D' },
+      rubric: { criteria: [{ id: 'c9', position: 1, criterion_name: 'Playtesting', standard_title: 'Refine work',
+        descriptors: { ED: 'Iterates from evidence.', EX: 'Tests and fixes.', D: 'Tests once.', EM: 'No testing.' } }] },
+    } } });
+    renderModal({
+      topics: [],
+      assignment: { title: 'Flappy Bird (F)', schoology_assignment_id: 'sa-3', due_date: null, is_lti_submission: 0, aligned: 0 },
+      score: { text: 'Developing', kind: 'scale' },
+    });
+    const awarded = (await screen.findByText('Tests once.')).closest('td');
+    expect(awarded).toHaveAttribute('data-awarded', 'true');
+    expect(getRubricsForAssignments).toHaveBeenCalledWith(['sa-3'], { studentUid: 'u1' });
+    expect(within(screen.getByText('Overall:').parentElement).getByText('Developing')).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toHaveClass('feedback-modal--wide');
   });
 });
 

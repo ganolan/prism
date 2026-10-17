@@ -1,5 +1,33 @@
 import { describe, it, expect } from 'vitest';
-import { buildDescriptorRows, feedbackDescriptorRows } from './rubricDescriptorRows.js';
+import { buildDescriptorRows, feedbackDescriptorRows, feedbackRowView, showsDescriptors } from './rubricDescriptorRows.js';
+
+describe('feedbackRowView (feedback rows, #135)', () => {
+  const attachment = {
+    mode: 'feedback_rows',
+    rubric: { criteria: [
+      { id: 'c2', position: 2, criterion_name: 'Playtesting', standard_title: 'Refine', descriptors: {} },
+      { id: 'c1', position: 1, criterion_name: 'Design', standard_title: 'Plan', descriptors: {} },
+    ] },
+    topicByCriterion: [],
+    rowLevels: { Playtesting: 'EX' },
+  };
+
+  it('makes one row per criterion, in position order, with the student\'s level per row', () => {
+    const view = feedbackRowView(attachment);
+    expect(view.rows.map((r) => r.criterion.criterion_name)).toEqual(['Design', 'Playtesting']);
+    expect(view.gradeByTopic).toEqual({ 'row:Design': null, 'row:Playtesting': 'EX' });
+  });
+
+  it('is null for a topics rubric or no attachment', () => {
+    expect(feedbackRowView({ ...attachment, mode: 'topics' })).toBeNull();
+    expect(feedbackRowView(null)).toBeNull();
+  });
+
+  it('showsDescriptors covers both kinds', () => {
+    expect(showsDescriptors([], attachment)).toBe(true);
+    expect(showsDescriptors([], null)).toBe(false);
+  });
+});
 
 const criteria = [
   { id: 'c2', position: 2, criterion_name: 'Func', descriptors: { ED: 'e' } },

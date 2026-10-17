@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { formatDate } from '../lib/formatDate.js';
+import { formatDate, formatDateTime } from '../lib/formatDate.js';
 import {
   getStudent, updateStudent, updateParentPhone,
   createNote, updateNote, deleteNote,
@@ -10,6 +10,9 @@ import AssignmentFeedback from '../components/AssignmentFeedback.jsx';
 import AttemptLink from '../components/quiz/AttemptLink.jsx';
 import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
 import { useAttachedRubrics } from '../hooks/useAttachedRubrics.js';
+import { useStudentWorkLinks, useStudentCommentSummaries } from '../hooks/useStudentFeedbackLinks.js';
+import SchoologyLink from '../components/SchoologyLink.jsx';
+import SubmissionComments from '../components/SubmissionComments.jsx';
 import HelpDot from '../components/HelpDot.jsx';
 import { CLOCK_HELP } from '../lib/submissionTimeline.js';
 import { gradeLabel, submissionStatus } from '../lib/gradeLabel.js';
@@ -50,9 +53,19 @@ function CopyButton({ text, label }) {
 
 const NO_RUBRICS = { attachments: {}, palette: {} };
 
-// `rubrics`: the attached rubrics for the page's aligned assignments, fetched in
-// one batch by StudentPage ({ attachments: { [aid]: attachment }, palette }).
-export function CourseSection({ course, grades, flagsByAssignment, studentUid, scales, studentName = 'the student', attemptLinks = {}, rubrics = NO_RUBRICS }) {
+// The thread is worth a chip once the student handed something in, it is graded,
+// or a read found comments: a chip on every untouched task would be noise.
+const commentsWorthAChip = (g, summary) => !!summary || !!g.submission_type || Number(g.submitted_at) > 0
+  || g.lti_submission_state === 'submitted' || g.score != null;
+
+// `rubrics`: the attached rubrics for the page's assignments, fetched in one batch
+// by StudentPage ({ attachments: { [aid]: attachment }, palette }). `workLinks`
+// ({ [aid]: OneDrive link }) and `commentSummaries` ({ [aid]: summary }, null when
+// the feature is off) arrive after the page renders, this student's only.
+export function CourseSection({
+  course, grades, flagsByAssignment, studentUid, scales, studentName = 'the student', attemptLinks = {}, rubrics = NO_RUBRICS,
+  studentId = null, workLinks = {}, commentSummaries = null, onCommentSummary = () => {},
+}) {
   const [expanded, setExpanded] = useState(true);
 
   return (
@@ -121,7 +134,29 @@ export function CourseSection({ course, grades, flagsByAssignment, studentUid, s
                   lti_submission_state: g.lti_submission_state,
                   due_date: g.due_date,
                 });
-                const attempt = attemptLinks[g.schoology_assignment_id] || null;
+                const aid = g.schoology_assignment_id;
+                const attempt = attemptLinks[aid] || null;
+                const workLink = workLinks[aid] || null;
+                const summary = commentSummaries?.[aid] || null;
+                const showComments = commentSummaries !== null && studentId != null && commentsWorthAChip(g, summary);
+                const links = (workLink || attempt || showComments) ? (
+                  <>
+                    {workLink && (
+                      <SchoologyLink
+                        url={workLink.url}
+                        label="Open"
+                        ariaLabel={`Open ${studentName}'s work in OneDrive`}
+                        title={`Open ${studentName}'s work in OneDrive: last edited ${formatDateTime(workLink.modifiedAt)}`}
+                        style={{ fontSize: '0.78rem', fontWeight: 600 }}
+                      />
+                    )}
+                    <AttemptLink link={attempt} name={studentName} />
+                    {showComments && (
+                      <SubmissionComments assignmentId={aid} studentId={studentId} studentName={studentName}
+                        title={g.assignment_title} summary={summary} onSummary={(s) => onCommentSummary(aid, s)} />
+                    )}
+                  </>
+                ) : null;
                 return (
                   <tr key={`${g.course_id}-${g.assignment_id}`} style={{ borderTop: '1px solid var(--border)' }}>
                     <td className="text-sm" style={{ verticalAlign: 'top' }}>
@@ -138,7 +173,7 @@ export function CourseSection({ course, grades, flagsByAssignment, studentUid, s
                         flags={flagsByAssignment?.[g.assignment_id] || []}
                         resubmitted={g.resubmitted}
                         assignmentTitle={g.assignment_title}
-                        links={attempt ? <AttemptLink link={attempt} name={studentName} /> : null}
+                        links={links}
                         timeline={g.timeline}
                         timelineHelp={false}
                         due={g.due_date || '-'}
@@ -244,10 +279,21 @@ export default function StudentPage() {
   // The student's attempts on linked or combined Schoology tests, by Schoology assignment id.
   const attemptLinks = useAttemptLinks({ studentId: id, reloadKey: dataVersion });
   // Attached rubrics (full descriptors) for every aligned assignment, one request (#135).
+  // Every assignment is asked about, so an unaligned task's feedback rows come back
+  // too (with this student's row levels only).
   const rubrics = useAttachedRubrics(
-    (student?.grades || []).filter((g) => g.mastery?.topics?.length).map((g) => g.schoology_assignment_id),
+    (student?.grades || []).map((g) => g.schoology_assignment_id),
+    dataVersion,
+    { studentUid: student?.schoology_uid || null },
+  );
+  // After the page renders: this student's OneDrive copies, a few assignments at a
+  // time, and their submission comment summaries (a background read refreshes them).
+  const workLinks = useStudentWorkLinks(
+    student?.id,
+    (student?.grades || []).filter((g) => g.is_lti_submission).map((g) => g.schoology_assignment_id),
     dataVersion,
   );
+  const [commentSummaries, setCommentSummary] = useStudentCommentSummaries(student?.id, dataVersion);
 
   async function handleSave() {
     const updated = await updateStudent(id, preferredVal.trim() || null);
@@ -483,6 +529,10 @@ export default function StudentPage() {
             studentName={`${displayName} ${student.last_name}`}
             attemptLinks={attemptLinks}
             rubrics={rubrics}
+            studentId={student.id}
+            workLinks={workLinks}
+            commentSummaries={commentSummaries}
+            onCommentSummary={setCommentSummary}
           />
         );
       })}

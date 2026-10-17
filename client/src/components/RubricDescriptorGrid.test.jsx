@@ -28,6 +28,22 @@ describe('RubricDescriptorGrid draft cell', () => {
     expect(cell.style.background).toContain('rgb(239, 246, 255)');
   });
 });
+describe('RubricDescriptorGrid read-only (no onSelect, #135)', () => {
+  it('marks the awarded cell and offers nothing to click', () => {
+    const { container } = render(
+      <RubricDescriptorGrid
+        rows={draftRows} levels={draftLevels} cellState={(topicId, l) => ({ final: l === 'EX' })}
+        palette={{}} levelHeaderColors={draftHeaderColors} levelBorderColors={draftBorderColors}
+        levelDraftColors={draftColorMap}
+      />
+    );
+    const [, ed, ex] = container.querySelectorAll('tbody td');
+    expect(ex).toHaveAttribute('data-awarded', 'true');
+    expect(ed).not.toHaveAttribute('data-awarded');
+    expect(ex.style.cursor).toBe('default');
+    expect(ex).not.toHaveAttribute('title');
+  });
+});
 // ─────────────────────────────────────────────────────────────────────────────
 
 const rows = [{

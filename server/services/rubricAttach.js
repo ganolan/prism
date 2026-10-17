@@ -44,6 +44,44 @@ export function getAttachmentForAssignment(db = getDb(), assignmentId) {
     `SELECT * FROM rubric_attachments WHERE assignment_schoology_id = ?`
   ).get(assignmentId);
   if (!att) return null;
+  return attachmentPayload(db, att);
+}
+
+// Every attached rubric for a list of assignments at once (the student page shows
+// many assignments; one request instead of one per assignment, #135).
+// → { [assignment_schoology_id]: { ...attachment, mode } }, assignments without one
+// left out. mode is 'feedback_rows' on an unaligned score-scale task (spec
+// 2026-10-13), else 'topics'. With studentUid, a feedback-row task also carries
+// that one student's published row levels (`rowLevels`, by criterion name, only
+// rows of the attached rubric).
+export function getAttachmentsForAssignments(db = getDb(), assignmentIds = [], { studentUid = null } = {}) {
+  const ids = [...new Set(assignmentIds.map(String).filter(Boolean))];
+  if (ids.length === 0) return {};
+  const rows = db.prepare(
+    `SELECT * FROM rubric_attachments WHERE assignment_schoology_id IN (${ids.map(() => '?').join(',')})`
+  ).all(...ids);
+  const out = {};
+  for (const att of rows) {
+    const aid = String(att.assignment_schoology_id);
+    const payload = attachmentPayload(db, att);
+    const assignment = db.prepare('SELECT * FROM assignments WHERE schoology_assignment_id = ?').get(aid);
+    const scale = assignment
+      ? scoreScaleFor(assignment, getAlignedTopics(db, assignment.course_id, aid).length)
+      : null;
+    payload.mode = scale ? 'feedback_rows' : 'topics';
+    if (scale && studentUid != null) {
+      const names = new Set(payload.rubric.criteria.map((c) => c.criterion_name));
+      const levels = db.prepare(
+        'SELECT criterion_name, level FROM rubric_row_levels WHERE assignment_schoology_id = ? AND student_uid = ?'
+      ).all(aid, String(studentUid));
+      payload.rowLevels = Object.fromEntries(levels.filter((l) => names.has(l.criterion_name)).map((l) => [l.criterion_name, l.level]));
+    }
+    out[aid] = payload;
+  }
+  return out;
+}
+
+function attachmentPayload(db, att) {
   const rubric = getRubric(db, att.rubric_id);
   const maps = db.prepare(
     `SELECT criterion_id, topic_id FROM rubric_attachment_topics WHERE attachment_id = ?`

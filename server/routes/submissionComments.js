@@ -7,8 +7,8 @@ import { tmpdir } from 'os';
 import { join, basename } from 'path';
 import { getDb } from '../db/index.js';
 import { featureGate } from '../middleware/featureGate.js';
-import { CommentError, threadFor, refreshAssignment, postComment, deleteComment, postCommentWithFile, commentFile } from '../services/submissionComments.js';
-import { summariesForAssignment, summariesForCourse } from '../services/submissionCommentStore.js';
+import { CommentError, threadFor, refreshAssignment, refreshStudent, postComment, deleteComment, postCommentWithFile, commentFile } from '../services/submissionComments.js';
+import { summariesForAssignment, summariesForCourse, summariesForStudent } from '../services/submissionCommentStore.js';
 import { resolveAssignmentId } from '../services/idResolvers.js';
 
 const router = Router();
@@ -36,6 +36,21 @@ router.get('/assignment/:assignmentId', handle((req, db) => {
     refresh = { queued: job.queued, joined: !!job.joined };
   }
   return { students: summariesForAssignment(db, localId), refresh };
+}));
+
+// Badges for the student page (#135): this student's cached summaries only, keyed
+// by Schoology assignment id; also queues a background read of their submitted
+// assignments' threads (unless ?refresh=0).
+router.get('/student/:studentId', handle((req, db) => {
+  const student = db.prepare('SELECT id FROM students WHERE id = ?').get(Number(req.params.studentId));
+  if (!student) throw new CommentError('NOT_FOUND', `Unknown student ${req.params.studentId}`, 404);
+  let refresh = null;
+  if (req.query.refresh !== '0') {
+    const job = refreshStudent(db, student.id);
+    job.done?.catch((err) => console.error('submission comment refresh failed:', err));
+    refresh = { queued: job.queued, joined: !!job.joined };
+  }
+  return { assignments: summariesForStudent(db, student.id), refresh };
 }));
 
 // Badges for the gradebook: cache only, no reads.

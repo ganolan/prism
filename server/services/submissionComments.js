@@ -44,7 +44,7 @@ export class CommentError extends Error {
 // Section admins (teachers) and Prism's own uid, cached per section for an hour.
 const teacherCache = new Map();
 let myUid = null;
-export function resetCommentCaches() { teacherCache.clear(); myUid = null; inflight.clear(); }
+export function resetCommentCaches() { teacherCache.clear(); myUid = null; inflight.clear(); studentInflight.clear(); }
 
 async function teachersFor(sectionId) {
   myUid ??= String(await commentDeps.getMyUserId());
@@ -171,6 +171,54 @@ export function refreshAssignment(db, assignmentId, { maxAgeSec = BACKGROUND_MAX
     return { refreshed, failed };
   })().finally(() => inflight.delete(assignment.id));
   inflight.set(assignment.id, { info, done });
+  return { ...info, done };
+}
+
+// Background refresh of ONE student's threads across their courses (the student
+// page, #135): assignments they submitted, or whose thread is already cached, read
+// longer ago than maxAgeSec, one GET at a time. A second call joins the running job.
+const studentInflight = new Map();
+export function refreshStudent(db, studentId, { maxAgeSec = BACKGROUND_MAX_AGE_SEC } = {}) {
+  const student = db.prepare('SELECT * FROM students WHERE id = ?').get(Number(studentId));
+  if (!student?.schoology_uid) throw new CommentError('NOT_FOUND', `Unknown student ${studentId}`, 404);
+  if (studentInflight.has(student.id)) {
+    const running = studentInflight.get(student.id);
+    return { ...running.info, done: running.done, joined: true };
+  }
+  const cachedIds = new Set(db.prepare('SELECT DISTINCT assignment_id FROM submission_comments WHERE student_id = ?')
+    .all(student.id).map((r) => r.assignment_id));
+  const rows = db.prepare(`
+    SELECT a.*, g.lti_submission_state, g.submission_type, g.submitted_at AS g_submitted_at
+    FROM enrolments e
+    JOIN assignments a ON a.course_id = e.course_id AND COALESCE(a.published, 1) = 1 AND a.removed_at IS NULL
+    LEFT JOIN grades g ON g.student_id = e.student_id AND g.assignment_id = a.id
+    WHERE e.student_id = ? AND e.dropped_at IS NULL
+  `).all(student.id);
+  const due = rows.filter((a) => {
+    const status = normalizeSubmissionStatus({
+      is_lti_submission: a.is_lti_submission, lti_submission_state: a.lti_submission_state,
+      submission_type: a.submission_type, submitted_at: a.g_submitted_at,
+    });
+    if (status !== 'submitted' && !cachedIds.has(a.id)) return false;
+    const t = readThread(db, { assignmentId: a.id, studentId: student.id });
+    return !t.read_at_epoch || commentDeps.now() - t.read_at_epoch >= maxAgeSec;
+  });
+  const courses = new Map();
+  const courseOf = (id) => {
+    if (!courses.has(id)) courses.set(id, db.prepare('SELECT * FROM courses WHERE id = ?').get(id));
+    return courses.get(id);
+  };
+  const info = { queued: due.length };
+  const done = (async () => {
+    let refreshed = 0; let failed = 0;
+    for (const [i, row] of due.entries()) {
+      if (i) await commentDeps.sleep(QUEUE_DELAY_MS);
+      const assignment = db.prepare('SELECT * FROM assignments WHERE id = ?').get(row.id);
+      try { await fetchPair(db, { assignment, course: courseOf(row.course_id), student }); refreshed++; } catch { failed++; }
+    }
+    return { refreshed, failed };
+  })().finally(() => studentInflight.delete(student.id));
+  studentInflight.set(student.id, { info, done });
   return { ...info, done };
 }
 

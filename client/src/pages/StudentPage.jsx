@@ -1,21 +1,21 @@
-import { Fragment, useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { formatDate } from '../lib/formatDate.js';
+import { formatDate, formatDateTime } from '../lib/formatDate.js';
 import {
   getStudent, updateStudent, updateParentPhone,
   createNote, updateNote, deleteNote,
 } from '../services/api.js';
 import MasteryPerformanceSummary from '../components/MasteryPerformanceSummary.jsx';
-import CompactRubric from '../components/CompactRubric.jsx';
-import SubmissionBadges from '../components/SubmissionBadges.jsx';
+import AssignmentFeedback from '../components/AssignmentFeedback.jsx';
 import AttemptLink from '../components/quiz/AttemptLink.jsx';
 import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
-import SubmissionTimeline from '../components/SubmissionTimeline.jsx';
+import { useAttachedRubrics } from '../hooks/useAttachedRubrics.js';
+import { useStudentWorkLinks, useStudentCommentSummaries } from '../hooks/useStudentFeedbackLinks.js';
+import SchoologyLink from '../components/SchoologyLink.jsx';
+import SubmissionComments from '../components/SubmissionComments.jsx';
 import HelpDot from '../components/HelpDot.jsx';
 import { CLOCK_HELP } from '../lib/submissionTimeline.js';
-import { LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
 import { gradeLabel, submissionStatus } from '../lib/gradeLabel.js';
-import { masteryCodeForLevel } from '../lib/masteryLevels.js';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import { formatGradeBadge } from '../lib/gradeLevel.js';
 import { preferredFirstName } from '../lib/studentNames.js';
@@ -51,9 +51,21 @@ function CopyButton({ text, label }) {
   );
 }
 
-const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
+const NO_RUBRICS = { attachments: {}, palette: {} };
 
-export function CourseSection({ course, grades, flagsByAssignment, studentUid, scales, studentName = 'the student', attemptLinks = {} }) {
+// The thread is worth a chip once the student handed something in, it is graded,
+// or a read found comments: a chip on every untouched task would be noise.
+const commentsWorthAChip = (g, summary) => !!summary || !!g.submission_type || Number(g.submitted_at) > 0
+  || g.lti_submission_state === 'submitted' || g.score != null;
+
+// `rubrics`: the attached rubrics for the page's assignments, fetched in one batch
+// by StudentPage ({ attachments: { [aid]: attachment }, palette }). `workLinks`
+// ({ [aid]: OneDrive link }) and `commentSummaries` ({ [aid]: summary }, null when
+// the feature is off) arrive after the page renders, this student's only.
+export function CourseSection({
+  course, grades, flagsByAssignment, studentUid, scales, studentName = 'the student', attemptLinks = {}, rubrics = NO_RUBRICS,
+  studentId = null, workLinks = {}, commentSummaries = null, onCommentSummary = () => {},
+}) {
   const [expanded, setExpanded] = useState(true);
 
   return (
@@ -99,17 +111,17 @@ export function CourseSection({ course, grades, flagsByAssignment, studentUid, s
             />
           </div>
 
+          {/* One row per assignment: the name, then the shared feedback view, the
+              same layout as the gradebook modal (#135). */}
           <table>
             <thead>
               <tr>
                 <th>Assignment <HelpDot text={CLOCK_HELP(grades.find((g) => g.timeline)?.timeline.limit)} /></th>
-                <th>Score / Rubric</th>
               </tr>
             </thead>
             <tbody>
               {grades.map(g => {
-                const assignmentFlags = flagsByAssignment?.[g.assignment_id] || [];
-                const aligned = g.mastery?.topics?.length > 0;
+                const topics = g.mastery?.topics || [];
                 const assessmentHref = `/course/${g.course_id}/assessment/${g.schoology_assignment_id}`;
                 const statusBadges = submissionStatus({
                   score: g.score,
@@ -122,101 +134,61 @@ export function CourseSection({ course, grades, flagsByAssignment, studentUid, s
                   lti_submission_state: g.lti_submission_state,
                   due_date: g.due_date,
                 });
-                const infoCell = (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                    {/* Name → the assignment's /assessment/ page, for every
-                        assignment (as in the gradebook + Assessments tab):
-                        unaligned work is graded there too (#41). */}
-                    <div>
-                      <Link to={assessmentHref} className="link" style={{ fontWeight: 600 }}>
-                        {g.assignment_title}
-                      </Link>
-                    </div>
-                    {/* The submission picture (due, submitted when / how late, or the
-                        clock day it is missing on), then status + flags. */}
-                    {g.timeline
-                      ? <SubmissionTimeline timeline={g.timeline} help={false} />
-                      : <span className="text-xs text-muted">Due: {g.due_date || '-'}</span>}
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
-                      <SubmissionBadges
+                const aid = g.schoology_assignment_id;
+                const attempt = attemptLinks[aid] || null;
+                const workLink = workLinks[aid] || null;
+                const summary = commentSummaries?.[aid] || null;
+                const showComments = commentSummaries !== null && studentId != null && commentsWorthAChip(g, summary);
+                const links = (workLink || attempt || showComments) ? (
+                  <>
+                    {workLink && (
+                      <SchoologyLink
+                        url={workLink.url}
+                        label="Open"
+                        ariaLabel={`Open ${studentName}'s work in OneDrive`}
+                        title={`Open ${studentName}'s work in OneDrive: last edited ${formatDateTime(workLink.modifiedAt)}`}
+                        style={{ fontSize: '0.78rem', fontWeight: 600 }}
+                      />
+                    )}
+                    <AttemptLink link={attempt} name={studentName} />
+                    {showComments && (
+                      <SubmissionComments assignmentId={aid} studentId={studentId} studentName={studentName}
+                        title={g.assignment_title} summary={summary} onSummary={(s) => onCommentSummary(aid, s)} />
+                    )}
+                  </>
+                ) : null;
+                return (
+                  <tr key={`${g.course_id}-${g.assignment_id}`} style={{ borderTop: '1px solid var(--border)' }}>
+                    <td className="text-sm" style={{ verticalAlign: 'top' }}>
+                      {/* Name → the assignment's /assessment/ page, for every
+                          assignment (as in the gradebook + Assessments tab):
+                          unaligned work is graded there too (#41). */}
+                      <div style={{ marginBottom: '0.35rem' }}>
+                        <Link to={assessmentHref} className="link" style={{ fontWeight: 600 }}>
+                          {g.assignment_title}
+                        </Link>
+                      </div>
+                      <AssignmentFeedback
                         status={statusBadges}
-                        flags={assignmentFlags}
+                        flags={flagsByAssignment?.[g.assignment_id] || []}
                         resubmitted={g.resubmitted}
                         assignmentTitle={g.assignment_title}
+                        links={links}
+                        timeline={g.timeline}
+                        timelineHelp={false}
+                        due={g.due_date || '-'}
+                        topics={topics}
+                        attachment={rubrics.attachments[g.schoology_assignment_id] || null}
+                        palette={rubrics.palette}
+                        exception={g.exception}
+                        score={topics.length > 0 ? null : gradeLabel({
+                          score: g.score, max_points: g.assignment_max_points,
+                          exception: g.exception, grading_scale_id: g.grading_scale_id, scales,
+                        })}
+                        comment={g.grade_comment}
                       />
-                      <AttemptLink link={attemptLinks[g.schoology_assignment_id] || null} name={studentName} />
-                    </div>
-                  </div>
-                );
-                return (
-                  <Fragment key={`${g.course_id}-${g.assignment_id}`}>
-                    <tr style={{ borderTop: '1px solid var(--border)' }}>
-                      {aligned ? (
-                        /* Aligned: name + due/flags span both columns; rubric goes below */
-                        <td colSpan={2} style={{ verticalAlign: 'top' }} className="text-sm">
-                          {infoCell}
-                        </td>
-                      ) : (
-                        <>
-                          <td className="text-sm" style={{ verticalAlign: 'top' }}>{infoCell}</td>
-                          <td style={{ verticalAlign: 'top' }}>
-                            {(() => {
-                              const lbl = gradeLabel({
-                                score: g.score, max_points: g.assignment_max_points,
-                                exception: g.exception, grading_scale_id: g.grading_scale_id,
-                                scales,
-                              });
-                              const code = lbl.kind === 'scale' ? masteryCodeForLevel(lbl.text) : null;
-                              const c = code ? LEVEL_COLORS[code] : null;
-                              const style = lbl.kind === 'mismatch' ? { color: 'var(--danger)' }
-                                : lbl.kind === 'pending' ? { color: 'var(--text-muted)' }
-                                : c ? { background: c.headerFill, color: CELL_TEXT, border: `1px solid ${c.finalBorder}`, padding: '0.1rem 0.4rem', borderRadius: 4, fontWeight: 500, display: 'inline-block' }
-                                : null;
-                              return <span className="text-sm" style={style} title={lbl.kind === 'mismatch' ? 'Score does not match any defined level on this grading scale: check Schoology' : undefined}>{lbl.text}</span>;
-                            })()}
-                          </td>
-                        </>
-                      )}
-                    </tr>
-                    {aligned && (
-                      <tr>
-                        <td colSpan={2} style={{ padding: '0.25rem 0.25rem 0.5rem', borderTop: 'none' }}>
-                          <div style={{ width: '100%' }}>
-                            {/* Exception (Excused/Incomplete/Missing/Late) deletes
-                                score data in Schoology, so the rubric is hidden
-                                while the exception is active — show the label
-                                in its place. */}
-                            {EXCEPTION_LABELS[g.exception] ? (
-                              <div className="text-sm" style={{
-                                padding: '0.5rem 0.75rem',
-                                background: 'var(--bg-subtle)',
-                                border: '1px dashed var(--border)',
-                                borderRadius: 6,
-                                color: 'var(--text-muted)',
-                                fontStyle: 'italic',
-                              }}>
-                                <strong style={{ fontStyle: 'normal', color: 'var(--danger)' }}>{EXCEPTION_LABELS[g.exception]}</strong>
-                                {', rubric hidden because Schoology deletes scores when an exception is set.'}
-                              </div>
-                            ) : (
-                              <CompactRubric topics={g.mastery.topics} />
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                    {g.grade_comment && (
-                      <tr>
-                        <td colSpan={2} className="text-sm text-muted" style={{
-                          paddingTop: '0.25rem', paddingBottom: '0.75rem',
-                          fontStyle: 'italic', borderTop: 'none',
-                        }}>
-                          <span style={{ fontWeight: 600, fontStyle: 'normal', color: 'var(--text-muted)', marginRight: '0.4rem' }}>Comment:</span>
-                          {g.grade_comment}
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
+                    </td>
+                  </tr>
                 );
               })}
             </tbody>
@@ -306,6 +278,22 @@ export default function StudentPage() {
 
   // The student's attempts on linked or combined Schoology tests, by Schoology assignment id.
   const attemptLinks = useAttemptLinks({ studentId: id, reloadKey: dataVersion });
+  // Attached rubrics (full descriptors) for every aligned assignment, one request (#135).
+  // Every assignment is asked about, so an unaligned task's feedback rows come back
+  // too (with this student's row levels only).
+  const rubrics = useAttachedRubrics(
+    (student?.grades || []).map((g) => g.schoology_assignment_id),
+    dataVersion,
+    { studentUid: student?.schoology_uid || null },
+  );
+  // After the page renders: this student's OneDrive copies, a few assignments at a
+  // time, and their submission comment summaries (a background read refreshes them).
+  const workLinks = useStudentWorkLinks(
+    student?.id,
+    (student?.grades || []).filter((g) => g.is_lti_submission).map((g) => g.schoology_assignment_id),
+    dataVersion,
+  );
+  const [commentSummaries, setCommentSummary] = useStudentCommentSummaries(student?.id, dataVersion);
 
   async function handleSave() {
     const updated = await updateStudent(id, preferredVal.trim() || null);
@@ -540,6 +528,11 @@ export default function StudentPage() {
             scales={student.grading_scales}
             studentName={`${displayName} ${student.last_name}`}
             attemptLinks={attemptLinks}
+            rubrics={rubrics}
+            studentId={student.id}
+            workLinks={workLinks}
+            commentSummaries={commentSummaries}
+            onCommentSummary={setCommentSummary}
           />
         );
       })}

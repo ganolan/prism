@@ -9,10 +9,10 @@ vi.mock('./schoology.js', () => ({
 
 import { getDb } from '../db/index.js';
 import {
-  commentDeps, resetCommentCaches, threadFor, refreshAssignment, postComment, deleteComment, studentsToRefresh, CommentError,
+  commentDeps, resetCommentCaches, threadFor, refreshAssignment, refreshStudent, postComment, deleteComment, studentsToRefresh, CommentError,
   postCommentWithFile, commentFile,
 } from './submissionComments.js';
-import { readThread, summariesForCourse } from './submissionCommentStore.js';
+import { readThread, summariesForCourse, summariesForStudent } from './submissionCommentStore.js';
 import { fakeSchoologyWeb } from '../testing/fakeSchoologyWeb.js';
 import { createHash } from 'crypto';
 import { mkdtempSync, writeFileSync } from 'fs';
@@ -153,6 +153,37 @@ describe('refreshAssignment', () => {
     const s = summariesForCourse(db, courseId)['8590105935'];
     expect(s[ana]).toMatchObject({ count: 2, student_text: true });
     expect(s[ben]).toMatchObject({ count: 1, student_text: false });
+  });
+});
+
+describe('refreshStudent (student page, #135)', () => {
+  test('reads one student\'s submitted threads across assignments, never another student\'s', async () => {
+    const db = getDb(); const { courseId, ana } = seed(db);
+    const second = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, '8590105999', 'Pong (F)')`).run(courseId).lastInsertRowid;
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, submitted_at, submission_type) VALUES (?, ?, 1792300000, 'drop')`).run(ana, second);
+    // Not submitted and no cached comments: not read.
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, '8590100000', 'Quiz')`).run(courseId);
+    const job = refreshStudent(db, ana);
+    expect(job.queued).toBe(2);
+    expect(await job.done).toEqual({ refreshed: 2, failed: 0 });
+    expect(commentDeps.getSubmissionComments.mock.calls.map((c) => [c[1], c[2]]).sort())
+      .toEqual([['8590105935', '555'], ['8590105999', '555']]);
+    // Fresh now: nothing queued.
+    expect(refreshStudent(db, ana).queued).toBe(0);
+  });
+
+  test('summariesForStudent keys this student\'s cached summaries by Schoology assignment id', async () => {
+    const db = getDb(); const { ana, ben } = seed(db);
+    await refreshAssignment(db, '8590105935').done;
+    expect(summariesForStudent(db, ana)).toEqual({ 8590105935: expect.objectContaining({ count: 2, student_text: true }) });
+    expect(summariesForStudent(db, ben)['8590105935']).toMatchObject({ count: 1, student_text: false });
+  });
+
+  test('a second call joins the running job', async () => {
+    const db = getDb(); const { ana } = seed(db);
+    const a = refreshStudent(db, ana);
+    expect(refreshStudent(db, ana).joined).toBe(true);
+    await a.done;
   });
 });
 

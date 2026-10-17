@@ -69,6 +69,21 @@ export function summariesForCourse(db, courseId) {
   return out;
 }
 
+// One student's cached summaries across every course (the student page, #135):
+// studentId → { [schoology assignment id]: summary }. Nothing about other students.
+export function summariesForStudent(db, studentId) {
+  const rows = db.prepare(`
+    SELECT r.assignment_id, a.schoology_assignment_id FROM submission_comment_reads r
+    JOIN assignments a ON a.id = r.assignment_id WHERE r.student_id = ?
+  `).all(studentId);
+  const out = {};
+  for (const r of rows) {
+    const t = readThread(db, { assignmentId: r.assignment_id, studentId });
+    out[r.schoology_assignment_id] = { ...t.summary, read_at: t.read_at };
+  }
+  return out;
+}
+
 export function summariesForAssignment(db, assignmentId) {
   const out = {};
   for (const [sid, t] of Object.entries(threadsForAssignment(db, assignmentId))) out[sid] = { ...t.summary, read_at: t.read_at };

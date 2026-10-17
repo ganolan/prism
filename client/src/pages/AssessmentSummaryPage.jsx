@@ -11,6 +11,7 @@ import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import { LEVELS, LEVEL_LABELS, LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
 import { useProficiencyScale } from '../hooks/useProficiencyScale.js';
 import RubricDescriptorGrid from '../components/RubricDescriptorGrid.jsx';
+import { buildDescriptorRows } from '../lib/rubricDescriptorRows.js';
 import ResubmitControl from '../components/ResubmitControl.jsx';
 import RubricManagerModal from '../components/RubricManagerModal.jsx';
 import AiSparkle from '../components/AiSparkle.jsx';
@@ -964,17 +965,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
 
   // Descriptor view: order rows by criterion.position → mapped topic; topics with
   // no criterion fall after. Built only when a rubric is attached.
-  const topicById = Object.fromEntries(topics.map(t => [t.id, t]));
-  const critByTopic = Object.fromEntries((rubric?.topicByCriterion || []).map(m => [m.topic_id, m.criterion_id]));
-  const orderedCrit = (rubric?.criteria || []).slice().sort((a, b) => a.position - b.position);
-  const descriptorRows = [
-    ...orderedCrit.map(c => {
-      const m = (rubric?.topicByCriterion || []).find(x => x.criterion_id === c.id);
-      const tid = m?.topic_id;
-      return tid && topicById[tid] ? { topic: topicById[tid], criterion: c } : null;
-    }).filter(Boolean),
-    ...topics.filter(t => !critByTopic[t.id]).map(t => ({ topic: t, criterion: null })),
-  ];
+  const descriptorRows = buildDescriptorRows(topics, rubric);
   const cellStateFor = (topicId, l) => {
     const currentGrade = student.scores[topicId]?.grade || null;
     const pendingGrade = pending[topicId] ?? null;

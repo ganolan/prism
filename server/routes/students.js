@@ -3,6 +3,9 @@ import { getDb } from '../db/index.js';
 import { getGradingScalesMap } from '../db/scales.js';
 import { arrivedKeys } from '../services/resubmissions.js';
 import { timelineContext } from '../services/submissionTimeline.js';
+import { getAssignmentFilesMany } from '../services/oneDriveLinks.js';
+import { getRoster } from '../services/assessmentContext.js';
+import { matchFilesToRoster } from '../lib/oneDriveSubmissions.js';
 
 const router = Router();
 
@@ -167,6 +170,43 @@ router.get('/:id', (req, res) => {
   ).all(req.params.id);
 
   res.json({ ...student, courses, grades, notes, flags: [...flags, ...requests], parents, grading_scales: getGradingScalesMap() });
+});
+
+// GET /api/students/:id/work-links?assignments=sa1,sa2
+// This student's own OneDrive copy of each listed lti_submission assignment (#120,
+// #135), for the student page: { links: { [aid]: { url, fileName, modifiedAt } | null },
+// status: { [aid]: 'ok' | 'not_lti' | lookup status } }. Files are matched against
+// the whole class (a name shared by two students matches neither), but only this
+// student's link is returned: the page is shown to parents. The client asks for a
+// few assignments at a time after the page renders; they share one browser session.
+const MAX_WORK_LINK_IDS = 10;
+router.get('/:id/work-links', async (req, res) => {
+  const db = getDb();
+  const student = db.prepare('SELECT * FROM students WHERE id = ?').get(req.params.id);
+  if (!student) return res.status(404).json({ error: 'Student not found' });
+  const ids = [...new Set(String(req.query.assignments || '').split(',').map((s) => s.trim()).filter(Boolean))]
+    .slice(0, MAX_WORK_LINK_IDS);
+  const rows = ids.length ? db.prepare(`
+    SELECT a.*, c.schoology_section_id FROM assignments a
+    JOIN courses c ON c.id = a.course_id
+    JOIN enrolments e ON e.course_id = c.id AND e.student_id = ? AND e.dropped_at IS NULL
+    WHERE a.is_lti_submission = 1 AND a.schoology_assignment_id IN (${ids.map(() => '?').join(',')})
+  `).all(student.id, ...ids) : [];
+
+  const links = {};
+  const status = Object.fromEntries(ids.map((id) => [id, 'not_lti']));
+  if (rows.length && student.schoology_uid) {
+    const results = await getAssignmentFilesMany(rows.map((r) => ({ sectionId: r.schoology_section_id, assignmentId: r.schoology_assignment_id })));
+    for (const r of rows) {
+      const aid = r.schoology_assignment_id;
+      const result = results.get(`${r.schoology_section_id}:${aid}`) || { status: 'error' };
+      status[aid] = result.status;
+      links[aid] = result.status === 'ok'
+        ? matchFilesToRoster(result.files, getRoster(db, r.course_id, r), result.origin)[student.schoology_uid] || null
+        : null;
+    }
+  }
+  res.json({ links, status });
 });
 
 // PUT /api/students/:id — update editable fields

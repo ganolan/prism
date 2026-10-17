@@ -1315,3 +1315,12 @@ The /assessment/ filter used to be one row of descriptive pills: OR within a gro
 - **Panel order is by urgency:** Unfinished grading on top whenever it has rows (quick fixes, a standing reminder), then the clocked panels by their most urgent row (red, then amber, then the rest), keeping make-up tests, late work, resubmissions, feedback owed within a level (`orderPanels` in `TriageSection.jsx`). An overdue Feedback owed no longer needs a scroll.
 - **Resubmissions show whatever the type:** an arrival is the student answering the teacher's feedback, so a response is owed on formative work too. The Feedback owed Formative tick now affects Feedback owed only.
 - **Assessment page rows toggle as a group:** the "Needs action:" / "Watch:" label is a button (text-styled, accent while the whole row is on) that selects every pill in its row, or clears the row. A reason pill shows only while some student has it, even when a link selected it.
+
+## Submission comments (October 2026)
+
+A student's Schoology submission comment thread, read in Prism (spec `docs/superpowers/specs/2026-10-17-submission-comments-design.md`; mock approved by Graham 17/10/2026). Students often type their answers in the comment box, so their own text must stand out from Schoology's automatic lines.
+
+- **Card chip:** a comment bubble with the count in the card header, after the quiz line (`.comment-chip`). It shows even before a read (outlined, no number) so any thread can be opened. An amber **Wrote in comments** badge (`.comment-wrote`) follows when a student comment holds their own text. On a phone the badge is hidden and the chip itself turns amber (`.comment-chip--wrote`), because the header has no room.
+- **Gradebook cell:** a 16px bubble (`.comment-dot`) after the badges, only when the cache holds comments; amber when the student wrote text. The gradebook reads the cache only.
+- **Popover (`.comment-pop`):** fixed and portalled to the body, so no card or table clips it; Escape or a click outside closes it. Oldest first, author and `formatDateTime` date per comment. "Revision N submitted" lines are faint italic (`.comment-auto`); student text is an amber block labelled **Student wrote** (`.comment-student-text`); teacher text is plain. The foot states when the thread was read, with Refresh.
+- **Writes confirm inline:** Post comment and Delete each open a red confirmation (`.comment-confirm`) naming the student, because a post reaches the student at once. Delete appears only on your own comments.

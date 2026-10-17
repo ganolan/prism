@@ -1352,6 +1352,44 @@ button.ghost.sync-run-row {
 .sync-run-line-error { color: var(--danger); background: var(--error-light); font-weight: 600; }
 .sync-run-line-warning { color: var(--warning); }
 
+/* Submission comments (SubmissionComments.jsx): the bubble chip on the assessment
+   card, the dot in a gradebook cell, and the thread popover. Amber = the student
+   typed their own text; faint italic = Schoology's automatic Revision lines. */
+.comment-chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--accent); background: var(--accent-subtle); color: var(--accent); border-radius: 999px; padding: 2px 9px; font-size: 0.72rem; font-weight: 600; cursor: pointer; flex-shrink: 0; }
+.comment-chip[aria-expanded="true"] { background: var(--accent); color: var(--card-bg); }
+.comment-chip--empty { border-color: var(--border); background: var(--card-bg); color: var(--text-muted); }
+.comment-bubble-icon { width: 13px; height: 13px; }
+.comment-wrote { background: var(--badge-amber-bg); color: var(--badge-amber-text); border-radius: 999px; padding: 2px 8px; font-size: 0.7rem; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
+.comment-dot { width: 16px; height: 16px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--accent-subtle); color: var(--accent); border: 0; padding: 0; cursor: pointer; vertical-align: middle; margin-left: 3px; }
+.comment-dot .comment-bubble-icon { width: 10px; height: 10px; }
+.comment-dot--wrote { background: var(--badge-amber-bg); color: var(--badge-amber-text); }
+.comment-pop { position: fixed; z-index: 1300; display: flex; flex-direction: column; background: var(--card-bg); color: var(--text); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18); font-size: 0.8rem; text-align: left; }
+.comment-pop-head { display: flex; align-items: baseline; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.comment-pop-head strong { font-size: 0.85rem; }
+.comment-pop-title { color: var(--text-muted); font-size: 0.75rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.comment-pop-head button { margin-left: auto; }
+.comment-thread { list-style: none; margin: 0; padding: 6px 0; overflow-y: auto; min-height: 0; flex: 1 1 auto; }
+.comment-item { padding: 8px 14px; display: grid; gap: 4px; }
+.comment-item + .comment-item { border-top: 1px dashed var(--border); }
+.comment-muted { color: var(--text-muted); }
+.comment-meta { display: flex; gap: 8px; align-items: baseline; font-size: 0.75rem; }
+.comment-meta b { font-weight: 600; }
+.comment-meta time { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.comment-del { margin-left: auto; padding: 1px 6px; font-size: 0.72rem; }
+.comment-auto { color: var(--text-muted); opacity: 0.75; font-size: 0.75rem; font-style: italic; }
+.comment-student-text { border-left: 3px solid var(--badge-amber-text); background: var(--badge-amber-bg); border-radius: 0 6px 6px 0; padding: 6px 10px; line-height: 1.45; white-space: pre-line; overflow-wrap: anywhere; }
+.comment-student-tag { display: block; font-size: 0.66rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--badge-amber-text); margin-bottom: 2px; }
+.comment-text { line-height: 1.45; white-space: pre-line; overflow-wrap: anywhere; }
+.comment-compose { border-top: 1px solid var(--border); padding: 10px 14px; display: grid; gap: 8px; }
+.comment-label { font-size: 0.7rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.comment-compose textarea { width: 100%; min-height: 60px; resize: vertical; font-size: 0.8rem; }
+.comment-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.comment-post { margin-left: auto; }
+.comment-confirm { background: var(--danger-bg); color: var(--badge-red-text); border-radius: 6px; padding: 8px 10px; font-size: 0.78rem; display: grid; gap: 6px; }
+.comment-error { margin: 0; font-size: 0.75rem; }
+.comment-pop-foot { border-top: 1px solid var(--border); padding: 6px 14px; color: var(--text-muted); font-size: 0.7rem; display: flex; gap: 8px; align-items: center; }
+.comment-pop-foot button { margin-left: auto; }
+
 /* ========================================================================
    PHONE LAYOUT
    Below 768px the fixed sidebar becomes a drawer behind a top-bar menu
@@ -1360,6 +1398,11 @@ button.ghost.sync-run-row {
    inside its table rather than widening the page.
    ======================================================================== */
 @media (max-width: 768px) {
+  /* Submission comments: the card header has no room for the "Wrote in comments"
+     badge, so the bubble chip itself turns amber instead. */
+  .comment-wrote { display: none; }
+  .comment-chip--wrote { border-color: var(--badge-amber-text); background: var(--badge-amber-bg); color: var(--badge-amber-text); }
+
   .app { flex-direction: column; }
 
   .mobile-topbar {

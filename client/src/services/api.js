@@ -321,3 +321,18 @@ export const saveFrqMark = (groupId, attemptId, position, body) =>
   request(`/quizzes/${groupId}/frq/${attemptId}/${position}`, { method: 'PUT', body: JSON.stringify(body) });
 export const getAttemptLinks = ({ assignmentId, studentId }) =>
   request(`/quizzes/attempt-links?${studentId ? `student_id=${studentId}` : `assignment_id=${assignmentId}`}`);
+
+// Submission comment threads (spec 2026-10-17-submission-comments-design.md).
+// assignmentId is the Schoology (or local) assignment id; studentId the local id.
+export const getSubmissionCommentThread = (assignmentId, studentId, { refresh = false } = {}) =>
+  request(`/submission-comments/${assignmentId}/${studentId}${refresh ? '?refresh=1' : ''}`);
+export const postSubmissionComment = (assignmentId, studentId, text) =>
+  request(`/submission-comments/${assignmentId}/${studentId}`, { method: 'POST', body: JSON.stringify({ text }) });
+export const deleteSubmissionComment = (assignmentId, studentId, commentId) =>
+  request(`/submission-comments/${assignmentId}/${studentId}/${commentId}`, { method: 'DELETE' });
+// Badges for one assignment, keyed by student id; also queues a background read
+// of its submitted cells unless refresh is false.
+export const getAssignmentCommentSummaries = (assignmentId, { refresh = true } = {}) =>
+  request(`/submission-comments/assignment/${assignmentId}${refresh ? '' : '?refresh=0'}`);
+// Cached badges for a course: { assignments: { [schoology aid]: { [student id]: summary } } }.
+export const getCourseCommentSummaries = (courseId) => request(`/submission-comments/course/${courseId}`);

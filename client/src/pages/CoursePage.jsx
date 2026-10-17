@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, triggerMasterySync, triggerMasteryLogin, getSubmissionLinks, getTriage, setMakeUpIgnored, getQuizGroups } from '../services/api.js';
+import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, triggerMasterySync, triggerMasteryLogin, getSubmissionLinks, getTriage, setMakeUpIgnored, getQuizGroups, getCourseCommentSummaries } from '../services/api.js';
 import AnalyticsView from '../components/AnalyticsView.jsx';
 import OverridePopup from '../components/OverridePopup.jsx';
 import TriageSection from '../components/triage/TriageSection.jsx';
@@ -25,6 +25,7 @@ import QuizChip from '../components/quiz/QuizChip.jsx';
 import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
 import { formatDateTime } from '../lib/formatDate.js';
 import SubmissionTimeline from '../components/SubmissionTimeline.jsx';
+import SubmissionComments from '../components/SubmissionComments.jsx';
 import { timelineSummary } from '../lib/submissionTimeline.js';
 import { DEFAULT_TYPE_FILTER, isUnpublished, passesTypeFilter, typeFilterCounts } from '../lib/assessmentTypeFilter.js';
 
@@ -852,6 +853,24 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
   // Floating header popover (#37): full assessment title, the formative/
   // summative legend, or the full due date. { left, top, width, content }.
   const [popover, setPopover] = useState(null);
+  // Cached submission comment badges ({ [schoology aid]: { [student id]: summary } });
+  // the gradebook starts no reads of its own. null = feature off or unreachable.
+  const [commentSums, setCommentSums] = useState(null);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve().then(() => getCourseCommentSummaries(courseId))
+      .then((r) => { if (live) setCommentSums(r?.assignments || {}); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [courseId]);
+  const commentBubble = (a, s) => commentSums && (
+    <SubmissionComments variant="cell" assignmentId={a.schoology_assignment_id} studentId={s.id}
+      studentName={preferredFirstName(s)} title={a.title}
+      summary={commentSums[a.schoology_assignment_id]?.[s.id] || null}
+      onSummary={(sum) => setCommentSums((prev) => ({
+        ...prev, [a.schoology_assignment_id]: { ...(prev?.[a.schoology_assignment_id] || {}), [s.id]: sum },
+      }))} />
+  );
 
   if (!data || !data.assignments.length) {
     return <div className="card"><p className="text-muted">No assignments yet.</p></div>;
@@ -1097,6 +1116,7 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                           {SHORT_BADGE[b.kind] || b.label[0]}
                         </span>
                       ))}
+                      {commentBubble(a, s)}
                     </td>
                   );
                 }
@@ -1209,6 +1229,7 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                         {SHORT_BADGE[b.kind] || b.label[0]}
                       </span>
                     ))}
+                    {commentBubble(a, s)}
                   </td>
                 );
               })}

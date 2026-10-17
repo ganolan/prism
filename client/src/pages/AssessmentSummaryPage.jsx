@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, Link, useSearchParams, Navigate, useLocation } from 'react-router-dom';
-import { getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, getTriagePair, loadQuizResults, rebuildQuizOverall, saveRowLevels } from '../services/api.js';
+import { getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, getTriagePair, loadQuizResults, rebuildQuizOverall, saveRowLevels, getAssignmentCommentSummaries } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 import { feedbackRowTopics, rowScores, rowTopicMapping, isRowKey, rowName } from '../lib/feedbackRows.js';
 import { makeDraftSaver } from '../lib/assessmentDraftSaver.js';
@@ -27,6 +27,7 @@ import { useQuizGroup } from '../hooks/useQuizGroup.js';
 import { useQuizResults } from '../hooks/useQuizResults.js';
 import SubmissionStatusPill from '../components/SubmissionStatusPill.jsx';
 import SubmissionTimeline from '../components/SubmissionTimeline.jsx';
+import SubmissionComments from '../components/SubmissionComments.jsx';
 import ExtendControl from '../components/ExtendControl.jsx';
 import ReferControl from '../components/ReferControl.jsx';
 import ScaleLevelPicker from '../components/ScaleLevelPicker.jsx';
@@ -158,7 +159,7 @@ function HeaderPill({ active, accent, activeBg, activeText, icon, label, clearLa
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
-export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, attemptLink = null, quizResult = null, onRebuildQuiz = null, scoreScale = null, resubmitLessonsDefault = 3, resubmitEnabled = true, highlight = false, reasons = [], onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
+export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, attemptLink = null, quizResult = null, onRebuildQuiz = null, commentsEnabled = false, commentSummary = null, onCommentSummary = null, scoreScale = null, resubmitLessonsDefault = 3, resubmitEnabled = true, highlight = false, reasons = [], onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
   const scale = useProficiencyScale();
   // The card's action-panel row (ActionPanel portals into it).
   const [panelHost, setPanelHost] = useState(null);
@@ -1055,6 +1056,13 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         <AttemptLink link={attemptLink} name={displayName(student)} />
         {/* The student's quiz numbers on a linked result task (linked quizzes, phase 3). */}
         <QuizResultLine result={quizResult} onRebuild={() => onRebuildQuiz(student.id)} />
+        {/* The student's Schoology submission comment thread (2026-10-17): students
+            often type their answers in the comment box. */}
+        {commentsEnabled && (
+          <SubmissionComments assignmentId={assignmentId} studentId={student.id} studentName={displayName(student)}
+            title={assignmentRow?.title} summary={commentSummary}
+            onSummary={(s) => onCommentSummary?.(student.id, s)} />
+        )}
         {saveResult === 'saved' && (
           <span className="badge badge-green" style={{ fontSize: '0.68rem' }}>Saved ✓</span>
         )}
@@ -1876,6 +1884,8 @@ export default function AssessmentSummaryPage() {
   // Per-student OneDrive work links for lti_submission assignments (#120).
   // Loaded after the page (the server drives a browser, so it takes seconds).
   const [workLinks, setWorkLinks] = useState({ status: null, links: {} });
+  const [commentSummaries, setCommentSummaries] = useState(null);
+  const commentPoll = useRef(null);
   // Bumped per lookup; a response for a superseded lookup (e.g. the teacher
   // moved to another assignment mid-fetch) is dropped, so a card can never
   // link to a different assignment's file.
@@ -2174,6 +2184,29 @@ export default function AssessmentSummaryPage() {
 
   useEffect(load, [courseId, assignmentId, dataVersion]);
 
+  // Submission comment badges. The first read also queues a background read of
+  // the submitted cells; one later re-read picks up what it found. null = the
+  // feature is off or unreachable, so no chips show.
+  function loadCommentSummaries(refresh) {
+    Promise.resolve().then(() => getAssignmentCommentSummaries(assignmentId, { refresh }))
+      .then((r) => {
+        setCommentSummaries(r.students || {});
+        if (refresh && r.refresh?.queued > 0) {
+          clearTimeout(commentPoll.current);
+          commentPoll.current = setTimeout(() => loadCommentSummaries(false), Math.min(60000, r.refresh.queued * 700 + 2000));
+        }
+      })
+      .catch(() => {});
+  }
+  useEffect(() => {
+    setCommentSummaries(null);
+    loadCommentSummaries(true);
+    return () => clearTimeout(commentPoll.current);
+  }, [assignmentId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const handleCommentSummary = useCallback((studentId, summary) => {
+    setCommentSummaries((prev) => ({ ...(prev || {}), [studentId]: summary }));
+  }, []);
+
   const isLti = !!data?.assignment?.is_lti_submission;
   useEffect(() => {
     workLinksReq.current++;
@@ -2430,6 +2463,9 @@ export default function AssessmentSummaryPage() {
               attemptLink={attemptLinks[student.id] || null}
               quizResult={quizResults[student.id] || null}
               onRebuildQuiz={handleRebuildQuiz}
+              commentsEnabled={commentSummaries !== null}
+              commentSummary={commentSummaries?.[student.id] || null}
+              onCommentSummary={handleCommentSummary}
               scoreScale={scoreScale}
               resubmitLessonsDefault={resubmitLessonsDefault}
               resubmitEnabled={!data.course?.archived && !data.course?.excluded}

@@ -199,8 +199,9 @@ export const triggerMasterySync = (courseId) => request(`/mastery/sync/${courseI
 export const getMasteryForCourse = (courseId) => request(`/mastery/${courseId}`);
 export const getMasteryForStudent = (courseId, studentUid) => request(`/mastery/${courseId}/student/${studentUid}`);
 export const getMasteryForAssignment = (courseId, assignmentId) => request(`/mastery/${courseId}/assignment/${assignmentId}`);
-// Links to each student's OneDrive copy of an lti_submission assignment (#120).
-// Slow-ish (the server drives a browser) — load it after the page, not with it.
+// Links to each student's own copy of an lti_submission assignment: OneDrive
+// (#120) or Google Drive (#142), the provider named on each link. Slow-ish for
+// OneDrive (the server drives a browser), so load it after the page, not with it.
 export const getSubmissionLinks = (courseId, assignmentId, { refresh = false } = {}) =>
   request(`/mastery/${courseId}/assignment/${assignmentId}/submission-links${refresh ? '?refresh=1' : ''}`);
 export const syncMasteryForAssignment =(courseId, assignmentId) => request(`/mastery/${courseId}/assignment/${assignmentId}/sync`, { method: 'POST' });

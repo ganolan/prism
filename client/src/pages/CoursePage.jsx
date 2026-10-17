@@ -23,7 +23,7 @@ import SchoologyLink from '../components/SchoologyLink.jsx';
 import AttemptLink from '../components/quiz/AttemptLink.jsx';
 import QuizChip from '../components/quiz/QuizChip.jsx';
 import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
-import { formatDateTime } from '../lib/formatDate.js';
+import { workLinkText } from '../lib/workLink.js';
 import SubmissionTimeline from '../components/SubmissionTimeline.jsx';
 import SubmissionComments from '../components/SubmissionComments.jsx';
 import { timelineSummary } from '../lib/submissionTimeline.js';
@@ -635,7 +635,7 @@ function MiniRubricStrip({ topics, onClick }) {
 export function RubricModal({ student, assignment, courseId, topics, comment, grade, timeline = null, onClose }) {
   const name = preferredFirstName(student);
   const fullName = `${name} ${student.last_name}`;
-  // The student's own OneDrive copy (#120), looked up when the modal opens —
+  // The student's own OneDrive (#120) or Google Drive (#142) copy, looked up when the modal opens —
   // the whole assignment's links come back (cached server-side), keep ours.
   const [workLink, setWorkLink] = useState(null);
   useEffect(() => {
@@ -698,14 +698,14 @@ export function RubricModal({ student, assignment, courseId, topics, comment, gr
               marginBottom: '0.85rem',
             }}>
               <SubmissionBadges status={status} flags={flags} resubmitted={grade.resubmitted} />
-              {/* The student's own work — in progress or submitted (#120). The
-                  assignment's Schoology page is on the gradebook column header. */}
+              {/* The student's own work: OneDrive in progress or submitted (#120),
+                  Google Drive once submitted (#142). The assignment's Schoology
+                  page is on the gradebook column header. */}
               {workLink && (
                 <SchoologyLink
                   url={workLink.url}
                   label="Open"
-                  ariaLabel={`Open ${fullName}'s work in OneDrive`}
-                  title={`Open ${fullName}'s work in OneDrive: last edited ${formatDateTime(workLink.modifiedAt)}`}
+                  {...workLinkText(workLink, fullName)}
                   style={{ fontSize: '0.78rem', fontWeight: 600 }}
                 />
               )}

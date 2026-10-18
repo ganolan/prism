@@ -467,6 +467,10 @@ export async function syncMasteryForCourse(courseId, { onProgress } = {}) {
       grade = excluded.grade,
       synced_at = excluded.synced_at
   `);
+  const deleteScore = db.prepare(`
+    DELETE FROM mastery_scores
+    WHERE assignment_schoology_id = ? AND topic_id = ? AND student_uid = ?
+  `);
 
   let categoriesCount = 0;
   let topicsCount = 0;
@@ -486,8 +490,13 @@ export async function syncMasteryForCourse(courseId, { onProgress } = {}) {
         const uid = String(obs.student_uid);
         const assignId = String(obs.gradeable_material?.material_id);
         const points = obs.points ?? null;
-        const grade = points !== null ? pointsToLevel(points) : null;
-        upsertScore.run(uid, assignId, topic.id, points, grade, now);
+        // No level (cleared in Schoology): keep no row, as syncMasteryForAssignment does.
+        // An empty row counts as a level in every grading-state count.
+        if (points === null) {
+          deleteScore.run(assignId, topic.id, uid);
+          continue;
+        }
+        upsertScore.run(uid, assignId, topic.id, points, pointsToLevel(points), now);
         scoresCount++;
       }
     }

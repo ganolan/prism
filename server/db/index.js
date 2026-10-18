@@ -196,6 +196,15 @@ export function purgeStudentScopedFlags(database) {
   database.exec(`DELETE FROM flags WHERE assignment_id IS NULL`);
 }
 
+// Remove mastery score rows with no level. The full mastery sync stored an
+// observation with null points as an empty row (the assignment refresh already
+// deleted them), and every grading-state count took such a row as a level: a
+// student with a comment and no levels showed as Graded, not Partially graded.
+// Idempotent: safe to run on every boot.
+export function purgeEmptyMasteryScores(database) {
+  database.exec(`DELETE FROM mastery_scores WHERE points IS NULL`);
+}
+
 // Issue #56: flip existing template-pattern courses (no course_code AND no
 // section_school_code) to excluded=1 so the next sync skips them without
 // requiring user action. Idempotent — the predicate filters to rows that
@@ -310,6 +319,7 @@ export function migrate(database) {
   // Data purges — independent of each other; order does not matter.
   purgeLegacyAutoFlags(database);
   purgeStudentScopedFlags(database);
+  purgeEmptyMasteryScores(database);
   backfillExcludedCourses(database);
   backfillFirstSubmittedAt(database);
   migrateResubmitFlags(database);

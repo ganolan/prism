@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { migrate, migrateMasteryRollupsPk, migrateResubmitFlags, purgeLegacyAutoFlags, purgeStudentScopedFlags } from './index.js';
+import { migrate, migrateMasteryRollupsPk, migrateResubmitFlags, purgeEmptyMasteryScores, purgeLegacyAutoFlags, purgeStudentScopedFlags } from './index.js';
 
 function seedFlag(db, studentId, flagType) {
   db.prepare(
@@ -59,6 +59,19 @@ describe('purgeLegacyAutoFlags', () => {
     const afterFirst = flagTypes(db);
     purgeLegacyAutoFlags(db);
     expect(flagTypes(db)).toEqual(afterFirst);
+  });
+});
+
+describe('purgeEmptyMasteryScores', () => {
+  test('deletes score rows with no level and keeps real ones', () => {
+    const db = new Database(':memory:');
+    migrate(db);
+    db.prepare(`INSERT INTO measurement_topics (id, title) VALUES ('t1', 'A'), ('t2', 'B')`).run();
+    const ins = db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES (?, '900', ?, ?, ?)`);
+    ins.run('701', 't1', null, null);
+    ins.run('701', 't2', 75, 'Exhibiting');
+    purgeEmptyMasteryScores(db);
+    expect(db.prepare('SELECT topic_id FROM mastery_scores').all()).toEqual([{ topic_id: 't2' }]);
   });
 });
 

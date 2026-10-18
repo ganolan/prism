@@ -74,6 +74,18 @@ describe('syncMasteryForCourse over plain HTTP', () => {
     expect((await sessionStatus({ check: false, hasSession: () => true })).live).toBe('connected');
   });
 
+  test('an observation with no level (points null) stores no score row and clears an old one', async () => {
+    // An empty row counted as a level, so a comment-only student showed as Graded, not Partially graded.
+    db.prepare(`INSERT INTO measurement_topics (id, title) VALUES ('t1', 'Topic')`).run();
+    db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('701', '900', 't1', 75, 'Exhibiting')`).run();
+    useWeb(routes({
+      [`POST ${BASE}/api/material-observations/search`]: { json: { data: [{ objective_id: 't1', student_uid: 701, points: null, gradeable_material: { material: { id: 900 } } }] } },
+    }));
+    const r = await syncMasteryForCourse(5);
+    expect(r.scoresCount).toBe(0);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM mastery_scores').get().n).toBe(0);
+  });
+
   test('a non-2xx API answer fails the read as the in-page fetch did ("HTTP 500 for …")', async () => {
     useWeb(routes({ [`${BASE}/api/aligned-objectives`]: { status: 500, text: '' } }));
     await expect(syncMasteryForCourse(5)).rejects.toThrow(/HTTP 500 for .*aligned-objectives/);

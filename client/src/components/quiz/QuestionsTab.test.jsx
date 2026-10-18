@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import QuestionsTab from './QuestionsTab.jsx';
-import { getQuizStats, setQuizTags } from '../../services/api.js';
+import { getQuizStats, setQuizTags, getTagResults } from '../../services/api.js';
 
-vi.mock('../../services/api.js', () => ({ getQuizStats: vi.fn(), setQuizTags: vi.fn() }));
+vi.mock('../../services/api.js', () => ({ getQuizStats: vi.fn(), setQuizTags: vi.fn(), getTagResults: vi.fn() }));
 
 const STATS = {
   takers: 18, classSize: 19,
@@ -22,7 +22,11 @@ const STATS = {
   ],
 };
 
-beforeEach(() => { vi.clearAllMocks(); getQuizStats.mockResolvedValue(STATS); });
+const TAG_RESULTS = { course_id: 3, tag: 'CRD-2.G', text: 'Describe the purpose of a code segment.', overall: { correct: 10, total: 18, percent: 56 },
+  tests: [{ group_id: 7, title: 'Ep 1', date: '2026-09-20', takers: 18, correct: 10, total: 18, percent: 56, questions: [{ position: 4, correct: 10, total: 18, percent: 56 }] }],
+  students: [], courseTags: ['CRD-2.G'] };
+
+beforeEach(() => { vi.clearAllMocks(); getQuizStats.mockResolvedValue(STATS); getTagResults.mockResolvedValue(TAG_RESULTS); });
 
 describe('QuestionsTab', () => {
   it('shows takers, the MCQ median, the tag rollup and FRQ levels', async () => {
@@ -202,5 +206,34 @@ describe('QuestionsTab', () => {
     render(<QuestionsTab groupId={7} />);
     const table = await screen.findByRole('table', { name: 'By tag' });
     expect(within(table).getByRole('img', { name: '56% correct' })).toBeInTheDocument();
+  });
+
+  it('a tag in the By tag table opens its course-wide results, and Close shuts them', async () => {
+    render(<QuestionsTab groupId={7} courseId={3} />);
+    const table = await screen.findByRole('table', { name: 'By tag' });
+    const tag = within(table).getByRole('button', { name: 'CRD-2.G' });
+    expect(tag).toHaveAttribute('title', 'Describe the purpose of a code segment.\nOpen this tag across the course');
+    fireEvent.click(tag);
+    const dialog = screen.getByRole('dialog', { name: 'CRD-2.G across the course' });
+    expect(getTagResults).toHaveBeenCalledWith(3, 'CRD-2.G');
+    expect(await within(dialog).findByRole('table', { name: 'By test' })).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(tag).toHaveFocus();
+  });
+
+  it("a tag on a question row opens the drawer without opening the question", async () => {
+    render(<QuestionsTab groupId={7} courseId={3} />);
+    const row = (await screen.findAllByTestId('question-row'))[1];
+    fireEvent.click(within(row).getByRole('button', { name: 'CRD-2.G' }));
+    expect(screen.getByRole('dialog', { name: 'CRD-2.G across the course' })).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'Q4' })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('without a course the tags are plain text', async () => {
+    render(<QuestionsTab groupId={7} />);
+    const table = await screen.findByRole('table', { name: 'By tag' });
+    expect(within(table).queryByRole('button', { name: 'CRD-2.G' })).toBeNull();
+    expect(within(table).getByText('CRD-2.G')).toBeInTheDocument();
   });
 });

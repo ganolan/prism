@@ -134,6 +134,17 @@ describe('/api/quizzes', () => {
     expect((await call('GET', `/api/quizzes/${id}/stats`)).status).toBe(404);
   });
 
+  test('GET /tag-results: one tag across the course; a missing tag is 400, an unknown course 404', async () => {
+    const id = (await call('POST', '/api/quizzes', { course_id: course, assignment_ids: ['900'], title: 'T' })).body.group.id;
+    await call('PUT', `/api/quizzes/${id}/tags`, { tags: { 1: ['AAP-1.A'] }, texts: { 'AAP-1.A': 'Represent a value with a variable.' } });
+    const r = await call('GET', `/api/quizzes/tag-results?course_id=${course}&tag=${encodeURIComponent('AAP-1.A')}`);
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ tag: 'AAP-1.A', text: 'Represent a value with a variable.', courseTags: ['AAP-1.A'] });
+    expect(r.body.tests).toEqual([expect.objectContaining({ group_id: id, title: 'T', takers: 0, percent: null })]);
+    expect((await call('GET', `/api/quizzes/tag-results?course_id=${course}`)).status).toBe(400);
+    expect((await call('GET', '/api/quizzes/tag-results?course_id=99999&tag=X')).status).toBe(404);
+  });
+
   test('PUT /:id/template saves, refuses an unknown placeholder with 400', async () => {
     const id = (await call('POST', '/api/quizzes', { course_id: course, assignment_ids: ['900'], title: 'T' })).body.group.id;
     const ok = await call('PUT', `/api/quizzes/${id}/template`, { template: '{impression}' });

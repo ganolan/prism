@@ -316,6 +316,7 @@ export const linkQuizResult = (groupId, resultAssignmentId) =>
 export const deleteQuizGroup = (groupId) => request(`/quizzes/${groupId}`, { method: 'DELETE' });
 export const loadQuizResults = (groupId) => request(`/quizzes/${groupId}/load`, { method: 'POST' });
 export const getQuizStats = (groupId) => request(`/quizzes/${groupId}/stats`);
+export const getTagResults = (courseId, tag) => request(`/quizzes/tag-results?course_id=${courseId}&tag=${encodeURIComponent(tag)}`);
 export const setQuizTags = (groupId, tags, texts) => request(`/quizzes/${groupId}/tags`, { method: 'PUT', body: JSON.stringify({ tags, texts }) });
 export const setQuizTemplate = (groupId, template) => request(`/quizzes/${groupId}/template`, { method: 'PUT', body: JSON.stringify({ template }) });
 export const getQuizResults = (groupId) => request(`/quizzes/${groupId}/results`);

@@ -1156,6 +1156,29 @@ button.triage-panel__more { padding: 0.15rem 0.4rem; font-size: 0.75rem; font-we
 .level-bar__legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 0.68rem; color: var(--text-muted); }
 .level-bar__legend > span { display: inline-flex; align-items: center; gap: 4px; }
 .level-bar__swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+/* Tag drawer (#139): a tag on the Questions tab is a button that opens the tag across every
+   quiz group in the course, in a drawer from the right so the quiz stays in view beside it. */
+.tag-btn { border: 0; background: none; font: inherit; color: inherit; cursor: pointer; }
+.tag-btn:not(.badge) { padding: 0; }
+.tag-btn.badge { box-shadow: inset 0 0 0 1px var(--border); }
+.tag-btn:hover, .tag-btn:focus-visible { color: var(--accent); text-decoration: underline; }
+.tag-btn.badge:hover, .tag-btn.badge:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
+.tag-drawer__backdrop { position: fixed; inset: 0; z-index: 1000; background: rgba(0, 0, 0, 0.35); display: flex; justify-content: flex-end; animation: fadeIn 0.2s ease; }
+.tag-drawer { width: min(720px, 100%); height: 100%; box-sizing: border-box; overflow-y: auto; background: var(--card-bg); padding: 1.25rem; box-shadow: -8px 0 32px rgba(0, 0, 0, 0.2); display: flex; flex-direction: column; gap: 0.6rem; animation: tagDrawerIn 0.2s ease; }
+@keyframes tagDrawerIn { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+.tag-drawer > * { flex-shrink: 0; }
+.tag-drawer__head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.tag-drawer__title { margin: 0; font-size: 1.1rem; }
+.tag-drawer__picker { display: flex; align-items: center; gap: 0.5rem; color: var(--text-muted); }
+.tag-drawer__picker select { width: auto; max-width: 100%; }
+.tag-drawer__q { white-space: nowrap; }
+.tag-drawer__text { margin: 0; color: var(--text-muted); }
+.tag-drawer__total { margin: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tag-drawer__section { margin: 0.6rem 0 0; font-size: 0.9rem; }
+.tag-drawer__scroll { overflow-x: auto; }
+.tag-drawer__table { width: 100%; }
+.tag-drawer__table th[title] { cursor: help; }
+.tag-drawer__current td { font-weight: 600; }
 /* Free response tab (linked quizzes phase 2): the stored Schoology rubric as level buttons. */
 .frq-grid { border-collapse: collapse; width: 100%; table-layout: fixed; font-size: 0.74rem; }
 .frq-grid td, .frq-grid th { border: 1px solid var(--border); padding: 0; vertical-align: top; }
@@ -1629,4 +1652,7 @@ button.cell-open:focus-visible { outline: 2px solid var(--accent); outline-offse
   .feedback-modal-overlay { align-items: flex-end; padding: 0; }
   .feedback-modal, .feedback-modal--wide { max-width: none; max-height: 92vh; border-radius: 12px 12px 0 0; }
   .assignment-feedback__rubric--descriptors > table { min-width: 640px; }
+  /* Tag drawer (#139): the whole screen; Close is a full fingertip target. */
+  .tag-drawer { padding: 1rem; }
+  .tag-drawer__head .ghost { min-height: 44px; }
 }

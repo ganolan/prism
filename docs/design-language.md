@@ -1327,6 +1327,17 @@ A student's Schoology submission comment thread, read in Prism (spec `docs/super
 - **Attach file:** a secondary button beside Post comment; the chosen file shows as a chip with Remove (`.comment-file`), and the confirmation names it.
 - **Writes confirm inline:** Post comment and Delete each open a red confirmation (`.comment-confirm`) naming the student, because a post reaches the student at once. Delete appears only on your own comments.
 
+## Native dropbox files (October 2026, #107)
+
+A student's own Schoology uploads, every revision, for tasks that take files in Schoology rather than OneDrive.
+
+- **Chip, not a list:** a paperclip chip (`.comment-chip .files-chip`) beside the status pill (where an OneDrive task shows its "Open" link), shown only when the sync saw a native upload (`hasNativeSubmission`: not OneDrive, not a test, `submission_type` "drop"). It reuses the comment chip so the two read as one family. Before a read it says **Files** (outlined); after, **3 files** (filled) or **No files** (outlined). The page reads cached counts only, so no chip costs a Schoology call until it is opened.
+- **Popover:** the comment popover's frame (`.comment-pop`), titled **Submitted files**. Revisions newest first, each headed **Revision N** with its `formatDateTime` time and small tags (`.files-tag`): **Latest** (only when there are two or more), **Late** (amber, `.files-tag--late`), **Draft**. Each file is a chip with its size (`.comment-file`) and a quiet **Download** link beside it (`.files-download`). A file Prism can show is a button chip (`.files-view`) that opens the viewer; any other file is a plain chip.
+- **Viewer (`FileViewer`, `.file-viewer`):** a lightbox above the popover (and above the gradebook pop-up): a dark scrim, a white panel whose head holds the file name, "Student, revision N", a short note and **Download** + **Close**; the body is the image, video (native controls) or PDF (an iframe in the browser's own viewer), sized to the window. Escape or a click on the scrim closes the viewer only, back to the list. On a phone it fills the screen.
+- **Which copy:** a video plays its original first (H.264 `.mov` plays in Chrome too), falls back to Schoology's converted `.mp4` if the browser cannot play it, and the note offers the other copy ("Play Schoology's converted copy" / "Play the original"), because the copy is much smaller and lower in resolution. A `.docx`, `.html` or similar shows Schoology's PDF copy, noted as such; an image the browser cannot show (HEIC outside Safari) falls back to its PDF copy or says to download it. The foot of the popover states when the list was read, with Refresh.
+- **Gradebook pop-up:** the same chip in the badges row; it reads the student's files when the pop-up opens, because opening the pop-up is opening the student's work.
+- **Files open safely:** images, videos, audio and PDFs are served inline; anything else (a student's `.html` included) only downloads, sandboxed, so it never runs inside Prism.
+
 ## Assessment page filter controls (October 2026)
 
 Chosen 17/10/2026 from three mockups (tri-state pill, tray, segmented): option A, with Refine moved to the end of the Watch row.

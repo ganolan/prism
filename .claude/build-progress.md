@@ -1383,3 +1383,35 @@ phase 2's `frq_marks` can key on `attempt_id`.
   `scripts/verify-quiz-phase1.js` prints raw failure reasons and mismatch kinds as `unknown`.
 
 **Next:** see "Linked quizzes, phase 2" above (phase 3, then phase 4).
+
+## Native dropbox submission files (2026-10-17, branch `issue-107-native-dropbox-files`, issue #107)
+
+Every revision's files of a student's native Schoology dropbox submission, on demand. Pattern copied from
+submission comments.
+
+- **Read:** `getSubmissionRevisions()` (`server/services/schoology.js`) =
+  `GET /v1/sections/{sid}/submissions/{aid}/{uid}?with_attachments=1`, one call per (student, assignment), when the
+  teacher opens the chip. `server/services/submissionFiles.js` caches it in `submission_revisions` +
+  `submission_revision_reads` (5-minute freshness, a failed read keeps the cache and reports the error). No sync
+  capture, no background queue. OneDrive tasks get 409 `NOT_NATIVE`.
+- **Download:** `openFile()` streams a signed `download_path` (the API host gets the OAuth header, the
+  `files-cdn` redirect does not); `downloadFile()` now buffers through it. Route
+  `GET /api/submission-files/:aid/:studentId/:revisionId/files/:fileId` (`server/routes/submissionFiles.js`, feature
+  `submission_files`) streams it: images and PDFs inline, the rest as a sandboxed attachment.
+- **UI:** `client/src/components/SubmissionFiles.jsx`: a chip on the /assessment/ card (cached counts from
+  `GET /api/submission-files/assignment/:aid`) and in the gradebook `RubricModal` badges row (reads on open). Only
+  when `hasNativeSubmission()` holds.
+- **Verified:** `scripts/parity-submission-files.js` on MGD Flappy Bird (F): MD5 = `md5_checksum` on 4/4 signed
+  downloads; 3/3 through Prism's route on a dev server. Shape in `.claude/schoology-api-reference.md`
+  ("Native dropbox submission files").
+- **Viewer (2026-10-18):** `client/src/components/FileViewer.jsx` shows images, videos and PDFs inside Prism from
+  the files list, Download kept. Schoology's converted copies (`converted_download_path`: videos as H.264 `.mp4`,
+  documents and images as `.pdf`) are cached with each file and served with `?copy=converted`; a video plays the
+  original first and falls back to the copy. The route passes `Range` on (206), since `files-cdn` honours ranges and
+  its signed URL lives only 60 s; `openFile()` reuses that URL for 40 s. Probe:
+  `scripts/probe-submission-file-playback.js`. Checked by eye in Chrome on a dev server (a `.mov` original and its
+  `.mp4` copy played and seeked; an `.html`'s PDF copy showed).
+- **Not done:** PrisMCP does not list these files yet; the student page has no chip (#135's shared feedback layout
+  is the natural home); Safari and images not checked by eye; comment files do not use the viewer yet.
+
+**Tests:** 1873 server + 1114 client Vitest tests pass; `npm run build` succeeds (2026-10-18).

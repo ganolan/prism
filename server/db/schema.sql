@@ -768,3 +768,29 @@ CREATE TABLE IF NOT EXISTS submission_comment_reads (
   error TEXT,                         -- the last failed read's error, cleared by a good one
   PRIMARY KEY (assignment_id, student_id)
 );
+
+-- Native dropbox submission files (#107): every revision of one student's
+-- submission with its files, read on demand from
+-- GET /v1/sections/{sid}/submissions/{aid}/{uid}?with_attachments=1 and cached
+-- here. A refresh replaces the pair's rows. No sync writes these.
+CREATE TABLE IF NOT EXISTS submission_revisions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  assignment_id INTEGER NOT NULL REFERENCES assignments(id),
+  student_id INTEGER NOT NULL REFERENCES students(id),
+  revision_id TEXT NOT NULL,          -- Schoology revision_id (1, 2, ... per student)
+  created INTEGER NOT NULL DEFAULT 0, -- epoch seconds
+  late INTEGER NOT NULL DEFAULT 0,
+  draft INTEGER NOT NULL DEFAULT 0,
+  num_items INTEGER,
+  files TEXT,                         -- JSON [{id, filename, title, filesize, filemime, extension, md5, download_path}] or NULL
+  UNIQUE (assignment_id, student_id, revision_id)
+);
+
+-- When each pair's revisions were last read (a row with no revisions = read, none).
+CREATE TABLE IF NOT EXISTS submission_revision_reads (
+  assignment_id INTEGER NOT NULL REFERENCES assignments(id),
+  student_id INTEGER NOT NULL REFERENCES students(id),
+  read_at INTEGER NOT NULL,           -- epoch seconds of the last successful read
+  error TEXT,                         -- the last failed read's error, cleared by a good one
+  PRIMARY KEY (assignment_id, student_id)
+);

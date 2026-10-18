@@ -4,14 +4,14 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { RubricModal } from './CoursePage.jsx';
-import { getSubmissionLinks, getAttemptLinks } from '../services/api.js';
+import { getSubmissionLinks, getAttemptLinks, getSubmissionFiles } from '../services/api.js';
 
-vi.mock('../services/api.js', () => ({ getSubmissionLinks: vi.fn(), getAttemptLinks: vi.fn().mockResolvedValue({ links: {} }), getQuizGroups: vi.fn().mockResolvedValue({ groups: [] }) }));
+vi.mock('../services/api.js', () => ({ getSubmissionLinks: vi.fn(), getAttemptLinks: vi.fn().mockResolvedValue({ links: {} }), getQuizGroups: vi.fn().mockResolvedValue({ groups: [] }), getSubmissionFiles: vi.fn() }));
 
 const STUDENT = { schoology_uid: 'u1', first_name: 'Ada', last_name: 'Lovelace', preferred_name: null, preferred_name_teacher: null };
 const TOPICS = [{ topic_id: 't1', title: 'Topic 1', grade: 'EX' }];
 
-function renderModal({ assignment = {}, comment = '', student = STUDENT } = {}) {
+function renderModal({ assignment = {}, comment = '', student = STUDENT, grade = {} } = {}) {
   return render(
     <MemoryRouter>
       <RubricModal
@@ -23,7 +23,7 @@ function renderModal({ assignment = {}, comment = '', student = STUDENT } = {}) 
         courseId="5"
         topics={TOPICS}
         comment={comment}
-        grade={{ score: null, review_needed: [], resubmit_requested: false, resubmitted: false, lti_submission_state: 'in_progress' }}
+        grade={{ score: null, review_needed: [], resubmit_requested: false, resubmitted: false, lti_submission_state: 'in_progress', ...grade }}
         onClose={() => {}}
       />
     </MemoryRouter>
@@ -84,5 +84,23 @@ describe('RubricModal - test attempt link (linked quizzes)', () => {
     const link = await screen.findByRole('link', { name: "Attempt: open Ada Lovelace's test attempt in Schoology" });
     expect(link).toHaveAttribute('href', expect.stringContaining('/student_stats/u/2'));
     expect(getAttemptLinks).toHaveBeenCalledWith({ assignmentId: 'sa-1' });
+  });
+});
+
+describe('RubricModal - native dropbox files (#107)', () => {
+  it('reads the student\'s files when it opens a native submission and shows the chip in the badges row', async () => {
+    getSubmissionFiles.mockResolvedValue({ revisions: [], summary: { revisions: 2, files: 3 }, read_at: '2026-10-17T02:02:00.000Z' });
+    renderModal({ student: { ...STUDENT, id: 7 }, grade: { submission_type: 'drop', lti_submission_state: null } });
+    expect(await screen.findByRole('button', { name: /Submitted files: 3 files in 2 revisions/ })).toBeInTheDocument();
+    expect(getSubmissionFiles).toHaveBeenCalledWith('sa-1', 7);
+  });
+
+  it('shows no files chip without a native submission or on an OneDrive task', async () => {
+    getSubmissionLinks.mockResolvedValue({ status: 'ok', links: {} });
+    renderModal({ grade: { submission_type: null, lti_submission_state: null } });
+    renderModal({ assignment: { is_lti_submission: 1 }, grade: { submission_type: 'drop' } });
+    await Promise.resolve();
+    expect(screen.queryByRole('button', { name: /Submitted files/ })).not.toBeInTheDocument();
+    expect(getSubmissionFiles).not.toHaveBeenCalled();
   });
 });

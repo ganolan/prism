@@ -26,6 +26,7 @@ import QuizChip from '../components/quiz/QuizChip.jsx';
 import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
 import { formatDateTime } from '../lib/formatDate.js';
 import SubmissionComments from '../components/SubmissionComments.jsx';
+import SubmissionFiles, { hasNativeSubmission } from '../components/SubmissionFiles.jsx';
 import { timelineSummary } from '../lib/submissionTimeline.js';
 import { DEFAULT_TYPE_FILTER, isUnpublished, passesTypeFilter, typeFilterCounts } from '../lib/assessmentTypeFilter.js';
 
@@ -673,7 +674,9 @@ export function RubricModal({
   // The badges row's links: the student's own work (#120: in progress or
   // submitted; the assignment's Schoology page is on the gradebook column
   // header), the test attempt, and the submission comments (when the feature is on).
-  const links = (workLink || attemptLink || onCommentSummary) ? (
+  // The student's own Schoology uploads, every revision (#107).
+  const showFiles = hasNativeSubmission(assignment, grade);
+  const links = (workLink || attemptLink || onCommentSummary || showFiles) ? (
     <>
       {workLink && (
         <SchoologyLink
@@ -683,6 +686,10 @@ export function RubricModal({
           title={`Open ${fullName}'s work in OneDrive: last edited ${formatDateTime(workLink.modifiedAt)}`}
           style={{ fontSize: '0.78rem', fontWeight: 600 }}
         />
+      )}
+      {showFiles && (
+        <SubmissionFiles autoLoad assignmentId={aid} studentId={student.id}
+          studentName={fullName} title={assignment.title} />
       )}
       <AttemptLink link={attemptLink} name={fullName} />
       {onCommentSummary && (

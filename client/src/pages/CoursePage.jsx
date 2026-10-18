@@ -20,6 +20,8 @@ import { useStickyTab } from '../hooks/useStickyTab.js';
 import AssignmentFeedback from '../components/AssignmentFeedback.jsx';
 import { useAttachedRubrics } from '../hooks/useAttachedRubrics.js';
 import { showsDescriptors } from '../lib/rubricDescriptorRows.js';
+import PsAlertBadges from '../components/PsAlertBadges.jsx';
+import { forRoster, getRosterAlertsShown, setRosterAlertsShown } from '../lib/psAlerts.js';
 import SchoologyLink from '../components/SchoologyLink.jsx';
 import AttemptLink from '../components/quiz/AttemptLink.jsx';
 import QuizChip from '../components/quiz/QuizChip.jsx';
@@ -283,6 +285,11 @@ export function RosterView({ students, mastery, courseId, displayName, onOverrid
   const scale = useProficiencyScale();
   const [showGradeScale, setShowGradeScale] = useState(false);
   const [showDropped, setShowDropped] = useState(false);
+  // #117: PowerSchool alerts, off until turned on (a roster may be projected to a
+  // class); the choice is remembered per browser. Present only with the feature on.
+  const [showAlerts, setShowAlerts] = useState(getRosterAlertsShown);
+  const alertsAvailable = students.some(s => Array.isArray(s.ps_alerts));
+  const toggleAlerts = () => { const next = !showAlerts; setShowAlerts(next); setRosterAlertsShown(next); };
   const categories = mastery?.categories || [];
   const topics = mastery?.topics || [];
   const scores = mastery?.scores || [];
@@ -328,15 +335,28 @@ export function RosterView({ students, mastery, courseId, displayName, onOverrid
 
   return (
     <div className="card" style={{ overflowX: 'auto' }}>
-      {droppedStudents.length > 0 && (
-        <div style={{ marginBottom: '0.75rem' }}>
-          <button
-            className="ghost"
-            onClick={() => setShowDropped(v => !v)}
-            aria-expanded={showDropped}
-          >
-            {droppedStudents.length} dropped {showDropped ? '(hide)' : '(show)'}
-          </button>
+      {(droppedStudents.length > 0 || alertsAvailable) && (
+        <div className="roster-toolbar">
+          {droppedStudents.length > 0 && (
+            <button
+              className="ghost"
+              onClick={() => setShowDropped(v => !v)}
+              aria-expanded={showDropped}
+            >
+              {droppedStudents.length} dropped {showDropped ? '(hide)' : '(show)'}
+            </button>
+          )}
+          {alertsAvailable && (
+            <button
+              type="button"
+              className={`filter-btn ${showAlerts ? 'active' : ''}`}
+              aria-pressed={showAlerts}
+              onClick={toggleAlerts}
+              title="Learning, health and access alerts from PowerSchool. Off by default; remembered in this browser."
+            >
+              PowerSchool alerts
+            </button>
+          )}
         </div>
       )}
       <table style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
@@ -492,6 +512,7 @@ export function RosterView({ students, mastery, courseId, displayName, onOverrid
                       dropped {new Date(s.dropped_at).toLocaleDateString('en-GB')}
                     </span>
                   )}
+                  {showAlerts && <PsAlertBadges alerts={forRoster(s.ps_alerts)} compact />}
                 </td>
                 <td className="text-sm">{s.email || '-'}</td>
                 <td className="text-sm">

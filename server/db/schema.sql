@@ -793,4 +793,28 @@ CREATE TABLE IF NOT EXISTS submission_revision_reads (
   read_at INTEGER NOT NULL,           -- epoch seconds of the last successful read
   error TEXT,                         -- the last failed read's error, cleared by a good one
   PRIMARY KEY (assignment_id, student_id)
+
+);
+
+-- PowerSchool student alerts (#117): the alerts PowerSchool's custom-alerts
+-- plugin shows beside a student's name, kept as Prism keys (server/lib/psAlerts.js
+-- ALERT_DEFS) behind the powerschool_alerts feature. A sync replaces a student's
+-- rows only when it read that student; anyone it could not read keeps their
+-- last-known rows. ps_alert_id is the PowerSchool alert type id.
+CREATE TABLE IF NOT EXISTS student_ps_alerts (
+  student_id INTEGER NOT NULL REFERENCES students(id),
+  alert_key TEXT NOT NULL,
+  ps_alert_id TEXT,
+  PRIMARY KEY (student_id, alert_key)
+);
+
+-- Per-student PowerSchool reads: when the alerts were last read, and the raw
+-- guardian-contact fields #66 will use (store only; null = not set in PowerSchool).
+CREATE TABLE IF NOT EXISTS student_powerschool (
+  student_id INTEGER PRIMARY KEY REFERENCES students(id),
+  alerts_synced_at TEXT,              -- ISO time of the last successful read
+  dnc_g1 TEXT,                        -- X_DNC_G1: do not contact guardian 1
+  dnc_g2 TEXT,                        -- X_DNC_G2: do not contact guardian 2
+  g1_deceased TEXT,                   -- X_G1DECEASED
+  g2_deceased TEXT                    -- X_G2DECEASED
 );

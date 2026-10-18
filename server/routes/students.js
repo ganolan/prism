@@ -6,6 +6,8 @@ import { timelineContext } from '../services/submissionTimeline.js';
 import { getAssignmentFilesMany } from '../services/oneDriveLinks.js';
 import { getRoster } from '../services/assessmentContext.js';
 import { matchFilesToRoster } from '../lib/oneDriveSubmissions.js';
+import { getFeatures } from '../middleware/featureGate.js';
+import { psAlertsForStudent } from '../services/psAlertStore.js';
 
 const router = Router();
 
@@ -169,7 +171,13 @@ router.get('/:id', (req, res) => {
     'SELECT * FROM parents WHERE student_id = ? ORDER BY last_name, first_name'
   ).all(req.params.id);
 
-  res.json({ ...student, courses, grades, notes, flags: [...flags, ...requests], parents, grading_scales: getGradingScalesMap() });
+  // #117: PowerSchool alerts (labels + when last read), when the feature is on.
+  const psAlerts = student && getFeatures().powerschool_alerts ? psAlertsForStudent(db, student.id) : null;
+
+  res.json({
+    ...student, courses, grades, notes, flags: [...flags, ...requests], parents, grading_scales: getGradingScalesMap(),
+    ...(psAlerts ? { ps_alerts: psAlerts.alerts, ps_alerts_synced_at: psAlerts.synced_at } : {}),
+  });
 });
 
 // GET /api/students/:id/work-links?assignments=sa1,sa2

@@ -31,6 +31,7 @@ beforeEach(() => {
   vi.stubEnv('SCHOOLOGY_CONSUMER_KEY', 'key');
   vi.stubEnv('SCHOOLOGY_CONSUMER_SECRET', 'secret');
   getDb().exec(
+    'DELETE FROM student_ps_alerts; DELETE FROM student_powerschool; ' +
     'DELETE FROM frq_marks; DELETE FROM quiz_tag_texts; DELETE FROM quiz_responses; DELETE FROM quiz_attempts; DELETE FROM quiz_question_copies; DELETE FROM quiz_questions; ' +
     'DELETE FROM quiz_group_members; DELETE FROM quiz_groups; ' +
     'DELETE FROM flags; DELETE FROM assessment_drafts; DELETE FROM status_lines; DELETE FROM feedback_snapshots; DELETE FROM feedback; ' +
@@ -254,6 +255,40 @@ describe('listStudents', () => {
     db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'e3')`).run(elsewhere, otherCourseId);
 
     expect(listStudents(db, { course_id: courseId }).map((r) => r.schoology_uid)).toEqual(['u1']);
+  });
+});
+
+describe('listStudents — PowerSchool alerts (#117)', () => {
+  test('each student, dropped ones too, carries powerschool_alerts and powerschool_alerts_read_at; no contact fields', () => {
+    const db = getDb();
+    const courseId = seedCourse(db);
+    const a = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u1', 'A', 'One')`).run().lastInsertRowid;
+    const b = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u2', 'B', 'Two')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'e1')`).run(a, courseId);
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id, dropped_at) VALUES (?, ?, 'e2', '2026-01-01T00:00:00.000Z')`).run(b, courseId);
+    db.prepare(`INSERT INTO student_ps_alerts (student_id, alert_key) VALUES (?, 'epipen'), (?, 'ilp')`).run(a, b);
+    db.prepare(`INSERT INTO student_powerschool (student_id, alerts_synced_at, dnc_g2) VALUES (?, '2026-10-17T00:00:00.000Z', '1')`).run(a);
+
+    const rows = listStudents(db, { course_id: courseId, include_dropped: true });
+    expect(rows.find((r) => r.id === a)).toMatchObject({
+      powerschool_alerts: [{ key: 'epipen', label: 'EpiPen', category: 'health' }],
+      powerschool_alerts_read_at: '2026-10-17T00:00:00.000Z',
+    });
+    expect(rows.find((r) => r.id === b)).toMatchObject({ powerschool_alerts: [{ key: 'ilp', label: 'ILP', category: 'learning' }], powerschool_alerts_read_at: null });
+    expect(JSON.stringify(rows)).not.toMatch(/dnc_g2/);
+  });
+
+  test('family alerts are returned to the agent (the teacher sees them), unlike the roster', () => {
+    const db = getDb();
+    const courseId = seedCourse(db);
+    const a = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u1', 'A', 'One')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'e1')`).run(a, courseId);
+    db.prepare(`INSERT INTO student_ps_alerts (student_id, alert_key) VALUES (?, 'siblings'), (?, 'divorced'), (?, 'ilp')`).run(a, a, a);
+    expect(listStudents(db, { course_id: courseId })[0].powerschool_alerts).toEqual([
+      { key: 'ilp', label: 'ILP', category: 'learning' },
+      { key: 'divorced', label: 'Divorced/separated', category: 'family' },
+      { key: 'siblings', label: 'Siblings', category: 'family' },
+    ]);
   });
 });
 

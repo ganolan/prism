@@ -7,6 +7,7 @@ import {
 } from '../services/api.js';
 import MasteryPerformanceSummary from '../components/MasteryPerformanceSummary.jsx';
 import AssignmentFeedback from '../components/AssignmentFeedback.jsx';
+import PsAlertReveal from '../components/PsAlertReveal.jsx';
 import AttemptLink from '../components/quiz/AttemptLink.jsx';
 import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
 import { useAttachedRubrics } from '../hooks/useAttachedRubrics.js';
@@ -374,6 +375,12 @@ export default function StudentPage() {
                     <span className="text-sm text-muted" title="Student ID">ID: {student.email.split('@')[0]}</span>
                   )}
                 </div>
+                {student.ps_alerts?.length > 0 && (
+                  <div style={{ marginTop: '0.35rem' }}>
+                    {/* Hidden until clicked, never remembered (keyed: a new student starts hidden). */}
+                    <PsAlertReveal key={student.id} alerts={student.ps_alerts} syncedAt={student.ps_alerts_synced_at} />
+                  </div>
+                )}
                 {showLegalName && (
                   <p className="text-sm text-muted" style={{ marginTop: '0.2rem' }}>Legal name: {legalFullName}</p>
                 )}

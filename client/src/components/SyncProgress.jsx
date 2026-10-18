@@ -80,6 +80,8 @@ export default function SyncProgress({ reduced, mode, notice, retryEnabled, onDo
   const running = mode === 'running';
   const blocksPhase = phases.find((p) => p.kind === 'blocks');
   const blocksFailure = failures.find((f) => f.kind === 'blocks');
+  // #117: the alerts pass rides the same "Sync from PowerSchool" retry.
+  const alertsFailure = failures.find((f) => f.kind === 'alerts');
 
   let heading = 'Syncing…';
   let headingClass = '';
@@ -131,6 +133,15 @@ export default function SyncProgress({ reduced, mode, notice, retryEnabled, onDo
       {mode === 'done' && blocksFailure && (
         <RemedyBanner
           failure={blocksFailure}
+          retryEnabled={retryEnabled}
+          onLogin={onLogin}
+          onRetry={onRetryBlocks}
+        />
+      )}
+
+      {mode === 'done' && alertsFailure && (
+        <RemedyBanner
+          failure={alertsFailure}
           retryEnabled={retryEnabled}
           onLogin={onLogin}
           onRetry={onRetryBlocks}

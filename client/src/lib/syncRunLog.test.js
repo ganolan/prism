@@ -39,6 +39,9 @@ describe('describeOptions', () => {
 });
 
 describe('describeRunEvent', () => {
+  it('#117: names the PowerSchool alerts phase', () => {
+    expect(describeRunEvent({ phase: 'alerts', status: 'done', records: 96 }).text).toBe('PowerSchool alerts: 96 records');
+  });
   it('phase rows: icon, label, outcome', () => {
     expect(describeRunEvent({ phase: 'schoology', status: 'done', records: 12 }))
       .toMatchObject({ icon: '✓', text: 'Schoology data: 12 records', level: null });

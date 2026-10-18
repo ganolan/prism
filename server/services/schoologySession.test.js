@@ -1,100 +1,145 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
-  sessionStatus, sessionDeps, noteSessionLive, resetSessionStatusCache, LIVE_CHECK_TTL_MS, openSessionPage, renewSession,
+  sessionStatus, sessionDeps, noteSessionLive, resetSessionStatusCache, LIVE_CHECK_TTL_MS, openSessionPage, renewSession, checkSessionLive,
 } from './schoologySession.js';
 import { mkdtempSync, writeFileSync, readFileSync, readdirSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
-// A fake page: goto lands on `landing` (the school domain = logged in, SSO = expired).
-function fakeSession(landing) {
-  const page = { url: vi.fn(() => landing), goto: vi.fn(async () => {}) };
-  return { page, close: vi.fn(async () => {}) };
-}
+import { fakeSchoologyWeb } from '../testing/fakeSchoologyWeb.js';
 
-const realOpen = sessionDeps.openPage;
+// The liveness check is one plain-HTTP GET of /home (#141): a fake Schoology web
+// surface answers it. `home` is the /home route spec (fakeSchoologyWeb): 200 =
+// signed in, { login: true } = sent to sign-in, { throws } = network failure.
+function fakeHome(home = { status: 200, text: '<html>home</html>' }, { renew } = {}) {
+  const web = fakeSchoologyWeb({ routes: { '/home': home } });
+  if (renew) web.jar.renew = renew;
+  sessionDeps.openJar = vi.fn(() => web.jar);
+  sessionDeps.fetch = web.fetchImpl;
+  return web;
+}
+const homeLoads = (web) => web.requests.filter((r) => r.path === '/home').length;
+
+const real = { ...sessionDeps };
 let t;
 const now = () => t;
 
 beforeEach(() => {
   resetSessionStatusCache();
   t = 1_000_000;
+  sessionDeps.openPage = vi.fn(() => { throw new Error('the liveness check must not open a browser'); });
 });
-afterEach(() => { sessionDeps.openPage = realOpen; });
+afterEach(() => { Object.assign(sessionDeps, real); });
 
-describe('sessionStatus (Settings card / Sync dialog live status)', () => {
-  test("no saved session → 'none', no browser opened", async () => {
-    sessionDeps.openPage = vi.fn();
-    expect(await sessionStatus({ hasSession: () => false, now })).toEqual({ loggedIn: false, live: 'none', checkedAt: null });
+describe('checkSessionLive (plain HTTP, no browser)', () => {
+  test("no saved session → 'expired', nothing requested", async () => {
+    sessionDeps.openJar = vi.fn(() => null);
+    sessionDeps.fetch = vi.fn();
+    expect(await checkSessionLive()).toEqual({ live: 'expired', message: 'No saved Schoology session' });
+    expect(sessionDeps.fetch).not.toHaveBeenCalled();
+  });
+
+  test("/home answers 200 on the school domain → 'connected', with the session cookie, no browser", async () => {
+    const web = fakeHome();
+    expect(await checkSessionLive()).toEqual({ live: 'connected' });
+    expect(web.requests).toEqual([expect.objectContaining({ method: 'GET', path: '/home', headers: expect.objectContaining({ cookie: 'SESS=old' }) })]);
     expect(sessionDeps.openPage).not.toHaveBeenCalled();
   });
 
-  test("a live session → 'connected', checked via /home, page closed", async () => {
-    const s = fakeSession('https://schoology.hkis.edu.hk/home');
-    sessionDeps.openPage = vi.fn(async () => s);
+  test("sent to sign-in and the renewal fails → 'expired' with the login-page message", async () => {
+    const renew = vi.fn(async () => false);
+    fakeHome({ login: true }, { renew });
+    const r = await checkSessionLive();
+    expect(r).toEqual({ live: 'expired', message: expect.stringMatching(/login page/) });
+    expect(renew).toHaveBeenCalledTimes(1);
+  });
+
+  test("sent to sign-in, renewed through Microsoft → asked again → 'connected'", async () => {
+    let signedIn = false;
+    const web = fakeHome(() => (signedIn ? { status: 200, text: 'home' } : { login: true }), { renew: vi.fn(async () => { signedIn = true; return true; }) });
+    expect(await checkSessionLive()).toEqual({ live: 'connected' });
+    expect(homeLoads(web)).toBe(2);
+  });
+
+  test("a network failure → 'unknown' (not expired), with the reason", async () => {
+    fakeHome({ throws: new Error('getaddrinfo ENOTFOUND') });
+    const r = await checkSessionLive();
+    expect(r).toEqual({ live: 'unknown', message: expect.stringMatching(/Could not reach Schoology.*ENOTFOUND/) });
+  });
+
+  test("Schoology answers an error status → 'unknown' with the status", async () => {
+    fakeHome({ status: 503, text: 'down' });
+    expect(await checkSessionLive()).toEqual({ live: 'unknown', message: expect.stringMatching(/503/) });
+  });
+});
+
+describe('sessionStatus (Settings card / Sync dialog live status)', () => {
+  test("no saved session → 'none', nothing requested", async () => {
+    const web = fakeHome();
+    expect(await sessionStatus({ hasSession: () => false, now })).toEqual({ loggedIn: false, live: 'none', checkedAt: null });
+    expect(web.requests).toEqual([]);
+  });
+
+  test("a live session → 'connected', checked via /home", async () => {
+    const web = fakeHome();
     const r = await sessionStatus({ hasSession: () => true, now });
     expect(r).toEqual({ loggedIn: true, live: 'connected', checkedAt: new Date(t).toISOString() });
-    expect(s.page.goto).toHaveBeenCalledWith('https://schoology.hkis.edu.hk/home', expect.any(Object));
-    expect(s.close).toHaveBeenCalled();
+    expect(homeLoads(web)).toBe(1);
   });
 
   test("bounced to SSO → 'expired' with a message", async () => {
-    sessionDeps.openPage = vi.fn(async () => fakeSession('https://login.microsoftonline.com/abc'));
+    fakeHome({ login: true });
     const r = await sessionStatus({ hasSession: () => true, now });
     expect(r.live).toBe('expired');
     expect(r.message).toMatch(/login page/);
   });
 
   test("a check that throws → 'unknown' with the error, never throws", async () => {
-    sessionDeps.openPage = vi.fn(async () => { throw new Error('chromium missing'); });
+    sessionDeps.openJar = vi.fn(() => { throw new Error('state file is not JSON'); });
     const r = await sessionStatus({ hasSession: () => true, now });
     expect(r).toMatchObject({ loggedIn: true, live: 'unknown' });
-    expect(r.message).toMatch(/chromium missing/);
+    expect(r.message).toMatch(/not JSON/);
   });
 
-  test("a navigation error or about:blank → 'unknown' (not expired)", async () => {
-    const s = fakeSession('about:blank');
-    s.page.goto.mockRejectedValue(new Error('net::ERR_INTERNET_DISCONNECTED'));
-    sessionDeps.openPage = vi.fn(async () => s);
+  test("a network error → 'unknown' (not expired)", async () => {
+    fakeHome({ throws: new Error('ERR_INTERNET_DISCONNECTED') });
     const r = await sessionStatus({ hasSession: () => true, now });
     expect(r).toMatchObject({ live: 'unknown', message: expect.stringMatching(/ERR_INTERNET_DISCONNECTED/) });
-    expect(s.close).toHaveBeenCalled();
-    sessionDeps.openPage = vi.fn(async () => fakeSession('about:blank'));
-    expect((await sessionStatus({ hasSession: () => true, now, refresh: true })).live).toBe('unknown');
   });
 
   test('cached for 10 minutes; refresh forces a re-check; stale → re-check', async () => {
-    sessionDeps.openPage = vi.fn(async () => fakeSession('https://schoology.hkis.edu.hk/home'));
+    const web = fakeHome();
     await sessionStatus({ hasSession: () => true, now });
     t += LIVE_CHECK_TTL_MS - 1;
     await sessionStatus({ hasSession: () => true, now });
-    expect(sessionDeps.openPage).toHaveBeenCalledTimes(1);
+    expect(homeLoads(web)).toBe(1);
     await sessionStatus({ hasSession: () => true, now, refresh: true });
-    expect(sessionDeps.openPage).toHaveBeenCalledTimes(2);
+    expect(homeLoads(web)).toBe(2);
     t += LIVE_CHECK_TTL_MS;
     const r = await sessionStatus({ hasSession: () => true, now });
-    expect(sessionDeps.openPage).toHaveBeenCalledTimes(3);
+    expect(homeLoads(web)).toBe(3);
     expect(r.checkedAt).toBe(new Date(t).toISOString());
   });
 
-  test('check: false never opens a browser (cached answer or null)', async () => {
-    sessionDeps.openPage = vi.fn();
+  test('check: false never checks (cached answer or null)', async () => {
+    const web = fakeHome();
     expect(await sessionStatus({ hasSession: () => true, check: false, now })).toEqual({ loggedIn: true, live: null, checkedAt: null });
     noteSessionLive('expired', 'bounced', t);
     expect(await sessionStatus({ hasSession: () => true, check: false, now })).toMatchObject({ live: 'expired', message: 'bounced' });
-    expect(sessionDeps.openPage).not.toHaveBeenCalled();
+    expect(web.requests).toEqual([]);
   });
 
   test('concurrent callers share one check', async () => {
     let release;
-    sessionDeps.openPage = vi.fn(() => new Promise((r) => { release = () => r(fakeSession('https://schoology.hkis.edu.hk/home')); }));
+    const gate = new Promise((r) => { release = r; });
+    const web = fakeHome(async () => { await gate; return { status: 200, text: 'home' }; });
     const a = sessionStatus({ hasSession: () => true, now });
     const b = sessionStatus({ hasSession: () => true, now, refresh: true });
-    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    await vi.waitFor(() => expect(homeLoads(web)).toBe(1));
     release();
     expect((await a).live).toBe('connected');
     expect((await b).live).toBe('connected');
-    expect(sessionDeps.openPage).toHaveBeenCalledTimes(1);
+    expect(homeLoads(web)).toBe(1);
   });
 });
 

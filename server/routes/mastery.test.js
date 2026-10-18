@@ -44,10 +44,15 @@ import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
 import { publishStatusLine } from '../services/statusLinePublisher.js';
 import { writeMasteryScores, interactiveLogin } from '../services/masterySync.js';
 import { sessionDeps, resetSessionStatusCache } from '../services/schoologySession.js';
+import { fakeSchoologyWeb } from '../testing/fakeSchoologyWeb.js';
 
-// The live session check opens a real browser — never in tests.
+// Never a real browser or a real Schoology request in tests: the live session
+// check is a plain-HTTP GET of /home (sessionDeps.openJar + fetch), faked below.
 const noBrowser = () => { throw new Error('tests must inject a fake Schoology page'); };
+const noNetwork = () => { throw new Error('tests must inject a fake Schoology web'); };
 sessionDeps.openPage = noBrowser;
+sessionDeps.openJar = noNetwork;
+sessionDeps.fetch = noNetwork;
 
 function startServer() {
   const app = express();
@@ -408,14 +413,18 @@ describe('GET /api/mastery/:courseId/student/:studentUid — individually assign
 });
 
 describe('GET /api/mastery/login-status', () => {
-  let page;
+  let home; // the /home answer: 200 = signed in, { login: true } = sent to sign-in
+  let web;
+  const homeLoads = () => web.requests.filter((r) => r.path === '/home').length;
   beforeEach(() => {
     h.loggedIn = true;
     resetSessionStatusCache();
-    page = { url: vi.fn(() => 'https://schoology.hkis.edu.hk/home'), goto: vi.fn(async () => {}) };
-    sessionDeps.openPage = vi.fn(async () => ({ page, close: async () => {} }));
+    home = { status: 200, text: 'home' };
+    web = fakeSchoologyWeb({ routes: { '/home': () => home } });
+    sessionDeps.openJar = vi.fn(() => web.jar);
+    sessionDeps.fetch = web.fetchImpl;
   });
-  afterEach(() => { sessionDeps.openPage = noBrowser; });
+  afterEach(() => { sessionDeps.openJar = noNetwork; sessionDeps.fetch = noNetwork; });
 
   test("a live saved session → loggedIn, live 'connected', checkedAt", async () => {
     const { status, body } = await get('/api/mastery/login-status');
@@ -424,29 +433,29 @@ describe('GET /api/mastery/login-status', () => {
     expect(Date.parse(body.checkedAt)).not.toBeNaN();
   });
 
-  test("no session file → loggedIn false, live 'none', no browser", async () => {
+  test("no session file → loggedIn false, live 'none', nothing requested", async () => {
     h.loggedIn = false;
     const { status, body } = await get('/api/mastery/login-status');
     expect(status).toBe(200);
     expect(body).toEqual({ loggedIn: false, live: 'none', checkedAt: null });
-    expect(sessionDeps.openPage).not.toHaveBeenCalled();
+    expect(sessionDeps.openJar).not.toHaveBeenCalled();
   });
 
-  test('cached between calls; ?refresh=1 re-checks; ?check=0 never opens a browser', async () => {
+  test('cached between calls; ?refresh=1 re-checks; ?check=0 never checks', async () => {
     await get('/api/mastery/login-status');
     await get('/api/mastery/login-status');
-    expect(sessionDeps.openPage).toHaveBeenCalledTimes(1);
-    page.url.mockReturnValue('https://login.microsoftonline.com/x');
+    expect(homeLoads()).toBe(1);
+    home = { login: true };
     const refreshed = await get('/api/mastery/login-status?refresh=1');
-    expect(sessionDeps.openPage).toHaveBeenCalledTimes(2);
+    expect(homeLoads()).toBe(2);
     expect(refreshed.body).toMatchObject({ loggedIn: true, live: 'expired' });
     const quick = await get('/api/mastery/login-status?check=0&refresh=1');
-    expect(sessionDeps.openPage).toHaveBeenCalledTimes(2);
+    expect(homeLoads()).toBe(2);
     expect(quick.body.live).toBe('expired');
   });
 
   test("a failing check → 'unknown' with a message, still 200", async () => {
-    sessionDeps.openPage = vi.fn(async () => { throw new Error('boom'); });
+    home = { throws: new Error('boom') };
     const { status, body } = await get('/api/mastery/login-status');
     expect(status).toBe(200);
     expect(body).toMatchObject({ live: 'unknown', message: expect.stringMatching(/boom/) });
@@ -454,16 +463,16 @@ describe('GET /api/mastery/login-status', () => {
 
   test('POST /login resets the cached status (success or not), so the next read re-checks', async () => {
     await get('/api/mastery/login-status');
-    expect(sessionDeps.openPage).toHaveBeenCalledTimes(1);
+    expect(homeLoads()).toBe(1);
     vi.mocked(interactiveLogin).mockResolvedValueOnce();
     await post('/api/mastery/login', {});
     await get('/api/mastery/login-status');
-    expect(sessionDeps.openPage).toHaveBeenCalledTimes(2);
+    expect(homeLoads()).toBe(2);
     vi.mocked(interactiveLogin).mockRejectedValueOnce(new Error('closed'));
     vi.spyOn(console, 'error').mockImplementation(() => {});
     await post('/api/mastery/login', {});
     await get('/api/mastery/login-status');
-    expect(sessionDeps.openPage).toHaveBeenCalledTimes(3);
+    expect(homeLoads()).toBe(3);
   });
 });
 

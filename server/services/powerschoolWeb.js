@@ -85,8 +85,9 @@ export class PowerSchoolWeb {
 
   // Start (or restart) the PowerSchool session by posting a section's launch form.
   // A form is signed with a nonce, so each launch reads a fresh one.
+  // → { sectionDcid } of the section launched through.
   async launch(schoologySectionId) {
-    const { form } = await this.launchIds(schoologySectionId);
+    const { form, sectionDcid } = await this.launchIds(schoologySectionId);
     if (!form || !form.action.startsWith(PS_BASE)) {
       throw new WebSessionError('PS_LAUNCH', 'Schoology did not give a PowerSchool launch form');
     }
@@ -105,9 +106,27 @@ export class PowerSchoolWeb {
       await res.text();
       if (!this.jar.size) throw new WebSessionError('PS_LAUNCH', 'PowerSchool gave no session');
       this.launched = true;
-      return;
+      return { sectionDcid };
     }
     throw new WebSessionError('PS_LAUNCH', 'Too many redirects on the PowerSchool launch');
+  }
+
+  // One HTML page the attendance app opens as a dialog (an alert pop-up, #163): a GET
+  // with the attendance page as Referer and X-Requested-With, as the dialog sends.
+  // → the page text. A redirect or an error status is PS_SESSION.
+  async page(path) {
+    const res = await this.fetchImpl(`${PS_BASE}${path}`, {
+      headers: {
+        cookie: this.jar.header(), Referer: `${PS_BASE}/integrations/attendance/index.html`,
+        Accept: 'text/html, */*; q=0.01', 'X-Requested-With': 'XMLHttpRequest',
+      },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    this.jar.take(res);
+    const text = await res.text();
+    if (res.status !== 200) throw new WebSessionError('PS_SESSION', `PowerSchool answered ${res.status} for ${path.split('?')[0]}`);
+    return text;
   }
 
   // One plugin read. → parsed JSON. A redirect, an error status or a page that is

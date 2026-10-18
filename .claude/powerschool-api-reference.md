@@ -499,6 +499,32 @@ siblings 69, employee_child 0; the other counts unchanged.
 Support Summary popups (`aet_customalert_custompopup.html?url=mbapop_spp.html` / `mbapop_studentsupportsummary.html`),
 HTML, not shape-probed: a follow-up to #117.
 
+**Alert pop-ups, probed 2026-10-18 (#163, read only, one student each, values masked; each read approved by Graham).**
+Probe: `scripts/probe-ps-alert-popups.js` (`catalogue`, `pick`, `popup`).
+- **How the plugin builds the link** (`api.makeAlert` in the plugin code from `/ws/pagecustomizations/insertions`):
+  with a `stub_url`, `href = /teachers/alerts/aet_customalert_custompopup.html?url={stub_url}&frn=001{dcid}&id={alertId}`;
+  without one, `/teachers/alerts/{aet_customalert | aet_customalert_sf | aet_customalert_adv}.html?mba_frn=001{dcid}&id=…`
+  by `trigger_type` (`man` / `sf` / `adv`). An `sf` alert then appends `frn`, `mba_frn`, `student_field`
+  (`{ext_table_name}.{FIELD}`) and `tableName`; an `adv` alert appends its `querystring` and, when the plugin has them,
+  `sectionid`, `studentid`, `frn`. The link has class `dialogC`: PowerSchool opens it as a dialog from the attendance page.
+- **Catalogue entries** (`getAlertTypes.json`): `10593860` "Accomodation Plan", `sf`, `stub_url` `mbapop_spp.html`,
+  `student_field` `U_Students_Extension.X_SPP`, `ext_table_name` `U_DEF_EXT_STUDENTS`; `11290981` "Student Support
+  Summary", `adv`, `stub_url` `mbapop_studentsupportsummary.html`, `trigger_url` `studentsupportsummary.html`, empty
+  `querystring`.
+- **The read:** after the attendance LTI launch over plain HTTP, a GET of the link with `Referer:
+  /integrations/attendance/index.html` and `X-Requested-With: XMLHttpRequest` (as the dialog sends) answered **200
+  `text/html`**, no security violation, for both.
+- **SPP pop-up** (`url=mbapop_spp.html`, one student with `x_spp` = `1`): **77 bytes**, a single empty
+  `<p style="margin-left:10px">`. Blank plan text or not readable this way: not told apart (one student only).
+- **Student Support Summary pop-up** (`url=mbapop_studentsupportsummary.html&frn=001{dcid}&id=11290981&studentid={studentid}`,
+  the one matching student in the section): **959 bytes**, a two-column table, headers **Category | Description**, 9 rows
+  in this order: Academic Support, SEL/Behavioral Support, Case Manager, Accommodation Plan, TLI, Intervention Plan,
+  ILP, Support Plan URL, Support Notes. Description lengths in this student's table: 1, 6, 1, 3, 3, 1, 1, 10, 89
+  characters; only **Support Notes** held a number with `%` or a time word (the probe's "measure-like" test), so the
+  extra-time amount is most likely free text in Support Notes (not confirmed: values were not read).
+- **`pick`** (roster + `stuFieldValues` `x_spp` + `getAdvTriggerMatches`): `stuFieldValues` rows have keys `id`,
+  `dcid`, `x_spp`. Section of 6: 1 with `x_spp` = `1`, 1 Support Summary match.
+
 ### Endpoint-discovery crawl (2026-05-30): attendance-app surface + #66 resolution
 
 A read-only LTI-launch capture + grep of the attendance app's Angular bundle

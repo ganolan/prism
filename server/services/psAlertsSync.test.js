@@ -36,7 +36,7 @@ describe('PowerSchoolWeb', () => {
     const post = web.requests.find((r) => r.path === '/integrations/attendance/index.html');
     expect(post.form).toMatchObject({ custom_sectiondcid: '9001', oauth_signature: 'sig&=' });
     const types = await ps.read('/teachers/mba_alerts/queries/getAlertTypes.json', { disabled: 0, student_schoolid: 40 });
-    expect(types).toHaveLength(8);
+    expect(types).toHaveLength(9);
     expect(web.requests.at(-1)).toMatchObject({ method: 'POST', cookie: 'JSESSIONID=s1', params: { disabled: '0', student_schoolid: '40' } });
   });
 

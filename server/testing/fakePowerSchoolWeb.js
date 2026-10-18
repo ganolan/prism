@@ -24,14 +24,17 @@ export const CATALOGUE = [
   sf('10672509', 'X_DNC_G1', 'notblank'),
   sf('32012479', 'X_HomeEmail', 'in', '1'),
   { id: '10593855', trigger_type: 'adv', disabled: '0', name: 'Allergies', trigger_url: 'allergies.html', querystring: '' },
+  { id: '11290981', trigger_type: 'adv', disabled: '0', name: 'Student Support Summary', trigger_url: 'studentsupportsummary.html', querystring: '', stub_url: 'mbapop_studentsupportsummary.html' },
   { id: '39472338', trigger_type: 'man', disabled: '0', name: 'Mobility', trigger_url: '', querystring: '' },
   {},
 ];
 
 // sections: { [sectionDcid]: [{ studentid, studentdcid, values: {field: value}, adv: [alert ids], man: [alert ids] }] }
 // schoology: { [schoologySectionId]: sectionDcid | null }
+// popups: { [studentDcid]: html } for /teachers/alerts/aet_customalert_custompopup.html (#163);
+//   the request's Referer and X-Requested-With are recorded.
 export function fakePowerSchoolWeb({
-  schoology = { S1: '9001' }, sections = {}, catalogue = CATALOGUE,
+  schoology = { S1: '9001' }, sections = {}, catalogue = CATALOGUE, popups = {},
   loginRedirect = false, launchStatus = 200, failRead, expireOnce,
 } = {}) {
   const requests = [];
@@ -66,6 +69,12 @@ export function fakePowerSchoolWeb({
     if (expireOnce && expireOnce === name) {
       expireOnce = null; expired = true;
       return answer(302, '', { location: `${PS}/teachers/pw.html` });
+    }
+    if (name === 'aet_customalert_custompopup.html') {
+      entry.referer = opts.headers?.Referer || opts.headers?.referer || null;
+      entry.xhr = opts.headers?.['X-Requested-With'] || null;
+      const dcid = String(p.get('frn') || '').replace(/^001/, '');
+      return answer(200, popups[dcid] ?? '<p style="margin-left:10px">\n</p>', { 'content-type': 'text/html;charset=UTF-8' });
     }
     if (name === 'getAlertTypes.json') return json(catalogue);
     if (name === 'getStudentsInSection.json') {

@@ -42,6 +42,8 @@ export const discoverArchivedCourses = () => request('/courses/archived/discover
 // Students
 export const searchStudents = (q) => request(`/students${q ? `?q=${encodeURIComponent(q)}` : ''}`);
 export const getStudent = (id) => request(`/students/${id}`);
+// The PowerSchool Student Support Summary, read on demand (#163): { rows: [{ category, description, url? }], readAt }.
+export const getSupportSummary = (id) => request(`/students/${id}/support-summary`);
 export const updateStudent = (id, preferred_name_teacher) => request(`/students/${id}`, {
   method: 'PUT',
   body: JSON.stringify({ preferred_name_teacher }),

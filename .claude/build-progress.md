@@ -1472,3 +1472,14 @@ submission comments.
 - **Verified live on a dev server:** Prism's page: POST 200, PUT 200. A page served from another port: reading `/api/courses` blocked by the browser; a no-cors POST refused (logged). curl without `Origin`: 200.
 - **Tests:** `originGuard.test.js` (7), `getServerConfig` (2), `devProxy.test.js` (1 new).
 
+## PowerSchool Student Support Summary on demand (#163, 2026-10-18)
+
+- **Probe** (`scripts/probe-ps-alert-popups.js`, each student read approved by Graham, values masked): the plugin's own link for each alert (`api.makeAlert`), the catalogue entries, then one SPP pop-up (77 bytes, an empty paragraph) and one Student Support Summary pop-up (a 9-row Category / Description table). Recorded in `.claude/powerschool-api-reference.md`, "Alert pop-ups". No security violation.
+- **Choices (Graham, 18/10):** show the whole table verbatim (no extra-time number parsed); read on demand, nothing stored.
+- **Server:** `server/lib/parseSupportSummary.js`; `server/services/psSupportSummary.js` (only with the `support_summary` alert; launch through a current course, roster dcid → studentid, then `PowerSchoolWeb.page()` with the attendance page as Referer; refuses a Security Violation page; 10-minute memory cache). `PowerSchoolWeb.launch` now returns `{ sectionDcid }`. Route `GET /api/students/:id/support-summary` (feature `powerschool_alerts`).
+- **Client:** `PsAlertReveal` reads it inside the reveal (`studentId` from `StudentPage`).
+- **PrisMCP:** `get_support_summary` (same service; teacher-only note in the answer and the instructions).
+- **Verified live on a dev server** (DB copy with that student's alert added, as tonight's first prod alerts sync will store it): 9 rows, the plan URL as a link, 1.2 s; the second call from the cache in 4 ms.
+- **Noticed:** prod's `student_ps_alerts` is still empty. Its last sync (03:00 HKT, 18/10) ran before #117 was deployed; the first alerts sync is the next nightly run.
+- **Tests:** parser 3, service 7, route 10, client 5, PrisMCP 3.
+

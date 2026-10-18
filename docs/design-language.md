@@ -1480,3 +1480,9 @@ Chosen 18/10/2026 from three mockups (state chip on every row, verb where it mat
 - **Typing:** one field, hidden by default (`type="password"`) with a **Show** tick box, then **Type it** (`.primary`). Font size 1rem so a phone does not zoom. Key buttons **Enter**, **Backspace**, **Tab** (`.secondary`) and **Cancel** (`.ghost`) on one wrapping row.
 - **End states:** "Signed in. Prism saved the session." (`.alert-success`, Close) or a warning (closed, left too long, could not open) with **Start again**.
 
+## Student Support Summary inside "Show alerts" (October 2026, #163)
+
+- **Only after the reveal:** when the student has the Support Summary alert, pressing **Show alerts** also reads the Student Support Summary from PowerSchool, live (10-minute server cache). Hide and show reads it again; nothing is kept on the page. A projector shows nothing before the click, as with the alerts.
+- **Verbatim, full width under the badges:** a boxed list (`.ps-support-summary`, `var(--bg-subtle)`) headed "Student Support Summary, read from PowerSchool DD/MM/YYYY HH:MM"; each row is PowerSchool's Category and Description (`dt` / `dd`), the Support Plan URL as a link. Prism infers nothing, not even the extra time: it stays in Support Notes in PowerSchool's words. On a phone each category sits above its description.
+- **States:** "Reading the Student Support Summary from PowerSchool…", "PowerSchool's Support Summary is empty.", or "Could not read the Support Summary: {reason}" in the amber warning colour. Never on a roster.
+

@@ -8,6 +8,7 @@ import { getRoster } from '../services/assessmentContext.js';
 import { matchFilesToRoster } from '../lib/oneDriveSubmissions.js';
 import { getFeatures } from '../middleware/featureGate.js';
 import { psAlertsForStudent } from '../services/psAlertStore.js';
+import { readSupportSummary, SupportSummaryError } from '../services/psSupportSummary.js';
 
 const router = Router();
 
@@ -30,6 +31,23 @@ router.get('/', (req, res) => {
 });
 
 // GET /api/students/:id — student profile with courses, grades, notes, flags
+// GET /api/students/:id/support-summary → { rows: [{ category, description, url? }], readAt }:
+// the PowerSchool Student Support Summary, read on demand when the teacher opens
+// "Show alerts" (#163; server/services/psSupportSummary.js). For the teacher only.
+const SUPPORT_SUMMARY_STATUS = {
+  NO_ALERT: 404, NOT_FOUND: 404, NOT_LINKED: 404, NO_COURSE: 409, NOT_ON_ROSTER: 409,
+  SESSION_EXPIRED: 503, SECURITY_VIOLATION: 502, PS_FAILED: 502,
+};
+router.get('/:id/support-summary', async (req, res) => {
+  if (!getFeatures().powerschool_alerts) return res.status(404).json({ error: 'PowerSchool alerts are off' });
+  try {
+    res.json(await readSupportSummary(getDb(), Number(req.params.id)));
+  } catch (err) {
+    if (err instanceof SupportSummaryError) return res.status(SUPPORT_SUMMARY_STATUS[err.code] || 502).json({ error: err.message, code: err.code });
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/:id', (req, res) => {
   const db = getDb();
   const student = db.prepare('SELECT * FROM students WHERE id = ?').get(req.params.id);

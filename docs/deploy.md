@@ -155,10 +155,19 @@ sign-in has lapsed); then the session shows *Expired* and the steps below apply.
 Mastery sync, OneDrive links and the Ask modal's "unsubmit their OneDrive work"
 option need the saved session; the rest of the app keeps working. **Settings →
 Schoology connection** shows whether it is live (*Connected · checked HH:MM* /
-*Expired* / *Not set up*, re-checked at most every 10 minutes, or on *Check now*)
-and its **Log in to Schoology** button opens the login window on the mini's
-screen — screen-share to it. The Ask modal links there when the session has
-expired. Or screen-share into the mini and run:
+*Expired* / *Not set up*, re-checked at most every 10 minutes, or on *Check now*).
+
+**Log in to Schoology** (Settings, or any other "Log in to Schoology" button, which
+leads there) opens the server's own Microsoft sign-in **on the device you are using**,
+phone included: a picture of the sign-in page that refreshes about every 0.7 s. Tap a
+box on the picture, type in the field below it, press **Type it**, and use Enter /
+Backspace / Tab as needed. Approve MFA on your phone as usual. At *Stay signed in?*
+choose **Yes**, so the server can renew the session by itself later. When the page
+lands on Schoology, Prism saves the session and says *Signed in*. The sign-in closes
+itself after 10 minutes without use. What you type is passed to Microsoft only, never
+stored or logged.
+
+At the mini itself, the old window still works for a dev clone:
 
 ```bash
 cd ~/prism/current && PRISM_SESSION_DIR=$HOME/prism/data/.playwright-session npm run mastery:login

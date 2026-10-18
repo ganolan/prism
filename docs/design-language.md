@@ -1472,3 +1472,11 @@ Chosen 18/10/2026 from three mockups (state chip on every row, verb where it mat
 - **No room taken while hidden:** the quiet button floats over the row's right end (absolute, opaque card fill), so a hidden button never wraps a long title to an empty second line.
 - **Confirm under the row** (the make-up tracking pattern): "Publish <b>title</b> on Schoology? Students see it at once." with **Publish** (`.primary`) / Cancel, or "Students stop seeing it at once." with **Unpublish** (`.primary.danger`). After the write, a green line "Published on Schoology (checked)." for 5 seconds; a refusal shows in the tab's `.alert.alert-warning`.
 - **Live courses only**, like the make-up chip. The row shows the state Schoology read back after the write.
+
+## Remote sign-in to Schoology (October 2026, #136)
+
+- **One sign-in path:** Settings → Schoology connection → **Log in to Schoology** opens `RemoteSignIn` inside the card. Every other "Log in to Schoology" button (Sync dialog, sync progress, archived courses, course page) goes to `/settings#schoology-signin`, which opens it at once (`client/src/lib/signIn.js`). Helper text: "Opens the sign-in here, on this device: a phone works too."
+- **The picture is the page:** the server's sign-in (400 x 720 page pixels, portrait so it suits a phone) shown full card width, at most 420 px; a tap maps to page pixels. One line of instructions above it, including "At "Stay signed in?" choose Yes".
+- **Typing:** one field, hidden by default (`type="password"`) with a **Show** tick box, then **Type it** (`.primary`). Font size 1rem so a phone does not zoom. Key buttons **Enter**, **Backspace**, **Tab** (`.secondary`) and **Cancel** (`.ghost`) on one wrapping row.
+- **End states:** "Signed in. Prism saved the session." (`.alert-success`, Close) or a warning (closed, left too long, could not open) with **Start again**.
+

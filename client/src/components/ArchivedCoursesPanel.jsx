@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { discoverArchivedCourses, triggerMasteryLogin } from '../services/api.js';
+import { discoverArchivedCourses } from '../services/api.js';
+import { goToSignIn } from '../lib/signIn.js';
 import ArchivedImportList from './ArchivedImportList.jsx';
 import ImportProgress from './ImportProgress.jsx';
 import { useImportRunner } from '../hooks/useImportRunner.js';
@@ -16,7 +17,6 @@ export default function ArchivedCoursesPanel({ onImported }) {
   const [discovered, setDiscovered] = useState(null); // null until checked
   const [checking, setChecking] = useState(false);
   const [needLogin, setNeedLogin] = useState(false);
-  const [loggingIn, setLoggingIn] = useState(false);
   const [importedIds, setImportedIds] = useState(() => new Set()); // imported this session
   const [error, setError] = useState(null);
 
@@ -49,16 +49,9 @@ export default function ArchivedCoursesPanel({ onImported }) {
     }
   }
 
-  async function handleLogin() {
-    setLoggingIn(true); setError(null);
-    try {
-      await triggerMasteryLogin();
-      await handleCheck(); // auto re-run discovery once logged in
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoggingIn(false);
-    }
+  // The sign-in opens in Settings, on this device (RemoteSignIn, #136).
+  function handleLogin() {
+    goToSignIn();
   }
 
   function handleImport(sectionIds) {
@@ -75,7 +68,7 @@ export default function ArchivedCoursesPanel({ onImported }) {
 
       {discovered === null && (
         <div className="archived-import-action">
-          <button type="button" className="secondary" onClick={handleCheck} disabled={checking || loggingIn}>
+          <button type="button" className="secondary" onClick={handleCheck} disabled={checking}>
             {checking ? 'Checking…' : 'Check Schoology for archived courses'}
           </button>
         </div>
@@ -84,8 +77,8 @@ export default function ArchivedCoursesPanel({ onImported }) {
       {needLogin && (
         <div className="alert alert-warning sync-login-prompt">
           <p>Finding archived courses needs a Schoology browser session. Log in once to enable it.</p>
-          <button type="button" className="secondary" onClick={handleLogin} disabled={loggingIn}>
-            {loggingIn ? 'Logging in…' : 'Log in to Schoology'}
+          <button type="button" className="secondary" onClick={handleLogin}>
+            Log in to Schoology
           </button>
         </div>
       )}

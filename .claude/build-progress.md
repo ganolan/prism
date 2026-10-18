@@ -1458,3 +1458,10 @@ submission comments.
 - **Tests:** 4 in `schoologySession.test.js`, 4 in `schoologyWeb.test.js`.
 - **Still open on #136:** the fallback when Microsoft asks for a real sign-in (import the cookies from the teacher's browser, or drive the login window remotely).
 
+## Remote sign-in to Schoology from any device (#136, 2026-10-18)
+
+- **Server:** `server/services/remoteLogin.js` runs one headless Chromium (400 x 720, the saved state) on Schoology `/home`; `server/routes/schoologyLogin.js` (`/api/schoology-login`: `POST /start`, `GET /screen` JPEG, `POST /click {x,y}`, `/type {text}`, `/key {key}`, `/stop`, `GET /` state). Landing signed in saves the state (`saveSessionState`, temp file + rename), notes the session live and closes the browser. Typed text is never echoed or logged; one sign-in at a time; closes after 10 idle minutes.
+- **Client:** `RemoteSignIn.jsx` in the Settings card; the other "Log in to Schoology" buttons go to `/settings#schoology-signin` (`lib/signIn.js`). `POST /api/mastery/login` (the window on the server's screen) is no longer called by the UI; `npm run mastery:login` still uses it at the mini.
+- **Verified live on a dev server at phone size (390 px, touch):** with an empty session, the Microsoft sign-in page showed; a tap focused and unfocused its email box; typed text and Backspace reached it (nothing submitted). With a copy of prod's session, Start finished at once ("done") and rewrote the session file. A full sign-in with a password and MFA is still to be done by Graham on prod.
+- **Tests:** `remoteLogin.test.js` (8), `schoologyLogin.test.js` (5), `RemoteSignIn.test.jsx` (6), Settings / Sync dialog / archived courses updated.
+

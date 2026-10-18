@@ -1,6 +1,7 @@
+import { goToSignIn } from '../lib/signIn.js';
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, triggerMasterySync, triggerMasteryLogin, getSubmissionLinks, getTriage, setMakeUpIgnored, setAssessmentPublished, getQuizGroups, getCourseCommentSummaries } from '../services/api.js';
+import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, triggerMasterySync, getSubmissionLinks, getTriage, setMakeUpIgnored, setAssessmentPublished, getQuizGroups, getCourseCommentSummaries } from '../services/api.js';
 import AnalyticsView from '../components/AnalyticsView.jsx';
 import OverridePopup from '../components/OverridePopup.jsx';
 import TriageSection from '../components/triage/TriageSection.jsx';
@@ -128,14 +129,9 @@ export default function CoursePage() {
     }
   }
 
-  async function handleMasteryLogin() {
-    setMasterySyncResult({ success: false, error: 'Opening login browser... Log in to Schoology, then close the browser window.', needsLogin: false });
-    try {
-      await triggerMasteryLogin();
-      setMasterySyncResult({ success: true, error: null, message: 'Login saved. Click Sync Mastery to pull data.' });
-    } catch (err) {
-      setMasterySyncResult({ success: false, error: `Login failed: ${err.message}` });
-    }
+  // The sign-in opens in Settings, on this device (RemoteSignIn, #136).
+  function handleMasteryLogin() {
+    goToSignIn();
   }
 
   if (loading) return <div className="loading">Loading...</div>;

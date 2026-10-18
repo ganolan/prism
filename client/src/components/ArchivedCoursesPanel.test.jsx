@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { signInDeps } from '../lib/signIn.js';
 import ArchivedCoursesPanel from './ArchivedCoursesPanel.jsx';
 import { discoverArchivedCourses, importCourse, triggerMasteryLogin } from '../services/api.js';
 
@@ -91,30 +92,14 @@ describe('ArchivedCoursesPanel', () => {
     expect(onImported).not.toHaveBeenCalled();
   });
 
-  it('logs in on demand and auto-re-runs discovery', async () => {
-    discoverArchivedCourses
-      .mockResolvedValueOnce({ available: false, reason: 'no_session' })
-      .mockResolvedValueOnce(DISCOVERED);
-    triggerMasteryLogin.mockResolvedValue({});
-    renderPanel();
-    fireEvent.click(screen.getByText(/Check Schoology for archived courses/));
-    await screen.findByText(/Log in to Schoology/);
-    fireEvent.click(screen.getByText(/Log in to Schoology/));
-    await waitFor(() => expect(triggerMasteryLogin).toHaveBeenCalled());
-    await screen.findByText('Drama 8');
-    expect(discoverArchivedCourses).toHaveBeenCalledTimes(2);
-    expect(screen.queryByText(/Log in to Schoology/)).not.toBeInTheDocument();
-  });
-
-  it('keeps the login prompt and surfaces an error when login fails', async () => {
+  it('Log in to Schoology opens the sign-in in Settings', async () => {
     discoverArchivedCourses.mockResolvedValue({ available: false, reason: 'no_session' });
-    triggerMasteryLogin.mockRejectedValue(new Error('Login window closed'));
+    const go = vi.spyOn(signInDeps, 'go').mockImplementation(() => {});
     renderPanel();
     fireEvent.click(screen.getByText(/Check Schoology for archived courses/));
-    await screen.findByText(/Log in to Schoology/);
-    fireEvent.click(screen.getByText(/Log in to Schoology/));
-    expect(await screen.findByText('Login window closed')).toBeInTheDocument();
-    expect(screen.getByText(/Log in to Schoology/)).toBeInTheDocument();
-    expect(discoverArchivedCourses).toHaveBeenCalledTimes(1);
+    fireEvent.click(await screen.findByRole('button', { name: 'Log in to Schoology' }));
+    expect(go).toHaveBeenCalledWith('/settings#schoology-signin');
+    expect(triggerMasteryLogin).not.toHaveBeenCalled();
+    go.mockRestore();
   });
 });

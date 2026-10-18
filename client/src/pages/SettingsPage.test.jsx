@@ -11,6 +11,12 @@ vi.mock('../services/api.js', () => ({
   getSyncRun: vi.fn(),
   getMasteryLoginStatus: vi.fn(),
   triggerMasteryLogin: vi.fn(),
+  startRemoteLogin: vi.fn(),
+  getRemoteLoginScreen: vi.fn(),
+  stopRemoteLogin: vi.fn(),
+  remoteLoginClick: vi.fn(),
+  remoteLoginType: vi.fn(),
+  remoteLoginKey: vi.fn(),
 }));
 
 const TRIAGE = {
@@ -146,22 +152,37 @@ describe('SettingsPage — Schoology connection card', () => {
     expect(await within(c).findByText('Expired')).toBeInTheDocument();
   });
 
-  it('Log in to Schoology opens the login on the server (says so), then refreshes the status', async () => {
+  it('Log in to Schoology opens the server sign-in here (any device); when it finishes, the status refreshes', async () => {
     api.getMasteryLoginStatus.mockResolvedValue({ loggedIn: true, live: 'expired', checkedAt: null });
-    let finish;
-    api.triggerMasteryLogin.mockImplementation(() => new Promise((r) => { finish = r; }));
+    api.startRemoteLogin.mockResolvedValue({ status: 'active', host: 'login.microsoftonline.com' });
+    api.getRemoteLoginScreen.mockResolvedValue({ state: { status: 'done' } });
     render(<SettingsPage />);
     const c = await card();
-    expect(within(c).getByText("Opens a Schoology login window on the server. Screen-share to it if you're away.")).toBeInTheDocument();
-    expect(c.textContent).not.toMatch(/Mac mini|#136/);
+    expect(within(c).getByText('Opens the sign-in here, on this device: a phone works too.')).toBeInTheDocument();
+    expect(c.textContent).not.toMatch(/Mac mini|#136|Screen-share/);
     fireEvent.click(within(c).getByRole('button', { name: 'Log in to Schoology' }));
-    expect(api.triggerMasteryLogin).toHaveBeenCalledTimes(1);
-    expect(within(c).getByRole('button', { name: 'Waiting for login…' })).toBeDisabled();
+    expect(api.startRemoteLogin).toHaveBeenCalledTimes(1);
+    expect(api.triggerMasteryLogin).not.toHaveBeenCalled();
+    expect(await within(c).findByText('Signed in. Prism saved the session.')).toBeInTheDocument();
     api.getMasteryLoginStatus.mockResolvedValue({ loggedIn: true, live: 'connected', checkedAt: '2026-10-03T07:00:00Z' });
-    finish({ success: true });
+    fireEvent.click(within(c).getByRole('button', { name: 'Close' }));
     expect(await within(c).findByText(/^Connected/)).toBeInTheDocument();
     expect(api.getMasteryLoginStatus).toHaveBeenLastCalledWith({ refresh: true });
     expect(within(c).getByText('Login saved.')).toBeInTheDocument();
+    expect(within(c).getByRole('button', { name: 'Log in to Schoology' })).toBeInTheDocument();
+  });
+
+  it('opens the sign-in at once from a /settings#schoology-signin link', async () => {
+    window.location.hash = '#schoology-signin';
+    api.startRemoteLogin.mockResolvedValue({ status: 'active' });
+    api.getRemoteLoginScreen.mockReturnValue(new Promise(() => {}));
+    try {
+      render(<SettingsPage />);
+      await card();
+      await waitFor(() => expect(api.startRemoteLogin).toHaveBeenCalledTimes(1));
+    } finally {
+      window.location.hash = '';
+    }
   });
 });
 

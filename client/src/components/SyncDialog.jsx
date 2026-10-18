@@ -1,6 +1,7 @@
+import { goToSignIn } from '../lib/signIn.js';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  getCourses, getMasteryLoginStatus, triggerMasteryLogin, runSync, getSyncMetrics, getTriageCalendar,
+  getCourses, getMasteryLoginStatus, runSync, getSyncMetrics, getTriageCalendar,
   getCurrentSync, getSyncRunEvents,
 } from '../services/api.js';
 import { reduceSyncEvents } from '../lib/syncEvents.js';
@@ -275,19 +276,9 @@ export default function SyncDialog({ onClose, onSyncComplete, pollMs = POLL_MS, 
     return finish(r, { refresh: true });
   }
 
-  async function handleLogin() {
-    setBusy(true);
-    try {
-      await triggerMasteryLogin();
-      const status = await getMasteryLoginStatus({ check: false });
-      setLoggedIn(!!status.loggedIn);
-      setRetryEnabled(true);
-      connection.refresh();
-    } catch {
-      /* login browser failed or was cancelled — leave state unchanged */
-    } finally {
-      setBusy(false);
-    }
+  // The sign-in opens in Settings, on this device (RemoteSignIn, #136).
+  function handleLogin() {
+    goToSignIn();
   }
 
   function handleRetry(courseIds) {

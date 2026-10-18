@@ -68,6 +68,14 @@ export async function checkSessionLive() {
 // cannot start, or there is no saved session. Reads that expire together share one
 // renewal.
 const RENEW_WAIT_MS = 45000;
+
+// Write a browser's storage state over the saved session: a temp file, then rename,
+// so a reader never sees half a file.
+export function saveSessionState(stateFile, state) {
+  const tmp = `${stateFile}.save-${process.pid}`;
+  writeFileSync(tmp, JSON.stringify(state, null, 2));
+  renameSync(tmp, stateFile);
+}
 let renewing = null;
 export function renewSession({ stateFile = sessionStateFile(), now = Date.now } = {}) {
   renewing ??= (async () => {
@@ -82,10 +90,7 @@ export function renewSession({ stateFile = sessionStateFile(), now = Date.now } 
         noteSessionLive('expired', 'Microsoft asked for a sign-in: log in to Schoology in Settings', now());
         return false;
       }
-      const state = await s.page.context().storageState();
-      const tmp = `${stateFile}.renew-${process.pid}`;
-      writeFileSync(tmp, JSON.stringify(state, null, 2));
-      renameSync(tmp, stateFile);
+      saveSessionState(stateFile, await s.page.context().storageState());
       noteSessionLive('connected', null, now());
       console.log('[schoologySession] Session renewed through Microsoft sign-in');
       return true;

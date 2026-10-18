@@ -1434,6 +1434,14 @@ button.stat-tile--red { border-color: var(--danger); }
 .unsubmit-failed a.link { color: inherit; text-decoration: underline; }
 
 /* Schoology connection status (Settings card, Sync dialog): a dot, one line, Check now. */
+/* Remote sign-in (RemoteSignIn.jsx, #136): the server's sign-in page as a picture
+   (400 x 720 page pixels), never wider than the card, so it fits a phone. */
+.remote-signin { display: grid; gap: 0.6rem; margin-top: 0.6rem; max-width: 420px; }
+.remote-signin__screen { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--bg-subtle); min-height: 6rem; display: grid; place-items: center; }
+.remote-signin__screen img { display: block; width: 100%; height: auto; cursor: pointer; touch-action: manipulation; }
+.remote-signin__row { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
+.remote-signin__row input[type="text"], .remote-signin__row input[type="password"] { flex: 1 1 10rem; min-width: 0; font-size: 1rem; }
+.remote-signin__show { display: inline-flex; align-items: center; gap: 0.25rem; }
 .schoology-connection { display: inline-flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
 .schoology-connection__dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--text-muted); flex: none; }
 .schoology-connection__dot--success { background: var(--success); }

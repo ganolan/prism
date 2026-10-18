@@ -183,6 +183,22 @@ export const deleteAssessmentDraft = ({ assignmentId, studentId }) =>
   request(`/assessment-drafts?assignment_id=${assignmentId}&student_id=${studentId}`, { method: 'DELETE' });
 export const draftBeaconBody = (data) => new Blob([JSON.stringify(data)], { type: 'application/json' });
 
+// Remote sign-in to Schoology (#136): the server's own Microsoft sign-in, driven from
+// this device. Each call answers the state { status, host, message }.
+export const startRemoteLogin = () => request('/schoology-login/start', { method: 'POST' });
+export const getRemoteLoginState = () => request('/schoology-login');
+export const remoteLoginClick = (x, y) => request('/schoology-login/click', { method: 'POST', body: JSON.stringify({ x, y }) });
+export const remoteLoginType = (text) => request('/schoology-login/type', { method: 'POST', body: JSON.stringify({ text }) });
+export const remoteLoginKey = (key) => request('/schoology-login/key', { method: 'POST', body: JSON.stringify({ key }) });
+export const stopRemoteLogin = () => request('/schoology-login/stop', { method: 'POST' });
+// → { image: Blob } while the sign-in is open, else { state } (finished, stopped, timed out).
+export async function getRemoteLoginScreen() {
+  const res = await fetch(`${BASE}/schoology-login/screen`, { cache: 'no-store' });
+  if (res.status === 409) return { state: await res.json() };
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Request failed: ${res.status}`);
+  return { image: await res.blob() };
+}
+
 // Mastery / SBG
 export const triggerMasteryLogin = () => request('/mastery/login', { method: 'POST' });
 // { loggedIn, live: 'connected' | 'expired' | 'none' | null, checkedAt, message? } — live is

@@ -1,3 +1,4 @@
+import { SIGN_IN_NOTE } from '../lib/signIn.js';
 import { useState, useMemo } from 'react';
 import { formatLastSynced } from '../lib/courseDisplay.js';
 import TriCheckbox from './TriCheckbox.jsx';
@@ -15,7 +16,7 @@ const RECENT_HELP =
 
 const CALENDAR_STALE_DAYS = 14;
 // The login window opens on the server's screen, not the teacher's device.
-const LOGIN_NOTE = "Opens a Schoology login window on the server. Screen-share to it if you're away.";
+const LOGIN_NOTE = SIGN_IN_NOTE;
 
 // connection (optional) = useSchoologyConnection() from the dialog: the saved session's
 // live status beside the login option, plus a login prompt when it has expired.

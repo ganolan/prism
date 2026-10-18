@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import SyncDialog from './SyncDialog.jsx';
 import * as api from '../services/api.js';
+import { signInDeps } from '../lib/signIn.js';
 
 vi.mock('../services/api.js');
 
@@ -477,17 +478,17 @@ describe('SyncDialog — Schoology connection status', () => {
     expect(screen.getByRole('button', { name: 'Check now' })).toBeInTheDocument();
   });
 
-  it('an expired session offers the login (even though a session file exists); logging in re-checks', async () => {
+  it('an expired session offers the login (even though a session file exists); it opens the sign-in in Settings', async () => {
     vi.mocked(api.getMasteryLoginStatus).mockImplementation(async ({ check = true } = {}) => (
       check ? { loggedIn: true, live: 'expired', checkedAt: null } : { loggedIn: true, live: null, checkedAt: null }
     ));
-    vi.mocked(api.triggerMasteryLogin).mockResolvedValue({ success: true });
+    const go = vi.spyOn(signInDeps, 'go').mockImplementation(() => {});
     render(<SyncDialog onClose={() => {}} />);
     expect(await screen.findByText('Expired')).toBeInTheDocument();
-    expect(screen.getByText("Opens a Schoology login window on the server. Screen-share to it if you're away.")).toBeInTheDocument();
-    vi.mocked(api.getMasteryLoginStatus).mockImplementation(async () => ({ loggedIn: true, live: 'connected', checkedAt: '2026-10-03T07:00:00Z' }));
+    expect(screen.getByText('Opens the sign-in in Settings, on this device: a phone works too.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Log in to Schoology' }));
-    expect(await screen.findByText(/^Connected · checked/)).toBeInTheDocument();
-    expect(api.getMasteryLoginStatus).toHaveBeenCalledWith({ refresh: true });
+    expect(go).toHaveBeenCalledWith('/settings#schoology-signin');
+    expect(api.triggerMasteryLogin).not.toHaveBeenCalled();
+    go.mockRestore();
   });
 });

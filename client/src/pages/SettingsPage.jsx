@@ -2,30 +2,29 @@ import { useEffect, useState } from 'react';
 import NumberStepper from '../components/NumberStepper.jsx';
 import RecentSyncs from '../components/RecentSyncs.jsx';
 import SchoologyConnectionStatus, { useSchoologyConnection } from '../components/SchoologyConnectionStatus.jsx';
-import { getSettings, updateSettings, getTriage, triggerMasteryLogin } from '../services/api.js';
+import { getSettings, updateSettings, getTriage } from '../services/api.js';
+import RemoteSignIn from '../components/RemoteSignIn.jsx';
 import { formatDateTime } from '../lib/formatDate.js';
 
 // The saved Schoology browser session (mastery sync, OneDrive links, unsubmitting work on
-// an Ask): its live status, a re-check, and the login window. The login opens on the
-// server's screen, so the button says so. Anchor: /settings#schoology (the Ask modal's
-// "reconnect in Settings" link).
+// an Ask): its live status, a re-check, and the sign-in. Log in to Schoology opens the
+// server's own Microsoft sign-in here, as a picture you tap and type into
+// (RemoteSignIn, #136), so it works from a phone. Anchor: /settings#schoology (the Ask
+// modal's "reconnect in Settings" link); /settings#schoology-signin opens the sign-in.
 function SchoologyConnectionCard() {
   const connection = useSchoologyConnection();
-  const [loginBusy, setLoginBusy] = useState(false);
+  const [signingIn, setSigningIn] = useState(() => window.location.hash === '#schoology-signin');
   const [loginMsg, setLoginMsg] = useState(null);
 
-  async function login() {
-    setLoginBusy(true);
+  function open() {
     setLoginMsg(null);
-    try {
-      await triggerMasteryLogin();
-      setLoginMsg('Login saved.');
-    } catch (err) {
-      setLoginMsg(`Login did not complete: ${err.message}`);
-    } finally {
-      setLoginBusy(false);
-      connection.refresh();
-    }
+    setSigningIn(true);
+  }
+
+  function finished(signedIn) {
+    setSigningIn(false);
+    if (signedIn) setLoginMsg('Login saved.');
+    connection.refresh();
   }
 
   return (
@@ -37,12 +36,14 @@ function SchoologyConnectionCard() {
       <div className="settings-row">
         <SchoologyConnectionStatus connection={connection} />
       </div>
-      <div className="settings-row">
-        <button type="button" className="secondary" onClick={login} disabled={loginBusy}>
-          {loginBusy ? 'Waiting for login…' : 'Log in to Schoology'}
-        </button>
-        <span className="text-sm text-muted">Opens a Schoology login window on the server. Screen-share to it if you&apos;re away.</span>
-      </div>
+      {signingIn ? (
+        <RemoteSignIn onClose={finished} />
+      ) : (
+        <div className="settings-row">
+          <button type="button" className="secondary" onClick={open}>Log in to Schoology</button>
+          <span className="text-sm text-muted">Opens the sign-in here, on this device: a phone works too.</span>
+        </div>
+      )}
       {loginMsg && <p className="text-sm text-muted" role="status">{loginMsg}</p>}
     </section>
   );

@@ -1483,3 +1483,9 @@ submission comments.
 - **Noticed:** prod's `student_ps_alerts` is still empty. Its last sync (03:00 HKT, 18/10) ran before #117 was deployed; the first alerts sync is the next nightly run.
 - **Tests:** parser 3, service 7, route 10, client 5, PrisMCP 3.
 
+## Time per phase in Settings, Recent syncs (#165, 2026-10-18)
+
+- **Link run to metrics:** `sync_runs` has no key to `sync_metrics`. The orchestrator writes the same times to both: the metrics row, and the run's own stored events (each finished phase's `elapsedMs`, the summary's `phaseMs`). Recent syncs reads them from the run's events, so no schema or API change.
+- **Client:** an expanded run shows "Time per phase" above its log (`PhaseTimings.jsx`, now shared with the sync dialog's foot; `.sync-run-timings`). Only when the run finished and its summary carries `phaseMs`: a running or interrupted run, or one before #143 (only blocks was timed then), shows nothing extra.
+- **Verified live on a dev server (copy of prod's DB plus one synthetic timed run):** the timed run lists six lines in the dialog's order and format at desktop and 390 px; a real pre-#143 prod run shows its log only.
+- **Tests:** `RecentSyncs.test.jsx` (5 new), `syncRuns.test.js` (1 new: stored events keep `elapsedMs` and `phaseMs`).

@@ -134,6 +134,21 @@ describe('sync runs', () => {
     expect(getRun(db(), done).status).toBe('completed');
   });
 
+  // #165: Settings → Recent syncs reads a run's time per phase from its stored
+  // events, so each phase's elapsedMs and the summary's phaseMs must survive.
+  test('getRun keeps each phase elapsedMs and the summary phaseMs', () => {
+    const id = startRun(db(), {});
+    const phaseMs = { schoology: 61000, blocks: 8500, alerts: null, mastery: 30000, comments: null, quizzes: null };
+    appendEvent(db(), id, { phase: 'schoology', status: 'done', records: 4, elapsedMs: 61000 });
+    appendEvent(db(), id, { phase: 'mastery', courseId: 5, courseName: 'Course A', status: 'done', records: 7, elapsedMs: 30000 });
+    appendEvent(db(), id, { type: 'summary', elapsedMs: 104000, phaseMs });
+    finishRun(db(), id, { status: 'completed', summary: { type: 'summary', elapsedMs: 104000, phaseMs } });
+    const run = getRun(db(), id);
+    expect(run.events.map((e) => e.elapsedMs)).toEqual([61000, 30000, 104000]);
+    expect(run.events.at(-1).phaseMs).toEqual(phaseMs);
+    expect(run.summary.phaseMs).toEqual(phaseMs);
+  });
+
   test('getRun returns null for an unknown id', () => {
     expect(getRun(db(), 999999)).toBe(null);
   });

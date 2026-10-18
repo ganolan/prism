@@ -17,6 +17,16 @@ import { getFeedbackRows, getRowLevels, ROW_PREFIX } from './feedbackRows.js';
 import { rubricAverage } from '../lib/rubricAverage.js';
 import { timelineContext, agentTimeline } from './submissionTimeline.js';
 import { threadsForAssignment } from './submissionCommentStore.js';
+import { revisionsForAssignment } from './submissionFileStore.js';
+
+// A student's cached native dropbox files (#162), flat and newest revision first:
+// what was handed in, for the grader. No download paths (they stay on the server).
+export function agentSubmissionFiles(revisions = []) {
+  return revisions.flatMap((r, i) => r.files.map((f) => ({
+    filename: f.title || f.filename, filemime: f.filemime, extension: f.extension, filesize: f.filesize,
+    revision_id: r.revision_id, submitted_at: r.created, late: r.late, draft: r.draft, latest: i === 0,
+  })));
+}
 
 // Epoch-seconds → ISO string (null when 0/missing). Mirrors the list_assignments
 // timestamp convention so agents get a parseable submission time.
@@ -275,6 +285,8 @@ export function getAssessmentContext(db, { assignmentId }) {
   // Cached submission comment threads (students often answer a task's written
   // questions there); get_assignment_context refreshes them first when it can.
   const commentThreads = threadsForAssignment(db, assignmentRow.id);
+  // Cached native dropbox files (#162); get_assignment_context reads them first when it can.
+  const fileReads = revisionsForAssignment(db, assignmentRow.id);
   // #117: PowerSchool alerts per student (labels only), when the feature is on.
   const alertFields = getFeatures().powerschool_alerts ? psAlertFieldsForAgents(db, roster.map((st) => st.id)) : null;
 
@@ -366,6 +378,9 @@ export function getAssessmentContext(db, { assignmentId }) {
         attachments: c.attachments.map((f) => ({ filename: f.filename, filemime: f.filemime, filesize: f.filesize })),
       })),
       submission_comments_read_at: commentThreads[st.id]?.read_at ?? null,
+      // Native dropbox uploads, every revision, newest first. read_at null = never read.
+      submission_files: agentSubmissionFiles(fileReads[st.id]?.revisions),
+      submission_files_read_at: fileReads[st.id]?.read_at ?? null,
       ...(alertFields ? alertFields.get(st.id) : {}),
       draft_feedback: draft ? buildDraftFeedback(draft, {
         scoreScale, rowNames,

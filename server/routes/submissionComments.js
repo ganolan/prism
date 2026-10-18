@@ -10,6 +10,7 @@ import { featureGate } from '../middleware/featureGate.js';
 import { CommentError, threadFor, refreshAssignment, refreshStudent, postComment, deleteComment, postCommentWithFile, commentFile, markThreadSeen } from '../services/submissionComments.js';
 import { summariesForAssignment, summariesForCourse, summariesForStudent } from '../services/submissionCommentStore.js';
 import { resolveAssignmentId } from '../services/idResolvers.js';
+import { sendFile } from './fileResponse.js';
 
 const router = Router();
 router.use(featureGate('submission_comments'));
@@ -86,21 +87,19 @@ router.post('/:assignmentId/:studentId/file', express.json({ limit: '25mb' }), h
   }
 }));
 
-// A comment's file, fetched from Schoology with the API signature. Images and PDFs
-// open in the browser; anything else downloads.
+// A comment's file, streamed from Schoology with the API signature, inline when
+// Prism's viewer can show it (#162: images, videos, audio, PDFs, with byte
+// ranges); anything else downloads, sandboxed. ?download=1 always downloads.
 router.get('/:assignmentId/:studentId/:commentId/files/:fid', async (req, res) => {
+  let f;
   try {
-    const f = await commentFile(getDb(), req.params);
-    const inline = /^image\/|^application\/pdf$/.test(f.filemime);
-    res.set('Content-Type', f.filemime);
-    res.set('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(f.filename)}`);
-    res.set('X-Content-Type-Options', 'nosniff');
-    res.send(f.body);
+    f = await commentFile(getDb(), { ...req.params, range: req.get('range') || null });
   } catch (err) {
     if (err instanceof CommentError) return res.status(err.status).json({ error: err.message, code: err.code });
     console.error('submission comment file failed:', err);
-    res.status(500).json({ error: `Could not fetch the file: ${err.message}`, code: 'INTERNAL' });
+    return res.status(500).json({ error: `Could not fetch the file: ${err.message}`, code: 'INTERNAL' });
   }
+  sendFile(req, res, f);
 });
 
 router.delete('/:assignmentId/:studentId/:commentId', handle((req, db) =>

@@ -4,7 +4,7 @@
 // There is no bulk read, so each (assignment, student) costs one GET: reads are
 // lazy (on open) plus a background queue over an assignment's submitted cells.
 import {
-  getSubmissionComments, postSubmissionComment, deleteSubmissionComment, getMyUserId, getSectionEnrollments, downloadFile,
+  getSubmissionComments, postSubmissionComment, deleteSubmissionComment, getMyUserId, getSectionEnrollments, openFile,
 } from './schoology.js';
 import { authorRole } from '../lib/submissionComments.js';
 import { resolveAssignmentId } from './idResolvers.js';
@@ -24,7 +24,7 @@ export const commentDeps = {
   deleteSubmissionComment: (...a) => deleteSubmissionComment(...a),
   getMyUserId: (...a) => getMyUserId(...a),
   getSectionEnrollments: (...a) => getSectionEnrollments(...a),
-  downloadFile: (...a) => downloadFile(...a),
+  openFile: (...a) => openFile(...a),
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   now: () => Math.floor(Date.now() / 1000),
   cookieJar: () => cookieJar(),
@@ -367,9 +367,13 @@ export async function postCommentWithFile(db, { assignmentId, studentId, text = 
   return { ...thread, posted_id: match.schoology_comment_id };
 }
 
-// One file of a cached comment, downloaded with the API's OAuth signature (the
-// download path refuses an unsigned request) → { filename, filemime, body }.
-export async function commentFile(db, { assignmentId, studentId, commentId, fid }) {
+// One file of a cached comment, opened with the API's OAuth signature (the
+// download path refuses an unsigned request), streamed for Prism's viewer (#162)
+// → { status (200 or 206), filename, filemime, filesize, contentRange, body (web stream) }.
+// `range` is the browser's Range header, passed on so a video can seek. No
+// converted copy: the 11 comment files checked (PNGs, 18/10/2026) listed
+// converted_status "2" and no converted path.
+export async function commentFile(db, { assignmentId, studentId, commentId, fid, range = null }) {
   const pair = pairOf(db, { assignmentId, studentId });
   const row = db.prepare('SELECT attachments FROM submission_comments WHERE schoology_comment_id = ? AND assignment_id = ? AND student_id = ?')
     .get(String(commentId), pair.assignment.id, pair.student.id);
@@ -377,7 +381,21 @@ export async function commentFile(db, { assignmentId, studentId, commentId, fid 
   try { files = JSON.parse(row?.attachments || '[]') || []; } catch { files = []; }
   const f = files.find((x) => String(x.fid) === String(fid));
   if (!f?.download_path) throw new CommentError('NOT_FOUND', 'That file is not in this thread. Refresh the thread and try again.', 404);
-  const res = await commentDeps.downloadFile(f.download_path);
-  if (res.status !== 200) throw new CommentError('SCHOOLOGY', `Schoology refused the download (${res.status}).`, 502);
-  return { filename: f.filename || 'file', filemime: f.filemime || res.contentType || 'application/octet-stream', body: res.body };
+  const res = await commentDeps.openFile(f.download_path, { range });
+  if (res.status === 416) {
+    await res.body?.cancel?.().catch(() => {});
+    throw new CommentError('RANGE', 'That part of the file is out of range.', 416);
+  }
+  if (res.status !== 200 && res.status !== 206) {
+    await res.body?.cancel?.().catch(() => {});
+    throw new CommentError('SCHOOLOGY', `Schoology refused the download (${res.status}).`, 502);
+  }
+  return {
+    status: res.status,
+    filename: f.filename || 'file',
+    filemime: f.filemime || res.contentType || 'application/octet-stream',
+    filesize: res.contentLength || null,
+    contentRange: res.status === 206 ? res.contentRange : null,
+    body: res.body,
+  };
 }

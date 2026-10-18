@@ -2,7 +2,7 @@
 // never blocking it. Both are scoped to the one student: the page is projected in
 // parent-teacher interviews, so nothing about another student is fetched.
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { getStudentWorkLinks, getStudentCommentSummaries } from '../services/api.js';
+import { getStudentWorkLinks, getStudentCommentSummaries, getStudentFileSummaries } from '../services/api.js';
 
 export const WORK_LINK_CHUNK = 3;
 // Statuses that mean no OneDrive lookup can work right now: stop asking.
@@ -38,6 +38,21 @@ export function useStudentWorkLinks(studentId, assignmentIds = [], reloadKey = 0
 // loading or when the feature is off (no chips). The first call queues a
 // background read of their submitted threads; one later re-read picks it up.
 export function useStudentCommentSummaries(studentId, reloadKey = 0) {
+  return useStudentSummaries(fetchComments, studentId, reloadKey);
+}
+
+// The student's submitted-files summaries (#162), the same way: the first call
+// queues a background read of their uploads in current courses.
+export function useStudentFileSummaries(studentId, reloadKey = 0) {
+  return useStudentSummaries(fetchFiles, studentId, reloadKey);
+}
+
+// Stable, and resolved only when called (inside the promise chain, so a failure is a catch).
+const fetchComments = (...a) => getStudentCommentSummaries(...a);
+const fetchFiles = (...a) => getStudentFileSummaries(...a);
+
+// fetchSummaries(studentId, { refresh }) → { assignments: { [aid]: summary }, refresh: { queued } }.
+function useStudentSummaries(fetchSummaries, studentId, reloadKey) {
   const [summaries, setSummaries] = useState(null);
   const poll = useRef(null);
   useEffect(() => {
@@ -45,7 +60,7 @@ export function useStudentCommentSummaries(studentId, reloadKey = 0) {
     if (!studentId) return undefined;
     let active = true;
     const load = (refresh) => Promise.resolve()
-      .then(() => getStudentCommentSummaries(studentId, { refresh }))
+      .then(() => fetchSummaries(studentId, { refresh }))
       .then((r) => {
         if (!active) return;
         setSummaries(r?.assignments || {});
@@ -57,7 +72,7 @@ export function useStudentCommentSummaries(studentId, reloadKey = 0) {
       .catch(() => {});
     load(true);
     return () => { active = false; clearTimeout(poll.current); };
-  }, [studentId, reloadKey]);
+  }, [fetchSummaries, studentId, reloadKey]);
   const update = useCallback((aid, summary) => {
     setSummaries((prev) => ({ ...(prev || {}), [aid]: summary }));
   }, []);

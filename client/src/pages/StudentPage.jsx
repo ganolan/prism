@@ -11,9 +11,10 @@ import PsAlertReveal from '../components/PsAlertReveal.jsx';
 import AttemptLink from '../components/quiz/AttemptLink.jsx';
 import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
 import { useAttachedRubrics } from '../hooks/useAttachedRubrics.js';
-import { useStudentWorkLinks, useStudentCommentSummaries } from '../hooks/useStudentFeedbackLinks.js';
+import { useStudentWorkLinks, useStudentCommentSummaries, useStudentFileSummaries } from '../hooks/useStudentFeedbackLinks.js';
 import SchoologyLink from '../components/SchoologyLink.jsx';
 import SubmissionComments from '../components/SubmissionComments.jsx';
+import SubmissionFiles, { hasNativeSubmission } from '../components/SubmissionFiles.jsx';
 import HelpDot from '../components/HelpDot.jsx';
 import { CLOCK_HELP, lateText } from '../lib/submissionTimeline.js';
 import { gradeLabel, submissionStatus } from '../lib/gradeLabel.js';
@@ -63,11 +64,12 @@ const commentsWorthAChip = (g, summary) => !!summary || !!g.submission_type || N
 
 // `rubrics`: the attached rubrics for the page's assignments, fetched in one batch
 // by StudentPage ({ attachments: { [aid]: attachment }, palette }). `workLinks`
-// ({ [aid]: OneDrive link }) and `commentSummaries` ({ [aid]: summary }, null when
-// the feature is off) arrive after the page renders, this student's only.
+// ({ [aid]: OneDrive link }), `commentSummaries` and `fileSummaries` ({ [aid]: summary },
+// null when the feature is off) arrive after the page renders, this student's only.
 export function CourseSection({
   course, grades, flagsByAssignment, studentUid, scales, studentName = 'the student', attemptLinks = {}, rubrics = NO_RUBRICS,
   studentId = null, workLinks = {}, commentSummaries = null, onCommentSummary = () => {},
+  fileSummaries = null, onFileSummary = () => {},
 }) {
   const [expanded, setExpanded] = useState(true);
 
@@ -135,7 +137,9 @@ export function CourseSection({
                 const workLink = workLinks[aid] || null;
                 const summary = commentSummaries?.[aid] || null;
                 const showComments = commentSummaries !== null && studentId != null && commentsWorthAChip(g, summary);
-                const links = (workLink || attempt || showComments) ? (
+                // The student's own Schoology uploads, every revision (#107, #162).
+                const showFiles = fileSummaries !== null && studentId != null && hasNativeSubmission(g, g);
+                const links = (workLink || attempt || showComments || showFiles) ? (
                   <>
                     {workLink && (
                       <SchoologyLink
@@ -145,6 +149,10 @@ export function CourseSection({
                         title={`Open ${studentName}'s work in OneDrive: last edited ${formatDateTime(workLink.modifiedAt)}`}
                         style={{ fontSize: '0.78rem', fontWeight: 600 }}
                       />
+                    )}
+                    {showFiles && (
+                      <SubmissionFiles assignmentId={aid} studentId={studentId} studentName={studentName}
+                        title={g.assignment_title} summary={fileSummaries[aid] || null} onSummary={(s) => onFileSummary(aid, s)} />
                     )}
                     <AttemptLink link={attempt} name={studentName} />
                     {showComments && (
@@ -291,6 +299,8 @@ export default function StudentPage() {
     dataVersion,
   );
   const [commentSummaries, setCommentSummary] = useStudentCommentSummaries(student?.id, dataVersion);
+  // Their submitted-files chips (#162): cached counts, and a background read of their uploads.
+  const [fileSummaries, setFileSummary] = useStudentFileSummaries(student?.id, dataVersion);
 
   async function handleSave() {
     const updated = await updateStudent(id, preferredVal.trim() || null);
@@ -537,6 +547,8 @@ export default function StudentPage() {
             workLinks={workLinks}
             commentSummaries={commentSummaries}
             onCommentSummary={setCommentSummary}
+            fileSummaries={fileSummaries}
+            onFileSummary={setFileSummary}
           />
         );
       })}

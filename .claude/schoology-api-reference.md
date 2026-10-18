@@ -237,6 +237,21 @@ unless stated.
     OneDrive "Open" link). The route passes `Range` on (206 + `Content-Range`), reuses a storage URL for 40 s, and
     serves the converted copy with `?copy=converted`; Prism's viewer plays a video's original first and falls back
     to the copy, and shows a document's PDF copy.
+  - **Prism (#162, 2026-10-18):** PrisMCP `get_assignment_context` reads the same per-student call for each student
+    the sync saw upload (`submission_type` "drop") or already read, unless read in the last 5 minutes, and lists
+    each student's files (no download paths). The student page queues the same read for one student's uploads in
+    current courses (skipping pairs read in the last 10 minutes). Live on a DB copy: one MGD task, 12 students, 11
+    read in about 11 s alongside the comment threads (both queues at once, 0 failures), 26 files; a second call
+    within 5 minutes made no reads. One student page: 5 tasks read in the background, 8 files in 7 revisions.
+- **Comment files have no converted copy (lower bound, VERIFIED 2026-10-18, read-only,
+  `scripts/probe-comment-file-conversions.js`):** every cached pair with a comment file (11 pairs, 11 files, all
+  `image/png`) re-read with `?with_attachments=1`. Key union per file: `id`, `fid`, `type`, `title`, `filename`,
+  `filesize`, `md5_checksum`, `timestamp`, `filemime`, `download_path`, `extension`, `converted_status`,
+  `converted_type`. All 11 had `converted_status` "2" and `converted_type` 3, and none had
+  `converted_download_path` or any other `converted_*` key. (Dropbox PNGs list `converted_status` "1" and a PDF
+  copy; status "2" may mean not converted or failed: not established.) Only PNGs were checked; a comment video or
+  document may differ. Prism streams a comment file through the same signed path with `Range` passed on (a 100-byte
+  range answered 206 with `Content-Range`; the whole 494,045-byte PNG's MD5 equalled `md5_checksum`).
 - **Delete through Prism, verified 2026-10-17:** `DELETE …/comments/3659117104` (the probe's image comment) removed
   it; the next REST read no longer held it. The final image comment (`3659117138`) was then posted through
   Prism's popover (Attach file) and stays: the page shows three comments and the file name once, on that comment.

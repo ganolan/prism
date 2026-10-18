@@ -16,10 +16,11 @@ vi.mock('../services/api.js', async (orig) => ({
   getRubricConfig: vi.fn().mockResolvedValue({ reportingCategoryColors: {} }),
   getStudentWorkLinks: vi.fn(),
   getStudentCommentSummaries: vi.fn(),
+  getStudentFileSummaries: vi.fn().mockResolvedValue({ assignments: {}, refresh: { queued: 0 } }),
 }));
 
 import StudentPage, { CourseSection } from './StudentPage.jsx';
-import { getStudent, getRubricsForAssignments, getStudentWorkLinks, getStudentCommentSummaries } from '../services/api.js';
+import { getStudent, getRubricsForAssignments, getStudentWorkLinks, getStudentCommentSummaries, getStudentFileSummaries } from '../services/api.js';
 
 const TOPICS = [{ topic_id: 't1', title: 'Select, analyze', external_id: 'ART.5.1', category_title: 'HS Art: Producing', grade: 'EX' }];
 const ATTACHMENT = {
@@ -103,6 +104,35 @@ describe('CourseSection: this student\'s links', () => {
     expect(row).toContainElement(chip);
   });
 
+  it('shows the files chip for a native upload, after the Open link and before the comments chip (#162)', () => {
+    renderSection([grade({ score: null })], NONE, {
+      fileSummaries: { 'sa-10': { revisions: 2, files: 3, read_at: '2026-10-17T02:00:00.000Z' } },
+      commentSummaries: { 'sa-10': { count: 2, read_at: '2026-10-17T02:00:00.000Z' } },
+    });
+    const files = screen.getByRole('button', { name: 'Submitted files: 3 files in 2 revisions. Open the list' });
+    expect(files).toHaveTextContent('3 files');
+    const row = screen.getByText('Submitted').closest('.assignment-feedback__badges');
+    expect(row).toContainElement(files);
+    const comments = screen.getByRole('button', { name: /2 submission comments/ });
+    expect(files.compareDocumentPosition(comments) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('a never-read upload shows a plain Files chip; none on OneDrive work, a test, no upload, or with the feature off', () => {
+    const { unmount } = renderSection([grade()], NONE, { fileSummaries: {} });
+    expect(screen.getByRole('button', { name: 'Submitted files: not read yet. Open the list' })).toHaveTextContent('Files');
+    unmount();
+    const none = [
+      grade({ is_lti_submission: 1, assignment_id: 11, schoology_assignment_id: 'sa-11' }),
+      grade({ is_test: 1, submission_type: 'assessment', assignment_id: 12, schoology_assignment_id: 'sa-12' }),
+      grade({ submission_type: null, assignment_id: 13, schoology_assignment_id: 'sa-13' }),
+    ];
+    const again = renderSection(none, NONE, { fileSummaries: {} });
+    expect(screen.queryByRole('button', { name: /Submitted files/ })).not.toBeInTheDocument();
+    again.unmount();
+    renderSection([grade()], NONE, { fileSummaries: null });
+    expect(screen.queryByRole('button', { name: /Submitted files/ })).not.toBeInTheDocument();
+  });
+
   it('no chip while the feature is off, nor on a task the student never touched', () => {
     const { unmount } = renderSection([grade()], NONE, { commentSummaries: null });
     expect(screen.queryByRole('button', { name: /submission comment/ })).not.toBeInTheDocument();
@@ -160,5 +190,25 @@ describe('StudentPage: loading', () => {
     expect(getStudentWorkLinks).toHaveBeenLastCalledWith(7, ['sa-24']);
     expect(getStudentCommentSummaries).toHaveBeenCalledWith(7, { refresh: true });
     expect(await screen.findByRole('button', { name: /1 submission comment\b/ })).toBeInTheDocument();
+  });
+
+  it('reads this student\'s file chips after the page renders, then once more when a background read was queued', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      getStudent.mockResolvedValue(student);
+      getRubricsForAssignments.mockResolvedValue({ attachments: {} });
+      getStudentWorkLinks.mockResolvedValue({ links: {}, status: {} });
+      getStudentCommentSummaries.mockResolvedValue({ assignments: {}, refresh: { queued: 0 } });
+      getStudentFileSummaries
+        .mockResolvedValueOnce({ assignments: {}, refresh: { queued: 1 } })
+        .mockResolvedValueOnce({ assignments: { 'sa-10': { revisions: 1, files: 2, read_at: '2026-10-17T02:00:00.000Z' } }, refresh: null });
+      renderPage();
+      // Portfolio and Quiz take uploads; the OneDrive tasks get no files chip.
+      expect(await screen.findAllByRole('button', { name: 'Submitted files: not read yet. Open the list' })).toHaveLength(2);
+      expect(getStudentFileSummaries).toHaveBeenCalledWith(7, { refresh: true });
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(await screen.findByRole('button', { name: 'Submitted files: 2 files in 1 revision. Open the list' })).toBeInTheDocument();
+      expect(getStudentFileSummaries).toHaveBeenLastCalledWith(7, { refresh: false });
+    } finally { vi.useRealTimers(); }
   });
 });

@@ -1465,6 +1465,13 @@ submission comments.
 - **Verified live on a dev server at phone size (390 px, touch):** with an empty session, the Microsoft sign-in page showed; a tap focused and unfocused its email box; typed text and Backspace reached it (nothing submitted). With a copy of prod's session, Start finished at once ("done") and rewrote the session file. A full sign-in with a password and MFA is still to be done by Graham on prod.
 - **Tests:** `remoteLogin.test.js` (8), `schoologyLogin.test.js` (5), `RemoteSignIn.test.jsx` (6), Settings / Sync dialog / archived courses updated.
 
+## Grade level from the section student list (#164, 2026-10-18)
+
+- **Read:** `server/services/psGradeLevelRead.js`, over plain HTTP on the attendance LTI session (`PowerSchoolWeb`, no browser): `section_info` → `psmSectionId` → `GET /ws/pt/v1/section/{psmSectionId}/students_integration` (no date) joined to dcids through `photoURL` and `getStudentsInSection.json`. The old `section_attendance` range read is kept as the per-section fallback (list fails, no `psmSectionId`, or nothing joins). `psAttendanceSync` now collects its sections in the browser loop and runs this pass after it; the browser `section_attendance` fetch is gone. `PowerSchoolWeb.read` takes an `accept` option (`/ws/` reads send `application/json` alone). Gender is in the same list; nothing stored.
+- **Parity (`scripts/parity-ps-grade-level.js`, live, read only):** 9 sections, 110 student rows, 110 match, 0 mismatches, 0 one-sided; stored `grad_year` agreed 110/110. Sync used the list for 9/9 sections.
+- **Timing:** whole block + grade pass before 9.8 / 8.6 / 7.4 s, after 8.5 / 8.3 / 8.3 s (noise). The grade pass is 1.7 s, most of it the second (HTTP) launch. Recorded in `.claude/powerschool-api-reference.md`.
+- **Tests:** `psGradeLevelRead.test.js` (11, fake PowerSchool extended with section_info, students_integration and section_attendance), `psGradeLevel.test.js` (+7).
+
 ## Writes only from Prism's own pages (2026-10-18)
 
 - **Before:** `app.use(cors())` with no options let any website opened on a tailnet device read Prism's API answers, and send simple cross-site POSTs (no JSON body, no preflight), e.g. one that starts a sync or a remote sign-in.

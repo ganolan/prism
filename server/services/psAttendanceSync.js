@@ -16,6 +16,10 @@
  *      where no numbered block resolves (PCG → "Pastoral Care", Interim, or a
  *      block not yet assigned at year start) leave the value untouched.
  *
+ *   4. Grade level (#43, #164): after the loop, over plain HTTP on the attendance
+ *      LTI session (powerschoolWeb.js, no browser), read each section's student
+ *      list (psGradeLevelRead.js) and store grad_year.
+ *
  * This runs for all active courses on every regular sync (opt-out checkbox in
  * the sync dialog), so a course synced before its block was published self-heals
  * on the next sync. Archived courses are never touched. The cost of re-resolving
@@ -39,7 +43,10 @@ import { join } from 'path';
 import { getDb } from '../db/index.js';
 import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
 import { pickBlockNumber, sectionDcidFromLaunchForm, loopTimeBudgetExceeded } from '../lib/psBlockNumber.js';
-import { currentSchoolYearEndYear, gradeLevelToGradYear, pickInSessionRange, extractGradeLevels, userDcidFromLaunchForm } from '../lib/psGradeLevel.js';
+import { currentSchoolYearEndYear, gradeLevelToGradYear, userDcidFromLaunchForm } from '../lib/psGradeLevel.js';
+import { cookieJar } from './schoologyWeb.js';
+import { PowerSchoolWeb } from './powerschoolWeb.js';
+import { readGradeLevels } from './psGradeLevelRead.js';
 import { extractCalendarDays, mergeCalendarDays, extractMeetingDates } from '../lib/psCalendar.js';
 import { storeSchoolDays, storeClassMeetings } from './schoolCalendar.js';
 import { sessionStateFile } from '../lib/sessionPaths.js';
@@ -47,7 +54,7 @@ import { sessionStateFile } from '../lib/sessionPaths.js';
 const PS_HOST = 'powerschool.hkis.edu.hk';
 const ATTENDANCE_APP_ID = '4980125287';
 
-// Per-call timeout for the section_info / section_attendance fetches issued
+// Per-call timeout for the section_info fetch issued
 // from inside the PS page (page.evaluate). Unlike page.goto/waitForURL, Play-
 // wright's page.evaluate has NO built-in timeout, so a stalling PowerSchool
 // response (observed: a brand-new school year whose term/bell-schedule isn't
@@ -102,7 +109,7 @@ async function establishPsSession(page, schoologySectionId) {
 
 // Resolve Schoology section → PS sectionDcid + teacher userDcid from the LTI
 // launch-form HTML. Uses context.request (carries the Schoology session cookie,
-// no app load). The userDcid feeds the section_attendance (grade-level) read.
+// no app load). The userDcid feeds the grade-level fallback read (section_attendance).
 async function fetchLaunchIds(context, schoologySectionId) {
   const resp = await context.request.get(runUrlFor(schoologySectionId), { maxRedirects: 5 });
   const html = await resp.text();
@@ -110,27 +117,6 @@ async function fetchLaunchIds(context, schoologySectionId) {
     sectionDcid: sectionDcidFromLaunchForm(html),
     userDcid: userDcidFromLaunchForm(html),
   };
-}
-
-// GET /ws/attendance/section_attendance for an in-session date range, from the live
-// PS page (same-origin fetch). includeStudentAlerts=false keeps the PII surface
-// minimal (we only need the roster + gradeLevel). Returns parsed JSON or null.
-// A stalled fetch aborts after PS_FETCH_TIMEOUT_MS and rejects — the caller
-// (the grade-level pass in the main loop) already catches this per-course.
-async function fetchSectionAttendance(page, sectionDcid, userDcid, startDate, endDate) {
-  const { status, text } = await page.evaluate(async ({ host, dcid, uid, s, e, timeoutMs }) => {
-    const url = `https://${host}/ws/attendance/section_attendance`
-      + `?sectionDcid=${dcid}&userDcid=${uid}&startDate=${s}&endDate=${e}`
-      + `&includeStudentAlerts=false&multiSections=false&sortByFirstName=false`;
-    const res = await fetch(url, {
-      credentials: 'include',
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    return { status: res.status, text: await res.text() };
-  }, { host: PS_HOST, dcid: sectionDcid, uid: userDcid, s: startDate, e: endDate, timeoutMs: PS_FETCH_TIMEOUT_MS });
-  if (status !== 200) return null;
-  try { return JSON.parse(text); } catch { return null; }
 }
 
 // GET /ws/attendance/section_info for a sectionDcid, from the live PS page
@@ -178,11 +164,13 @@ async function fetchSectionInfoFirst(page, sectionDcid) {
  * number of student rows updated. `now` may be a Date or an ISO string (the rest
  * of the sync layer threads `now` as a pre-serialised ISO string) — both work.
  *
- * Assumes the synced gradeLevel is as-of the CURRENT school year — true whenever
- * the in-session date range (pickInSessionRange) falls in it. In the rare off-season
- * case where the only in-session day is in a *future* year past an August
- * boundary, grad_year could be off by one; it self-heals on the next in-session
- * sync, so we don't reconcile the query date against `now` here.
+ * Assumes the synced gradeLevel is as-of the CURRENT school year: true for the
+ * section student list (#164, today's grade) and for the section_attendance
+ * fallback whenever its in-session date range (pickInSessionRange) falls in it.
+ * In the rare off-season case where the fallback's only in-session day is in a
+ * *future* year past an August boundary, grad_year could be off by one; it
+ * self-heals on the next in-session sync, so we don't reconcile the query date
+ * against `now` here.
  */
 export function applyGradeLevels(db, gradeByDcid, now = new Date()) {
   const nowDate = typeof now === 'string' ? new Date(now) : now;
@@ -270,7 +258,7 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
     await establishPsSession(page, courses[0].schoology_section_id);
     log('PowerSchool session ready.');
 
-    const gradeByDcid = new Map(); // dcid → gradeLevel, accumulated across all sections
+    const gradeSections = []; // sections for the grade-level pass after the loop
     const calendarByDate = new Map(); // date → merged school day (triage calendar)
     const todayIso = new Date().toISOString().slice(0, 10);
     const loopStartedAt = Date.now();
@@ -304,25 +292,9 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
           ? pickBlockNumber(first)
           : { blockNumber: null, blockName: null, reason: `section-info-failed:${status}` };
 
-        // Grade level: pick an in-session date range from the SAME section_info
-        // calendar and read the roster's per-student gradeLevel. A range covers
-        // sections that don't meet on a single picked day (A/B block rotation —
-        // issue #43). Best-effort — wrapped so a page.evaluate rejection (the PS
-        // iframe can detach mid-loop — see the API playbook) is logged and skipped,
-        // never aborting the loop or block writes.
-        if (first && userDcid) {
-          const range = pickInSessionRange(first, todayIso);
-          if (range) {
-            try {
-              const sa = await fetchSectionAttendance(page, sectionDcid, userDcid, range.startDate, range.endDate);
-              for (const { dcid, gradeLevel } of extractGradeLevels(sa || {})) {
-                gradeByDcid.set(dcid, gradeLevel);
-              }
-            } catch (err) {
-              log(`${c.course_name}: grade-level read failed (${err.message}), skipped`);
-            }
-          }
-        }
+        // Grade level is read after the loop, over plain HTTP (#164); keep what
+        // it needs, including the section_info already in hand.
+        gradeSections.push({ name: c.course_name, schoologySectionId: c.schoology_section_id, sectionDcid, userDcid, sectionInfo: first || undefined });
       }
       const reason = pick.reason.startsWith('section-info-failed') ? 'section-info-failed' : pick.reason;
 
@@ -364,9 +336,24 @@ export async function syncPsAttendance({ onProgress, courseIds } = {}) {
         ? `School calendar: ${summary.schoolDays} days stored.`
         : 'School calendar: none returned, kept the stored calendar.');
     }
-    summary.gradeLevels.seen = gradeByDcid.size;
-    summary.gradeLevels.updated = applyGradeLevels(db, gradeByDcid);
-    log(`Grade levels: ${summary.gradeLevels.updated} students updated (${gradeByDcid.size} seen).`);
+    // Grade level (#164): each section's student list over plain HTTP
+    // (students_integration, no date), with section_attendance over a date range
+    // as the fallback. Best-effort: a failed section keeps its students' stored
+    // grad_year, and no failure here touches the block results above.
+    if (gradeSections.length) {
+      const sgyJar = cookieJar();
+      if (!sgyJar) {
+        log('Grade levels: no saved Schoology session, skipped.');
+      } else {
+        const gradeStartedAt = Date.now();
+        const { gradeByDcid, sources } = await readGradeLevels({
+          ps: new PowerSchoolWeb({ sgyJar }), sections: gradeSections, today: todayIso, log,
+        });
+        const elapsedMs = Date.now() - gradeStartedAt;
+        summary.gradeLevels = { seen: gradeByDcid.size, updated: applyGradeLevels(db, gradeByDcid), sources, elapsedMs };
+        log(`Grade levels: ${summary.gradeLevels.updated} students updated (${gradeByDcid.size} seen; sections: ${sources.students_integration} from the student list, ${sources.section_attendance} from section_attendance, ${sources.failed} failed; ${elapsedMs} ms).`);
+      }
+    }
     log(`Done: ${summary.updated} updated, ${summary.unchanged} unchanged, ${summary.skipped} skipped (of ${summary.processed}).`);
     return summary;
   } finally {

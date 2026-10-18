@@ -412,7 +412,7 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   // never reach this loop for (non-lti, windowed-out, or no session) keep their
   // prior value — so old work never false-flags and a good full sync self-clears.
   const setLtiFetchStatus = db.prepare(`UPDATE assignments SET lti_fetch_status = ? WHERE id = ?`);
-  // The document fetch returns null on a transient browser-session hiccup (not a
+  // The document fetch returns null on a transient session-read hiccup (not a
   // throw); a single retry recovers the common all-or-nothing per-assignment
   // failure before we record it as 'failed'.
   const ltiFetchBackoffMs = opts.ltiFetchBackoffMs ?? 750;
@@ -464,8 +464,8 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     }
   }
 
-  // Make-up tests: who has an attempt on each Schoology test. ONE browser-session
-  // read per section (grader_grade_data) for the tests in the sync window. A
+  // Make-up tests: who has an attempt on each Schoology test. ONE session read
+  // (plain HTTP, #141) per section (grader_grade_data) for the tests in the sync window. A
   // taker gets submission_type 'assessment'; on a good read a non-taker's stale
   // 'assessment' is cleared ('drop' is never touched). test_fetch_status records
   // the outcome per test, like lti_fetch_status: a failed read is 'failed'
@@ -793,7 +793,7 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
   const syncId = syncRow.lastInsertRowid;
 
   // Declared outside the try so the finally-style cleanup below can always
-  // close the browser the document fetcher holds, even on error.
+  // release the document fetcher, even on error.
   let submissionFetcher = null;
 
   try {
@@ -817,9 +817,10 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
     const revisionsRead = new Set();
     const userId = await getMyUserId();
 
-    // #62: best-effort browser-session reader for lti_submission document state
+    // #62: best-effort session reader for lti_submission document state
     // (the submitted/in-progress per-assignment endpoints) and Schoology test
     // attempts (grader_grade_data, make-up tests), reused across all sections.
+    // Plain HTTP with the saved session's cookies, no browser (#141).
     // null when no saved session — lti badges then fall back gracefully and
     // test attempts stay unknown.
     // Native dropbox no longer needs a session (public bulk revisions, #55).
@@ -968,8 +969,8 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
 
     }
 
-    // The browser fetcher (lti state, test attempts) is only needed during the section loop
-    // above (the retry pass uses the public API only). Close its browser now.
+    // The session fetcher (lti state, test attempts) is only needed during the section loop
+    // above (the retry pass uses the public API only). Release it now.
     if (submissionFetcher) { await submissionFetcher.close().catch(() => {}); submissionFetcher = null; }
     if (metrics.window_skipped > 0) {
       log(`Recent-only window skipped ${metrics.window_skipped} assignment${metrics.window_skipped === 1 ? '' : 's'} (undated or due > the chosen window).`);

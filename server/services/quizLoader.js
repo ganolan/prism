@@ -1,10 +1,16 @@
 // server/services/quizLoader.js
-// Reads a quiz group's Schoology pages through the saved browser session (spec §5).
-// GET only. Pages are fetched as text inside the logged-in page and parsed in Node,
-// one request at a time with a short pause. Any URL holding "unsubmit" or "delete"
-// is refused: the results pages carry GET-href write actions.
+// Reads a quiz group's Schoology pages with the saved session (spec §5).
+// GET only, parsed in Node, one request at a time with a short pause. Any URL
+// holding "unsubmit" or "delete" is refused: the results pages carry GET-href
+// write actions.
+// Reads go over plain HTTP with the session's cookies (openHttpReader,
+// schoologyWeb.js, #141; checked against the browser reader with
+// scripts/parity-quiz-reads.js). The browser reader (openReader: the same GETs
+// as fetches inside a headless page) stays for quizWriteback.js, a write path
+// #141 has not moved yet.
 import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
-import { sessionDeps, noteSessionLive } from './schoologySession.js';
+import { noteSessionLive } from './schoologySession.js';
+import { cookieJar, getResource, WebSessionError } from './schoologyWeb.js';
 import { QuizError } from './quizError.js';
 import { getGroup, resolveAssignment } from './quizGroups.js';
 import { parseQuizQuestions } from '../lib/parseQuizQuestions.js';
@@ -86,8 +92,64 @@ export async function openReader({ openPage, pauseMs, expired = 'Schoology conne
   return { get, recheck, page: session.page, close: () => session.close().catch(() => {}) };
 }
 
-export async function readQuestionLists(db, { assignmentRefs }, { openPage = () => sessionDeps.openPage(), pauseMs = 400 } = {}) {
-  const reader = await openReader({ openPage, pauseMs });
+const OPEN_EXPIRED = 'Schoology connection expired: reconnect in Settings';
+const LOAD_EXPIRED = 'Schoology connection expired during the load: reconnect in Settings';
+const UNREACHABLE = 'Could not reach Schoology: try again';
+
+// The same reader over plain HTTP: `get(path, { json })` → { status, text, finalUrl, json? },
+// with openReader's rules. A redirect to sign-in is NO_SESSION (the first read's bounce
+// gets the "reconnect" message, a later one `expired`). A read that fails outright
+// (status 0: no answer, a timeout) checks /home: a bounce there is NO_SESSION, no
+// answer is UNREACHABLE, an answer returns the failed read. No home check up front:
+// the first read shows the same thing. `web` = { jar, fetchImpl? }; no jar = no session.
+export function openHttpReader({ web, pauseMs, expired = LOAD_EXPIRED, sleep = (ms) => new Promise(r => setTimeout(r, ms)) }) {
+  const jar = web?.jar;
+  if (!jar) throw new QuizError('NO_SESSION', 'No saved Schoology session: reconnect in Settings');
+  const io = { fetchImpl: web.fetchImpl ?? fetch };
+  let answered = false;
+  const bounced = () => {
+    noteSessionLive('expired', 'Schoology sent the saved session to the login page');
+    return new QuizError('NO_SESSION', answered ? expired : OPEN_EXPIRED);
+  };
+  const recheck = async () => {
+    try {
+      await getResource(jar, '/home', io);
+    } catch (err) {
+      if (err instanceof WebSessionError && err.code === 'SESSION_EXPIRED') throw bounced();
+      throw new QuizError('UNREACHABLE', UNREACHABLE);
+    }
+  };
+  let first = true;
+  const get = async (path, { json = false } = {}) => {
+    assertReadOnlyUrl(path);
+    if (!first && pauseMs) await sleep(pauseMs);
+    first = false;
+    let r;
+    try {
+      const res = await getResource(jar, path, { ...io, accept: json ? 'application/json' : null, timeoutMs: FETCH_TIMEOUT_MS });
+      r = { status: res.status, text: res.text, finalUrl: res.url };
+    } catch (err) {
+      if (err instanceof WebSessionError && err.code === 'SESSION_EXPIRED') throw bounced();
+      r = { status: 0, text: '', finalUrl: `${SCHOOLOGY_BASE}${path}`, error: String(err?.message || err) };
+    }
+    if (r.status === 0) await recheck();
+    answered = true;
+    if (!json) return r;
+    try { return { ...r, json: JSON.parse(r.text) }; } catch { return { ...r, json: null }; }
+  };
+  return { get, recheck, close: async () => {} };
+}
+
+// The saved session's cookies, or no jar (→ NO_SESSION) when there is none or it is unreadable.
+function sessionWeb() {
+  try { return { jar: cookieJar(), fetchImpl: fetch }; } catch { return { jar: null }; }
+}
+
+// `openReader` (test / parity seam): ({ pauseMs }) → a reader; default the HTTP reader on `web`.
+const readerFor = ({ openReader: open, web, pauseMs }) => (open ? open({ pauseMs }) : openHttpReader({ web: web ?? sessionWeb(), pauseMs }));
+
+export async function readQuestionLists(db, { assignmentRefs }, { openReader: open, web, pauseMs = 400 } = {}) {
+  const reader = await readerFor({ openReader: open, web, pauseMs });
   try {
     const out = [];
     for (const ref of assignmentRefs) {
@@ -104,14 +166,14 @@ export async function readQuestionLists(db, { assignmentRefs }, { openPage = () 
   }
 }
 
-export async function loadGroup(db, { groupId }, { openPage = () => sessionDeps.openPage(), pauseMs = 400, onProgress = () => {} } = {}) {
+export async function loadGroup(db, { groupId }, { openReader: open, web, pauseMs = 400, onProgress = () => {} } = {}) {
   const group = getGroup(db, groupId);
   const release = holdGroup(group.id, 'loading');
   const summary = { attempts: 0, notTaken: 0, failed: [], unknownUids: [], mismatches: [], multipleAttempts: [], removed: 0, marksPosted: 0 };
   const rubrics = {};
   let reader;
   try {
-    reader = await openReader({ openPage, pauseMs });
+    reader = await readerFor({ openReader: open, web, pauseMs });
     const studentByUid = new Map(db.prepare('SELECT id, schoology_uid FROM students').all().map(s => [String(s.schoology_uid), s.id]));
     // Reads and stores one student's counted attempt. Returns a failure reason, or null when stored.
     const loadStudent = async (uid, studentId, member) => {

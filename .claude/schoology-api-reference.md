@@ -292,6 +292,8 @@ Both return a flat array; each entry: `{ id (=schoology uid), enrollmentId, firs
 
 **Failure mode + Prism handling (#76 follow-up, 2026-06-14).** Both reads happen in one `fetchAssignmentSubmissionState` call per assignment via the shared browser session; if **both** come back null it returns null and the assignment yields **no** state for **any** student (all-or-nothing — there is no per-cell LTI fetch, so a single cell can't fail while a sibling on the same assignment succeeds). The call is hiccup-prone (a fresh page nav + two sequential XHRs; the in-progress read "can silently drop"), and unlike native dropbox it had **no retry** — the root cause of a same-sync assignment blanking while its sibling captured fine. Prism now (a) **retries the fetch once** (`retryAsync`, ~750 ms backoff) inline while the session is open, and (b) **persists the per-assignment outcome** in `assignments.lti_fetch_status` (`'ok'` | `'failed'`; `NULL` = non-lti / never-attempted / windowed-out — left untouched so a good full sync self-clears a stale `'failed'`). The gradebook shows a cell-level amber "submission status unavailable — re-sync" marker only on `'failed'` assignments; a `null` (unknown-but-not-failed) cell renders blank, never "Ungraded". A student genuinely absent from **both** lists on an `'ok'` assignment stays blank — it is not a fetch failure and re-sync may not change it.
 
+**Plain HTTP, no browser (#141, VERIFIED 2026-10-17, read-only).** Both lists answer a plain `fetch` with the saved session's school-host cookies (`storage-state.json`) and `Accept: application/json`: no `/home` page load, no CSRF header, no `X-Requested-With` → `200 application/json; charset=utf-8`, body `{data: [...]}` (the shape above), about 0.3 s each (the first request of a run about 0.9 s). A sign-in bounce is a 302 to the login/SSO host. Prism's sync now reads them this way (`server/services/graderDocuments.js` via `schoologyWeb.getJson`), the two lists at once. **Parity** (`scripts/parity-grader-reads.js`, old browser path vs HTTP, same parser, each assignment read both ways back to back): 35/35 LTI assignments identical (11 current, 24 from archived sections; states and submittedAt/late details), 0 mismatches. Timing over the 35: browser 54.3 s (1.55 s per assignment: page + `/home` + two in-page fetches) plus 0.4 s browser launch; HTTP 20.5 s (0.59 s per assignment). **429s, and what "the in-progress read can silently drop" was:** a first parity run (two runs back to back) saw the browser path's reads answer **`429`** (non-JSON body) on 6 of 11 assignments, for either list, which the old code turned into a missing list (a partial or null result). The browser path's `/home` loads fire the page's own XHRs; with a 3 s pause between items neither path met a 429. Twelve plain-HTTP reads in a row (about 3 a second) all answered 200. `schoologyWeb.getResource` now waits out a 429 (Retry-After when sent, else 2 s then 4 s) and asks again, up to twice. Not seen: the 429's headers (no Retry-After was captured; the probe that counts them met none).
+
 **OneDrive lti_submission file links — resolvable from the TEACHER's OneDrive via SharePoint REST (2026-09-28, #120; supersedes the "per-student launch id" dead-end in #107).** The Schoology Microsoft OneDrive app stores every student's copy (in-progress **and** submitted — files were being modified live during the probe) in the **teacher's** OneDrive, in a folder tree keyed by Schoology ids:
 `/personal/gnolan_hkis_edu_hk/Documents/Schoology Microsoft OneDrive Assignments/{COURSE TITLE} {section title} - {sectionId}/{assignment title} - {assignmentId}/{Student First Last} - {assignment title} - {n}.pptx`
 Course-title folder names drop `&` (course 579 "AI & MACHINE LEARNING" + "1(A-B)" → `AI  MACHINE LEARNING 1(A-B) - 8458134359`, double space) — so **find folders by their ` - {id}` suffix, never by rebuilding the title**. `{n}` is a 7-digit per-student number (e.g. 4299333, 4414330) that matches **no** id Prism stores (not uid, school_uid, or enrolment id) — likely the LTI app's own submission id; not needed. The root held 15 section folders (only sections with OneDrive assignments). **Verified reads** (browser session: the saved Playwright storage state silently SSOs into `hkis-my.sharepoint.com` on `page.goto(SITE + '/_layouts/15/onedrive.aspx')`; then same-origin `fetch` with `Accept: application/json;odata=nometadata`, all 200):
@@ -604,10 +606,11 @@ Prism exposes this as `POST /api/mastery/:courseId/override` (body `{ studentUid
 
 ### Authentication
 
-- Requires a live browser session — use `npm run mastery:login` to authenticate via Playwright
+- Requires a live saved session — use `npm run mastery:login` to authenticate via Playwright (the reads then go over plain HTTP with its cookies, see below)
 - Session is stored locally and reused across syncs until it expires
 - No OAuth needed — uses the teacher's browser cookies
 - **POSTs to `/course/{id}/district_mastery/api/...` require CSRF headers**: `X-CSRF-Token` and `X-CSRF-Key`, both read from `window.Drupal.settings.s_common.csrf_token` / `.csrf_key` after the page loads. Also add `X-Requested-With: XMLHttpRequest`. Without both headers the response is `403 {"data":null}`. GETs under `/district_mastery/api/` and calls to `/iapi2/district-mastery/...` do not require these headers.
+- **Plain HTTP, no browser, for every mastery read (#141, VERIFIED 2026-10-17, read-only).** `GET /course/{id}/district_mastery` with the saved session's school-host cookies → `200 text/html` (~156 KB, about 1.1 s). The page extends `Drupal.settings` in **two** inline scripts (each ending `}); //--><!]]> </script>`); `s_common` (the CSRF pair, and `school_id` = 94044023) is **not in the first**, so merge every block (`schoologyWeb.drupalSettings` does). The same settings carry the app's props with **`"buildingId":97989879`**, the value the page's own API calls send as `building_id` (matched the browser path's request-captured id on all 9 active sections). Then the reads answer plain `fetch` exactly as from the page: the GETs with `Accept: application/json`; the POST searches (`alignments/search`, `material-observations/search`, `outcomes/objectives`) with the CSRF pair from that HTML, `Content-Type`/`Accept` JSON and `X-Requested-With`. `GET .../api/observations/search?student_uids=…` (one student's rubric scores) needs no page at all. Prism's mastery reads use this (`masterySync.openMasteryReader`); the mastery **writes** still use the browser page. **Parity** (`scripts/parity-mastery-reads.js`, old in-page transport vs HTTP, the same `readCourseMastery` logic): all 9 active sections (5 with mastery data: 34/34/31/16/10 alignments, 42–105 observations, 48–140 rollups; 4 empty), plus one topic's per-topic GET and one student's rubric scores in each of the 5, **19 comparisons, 0 mismatches**. Timing: a course read about the same both ways (20.8 s HTTP against 22.0 s browser for the 9, the browser's launch not counted; HTTP spends about 1.1–1.4 s on the page GET); one student's rubric scores 0.36–0.41 s against 1.03–1.07 s.
 
 ### Key Constants
 
@@ -673,6 +676,17 @@ verified live (an earlier draft of this doc guessed "Parent/Student/Staff" from 
 (`GET /v1/users/{uid}.role_id`) per user. This is the only confirmed way to reach users outside your enrollments (public REST `/search` 403s;
 `/users` multi-get ignores filters). Browser-session auth (same Playwright session as mastery sync), not OAuth. Each
 `/user/{id}` then joins to the documented public profile read (`GET /v1/users/{uid}`, 200 via OAuth).
+*(2026-10-17, #141: Prism now sends this GET over **plain HTTP**, no browser: the saved session's school-host cookies
+plus `Accept: text/html` → `200 text/html` (about 100 KB a page); a sign-in bounce is a 302 to the login/SSO host.
+`server/services/peopleSearch.js`. Parity, `scripts/parity-page-reads.js` (old browser code vs HTTP; the final run
+13 queries, 3 broad surnames and 10 full student names from the DB; earlier runs 18 more, one with no hits): **every
+user both reads returned parsed to identical fields**, and every one-page search returned exactly the same rows. Timing: a one-page search 3.5–3.9 s
+in the browser (launch + `/home` + fetch), 0.9–1.2 s over HTTP; a 5-page search 5.5–6.1 s against 3.2–3.9 s.
+⚠️ **The result order is not stable between reads**, whatever the transport: two plain-HTTP reads of the same broad
+query in a row returned different users, so the pages of a multi-page search shift and a user can fall between two
+pages or show on both (`paginatePeopleSearch` dedupes, which is why a 5-page search can return 44–49 users, not 50,
+and why a complete 2–4-page search of a full name sometimes differed by 1–4 users). A one-page answer was always the
+same.)*
 
 **2. Archived / past courses — HTML parse confirmed; NO clean JSON exists; archived sections ARE API-readable.**
 `GET /courses/mycourses/past` → **200 text/html** (~338 KB). Verified structure: **45 `li.course-item.list-item`** rows
@@ -690,6 +704,11 @@ include past courses; parse the HTML. **Section-level reads work on archived sec
 OAuth): for 5 archived `{sectionId}` (all `active:0`), `GET /v1/sections/{id}`, `/assignments`, `/grades`,
 `/enrollments` all returned 200 with real data (one section: 12 assignments / 192 grades / 17 enrollments; an empty
 template section: 0 / 0 / 3). So once you scrape a past `{sectionId}`, all the normal Prism section reads apply (feeds #5).
+*(2026-10-17, #141: Prism now reads this page over **plain HTTP**, no browser: the saved session's school-host cookies
+→ `200 text/html` (356 KB). `server/services/archivedCourses.js`. The old code parsed the browser's `page.content()`
+(the DOM after `domcontentloaded`); the server HTML parses to the **same 58 sections** (16 terms, 2 with no course
+code), `parsePastCourses` output identical, `scripts/parity-page-reads.js`. Timing: browser 4.0–4.3 s (launch + page),
+HTTP 2.0–2.1 s.)*
 
 **Student history sweep (2026-10-08, read-only, student-history spec; probes `scripts/probe-student-history.js`,
 `scripts/probe-student-grades.js`, `scripts/probe-past-sections.js`, `scripts/probe-archived-inventory.js`):**
@@ -1130,6 +1149,11 @@ stores each returned cell as `grades.test_attempt` ('took' → also `submission_
 'none', 'not_assigned'); a student with no cell is left untouched (unknown). A payload without a `body.grades` object,
 or a test with no cells, is recorded as `assignments.test_fetch_status = 'failed'` (unknown). The
 results/`student_stats` pages are not fetched.
+*(2026-10-17, #141: this GET now goes over plain HTTP, no browser — the saved session's cookies and
+`Accept: application/json` → `200 application/json`, the same `{body: {grades}}` payload. Parity
+(`scripts/parity-grader-reads.js`): both active test sections (9 × 28 and 6 × 29 cells) identical to
+the browser read, 24 and 17 takers. About 0.4–0.6 s per section, against 1.2–1.4 s for the browser
+read plus its launch.)*
 
 ### Questions, attempts and FRQ rubrics (read-only probe, 2026-10-12)
 
@@ -1181,6 +1205,20 @@ MCQ, `2` on the graded essay), `comment` (textarea). The visible score is
 
 **Not observed:** a test with more than one attempt, an ungraded essay (`rubric_score` empty?), a
 rubric with more than one row, and an MCQ left blank. The write request is recorded below (2026-10-13).
+
+**Plain HTTP, no browser (#141, VERIFIED 2026-10-17, read-only).** Every read a quiz load makes
+(`assessment_questions`, `assessment_results`, `student_stats/{uid}`, `student_stats/{uid}/{attemptId}`,
+`/iapi/grades/rubric/{id}`, `/iapi/grades/assessment_component_submission_rubric_grade_info/…`) answers a
+plain `fetch` with the saved session's school-host cookies: the HTML pages with no Accept header, the two
+`/iapi` reads with `Accept: application/json`. No `/home` load, no CSRF header. Prism's quiz loads now
+read this way (`quizLoader.openHttpReader`); the browser reader stays only for the FRQ write-back
+(`quizWriteback.js`). **Parity** (`scripts/parity-quiz-reads.js`: each test loaded both ways into two
+fresh in-memory databases, stored rows compared): two AP CSP tests in sections `…140` / `…135`, 4
+questions each, 7 and 6 attempts, 28 and 24 responses (26 FRQ responses with rubric cells, through
+both `/iapi` reads), load summaries and stored questions, attempts and responses **identical, 0
+mismatches**. Timing: question list 4.4–5.4 s in the browser, 1.2–1.5 s over HTTP; a whole load
+27–29 s against 24–27 s. Both use loadGroup's 400 ms pause between requests, which is most of a
+load's time.
 
 ### Saving an FRQ level and comment (write probe, 2026-10-13)
 

@@ -1,52 +1,48 @@
-import { describe, test, expect, vi } from 'vitest';
+import { describe, test, expect } from 'vitest';
 import { fetchSectionTestAttempts } from './graderTestAttempts.js';
+import { fakeSchoologyWeb } from '../testing/fakeSchoologyWeb.js';
 
-// A fake Playwright context: page.evaluate is handed the in-page fetch args and
-// returns `payload` (or throws), so no browser is launched.
-function fakeContext({ url = 'https://schoology.hkis.edu.hk/home', payload = null, evaluateError = null } = {}) {
-  const page = {
-    goto: vi.fn().mockResolvedValue(),
-    url: () => url,
-    evaluate: vi.fn(async () => { if (evaluateError) throw evaluateError; return payload; }),
-    close: vi.fn().mockResolvedValue(),
-  };
-  return { page, context: { newPage: vi.fn().mockResolvedValue(page) } };
-}
-
+const PATH = '/iapi/grades/grader_grade_data/8458134140/all';
 const PAYLOAD = { body: { grades: { 701: { T1: { uid: '701', grade_item_nid: 'T1', submission: 'assessment', has_assessment: true } } } } };
+const webFor = (spec) => {
+  const fake = fakeSchoologyWeb({ routes: { [PATH]: spec } });
+  let expired = 0;
+  const web = { jar: fake.jar, fetchImpl: fake.fetchImpl, onSessionExpired: () => { expired++; } };
+  return { fake, web, expired: () => expired };
+};
 
-describe('fetchSectionTestAttempts', () => {
-  test('one grader_grade_data GET for the section (period "all"), with a fetch timeout; parsed result', async () => {
-    const { context, page } = fakeContext({ payload: PAYLOAD });
-    const m = await fetchSectionTestAttempts(context, '8458134140', ['701', '702'], ['T1', 'T2']);
+describe('fetchSectionTestAttempts (plain HTTP, #141)', () => {
+  test('one grader_grade_data GET for the section (period "all") with the session cookie and Accept JSON; parsed result', async () => {
+    const { fake, web } = webFor({ json: PAYLOAD });
+    const m = await fetchSectionTestAttempts(web, '8458134140', ['701', '702'], ['T1', 'T2']);
     expect(m.get('701').get('T1')).toEqual({ took: true, notAssigned: false });
-    const [, args] = page.evaluate.mock.calls[0];
-    expect(args.u).toBe('https://schoology.hkis.edu.hk/iapi/grades/grader_grade_data/8458134140/all?uids=701,702&grade_item_nids=T1,T2');
-    expect(args.timeoutMs).toBeGreaterThan(0);
-    expect(page.close).toHaveBeenCalled();
+    expect(fake.requests).toHaveLength(1);
+    const [r] = fake.requests;
+    expect(r.path).toBe(PATH);
+    expect(r.query.get('uids')).toBe('701,702');
+    expect(r.query.get('grade_item_nids')).toBe('T1,T2');
+    expect(r.headers).toMatchObject({ cookie: 'SESS=old', Accept: 'application/json' });
   });
 
-  test('null when the session is not logged in (never fetches)', async () => {
-    const { context, page } = fakeContext({ url: 'https://login.microsoftonline.com/x' });
-    expect(await fetchSectionTestAttempts(context, 's', ['701'], ['T1'])).toBeNull();
-    expect(page.evaluate).not.toHaveBeenCalled();
+  test('null and onSessionExpired when Schoology sends the read to sign-in', async () => {
+    const { web, expired } = webFor({ login: true });
+    expect(await fetchSectionTestAttempts(web, '8458134140', ['701'], ['T1'])).toBeNull();
+    expect(expired()).toBe(1);
   });
 
-  test('null on a failed/timed-out fetch or a bad payload; never throws', async () => {
-    expect(await fetchSectionTestAttempts(fakeContext({ evaluateError: new Error('TimeoutError') }).context, 's', ['701'], ['T1'])).toBeNull();
-    expect(await fetchSectionTestAttempts(fakeContext({ payload: null }).context, 's', ['701'], ['T1'])).toBeNull();
-    expect(await fetchSectionTestAttempts(fakeContext({ payload: { body: [] } }).context, 's', ['701'], ['T1'])).toBeNull();
-  });
-
-  test('null (no throw) when a page cannot even be opened', async () => {
-    const context = { newPage: vi.fn().mockRejectedValue(new Error('Target closed')) };
-    expect(await fetchSectionTestAttempts(context, 's', ['701'], ['T1'])).toBeNull();
+  test('null on a failed/timed-out fetch, a non-200 or a bad payload; never throws', async () => {
+    const err = Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
+    for (const spec of [{ throws: err }, { status: 500, json: PAYLOAD }, { json: null }, { json: { body: [] } }, { text: '<html>' }]) {
+      const { web, expired } = webFor(spec);
+      expect(await fetchSectionTestAttempts(web, '8458134140', ['701'], ['T1'])).toBeNull();
+      expect(expired()).toBe(0);
+    }
   });
 
   test('null without students or tests (nothing to ask)', async () => {
-    const { context } = fakeContext({ payload: PAYLOAD });
-    expect(await fetchSectionTestAttempts(context, 's', [], ['T1'])).toBeNull();
-    expect(await fetchSectionTestAttempts(context, 's', ['701'], [])).toBeNull();
-    expect(context.newPage).not.toHaveBeenCalled();
+    const { fake, web } = webFor({ json: PAYLOAD });
+    expect(await fetchSectionTestAttempts(web, '8458134140', [], ['T1'])).toBeNull();
+    expect(await fetchSectionTestAttempts(web, '8458134140', ['701'], [])).toBeNull();
+    expect(fake.requests).toHaveLength(0);
   });
 });

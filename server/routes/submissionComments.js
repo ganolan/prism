@@ -7,7 +7,7 @@ import { tmpdir } from 'os';
 import { join, basename } from 'path';
 import { getDb } from '../db/index.js';
 import { featureGate } from '../middleware/featureGate.js';
-import { CommentError, threadFor, refreshAssignment, refreshStudent, postComment, deleteComment, postCommentWithFile, commentFile } from '../services/submissionComments.js';
+import { CommentError, threadFor, refreshAssignment, refreshStudent, postComment, deleteComment, postCommentWithFile, commentFile, markThreadSeen } from '../services/submissionComments.js';
 import { summariesForAssignment, summariesForCourse, summariesForStudent } from '../services/submissionCommentStore.js';
 import { resolveAssignmentId } from '../services/idResolvers.js';
 
@@ -58,6 +58,10 @@ router.get('/course/:courseId', handle((req, db) => ({ assignments: summariesFor
 
 router.get('/:assignmentId/:studentId', handle((req, db) =>
   threadFor(db, { assignmentId: req.params.assignmentId, studentId: req.params.studentId, force: req.query.refresh === '1' })));
+
+// The popover showed the thread: mark it seen (clears the unread marker). → the thread.
+router.post('/:assignmentId/:studentId/seen', handle((req, db) =>
+  markThreadSeen(db, { assignmentId: req.params.assignmentId, studentId: req.params.studentId })));
 
 router.post('/:assignmentId/:studentId', handle((req, db) =>
   postComment(db, { assignmentId: req.params.assignmentId, studentId: req.params.studentId, text: req.body?.text })));

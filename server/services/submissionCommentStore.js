@@ -7,6 +7,10 @@ import { describeComment, threadSummary } from '../lib/submissionComments.js';
 const isoOf = (secs) => (Number(secs) > 0 ? new Date(Number(secs) * 1000).toISOString() : null);
 
 // One pair's cached thread, oldest first. read_at is null when never read.
+// summary.unread: student comments with typed text or a file that are newer than the
+// newest comment the teacher has seen in Prism (markSeen); the automatic "Revision N
+// submitted" lines and the teacher's own comments never count. Each comment carries
+// `unread` too, for the popover.
 export function readThread(db, { assignmentId, studentId }) {
   const rows = db.prepare(`
     SELECT * FROM submission_comments WHERE assignment_id = ? AND student_id = ?
@@ -14,8 +18,27 @@ export function readThread(db, { assignmentId, studentId }) {
   `).all(assignmentId, studentId);
   const read = db.prepare('SELECT read_at, error FROM submission_comment_reads WHERE assignment_id = ? AND student_id = ?')
     .get(assignmentId, studentId);
-  const comments = rows.map(describeComment);
-  return { comments, summary: threadSummary(comments), read_at: isoOf(read?.read_at), read_at_epoch: read?.read_at ?? 0, error: read?.error ?? null };
+  const seen = db.prepare('SELECT seen_created FROM submission_comment_seen WHERE assignment_id = ? AND student_id = ?')
+    .get(assignmentId, studentId)?.seen_created ?? 0;
+  const comments = rows.map((r) => {
+    const c = describeComment(r);
+    return { ...c, unread: isStudentWork(c) && Number(r.created) > seen };
+  });
+  const summary = { ...threadSummary(comments), unread: comments.filter((c) => c.unread).length };
+  return { comments, summary, read_at: isoOf(read?.read_at), read_at_epoch: read?.read_at ?? 0, error: read?.error ?? null };
+}
+
+const isStudentWork = (c) => c.author_role === 'student' && !!(c.student_text || c.attachments?.length);
+
+// The teacher opened the thread: everything in it now is seen.
+export function markSeen(db, { assignmentId, studentId }) {
+  const newest = db.prepare('SELECT MAX(created) AS m FROM submission_comments WHERE assignment_id = ? AND student_id = ?')
+    .get(assignmentId, studentId)?.m ?? 0;
+  db.prepare(`
+    INSERT INTO submission_comment_seen (assignment_id, student_id, seen_created, seen_at) VALUES (?, ?, ?, datetime('now'))
+    ON CONFLICT(assignment_id, student_id) DO UPDATE SET seen_created = MAX(seen_created, excluded.seen_created), seen_at = excluded.seen_at
+  `).run(assignmentId, studentId, newest);
+  return readThread(db, { assignmentId, studentId });
 }
 
 // Replace a pair's thread with what Schoology returned (already classified rows).

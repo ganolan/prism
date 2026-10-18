@@ -15,7 +15,7 @@ import { useStudentWorkLinks, useStudentCommentSummaries } from '../hooks/useStu
 import SchoologyLink from '../components/SchoologyLink.jsx';
 import SubmissionComments from '../components/SubmissionComments.jsx';
 import HelpDot from '../components/HelpDot.jsx';
-import { CLOCK_HELP } from '../lib/submissionTimeline.js';
+import { CLOCK_HELP, lateText } from '../lib/submissionTimeline.js';
 import { gradeLabel, submissionStatus } from '../lib/gradeLabel.js';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import { formatGradeBadge } from '../lib/gradeLevel.js';
@@ -168,6 +168,7 @@ export function CourseSection({
                         status={statusBadges}
                         flags={flagsByAssignment?.[g.assignment_id] || []}
                         resubmitted={g.resubmitted}
+                        lateTitle={lateText(g.timeline)}
                         assignmentTitle={g.assignment_title}
                         links={links}
                         timeline={g.timeline}

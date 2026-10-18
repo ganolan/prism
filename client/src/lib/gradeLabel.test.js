@@ -11,9 +11,15 @@ const kinds = (badges) => badges.map((b) => b.kind);
 const tone = (badges, kind) => badges.find(b => b.kind === kind)?.tone;
 
 describe('submissionStatus: late OneDrive (LTI) work', () => {
-  it('a submitted-late LTI cell carries Late, like native work', () => {
+  it('a submitted-late LTI cell is Submitted with a late mark, like native work', () => {
     expect(submissionStatus({ score: null, is_lti_submission: 1, lti_submission_state: 'submitted', late: true, due_date: '2026-01-01' }))
-      .toEqual([{ kind: 'late', label: 'Late', tone: 'red' }, { kind: 'submitted', label: 'Submitted', tone: 'green' }]);
+      .toEqual([{ kind: 'submitted', label: 'Submitted', tone: 'green', late: true }]);
+    expect(submissionStatus({ score: null, is_lti_submission: 0, submission_type: 'drop', late: 1, due_date: '2026-01-01' }))
+      .toEqual([{ kind: 'submitted', label: 'Submitted', tone: 'green', late: true }]);
+  });
+  it('a late flag with no status to attach to stays its own badge', () => {
+    expect(submissionStatus({ score: null, is_lti_submission: 0, late: 1, due_date: FUTURE }))
+      .toEqual([{ kind: 'late', label: 'Late', tone: 'red' }]);
   });
   it('late only matters once submitted', () => {
     expect(submissionStatus({ score: null, is_lti_submission: 1, lti_submission_state: 'in_progress', late: true, due_date: null }).map((b) => b.kind))

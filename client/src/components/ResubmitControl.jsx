@@ -55,9 +55,9 @@ export default function ResubmitControl({ student, assignmentId, courseId, title
   // against, and every action below needs it.
   if (!assignmentId) return null;
 
-  if (r?.state === 'arrived') {
-    return <span className="resubmit-control resubmit-control__note">Awaiting your feedback: regrade or comment (visible)</span>;
-  }
+  // Arrived: nothing to do here (the card's status pill reads "Resubmitted" and its
+  // ring turns blue; the teacher answers by regrading or a visible comment).
+  if (r?.state === 'arrived') return null;
 
   const req = r?.state === 'waiting' ? r.request : null;
   const pastDeadline = Boolean(req?.until) && req.until < localIsoDate();

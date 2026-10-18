@@ -197,9 +197,9 @@ describe('ResubmitControl', () => {
     await waitFor(() => expect(api.undoResubmission).toHaveBeenCalledWith(3, { removeLine: false }));
   });
 
-  it('arrived: awaiting feedback text, no Reviewed (or any) button', () => {
+  it('arrived: renders nothing (the card\'s Resubmitted status pill and blue ring say it)', () => {
     renderControl({ state: 'arrived', request: { id: 3, lessons: 3, until: '2026-10-15' } });
-    expect(screen.getByText('Awaiting your feedback: regrade or comment (visible)')).toBeInTheDocument();
+    expect(screen.queryByText(/Awaiting your feedback/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 

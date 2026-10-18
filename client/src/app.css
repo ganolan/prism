@@ -660,6 +660,38 @@ button.btn-sm { padding: 0.3rem 0.65rem; font-size: 0.78rem; }
    boxShadow (the resubmit-conflict ring), which an animated box-shadow
    property would fight with; outline is a separate box the card never sets. */
 .student-card--highlight { animation: student-card-pulse 2s ease-out; }
+/* /assessment/ page header: the task's due date as its own outlined chip. */
+.due-chip { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.22rem 0.65rem; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--card-bg); color: var(--text); font-size: 0.85rem; font-weight: 600; white-space: nowrap; }
+.due-chip svg { width: 14px; height: 14px; color: var(--accent); }
+/* Late mark (LateClock.jsx): a clock riding on the status it qualifies. */
+.late-clock { display: inline-grid; place-items: center; pointer-events: auto; }
+.late-clock svg { width: 100%; height: 100%; }
+.late-clock--badge { position: absolute; top: -6px; right: -6px; width: 15px; height: 15px; padding: 2px; border-radius: 50%;
+  background: var(--badge-red-text); color: #fff; border: 1.5px solid var(--card-bg); box-sizing: border-box; }
+.late-clock--corner { position: absolute; top: 2px; right: 2px; width: 10px; height: 10px; color: var(--badge-red-text); opacity: 0.75; }
+.status-pill-wrap { position: relative; display: inline-flex; }
+/* Gradebook cell comment markers (layout A, 18/10/2026): one spot, bottom right. The
+   submission-thread bubble (SubmissionComments cell) is purple, amber when the student
+   wrote, with a red dot while unread; with no thread, an outline bubble marks the
+   overall comment. The late clock is top right. */
+.overall-comment-mark { position: absolute; bottom: 2px; right: 2px; width: 11px; height: 11px; color: var(--accent); opacity: 0.7; display: block; }
+.overall-comment-mark svg { width: 100%; height: 100%; display: block; }
+button.comment-dot--corner { position: absolute; bottom: 2px; right: 2px; width: 14px; height: 14px; margin: 0; }
+button.comment-dot--corner .comment-bubble-icon { width: 9px; height: 9px; }
+.comment-dot--unread, .comment-chip--unread { position: relative; }
+.comment-dot--unread::after, .comment-chip--unread::after { content: ''; position: absolute; top: -3px; right: -3px; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--danger); border: 1.5px solid var(--card-bg); }
+.comment-new { font-size: 0.62rem; font-weight: 700; color: #fff; background: var(--danger); border-radius: 999px; padding: 0 6px; }
+.comment-overall { padding: 8px 14px; background: var(--bg-subtle); border-bottom: 1px solid var(--border); display: grid; gap: 4px; }
+.comment-overall .comment-label, .comment-hover__label { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.comment-thread-label { padding: 8px 14px 0; }
+.comment-vis { font-size: 0.64rem; font-weight: 600; text-transform: none; letter-spacing: 0; border-radius: 999px; padding: 0 6px; }
+.comment-vis--on { background: var(--badge-green-bg); color: var(--badge-green-text); }
+.comment-vis--off { background: var(--badge-gray-bg); color: var(--badge-gray-text); }
+.comment-hover__label { font-size: 0.64rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 3px; }
+.comment-hover__thread { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 5px; color: var(--accent); font-weight: 600; white-space: normal; }
+.comment-hover__thread--wrote { color: var(--badge-amber-text); }
 /* /assessment/ filter rows (Needs action, Watch, Refine) and the matching reason
    chips under each card header. Design: docs/design-language.md, "Assessment page
    filter controls" (option A, 17/10/2026). */

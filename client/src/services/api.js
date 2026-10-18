@@ -332,6 +332,9 @@ export const getAttemptLinks = ({ assignmentId, studentId }) =>
 // assignmentId is the Schoology (or local) assignment id; studentId the local id.
 export const getSubmissionCommentThread = (assignmentId, studentId, { refresh = false } = {}) =>
   request(`/submission-comments/${assignmentId}/${studentId}${refresh ? '?refresh=1' : ''}`);
+// The teacher saw the thread: clears its unread marker. → the thread.
+export const markSubmissionCommentsSeen = (assignmentId, studentId) =>
+  request(`/submission-comments/${assignmentId}/${studentId}/seen`, { method: 'POST' });
 export const postSubmissionComment = (assignmentId, studentId, text) =>
   request(`/submission-comments/${assignmentId}/${studentId}`, { method: 'POST', body: JSON.stringify({ text }) });
 // A comment with a file goes through Schoology's web form (the API drops files),

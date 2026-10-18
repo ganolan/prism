@@ -5,9 +5,10 @@ import { timelineParts, CLOCK_HELP } from '../lib/submissionTimeline.js';
 // the gradebook rubric modal): due + extension, submitted when and how late (or
 // the clock day it is missing on), resubmission ask / arrival, referral. One "?"
 // explains the day numbers (`help={false}` where one shared "?" already does, e.g. a
-// table header). Renders nothing when there is nothing to say.
-export default function SubmissionTimeline({ timeline, help = true }) {
-  const parts = timelineParts(timeline);
+// table header). Renders nothing when there is nothing to say. `showDue={false}` where
+// the page already shows the due date (the /assessment/ card: its page header does).
+export default function SubmissionTimeline({ timeline, help = true, showDue = true }) {
+  const parts = timelineParts(timeline, { showDue });
   if (parts.length === 0) return null;
   return (
     <div className="submission-timeline" data-testid="submission-timeline">

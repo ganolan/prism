@@ -394,22 +394,26 @@ describe('StudentRubricCard — resubmission control (triage resubmissions)', ()
     expect(onSaved).toHaveBeenCalledWith('uid-1', { resubmission: null, resubmit_flag: null });
   });
 
-  it('an arrived resubmission shows "awaiting your feedback" — no Reviewed button', () => {
-    renderCard({ student: { ...makeStudent(), resubmitted: true, resubmission: { state: 'arrived', request: null } } });
-    expect(screen.getByText('Awaiting your feedback: regrade or comment (visible)')).toBeInTheDocument();
+  it('an arrived resubmission: the status pill reads Resubmitted; no note and no Reviewed button', () => {
+    renderCard({ student: { ...makeStudent(), submission_type: 'drop', resubmitted: true, resubmission: { state: 'arrived', request: null } } });
+    const pill = screen.getByText('Resubmitted');
+    expect(pill.tagName).not.toBe('BUTTON');
+    expect(screen.queryByText(/Awaiting your feedback/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Ungraded resubmission/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Reviewed' })).not.toBeInTheDocument();
   });
 
-  it('shows a read-only Resubmitted pill when student.resubmitted is true', () => {
-    renderCard({ student: { ...makeStudent(), resubmitted: true } });
-    const pill = screen.getByText(/Ungraded resubmission/);
-    expect(pill).toBeInTheDocument();
-    expect(pill.tagName).not.toBe('BUTTON');
+  it('without a resubmission the status pill reads Submitted', () => {
+    renderCard({ student: { ...makeStudent(), submission_type: 'drop', resubmitted: false } });
+    expect(screen.getByText('Submitted')).toBeInTheDocument();
+    expect(screen.queryByText('Resubmitted')).not.toBeInTheDocument();
   });
 
-  it('does not show the Resubmitted pill when student.resubmitted is false', () => {
-    renderCard({ student: { ...makeStudent(), resubmitted: false } });
-    expect(screen.queryByText(/Ungraded resubmission/)).not.toBeInTheDocument();
+  it('a late submission is a clock on the status pill, with how late on hover', () => {
+    renderCard({ student: { ...makeStudent(), submission_type: 'drop', late: 1, timeline: { submission: { state: 'submitted', late: true, lateMinutes: 83 } } } });
+    expect(screen.getByText('Submitted')).toBeInTheDocument();
+    expect(screen.queryByText('Late')).not.toBeInTheDocument();
+    expect(screen.getByRole('img', { name: '1 h 23 min late' })).toHaveClass('late-clock--badge');
   });
 });
 
@@ -2001,24 +2005,26 @@ describe('AssessmentSummaryPage — a save regrades an arrived resubmission (fin
       course: { id: 4, course_name: 'Course', block_number: null, archived: 0, excluded: 0, ...courseExtra },
       assignment: { id: 50, schoology_assignment_id: '8', title: 'Quiz', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
       topics: TOPICS,
-      students: [{ ...makeStudent(), resubmitted: true, resubmission: { state: 'arrived', request: null }, ...studentExtra }],
+      students: [{ ...makeStudent(), submission_type: 'drop', resubmitted: true, resubmission: { state: 'arrived', request: null }, ...studentExtra }],
     };
   }
 
   const cleared = { resubmission: null, resubmit_flag: null, resubmitted: false, arrived_on: null };
+  // The card's status pill reads "Resubmitted" while a resubmission is unanswered.
+  const resubPill = () => within(document.getElementById('student-card-1')).queryByText('Resubmitted');
   const stillArrived = { resubmission: { state: 'arrived', request: null, arrivedOn: '2026-10-03' }, resubmit_flag: null, resubmitted: true, arrived_on: '2026-10-03' };
 
-  it('a successful card save clears the ⚠ Ungraded resubmission pill when the server says it is answered', async () => {
+  it('a successful card save turns Resubmitted back to Submitted when the server says it is answered', async () => {
     getMasteryForAssignment.mockResolvedValue(makeData());
     writeMasteryComment.mockResolvedValueOnce({ status: 207, resubmissionFields: cleared });
     renderPage();
-    expect(await screen.findByText(/Ungraded resubmission/)).toBeInTheDocument();
+    await waitFor(() => expect(resubPill()).toBeInTheDocument());
 
     fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), { target: { value: 'Regraded' } });
     fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
 
     await waitFor(() => expect(writeMasteryComment).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.queryByText(/Ungraded resubmission/)).not.toBeInTheDocument());
+    await waitFor(() => expect(resubPill()).not.toBeInTheDocument());
   });
 
   it('a Send all success clears the pill and an arrived request (fulfilled → hidden)', async () => {
@@ -2028,14 +2034,13 @@ describe('AssessmentSummaryPage — a save regrades an arrived resubmission (fin
     }));
     sendAllGrades.mockResolvedValue({ results: [{ uid: 'uid-1', ok: true, resubmissionFields: cleared }] });
     renderPage();
-    expect(await screen.findByText(/Ungraded resubmission/)).toBeInTheDocument();
-    expect(screen.getByText('Awaiting your feedback: regrade or comment (visible)')).toBeInTheDocument();
+    await waitFor(() => expect(resubPill()).toBeInTheDocument());
 
     fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
     fireEvent.click(await screen.findByRole('button', { name: /publish all to schoology \(1\)/i }));
 
     await screen.findByText(/Published 1 grade/);
-    expect(screen.queryByText(/Ungraded resubmission/)).not.toBeInTheDocument();
+    expect(resubPill()).not.toBeInTheDocument();
     // The answered request settles server-side; the card's control is back to "Ask".
     expect(screen.queryByText(/Awaiting your feedback/)).not.toBeInTheDocument();
     expect(document.querySelector('.resubmit-control')).toHaveTextContent(/Ask to resubmit/);
@@ -2051,7 +2056,7 @@ describe('AssessmentSummaryPage — a save regrades an arrived resubmission (fin
     fireEvent.click(screen.getByRole('switch', { name: 'Display to student' })); // hidden
     fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
     await screen.findByText('Saved ✓');
-    expect(screen.getByText(/Ungraded resubmission/)).toBeInTheDocument();
+    expect(resubPill()).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /insert "resubmission received" line/i })).toBeInTheDocument();
   });
 
@@ -2062,18 +2067,18 @@ describe('AssessmentSummaryPage — a save regrades an arrived resubmission (fin
     fireEvent.change(await screen.findByPlaceholderText(/Teacher comment/i), { target: { value: 'Regraded' } });
     fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
     await screen.findByText('Saved ✓');
-    expect(screen.getByText(/Ungraded resubmission/)).toBeInTheDocument();
+    expect(resubPill()).toBeInTheDocument();
   });
 
   it('a Send all result the server keeps Arrived leaves the pill', async () => {
     getMasteryForAssignment.mockResolvedValue(makeData());
     sendAllGrades.mockResolvedValue({ results: [{ uid: 'uid-1', ok: true, resubmissionFields: stillArrived }] });
     renderPage();
-    await screen.findByText(/Ungraded resubmission/);
+    await waitFor(() => expect(resubPill()).toBeInTheDocument());
     fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
     fireEvent.click(await screen.findByRole('button', { name: /publish all to schoology \(1\)/i }));
     await screen.findByText(/Published 1 grade/);
-    expect(screen.getByText(/Ungraded resubmission/)).toBeInTheDocument();
+    expect(resubPill()).toBeInTheDocument();
   });
 
   it('Send-all carries statusLine + statusLineKind for a card whose chip was inserted (Task 7)', async () => {
@@ -2238,8 +2243,8 @@ describe('StudentRubricCard — submission timeline', () => {
   it('shows when the work came in and how late, with the clock explained on the "?"', () => {
     renderCard({ student: { ...makeStudent(), timeline } });
     const row = screen.getByTestId('submission-timeline');
-    expect(row).toHaveTextContent('Due Tue 06/10 15:00');
-    expect(row).toHaveTextContent('Submitted Mon 12/10 09:00 · 3 school days late');
+    expect(row).not.toHaveTextContent('Due'); // the page header shows the due date
+    expect(row).toHaveTextContent('Submitted 12/10 09:00 (3 school days late)');
     expect(within(row).getByRole('img', { name: /school days after the due date/ })).toBeInTheDocument();
   });
 

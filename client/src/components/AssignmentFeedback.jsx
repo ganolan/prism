@@ -45,6 +45,7 @@ export function ScoreLabel({ label }) {
 
 export default function AssignmentFeedback({
   status = [], flags = [], resubmitted = false, assignmentTitle,
+  lateTitle = 'Late', // how late, for the late clock on the status badge (lateText)
   links = null,
   timeline = null, timelineHelp = true, due = null,
   topics = [], attachment = null, palette = {}, exception = 0,
@@ -118,7 +119,7 @@ export default function AssignmentFeedback({
     <div className="assignment-feedback">
       {hasBadges && (
         <div className="assignment-feedback__badges">
-          <SubmissionBadges status={status} flags={flags} resubmitted={resubmitted} assignmentTitle={assignmentTitle} />
+          <SubmissionBadges status={status} flags={flags} resubmitted={resubmitted} assignmentTitle={assignmentTitle} lateTitle={lateTitle} />
           {links}
         </div>
       )}

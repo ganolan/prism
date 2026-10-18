@@ -153,6 +153,7 @@ export const REASONS = {
   draft: { group: 'action', label: 'Draft not published', tone: 'blue' },
   feedback_hidden: { group: 'action', label: 'Feedback hidden', tone: 'neutral' },
   resubmitted: { group: 'action', label: 'Resubmitted', tone: 'resubmit' },
+  unread_comment: { group: 'action', label: 'Unread comment', tone: 'yellow' },
   referral: { group: 'action', label: 'Referral to decide', tone: 'red' },
   resubmission_overdue: { group: 'action', label: 'Resubmission overdue', tone: 'red' },
   make_up: { group: 'action', label: 'Make-up test', tone: 'amber' },
@@ -179,6 +180,7 @@ export function reasonText(r) {
         ? `Referral to decide, submitted ${schoolDays(r.daysLate)} late`
         : `Referral to decide, ${schoolDays(r.daysLate)} late`;
     case 'late': return `Late, ${schoolDays(r.daysLate)}`;
+    case 'unread_comment': return r.count > 1 ? `${r.count} unread comments` : 'Unread comment';
     case 'referred_missing': return r.referredOn ? `Referred ${ddmm(r.referredOn)}, not submitted` : 'Referred, not submitted';
     case 'in_progress_late': return `In progress, ${schoolDays(r.daysLate)} late`;
     case 'not_started_soon':
@@ -194,7 +196,8 @@ export function reasonTone(r) {
   return REASONS[r.id]?.tone ?? 'neutral';
 }
 
-// ctx: { assignment, topics, hasDraft(student) → boolean }.
+// ctx: { assignment, topics, hasDraft(student) → boolean, commentSummaryOf(student) → the
+// submission-comment summary or null (its `unread` drives Unread comment) }.
 // → [{ id, ...detail }] in REASONS order.
 export function studentReasons(student, ctx) {
   const out = [];
@@ -212,6 +215,8 @@ export function studentReasons(student, ctx) {
     if (student.resubmission?.state === 'arrived' || student.resubmitted) out.push({ id: 'resubmitted' });
   }
   if (student.review_flag != null) out.push({ id: 'flagged' });
+  const unread = ctx.commentSummaryOf?.(student)?.unread || 0;
+  if (unread > 0) out.push({ id: 'unread_comment', count: unread });
   for (const r of student.attention?.reasons || []) if (REASONS[r.id]) out.push(r);
   return out.sort((a, b) => REASON_IDS.indexOf(a.id) - REASON_IDS.indexOf(b.id));
 }

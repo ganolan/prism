@@ -170,6 +170,12 @@ describe('studentReasons (Needs action + Watch)', () => {
     expect(passesFilters(toGrade, sel, ctx)).toBe(true);
     expect(passesFilters(late, new Set(['to_grade', 'late', 'submitted']), ctx)).toBe(false);
   });
+  it('unread comment: from the submission-comment summary', () => {
+    const withComments = { ...ctx, commentSummaryOf: (s) => s.summary };
+    expect(ids(stu({ summary: { count: 2, unread: 1 } }), withComments)).toEqual(['unread_comment']);
+    expect(ids(stu({ summary: { count: 2, unread: 0 } }), withComments)).toEqual([]);
+    expect(ids(stu({ summary: { count: 2, unread: 1 } }))).toEqual([]); // no summaries loaded
+  });
   it('countReasons counts each reason across students', () => {
     const c = countReasons([stu({ attention: { handedIn: true, reasons: [] } }), stu({ review_flag: { id: 2 } })], ctx);
     expect(c).toMatchObject({ to_grade: 1, flagged: 1, late: 0 });
@@ -188,6 +194,8 @@ describe('reasonText / reasonTone', () => {
     expect(reasonText({ id: 'resubmission_overdue', until: '2026-10-14' })).toBe('Resubmission overdue, due 14/10');
     expect(reasonText({ id: 'referred_missing', referredOn: '2026-10-12' })).toBe('Referred 12/10, not submitted');
     expect(reasonText({ id: 'to_grade' })).toBe('To grade');
+    expect(reasonText({ id: 'unread_comment', count: 1 })).toBe('Unread comment');
+    expect(reasonText({ id: 'unread_comment', count: 3 })).toBe('3 unread comments');
   });
   it('late clocks take the triage tone; others their fixed tone', () => {
     expect(reasonTone({ id: 'late', tone: 'amber' })).toBe('yellow');
@@ -203,7 +211,7 @@ describe('parseFilterParam', () => {
     expect(parseFilterParam(null).size).toBe(0);
   });
   it('a group name stands for every reason in its row', () => {
-    expect([...parseFilterParam('action')]).toEqual(['to_grade', 'partly_graded', 'draft', 'feedback_hidden', 'resubmitted', 'referral', 'resubmission_overdue', 'make_up', 'flagged']);
+    expect([...parseFilterParam('action')]).toEqual(['to_grade', 'partly_graded', 'draft', 'feedback_hidden', 'resubmitted', 'unread_comment', 'referral', 'resubmission_overdue', 'make_up', 'flagged']);
     expect([...parseFilterParam('watch,submitted,resubmit')]).toEqual(['not_started_soon', 'in_progress_late', 'late', 'referred_missing', 'resubmission_pending', 'submitted']);
   });
 });

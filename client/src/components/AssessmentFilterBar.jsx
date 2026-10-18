@@ -92,9 +92,10 @@ function ReasonRow({ label, group, counts, students, ctx, active, onToggle, onSe
 // hasDraft(student): the page's live "this card has an unpublished Prism draft".
 // onSetMany(ids, on): select or clear several pills at once (a group pill).
 // shown / total: how many students the filter shows, for the line under the rows.
-export default function AssessmentFilterBar({ students, assignment, topics, active, onToggle, onSetMany, onClear, hasDraft, shown = null, total = null, footer = null }) {
+// commentSummaryOf(student): the student's submission-comment summary (Unread comment).
+export default function AssessmentFilterBar({ students, assignment, topics, active, onToggle, onSetMany, onClear, hasDraft, commentSummaryOf, shown = null, total = null, footer = null }) {
   const groups = filterGroups(assignment);
-  const ctx = { assignment, topics, hasDraft };
+  const ctx = { assignment, topics, hasDraft, commentSummaryOf };
   const counts = countReasons(students, ctx);
   const refineActive = groups.reduce((n, g) => n + g.pills.filter(p => active.has(p.id)).length, 0);
   const [refineOpen, setRefineOpen] = useState(refineActive > 0);

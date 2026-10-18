@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { timelineParts, timelineSummary, CLOCK_HELP } from './submissionTimeline.js';
+import { timelineParts, timelineSummary, CLOCK_HELP, lateText } from './submissionTimeline.js';
 
 const at = (s) => Math.floor(new Date(s.replace(' ', 'T') + ':00').getTime() / 1000);
 const t = (over = {}) => ({
@@ -12,24 +12,24 @@ const texts = (tl) => timelineParts(tl).map((p) => p.text);
 
 describe('timelineParts', () => {
   it('due date, then when it was submitted and that it was on time', () => {
-    expect(texts(sub({ firstAt: at('2026-10-06 14:10'), late: false }))).toEqual(['Due Tue 06/10 15:00', 'Submitted Tue 06/10 14:10 · on time']);
+    expect(texts(sub({ firstAt: at('2026-10-06 14:10'), late: false }))).toEqual(['Due 06/10 15:00', 'Submitted 06/10 14:10']);
   });
 
   it('late on the due date itself: minutes (hours past 60)', () => {
     const parts = timelineParts(sub({ firstAt: at('2026-10-06 15:42'), late: true, day: 1, lateMinutes: 42 }));
-    expect(parts[1]).toMatchObject({ text: 'Submitted Tue 06/10 15:42 · 42 min late', tone: 'late' });
-    expect(texts(sub({ firstAt: at('2026-10-06 17:05'), late: true, day: 1, lateMinutes: 125 }))[1]).toBe('Submitted Tue 06/10 17:05 · 2 h 5 min late');
+    expect(parts[1]).toMatchObject({ text: 'Submitted 06/10 15:42 (42 min late)', tone: 'late' });
+    expect(texts(sub({ firstAt: at('2026-10-06 17:05'), late: true, day: 1, lateMinutes: 125 }))[1]).toBe('Submitted 06/10 17:05 (2 h 5 min late)');
   });
 
   it('late but before the next school day (e.g. over a weekend)', () => {
     expect(texts(sub({ firstAt: at('2026-10-10 11:00'), late: true, day: 1, lateMinutes: null }))[1])
-      .toBe('Submitted Sat 10/10 11:00 · late, before the next school day');
+      .toBe('Submitted 10/10 11:00 (late, before the next school day)');
   });
 
   it('late by school days; a later revision is shown too', () => {
     expect(texts(sub({ firstAt: at('2026-10-12 09:00'), latestAt: at('2026-10-13 10:00'), late: true, day: 4 }))[1])
-      .toBe('Submitted Mon 12/10 09:00 · 3 school days late · latest Tue 13/10 10:00');
-    expect(texts(sub({ firstAt: at('2026-10-07 09:00'), late: true, day: 2 }))[1]).toBe('Submitted Wed 07/10 09:00 · 1 school day late');
+      .toBe('Submitted 12/10 09:00 (3 school days late), latest 13/10 10:00');
+    expect(texts(sub({ firstAt: at('2026-10-07 09:00'), late: true, day: 2 }))[1]).toBe('Submitted 07/10 09:00 (1 school day late)');
   });
 
   it('an extension shows on the due line; Schoology\'s disagreeing late flag is explained on hover', () => {
@@ -37,38 +37,51 @@ describe('timelineParts', () => {
       extension: { schoolDays: 2, until: '2026-10-09', note: 'sick' }, deadline: '2026-10-09',
       submission: { ...t().submission, firstAt: at('2026-10-09 10:00'), late: false, schoologyLate: true },
     }));
-    expect(parts[0]).toMatchObject({ text: 'Due Tue 06/10 15:00 · extended to Fri 09/10', title: 'sick' });
-    expect(parts[1]).toMatchObject({ text: 'Submitted Fri 09/10 10:00 · on time (extension)' });
+    expect(parts[0]).toMatchObject({ text: 'Due 06/10 15:00, extended to 09/10', title: 'sick' });
+    expect(parts[1]).toMatchObject({ text: 'Submitted 09/10 10:00 (on time, extension)' });
     expect(parts[1].title).toMatch(/Schoology marks it late/);
   });
 
   it('no stored time: says late from Schoology, or just submitted', () => {
-    expect(texts(sub({ late: true }))[1]).toBe('Submitted · late (per Schoology)');
+    expect(texts(sub({ late: true }))[1]).toBe('Submitted (late, per Schoology)');
     expect(texts(sub({ late: null }))[1]).toBe('Submitted');
   });
 
   it('missing work says which clock day it is on, red after the limit', () => {
     const inProgress = timelineParts(t({ submission: { ...t().submission, state: 'in_progress' }, overdue: { day: 6, overLimit: false } }));
-    expect(inProgress[1]).toMatchObject({ text: 'In progress, not submitted · 5 school days overdue', tone: 'late' });
+    expect(inProgress[1]).toMatchObject({ text: 'In progress, not submitted (5 school days overdue)', tone: 'late' });
     const missing = timelineParts(t({ submission: { ...t().submission, state: 'not_submitted' }, overdue: { day: 9, overLimit: true } }));
-    expect(missing[1]).toMatchObject({ text: 'Not submitted · 8 school days overdue, over the limit', tone: 'over' });
+    expect(missing[1]).toMatchObject({ text: 'Not submitted (8 school days overdue, over the limit)', tone: 'over' });
     expect(texts(t({ submission: { ...t().submission, state: 'not_started' } }))[1]).toBe('Not started');
   });
 
   it('excused, and work not handed in online, say so or nothing', () => {
-    expect(texts(t({ submission: { ...t().submission, state: 'excused' } }))).toEqual(['Due Tue 06/10 15:00', 'Excused']);
-    expect(texts(t({ submission: { ...t().submission, state: 'untracked' } }))).toEqual(['Due Tue 06/10 15:00']);
+    expect(texts(t({ submission: { ...t().submission, state: 'excused' } }))).toEqual(['Due 06/10 15:00', 'Excused']);
+    expect(texts(t({ submission: { ...t().submission, state: 'untracked' } }))).toEqual(['Due 06/10 15:00']);
   });
 
   it('resubmission ask and arrival, and a referral', () => {
     expect(texts(t({ resubmission: { state: 'waiting', askedOn: '2026-10-07', until: '2026-10-12', arrivedOn: null, afterDeadline: false } }))[2])
-      .toBe('Resubmission asked Wed 07/10, due Mon 12/10');
+      .toBe('Resubmission asked 07/10, due 12/10');
     const arrived = timelineParts(t({ resubmission: { state: 'arrived', askedOn: '2026-10-07', until: '2026-10-12', arrivedOn: '2026-10-13', afterDeadline: true } }));
-    expect(arrived[2]).toMatchObject({ text: 'Resubmission arrived Tue 13/10, after its deadline', tone: 'late' });
-    expect(texts(t({ referral: { on: '2026-10-19', day: 9 } }))[2]).toBe('Referred Mon 19/10 (8 school days late)');
+    expect(arrived[2]).toMatchObject({ text: 'Resubmitted 13/10, after its deadline', tone: 'late' });
+    expect(texts(t({ referral: { on: '2026-10-19', day: 9 } }))[2]).toBe('Referred 19/10 (8 school days late)');
     const waived = timelineParts(t({ referral: { action: 'waived', on: '2026-10-19', day: 9, note: 'pre-approved' } }))[2];
-    expect(waived).toMatchObject({ text: 'Referral waived Mon 19/10 (8 school days late)', title: 'pre-approved' });
+    expect(waived).toMatchObject({ text: 'Referral waived 19/10 (8 school days late)', title: 'pre-approved' });
     expect(waived.tone).toBeUndefined();
+  });
+
+  it('on the assessment card (showDue false): no due date, only an extension; one Resubmitted entry with its time', () => {
+    const opts = { showDue: false };
+    expect(timelineParts(sub({ firstAt: at('2026-10-06 16:52'), late: true, day: 1, lateMinutes: 112 }), opts).map((p) => p.text))
+      .toEqual(['Submitted 06/10 16:52 (1 h 52 min late)']);
+    const ext = t({ extension: { schoolDays: 2, until: '2026-10-09', note: null }, submission: { ...t().submission, firstAt: at('2026-10-09 10:00'), late: false } });
+    expect(timelineParts(ext, opts)[0].text).toBe('Extended to 09/10');
+    const resub = t({
+      submission: { ...t().submission, firstAt: at('2026-10-06 16:52'), latestAt: at('2026-10-16 14:28'), late: true, day: 1, lateMinutes: 112 },
+      resubmission: { state: 'arrived', arrivedOn: '2026-10-16', afterDeadline: false },
+    });
+    expect(timelineParts(resub, opts).map((p) => p.text)).toEqual(['Submitted 06/10 16:52 (1 h 52 min late)', 'Resubmitted 16/10 14:28']);
   });
 
   it('no timeline → nothing', () => {
@@ -78,10 +91,19 @@ describe('timelineParts', () => {
 
 describe('timelineSummary / CLOCK_HELP', () => {
   it('joins the parts for a tooltip', () => {
-    expect(timelineSummary(sub({ firstAt: at('2026-10-06 14:10'), late: false }))).toBe('Due Tue 06/10 15:00\nSubmitted Tue 06/10 14:10 · on time');
+    expect(timelineSummary(sub({ firstAt: at('2026-10-06 14:10'), late: false }))).toBe('Due 06/10 15:00\nSubmitted 06/10 14:10');
   });
 
   it('explains the clock in school days, with the limit', () => {
     expect(CLOCK_HELP(8)).toBe('Counted in school days after the due date (or the extended date). Work 8 or more school days late is referred.');
+  });
+});
+
+describe('lateText (the late clock\'s hover)', () => {
+  it('says how late, in the timeline\'s words', () => {
+    expect(lateText(sub({ late: true, lateMinutes: 83 }))).toBe('1 h 23 min late');
+    expect(lateText(sub({ late: true, day: 3 }))).toBe('2 school days late');
+    expect(lateText(sub({ late: true, day: 1 }))).toBe('Late, before the next school day');
+    expect(lateText(null)).toBe('Late');
   });
 });

@@ -94,8 +94,8 @@ describe('CourseSection submission timeline', () => {
   it('shows when the work came in and how late, in place of the raw due date', () => {
     renderCourseSection({}, { timeline });
     const row = screen.getByTestId('submission-timeline');
-    expect(row).toHaveTextContent('Due Tue 06/10 15:00');
-    expect(row).toHaveTextContent('Submitted Mon 12/10 09:00 · 3 school days late');
+    expect(row).toHaveTextContent('Due 06/10 15:00');
+    expect(row).toHaveTextContent('Submitted 12/10 09:00 (3 school days late)');
     expect(screen.queryByText(/^Due: /)).not.toBeInTheDocument();
   });
 

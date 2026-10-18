@@ -975,7 +975,10 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     }
   }
 
-  const bothSignals = !!student.resubmit_flag && !!student.resubmitted;
+  // A resubmission that has arrived rings the card blue (the stronger signal; the status
+  // pill reads "Resubmitted"), asked for or not.
+  const resubmissionArrived = student.resubmission?.state === 'arrived' || !!student.resubmitted;
+  const headerReasons = reasons.filter((r) => !(r.id === 'resubmitted' && resubmissionArrived));
 
   // Descriptor view: order rows by criterion.position → mapped topic; topics with
   // no criterion fall after. Built only when a rubric is attached.
@@ -998,8 +1001,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
       id={`student-card-${student.id}`}
       className={highlight ? 'student-card--highlight' : undefined}
       style={{
-        border: bothSignals ? '1px solid var(--resubmit-ring)' : '1px solid var(--border)',
-        boxShadow: bothSignals ? '0 0 0 2px var(--badge-resubmit-bg)' : 'none',
+        border: resubmissionArrived ? '1px solid var(--resubmit-ring)' : '1px solid var(--border)',
+        boxShadow: resubmissionArrived ? '0 0 0 2px var(--badge-resubmit-bg)' : 'none',
         borderRadius: 10,
         // overflow visible so the oversized avatar can pop past the header band
         // (top and bottom) without being clipped. Only the header has a corner-
@@ -1047,6 +1050,18 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           {displayName(student)}
         </Link>
         <SubmissionStatusPill student={student} assignment={assignmentRow} />
+        {/* Why this student needs attention: the Needs action / Watch reasons, the same
+            names as the filter pills above the cards. "Resubmitted" is left out: the
+            status pill already says it (and the card has the blue ring). */}
+        {headerReasons.map((r) => {
+          const v = TONE_VARS[reasonTone(r)] || TONE_VARS.neutral;
+          return (
+            <span key={r.id} className="reason-chip" data-reason={r.id}
+              style={{ background: v.bg, color: v.text, boxShadow: `inset 0 0 0 1px ${v.text}` }}>
+              {reasonText(r)}
+            </span>
+          );
+        })}
         {/* The student's own copy: OneDrive, in progress or submitted (#120), or
             Google Drive once submitted (#142). */}
         {submissionLink && (
@@ -1160,23 +1175,6 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           panelHost={panelHost}
           onChange={handleResubmitChange}
         />}
-        {/* Detected resubmission (#49, Part B) — the student submitted new work
-            since this was last graded. Prominent + amber because it's an
-            actionable "regrade me" signal, distinct from the teacher's request. */}
-        {student.resubmitted && (
-          <span
-            title="The student submitted new work after this was last graded: review and update the grade."
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
-              height: '1.8rem', boxSizing: 'border-box', padding: '0 0.7rem',
-              borderRadius: 999, fontSize: '0.8rem', fontWeight: 700, whiteSpace: 'nowrap',
-              background: 'var(--warning-light)', color: 'var(--warning)',
-              border: '2px solid var(--warning)',
-            }}
-          >
-            ⚠ Ungraded resubmission: review
-          </span>
-        )}
         {flagError && (
           <span className="text-sm" style={{ color: 'var(--danger)' }}>{flagError}</span>
         )}
@@ -1195,27 +1193,11 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           under the header, so the header's buttons never wrap (ActionPanel portal). */}
       <div ref={setPanelHost} className="card-action-panel" />
 
-      {/* Why this student needs attention: the Needs action / Watch reasons, the
-          same names as the filter pills above the cards. */}
-      {reasons.length > 0 && (
-        <div className="reason-chips" aria-label="Needs attention" style={{ padding: '0.45rem 1rem 0', paddingLeft: 'calc(1rem + 70px + 0.75rem)' }}>
-          {reasons.map((r) => {
-            const v = TONE_VARS[reasonTone(r)] || TONE_VARS.neutral;
-            return (
-              <span key={r.id} className="reason-chip" data-reason={r.id}
-                style={{ background: v.bg, color: v.text, boxShadow: `inset 0 0 0 1px ${v.text}` }}>
-                {reasonText(r)}
-              </span>
-            );
-          })}
-        </div>
-      )}
-
       {/* The full submission picture: due / extension, submitted when and how late
           (or the clock day it is missing on), resubmission, referral. */}
       {student.timeline && (
         <div style={{ padding: '0.45rem 1rem 0', paddingLeft: 'calc(1rem + 70px + 0.75rem)' }}>
-          <SubmissionTimeline timeline={student.timeline} />
+          <SubmissionTimeline timeline={student.timeline} showDue={false} />
         </div>
       )}
 
@@ -2047,7 +2029,8 @@ export default function AssessmentSummaryPage() {
   // or the teacher asks), not on every save: a card stays in view while it is being
   // worked on, even once its reason is resolved.
   const [filterEpoch, setFilterEpoch] = useState(0);
-  const filterCtx = data ? { assignment: data.assignment, topics: data.topics, hasDraft } : null;
+  const commentSummaryOf = useCallback((st) => commentSummaries?.[st.id] || null, [commentSummaries]);
+  const filterCtx = data ? { assignment: data.assignment, topics: data.topics, hasDraft, commentSummaryOf } : null;
   const shownUids = useMemo(() => {
     if (!data || activeFilters.size === 0) return null;
     return new Set(data.students.filter(st => passesFilters(st, activeFilters, filterCtx)).map(st => st.schoology_uid));
@@ -2055,6 +2038,10 @@ export default function AssessmentSummaryPage() {
   // Each card reports its draft once mounted, after the data arrives: work the filter
   // out again then, so a link to "Draft not published" finds the drafts.
   useEffect(() => { if (data) setFilterEpoch(n => n + 1); }, [data?.assignment]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The submission-comment summaries arrive after the data: work the filter out again
+  // then too, so a link to "Unread comment" finds them.
+  const commentsLoaded = commentSummaries !== null;
+  useEffect(() => { if (commentsLoaded) setFilterEpoch(n => n + 1); }, [commentsLoaded]);
   const isShown = (uid) => !shownUids || shownUids.has(uid);
   // Shown cards whose reasons no longer match (resolved since the filter ran).
   const resolvedCount = shownUids && data
@@ -2335,8 +2322,17 @@ export default function AssessmentSummaryPage() {
           {assignment.title || assignmentId}
         </h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+          {/* The due date stands out on its own (17/10/2026): the cards' timelines leave
+              it out and say only how late each submission was. */}
+          {assignment.due_date && (
+            <span className="due-chip" title="Due date in Schoology">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+                <rect x="2" y="3" width="12" height="11" rx="2" /><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3" />
+              </svg>
+              Due {lineDate(assignment.due_date.slice(0, 10))} {assignment.due_date.slice(11, 16)}
+            </span>
+          )}
           <p className="text-sm text-muted" style={{ margin: 0 }}>
-            {assignment.due_date ? `Due ${lineDate(assignment.due_date.slice(0, 10))} ${assignment.due_date.slice(11, 16)} · ` : ''}
             {students.length} students · {scoreScale ? scoreScale.name : `${alignedTopics.length} measurement topics`}
           </p>
           {/* Jump straight to this assignment's Schoology page (#76). Hidden when
@@ -2432,6 +2428,7 @@ export default function AssessmentSummaryPage() {
           })}
           onClear={() => setActiveFilters(new Set())}
           hasDraft={hasDraft}
+          commentSummaryOf={commentSummaryOf}
           shown={shownCount}
           total={students.length}
           footer={resolvedCount > 0 && (

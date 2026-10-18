@@ -15,6 +15,7 @@ import { getDb } from '../db/index.js';
 import masteryRouter from '../routes/mastery.js';
 import { draftBaseline } from '../../client/src/lib/assessmentDraft.js';
 import { getUnfinishedGrading } from './unfinishedGrading.js';
+import { markSeen } from './submissionCommentStore.js';
 
 let db, courseId, n;
 function student(uid, first, { dropped = false } = {}) {
@@ -60,7 +61,7 @@ async function cardBase(sa, uid) {
 beforeEach(() => {
   db = getDb();
   db.exec(
-    'DELETE FROM assessment_drafts; DELETE FROM flags; DELETE FROM status_lines; DELETE FROM mastery_scores; DELETE FROM mastery_alignments; ' +
+    'DELETE FROM submission_comment_seen; DELETE FROM submission_comments; DELETE FROM submission_comment_reads; DELETE FROM assessment_drafts; DELETE FROM flags; DELETE FROM status_lines; DELETE FROM mastery_scores; DELETE FROM mastery_alignments; ' +
     'DELETE FROM assignment_assignees; DELETE FROM grades; DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
     'DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;',
   );
@@ -91,6 +92,22 @@ describe('getUnfinishedGrading: Prism drafts', () => {
     const bo = student('u2', 'Bo', { dropped: true });
     const a = assignment('CPT 2');
     saveDraft(a.id, bo, 'anything');
+    expect(getUnfinishedGrading(db)).toEqual([]);
+  });
+});
+
+describe('getUnfinishedGrading: unread student comments', () => {
+  test('a student comment with typed text since the thread was last opened counts; seeing it clears it', async () => {
+    const ana = student('u1', 'Ana');
+    const a = assignment('Brick Breaker');
+    const add = (id, body, created) => db.prepare(
+      `INSERT INTO submission_comments (schoology_comment_id, assignment_id, student_id, author_uid, author_role, body, created) VALUES (?, ?, ?, 'u1', 'student', ?, ?)`,
+    ).run(id, a.id, ana, body, created);
+    add('1', 'Revision 1 submitted', 100); // automatic: never unread
+    expect(getUnfinishedGrading(db)).toEqual([]);
+    add('2', 'I fixed the loop, can you check?', 200);
+    expect(getUnfinishedGrading(db)[0]).toMatchObject({ unreadComments: 1, students: [{ studentName: 'Ana X', reasons: ['unread_comment'] }] });
+    markSeen(db, { assignmentId: a.id, studentId: ana });
     expect(getUnfinishedGrading(db)).toEqual([]);
   });
 });

@@ -6,10 +6,11 @@ vi.mock('../services/api.js', () => ({
   postSubmissionComment: vi.fn(),
   postSubmissionCommentFile: vi.fn(),
   deleteSubmissionComment: vi.fn(),
+  markSubmissionCommentsSeen: vi.fn(),
 }));
 
 import SubmissionComments from './SubmissionComments.jsx';
-import { getSubmissionCommentThread, postSubmissionComment, postSubmissionCommentFile, deleteSubmissionComment } from '../services/api.js';
+import { getSubmissionCommentThread, postSubmissionComment, postSubmissionCommentFile, deleteSubmissionComment, markSubmissionCommentsSeen } from '../services/api.js';
 
 const thread = (comments) => ({
   comments,
@@ -136,5 +137,55 @@ describe('SubmissionComments', () => {
   test('a never-read card chip still opens', () => {
     renderCard(null);
     expect(screen.getByRole('button', { name: /not read yet/ })).toHaveClass('comment-chip--empty');
+  });
+});
+
+describe('SubmissionComments: unread and the gradebook cell', () => {
+  const unreadThread = () => ({
+    comments: [auto, { ...wrote, unread: true }],
+    summary: { count: 2, student_text: true, student_words: 2, unread: 1 },
+    read_at: '2026-10-17T02:02:00.000Z',
+  });
+
+  test('opening a thread with an unread comment tags it New and marks the thread seen', async () => {
+    getSubmissionCommentThread.mockResolvedValue(unreadThread());
+    markSubmissionCommentsSeen.mockResolvedValue({ ...unreadThread(), summary: { ...unreadThread().summary, unread: 0 } });
+    const onSummary = renderCard({ count: 2, student_text: true, unread: 1, read_at: 'x' });
+    expect(screen.getByRole('button', { name: /1 unread. Open the thread/ })).toHaveClass('comment-chip--unread');
+    fireEvent.click(screen.getByRole('button', { name: /Open the thread/ }));
+    expect(await screen.findByText('New')).toHaveClass('comment-new');
+    await waitFor(() => expect(markSubmissionCommentsSeen).toHaveBeenCalledWith('8590105935', 7));
+    await waitFor(() => expect(onSummary).toHaveBeenLastCalledWith(expect.objectContaining({ unread: 0 })));
+    expect(screen.getByText('New')).toBeInTheDocument(); // the open thread keeps its tag
+  });
+
+  test('a thread with nothing unread is not marked seen', async () => {
+    renderCard();
+    fireEvent.click(screen.getByRole('button', { name: /Open the thread/ }));
+    await screen.findByRole('dialog');
+    await waitFor(() => expect(getSubmissionCommentThread).toHaveBeenCalled());
+    expect(markSubmissionCommentsSeen).not.toHaveBeenCalled();
+  });
+
+  test('the cell bubble sits in the corner (unread dot) and its popover opens with the overall comment', async () => {
+    getSubmissionCommentThread.mockResolvedValue(unreadThread());
+    markSubmissionCommentsSeen.mockResolvedValue(unreadThread());
+    render(<SubmissionComments variant="cell" assignmentId="8590105935" studentId={7} studentName="Ana" title="CPT 2"
+      summary={{ count: 2, student_text: true, unread: 1, read_at: 'x' }} onSummary={vi.fn()}
+      overall={{ text: 'Strong testing section.', visible: false }} />);
+    const bubble = screen.getByRole('button', { name: /Open the thread/ });
+    expect(bubble).toHaveClass('comment-dot--corner', 'comment-dot--wrote', 'comment-dot--unread');
+    fireEvent.click(bubble);
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('Your overall comment');
+    expect(dialog).toHaveTextContent('Hidden from student');
+    expect(dialog).toHaveTextContent('Strong testing section.');
+  });
+
+  test('with no overall comment the popover says so', async () => {
+    render(<SubmissionComments variant="cell" assignmentId="8590105935" studentId={7} studentName="Ana" title="CPT 2"
+      summary={{ count: 3, student_text: true, read_at: 'x' }} onSummary={vi.fn()} overall={{ text: '', visible: false }} />);
+    fireEvent.click(screen.getByRole('button', { name: /Open the thread/ }));
+    expect(await screen.findByText('No overall comment yet.')).toBeInTheDocument();
   });
 });

@@ -1013,6 +1013,14 @@ describe('Unfinished grading panel', () => {
     expect(within(panel).getByText('[BK 7] AP CSP')).toBeInTheDocument();
   });
 
+  it('counts unread student comments and links with Unread comment selected', async () => {
+    api.getTriage.mockResolvedValue({ ...PAYLOAD, unfinishedGrading: [{ ...ROWS[1], flagged: 0, unreadComments: 2 }] });
+    renderSection();
+    const panel = await screen.findByLabelText('Unfinished grading');
+    expect(within(panel).getByText('2 unread comments')).toBeInTheDocument();
+    expect(within(panel).getByRole('link', { name: 'Brick Breaker' })).toHaveAttribute('href', '/course/6/assessment/a41?filter=unread_comment');
+  });
+
   it('is hidden when there are no unfinished grading', async () => {
     api.getTriage.mockResolvedValue({ ...PAYLOAD, unfinishedGrading: [] });
     renderSection();

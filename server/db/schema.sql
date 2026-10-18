@@ -827,3 +827,14 @@ CREATE TABLE IF NOT EXISTS student_powerschool (
   g1_deceased TEXT,                   -- X_G1DECEASED
   g2_deceased TEXT                    -- X_G2DECEASED
 );
+
+-- The newest comment the teacher has seen in each pair's thread (Schoology's own
+-- created time, epoch seconds), set when the thread is opened in Prism. A student
+-- comment (typed text or a file) created after it is unread. No row = never opened.
+CREATE TABLE IF NOT EXISTS submission_comment_seen (
+  assignment_id INTEGER NOT NULL REFERENCES assignments(id),
+  student_id INTEGER NOT NULL REFERENCES students(id),
+  seen_created INTEGER NOT NULL DEFAULT 0,
+  seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (assignment_id, student_id)
+);

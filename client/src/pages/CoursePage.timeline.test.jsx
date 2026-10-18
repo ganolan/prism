@@ -22,28 +22,30 @@ function renderGrid({ grades = {}, timelines = {} }) {
 }
 
 describe('GradebookView: submission timeline', () => {
-  it('a graded, late cell keeps an L and explains itself on hover', () => {
+  it('a graded, late cell keeps a corner clock (how late on hover) and explains itself on the cell', () => {
     const { container } = renderGrid({
       grades: { 10: { 1: { score: 80, exception: null, lti_submission_state: 'submitted', late: 1 } } },
       timelines: { 10: { 1: timeline({ firstAt: at('2026-10-12 09:00'), late: true, day: 4 }) } },
     });
-    expect(screen.getByTitle('Late')).toHaveTextContent('L');
-    const cell = container.querySelector('td[title*="Submitted Mon 12/10 09:00"]');
-    expect(cell.getAttribute('title')).toBe('Due Tue 06/10 15:00\nSubmitted Mon 12/10 09:00 · 3 school days late');
+    const clock = screen.getByRole('img', { name: '3 school days late' });
+    expect(clock).toHaveClass('late-clock--corner');
+    const cell = container.querySelector('td[title*="Submitted 12/10 09:00"]');
+    expect(cell).toContainElement(clock);
+    expect(cell.getAttribute('title')).toBe('Due 06/10 15:00\nSubmitted 12/10 09:00 (3 school days late)');
   });
 
-  it('a graded on-time cell has no L', () => {
+  it('a graded on-time cell has no clock', () => {
     renderGrid({
       grades: { 10: { 1: { score: 80, exception: null, lti_submission_state: 'submitted', late: 0 } } },
       timelines: { 10: { 1: timeline({ firstAt: at('2026-10-06 14:00'), late: false }) } },
     });
-    expect(screen.queryByTitle('Late')).not.toBeInTheDocument();
+    expect(document.querySelector('.late-clock')).toBeNull();
   });
 
   it('a student with no grade row still gets the missing-work clock on hover', () => {
     const { container } = renderGrid({
       timelines: { 10: { 1: timeline({ state: 'not_submitted' }, { overdue: { day: 9, overLimit: true } }) } },
     });
-    expect(container.querySelector('td[title*="Not submitted · 8 school days overdue, over the limit"]')).not.toBeNull();
+    expect(container.querySelector('td[title*="Not submitted (8 school days overdue, over the limit)"]')).not.toBeNull();
   });
 });

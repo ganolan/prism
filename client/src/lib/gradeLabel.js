@@ -18,8 +18,11 @@ const EXCEPTION_LABELS = {
 };
 
 // Derive submission-state badges for an assignment row. Returns an array of
-// { kind, label, tone } badges; tone ∈ 'red' | 'blue' | 'amber' | 'green' |
+// { kind, label, tone, late? } badges; tone ∈ 'red' | 'blue' | 'amber' | 'green' |
 // 'yellow' | 'neutral'. Graded cells return [] (gradeLabel shows the score).
+// Late is not a status of its own (17/10/2026): it rides on the status it qualifies
+// as `late: true` (a clock badge on the pill, a clock in the cell corner, LateClock).
+// Only a late flag with no status to attach to stays a { kind: 'late' } badge.
 //
 // lti_submission work (#62): state comes from `lti_submission_state`
 // ('submitted' | 'in_progress' | 'not_started'), read from the grader's
@@ -45,8 +48,7 @@ function ltiBadges(state, submission_type, due_date, today, late) {
   if (state == null && submission_type) state = 'submitted';
   const prox = dueProximity(due_date, today);
   if (state === 'submitted') {
-    const submitted = { kind: 'submitted', label: 'Submitted', tone: 'green' };
-    return late ? [{ kind: 'late', label: 'Late', tone: 'red' }, submitted] : [submitted];
+    return [{ kind: 'submitted', label: 'Submitted', tone: 'green', ...(late ? { late: true } : {}) }];
   }
   if (state === 'in_progress') {
     return [{ kind: 'in-progress', label: 'In Progress', tone: prox === 'overdue' ? 'yellow' : 'blue' }];
@@ -63,15 +65,10 @@ function ltiBadges(state, submission_type, due_date, today, late) {
 }
 
 function nonLtiBadges({ submission_type, submitted_at, late, due_date, today }) {
-  const badges = [];
-  if (late) badges.push({ kind: 'late', label: 'Late', tone: 'red' });
   const submitted = !!submission_type || Number(submitted_at) > 0;
-  if (submitted) {
-    badges.push({ kind: 'submitted', label: 'Submitted', tone: 'green' });
-  } else if (dueProximity(due_date, today) === 'overdue') {
-    badges.push({ kind: 'missing', label: 'Missing', tone: 'red' });
-  }
-  return badges;
+  if (submitted) return [{ kind: 'submitted', label: 'Submitted', tone: 'green', ...(late ? { late: true } : {}) }];
+  if (dueProximity(due_date, today) === 'overdue') return [{ kind: 'missing', label: 'Missing', tone: 'red' }];
+  return late ? [{ kind: 'late', label: 'Late', tone: 'red' }] : [];
 }
 
 export function submissionStatus({ score, exception, late, draft, submitted_at, submission_type, is_lti_submission, lti_submission_state, due_date, today = new Date() }) {

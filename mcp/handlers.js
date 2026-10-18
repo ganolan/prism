@@ -314,7 +314,7 @@ export function getTriageTool(db, { course, student, include_formative } = {}) {
     t.unfinishedGrading = t.unfinishedGrading.map((r) => {
       const students = r.students.filter((s) => matchesStudent(s, student));
       const count = (x) => students.filter((s) => s.reasons.includes(x)).length;
-      return { ...r, students, drafts: count('draft'), feedbackHidden: count('feedback_hidden'), flagged: count('flagged') };
+      return { ...r, students, drafts: count('draft'), feedbackHidden: count('feedback_hidden'), flagged: count('flagged'), unreadComments: count('unread_comment') };
     }).filter((r) => r.students.length > 0);
     t.studentFilter = String(student);
   }

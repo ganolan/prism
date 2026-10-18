@@ -10,7 +10,7 @@ vi.mock('./schoology.js', () => ({
 import { getDb } from '../db/index.js';
 import {
   commentDeps, resetCommentCaches, threadFor, refreshAssignment, refreshStudent, postComment, deleteComment, studentsToRefresh, CommentError,
-  postCommentWithFile, commentFile,
+  postCommentWithFile, commentFile, markThreadSeen,
 } from './submissionComments.js';
 import { readThread, summariesForCourse, summariesForStudent } from './submissionCommentStore.js';
 import { fakeSchoologyWeb } from '../testing/fakeSchoologyWeb.js';
@@ -44,7 +44,7 @@ function seed(db) {
 
 beforeEach(() => {
   getDb().exec(
-    'DELETE FROM submission_comments; DELETE FROM submission_comment_reads; DELETE FROM grades; ' +
+    'DELETE FROM submission_comment_seen; DELETE FROM submission_comments; DELETE FROM submission_comment_reads; DELETE FROM grades; ' +
     'DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;',
   );
   resetCommentCaches();
@@ -80,7 +80,7 @@ describe('threadFor', () => {
     expect(t.comments.map((c) => c.id)).toEqual(['1', '2']);
     expect(t.comments[0]).toMatchObject({ author_role: 'student', author_name: 'Ana Lee', is_automatic: true, student_text: null });
     expect(t.comments[1]).toMatchObject({ is_automatic: false, student_text: 'Playtest: 5 rounds.' });
-    expect(t.summary).toEqual({ count: 2, student_text: true, student_words: 3, student_files: 0, files: 0 });
+    expect(t.summary).toEqual({ count: 2, student_text: true, student_words: 3, student_files: 0, files: 0, unread: 1 });
     expect(t.read_at).toBe(new Date(clock * 1000).toISOString());
   });
 
@@ -122,6 +122,26 @@ describe('threadFor', () => {
     const db = getDb(); seed(db);
     const stranger = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('999', 'X', 'Y')`).run().lastInsertRowid;
     await expect(threadFor(db, { assignmentId: '8590105935', studentId: stranger })).rejects.toBeInstanceOf(CommentError);
+  });
+});
+
+describe('unread student comments', () => {
+  test('a student comment with typed text is unread until the thread is opened; automatic lines never count', async () => {
+    const db = getDb(); const { ana } = seed(db);
+    const t = await threadFor(db, { assignmentId: '8590105935', studentId: ana });
+    expect(t.summary.unread).toBe(1); // "Playtest: 5 rounds." (the bare "Revision 1 submitted" does not count)
+    expect(t.comments.map((c) => c.unread)).toEqual([false, true]);
+    expect(markThreadSeen(db, { assignmentId: '8590105935', studentId: ana }).summary.unread).toBe(0);
+  });
+
+  test('a newer student comment after the thread was seen is unread again', async () => {
+    const db = getDb(); const { ana } = seed(db);
+    await threadFor(db, { assignmentId: '8590105935', studentId: ana });
+    markThreadSeen(db, { assignmentId: '8590105935', studentId: ana });
+    threads[555].push({ id: '3', uid: '555', comment: 'Can you check my loop again?', created: '1792300500' });
+    const t = await threadFor(db, { assignmentId: '8590105935', studentId: ana, force: true });
+    expect(t.summary.unread).toBe(1);
+    expect(t.comments.find((c) => c.id === '3').unread).toBe(true);
   });
 });
 

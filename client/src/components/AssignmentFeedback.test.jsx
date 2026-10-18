@@ -33,8 +33,9 @@ describe('AssignmentFeedback', () => {
     const timeline = screen.getByTestId('submission-timeline');
     const rubric = screen.getByText('Select, analyze');
     const comment = screen.getByText('Great use of evidence.');
-    // The work link shares the badges row.
-    expect(link.parentElement).toBe(badge.parentElement);
+    // The work link shares the badges row (each status badge sits in a wrapper that
+    // also holds its late clock).
+    expect(link.parentElement).toBe(badge.closest('.status-pill-wrap').parentElement);
     expect(follows(link, timeline)).toBe(true);
     expect(follows(timeline, rubric)).toBe(true);
     expect(follows(rubric, comment)).toBe(true);

@@ -1,3 +1,4 @@
+import LateClock from './LateClock.jsx';
 // Shared submission-state + flag badges. Renders a flat run of <span> badges
 // (a Fragment, no wrapper element) so callers can drop it straight into their
 // own flex row. Used by the /student/ course table (StudentPage) and the
@@ -18,12 +19,16 @@ function formatFlagReason(flag) {
   return flag?.flag_reason || '';
 }
 
-export default function SubmissionBadges({ status = [], flags = [], resubmitted = false, assignmentTitle }) {
+// lateTitle: how late, for the late clock's hover (lateText(timeline)).
+export default function SubmissionBadges({ status = [], flags = [], resubmitted = false, assignmentTitle, lateTitle = 'Late' }) {
   if (status.length === 0 && flags.length === 0 && !resubmitted) return null;
   return (
     <>
       {status.map(b => (
-        <span key={b.kind} className={`badge ${TONE_CLASS[b.tone]}`} style={{ fontSize: '0.65rem' }}>{b.label}</span>
+        <span key={b.kind} className="status-pill-wrap">
+          <span className={`badge ${TONE_CLASS[b.tone]}`} style={{ fontSize: '0.65rem' }}>{b.label}</span>
+          {b.late && <LateClock title={lateTitle} />}
+        </span>
       ))}
       {flags.map(flag => {
         const flagReason = formatFlagReason(flag);

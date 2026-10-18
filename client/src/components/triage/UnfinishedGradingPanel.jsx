@@ -15,10 +15,11 @@ export function unfinishedGradingText(r) {
     r.drafts > 0 && plural(r.drafts, 'draft not published', 'drafts not published'),
     r.feedbackHidden > 0 && `${r.feedbackHidden} with feedback hidden`,
     r.flagged > 0 && `${r.flagged} flagged`,
+    r.unreadComments > 0 && plural(r.unreadComments, 'unread comment', 'unread comments'),
   ].filter(Boolean).join(', ');
 }
 
-const FILTER_OF = { drafts: 'draft', feedbackHidden: 'feedback_hidden', flagged: 'flagged' };
+const FILTER_OF = { drafts: 'draft', feedbackHidden: 'feedback_hidden', flagged: 'flagged', unreadComments: 'unread_comment' };
 const filterFor = (r) => Object.entries(FILTER_OF).filter(([k]) => r[k] > 0).map(([, id]) => id);
 
 export default function UnfinishedGradingPanel({ rows, showCourse, scope }) {
@@ -29,7 +30,7 @@ export default function UnfinishedGradingPanel({ rows, showCourse, scope }) {
       <PanelHead title="Unfinished grading">
         <ShowAllToggle total={rows.length} showAll={showAll} onToggle={toggleShowAll} />
       </PanelHead>
-      <p className="triage-panel__sub">drafts not published, feedback hidden, flagged for review</p>
+      <p className="triage-panel__sub">drafts not published, feedback hidden, flagged for review, unread student comments</p>
       {limitRows(rows, showAll).map((r) => (
         <div key={r.assignmentId} className="triage-row triage-row--plain">
           <div className="triage-row__text">

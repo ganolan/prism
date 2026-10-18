@@ -9,7 +9,7 @@ import {
 import { authorRole } from '../lib/submissionComments.js';
 import { resolveAssignmentId } from './idResolvers.js';
 import { normalizeSubmissionStatus, getGradeMetaRows, getRoster } from './assessmentContext.js';
-import { readThread, storeThread, storeReadError } from './submissionCommentStore.js';
+import { readThread, storeThread, storeReadError, markSeen } from './submissionCommentStore.js';
 import { noteSessionLive } from './schoologySession.js';
 import { cookieJar, getPage, drupalSettings, formFields, uploadAttachment, submitAjaxForm, WebSessionError } from './schoologyWeb.js';
 import { basename } from 'path';
@@ -114,6 +114,12 @@ async function fetchPair(db, { assignment, course, student }) {
     throw err;
   }
   return readThread(db, { assignmentId: assignment.id, studentId: student.id });
+}
+
+// The teacher saw the thread in the popover (POST .../seen): mark every comment in it seen.
+export function markThreadSeen(db, { assignmentId, studentId }) {
+  const pair = pairOf(db, { assignmentId, studentId });
+  return markSeen(db, { assignmentId: pair.assignment.id, studentId: pair.student.id });
 }
 
 // The thread for the popover: cached when fresh, otherwise read first. A failed

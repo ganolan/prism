@@ -31,7 +31,8 @@ import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
 import { workLinkText } from '../lib/workLink.js';
 import SubmissionComments from '../components/SubmissionComments.jsx';
 import SubmissionFiles, { hasNativeSubmission } from '../components/SubmissionFiles.jsx';
-import { timelineSummary } from '../lib/submissionTimeline.js';
+import { timelineSummary, lateText } from '../lib/submissionTimeline.js';
+import LateClock from '../components/LateClock.jsx';
 import { DEFAULT_TYPE_FILTER, isUnpublished, passesTypeFilter, typeFilterCounts } from '../lib/assessmentTypeFilter.js';
 
 const SHORT_BADGE = { late: 'L', draft: 'D', missing: 'M', 'not-started': 'NS', submitted: 'S', 'in-progress': 'IP' };
@@ -748,6 +749,7 @@ export function RubricModal({
             status={status} flags={flags} resubmitted={grade.resubmitted} assignmentTitle={assignment.title}
             links={links}
             timeline={timeline}
+            lateTitle={lateText(timeline)}
             topics={topics} attachment={attachment} palette={palette} exception={grade.exception}
             score={topics.length > 0 ? null : score}
             comment={comment}
@@ -887,9 +889,12 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
       .catch(() => {});
     return () => { live = false; };
   }, [courseId]);
-  const commentBubble = (a, s) => commentSums && (
+  // Layout A (18/10/2026): the cell's bottom-right corner holds one comment marker: the
+  // submission-thread bubble (purple; amber when the student wrote; a red dot when
+  // unread), else an outline bubble for the overall comment. The late clock is top right.
+  const commentBubble = (a, s, overall = null) => commentSums && (
     <SubmissionComments variant="cell" assignmentId={a.schoology_assignment_id} studentId={s.id}
-      studentName={preferredFirstName(s)} title={a.title}
+      studentName={preferredFirstName(s)} title={a.title} overall={overall}
       summary={commentSums[a.schoology_assignment_id]?.[s.id] || null}
       onSummary={(sum) => setCommentSums((prev) => ({
         ...prev, [a.schoology_assignment_id]: { ...(prev?.[a.schoology_assignment_id] || {}), [s.id]: sum },
@@ -1132,9 +1137,9 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                     is_lti_submission: a.is_lti_submission, lti_submission_state: null,
                     due_date: a.due_date,
                   });
-                  if (!empty.length) return <td key={a.id} style={{ textAlign: 'center' }} title={tlText || undefined}>-</td>;
+                  if (!empty.length) return <td key={a.id} style={{ textAlign: 'center', position: 'relative' }} title={tlText || undefined}>-{commentBubble(a, s)}</td>;
                   return (
-                    <td key={a.id} style={{ textAlign: 'center', whiteSpace: 'nowrap' }} title={tlText || undefined}>
+                    <td key={a.id} style={{ textAlign: 'center', whiteSpace: 'nowrap', position: 'relative' }} title={tlText || undefined}>
                       {empty.map(b => (
                         <span key={b.kind} className={`badge ${BADGE_TONE_CLASS[b.tone]}`} style={{ fontSize: '0.55rem', marginLeft: 3 }} title={b.label}>
                           {SHORT_BADGE[b.kind] || b.label[0]}
@@ -1164,13 +1169,27 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                 const code = lbl.kind === 'scale' ? masteryCodeForLevel(lbl.text) : null;
                 const c = code ? LEVEL_COLORS[code] : null;
                 const text = lbl.kind === 'pending' ? '-' : (code || lbl.text);
+                const status = submissionStatus({
+                  score: g.score, exception: g.exception, late: tl?.submission?.late ?? g.late, draft: g.draft,
+                  submitted_at: g.submitted_at, submission_type: g.submission_type,
+                  is_lti_submission: a.is_lti_submission, lti_submission_state: g.lti_submission_state,
+                  due_date: a.due_date,
+                });
+                // Don't double up exception text — gradeLabel already shows it.
+                const inlineBadges = status.filter(b => b.kind !== 'exception');
+                // Late is a quiet clock in the cell's top-right corner, so the status
+                // stays centred; graded late work keeps it (submissionStatus is empty
+                // once scored). How late is in the hover text (the timeline).
+                const isLate = status.some(b => b.late) || (g.score != null && !!tl?.submission?.late);
                 // A cell with an overall comment gets a corner indicator and an
                 // instant hover overlay (#36) — `position: relative` anchors the
                 // indicator.
                 const hasComment = !!g.grade_comment;
+                const thread = commentSums?.[a.schoology_assignment_id]?.[s.id] || null;
+                const hasThread = thread?.count > 0;
                 const cellStyle = {
                   textAlign: 'center',
-                  ...(hasComment && { position: 'relative' }),
+                  position: 'relative',
                   ...(lbl.kind === 'mismatch' && { color: 'var(--danger)' }),
                   ...(g.resubmit_requested && { background: 'var(--badge-resubmit-bg)' }),
                   ...(g.resubmitted && { boxShadow: 'inset 0 0 0 2px var(--resubmit-ring)' }),
@@ -1191,16 +1210,6 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                     ? <button type="button" className="cell-open" onClick={() => openModal([])}
                         aria-label={`${lbl.text}: show feedback`} title="Show the comment and submission detail">{scoreText}</button>
                     : scoreText;
-                const status = submissionStatus({
-                  score: g.score, exception: g.exception, late: tl?.submission?.late ?? g.late, draft: g.draft,
-                  submitted_at: g.submitted_at, submission_type: g.submission_type,
-                  is_lti_submission: a.is_lti_submission, lti_submission_state: g.lti_submission_state,
-                  due_date: a.due_date,
-                });
-                // Don't double up exception text — gradeLabel already shows it.
-                const inlineBadges = status.filter(b => b.kind !== 'exception');
-                // Graded late work keeps its L (submissionStatus is empty once scored).
-                if (g.score != null && tl?.submission?.late) inlineBadges.push({ kind: 'late', label: 'Late', tone: 'red' });
                 // #76: an ungraded cell whose lti document fetch failed shows the
                 // re-sync marker in place of the pending dash.
                 const ltiUnavailable = ltiStatusUnavailable({
@@ -1224,41 +1233,38 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                     key={a.id}
                     style={cellStyle}
                     title={cellTitle}
-                    onMouseEnter={hasComment ? (e) => {
+                    onMouseEnter={(hasComment || hasThread) ? (e) => {
                       const r = e.currentTarget.getBoundingClientRect();
                       // Drop the overlay below the cell, but flip it above when
                       // the cell sits low in the viewport so a long comment
                       // grows upward instead of off-screen.
                       const below = r.bottom < window.innerHeight * 0.55;
                       setCommentOverlay({
-                        text: g.grade_comment,
+                        text: g.grade_comment || '', visible: g.comment_status === 1,
+                        thread: hasThread ? thread : null, studentName: preferredFirstName(s),
                         left: Math.max(8, Math.min(r.left, window.innerWidth - 296)),
                         ...(below
                           ? { top: r.bottom + 4 }
                           : { bottom: window.innerHeight - r.top + 4 }),
                       });
                     } : undefined}
-                    onMouseLeave={hasComment ? () => setCommentOverlay(null) : undefined}
+                    onMouseLeave={(hasComment || hasThread) ? () => setCommentOverlay(null) : undefined}
                   >
-                    {hasComment && (
-                      <span
-                        aria-hidden="true"
-                        title="Has a comment"
-                        style={{
-                          position: 'absolute', top: 0, right: 0,
-                          width: 0, height: 0,
-                          borderTop: '7px solid var(--accent)',
-                          borderLeft: '7px solid transparent',
-                        }}
-                      />
+                    {hasComment && !hasThread && (
+                      <span className="overall-comment-mark" role="img" aria-label="Has an overall comment">
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                          <path d="M2.5 3.5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7l-3 2.8v-2.8h-.5a1 1 0 0 1-1-1z" />
+                        </svg>
+                      </span>
                     )}
+                    {isLate && <LateClock variant="corner" title={lateText(tl)} />}
                     {ltiUnavailable ? unavailableMark() : inner}
                     {inlineBadges.map(b => (
                       <span key={b.kind} className={`badge ${BADGE_TONE_CLASS[b.tone] || 'badge-gray'}`} style={{ fontSize: '0.55rem', marginLeft: 3 }} title={b.label}>
                         {SHORT_BADGE[b.kind] || b.label[0]}
                       </span>
                     ))}
-                    {commentBubble(a, s)}
+                    {commentBubble(a, s, { text: g.grade_comment || '', visible: g.comment_status === 1 })}
                   </td>
                 );
               })}
@@ -1302,8 +1308,26 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
           whiteSpace: 'pre-wrap', pointerEvents: 'none',
         }}
       >
-        <span style={{ fontWeight: 700, marginRight: 5 }}>Comment:</span>
-        {commentOverlay.text}
+        <div className="comment-hover__label">
+          Your overall comment
+          {commentOverlay.text && (
+            <span className={`comment-vis comment-vis--${commentOverlay.visible ? 'on' : 'off'}`}>
+              {commentOverlay.visible ? 'Visible to student' : 'Hidden from student'}
+            </span>
+          )}
+        </div>
+        {commentOverlay.text
+          ? <div>{commentOverlay.text}</div>
+          : <div className="text-muted" style={{ fontStyle: 'italic' }}>No overall comment yet.</div>}
+        {commentOverlay.thread && (
+          <div className={`comment-hover__thread${(commentOverlay.thread.student_text || commentOverlay.thread.student_files > 0) ? ' comment-hover__thread--wrote' : ''}`}>
+            {commentOverlay.thread.unread > 0
+              ? `${commentOverlay.studentName} wrote in the submission comments (${commentOverlay.thread.unread} unread): click the bubble to open`
+              : (commentOverlay.thread.student_text || commentOverlay.thread.student_files > 0)
+                ? `${commentOverlay.studentName} wrote in the submission comments: click the bubble to open`
+                : `${commentOverlay.thread.count} submission comment${commentOverlay.thread.count === 1 ? '' : 's'}: click the bubble to open`}
+          </div>
+        )}
       </div>
     )}
     {popover && (

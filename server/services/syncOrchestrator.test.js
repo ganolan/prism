@@ -320,7 +320,7 @@ describe('runUnifiedSync — per-phase timing (#143)', () => {
     const events = [];
     const summary = await runUnifiedSync({ masteryCourseIds: [c1, c2], refreshQuizzes: true }, (e) => events.push(e));
 
-    expect(summary.phaseMs).toEqual({ schoology: 60_000, blocks: 8_500, mastery: 40_000, quizzes: 4_000 });
+    expect(summary.phaseMs).toEqual({ schoology: 60_000, blocks: 8_500, alerts: null, mastery: 40_000, quizzes: 4_000 });
     expect(summary.schoology.elapsedMs).toBe(60_000);
     expect(summary.blocks.elapsedMs).toBe(8_500);
     expect(summary.mastery.map((m) => m.elapsedMs)).toEqual([20_000, 20_000]);
@@ -348,14 +348,14 @@ describe('runUnifiedSync — per-phase timing (#143)', () => {
     refreshRecentQuizzes.mockImplementation(async () => { advance(1_000); throw new Error('HTTP 500'); });
     const events = [];
     const summary = await runUnifiedSync({ refreshQuizzes: true }, (e) => events.push(e));
-    expect(summary.phaseMs).toEqual({ schoology: 60_000, blocks: 3_000, mastery: null, quizzes: 1_000 });
+    expect(summary.phaseMs).toEqual({ schoology: 60_000, blocks: 3_000, alerts: null, mastery: null, quizzes: 1_000 });
     expect(events.find((e) => e.phase === 'blocks' && e.status === 'error').elapsedMs).toBe(3_000);
     expect(events.find((e) => e.phase === 'quizzes' && e.status === 'error').elapsedMs).toBe(1_000);
   });
 
   test('a phase that did not run has a null time', async () => {
     const summary = await runUnifiedSync({ syncBlocks: false }, () => {});
-    expect(summary.phaseMs).toEqual({ schoology: 60_000, blocks: null, mastery: null, quizzes: null });
+    expect(summary.phaseMs).toEqual({ schoology: 60_000, blocks: null, alerts: null, mastery: null, quizzes: null });
   });
 
   test('a fatal Schoology failure still reports how long it ran', async () => {

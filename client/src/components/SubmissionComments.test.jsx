@@ -33,10 +33,13 @@ beforeEach(() => {
 });
 
 describe('SubmissionComments', () => {
-  test('the card chip shows the count and the Wrote in comments badge', () => {
+  test('the card chip shows the count and turns amber when the student wrote, with no separate badge', () => {
     renderCard();
-    expect(screen.getByRole('button', { name: /3 submission comments, the student wrote text/ })).toHaveTextContent('3');
-    expect(screen.getByText('Wrote in comments')).toBeInTheDocument();
+    const chip = screen.getByRole('button', { name: /3 submission comments, the student wrote text/ });
+    expect(chip).toHaveTextContent('3');
+    expect(chip).toHaveClass('comment-chip--wrote');
+    expect(chip).not.toHaveClass('comment-chip--unread');
+    expect(screen.queryByText('Wrote in comments')).not.toBeInTheDocument();
   });
 
   test('opening reads the thread: automatic lines faint, student text marked, oldest first', async () => {
@@ -123,11 +126,12 @@ describe('SubmissionComments', () => {
     expect(screen.getByRole('button')).toHaveClass('comment-dot--wrote');
   });
 
-  test('files show as links through Prism; a student file earns the badge', async () => {
+  test('files show as links through Prism; a student file turns the chip amber', async () => {
     const file = { ...wrote, id: '5', student_text: null, automatic_lines: ['Revision 3 submitted'], attachments: [{ fid: '77', filename: 'notes.pdf', title: 'notes.pdf', filesize: 2048, filemime: 'application/pdf' }] };
     getSubmissionCommentThread.mockResolvedValue(thread([auto, file]));
     renderCard({ count: 2, student_text: false, student_files: 1, read_at: 'x' });
-    expect(screen.getByText('File in comments')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /attached a file. Open the thread/ })).toHaveClass('comment-chip--wrote');
+    expect(screen.queryByText('File in comments')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /attached a file. Open the thread/ }));
     const link = await screen.findByRole('link', { name: /notes.pdf/ });
     expect(link).toHaveAttribute('href', '/api/submission-comments/8590105935/7/5/files/77');

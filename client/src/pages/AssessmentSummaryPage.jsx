@@ -978,7 +978,9 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // A resubmission that has arrived rings the card blue (the stronger signal; the status
   // pill reads "Resubmitted"), asked for or not.
   const resubmissionArrived = student.resubmission?.state === 'arrived' || !!student.resubmitted;
-  const headerReasons = reasons.filter((r) => !(r.id === 'resubmitted' && resubmissionArrived));
+  // An unread comment shows once, on the comment chip (red dot); the Needs action
+  // filter keeps its "Unread comment" pill.
+  const headerReasons = reasons.filter((r) => !(r.id === 'resubmitted' && resubmissionArrived) && r.id !== 'unread_comment');
 
   // Descriptor view: order rows by criterion.position → mapped topic; topics with
   // no criterion fall after. Built only when a rubric is attached.
@@ -1052,7 +1054,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         <SubmissionStatusPill student={student} assignment={assignmentRow} />
         {/* Why this student needs attention: the Needs action / Watch reasons, the same
             names as the filter pills above the cards. "Resubmitted" is left out: the
-            status pill already says it (and the card has the blue ring). */}
+            status pill already says it (and the card has the blue ring). "Unread comment"
+            is left out: the comment chip's red dot says it. */}
         {headerReasons.map((r) => {
           const v = TONE_VARS[reasonTone(r)] || TONE_VARS.neutral;
           return (

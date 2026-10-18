@@ -1441,3 +1441,11 @@ submission comments.
   is the natural home); Safari and images not checked by eye; comment files do not use the viewer yet.
 
 **Tests:** 1873 server + 1114 client Vitest tests pass; `npm run build` succeeds (2026-10-18).
+
+## Publish / unpublish from the Assessments tab (#138, 2026-10-18)
+
+- **Probe:** `scripts/probe-assignment-publish.js`. `PUT /v1/sections/{id}/assignments/{aid}` with `{published: 1}` then `{published: 0}` answered 204 each time and read back both ways (single GET and section list), on a temporary assignment (created, then deleted) and on an existing unpublished test, in archived 2025-26 AP CSP 7(A-B). Each write approved by Graham. Recorded in `.claude/schoology-api-reference.md`, "Writing assignments". A temporary test copy was not possible there: the copy form lists only this year's sections.
+- **Server:** `server/services/assessmentPublish.js` re-reads, writes only when Schoology differs, reads back and stores what Schoology shows (`READBACK_MISMATCH` if it disagrees). Route `PUT /api/courses/:id/assessments/:assignmentId/published` (400 bad value, 404 unknown or removed, 409 archived course, 502 refused).
+- **Client:** Publish / quiet Unpublish with a confirm under the row (`AssessmentsView`, `onSetPublished`, live courses only). See `docs/design-language.md`.
+- **Tests:** `assessmentPublish.test.js` (8), route tests in `courses.test.js` (4), `CoursePage.publish.test.jsx` (6).
+- **Card header comment signal (same day):** the comment chip alone shows an unread comment (red dot) and student work (amber); the reason chip and "Wrote in comments" text are gone from the header.

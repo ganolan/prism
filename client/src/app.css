@@ -1168,11 +1168,15 @@ button.triage-panel__more { padding: 0.15rem 0.4rem; font-size: 0.75rem; font-we
 .publish-btn { cursor: pointer; flex-shrink: 0; padding: 1px 10px; border-radius: 999px; font-size: 0.72rem; font-weight: 600;
   background: var(--card-bg); color: var(--accent); border: 1px solid var(--accent); }
 .publish-btn:hover { background: var(--accent-subtle); }
-.publish-btn--quiet { border-color: transparent; color: var(--text-muted); opacity: 0; }
-.publish-btn--quiet:hover { color: var(--accent); }
+/* The quiet Unpublish floats over the row's right end, so a hidden button takes no
+   room (a long title would otherwise wrap to an empty second line). */
+.assessment-row { position: relative; }
+.publish-btn--quiet { position: absolute; right: 1rem; top: 0.6rem; opacity: 0; color: var(--text-muted);
+  border-color: var(--border); box-shadow: 0 1px 4px rgba(30, 17, 69, 0.12); }
+.publish-btn--quiet:hover, .publish-btn--quiet[aria-expanded="true"] { color: var(--accent); border-color: var(--accent); background: var(--card-bg); }
 .assessment-row:hover .publish-btn--quiet, .assessment-row:focus-within .publish-btn--quiet,
 .publish-btn--quiet[aria-expanded="true"] { opacity: 1; }
-@media (hover: none) { .publish-btn--quiet { opacity: 1; } }
+@media (hover: none) { .publish-btn--quiet { position: static; opacity: 1; box-shadow: none; } }
 .publish-confirm { flex-basis: 100%; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
   padding: 0.45rem 0.65rem; border-radius: 8px; background: var(--bg-subtle); font-size: 0.82rem; }
 .publish-confirm__q { flex: 1 1 18rem; }
@@ -1470,12 +1474,13 @@ button.ghost.sync-run-row {
 
 /* Submission comments (SubmissionComments.jsx): the bubble chip on the assessment
    card, the dot in a gradebook cell, and the thread popover. Amber = the student
-   typed their own text; faint italic = Schoology's automatic Revision lines. */
+   typed their own text or attached a file; red dot = unread; faint italic =
+   Schoology's automatic Revision lines. */
 .comment-chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--accent); background: var(--accent-subtle); color: var(--accent); border-radius: 999px; padding: 2px 9px; font-size: 0.72rem; font-weight: 600; cursor: pointer; flex-shrink: 0; }
 .comment-chip[aria-expanded="true"] { background: var(--accent); color: var(--card-bg); }
 .comment-chip--empty { border-color: var(--border); background: var(--card-bg); color: var(--text-muted); }
 .comment-bubble-icon { width: 13px; height: 13px; }
-.comment-wrote { background: var(--badge-amber-bg); color: var(--badge-amber-text); border-radius: 999px; padding: 2px 8px; font-size: 0.7rem; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
+.comment-chip--wrote { border-color: var(--badge-amber-text); background: var(--badge-amber-bg); color: var(--badge-amber-text); }
 .comment-dot { width: 16px; height: 16px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--accent-subtle); color: var(--accent); border: 0; padding: 0; cursor: pointer; vertical-align: middle; margin-left: 3px; }
 .comment-dot .comment-bubble-icon { width: 10px; height: 10px; }
 .comment-dot--wrote { background: var(--badge-amber-bg); color: var(--badge-amber-text); }
@@ -1598,10 +1603,6 @@ button.cell-open:focus-visible { outline: 2px solid var(--accent); outline-offse
    inside its table rather than widening the page.
    ======================================================================== */
 @media (max-width: 768px) {
-  /* Submission comments: the card header has no room for the "Wrote in comments"
-     badge, so the bubble chip itself turns amber instead. */
-  .comment-wrote { display: none; }
-  .comment-chip--wrote { border-color: var(--badge-amber-text); background: var(--badge-amber-bg); color: var(--badge-amber-text); }
   /* The file viewer fills the screen. */
   .file-viewer { padding: 0; }
   .file-viewer-panel { width: 100%; height: 100%; border-radius: 0; }

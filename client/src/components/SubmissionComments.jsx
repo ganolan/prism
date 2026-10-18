@@ -65,11 +65,6 @@ export default function SubmissionComments({ assignmentId, studentId, studentNam
             <Bubble />
             {summary?.count > 0 && <span>{summary.count}</span>}
           </button>
-          {summary?.student_text ? (
-            <span className="comment-wrote" title="The student typed their own text in a submission comment">Wrote in comments</span>
-          ) : summary?.student_files > 0 && (
-            <span className="comment-wrote" title="The student attached a file in a submission comment">File in comments</span>
-          )}
         </>
       )}
       {anchor && createPortal(

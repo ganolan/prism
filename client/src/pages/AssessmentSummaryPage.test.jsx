@@ -112,6 +112,21 @@ beforeEach(() => {
   mockSaver = undefined;
 });
 
+describe('StudentRubricCard header: one signal for submission comments', () => {
+  it('an unread comment shows only on the comment chip, not as a reason chip', () => {
+    renderCard({
+      reasons: [{ id: 'to_grade' }, { id: 'unread_comment', count: 1 }],
+      commentsEnabled: true,
+      commentSummary: { count: 3, student_text: true, unread: 1, read_at: 'x' },
+    });
+    const header = document.querySelector('#student-card-uid-1') || document.body;
+    expect(header.querySelector('[data-reason="to_grade"]')).toHaveTextContent('To grade');
+    expect(header.querySelector('[data-reason="unread_comment"]')).toBeNull();
+    expect(screen.getByRole('button', { name: /1 unread. Open the thread/ })).toHaveClass('comment-chip--wrote', 'comment-chip--unread');
+    expect(screen.queryByText('Wrote in comments')).not.toBeInTheDocument();
+  });
+});
+
 describe('StudentRubricCard draft persistence', () => {
   it('calls saver.save when there are pending changes', () => {
     renderCard();

@@ -1465,6 +1465,27 @@ submission comments.
 - **Verified live on a dev server at phone size (390 px, touch):** with an empty session, the Microsoft sign-in page showed; a tap focused and unfocused its email box; typed text and Backspace reached it (nothing submitted). With a copy of prod's session, Start finished at once ("done") and rewrote the session file. A full sign-in with a password and MFA is still to be done by Graham on prod.
 - **Tests:** `remoteLogin.test.js` (8), `schoologyLogin.test.js` (5), `RemoteSignIn.test.jsx` (6), Settings / Sync dialog / archived courses updated.
 
+## Settings liveness check and PowerSchool block pass on plain HTTP (#141, 2026-10-18)
+
+- **Liveness check:** `schoologySession.checkSessionLive` is one `GET /home` with the saved cookies
+  (`schoologyWeb.getResource`), no browser; a bounce to sign-in renews once through Microsoft. Answers unchanged:
+  `connected` / `expired` / `unknown` (network failure or another status). Parity
+  (`scripts/parity-session-live.js`, 5 runs): same answer every run, median 2.77 s browser vs 0.38 s HTTP; a copy
+  without the Schoology `SESS` cookies renewed (9.1 s) and read `connected`.
+- **Block pass:** `psAttendanceSync.js` reads the LTI launch form, posts it to PowerSchool once
+  (`powerschoolWeb.js`, lazily on the first course with a section) and reads `/ws/attendance/section_info` and
+  `section_attendance` with `Accept: application/json`. A session that ends relaunches once; an error status is
+  the section's `section-info-failed:<status>`. `PowerSchoolWeb` gains `launchIds().userDcid`, `launch({ form })`,
+  `read({ accept })`, `status`/`sessionEnded` on read errors, and `PS_SECURITY` (a "Security Violation Logged"
+  page stops the block pass and the alert sync). Parity (`scripts/parity-ps-blocks.js`, pre-#141 pass kept in
+  `scripts/lib/psAttendanceSyncBrowser.js`, two blanked DB copies): 0 differences (9 courses, 35 block values,
+  522 lesson dates, 308 calendar days, 295 grad years). Wall time 8.1-8.3 s browser vs 5.1-5.3 s HTTP.
+- **Tests:** `schoologySession.test.js` (liveness over a fake web), `mastery.test.js` login-status, 10 new in
+  `psAttendanceSync.test.js`, 3 in `psAlertsSync.test.js`; `fakePowerSchoolWeb` answers the `/ws/attendance` reads.
+- **Still on the browser (#141):** the writes (`ltiUnsubmit.js`, `quizWriteback.js`, mastery writes),
+  `oneDriveLinks.js`, and the Microsoft renewal itself (`renewSession`, #136: a plain `fetch` cannot make the
+  SSO round trip).
+
 ## Writes only from Prism's own pages (2026-10-18)
 
 - **Before:** `app.use(cors())` with no options let any website opened on a tailnet device read Prism's API answers, and send simple cross-site POSTs (no JSON body, no preflight), e.g. one that starts a sync or a remote sign-in.

@@ -1,7 +1,9 @@
-// A stand-in for the Schoology attendance LTI launch and PowerSchool's MBA alert
-// reads (server/services/powerschoolWeb.js, psAlertsSync.js). Shapes follow the
-// live answers recorded in .claude/powerschool-api-reference.md "Student alerts
-// (#117)"; every value is made up. Records every request; never reaches the network.
+// A stand-in for the Schoology attendance LTI launch, PowerSchool's MBA alert
+// reads (server/services/powerschoolWeb.js, psAlertsSync.js) and the attendance
+// app's /ws/attendance reads (psAttendanceSync.js). Shapes follow the live answers
+// recorded in .claude/powerschool-api-reference.md "Student alerts (#117)" and
+// "Block number"; every value is made up. Records every request; never reaches
+// the network.
 const PS = 'https://powerschool.hkis.edu.hk';
 
 export const launchHtml = ({ sectionDcid = '9001', action = `${PS}/integrations/attendance/index.html` } = {}) => `<html><body>
@@ -30,8 +32,13 @@ export const CATALOGUE = [
 
 // sections: { [sectionDcid]: [{ studentid, studentdcid, values: {field: value}, adv: [alert ids], man: [alert ids] }] }
 // schoology: { [schoologySectionId]: sectionDcid | null }
+// sectionInfo: { [sectionDcid]: section_info[0] object | { status } (an error answer) };
+//   a dcid not listed answers 500.
+// sectionAttendance: { [sectionDcid]: section_attendance answer }
+// failRead(name, entry) → true answers 500, a string answers 200 with that page; expireOnce: the read name whose first
+// call finds the PowerSchool session gone (302 to sign-in).
 export function fakePowerSchoolWeb({
-  schoology = { S1: '9001' }, sections = {}, catalogue = CATALOGUE,
+  schoology = { S1: '9001' }, sections = {}, catalogue = CATALOGUE, sectionInfo = {}, sectionAttendance = {},
   loginRedirect = false, launchStatus = 200, failRead, expireOnce,
 } = {}) {
   const requests = [];
@@ -43,7 +50,7 @@ export function fakePowerSchoolWeb({
   async function fetchImpl(url, opts = {}) {
     const u = new URL(url);
     const method = opts.method || 'GET';
-    const entry = { method, host: u.host, path: u.pathname, cookie: opts.headers?.cookie || '' };
+    const entry = { method, host: u.host, path: u.pathname, cookie: opts.headers?.cookie || '', accept: opts.headers?.Accept };
     requests.push(entry);
     const run = u.pathname.match(/^\/apps\/lti\/\d+\/run\/course\/(.+)$/);
     if (run) {
@@ -62,11 +69,19 @@ export function fakePowerSchoolWeb({
     const name = u.pathname.split('/').pop();
     const p = params(u, opts);
     entry.params = Object.fromEntries(p);
-    if (failRead?.(name, entry)) return answer(500, 'boom');
+    const failed = failRead?.(name, entry);
+    if (failed) return typeof failed === 'string' ? answer(200, failed, { 'content-type': 'text/html' }) : answer(500, 'boom');
     if (expireOnce && expireOnce === name) {
       expireOnce = null; expired = true;
       return answer(302, '', { location: `${PS}/teachers/pw.html` });
     }
+    if (name === 'section_info') {
+      const info = sectionInfo[p.get('sectionDcid')];
+      if (!info) return answer(500, 'no section');
+      if (info.status) return answer(info.status, 'error');
+      return json([info]);
+    }
+    if (name === 'section_attendance') return json(sectionAttendance[p.get('sectionDcid')] || { sectionAttendances: [] });
     if (name === 'getAlertTypes.json') return json(catalogue);
     if (name === 'getStudentsInSection.json') {
       const rows = (sections[p.get('sectionIds')] || []).map((s) => ({ ccid: '1', sectionid: p.get('sectionIds'), lastfirst: 'X', studentid: s.studentid, studentdcid: s.studentdcid }));

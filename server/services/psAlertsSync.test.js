@@ -52,6 +52,28 @@ describe('PowerSchoolWeb', () => {
     await expect(ps.launch('S1')).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });
   });
 
+  test('a /ws read sends Accept: application/json; an error status is not a session end, a redirect is', async () => {
+    const web = fakePowerSchoolWeb({ sectionInfo: { 9001: { periodIdToPsmPeriodIdMap: {} }, 9002: { status: 500 } }, expireOnce: 'section_info' });
+    const ps = new PowerSchoolWeb({ sgyJar: web.jar, fetchImpl: web.fetchImpl });
+    await ps.launch('S1');
+    const get = (dcid) => ps.read('/ws/attendance/section_info', { sectionDcid: dcid }, { method: 'GET', accept: 'application/json' });
+    await expect(get('9001')).rejects.toMatchObject({ code: 'PS_SESSION', status: 302, sessionEnded: true });
+    await ps.launch('S1');
+    expect(await get('9001')).toEqual([{ periodIdToPsmPeriodIdMap: {} }]);
+    await expect(get('9002')).rejects.toMatchObject({ code: 'PS_SESSION', status: 500, sessionEnded: false });
+    expect(web.requests.filter((r) => r.path === '/ws/attendance/section_info').every((r) => r.accept === 'application/json')).toBe(true);
+  });
+
+  test('launch posts a form already read, without reading it again', async () => {
+    const web = fakePowerSchoolWeb();
+    const ps = new PowerSchoolWeb({ sgyJar: web.jar, fetchImpl: web.fetchImpl });
+    const { sectionDcid, userDcid, form } = await ps.launchIds('S1');
+    expect({ sectionDcid, userDcid }).toEqual({ sectionDcid: '9001', userDcid: '100' });
+    await ps.launch('S1', { form });
+    expect(web.requests.filter((r) => r.path.startsWith('/apps/lti/'))).toHaveLength(1);
+    expect(ps.launched).toBe(true);
+  });
+
   test('a refused launch is PS_LAUNCH', async () => {
     const web = fakePowerSchoolWeb({ launchStatus: 403 });
     const ps = new PowerSchoolWeb({ sgyJar: web.jar, fetchImpl: web.fetchImpl });
@@ -119,6 +141,20 @@ describe('syncPsAlerts', () => {
     expect(r).toMatchObject({ read: 1, failed: 0 });
     expect(web.launches()).toBe(2);
     expect(keysOf(a)).toEqual(['accommodation_plan', 'allergies']);
+  });
+
+  test('a "Security Violation Logged" page stops the sync at once: no other section is read, nothing cleared', async () => {
+    addCourse('S1', 'Alpha'); addCourse('S2', 'Beta');
+    const a = addStudent('5001');
+    db.prepare("INSERT INTO student_ps_alerts (student_id, alert_key) VALUES (?, 'ilp')").run(a);
+    const web = fakePowerSchoolWeb({
+      schoology: { S1: '9001', S2: '9002' }, sections,
+      failRead: (name) => name === 'getStudentsInSection.json' && '<h1>Security Violation Logged: Attempted to run an unauthorized action</h1>',
+    });
+    await expect(syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar } })).rejects.toMatchObject({ code: 'PS_SECURITY' });
+    expect(web.requests.filter((q) => q.path.endsWith('getStudentsInSection.json'))).toHaveLength(1);
+    expect(web.launches()).toBe(1);
+    expect(keysOf(a)).toEqual(['ilp']);
   });
 
   test('an expired Schoology session stops the sync with the log-in message', async () => {

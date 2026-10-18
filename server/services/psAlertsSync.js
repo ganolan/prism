@@ -112,7 +112,7 @@ export async function syncPsAlerts({ onProgress, db = getDb(), deps = {} } = {})
       summary.results.push({ courseId: c.id, courseName: c.course_name, status: 'read', students: found.size });
       log(`${c.course_name}: ${found.size} students read`);
     } catch (err) {
-      if (err.message === LOGIN_MESSAGE) throw err;
+      if (err.message === LOGIN_MESSAGE || err.code === 'PS_SECURITY') throw err; // a security page stops the sync
       summary.failed++;
       summary.results.push({ courseId: c.id, courseName: c.course_name, status: 'failed', reason: err.message });
       log(`${c.course_name}: not read (${err.message}), kept the last alerts`);

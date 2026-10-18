@@ -6,13 +6,16 @@
 // custom_userdcid) → POST those fields to the form's action on PowerSchool, which
 // answers 200 with the attendance app and sets PowerSchool's session cookies
 // (JSESSIONID, psaid). Those cookies then carry the /teachers/mba_alerts/queries/
-// reads. Verified live 2026-10-17 (scripts/probe-ps-alerts-http.js); see
-// .claude/powerschool-api-reference.md "Student alerts (#117)".
+// reads and the attendance app's /ws/attendance reads (psAttendanceSync.js). Verified
+// live 2026-10-17 (scripts/probe-ps-alerts-http.js) and 2026-10-18
+// (scripts/parity-ps-blocks.js); see .claude/powerschool-api-reference.md
+// "Student alerts (#117)" and "Block number".
 //
 // Read only: every PowerSchool call here is a read (the plugin's own reads are
 // POSTs, as jQuery.post sends them).
 import { getPage, WebSessionError } from './schoologyWeb.js';
 import { sectionDcidFromLaunchForm } from '../lib/psBlockNumber.js';
+import { userDcidFromLaunchForm } from '../lib/psGradeLevel.js';
 
 export const PS_BASE = 'https://powerschool.hkis.edu.hk';
 export const ATTENDANCE_APP_ID = '4980125287';
@@ -61,6 +64,12 @@ function psJar() {
   };
 }
 
+// PowerSchool's "Security Violation Logged: Attempted to run an unauthorized action"
+// page (seen 2026-10-17 on an out-of-order PowerTeacher student page, #116). Any
+// answer carrying it throws PS_SECURITY, which no caller retries: stop and look.
+const SECURITY_VIOLATION = /Security Violation Logged/i;
+const securityError = (what) => new WebSessionError('PS_SECURITY', `PowerSchool answered ${what} with its "Security Violation Logged" page: stopped`);
+
 // Parse an answer the plugin reads as JSON (some come back as text/html).
 function parseJson(text) {
   try { return JSON.parse(text); } catch { return undefined; }
@@ -76,17 +85,19 @@ export class PowerSchoolWeb {
     this.launched = false;
   }
 
-  // Read a section's launch form from Schoology → { sectionDcid, form }. Throws
-  // WebSessionError SESSION_EXPIRED when Schoology sends the session to sign-in.
+  // Read a section's launch form from Schoology → { sectionDcid, userDcid, form }.
+  // Throws WebSessionError SESSION_EXPIRED when Schoology sends the session to
+  // sign-in (after one renewal through Microsoft, schoologyWeb.getResource).
   async launchIds(schoologySectionId) {
-    const { html } = await getPage(this.sgyJar, runPath(schoologySectionId), { fetchImpl: this.fetchImpl });
-    return { sectionDcid: sectionDcidFromLaunchForm(html), form: launchForm(html) };
+    const { html } = await getPage(this.sgyJar, runPath(schoologySectionId), { fetchImpl: this.fetchImpl, timeoutMs: this.timeoutMs });
+    return { sectionDcid: sectionDcidFromLaunchForm(html), userDcid: userDcidFromLaunchForm(html), form: launchForm(html) };
   }
 
   // Start (or restart) the PowerSchool session by posting a section's launch form.
-  // A form is signed with a nonce, so each launch reads a fresh one.
-  async launch(schoologySectionId) {
-    const { form } = await this.launchIds(schoologySectionId);
+  // A form is signed with a nonce, so it is posted once: pass `form` only when it was
+  // just read (launchIds) and not posted yet; otherwise a fresh one is read.
+  async launch(schoologySectionId, { form: given = null } = {}) {
+    const form = given ?? (await this.launchIds(schoologySectionId)).form;
     if (!form || !form.action.startsWith(PS_BASE)) {
       throw new WebSessionError('PS_LAUNCH', 'Schoology did not give a PowerSchool launch form');
     }
@@ -101,8 +112,9 @@ export class PowerSchoolWeb {
         init = { method: 'GET', headers: {} };
         continue;
       }
+      const page = await res.text();
+      if (SECURITY_VIOLATION.test(page)) throw securityError('the launch');
       if (res.status !== 200) throw new WebSessionError('PS_LAUNCH', `PowerSchool answered ${res.status} to the launch`);
-      await res.text();
       if (!this.jar.size) throw new WebSessionError('PS_LAUNCH', 'PowerSchool gave no session');
       this.launched = true;
       return;
@@ -110,9 +122,13 @@ export class PowerSchoolWeb {
     throw new WebSessionError('PS_LAUNCH', 'Too many redirects on the PowerSchool launch');
   }
 
-  // One plugin read. → parsed JSON. A redirect, an error status or a page that is
-  // not JSON means the PowerSchool session is gone: PS_SESSION.
-  async read(path, params, { method = 'POST' } = {}) {
+  // One read. → parsed JSON. Any other answer throws PS_SESSION with `status` and
+  // `sessionEnded`: true for a redirect (to sign-in) or a page that is not JSON (the
+  // session is gone: relaunch and ask again), false for an error status, which is
+  // about the request (a section PowerSchool cannot answer), not the session.
+  // `accept`: the /ws/... services take 'application/json' (AGENTS.md); the
+  // plugin reads keep jQuery's default.
+  async read(path, params, { method = 'POST', accept = 'application/json, text/javascript, */*; q=0.01' } = {}) {
     const query = params instanceof URLSearchParams ? params : new URLSearchParams(params || {});
     const url = method === 'GET' ? `${PS_BASE}${path}${path.includes('?') ? '&' : '?'}${query}` : `${PS_BASE}${path}`;
     const res = await this.fetchImpl(url, {
@@ -120,7 +136,7 @@ export class PowerSchoolWeb {
       ...(method === 'POST' ? { body: query.toString() } : {}),
       headers: {
         cookie: this.jar.header(),
-        Accept: 'application/json, text/javascript, */*; q=0.01',
+        Accept: accept,
         'X-Requested-With': 'XMLHttpRequest',
         ...(method === 'POST' ? { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' } : {}),
       },
@@ -129,9 +145,11 @@ export class PowerSchoolWeb {
     });
     this.jar.take(res);
     const text = await res.text();
-    if (res.status !== 200) throw new WebSessionError('PS_SESSION', `PowerSchool answered ${res.status} for ${path.split('?')[0]}`);
+    const fail = (message, sessionEnded) => Object.assign(new WebSessionError('PS_SESSION', message), { status: res.status, sessionEnded });
     const json = parseJson(text);
-    if (json === undefined) throw new WebSessionError('PS_SESSION', `PowerSchool answered ${path.split('?')[0]} with a page, not data`);
+    if (json === undefined && SECURITY_VIOLATION.test(text)) throw securityError(path.split('?')[0]);
+    if (res.status !== 200) throw fail(`PowerSchool answered ${res.status} for ${path.split('?')[0]}`, res.status >= 300 && res.status < 400);
+    if (json === undefined) throw fail(`PowerSchool answered ${path.split('?')[0]} with a page, not data`, true);
     return json;
   }
 }

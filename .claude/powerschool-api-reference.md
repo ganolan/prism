@@ -82,7 +82,9 @@ data** — it is an **LTI tool that embeds PowerSchool in an iframe** (`powersch
 The grade-level badges, attendance, and student-alert icons are all served by PowerSchool's own
 internal web services under `/ws/...`, authenticated by the browser's PowerSchool session cookie
 (established via SSO when the iframe loads). The Playwright session created by `npm run mastery:login`
-already carries this — no separate PowerSchool login needed.
+already carries this — no separate PowerSchool login needed. *(Since 2026-10-17/18, #117 and #141: no browser
+either. The PowerSchool session is made over plain HTTP by POSTing the LTI launch form, see "Student alerts over
+plain HTTP (#117)" step 1 and "Block number", "Plain HTTP, no browser".)*
 
 ### Step 1 — Resolve Schoology section → PowerSchool `sectionDcid` (via the LTI launch)
 
@@ -215,7 +217,30 @@ Note **not every period is a numbered "Block N"**: PCG → "Pastoral Care", Inte
 
 **⚠️ Archived courses & past sections (verified 2026-06-08).** Block resolution only works for **current-year** sections. The attendance LTI / `section_info` is scoped to the current school year: a **prior-year** `sectionDcid` still resolves from the LTI launch form, but `section_info` on it returns non-200 → `section-info-failed`. Observed: of 15 archived courses, only the 2 current-year-but-archived sections resolved; all 13 prior-year ones failed. Implication: archived courses can't be reliably block-synced in bulk. So **archived courses get their block best-effort at import time** (`POST /api/courses/import` calls `syncBlockNumbers({ courseIds: [newId] })`) — current-year archived imports resolve, prior-year ones skip. The regular sync deliberately covers active courses only.
 
-**Resolving Schoology section → `sectionDcid` for the sync** (verified 2026-06-08, probe `scripts/probe-ps-sectiondcid.js`): an authenticated `context.request.get(<LTI run URL>)` returns the launch-form HTML (HTTP 200, `text/html`, no JS redirect) — regex `name="custom_sectiondcid" value="(\d+)"`. Empty value = template/master course (skip). This is a **Schoology** fetch (carries the Schoology session cookie); it does not need the PowerSchool session.
+**Resolving Schoology section → `sectionDcid` for the sync** (verified 2026-06-08, probe `scripts/probe-ps-sectiondcid.js`): an authenticated `context.request.get(<LTI run URL>)` returns the launch-form HTML (HTTP 200, `text/html`, no JS redirect) — regex `name="custom_sectiondcid" value="(\d+)"`. Empty value = template/master course (skip). This is a **Schoology** fetch (carries the Schoology session cookie); it does not need the PowerSchool session. *(Since 2026-10-18 (#141) the same GET is a plain `fetch` with the saved cookies, `powerschoolWeb.launchIds`; `context.request` is no longer used.)*
+
+**Plain HTTP, no browser (#141, verified 2026-10-18, read only).** The block pass (`server/services/psAttendanceSync.js`)
+no longer opens a browser. Per course it reads the launch form from Schoology (above); the first course with a
+`sectionDcid` starts the PowerSchool session by POSTing that same form to its action
+(`server/services/powerschoolWeb.js`, as in "Student alerts over plain HTTP (#117)" step 1); then
+`GET /ws/attendance/section_info` and `GET /ws/attendance/section_attendance` (the same query strings as before)
+with PowerSchool's cookies and `Accept: application/json`. A redirect or a non-JSON page means PowerSchool's
+session ended (relaunch once with a fresh form, ask again); an error status is the section's own answer
+(`section-info-failed:<status>`); a page carrying "Security Violation Logged" stops the pass (`PS_SECURITY`; not
+seen). Observed on 2026-10-18 (counts only):
+- **Active courses:** 9 of 9 `section_info` reads answered 200: 8 numbered blocks, 1 `not-numbered` (its name
+  not printed); 308 calendar days (165 school days), 522 lesson dates across the 9; `section_attendance` gave grade
+  levels for 96 students. One launch for the whole pass.
+- **Archived courses (targeted, as the import does):** 25 of 25 answered `section_info` **500**
+  (`section-info-failed:500`), the browser path the same (25 of 25 `section-info-failed`). Not checked which school year
+  each belongs to; it fits the finding above that prior-year sections fail.
+- **Parity** (`scripts/parity-ps-blocks.js`: the pre-#141 browser pass, kept in
+  `scripts/lib/psAttendanceSyncBrowser.js`, and the HTTP pass, each on its own blanked copy of the database):
+  per-course result 9 of 9, `courses.block_number` 35 of 35, `class_meetings` 522 = 522 dates, `school_days`
+  308 = 308 rows (date, in session, letter and `raw` identical), `students.grad_year` 295 of 295 (96 seen
+  each way). **0 differences.**
+- **Wall time** for the whole pass (9 active courses): browser 8.3 s and 8.1 s, HTTP 5.1 s and 5.3 s (two runs).
+  The archived targeted pass: browser 11.7 s, HTTP 9.3 s for 25 courses.
 
 ### Which days a class meets (its lessons): `calenderDays[d].bellScheduleId` ∈ the section's `bellScheduleItems[].bellScheduleId` (verified 2026-10-06)
 
@@ -334,6 +359,9 @@ display derives current grade = `12 − (grad_year − Y)` and shows no grade on
   used `userDcid=10005` — same value, still distinct from the LTI `2_10405`. The block-number sync (#106)
   sidesteps this entirely: `section_info` needs no `userDcid`.)*
 - **Session fragility:** same as mastery sync — depends on the browser session; expires → re-login.
+  *(2026-10-18, #141: the attendance reads now go over plain HTTP with the saved Schoology cookies, and a
+  Schoology bounce to sign-in renews once through Microsoft first, `schoologyWeb.getResource`; a re-login is
+  needed only when Microsoft asks for a real sign-in.)*
 - **In-session date:** must be derived per-section from `section_info.calenderDays`; a hardcoded "today" breaks on off days.
 
 ### Student alerts & custom-alert popups (probed 2026-05-30, for #65)
@@ -408,6 +436,8 @@ ones), so the session is made fresh from the attendance LTI tool each sync:
   nonce, so a relaunch reads a fresh form first. The same session also answered
   `GET /ws/attendance/section_info` (200, `bellScheduleItems` present, 308 `calenderDays`), so the block pass
   (`psAttendanceSync.js`) can likely drop its browser too: **a lead for #141**, not done in #117.
+  *(Done 2026-10-18, #141: the block pass is plain HTTP on this session; see "Block number", "Plain HTTP, no
+  browser".)*
 
 **2. The plugin code.** The MBA custom-alerts plugin's JS is served inline by
 `POST /ws/pagecustomizations/insertions?_={unix}`, JSON body `{ "path": "/integrations/attendance/index.html",

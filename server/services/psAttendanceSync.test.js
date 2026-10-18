@@ -9,6 +9,7 @@ vi.mock('../db/index.js', async (importOriginal) => {
 
 import { migrate } from '../db/index.js';
 import { syncPsAttendance, applyGradeLevels } from './psAttendanceSync.js';
+import { fakePowerSchoolWeb } from '../testing/fakePowerSchoolWeb.js';
 
 function seed(db, name, { archived = 0, excluded = 0 } = {}) {
   const id = db.prepare('INSERT INTO courses (schoology_section_id, course_name) VALUES (?, ?)').run(`sec-${name}`, name).lastInsertRowid;
@@ -38,6 +39,134 @@ describe('syncPsAttendance — guard', () => {
     const id = seed(h.db, 'template', { excluded: 1 });
     const s = await syncPsAttendance({ courseIds: [id] });
     expect(s.processed).toBe(0);
+  });
+});
+
+// A section_info[0] with one period ("Block 3" by default), meeting on the days
+// whose bell schedule is 77; every value made up.
+function info(name = 'Block 3', { days = { '2026-10-05': 77, '2026-10-06': 78, '2026-10-07': 77 } } = {}) {
+  return {
+    periodIdToPsmPeriodIdMap: { 4202: '1' },
+    bellScheduleItems: [{ periodId: 4202, bellScheduleId: 77, period: { id: 4202, name, abbreviation: 'BK', periodNumber: 2 } }],
+    calenderDays: Object.fromEntries(Object.entries(days).map(([d, bell]) => [d, { inSession: true, cycleDay: { letter: 'A' }, bellScheduleId: bell }])),
+  };
+}
+const attendance = (...students) => ({ sectionAttendances: [{ studentAttendance: students.map(([dcid, gradeLevel]) => ({ dcid, gradeLevel })) }] });
+
+describe('syncPsAttendance over plain HTTP (no browser, #141)', () => {
+  let web;
+  beforeEach(() => { h.db = new Database(':memory:'); migrate(h.db); });
+  const run = (opts = {}) => syncPsAttendance({ deps: { jar: web.jar, fetchImpl: web.fetchImpl }, ...opts });
+  const course = (id) => h.db.prepare('SELECT block_number, block_synced_at FROM courses WHERE id = ?').get(id);
+  const psReads = (name) => web.requests.filter((r) => r.path === `/ws/attendance/${name}`);
+
+  test('one launch, then per course: the block, its lessons, the calendar and grade levels', async () => {
+    const a = seed(h.db, 'A');
+    const b = seed(h.db, 'B');
+    const stu = h.db.prepare("INSERT INTO students (first_name, last_name, school_uid) VALUES ('F', 'L', '1_501')").run().lastInsertRowid;
+    web = fakePowerSchoolWeb({
+      schoology: { 'sec-A': '9001', 'sec-B': '9002' },
+      sectionInfo: { 9001: info('Block 3'), 9002: info('Block 6') },
+      sectionAttendance: { 9001: attendance([501, 10]) },
+    });
+    const s = await run();
+    expect(s).toMatchObject({ processed: 2, updated: 2, skipped: 0, schoolDays: 3, gradeLevels: { seen: 1, updated: 1 } });
+    expect(course(a).block_number).toBe('3');
+    expect(course(b).block_number).toBe('6');
+    expect(web.launches()).toBe(1);
+    // The launch posts the form just read for the first course (no second form read).
+    expect(web.requests.filter((r) => r.path.startsWith('/apps/lti/')).length).toBe(2);
+    expect(psReads('section_info').map((r) => r.params.sectionDcid)).toEqual(['9001', '9002']);
+    expect(psReads('section_info').every((r) => r.accept === 'application/json' && r.cookie.includes('JSESSIONID='))).toBe(true);
+    expect(psReads('section_attendance')[0].params).toMatchObject({ sectionDcid: '9001', userDcid: '100', includeStudentAlerts: 'false' });
+    expect(h.db.prepare('SELECT date FROM class_meetings WHERE course_id = ? ORDER BY date').all(a).map((r) => r.date)).toEqual(['2026-10-05', '2026-10-07']);
+    expect(h.db.prepare('SELECT grad_year FROM students WHERE id = ?').get(stu).grad_year).not.toBeNull();
+  });
+
+  test('a template course (no sectionDcid) is skipped and does not start the session', async () => {
+    const t = seed(h.db, 'T');
+    seed(h.db, 'Z');
+    web = fakePowerSchoolWeb({ schoology: { 'sec-T': null, 'sec-Z': '9003' }, sectionInfo: { 9003: info('Pastoral Care') } });
+    const s = await run();
+    expect(s.results.map((r) => r.reason)).toEqual(['no-section-dcid', 'not-numbered']);
+    expect(course(t).block_number).toBeNull();
+    expect(course(t).block_synced_at).not.toBeNull();
+    expect(web.launches()).toBe(1);
+  });
+
+  test('a section_info error keeps the stored block: section-info-failed', async () => {
+    const a = seed(h.db, 'A');
+    h.db.prepare("UPDATE courses SET block_number = '5' WHERE id = ?").run(a);
+    web = fakePowerSchoolWeb({ schoology: { 'sec-A': '9001' }, sectionInfo: { 9001: { status: 500 } } });
+    const s = await run();
+    expect(s.results[0]).toMatchObject({ reason: 'section-info-failed', status: 'skipped' });
+    expect(course(a).block_number).toBe('5');
+    expect(web.launches()).toBe(1); // an error status is about the section, not the session
+  });
+
+  test('the PowerSchool session ends mid-loop → one relaunch, the read asked again', async () => {
+    const a = seed(h.db, 'A');
+    seed(h.db, 'B');
+    web = fakePowerSchoolWeb({
+      schoology: { 'sec-A': '9001', 'sec-B': '9002' },
+      sectionInfo: { 9001: info('Block 3'), 9002: info('Block 6') },
+      expireOnce: 'section_info',
+    });
+    const s = await run();
+    expect(s.updated).toBe(2);
+    expect(course(a).block_number).toBe('3');
+    expect(web.launches()).toBe(2);
+  });
+
+  test('a grade-level read failure is logged and skipped; the block is still stored', async () => {
+    const a = seed(h.db, 'A');
+    web = fakePowerSchoolWeb({ schoology: { 'sec-A': '9001' }, sectionInfo: { 9001: info('Block 3') }, failRead: (name) => name === 'section_attendance' });
+    const s = await run();
+    expect(course(a).block_number).toBe('3');
+    expect(s.gradeLevels.seen).toBe(0);
+  });
+
+  test('a "Security Violation Logged" page stops the whole pass at once', async () => {
+    seed(h.db, 'A');
+    seed(h.db, 'B');
+    web = fakePowerSchoolWeb({
+      schoology: { 'sec-A': '9001', 'sec-B': '9002' },
+      sectionInfo: { 9001: info('Block 3'), 9002: info('Block 6') },
+      failRead: (name) => name === 'section_info' && '<html><h1>Security Violation Logged: Attempted to run an unauthorized action</h1></html>',
+    });
+    await expect(run()).rejects.toThrow(/Security Violation Logged/);
+    expect(psReads('section_info')).toHaveLength(1);
+    expect(web.launches()).toBe(1);
+  });
+
+  test('a Schoology session sent to sign-in → the login error, nothing stored', async () => {
+    const a = seed(h.db, 'A');
+    web = fakePowerSchoolWeb({ loginRedirect: true });
+    await expect(run()).rejects.toThrow(/mastery:login/);
+    expect(course(a).block_synced_at).toBeNull();
+  });
+
+  test('PowerSchool refuses the launch → a PowerSchool error, nothing stored', async () => {
+    const a = seed(h.db, 'A');
+    web = fakePowerSchoolWeb({ schoology: { 'sec-A': '9001' }, launchStatus: 403 });
+    await expect(run()).rejects.toThrow(/PowerSchool attendance app did not load/);
+    expect(course(a).block_synced_at).toBeNull();
+  });
+
+  test('no saved Schoology session → the login error before any request', async () => {
+    seed(h.db, 'A');
+    web = fakePowerSchoolWeb();
+    await expect(syncPsAttendance({ deps: { jar: null, fetchImpl: web.fetchImpl } })).rejects.toThrow(/mastery:login/);
+    expect(web.requests).toEqual([]);
+  });
+
+  test('a targeted sync never replaces the school calendar', async () => {
+    const a = seed(h.db, 'A', { archived: 1 });
+    web = fakePowerSchoolWeb({ schoology: { 'sec-A': '9001' }, sectionInfo: { 9001: info('Block 2') } });
+    const s = await run({ courseIds: [a] });
+    expect(course(a).block_number).toBe('2');
+    expect(s.schoolDays).toBe(0);
+    expect(h.db.prepare('SELECT COUNT(*) n FROM school_days').get().n).toBe(0);
   });
 });
 

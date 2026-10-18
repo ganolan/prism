@@ -187,7 +187,16 @@ CREATE TABLE IF NOT EXISTS sync_metrics (
   rate_per_sec INTEGER,
   abandoned INTEGER DEFAULT 0,
   sections_skipped INTEGER DEFAULT 0,
-  failed_assignment_ids TEXT
+  failed_assignment_ids TEXT,
+  -- #143: wall time of each phase of the unified sync (server/services/
+  -- syncOrchestrator.js), and of the whole run. NULL = the phase did not run.
+  -- mastery_ms is the sum over every mastery course in the run.
+  schoology_ms INTEGER,
+  blocks_ms INTEGER,
+  alerts_ms INTEGER,                  -- PowerSchool alerts phase (#117)
+  mastery_ms INTEGER,
+  quizzes_ms INTEGER,
+  total_ms INTEGER
 );
 
 -- One row per POST /api/sync (the unified sync dialog). Persists what each sync

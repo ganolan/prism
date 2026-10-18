@@ -1381,3 +1381,9 @@ The alerts PowerSchool shows beside a student's name (accommodation plans, learn
 - **Hover:** each badge's title names the source and the read date ("EpiPen. From PowerSchool, read 17/10/2026").
 - **Not elsewhere yet:** no other view shows alerts until Graham decides which should (a course roster redesign is a separate issue).
 - **Guardian-contact fields** (do not contact, deceased guardian) are stored for #66 and never shown here.
+
+## Sync dialog: time per phase (October 2026, #143)
+
+- **One line per phase under "Finished in Ns":** the dialog foot's left column lists each phase that ran with its wall time (`.sync-foot-summary`, `.sync-timings`), in the phase-list order, mastery one line per course. Label left, time right in tabular figures, muted small text like the total, so it reads as a footnote to the result and not as a second phase list.
+- **Shown only when the sync is done,** and only for phases with a recorded time, so a run joined from a log written before #143 shows the total alone.
+- **Time format:** tenths under 10s ("8.5s"), whole seconds to a minute ("42s"), then "1m 3s" (`formatPhaseTime` in `client/src/lib/syncEvents.js`). Tenths keep a fast phase (blocks) readable as a number for the #108 lazy-or-eager decision.

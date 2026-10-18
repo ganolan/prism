@@ -87,6 +87,43 @@ describe('SyncProgress', () => {
     expect(screen.getByText('Sync failed')).toBeInTheDocument();
   });
 
+  describe('time per phase in the summary (#143)', () => {
+    const TIMED = {
+      ...RUNNING,
+      phases: [
+        { key: 'schoology', kind: 'schoology', label: 'Schoology data', status: 'done', records: 418, elapsedMs: 61000 },
+        { key: 'blocks', kind: 'blocks', label: 'PowerSchool blocks', status: 'error', errorKind: 'other', message: 'x', elapsedMs: 8500 },
+        { key: 'mastery:1', kind: 'mastery', courseId: 1, label: 'Mastery · Biology 9', status: 'done', records: 7, elapsedMs: 30000 },
+        { key: 'quizzes', kind: 'quizzes', label: 'Quiz results', status: 'done', records: 2, elapsedMs: 4000 },
+      ],
+      summary: { elapsedMs: 103500 },
+    };
+
+    it('shows one line per phase under the total when the sync is done', () => {
+      render(<SyncProgress reduced={TIMED} mode="done" onDone={noop} onRetry={noop} onLogin={noop} />);
+      expect(screen.getByText('Finished in 104s')).toBeInTheDocument();
+      const list = screen.getByRole('list', { name: 'Time per phase' });
+      const lines = within(list).getAllByRole('listitem').map((li) => li.textContent);
+      expect(lines).toEqual([
+        'Schoology data1m 1s',
+        'PowerSchool blocks8.5s',
+        'Mastery · Biology 930s',
+        'Quiz results4.0s',
+      ]);
+    });
+
+    it('shows no phase times while the sync runs', () => {
+      render(<SyncProgress reduced={{ ...TIMED, summary: null }} mode="running" onDone={noop} onRetry={noop} onLogin={noop} />);
+      expect(screen.queryByRole('list', { name: 'Time per phase' })).not.toBeInTheDocument();
+    });
+
+    it('leaves out a phase with no recorded time (a run logged before #143)', () => {
+      const reduced = { ...RUNNING, summary: { elapsedMs: 1000 } };
+      render(<SyncProgress reduced={reduced} mode="done" onDone={noop} onRetry={noop} onLogin={noop} />);
+      expect(screen.queryByRole('list', { name: 'Time per phase' })).not.toBeInTheDocument();
+    });
+  });
+
   it('renders the progress bar width from progress', () => {
     const { container } = render(
       <SyncProgress reduced={RUNNING} mode="running" onDone={noop} onRetry={noop} onLogin={noop} />

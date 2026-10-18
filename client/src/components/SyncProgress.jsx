@@ -1,3 +1,5 @@
+import { formatPhaseTime } from '../lib/syncEvents.js';
+
 const STATUS_ICON = { running: '●', done: '✓', error: '✕' };
 
 function PhaseRow({ phase }) {
@@ -82,6 +84,8 @@ export default function SyncProgress({ reduced, mode, notice, retryEnabled, onDo
   const blocksFailure = failures.find((f) => f.kind === 'blocks');
   // #117: the alerts pass rides the same "Sync from PowerSchool" retry.
   const alertsFailure = failures.find((f) => f.kind === 'alerts');
+  // #143: each phase's wall time, one line per phase under the total.
+  const timedPhases = phases.filter((p) => p.elapsedMs != null);
 
   let heading = 'Syncing…';
   let headingClass = '';
@@ -159,9 +163,19 @@ export default function SyncProgress({ reduced, mode, notice, retryEnabled, onDo
       ))}
 
       <div className="sync-foot">
-        <span className="text-muted text-sm">
-          {summary && mode === 'done' && `Finished in ${(summary.elapsedMs / 1000).toFixed(0)}s`}
-        </span>
+        <div className="sync-foot-summary text-muted text-sm">
+          {summary && mode === 'done' && <span>{`Finished in ${(summary.elapsedMs / 1000).toFixed(0)}s`}</span>}
+          {mode === 'done' && timedPhases.length > 0 && (
+            <ul className="sync-timings" aria-label="Time per phase">
+              {timedPhases.map((p) => (
+                <li key={p.key}>
+                  <span className="sync-timing-label">{p.label}</span>
+                  <span className="sync-timing-value">{formatPhaseTime(p.elapsedMs)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         {mode === 'stalled' ? (
           <span className="sync-foot-actions">
             <button type="button" className="secondary" onClick={onTryAgain}>Try again</button>

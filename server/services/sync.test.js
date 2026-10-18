@@ -921,6 +921,14 @@ describe('fullSync — course skip matrix (#56)', () => {
     expect(visited).not.toContain('sec-archived');
     expect(visited).not.toContain('sec-excluded');
   });
+
+  // #143: the orchestrator adds the per-phase times to this same row.
+  test('returns the id of the sync_metrics row it wrote', async () => {
+    seedCourses();
+    const result = await fullSync(() => {});
+    const row = db.prepare('SELECT id FROM sync_metrics ORDER BY id DESC LIMIT 1').get();
+    expect(result.metricsId).toBe(row.id);
+  });
 });
 
 describe('enrichStudentProfiles — reconcile guardians (#70)', () => {

@@ -61,6 +61,14 @@ const MIGRATIONS = [
   // hidden/archived without the matching opt-in toggle) for telemetry via
   // /api/sync/metrics.
   `ALTER TABLE sync_metrics ADD COLUMN sections_skipped INTEGER DEFAULT 0`,
+  // #143: per-phase wall time of the unified sync, and the run's total. NULL =
+  // the phase did not run (and on rows written before this change).
+  `ALTER TABLE sync_metrics ADD COLUMN schoology_ms INTEGER`,
+  `ALTER TABLE sync_metrics ADD COLUMN blocks_ms INTEGER`,
+  `ALTER TABLE sync_metrics ADD COLUMN alerts_ms INTEGER`,
+  `ALTER TABLE sync_metrics ADD COLUMN mastery_ms INTEGER`,
+  `ALTER TABLE sync_metrics ADD COLUMN quizzes_ms INTEGER`,
+  `ALTER TABLE sync_metrics ADD COLUMN total_ms INTEGER`,
   // #70: marks an archived course as finalised (mastery attempted with a browser
   // session present). Null = not yet captured → eligible for backfill.
   `ALTER TABLE courses ADD COLUMN finalized_at TEXT`,

@@ -1001,7 +1001,7 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
     totalRecords += profileCount;
 
     const duration_ms = Date.now() - startedAt;
-    db.prepare(`
+    const metricsId = db.prepare(`
       INSERT INTO sync_metrics (
         sync_log_id, started_at, duration_ms,
         submission_calls, rate_limit_hits, transient_failures,
@@ -1015,7 +1015,7 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
       syncConfig.submissionConcurrency, syncConfig.submissionRatePerSec, metrics.abandoned,
       metrics.sections_skipped,
       JSON.stringify(metrics.failed_assignment_ids),
-    );
+    ).lastInsertRowid;
 
     // Update sync log
     db.prepare(`UPDATE sync_log SET status = 'completed', records_synced = ?, completed_at = ? WHERE id = ?`)
@@ -1032,7 +1032,8 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
     }
 
     log(`Sync complete: ${totalRecords} records`);
-    return { success: true, records: totalRecords };
+    // metricsId: the orchestrator adds the run's per-phase times to this row (#143).
+    return { success: true, records: totalRecords, metricsId: Number(metricsId) };
 
   } catch (err) {
     db.prepare(`UPDATE sync_log SET status = 'error', error_message = ?, completed_at = ? WHERE id = ?`)

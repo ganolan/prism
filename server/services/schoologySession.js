@@ -3,17 +3,21 @@
 // Settings "Schoology connection" card, the Sync dialog and the Ask modal's unsubmit
 // option (Phase 2, LTI unsubmit on Ask).
 //
-// Liveness is one cheap authenticated page load ({SCHOOLOGY_BASE}/home → still on the
-// school domain, not bounced to SSO), as the probes do — never the cookie-expiry
-// timestamps, which read "expired" long before the Drupal session dies (AGENTS.md).
-// Best-effort, never throws: a check that can't tell (the page didn't load, the browser
-// didn't start) reports 'unknown' with a message — only a bounce to the login / SSO page
-// is 'expired'.
+// Liveness is one cheap authenticated GET of {SCHOOLOGY_BASE}/home over plain HTTP
+// with the saved cookies (schoologyWeb.getResource, #141: no browser), never the
+// cookie-expiry timestamps, which read "expired" long before the Drupal session
+// dies (AGENTS.md). When Schoology sends it to sign-in, getResource renews the
+// session once through Microsoft (renewSession, below) and asks again, so a lapsed
+// Schoology cookie with a remembered Microsoft sign-in reads 'connected'.
+// Best-effort, never throws: a check that can't tell (Schoology not reached, or an
+// error status) reports 'unknown' with a message; only a bounce to the login / SSO
+// page that renewal cannot fix is 'expired'.
 //
 // Playwright is imported lazily (see masterySync.js: a top-level import can hang boot).
 import { existsSync, writeFileSync, renameSync } from 'fs';
 import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
 import { sessionStateFile } from '../lib/sessionPaths.js';
+import { cookieJar, getResource } from './schoologyWeb.js';
 
 export const LIVE_CHECK_TTL_MS = 10 * 60 * 1000;
 
@@ -35,27 +39,31 @@ export async function openSessionPage(file = sessionStateFile()) {
   }
 }
 
-// Swappable for tests (never launch a real browser there): every caller here and in
-// ltiUnsubmit.js opens its page through sessionDeps.openPage.
-export const sessionDeps = { openPage: openSessionPage };
+// Swappable for tests (never launch a real browser or reach the network there):
+// every caller here and in ltiUnsubmit.js opens its page through sessionDeps.openPage;
+// the liveness check reads the saved cookies through openJar and fetches with fetch.
+export const sessionDeps = {
+  openPage: openSessionPage,
+  openJar: () => cookieJar(),
+  fetch: (...args) => fetch(...args),
+};
 
-// → { live: 'connected' | 'expired' | 'unknown', message? }. 'expired' only when the
-// saved session (or its absence) lands on a real non-school page (login / SSO);
-// a navigation error or about:blank is 'unknown'. Throws if the browser can't start.
+// → { live: 'connected' | 'expired' | 'unknown', message? }. 'connected' when /home
+// answers 200 on the school domain; 'expired' when there is no saved session or
+// Schoology sends it to the login / SSO page (after one renewal); 'unknown' when
+// Schoology is not reached or answers another status. Throws only when the saved
+// session file cannot be read.
 export async function checkSessionLive() {
-  const s = await sessionDeps.openPage();
-  if (!s) return { live: 'expired', message: 'No saved Schoology session' };
+  const jar = sessionDeps.openJar();
+  if (!jar) return { live: 'expired', message: 'No saved Schoology session' };
   try {
-    let navError = null;
-    await s.page.goto(`${SCHOOLOGY_BASE}/home`, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch((err) => { navError = err; });
-    const url = s.page.url();
-    if (isLoggedInUrl(url)) return { live: 'connected' };
-    if (navError || !url || url.startsWith('about:') || url.startsWith('chrome-error:')) {
-      return { live: 'unknown', message: `Could not reach Schoology${navError ? ` (${navError.message})` : ''}` };
-    }
-    return { live: 'expired', message: 'Schoology sent the saved session to the login page' };
-  } finally {
-    await s.close().catch(() => {});
+    const r = await getResource(jar, '/home', { fetchImpl: sessionDeps.fetch });
+    if (r.status === 200 && isLoggedInUrl(r.url)) return { live: 'connected' };
+    return { live: 'unknown', message: `Could not check the Schoology session (Schoology answered ${r.status})` };
+  } catch (err) {
+    if (err.code === 'SESSION_EXPIRED') return { live: 'expired', message: 'Schoology sent the saved session to the login page' };
+    if (err.code === 'HTTP') return { live: 'unknown', message: err.message };
+    throw err;
   }
 }
 
@@ -127,9 +135,9 @@ const view = (loggedIn) => ({
 });
 
 // → { loggedIn (session file exists), live: 'connected' | 'expired' | 'unknown' | 'none' | null,
-//     checkedAt, message? }. 'none' = no saved session (no browser launched).
+//     checkedAt, message? }. 'none' = no saved session (nothing requested).
 // The live check is cached for LIVE_CHECK_TTL_MS; refresh forces one; check: false
-// never launches a browser (live = the cached answer, or null if never checked).
+// never checks (live = the cached answer, or null if never checked).
 // Concurrent callers share one in-flight check. Never throws.
 export async function sessionStatus({ refresh = false, check = true, hasSession = hasSessionFile, now = Date.now } = {}) {
   let loggedIn = false;

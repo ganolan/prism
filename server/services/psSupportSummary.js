@@ -54,6 +54,10 @@ export async function readSupportSummary(db, studentId, { jar, fetchImpl = fetch
     return { rows, readAt };
   } catch (err) {
     if (err instanceof SupportSummaryError) throw err;
+    if (err instanceof WebSessionError && err.code === 'PS_SECURITY') { // powerschoolWeb saw the page first
+      console.error('[psSupportSummary] PowerSchool answered with a Security Violation page; stopped');
+      throw new SupportSummaryError('SECURITY_VIOLATION', 'PowerSchool refused the read');
+    }
     if (err instanceof WebSessionError && err.code === 'SESSION_EXPIRED') {
       throw new SupportSummaryError('SESSION_EXPIRED', 'The Schoology session has expired: log in to Schoology in Settings');
     }

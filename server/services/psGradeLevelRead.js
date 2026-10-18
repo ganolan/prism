@@ -69,6 +69,7 @@ export async function readSectionGradeLevels(ps, { sectionDcid, userDcid, sectio
     if (read.grades.length) return { source: 'students_integration', grades: read.grades, sectionInfo: info };
     throw new Error(`the student list joined no student (${read.listed} listed)`);
   } catch (err) {
+    if (err.code === 'PS_SECURITY') throw err; // never fall back past a security page
     fallbackReason = err.message;
   }
   const grades = await readAttendanceGrades(ps, { sectionDcid, userDcid, sectionInfo: info, today });
@@ -76,9 +77,11 @@ export async function readSectionGradeLevels(ps, { sectionDcid, userDcid, sectio
 }
 
 /**
- * Every section's grade levels on one PowerSchool session. Best-effort: never
- * throws. A section whose reads fail is counted and skipped; a session that
- * ends mid-pass (PS_SESSION) is started again once for that section.
+ * Every section's grade levels on one PowerSchool session (the block pass's,
+ * when it passes its own). Best-effort: throws only PS_SECURITY (a "Security
+ * Violation Logged" page stops the pass). A section whose reads fail is counted
+ * and skipped; a session that ends mid-pass (PS_SESSION) is started again once
+ * for that section.
  *
  * sections: [{ name, schoologySectionId, sectionDcid, userDcid, sectionInfo? }]
  * → { gradeByDcid: Map<dcid, gradeLevel>, sources: { students_integration,
@@ -96,6 +99,7 @@ export async function readGradeLevels({ ps, sections, today, log = () => {}, tim
     try {
       if (!ps.launched) await ps.launch(sec.schoologySectionId);
     } catch (err) {
+      if (err.code === 'PS_SECURITY') throw err;
       out.error = `PowerSchool session not started: ${err.message}`;
       log(`Grade levels: ${out.error}`);
       return out;
@@ -106,7 +110,9 @@ export async function readGradeLevels({ ps, sections, today, log = () => {}, tim
       try {
         r = await readSectionGradeLevels(ps, args);
       } catch (err) {
-        if (err.code !== 'PS_SESSION') throw err;
+        // An error status (sessionEnded false, e.g. a prior-year section's 500) is
+        // the section's answer, not a lost session: no relaunch for it.
+        if (err.code !== 'PS_SESSION' || err.sessionEnded === false) throw err;
         await ps.launch(sec.schoologySectionId);
         r = await readSectionGradeLevels(ps, args);
       }
@@ -114,6 +120,7 @@ export async function readGradeLevels({ ps, sections, today, log = () => {}, tim
       out.sources[r.source]++;
       if (r.source !== 'students_integration') log(`${sec.name}: grade levels from section_attendance (${r.fallbackReason})`);
     } catch (err) {
+      if (err.code === 'PS_SECURITY') throw err;
       out.sources.failed++;
       log(`${sec.name}: grade-level read failed (${err.message}), kept the stored grades`);
     }

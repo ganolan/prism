@@ -1493,6 +1493,31 @@ submission comments.
 - **Timing:** whole block + grade pass before 9.8 / 8.6 / 7.4 s, after 8.5 / 8.3 / 8.3 s (noise). The grade pass is 1.7 s, most of it the second (HTTP) launch. Recorded in `.claude/powerschool-api-reference.md`.
 - **Tests:** `psGradeLevelRead.test.js` (11, fake PowerSchool extended with section_info, students_integration and section_attendance), `psGradeLevel.test.js` (+7).
 
+## Settings liveness check and PowerSchool block pass on plain HTTP (#141, 2026-10-18)
+
+- **Liveness check:** `schoologySession.checkSessionLive` is one `GET /home` with the saved cookies
+  (`schoologyWeb.getResource`), no browser; a bounce to sign-in renews once through Microsoft. Answers unchanged:
+  `connected` / `expired` / `unknown` (network failure or another status). Parity
+  (`scripts/parity-session-live.js`, 5 runs): same answer every run, median 2.77 s browser vs 0.38 s HTTP; a copy
+  without the Schoology `SESS` cookies renewed (9.1 s) and read `connected`.
+- **Block pass:** `psAttendanceSync.js` reads the LTI launch form, posts it to PowerSchool once
+  (`powerschoolWeb.js`, lazily on the first course with a section) and reads `/ws/attendance/section_info` with
+  `Accept: application/json`. A session that ends relaunches once; an error status is the section's
+  `section-info-failed:<status>`. Merged with #164: the grade-level pass (`psGradeLevelRead.js`) now runs on the
+  block loop's session (one launch for the whole pass, grade pass 480 ms instead of 1.7 s) and no longer
+  relaunches on an error status. `PowerSchoolWeb` gains `launchIds().userDcid`, `launch({ form })`,
+  `status`/`sessionEnded` on read errors, and `PS_SECURITY` (a "Security Violation Logged" page stops the block
+  pass, the grade pass, the alert sync and the Support Summary read). Parity (`scripts/parity-ps-blocks.js`,
+  pre-#141 pass kept in `scripts/lib/psAttendanceSyncBrowser.js`, two blanked DB copies, four runs): 0
+  differences (9 courses, 35 block values, 522 lesson dates, 308 calendar days, 295 grad years). Wall time
+  8.1-9.6 s browser vs 4.9-5.3 s HTTP.
+- **Tests:** `schoologySession.test.js` (liveness over a fake web), `mastery.test.js` login-status, 11 new in
+  `psAttendanceSync.test.js`, 3 in `psAlertsSync.test.js`; `fakePowerSchoolWeb`'s `section_info` takes
+  `{ status }` for an error answer and `failRead` can answer a page.
+- **Still on the browser (#141):** the writes (`ltiUnsubmit.js`, `quizWriteback.js`, mastery writes),
+  `oneDriveLinks.js`, and the Microsoft renewal itself (`renewSession`, #136: a plain `fetch` cannot make the
+  SSO round trip).
+
 ## Writes only from Prism's own pages (2026-10-18)
 
 - **Before:** `app.use(cors())` with no options let any website opened on a tailnet device read Prism's API answers, and send simple cross-site POSTs (no JSON body, no preflight), e.g. one that starts a sync or a remote sign-in.

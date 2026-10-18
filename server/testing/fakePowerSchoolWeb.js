@@ -1,10 +1,12 @@
 // A stand-in for the Schoology attendance LTI launch and PowerSchool's MBA alert
-// reads (server/services/powerschoolWeb.js, psAlertsSync.js), and the grade-level
-// reads (psGradeLevelRead.js, #164): section_info, the section student list
+// reads (server/services/powerschoolWeb.js, psAlertsSync.js), the block pass's
+// section_info (psAttendanceSync.js, #141) and the grade-level reads
+// (psGradeLevelRead.js, #164): section_info, the section student list
 // (/ws/pt/v1/section/{psmSectionId}/students_integration) and section_attendance.
 // Shapes follow the live answers recorded in .claude/powerschool-api-reference.md
-// "Student alerts (#117)" and "Student grade level, gender and postal address
-// (#116)"; every value is made up. Records every request; never reaches the network.
+// "Student alerts (#117)", "Block number" and "Student grade level, gender and
+// postal address (#116)"; every value is made up. Records every request; never
+// reaches the network.
 const PS = 'https://powerschool.hkis.edu.hk';
 
 export const launchHtml = ({ sectionDcid = '9001', action = `${PS}/integrations/attendance/index.html` } = {}) => `<html><body>
@@ -37,7 +39,11 @@ export const CATALOGUE = [
 // schoology: { [schoologySectionId]: sectionDcid | null }
 // popups: { [studentDcid]: html } for /teachers/alerts/aet_customalert_custompopup.html (#163);
 //   the request's Referer and X-Requested-With are recorded.
-// sectionInfo: { [sectionDcid]: section_info[0] } (default: psmSectionId "P{sectionDcid}", a few in-session days)
+// sectionInfo: { [sectionDcid]: section_info[0] | { status } (an error answer) }
+//   (default: psmSectionId "P{sectionDcid}", a few in-session days)
+// failRead(name, entry) → true answers 500, a string answers 200 with that page;
+// expireOnce: the read name whose first call finds the PowerSchool session gone
+// (302 to sign-in).
 export function fakePowerSchoolWeb({
   schoology = { S1: '9001' }, sections = {}, catalogue = CATALOGUE, popups = {}, sectionInfo = {},
   loginRedirect = false, launchStatus = 200, failRead, expireOnce,
@@ -70,7 +76,8 @@ export function fakePowerSchoolWeb({
     const name = u.pathname.split('/').pop();
     const p = params(u, opts);
     entry.params = Object.fromEntries(p);
-    if (failRead?.(name, entry)) return answer(500, 'boom');
+    const failed = failRead?.(name, entry);
+    if (failed) return typeof failed === 'string' ? answer(200, failed, { 'content-type': 'text/html' }) : answer(500, 'boom');
     if (expireOnce && expireOnce === name) {
       expireOnce = null; expired = true;
       return answer(302, '', { location: `${PS}/teachers/pw.html` });
@@ -86,6 +93,7 @@ export function fakePowerSchoolWeb({
     if (u.pathname === '/ws/attendance/section_info') {
       const dcid = p.get('sectionDcid');
       const days = { '2026-10-12': { inSession: true }, '2026-10-13': { inSession: true }, '2026-10-14': { inSession: false }, '2026-10-15': { inSession: true } };
+      if (sectionInfo[dcid]?.status) return answer(sectionInfo[dcid].status, 'error');
       return json([sectionInfo[dcid] ?? { psmSectionId: `P${dcid}`, calenderDays: days, bellScheduleItems: [] }]);
     }
     const psm = u.pathname.match(/^\/ws\/pt\/v1\/section\/([^/]+)\/students_integration$/);

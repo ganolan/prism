@@ -69,10 +69,11 @@ export async function runUnifiedSync(
     }
   }
 
-  // #106: resolve every active course's PowerSchool block number from the same
-  // shared browser session (opt-out via the sync dialog's `syncBlocks`). Runs
-  // every sync so a course synced before its block was published self-heals;
-  // the service no-ops (no browser) when there are no active courses. Best-effort:
+  // #106: resolve every active course's PowerSchool block number with the same
+  // saved Schoology session, over plain HTTP (#141; opt-out via the sync dialog's
+  // `syncBlocks`). Runs every sync so a course synced before its block was
+  // published self-heals; the service no-ops (no request) when there are no
+  // active courses. Best-effort:
   // a stale PowerSchool session logs an error but never aborts the sync. Wall
   // time is measured for the sync-perf / lazy-refresh evaluation.
   if (syncBlocks) {

@@ -106,14 +106,14 @@ export default function Dashboard() {
           {isSettings ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} onClick={e => { e.preventDefault(); e.stopPropagation(); }}>
               <button
-                className="ghost"
+                className="ghost tap-target"
                 style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}
                 onClick={e => { e.preventDefault(); e.stopPropagation(); handleToggleVisibility(e, c.id); }}
               >
                 {!!c.hidden ? 'Show' : 'Hide'}
               </button>
               <button
-                className="ghost"
+                className="ghost tap-target"
                 style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}
                 onClick={e => { e.preventDefault(); e.stopPropagation(); setSettingsCard(null); }}
               >
@@ -122,7 +122,7 @@ export default function Dashboard() {
             </div>
           ) : (
             <button
-              className="ghost"
+              className="ghost tap-target"
               style={{ fontSize: '0.9rem', color: 'var(--text-muted)', lineHeight: 1 }}
               onClick={e => { e.preventDefault(); e.stopPropagation(); setSettingsCard(c.id); }}
               title="Card settings"
@@ -147,9 +147,17 @@ export default function Dashboard() {
         <button className={activeTab === 'current' ? 'tab-btn active' : 'tab-btn'} onClick={() => setActiveTab('current')}>Current</button>
         <button className={activeTab === 'archived' ? 'tab-btn active' : 'tab-btn'} onClick={() => setActiveTab('archived')}>Archived</button>
         <span style={{ color: 'var(--border)', userSelect: 'none' }}>|</span>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
+        {/* The whole label toggles (not just the track), so a fingertip on the
+            words works too. */}
+        <label
+          className="show-hidden-toggle"
+          onClick={() => setShowHidden(h => !h)}
+          style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}
+        >
           <div
-            onClick={() => setShowHidden(h => !h)}
+            role="switch"
+            aria-checked={showHidden}
+            aria-label="Show hidden"
             style={{
               position: 'relative', width: '36px', height: '20px',
               background: showHidden ? 'var(--accent)' : 'var(--border)',

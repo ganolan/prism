@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { searchPeople } from '../services/api.js';
 import { useFeatureFlags } from '../hooks/useFeatureFlags.js';
+import PersonSub from '../components/PersonSub.jsx';
 
 const SCHOOLOGY = 'https://schoology.hkis.edu.hk';
 
@@ -116,9 +117,9 @@ export default function PeoplePage() {
                   Showing the first {data.results.length} matches, refine your search to narrow it down.
                 </p>
               )}
-              <table>
+              <table className="fits-phone">
                 <thead>
-                  <tr><th></th><th>Name</th><th>School</th><th></th></tr>
+                  <tr><th></th><th>Name</th><th className="col-desktop">School</th><th></th></tr>
                 </thead>
                 <tbody>
                   {data.results.map(p => (
@@ -130,8 +131,9 @@ export default function PeoplePage() {
                         <a className="link" href={`${SCHOOLOGY}/user/${p.userId}`} target="_blank" rel="noreferrer">
                           {p.name || `User ${p.userId}`}
                         </a>
+                        <PersonSub parts={[p.school]} />
                       </td>
-                      <td className="text-sm text-muted">{p.school || '-'}</td>
+                      <td className="text-sm text-muted col-desktop">{p.school || '-'}</td>
                       <td className="text-sm">
                         {p.messageUserId && (
                           <a className="link" href={`${SCHOOLOGY}/messages/new/${p.messageUserId}`} target="_blank" rel="noreferrer">

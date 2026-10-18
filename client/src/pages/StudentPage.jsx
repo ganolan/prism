@@ -32,8 +32,10 @@ function CopyButton({ text, label }) {
   }
   return (
     <button
+      className="tap-target"
       onClick={handleCopy}
       title={label || 'Copy'}
+      aria-label={label || 'Copy'}
       style={{
         background: 'none', border: 'none', cursor: 'pointer',
         padding: label ? '0.15rem 0.3rem' : '0 0.2rem',
@@ -71,14 +73,7 @@ export function CourseSection({
 
   return (
     <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-      <button
-        onClick={() => setExpanded(e => !e)}
-        style={{
-          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '0.85rem 1.25rem', background: 'none', border: 'none', cursor: 'pointer',
-          textAlign: 'left',
-        }}
-      >
+      <button className="student-course__head" onClick={() => setExpanded(e => !e)}>
         <Link
           to={`/course/${course.id}`}
           className="link"
@@ -102,7 +97,7 @@ export function CourseSection({
       </button>
 
       {expanded && (
-        <div style={{ padding: '0 1.25rem 1.25rem' }}>
+        <div className="student-course__body">
           {/* Mastery Performance Summary (SBG grid) */}
           <div style={{ marginTop: '1rem', marginBottom: '0.5rem' }}>
             <MasteryPerformanceSummary
@@ -214,7 +209,7 @@ function ParentCard({ parent, studentId, onUpdated }) {
     <div style={{ padding: '0.5rem 0.65rem', background: 'var(--bg-subtle)', borderRadius: 8, border: '1px solid var(--border)' }}>
       <p className="text-sm" style={{ fontWeight: 600 }}>{parent.first_name} {parent.last_name}</p>
       {parent.email && (
-        <p className="text-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.15rem' }}>
+        <p className="text-sm contact-email">
           <a href={`mailto:${parent.email}`} className="link">{parent.email}</a>
           <CopyButton text={parent.email} />
         </p>
@@ -224,7 +219,7 @@ function ParentCard({ parent, studentId, onUpdated }) {
         <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem', alignItems: 'center' }}>
           <input
             type="tel" value={phoneVal} onChange={e => setPhoneVal(e.target.value)}
-            placeholder="Phone number" style={{ flex: 1, fontSize: '0.8rem' }}
+            placeholder="Phone number" className="parent-phone-input"
           />
           <button className="primary" style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }} onClick={savePhone}>Save</button>
           <button className="ghost" style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }} onClick={() => { setEditingPhone(false); setPhoneVal(parent.phone || ''); }}>Cancel</button>
@@ -234,10 +229,10 @@ function ParentCard({ parent, studentId, onUpdated }) {
           {parent.phone ? (
             <>
               <p className="text-sm"><a href={`tel:${parent.phone}`} className="link">{parent.phone}</a></p>
-              <button className="ghost accent" style={{ fontSize: '0.75rem', padding: '0.15rem 0.4rem' }} onClick={() => setEditingPhone(true)}>Edit</button>
+              <button className="ghost accent tap-target" style={{ fontSize: '0.75rem', padding: '0.15rem 0.4rem' }} onClick={() => setEditingPhone(true)}>Edit</button>
             </>
           ) : (
-            <button className="ghost accent" style={{ fontSize: '0.75rem', padding: '0.15rem 0.4rem' }} onClick={() => setEditingPhone(true)}>+ Add Phone</button>
+            <button className="ghost accent tap-target" style={{ fontSize: '0.75rem', padding: '0.15rem 0.4rem' }} onClick={() => setEditingPhone(true)}>+ Add Phone</button>
           )}
         </div>
       )}
@@ -346,21 +341,21 @@ export default function StudentPage() {
   return (
     <div className="fade-in">
       {/* Profile + Family row */}
-      <div className="card">
+      <div className="card student-header">
         <div className="grid-2">
           {/* Profile */}
           <div>
-            <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+            <div className="student-profile">
               {student.picture_url && (
                 <img
                   src={student.picture_url} alt={displayName}
-                  style={{ width: 144, height: 144, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: '2px solid var(--border)', cursor: 'zoom-in' }}
+                  className="student-photo"
                   onClick={() => setPhotoEnlarged(true)}
                   onError={e => { e.currentTarget.style.display = 'none'; }}
                 />
               )}
-              <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <div className="student-profile__info">
+                <div className="student-name-row">
                   <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 700, lineHeight: 1.2 }}>{titleName}</h2>
                   {student.grad_year && (() => {
                     const badge = formatGradeBadge(student.grad_year);
@@ -405,6 +400,7 @@ export default function StudentPage() {
                   </div>
                 ) : (
                   <button
+                    className="preferred-name-btn"
                     onClick={() => setEditing(true)}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginTop: '0.3rem', color: 'var(--text-muted)', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
                   >
@@ -416,7 +412,7 @@ export default function StudentPage() {
                   </button>
                 )}
                 {student.email && (
-                  <p className="text-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.15rem', marginTop: '0.4rem' }}>
+                  <p className="text-sm contact-email" style={{ marginTop: '0.4rem' }}>
                     <a href={`mailto:${student.email}`} className="link">{student.email}</a>
                     <CopyButton text={student.email} />
                   </p>
@@ -455,10 +451,10 @@ export default function StudentPage() {
           <h3 style={{ margin: 0 }}>Notes</h3>
           {!addingNote && (
             <button
+              className="note-add-btn"
               onClick={() => setAddingNote(true)}
               aria-label="Add new note"
               title="Add new note"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.15rem 0.3rem', marginLeft: '0.35rem', color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center' }}
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M13.488 2.513a1.75 1.75 0 0 0-2.475 0L6.75 6.774a2.75 2.75 0 0 0-.596.892l-.848 2.047a.75.75 0 0 0 .98.98l2.047-.848a2.75 2.75 0 0 0 .892-.596l4.261-4.262a1.75 1.75 0 0 0 0-2.474Z"/>
@@ -468,7 +464,7 @@ export default function StudentPage() {
           )}
         </div>
         {addingNote && (
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
+          <div className="note-form">
             <textarea
               placeholder="Add a note..."
               value={newNote}
@@ -477,8 +473,8 @@ export default function StudentPage() {
               style={{ flex: 1, resize: 'vertical' }}
               autoFocus
             />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-              <select value={noteCourseId} onChange={e => setNoteCourseId(e.target.value)} style={{ fontSize: '0.8rem' }}>
+            <div className="note-form__side">
+              <select value={noteCourseId} onChange={e => setNoteCourseId(e.target.value)} aria-label="Note course">
                 <option value="">General</option>
                 {student.courses.map(c => <option key={c.id} value={c.id}>{c.course_name}</option>)}
               </select>
@@ -494,9 +490,9 @@ export default function StudentPage() {
             {student.notes.map(n => (
               <div key={n.id} style={{ padding: '0.5rem 0.75rem', background: 'var(--bg-subtle)', borderRadius: 8, border: '1px solid var(--border)' }}>
                 {editingNoteId === n.id ? (
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <div className="note-form note-form--edit">
                     <textarea value={editNoteText} onChange={e => setEditNoteText(e.target.value)} rows={2} style={{ flex: 1 }} />
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <div className="note-form__side">
                       <button className="primary" onClick={() => handleUpdateNote(n.id)} style={{ fontSize: '0.8rem' }}>Save</button>
                       <button className="ghost" onClick={() => setEditingNoteId(null)}>Cancel</button>
                     </div>
@@ -504,11 +500,11 @@ export default function StudentPage() {
                 ) : (
                   <>
                     <p className="text-sm" style={{ whiteSpace: 'pre-wrap' }}>{n.content}</p>
-                    <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.3rem', alignItems: 'center' }}>
+                    <div className="note-meta">
                       <span className="text-sm text-muted">{formatDate(n.created_at)}</span>
                       {n.course_id && <span className="badge badge-blue">{student.courses.find(c => c.id === n.course_id)?.course_name || 'Course'}</span>}
-                      <button onClick={() => { setEditingNoteId(n.id); setEditNoteText(n.content); }} className="ghost accent">Edit</button>
-                      <button onClick={() => handleDeleteNote(n.id)} className="ghost danger">Delete</button>
+                      <button onClick={() => { setEditingNoteId(n.id); setEditNoteText(n.content); }} className="ghost accent tap-target">Edit</button>
+                      <button onClick={() => handleDeleteNote(n.id)} className="ghost danger tap-target">Delete</button>
                     </div>
                   </>
                 )}

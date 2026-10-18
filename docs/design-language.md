@@ -729,7 +729,52 @@ each colour standing for a *function* so the hierarchy reads at a glance.
   query, so adapting a page means moving its styles into classes first. The
   candidates are the quick-lookup pages (Dashboard, Student, Directory,
   Search). The grading-heavy pages (assessment summary, rubric manager,
-  import, sync config) stay desktop tools.
+  import, sync config) stay desktop tools. *Done for the quick-lookup pages in
+  step 2 (#134), below.*
+
+### Step 2: the quick-lookup pages (October 2026, #134)
+
+- **Move only what must adapt.** On the Student, Search, Directory, Dashboard
+  and roster pages, just the inline styles a phone needs to change moved into
+  classes (a `QUICK-LOOKUP PAGES` section of `app.css`), with the old inline
+  values verbatim, so desktop is pixel-identical (diffed against `main` at
+  1440, 1024 and 800px, including the note form open and in edit). The phone
+  rules are in the `PHONE LAYOUT` block as before.
+- **Secondary columns fold under the name.** A phone hides a table's secondary
+  columns (`.col-desktop`: Email and Grade on Search and the roster, School in
+  the Directory) and shows the same facts as one muted line under the name
+  (`PersonSub`: `.person-sub.phone-only`, the parts joined by " · "). Search and
+  the Directory then fit, so they stay real full-width tables
+  (`table.fits-phone`) instead of sideways-scrolling boxes. The roster's
+  mastery columns still scroll inside their box: they are the genuinely wide
+  part, and #160 will redesign the roster.
+- **`.phone-only` / `.col-desktop`** are the general pair: `display: none` on
+  desktop / on phones. A `display: none` element paints nothing, so adding
+  phone-only markup cannot change desktop.
+- **`.tap-target`** gives a small text or icon button a 44px hit area on phones
+  (notes Edit/Delete, + Add Phone, copy buttons, the Dashboard card cog). Where
+  the bigger box would push lines apart (the copy button beside an email), a
+  negative margin lets it overlap them instead.
+- **Student page:** the photo drops from 144px to 88px, the name row wraps
+  (name, grade badge, ID), long emails break instead of pushing the family
+  contacts out of the card, and course sections use 1rem side padding. The note
+  form stacks: the note full width, then the course picker full width, then
+  Save and Cancel side by side at 44px. The "add note" pencil is a 44px target.
+  (Flags are added on the assessment page, not here.)
+- **Form fields stay 16px.** An inline `font-size` beats the shell's 16px phone
+  rule, so the note course picker and the parent phone field moved theirs into
+  classes; `input[type="tel"]` joined the 16px list.
+- **Tap for hover.** `HelpDot` also opens on a tap (click), and closes on blur
+  or scroll (a fixed popover would otherwise float away from its dot). Its
+  popover is clamped to stay on screen near either edge.
+- **Dashboard "Show hidden"** toggles from its words as well as its track, and
+  the track is a `role="switch"`.
+- **Desktop tools say so.** The assessment page, the gradebook and analytics
+  tabs and Import show one `LargerScreenNote` line ("Best on a larger screen.")
+  at phone width only. They are not otherwise adapted.
+- `npm run check:mobile` now fails if a quick-lookup page scrolls sideways, if
+  Search or Directory tables overflow their card, if the student header
+  overflows, or if the note form loses its full-width box or 44px buttons.
 
 
 ## Student work link — "Open" beside the status pill (September 2026, #120)

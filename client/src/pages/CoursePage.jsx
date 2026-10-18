@@ -12,7 +12,8 @@ import { gradeLabel, submissionStatus, ltiStatusUnavailable } from '../lib/grade
 import { masteryCodeForLevel, computeLetterGrade } from '../lib/masteryLevels.js';
 import { useProficiencyScale } from '../hooks/useProficiencyScale.js';
 import { groupAssignmentsByFolder } from '../lib/assessmentGroups.js';
-import { gradYearToLevel } from '../lib/gradeLevel.js';
+import PersonSub, { gradeText } from '../components/PersonSub.jsx';
+import LargerScreenNote from '../components/LargerScreenNote.jsx';
 import { preferredFirstName } from '../lib/studentNames.js';
 import { indexMastery, buildAssignmentRubric } from '../lib/gradebookMastery.js';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
@@ -219,6 +220,7 @@ export default function CoursePage() {
       {/* Tab content in the main column, the triage rail beside it (below it on a phone). */}
       <div className="triage-layout">
         <div className="triage-layout__main">
+          {(view === 'gradebook' || view === 'analytics') && <LargerScreenNote />}
           {view === 'roster' && (
             <RosterView
               students={students}
@@ -367,8 +369,8 @@ export function RosterView({ students, mastery, courseId, displayName, onOverrid
           <tr>
             <th rowSpan={2}></th>
             <th rowSpan={2}>Name</th>
-            <th rowSpan={2}>Email</th>
-            <th rowSpan={2}>Grade</th>
+            <th rowSpan={2} className="col-desktop">Email</th>
+            <th rowSpan={2} className="col-desktop">Grade</th>
             {categories.map((cat, i) => (
               <th
                 key={cat.id}
@@ -514,12 +516,11 @@ export function RosterView({ students, mastery, courseId, displayName, onOverrid
                       dropped {new Date(s.dropped_at).toLocaleDateString('en-GB')}
                     </span>
                   )}
+                  <PersonSub parts={[s.email, gradeText(s.grad_year)]} />
                   {showAlerts && <PsAlertBadges alerts={forRoster(s.ps_alerts)} compact />}
                 </td>
-                <td className="text-sm">{s.email || '-'}</td>
-                <td className="text-sm">
-                  {gradYearToLevel(s.grad_year) ? `Grade ${gradYearToLevel(s.grad_year)}` : '-'}
-                </td>
+                <td className="text-sm col-desktop">{s.email || '-'}</td>
+                <td className="text-sm col-desktop">{gradeText(s.grad_year) || '-'}</td>
                 {categories.flatMap((cat, catIdx) => {
                   const avg = categoryAvg(uid, cat.id);
                   const avgLevel = avg != null ? scale.pointsToLevel(avg) : null;

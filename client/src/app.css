@@ -1509,6 +1509,39 @@ button.cell-open { background: none; border: 0; padding: 0; margin: 0; font: inh
 button.cell-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 
 /* ========================================================================
+   QUICK-LOOKUP PAGES (#134)
+   Styles moved out of inline style={{}} on the Student, Search, Directory and
+   roster pages so the PHONE LAYOUT block can adapt them. Desktop values are
+   exactly the old inline ones.
+   ======================================================================== */
+/* Shown only at phone width (PHONE LAYOUT turns it on). */
+.phone-only { display: none; }
+
+/* Student page: profile header. */
+.student-profile { display: flex; gap: 1rem; align-items: flex-start; }
+.student-profile__info { flex: 1; }
+.student-photo { width: 144px; height: 144px; border-radius: 50%; object-fit: cover; flex-shrink: 0; border: 2px solid var(--border); cursor: zoom-in; }
+.student-name-row { display: flex; align-items: center; gap: 0.5rem; }
+.contact-email { display: flex; align-items: center; gap: 0.15rem; }
+.parent-phone-input { flex: 1; font-size: 0.8rem; }
+
+/* Student page: notes. */
+.note-add-btn { background: none; border: none; cursor: pointer; padding: 0.15rem 0.3rem; margin-left: 0.35rem; color: var(--text-muted); display: inline-flex; align-items: center; }
+.note-form { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+.note-form--edit { margin-bottom: 0; }
+.note-form__side { display: flex; flex-direction: column; gap: 0.25rem; }
+.note-form__side select { font-size: 0.8rem; }
+.note-meta { display: flex; gap: 0.75rem; margin-top: 0.3rem; align-items: center; }
+
+/* Student page: a course's collapsible section. */
+.student-course__head { width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 0.85rem 1.25rem; background: none; border: none; cursor: pointer; text-align: left; }
+.student-course__body { padding: 0 1.25rem 1.25rem; }
+
+/* Search / roster / Directory: the line under a name that carries the columns
+   a phone hides (email, grade, school). */
+.person-sub { font-size: 0.78rem; color: var(--text-muted); overflow-wrap: anywhere; }
+
+/* ========================================================================
    PHONE LAYOUT
    Below 768px the fixed sidebar becomes a drawer behind a top-bar menu
    button. Every phone rule lives in this one block, so desktop rendering is
@@ -1655,4 +1688,50 @@ button.cell-open:focus-visible { outline: 2px solid var(--accent); outline-offse
   /* Tag drawer (#139): the whole screen; Close is a full fingertip target. */
   .tag-drawer { padding: 1rem; }
   .tag-drawer__head .ghost { min-height: 44px; }
+
+  /* ---- Quick-lookup pages (#134): Student, Search, Directory, roster, Dashboard. ---- */
+  /* A secondary column (email, grade, school) folds into a muted line under the
+     name, so the table fits the screen instead of scrolling sideways for it. */
+  .phone-only { display: block; }
+  .col-desktop { display: none; }
+  /* With those columns gone, the Search and Directory tables fit the screen, so
+     they stay real tables at full width rather than sideways-scrolling boxes. */
+  table.fits-phone { display: table; width: 100%; }
+  /* The pages that stay desktop tools say so in one line. */
+  .larger-screen-note { margin-bottom: 0.75rem; padding: 0.5rem 0.75rem; }
+  /* Small text and icon buttons get a fingertip-sized hit area. */
+  .tap-target { min-height: 44px; min-width: 44px; }
+  input[type="tel"] { font-size: 16px; }
+
+  /* Student: a smaller photo, a name row that wraps, and long emails that break
+     rather than pushing the family contacts out of the card. */
+  .student-header .grid-2 > * { min-width: 0; }
+  .student-profile { gap: 0.75rem; }
+  .student-profile__info { min-width: 0; }
+  .student-photo { width: 88px; height: 88px; }
+  .student-name-row { flex-wrap: wrap; row-gap: 0.25rem; }
+  .contact-email a { min-width: 0; overflow-wrap: anywhere; }
+  /* The copy button's 44px hit area overlaps the lines above and below rather
+     than spacing them out. */
+  .contact-email .tap-target { margin: -12px 0; }
+  .parent-phone-input { font-size: 16px; }
+  .preferred-name-btn { min-height: 36px; }
+
+  /* Student notes: a 44px "add" pencil; the form stacks (the note full width,
+     then the course and the buttons in a row); a note's date, course and
+     actions wrap. */
+  .note-add-btn { min-width: 44px; min-height: 44px; justify-content: center; margin-left: 0.1rem; }
+  .note-form { flex-direction: column; }
+  .note-form textarea { min-height: 6rem; }
+  .note-form__side { flex-direction: row; flex-wrap: wrap; gap: 0.5rem; }
+  .note-form__side select { flex: 1 1 100%; font-size: 16px; }
+  .note-form__side button { flex: 1; min-height: 44px; }
+  .note-meta { flex-wrap: wrap; gap: 0.25rem 0.75rem; }
+
+  /* Student course sections: less side padding, more room for the feedback. */
+  .student-course__head { padding: 0.75rem 1rem; gap: 0.75rem; }
+  .student-course__body { padding: 0 1rem 1rem; }
+
+  /* Dashboard: the "Show hidden" switch is tappable on its words too. */
+  .show-hidden-toggle { min-height: 40px; }
 }

@@ -24,7 +24,7 @@ import SchoologyLink from '../components/SchoologyLink.jsx';
 import AttemptLink from '../components/quiz/AttemptLink.jsx';
 import QuizChip from '../components/quiz/QuizChip.jsx';
 import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
-import { formatDateTime } from '../lib/formatDate.js';
+import { workLinkText } from '../lib/workLink.js';
 import SubmissionComments from '../components/SubmissionComments.jsx';
 import SubmissionFiles, { hasNativeSubmission } from '../components/SubmissionFiles.jsx';
 import { timelineSummary } from '../lib/submissionTimeline.js';
@@ -640,7 +640,7 @@ export function RubricModal({
 }) {
   const name = preferredFirstName(student);
   const fullName = `${name} ${student.last_name}`;
-  // The student's own OneDrive copy (#120), looked up when the modal opens —
+  // The student's own OneDrive (#120) or Google Drive (#142) copy, looked up when the modal opens —
   // the whole assignment's links come back (cached server-side), keep ours.
   const [workLink, setWorkLink] = useState(null);
   useEffect(() => {
@@ -682,8 +682,7 @@ export function RubricModal({
         <SchoologyLink
           url={workLink.url}
           label="Open"
-          ariaLabel={`Open ${fullName}'s work in OneDrive`}
-          title={`Open ${fullName}'s work in OneDrive: last edited ${formatDateTime(workLink.modifiedAt)}`}
+          {...workLinkText(workLink, fullName)}
           style={{ fontSize: '0.78rem', fontWeight: 600 }}
         />
       )}

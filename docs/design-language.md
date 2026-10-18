@@ -758,6 +758,14 @@ or submitted, in PowerPoint/Word Online.
   so the header shows a muted "Finding OneDrive files…" while it runs and
   "OneDrive links unavailable" (with a tooltip on how to fix it) if it fails.
   It never shows a per-card error.
+- **Google Drive tasks (October 2026, #142):** the same "Open" link, in the
+  same place, on the card and in the gradebook modal. The accessible name and
+  tooltip name the store ("Open {student}'s work in Google Drive: submitted
+  {date}"), so the one label works for both apps. Drive links show only once
+  the student has submitted. The header's loading note became the neutral
+  "Finding students' files…", because the app isn't known until the lookup
+  answers. The failure note names whichever store failed. Wording lives in
+  `client/src/lib/workLink.js`.
 
 **Gradebook submission modal (September 2026, #120).** The modal is about one
 student's work, so its outbound link is that student's own file: the same

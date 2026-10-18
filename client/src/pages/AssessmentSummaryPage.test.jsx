@@ -771,6 +771,28 @@ describe('AssessmentSummaryPage — OneDrive work links (#120)', () => {
     renderPage();
     expect(await screen.findByText(/onedrive links unavailable/i)).toBeInTheDocument();
   });
+
+  it('Google Drive (#142): the card opens the submitted copy through Schoology, labelled Google Drive', async () => {
+    const url = 'https://schoology.hkis.edu.hk/apps/lti/1073361950/run/assignment/8?context=assignment_submission&custom_parameters[in_edit_mode]=true&studentId=1';
+    getMasteryForAssignment.mockResolvedValue(makeData({ is_lti_submission: 1 }));
+    getSubmissionLinks.mockResolvedValue({
+      status: 'ok', provider: 'google_drive',
+      links: { 'uid-1': { url, provider: 'google_drive', submittedAt: '2023-03-16T05:52:00.000Z' } },
+    });
+    renderPage();
+    const link = await screen.findByRole('link', { name: /open ada lovelace's work in google drive/i });
+    expect(link).toHaveAttribute('href', url);
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link.getAttribute('title')).toMatch(/submitted 16\/03\/2023/);
+    expect(screen.queryByRole('link', { name: /onedrive/i })).not.toBeInTheDocument();
+  });
+
+  it('Google Drive: a failed lookup names Google Drive in the header', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData({ is_lti_submission: 1 }));
+    getSubmissionLinks.mockResolvedValue({ status: 'session_expired', provider: 'google_drive', links: {} });
+    renderPage();
+    expect(await screen.findByText(/google drive links unavailable/i)).toBeInTheDocument();
+  });
 });
 
 describe('Native dropbox files (#107)', () => {

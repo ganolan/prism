@@ -13,6 +13,8 @@ import { toSchoologyWebUrl } from '../lib/schoologyWebUrl.js';
 import { levelToGradeScaled, gradeScaledValues, pointsToLevel, LEVELS } from '../lib/proficiencyScale.js';
 import { getAssignmentFiles } from '../services/oneDriveLinks.js';
 import { matchFilesToRoster } from '../lib/oneDriveSubmissions.js';
+import { getLtiSubmissionApp, getSubmittedDocuments } from '../services/ltiSubmissionApps.js';
+import { driveLinksForSubmitted, GOOGLE_DRIVE, ONEDRIVE, OTHER_APP } from '../lib/ltiSubmissionApp.js';
 import { epochToLocalDate } from '../lib/schoolDays.js';
 import { sessionStatus, resetSessionStatusCache } from '../services/schoologySession.js';
 import { canUnsubmit } from '../services/ltiUnsubmit.js';
@@ -446,12 +448,17 @@ router.post('/:courseId/write', async (req, res) => {
 });
 
 // GET /api/mastery/:courseId/assignment/:assignmentId/submission-links[?refresh=1]
-// On-demand links to each student's OneDrive copy of an lti_submission
-// assignment — in progress or submitted (#120). Lists the teacher's OneDrive via
-// the browser session (a few seconds; cached briefly) and keys files to students
-// by the name leading each filename. → { status, links: { [uid]: { url, fileName,
-// modifiedAt } } }; status 'ok' | 'not_lti' | 'no_folder' | 'no_session' |
-// 'sso_failed' | 'error'. Anything but 'ok' carries no links.
+// On-demand links to each student's own copy of an lti_submission assignment.
+// The app behind the task is read from the assignment page, never assumed (#142):
+//  - Google Drive: Schoology's own "open in a new tab" launch URL per student,
+//    for the students in the grader's submitted list (two plain-HTTP reads; the
+//    teacher's browser runs the launch and lands on the Drive file).
+//  - OneDrive (or the app couldn't be read): the teacher's OneDrive listing via
+//    the browser session, in progress or submitted, keyed by the name leading
+//    each filename (#120; a few seconds, cached briefly).
+// → { status, provider, links: { [uid]: { url, provider, modifiedAt? | submittedAt? } } };
+// status 'ok' | 'not_lti' | 'unsupported_app' | 'no_folder' | 'no_session' |
+// 'session_expired' | 'sso_failed' | 'error'. Anything but 'ok' carries no links.
 router.get('/:courseId/assignment/:assignmentId/submission-links', async (req, res) => {
   const { courseId, assignmentId } = req.params;
   const db = getDb();
@@ -461,15 +468,32 @@ router.get('/:courseId/assignment/:assignmentId/submission-links', async (req, r
     'SELECT * FROM assignments WHERE schoology_assignment_id = ? AND course_id = ?'
   ).get(assignmentId, courseId);
   if (!assignmentRow?.is_lti_submission) return res.json({ status: 'not_lti', links: {} });
+  const refresh = req.query.refresh === '1';
+
+  const app = await getLtiSubmissionApp({ assignmentId, refresh });
+  if (app.status === 'ok' && app.provider === GOOGLE_DRIVE) {
+    const submitted = await getSubmittedDocuments({ assignmentId, refresh });
+    if (submitted.status !== 'ok') return res.json({ status: submitted.status, provider: GOOGLE_DRIVE, links: {} });
+    const roster = getRoster(db, courseId, assignmentRow);
+    const links = driveLinksForSubmitted(submitted.entries, roster, getSchoologyConfig().webBaseUrl, app.launchUrl);
+    return res.json({ status: 'ok', provider: GOOGLE_DRIVE, links });
+  }
+  if (app.status === 'ok' && app.provider === OTHER_APP) {
+    return res.json({ status: 'unsupported_app', provider: OTHER_APP, links: {} });
+  }
 
   const result = await getAssignmentFiles({
     sectionId: course.schoology_section_id,
     assignmentId,
-    refresh: req.query.refresh === '1',
+    refresh,
   });
-  if (result.status !== 'ok') return res.json({ status: result.status, links: {} });
+  if (result.status !== 'ok') return res.json({ status: result.status, provider: ONEDRIVE, links: {} });
   const roster = getRoster(db, courseId, assignmentRow);
-  res.json({ status: 'ok', links: matchFilesToRoster(result.files, roster, result.origin) });
+  const links = {};
+  for (const [uid, link] of Object.entries(matchFilesToRoster(result.files, roster, result.origin))) {
+    links[uid] = { ...link, provider: ONEDRIVE };
+  }
+  res.json({ status: 'ok', provider: ONEDRIVE, links });
 });
 
 // GET /api/mastery/:courseId/assignment/:assignmentId

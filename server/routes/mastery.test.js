@@ -29,6 +29,7 @@ vi.mock('../services/schoology.js', () => ({
 }));
 // The OneDrive lookup drives a real browser — never launch one in tests (#120).
 vi.mock('../services/oneDriveLinks.js', () => ({ getAssignmentFiles: vi.fn() }));
+vi.mock('../services/ltiSubmissionApps.js', () => ({ getLtiSubmissionApp: vi.fn(), getSubmittedDocuments: vi.fn() }));
 
 import router from './mastery.js';
 import triageRouter from './triage.js';
@@ -37,6 +38,7 @@ import { saveRowLevels } from '../services/feedbackRows.js';
 import { getMasteryForCourse, writeMasteryScoresBatch, writeMasteryOverride } from '../services/masterySync.js';
 import { getSectionGrades, pushGradeComments } from '../services/schoology.js';
 import { getAssignmentFiles } from '../services/oneDriveLinks.js';
+import { getLtiSubmissionApp, getSubmittedDocuments } from '../services/ltiSubmissionApps.js';
 import { requestResubmission, resubmissionByStudent } from '../services/resubmissions.js';
 import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
 import { publishStatusLine } from '../services/statusLinePublisher.js';
@@ -1693,8 +1695,19 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId/submission-links (
   });
   let courseId;
 
+  const ONEDRIVE_APP = {
+    status: 'ok', appId: '1078786112', provider: 'onedrive', targetHost: 'lti-submission-microsoft.app.schoology.com',
+    launchUrl: '/apps/lti/1078786112/run/assignment/sa-lti?context=assignment_submission',
+  };
+  const DRIVE_APP = {
+    status: 'ok', appId: '1073361950', provider: 'google_drive', targetHost: 'lti-submission-google.app.schoology.com',
+    launchUrl: '/apps/lti/1073361950/run/assignment/sa-lti?context=assignment_submission',
+  };
+
   beforeEach(() => {
     vi.mocked(getAssignmentFiles).mockReset();
+    vi.mocked(getLtiSubmissionApp).mockReset().mockResolvedValue(ONEDRIVE_APP);
+    vi.mocked(getSubmittedDocuments).mockReset();
     const db = getDb();
     db.exec(
       'DELETE FROM feedback_snapshots; DELETE FROM mastery_rollups; DELETE FROM mastery_scores; DELETE FROM mastery_alignments; ' +
@@ -1705,7 +1718,7 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId/submission-links (
     courseId = db.prepare(
       `INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-L', 'Course')`
     ).run().lastInsertRowid;
-    for (const [uid, first, last] of [['uid-A', 'Alison', 'Cheng'], ['uid-G', 'Garmin', 'Ho']]) {
+    for (const [uid, first, last] of [['101', 'Alison', 'Cheng'], ['102', 'Garmin', 'Ho']]) {
       const sid = db.prepare('INSERT INTO students (schoology_uid, first_name, last_name) VALUES (?, ?, ?)').run(uid, first, last).lastInsertRowid;
       db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, ?)`).run(sid, courseId, `e-${uid}`);
     }
@@ -1726,8 +1739,10 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId/submission-links (
     const { status, body } = await get(`/api/mastery/${courseId}/assignment/sa-lti/submission-links`);
     expect(status).toBe(200);
     expect(body.status).toBe('ok');
-    expect(Object.keys(body.links)).toEqual(['uid-A']);
-    expect(body.links['uid-A'].url).toBe(`${ORIGIN}${DIR}/Alison Cheng - Launch - 4299333.pptx?d=wabc`);
+    expect(body.provider).toBe('onedrive');
+    expect(Object.keys(body.links)).toEqual(['101']);
+    expect(body.links['101'].url).toBe(`${ORIGIN}${DIR}/Alison Cheng - Launch - 4299333.pptx?d=wabc`);
+    expect(body.links['101'].provider).toBe('onedrive');
     expect(getAssignmentFiles).toHaveBeenCalledWith({ sectionId: 'sec-L', assignmentId: 'sa-lti', refresh: false });
   });
 
@@ -1737,17 +1752,64 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId/submission-links (
     expect(getAssignmentFiles).toHaveBeenCalledWith(expect.objectContaining({ refresh: true }));
   });
 
-  test('non-lti assignments never touch OneDrive', async () => {
+  test('non-lti assignments never touch OneDrive or the assignment page', async () => {
     const { body } = await get(`/api/mastery/${courseId}/assignment/sa-native/submission-links`);
     expect(body).toEqual({ status: 'not_lti', links: {} });
     expect(getAssignmentFiles).not.toHaveBeenCalled();
+    expect(getLtiSubmissionApp).not.toHaveBeenCalled();
   });
 
   test('a lookup failure passes its status through with no links', async () => {
     vi.mocked(getAssignmentFiles).mockResolvedValue({ status: 'sso_failed' });
     const { status, body } = await get(`/api/mastery/${courseId}/assignment/sa-lti/submission-links`);
     expect(status).toBe(200);
-    expect(body).toEqual({ status: 'sso_failed', links: {} });
+    expect(body).toEqual({ status: 'sso_failed', provider: 'onedrive', links: {} });
+  });
+
+  test('when the app cannot be read, the OneDrive lookup still runs (the behaviour before #142)', async () => {
+    vi.mocked(getLtiSubmissionApp).mockResolvedValue({ status: 'error' });
+    vi.mocked(getAssignmentFiles).mockResolvedValue({ status: 'ok', origin: ORIGIN, files: [spFile('Alison Cheng - Launch - 4299333.pptx')] });
+    const { body } = await get(`/api/mastery/${courseId}/assignment/sa-lti/submission-links`);
+    expect(body.status).toBe('ok');
+    expect(Object.keys(body.links)).toEqual(['101']);
+  });
+
+  test('Google Drive (#142): launch links for the roster students who submitted, no OneDrive lookup', async () => {
+    vi.mocked(getLtiSubmissionApp).mockResolvedValue(DRIVE_APP);
+    vi.mocked(getSubmittedDocuments).mockResolvedValue({
+      status: 'ok',
+      entries: [
+        { id: 101, submissionStatus: 1, submissionDate: 'Thursday, March 16, 2023 at 1:52 pm' },
+        { id: 999, submissionStatus: 1, submissionDate: '' },
+      ],
+    });
+    const { status, body } = await get(`/api/mastery/${courseId}/assignment/sa-lti/submission-links?refresh=1`);
+    expect(status).toBe(200);
+    expect(body.status).toBe('ok');
+    expect(body.provider).toBe('google_drive');
+    expect(Object.keys(body.links)).toEqual(['101']);
+    expect(body.links['101']).toMatchObject({
+      provider: 'google_drive',
+      url: 'https://schoology.hkis.edu.hk/apps/lti/1073361950/run/assignment/sa-lti?context=assignment_submission' +
+        '&custom_parameters[in_edit_mode]=true&studentId=101',
+    });
+    expect(getLtiSubmissionApp).toHaveBeenCalledWith({ assignmentId: 'sa-lti', refresh: true });
+    expect(getSubmittedDocuments).toHaveBeenCalledWith({ assignmentId: 'sa-lti', refresh: true });
+    expect(getAssignmentFiles).not.toHaveBeenCalled();
+  });
+
+  test('Google Drive: a failed submitted-list read passes its status through with no links', async () => {
+    vi.mocked(getLtiSubmissionApp).mockResolvedValue(DRIVE_APP);
+    vi.mocked(getSubmittedDocuments).mockResolvedValue({ status: 'session_expired' });
+    const { body } = await get(`/api/mastery/${courseId}/assignment/sa-lti/submission-links`);
+    expect(body).toEqual({ status: 'session_expired', provider: 'google_drive', links: {} });
+  });
+
+  test('an app Prism does not know gets no links', async () => {
+    vi.mocked(getLtiSubmissionApp).mockResolvedValue({ ...DRIVE_APP, provider: 'other' });
+    const { body } = await get(`/api/mastery/${courseId}/assignment/sa-lti/submission-links`);
+    expect(body).toEqual({ status: 'unsupported_app', provider: 'other', links: {} });
+    expect(getAssignmentFiles).not.toHaveBeenCalled();
   });
 
   test('404 for an unknown course', async () => {

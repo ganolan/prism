@@ -65,6 +65,18 @@ describe('RubricModal — student work link (#120)', () => {
     renderModal();
     expect(getSubmissionLinks).not.toHaveBeenCalled();
   });
+
+  it('links to the student\'s submitted Google Drive copy through Schoology (#142)', async () => {
+    const url = 'https://schoology.hkis.edu.hk/apps/lti/1073361950/run/assignment/sa-1?context=assignment_submission&custom_parameters[in_edit_mode]=true&studentId=1';
+    getSubmissionLinks.mockResolvedValue({
+      status: 'ok', provider: 'google_drive',
+      links: { u1: { url, provider: 'google_drive', submittedAt: '2023-03-16T05:52:00.000Z' } },
+    });
+    renderModal({ assignment: { is_lti_submission: 1 } });
+    const link = await screen.findByRole('link', { name: /open ada lovelace's work in google drive/i });
+    expect(link).toHaveAttribute('href', url);
+    expect(link).toHaveAttribute('target', '_blank');
+  });
 });
 
 describe('RubricModal — comment', () => {

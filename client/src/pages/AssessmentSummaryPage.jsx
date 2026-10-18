@@ -37,6 +37,7 @@ import AssessmentFilterBar from '../components/AssessmentFilterBar.jsx';
 import { passesFilters, studentReasons, reasonText, reasonTone, TONE_VARS, REASONS, filterGroups, parseFilterParam } from '../lib/assessmentFilters.js';
 import { useStickyTab } from '../hooks/useStickyTab.js';
 import { formatDateTime } from '../lib/formatDate.js';
+import { workLinkText, workLinksStatusText } from '../lib/workLink.js';
 import { briefFlags, textSignature } from '../lib/reviewerFlags.js';
 import { receivedLine, composeComment, lineDate } from '../lib/statusLines.js';
 
@@ -1034,13 +1035,13 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           {displayName(student)}
         </Link>
         <SubmissionStatusPill student={student} assignment={assignmentRow} />
-        {/* The student's own OneDrive copy — in progress or submitted (#120). */}
+        {/* The student's own copy: OneDrive, in progress or submitted (#120), or
+            Google Drive once submitted (#142). */}
         {submissionLink && (
           <SchoologyLink
             url={submissionLink.url}
             label="Open"
-            ariaLabel={`Open ${displayName(student)}'s work in OneDrive`}
-            title={`Open ${displayName(student)}'s work in OneDrive: last edited ${formatDateTime(submissionLink.modifiedAt)}`}
+            {...workLinkText(submissionLink, displayName(student))}
             style={{ fontSize: '0.78rem', fontWeight: 600 }}
           />
         )}
@@ -1882,6 +1883,7 @@ export default function AssessmentSummaryPage() {
   // Per-student OneDrive work links for lti_submission assignments (#120).
   // Loaded after the page (the server drives a browser, so it takes seconds).
   const [workLinks, setWorkLinks] = useState({ status: null, links: {} });
+  const workLinksNote = workLinksStatusText(workLinks);
   const [commentSummaries, setCommentSummaries] = useState(null);
   const commentPoll = useRef(null);
   // Native dropbox file chips (#107): cached counts only; a chip reads the
@@ -2164,7 +2166,7 @@ export default function AssessmentSummaryPage() {
     const settle = (next) => { if (req === workLinksReq.current) setWorkLinks(next); };
     setWorkLinks(prev => ({ ...prev, status: 'loading' }));
     getSubmissionLinks(courseId, assignmentId, { refresh })
-      .then(r => settle({ status: r.status, links: r.links || {} }))
+      .then(r => settle({ status: r.status, provider: r.provider || null, links: r.links || {} }))
       .catch(() => settle({ status: 'error', links: {} }));
   }
 
@@ -2347,13 +2349,9 @@ export default function AssessmentSummaryPage() {
           {refreshResult && (
             <span className="text-sm text-muted" style={{ fontSize: '0.75rem' }}>{refreshResult}</span>
           )}
-          {workLinks.status === 'loading' && (
-            <span className="text-sm text-muted" style={{ fontSize: '0.75rem' }}>Finding OneDrive files…</span>
-          )}
-          {['no_session', 'sso_failed', 'error'].includes(workLinks.status) && (
-            <span className="text-sm text-muted" style={{ fontSize: '0.75rem' }}
-              title="Prism couldn't read your OneDrive through the saved Schoology session. Refresh to retry; if it keeps failing, log in again (npm run mastery:login).">
-              OneDrive links unavailable
+          {workLinksNote && (
+            <span className="text-sm text-muted" style={{ fontSize: '0.75rem' }} title={workLinksNote.title}>
+              {workLinksNote.text}
             </span>
           )}
 

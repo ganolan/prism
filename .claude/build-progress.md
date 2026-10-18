@@ -1472,3 +1472,9 @@ submission comments.
 - **Verified live on a dev server:** Prism's page: POST 200, PUT 200. A page served from another port: reading `/api/courses` blocked by the browser; a no-cors POST refused (logged). curl without `Origin`: 200.
 - **Tests:** `originGuard.test.js` (7), `getServerConfig` (2), `devProxy.test.js` (1 new).
 
+## Time per phase in Settings, Recent syncs (#165, 2026-10-18)
+
+- **Link run to metrics:** `sync_runs` has no key to `sync_metrics`. The orchestrator writes the same times to both: the metrics row, and the run's own stored events (each finished phase's `elapsedMs`, the summary's `phaseMs`). Recent syncs reads them from the run's events, so no schema or API change.
+- **Client:** an expanded run shows "Time per phase" above its log (`PhaseTimings.jsx`, now shared with the sync dialog's foot; `.sync-run-timings`). Only when the run finished and its summary carries `phaseMs`: a running or interrupted run, or one before #143 (only blocks was timed then), shows nothing extra.
+- **Verified live on a dev server (copy of prod's DB plus one synthetic timed run):** the timed run lists six lines in the dialog's order and format at desktop and 390 px; a real pre-#143 prod run shows its log only.
+- **Tests:** `RecentSyncs.test.jsx` (5 new), `syncRuns.test.js` (1 new: stored events keep `elapsedMs` and `phaseMs`).

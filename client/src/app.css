@@ -1473,6 +1473,9 @@ button.ghost.sync-run-row {
   padding: 0.5rem 0.65rem; font-family: ui-monospace, monospace;
   font-size: 0.74rem; line-height: 1.55; max-height: 320px; overflow-y: auto;
 }
+/* #165: an expanded run's time per phase, above its log (the dialog's .sync-timings list). */
+.sync-run-timings { display: flex; flex-direction: column; gap: 0.15rem; max-width: 22rem; margin: 0.25rem 0 0.4rem; padding: 0 0.35rem; }
+.sync-run-timings-title { font-weight: 600; }
 .sync-run-line { display: flex; gap: 0.5rem; align-items: baseline; padding: 0 0.2rem; border-radius: 3px; }
 .sync-run-line-time { color: var(--text-muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .sync-run-line-icon { width: 1rem; flex-shrink: 0; text-align: center; }

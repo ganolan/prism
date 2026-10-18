@@ -61,6 +61,75 @@ describe('RecentSyncs', () => {
     expect(screen.queryByRole('log')).not.toBeInTheDocument();
   });
 
+  describe('time per phase (#165)', () => {
+    const TIMED_RUN = {
+      ...RUNS[2],
+      events: [
+        { seq: 1, at: '2026-09-29T09:00:01Z', phase: 'schoology', status: 'running', level: null },
+        { seq: 2, at: '2026-09-29T09:00:20Z', phase: 'schoology', status: 'done', records: 4, elapsedMs: 19000, level: null },
+        { seq: 3, at: '2026-09-29T09:00:29Z', phase: 'blocks', status: 'done', records: 3, elapsedMs: 8500, level: null },
+        { seq: 4, at: '2026-09-29T09:00:35Z', phase: 'mastery', courseId: 5, courseName: 'Course A', status: 'done', records: 7, elapsedMs: 6000, level: null },
+        { seq: 5, at: '2026-09-29T09:00:39Z', phase: 'mastery', courseId: 6, courseName: 'Course B', status: 'error', message: 'Not logged in', elapsedMs: 4000, level: 'error' },
+        { seq: 6, at: '2026-09-29T09:00:40Z', type: 'summary', elapsedMs: 40000, phaseMs: { schoology: 19000, blocks: 8500, alerts: null, mastery: 10000, comments: null, quizzes: null }, level: null },
+      ],
+    };
+
+    async function expand(label) {
+      fireEvent.click((await screen.findByText(label)).closest('button'));
+      await screen.findByRole('log');
+    }
+
+    it('an expanded run lists each phase it timed, as the sync dialog does', async () => {
+      api.getSyncRun.mockResolvedValue(TIMED_RUN);
+      render(<RecentSyncs />);
+      await expand('Completed');
+      const list = await screen.findByRole('list', { name: 'Time per phase' });
+      const lines = within(list).getAllByRole('listitem').map((li) => li.textContent);
+      expect(lines).toEqual([
+        'Schoology data19s',
+        'PowerSchool blocks8.5s',
+        'Mastery · Course A6.0s',
+        'Mastery · Course B4.0s',
+      ]);
+      expect(document.getElementById('sync-run-log-1')).toContainElement(list);
+    });
+
+    it('shows no phase times for a run that never stored them (interrupted)', async () => {
+      api.getSyncRun.mockResolvedValue({ ...RUNS[3], events: TIMED_RUN.events.slice(0, 3) });
+      render(<RecentSyncs />);
+      await expand('Interrupted');
+      expect(screen.queryByRole('list', { name: 'Time per phase' })).not.toBeInTheDocument();
+    });
+
+    it('shows no phase times while a run is still going', async () => {
+      api.getSyncRun.mockResolvedValue({ ...RUNS[0], events: TIMED_RUN.events.slice(0, 3) });
+      render(<RecentSyncs refreshMs={60000} />);
+      await expand('Running…');
+      expect(screen.queryByRole('list', { name: 'Time per phase' })).not.toBeInTheDocument();
+    });
+
+    it('shows nothing extra for a run logged before phase times were kept', async () => {
+      render(<RecentSyncs />);
+      await expand('Completed with 2 errors');
+      expect(screen.queryByRole('list', { name: 'Time per phase' })).not.toBeInTheDocument();
+      expect(screen.queryByText('Time per phase')).not.toBeInTheDocument();
+    });
+
+    it('shows nothing for a run before #143 whose blocks phase alone was timed', async () => {
+      api.getSyncRun.mockResolvedValue({
+        ...RUNS[2],
+        events: [
+          { seq: 1, at: '2026-09-29T09:00:20Z', phase: 'schoology', status: 'done', records: 4, level: null },
+          { seq: 2, at: '2026-09-29T09:00:29Z', phase: 'blocks', status: 'done', records: 3, elapsedMs: 9887, level: null },
+          { seq: 3, at: '2026-09-29T09:00:40Z', type: 'summary', elapsedMs: 40000, level: null },
+        ],
+      });
+      render(<RecentSyncs />);
+      await expand('Completed');
+      expect(screen.queryByRole('list', { name: 'Time per phase' })).not.toBeInTheDocument();
+    });
+  });
+
   it('shows an empty state when nothing has been recorded yet', async () => {
     api.getSyncRuns.mockResolvedValue([]);
     render(<RecentSyncs />);

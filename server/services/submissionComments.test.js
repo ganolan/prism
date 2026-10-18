@@ -10,7 +10,7 @@ vi.mock('./schoology.js', () => ({
 import { getDb } from '../db/index.js';
 import {
   commentDeps, resetCommentCaches, threadFor, refreshAssignment, refreshStudent, postComment, deleteComment, studentsToRefresh, CommentError,
-  postCommentWithFile, commentFile, markThreadSeen,
+  postCommentWithFile, commentFile, markThreadSeen, refreshRecentComments,
 } from './submissionComments.js';
 import { readThread, summariesForCourse, summariesForStudent } from './submissionCommentStore.js';
 import { fakeSchoologyWeb } from '../testing/fakeSchoologyWeb.js';
@@ -142,6 +142,21 @@ describe('unread student comments', () => {
     const t = await threadFor(db, { assignmentId: '8590105935', studentId: ana, force: true });
     expect(t.summary.unread).toBe(1);
     expect(t.comments.find((c) => c.id === '3').unread).toBe(true);
+  });
+});
+
+describe('refreshRecentComments (Sync\'s Comments phase)', () => {
+  test('reads recent dropbox tasks in current courses; skips OneDrive/Google Drive, old and archived work', async () => {
+    const db = getDb(); const { courseId, assignmentId } = seed(db);
+    // seed's grades: Ana and Ben submitted at 1792300000, within 30 days of the clock (1792400000).
+    const lti = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, is_lti_submission, due_date) VALUES (?, 'lti-1', 'OneDrive task', 1, '2026-10-15 15:00:00')`).run(courseId).lastInsertRowid;
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date) VALUES (?, 'old-1', 'Old task', '2026-01-10 15:00:00')`).run(courseId);
+    const r = await refreshRecentComments(db);
+    expect(r).toEqual({ assignments: 1, refreshed: 2, failed: 0 }); // Flappy Bird: Ana and Ben
+    expect(readThread(db, { assignmentId, studentId: db.prepare(`SELECT id FROM students WHERE schoology_uid = '555'`).get().id }).read_at).not.toBeNull();
+    expect(db.prepare('SELECT COUNT(*) AS n FROM submission_comment_reads WHERE assignment_id = ?').get(lti).n).toBe(0);
+    db.prepare('UPDATE courses SET archived = 1').run();
+    expect(await refreshRecentComments(db)).toEqual({ assignments: 0, refreshed: 0, failed: 0 });
   });
 });
 

@@ -2,6 +2,7 @@ import { getDb } from '../db/index.js';
 import { fullSync } from './sync.js';
 import { syncMasteryForCourse } from './masterySync.js';
 import { refreshRecentQuizzes } from './quizRefresh.js';
+import { refreshRecentComments } from './submissionComments.js';
 import { getFeatures } from '../middleware/featureGate.js';
 import { syncPsAttendance } from './psAttendanceSync.js';
 import { syncPsAlerts } from './psAlertsSync.js';
@@ -26,7 +27,7 @@ export function classifyMasteryError(err) {
 //   { type:'log', message }
 //   { type:'summary', schoology, blocks, mastery, quizzes, phaseMs, elapsedMs, fatal? }
 // Every finished phase event (done or error) carries its own elapsedMs, and the
-// summary's phaseMs holds { schoology, blocks, alerts, mastery, quizzes } wall time
+// summary's phaseMs holds { schoology, blocks, alerts, mastery, comments, quizzes } wall time
 // (null = the phase did not run; mastery = the sum over its courses). The same
 // times are stored on a sync_metrics row (#143, for the #108 lazy-or-eager
 // decision).
@@ -37,8 +38,8 @@ export async function runUnifiedSync(
   const emit = (evt) => onEvent?.(evt);
   const db = getDb();
   const startedAt = Date.now();
-  const summary = { schoology: null, blocks: null, alerts: null, mastery: [], quizzes: null };
-  const phaseMs = { schoology: null, blocks: null, alerts: null, mastery: null, quizzes: null };
+  const summary = { schoology: null, blocks: null, alerts: null, mastery: [], comments: null, quizzes: null };
+  const phaseMs = { schoology: null, blocks: null, alerts: null, mastery: null, comments: null, quizzes: null };
   summary.phaseMs = phaseMs;
   let metricsId = null;
 
@@ -175,6 +176,28 @@ export async function runUnifiedSync(
     }
   }
 
+  // Submission comments (18/10/2026): read recent threads so unread student comments
+  // show everywhere, not only on tasks opened in Prism since. Best effort, like quizzes:
+  // a failure is reported in the run and never fails the sync.
+  if (!skipSchoology && getFeatures().submission_comments) {
+    emit({ phase: 'comments', status: 'running' });
+    const commentsStartedAt = Date.now();
+    try {
+      const r = await refreshRecentComments(db, {
+        onAssignment: (a) => a.queued && emit({ type: 'log', message: `[comments] ${a.title}: ${a.refreshed} read${a.failed ? `, ${a.failed} failed` : ''}` }),
+      });
+      phaseMs.comments = Date.now() - commentsStartedAt;
+      summary.comments = { ...r, elapsedMs: phaseMs.comments };
+      emit(r.failed
+        ? { phase: 'comments', status: 'error', message: `${r.failed} comment threads not read (${r.refreshed} read)`, elapsedMs: phaseMs.comments }
+        : { phase: 'comments', status: 'done', records: r.refreshed, elapsedMs: phaseMs.comments });
+    } catch (err) {
+      phaseMs.comments = Date.now() - commentsStartedAt;
+      summary.comments = { error: err.message, elapsedMs: phaseMs.comments };
+      emit({ phase: 'comments', status: 'error', message: err.message, elapsedMs: phaseMs.comments });
+    }
+  }
+
   // Spec §12: the nightly run reloads loaded quizzes that students sat in the last 28 days. Best effort: a
   // failure is reported in the run and never fails the sync.
   if (refreshQuizzes && getFeatures().quizzes) {
@@ -205,16 +228,16 @@ export async function runUnifiedSync(
 // on it; any other run (Schoology skipped or failed) gets a row of its own.
 // Best-effort: a metrics write never fails the sync.
 export function recordPhaseTimings(db, { metricsId, startedAt, phaseMs, totalMs }) {
-  const values = [phaseMs.schoology, phaseMs.blocks, phaseMs.alerts ?? null, phaseMs.mastery, phaseMs.quizzes, totalMs];
+  const values = [phaseMs.schoology, phaseMs.blocks, phaseMs.alerts ?? null, phaseMs.mastery, phaseMs.comments ?? null, phaseMs.quizzes, totalMs];
   try {
     if (metricsId != null) {
       const updated = db.prepare(
-        `UPDATE sync_metrics SET schoology_ms = ?, blocks_ms = ?, alerts_ms = ?, mastery_ms = ?, quizzes_ms = ?, total_ms = ? WHERE id = ?`
+        `UPDATE sync_metrics SET schoology_ms = ?, blocks_ms = ?, alerts_ms = ?, mastery_ms = ?, comments_ms = ?, quizzes_ms = ?, total_ms = ? WHERE id = ?`
       ).run(...values, metricsId).changes;
       if (updated) return;
     }
     db.prepare(
-      `INSERT INTO sync_metrics (started_at, schoology_ms, blocks_ms, alerts_ms, mastery_ms, quizzes_ms, total_ms) VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO sync_metrics (started_at, schoology_ms, blocks_ms, alerts_ms, mastery_ms, comments_ms, quizzes_ms, total_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(new Date(startedAt).toISOString(), ...values);
   } catch (err) {
     console.error('[sync] could not record phase timings:', err.message);

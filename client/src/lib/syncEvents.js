@@ -49,6 +49,13 @@ export function reduceSyncEvents(events) {
       if (evt.errorKind) p.errorKind = evt.errorKind;
       if (evt.message) p.message = evt.message;
       if (evt.elapsedMs != null) p.elapsedMs = evt.elapsedMs;
+    } else if (evt.phase === 'comments') {
+      let p = find('comments');
+      if (!p) { p = { key: 'comments', kind: 'comments', label: 'Submission comments' }; phases.push(p); }
+      p.status = evt.status;
+      if (evt.records != null) p.records = evt.records;
+      if (evt.message) p.message = evt.message;
+      if (evt.elapsedMs != null) p.elapsedMs = evt.elapsedMs;
     } else if (evt.phase === 'quizzes') {
       let p = find('quizzes');
       if (!p) { p = { key: 'quizzes', kind: 'quizzes', label: 'Quiz results' }; phases.push(p); }

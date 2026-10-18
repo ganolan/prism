@@ -119,7 +119,7 @@ router.get('/sync/metrics', (req, res) => {
            submission_calls, rate_limit_hits, transient_failures,
            retries_attempted, retries_succeeded, retries_failed,
            concurrency, rate_per_sec, abandoned, sections_skipped, failed_assignment_ids,
-           schoology_ms, blocks_ms, alerts_ms, mastery_ms, quizzes_ms, total_ms
+           schoology_ms, blocks_ms, alerts_ms, mastery_ms, comments_ms, quizzes_ms, total_ms
     FROM sync_metrics
     ORDER BY id DESC
     LIMIT 1

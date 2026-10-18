@@ -14,6 +14,7 @@ vi.mock('./masterySync.js', () => ({ syncMasteryForCourse: vi.fn() }));
 vi.mock('./psAttendanceSync.js', () => ({ syncPsAttendance: vi.fn() }));
 vi.mock('./psAlertsSync.js', () => ({ syncPsAlerts: vi.fn() }));
 vi.mock('./quizRefresh.js', () => ({ refreshRecentQuizzes: vi.fn() }));
+vi.mock('./submissionComments.js', () => ({ refreshRecentComments: vi.fn() }));
 vi.mock('../middleware/featureGate.js', async (orig) => ({ ...(await orig()), getFeatures: () => h.features }));
 
 import { fullSync } from './sync.js';
@@ -21,6 +22,7 @@ import { syncMasteryForCourse } from './masterySync.js';
 import { syncPsAttendance } from './psAttendanceSync.js';
 import { syncPsAlerts } from './psAlertsSync.js';
 import { refreshRecentQuizzes } from './quizRefresh.js';
+import { refreshRecentComments } from './submissionComments.js';
 import { runUnifiedSync, classifyMasteryError } from './syncOrchestrator.js';
 
 function seedCourse(db, name) {
@@ -314,13 +316,27 @@ describe('runUnifiedSync — per-phase timing (#143)', () => {
     'SELECT schoology_ms, blocks_ms, mastery_ms, quizzes_ms, total_ms FROM sync_metrics ORDER BY id'
   ).all();
 
+  test('with submission comments on, a Comments phase reads recent threads and records its time', async () => {
+    h.features = { quizzes: true, submission_comments: true };
+    refreshRecentComments.mockReset();
+    refreshRecentComments.mockImplementation(async () => { advance(7_000); return { assignments: 3, refreshed: 12, failed: 0 }; });
+    const events = [];
+    const summary = await runUnifiedSync({ syncBlocks: false }, (e) => events.push(e));
+    expect(refreshRecentComments).toHaveBeenCalledTimes(1);
+    expect(summary.phaseMs.comments).toBe(7_000);
+    expect(summary.comments).toEqual({ assignments: 3, refreshed: 12, failed: 0, elapsedMs: 7_000 });
+    expect(events).toContainEqual({ phase: 'comments', status: 'done', records: 12, elapsedMs: 7_000 });
+    expect(h.db.prepare('SELECT comments_ms FROM sync_metrics ORDER BY id DESC LIMIT 1').get().comments_ms).toBe(7_000);
+    h.features = { quizzes: true };
+  });
+
   test('the summary carries an elapsedMs for every phase that ran', async () => {
     const c1 = seedCourse(h.db, 'Bio');
     const c2 = seedCourse(h.db, 'Chem');
     const events = [];
     const summary = await runUnifiedSync({ masteryCourseIds: [c1, c2], refreshQuizzes: true }, (e) => events.push(e));
 
-    expect(summary.phaseMs).toEqual({ schoology: 60_000, blocks: 8_500, alerts: null, mastery: 40_000, quizzes: 4_000 });
+    expect(summary.phaseMs).toEqual({ schoology: 60_000, blocks: 8_500, alerts: null, mastery: 40_000, comments: null, quizzes: 4_000 });
     expect(summary.schoology.elapsedMs).toBe(60_000);
     expect(summary.blocks.elapsedMs).toBe(8_500);
     expect(summary.mastery.map((m) => m.elapsedMs)).toEqual([20_000, 20_000]);
@@ -348,14 +364,14 @@ describe('runUnifiedSync — per-phase timing (#143)', () => {
     refreshRecentQuizzes.mockImplementation(async () => { advance(1_000); throw new Error('HTTP 500'); });
     const events = [];
     const summary = await runUnifiedSync({ refreshQuizzes: true }, (e) => events.push(e));
-    expect(summary.phaseMs).toEqual({ schoology: 60_000, blocks: 3_000, alerts: null, mastery: null, quizzes: 1_000 });
+    expect(summary.phaseMs).toEqual({ schoology: 60_000, blocks: 3_000, alerts: null, mastery: null, comments: null, quizzes: 1_000 });
     expect(events.find((e) => e.phase === 'blocks' && e.status === 'error').elapsedMs).toBe(3_000);
     expect(events.find((e) => e.phase === 'quizzes' && e.status === 'error').elapsedMs).toBe(1_000);
   });
 
   test('a phase that did not run has a null time', async () => {
     const summary = await runUnifiedSync({ syncBlocks: false }, () => {});
-    expect(summary.phaseMs).toEqual({ schoology: 60_000, blocks: null, alerts: null, mastery: null, quizzes: null });
+    expect(summary.phaseMs).toEqual({ schoology: 60_000, blocks: null, alerts: null, mastery: null, comments: null, quizzes: null });
   });
 
   test('a fatal Schoology failure still reports how long it ran', async () => {

@@ -68,6 +68,7 @@ const MIGRATIONS = [
   `ALTER TABLE sync_metrics ADD COLUMN alerts_ms INTEGER`,
   `ALTER TABLE sync_metrics ADD COLUMN mastery_ms INTEGER`,
   `ALTER TABLE sync_metrics ADD COLUMN quizzes_ms INTEGER`,
+  `ALTER TABLE sync_metrics ADD COLUMN comments_ms INTEGER`,
   `ALTER TABLE sync_metrics ADD COLUMN total_ms INTEGER`,
   // #70: marks an archived course as finalised (mastery attempted with a browser
   // session present). Null = not yet captured → eligible for backfill.

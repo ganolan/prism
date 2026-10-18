@@ -14,6 +14,14 @@ describe('reduceSyncEvents', () => {
     expect(phases[1]).toMatchObject({ kind: 'mastery', courseId: 5, status: 'done', records: 7 });
   });
 
+  it('a Comments phase (submission comment threads) is tracked with its count and time', () => {
+    const { phases } = reduceSyncEvents([
+      { phase: 'comments', status: 'running' },
+      { phase: 'comments', status: 'done', records: 12, elapsedMs: 7000 },
+    ]);
+    expect(phases).toEqual([expect.objectContaining({ key: 'comments', kind: 'comments', label: 'Submission comments', status: 'done', records: 12, elapsedMs: 7000 })]);
+  });
+
   it('#117: an alerts phase is tracked like the blocks phase', () => {
     const { phases, failures } = reduceSyncEvents([
       { phase: 'alerts', status: 'running' },

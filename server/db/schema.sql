@@ -195,6 +195,7 @@ CREATE TABLE IF NOT EXISTS sync_metrics (
   blocks_ms INTEGER,
   alerts_ms INTEGER,                  -- PowerSchool alerts phase (#117)
   mastery_ms INTEGER,
+  comments_ms INTEGER,
   quizzes_ms INTEGER,
   total_ms INTEGER
 );

@@ -51,6 +51,7 @@ function phaseLabel(evt) {
   if (evt.phase === 'schoology') return 'Schoology data';
   if (evt.phase === 'blocks') return 'PowerSchool blocks';
   if (evt.phase === 'alerts') return 'PowerSchool alerts';
+  if (evt.phase === 'comments') return 'Submission comments';
   if (evt.phase === 'quizzes') return 'Quiz results';
   if (evt.phase === 'mastery') return `Mastery · ${evt.courseName || `course ${evt.courseId}`}`;
   return evt.phase;

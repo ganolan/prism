@@ -9,3 +9,12 @@ export function devApiTarget(env = process.env) {
   const port = String(env.PORT ?? '').trim() || '3001';
   return `http://localhost:${port}`;
 }
+
+/**
+ * The /api proxy. changeOrigin rewrites Host to the API's port, so xfwd passes the
+ * page's own host on as X-Forwarded-Host: the API's write guard
+ * (server/middleware/originGuard.js) checks the page's Origin against it.
+ */
+export function devApiProxy(env = process.env) {
+  return { target: devApiTarget(env), changeOrigin: true, xfwd: true };
+}

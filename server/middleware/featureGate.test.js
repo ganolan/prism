@@ -67,3 +67,22 @@ describe('getSyncConfig', () => {
     unlinkSync(path);
   });
 });
+
+describe('getServerConfig (originGuard)', () => {
+  test('config.yaml lists prod\'s tailnet address as an allowed origin', async () => {
+    process.env.CONFIG_PATH = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'config.yaml');
+    vi.resetModules();
+    const { getServerConfig } = await import('./featureGate.js?_=' + Date.now());
+    expect(getServerConfig().allowedOrigins).toContain('https://prism.swordtail-everest.ts.net');
+  });
+
+  test('no server section: no extra origins', async () => {
+    const path = join(tmpdir(), `cfg-${Date.now()}-${Math.random()}.yaml`);
+    writeFileSync(path, 'features:\n  schoology_sync: true\n');
+    process.env.CONFIG_PATH = path;
+    vi.resetModules();
+    const { getServerConfig } = await import('./featureGate.js?_=' + Date.now());
+    expect(getServerConfig().allowedOrigins).toEqual([]);
+    unlinkSync(path);
+  });
+});

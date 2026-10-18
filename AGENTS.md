@@ -59,6 +59,7 @@ npm run test:api   # Schoology API smoke test
 - **Local-first app** with React frontend, Express backend, and SQLite persistence
 - **OAuth 1.0a** two-legged auth with PLAINTEXT signature via `oauth-1.0a` package
 - Frontend talks to backend only through relative `/api/...` endpoints
+- **No CORS; writes only from Prism's own pages** (18 Oct 2026): the API sends no CORS headers, and `server/middleware/originGuard.js` refuses any non-GET request whose `Origin` is another site (no `Origin`, as from curl or PrisMCP, is fine). Allowed: the request's own host or `X-Forwarded-Host`, plus `config.yaml` `server.allowedOrigins` (prod's tailnet address). The Vite dev proxy sends `X-Forwarded-Host` (`client/devProxy.js`, `xfwd`). A new client on another origin needs its origin added there.
 - Feature flags live in `config.yaml`
 - All Schoology API requests go to `https://api.schoology.com/v1/...` — never the school domain
 

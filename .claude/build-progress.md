@@ -1465,3 +1465,10 @@ submission comments.
 - **Verified live on a dev server at phone size (390 px, touch):** with an empty session, the Microsoft sign-in page showed; a tap focused and unfocused its email box; typed text and Backspace reached it (nothing submitted). With a copy of prod's session, Start finished at once ("done") and rewrote the session file. A full sign-in with a password and MFA is still to be done by Graham on prod.
 - **Tests:** `remoteLogin.test.js` (8), `schoologyLogin.test.js` (5), `RemoteSignIn.test.jsx` (6), Settings / Sync dialog / archived courses updated.
 
+## Writes only from Prism's own pages (2026-10-18)
+
+- **Before:** `app.use(cors())` with no options let any website opened on a tailnet device read Prism's API answers, and send simple cross-site POSTs (no JSON body, no preflight), e.g. one that starts a sync or a remote sign-in.
+- **Now:** no CORS headers (the `cors` package is removed), and `server/middleware/originGuard.js` refuses non-GET requests from another site's `Origin` with 403. Allowed: no `Origin`, the request's own host or `X-Forwarded-Host`, and `config.yaml` `server.allowedOrigins` (prod's tailnet address). The Vite dev proxy now sends `X-Forwarded-Host` (`devApiProxy`, `xfwd: true`): without it, a live check showed Prism's own dev page refused (Host rewritten to the API port).
+- **Verified live on a dev server:** Prism's page: POST 200, PUT 200. A page served from another port: reading `/api/courses` blocked by the browser; a no-cors POST refused (logged). curl without `Origin`: 200.
+- **Tests:** `originGuard.test.js` (7), `getServerConfig` (2), `devProxy.test.js` (1 new).
+

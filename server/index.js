@@ -1,6 +1,5 @@
 import 'dotenv/config';
 import express from 'express';
-import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { getDb } from './db/index.js';
@@ -25,7 +24,8 @@ import quizzesRouter from './routes/quizzes.js';
 import submissionCommentsRouter from './routes/submissionComments.js';
 import submissionFilesRouter from './routes/submissionFiles.js';
 import { getGradingScalesMap } from './db/scales.js';
-import { getFeatures } from './middleware/featureGate.js';
+import { getFeatures, getServerConfig } from './middleware/featureGate.js';
+import { originGuard } from './middleware/originGuard.js';
 import { getScaleTable, schoologyScaleId } from './lib/proficiencyScale.js';
 import { resolveHost, resolvePort } from './lib/listenConfig.js';
 import { resolveVersion } from './lib/version.js';
@@ -38,7 +38,9 @@ const PORT = resolvePort();
 const HOST = resolveHost();
 
 const app = express();
-app.use(cors());
+// No CORS headers: other sites cannot read Prism's answers. originGuard refuses
+// writes sent from another site's page.
+app.use('/api', originGuard({ allowed: getServerConfig().allowedOrigins }));
 // A submission comment with a file carries it as base64 (up to 15 MB), past the
 // default 100 KB; parsed here first, so the general parser below skips it.
 app.use('/api/submission-comments', express.json({ limit: '25mb' }));

@@ -29,6 +29,14 @@ export function getSyncConfig() {
   };
 }
 
+// server.allowedOrigins: origins besides the request's own host that may send writes
+// (originGuard.js): prod's tailnet address, in case the proxy rewrites Host.
+export function getServerConfig() {
+  if (!config) loadConfig();
+  const allowed = config.server?.allowedOrigins;
+  return { allowedOrigins: Array.isArray(allowed) ? allowed.map(String) : [] };
+}
+
 export function getRubricConfig() {
   if (!config) loadConfig();
   return {

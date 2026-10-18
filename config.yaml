@@ -21,6 +21,13 @@ sync:
   submissionRatePerSec: 10
   submissionAbandonAfter: 5
 
+server:
+  # Writes (anything but GET) are refused when they come from another site
+  # (server/middleware/originGuard.js). The page's own host is always allowed;
+  # prod's tailnet address is listed in case the Tailscale proxy rewrites Host.
+  allowedOrigins:
+    - https://prism.swordtail-everest.ts.net
+
 schoology:
   # School Schoology web domain (SSO vanity host). Outbound assignment links are
   # rewritten onto this host — the API's web_url uses app.schoology.com, which

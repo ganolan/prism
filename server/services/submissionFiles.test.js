@@ -5,8 +5,8 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 vi.mock('./schoology.js', () => ({ getSubmissionRevisions: vi.fn(), openFile: vi.fn() }));
 
 import { getDb } from '../db/index.js';
-import { fileDeps, revisionsFor, openSubmissionFile, FileError } from './submissionFiles.js';
-import { readRevisions, fileSummariesForAssignment } from './submissionFileStore.js';
+import { fileDeps, revisionsFor, openSubmissionFile, FileError, refreshAssignmentFiles, refreshStudentFiles, resetFileQueues } from './submissionFiles.js';
+import { readRevisions, fileSummariesForAssignment, fileSummariesForStudent, revisionsForAssignment } from './submissionFileStore.js';
 
 let clock;
 let revisions; // uid → raw Schoology revisions
@@ -36,6 +36,7 @@ beforeEach(() => {
     'DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;',
   );
   clock = 1792400000;
+  resetFileQueues();
   revisions = {
     555: [
       { revision_id: 1, uid: 555, created: 1792300000, num_items: 2, late: 0, draft: 0,
@@ -52,6 +53,7 @@ beforeEach(() => {
     getSubmissionRevisions: vi.fn(async (_s, _a, uid) => [...(revisions[uid] || [])]),
     openFile: vi.fn(async () => ({ status: 200, contentType: 'application/zip', contentLength: 7, body: new Response('ZIPDATA').body })),
     now: () => clock,
+    sleep: async () => {},
   });
 });
 
@@ -157,5 +159,100 @@ describe('openSubmissionFile', () => {
     await expect(openSubmissionFile(db, { assignmentId: '8590105935', studentId: ana, revisionId: '1', fileId: '11' }))
       .rejects.toMatchObject({ code: 'SCHOOLOGY', status: 502 });
     expect(cancel).toHaveBeenCalled();
+  });
+});
+
+// The sync saw this student upload (grades.submission_type 'drop').
+const uploaded = (db, studentId, assignmentId) => db.prepare(
+  `INSERT INTO grades (student_id, assignment_id, submitted_at, submission_type) VALUES (?, ?, 1792300000, 'drop')`,
+).run(studentId, assignmentId);
+
+describe('refreshAssignmentFiles (PrisMCP get_assignment_context)', () => {
+  test('reads the students the sync saw upload, one at a time, and skips a fresh cache', async () => {
+    const db = getDb(); const { ana, cy, assignmentId } = seed(db);
+    uploaded(db, ana, assignmentId);
+    const job = refreshAssignmentFiles(db, '8590105935');
+    expect(job.queued).toBe(1);
+    expect(await job.done).toEqual({ refreshed: 1, failed: 0 });
+    expect(fileDeps.getSubmissionRevisions).toHaveBeenCalledTimes(1);
+    expect(fileDeps.getSubmissionRevisions).toHaveBeenCalledWith('8458134323', '8590105935', '555');
+    // Cy uploaded nothing the sync saw: not read.
+    expect(readRevisions(db, { assignmentId, studentId: cy }).read_at).toBeNull();
+    clock += 60;
+    expect(refreshAssignmentFiles(db, '8590105935').queued).toBe(0);
+    clock += 400;
+    const again = refreshAssignmentFiles(db, '8590105935');
+    expect(again.queued).toBe(1);
+    await again.done;
+  });
+
+  test('a student already read is read again (an upload after the sync shows up); failures are counted', async () => {
+    const db = getDb(); const { cy, assignmentId } = seed(db);
+    await revisionsFor(db, { assignmentId: '8590105935', studentId: cy });
+    clock += 600;
+    fileDeps.getSubmissionRevisions.mockRejectedValueOnce(new Error('Schoology API 503'));
+    const job = refreshAssignmentFiles(db, '8590105935');
+    expect(job.queued).toBe(1);
+    expect(await job.done).toEqual({ refreshed: 0, failed: 1 });
+    expect(readRevisions(db, { assignmentId, studentId: cy }).error).toMatch(/503/);
+  });
+
+  test('a second call while one runs joins it; an OneDrive task is refused', async () => {
+    const db = getDb(); const { ana, assignmentId } = seed(db);
+    uploaded(db, ana, assignmentId);
+    const first = refreshAssignmentFiles(db, '8590105935');
+    const second = refreshAssignmentFiles(db, '8590105935');
+    expect(second).toMatchObject({ joined: true, queued: 1 });
+    await first.done;
+    db.prepare('UPDATE assignments SET is_lti_submission = 1').run();
+    expect(() => refreshAssignmentFiles(db, '8590105935')).toThrow(FileError);
+  });
+
+  test('revisionsForAssignment gives every read student\'s revisions for the context', async () => {
+    const db = getDb(); const { ana, cy, assignmentId } = seed(db);
+    await revisionsFor(db, { assignmentId: '8590105935', studentId: ana });
+    const all = revisionsForAssignment(db, assignmentId);
+    expect(Object.keys(all).map(Number)).toEqual([ana]);
+    expect(all[ana].revisions.map((r) => r.revision_id)).toEqual(['2', '1']);
+    expect(all[cy]).toBeUndefined();
+  });
+});
+
+describe('refreshStudentFiles (the student page)', () => {
+  test('reads only this student\'s uploaded native tasks; summaries are keyed by Schoology id', async () => {
+    const db = getDb(); const { ana, cy, courseId, assignmentId } = seed(db);
+    const onedrive = db.prepare(
+      `INSERT INTO assignments (course_id, schoology_assignment_id, title, is_lti_submission) VALUES (?, '8590106104', 'Color Switch', 1)`,
+    ).run(courseId).lastInsertRowid;
+    const untouched = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, '8590106200', 'Pong')`).run(courseId).lastInsertRowid;
+    uploaded(db, ana, assignmentId);
+    uploaded(db, ana, onedrive);
+    uploaded(db, cy, untouched);
+    const job = refreshStudentFiles(db, ana);
+    expect(job.queued).toBe(1);
+    expect(await job.done).toEqual({ refreshed: 1, failed: 0 });
+    expect(fileDeps.getSubmissionRevisions).toHaveBeenCalledTimes(1);
+    expect(fileDeps.getSubmissionRevisions).toHaveBeenCalledWith('8458134323', '8590105935', '555');
+    expect(fileSummariesForStudent(db, ana)).toEqual({
+      8590105935: { revisions: 2, files: 3, read_at: new Date(clock * 1000).toISOString() },
+    });
+    expect(fileSummariesForStudent(db, cy)).toEqual({});
+    // Fresh: nothing to read; a second call while one runs joins it.
+    expect(refreshStudentFiles(db, ana).queued).toBe(0);
+    clock += 700;
+    const a = refreshStudentFiles(db, ana);
+    expect(refreshStudentFiles(db, ana)).toMatchObject({ joined: true });
+    await a.done;
+  });
+
+  test('an archived or dropped course is skipped; an unknown student is refused', async () => {
+    const db = getDb(); const { ana, assignmentId } = seed(db);
+    uploaded(db, ana, assignmentId);
+    db.prepare('UPDATE courses SET archived = 1').run();
+    expect(refreshStudentFiles(db, ana).queued).toBe(0);
+    db.prepare('UPDATE courses SET archived = 0').run();
+    db.prepare(`UPDATE enrolments SET dropped_at = '2026-10-01'`).run();
+    expect(refreshStudentFiles(db, ana).queued).toBe(0);
+    expect(() => refreshStudentFiles(db, 99999)).toThrow(FileError);
   });
 });

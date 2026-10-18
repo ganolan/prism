@@ -6,7 +6,7 @@ vi.mock('../services/schoology.js', () => ({ getSubmissionRevisions: vi.fn(), op
 
 import router from './submissionFiles.js';
 import { getDb } from '../db/index.js';
-import { fileDeps } from '../services/submissionFiles.js';
+import { fileDeps, resetFileQueues } from '../services/submissionFiles.js';
 
 async function call(path, headers = {}) {
   const app = express();
@@ -34,7 +34,7 @@ const file = (id, filename, filemime) => ({
 let studentId;
 beforeEach(() => {
   const db = getDb();
-  db.exec('DELETE FROM submission_revisions; DELETE FROM submission_revision_reads; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
+  db.exec('DELETE FROM submission_revisions; DELETE FROM submission_revision_reads; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
   const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec', 'MGD')`).run().lastInsertRowid;
   db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, '8590105935', 'Flappy')`).run(courseId);
   db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, is_lti_submission) VALUES (?, '8590106104', 'Color Switch', 1)`).run(courseId);
@@ -50,7 +50,9 @@ beforeEach(() => {
     ]),
     openFile: vi.fn(async () => ({ status: 200, contentType: 'x', contentLength: 7, body: new Response('BODYDAT').body })),
     now: () => 1792400000,
+    sleep: async () => {},
   });
+  resetFileQueues();
 });
 
 describe('/api/submission-files', () => {
@@ -114,5 +116,21 @@ describe('/api/submission-files', () => {
     expect(onedrive.status).toBe(409);
     expect(onedrive.body.code).toBe('NOT_NATIVE');
     expect((await call('/api/submission-files/assignment/nope')).status).toBe(404);
+  });
+
+  test('GET /student/:id: this student\'s cached summaries by Schoology id, and a background read of their uploads', async () => {
+    const db = getDb();
+    const aid = db.prepare(`SELECT id FROM assignments WHERE schoology_assignment_id = '8590105935'`).get().id;
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, submitted_at, submission_type) VALUES (?, ?, 1792300000, 'drop')`).run(studentId, aid);
+    const first = await call(`/api/submission-files/student/${studentId}`);
+    expect(first.status).toBe(200);
+    expect(first.body).toEqual({ assignments: {}, refresh: { queued: 1, joined: false } });
+    await vi.waitFor(() => expect(fileDeps.getSubmissionRevisions).toHaveBeenCalledTimes(1));
+    await vi.waitFor(async () => {
+      const later = await call(`/api/submission-files/student/${studentId}?refresh=0`);
+      expect(later.body).toEqual({ assignments: { 8590105935: { revisions: 2, files: 4, read_at: new Date(1792400000 * 1000).toISOString() } }, refresh: null });
+    });
+    expect(fileDeps.getSubmissionRevisions).toHaveBeenCalledTimes(1);
+    expect((await call('/api/submission-files/student/99999')).status).toBe(404);
   });
 });

@@ -1439,8 +1439,29 @@ submission comments.
   `.mp4` copy played and seeked; an `.html`'s PDF copy showed).
 - **Not done:** PrisMCP does not list these files yet; the student page has no chip (#135's shared feedback layout
   is the natural home); Safari and images not checked by eye; comment files do not use the viewer yet.
+  *(All three done by #162, below, except the manual Safari / image / HEIC checks.)*
 
 **Tests:** 1873 server + 1114 client Vitest tests pass; `npm run build` succeeds (2026-10-18).
+
+## Submission files: PrisMCP, student page, comment files in the viewer (2026-10-18, issue #162)
+
+- **Queues:** `refreshAssignmentFiles()` (an assignment's students with `submission_type` "drop" or a past read,
+  5-minute freshness) and `refreshStudentFiles()` (one student's uploads in current courses, 10 minutes) in
+  `server/services/submissionFiles.js`, one GET at a time (400 ms apart), joined while running.
+- **PrisMCP:** `get_assignment_context` runs the comment and file refreshes together, then lists each student's
+  `submission_files` [{ filename, filemime, extension, filesize, revision_id, submitted_at, late, draft, latest }]
+  with `submission_files_read_at` and `submission_files_source` (`agentSubmissionFiles` in `assessmentContext.js`).
+- **Student page:** `GET /api/submission-files/student/:id` (cached counts by Schoology id + background read);
+  `useStudentFileSummaries` (shares the comment hook's code); the files chip in `AssignmentFeedback`'s links slot.
+- **Comment files:** `commentFile()` streams with `Range` (was a buffered download); both file routes share
+  `server/routes/fileResponse.js` (inline media and PDFs, sandboxed downloads, `?download=1`). Viewable comment files
+  open in `FileViewer` from the thread. Probe `scripts/probe-comment-file-conversions.js`: comment PNGs list no
+  converted copy.
+- **Verified live on a dev server (DB copy, GETs only):** student page 5 chips, 8 files; a comment PNG opened in the
+  viewer (MD5 equal to Schoology's); `get_assignment_context` on one task read 11 students in about 11 s, 26 files,
+  and served the second call from the cache.
+
+**Tests:** 2088 root (server + mcp) + 1266 client Vitest tests pass; `npm run build` succeeds (2026-10-18).
 
 ## Publish / unpublish from the Assessments tab (#138, 2026-10-18)
 

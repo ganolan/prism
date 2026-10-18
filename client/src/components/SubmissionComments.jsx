@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { getSubmissionCommentThread, postSubmissionComment, postSubmissionCommentFile, deleteSubmissionComment, markSubmissionCommentsSeen } from '../services/api.js';
 import { formatDateTime } from '../lib/formatDate.js';
+import FileViewer, { viewKind } from './FileViewer.jsx';
 
 // A student's Schoology submission comment thread (spec
 // 2026-10-17-submission-comments-design.md): a bubble on the assessment card
@@ -15,6 +16,8 @@ import { formatDateTime } from '../lib/formatDate.js';
 // the thread; opening the popover marks the thread seen.
 // The gradebook cell (layout A, 18/10/2026) puts the bubble in the cell's bottom-right
 // corner, and its popover opens with the teacher's overall comment (read-only).
+// A comment's image, video or PDF opens in FileViewer over the thread (#162), as a
+// dropbox file does; any other file downloads.
 
 function Bubble() {
   return (
@@ -85,8 +88,13 @@ export function CommentPopover({ assignmentId, studentId, studentName, title, an
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [busy, setBusy] = useState(false);
   const [file, setFile] = useState(null);
+  const [viewing, setViewing] = useState(null); // { comment, file } open in FileViewer
   const pop = useRef(null);
   const fileInput = useRef(null);
+  const viewingRef = useRef(null);
+  viewingRef.current = viewing;
+  const fileUrl = (commentId, fid) => `/api/submission-comments/${assignmentId}/${studentId}/${commentId}/files/${fid}`;
+  const authorOf = (c) => (c.is_mine ? 'You' : (c.author_name || (c.author_role === 'student' ? studentName : 'Teacher')));
 
   const take = (t) => {
     setThread(t);
@@ -111,9 +119,10 @@ export function CommentPopover({ assignmentId, studentId, studentName, title, an
   useEffect(() => { load(false); }, [assignmentId, studentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    // While the viewer is open it owns Escape and clicks.
+    const onKey = (e) => { if (e.key === 'Escape' && !viewingRef.current) onClose(); };
     const onDown = (e) => {
-      if (pop.current?.contains(e.target) || anchorEl?.current?.contains(e.target)) return;
+      if (viewingRef.current || pop.current?.contains(e.target) || anchorEl?.current?.contains(e.target)) return;
       onClose();
     };
     document.addEventListener('keydown', onKey);
@@ -167,7 +176,7 @@ export function CommentPopover({ assignmentId, studentId, studentName, title, an
         {comments.map((c) => (
           <li key={c.id} className="comment-item">
             <div className="comment-meta">
-              <b>{c.is_mine ? 'You' : (c.author_name || (c.author_role === 'student' ? studentName : 'Teacher'))}</b>
+              <b>{authorOf(c)}</b>
               <time dateTime={c.created}>{formatDateTime(c.created)}</time>
               {c.unread && <span className="comment-new">New</span>}
               {c.is_mine && (
@@ -180,12 +189,18 @@ export function CommentPopover({ assignmentId, studentId, studentName, title, an
               <div className="comment-student-text"><span className="comment-student-tag">Student wrote</span>{c.student_text}</div>
             )}
             {c.author_role !== 'student' && c.text && <div className="comment-text">{c.text}</div>}
-            {c.attachments?.map((f) => (
-              <a key={f.fid} className={`comment-file${c.author_role === 'student' ? ' comment-file--student' : ''}`}
-                href={`/api/submission-comments/${assignmentId}/${studentId}/${c.id}/files/${f.fid}`} target="_blank" rel="noreferrer">
-                {f.title || f.filename} <span className="comment-file-size">{sizeLabel(f.filesize)}</span>
-              </a>
-            ))}
+            {c.attachments?.map((f) => {
+              const cls = `comment-file${c.author_role === 'student' ? ' comment-file--student' : ''}`;
+              const name = f.title || f.filename;
+              const label = <>{name} <span className="comment-file-size">{sizeLabel(f.filesize)}</span></>;
+              // An image, video or PDF opens in Prism's viewer (#162); anything else downloads.
+              return viewKind(f) ? (
+                <button key={f.fid} type="button" className={`${cls} files-view`} title={`View ${name} in Prism`}
+                  onClick={() => setViewing({ comment: c, file: f })}>{label}</button>
+              ) : (
+                <a key={f.fid} className={cls} href={`${fileUrl(c.id, f.fid)}?download=1`} download>{label}</a>
+              );
+            })}
             {c.author_role === 'student' && !c.student_text && !c.automatic_lines.length && !c.attachments?.length && (
               <div className="comment-auto">(empty comment)</div>
             )}
@@ -237,6 +252,11 @@ export function CommentPopover({ assignmentId, studentId, studentName, title, an
           {loading ? 'Reading…' : 'Refresh'}
         </button>
       </div>
+      {viewing && (
+        <FileViewer url={fileUrl(viewing.comment.id, viewing.file.fid)} file={viewing.file}
+          caption={`${authorOf(viewing.comment)}, ${formatDateTime(viewing.comment.created)}`}
+          onClose={() => setViewing(null)} />
+      )}
     </div>
   );
 }

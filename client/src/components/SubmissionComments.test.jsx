@@ -1,5 +1,5 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 vi.mock('../services/api.js', () => ({
   getSubmissionCommentThread: vi.fn(),
@@ -126,16 +126,49 @@ describe('SubmissionComments', () => {
     expect(screen.getByRole('button')).toHaveClass('comment-dot--wrote');
   });
 
-  test('files show as links through Prism; a student file turns the chip amber', async () => {
+  test('a file Prism can show opens in its viewer, over the thread (#162); a student file turns the chip amber', async () => {
     const file = { ...wrote, id: '5', student_text: null, automatic_lines: ['Revision 3 submitted'], attachments: [{ fid: '77', filename: 'notes.pdf', title: 'notes.pdf', filesize: 2048, filemime: 'application/pdf' }] };
     getSubmissionCommentThread.mockResolvedValue(thread([auto, file]));
     renderCard({ count: 2, student_text: false, student_files: 1, read_at: 'x' });
     expect(screen.getByRole('button', { name: /attached a file. Open the thread/ })).toHaveClass('comment-chip--wrote');
     expect(screen.queryByText('File in comments')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /attached a file. Open the thread/ }));
-    const link = await screen.findByRole('link', { name: /notes.pdf/ });
-    expect(link).toHaveAttribute('href', '/api/submission-comments/8590105935/7/5/files/77');
-    expect(link).toHaveClass('comment-file--student');
+    const view = await screen.findByRole('button', { name: /notes.pdf/ });
+    expect(view).toHaveClass('comment-file--student');
+    expect(screen.queryByRole('link', { name: /notes.pdf/ })).not.toBeInTheDocument();
+    fireEvent.click(view);
+    const viewer = screen.getByRole('dialog', { name: 'View notes.pdf' });
+    expect(viewer.querySelector('iframe')).toHaveAttribute('src', '/api/submission-comments/8590105935/7/5/files/77');
+    expect(screen.getByRole('link', { name: 'Download' })).toHaveAttribute('href', '/api/submission-comments/8590105935/7/5/files/77?download=1');
+    // Escape closes the viewer only; the thread stays open behind it.
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'View notes.pdf' })).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Submission comments for Ana Lee' })).toBeInTheDocument();
+  });
+
+  test('a click inside the viewer leaves the thread open', async () => {
+    const file = { ...mine, id: '6', attachments: [{ fid: '78', filename: 'rubric.png', title: 'rubric.png', filesize: 671044, filemime: 'image/png' }] };
+    getSubmissionCommentThread.mockResolvedValue(thread([file]));
+    renderCard({ count: 1, read_at: 'x' });
+    fireEvent.click(screen.getByRole('button', { name: /Open the thread/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /rubric.png/ }));
+    const viewer = screen.getByRole('dialog', { name: 'View rubric.png' });
+    expect(viewer.querySelector('img')).toHaveAttribute('src', '/api/submission-comments/8590105935/7/6/files/78');
+    fireEvent.mouseDown(viewer.querySelector('img'));
+    expect(screen.getByRole('dialog', { name: 'Submission comments for Ana Lee' })).toBeInTheDocument();
+    fireEvent.click(within(viewer).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog', { name: 'View rubric.png' })).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Submission comments for Ana Lee' })).toBeInTheDocument();
+  });
+
+  test('a file Prism cannot show downloads', async () => {
+    const file = { ...wrote, id: '5', attachments: [{ fid: '79', filename: 'game.zip', title: 'game.zip', filesize: 2048, filemime: 'application/zip' }] };
+    getSubmissionCommentThread.mockResolvedValue(thread([file]));
+    renderCard({ count: 1, read_at: 'x' });
+    fireEvent.click(screen.getByRole('button', { name: /Open the thread/ }));
+    const link = await screen.findByRole('link', { name: /game.zip/ });
+    expect(link).toHaveAttribute('href', '/api/submission-comments/8590105935/7/5/files/79?download=1');
+    expect(link).toHaveAttribute('download');
   });
 
   test('a never-read card chip still opens', () => {

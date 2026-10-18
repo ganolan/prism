@@ -15,7 +15,7 @@ let courseId; let ana; let cy;
 
 beforeEach(() => {
   const db = getDb();
-  db.exec('DELETE FROM submission_comments; DELETE FROM submission_comment_reads; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
+  db.exec('DELETE FROM submission_comments; DELETE FROM submission_comment_reads; DELETE FROM submission_revisions; DELETE FROM submission_revision_reads; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
   resetCommentCaches();
   courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('8458134323', 'MGD')`).run().lastInsertRowid;
   const aid = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, '8590105935', 'Flappy Bird (F)')`).run(courseId).lastInsertRowid;

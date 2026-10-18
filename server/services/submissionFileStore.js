@@ -80,3 +80,27 @@ export function fileSummariesForAssignment(db, assignmentId) {
   }
   return out;
 }
+
+// Every read pair's cached revisions for one assignment (local id), keyed by local
+// student id: what get_assignment_context lists. Cache only.
+export function revisionsForAssignment(db, assignmentId) {
+  const out = {};
+  const pairs = db.prepare('SELECT student_id FROM submission_revision_reads WHERE assignment_id = ?').all(assignmentId);
+  for (const { student_id } of pairs) out[student_id] = readRevisions(db, { assignmentId, studentId: student_id });
+  return out;
+}
+
+// Summaries of one student's read pairs, keyed by Schoology assignment id (the
+// student page, #162). Cache only; nothing about another student.
+export function fileSummariesForStudent(db, studentId) {
+  const rows = db.prepare(`
+    SELECT r.assignment_id, a.schoology_assignment_id FROM submission_revision_reads r
+    JOIN assignments a ON a.id = r.assignment_id WHERE r.student_id = ?
+  `).all(studentId);
+  const out = {};
+  for (const r of rows) {
+    const t = readRevisions(db, { assignmentId: r.assignment_id, studentId });
+    out[r.schoology_assignment_id] = { ...t.summary, read_at: t.read_at };
+  }
+  return out;
+}

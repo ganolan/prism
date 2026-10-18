@@ -3,11 +3,11 @@
 // through Prism with the API signature. OneDrive work keeps its own "Open"
 // links (the mastery submission-links route, #120).
 import { Router } from 'express';
-import { Readable } from 'stream';
 import { getDb } from '../db/index.js';
+import { sendFile } from './fileResponse.js';
 import { featureGate } from '../middleware/featureGate.js';
-import { FileError, revisionsFor, openSubmissionFile } from '../services/submissionFiles.js';
-import { fileSummariesForAssignment } from '../services/submissionFileStore.js';
+import { FileError, revisionsFor, openSubmissionFile, refreshStudentFiles } from '../services/submissionFiles.js';
+import { fileSummariesForAssignment, fileSummariesForStudent } from '../services/submissionFileStore.js';
 import { resolveAssignmentId } from '../services/idResolvers.js';
 
 const router = Router();
@@ -29,6 +29,24 @@ router.get('/assignment/:assignmentId', (req, res) => {
   } catch (err) { fail(res, err, 'summaries'); }
 });
 
+// Chips for the student page (#162): this student's cached summaries only, keyed
+// by Schoology assignment id; also queues a background read of their uploads in
+// current courses (unless ?refresh=0). Nothing about another student.
+router.get('/student/:studentId', (req, res) => {
+  try {
+    const db = getDb();
+    const student = db.prepare('SELECT id FROM students WHERE id = ?').get(Number(req.params.studentId));
+    if (!student) throw new FileError('NOT_FOUND', `Unknown student ${req.params.studentId}`, 404);
+    let refresh = null;
+    if (req.query.refresh !== '0') {
+      const job = refreshStudentFiles(db, student.id);
+      job.done?.catch((err) => console.error('submission files refresh failed:', err));
+      refresh = { queued: job.queued, joined: !!job.joined };
+    }
+    res.json({ assignments: fileSummariesForStudent(db, student.id), refresh });
+  } catch (err) { fail(res, err, 'student summaries'); }
+});
+
 router.get('/:assignmentId/:studentId', async (req, res) => {
   try {
     res.json(await revisionsFor(getDb(), {
@@ -37,12 +55,9 @@ router.get('/:assignmentId/:studentId', async (req, res) => {
   } catch (err) { fail(res, err, 'read'); }
 });
 
-// Viewable in Prism's window: images, videos, audio and PDFs (served inline,
-// with byte ranges so a video can seek). Anything else downloads, sandboxed: a
-// student's HTML file must never run on Prism's origin. ?copy=converted serves
-// Schoology's converted copy (an .mp4 of a video, a .pdf of a document);
-// ?download=1 always downloads.
-const VIEWABLE = /^image\/(png|jpeg|gif|webp|heic|heif|avif)$|^video\/|^audio\/|^application\/pdf$/;
+// One file, inline when Prism's viewer can show it (fileResponse.js).
+// ?copy=converted serves Schoology's converted copy (an .mp4 of a video, a .pdf
+// of a document); ?download=1 always downloads.
 router.get('/:assignmentId/:studentId/:revisionId/files/:fileId', async (req, res) => {
   let f;
   try {
@@ -50,22 +65,7 @@ router.get('/:assignmentId/:studentId/:revisionId/files/:fileId', async (req, re
       ...req.params, copy: req.query.copy === 'converted' ? 'converted' : 'original', range: req.get('range') || null,
     });
   } catch (err) { return fail(res, err, 'download'); }
-  const viewable = VIEWABLE.test(f.filemime);
-  const inline = viewable && req.query.download !== '1';
-  res.status(f.status);
-  res.set('Content-Type', f.filemime);
-  res.set('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(f.filename)}`);
-  res.set('X-Content-Type-Options', 'nosniff');
-  res.set('Accept-Ranges', 'bytes');
-  // (Not on media or PDFs: Chrome's PDF viewer refuses a sandboxed document.)
-  if (!viewable) res.set('Content-Security-Policy', 'sandbox');
-  if (f.contentRange) res.set('Content-Range', f.contentRange);
-  if (f.filesize) res.set('Content-Length', String(f.filesize));
-  if (!f.body) return res.end();
-  const stream = Readable.fromWeb(f.body);
-  stream.on('error', (err) => { console.error('submission file stream failed:', err); res.destroy(err); });
-  res.on('close', () => { if (!res.writableFinished) stream.destroy(); });
-  stream.pipe(res);
+  sendFile(req, res, f);
 });
 
 export default router;

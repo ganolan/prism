@@ -323,10 +323,27 @@ describe('commentFile', () => {
     const db = getDb(); const { ben } = seed(db);
     threads[666][0].attachments = { files: { file: [{ fid: 77, filename: 'Chen_Victor.png', filemime: 'image/png', filesize: 3, download_path: 'https://api.schoology.com/v1/f/x.png' }] } };
     await threadFor(db, { assignmentId: '8590105935', studentId: ben });
-    commentDeps.downloadFile = vi.fn(async () => ({ status: 200, contentType: 'image/png', body: Buffer.from('PNG') }));
+    commentDeps.openFile = vi.fn(async () => ({ status: 200, contentType: 'image/png', contentLength: 3, body: new Response('PNG').body }));
     const f = await commentFile(db, { assignmentId: '8590105935', studentId: ben, commentId: '3', fid: '77' });
-    expect(commentDeps.downloadFile).toHaveBeenCalledWith('https://api.schoology.com/v1/f/x.png');
-    expect(f).toMatchObject({ filename: 'Chen_Victor.png', filemime: 'image/png' });
+    expect(commentDeps.openFile).toHaveBeenCalledWith('https://api.schoology.com/v1/f/x.png', { range: null });
+    expect(f).toMatchObject({ status: 200, filename: 'Chen_Victor.png', filemime: 'image/png', filesize: 3, contentRange: null });
+    expect(await new Response(f.body).text()).toBe('PNG');
     await expect(commentFile(db, { assignmentId: '8590105935', studentId: ben, commentId: '3', fid: '1' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  test('passes a range on for the viewer (a video seeks); a refused download is a 502', async () => {
+    const db = getDb(); const { ben } = seed(db);
+    threads[666][0].attachments = { files: { file: [{ fid: 78, filename: 'clip.mp4', filemime: 'video/mp4', filesize: 100, download_path: 'https://api.schoology.com/v1/f/clip.mp4' }] } };
+    await threadFor(db, { assignmentId: '8590105935', studentId: ben });
+    commentDeps.openFile = vi.fn(async () => ({ status: 206, contentType: 'video/mp4', contentLength: 4, contentRange: 'bytes 0-3/100', body: new Response('MP4!').body }));
+    const f = await commentFile(db, { assignmentId: '8590105935', studentId: ben, commentId: '3', fid: '78', range: 'bytes=0-3' });
+    expect(commentDeps.openFile).toHaveBeenCalledWith('https://api.schoology.com/v1/f/clip.mp4', { range: 'bytes=0-3' });
+    expect(f).toMatchObject({ status: 206, contentRange: 'bytes 0-3/100', filesize: 4 });
+    const cancel = vi.fn(async () => {});
+    commentDeps.openFile = vi.fn(async () => ({ status: 403, body: { cancel } }));
+    await expect(commentFile(db, { assignmentId: '8590105935', studentId: ben, commentId: '3', fid: '78' })).rejects.toMatchObject({ code: 'SCHOOLOGY', status: 502 });
+    expect(cancel).toHaveBeenCalled();
+    commentDeps.openFile = vi.fn(async () => ({ status: 416, body: null }));
+    await expect(commentFile(db, { assignmentId: '8590105935', studentId: ben, commentId: '3', fid: '78', range: 'bytes=999-' })).rejects.toMatchObject({ code: 'RANGE', status: 416 });
   });
 });

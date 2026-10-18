@@ -392,3 +392,7 @@ export const getSubmissionFiles = (assignmentId, studentId, { refresh = false } 
   request(`/submission-files/${assignmentId}/${studentId}${refresh ? '?refresh=1' : ''}`);
 // Cached chip counts for one assignment: { students: { [student id]: { revisions, files, read_at } } }.
 export const getAssignmentFileSummaries = (assignmentId) => request(`/submission-files/assignment/${assignmentId}`);
+// One student's chips (the student page, #162): { assignments: { [schoology aid]: { revisions, files, read_at } }, refresh };
+// also queues a background read of their uploads in current courses unless refresh is false.
+export const getStudentFileSummaries = (studentId, { refresh = true } = {}) =>
+  request(`/submission-files/student/${studentId}${refresh ? '' : '?refresh=0'}`);

@@ -12,6 +12,7 @@ import { LEVELS } from '../server/lib/proficiencyScale.js';
 import { getFeedbackRows } from '../server/services/feedbackRows.js';
 import { normalizeSubmissionStatus, gradingState, getRoster, scoreScaleFor, getAlignedTopics, getAssessmentContext } from '../server/services/assessmentContext.js';
 import { refreshAssignment } from '../server/services/submissionComments.js';
+import { refreshAssignmentFiles, OPEN_MAX_AGE_SEC as FILES_OPEN_MAX_AGE_SEC } from '../server/services/submissionFiles.js';
 import { getFeatures } from '../server/middleware/featureGate.js';
 import { psAlertFieldsForAgents } from '../server/services/psAlertStore.js';
 
@@ -400,24 +401,32 @@ export function assertSchoologyConfigured(env = process.env) {
 // threads from Schoology first (students often type their answers there), then
 // compose the context from the cache. Without Schoology credentials, or when the
 // refresh fails, the cached threads are returned and the source says so.
+// The submitted students' native dropbox files (#162) are read the same way, at the
+// same time, from the cache when it is fresh (5 minutes, as the files popover).
 export async function getAssignmentContextTool(db, { course_id, assignment_id } = {}, env = process.env) {
   const missing = SCHOOLOGY_ENV.filter((k) => !String(env[k] ?? '').trim());
-  let source;
-  if (!getFeatures().submission_comments) {
-    source = { refreshed: 0, failed: 0, cached_only: true, note: 'submission_comments is off in config.yaml' };
-  } else if (missing.length) {
-    source = { refreshed: 0, failed: 0, cached_only: true, note: `Schoology credentials are not set (${missing.join(', ')}): comments are as last read in Prism (see submission_comments_read_at)` };
-  } else {
-    try {
-      const job = refreshAssignment(db, assignment_id, { maxAgeSec: MCP_COMMENT_MAX_AGE_SEC });
-      const r = job.done ? await job.done : { refreshed: 0, failed: 0 };
-      source = { refreshed: r.refreshed, failed: r.failed, cached_only: false };
-    } catch (err) {
-      source = { refreshed: 0, failed: 0, cached_only: true, note: `could not refresh: ${err.message}` };
+  const refresh = async (feature, what, start) => {
+    if (!getFeatures()[feature]) return { refreshed: 0, failed: 0, cached_only: true, note: `${feature} is off in config.yaml` };
+    if (missing.length) {
+      return { refreshed: 0, failed: 0, cached_only: true, note: `Schoology credentials are not set (${missing.join(', ')}): ${what} are as last read in Prism (see ${feature}_read_at)` };
     }
-  }
+    try {
+      const job = start();
+      const r = job.done ? await job.done : { refreshed: 0, failed: 0 };
+      return { refreshed: r.refreshed, failed: r.failed, cached_only: false };
+    } catch (err) {
+      if (err?.code === 'NOT_NATIVE') {
+        return { refreshed: 0, failed: 0, cached_only: true, note: 'this task takes OneDrive or Google Drive work, not Schoology uploads: submission_files is empty' };
+      }
+      return { refreshed: 0, failed: 0, cached_only: true, note: `could not refresh: ${err.message}` };
+    }
+  };
+  const [source, filesSource] = await Promise.all([
+    refresh('submission_comments', 'comments', () => refreshAssignment(db, assignment_id, { maxAgeSec: MCP_COMMENT_MAX_AGE_SEC })),
+    refresh('submission_files', 'files', () => refreshAssignmentFiles(db, assignment_id, { maxAgeSec: FILES_OPEN_MAX_AGE_SEC })),
+  ]);
   const ctx = getAssessmentContext(db, { courseId: course_id, assignmentId: assignment_id });
-  return ctx ? { ...ctx, submission_comments_source: source } : ctx;
+  return ctx ? { ...ctx, submission_comments_source: source, submission_files_source: filesSource } : ctx;
 }
 
 // extend_deadline, both paths, gain comment_line? (published via the shared

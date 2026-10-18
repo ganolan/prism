@@ -5,9 +5,12 @@
 // `…/submissions/{aid}/{uid}?with_attachments=1` (verified 2026-10-17,
 // .claude/schoology-api-reference.md "Native dropbox submission files"). No
 // sync-time capture: the bulk read the sync uses (#55) returns only each
-// student's latest revision and no files.
+// student's latest revision and no files. Two queues read several pairs, one GET
+// at a time (#162): one assignment's uploaders for PrisMCP's
+// get_assignment_context, and one student's uploads for the student page.
 import { getSubmissionRevisions, openFile } from './schoology.js';
 import { resolveAssignmentId } from './idResolvers.js';
+import { getRoster, getGradeMetaRows } from './assessmentContext.js';
 import { readRevisions, storeRevisions, storeReadError, storedFile } from './submissionFileStore.js';
 
 // Replaced in tests; the real calls reach Schoology.
@@ -15,9 +18,12 @@ export const fileDeps = {
   getSubmissionRevisions: (...a) => getSubmissionRevisions(...a),
   openFile: (...a) => openFile(...a),
   now: () => Math.floor(Date.now() / 1000),
+  sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
 };
 
 export const OPEN_MAX_AGE_SEC = 300; // opening the list re-reads revisions older than 5 minutes
+export const BACKGROUND_MAX_AGE_SEC = 600; // the student page's queue skips pairs read in the last 10
+const QUEUE_DELAY_MS = 400; // the same pace as the comment queues
 
 export class FileError extends Error {
   constructor(code, message, status = 400) { super(message); this.code = code; this.status = status; }
@@ -90,6 +96,83 @@ export async function revisionsFor(db, { assignmentId, studentId, force = false,
   } catch (err) {
     return { ...readRevisions(db, ids), error: err.message };
   }
+}
+
+const stale = (db, assignmentId, studentId, maxAgeSec) => {
+  const t = readRevisions(db, { assignmentId, studentId });
+  return !t.read_at_epoch || fileDeps.now() - t.read_at_epoch >= maxAgeSec;
+};
+
+// Read `pairs` ([{ assignment, course, student }]) one GET at a time under `key`;
+// a second call with the same key while one runs joins it. Nothing due: no job.
+const inflight = new Map();
+export function resetFileQueues() { inflight.clear(); }
+function runQueue(db, key, pairs) {
+  if (inflight.has(key)) {
+    const running = inflight.get(key);
+    return { ...running.info, done: running.done, joined: true };
+  }
+  const info = { queued: pairs.length };
+  if (!pairs.length) return { ...info, done: Promise.resolve({ refreshed: 0, failed: 0 }) };
+  const done = (async () => {
+    let refreshed = 0; let failed = 0;
+    for (const [i, pair] of pairs.entries()) {
+      if (i) await fileDeps.sleep(QUEUE_DELAY_MS);
+      try { await fetchPair(db, pair); refreshed++; } catch { failed++; }
+    }
+    return { refreshed, failed };
+  })().finally(() => inflight.delete(key));
+  inflight.set(key, { info, done });
+  return { ...info, done };
+}
+
+// One assignment's students whose files the sync saw (submission_type 'drop'), or
+// whose files were read before (an upload after the last sync), read longer ago
+// than maxAgeSec (PrisMCP get_assignment_context, #162). Refuses an OneDrive task.
+export function refreshAssignmentFiles(db, assignmentId, { maxAgeSec = OPEN_MAX_AGE_SEC } = {}) {
+  const localId = resolveAssignmentId(db, assignmentId);
+  const assignment = localId ? db.prepare('SELECT * FROM assignments WHERE id = ?').get(localId) : null;
+  if (!assignment) throw new FileError('NOT_FOUND', `Unknown assignment ${assignmentId}`, 404);
+  if (assignment.is_lti_submission) {
+    throw new FileError('NOT_NATIVE', 'This task takes OneDrive or Google Drive work, not Schoology uploads.', 409);
+  }
+  const course = db.prepare('SELECT * FROM courses WHERE id = ?').get(assignment.course_id);
+  const uploaded = new Set(getGradeMetaRows(db, assignment.schoology_assignment_id)
+    .filter((g) => g.submission_type === 'drop').map((g) => g.student_id));
+  const readBefore = new Set(db.prepare('SELECT student_id FROM submission_revision_reads WHERE assignment_id = ?')
+    .all(assignment.id).map((r) => r.student_id));
+  const pairs = getRoster(db, assignment.course_id, assignment)
+    .filter((st) => st.schoology_uid && (uploaded.has(st.id) || readBefore.has(st.id)))
+    .filter((st) => stale(db, assignment.id, st.id, maxAgeSec))
+    .map((student) => ({ assignment, course, student }));
+  return runQueue(db, `a:${assignment.id}`, pairs);
+}
+
+// ONE student's uploads across their current courses (the student page, #162):
+// native tasks the sync saw them upload to, read longer ago than maxAgeSec.
+// Archived courses are left to the chip (a read when it is opened): years of
+// tasks would cost a GET each on every visit.
+export function refreshStudentFiles(db, studentId, { maxAgeSec = BACKGROUND_MAX_AGE_SEC } = {}) {
+  const student = db.prepare('SELECT * FROM students WHERE id = ?').get(Number(studentId));
+  if (!student?.schoology_uid) throw new FileError('NOT_FOUND', `Unknown student ${studentId}`, 404);
+  const rows = db.prepare(`
+    SELECT a.id FROM grades g
+    JOIN assignments a ON a.id = g.assignment_id
+    JOIN courses c ON c.id = a.course_id AND COALESCE(c.archived, 0) = 0 AND COALESCE(c.excluded, 0) = 0
+    JOIN enrolments e ON e.course_id = a.course_id AND e.student_id = g.student_id AND e.dropped_at IS NULL
+    WHERE g.student_id = ? AND g.submission_type = 'drop' AND COALESCE(a.is_lti_submission, 0) = 0
+      AND COALESCE(a.published, 1) = 1 AND a.removed_at IS NULL
+  `).all(student.id);
+  const courses = new Map();
+  const courseOf = (id) => {
+    if (!courses.has(id)) courses.set(id, db.prepare('SELECT * FROM courses WHERE id = ?').get(id));
+    return courses.get(id);
+  };
+  const pairs = rows.filter((r) => stale(db, r.id, student.id, maxAgeSec)).map((r) => {
+    const assignment = db.prepare('SELECT * FROM assignments WHERE id = ?').get(r.id);
+    return { assignment, course: courseOf(assignment.course_id), student };
+  });
+  return runQueue(db, `s:${student.id}`, pairs);
 }
 
 // One cached file (or, with copy 'converted', Schoology's converted copy of it),

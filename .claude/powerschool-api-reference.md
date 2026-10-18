@@ -11,6 +11,7 @@ Session-auth path discovered: 2026-05-30 (via the Schoology "attendance" LTI app
 Endpoint-discovery crawl: 2026-05-30 — captured the attendance LTI app's full `/ws/...` surface (incl. new `/ws/pt/v1/...` PowerTeacher API) and resolved #66; see "Endpoint-discovery crawl" below.
 Block-number resolved: 2026-06-08 (#106) — the displayed "Block N" = `section_info.bellScheduleItems[].period.name`; see "Block number" below. Probes: `scripts/probe-ps-block-number.js`, `scripts/probe-ps-sectiondcid.js`.
 Student alerts over plain HTTP: 2026-10-17 (#117) — the LTI launch, the MBA alert catalogue, rosters, field values and advanced-alert matches all read with `fetch`, no browser; see "Student alerts over plain HTTP (#117)" below. Probes: `scripts/probe-ps-alerts-http.js`, `scripts/parity-ps-alerts.js`.
+Student grade level, gender, postal address: 2026-10-17 (#116) — grade level and gender from `/ws/pt/v1/` (JSON, plain HTTP, no date), the address only on the PowerTeacher Demographics screen (HTML); see "Student grade level, gender and postal address (#116)" below. Probe: `scripts/probe-ps-student-fields.js`.
 
 ## Server Details
 
@@ -337,7 +338,9 @@ display derives current grade = `12 − (grad_year − Y)` and shows no grade on
 
 ### Student alerts & custom-alert popups (probed 2026-05-30, for #65)
 
-The per-student alert icons in the attendance grid come from PowerSchool's **MBA custom-alerts plugin** (`aet_customalert`), whose client API lives under `/teachers/mba_alerts/queries/`. (Note: `section_attendance.studentAlerts` is a *different*, standard alert channel — empty for these students — and `getStudentsInSection.json` returns only the roster — **verified shape 2026-06-10, spike #43**: `POST` body `sectionIds={sectionDcid}` (date-free; note the plural param), response is a flat array of `{ ccid, sectionid, lastfirst, studentid, studentdcid }` — **roster identity only, NO `gradeLevel`/demographics**, so it is *not* a date-free grade-level source. The only confirmed `gradeLevel` read stays `/ws/attendance/section_attendance` (needs an in-session date). The PT-v1 `/ws/pt/v1/student/...` namespace — a possible cleaner date-free demographics/grade source — did **not** fire on the grid render and is still unprobed (tracked for a follow-up probe).) The plugin JS (loaded via `/ws/pagecustomizations/insertions`) is the map.
+The per-student alert icons in the attendance grid come from PowerSchool's **MBA custom-alerts plugin** (`aet_customalert`), whose client API lives under `/teachers/mba_alerts/queries/`. (Note: `section_attendance.studentAlerts` is a *different*, standard alert channel — empty for these students — and `getStudentsInSection.json` returns only the roster — **verified shape 2026-06-10, spike #43**: `POST` body `sectionIds={sectionDcid}` (date-free; note the plural param), response is a flat array of `{ ccid, sectionid, lastfirst, studentid, studentdcid }` — **roster identity only, NO `gradeLevel`/demographics**, so it is *not* a date-free grade-level source. The only confirmed `gradeLevel` read stays `/ws/attendance/section_attendance` (needs an in-session date). The PT-v1 `/ws/pt/v1/student/...` namespace — a possible cleaner date-free demographics/grade source — did **not** fire on the grid render and is still unprobed (tracked for a follow-up probe). *(Probed 2026-10-17, #116:
+`/ws/pt/v1/section/{psmSectionId}/students_integration` and `/ws/pt/v1/student/{psmId}` are date-free and carry
+`gradeLevel` and `gender`; see "Student grade level, gender and postal address (#116)".)*) The plugin JS (loaded via `/ws/pagecustomizations/insertions`) is the map.
 
 **Full alert catalog — one call, no inference needed:**
 `POST /teachers/mba_alerts/queries/getAlertTypes.json` (form `disabled=0&student_schoolid=40`) returns the **complete catalog of every configured alert** (HS = school 40). Returned **31 definitions** (a trailing meta element is popped by the client). Each def: `id`, `name`, `trigger_type`, `student_field`, `ext_table_name`, `icon`, `stub_url`, operators, `sort_order`. Three trigger types:
@@ -555,7 +558,9 @@ remains the only confirmed-working attendance read.**
 - ⚠️ `POST /ws/pt/v1/attendance/saveattendance` and `/saveattendances` — attendance **writes** (the write path #39 needs; not probed, read-only policy).
 
 **Referenced in the app bundle but NOT exercised on load (candidates — string literals, not yet shape-probed):**
-- `/ws/pt/v1/student/...` — student data (PT v1; PII — probe carefully)
+- `/ws/pt/v1/student/...` — student data (PT v1; PII — probe carefully). *(Probed 2026-10-17, #116: `GET /ws/pt/v1/student/{psmStudentId}`
+  → `{ student: { id, firstName, lastName, gender, photoURL, gradeLevel } }`; also `GET /ws/pt/v1/section/{psmSectionId}/students_integration`.
+  See "Student grade level, gender and postal address (#116)".)*
 - `/ws/pt/v1/seating_chart/config/integration`, `/ws/pt/v1/seatingchart/objects/layout_integration/...`
 - `/ws/seatingchart/config`, `/ws/seatingchart/objects/layout/...`, `/ws/seatingchart/section/attendance`, `/ws/seatingchart/section/multi_section_attendance`, `/ws/seatingchart/section/section_info`
 - `GET /ws/preferences/core/user/pref/{prefName}` — per-user preference read
@@ -581,7 +586,68 @@ the catalog — `X_DNC_G1`/`X_DNC_G2` (do-not-contact) and `X_G1DECEASED`/`X_G2D
 Correspondence alerts. Distinct per-guardian *contact details* (names/emails) are not exposed by
 these alerts; they live in PowerSchool's guardian/contact tables (see Frontier).
 
+### Student grade level, gender and postal address (#116, verified 2026-10-17)
+
+Read only, values masked: the probe printed status codes, key paths, value types, lengths and counts, never a value,
+a name or an id. Probe: `scripts/probe-ps-student-fields.js <schoologySectionId> [bundle|roster|student|demo|schema|page] [n]`
+(every request a GET except the LTI launch POST). Session: the plain-HTTP attendance LTI launch of #117
+(`PowerSchoolWeb.launch`, "Student alerts over plain HTTP (#117)" step 1). Sections probed: two active 2026-27 sections
+(18 and 9 students); per-student reads on 3 students in each, 6 in all.
+
+**Verdicts**
+
+| Field | Verdict | Where (key path) | Coverage seen |
+|---|---|---|---|
+| Grade level | **Available, plain HTTP, no date** | `GET /ws/pt/v1/section/{psmSectionId}/students_integration` → `$["student-list"].students[].gradeLevel` (string, 2 chars); `GET /ws/pt/v1/student/{psmStudentId}` → `$.student.gradeLevel` (number) | 27/27 on the section lists; 6/6 by student; equal to the Demographics screen's Grade Level for 6/6 |
+| Gender | **Available, plain HTTP** | the same two reads: `…students[].gender`, `$.student.gender` (string, 1 char; 2 distinct values in each section) | 27/27 on the section lists; 6/6 by student; equal to the Demographics screen's Gender for 6/6 |
+| Postal address | **Available, but only on an HTML screen** (no JSON source found) | PowerTeacher student **Demographics** screen, `GET /teachers/studentpages/demo.html?frn=001{dcid}&sectionid={sectionDcid}`: rows **Address** and **Mailing Address**, each a 2-line cell (`<td>line<BR>line</td>`) | both rows set for 6/6 |
+
+**Not found on these surfaces (scope of the negatives):**
+- `/ws/pt/v1/student/{id}` and `students_integration` carry exactly `id, firstName, lastName, gender, photoURL,
+  gradeLevel`: **no address**, no date of birth.
+- `GET /ws/schema/query/api`, `GET /ws/schema/table/students[/{dcid}]?projection=…` and
+  `GET /ws/v1/student/{dcid}?expansions=addresses,…` all answer **401** `"You do not have permission on the resource"`
+  on the teacher session (the OAuth plugin surface; unchanged). **Named PowerQueries were not run**: they are POSTs
+  (`POST /ws/schema/query/{name}`), outside this probe's GET-only rule, and no student/address query name was found in
+  the attendance app (its only `/ws/schema/query/` literals are `com.pearson.core.schools.grade_levels` and
+  `com.powerschool.core.health.get_student_health_plans_for_alert`).
+- The class **Emergency Contact List** (`/teachers/StudEmgContacts.html?sectionid={sectionDcid}`, linked from
+  PowerTeacher home) has columns Student, Guardian 1/2, G1/G2 Phone, Email, Faculty: no address.
+
+**How the routes were found (not guessed).** The attendance app's bundle (`/scripts/sgy-att-scripts/main.*.js`) defines
+`getStudent(t)` → `GET /ws/pt/v1/student/{t}?_={unix}` (defined, never called in the bundle) and `getPsmStudents` →
+`GET /ws/pt/v1/section/{psmSectionId}/students_integration?_={unix}` (the seating chart's roster; the app keys
+`psmStudents` by `.id` and reads `gradeLevel` and `photoURL`). `psmSectionId` is a field of `section_info`.
+
+**Ids.** The PT `id` is a **PSM student id** (a string of length 7 or 8 in the list, a number in `/student/`): it equals
+neither the roster `studentid` nor the `dcid` (0 of 27). The join is through `photoURL`, `/teachers/stpnormal/{studentid}ph.jpeg`:
+its number is the PowerSchool `studentid` for 27/27, and `getStudentsInSection.json` (GET works as well as POST) maps
+`studentid` → `studentdcid` → Prism `school_uid = "1_" + dcid`. A `/ws/pt/v1/student/` read needs the PSM id; it was not
+tried with a dcid or a studentid, since the PSM id answered.
+
+**The Demographics screen (address).** It sits in PowerTeacher's student frameset (home → class "Student Info" =
+`summary.html?sectionid={sectionDcid}&frn=003{sectionDcid}` → frame `menu.html?…` → per student
+`studentpages/home.html?ac=laststudpage&sectionid={sectionDcid}&frn=001{dcid}` → screen picker → `demo.html`). The
+screen picker lists 20 screens (Demographics, Quick Lookup, Schedule, Meeting Attendance, Term Grades, Student Photo, …) plus Student Support and Student Forms.
+⚠️ **Order matters, and a wrong order is logged.** A first GET of `studentpages/home.html` with no Referer answered
+**403** (empty); with the menu as Referer but no summary/menu loaded in that session it answered 200 with PowerSchool's
+**"Security Violation Logged: Attempted to run an unauthorized action"** page. Loading `home.html` → `summary.html` →
+`menu.html` first, each sent with the previous page as Referer, worked for 6/6 students (the probe follows that path and
+stops at once on a violation page). `ac=laststudpage` returns the screen last viewed, so after the first student it
+returns Demographics itself. The Demographics rows seen (labels only): Name (Last, First MI), Address, Home Phone, Age, DOB, Ethnicity,
+Father's / Mother's Name, Employer, Home Phone, Day Phone, Gender, Grade Level, Graduation Year, Guardianship,
+Guardian Email, Home Room, Locker Number / Combination, Mailing Address, Student ID, Student number, State Student
+Number, PowerSchool Learning. HTML, not JSON: a feature would parse `<tr><td><strong>{label}</strong></td><td>{value}</td></tr>` rows.
+
+**Leads, not done:** `students_integration` is a **date-free** grade-level source (one call per section, no in-session
+date range), which could replace the `section_attendance` range in `server/lib/psGradeLevel.js`; Graduation Year is also on
+the Demographics screen. Building any feature on these fields is a new issue (#116 is the probe only).
+
 ### Student home / postal address (#68 — wanted feature; feasibility, live probe pending)
+
+*(Superseded 2026-10-17 by "Student grade level, gender and postal address (#116)" above: the address is on the
+PowerTeacher Demographics screen, HTML only; `/ws/pt/v1/student/` has no address. #68 was merged into #116 and closed.
+The 2026-05-30 analysis is kept below.)*
 
 The user wants student **home / postal address** surfaced in Prism. Where it lives (2026-05-30 analysis; no live read yet — tracked in **#68**):
 
@@ -591,7 +657,8 @@ The user wants student **home / postal address** surfaced in Prism. Where it liv
 
 ### Relevance to other issues
 
-- **#68 (student home/postal address):** Schoology has none; PowerSchool is the source — see "Student home / postal address" above (session-auth `/ws/pt/v1/student` lead, safeguarding-tier PII, live probe pending).
+- **#68 (student home/postal address):** Schoology has none; PowerSchool is the source — see "Student home / postal address" above (session-auth `/ws/pt/v1/student` lead, safeguarding-tier PII, live probe pending). *(Probed 2026-10-17 in #116, which
+  #68 was merged into: the address is on the PowerTeacher Demographics screen (HTML), not in `/ws/pt/v1/student`.)*
 - **#39 (attendance marking):** `section_info` + `section_attendance` are the attendance endpoints that issue
   asks to probe; `section_attendance` is read here, and the same surface (`pss-integration-attendance-picker`)
   is what writes attendance codes. The "no page on non-timetabled dates" behavior #39 notes = the in-session-date

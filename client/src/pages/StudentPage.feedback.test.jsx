@@ -4,7 +4,7 @@
 // submission comment chips, loaded after the page renders. One batch request for
 // the rubrics (no N+1 on load).
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 vi.mock('../components/MasteryPerformanceSummary.jsx', () => ({ default: () => null }));
@@ -183,7 +183,9 @@ describe('StudentPage: loading', () => {
     // The page is up while the first lookup is still running.
     expect(await screen.findByText('Poster')).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /work in OneDrive/ })).not.toBeInTheDocument();
-    expect(getStudentWorkLinks).toHaveBeenCalledTimes(1);
+    // The lookup starts in an effect after the first render: wait for it (a slow CI
+    // runner reached this line first, 19/10/2026).
+    await waitFor(() => expect(getStudentWorkLinks).toHaveBeenCalledTimes(1));
     expect(getStudentWorkLinks).toHaveBeenCalledWith(7, ['sa-20', 'sa-22', 'sa-23']);
     releaseFirst();
     expect(await screen.findAllByRole('link', { name: "Open Ada Lovelace's work in OneDrive" })).toHaveLength(2);

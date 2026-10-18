@@ -4,6 +4,7 @@ import { getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFee
 import { draftBaseline } from '../lib/assessmentDraft.js';
 import { feedbackRowTopics, rowScores, rowTopicMapping, isRowKey, rowName } from '../lib/feedbackRows.js';
 import { makeDraftSaver } from '../lib/assessmentDraftSaver.js';
+import { useUndoableText } from '../hooks/useUndoableText.js';
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
 import { rubricAverage } from '../lib/rubricAverage.js';
 import { studentFullName } from '../lib/studentNames.js';
@@ -251,7 +252,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     handleSuggestion('ignored');
   }
   function applySuggestion() {
-    applyComment(normalizePastedText(narrativeSuggestion));
+    applyComment(normalizePastedText(narrativeSuggestion), { step: true });
     handleSuggestion('used');
   }
 
@@ -271,9 +272,15 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
 
   // pending: { [topicId]: 'ED'|'EX'|'D'|'EM'|'IE' }
   const [pending, setPending] = useState(() => restoredDraft?.pending ?? {});
-  const [comment, setComment] = useState(
+  // The comment keeps its own undo history (#75): the box writes its value on
+  // paste, the chip line and Use suggestion, which breaks the browser's undo.
+  // setComment (Discard, a rebase after Ask/Extend, a legacy draft) resets the
+  // history; applyComment records a step.
+  const commentHistory = useUndoableText(
     () => restoredDraft?.comment ?? (student.grade_comment || '')
   );
+  const comment = commentHistory.value;
+  const setComment = commentHistory.reset;
   // The exact "resubmission received" line last inserted by the chip (triage
   // resubmissions, Amendment B Task 7), or null until the chip is clicked. Save
   // sends statusLine only while this is still (verbatim) the draft's first line —
@@ -497,13 +504,14 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
 
   // Apply a new comment value, auto-flipping the display toggle ON the first
   // time a virgin record's comment goes empty → non-empty. Shared by the
-  // textarea's onChange and onPaste handlers.
-  function applyComment(next) {
+  // textarea's onChange and onPaste handlers. step: one undo step by itself
+  // (paste, chip line, Use suggestion); otherwise typing, grouped.
+  function applyComment(next, { step = false } = {}) {
     if (autoFlipArmed && comment === '' && next !== '') {
       setDisplay(true);
       setAutoFlipArmed(false);
     }
-    setComment(next);
+    commentHistory.set(next, { step });
   }
 
   // Chip (triage resubmissions, Amendment B Task 7): insert a fresh "resubmission
@@ -516,7 +524,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     const line = receivedLine({ on: student.arrived_on });
     const stored = insertedLine ?? (student.status_line?.line || '');
     flushNextRef.current = true;
-    applyComment(composeComment(comment, stored, line));
+    applyComment(composeComment(comment, stored, line), { step: true });
     // A published status line is always visible to the student (global rule) —
     // force it on rather than relying on auto-flip, which only fires once from
     // a virgin empty comment.
@@ -818,6 +826,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
       setSaveResult('saved');
       setPending({});
       setInsertedLine(null);
+      commentHistory.clearHistory(); // undo never crosses a publish (#75)
       saverRef.current.remove({ immediate: true });
       setNotesCollapsed(true); // published via bulk → tuck the reviewer notes away
     } else {
@@ -857,6 +866,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         setSaveResult('saved');
         setPending({});
         setInsertedLine(null);
+        commentHistory.clearHistory(); // undo never crosses a publish (#75)
         saverRef.current.remove({ immediate: true });
         onSaved?.(student.schoology_uid, {
           ...(scaleCode ? { score: scalePointsFor(scaleCode), scale_level: scaleCode } : {}),
@@ -904,6 +914,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
       setSaveResult('saved');
       setPending({});
       setInsertedLine(null);
+      commentHistory.clearHistory(); // undo never crosses a publish (#75)
       // Explicit clear: the card stays mounted now, but the write effect runs
       // asynchronously — clear here so a fast bulk run can't race a stale key.
       saverRef.current.remove({ immediate: true });
@@ -1662,6 +1673,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         <textarea
           value={comment}
           onChange={e => applyComment(e.target.value)}
+          onKeyDown={commentHistory.onKeyDown}
           onPaste={e => {
             const raw = e.clipboardData.getData('text/plain');
             if (!raw) return;
@@ -1670,7 +1682,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             const el = e.target;
             const { selectionStart, selectionEnd } = el;
             const next = comment.slice(0, selectionStart) + cleaned + comment.slice(selectionEnd);
-            applyComment(next);
+            applyComment(next, { step: true });
             requestAnimationFrame(() => {
               const pos = selectionStart + cleaned.length;
               el.setSelectionRange(pos, pos);

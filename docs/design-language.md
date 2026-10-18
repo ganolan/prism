@@ -1397,3 +1397,12 @@ A tag on the Questions tab opens that tag across every quiz group in the course,
 - **One summary line, then By test, then By student.** "4/8 correct (50%) on 4 MCQs in 3 tests" with a `.pct-bar`. By test: number, title ("(this quiz)" and bold for the open one), the group's date (`formatDate`: the result task's due date, else the earliest member due date, else the first attempt), the tagged questions as "Q1 67%, Q3 33%" (each kept on one line), correct out of total and a percent bar. A group whose results are not loaded reads "Not loaded".
 - **Students lowest first, so who has not met the objective is on top.** `ScoreDots` (the same dot plot as the MCQ summary) over a table: one column per test, headed by its number in By test with the title on hover, "2/2" per test sat, "-" (titled "Did not sit it") for one not sat, then the course total and percent.
 - **Switch tags in place.** A Tag select at the top lists every MCQ tag in the course, most questions first, so the teacher can move between objectives without closing the drawer.
+
+## Undo in the card comment box (October 2026, #75)
+
+The comment box on an /assessment/ card writes its own value (a cleaned paste, the "resubmission received" line, Use suggestion), and that breaks the browser's own undo. The box now keeps its own history (`client/src/hooks/useUndoableText.js`, reusable for any box like it).
+
+- **Keys, while the box has focus:** Cmd+Z undoes; Shift+Cmd+Z redoes. On Windows, Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y. The shortcut always stops the browser's undo, even with nothing left to undo, because its stack no longer matches the text.
+- **Steps:** a paste, the chip line and Use suggestion are one step each. Typing is grouped: a typing step ends at a pause of one second or more, or when typing switches between adding and deleting text. After an undo or redo the caret sits at the end of the text that changed.
+- **Boundaries:** Publish (the card's or Send all), Discard, and an Ask / Extend that rewrites the comment clear the history, so undo never brings back text from before them. No buttons: the box has no room, and the keys are what teachers try first.
+- **Draft:** an undo is a change like typing, so the draft saver mirrors it.

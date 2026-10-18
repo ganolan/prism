@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, triggerMasterySync, triggerMasteryLogin, getSubmissionLinks, getTriage, setMakeUpIgnored, getQuizGroups, getCourseCommentSummaries } from '../services/api.js';
+import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, triggerMasterySync, triggerMasteryLogin, getSubmissionLinks, getTriage, setMakeUpIgnored, setAssessmentPublished, getQuizGroups, getCourseCommentSummaries } from '../services/api.js';
 import AnalyticsView from '../components/AnalyticsView.jsx';
 import OverridePopup from '../components/OverridePopup.jsx';
 import TriageSection from '../components/triage/TriageSection.jsx';
@@ -97,6 +97,16 @@ export default function CoursePage() {
     const r = await setMakeUpIgnored(a.id, !a.makeup_ignored);
     patchMakeUpIgnored(a.id, r.ignored);
     setTriageVersion((v) => v + 1);
+  }
+
+  // Publish or unpublish on Schoology (#138); the row shows what Schoology read back.
+  async function setPublished(a, published) {
+    const r = await setAssessmentPublished(id, a.id, published);
+    setGradebook((g) => g && {
+      ...g,
+      assignments: g.assignments.map((x) => (x.id === a.id ? { ...x, published: r.published } : x)),
+    });
+    return r;
   }
 
   async function refreshMastery() {
@@ -252,6 +262,7 @@ export default function CoursePage() {
             <AssessmentsView
               data={gradebook} courseId={id} waits={triageWaits.waits} feedbackLimit={triageWaits.feedbackLimit}
               onToggleMakeUp={courseLive ? toggleMakeUp : undefined}
+              onSetPublished={courseLive ? setPublished : undefined}
             />
           )}
           {view === 'analytics' && <AnalyticsView id={id} />}
@@ -1444,9 +1455,16 @@ export function TypeFilterBar({ assignments, filter, onChange, compact = false }
 
 // onToggleMakeUp(assignment) (live courses only) flips make-up tracking for a
 // Schoology test/quiz; its chip shows "Make-ups: tracked / ignored".
-export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10, onToggleMakeUp }) {
+// onSetPublished(assignment, 0|1) (live courses only) publishes or unpublishes
+// it on Schoology (#138), after a confirm under the row.
+export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10, onToggleMakeUp, onSetPublished }) {
   const [filter, setFilter] = useState(DEFAULT_TYPE_FILTER);
   const [makeUpError, setMakeUpError] = useState(null);
+  // The row whose publish confirm is open ({ id, published }), and the last result.
+  const [publishAsk, setPublishAsk] = useState(null);
+  const [publishBusy, setPublishBusy] = useState(false);
+  const [publishDone, setPublishDone] = useState(null);
+  const [publishError, setPublishError] = useState(null);
   // Combined tests (linked quizzes): member tests fold under the canonical row.
   const [quizGroups, setQuizGroups] = useState([]);
   useEffect(() => {
@@ -1483,6 +1501,21 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
     }
   }
 
+  async function confirmPublish(a, published) {
+    setPublishBusy(true);
+    try {
+      const r = await onSetPublished(a, published);
+      setPublishError(null);
+      setPublishDone({ id: a.id, published: r?.published ?? published });
+      setTimeout(() => setPublishDone((d) => (d?.id === a.id ? null : d)), 5000);
+    } catch (err) {
+      setPublishError(`Couldn't ${published ? 'publish' : 'unpublish'} "${a.title}": ${err.message}`);
+    } finally {
+      setPublishBusy(false);
+      setPublishAsk(null);
+    }
+  }
+
   if (!data || !data.assignments.length) {
     return <div className="card"><p className="text-muted">No assignments yet.</p></div>;
   }
@@ -1499,6 +1532,7 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
         <TypeFilterBar assignments={assignments} filter={filter} onChange={setFilter} />
       </div>
       {makeUpError && <div className="alert alert-warning" style={{ margin: '0.75rem 1.25rem' }}>{makeUpError}</div>}
+      {publishError && <div className="alert alert-warning" style={{ margin: '0.75rem 1.25rem' }}>{publishError}</div>}
 
       {groups.length === 0 ? (
         <p className="text-sm text-muted" style={{ padding: '1rem 1.25rem' }}>
@@ -1522,6 +1556,7 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
               return (
                 <div
                   key={a.id}
+                  className="assessment-row"
                   style={{
                     display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap',
                     padding: '0.55rem 1.25rem',
@@ -1553,6 +1588,17 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
                         Unpublished
                       </span>
                     )}
+                    {/* #138: Publish where it is needed; Unpublish stays quiet until hover or focus. */}
+                    {onSetPublished && (
+                      <button
+                        type="button"
+                        className={`publish-btn${unpublished ? '' : ' publish-btn--quiet'}`}
+                        aria-expanded={publishAsk?.id === a.id}
+                        onClick={() => setPublishAsk(publishAsk?.id === a.id ? null : { id: a.id, published: unpublished ? 1 : 0 })}
+                      >
+                        {unpublished ? 'Publish' : 'Unpublish'}
+                      </button>
+                    )}
                   </span>
                   {/* Folded member tests have no row of their own, so their make-up tracking shows here,
                       labelled by place in the group (the full title is in the chip's hover text). */}
@@ -1580,6 +1626,26 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
                     <span className="text-sm text-muted" style={{ flexShrink: 0 }}>
                       Due {a.due_date}
                     </span>
+                  )}
+                  {publishAsk?.id === a.id && (
+                    <div className="publish-confirm" role="group" aria-label={`${publishAsk.published ? 'Publish' : 'Unpublish'} "${a.title}" on Schoology`}>
+                      <span className="publish-confirm__q">
+                        {publishAsk.published ? 'Publish' : 'Unpublish'} <b>{a.title}</b> on Schoology?{' '}
+                        <span className="publish-confirm__warn">
+                          {publishAsk.published ? 'Students see it at once.' : 'Students stop seeing it at once.'}
+                        </span>
+                      </span>
+                      <button type="button" className={publishAsk.published ? 'primary' : 'primary danger'} disabled={publishBusy}
+                        onClick={() => confirmPublish(a, publishAsk.published)}>
+                        {publishAsk.published ? 'Publish' : 'Unpublish'}
+                      </button>
+                      <button type="button" className="ghost" disabled={publishBusy} onClick={() => setPublishAsk(null)}>Cancel</button>
+                    </div>
+                  )}
+                  {publishDone?.id === a.id && (
+                    <div role="status" className="publish-done">
+                      {publishDone.published ? 'Published' : 'Unpublished'} on Schoology (checked).
+                    </div>
                   )}
                 </div>
               );

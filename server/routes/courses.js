@@ -11,6 +11,7 @@ import { psAlertsByStudent } from '../services/psAlertStore.js';
 import { forRoster } from '../lib/psAlerts.js';
 import { toSchoologyWebUrl } from '../lib/schoologyWebUrl.js';
 import { timelineContext } from '../services/submissionTimeline.js';
+import { setPublished, PublishError } from '../services/assessmentPublish.js';
 
 const router = Router();
 
@@ -365,6 +366,22 @@ router.put('/:id/archive', (req, res) => {
   const newState = course.archived ? 0 : 1;
   db.prepare('UPDATE courses SET archived = ? WHERE id = ?').run(newState, req.params.id);
   res.json({ ...course, archived: newState });
+});
+
+// PUT /api/courses/:id/assessments/:assignmentId/published — { published: 0|1 }:
+// publish or unpublish one assessment on Schoology (#138), current courses only.
+// Answers { assignmentId, published, changed } from Schoology's read-back.
+const PUBLISH_STATUS = { BAD_VALUE: 400, NOT_FOUND: 404, NOT_LIVE: 409, WRITE_FAILED: 502, READBACK_MISMATCH: 502 };
+router.put('/:id/assessments/:assignmentId/published', async (req, res) => {
+  try {
+    const r = await setPublished(getDb(), {
+      courseId: Number(req.params.id), assignmentId: Number(req.params.assignmentId), published: req.body?.published,
+    });
+    res.json(r);
+  } catch (err) {
+    if (err instanceof PublishError) return res.status(PUBLISH_STATUS[err.code] || 500).json({ error: err.message, code: err.code });
+    res.status(502).json({ error: `Could not reach Schoology: ${err.message}` });
+  }
 });
 
 // PUT /api/courses/:id/visibility — toggle visibility

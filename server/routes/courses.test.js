@@ -4,7 +4,7 @@ import express from 'express';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 vi.mock('../services/archivedCourses.js', () => ({ getArchivedSections: vi.fn() }));
-vi.mock('../services/schoology.js', () => ({ apiGet: vi.fn() }));
+vi.mock('../services/schoology.js', () => ({ apiGet: vi.fn(), apiPut: vi.fn() }));
 vi.mock('../services/sync.js', () => ({
   finalizeArchivedCourse: vi.fn().mockResolvedValue({ studentsCount: 1, assignmentsCount: 2, gradesCount: 3 }),
   enrichStudentProfiles: vi.fn().mockResolvedValue(1),
@@ -16,7 +16,7 @@ vi.mock('../services/psAttendanceSync.js', () => ({ syncPsAttendance: vi.fn().mo
 import router from './courses.js';
 import { getDb } from '../db/index.js';
 import { getArchivedSections } from '../services/archivedCourses.js';
-import { apiGet } from '../services/schoology.js';
+import { apiGet, apiPut } from '../services/schoology.js';
 import { finalizeArchivedCourse, enrichStudentProfiles } from '../services/sync.js';
 import { syncPsAttendance } from '../services/psAttendanceSync.js';
 import { requestResubmission } from '../services/resubmissions.js';
@@ -38,6 +38,16 @@ async function get(path) {
   } finally {
     server.close();
   }
+}
+
+async function put(path, body) {
+  const { server, port } = startServer();
+  try {
+    const res = await fetch(`http://localhost:${port}${path}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    return { status: res.status, body: await res.json() };
+  } finally { server.close(); }
 }
 
 async function post(path, body) {
@@ -480,5 +490,44 @@ describe('GET /api/courses/:id/gradebook — submission timelines', () => {
     expect(body.timelines[studentId][assignmentId]).toMatchObject({ due: { date: '2026-01-05' } });
     expect(body.timelines[other][assignmentId]).toMatchObject({ submission: { state: 'not_submitted' } });
     expect(body.timelines[other][assignmentId].overdue.day).toBeGreaterThan(1);
+  });
+});
+
+describe('PUT /api/courses/:id/assessments/:assignmentId/published (#138)', () => {
+  beforeEach(() => {
+    apiGet.mockReset(); apiPut.mockReset();
+    getDb().prepare('UPDATE assignments SET published = 0 WHERE id = ?').run(assignmentId);
+  });
+
+  test('publishes on Schoology and answers the read-back state', async () => {
+    let remote = 0;
+    apiGet.mockImplementation(async () => ({ published: remote }));
+    apiPut.mockImplementation(async (_p, body) => { remote = body.published; return { status: 204, data: null }; });
+    const r = await put(`/api/courses/${courseId}/assessments/${assignmentId}/published`, { published: 1 });
+    expect(r).toEqual({ status: 200, body: { assignmentId, published: 1, changed: true } });
+    expect(apiPut).toHaveBeenCalledWith('/sections/sec-1/assignments/sa-1', { published: 1 });
+    const { body } = await get(`/api/courses/${courseId}/gradebook`);
+    expect(body.assignments.find((a) => a.id === assignmentId).published).toBe(1);
+  });
+
+  test('409 on an archived course, with no Schoology call', async () => {
+    getDb().prepare('UPDATE courses SET archived = 1 WHERE id = ?').run(courseId);
+    const r = await put(`/api/courses/${courseId}/assessments/${assignmentId}/published`, { published: 1 });
+    expect(r.status).toBe(409);
+    expect(r.body.error).toMatch(/current courses/);
+    expect(apiGet).not.toHaveBeenCalled();
+  });
+
+  test('400 on a bad value, 404 on an unknown assessment', async () => {
+    expect((await put(`/api/courses/${courseId}/assessments/${assignmentId}/published`, { published: 'yes' })).status).toBe(400);
+    expect((await put(`/api/courses/${courseId}/assessments/999999/published`, { published: 1 })).status).toBe(404);
+  });
+
+  test('502 when Schoology refuses the write', async () => {
+    apiGet.mockResolvedValue({ published: 0 });
+    apiPut.mockResolvedValue({ status: 403, data: null });
+    const r = await put(`/api/courses/${courseId}/assessments/${assignmentId}/published`, { published: 1 });
+    expect(r.status).toBe(502);
+    expect(r.body.error).toMatch(/HTTP 403/);
   });
 });

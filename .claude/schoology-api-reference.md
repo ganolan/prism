@@ -961,6 +961,8 @@ Probe: `scripts/probe-assignment-write.js`. All probe assignments were unpublish
 | `POST /v1/sections/{id}/assignments` | **201.** Creates the assignment. `title`, `description`, `due` (`YYYY-MM-DD HH:MM:SS`), `grading_scale`, `grading_category`, `max_points`, `published` all stick. |
 | `PUT /v1/sections/{id}/assignments/{aid}` | **204, partial update**: fields omitted from the body are kept (verified: due, scale, category, points unchanged after a description-only PUT). Unlike the grades PUT, it is not destructive. |
 | Description HTML | **Kept, including inline styles** (`<h2 style=...>`, tables, spans). A plain GET strips the HTML; **read with `?richtext=1`** to get it back. |
+| `PUT ... {published: 1}` then `{published: 0}` on an existing assignment (#138, probed 2026-10-18) | **204 both ways, read back both ways.** Temporary assignment `8613503707` in archived 2025-26 AP CSP 7(A-B), section `7899896088` (created unpublished, 201). Single GET `published` 0 → 1 → 0 and the section list (`/sections/{id}/assignments?limit=1000`) agreed each time; `last_updated` moved on each PUT (`1792296779` → `1792296804` → `1792296823`); `available` stayed 1, `folder_id` and `num_assignees` unchanged. The 204 has no body. Works on an **archived** section. Probe: `scripts/probe-assignment-publish.js`. Deleted afterwards (204, then GET 404). |
+| Same PUT on an existing **test** (`type: assessment`) (#138, probed 2026-10-18) | **204 both ways, read back both ways.** Unpublished, unassigned `8035947775` ("Unit 1 - Values Theory Test (S) - Discarded Questions") in the same archived section: `published` 0 → 1 → 0 in the single GET and the section list; `last_updated` `1757982369` → `1792297167` → `1792297196`; `available` 1, `folder_id` `931511042`, `num_assignees` 0 unchanged. Left unpublished, as before. A temporary test copy was not possible there: the `/assignment/{id}/copy` form listed only this year's ten sections (`8458134359`, `8458134140`, `8458134135`, `280110114`, `8458134331`, `8458134323`, `8458145439`, `8458134345`, `8458134338`, `8458143319`), not the archived one. |
 | `DELETE /v1/sections/{id}/assignments/{aid}` | 204. |
 | `folder_id` on POST or PUT | **Ignored** (stays 0). Folder placement needs the web UI. |
 | `assignees: [uid]` on PUT | **Ignored** (num_assignees stays 0). Individual assignment needs the web UI (shape not exhaustively tried). |
@@ -1065,7 +1067,8 @@ Pages of a test `{id}` (type `assessment` in the API):
 `/assignment/{id}/assessment_preview`, `/assignment/{id}/assessment_results`, `/assessment/{id}/export_csv`.
 Item actions: `/assignment/{id}/copy`, `/assignment/delete/{id}`, `/course/materials/{id}/mod/publish`.
 
-- **API works on tests for title, published, category, points** (`update --title` proven on a test copy).
+- **API works on tests for title, published, category, points** (`update --title` proven on a test copy; `published` both ways proven 2026-10-18, see "Writing assignments").
+- The copy form's section blocks are this year's sections only (2026-10-18): a test cannot be copied into an archived section.
 - **Copy (extra-time copies).** `GET /assignment/{id}/copy` = form `addl_courses[<section>][...]` with
   `enabled`, `destination_folder`, `due][due_date][date|time]`, `grading_category_nid`,
   `grading_scale_id`, `grading_period_id`, `no_rubric_copy`, one block per section Graham teaches.

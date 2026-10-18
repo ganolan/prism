@@ -274,6 +274,9 @@ export const recordExtension = (body) => request('/triage/extensions', { method:
 // removeLine also removes the status line this extension published from the student's comment.
 export const undoExtension = (id, { removeLine = false } = {}) =>
   request(`/triage/extensions/${id}${removeLine ? '?removeLine=1' : ''}`, { method: 'DELETE' });
+// Publish (1) or unpublish (0) one assessment on Schoology (#138). Current courses only.
+export const setAssessmentPublished = (courseId, assignmentId, published) =>
+  request(`/courses/${courseId}/assessments/${assignmentId}/published`, { method: 'PUT', body: JSON.stringify({ published }) });
 // Make-up tests: ignore (or track again) one Schoology test/quiz for every student.
 export const setMakeUpIgnored = (assignmentId, ignored) =>
   request(`/triage/makeup-ignore/${assignmentId}`, { method: 'PUT', body: JSON.stringify({ ignored }) });

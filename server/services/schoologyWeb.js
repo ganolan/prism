@@ -6,6 +6,7 @@
 import { readFileSync, existsSync } from 'fs';
 import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
 import { sessionStateFile } from '../lib/sessionPaths.js';
+import { renewSession } from './schoologySession.js';
 
 export class WebSessionError extends Error {
   constructor(code, message) { super(message); this.code = code; }
@@ -17,15 +18,28 @@ const HOST = new URL(SCHOOLOGY_BASE).host;
 // host only. Set-Cookie answers update it, so a refreshed session cookie is used
 // on the next request. Expiry stamps are ignored: they read "expired" long before
 // the Drupal session dies (AGENTS.md); the server decides.
+// reload() reads the file again; renew() renews the session through Microsoft
+// (schoologySession.renewSession), saves it and reloads: getResource calls it once
+// when Schoology sends a read to sign-in.
 export function cookieJar(stateFile = sessionStateFile()) {
   if (!existsSync(stateFile)) return null;
-  const state = JSON.parse(readFileSync(stateFile, 'utf8'));
   const jar = new Map();
-  for (const c of state.cookies || []) {
-    const domain = String(c.domain || '').replace(/^\./, '');
-    if (HOST === domain || HOST.endsWith(`.${domain}`)) jar.set(c.name, c.value);
-  }
+  const load = () => {
+    const state = JSON.parse(readFileSync(stateFile, 'utf8'));
+    jar.clear();
+    for (const c of state.cookies || []) {
+      const domain = String(c.domain || '').replace(/^\./, '');
+      if (HOST === domain || HOST.endsWith(`.${domain}`)) jar.set(c.name, c.value);
+    }
+  };
+  load();
   return {
+    reload: load,
+    async renew() {
+      if (!(await renewSession({ stateFile }))) return false;
+      load();
+      return true;
+    },
     header: () => [...jar].map(([k, v]) => `${k}=${v}`).join('; '),
     take(res) {
       const set = typeof res.headers.getSetCookie === 'function' ? res.headers.getSetCookie() : [];
@@ -40,8 +54,9 @@ export function cookieJar(stateFile = sessionStateFile()) {
 
 // GET a school-domain path with the session, following redirects by hand so a
 // bounce to sign-in is seen. → { status, url (after redirects), text, contentType }
-// for any final status (a 403 or 404 is an answer, not an error). Throws
-// SESSION_EXPIRED when Schoology sends the request to the login / SSO page, and
+// for any final status (a 403 or 404 is an answer, not an error). When Schoology
+// sends the request to the login / SSO page, a jar with renew() renews the session
+// once and the request is asked again; SESSION_EXPIRED when that fails, and
 // HTTP when the request fails outright or times out (timeoutMs).
 // `accept` sets the Accept header: the /iapi and /iapi2 JSON reads send
 // 'application/json', as the pages' own scripts do.
@@ -52,9 +67,11 @@ export function cookieJar(stateFile = sessionStateFile()) {
 export async function getResource(jar, path, {
   fetchImpl = fetch, accept = null, timeoutMs = 30000, retries429 = 2, sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
 } = {}) {
-  let url = path.startsWith('http') ? path : `${SCHOOLOGY_BASE}${path}`;
+  const start = path.startsWith('http') ? path : `${SCHOOLOGY_BASE}${path}`;
+  let url = start;
   const headers = () => ({ cookie: jar.header(), ...(accept ? { Accept: accept } : {}) });
   let waits = 0;
+  let renewed = false;
   for (let hops = 0; hops < 5;) {
     let res;
     try {
@@ -66,7 +83,14 @@ export async function getResource(jar, path, {
     if ([301, 302, 303, 307, 308].includes(res.status)) {
       const location = res.headers.get('location') || '';
       url = location.startsWith('http') ? location : new URL(location, url).href;
-      if (!isLoggedInUrl(url)) throw new WebSessionError('SESSION_EXPIRED', 'The saved Schoology session has expired');
+      if (!isLoggedInUrl(url)) {
+        // Sent to sign-in: renew once through Microsoft (#136), then ask again.
+        if (!renewed && typeof jar.renew === 'function') {
+          renewed = true;
+          if (await jar.renew()) { url = start; hops = 0; continue; }
+        }
+        throw new WebSessionError('SESSION_EXPIRED', 'The saved Schoology session has expired');
+      }
       hops++;
       continue;
     }

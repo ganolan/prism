@@ -1,7 +1,10 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
-  sessionStatus, sessionDeps, noteSessionLive, resetSessionStatusCache, LIVE_CHECK_TTL_MS, openSessionPage,
+  sessionStatus, sessionDeps, noteSessionLive, resetSessionStatusCache, LIVE_CHECK_TTL_MS, openSessionPage, renewSession,
 } from './schoologySession.js';
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 // A fake page: goto lands on `landing` (the school domain = logged in, SSO = expired).
 function fakeSession(landing) {
@@ -104,5 +107,68 @@ describe('openSessionPage', () => {
     } finally {
       if (prev === undefined) delete process.env.PRISM_SESSION_DIR; else process.env.PRISM_SESSION_DIR = prev;
     }
+  });
+});
+
+describe('renewSession (silent sign-in through Microsoft)', () => {
+  // A fake headless page: goto follows the SSO round trip and lands on `landing`;
+  // the context then holds `cookies`.
+  function renewalPage(landing, cookies = [{ name: 'SESSnew', value: 'v2', domain: '.schoology.hkis.edu.hk' }]) {
+    const page = {
+      url: vi.fn(() => landing),
+      goto: vi.fn(async () => {}),
+      waitForURL: vi.fn(async () => { if (!landing.includes('schoology.hkis.edu.hk/home')) throw new Error('timeout'); }),
+      context: () => ({ storageState: async () => ({ cookies, origins: [] }) }),
+    };
+    return { page, close: vi.fn(async () => {}) };
+  }
+  const tmpState = () => {
+    const dir = mkdtempSync(join(tmpdir(), 'prism-renew-'));
+    const file = join(dir, 'storage-state.json');
+    writeFileSync(file, JSON.stringify({ cookies: [{ name: 'SESSold', value: 'v1', domain: '.schoology.hkis.edu.hk' }], origins: [] }));
+    return { dir, file };
+  };
+
+  test('lands signed in: saves the new cookies over the state file and notes the session live', async () => {
+    const { dir, file } = tmpState();
+    const s = renewalPage('https://schoology.hkis.edu.hk/home');
+    sessionDeps.openPage = vi.fn(async () => s);
+    expect(await renewSession({ stateFile: file, now })).toBe(true);
+    expect(sessionDeps.openPage).toHaveBeenCalledWith(file);
+    expect(JSON.parse(readFileSync(file, 'utf8')).cookies.map((c) => c.name)).toEqual(['SESSnew']);
+    expect(readdirSync(dir)).toEqual(['storage-state.json']); // the temp file was renamed into place
+    expect(s.close).toHaveBeenCalled();
+    expect((await sessionStatus({ check: false, hasSession: () => true, now })).live).toBe('connected');
+  });
+
+  test('stuck at Microsoft sign-in: leaves the file alone, notes expired, answers false', async () => {
+    const { file } = tmpState();
+    const before = readFileSync(file, 'utf8');
+    const s = renewalPage('https://login.microsoftonline.com/common/oauth2/authorize');
+    sessionDeps.openPage = vi.fn(async () => s);
+    expect(await renewSession({ stateFile: file, now })).toBe(false);
+    expect(readFileSync(file, 'utf8')).toBe(before);
+    expect(s.close).toHaveBeenCalled();
+    expect((await sessionStatus({ check: false, hasSession: () => true, now })).live).toBe('expired');
+  });
+
+  test('reads that expire together share one renewal', async () => {
+    const { file } = tmpState();
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    const s = renewalPage('https://schoology.hkis.edu.hk/home');
+    sessionDeps.openPage = vi.fn(async () => { await gate; return s; });
+    const both = Promise.all([renewSession({ stateFile: file, now }), renewSession({ stateFile: file, now })]);
+    release();
+    expect(await both).toEqual([true, true]);
+    expect(sessionDeps.openPage).toHaveBeenCalledTimes(1);
+  });
+
+  test('no saved session or no browser: false, nothing thrown', async () => {
+    const { file } = tmpState();
+    sessionDeps.openPage = vi.fn(async () => null);
+    expect(await renewSession({ stateFile: file, now })).toBe(false);
+    sessionDeps.openPage = vi.fn(async () => { throw new Error('browser failed to start'); });
+    expect(await renewSession({ stateFile: file, now })).toBe(false);
   });
 });

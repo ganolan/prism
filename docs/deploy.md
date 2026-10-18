@@ -145,6 +145,13 @@ shows as *completed with errors*: see below.
 
 ## Schoology session expired
 
+**Most expiries now fix themselves (18/10/2026, #136).** When a read is sent to
+Schoology's sign-in, the server renews the session in a headless browser:
+Schoology hands it to Microsoft, whose remembered sign-in sends it straight back,
+signed in. The new cookies are saved to `storage-state.json` and the read is asked
+again. A sign-in is needed only when Microsoft itself asks for one (its remembered
+sign-in has lapsed); then the session shows *Expired* and the steps below apply.
+
 Mastery sync, OneDrive links and the Ask modal's "unsubmit their OneDrive work"
 option need the saved session; the rest of the app keeps working. **Settings →
 Schoology connection** shows whether it is live (*Connected · checked HH:MM* /

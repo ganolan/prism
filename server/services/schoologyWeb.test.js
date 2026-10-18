@@ -1,5 +1,8 @@
-import { describe, test, expect } from 'vitest';
-import { drupalSettings, formFields, uploadAttachment, getPage, getResource, getJson, postJson } from './schoologyWeb.js';
+import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { mkdtempSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { drupalSettings, formFields, uploadAttachment, getPage, getResource, getJson, postJson, cookieJar } from './schoologyWeb.js';
 import { VIEW_HTML, fakeSchoologyWeb } from '../testing/fakeSchoologyWeb.js';
 
 describe('schoologyWeb parsing', () => {
@@ -64,6 +67,58 @@ describe('getResource / getJson', () => {
     const web = fakeSchoologyWeb({ routes: { '/t/': { throws: timeout }, '/l/': { login: true } } });
     await expect(getResource(web.jar, '/t/', { fetchImpl: web.fetchImpl })).rejects.toMatchObject({ code: 'HTTP', message: expect.stringContaining('timed out') });
     await expect(getJson(web.jar, '/l/', { fetchImpl: web.fetchImpl })).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });
+  });
+});
+
+describe('getResource: one silent renewal on a sign-in bounce', () => {
+  // A jar whose renew() stands in for the headless Microsoft round trip: it swaps
+  // the session cookie, as reloading the saved file does.
+  const renewingJar = (renewTo) => ({
+    cookie: 'SESS=old',
+    header() { return this.cookie; },
+    take() {},
+    renew: vi.fn(async function () { if (!renewTo) return false; this.cookie = renewTo; return true; }),
+  });
+  // Schoology: the old cookie is sent to sign-in, the new one gets the page.
+  const fetchImpl = vi.fn(async (url, { headers }) => (headers.cookie === 'SESS=new'
+    ? new Response('<html>home</html>', { status: 200 })
+    : new Response(null, { status: 302, headers: { location: '/login/external_accounts/send/microsoft?destination=x' } })));
+
+  beforeEach(() => { fetchImpl.mockClear(); });
+
+  test('renews, then asks again with the new cookies', async () => {
+    const jar = renewingJar('SESS=new');
+    const r = await getResource(jar, '/iapi2/x', { fetchImpl });
+    expect(r).toMatchObject({ status: 200, text: '<html>home</html>' });
+    expect(jar.renew).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl.mock.calls[1][0]).toBe('https://schoology.hkis.edu.hk/iapi2/x');
+  });
+
+  test('a renewal that fails is SESSION_EXPIRED', async () => {
+    const jar = renewingJar(null);
+    await expect(getResource(jar, '/iapi2/x', { fetchImpl })).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });
+    expect(jar.renew).toHaveBeenCalledTimes(1);
+  });
+
+  test('still bounced after renewing: SESSION_EXPIRED, and only one renewal', async () => {
+    const jar = renewingJar('SESS=still-bad');
+    await expect(getResource(jar, '/iapi2/x', { fetchImpl })).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });
+    expect(jar.renew).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('cookieJar reload', () => {
+  test('reload() takes the cookies from the saved file again', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'prism-jar-'));
+    const file = join(dir, 'storage-state.json');
+    const save = (v) => writeFileSync(file, JSON.stringify({ cookies: [{ name: 'SESSa', value: v, domain: '.schoology.hkis.edu.hk' }] }));
+    save('one');
+    const jar = cookieJar(file);
+    expect(jar.header()).toBe('SESSa=one');
+    save('two');
+    jar.reload();
+    expect(jar.header()).toBe('SESSa=two');
   });
 });
 

@@ -11,7 +11,7 @@
 // is 'expired'.
 //
 // Playwright is imported lazily (see masterySync.js: a top-level import can hang boot).
-import { existsSync } from 'fs';
+import { existsSync, writeFileSync, renameSync } from 'fs';
 import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
 import { sessionStateFile } from '../lib/sessionPaths.js';
 
@@ -21,8 +21,7 @@ export const hasSessionFile = () => existsSync(sessionStateFile());
 
 // A headless page carrying the saved session → { page, close }, or null when there is
 // no saved session at all. The caller must await close().
-export async function openSessionPage() {
-  const file = sessionStateFile();
+export async function openSessionPage(file = sessionStateFile()) {
   if (!existsSync(file)) return null;
   const { chromium } = await import('playwright');
   const browser = await chromium.launch({ headless: true });
@@ -58,6 +57,47 @@ export async function checkSessionLive() {
   } finally {
     await s.close().catch(() => {});
   }
+}
+
+// Silent renewal (#136, probed 18/10/2026): a headless browser with the saved state
+// opens /home; when Schoology's own session has lapsed it is sent to Microsoft, whose
+// remembered sign-in (ESTSAUTHPERSISTENT in the same state) sends it straight back
+// signed in, with no input. The new cookies replace the saved file (temp file, then
+// rename, so a reader never sees half a file), and plain-HTTP reads work again.
+// Answers false when the browser stays at sign-in (Microsoft wants a real login),
+// cannot start, or there is no saved session. Reads that expire together share one
+// renewal.
+const RENEW_WAIT_MS = 45000;
+let renewing = null;
+export function renewSession({ stateFile = sessionStateFile(), now = Date.now } = {}) {
+  renewing ??= (async () => {
+    await null; // always settle after `renewing` is set, so the finally below clears it
+    let s = null;
+    try {
+      s = await sessionDeps.openPage(stateFile);
+      if (!s) return false;
+      await s.page.goto(`${SCHOOLOGY_BASE}/home`, { waitUntil: 'domcontentloaded', timeout: RENEW_WAIT_MS }).catch(() => {});
+      await s.page.waitForURL((u) => isLoggedInUrl(String(u)), { timeout: RENEW_WAIT_MS }).catch(() => {});
+      if (!isLoggedInUrl(s.page.url())) {
+        noteSessionLive('expired', 'Microsoft asked for a sign-in: log in to Schoology in Settings', now());
+        return false;
+      }
+      const state = await s.page.context().storageState();
+      const tmp = `${stateFile}.renew-${process.pid}`;
+      writeFileSync(tmp, JSON.stringify(state, null, 2));
+      renameSync(tmp, stateFile);
+      noteSessionLive('connected', null, now());
+      console.log('[schoologySession] Session renewed through Microsoft sign-in');
+      return true;
+    } catch (err) {
+      console.warn(`[schoologySession] Could not renew the session: ${err.message}`);
+      return false;
+    } finally {
+      await s?.close().catch(() => {});
+      renewing = null;
+    }
+  })();
+  return renewing;
 }
 
 let cache = null; // { live: 'connected' | 'expired', checkedAt (ISO), at (ms), message }

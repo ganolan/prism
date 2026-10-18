@@ -1449,3 +1449,12 @@ submission comments.
 - **Client:** Publish / quiet Unpublish with a confirm under the row (`AssessmentsView`, `onSetPublished`, live courses only). See `docs/design-language.md`.
 - **Tests:** `assessmentPublish.test.js` (8), route tests in `courses.test.js` (4), `CoursePage.publish.test.jsx` (6).
 - **Card header comment signal (same day):** the comment chip alone shows an unread comment (red dot) and student work (amber); the reason chip and "Wrote in comments" text are gone from the header.
+
+## Silent Schoology session renewal (#136, 2026-10-18)
+
+- **Finding:** a headless browser with the saved state signs back in to Schoology through Microsoft with no input (`ESTSAUTHPERSISTENT`), so the Settings check (a browser) can read "Connected" while plain-HTTP reads (`schoologyWeb.js`) are sent to sign-in. Chain and cookies in `.claude/schoology-api-reference.md` ("Silent renewal through Microsoft").
+- **Build:** `schoologySession.renewSession()` opens `/home` headless, waits up to 45 s to land signed in, saves the state (temp file + rename) and notes the session live; reads that expire together share one renewal. `cookieJar()` gains `reload()` and `renew()`; `getResource()` renews once on a sign-in bounce and asks again, else `SESSION_EXPIRED` as before. Writes are unchanged: each write path reads its page first, so the renewal happens before a write.
+- **Verified live:** from a copy of prod's state with the Schoology `SESS` cookies removed, `getPage('/home')` through `cookieJar` renewed in about 9 s and returned the signed-in page.
+- **Tests:** 4 in `schoologySession.test.js`, 4 in `schoologyWeb.test.js`.
+- **Still open on #136:** the fallback when Microsoft asks for a real sign-in (import the cookies from the teacher's browser, or drive the login window remotely).
+

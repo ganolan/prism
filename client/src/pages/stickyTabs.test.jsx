@@ -99,6 +99,50 @@ describe('CoursePage sticky tab', () => {
   });
 });
 
+describe('CoursePage sticky gradebook filter (#144)', () => {
+  const renderAt = (entry) => render(
+    <MemoryRouter initialEntries={[entry]}>
+      <Routes>
+        <Route path="/course/:id" element={<CoursePage />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+  const pill = (name) => screen.findByRole('button', { name: new RegExp(`^${name}`) });
+
+  beforeEach(() => {
+    localStorage.clear();
+    vi.mocked(api.getGradebook).mockResolvedValue({
+      assignments: [
+        { id: 1, title: 'Project', schoology_assignment_id: 'sa-1', aligned: 1, published: 1, due_date: null },
+        { id: 2, title: 'Quiz', schoology_assignment_id: 'sa-2', aligned: 0, published: 1, due_date: null },
+        { id: 3, title: 'Draft test', schoology_assignment_id: 'sa-3', aligned: 1, published: 0, due_date: null },
+      ],
+      students: [], grades: {}, grading_scales: {},
+    });
+  });
+
+  it('keeps the filter after leaving the page and coming back', async () => {
+    const first = renderAt('/course/5?tab=gradebook');
+    fireEvent.click(await pill('Formative'));
+    fireEvent.click(await pill('Unpublished'));
+    first.unmount();
+
+    renderAt('/course/5?tab=gradebook');
+    expect(await pill('Formative')).toHaveAttribute('aria-pressed', 'false');
+    expect(await pill('Unpublished')).toHaveAttribute('aria-pressed', 'true');
+    expect(await pill('Summative')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('uses one setting for every course', async () => {
+    const first = renderAt('/course/5?tab=gradebook');
+    fireEvent.click(await pill('Unpublished'));
+    first.unmount();
+
+    renderAt('/course/7?tab=gradebook');
+    expect(await pill('Unpublished')).toHaveAttribute('aria-pressed', 'true');
+  });
+});
+
 describe('FeedbackPage sticky filter', () => {
   const renderAt = (entry) => render(
     <MemoryRouter initialEntries={[entry]}>

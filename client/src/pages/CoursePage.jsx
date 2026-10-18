@@ -22,6 +22,7 @@ import { useAttachedRubrics } from '../hooks/useAttachedRubrics.js';
 import { showsDescriptors } from '../lib/rubricDescriptorRows.js';
 import PsAlertBadges from '../components/PsAlertBadges.jsx';
 import { forRoster, getRosterAlertsShown, setRosterAlertsShown } from '../lib/psAlerts.js';
+import { useStickyTypeFilter } from '../hooks/useStickyTypeFilter.js';
 import SchoologyLink from '../components/SchoologyLink.jsx';
 import AttemptLink from '../components/quiz/AttemptLink.jsx';
 import QuizChip from '../components/quiz/QuizChip.jsx';
@@ -54,7 +55,8 @@ export default function CoursePage() {
   const [railOnGradebook, setRailOnGradebook] = useState(false);
   const [triageRed, setTriageRed] = useState(0);
   // Gradebook tab's compact Summative / Formative / Unpublished filter (lives in the tab row).
-  const [gradebookFilter, setGradebookFilter] = useState(DEFAULT_TYPE_FILTER);
+  // Remembered across visits, one setting for all courses (#144).
+  const [gradebookFilter, setGradebookFilter] = useStickyTypeFilter('gradebook');
 
   useEffect(() => {
     // includeDropped so RosterView can show the "N dropped" toggle without a

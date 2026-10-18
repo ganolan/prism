@@ -2,12 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { signInDeps } from '../lib/signIn.js';
 import ArchivedCoursesPanel from './ArchivedCoursesPanel.jsx';
-import { discoverArchivedCourses, importCourse, triggerMasteryLogin } from '../services/api.js';
+import { discoverArchivedCourses, importCourse } from '../services/api.js';
 
 vi.mock('../services/api.js', () => ({
   discoverArchivedCourses: vi.fn(),
   importCourse: vi.fn(),
-  triggerMasteryLogin: vi.fn(),
 }));
 
 const DISCOVERED = {
@@ -99,7 +98,6 @@ describe('ArchivedCoursesPanel', () => {
     fireEvent.click(screen.getByText(/Check Schoology for archived courses/));
     fireEvent.click(await screen.findByRole('button', { name: 'Log in to Schoology' }));
     expect(go).toHaveBeenCalledWith('/settings#schoology-signin');
-    expect(triggerMasteryLogin).not.toHaveBeenCalled();
     go.mockRestore();
   });
 });

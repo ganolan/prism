@@ -724,7 +724,7 @@ export async function finalizeArchivedCourse(db, { courseId, sectionId, now, run
   const sessionPresent = runMastery && hasMasterySession();
   if (sessionPresent) {
     try {
-      await syncMasteryForCourse(courseId, { allowInteractiveLogin: false });
+      await syncMasteryForCourse(courseId);
     } catch {
       // Best-effort: a mastery failure still counts as "attempted with a
       // session" so backfill doesn't retry forever; re-import is the escape hatch.

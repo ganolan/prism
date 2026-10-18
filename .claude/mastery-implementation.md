@@ -63,7 +63,7 @@ Assignments table extended with `mastery_grading_period_id`, `mastery_grading_ca
 
 ### API routes (`server/routes/mastery.js`)
 
-- `POST /api/mastery/login` — Open browser for Schoology login
+- ~~`POST /api/mastery/login`~~: removed 18/10/2026. Sign-in is `/api/schoology-login` (Settings → Log in to Schoology, any device); `npm run mastery:login` still opens a visible browser at the machine.
 - `POST /api/mastery/sync/:courseId` — Trigger Playwright sync (logs to sync_log)
 - `GET /api/mastery/:courseId` — All mastery data from DB
 - `GET /api/mastery/:courseId/student/:studentUid` — Per-student breakdown

@@ -19,7 +19,8 @@
  * moved the writes): POST /iapi2/district-mastery/course/{courseId}/observations,
  *        POST /course/{id}/district_mastery/api/nodes/{objectiveId}/outcome-override
  *
- * Signing in (interactiveLogin) is a visible browser either way.
+ * Signing in: Settings → Log in to Schoology (RemoteSignIn, any device);
+ * interactiveLogin (a visible browser) is left only for `npm run mastery:login`.
  */
 
 // Playwright is loaded lazily inside the functions that actually launch a
@@ -159,11 +160,16 @@ function getCourseRow(db, courseId) {
 }
 
 // Swappable for tests: the saved session's cookies for plain HTTP, and the
-// headed relogin (a real browser: the one place a person signs in).
+// headless page the mastery writes use.
 export const masteryDeps = {
   web: () => ({ jar: cookieJar(), fetchImpl: fetch }),
-  interactiveLogin: () => interactiveLogin(),
+  openPage: () => openPage(),
 };
+
+// Signed out even after the silent renewal (plain reads renew in getResource; a
+// browser makes the Microsoft round trip by itself): Microsoft wants a real
+// sign-in, which is Settings → Log in to Schoology (RemoteSignIn, any device).
+const SIGN_IN_NEEDED = 'Not logged in to Schoology: the mastery session has expired. Log in to Schoology in Settings, then retry.';
 
 // The building id the district_mastery API wants (97989879 for the HKIS HS
 // building, not the school id): the page carries it as "buildingId" in its
@@ -189,15 +195,12 @@ export function masteryBuildingId(settings, html = '') {
  * saved session's cookies (#141; the browser page it replaces is kept only for
  * the mastery writes). GETs /course/{sectionId}/district_mastery once for the
  * building id and the CSRF pair the POST searches need.
- * Signed out (no saved session, or Schoology sends the page to sign-in): opens the
- * headed login when allowed and tries once more, else throws.
+ * Signed out (no saved session, or still sent to sign-in after getResource's silent
+ * renewal): throws SIGN_IN_NEEDED, which points to Settings.
  * → { buildingId, getJson(url), postJson(url, body) }; getJson/postJson throw
  * "HTTP {status} for …" on a non-2xx answer, as the in-page fetches did.
  */
-export async function openMasteryReader(sectionId, {
-  allowInteractiveLogin = true, log = () => {},
-  stillMessage = 'Still not logged in. Run `npm run mastery:login` and try again.',
-} = {}) {
+export async function openMasteryReader(sectionId) {
   const path = `/course/${sectionId}/district_mastery`;
   const open = async () => {
     let web;
@@ -212,10 +215,7 @@ export async function openMasteryReader(sectionId, {
   } catch (err) {
     if (!signedOut(err)) throw err;
     noteSessionLive('expired', 'A mastery read was sent to the login page');
-    if (!allowInteractiveLogin) throw new Error('Not logged in to Schoology: the mastery session has expired. Log in and retry.');
-    log('Not logged in: opening browser for Schoology login...');
-    await masteryDeps.interactiveLogin();
-    try { opened = await open(); } catch (err2) { if (signedOut(err2)) throw new Error(stillMessage); throw err2; }
+    throw new Error(SIGN_IN_NEEDED);
   }
   noteSessionLive('connected');
   const { web, page } = opened;
@@ -415,7 +415,7 @@ export async function readCourseMastery(reader, sectionId, log = () => {}) {
   return { categories, allTopics, alignmentRows, observationsByTopic, allMaterialIds, materialMap, rollupRows };
 }
 
-export async function syncMasteryForCourse(courseId, { onProgress, allowInteractiveLogin = true } = {}) {
+export async function syncMasteryForCourse(courseId, { onProgress } = {}) {
   const log = (msg) => {
     console.log(`[masterySync] ${msg}`);
     onProgress?.({ message: msg });
@@ -428,10 +428,7 @@ export async function syncMasteryForCourse(courseId, { onProgress, allowInteract
   const sectionId = courseRow.schoology_section_id;
   log(`Starting mastery sync for course ${courseRow.course_name} (section ${sectionId})`);
 
-  const reader = await openMasteryReader(sectionId, {
-    allowInteractiveLogin, log,
-    stillMessage: 'Still not logged in after login attempt. Please try again.',
-  });
+  const reader = await openMasteryReader(sectionId);
   log('Logged in OK');
   log(`Found building_id: ${reader.buildingId}`);
 
@@ -782,30 +779,22 @@ export async function writeMasteryScoresBatch({ sectionId, entries }) {
 }
 
 /**
- * Open a logged-in district-mastery page for a section. Navigates to the
- * mastery gradebook to establish session + CSRF context; if the session is
- * stale, runs an interactive relogin once and retries. Returns the live
- * { browser, page } — the caller owns closing the browser.
+ * Open a logged-in district-mastery page for a section, to establish session +
+ * CSRF context. The headless browser makes the Microsoft round trip by itself
+ * when Schoology's own session has lapsed; still on a sign-in page means
+ * Microsoft wants a real sign-in, so this stops with SIGN_IN_NEEDED (no window
+ * on the server's screen). Returns the live { browser, page }: the caller owns
+ * closing the browser.
  */
 async function openMasterySession(sectionId) {
-  let { browser, page, context } = await openPage();
+  const { browser, page, context } = await masteryDeps.openPage();
   await page.goto(`${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery`, {
     waitUntil: 'domcontentloaded',
   });
-
-  // If session is stale we'll be on a login/SSO page — relogin then retry.
   if (!checkLoggedIn(page)) {
-    console.log('[mastery write] session stale, opening browser for relogin');
     await browser.close();
-    await interactiveLogin();
-    ({ browser, page, context } = await openPage());
-    await page.goto(`${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery`, {
-      waitUntil: 'domcontentloaded',
-    });
-    if (!checkLoggedIn(page)) {
-      noteSessionLive('expired', 'A mastery write was sent to the login page');
-      throw new Error('Still not logged in after relogin. Please run `npm run mastery:login` manually.');
-    }
+    noteSessionLive('expired', 'A mastery write was sent to the login page');
+    throw new Error(SIGN_IN_NEEDED);
   }
   noteSessionLive('connected'); // the Settings card / Sync dialog status follows real use
   return { browser, page, context };

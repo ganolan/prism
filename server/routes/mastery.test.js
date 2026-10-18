@@ -452,18 +452,13 @@ describe('GET /api/mastery/login-status', () => {
     expect(body).toMatchObject({ live: 'unknown', message: expect.stringMatching(/boom/) });
   });
 
-  test('POST /login resets the cached status (success or not), so the next read re-checks', async () => {
-    await get('/api/mastery/login-status');
-    expect(sessionDeps.openPage).toHaveBeenCalledTimes(1);
-    vi.mocked(interactiveLogin).mockResolvedValueOnce();
-    await post('/api/mastery/login', {});
-    await get('/api/mastery/login-status');
-    expect(sessionDeps.openPage).toHaveBeenCalledTimes(2);
-    vi.mocked(interactiveLogin).mockRejectedValueOnce(new Error('closed'));
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    await post('/api/mastery/login', {});
-    await get('/api/mastery/login-status');
-    expect(sessionDeps.openPage).toHaveBeenCalledTimes(3);
+  test('POST /login is gone: sign-in is /api/schoology-login (any device)', async () => {
+    const { server, port } = startServer();
+    try {
+      const res = await fetch(`http://localhost:${port}/api/mastery/login`, { method: 'POST' });
+      expect(res.status).toBe(404);
+    } finally { server.close(); }
+    expect(interactiveLogin).not.toHaveBeenCalled();
   });
 });
 

@@ -16,7 +16,7 @@ vi.mock('../services/api.js', () => ({
   searchPeople: vi.fn(),
   getFeatures: vi.fn(),
   getCourses: vi.fn(), getCoursesByView: vi.fn(), getSyncStatus: vi.fn(), toggleCourseVisibility: vi.fn(),
-  discoverArchivedCourses: vi.fn(), importCourse: vi.fn(), triggerMasteryLogin: vi.fn(), getTriage: vi.fn(),
+  discoverArchivedCourses: vi.fn(), importCourse: vi.fn(), getTriage: vi.fn(),
   recordReferral: vi.fn(), getReferrals: vi.fn(), undoReferral: vi.fn(), getMasteryLoginStatus: vi.fn(),
 }));
 

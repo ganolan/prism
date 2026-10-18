@@ -200,7 +200,6 @@ export async function getRemoteLoginScreen() {
 }
 
 // Mastery / SBG
-export const triggerMasteryLogin = () => request('/mastery/login', { method: 'POST' });
 // { loggedIn, live: 'connected' | 'expired' | 'none' | null, checkedAt, message? } — live is
 // a cached server-side check of the saved session; refresh forces one; check: false never
 // opens a browser on the server (live = the cached answer or null).

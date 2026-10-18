@@ -10,7 +10,6 @@ vi.mock('../services/api.js', () => ({
   getSyncRuns: vi.fn(),
   getSyncRun: vi.fn(),
   getMasteryLoginStatus: vi.fn(),
-  triggerMasteryLogin: vi.fn(),
   startRemoteLogin: vi.fn(),
   getRemoteLoginScreen: vi.fn(),
   stopRemoteLogin: vi.fn(),
@@ -31,7 +30,6 @@ beforeEach(() => {
   api.getSyncRuns.mockResolvedValue([]);
   api.getTriage.mockResolvedValue({ calendar: { source: 'powerschool', totalSchoolDays: 164, syncedAt: '2026-10-01T00:00:00Z' } });
   api.getMasteryLoginStatus.mockResolvedValue({ loggedIn: true, live: 'connected', checkedAt: '2026-10-03T06:05:00Z' });
-  api.triggerMasteryLogin.mockResolvedValue({ success: true });
 });
 
 describe('SettingsPage', () => {
@@ -162,7 +160,6 @@ describe('SettingsPage — Schoology connection card', () => {
     expect(c.textContent).not.toMatch(/Mac mini|#136|Screen-share/);
     fireEvent.click(within(c).getByRole('button', { name: 'Log in to Schoology' }));
     expect(api.startRemoteLogin).toHaveBeenCalledTimes(1);
-    expect(api.triggerMasteryLogin).not.toHaveBeenCalled();
     expect(await within(c).findByText('Signed in. Prism saved the session.')).toBeInTheDocument();
     api.getMasteryLoginStatus.mockResolvedValue({ loggedIn: true, live: 'connected', checkedAt: '2026-10-03T07:00:00Z' });
     fireEvent.click(within(c).getByRole('button', { name: 'Close' }));

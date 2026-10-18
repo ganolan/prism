@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS courses (
   archived INTEGER DEFAULT 0,
   hidden INTEGER DEFAULT 0,
   excluded INTEGER NOT NULL DEFAULT 0,
-  synced_at TEXT
+  synced_at TEXT,
+  submissions_read_at TEXT            -- archived: submissions read in full (null = never)
 );
 
 CREATE TABLE IF NOT EXISTS enrolments (

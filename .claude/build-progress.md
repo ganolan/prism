@@ -1551,3 +1551,12 @@ submission comments.
 - **Live (DB copy):** an archived task with 0 marks and 19 submitted grades: 19 read in 16 s, an upload found that the old rule would never have read; the next call 9 ms with nothing read.
 - **Tests:** 2 in `submissionFiles.test.js`.
 
+## Archived courses: submissions read in full (#72 reversed, 2026-10-19)
+
+- **Hole found:** the 13 courses imported already archived (2023-24, 2024-25) had no dropbox upload marks, submission dates, lateness, OneDrive/LTI states or test takers: archived finalisation skipped those reads (#72), when they were costly and seemed blind on archived sections.
+- **Probed (read only):** the bulk dropbox read, the LTI document reads and the test-attempt read all answer on archived sections back to 2023-24 (`.claude/schoology-api-reference.md`, the `grader_header_data` limitation note).
+- **Now:** `finalizeArchivedCourse` (import, and a course that just ended) reads them in full through its own session reader, and stamps `courses.submissions_read_at` after a read with a session (without one the dropbox read still runs, unstamped). `backfillArchivedSubmissions` runs in every full sync until each archived course is stamped; it waits for a saved session and retries a failed course.
+- **Parity on a DB copy** (`scripts/parity-archived-submissions.js`): 25 archived courses read in 338 s. Courses imported as archived gained 1,079 dropbox uploads, 1,207 late flags, 1,930 OneDrive/LTI states and 260 test takers (all 0 before). Courses synced while current: 2,040 cells unchanged, every other change a gap filled (blank → upload or test taker, 0 → first submission date) or a real later resubmission (6 OneDrive cells now late, their dates later); 0 values lost or replaced, 0 scores or comments changed, 0 grade rows removed.
+- **No source found** (left as known limits): grad year for former students (not in Schoology's profile, `?extended=1` included; PowerSchool answers for this year's sections only); a mid-year drop in an archived section (Schoology marks every enrolment ended); past-year block numbers.
+- **Tests:** 7 in `sync.test.js` (3 rewritten from the #72 skip).
+

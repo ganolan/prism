@@ -44,7 +44,8 @@ import {
   getSection,
 } from './schoology.js';
 import { syncMasteryForCourse, hasMasterySession } from './masterySync.js';
-import { syncSectionData, retrySubmissions, fullSync, enrichStudentProfiles, finalizeArchivedCourse, detectArchivedTransitions, backfillUnfinalizedArchived } from './sync.js';
+import { syncSectionData, retrySubmissions, fullSync, enrichStudentProfiles, finalizeArchivedCourse, detectArchivedTransitions, backfillUnfinalizedArchived, backfillArchivedSubmissions } from './sync.js';
+import { createSubmissionFetcher } from './graderSubmissions.js';
 
 describe('syncSectionData — assignee mapping (#54)', () => {
   let db;
@@ -1015,19 +1016,52 @@ describe('finalizeArchivedCourse (#70)', () => {
     expect(db.prepare('SELECT finalized_at FROM courses WHERE id = ?').get(courseId).finalized_at).toBeNull();
   });
 
-  test('skips the per-cell submission loop (#72) — no public submissions call', async () => {
+  // #72 reversed (19/10/2026): every submission read answers on an archived section
+  // (probed live: dropbox revisions with late flags, LTI document states, test
+  // attempts), so finalising reads them like a current sync, in full.
+  const oneOfEach = async () => {
     const sch = await import('./schoology.js');
-    sch.getSectionEnrollments.mockResolvedValue([
-      { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
-    ]);
+    sch.getSectionEnrollments.mockResolvedValue([{ id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' }]);
     sch.getSectionAssignments.mockResolvedValue([
-      { id: 'D1', title: 'Native dropbox', published: 1, allow_dropbox: '1' },
+      { id: 'D1', title: 'Native dropbox', published: 1, allow_dropbox: '1', due: '2020-01-01 15:30:00' },
+      { id: 'L1', title: 'OneDrive essay', published: 1, allow_dropbox: '1', assignment_type: 'lti_submission', due: '2020-01-01 15:30:00' },
     ]);
+    sch.getAssignmentSubmissions.mockResolvedValue([{ revision_id: 9, uid: '701', created: 3000, late: 1, draft: 0 }]);
+    return sch;
+  };
+  const grade = (ext) => db.prepare(`SELECT g.* FROM grades g JOIN assignments a ON a.id = g.assignment_id WHERE a.schoology_assignment_id = ?`).get(ext);
+  const reader = () => ({
+    fetchDocuments: vi.fn(async () => ({ states: new Map([['701', 'submitted']]), details: new Map() })),
+    fetchTestAttempts: vi.fn(async () => null),
+    close: vi.fn(async () => {}),
+  });
+
+  test('reads every submission in full, however old (#72 reversed): dropbox late + OneDrive state; stamps submissions_read_at', async () => {
+    const sch = await oneOfEach();
+    const r = reader();
+    vi.mocked(createSubmissionFetcher).mockResolvedValueOnce(r);
     hasMasterySession.mockReturnValue(false);
 
     await finalizeArchivedCourse(db, { courseId, sectionId: 'sec-9', now: '2026-05-31T00:00:00Z' });
 
-    expect(sch.getAssignmentSubmissions).not.toHaveBeenCalled();
+    expect(sch.getAssignmentSubmissions).toHaveBeenCalledWith('sec-9', 'D1');
+    expect(grade('D1')).toMatchObject({ submission_type: 'drop', late: 1 });
+    expect(r.fetchDocuments).toHaveBeenCalledWith('L1');
+    expect(grade('L1').lti_submission_state).toBe('submitted');
+    expect(r.close).toHaveBeenCalled();
+    expect(db.prepare('SELECT submissions_read_at FROM courses WHERE id = ?').get(courseId).submissions_read_at).toBe('2026-05-31T00:00:00Z');
+  });
+
+  test('no saved session: the dropbox read still runs, but no stamp (OneDrive states and test takers wait for a session)', async () => {
+    const sch = await oneOfEach();
+    vi.mocked(createSubmissionFetcher).mockResolvedValueOnce(null);
+    hasMasterySession.mockReturnValue(false);
+
+    await finalizeArchivedCourse(db, { courseId, sectionId: 'sec-9', now: '2026-05-31T00:00:00Z' });
+
+    expect(sch.getAssignmentSubmissions).toHaveBeenCalledWith('sec-9', 'D1');
+    expect(grade('D1').late).toBe(1);
+    expect(db.prepare('SELECT submissions_read_at FROM courses WHERE id = ?').get(courseId).submissions_read_at).toBeNull();
   });
 });
 
@@ -1092,7 +1126,7 @@ describe('detectArchivedTransitions (#70)', () => {
     expect(db.prepare('SELECT archived FROM courses WHERE id = ?').get(id).archived).toBe(0);
   });
 
-  test('finalising a transitioned course skips the submission loop (#72)', async () => {
+  test('finalising a transitioned course reads its submissions (#72 reversed)', async () => {
     const sch = await import('./schoology.js');
     sch.getSectionEnrollments.mockResolvedValue([
       { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
@@ -1105,7 +1139,7 @@ describe('detectArchivedTransitions (#70)', () => {
 
     await detectArchivedTransitions(db, new Set(['sec-active']), '2026-05-31T00:00:00Z');
 
-    expect(sch.getAssignmentSubmissions).not.toHaveBeenCalled();
+    expect(sch.getAssignmentSubmissions).toHaveBeenCalledWith('sec-gone', 'D1');
   });
 });
 
@@ -1199,7 +1233,7 @@ describe('backfillUnfinalizedArchived (#70)', () => {
     expect(db.prepare('SELECT finalized_at FROM courses WHERE id = ?').get(b).finalized_at).toBe('2026-01-01T00:00:00Z');
   });
 
-  test('backfill finalisation skips the submission loop (#72)', async () => {
+  test('backfill finalisation reads the submissions (#72 reversed)', async () => {
     const sch = await import('./schoology.js');
     sch.getSectionEnrollments.mockResolvedValue([
       { id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' },
@@ -1211,7 +1245,61 @@ describe('backfillUnfinalizedArchived (#70)', () => {
 
     await backfillUnfinalizedArchived(db, '2026-05-31T00:00:00Z');
 
+    expect(sch.getAssignmentSubmissions).toHaveBeenCalledWith('a', 'D1');
+  });
+});
+
+describe('backfillArchivedSubmissions (one time, #72 reversed)', () => {
+  let db;
+  beforeEach(async () => {
+    db = new Database(':memory:');
+    migrate(db);
+    const sch = await import('./schoology.js');
+    sch.getSectionEnrollments.mockResolvedValue([{ id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' }]);
+    sch.getSectionAssignments.mockResolvedValue([{ id: 'D1', title: 'Native dropbox', published: 1, allow_dropbox: '1', due: '2020-01-01 15:30:00' }]);
+    sch.getSectionGrades.mockResolvedValue([]);
+    sch.getAssignmentSubmissions.mockReset();
+    sch.getAssignmentSubmissions.mockResolvedValue([{ revision_id: 9, uid: '701', created: 3000, late: 1, draft: 0 }]);
+    vi.mocked(createSubmissionFetcher).mockReset();
+    vi.mocked(createSubmissionFetcher).mockResolvedValue(null);
+  });
+  const reader = () => ({ fetchDocuments: vi.fn(async () => null), fetchTestAttempts: vi.fn(async () => null), close: vi.fn(async () => {}) });
+  const course = (sid, extra = '') => db.prepare(`INSERT INTO courses (schoology_section_id, course_name, archived, finalized_at${extra ? ', submissions_read_at' : ''}) VALUES (?, ?, 1, '2026-01-01T00:00:00Z'${extra ? ', ?' : ''})`).run(...[sid, sid, ...(extra ? [extra] : [])]).lastInsertRowid;
+
+  test('reads each archived course never read, through one session reader, and stamps it; a stamped one is left', async () => {
+    const a = course('a');
+    const b = course('b', '2026-02-01T00:00:00Z');
+    const r = reader();
+    vi.mocked(createSubmissionFetcher).mockResolvedValueOnce(r);
+    const sch = await import('./schoology.js');
+
+    expect(await backfillArchivedSubmissions(db, '2026-10-19T00:00:00Z')).toBe(1);
+
+    expect(sch.getAssignmentSubmissions).toHaveBeenCalledTimes(1);
+    expect(sch.getAssignmentSubmissions).toHaveBeenCalledWith('a', 'D1');
+    expect(db.prepare('SELECT submissions_read_at FROM courses WHERE id = ?').get(a).submissions_read_at).toBe('2026-10-19T00:00:00Z');
+    expect(db.prepare('SELECT submissions_read_at FROM courses WHERE id = ?').get(b).submissions_read_at).toBe('2026-02-01T00:00:00Z');
+    expect(r.close).toHaveBeenCalled();
+    expect(await backfillArchivedSubmissions(db, '2026-10-20T00:00:00Z')).toBe(0);
+  });
+
+  test('no saved session: does nothing (it waits for a session, so the stamp means a full read)', async () => {
+    course('a');
+    const sch = await import('./schoology.js');
+    expect(await backfillArchivedSubmissions(db, '2026-10-19T00:00:00Z')).toBe(0);
     expect(sch.getAssignmentSubmissions).not.toHaveBeenCalled();
+  });
+
+  test('one course failing does not stop the others, and it is tried again next time', async () => {
+    const a = course('a');
+    const b = course('b');
+    vi.mocked(createSubmissionFetcher).mockResolvedValueOnce(reader());
+    const sch = await import('./schoology.js');
+    sch.getSectionEnrollments.mockImplementation(async (sid) => { if (sid === 'a') throw new Error('Schoology API 503'); return [{ id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0' }]; });
+
+    expect(await backfillArchivedSubmissions(db, '2026-10-19T00:00:00Z')).toBe(1);
+    expect(db.prepare('SELECT submissions_read_at FROM courses WHERE id = ?').get(a).submissions_read_at).toBeNull();
+    expect(db.prepare('SELECT submissions_read_at FROM courses WHERE id = ?').get(b).submissions_read_at).toBe('2026-10-19T00:00:00Z');
   });
 });
 

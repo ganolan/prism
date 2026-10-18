@@ -716,11 +716,36 @@ export async function enrichStudentProfiles(db, students, now) {
 // session-less call leaves it null and a later session-enabled sync retries.
 // Does NOT touch student data (that is enrichStudentProfiles' job). Returns the
 // gradebook counts plus { finalized }. (#70)
+// An archived section's submissions, read in full like a current sync's (#72
+// reversed, 19/10/2026: every read answers on an archived section, probed live:
+// dropbox revisions with late flags, OneDrive/LTI document states, test attempts).
+// `reader` is a createSubmissionFetcher() answer (session reads) or null (dropbox
+// only). Stamps submissions_read_at only after a full read with a session.
+async function readArchivedSection(db, { courseId, sectionId, now, reader }) {
+  const counts = await syncSectionData(db, String(sectionId), courseId, now, {
+    archivedSection: true,
+    fetchDocuments: reader ? (aid) => reader.fetchDocuments(aid) : undefined,
+    fetchTestAttempts: reader ? (sid, uids, itemIds) => reader.fetchTestAttempts(sid, uids, itemIds) : undefined,
+  });
+  if (reader) db.prepare('UPDATE courses SET submissions_read_at = ? WHERE id = ?').run(now, courseId);
+  return counts;
+}
+
+async function openSubmissionReader() {
+  try { return await createSubmissionFetcher(); } catch { return null; }
+}
+
 export async function finalizeArchivedCourse(db, { courseId, sectionId, now, runMastery = true }) {
   const c = db.prepare('SELECT course_name, grading_period FROM courses WHERE id = ?').get(courseId) || {};
   const period = c.grading_period ? ` — ${c.grading_period}` : '';
-  console.log(`[archived] "${c.course_name || sectionId}"${period} (section ${sectionId}): skipping per-cell submission detection (frozen)`);
-  const counts = await syncSectionData(db, String(sectionId), courseId, now, { skipSubmissions: true, archivedSection: true });
+  const reader = await openSubmissionReader();
+  console.log(`[archived] "${c.course_name || sectionId}"${period} (section ${sectionId}): reading submissions in full${reader ? '' : ' (dropbox only: no saved session)'}`);
+  let counts;
+  try {
+    counts = await readArchivedSection(db, { courseId, sectionId, now, reader });
+  } finally {
+    await reader?.close().catch(() => {});
+  }
   const sessionPresent = runMastery && hasMasterySession();
   if (sessionPresent) {
     try {
@@ -779,6 +804,35 @@ export async function backfillUnfinalizedArchived(db, now) {
     await finalizeArchivedCourse(db, { courseId: c.id, sectionId: String(c.schoology_section_id), now });
   }
   return courses.length;
+}
+
+// One-time backfill (#72 reversed, 19/10/2026): read the submissions of every
+// archived course finalised without them (dropbox uploads and lateness, OneDrive/
+// LTI states, test takers). Waits for a saved session, so a stamp always means a
+// full read; a course that fails is tried again on the next sync. → courses read.
+export async function backfillArchivedSubmissions(db, now, { log = () => {} } = {}) {
+  const courses = db.prepare(`
+    SELECT id, schoology_section_id, course_name FROM courses
+    WHERE archived = 1 AND excluded = 0 AND finalized_at IS NOT NULL AND submissions_read_at IS NULL
+    ORDER BY id`).all();
+  if (!courses.length) return 0;
+  const reader = await openSubmissionReader();
+  if (!reader) return 0;
+  let read = 0;
+  try {
+    for (const c of courses) {
+      try {
+        await readArchivedSection(db, { courseId: c.id, sectionId: c.schoology_section_id, now, reader });
+        read++;
+        log(`Archived "${c.course_name}": submissions read (${read} of ${courses.length})`);
+      } catch (err) {
+        log(`Archived "${c.course_name}": submissions not read (${err.message}); trying again next sync`);
+      }
+    }
+  } finally {
+    await reader.close().catch(() => {});
+  }
+  return read;
 }
 
 export async function fullSync(onProgress, { includeHidden = false, recentOnly = false, recentDays = 30 } = {}) {
@@ -986,6 +1040,9 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
 
     // One-time: finalise archived courses imported before #70 (capture mastery).
     await backfillUnfinalizedArchived(db, now);
+    // One-time: read the submissions of archived courses finalised without them (#72 reversed).
+    const archivedRead = await backfillArchivedSubmissions(db, now, { log });
+    if (archivedRead) log(`Read the submissions of ${archivedRead} archived course${archivedRead === 1 ? '' : 's'} (one time)`);
     // Auto-archive courses that dropped off the active list this turn (#70).
     // Runs AFTER backfill so a course archived this turn isn't immediately
     // re-finalised by backfill in the same pass.

@@ -167,6 +167,9 @@ const MIGRATIONS = [
   `ALTER TABLE quiz_groups ADD COLUMN comment_template TEXT`,
   // Submission comments: each comment's files (JSON), from ?with_attachments=1.
   `ALTER TABLE submission_comments ADD COLUMN attachments TEXT`,
+  // Archived courses: when their submissions (dropbox, OneDrive/LTI, test takers) were
+  // read in full; null = never (imported before #72 was reversed, 19/10/2026).
+  `ALTER TABLE courses ADD COLUMN submissions_read_at TEXT`,
 ];
 
 // Remove orphaned auto-flag rows. The auto-flag feature that wrote 'missing',

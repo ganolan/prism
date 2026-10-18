@@ -53,6 +53,22 @@ describe('/api/submission-comments', () => {
     expect(r.body.comments[0]).toMatchObject({ student_text: 'My notes', author_role: 'student' });
   });
 
+  test('GET the student returns their cached badges by Schoology assignment id and queues their reads (#135)', async () => {
+    const first = await call('GET', `/api/submission-comments/student/${studentId}`);
+    expect(first.status).toBe(200);
+    expect(first.body).toEqual({ assignments: {}, refresh: { queued: 1, joined: false } });
+    await vi.waitFor(() => expect(commentDeps.getSubmissionComments).toHaveBeenCalledWith('sec', '8590105935', '555'));
+    await new Promise((r) => setTimeout(r, 20));
+    const again = await call('GET', `/api/submission-comments/student/${studentId}?refresh=0`);
+    expect(again.body.refresh).toBeNull();
+    expect(again.body.assignments['8590105935']).toMatchObject({ count: 1, student_text: true });
+  });
+
+  test('GET an unknown student is a 404', async () => {
+    const r = await call('GET', '/api/submission-comments/student/999999');
+    expect(r.status).toBe(404);
+  });
+
   test('GET the assignment queues a background read and returns badges', async () => {
     const first = await call('GET', '/api/submission-comments/assignment/8590105935');
     expect(first.body.refresh.queued).toBe(1);

@@ -17,14 +17,14 @@ import { preferredFirstName } from '../lib/studentNames.js';
 import { indexMastery, buildAssignmentRubric } from '../lib/gradebookMastery.js';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import { useStickyTab } from '../hooks/useStickyTab.js';
-import CompactRubric from '../components/CompactRubric.jsx';
-import SubmissionBadges from '../components/SubmissionBadges.jsx';
+import AssignmentFeedback from '../components/AssignmentFeedback.jsx';
+import { useAttachedRubrics } from '../hooks/useAttachedRubrics.js';
+import { showsDescriptors } from '../lib/rubricDescriptorRows.js';
 import SchoologyLink from '../components/SchoologyLink.jsx';
 import AttemptLink from '../components/quiz/AttemptLink.jsx';
 import QuizChip from '../components/quiz/QuizChip.jsx';
 import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
 import { formatDateTime } from '../lib/formatDate.js';
-import SubmissionTimeline from '../components/SubmissionTimeline.jsx';
 import SubmissionComments from '../components/SubmissionComments.jsx';
 import { timelineSummary } from '../lib/submissionTimeline.js';
 import { DEFAULT_TYPE_FILTER, isUnpublished, passesTypeFilter, typeFilterCounts } from '../lib/assessmentTypeFilter.js';
@@ -630,9 +630,13 @@ function MiniRubricStrip({ topics, onClick }) {
   );
 }
 
-// Modal opened from a MiniRubricStrip — the full rubric grid (shared
-// CompactRubric) plus the overall comment, matching the /student/ page.
-export function RubricModal({ student, assignment, courseId, topics, comment, grade, timeline = null, onClose }) {
+// Modal opened from a gradebook cell (a MiniRubricStrip, or a points-only score):
+// the shared AssignmentFeedback view, the same layout as each assignment on the
+// /student/ page (#135). It widens only while full rubric descriptors show.
+export function RubricModal({
+  student, assignment, courseId, topics = [], comment, grade, timeline = null, score = null,
+  commentSummary = null, onCommentSummary = null, onClose,
+}) {
   const name = preferredFirstName(student);
   const fullName = `${name} ${student.last_name}`;
   // The student's own OneDrive copy (#120), looked up when the modal opens —
@@ -659,23 +663,41 @@ export function RubricModal({ student, assignment, courseId, topics, comment, gr
     ...(grade.review_needed || []).map(f => ({ ...f, flag_type: 'review_needed' })),
     ...(grade.resubmit_requested ? [{ id: 'resubmit', flag_type: 'resubmit_requested' }] : []),
   ];
-  const hasBadges = status.length > 0 || flags.length > 0 || grade.resubmitted || !!workLink || !!attemptLink;
+  // The attached rubric (descriptors, or an unaligned task's feedback rows with this
+  // student's row levels), fetched once when the modal opens.
+  const aid = assignment.schoology_assignment_id;
+  const { attachments, palette } = useAttachedRubrics([aid], 0, { studentUid: student.schoology_uid });
+  const attachment = attachments[aid] || null;
+  const wide = showsDescriptors(topics, attachment);
+  const summative = !!assignment.aligned || topics.length > 0;
+  // The badges row's links: the student's own work (#120: in progress or
+  // submitted; the assignment's Schoology page is on the gradebook column
+  // header), the test attempt, and the submission comments (when the feature is on).
+  const links = (workLink || attemptLink || onCommentSummary) ? (
+    <>
+      {workLink && (
+        <SchoologyLink
+          url={workLink.url}
+          label="Open"
+          ariaLabel={`Open ${fullName}'s work in OneDrive`}
+          title={`Open ${fullName}'s work in OneDrive: last edited ${formatDateTime(workLink.modifiedAt)}`}
+          style={{ fontSize: '0.78rem', fontWeight: 600 }}
+        />
+      )}
+      <AttemptLink link={attemptLink} name={fullName} />
+      {onCommentSummary && (
+        <SubmissionComments assignmentId={aid} studentId={student.id} studentName={name}
+          title={assignment.title} summary={commentSummary} onSummary={onCommentSummary} />
+      )}
+    </>
+  ) : null;
   return (
-    <div
-      style={{
-        position: 'fixed', inset: 0, zIndex: 1100,
-        background: 'rgba(0,0,0,0.5)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: '1rem',
-      }}
-      onClick={onClose}
-    >
+    <div className="feedback-modal-overlay" onClick={onClose}>
       <div
-        style={{
-          background: 'var(--card-bg)', borderRadius: 12,
-          maxWidth: 560, width: '100%', maxHeight: '85vh', overflow: 'auto',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-        }}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${fullName}: ${assignment.title}`}
+        className={`feedback-modal${wide ? ' feedback-modal--wide' : ''}`}
         onClick={e => e.stopPropagation()}
       >
         <div style={{
@@ -686,48 +708,20 @@ export function RubricModal({ student, assignment, courseId, topics, comment, gr
             <div style={{ fontWeight: 700 }}>{fullName}</div>
             <div className="text-sm text-muted" style={{ marginTop: 2, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {assignment.title}
-              <span className="badge badge-summative" style={{ fontSize: '0.6rem' }}>S</span>
+              <span className={`badge ${summative ? 'badge-summative' : 'badge-formative'}`} style={{ fontSize: '0.6rem' }}>{summative ? 'S' : 'F'}</span>
             </div>
           </div>
           <button className="ghost" onClick={onClose} aria-label="Close">✕</button>
         </div>
         <div style={{ padding: '1rem 1.1rem' }}>
-          {hasBadges && (
-            <div style={{
-              display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center',
-              marginBottom: '0.85rem',
-            }}>
-              <SubmissionBadges status={status} flags={flags} resubmitted={grade.resubmitted} />
-              {/* The student's own work — in progress or submitted (#120). The
-                  assignment's Schoology page is on the gradebook column header. */}
-              {workLink && (
-                <SchoologyLink
-                  url={workLink.url}
-                  label="Open"
-                  ariaLabel={`Open ${fullName}'s work in OneDrive`}
-                  title={`Open ${fullName}'s work in OneDrive: last edited ${formatDateTime(workLink.modifiedAt)}`}
-                  style={{ fontSize: '0.78rem', fontWeight: 600 }}
-                />
-              )}
-              <AttemptLink link={attemptLink} name={fullName} />
-            </div>
-          )}
-          {/* The full submission picture (due, extension, submitted when and how late,
-              resubmission, referral), same as the /assessment/ card. */}
-          {timeline && <div style={{ marginBottom: '0.85rem' }}><SubmissionTimeline timeline={timeline} /></div>}
-          <CompactRubric topics={topics} />
-          {comment && (
-            <div
-              className="text-sm"
-              style={{
-                marginTop: '0.85rem', background: 'var(--bg-subtle)',
-                border: '1px solid var(--border)', borderRadius: 8,
-                padding: '0.6rem 0.75rem',
-              }}
-            >
-              <span style={{ fontWeight: 700, marginRight: 5 }}>Comment:</span>{comment}
-            </div>
-          )}
+          <AssignmentFeedback
+            status={status} flags={flags} resubmitted={grade.resubmitted} assignmentTitle={assignment.title}
+            links={links}
+            timeline={timeline}
+            topics={topics} attachment={attachment} palette={palette} exception={grade.exception}
+            score={topics.length > 0 ? null : score}
+            comment={comment}
+          />
         </div>
         <div style={{ padding: '0 1.1rem 1rem' }}>
           <Link
@@ -1151,17 +1145,22 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                   ...(g.resubmit_requested && { background: 'var(--badge-resubmit-bg)' }),
                   ...(g.resubmitted && { boxShadow: 'inset 0 0 0 2px var(--resubmit-ring)' }),
                 };
+                const openModal = (topics) => setRubricModal({
+                  student: s, assignment: a, topics, score: lbl,
+                  comment: g.grade_comment || '', grade: g, timeline: tl,
+                });
+                const scoreText = c
+                  ? <span style={{ background: c.headerFill, color: CELL_TEXT, border: `1px solid ${c.finalBorder}`, padding: '0.1rem 0.4rem', borderRadius: 4, fontWeight: 500, display: 'inline-block', minWidth: 24 }}>{text}</span>
+                  : text;
+                // A graded cell without a rubric strip (points only, "50 / 100", or a
+                // scale level) opens the same modal: comment + timeline, no rubric.
+                const opensModal = !showStrip && (lbl.kind === 'numeric' || lbl.kind === 'scale' || lbl.kind === 'mismatch');
                 const inner = showStrip
-                  ? <MiniRubricStrip
-                      topics={rubricTopics}
-                      onClick={() => setRubricModal({
-                        student: s, assignment: a, topics: rubricTopics,
-                        comment: g.grade_comment || '', grade: g, timeline: tl,
-                      })}
-                    />
-                  : (c
-                      ? <span style={{ background: c.headerFill, color: CELL_TEXT, border: `1px solid ${c.finalBorder}`, padding: '0.1rem 0.4rem', borderRadius: 4, fontWeight: 500, display: 'inline-block', minWidth: 24 }}>{text}</span>
-                      : text);
+                  ? <MiniRubricStrip topics={rubricTopics} onClick={() => openModal(rubricTopics)} />
+                  : opensModal
+                    ? <button type="button" className="cell-open" onClick={() => openModal([])}
+                        aria-label={`${lbl.text}: show feedback`} title="Show the comment and submission detail">{scoreText}</button>
+                    : scoreText;
                 const status = submissionStatus({
                   score: g.score, exception: g.exception, late: tl?.submission?.late ?? g.late, draft: g.draft,
                   submitted_at: g.submitted_at, submission_type: g.submission_type,
@@ -1247,6 +1246,14 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
         comment={rubricModal.comment}
         grade={rubricModal.grade}
         timeline={rubricModal.timeline}
+        score={rubricModal.score}
+        commentSummary={commentSums?.[rubricModal.assignment.schoology_assignment_id]?.[rubricModal.student.id] || null}
+        onCommentSummary={commentSums ? (sum) => setCommentSums((prev) => ({
+          ...prev,
+          [rubricModal.assignment.schoology_assignment_id]: {
+            ...(prev?.[rubricModal.assignment.schoology_assignment_id] || {}), [rubricModal.student.id]: sum,
+          },
+        })) : null}
         onClose={() => setRubricModal(null)}
       />
     )}

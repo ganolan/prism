@@ -7,7 +7,7 @@ import { hashRubricContent } from '../services/rubricHash.js';
 import { parseRubricCsv, templateCsv, exportRubricCsv } from '../services/rubricCsv.js';
 import { getFeedbackRows, rowLevelsError, saveRowLevels, getRowLevels } from '../services/feedbackRows.js';
 import { getAlignedTopics, scoreScaleFor } from '../services/assessmentContext.js';
-import { attachRubric, getAttachmentForAssignment, setMapping, reorderCriteria, detachAttachment } from '../services/rubricAttach.js';
+import { attachRubric, getAttachmentForAssignment, getAttachmentsForAssignments, setMapping, reorderCriteria, detachAttachment } from '../services/rubricAttach.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -59,6 +59,16 @@ router.post('/attach', (req, res) => {
 
 router.get('/assignment/:assignmentId', (req, res) => {
   res.json(getAttachmentForAssignment(getDb(), req.params.assignmentId));
+});
+
+// GET /api/rubrics/assignments?ids=a,b,c[&student_uid=u] → { attachments: { [schoology aid]: attachment } }.
+// One request for a page that lists many assignments (the student page, #135).
+// With student_uid, feedback-row tasks carry that student's row levels only.
+const MAX_BATCH_IDS = 500;
+router.get('/assignments', (req, res) => {
+  const ids = String(req.query.ids || '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, MAX_BATCH_IDS);
+  const studentUid = req.query.student_uid ? String(req.query.student_uid) : null;
+  res.json({ attachments: getAttachmentsForAssignments(getDb(), ids, { studentUid }) });
 });
 
 router.put('/attachment/:attachmentId/mapping', (req, res) => {

@@ -129,6 +129,11 @@ function runQueue(db, key, pairs) {
 // One assignment's students whose files the sync saw (submission_type 'drop'), or
 // whose files were read before (an upload after the last sync), read longer ago
 // than maxAgeSec (PrisMCP get_assignment_context, #162). Refuses an OneDrive task.
+// An archived course is different: its import skips the per-student submission
+// check (#72), so the upload marks are patchy (a sample of 40 unmarked submitted
+// archived grades found uploads in 20, 19/10/2026). There every student on the
+// roster is read until one read succeeds, then never again: archived work does not
+// change. So an agent can crawl archived tasks with no one opening a chip.
 export function refreshAssignmentFiles(db, assignmentId, { maxAgeSec = OPEN_MAX_AGE_SEC } = {}) {
   const localId = resolveAssignmentId(db, assignmentId);
   const assignment = localId ? db.prepare('SELECT * FROM assignments WHERE id = ?').get(localId) : null;
@@ -141,9 +146,11 @@ export function refreshAssignmentFiles(db, assignmentId, { maxAgeSec = OPEN_MAX_
     .filter((g) => g.submission_type === 'drop').map((g) => g.student_id));
   const readBefore = new Set(db.prepare('SELECT student_id FROM submission_revision_reads WHERE assignment_id = ?')
     .all(assignment.id).map((r) => r.student_id));
+  const due = course?.archived
+    ? (st) => !readRevisions(db, { assignmentId: assignment.id, studentId: st.id }).read_at_epoch
+    : (st) => (uploaded.has(st.id) || readBefore.has(st.id)) && stale(db, assignment.id, st.id, maxAgeSec);
   const pairs = getRoster(db, assignment.course_id, assignment)
-    .filter((st) => st.schoology_uid && (uploaded.has(st.id) || readBefore.has(st.id)))
-    .filter((st) => stale(db, assignment.id, st.id, maxAgeSec))
+    .filter((st) => st.schoology_uid && due(st))
     .map((student) => ({ assignment, course, student }));
   return runQueue(db, `a:${assignment.id}`, pairs);
 }

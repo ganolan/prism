@@ -208,6 +208,30 @@ describe('refreshAssignmentFiles (PrisMCP get_assignment_context)', () => {
     expect(() => refreshAssignmentFiles(db, '8590105935')).toThrow(FileError);
   });
 
+  test('archived course: every student on the roster is read once (the sync\'s upload marks are patchy there, #72), then never again', async () => {
+    const db = getDb(); const { ana, cy, assignmentId } = seed(db);
+    db.prepare('UPDATE courses SET archived = 1').run();
+    uploaded(db, ana, assignmentId); // Cy has no mark, as most archived uploads have none
+    const job = refreshAssignmentFiles(db, '8590105935');
+    expect(job.queued).toBe(2);
+    expect(await job.done).toEqual({ refreshed: 2, failed: 0 });
+    expect(readRevisions(db, { assignmentId, studentId: cy }).read_at).not.toBeNull();
+    clock += 365 * 86400; // archived work does not change: no re-read, however old
+    expect(refreshAssignmentFiles(db, '8590105935').queued).toBe(0);
+  });
+
+  test('archived course: a read that failed is tried again next time', async () => {
+    const db = getDb(); const { ana, cy, assignmentId } = seed(db);
+    db.prepare('UPDATE courses SET archived = 1').run();
+    fileDeps.getSubmissionRevisions.mockRejectedValueOnce(new Error('Schoology API 503')); // the first read: Ana
+    expect(await refreshAssignmentFiles(db, '8590105935').done).toEqual({ refreshed: 1, failed: 1 });
+    expect(readRevisions(db, { assignmentId, studentId: ana }).error).toMatch(/503/);
+    expect(readRevisions(db, { assignmentId, studentId: cy }).read_at).not.toBeNull();
+    const again = refreshAssignmentFiles(db, '8590105935');
+    expect(again.queued).toBe(1); // Ana only
+    expect(await again.done).toEqual({ refreshed: 1, failed: 0 });
+  });
+
   test('revisionsForAssignment gives every read student\'s revisions for the context', async () => {
     const db = getDb(); const { ana, cy, assignmentId } = seed(db);
     await revisionsFor(db, { assignmentId: '8590105935', studentId: ana });

@@ -1542,3 +1542,12 @@ submission comments.
 - **Client:** an expanded run shows "Time per phase" above its log (`PhaseTimings.jsx`, now shared with the sync dialog's foot; `.sync-run-timings`). Only when the run finished and its summary carries `phaseMs`: a running or interrupted run, or one before #143 (only blocks was timed then), shows nothing extra.
 - **Verified live on a dev server (copy of prod's DB plus one synthetic timed run):** the timed run lists six lines in the dialog's order and format at desktop and 390 px; a real pre-#143 prod run shows its log only.
 - **Tests:** `RecentSyncs.test.jsx` (5 new), `syncRuns.test.js` (1 new: stored events keep `elapsedMs` and `phaseMs`).
+
+## PrisMCP reads archived submission files without the sync's marks (#162 follow-up, 2026-10-19)
+
+- **Why:** `get_assignment_context` read only students the sync marked as uploading (`submission_type = 'drop'`). An archived course's import skips the per-student submission check (#72): in prod's data archived tasks hold 307 marked uploads against 2,087 unmarked submitted grades, and a read-only sample of 40 unmarked ones found uploads in 20 (34 files). An agent crawling archived tasks missed most uploads.
+- **Now:** on an archived course, `refreshAssignmentFiles` reads every student on the roster until one read succeeds, then never again (archived work does not change); a failed read is tried again next time. Current courses are unchanged. The student page still reads archived chips only when opened (Graham kept that choice).
+- **Probe:** Schoology's `GET /v1/sections/{id}/submissions/{aid}/{uid}?with_attachments=1` answers for an archived section (revisions with attachments for a marked student; an empty list for a student with none).
+- **Live (DB copy):** an archived task with 0 marks and 19 submitted grades: 19 read in 16 s, an upload found that the old rule would never have read; the next call 9 ms with nothing read.
+- **Tests:** 2 in `submissionFiles.test.js`.
+

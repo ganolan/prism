@@ -3,6 +3,7 @@
 // callbacks. Kept separate so they unit-test directly against a :memory: DB,
 // mirroring the server/**/*.test.js pattern.
 
+import { readSupportSummary } from '../server/services/psSupportSummary.js';
 import { listRubrics, getRubricByName, saveRubric, findRubricByContentHash } from '../server/services/rubricStore.js';
 import { hashRubricContent } from '../server/services/rubricHash.js';
 import { attachRubric } from '../server/services/rubricAttach.js';
@@ -17,7 +18,7 @@ import { psAlertFieldsForAgents } from '../server/services/psAlertStore.js';
 // A grading run reads threads at most a minute old.
 const MCP_COMMENT_MAX_AGE_SEC = 60;
 import { preferredFirstName } from '../server/services/studentNames.js';
-import { findStudents, getStudentHistory } from '../server/services/studentHistory.js';
+import { findStudents, getStudentHistory, resolveStudent } from '../server/services/studentHistory.js';
 import { schoolYearOf } from '../server/lib/schoolYear.js';
 import {
   getTriage, listReferrals, recordReferral, undoReferral, listExtensions, recordExtension, undoExtension, setMakeUpIgnored,
@@ -197,6 +198,20 @@ export function findStudentTool(db, { query, include_archived, limit } = {}) {
 
 export function getStudentHistoryTool(db, args = {}) {
   return getStudentHistory(db, args);
+}
+
+// #163: the PowerSchool Student Support Summary, read live (server/services/
+// psSupportSummary.js, the same read as the student page's "Show alerts").
+export async function getSupportSummaryTool(db, { student } = {}, { read = readSupportSummary, features = getFeatures() } = {}) {
+  if (!features.powerschool_alerts) throw new Error('PowerSchool alerts are off in config.yaml');
+  const s = resolveStudent(db, student);
+  const { rows, readAt } = await read(db, s.id);
+  return {
+    student_id: s.id,
+    rows,
+    read_at: readAt,
+    note: 'For the teacher only: never put it in student-facing text or on a roster. Rows are PowerSchool\'s, verbatim; the extra time, when there is one, is in Support Notes in PowerSchool\'s own words.',
+  };
 }
 
 // Portable rubric shape — ordered criteria, per-level descriptors, NO Prism ids

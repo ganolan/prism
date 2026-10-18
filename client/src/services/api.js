@@ -42,6 +42,8 @@ export const discoverArchivedCourses = () => request('/courses/archived/discover
 // Students
 export const searchStudents = (q) => request(`/students${q ? `?q=${encodeURIComponent(q)}` : ''}`);
 export const getStudent = (id) => request(`/students/${id}`);
+// The PowerSchool Student Support Summary, read on demand (#163): { rows: [{ category, description, url? }], readAt }.
+export const getSupportSummary = (id) => request(`/students/${id}/support-summary`);
 export const updateStudent = (id, preferred_name_teacher) => request(`/students/${id}`, {
   method: 'PUT',
   body: JSON.stringify({ preferred_name_teacher }),
@@ -200,7 +202,6 @@ export async function getRemoteLoginScreen() {
 }
 
 // Mastery / SBG
-export const triggerMasteryLogin = () => request('/mastery/login', { method: 'POST' });
 // { loggedIn, live: 'connected' | 'expired' | 'none' | null, checkedAt, message? } — live is
 // a cached server-side check of the saved session; refresh forces one; check: false never
 // opens a browser on the server (live = the cached answer or null).

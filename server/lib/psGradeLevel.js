@@ -1,7 +1,9 @@
 /**
  * psGradeLevel.js — pure helpers for syncing per-student grade level from
- * PowerSchool's attendance app (issue #43). gradeLevel (9–12) is read from
- * /ws/attendance/section_attendance and joined to Prism students by
+ * PowerSchool's attendance app (issue #43). gradeLevel (9–12) is read from the
+ * section's student list, /ws/pt/v1/section/{psmSectionId}/students_integration
+ * (#164: one call, no date), with /ws/attendance/section_attendance over a date
+ * range as the fallback, and joined to Prism students by
  * school_uid === '1_' + dcid. Prism stores the INVARIANT grad_year (not the
  * raw grade) and derives the displayed grade on read.
  *
@@ -91,4 +93,54 @@ export function userDcidFromLaunchForm(html) {
   const v = m[1].trim();
   if (!v) return null;
   return v.includes('_') ? v.split('_').pop() : v;
+}
+
+/**
+ * A grade level as an integer: integers pass, digit strings ("10", "09") are
+ * parsed (students_integration sends gradeLevel as a string), anything else is
+ * null.
+ */
+export function parseGradeLevel(v) {
+  if (Number.isInteger(v)) return v;
+  if (typeof v === 'string' && /^\s*\d{1,2}\s*$/.test(v)) return Number(v.trim());
+  return null;
+}
+
+/**
+ * The PowerSchool studentid in a students_integration photoURL
+ * ("/teachers/stpnormal/{studentid}ph.jpeg"), or null. The list's own `id` is a
+ * PSM id that matches neither the studentid nor the dcid, so the photo path is
+ * the join (27/27 in the #116 probe).
+ */
+export function studentIdFromPhotoUrl(url) {
+  if (!url || typeof url !== 'string') return null;
+  const m = url.match(/\/(\d+)ph\.[a-z]+(?:[?#].*)?$/i);
+  return m ? m[1] : null;
+}
+
+/**
+ * Grade levels from a students_integration answer
+ * ({ "student-list": { students: [{ id, gradeLevel, photoURL, … }] } }), joined
+ * to the dcid through the section roster (getStudentsInSection.json:
+ * [{ studentid, studentdcid }]). → { grades: [{ dcid, gradeLevel }], listed,
+ * unjoined, noGrade }: listed = students in the list, unjoined = students with a
+ * grade but no roster match, noGrade = students without an integer grade.
+ * Gender is in the same list; Prism stores nothing from it (#164).
+ */
+export function extractStudentListGradeLevels(json, roster) {
+  const students = json?.['student-list']?.students;
+  const list = Array.isArray(students) ? students : [];
+  const dcidByStudentId = new Map();
+  for (const r of Array.isArray(roster) ? roster : []) {
+    if (r && r.studentid != null && r.studentdcid != null) dcidByStudentId.set(String(r.studentid), String(r.studentdcid));
+  }
+  const out = { grades: [], listed: list.length, unjoined: 0, noGrade: 0 };
+  for (const s of list) {
+    const gradeLevel = parseGradeLevel(s?.gradeLevel);
+    if (gradeLevel == null) { out.noGrade++; continue; }
+    const dcid = dcidByStudentId.get(studentIdFromPhotoUrl(s?.photoURL));
+    if (!dcid) { out.unjoined++; continue; }
+    out.grades.push({ dcid, gradeLevel });
+  }
+  return out;
 }

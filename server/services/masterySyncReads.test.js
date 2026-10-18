@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { migrate, __setTestDb } from '../db/index.js';
 import {
-  masteryDeps, masteryBuildingId, openMasteryReader, syncMasteryForCourse, syncMasteryForAssignment, getRubricScoresForStudent,
+  masteryDeps, masteryBuildingId, openMasteryReader, syncMasteryForCourse, syncMasteryForAssignment, getRubricScoresForStudent, writeMasteryScores,
 } from './masterySync.js';
 import { fakeSchoologyWeb } from '../testing/fakeSchoologyWeb.js';
 import { sessionStatus, resetSessionStatusCache } from './schoologySession.js';
@@ -43,7 +43,6 @@ beforeEach(() => {
   db.prepare(`INSERT INTO courses (id, schoology_section_id, course_name) VALUES (5, ?, 'AP CSP')`).run(SID);
   __setTestDb(db);
   resetSessionStatusCache();
-  masteryDeps.interactiveLogin = vi.fn(async () => {});
 });
 afterEach(() => { Object.assign(masteryDeps, realDeps); });
 
@@ -58,7 +57,7 @@ describe('masteryBuildingId', () => {
 describe('syncMasteryForCourse over plain HTTP', () => {
   test('reads the page once, then the API with the building id and the CSRF pair; stores the course', async () => {
     useWeb(routes());
-    const r = await syncMasteryForCourse(5, { allowInteractiveLogin: false });
+    const r = await syncMasteryForCourse(5);
     expect(r).toMatchObject({ categoriesCount: 1, topicsCount: 1, scoresCount: 1, rollupsCount: 1, alignmentsCount: 1, materialsCount: 1 });
     const objectives = fake.requests.find((q) => q.path.endsWith('/aligned-objectives'));
     expect(objectives.query.get('building_id')).toBe('97989879');
@@ -77,43 +76,29 @@ describe('syncMasteryForCourse over plain HTTP', () => {
 
   test('a non-2xx API answer fails the read as the in-page fetch did ("HTTP 500 for …")', async () => {
     useWeb(routes({ [`${BASE}/api/aligned-objectives`]: { status: 500, text: '' } }));
-    await expect(syncMasteryForCourse(5, { allowInteractiveLogin: false })).rejects.toThrow(/HTTP 500 for .*aligned-objectives/);
+    await expect(syncMasteryForCourse(5)).rejects.toThrow(/HTTP 500 for .*aligned-objectives/);
   });
 
-  test('signed out with interactive login off: the sync error, the session noted expired, no login opened', async () => {
+  test('signed out (no silent renewal): the sync stops at once, points to Settings, notes the session expired', async () => {
     useWeb(routes({ [BASE]: { login: true } }));
-    await expect(syncMasteryForCourse(5, { allowInteractiveLogin: false })).rejects.toThrow(/mastery session has expired/);
-    expect(masteryDeps.interactiveLogin).not.toHaveBeenCalled();
+    await expect(syncMasteryForCourse(5)).rejects.toThrow(/Log in to Schoology in Settings/);
     expect((await sessionStatus({ check: false, hasSession: () => true })).live).toBe('expired');
-  });
-
-  test('signed out with interactive login on: opens the login once, then reads with the new session', async () => {
-    useWeb(routes({ [BASE]: { login: true } }));
-    masteryDeps.interactiveLogin = vi.fn(async () => useWeb(routes()));
-    const r = await syncMasteryForCourse(5);
-    expect(masteryDeps.interactiveLogin).toHaveBeenCalledTimes(1);
-    expect(r.scoresCount).toBe(1);
-  });
-
-  test('still signed out after the login: "Still not logged in after login attempt"', async () => {
-    useWeb(routes({ [BASE]: { login: true } }));
-    await expect(syncMasteryForCourse(5)).rejects.toThrow(/Still not logged in after login attempt/);
   });
 
   test('no saved session counts as signed out', async () => {
     masteryDeps.web = () => ({ jar: null });
-    await expect(syncMasteryForCourse(5, { allowInteractiveLogin: false })).rejects.toThrow(/mastery session has expired/);
+    await expect(syncMasteryForCourse(5)).rejects.toThrow(/mastery session has expired/);
   });
 
   test('a page with no building id is an error, before any API read', async () => {
     useWeb(routes({ [BASE]: { text: '<html><body>no settings</body></html>' } }));
-    await expect(syncMasteryForCourse(5, { allowInteractiveLogin: false })).rejects.toThrow(/building_id/);
+    await expect(syncMasteryForCourse(5)).rejects.toThrow(/building_id/);
     expect(fake.requests).toHaveLength(1);
   });
 
   test('a page without the CSRF pair: the POST searches fail before sending', async () => {
     useWeb(routes({ [BASE]: { text: PAGE.replace('"csrf_token":"tok","csrf_key":"key",', '') } }));
-    const r = await openMasteryReader(SID, { allowInteractiveLogin: false });
+    const r = await openMasteryReader(SID);
     await expect(r.postJson(`https://schoology.hkis.edu.hk${BASE}/api/alignments/search`, {})).rejects.toMatchObject({ code: 'NO_CSRF' });
     expect(fake.requests.filter((q) => q.method === 'POST')).toHaveLength(0);
   });
@@ -148,6 +133,19 @@ describe('getRubricScoresForStudent over plain HTTP', () => {
   test('signed out: an error saying so, the session noted expired', async () => {
     useWeb(routes({ [`${BASE}/api/observations/search`]: { login: true } }));
     await expect(getRubricScoresForStudent({ sectionId: SID, studentUid: '701', assignmentId: '900' })).rejects.toThrow(/mastery session has expired/);
+    expect((await sessionStatus({ check: false, hasSession: () => true })).live).toBe('expired');
+  });
+});
+
+describe('mastery writes when signed out', () => {
+  test('the browser lands on sign-in: stop at once, point to Settings, close the browser, note expired', async () => {
+    const browser = { close: vi.fn(async () => {}) };
+    const page = { goto: vi.fn(async () => {}), url: () => 'https://login.microsoftonline.com/common/oauth2/authorize' };
+    masteryDeps.openPage = vi.fn(async () => ({ browser, page, context: {} }));
+    await expect(writeMasteryScores({ sectionId: SID, enrollmentId: 1, assignmentId: 900, gradeInfo: {}, gradingPeriodId: 11, gradingCategoryId: 22 }))
+      .rejects.toThrow(/Log in to Schoology in Settings/);
+    expect(masteryDeps.openPage).toHaveBeenCalledTimes(1);
+    expect(browser.close).toHaveBeenCalled();
     expect((await sessionStatus({ check: false, hasSession: () => true })).live).toBe('expired');
   });
 });

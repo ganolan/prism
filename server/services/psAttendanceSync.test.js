@@ -44,14 +44,16 @@ describe('syncPsAttendance — guard', () => {
 
 // A section_info[0] with one period ("Block 3" by default), meeting on the days
 // whose bell schedule is 77; every value made up.
-function info(name = 'Block 3', { days = { '2026-10-05': 77, '2026-10-06': 78, '2026-10-07': 77 } } = {}) {
+// `psm`: the psmSectionId the grade pass reads the student list by (none: it
+// falls back to section_attendance).
+function info(name = 'Block 3', { days = { '2026-10-05': 77, '2026-10-06': 78, '2026-10-07': 77 }, psm } = {}) {
   return {
+    ...(psm ? { psmSectionId: psm } : {}),
     periodIdToPsmPeriodIdMap: { 4202: '1' },
     bellScheduleItems: [{ periodId: 4202, bellScheduleId: 77, period: { id: 4202, name, abbreviation: 'BK', periodNumber: 2 } }],
     calenderDays: Object.fromEntries(Object.entries(days).map(([d, bell]) => [d, { inSession: true, cycleDay: { letter: 'A' }, bellScheduleId: bell }])),
   };
 }
-const attendance = (...students) => ({ sectionAttendances: [{ studentAttendance: students.map(([dcid, gradeLevel]) => ({ dcid, gradeLevel })) }] });
 
 describe('syncPsAttendance over plain HTTP (no browser, #141)', () => {
   let web;
@@ -60,25 +62,27 @@ describe('syncPsAttendance over plain HTTP (no browser, #141)', () => {
   const course = (id) => h.db.prepare('SELECT block_number, block_synced_at FROM courses WHERE id = ?').get(id);
   const psReads = (name) => web.requests.filter((r) => r.path === `/ws/attendance/${name}`);
 
-  test('one launch, then per course: the block, its lessons, the calendar and grade levels', async () => {
+  test('one launch for the whole pass: per course the block, its lessons, the calendar; then grade levels on the same session', async () => {
     const a = seed(h.db, 'A');
     const b = seed(h.db, 'B');
     const stu = h.db.prepare("INSERT INTO students (first_name, last_name, school_uid) VALUES ('F', 'L', '1_501')").run().lastInsertRowid;
     web = fakePowerSchoolWeb({
       schoology: { 'sec-A': '9001', 'sec-B': '9002' },
-      sectionInfo: { 9001: info('Block 3'), 9002: info('Block 6') },
-      sectionAttendance: { 9001: attendance([501, 10]) },
+      sectionInfo: { 9001: info('Block 3', { psm: 'P9001' }), 9002: info('Block 6', { psm: 'P9002' }) },
+      sections: { 9001: [{ studentid: '1', studentdcid: '501', gradeLevel: 10 }] },
     });
     const s = await run();
     expect(s).toMatchObject({ processed: 2, updated: 2, skipped: 0, schoolDays: 3, gradeLevels: { seen: 1, updated: 1 } });
+    expect(s.gradeLevels.sources).toMatchObject({ students_integration: 1, failed: 0 });
     expect(course(a).block_number).toBe('3');
     expect(course(b).block_number).toBe('6');
-    expect(web.launches()).toBe(1);
+    expect(web.launches()).toBe(1); // the grade pass shares the block loop's session
     // The launch posts the form just read for the first course (no second form read).
     expect(web.requests.filter((r) => r.path.startsWith('/apps/lti/')).length).toBe(2);
+    // section_info once per section: the grade pass reuses the answer in hand.
     expect(psReads('section_info').map((r) => r.params.sectionDcid)).toEqual(['9001', '9002']);
     expect(psReads('section_info').every((r) => r.accept === 'application/json' && r.cookie.includes('JSESSIONID='))).toBe(true);
-    expect(psReads('section_attendance')[0].params).toMatchObject({ sectionDcid: '9001', userDcid: '100', includeStudentAlerts: 'false' });
+    expect(web.requests.filter((r) => r.path.endsWith('/students_integration')).map((r) => r.path)).toEqual(['/ws/pt/v1/section/P9001/students_integration', '/ws/pt/v1/section/P9002/students_integration']);
     expect(h.db.prepare('SELECT date FROM class_meetings WHERE course_id = ? ORDER BY date').all(a).map((r) => r.date)).toEqual(['2026-10-05', '2026-10-07']);
     expect(h.db.prepare('SELECT grad_year FROM students WHERE id = ?').get(stu).grad_year).not.toBeNull();
   });
@@ -120,10 +124,27 @@ describe('syncPsAttendance over plain HTTP (no browser, #141)', () => {
 
   test('a grade-level read failure is logged and skipped; the block is still stored', async () => {
     const a = seed(h.db, 'A');
-    web = fakePowerSchoolWeb({ schoology: { 'sec-A': '9001' }, sectionInfo: { 9001: info('Block 3') }, failRead: (name) => name === 'section_attendance' });
+    web = fakePowerSchoolWeb({
+      schoology: { 'sec-A': '9001' }, sectionInfo: { 9001: info('Block 3', { psm: 'P9001' }) },
+      sections: { 9001: [{ studentid: '1', studentdcid: '501', gradeLevel: 10 }] },
+      failRead: (name) => name === 'students_integration' || name === 'section_attendance',
+    });
     const s = await run();
     expect(course(a).block_number).toBe('3');
-    expect(s.gradeLevels.seen).toBe(0);
+    expect(s.gradeLevels).toMatchObject({ seen: 0, sources: { failed: 1 } });
+    expect(web.launches()).toBe(1); // an error status is not a lost session
+  });
+
+  test('a "Security Violation Logged" page in the grade pass stops it (thrown), blocks already stored', async () => {
+    const a = seed(h.db, 'A');
+    web = fakePowerSchoolWeb({
+      schoology: { 'sec-A': '9001' }, sectionInfo: { 9001: info('Block 3', { psm: 'P9001' }) },
+      sections: { 9001: [{ studentid: '1', studentdcid: '501', gradeLevel: 10 }] },
+      failRead: (name) => name === 'students_integration' && '<h1>Security Violation Logged: Attempted to run an unauthorized action</h1>',
+    });
+    await expect(run()).rejects.toMatchObject({ code: 'PS_SECURITY' });
+    expect(web.requests.some((r) => r.path === '/ws/attendance/section_attendance')).toBe(false); // no fallback read
+    expect(course(a).block_number).toBe('3');
   });
 
   test('a "Security Violation Logged" page stops the whole pass at once', async () => {

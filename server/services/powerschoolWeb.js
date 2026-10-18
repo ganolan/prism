@@ -96,8 +96,10 @@ export class PowerSchoolWeb {
   // Start (or restart) the PowerSchool session by posting a section's launch form.
   // A form is signed with a nonce, so it is posted once: pass `form` only when it was
   // just read (launchIds) and not posted yet; otherwise a fresh one is read.
+  // → { sectionDcid } of the section launched through.
   async launch(schoologySectionId, { form: given = null } = {}) {
     const form = given ?? (await this.launchIds(schoologySectionId)).form;
+    const sectionDcid = String(form?.fields?.custom_sectiondcid ?? '').trim() || null;
     if (!form || !form.action.startsWith(PS_BASE)) {
       throw new WebSessionError('PS_LAUNCH', 'Schoology did not give a PowerSchool launch form');
     }
@@ -117,17 +119,37 @@ export class PowerSchoolWeb {
       if (res.status !== 200) throw new WebSessionError('PS_LAUNCH', `PowerSchool answered ${res.status} to the launch`);
       if (!this.jar.size) throw new WebSessionError('PS_LAUNCH', 'PowerSchool gave no session');
       this.launched = true;
-      return;
+      return { sectionDcid };
     }
     throw new WebSessionError('PS_LAUNCH', 'Too many redirects on the PowerSchool launch');
+  }
+
+  // One HTML page the attendance app opens as a dialog (an alert pop-up, #163): a GET
+  // with the attendance page as Referer and X-Requested-With, as the dialog sends.
+  // → the page text. A redirect or an error status is PS_SESSION; a "Security
+  // Violation Logged" page is PS_SECURITY.
+  async page(path) {
+    const res = await this.fetchImpl(`${PS_BASE}${path}`, {
+      headers: {
+        cookie: this.jar.header(), Referer: `${PS_BASE}/integrations/attendance/index.html`,
+        Accept: 'text/html, */*; q=0.01', 'X-Requested-With': 'XMLHttpRequest',
+      },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    this.jar.take(res);
+    const text = await res.text();
+    if (SECURITY_VIOLATION.test(text)) throw securityError(path.split('?')[0]);
+    if (res.status !== 200) throw new WebSessionError('PS_SESSION', `PowerSchool answered ${res.status} for ${path.split('?')[0]}`);
+    return text;
   }
 
   // One read. → parsed JSON. Any other answer throws PS_SESSION with `status` and
   // `sessionEnded`: true for a redirect (to sign-in) or a page that is not JSON (the
   // session is gone: relaunch and ask again), false for an error status, which is
   // about the request (a section PowerSchool cannot answer), not the session.
-  // `accept`: the /ws/... services take 'application/json' (AGENTS.md); the
-  // plugin reads keep jQuery's default.
+  // `accept` replaces the plugin's Accept header: the /ws/ services want
+  // 'application/json' alone (/ws/pt/v1 answers 500 without it; AGENTS.md).
   async read(path, params, { method = 'POST', accept = 'application/json, text/javascript, */*; q=0.01' } = {}) {
     const query = params instanceof URLSearchParams ? params : new URLSearchParams(params || {});
     const url = method === 'GET' ? `${PS_BASE}${path}${path.includes('?') ? '&' : '?'}${query}` : `${PS_BASE}${path}`;

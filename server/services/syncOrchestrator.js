@@ -152,7 +152,6 @@ export async function runUnifiedSync(
 
     try {
       const result = await syncMasteryForCourse(courseId, {
-        allowInteractiveLogin: false,
         onProgress: (p) => emit({ type: 'log', message: `[${courseName}] ${p.message}` }),
       });
       const records = result.scoresCount || 0;

@@ -15,11 +15,13 @@
  *      launch form is posted to PowerSchool, which sets the session cookies.
  *   3. GET /ws/attendance/section_info (Accept: application/json) and read
  *      bellScheduleItems[].period.name; the same answer gives the school
- *      calendar and the class's lesson dates. GET /ws/attendance/section_attendance
- *      for the roster's grade levels.
+ *      calendar and the class's lesson dates.
  *   4. Store the parsed "Block N" digit (PowerSchool-authoritative, overwrites);
  *      where no numbered block resolves (PCG → "Pastoral Care", Interim, or a
  *      block not yet assigned at year start) leave the value untouched.
+ *   5. Grade level (#43, #164): after the loop, on the SAME PowerSchool session,
+ *      read each section's student list (psGradeLevelRead.js, with the
+ *      section_info already in hand) and store grad_year.
  * A read sent to sign-in (PowerSchool's session ended) relaunches once and asks
  * again; an error status (e.g. a prior-year section) is that section's answer.
  *
@@ -38,7 +40,8 @@
  */
 import { getDb } from '../db/index.js';
 import { pickBlockNumber, loopTimeBudgetExceeded } from '../lib/psBlockNumber.js';
-import { currentSchoolYearEndYear, gradeLevelToGradYear, pickInSessionRange, extractGradeLevels } from '../lib/psGradeLevel.js';
+import { currentSchoolYearEndYear, gradeLevelToGradYear } from '../lib/psGradeLevel.js';
+import { readGradeLevels } from './psGradeLevelRead.js';
 import { extractCalendarDays, mergeCalendarDays, extractMeetingDates } from '../lib/psCalendar.js';
 import { storeSchoolDays, storeClassMeetings } from './schoolCalendar.js';
 import { cookieJar } from './schoologyWeb.js';
@@ -115,15 +118,9 @@ function attendanceReader({ jar, fetchImpl }) {
       const arr = Array.isArray(parsed) ? parsed : [parsed];
       return { status: 200, first: arr[0] || null };
     },
-    // section_attendance for an in-session range → the answer. includeStudentAlerts
-    // =false keeps the PII surface minimal (only the roster + gradeLevel is used).
-    // Throws on any failure (the caller logs and skips the grade-level read).
-    sectionAttendance(sectionId, sectionDcid, userDcid, startDate, endDate) {
-      return ws(sectionId, '/ws/attendance/section_attendance', {
-        sectionDcid, userDcid, startDate, endDate,
-        includeStudentAlerts: 'false', multiSections: 'false', sortByFirstName: 'false',
-      });
-    },
+    // The PowerSchool session itself, for the grade-level pass after the loop
+    // (psGradeLevelRead.readGradeLevels), so it needs no second launch.
+    ps,
   };
 }
 
@@ -135,11 +132,13 @@ function attendanceReader({ jar, fetchImpl }) {
  * number of student rows updated. `now` may be a Date or an ISO string (the rest
  * of the sync layer threads `now` as a pre-serialised ISO string) — both work.
  *
- * Assumes the synced gradeLevel is as-of the CURRENT school year — true whenever
- * the in-session date range (pickInSessionRange) falls in it. In the rare off-season
- * case where the only in-session day is in a *future* year past an August
- * boundary, grad_year could be off by one; it self-heals on the next in-session
- * sync, so we don't reconcile the query date against `now` here.
+ * Assumes the synced gradeLevel is as-of the CURRENT school year: true for the
+ * section student list (#164, today's grade) and for the section_attendance
+ * fallback whenever its in-session date range (pickInSessionRange) falls in it.
+ * In the rare off-season case where the fallback's only in-session day is in a
+ * *future* year past an August boundary, grad_year could be off by one; it
+ * self-heals on the next in-session sync, so we don't reconcile the query date
+ * against `now` here.
  */
 export function applyGradeLevels(db, gradeByDcid, now = new Date()) {
   const nowDate = typeof now === 'string' ? new Date(now) : now;
@@ -227,7 +226,7 @@ export async function syncPsAttendance({ onProgress, courseIds, db = getDb(), de
   const stampOnly = db.prepare('UPDATE courses SET block_synced_at = ? WHERE id = ?');
   const setAndStamp = db.prepare('UPDATE courses SET block_number = ?, block_synced_at = ? WHERE id = ?');
 
-  const gradeByDcid = new Map(); // dcid → gradeLevel, accumulated across all sections
+  const gradeSections = []; // sections for the grade-level pass after the loop
   const calendarByDate = new Map(); // date → merged school day (triage calendar)
   const todayIso = new Date().toISOString().slice(0, 10);
   const loopStartedAt = Date.now();
@@ -274,25 +273,9 @@ export async function syncPsAttendance({ onProgress, courseIds, db = getDb(), de
         ? pickBlockNumber(first)
         : { blockNumber: null, blockName: null, reason: `section-info-failed:${status}` };
 
-      // Grade level: pick an in-session date range from the SAME section_info
-      // calendar and read the roster's per-student gradeLevel. A range covers
-      // sections that don't meet on a single picked day (A/B block rotation —
-      // issue #43). Best-effort: a failed read is logged and skipped, never
-      // aborting the loop or block writes.
-      if (first && userDcid) {
-        const range = pickInSessionRange(first, todayIso);
-        if (range) {
-          try {
-            const sa = await reader.sectionAttendance(c.schoology_section_id, sectionDcid, userDcid, range.startDate, range.endDate);
-            for (const { dcid, gradeLevel } of extractGradeLevels(sa || {})) {
-              gradeByDcid.set(dcid, gradeLevel);
-            }
-          } catch (err) {
-            if (err.fatal) throw err;
-            log(`${c.course_name}: grade-level read failed (${err.message}), skipped`);
-          }
-        }
-      }
+      // Grade level is read after the loop (#164); keep what it needs, including
+      // the section_info already in hand.
+      gradeSections.push({ name: c.course_name, schoologySectionId: c.schoology_section_id, sectionDcid, userDcid, sectionInfo: first || undefined });
     }
     const reason = pick.reason.startsWith('section-info-failed') ? 'section-info-failed' : pick.reason;
 
@@ -334,9 +317,19 @@ export async function syncPsAttendance({ onProgress, courseIds, db = getDb(), de
       ? `School calendar: ${summary.schoolDays} days stored.`
       : 'School calendar: none returned, kept the stored calendar.');
   }
-  summary.gradeLevels.seen = gradeByDcid.size;
-  summary.gradeLevels.updated = applyGradeLevels(db, gradeByDcid);
-  log(`Grade levels: ${summary.gradeLevels.updated} students updated (${gradeByDcid.size} seen).`);
+  // Grade level (#164): each section's student list (students_integration, no
+  // date), with section_attendance over a date range as the fallback, on the
+  // block loop's PowerSchool session (a session that ended is started again
+  // there). Best-effort: a failed section keeps its students' stored grad_year,
+  // and no failure here touches the block results above, except a "Security
+  // Violation Logged" page, which stops the pass (PS_SECURITY is thrown).
+  if (gradeSections.length) {
+    const gradeStartedAt = Date.now();
+    const { gradeByDcid, sources } = await readGradeLevels({ ps: reader.ps, sections: gradeSections, today: todayIso, log });
+    const elapsedMs = Date.now() - gradeStartedAt;
+    summary.gradeLevels = { seen: gradeByDcid.size, updated: applyGradeLevels(db, gradeByDcid), sources, elapsedMs };
+    log(`Grade levels: ${summary.gradeLevels.updated} students updated (${gradeByDcid.size} seen; sections: ${sources.students_integration} from the student list, ${sources.section_attendance} from section_attendance, ${sources.failed} failed; ${elapsedMs} ms).`);
+  }
   log(`Done: ${summary.updated} updated, ${summary.unchanged} unchanged, ${summary.skipped} skipped (of ${summary.processed}).`);
   return summary;
 }

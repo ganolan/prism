@@ -12,6 +12,7 @@ Endpoint-discovery crawl: 2026-05-30 — captured the attendance LTI app's full 
 Block-number resolved: 2026-06-08 (#106) — the displayed "Block N" = `section_info.bellScheduleItems[].period.name`; see "Block number" below. Probes: `scripts/probe-ps-block-number.js`, `scripts/probe-ps-sectiondcid.js`.
 Student alerts over plain HTTP: 2026-10-17 (#117) — the LTI launch, the MBA alert catalogue, rosters, field values and advanced-alert matches all read with `fetch`, no browser; see "Student alerts over plain HTTP (#117)" below. Probes: `scripts/probe-ps-alerts-http.js`, `scripts/parity-ps-alerts.js`.
 Student grade level, gender, postal address: 2026-10-17 (#116) — grade level and gender from `/ws/pt/v1/` (JSON, plain HTTP, no date), the address only on the PowerTeacher Demographics screen (HTML); see "Student grade level, gender and postal address (#116)" below. Probe: `scripts/probe-ps-student-fields.js`.
+Grade level from the section student list: 2026-10-18 (#164) — Prism's grade-level read, plain HTTP, `section_attendance` kept as the fallback; 0 mismatches over 110 student rows; see "Grade level from the section student list (#164)". Parity: `scripts/parity-ps-grade-level.js`.
 
 ## Server Details
 
@@ -223,14 +224,17 @@ Note **not every period is a numbered "Block N"**: PCG → "Pastoral Care", Inte
 no longer opens a browser. Per course it reads the launch form from Schoology (above); the first course with a
 `sectionDcid` starts the PowerSchool session by POSTing that same form to its action
 (`server/services/powerschoolWeb.js`, as in "Student alerts over plain HTTP (#117)" step 1); then
-`GET /ws/attendance/section_info` and `GET /ws/attendance/section_attendance` (the same query strings as before)
-with PowerSchool's cookies and `Accept: application/json`. A redirect or a non-JSON page means PowerSchool's
+`GET /ws/attendance/section_info` (the same query string as before) with PowerSchool's cookies and
+`Accept: application/json`. After the loop the grade-level pass (#164, `psGradeLevelRead.js`: the section student
+list, `section_attendance` as fallback) runs on the same session with the `section_info` answers in hand, so the
+whole pass makes one launch. A redirect or a non-JSON page means PowerSchool's
 session ended (relaunch once with a fresh form, ask again); an error status is the section's own answer
 (`section-info-failed:<status>`); a page carrying "Security Violation Logged" stops the pass (`PS_SECURITY`; not
 seen). Observed on 2026-10-18 (counts only):
 - **Active courses:** 9 of 9 `section_info` reads answered 200: 8 numbered blocks, 1 `not-numbered` (its name
-  not printed); 308 calendar days (165 school days), 522 lesson dates across the 9; `section_attendance` gave grade
-  levels for 96 students. One launch for the whole pass.
+  not printed); 308 calendar days (165 school days), 522 lesson dates across the 9; grade levels for 96 students
+  (first runs: from `section_attendance` in the loop; after the #164 merge: 9 of 9 sections from the student list,
+  480 ms). One launch for the whole pass.
 - **Archived courses (targeted, as the import does):** 25 of 25 answered `section_info` **500**
   (`section-info-failed:500`), the browser path the same (25 of 25 `section-info-failed`). Not checked which school year
   each belongs to; it fits the finding above that prior-year sections fail.
@@ -238,8 +242,8 @@ seen). Observed on 2026-10-18 (counts only):
   `scripts/lib/psAttendanceSyncBrowser.js`, and the HTTP pass, each on its own blanked copy of the database):
   per-course result 9 of 9, `courses.block_number` 35 of 35, `class_meetings` 522 = 522 dates, `school_days`
   308 = 308 rows (date, in session, letter and `raw` identical), `students.grad_year` 295 of 295 (96 seen
-  each way). **0 differences.**
-- **Wall time** for the whole pass (9 active courses): browser 8.3 s and 8.1 s, HTTP 5.1 s and 5.3 s (two runs).
+  each way). **0 differences**, in all four runs (two before and two after merging #164's grade pass).
+- **Wall time** for the whole pass (9 active courses): browser 8.3, 8.1, 9.6, 8.3 s; HTTP 5.1, 5.3, 4.9, 5.0 s.
   The archived targeted pass: browser 11.7 s, HTTP 9.3 s for 25 courses.
 
 ### Which days a class meets (its lessons): `calenderDays[d].bellScheduleId` ∈ the section's `bellScheduleItems[].bellScheduleId` (verified 2026-10-06)
@@ -265,6 +269,10 @@ irregular pattern. Implemented as `extractMeetingDates` (`server/lib/psCalendar.
 `class_meetings` on every block sync; used only for "N lessons from today" hints (all clocks count school days).
 
 ### Step 3 — Fetch the roster with grade level
+
+*(2026-10-18, #164: now the **fallback** grade-level read. Prism reads grade level from the section student list,
+`/ws/pt/v1/section/{psmSectionId}/students_integration`, with no date; see "Grade level from the section student list
+(#164)" below. Parity: 0 mismatches over 110 student rows. Since #164 this read goes over plain HTTP, not the browser.)*
 
 ```
 GET https://powerschool.hkis.edu.hk/ws/attendance/section_attendance
@@ -406,7 +414,7 @@ GET /teachers/alerts/aet_customalert_sf.html?frn=001{dcid}&mba_frn=001{dcid}&id=
 **Implication (supersedes earlier "scrape HTML" framing):** most safeguarding/SEN flags are **structured `field: value` reads** (boolean-ish or short text), not brittle table-scraping. Only the `adv` popups (siblings/MAP/support-summary detail) are HTML tables. So the do-not-contact/deceased/divorced data (#66) is cleanly readable. Still session-auth (expires → re-login). PII stance now per **ADR `docs/adr/0002-pii-handling-philosophy.md`** — teacher-accessible data, surface it under local-first / teacher-scoped / feature-flagged guardrails (this **supersedes** the earlier "human-implemented + display-only, treat as blocker" framing). OAuth `/ws/v1/` + PowerQuery remains the cleaner long-term source if credentials arrive. Tier A (`onTrack`, `enrolled`, enrollment dates, attendance tallies) needs none of this.
 
 **Update 2026-06-11 (#43 shipped → #117 spun out):**
-- **`section_attendance` is already fetched + mostly discarded.** `psAttendanceSync` pulls it every sync (over a ~15-in-session-day range) and keeps only `gradeLevel`. The same `studentAttendance[]` rows already carry **Tier A** — `onTrack`, `enrolled`, `ccDateEnrolled`/`ccDateLeft`, per-day `meetingAttendance[].code`, and range-scoped `studentAbsentCount`/`studentTardyCount`. So #65 (on-track/enrollment) and #39 (attendance read) are "store fields already in hand," no new call.
+- **`section_attendance` is already fetched + mostly discarded.** `psAttendanceSync` pulls it every sync (over a ~15-in-session-day range) and keeps only `gradeLevel`. *(2026-10-18, #164: no longer every sync; it is now only the fallback when the section student list fails, so the Tier A fields below would need their own read.)* The same `studentAttendance[]` rows already carry **Tier A** — `onTrack`, `enrolled`, `ccDateEnrolled`/`ccDateLeft`, per-day `meetingAttendance[].code`, and range-scoped `studentAbsentCount`/`studentTardyCount`. So #65 (on-track/enrollment) and #39 (attendance read) are "store fields already in hand," no new call.
 - **`includeStudentAlerts=true` is NOT the accommodation source.** #43 sets it `false`. Flipping `true` only populates `section_attendance.studentAlerts` (the **standard** channel — empty for these students). The real per-student SEN/accommodation flags are the **MBA custom-alerts plugin** above (`stuFieldValues.json` `sf` flags + `adv` popups).
 - **Open probe for #117:** the `sf` flags are *presence* booleans (`X_SPP` = has-accommodation-plan). The **detail** — "what accommodation / how much extra time" — lives in the `adv` **SPP / Student Support Summary** popup (`mbapop_spp.html` / support-summary), which is **HTML and not yet shape-probed**. Capturing that (JSON endpoint vs HTML scrape) is the first step of #117. *(2026-10-17: the presence flags shipped in #117 over plain HTTP, see "Student alerts over plain HTTP (#117)" below; the detail popups are still not shape-probed and the extra-time amount is a follow-up. `mbapop_spp.html` is the SPP alert's `stub_url` (its popup); the alert itself is `sf` on `X_SPP`, not `adv`.)*
 
@@ -528,6 +536,32 @@ siblings 69, employee_child 0; the other counts unchanged.
 **Still open:** the alert *detail* (what the accommodation is, the extra-time amount) lives in the SPP and Student
 Support Summary popups (`aet_customalert_custompopup.html?url=mbapop_spp.html` / `mbapop_studentsupportsummary.html`),
 HTML, not shape-probed: a follow-up to #117.
+
+**Alert pop-ups, probed 2026-10-18 (#163, read only, one student each, values masked; each read approved by Graham).**
+Probe: `scripts/probe-ps-alert-popups.js` (`catalogue`, `pick`, `popup`).
+- **How the plugin builds the link** (`api.makeAlert` in the plugin code from `/ws/pagecustomizations/insertions`):
+  with a `stub_url`, `href = /teachers/alerts/aet_customalert_custompopup.html?url={stub_url}&frn=001{dcid}&id={alertId}`;
+  without one, `/teachers/alerts/{aet_customalert | aet_customalert_sf | aet_customalert_adv}.html?mba_frn=001{dcid}&id=…`
+  by `trigger_type` (`man` / `sf` / `adv`). An `sf` alert then appends `frn`, `mba_frn`, `student_field`
+  (`{ext_table_name}.{FIELD}`) and `tableName`; an `adv` alert appends its `querystring` and, when the plugin has them,
+  `sectionid`, `studentid`, `frn`. The link has class `dialogC`: PowerSchool opens it as a dialog from the attendance page.
+- **Catalogue entries** (`getAlertTypes.json`): `10593860` "Accomodation Plan", `sf`, `stub_url` `mbapop_spp.html`,
+  `student_field` `U_Students_Extension.X_SPP`, `ext_table_name` `U_DEF_EXT_STUDENTS`; `11290981` "Student Support
+  Summary", `adv`, `stub_url` `mbapop_studentsupportsummary.html`, `trigger_url` `studentsupportsummary.html`, empty
+  `querystring`.
+- **The read:** after the attendance LTI launch over plain HTTP, a GET of the link with `Referer:
+  /integrations/attendance/index.html` and `X-Requested-With: XMLHttpRequest` (as the dialog sends) answered **200
+  `text/html`**, no security violation, for both.
+- **SPP pop-up** (`url=mbapop_spp.html`, one student with `x_spp` = `1`): **77 bytes**, a single empty
+  `<p style="margin-left:10px">`. Blank plan text or not readable this way: not told apart (one student only).
+- **Student Support Summary pop-up** (`url=mbapop_studentsupportsummary.html&frn=001{dcid}&id=11290981&studentid={studentid}`,
+  the one matching student in the section): **959 bytes**, a two-column table, headers **Category | Description**, 9 rows
+  in this order: Academic Support, SEL/Behavioral Support, Case Manager, Accommodation Plan, TLI, Intervention Plan,
+  ILP, Support Plan URL, Support Notes. Description lengths in this student's table: 1, 6, 1, 3, 3, 1, 1, 10, 89
+  characters; only **Support Notes** held a number with `%` or a time word (the probe's "measure-like" test), so the
+  extra-time amount is most likely free text in Support Notes (not confirmed: values were not read).
+- **`pick`** (roster + `stuFieldValues` `x_spp` + `getAdvTriggerMatches`): `stuFieldValues` rows have keys `id`,
+  `dcid`, `x_spp`. Section of 6: 1 with `x_spp` = `1`, 1 Support Summary match.
 
 ### Endpoint-discovery crawl (2026-05-30): attendance-app surface + #66 resolution
 
@@ -672,6 +706,41 @@ Number, PowerSchool Learning. HTML, not JSON: a feature would parse `<tr><td><st
 **Leads, not done:** `students_integration` is a **date-free** grade-level source (one call per section, no in-session
 date range), which could replace the `section_attendance` range in `server/lib/psGradeLevel.js`; Graduation Year is also on
 the Demographics screen. Building any feature on these fields is a new issue (#116 is the probe only).
+*(Done 2026-10-18 for grade level, #164: see "Grade level from the section student list (#164)" below.)*
+
+### Grade level from the section student list (#164, verified 2026-10-18)
+
+Prism's grade-level read is now the section student list, over plain HTTP on the attendance LTI session
+(`PowerSchoolWeb`, no browser); the `section_attendance` range read ("Step 3" above) is kept as the fallback.
+Code: `server/services/psGradeLevelRead.js`, helpers in `server/lib/psGradeLevel.js`. Parity probe (read only, counts
+and timings only): `scripts/parity-ps-grade-level.js`.
+
+Per section, three GETs, each with `Accept: application/json` alone for the `/ws/` reads:
+1. `GET /ws/attendance/section_info?sectionDcid={dcid}&multiSections=false&startDate={today}&endDate={today}` → `[0].psmSectionId`
+   (the block sync already holds this answer and passes it in).
+2. `GET /ws/pt/v1/section/{psmSectionId}/students_integration` → `$["student-list"].students[]` (`gradeLevel` a 2-character
+   string; parsed to an integer).
+3. `GET /teachers/mba_alerts/queries/getStudentsInSection.json?sectionIds={dcid}` → `studentid` → `studentdcid`, joined to the
+   list through `photoURL` (`/teachers/stpnormal/{studentid}ph.jpeg`), then `school_uid = "1_" + dcid`.
+
+Fallback, per section, when the list read fails, the section has no `psmSectionId`, or the list joins no student:
+`GET /ws/attendance/section_attendance` over ~15 in-session days (as before; over plain HTTP since #164, GET with
+`Accept: application/json`, answered JSON).
+
+**Parity, 2026-10-18 (9 active 2026-27 sections, both reads over plain HTTP, the same session):** 110 student rows (96
+distinct students) from each read; 110 match, **0 mismatches**, 0 only on the list, 0 only in `section_attendance`; the list
+joined 110 of 110 rows (0 unjoined, 0 without a grade); all 110 are Prism students; the `grad_year` Prism had stored
+agreed with the list for 110 of 110. Every section came from the list in the sync (0 fallbacks, 0 failures).
+
+**Timing (same machine, same DB copy):** per-read sums over the 9 sections: list + roster 653 ms, `section_attendance`
+632 ms, `section_info` 1111 ms; the plain-HTTP launch 504 ms. Whole block + grade pass (`syncPsAttendance`): before 9.8,
+8.6, 7.4 s; after 8.5, 8.3, 8.3 s. The grade pass itself is now 1.7 s (its own HTTP launch plus 9 x 2 reads); the old read
+ran inside the browser loop on the browser's session and measured about 0.6 s over plain HTTP, so no wall-time gain: the gain is no in-session date range and no browser for this read.
+*(2026-10-18, #141: the block loop is now plain HTTP too and the grade pass runs on its PowerSchool session, so the
+second launch is gone: the grade pass took 480 ms for 9 sections, all from the list; whole pass 4.9-5.0 s. See "Block
+number", "Plain HTTP, no browser".)*
+
+Gender is in the same list (`…students[].gender`); Prism stores nothing from it (#164).
 
 ### Student home / postal address (#68 — wanted feature; feasibility, live probe pending)
 

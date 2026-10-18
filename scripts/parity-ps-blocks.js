@@ -52,7 +52,7 @@ for (const [side, run] of [['browser', syncPsAttendanceBrowser], ['http', syncPs
   }
   const r = runs[side];
   console.log(`${side}: ${(r.ms / 1000).toFixed(1)} s, ${r.error ? `FAILED (${r.error.replace(/\(.*\)/, '').trim()})`
-    : `courses ${r.summary.processed} (updated ${r.summary.updated}, unchanged ${r.summary.unchanged}, skipped ${r.summary.skipped}); school days ${r.summary.schoolDays}; grade levels seen ${r.summary.gradeLevels.seen}, updated ${r.summary.gradeLevels.updated}`}`);
+    : `courses ${r.summary.processed} (updated ${r.summary.updated}, unchanged ${r.summary.unchanged}, skipped ${r.summary.skipped}); school days ${r.summary.schoolDays}; grade levels seen ${r.summary.gradeLevels.seen}, updated ${r.summary.gradeLevels.updated}${r.summary.gradeLevels.sources ? ` (sections by source ${JSON.stringify(r.summary.gradeLevels.sources)}, ${r.summary.gradeLevels.elapsedMs} ms)` : ''}`}`);
 }
 if (runs.browser.error || runs.http.error) { console.log('PARITY NOT RUN: a pass failed'); process.exit(1); }
 

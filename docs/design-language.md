@@ -1432,6 +1432,8 @@ The alerts PowerSchool shows beside a student's name (accommodation plans, learn
 - **One line per phase under "Finished in Ns":** the dialog foot's left column lists each phase that ran with its wall time (`.sync-foot-summary`, `.sync-timings`), in the phase-list order, mastery one line per course. Label left, time right in tabular figures, muted small text like the total, so it reads as a footnote to the result and not as a second phase list.
 - **Shown only when the sync is done,** and only for phases with a recorded time, so a run joined from a log written before #143 shows the total alone.
 - **Time format:** tenths under 10s ("8.5s"), whole seconds to a minute ("42s"), then "1m 3s" (`formatPhaseTime` in `client/src/lib/syncEvents.js`). Tenths keep a fast phase (blocks) readable as a number for the #108 lazy-or-eager decision.
+- **Recent syncs shows the same list (#165).** An expanded run in Settings → Recent syncs puts a "Time per phase" list (`PhaseTimings`, shared with the dialog; `.sync-run-timings`) above its log, with the same lines, order and time format as the dialog, mastery one line per course. Above the log so it is seen without scrolling a long log; inside the expanded run, not on the collapsed row, so 30 rows stay one line each (the row keeps the total). Capped at 22rem wide so a label and its time stay close on a wide card.
+- **Only for a run that stored its times.** The times are read from the run's own stored events; a run shows them only when it finished and its summary carries `phaseMs` (the same moment the orchestrator writes them to `sync_metrics`). A running or interrupted run shows nothing extra, and so does one logged before #143, even though its blocks phase was already timed: one line alone would read as the whole breakdown.
 
 ## Tag results across the course (October 2026, linked quizzes, #139)
 
@@ -1479,4 +1481,10 @@ Chosen 18/10/2026 from three mockups (state chip on every row, verb where it mat
 - **The picture is the page:** the server's sign-in (400 x 720 page pixels, portrait so it suits a phone) shown full card width, at most 420 px; a tap maps to page pixels. One line of instructions above it, including "At "Stay signed in?" choose Yes".
 - **Typing:** one field, hidden by default (`type="password"`) with a **Show** tick box, then **Type it** (`.primary`). Font size 1rem so a phone does not zoom. Key buttons **Enter**, **Backspace**, **Tab** (`.secondary`) and **Cancel** (`.ghost`) on one wrapping row.
 - **End states:** "Signed in. Prism saved the session." (`.alert-success`, Close) or a warning (closed, left too long, could not open) with **Start again**.
+
+## Student Support Summary inside "Show alerts" (October 2026, #163)
+
+- **Only after the reveal:** when the student has the Support Summary alert, pressing **Show alerts** also reads the Student Support Summary from PowerSchool, live (10-minute server cache). Hide and show reads it again; nothing is kept on the page. A projector shows nothing before the click, as with the alerts.
+- **Verbatim, full width under the badges:** a boxed list (`.ps-support-summary`, `var(--bg-subtle)`) headed "Student Support Summary, read from PowerSchool DD/MM/YYYY HH:MM"; each row is PowerSchool's Category and Description (`dt` / `dd`), the Support Plan URL as a link. Prism infers nothing, not even the extra time: it stays in Support Notes in PowerSchool's words. On a phone each category sits above its description.
+- **States:** "Reading the Student Support Summary from PowerSchool…", "PowerSchool's Support Summary is empty.", or "Could not read the Support Summary: {reason}" in the amber warning colour. Never on a roster.
 

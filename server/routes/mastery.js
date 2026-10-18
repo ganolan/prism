@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
-import { hasMasterySession, syncMasteryForCourse, syncMasteryForAssignment, writeMasteryScores, writeMasteryScoresBatch, writeMasteryOverride, getMasteryForCourse, getRubricScoresForStudent, interactiveLogin } from '../services/masterySync.js';
+import { hasMasterySession, syncMasteryForCourse, syncMasteryForAssignment, writeMasteryScores, writeMasteryScoresBatch, writeMasteryOverride, getMasteryForCourse, getRubricScoresForStudent } from '../services/masterySync.js';
 import { pushGradeComments, getSectionGrades } from '../services/schoology.js';
 import { settleResubmissions, resubmissionByStudent, arrivedKeys, pairResubmissionFields } from '../services/resubmissions.js';
 import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
@@ -16,7 +16,7 @@ import { matchFilesToRoster } from '../lib/oneDriveSubmissions.js';
 import { getLtiSubmissionApp, getSubmittedDocuments } from '../services/ltiSubmissionApps.js';
 import { driveLinksForSubmitted, GOOGLE_DRIVE, ONEDRIVE, OTHER_APP } from '../lib/ltiSubmissionApp.js';
 import { epochToLocalDate } from '../lib/schoolDays.js';
-import { sessionStatus, resetSessionStatusCache } from '../services/schoologySession.js';
+import { sessionStatus } from '../services/schoologySession.js';
 import { canUnsubmit } from '../services/ltiUnsubmit.js';
 import { timelineContext, lateWorkByStudent } from '../services/submissionTimeline.js';
 import { attentionByStudent } from '../services/cardAttention.js';
@@ -37,25 +37,7 @@ function scalePointsError(db, courseId, assignmentId, points) {
   return null;
 }
 
-// POST /api/mastery/login — open a visible browser window for Schoology login
-let loginInProgress = false;
-router.post('/login', async (req, res) => {
-  if (loginInProgress) {
-    return res.status(409).json({ error: 'Login browser already open. Log in and close the browser window.' });
-  }
-  loginInProgress = true;
-  try {
-    await interactiveLogin();
-    res.json({ success: true, message: 'Login session saved.' });
-  } catch (err) {
-    console.error('[mastery login] Error:', err);
-    res.status(500).json({ error: err.message });
-  } finally {
-    loginInProgress = false;
-    // The saved session just changed (or the attempt ended): the next status read re-checks.
-    resetSessionStatusCache();
-  }
-});
+// Sign-in to Schoology is /api/schoology-login (routes/schoologyLogin.js, any device).
 
 // GET /api/mastery/login-status[?refresh=1][?check=0] → { loggedIn (a saved session
 // file exists), live: 'connected' | 'expired' | 'none' | null, checkedAt, message? }.

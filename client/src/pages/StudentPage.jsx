@@ -374,7 +374,7 @@ export default function StudentPage() {
                 {student.ps_alerts?.length > 0 && (
                   <div style={{ marginTop: '0.35rem' }}>
                     {/* Hidden until clicked, never remembered (keyed: a new student starts hidden). */}
-                    <PsAlertReveal key={student.id} alerts={student.ps_alerts} syncedAt={student.ps_alerts_synced_at} />
+                    <PsAlertReveal key={student.id} studentId={student.id} alerts={student.ps_alerts} syncedAt={student.ps_alerts_synced_at} />
                   </div>
                 )}
                 {showLegalName && (

@@ -1461,9 +1461,16 @@ submission comments.
 ## Remote sign-in to Schoology from any device (#136, 2026-10-18)
 
 - **Server:** `server/services/remoteLogin.js` runs one headless Chromium (400 x 720, the saved state) on Schoology `/home`; `server/routes/schoologyLogin.js` (`/api/schoology-login`: `POST /start`, `GET /screen` JPEG, `POST /click {x,y}`, `/type {text}`, `/key {key}`, `/stop`, `GET /` state). Landing signed in saves the state (`saveSessionState`, temp file + rename), notes the session live and closes the browser. Typed text is never echoed or logged; one sign-in at a time; closes after 10 idle minutes.
-- **Client:** `RemoteSignIn.jsx` in the Settings card; the other "Log in to Schoology" buttons go to `/settings#schoology-signin` (`lib/signIn.js`). `POST /api/mastery/login` (the window on the server's screen) is no longer called by the UI; `npm run mastery:login` still uses it at the mini.
+- **Client:** `RemoteSignIn.jsx` in the Settings card; the other "Log in to Schoology" buttons go to `/settings#schoology-signin` (`lib/signIn.js`). `POST /api/mastery/login` (the window on the server's screen) was removed the same day, with the two places that opened that window mid-request (Sync Mastery on the course page, mastery writes): signed out after the silent renewal, they now stop at once with "Log in to Schoology in Settings, then retry". `npm run mastery:login` still opens a visible browser at the machine.
 - **Verified live on a dev server at phone size (390 px, touch):** with an empty session, the Microsoft sign-in page showed; a tap focused and unfocused its email box; typed text and Backspace reached it (nothing submitted). With a copy of prod's session, Start finished at once ("done") and rewrote the session file. A full sign-in with a password and MFA is still to be done by Graham on prod.
 - **Tests:** `remoteLogin.test.js` (8), `schoologyLogin.test.js` (5), `RemoteSignIn.test.jsx` (6), Settings / Sync dialog / archived courses updated.
+
+## Grade level from the section student list (#164, 2026-10-18)
+
+- **Read:** `server/services/psGradeLevelRead.js`, over plain HTTP on the attendance LTI session (`PowerSchoolWeb`, no browser): `section_info` → `psmSectionId` → `GET /ws/pt/v1/section/{psmSectionId}/students_integration` (no date) joined to dcids through `photoURL` and `getStudentsInSection.json`. The old `section_attendance` range read is kept as the per-section fallback (list fails, no `psmSectionId`, or nothing joins). `psAttendanceSync` now collects its sections in the browser loop and runs this pass after it; the browser `section_attendance` fetch is gone. `PowerSchoolWeb.read` takes an `accept` option (`/ws/` reads send `application/json` alone). Gender is in the same list; nothing stored.
+- **Parity (`scripts/parity-ps-grade-level.js`, live, read only):** 9 sections, 110 student rows, 110 match, 0 mismatches, 0 one-sided; stored `grad_year` agreed 110/110. Sync used the list for 9/9 sections.
+- **Timing:** whole block + grade pass before 9.8 / 8.6 / 7.4 s, after 8.5 / 8.3 / 8.3 s (noise). The grade pass is 1.7 s, most of it the second (HTTP) launch. Recorded in `.claude/powerschool-api-reference.md`.
+- **Tests:** `psGradeLevelRead.test.js` (11, fake PowerSchool extended with section_info, students_integration and section_attendance), `psGradeLevel.test.js` (+7).
 
 ## Settings liveness check and PowerSchool block pass on plain HTTP (#141, 2026-10-18)
 
@@ -1473,15 +1480,19 @@ submission comments.
   (`scripts/parity-session-live.js`, 5 runs): same answer every run, median 2.77 s browser vs 0.38 s HTTP; a copy
   without the Schoology `SESS` cookies renewed (9.1 s) and read `connected`.
 - **Block pass:** `psAttendanceSync.js` reads the LTI launch form, posts it to PowerSchool once
-  (`powerschoolWeb.js`, lazily on the first course with a section) and reads `/ws/attendance/section_info` and
-  `section_attendance` with `Accept: application/json`. A session that ends relaunches once; an error status is
-  the section's `section-info-failed:<status>`. `PowerSchoolWeb` gains `launchIds().userDcid`, `launch({ form })`,
-  `read({ accept })`, `status`/`sessionEnded` on read errors, and `PS_SECURITY` (a "Security Violation Logged"
-  page stops the block pass and the alert sync). Parity (`scripts/parity-ps-blocks.js`, pre-#141 pass kept in
-  `scripts/lib/psAttendanceSyncBrowser.js`, two blanked DB copies): 0 differences (9 courses, 35 block values,
-  522 lesson dates, 308 calendar days, 295 grad years). Wall time 8.1-8.3 s browser vs 5.1-5.3 s HTTP.
-- **Tests:** `schoologySession.test.js` (liveness over a fake web), `mastery.test.js` login-status, 10 new in
-  `psAttendanceSync.test.js`, 3 in `psAlertsSync.test.js`; `fakePowerSchoolWeb` answers the `/ws/attendance` reads.
+  (`powerschoolWeb.js`, lazily on the first course with a section) and reads `/ws/attendance/section_info` with
+  `Accept: application/json`. A session that ends relaunches once; an error status is the section's
+  `section-info-failed:<status>`. Merged with #164: the grade-level pass (`psGradeLevelRead.js`) now runs on the
+  block loop's session (one launch for the whole pass, grade pass 480 ms instead of 1.7 s) and no longer
+  relaunches on an error status. `PowerSchoolWeb` gains `launchIds().userDcid`, `launch({ form })`,
+  `status`/`sessionEnded` on read errors, and `PS_SECURITY` (a "Security Violation Logged" page stops the block
+  pass, the grade pass, the alert sync and the Support Summary read). Parity (`scripts/parity-ps-blocks.js`,
+  pre-#141 pass kept in `scripts/lib/psAttendanceSyncBrowser.js`, two blanked DB copies, four runs): 0
+  differences (9 courses, 35 block values, 522 lesson dates, 308 calendar days, 295 grad years). Wall time
+  8.1-9.6 s browser vs 4.9-5.3 s HTTP.
+- **Tests:** `schoologySession.test.js` (liveness over a fake web), `mastery.test.js` login-status, 11 new in
+  `psAttendanceSync.test.js`, 3 in `psAlertsSync.test.js`; `fakePowerSchoolWeb`'s `section_info` takes
+  `{ status }` for an error answer and `failRead` can answer a page.
 - **Still on the browser (#141):** the writes (`ltiUnsubmit.js`, `quizWriteback.js`, mastery writes),
   `oneDriveLinks.js`, and the Microsoft renewal itself (`renewSession`, #136: a plain `fetch` cannot make the
   SSO round trip).
@@ -1493,3 +1504,20 @@ submission comments.
 - **Verified live on a dev server:** Prism's page: POST 200, PUT 200. A page served from another port: reading `/api/courses` blocked by the browser; a no-cors POST refused (logged). curl without `Origin`: 200.
 - **Tests:** `originGuard.test.js` (7), `getServerConfig` (2), `devProxy.test.js` (1 new).
 
+## PowerSchool Student Support Summary on demand (#163, 2026-10-18)
+
+- **Probe** (`scripts/probe-ps-alert-popups.js`, each student read approved by Graham, values masked): the plugin's own link for each alert (`api.makeAlert`), the catalogue entries, then one SPP pop-up (77 bytes, an empty paragraph) and one Student Support Summary pop-up (a 9-row Category / Description table). Recorded in `.claude/powerschool-api-reference.md`, "Alert pop-ups". No security violation.
+- **Choices (Graham, 18/10):** show the whole table verbatim (no extra-time number parsed); read on demand, nothing stored.
+- **Server:** `server/lib/parseSupportSummary.js`; `server/services/psSupportSummary.js` (only with the `support_summary` alert; launch through a current course, roster dcid → studentid, then `PowerSchoolWeb.page()` with the attendance page as Referer; refuses a Security Violation page; 10-minute memory cache). `PowerSchoolWeb.launch` now returns `{ sectionDcid }`. Route `GET /api/students/:id/support-summary` (feature `powerschool_alerts`).
+- **Client:** `PsAlertReveal` reads it inside the reveal (`studentId` from `StudentPage`).
+- **PrisMCP:** `get_support_summary` (same service; teacher-only note in the answer and the instructions).
+- **Verified live on a dev server** (DB copy with that student's alert added, as tonight's first prod alerts sync will store it): 9 rows, the plan URL as a link, 1.2 s; the second call from the cache in 4 ms.
+- **Noticed:** prod's `student_ps_alerts` is still empty. Its last sync (03:00 HKT, 18/10) ran before #117 was deployed; the first alerts sync is the next nightly run.
+- **Tests:** parser 3, service 7, route 10, client 5, PrisMCP 3.
+
+## Time per phase in Settings, Recent syncs (#165, 2026-10-18)
+
+- **Link run to metrics:** `sync_runs` has no key to `sync_metrics`. The orchestrator writes the same times to both: the metrics row, and the run's own stored events (each finished phase's `elapsedMs`, the summary's `phaseMs`). Recent syncs reads them from the run's events, so no schema or API change.
+- **Client:** an expanded run shows "Time per phase" above its log (`PhaseTimings.jsx`, now shared with the sync dialog's foot; `.sync-run-timings`). Only when the run finished and its summary carries `phaseMs`: a running or interrupted run, or one before #143 (only blocks was timed then), shows nothing extra.
+- **Verified live on a dev server (copy of prod's DB plus one synthetic timed run):** the timed run lists six lines in the dialog's order and format at desktop and 390 px; a real pre-#143 prod run shows its log only.
+- **Tests:** `RecentSyncs.test.jsx` (5 new), `syncRuns.test.js` (1 new: stored events keep `elapsedMs` and `phaseMs`).

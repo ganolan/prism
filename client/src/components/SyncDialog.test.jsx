@@ -488,7 +488,6 @@ describe('SyncDialog — Schoology connection status', () => {
     expect(screen.getByText('Opens the sign-in in Settings, on this device: a phone works too.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Log in to Schoology' }));
     expect(go).toHaveBeenCalledWith('/settings#schoology-signin');
-    expect(api.triggerMasteryLogin).not.toHaveBeenCalled();
     go.mockRestore();
   });
 });

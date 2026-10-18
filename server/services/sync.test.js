@@ -1004,7 +1004,7 @@ describe('finalizeArchivedCourse (#70)', () => {
   test('runs mastery and sets finalized_at when a session is present', async () => {
     hasMasterySession.mockReturnValue(true);
     await finalizeArchivedCourse(db, { courseId, sectionId: 'sec-9', now: '2026-05-31T00:00:00Z' });
-    expect(syncMasteryForCourse).toHaveBeenCalledWith(courseId, expect.objectContaining({ allowInteractiveLogin: false }));
+    expect(syncMasteryForCourse).toHaveBeenCalledWith(courseId);
     expect(db.prepare('SELECT finalized_at FROM courses WHERE id = ?').get(courseId).finalized_at).toBe('2026-05-31T00:00:00Z');
   });
 
@@ -1194,7 +1194,7 @@ describe('backfillUnfinalizedArchived (#70)', () => {
 
     expect(n).toBe(1);
     expect(syncMasteryForCourse).toHaveBeenCalledTimes(1);
-    expect(syncMasteryForCourse).toHaveBeenCalledWith(a, expect.anything());
+    expect(syncMasteryForCourse).toHaveBeenCalledWith(a);
     expect(db.prepare('SELECT finalized_at FROM courses WHERE id = ?').get(a).finalized_at).toBe('2026-05-31T00:00:00Z');
     expect(db.prepare('SELECT finalized_at FROM courses WHERE id = ?').get(b).finalized_at).toBe('2026-01-01T00:00:00Z');
   });

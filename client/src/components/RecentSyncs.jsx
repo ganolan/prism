@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { getSyncRuns, getSyncRun } from '../services/api.js';
 import { formatDateTime, formatTime } from '../lib/formatDate.js';
 import { runStatus, formatDuration, describeOptions, describeRunEvent } from '../lib/syncRunLog.js';
+import { reduceSyncEvents } from '../lib/syncEvents.js';
+import PhaseTimings from './PhaseTimings.jsx';
 
 const LIMIT = 30;
 // How often an expanded log of a still-running sync re-fetches itself.
@@ -13,6 +15,18 @@ function counts(run) {
   if (run.error_count) parts.push(plural(run.error_count, 'error'));
   if (run.warning_count) parts.push(plural(run.warning_count, 'warning'));
   return parts.join(' · ');
+}
+
+// #165: a run's time per phase, as the sync dialog lists it. The orchestrator
+// stores the same times twice: on a sync_metrics row (no key back to the run)
+// and on the run's own events (each finished phase's elapsedMs, then the
+// summary's phaseMs), so they are read from the events. Only a run whose
+// summary carries phaseMs stored its times: a running or interrupted run, or
+// one before #143 (when the blocks phase alone was timed), shows none.
+function timedPhases(run) {
+  if (run.status === 'running') return [];
+  if (!run.events.some((evt) => evt.type === 'summary' && evt.phaseMs)) return [];
+  return reduceSyncEvents(run.events).phases.filter((p) => p.elapsedMs != null);
 }
 
 // `reloadKey` changes on the card's Refresh. A running sync's log re-fetches
@@ -51,17 +65,26 @@ function RunLog({ runId, reloadKey, refreshMs, onFinished }) {
   if (!run) return <p className="text-sm text-muted">Loading log…</p>;
   const lines = run.events.map((evt) => ({ evt, line: describeRunEvent(evt) })).filter((x) => x.line);
   if (!lines.length) return <p className="text-sm text-muted">This sync logged nothing.</p>;
+  const timed = timedPhases(run);
 
   return (
-    <div className="sync-run-log" role="log" aria-label={`Sync log for ${formatDateTime(run.started_at)}`}>
-      {lines.map(({ evt, line }) => (
-        <div key={evt.seq} className={`sync-run-line${line.level ? ` sync-run-line-${line.level}` : ''}`}>
-          <span className="sync-run-line-time">{formatTime(evt.at)}</span>
-          <span className="sync-run-line-icon" aria-hidden="true">{line.icon}</span>
-          <span className="sync-run-line-text">{line.text}</span>
+    <>
+      {timed.length > 0 && (
+        <div className="sync-run-timings text-muted text-sm">
+          <span className="sync-run-timings-title">Time per phase</span>
+          <PhaseTimings phases={timed} />
         </div>
-      ))}
-    </div>
+      )}
+      <div className="sync-run-log" role="log" aria-label={`Sync log for ${formatDateTime(run.started_at)}`}>
+        {lines.map(({ evt, line }) => (
+          <div key={evt.seq} className={`sync-run-line${line.level ? ` sync-run-line-${line.level}` : ''}`}>
+            <span className="sync-run-line-time">{formatTime(evt.at)}</span>
+            <span className="sync-run-line-icon" aria-hidden="true">{line.icon}</span>
+            <span className="sync-run-line-text">{line.text}</span>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 

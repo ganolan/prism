@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { searchStudents } from '../services/api.js';
-import { gradYearToLevel } from '../lib/gradeLevel.js';
 import { preferredFirstName } from '../lib/studentNames.js';
+import PersonSub, { gradeText } from '../components/PersonSub.jsx';
 
 function matchesQuery(student, query) {
   if (!query.trim()) return true;
@@ -57,13 +57,13 @@ export default function SearchPage() {
           {results.length === 0 ? (
             <p className="text-muted">No students found{query ? ` for "${query}"` : ''}.</p>
           ) : (
-            <table>
+            <table className="fits-phone">
               <thead>
                 <tr>
                   <th></th>
                   <th>Name</th>
-                  <th>Email</th>
-                  <th>Grade</th>
+                  <th className="col-desktop">Email</th>
+                  <th className="col-desktop">Grade</th>
                 </tr>
               </thead>
               <tbody>
@@ -97,11 +97,10 @@ export default function SearchPage() {
                           ({s.first_name})
                         </span>
                       )}
+                      <PersonSub parts={[s.email, gradeText(s.grad_year)]} />
                     </td>
-                    <td className="text-sm">{s.email || '-'}</td>
-                    <td className="text-sm">
-                      {gradYearToLevel(s.grad_year) ? `Grade ${gradYearToLevel(s.grad_year)}` : '-'}
-                    </td>
+                    <td className="text-sm col-desktop">{s.email || '-'}</td>
+                    <td className="text-sm col-desktop">{gradeText(s.grad_year) || '-'}</td>
                   </tr>
                 ))}
               </tbody>

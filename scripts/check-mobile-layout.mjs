@@ -10,8 +10,15 @@
 // Shell checks (fail → exit 1):
 //   desktop  sidebar visible, no top bar, content clear of the sidebar
 //   phone    sidebar hidden, menu opens it, a link closes it, Escape closes it
-// Page report (informational, never fails): which pages still scroll sideways
-// at phone width — that is page-level work, not the shell's.
+// Quick-lookup page checks (#134, fail → exit 1), at phone width:
+//   Dashboard, Search, Directory, a course roster and a student page don't
+//   scroll sideways; Search/Directory tables fit their card; the roster and
+//   Search fold email + grade under the name; the student header doesn't
+//   overflow its card; "Add new note" opens a stacked form with fingertip-sized
+//   buttons (then Cancel, nothing is saved). Directory results are a canned
+//   reply (page.route), so no Schoology search runs. Desktop keeps its columns.
+// Page report (informational, never fails): which pages still scroll
+// sideways at phone width.
 import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -88,6 +95,77 @@ try {
     await settle(phone);
     const student = await firstHref('.content a[href^="/student/"]');
     if (student) routes.push(student);
+  }
+
+  // ---- Phone: quick-lookup pages (#134). ----
+  const fitsSideways = () => phone.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  const visible = (sel) => phone.$eval(sel, (el) => getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0).catch(() => false);
+  const tableFits = (sel) => phone.$eval(sel, (t) => t.scrollWidth <= t.clientWidth + 1 && t.getBoundingClientRect().right <= window.innerWidth).catch(() => false);
+  const box = (sel) => phone.$eval(sel, (el) => { const r = el.getBoundingClientRect(); return { w: r.width, h: r.height }; }).catch(() => null);
+
+  console.log('\nQuick-lookup pages at 390px:');
+  await phone.goto(`${base}/`);
+  await settle(phone);
+  check(await fitsSideways(), 'phone /: no sideways scroll');
+
+  await phone.goto(`${base}/search`);
+  await settle(phone);
+  check(await fitsSideways(), 'phone /search: no sideways scroll');
+  if (await phone.$('.content table')) {
+    check(await tableFits('.content table'), 'phone /search: the table fits its card');
+    check(!(await visible('.content th.col-desktop')), 'phone /search: email + grade columns fold away');
+    check(await visible('.content .person-sub'), 'phone /search: email + grade show under the name');
+  }
+
+  await phone.route('**/api/people/search**', (r) => r.fulfill({ json: {
+    query: 'test', complete: true,
+    results: [{ userId: 1, name: 'Alexandra Testperson-Longname', school: 'Hong Kong International School - High School', messageUserId: 1 }],
+  } }));
+  await phone.goto(`${base}/people`);
+  await settle(phone);
+  if (await phone.$('.content input[type="search"]')) {
+    await phone.fill('.content input[type="search"]', 'test');
+    await phone.tap('.content button[type="submit"]');
+    await phone.waitForSelector('.content table', { timeout: 5000 }).catch(() => {});
+    check(await tableFits('.content table'), 'phone /people: the results table fits its card');
+  }
+  check(await fitsSideways(), 'phone /people: no sideways scroll');
+  await phone.unroute('**/api/people/search**');
+
+  if (course) {
+    await phone.goto(`${base}${course}`);
+    await settle(phone);
+    check(await fitsSideways(), `phone ${course}: no sideways scroll`);
+    if (await phone.$('.content th.col-desktop')) {
+      check(!(await visible('.content th.col-desktop')), `phone ${course}: roster email + grade columns fold away`);
+    }
+  }
+
+  const student = routes.find((r) => r.startsWith('/student/'));
+  if (student) {
+    await phone.goto(`${base}${student}`);
+    await settle(phone);
+    check(await fitsSideways(), `phone ${student}: no sideways scroll`);
+    check(await phone.$eval('.student-header', (c) => c.scrollWidth <= c.clientWidth + 1).catch(() => false),
+      `phone ${student}: profile + family contacts fit their card`);
+    const add = await box('button[aria-label="Add new note"]');
+    check(!!add && add.w >= 44 && add.h >= 44, `phone ${student}: "Add new note" is a 44px target`);
+    await phone.tap('button[aria-label="Add new note"]');
+    const area = await box('.note-form textarea');
+    const card = await box('.note-form');
+    check(!!area && !!card && area.w >= card.w - 1, `phone ${student}: the note box takes the full width`);
+    const save = await phone.$eval('.note-form button.primary', (b) => b.getBoundingClientRect().height).catch(() => 0);
+    check(save >= 44, `phone ${student}: Save is a 44px target`);
+    await phone.screenshot({ path: join(shotDir, 'phone-student-add-note.png') });
+    await phone.tap('.note-form button.ghost'); // Cancel: nothing is saved
+  }
+
+  // Desktop keeps the columns a phone folds away.
+  await desktop.goto(`${base}/search`);
+  await settle(desktop);
+  if (await desktop.$('.content th.col-desktop')) {
+    check(await desktop.$eval('.content th.col-desktop', (el) => getComputedStyle(el).display !== 'none'), 'desktop /search: email + grade columns shown');
+    check(!(await desktop.$eval('.content .person-sub', (el) => getComputedStyle(el).display !== 'none').catch(() => false)), 'desktop /search: no folded line under the name');
   }
 
   console.log('\nPage report at 390px (informational):');

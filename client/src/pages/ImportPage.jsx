@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import LargerScreenNote from '../components/LargerScreenNote.jsx';
 import { uploadPowerSchoolCSV } from '../services/api.js';
 
 export default function ImportPage() {
@@ -23,6 +24,7 @@ export default function ImportPage() {
 
   return (
     <div className="fade-in">
+      <LargerScreenNote />
       <h2 className="page-title">Import PowerSchool CSV</h2>
       <p className="subtitle">
         Upload a cleaned PowerSchool CSV to import or update student records.

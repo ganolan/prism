@@ -1,7 +1,10 @@
 // A stand-in for the Schoology attendance LTI launch and PowerSchool's MBA alert
-// reads (server/services/powerschoolWeb.js, psAlertsSync.js). Shapes follow the
-// live answers recorded in .claude/powerschool-api-reference.md "Student alerts
-// (#117)"; every value is made up. Records every request; never reaches the network.
+// reads (server/services/powerschoolWeb.js, psAlertsSync.js), and the grade-level
+// reads (psGradeLevelRead.js, #164): section_info, the section student list
+// (/ws/pt/v1/section/{psmSectionId}/students_integration) and section_attendance.
+// Shapes follow the live answers recorded in .claude/powerschool-api-reference.md
+// "Student alerts (#117)" and "Student grade level, gender and postal address
+// (#116)"; every value is made up. Records every request; never reaches the network.
 const PS = 'https://powerschool.hkis.edu.hk';
 
 export const launchHtml = ({ sectionDcid = '9001', action = `${PS}/integrations/attendance/index.html` } = {}) => `<html><body>
@@ -29,9 +32,11 @@ export const CATALOGUE = [
 ];
 
 // sections: { [sectionDcid]: [{ studentid, studentdcid, values: {field: value}, adv: [alert ids], man: [alert ids] }] }
+//   gradeLevel (integer), photoURL? (overrides the list's /teachers/stpnormal/{studentid}ph.jpeg)
 // schoology: { [schoologySectionId]: sectionDcid | null }
+// sectionInfo: { [sectionDcid]: section_info[0] } (default: psmSectionId "P{sectionDcid}", a few in-session days)
 export function fakePowerSchoolWeb({
-  schoology = { S1: '9001' }, sections = {}, catalogue = CATALOGUE,
+  schoology = { S1: '9001' }, sections = {}, catalogue = CATALOGUE, sectionInfo = {},
   loginRedirect = false, launchStatus = 200, failRead, expireOnce,
 } = {}) {
   const requests = [];
@@ -43,7 +48,7 @@ export function fakePowerSchoolWeb({
   async function fetchImpl(url, opts = {}) {
     const u = new URL(url);
     const method = opts.method || 'GET';
-    const entry = { method, host: u.host, path: u.pathname, cookie: opts.headers?.cookie || '' };
+    const entry = { method, host: u.host, path: u.pathname, cookie: opts.headers?.cookie || '', accept: opts.headers?.Accept || '' };
     requests.push(entry);
     const run = u.pathname.match(/^\/apps\/lti\/\d+\/run\/course\/(.+)$/);
     if (run) {
@@ -66,6 +71,30 @@ export function fakePowerSchoolWeb({
     if (expireOnce && expireOnce === name) {
       expireOnce = null; expired = true;
       return answer(302, '', { location: `${PS}/teachers/pw.html` });
+    }
+    // /ws/pt/v1 answers 500 ("no message body writer") unless asked for JSON alone.
+    if (u.pathname.startsWith('/ws/pt/v1/') && entry.accept !== 'application/json') return answer(500, 'no message body writer');
+    if (u.pathname === '/ws/attendance/section_info') {
+      const dcid = p.get('sectionDcid');
+      const days = { '2026-10-12': { inSession: true }, '2026-10-13': { inSession: true }, '2026-10-14': { inSession: false }, '2026-10-15': { inSession: true } };
+      return json([sectionInfo[dcid] ?? { psmSectionId: `P${dcid}`, calenderDays: days, bellScheduleItems: [] }]);
+    }
+    const psm = u.pathname.match(/^\/ws\/pt\/v1\/section\/([^/]+)\/students_integration$/);
+    if (psm) {
+      const dcid = Object.keys(sections).find((d) => `P${d}` === psm[1] || sectionInfo[d]?.psmSectionId === psm[1]);
+      const students = (sections[dcid] || []).map((st, i) => ({
+        id: `M${i}${st.studentid}`, firstName: 'X', lastName: 'Y', gender: 'F',
+        photoURL: st.photoURL ?? `/teachers/stpnormal/${st.studentid}ph.jpeg`,
+        gradeLevel: st.gradeLevel == null ? '' : String(st.gradeLevel).padStart(2, '0'),
+      }));
+      return json({ 'student-list': { students } });
+    }
+    if (u.pathname === '/ws/attendance/section_attendance') {
+      const roster = (sections[p.get('sectionDcid')] || []).map((st) => ({
+        studentId: Number(st.studentid), dcid: Number(st.studentdcid), gradeLevel: st.gradeLevel, lastName: 'Y', firstName: 'X',
+      }));
+      // One entry per meeting day in the range, each repeating the roster.
+      return json({ sectionAttendances: [{ studentAttendance: roster }, { studentAttendance: roster }], studentAlerts: [] });
     }
     if (name === 'getAlertTypes.json') return json(catalogue);
     if (name === 'getStudentsInSection.json') {

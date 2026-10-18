@@ -111,8 +111,10 @@ export class PowerSchoolWeb {
   }
 
   // One plugin read. → parsed JSON. A redirect, an error status or a page that is
-  // not JSON means the PowerSchool session is gone: PS_SESSION.
-  async read(path, params, { method = 'POST' } = {}) {
+  // not JSON means the PowerSchool session is gone: PS_SESSION. `accept` replaces
+  // the plugin's Accept header: the /ws/ services want 'application/json' alone
+  // (/ws/pt/v1 answers 500 without it; AGENTS.md).
+  async read(path, params, { method = 'POST', accept = 'application/json, text/javascript, */*; q=0.01' } = {}) {
     const query = params instanceof URLSearchParams ? params : new URLSearchParams(params || {});
     const url = method === 'GET' ? `${PS_BASE}${path}${path.includes('?') ? '&' : '?'}${query}` : `${PS_BASE}${path}`;
     const res = await this.fetchImpl(url, {
@@ -120,7 +122,7 @@ export class PowerSchoolWeb {
       ...(method === 'POST' ? { body: query.toString() } : {}),
       headers: {
         cookie: this.jar.header(),
-        Accept: 'application/json, text/javascript, */*; q=0.01',
+        Accept: accept,
         'X-Requested-With': 'XMLHttpRequest',
         ...(method === 'POST' ? { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' } : {}),
       },

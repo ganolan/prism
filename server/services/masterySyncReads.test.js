@@ -6,11 +6,12 @@ import {
   masteryDeps, masteryBuildingId, openMasteryReader, syncMasteryForCourse, syncMasteryForAssignment, getRubricScoresForStudent, writeMasteryScores,
   writeMasteryScoresBatch, writeMasteryOverride,
 } from './masterySync.js';
+import { getSectionGrades, getAssignmentGrades } from './schoology.js';
 import { fakeSchoologyWeb } from '../testing/fakeSchoologyWeb.js';
 import { sessionStatus, resetSessionStatusCache } from './schoologySession.js';
 
 // The assignment refresh also pulls public REST grades: never reach the network here.
-vi.mock('./schoology.js', () => ({ getSectionGrades: vi.fn(async () => []) }));
+vi.mock('./schoology.js', () => ({ getSectionGrades: vi.fn(async () => []), getAssignmentGrades: vi.fn(async () => []) }));
 
 const SID = '8458134140';
 const BASE = `/course/${SID}/district_mastery`;
@@ -139,6 +140,9 @@ describe('syncMasteryForAssignment over plain HTTP', () => {
     // #52: the assignment is stamped (not the course: rollups and other assignments were not read).
     expect(db.prepare('SELECT mastery_synced_at FROM assignments WHERE schoology_assignment_id = ?').get('900').mastery_synced_at).toBeTruthy();
     expect(db.prepare('SELECT mastery_synced_at FROM courses WHERE id = 5').get().mastery_synced_at).toBeNull();
+    // #168: the grade comments come from this task's grades alone (?assignment_id=), not the section's.
+    expect(getAssignmentGrades).toHaveBeenCalledWith(SID, '900');
+    expect(getSectionGrades).not.toHaveBeenCalled();
   });
 });
 

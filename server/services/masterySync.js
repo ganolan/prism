@@ -31,7 +31,7 @@
 import { existsSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { getDb } from '../db/index.js';
-import { getSectionGrades } from './schoology.js';
+import { getAssignmentGrades } from './schoology.js';
 import { groupObservationsByTopic, normalizeObservation } from '../lib/masteryObservations.js';
 import { pointsToLevel, levelToLabel, schoologyScaleId } from '../lib/proficiencyScale.js';
 import { sessionStateFile, ensureSessionDir } from '../lib/sessionPaths.js';
@@ -618,8 +618,9 @@ export async function syncMasteryForAssignment(courseId, assignmentId) {
   // Schoology never make it back into Prism.
   let commentsCount = 0;
   try {
-    const allGrades = await getSectionGrades(sectionId);
-    const forAssignment = allGrades.filter(g => String(g.assignment_id) === String(assignmentId));
+    // One task's grades (?assignment_id=, verified 2026-10-19), not the whole section's (#168).
+    const forAssignment = (await getAssignmentGrades(sectionId, String(assignmentId)))
+      .filter(g => String(g.assignment_id) === String(assignmentId));
     const updateGrade = db.prepare(`
       UPDATE grades
       SET score = ?, grade_comment = ?, comment_status = ?, exception = ?

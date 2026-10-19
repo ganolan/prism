@@ -404,6 +404,8 @@ describe('retrySubmissions (#55)', () => {
     const read = new Set();
     await retrySubmissions(db, [{ sectionId: 'sec-R', courseId, assignmentExtId: 'RA1' }], '2026-10-02T00:00:00Z', metrics, read);
     expect([...read]).toEqual([db.prepare(`SELECT id FROM assignments WHERE schoology_assignment_id = 'RA1'`).get().id]);
+    // #168: a successful retry is a read in full, stamped like the main pass.
+    expect(db.prepare(`SELECT submissions_read_at FROM assignments WHERE schoology_assignment_id = 'RA1'`).get().submissions_read_at).toBe('2026-10-02T00:00:00Z');
   });
 
   test('retry succeeds → row written, retries_succeeded incremented', async () => {

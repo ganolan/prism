@@ -351,6 +351,8 @@ export async function retrySubmissions(db, failedEntries, now, metrics, revision
         writeRetry(cellResults);
       }
       revisionsRead?.add(assignRow.id);
+      // A successful retry is a read in full, stamped like the main pass (#168).
+      db.prepare('UPDATE assignments SET submissions_read_at = ? WHERE id = ?').run(now, assignRow.id);
       metrics.retries_succeeded++;
     } catch (err) {
       // Non-transient errors (or unexpected enrollments fetch failures): mark

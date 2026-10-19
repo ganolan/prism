@@ -74,6 +74,9 @@ export async function readTaskSubmissions(db, {
   // clear these pairs' Prism save logs (feedbackSnapshots.js, residual review round 3).
   const revisionsRead = new Set();
   const readInFull = new Set();
+  // Tests the attempt read answered for without covering them (#168): still unknown, but
+  // stamped so a page does not read them again on every load.
+  const answered = new Set();
 
   for (const ext of native) {
     if (failedAssignmentIds.length >= abandonAfter) {
@@ -226,13 +229,13 @@ export async function readTaskSubmissions(db, {
   // out, archived) keeps its previous value.
   if (typeof fetchTestAttempts === 'function' && tests.length) {
     await readTestAttempts(db, {
-      sectionId, now, students, cells, tests, selectAssignmentByExt, fetchTestAttempts, backoffMs, keepStatusOnFailure, readInFull,
+      sectionId, now, students, cells, tests, selectAssignmentByExt, fetchTestAttempts, backoffMs, keepStatusOnFailure, readInFull, answered,
     });
   }
 
-  if (readInFull.size) {
+  if (readInFull.size || answered.size) {
     const stamp = db.prepare('UPDATE assignments SET submissions_read_at = ? WHERE id = ?');
-    db.transaction(() => { for (const id of readInFull) stamp.run(now, id); })();
+    db.transaction(() => { for (const id of [...readInFull, ...answered]) stamp.run(now, id); })();
   }
 
   return {
@@ -249,7 +252,7 @@ export async function readTaskSubmissions(db, {
 }
 
 async function readTestAttempts(db, {
-  sectionId, now, students, cells, tests: testExts, selectAssignmentByExt, fetchTestAttempts, backoffMs, keepStatusOnFailure, readInFull,
+  sectionId, now, students, cells, tests: testExts, selectAssignmentByExt, fetchTestAttempts, backoffMs, keepStatusOnFailure, readInFull, answered,
 }) {
   const setStatus = db.prepare(`UPDATE assignments SET test_fetch_status = ? WHERE id = ?`);
   // One upsert per (student, test) cell: test_attempt = 'took' | 'none' | 'not_assigned'.
@@ -282,6 +285,7 @@ async function readTestAttempts(db, {
       const covered = !!result && [...result.values()].some((byItem) => byItem.has(t.ext));
       if (!covered) {
         if (!keepStatusOnFailure) setStatus.run('failed', t.row.id);
+        if (result) answered.add(t.row.id);
         continue;
       }
       setStatus.run('ok', t.row.id);

@@ -80,4 +80,14 @@ describe('readTaskSubmissions (#108)', () => {
     expect(db.prepare('SELECT * FROM grades WHERE assignment_id = ?').get(ids.native)).toEqual(before);
     expect(stamp(ids.native)).toBeNull();
   });
+
+  // #168: an attempt read that answered with no cells for a test leaves it unknown (no status, not
+  // read in full) but stamps it, so a page does not read it again on every load.
+  test('a test the answered attempt read does not cover is stamped, not read in full', async () => {
+    getAssignmentSubmissions.mockResolvedValue([]);
+    const r = await read({ native: [], lti: [], fetchTestAttempts: async () => new Map([['701', new Map()]]), keepStatusOnFailure: true });
+    expect(r.readInFull.has(ids.test)).toBe(false);
+    expect(stamp(ids.test)).toBe(NOW);
+    expect(db.prepare('SELECT test_fetch_status FROM assignments WHERE id = ?').get(ids.test).test_fetch_status).toBeNull();
+  });
 });

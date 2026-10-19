@@ -1518,6 +1518,17 @@ submission comments.
   `oneDriveLinks.js`, and the Microsoft renewal itself (`renewSession`, #136: a plain `fetch` cannot make the
   SSO round trip).
 
+## Every Schoology write, the OneDrive links and the session renewal on plain HTTP (#141, 2026-10-19)
+
+- **LTI unsubmit** (`ltiUnsubmit.js`): the CSRF pair from `/assignments/{aid}/info` over HTTP, the POST through `schoologyWeb.postJson`, the in-progress list read back. Live, one approved archived formative: submitted to in progress, 5.7 s. `scripts/verify-lti-unsubmit-http.js`.
+- **Mastery writes** (`masterySync.js`): observations, Send all and overrides through `openMasteryReader(sectionId, 'write')`, one page GET for the CSRF pair. Live, approved writes that end where they started (archived ACSS): the same observation set re-posted (1.1 s); an override set at 87.50, then cleared. `scripts/verify-mastery-writes-http.js`. Found: `observations/search`'s `alignment_id` is not the topic UUID (`alignments/search` maps it).
+- **FRQ write-back** (`quizWriteback.openClient`): the quiz loader's HTTP reader, the rubric PUT with the CSRF pair from `/home`, the by-question form POST (`schoologyWeb.sendOnce`, never retried, redirects not followed). Live, approved, the 13 Oct attempt: Exhibiting Depth to Exhibiting and back, every field as it started. `scripts/verify-frq-writeback-http.js`.
+- **OneDrive links** (`sharePointWeb.js`): SharePoint's sign-in by hand from the saved Microsoft remembered sign-in (Microsoft's form_post `ear_jwe`, `state` → `FedAuth`, `rtFa`). SharePoint answers 403 to Node's User-Agent; a browser-like one is sent. Parity (`scripts/parity-onedrive-links.js`): 67/67 assignments identical (793 files), twice; sign-in 2.4-3.5 s against 5.1-5.5 s.
+- **Session renewal** (`schoologySession.renewSession`): the Microsoft round trip by hand (plain redirects, no form), the jar saved back to the state file. Live on a scratch copy without Schoology's `SESS` cookies: renewed in 4.5 s (the browser took 9.1 s), then `/home` 200. Found: Schoology expires `login_landing_dest` with the value `deleted`; `lib/stateCookieJar.js` and `schoologyWeb.cookieJar` now remove expired cookies.
+- **Sync:** a lapsed session answers the grader document lists 403, not a sign-in redirect; sync now loads `/home` once (renewing) and reads them again (`graderSubmissions.recheckSession`).
+- **Still a browser, on purpose:** the teacher's real sign-in (`remoteLogin.js`, `npm run mastery:login`), and `openSessionPage` / `quizLoader.openReader` for the parity scripts only.
+- **CI note:** `1b27179` deleted `server/testing/fakeSchoologyPage.js` while `mcp/handlers.test.js` still imported it; CI failed until `b18d23f`. Run `npx vitest run` from the root before pushing.
+
 ## Writes only from Prism's own pages (2026-10-18)
 
 - **Before:** `app.use(cors())` with no options let any website opened on a tailnet device read Prism's API answers, and send simple cross-site POSTs (no JSON body, no preflight), e.g. one that starts a sync or a remote sign-in.

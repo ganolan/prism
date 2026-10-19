@@ -1100,7 +1100,6 @@ button.filter-btn-link { background: none; border: none; padding: 0; color: var(
    Dashboard + CoursePage). Urgency = green → amber → red against a
    school-day limit; see docs/design-language.md "Urgency ring".
    ======================================================================== */
-.triage__asof { margin: 0; font-size: 0.75rem; }
 /* Rail layout: the page's main column (course cards / tab content) and, at its
    right, a 380px rail of stacked triage panels that stays in view (sticky; it
    scrolls inside itself when taller than the window). See design-language.md

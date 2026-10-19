@@ -1518,6 +1518,18 @@ submission comments.
   `oneDriveLinks.js`, and the Microsoft renewal itself (`renewSession`, #136: a plain `fetch` cannot make the
   SSO round trip).
 
+## Submissions and scores read on demand after a page loads (#108, 2026-10-19)
+
+- **Why:** triage asked Graham to chase a student who had already submitted; submission data was as old as the last full sync. Spec `docs/superpowers/specs/2026-10-19-on-demand-submissions-design.md`, plan `docs/superpowers/plans/2026-10-19-on-demand-submissions.md`.
+- **Baseline (#108), full sync on prod, run 20, 19/10/2026 23:13:** 2 min 39 s; Schoology 91.5 s (10 sections, 2,566 records, 2 to 17 s a section), Comments 39.4 s, Mastery 16.2 s, Alerts 6.3 s, Blocks 5.6 s. Run 19's 425 s Schoology phase was the one-time archived backfill (`8a6ca27`).
+- **Shared reads:** `taskSubmissions.readTaskSubmissions` (native dropbox, OneDrive/LTI documents, test attempts) and `taskGrades.writeGrades`, moved out of `syncSectionData` unchanged; the sync and the refresh both use them. `assignments.submissions_read_at` (schema + MIGRATIONS) is stamped for each task read in full. `schoology.getAssignmentGrades`: one task's grades through `?assignment_id=` (verified, API reference).
+- **Service:** `taskRefresh.refreshTasks(ids)`: skips a task read under 2 minutes ago (unless forced), shares a read already running, one session reader per batch, courses 4 at a time; submissions, then grades, then aligned tasks' mastery (`refreshAssignmentMastery`), then the feedback snapshot and resubmission settle. A failed read that a page started keeps the stored OneDrive and test statuses (`keepStatusOnFailure`), so the make-up list survives a lapsed session. Without a session: native tasks and grades are read, the answer asks for a sign-in.
+- **Routes:** `POST /api/triage/refresh` (the triage lists' tasks plus past-due tests whose attempts are unknown), `POST /api/courses/:id/refresh` (its triage tasks plus tasks due in the last 30 days or later and open resubmission requests), and the assessment page's refresh and Refresh from Schoology now also read the task (`submissions` in the answer).
+- **Pages:** the dashboard's triage rail and the course page show "Submissions and scores read from Schoology at …" and reload when anything was read; the course rail's "Counts as of the last sync" line is gone.
+- **Parity** (`scripts/parity-task-refresh.js`, two copies of prod's database): 28 tasks in 6 courses, 353 grades rows identical, 0 different, fetch statuses identical; the refresh 27 s (forced, mastery included) against the section reads' 58 s. The dashboard's 10 tasks: 4.2 s, 7.7 s with mastery.
+- **Also:** "0 failed" no longer counts as a sync warning (`syncRuns.js`; every nightly run since 18/10 showed one).
+- **Next:** #58 (rename to Sync Course / Sync Assignment, one stamp) can use these reads; submission comment threads are not read on demand yet.
+
 ## Mastery refreshed on demand after a page loads (#52, 2026-10-19)
 
 - **Why it is feasible now:** over plain HTTP (#141) a course's mastery reads in 2.3-5 s and one assignment's in 1.8-2.9 s, about the same for a full year's scores (438) as for October's (54-63): the cost is a fixed set of requests, not the data size. Measured on a scratch copy of the dev database.

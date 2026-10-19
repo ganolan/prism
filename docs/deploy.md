@@ -131,6 +131,8 @@ For a planned restart (e.g. macOS updates) skip the prompt once with
 ## Scheduled sync
 
 Prod runs a full sync by itself every day (default **03:00**, mini local time).
+Between syncs, the dashboard, course and assessment pages read what they show from
+Schoology after they load (mastery #52; submissions and scores #108).
 Time, mastery, blocks, hidden courses and the recent-only window are set in
 **Settings → Scheduled sync**, which also shows the next run and how the last
 one went; each run appears in Recent syncs labelled *Scheduled*. It is armed
@@ -153,7 +155,8 @@ signed in (about 5 s). The new cookies are saved to `storage-state.json` and the
 again. A sign-in is needed only when Microsoft itself asks for one (its remembered
 sign-in has lapsed); then the session shows *Expired* and the steps below apply.
 
-Mastery sync and the pages' mastery refresh (#52), OneDrive links, the Ask
+Mastery sync and the pages' mastery refresh (#52), the pages' OneDrive and test-attempt
+reads (#108; native dropbox submissions and grades are read without it), OneDrive links, the Ask
 modal's "unsubmit their OneDrive work" option, FRQ and mastery write-back need the
 saved session; the rest of the app keeps working. No server path opens a browser
 any more except the sign-in itself (#141). **Settings →

@@ -177,6 +177,12 @@ All are `POST`, so the origin guard already covers them.
 
 ## Left to the builder
 
+**As built (19 Oct 2026):** shared reads in `server/services/taskSubmissions.js` and `taskGrades.js`;
+course concurrency 4; routes `POST /api/triage/refresh`, `POST /api/courses/:id/refresh`, and the existing
+assessment routes (one route doing both reads); `MasteryFreshness` generalised with a `subject`, the hook
+reused; wording "Submissions and scores read from Schoology at …". A task with no submission channel is
+stamped after its grades read. Calls recorded in `docs/design-language.md` and the plan's ledger.
+
 The file split inside `sync.js`, the concurrency number, the route paths marked above, whether to
 generalise the mastery hook and freshness component or add siblings, and the wording of the freshness
 line (no em dashes in UI copy).

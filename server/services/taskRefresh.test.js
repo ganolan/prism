@@ -174,4 +174,35 @@ describe('refreshTasks (#108)', () => {
     expect(refreshMastery).toHaveBeenCalledTimes(1);
     expect(refreshMastery).toHaveBeenCalledWith(c1, 'B', expect.anything());
   });
+
+  // Review minor #4: a shared batch's failures belong to the tasks they happened on.
+  test('a caller sharing a batch sees only its own tasks\' errors', async () => {
+    const a = addTask(c1, 'A');
+    const b = addTask(c2, 'B');
+    getAssignmentSubmissions.mockImplementation(async (_s, aid) => {
+      if (aid === 'A') throw Object.assign(new Error('Schoology API 500'), { status: 500 });
+      return [];
+    });
+    const [both, onlyB] = await Promise.all([run([a, b]), run([b])]);
+    expect(both.failed).toEqual([a]);
+    expect(onlyB).toMatchObject({ refreshed: 1, failed: [] });
+    expect(onlyB.error).toBeUndefined();
+  });
+
+  // Review minor #6: one task never read does not blank the time for the rest.
+  test('readAt is the oldest stamp among the tasks that have one', async () => {
+    const n = addTask(c1, 'N');
+    const l = addTask(c1, 'L', { lti: 1 }); // no session: never stamped
+    const r = await run([n, l]);
+    expect(r.readAt).toBe(new Date(T0).toISOString());
+  });
+
+  // Review minor #9: without a session a OneDrive task's new grades still reload the page.
+  test('grades written for a task whose submissions need a session count as refreshed', async () => {
+    const l = addTask(c1, 'L', { lti: 1 });
+    const r = await run([l]);
+    expect(getAssignmentGrades).toHaveBeenCalledWith('S1', 'L');
+    expect(r.refreshed).toBe(1);
+    expect(r.signIn).toBe(true);
+  });
 });

@@ -2109,6 +2109,20 @@ describe('#52: mastery refreshed on demand after a page loads', () => {
     expect(s).toMatchObject({ scoresCount: 2, submissions: { refreshed: 0 } });
   });
 
+  test('a failed submissions read keeps the mastery answer, and the reverse (#108 review)', async () => {
+    stampCourse(new Date().toISOString());
+    refreshTasks.mockClear().mockRejectedValueOnce(new Error('database is locked'));
+    const r = await post(`/api/mastery/${courseId}/assignment/sa-r${n}/refresh`, {});
+    expect(r.status).toBe(200);
+    expect(r.body.submissions).toMatchObject({ refreshed: 0, error: 'database is locked' });
+    const { syncMasteryForAssignment } = await import('../services/masterySync.js');
+    syncMasteryForAssignment.mockRejectedValueOnce(new Error('Schoology API 500'));
+    refreshTasks.mockResolvedValueOnce({ refreshed: 2, readAt: null, failed: [] });
+    const s = await post(`/api/mastery/${courseId}/assignment/sa-r${n}/sync`, {});
+    expect(s.status).toBe(500);
+    expect(s.body).toMatchObject({ error: 'Schoology API 500', submissions: { refreshed: 2 } });
+  });
+
   test('the Sync Mastery button (POST /sync/:courseId) always reads, and shares a refresh already running', async () => {
     const { syncMasteryForCourse } = await import('../services/masterySync.js');
     let release;

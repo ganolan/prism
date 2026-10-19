@@ -340,10 +340,13 @@ router.post('/:courseId/override', async (req, res) => {
 
 // #108: the assessment page's reads also cover the task's submissions and grades (taskRefresh.js);
 // mastery is read by the route itself. A task Prism does not hold answers an empty read.
+// Never rejects: a failed read is answered as { refreshed: 0, error }, so the mastery answer
+// beside it is kept (and the reverse: a mastery error still carries this read).
 function readTask(courseId, schoologyAssignmentId, force) {
   const row = getDb().prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ? AND course_id = ?').get(String(schoologyAssignmentId), Number(courseId));
   if (!row) return Promise.resolve({ refreshed: 0, readAt: null, failed: [] });
-  return refreshTasks([row.id], { force, mastery: false });
+  return refreshTasks([row.id], { force, mastery: false })
+    .catch((err) => ({ refreshed: 0, readAt: null, failed: [row.id], error: String(err?.message || err) }));
 }
 
 // POST /api/mastery/:courseId/assignment/:assignmentId/sync — the assessment page's Refresh from
@@ -357,7 +360,7 @@ router.post('/:courseId/assignment/:assignmentId/sync', async (req, res) => {
     ]);
     if (r.error) {
       console.error('[mastery assignment sync] Error:', r.error);
-      return res.status(500).json({ error: r.error });
+      return res.status(500).json({ error: r.error, submissions });
     }
     res.json({ ...r.result, syncedAt: r.syncedAt, submissions });
   } catch (err) {

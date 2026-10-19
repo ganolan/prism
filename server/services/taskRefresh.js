@@ -53,16 +53,17 @@ async function mapLimit(items, limit, fn) {
 }
 
 // Read one course's tasks: submissions, then grades, then aligned tasks' mastery.
-// → { read: Set<task id>, failed: Set<task id>, errors: string[], signIn: boolean }.
+// Everything is kept per task, so a caller sharing the batch sees only its own tasks' outcome.
+// → { read: Set<task id>, failed: Map<task id, message>, signIn: Set<task id> }.
 async function readCourse(db, tasks, { reader, nowIso, force, mastery, readSince, deps }) {
   const { course_id: courseId, section_id: sectionId } = tasks[0];
-  const out = { read: new Set(), failed: new Set(), errors: [], signIn: false };
+  const out = { read: new Set(), failed: new Map(), signIn: new Set() };
   const students = db.prepare(`
     SELECT e.schoology_enrolment_id AS id, s.schoology_uid AS uid
     FROM enrolments e JOIN students s ON s.id = e.student_id
     WHERE e.course_id = ? AND e.dropped_at IS NULL AND e.schoology_enrolment_id IS NOT NULL
   `).all(courseId);
-  const fail = (t, err) => { out.failed.add(t.id); out.errors.push(String(err?.message || err)); };
+  const fail = (t, err) => { if (!out.failed.has(t.id)) out.failed.set(t.id, String(err?.message || err)); };
 
   let revisionsRead = new Set();
   try {
@@ -79,7 +80,7 @@ async function readCourse(db, tasks, { reader, nowIso, force, mastery, readSince
     revisionsRead = r.revisionsRead;
     for (const t of tasks) {
       if (r.readInFull.has(t.id)) continue;
-      if (needsSession(t) && (!reader || reader.expired)) { out.signIn = true; continue; } // left as it is
+      if (needsSession(t) && (!reader || reader.expired)) { out.signIn.add(t.id); continue; } // left as it is
       if (r.failedAssignmentIds.includes(t.ext) || t.accepts_submissions === 1 || t.is_test === 1) {
         fail(t, new Error(r.taskErrors.get(t.ext) ?? `Could not read the submissions of "${t.title || t.ext}"`));
       }
@@ -106,18 +107,19 @@ async function readCourse(db, tasks, { reader, nowIso, force, mastery, readSince
       const m = await deps.refreshMastery(courseId, t.ext, { force }).catch((err) => ({ error: String(err?.message || err) }));
       if (m?.error) {
         fail(t, m.error);
-        if (m.signIn) out.signIn = true;
+        if (m.signIn) out.signIn.add(t.id);
       }
     }
   }
 
-  for (const t of tasks) if (!out.failed.has(t.id) && !(needsSession(t) && (!reader || reader.expired))) out.read.add(t.id);
+  // Read: every step that ran answered (a task left for a sign-in still had its grades read).
+  for (const t of tasks) if (!out.failed.has(t.id)) out.read.add(t.id);
   deps.afterRead(db, { courseId, revisionsRead, readSince });
   return out;
 }
 
 async function readBatch(db, tasks, opts) {
-  const total = { read: new Set(), failed: new Set(), errors: [], signIn: false };
+  const total = { read: new Set(), failed: new Map(), signIn: new Set() };
   let reader = null;
   if (tasks.some(needsSession)) {
     try { reader = await opts.openReader(); } catch { reader = null; }
@@ -128,9 +130,8 @@ async function readBatch(db, tasks, opts) {
     await mapLimit([...byCourse.values()], COURSE_CONCURRENCY, async (courseTasks) => {
       const r = await readCourse(db, courseTasks, { ...opts, reader });
       r.read.forEach((id) => total.read.add(id));
-      r.failed.forEach((id) => total.failed.add(id));
-      total.errors.push(...r.errors);
-      if (r.signIn) total.signIn = true;
+      r.failed.forEach((msg, id) => total.failed.set(id, msg));
+      r.signIn.forEach((id) => total.signIn.add(id));
     });
   } finally {
     await reader?.close?.().catch(() => {});
@@ -143,8 +144,8 @@ async function readBatch(db, tasks, opts) {
 // `mastery`: true (every aligned task), false, or a list of task ids (only those; the course page
 // passes its triage panel's tasks, since it reads the course's mastery itself).
 // → { refreshed, readAt, failed, error?, signIn? }. `refreshed`: tasks read by this call
-// (or by a read it joined); `readAt`: the oldest submissions_read_at among the tasks, so a
-// page never claims a fresher read than its stalest task.
+// (or by a read it joined), grades included; `readAt`: the oldest submissions_read_at among the
+// tasks that have one, so a page never claims a fresher read than its stalest task read.
 export async function refreshTasks(assignmentIds, {
   db = getDb(), force = false, mastery = true, now = Date.now, openReader = createSubmissionFetcher, deps = {},
 } = {}) {
@@ -172,19 +173,19 @@ export async function refreshTasks(assignmentIds, {
 
   const wanted = new Set(stale.map((t) => t.id));
   const read = new Set();
-  const failed = new Set();
-  const errors = [];
+  const failed = new Map();
   let signIn = false;
   for (const r of results) {
     r.read.forEach((id) => { if (wanted.has(id)) read.add(id); });
-    r.failed.forEach((id) => { if (wanted.has(id)) failed.add(id); });
-    errors.push(...r.errors);
-    if (r.signIn) signIn = true;
+    r.failed.forEach((msg, id) => { if (wanted.has(id)) failed.set(id, msg); });
+    r.signIn.forEach((id) => { if (wanted.has(id)) signIn = true; });
   }
+  const errors = [...failed.values()];
 
-  const stamps = tasks.map((t) => db.prepare('SELECT submissions_read_at FROM assignments WHERE id = ?').get(t.id)?.submissions_read_at ?? null);
-  const readAt = stamps.length && stamps.every(Boolean) ? stamps.reduce((a, b) => (a < b ? a : b)) : null;
-  const out = { refreshed: read.size, readAt, failed: [...failed] };
+  const stamp = db.prepare('SELECT submissions_read_at FROM assignments WHERE id = ?');
+  const stamps = tasks.map((t) => stamp.get(t.id)?.submissions_read_at).filter(Boolean);
+  const readAt = stamps.length ? stamps.reduce((a, b) => (a < b ? a : b)) : null;
+  const out = { refreshed: read.size, readAt, failed: [...failed.keys()] };
   if (errors.length) out.error = failed.size > 1 ? `${failed.size} tasks not read from Schoology: ${errors[0]}` : errors[0];
   if (signIn) {
     out.signIn = true;

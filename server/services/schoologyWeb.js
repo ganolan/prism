@@ -115,39 +115,53 @@ export async function getJson(jar, path, opts = {}) {
   return { status: r.status, url: r.url, json };
 }
 
-// POST a JSON body to an /iapi, /iapi2 or district_mastery api path the way the
-// pages' scripts do: Content-Type and Accept JSON, X-Requested-With, and the
-// page's CSRF pair (Drupal.settings.s_common → X-CSRF-Token / X-CSRF-Key; without
-// them the district_mastery POSTs answer 403 {"data":null}). For reads that the
-// API shapes as POST searches, and for the LTI unsubmit (ltiUnsubmit.js), whose
-// caller does the write's checks: it is sent once, never retried. → { status, url, json }.
-// A redirect is the session ending (SESSION_EXPIRED when it goes to sign-in).
-export async function postJson(jar, path, body, { csrf, fetchImpl = fetch, timeoutMs = 30000 } = {}) {
-  if (!csrf?.csrf_token || !csrf?.csrf_key) throw new WebSessionError('NO_CSRF', 'CSRF token/key missing from Drupal.settings.s_common');
+// Send one request with the session, for the writes: never retried, redirects not
+// followed (a Drupal form save answers 302 back to its page). → { status, url, location,
+// text }, location = where a redirect points (absolute) or null. A redirect to sign-in
+// throws SESSION_EXPIRED (Schoology did not take the request); a request that fails
+// outright or times out throws HTTP (it may or may not have reached Schoology).
+export async function sendOnce(jar, path, { method = 'POST', headers = {}, body, fetchImpl = fetch, timeoutMs = 30000 } = {}) {
   const url = path.startsWith('http') ? path : `${SCHOOLOGY_BASE}${path}`;
   let res;
   try {
-    res = await fetchImpl(url, {
-      method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(timeoutMs), body: JSON.stringify(body),
-      headers: {
-        cookie: jar.header(), 'Content-Type': 'application/json', Accept: 'application/json',
-        'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-Token': csrf.csrf_token, 'X-CSRF-Key': csrf.csrf_key,
-      },
-    });
+    res = await fetchImpl(url, { method, body, redirect: 'manual', signal: AbortSignal.timeout(timeoutMs), headers: { cookie: jar.header(), ...headers } });
   } catch (err) {
     throw new WebSessionError('HTTP', `Could not reach Schoology for ${new URL(url).pathname} (${err?.name === 'TimeoutError' ? 'timed out' : err?.message || err})`);
   }
   jar.take(res);
+  let location = null;
   if ([301, 302, 303, 307, 308].includes(res.status)) {
-    const location = res.headers.get('location') || '';
-    const to = location.startsWith('http') ? location : new URL(location, url).href;
-    if (!isLoggedInUrl(to)) throw new WebSessionError('SESSION_EXPIRED', 'The saved Schoology session has expired');
-    throw new WebSessionError('HTTP', `Schoology redirected a POST to ${new URL(to).pathname}`);
+    const to = res.headers.get('location') || '';
+    location = to.startsWith('http') ? to : new URL(to, url).href;
+    if (!isLoggedInUrl(location)) {
+      await res.text().catch(() => {});
+      throw new WebSessionError('SESSION_EXPIRED', 'The saved Schoology session has expired');
+    }
   }
-  const text = await res.text();
+  return { status: res.status, url, location, text: await res.text() };
+}
+
+// POST a JSON body to an /iapi, /iapi2 or district_mastery api path the way the
+// pages' scripts do: Content-Type and Accept JSON, X-Requested-With, and the
+// page's CSRF pair (Drupal.settings.s_common → X-CSRF-Token / X-CSRF-Key; without
+// them the district_mastery POSTs answer 403 {"data":null}). For reads that the
+// API shapes as POST searches, and for writes (the LTI unsubmit, the mastery
+// writes), whose callers do the write's checks: it is sent once, never retried.
+// → { status, url, json }. A redirect is the session ending (SESSION_EXPIRED when
+// it goes to sign-in, else HTTP).
+export async function postJson(jar, path, body, { csrf, fetchImpl = fetch, timeoutMs = 30000 } = {}) {
+  if (!csrf?.csrf_token || !csrf?.csrf_key) throw new WebSessionError('NO_CSRF', 'CSRF token/key missing from Drupal.settings.s_common');
+  const r = await sendOnce(jar, path, {
+    method: 'POST', body: JSON.stringify(body), fetchImpl, timeoutMs,
+    headers: {
+      'Content-Type': 'application/json', Accept: 'application/json',
+      'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-Token': csrf.csrf_token, 'X-CSRF-Key': csrf.csrf_key,
+    },
+  });
+  if (r.location) throw new WebSessionError('HTTP', `Schoology redirected a POST to ${new URL(r.location).pathname}`);
   let json = null;
-  try { json = JSON.parse(text); } catch { /* not JSON */ }
-  return { status: res.status, url, json };
+  try { json = JSON.parse(r.text); } catch { /* not JSON */ }
+  return { status: r.status, url: r.url, json };
 }
 
 // GET a school page with the session. Throws SESSION_EXPIRED when Schoology

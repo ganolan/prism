@@ -1316,6 +1316,17 @@ the repo.
   steps with Exhibiting Depth restored it (3 to 4); every form field then equalled the 4a capture.
 - **So a level change is two requests:** the rubric PUT (the cell, with Drupal's CSRF headers) and the
   form POST (points and comment). The form POST alone leaves the rubric grade as it was.
+- **Plain HTTP, no browser (#141, 2026-10-19, Graham approved, same attempt `2247871023`, question 21 on
+  the grade-by-question page `/assignment/7724138299/assessment_results/question_stats/2128035490/21`,
+  112 fields):** Prism's `openClient` now sends both saves by `fetch` with the saved session's cookies. The
+  rubric PUT carries `X-Csrf-Token`/`X-Csrf-Key` from `Drupal.settings.s_common` on `/home` (read once
+  over HTTP) and `Content-Type: application/json;charset=UTF-8`, `Accept: application/json`; the form save
+  is a plain `application/x-www-form-urlencoded` POST of the freshly loaded form, with no Origin, Referer
+  or CSRF header, redirects not followed. Set Exhibiting (3) with " (test)" on the comment: PUT `200`,
+  POST `302`, read back rubric_score 3, points 3, override 1, the new comment, `rubric_grade_info` 3, no
+  other field changed (about 10.5 s with the reads and 400 ms pauses). Restored Exhibiting Depth (4) and
+  the original comment the same way (PUT `200`, POST `302`, rubric grade 4); every field then equalled the
+  first load. Script: `scripts/verify-frq-writeback-http.js` (read-only unless `CONFIRM=frq:<attemptId>`).
 - **End to end through Prism (2026-10-13, Graham approved):** Prism's writer (`quizWriteback.js`)
   posted Exhibiting with a test comment, then Exhibiting Depth with the original, on the same attempt:
   both `posted`, each confirmed by reading back the form and `rubric_grade_info`. Afterwards no form field

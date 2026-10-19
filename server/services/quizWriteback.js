@@ -2,11 +2,11 @@
 // The request is the attempt form's own POST (phase 4a probe): the freshly loaded form, with only
 // the essay's level, points, override and comment changed. Before each write the attempt is re-read
 // and a mark changed in Schoology is refused; after it the attempt is read back. Behind quiz_writeback.
-import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
-import { sessionDeps, noteSessionLive } from './schoologySession.js';
+import { noteSessionLive } from './schoologySession.js';
+import { cookieJar, getResource, sendOnce, drupalSettings, WebSessionError } from './schoologyWeb.js';
 import { QuizError } from './quizError.js';
 import { getGroup } from './quizGroups.js';
-import { openReader } from './quizLoader.js';
+import { openHttpReader } from './quizLoader.js';
 import { schoologyMarkOf } from './frqMarks.js';
 import { levelNameFor } from '../lib/parseQuizRubric.js';
 import { studentFullName } from './studentNames.js';
@@ -21,60 +21,72 @@ const GRADE_PATH = /^\/iapi\/grades\/assessment_component_submission_rubric_grad
 const gradePath = (launch, qid, attemptId) => `/iapi/grades/assessment_component_submission_rubric_grade_info/${launch.rubricId}/${qid}/${launch.enrollmentId}/${attemptId}`;
 const parse = (t, fallback = null) => (t ? JSON.parse(t) : fallback);
 
-async function inPagePost({ url, body, timeoutMs }) {
-  try {
-    const r = await fetch(url, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body, signal: AbortSignal.timeout(timeoutMs) });
-    await r.text();
-    return { status: r.status, finalUrl: r.url };
-  } catch (err) {
-    return { status: 0, finalUrl: url, error: String(err?.message || err) };
-  }
-}
-
-// In the page: the rubric save the popup sends (stage C), with Drupal's CSRF values from the open page.
-async function inPagePut({ url, json, timeoutMs }) {
-  const s = window.Drupal?.settings?.s_common || {};
-  if (!s.csrf_token || !s.csrf_key) return { status: 0, error: 'no CSRF values on the page' };
-  try {
-    const r = await fetch(url, {
-      method: 'PUT', credentials: 'include', signal: AbortSignal.timeout(timeoutMs),
-      headers: { 'Content-Type': 'application/json;charset=UTF-8', Accept: 'application/json', 'X-Csrf-Token': s.csrf_token, 'X-Csrf-Key': s.csrf_key },
-      body: JSON.stringify(json),
-    });
-    await r.text();
-    return { status: r.status, finalUrl: r.url };
-  } catch (err) {
-    return { status: 0, error: String(err?.message || err) };
-  }
-}
-
 const EXPIRED = 'Schoology connection expired while posting: reconnect in Settings';
+const SAVE_TIMEOUT_MS = 30000;
 
-// The production client: the loader's logged-in reader, the rubric PUT and the by-question form POST.
-// Each request that fails outright (HTTP 0) checks the session as the reader does: a sign-in bounce
-// stops the batch with NO_SESSION, an unreachable Schoology with UNREACHABLE. Each save waits the same
-// short pause as each read (spec §14), so the rubric save and the form save never go back to back.
-export async function openClient({ pauseMs = 400, openPage = () => sessionDeps.openPage(), sleep = (ms) => new Promise(r => setTimeout(r, ms)) } = {}) {
-  const reader = await openReader({ openPage, pauseMs, expired: EXPIRED });
-  const send = async (fn, arg) => {
+// The production client, over plain HTTP with the saved session's cookies (#141): the loader's HTTP
+// reader, the rubric PUT and the by-question form POST. The rubric PUT carries Drupal's CSRF pair from
+// /home (read once), the page the browser client took it from. A save sent to sign-in stops the batch
+// with NO_SESSION; a save that fails outright (HTTP 0) checks the session as the reader does: a sign-in
+// bounce is NO_SESSION, an unreachable Schoology UNREACHABLE, else the failure is returned for that
+// student. Each save waits the same short pause as each read (spec §14), so the rubric save and the
+// form save never go back to back. Saves are sent once and never retried.
+// `web` = { jar, fetchImpl? } (default: the saved session); no jar = NO_SESSION.
+export async function openClient({ pauseMs = 400, web = sessionWeb(), sleep = (ms) => new Promise(r => setTimeout(r, ms)) } = {}) {
+  const reader = openHttpReader({ web, pauseMs, expired: EXPIRED, sleep });
+  const io = { fetchImpl: web.fetchImpl ?? fetch, timeoutMs: SAVE_TIMEOUT_MS };
+  const send = async (path, opts) => {
     if (pauseMs) await sleep(pauseMs);
-    const r = await reader.page.evaluate(fn, arg);
-    if (r.status !== 0 && r.finalUrl && !isLoggedInUrl(r.finalUrl)) {
-      noteSessionLive('expired', 'Schoology sent the saved session to the login page');
-      throw new QuizError('NO_SESSION', EXPIRED);
+    let r;
+    try {
+      const res = await sendOnce(web.jar, path, { ...io, ...opts });
+      r = { status: res.status, finalUrl: res.location ?? res.url };
+    } catch (err) {
+      if (err instanceof WebSessionError && err.code === 'SESSION_EXPIRED') {
+        noteSessionLive('expired', 'Schoology sent the saved session to the login page');
+        throw new QuizError('NO_SESSION', EXPIRED);
+      }
+      r = { status: 0, error: String(err?.message || err) };
     }
     if (r.status === 0) await reader.recheck();
     return r;
   };
+  let csrf = null;
+  const csrfPair = async () => {
+    if (csrf) return csrf;
+    let home;
+    try {
+      home = await getResource(web.jar, '/home', io);
+    } catch (err) {
+      if (err instanceof WebSessionError && err.code === 'SESSION_EXPIRED') {
+        noteSessionLive('expired', 'Schoology sent the saved session to the login page');
+        throw new QuizError('NO_SESSION', EXPIRED);
+      }
+      throw new QuizError('UNREACHABLE', 'Could not reach Schoology: try again');
+    }
+    const s = drupalSettings(home.text)?.s_common;
+    if (s?.csrf_token && s?.csrf_key) csrf = s;
+    return csrf;
+  };
   const post = async (path, body) => {
     if (!BYQ_PATH.test(path)) throw new Error(`Refusing to post to ${path}`);
-    return send(inPagePost, { url: `${SCHOOLOGY_BASE}${path}`, body, timeoutMs: 30000 });
+    return send(path, { method: 'POST', body, headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
   };
   const putRubric = async (path, json) => {
     if (!GRADE_PATH.test(path)) throw new Error(`Refusing to put to ${path}`);
-    return send(inPagePut, { url: `${SCHOOLOGY_BASE}${path}`, json, timeoutMs: 30000 });
+    const pair = await csrfPair();
+    if (!pair) return { status: 0, error: 'no CSRF values on the page' };
+    return send(path, {
+      method: 'PUT', body: JSON.stringify(json),
+      headers: { 'Content-Type': 'application/json;charset=UTF-8', Accept: 'application/json', 'X-Csrf-Token': pair.csrf_token, 'X-Csrf-Key': pair.csrf_key },
+    });
   };
   return { get: reader.get, post, putRubric, close: reader.close };
+}
+
+// The saved session's cookies, or no jar (→ NO_SESSION) when there is none or it is unreadable.
+function sessionWeb() {
+  try { return { jar: cookieJar(), fetchImpl: fetch }; } catch { return { jar: null }; }
 }
 
 const SKIP_SCOPE = 'Post this one by hand: Prism posts only a one-row Schoology rubric';

@@ -1,129 +1,128 @@
-// openClient (spec §14, §15): the writer's only way to Schoology. The fake page runs the REAL in-page
-// functions against a stub window (Drupal CSRF settings) and fetch, so a test sees what would be sent.
+// openClient (spec §14, §15): the writer's only way to Schoology, over plain HTTP (#141) on the fake
+// web seam, so a test sees exactly what would be sent. Never reaches the network.
 import { describe, test, expect, beforeEach, vi } from 'vitest';
 import { openClient } from './quizWriteback.js';
-import { resetSessionStatusCache } from './schoologySession.js';
+import { resetSessionStatusCache, sessionStatus } from './schoologySession.js';
+import { fakeSchoologyWeb } from '../testing/fakeSchoologyWeb.js';
 
-const BASE = 'https://schoology.hkis.edu.hk';
 const BYQ = '/assignment/900/assessment_results/question_stats/2001/21';
 const GI = '/iapi/grades/assessment_component_submission_rubric_grade_info/91/2001/92/5001';
-const LOGIN = 'https://login.microsoftonline.com/x';
+const HOME = (csrf = { csrf_token: 'tok', csrf_key: 'key' }) => ({
+  text: `<script>jQuery.extend(Drupal.settings, ${JSON.stringify({ s_common: csrf })});</script>`,
+});
+const EXPIRED = 'Schoology connection expired while posting: reconnect in Settings';
 
-// `respond(url, init)` answers each fetch ({ status, url }) or throws (a blocked SSO redirect, a timeout).
-// `landings` lists where each later visit to /home lands (a URL, or an Error the visit throws).
-function fakeSession({ respond = (url) => ({ status: 200, url }), csrf = { csrf_token: 'tok', csrf_key: 'key' }, landings = [] } = {}) {
-  const requests = [];
-  let at = 'about:blank';
-  let visits = 0;
-  const fetchStub = vi.fn(async (url, init = {}) => {
-    requests.push({ url, ...init });
-    const r = await respond(url, init);
-    return { status: r.status, url: r.url ?? url, text: async () => r.text ?? '' };
-  });
-  const page = {
-    goto: vi.fn(async () => {
-      const next = visits++ === 0 ? `${BASE}/home` : (landings.shift() ?? `${BASE}/home`);
-      if (next instanceof Error) { if (!next.stay) at = 'about:blank'; throw next; }
-      at = next;
-    }),
-    url: () => at,
-    evaluate: vi.fn(async (fn, arg) => {
-      const prev = [globalThis.window, globalThis.fetch];
-      globalThis.window = { Drupal: { settings: { s_common: csrf } } };
-      globalThis.fetch = fetchStub;
-      try { return await fn(arg); } finally { [globalThis.window, globalThis.fetch] = prev; }
-    }),
-  };
-  const close = vi.fn(async () => {});
-  return { openPage: async () => ({ page, close }), requests, page, close };
-}
-
-const open = (s) => openClient({ pauseMs: 0, openPage: s.openPage });
+const fake = (routes = {}) => fakeSchoologyWeb({ routes: {
+  '/home': HOME(),
+  [`POST ${BYQ}`]: { status: 302, text: '', headers: { location: `https://schoology.hkis.edu.hk${BYQ}` } },
+  [`PUT ${GI}`]: { json: { data: {} } },
+  [BYQ]: { text: '<html>page</html>' },
+  ...routes,
+} });
+const open = (f, opts = {}) => openClient({ pauseMs: 0, web: { jar: f.jar, fetchImpl: f.fetchImpl }, ...opts });
+const writes = (f) => f.requests.filter((q) => q.method !== 'GET');
 beforeEach(() => resetSessionStatusCache());
 
-describe('openClient', () => {
+describe('openClient (plain HTTP)', () => {
   test('no saved session: NO_SESSION before any request', async () => {
-    await expect(openClient({ pauseMs: 0, openPage: async () => null })).rejects.toMatchObject({ code: 'NO_SESSION' });
+    await expect(openClient({ pauseMs: 0, web: { jar: null } })).rejects.toMatchObject({ code: 'NO_SESSION' });
   });
 
   test('a form save goes only to a grade-by-question page', async () => {
-    const s = fakeSession();
-    const c = await open(s);
+    const f = fake();
+    const c = await open(f);
     for (const path of ['/assignment/900/assessment_results/student_stats/701/5001', `${BYQ}/x`, '/assignment/900/unsubmit', GI]) {
       await expect(c.post(path, 'a=1')).rejects.toThrow(/Refusing to post/);
     }
-    expect(s.requests).toEqual([]);
+    expect(f.requests).toEqual([]);
   });
 
   test('a rubric save goes only to the rubric grade path', async () => {
-    const s = fakeSession();
-    const c = await open(s);
+    const f = fake();
+    const c = await open(f);
     for (const path of ['/iapi/grades/rubric/91', BYQ, `${GI}/1`]) {
       await expect(c.putRubric(path, {})).rejects.toThrow(/Refusing to put/);
     }
-    expect(s.requests).toEqual([]);
+    expect(f.requests).toEqual([]);
   });
 
-  test('the form save posts the body as a form; the rubric save is a JSON PUT with Drupal\'s CSRF headers', async () => {
-    const s = fakeSession({ respond: (url, init) => ({ status: init.method === 'POST' ? 302 : 200, url }) });
-    const c = await open(s);
+  test('the form save posts the body as a form; the rubric save is a JSON PUT with the CSRF pair from /home', async () => {
+    const f = fake();
+    const c = await open(f);
     expect(await c.post(BYQ, 'a=1&op=Save+Changes')).toMatchObject({ status: 302 });
     const json = { gradeInfo: { 146: { grade: 3, comment: '' } }, overrideGrade: null, comment: 'Good' };
     expect(await c.putRubric(GI, json)).toMatchObject({ status: 200 });
-    const [post, put] = s.requests;
-    expect([post.url, post.method, post.headers['Content-Type'], post.body, post.credentials]).toEqual([`${BASE}${BYQ}`, 'POST', 'application/x-www-form-urlencoded', 'a=1&op=Save+Changes', 'include']);
-    expect([put.url, put.method, put.headers['X-Csrf-Token'], put.headers['X-Csrf-Key'], put.headers['Content-Type'], JSON.parse(put.body)])
-      .toEqual([`${BASE}${GI}`, 'PUT', 'tok', 'key', 'application/json;charset=UTF-8', json]);
+    const [post, put] = writes(f);
+    expect([post.path, post.headers['Content-Type'], post.body, post.headers.cookie]).toEqual([BYQ, 'application/x-www-form-urlencoded', 'a=1&op=Save+Changes', 'SESS=old']);
+    expect([put.path, put.headers['X-Csrf-Token'], put.headers['X-Csrf-Key'], put.headers['Content-Type'], put.headers.Accept, put.json])
+      .toEqual([GI, 'tok', 'key', 'application/json;charset=UTF-8', 'application/json', json]);
+    // The CSRF pair is read once.
+    await c.putRubric(GI, json);
+    expect(f.requests.filter((q) => q.path === '/home')).toHaveLength(1);
+  });
+
+  test('reads go through the HTTP reader', async () => {
+    const f = fake();
+    const c = await open(f);
+    expect(await c.get(BYQ)).toMatchObject({ status: 200, text: '<html>page</html>' });
   });
 
   test('each save waits the pause first, like each read', async () => {
-    const s = fakeSession();
+    const f = fake();
     const sleep = vi.fn(async () => {});
-    const c = await openClient({ pauseMs: 400, openPage: s.openPage, sleep });
+    const c = await open(f, { pauseMs: 400, sleep });
     await c.putRubric(GI, {});
     await c.post(BYQ, 'a=1');
     expect(sleep.mock.calls).toEqual([[400], [400]]);
-    expect(s.requests).toHaveLength(2);
+    expect(writes(f)).toHaveLength(2);
   });
 
-  test('no CSRF values on the page: no rubric save is sent', async () => {
-    const s = fakeSession({ csrf: {} });
-    const c = await open(s);
+  test('no CSRF values on /home: no rubric save is sent', async () => {
+    const f = fake({ '/home': HOME({}) });
+    const c = await open(f);
     expect(await c.putRubric(GI, {})).toEqual({ status: 0, error: 'no CSRF values on the page' });
-    expect(s.requests).toEqual([]);
+    expect(writes(f)).toEqual([]);
   });
 
-  test('a save that lands on the sign-in page: NO_SESSION', async () => {
-    const s = fakeSession({ respond: () => ({ status: 200, url: LOGIN }) });
-    const c = await open(s);
-    await expect(c.post(BYQ, 'a=1')).rejects.toMatchObject({ code: 'NO_SESSION', message: 'Schoology connection expired while posting: reconnect in Settings' });
+  test.each([
+    ['form save', (c) => c.post(BYQ, 'a=1'), `POST ${BYQ}`],
+    ['rubric save', (c) => c.putRubric(GI, {}), `PUT ${GI}`],
+  ])('a %s sent to sign-in: NO_SESSION, and the session reads expired', async (_n, call, key) => {
+    const f = fake({ [key]: { login: true } });
+    const c = await open(f);
+    await expect(call(c)).rejects.toMatchObject({ code: 'NO_SESSION', message: EXPIRED });
+    expect((await sessionStatus({ check: false, hasSession: () => true })).live).toBe('expired');
   });
 
-  describe('a request that fails outright (HTTP 0) checks the session', () => {
-    const blocked = () => { throw new TypeError('Failed to fetch'); };
+  test('a refused save is returned with its status', async () => {
+    const f = fake({ [`PUT ${GI}`]: { status: 403, json: { data: null } } });
+    const c = await open(f);
+    expect(await c.putRubric(GI, {})).toMatchObject({ status: 403 });
+  });
+
+  describe('a save that fails outright (HTTP 0) checks the session', () => {
+    const down = { throws: new TypeError('fetch failed') };
     test('home still loads: the failure is returned for that student', async () => {
-      const s = fakeSession({ respond: blocked });
-      const c = await open(s);
-      expect(await c.putRubric(GI, {})).toMatchObject({ status: 0, error: 'Failed to fetch' });
-      expect(await c.get(BYQ)).toMatchObject({ status: 0 });
+      const f = fake({ [`PUT ${GI}`]: down });
+      const c = await open(f);
+      expect(await c.putRubric(GI, {})).toMatchObject({ status: 0, error: expect.stringMatching(/fetch failed/) });
     });
     test.each([
-      ['form save', (c) => c.post(BYQ, 'a=1')],
-      ['rubric save', (c) => c.putRubric(GI, {})],
-      ['read', (c) => c.get(BYQ)],
-    ])('%s, then home lands on sign-in: NO_SESSION', async (_n, call) => {
-      const s = fakeSession({ respond: blocked, landings: [LOGIN] });
-      const c = await open(s);
-      await expect(call(c)).rejects.toMatchObject({ code: 'NO_SESSION', message: 'Schoology connection expired while posting: reconnect in Settings' });
+      ['form save', (c) => c.post(BYQ, 'a=1'), `POST ${BYQ}`],
+      ['rubric save', (c) => c.putRubric(GI, {}), `PUT ${GI}`],
+    ])('%s, then home is sent to sign-in: NO_SESSION', async (_n, call, key) => {
+      // The session ends with the failed save: /home is sent to sign-in only after it.
+      let failed = false;
+      const f = fake({ [key]: () => { failed = true; return down; }, '/home': () => (failed ? { login: true } : HOME()) });
+      const c = await open(f);
+      await c.get(BYQ);
+      await expect(call(c)).rejects.toMatchObject({ code: 'NO_SESSION' });
     });
-    test('home times out and the page stays where it was: UNREACHABLE, not a live session', async () => {
-      const s = fakeSession({ respond: blocked, landings: [Object.assign(new Error('Timeout 30000ms exceeded'), { stay: true })] });
-      const c = await open(s);
-      await expect(c.get(BYQ)).rejects.toMatchObject({ code: 'UNREACHABLE' });
-    });
-    test('home does not load: UNREACHABLE', async () => {
-      const s = fakeSession({ respond: blocked, landings: [new Error('net::ERR_INTERNET_DISCONNECTED')] });
-      const c = await open(s);
+    test('home does not answer either: UNREACHABLE', async () => {
+      let homes = 0;
+      const f = fake({ [`POST ${BYQ}`]: down, '/home': () => (homes++ === 0 ? HOME() : down) });
+      const c = await open(f);
+      await c.putRubric(GI, {});
       await expect(c.post(BYQ, 'a=1')).rejects.toMatchObject({ code: 'UNREACHABLE' });
     });
   });

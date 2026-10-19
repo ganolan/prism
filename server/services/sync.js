@@ -15,22 +15,13 @@ import {
 } from './schoology.js';
 import { filterRecentAssignments } from './recentWindow.js';
 import { groupRevisionsByUid, deriveNativeSubmission } from '../lib/submissionRevisions.js';
-import { retryAsync } from '../lib/retryAsync.js';
 import { droppedAtFor } from '../lib/enrolmentStatus.js';
 import { createSubmissionFetcher } from './graderSubmissions.js';
 import { getSyncConfig } from '../middleware/featureGate.js';
 import { syncMasteryForCourse, hasMasterySession } from './masterySync.js';
-import { recordSchoologyUnsubmit, settleResubmissions } from './resubmissions.js';
+import { settleResubmissions } from './resubmissions.js';
 import { captureFeedbackSnapshots } from './feedbackSnapshots.js';
-
-// Triage: grades.first_submitted_at is a running minimum of the non-zero
-// submission times we observe (the bulk revisions API only returns the latest
-// revision). Used in each submission upsert's ON CONFLICT clause.
-const KEEP_EARLIEST_FIRST_SUBMITTED = `
-      first_submitted_at = CASE
-        WHEN excluded.first_submitted_at > 0
-         AND (COALESCE(grades.first_submitted_at, 0) = 0 OR excluded.first_submitted_at < grades.first_submitted_at)
-        THEN excluded.first_submitted_at ELSE grades.first_submitted_at END`;
+import { readTaskSubmissions, KEEP_EARLIEST_FIRST_SUBMITTED } from './taskSubmissions.js';
 
 // Issue #56: flip newly-discovered template sections to excluded=1. Same
 // predicate as the boot-time backfill in db/index.js but called every sync
@@ -286,267 +277,37 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   const ltiAssignments = dropboxAssignments.filter(a => a.assignment_type === 'lti_submission');
   const nativeDropboxAssignments = dropboxAssignments.filter(a => a.assignment_type !== 'lti_submission');
 
-  // Upsert native submission state (insert the row if missing so a submitted-but-
-  // ungraded cell still surfaces) — late/draft/timing + submission_type.
-  const upsertSubmissionWithType = db.prepare(`
-    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, exception, late, draft, latest_revision_at, first_submitted_at, submission_type, synced_at)
-    VALUES (?, ?, ?, NULL, ?, 0, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(student_id, assignment_id) DO UPDATE SET
-      late = excluded.late,
-      draft = excluded.draft,
-      latest_revision_at = excluded.latest_revision_at,
-      submission_type = excluded.submission_type,
-      synced_at = excluded.synced_at,${KEEP_EARLIEST_FIRST_SUBMITTED}
-  `);
-  // No revision → not submitted. UPDATE-only (never insert) so a never-touched
-  // cell keeps "no engagement" (no grades row); clears status + type.
-  const clearSubmissionWithType = db.prepare(`
-    UPDATE grades SET late = 0, draft = 0, latest_revision_at = 0, submission_type = NULL, synced_at = ?
-    WHERE student_id = ? AND assignment_id = ?
-  `);
-
-  // Submission status phase: one bulk fetch per native-dropbox assignment (#55);
-  // per-assignment atomicity — a transient error discards that assignment's
-  // results and continues.
-  const acceptedResults = []; // committed at end of section in one transaction
-  const failedAssignmentIds = [];
-  let submissionAbandoned = false;
-  let rateLimitHits = 0;
-  let transientFailures = 0;
-  // #55: counts bulk fetches (one per native-dropbox assignment), not the old
-  // per-(student) call count — fed into sync_metrics.submission_calls.
-  let submissionAttempts = 0;
-  // Local ids of the assignments whose revisions were read in full this pass (native
-  // bulk read, or an 'ok' lti document read). The end-of-sync snapshot capture may
-  // clear these pairs' Prism save logs (feedbackSnapshots.js, residual review round 3).
-  const revisionsRead = new Set();
-
-  for (const a of nativeDropboxAssignments) {
-    if (failedAssignmentIds.length >= submissionAbandonAfter) {
-      submissionAbandoned = true;
-      break;
-    }
-    const assignRow = selectAssignmentByExt.get(String(a.id));
-    if (!assignRow) continue;
-
-    // #55: ONE bulk fetch per assignment (was O(students) per-cell calls).
-    // Per-assignment atomicity: a transient error discards this assignment and
-    // continues; non-transient aborts the sync (unchanged contract).
-    let revisions;
-    try {
-      revisions = await getAssignmentSubmissions(sectionId, String(a.id));
-      submissionAttempts++;
-    } catch (err) {
-      if (err && err.transient) {
-        if (err.rateLimited) rateLimitHits++; else transientFailures++;
-        failedAssignmentIds.push(String(a.id));
-        continue;
-      }
-      throw err;
-    }
-    const byUid = groupRevisionsByUid(revisions);
-    revisionsRead.add(assignRow.id);
-
-    const cells = studentEnrollments
-      .map((e) => ({ e, studentRow: selectStudentByUid.get(String(e.uid)) }))
-      .filter((c) => c.studentRow);
-
-    for (const { e, studentRow } of cells) {
-      acceptedResults.push({
-        studentId: studentRow.id,
-        assignmentId: assignRow.id,
-        enrolmentId: String(e.id),
-        maxPoints: assignRow.max_points ?? null,
-        summary: byUid.get(String(e.uid)) || null,
-      });
-    }
-  }
-
-  let submissionCount = 0;
-  const writeSubmissions = db.transaction((rows) => {
-    for (const r of rows) {
-      // Bulk revisions are authoritative for native dropbox (#55): a non-draft
-      // revision → submitted (submission_type "drop"); a draft-only revision →
-      // in progress; no revision → cleared (no engagement).
-      const d = deriveNativeSubmission(r.summary);
-      if (d) {
-        upsertSubmissionWithType.run(
-          r.studentId, r.assignmentId, r.enrolmentId, r.maxPoints,
-          d.late, d.draft, d.latestRevisionAt, d.latestRevisionAt, d.submissionType, now,
-        );
-        submissionCount++;
-      } else {
-        clearSubmissionWithType.run(now, r.studentId, r.assignmentId);
-      }
-    }
+  const result = await readTaskSubmissions(db, {
+    sectionId,
+    now,
+    students: studentEnrollments.map((e) => ({ id: String(e.id), uid: String(e.uid) })),
+    native: nativeDropboxAssignments.map((a) => String(a.id)),
+    lti: ltiAssignments.map((a) => String(a.id)),
+    // Make-up tests: who has an attempt on each Schoology test in the sync window.
+    tests: filterRecentAssignments(skipSubmissions ? [] : assignments.filter(isTest), recentOnly, recentDays, now).target.map((a) => String(a.id)),
+    fetchDocuments: opts.fetchDocuments,
+    fetchTestAttempts: opts.fetchTestAttempts,
+    backoffMs: opts.ltiFetchBackoffMs ?? 750,
+    abandonAfter: submissionAbandonAfter,
   });
-  writeSubmissions(acceptedResults);
-
-  // #62: lti_submission state pass. Two per-assignment reads (submitted +
-  // in-progress documents) give every assigned student's true state. Writes
-  // grades.lti_submission_state; inserts a row for un-graded cells so
-  // not_started / in_progress reach the gradebook. No-op without a session.
-  const upsertLtiState = db.prepare(`
-    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, lti_submission_state, synced_at)
-    VALUES (?, ?, ?, NULL, ?, ?, ?)
-    ON CONFLICT(student_id, assignment_id) DO UPDATE SET
-      lti_submission_state = excluded.lti_submission_state,
-      synced_at = excluded.synced_at
-  `);
-  // #125 + triage resubmissions: the grader submissionDate is the LATEST submission
-  // → latest_revision_at (+ earliest kept in first_submitted_at). submitted_at stays
-  // the REST grade time written by upsertGrade above, so latest_revision_at >
-  // submitted_at = resubmitted since graded (verified 2026-10-03,
-  // .claude/schoology-api-reference.md).
-  const upsertLtiStateWithTime = db.prepare(`
-    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, lti_submission_state, latest_revision_at, first_submitted_at, late, synced_at)
-    VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(student_id, assignment_id) DO UPDATE SET
-      lti_submission_state = excluded.lti_submission_state,
-      latest_revision_at = excluded.latest_revision_at,
-      late = excluded.late,
-      synced_at = excluded.synced_at,${KEEP_EARLIEST_FIRST_SUBMITTED}
-  `);
-  // #76: record the per-assignment fetch outcome so the gradebook can flag a
-  // genuine capture failure ('failed') vs a healthy read ('ok'). Assignments we
-  // never reach this loop for (non-lti, windowed-out, or no session) keep their
-  // prior value — so old work never false-flags and a good full sync self-clears.
-  const setLtiFetchStatus = db.prepare(`UPDATE assignments SET lti_fetch_status = ? WHERE id = ?`);
-  // The document fetch returns null on a transient session-read hiccup (not a
-  // throw); a single retry recovers the common all-or-nothing per-assignment
-  // failure before we record it as 'failed'.
-  const ltiFetchBackoffMs = opts.ltiFetchBackoffMs ?? 750;
-  if (typeof opts.fetchDocuments === 'function' && ltiAssignments.length) {
-    for (const a of ltiAssignments) {
-      const assignRow = selectAssignmentByExt.get(String(a.id));
-      if (!assignRow) continue;
-      const result = await retryAsync(
-        () => opts.fetchDocuments(String(a.id)),
-        { attempts: 2, backoffMs: ltiFetchBackoffMs },
-      );
-      if (!result) { // fetch failed after retry → record so the teacher can re-sync
-        setLtiFetchStatus.run('failed', assignRow.id);
-        continue;
-      }
-      setLtiFetchStatus.run('ok', assignRow.id);
-      revisionsRead.add(assignRow.id);
-      const { states: stateMap, details: detailMap } = result;
-      const writeStates = db.transaction(() => {
-        for (const { e, studentRow } of studentEnrollments
-          .map((e) => ({ e, studentRow: selectStudentByUid.get(String(e.uid)) }))
-          .filter((c) => c.studentRow)) {
-          const state = stateMap.get(String(e.uid));
-          if (!state) continue; // student not in either list → leave as-is
-          // #125: a submitted student also carries submittedAt/late — persist them
-          // (consistent with the native dropbox path) via the timestamped upsert.
-          const detail = detailMap?.get(String(e.uid));
-          if (detail) {
-            upsertLtiStateWithTime.run(
-              studentRow.id, assignRow.id, String(e.id), assignRow.max_points ?? null, state,
-              detail.submittedAt ?? 0, detail.submittedAt ?? 0, detail.late ?? 0, now,
-            );
-          } else {
-            upsertLtiState.run(studentRow.id, assignRow.id, String(e.id), assignRow.max_points ?? null, state, now);
-          }
-        }
-      });
-      writeStates();
-
-      // A graded student back in progress was unsubmitted in Schoology → chase the
-      // resubmission. Same enrolled-students mapping writeStates iterates (not the
-      // raw stateMap, which may carry uids outside this section's roster).
-      for (const { e, studentRow } of studentEnrollments
-        .map((e) => ({ e, studentRow: selectStudentByUid.get(String(e.uid)) }))
-        .filter((c) => c.studentRow)) {
-        if (stateMap.get(String(e.uid)) !== 'in_progress') continue;
-        recordSchoologyUnsubmit(db, { studentId: studentRow.id, assignmentId: assignRow.id });
-      }
-    }
-  }
-
-  // Make-up tests: who has an attempt on each Schoology test. ONE session read
-  // (plain HTTP, #141) per section (grader_grade_data) for the tests in the sync window. A
-  // taker gets submission_type 'assessment'; on a good read a non-taker's stale
-  // 'assessment' is cleared ('drop' is never touched). test_fetch_status records
-  // the outcome per test, like lti_fetch_status: a failed read is 'failed'
-  // (unknown, never "missed"), and a test never reached (no session, windowed
-  // out, archived) keeps its previous value.
-  const testAll = skipSubmissions ? [] : assignments.filter(isTest);
-  const { target: testAssignments } = filterRecentAssignments(testAll, recentOnly, recentDays, now);
-  if (typeof opts.fetchTestAttempts === 'function' && testAssignments.length) {
-    await syncTestAttempts(db, {
-      sectionId, now, studentEnrollments, testAssignments, selectStudentByUid, selectAssignmentByExt,
-      fetchTestAttempts: opts.fetchTestAttempts, backoffMs: ltiFetchBackoffMs,
-    });
-  }
 
   return {
     studentsCount: studentEnrollments.length,
     assignmentsCount: assignments.length,
     gradesCount,
-    submissionCount,
-    failedAssignmentIds,
-    submissionAbandoned,
-    submissionAttempts,
+    submissionCount: result.submissionCount,
+    failedAssignmentIds: result.failedAssignmentIds,
+    submissionAbandoned: result.submissionAbandoned,
+    submissionAttempts: result.submissionAttempts,
     windowSkipped,
-    rateLimitHits,
-    transientFailures,
-    revisionsReadAssignmentIds: [...revisionsRead],
+    rateLimitHits: result.rateLimitHits,
+    transientFailures: result.transientFailures,
+    revisionsReadAssignmentIds: [...result.revisionsRead],
   };
 }
 
 // Schoology REST type 'assessment' = a test or quiz.
 const isTest = (a) => a.type === 'assessment';
-
-async function syncTestAttempts(db, {
-  sectionId, now, studentEnrollments, testAssignments, selectStudentByUid, selectAssignmentByExt, fetchTestAttempts, backoffMs,
-}) {
-  const setStatus = db.prepare(`UPDATE assignments SET test_fetch_status = ? WHERE id = ?`);
-  // One upsert per (student, test) cell: test_attempt = 'took' | 'none' | 'not_assigned'.
-  // 'took' sets submission_type 'assessment'; only an explicit 'none' clears a stale
-  // 'assessment'; 'drop' is never touched.
-  const writeAttempt = db.prepare(`
-    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, submission_type, test_attempt, synced_at)
-    VALUES (@studentId, @assignmentId, @enrolmentId, NULL, @maxPoints, CASE WHEN @attempt = 'took' THEN 'assessment' END, @attempt, @now)
-    ON CONFLICT(student_id, assignment_id) DO UPDATE SET
-      test_attempt = excluded.test_attempt,
-      submission_type = CASE
-        WHEN grades.submission_type = 'drop' THEN 'drop'
-        WHEN excluded.test_attempt = 'took' THEN 'assessment'
-        WHEN excluded.test_attempt = 'none' AND grades.submission_type = 'assessment' THEN NULL
-        ELSE grades.submission_type END,
-      synced_at = excluded.synced_at
-  `);
-  const tests = testAssignments
-    .map((a) => ({ ext: String(a.id), row: selectAssignmentByExt.get(String(a.id)) }))
-    .filter((t) => t.row);
-  if (!tests.length) return;
-  const students = studentEnrollments
-    .map((e) => ({ e, studentRow: selectStudentByUid.get(String(e.uid)) }))
-    .filter((c) => c.studentRow);
-
-  const result = await retryAsync(
-    () => fetchTestAttempts(sectionId, studentEnrollments.map((e) => String(e.uid)), tests.map((t) => t.ext)),
-    { attempts: 2, backoffMs },
-  );
-  db.transaction(() => {
-    for (const t of tests) {
-      // A test the response has no cells for at all is unknown, not "nobody took it".
-      const covered = !!result && [...result.values()].some((byItem) => byItem.has(t.ext));
-      setStatus.run(covered ? 'ok' : 'failed', t.row.id);
-      if (!covered) continue;
-      for (const { e, studentRow } of students) {
-        const cell = result.get(String(e.uid))?.get(t.ext);
-        if (!cell) continue; // no cell for this student → unknown: leave the row as it is
-        const attempt = cell.took ? 'took' : cell.notAssigned ? 'not_assigned' : 'none';
-        writeAttempt.run({
-          studentId: studentRow.id, assignmentId: t.row.id, enrolmentId: String(e.id),
-          maxPoints: t.row.max_points ?? null, attempt, now,
-        });
-      }
-    }
-  })();
-}
 
 // End-of-sync serial retry pass for assignments that hit transient submission
 // errors during the main sync. One pass, no rate limiter, no Retry-After

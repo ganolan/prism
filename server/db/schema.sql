@@ -103,6 +103,9 @@ CREATE TABLE IF NOT EXISTS assignments (
   -- #52: last mastery scores + grade comments read for this assignment alone
   -- (syncMasteryForAssignment; ISO; null = never).
   mastery_synced_at TEXT,
+  -- #108: last time this task's submissions were read in full (dropbox revisions,
+  -- OneDrive/LTI documents or test attempts), by a sync or a page (ISO; null = never).
+  submissions_read_at TEXT,
   synced_at TEXT
 );
 

@@ -173,6 +173,8 @@ const MIGRATIONS = [
   // Archived courses: when their submissions (dropbox, OneDrive/LTI, test takers) were
   // read in full; null = never (imported before #72 was reversed, 19/10/2026).
   `ALTER TABLE courses ADD COLUMN submissions_read_at TEXT`,
+  // #108: when one task's submissions were last read in full (sync or a page's refresh).
+  `ALTER TABLE assignments ADD COLUMN submissions_read_at TEXT`,
 ];
 
 // Remove orphaned auto-flag rows. The auto-flag feature that wrote 'missing',

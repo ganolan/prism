@@ -22,6 +22,7 @@ import { syncMasteryForCourse, hasMasterySession } from './masterySync.js';
 import { settleResubmissions } from './resubmissions.js';
 import { captureFeedbackSnapshots } from './feedbackSnapshots.js';
 import { readTaskSubmissions, KEEP_EARLIEST_FIRST_SUBMITTED } from './taskSubmissions.js';
+import { writeGrades } from './taskGrades.js';
 
 // Issue #56: flip newly-discovered template sections to excluded=1. Same
 // predicate as the boot-time backfill in db/index.js but called every sync
@@ -197,52 +198,9 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   writeAssignments(assignments);
 
   const grades = await getSectionGrades(sectionId);
-  // Note: late/draft are owned by the submission-status sync (below) and are
-  // intentionally NOT updated on conflict here. Grade sync seeds them to 0
-  // on initial insert; submission sync overwrites them with authoritative
-  // values from /sections/{id}/submissions/{aid}/{uid}.
-  const upsertGrade = db.prepare(`
-    INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, grade_comment, comment_status, exception, submitted_at, late, draft, synced_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)
-    ON CONFLICT(student_id, assignment_id) DO UPDATE SET
-      score = excluded.score,
-      max_score = excluded.max_score,
-      grade_comment = excluded.grade_comment,
-      comment_status = excluded.comment_status,
-      exception = excluded.exception,
-      submitted_at = excluded.submitted_at,
-      synced_at = excluded.synced_at
-  `);
-
-  const enrolmentMap = {};
-  const allEnrolments = db.prepare('SELECT id, student_id, schoology_enrolment_id FROM enrolments WHERE course_id = ?').all(courseId);
-  for (const en of allEnrolments) enrolmentMap[en.schoology_enrolment_id] = en.student_id;
-
   const enrollIdToUid = {};
   for (const e of enrollments) enrollIdToUid[String(e.id)] = String(e.uid);
-
-  const selectStudentByUid = db.prepare('SELECT id FROM students WHERE schoology_uid = ?');
-  const selectAssignmentByExt = db.prepare('SELECT id, max_points FROM assignments WHERE schoology_assignment_id = ?');
-  let gradesCount = 0;
-  const writeGrades = db.transaction((rows) => {
-    for (const g of rows) {
-      const enrollmentId = String(g.enrollment_id);
-      let studentId = enrolmentMap[enrollmentId];
-      if (!studentId) {
-        const uid = enrollIdToUid[enrollmentId];
-        if (uid) {
-          const row = selectStudentByUid.get(uid);
-          studentId = row?.id;
-        }
-      }
-      if (!studentId) continue;
-      const assignRow = selectAssignmentByExt.get(String(g.assignment_id));
-      if (!assignRow) continue;
-      upsertGrade.run(studentId, assignRow.id, enrollmentId, g.grade ?? null, g.max_points ?? assignRow.max_points ?? null, g.comment || null, g.comment_status ?? null, g.exception ?? 0, Number(g.timestamp) || 0, now);
-      gradesCount++;
-    }
-  });
-  writeGrades(grades);
+  const gradesCount = writeGrades(db, { courseId, grades, now, enrollIdToUid });
 
   // Submission status sync (native dropbox): authoritative late/draft/timing from
   // ONE bulk GET /sections/{id}/submissions/{aid} per assignment (#55), grouped by
@@ -253,8 +211,8 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   // is authoritative for native dropbox, so no browser-session/grader lookup is
   // needed here (lti_submission is the blind case — handled separately below via
   // the per-assignment document endpoints, #62).
-  // #72: archived finalisation freezes submission state — an empty list makes this
-  // phase a clean no-op (the loop doesn't iterate, writeSubmissions([]) is a no-op).
+  // skipSubmissions makes this phase a clean no-op (empty lists). No caller sets it
+  // since archived finalising reads submissions in full (#72 reversed, 19/10/2026).
   const dropboxAll = skipSubmissions
     ? []
     : assignments.filter(a => a.allow_dropbox === '1' || a.allow_dropbox === 1);

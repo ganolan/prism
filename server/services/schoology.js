@@ -121,6 +121,13 @@ export async function getSectionGrades(sectionId) {
   return data?.grades?.grade || [];
 }
 
+// One task's grades: the section grades read filtered with ?assignment_id= (verified
+// 2026-10-19: only that task's rows, identical to the full read's; #108).
+export async function getAssignmentGrades(sectionId, assignmentId) {
+  const data = await apiGet(`/sections/${sectionId}/grades?assignment_id=${assignmentId}`);
+  return data?.grades?.grade || [];
+}
+
 export async function getSectionGradingPeriods(sectionId) {
   const data = await apiGet(`/sections/${sectionId}/grading_periods`);
   return data?.grading_period || [];

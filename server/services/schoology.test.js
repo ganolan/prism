@@ -227,3 +227,21 @@ describe('submission files (#107)', () => {
     expect(seen.map((x) => x.host)).toEqual(['files-cdn.schoology.com', 'api.schoology.com', 'files-cdn.schoology.com']);
   });
 });
+
+describe('getAssignmentGrades (#108)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  // Verified 19/10/2026: ?assignment_id= filters the section grades read to one task.
+  test('asks the section grades read for one task', async () => {
+    const { getAssignmentGrades } = await import('./schoology.js');
+    const calls = [];
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      calls.push(url);
+      return jsonResponse({ grades: { grade: [{ enrollment_id: 1, assignment_id: 2, grade: 3 }] } });
+    }));
+    const rows = await getAssignmentGrades('S', 'A');
+    expect(rows).toEqual([{ enrollment_id: 1, assignment_id: 2, grade: 3 }]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatch(/\/sections\/S\/grades\?assignment_id=A$/);
+  });
+});

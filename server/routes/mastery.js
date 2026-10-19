@@ -973,7 +973,7 @@ router.post('/:courseId/write-comment', async (req, res) => {
 
 // POST /api/mastery/:courseId/send-all — batched bulk send (#51).
 // Collapses the assessment-page "Send all" loop into one request: all rubric
-// score writes go through a single browser session (writeMasteryScoresBatch),
+// score writes go through one mastery client (writeMasteryScoresBatch, plain HTTP),
 // then a single fresh GET + one bulk comment PUT covers every comment. The
 // batch is all-or-nothing — any failure aborts before anything is mirrored
 // locally, and a retry is idempotent (observations replace; the comment PUT
@@ -1058,7 +1058,7 @@ router.post('/:courseId/send-all', async (req, res) => {
   const SCORES_MAY_BE_WRITTEN = 'nothing was recorded in Prism; rubric scores may already be in Schoology, sync, then check';
   const failMessage = (msg) => (scoreEntries.length > 0 ? `${msg}: ${SCORES_MAY_BE_WRITTEN}` : msg);
   try {
-    // 1. All rubric scores in one browser session.
+    // 1. All rubric scores through one mastery client (one page read for the CSRF pair).
     if (scoreEntries.length > 0) {
       await writeMasteryScoresBatch({
         sectionId,

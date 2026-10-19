@@ -28,7 +28,7 @@
  */
 import { fetchAssignmentSubmissionState } from './graderDocuments.js';
 import { fetchSectionTestAttempts } from './graderTestAttempts.js';
-import { cookieJar } from './schoologyWeb.js';
+import { cookieJar, getResource, WebSessionError } from './schoologyWeb.js';
 import { noteSessionLive } from './schoologySession.js';
 
 /**
@@ -51,12 +51,28 @@ export async function createSubmissionFetcher({ jar, fetchImpl = fetch } = {}) {
   if (!cookies) return null;
 
   let expired = false;
+  let rechecked = false;
   const web = {
     jar: cookies,
     fetchImpl,
     onSessionExpired() {
       if (!expired) noteSessionLive('expired', 'Schoology sent a sync read to the login page');
       expired = true;
+    },
+    // A lapsed session answers the grader lists 403, not with a sign-in redirect
+    // (2026-10-19). One /home load per sync tells the two apart: a lapsed session is
+    // sent to sign-in and renewed (getResource), a live one answers 200 and the 403
+    // stands. → true when the reads are worth asking again (the first check only).
+    async recheckSession() {
+      if (rechecked || expired) return false;
+      rechecked = true;
+      try {
+        const r = await getResource(cookies, '/home', { fetchImpl });
+        return r.status === 200;
+      } catch (err) {
+        if (err instanceof WebSessionError && err.code === 'SESSION_EXPIRED') web.onSessionExpired();
+        return false;
+      }
     },
   };
 

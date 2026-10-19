@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from 'vitest';
+import { describe, test, expect, beforeEach, vi } from 'vitest';
 import { fetchAssignmentSubmissionState } from './graderDocuments.js';
 import { createSubmissionFetcher } from './graderSubmissions.js';
 import { fakeSchoologyWeb } from '../testing/fakeSchoologyWeb.js';
@@ -69,5 +69,52 @@ describe('createSubmissionFetcher', () => {
     expect(await f.fetchTestAttempts('S1', ['701'], ['T1'])).toBeNull();
     expect(fake.requests.length).toBe(sent);
     expect((await sessionStatus({ check: false, hasSession: () => true })).live).toBe('expired');
+  });
+});
+
+describe('a lapsed session answers the lists 403 (2026-10-19)', () => {
+  beforeEach(() => resetSessionStatusCache());
+  const SUB2 = '/iapi2/assignments/2/submitted-documents/';
+  const INP2 = '/iapi2/assignments/2/in-progress-documents/';
+  const forbidden = { status: 403, json: { data: null } };
+
+  test('both lists 403 → one /home load renews the session, then the lists are read again', async () => {
+    let lapsed = true;
+    const fake = fakeSchoologyWeb({ routes: {
+      [SUB]: () => (lapsed ? forbidden : { json: submitted }),
+      [INP]: () => (lapsed ? forbidden : { json: inProgress }),
+      '/home': () => (lapsed ? { login: true } : { text: '<html>home</html>' }),
+    } });
+    fake.jar.renew = vi.fn(async () => { lapsed = false; return true; });
+    const f = await createSubmissionFetcher({ jar: fake.jar, fetchImpl: fake.fetchImpl });
+    expect((await f.fetchDocuments('8555933030')).states.get('701')).toBe('submitted');
+    expect(fake.jar.renew).toHaveBeenCalledTimes(1);
+  });
+
+  test('a session that cannot be renewed → null, and the session reads expired', async () => {
+    const fake = fakeSchoologyWeb({ routes: { [SUB]: forbidden, [INP]: forbidden, '/home': { login: true } } });
+    fake.jar.renew = vi.fn(async () => false);
+    const f = await createSubmissionFetcher({ jar: fake.jar, fetchImpl: fake.fetchImpl });
+    expect(await f.fetchDocuments('8555933030')).toBeNull();
+    expect((await sessionStatus({ check: false, hasSession: () => true })).live).toBe('expired');
+  });
+
+  test('a live session whose lists really answer 403 → null; /home is loaded once per sync, not per assignment', async () => {
+    const fake = fakeSchoologyWeb({ routes: {
+      [SUB]: forbidden, [INP]: forbidden, [SUB2]: forbidden, [INP2]: forbidden, '/home': { text: '<html>home</html>' },
+    } });
+    const f = await createSubmissionFetcher({ jar: fake.jar, fetchImpl: fake.fetchImpl });
+    expect(await f.fetchDocuments('8555933030')).toBeNull();
+    expect(await f.fetchDocuments('2')).toBeNull();
+    expect(fake.requests.filter((q) => q.path === '/home')).toHaveLength(1);
+    expect(fake.requests.filter((q) => q.path === SUB)).toHaveLength(2);
+    expect(fake.requests.filter((q) => q.path === SUB2)).toHaveLength(1);
+  });
+
+  test('one list 403 is an answer, not a lapsed session: no /home load', async () => {
+    const fake = fakeSchoologyWeb({ routes: { [SUB]: forbidden, [INP]: { json: inProgress }, '/home': { text: 'home' } } });
+    const f = await createSubmissionFetcher({ jar: fake.jar, fetchImpl: fake.fetchImpl });
+    expect([...(await f.fetchDocuments('8555933030')).states.keys()]).toEqual(['702', '703']);
+    expect(fake.requests.some((q) => q.path === '/home')).toBe(false);
   });
 });

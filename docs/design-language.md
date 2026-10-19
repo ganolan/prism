@@ -1497,3 +1497,11 @@ Chosen 18/10/2026 from three mockups (state chip on every row, verb where it mat
 - **One muted line** (`MasteryFreshness`, `.mastery-freshness`, 0.8rem, `var(--text-muted)`), under the course header, beside the assessment page's Refresh from Schoology, above the student page's Mastery Performance Summary: "Mastery levels as of 03:02 today. Checking Schoology for changes…", then "Mastery levels read from Schoology at 22:31 today." Times are "HH:MM today", else DD/MM/YYYY, HH:MM.
 - **Failure:** "Could not refresh mastery levels from Schoology. Showing levels read at …" in `var(--badge-red-text)`, the reason in the tooltip; a sign-in failure adds **Log in to Schoology** (`.ghost.accent`, to Settings).
 - **Never under the teacher's hands:** the assessment page swaps in newer data only when no card has unsaved changes. Otherwise an `.alert-warning` banner: "Schoology has newer levels or comments for this assignment. Save or discard your changes, then reload to see them." with **Reload** (`.secondary`). Unchanged Schoology data reloads nothing; only the time moves.
+
+## Submissions and scores freshness line (October 2026, #108)
+
+- **Same line, new subject:** `MasteryFreshness` takes a `subject` (`{ label, short }`); the triage and course reads pass "Submissions and scores": "Submissions and scores read from Schoology at 23:20 today.", "Could not refresh submissions and scores from Schoology. Showing submissions read at …". The mastery wording is the default.
+- **Where:** at the top of the dashboard's triage rail (the rail reads its own tasks); on the course page, a second line under the mastery line (the page reads its triage panel's tasks plus its recent ones, and the rail does not read again).
+- **One line per read,** not a merged line: each read has its own time and its own failure (mastery needs the saved session; submissions and grades mostly do not).
+- **Replaces** the course rail's "Counts as of the last sync, …" line, which the read made stale.
+- **The assessment page keeps one line** (mastery): its submissions and grades read runs with the mastery read and reloads the page with it.

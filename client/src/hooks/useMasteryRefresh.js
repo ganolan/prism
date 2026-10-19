@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
-// #52: a page that shows mastery renders what Prism holds, then asks the server to read it from
+// #52 (and #108: the triage and course reads of submissions and scores use it too, through the
+// same answer shape): a page that shows mastery renders what Prism holds, then asks the server to read it from
 // Schoology again (`refresh`: an api.js refreshMasteryFor… call; the server skips a read made in the
 // last 2 minutes). When Schoology was read, `onRefreshed` reloads the page's mastery.
 // `key` starts one refresh per value (a course id, an assignment); null waits (data not loaded yet,

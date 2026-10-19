@@ -135,3 +135,17 @@ describe('triage status lines (Amendment B)', () => {
     expect(api.reviewResubmission).toBeUndefined();
   });
 });
+
+describe('on-demand reads (#108)', () => {
+  it('refreshTriage and refreshCourse POST and answer syncedAt = readAt for the refresh hook', async () => {
+    const calls = [];
+    vi.stubGlobal('fetch', vi.fn(async (url, opts) => {
+      calls.push([url, opts.method, opts.body]);
+      return { ok: true, status: 200, json: async () => ({ refreshed: 1, readAt: '2026-10-19T07:00:00.000Z', failed: [] }) };
+    }));
+    expect(await api.refreshTriage({ courseId: 5 })).toMatchObject({ refreshed: 1, syncedAt: '2026-10-19T07:00:00.000Z' });
+    expect(await api.refreshCourse(5)).toMatchObject({ syncedAt: '2026-10-19T07:00:00.000Z' });
+    expect(calls[0]).toEqual(['/api/triage/refresh', 'POST', JSON.stringify({ courseId: 5 })]);
+    expect(calls[1].slice(0, 2)).toEqual(['/api/courses/5/refresh', 'POST']);
+  });
+});

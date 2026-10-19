@@ -78,3 +78,24 @@ describe('CoursePage mastery refresh (#52)', () => {
     await waitFor(() => expect(vi.mocked(api.getMasteryForCourse).mock.calls.length).toBe(before + 1));
   });
 });
+
+describe('CoursePage submissions and scores read (#108)', () => {
+  it('reads the course once after loading and reloads the gradebook when it read some', async () => {
+    vi.mocked(api.getMasteryForCourse).mockResolvedValue(mastery(OLD));
+    vi.mocked(api.refreshMasteryForCourse).mockResolvedValue({ refreshed: false, syncedAt: OLD });
+    vi.mocked(api.refreshCourse).mockResolvedValue({ refreshed: 3, readAt: NEW, syncedAt: NEW, failed: [] });
+    renderPage();
+    await waitFor(() => expect(api.refreshCourse).toHaveBeenCalledWith('5'));
+    await waitFor(() => expect(api.getGradebook).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(/^Submissions and scores read from Schoology at /)).toBeInTheDocument();
+    expect(api.refreshCourse).toHaveBeenCalledTimes(1);
+  });
+
+  it('an archived course is not read', async () => {
+    vi.mocked(api.getCourse).mockResolvedValue({ id: 5, course_name: 'AP CSP', archived: 1 });
+    vi.mocked(api.getMasteryForCourse).mockResolvedValue(mastery(OLD));
+    renderPage();
+    await waitFor(() => expect(freshness().textContent).toMatch(/^Mastery levels read from Schoology at /));
+    expect(api.refreshCourse).not.toHaveBeenCalled();
+  });
+});

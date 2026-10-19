@@ -279,6 +279,14 @@ export const getTriage = ({ courseId, includeFormative } = {}) => {
   const qs = p.toString();
   return request(`/triage${qs ? `?${qs}` : ''}`);
 };
+// #108: read the triage lists' tasks (submissions and scores) from Schoology again; the
+// server skips a task read in the last 2 minutes. → { refreshed, readAt, failed, error?, signIn? },
+// plus syncedAt (= readAt) for useMasteryRefresh.
+const withSyncedAt = (r) => (r ? { ...r, syncedAt: r.readAt ?? null } : r);
+export const refreshTriage = ({ courseId = null, includeFormative } = {}) =>
+  request('/triage/refresh', { method: 'POST', body: JSON.stringify({ courseId, includeFormative }) }).then(withSyncedAt);
+// #108: the course page's read: its triage tasks plus its recent tasks.
+export const refreshCourse = (courseId) => request(`/courses/${courseId}/refresh`, { method: 'POST' }).then(withSyncedAt);
 // Calendar freshness only (source, totalSchoolDays, syncedAt) — cheaper than
 // the full triage payload; SyncConfig uses it to decide whether the
 // PowerSchool step should default on.

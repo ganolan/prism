@@ -1,7 +1,7 @@
 import { goToSignIn } from '../lib/signIn.js';
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, refreshMasteryForCourse, triggerMasterySync, getSubmissionLinks, getTriage, setMakeUpIgnored, setAssessmentPublished, getQuizGroups, getCourseCommentSummaries } from '../services/api.js';
+import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, refreshMasteryForCourse, triggerMasterySync, getSubmissionLinks, getTriage, setMakeUpIgnored, setAssessmentPublished, getQuizGroups, getCourseCommentSummaries, refreshCourse } from '../services/api.js';
 import AnalyticsView from '../components/AnalyticsView.jsx';
 import OverridePopup from '../components/OverridePopup.jsx';
 import TriageSection from '../components/triage/TriageSection.jsx';
@@ -39,6 +39,8 @@ import LateClock from '../components/LateClock.jsx';
 import { DEFAULT_TYPE_FILTER, isUnpublished, passesTypeFilter, typeFilterCounts } from '../lib/assessmentTypeFilter.js';
 
 const SHORT_BADGE = { late: 'L', draft: 'D', missing: 'M', 'not-started': 'NS', submitted: 'S', 'in-progress': 'IP' };
+// #108: the freshness line for the course's submissions and scores read.
+const SUBMISSIONS = { label: 'Submissions and scores', short: 'submissions' };
 const BADGE_TONE_CLASS = { red: 'badge-red', blue: 'badge-blue', amber: 'badge-pink', green: 'badge-green', yellow: 'badge-amber', neutral: 'badge-gray' };
 
 export default function CoursePage() {
@@ -131,6 +133,19 @@ export default function CoursePage() {
     },
   );
 
+  // #108: then read this course's tasks (its triage panel's, and those due in the last 30 days or
+  // later) from Schoology: new submissions and scores reach the gradebook and the triage rail
+  // without a sync. The rail does not read on its own here (refresh={false}).
+  const submissionsFreshness = useMasteryRefresh(
+    courseLive ? `${id}:${dataVersion}` : null,
+    () => refreshCourse(id),
+    async () => {
+      const g = await getGradebook(id).catch(() => null);
+      if (g) setGradebook(g);
+      setTriageVersion((v) => v + 1);
+    },
+  );
+
   async function handleMasterySync() {
     setMasterySyncing(true);
     setMasterySyncResult(null);
@@ -209,6 +224,7 @@ export default function CoursePage() {
           </div>
         </div>
         {(courseLive || mastery?.masterySyncedAt) && <MasteryFreshness state={masteryFreshness} syncedAt={mastery?.masterySyncedAt} />}
+        {courseLive && <MasteryFreshness state={submissionsFreshness} subject={SUBMISSIONS} />}
 
         <div className="course-header__tabs">
           <button className={`tab-btn ${view === 'roster' ? 'active' : ''}`} onClick={() => setView('roster')}>
@@ -283,7 +299,7 @@ export default function CoursePage() {
         </div>
         {courseLive && (
           <TriageSection
-            id="course-triage" version={triageVersion} courseId={Number(id)}
+            id="course-triage" version={triageVersion} courseId={Number(id)} refresh={false}
             hidden={view === 'gradebook' && !railOnGradebook}
             onLoaded={(t) => setTriageRed(redCount(t))}
             onMakeUpIgnored={(aid) => patchMakeUpIgnored(aid, true)}

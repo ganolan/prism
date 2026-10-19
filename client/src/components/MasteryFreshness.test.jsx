@@ -51,4 +51,12 @@ describe('MasteryFreshness (#52)', () => {
     expect(screen.getByRole('status').textContent).toBe('Mastery levels read from Schoology at 03:02 today.');
     expect(screen.queryByRole('button')).toBeNull();
   });
+
+  it('subject: names what was read (#108)', () => {
+    const subject = { label: 'Submissions and scores', short: 'submissions' };
+    const { rerender } = render(<MasteryFreshness subject={subject} state={{ status: 'done', syncedAt: TODAY }} now={NOW} />);
+    expect(screen.getByRole('status').textContent).toBe('Submissions and scores read from Schoology at 03:02 today.');
+    rerender(<MasteryFreshness subject={subject} state={{ status: 'error', syncedAt: YESTERDAY }} now={NOW} />);
+    expect(screen.getByRole('status').textContent).toBe('Could not refresh submissions and scores from Schoology. Showing submissions read at 18/10/2026, 03:02.');
+  });
 });

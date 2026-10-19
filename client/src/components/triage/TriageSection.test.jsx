@@ -18,6 +18,7 @@ vi.mock('../../services/api.js', () => ({
   undoResubmission: vi.fn(),
   previewStatusLine: vi.fn(),
   getLessonPlan: vi.fn().mockResolvedValue(null), getStatusLineUntil: vi.fn(),
+  refreshTriage: vi.fn(),
 }));
 
 const SETTINGS = {
@@ -52,6 +53,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   sessionStorage.clear();
   api.getTriage.mockResolvedValue(PAYLOAD);
+  api.refreshTriage.mockResolvedValue({ refreshed: 0, readAt: null, failed: [] });
   api.recordReferral.mockResolvedValue({ id: 1 });
   api.recordExtension.mockResolvedValue({ id: 2 });
   api.getReferrals.mockResolvedValue([]);
@@ -1056,5 +1058,41 @@ describe('panel order (most urgent first)', () => {
     await screen.findByLabelText('Unfinished grading');
     const order = [...document.querySelectorAll('.triage-panel')].map((el) => el.getAttribute('aria-label'));
     expect(order.slice(0, 2)).toEqual(['Unfinished grading', 'Feedback owed']);
+  });
+});
+
+describe('TriageSection on-demand read (#108)', () => {
+  it('after its first load, reads the listed tasks from Schoology and reloads the lists when it read some', async () => {
+    api.refreshTriage.mockResolvedValue({ refreshed: 2, readAt: '2026-10-19T07:00:00.000Z', syncedAt: '2026-10-19T07:00:00.000Z', failed: [] });
+    renderSection();
+    await waitFor(() => expect(api.refreshTriage).toHaveBeenCalledWith({ courseId: null, includeFormative: undefined }));
+    await waitFor(() => expect(api.getTriage).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(/^Submissions and scores read from Schoology at /)).toBeInTheDocument();
+  });
+
+  it('nothing read: the lists are not reloaded', async () => {
+    renderSection();
+    await waitFor(() => expect(api.refreshTriage).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(api.getTriage).toHaveBeenCalledTimes(1);
+  });
+
+  it('a read that answers after Show formative changed reloads with the current toggle', async () => {
+    let answer;
+    api.refreshTriage.mockImplementationOnce(() => new Promise((r) => { answer = r; }));
+    renderSection();
+    await waitFor(() => expect(api.refreshTriage).toHaveBeenCalledTimes(1));
+    fireEvent.click(await screen.findByRole('checkbox', { name: /formative/i }));
+    await waitFor(() => expect(api.getTriage).toHaveBeenLastCalledWith({ courseId: null, includeFormative: true }));
+    await act(async () => { answer({ refreshed: 1, readAt: null, failed: [] }); });
+    const calls = api.getTriage.mock.calls;
+    expect(calls[calls.length - 1][0]).toEqual({ courseId: null, includeFormative: true });
+  });
+
+  it('refresh={false} never reads', async () => {
+    renderSection({ refresh: false });
+    await latePanel();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(api.refreshTriage).not.toHaveBeenCalled();
   });
 });

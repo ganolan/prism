@@ -17,7 +17,10 @@ export function freshnessTime(iso, now = new Date()) {
 // the stamp the page's data came with (shown until the refresh answers).
 // The later of the two stamps wins: a page reloaded after Sync Mastery carries a newer one than the
 // background refresh answered, and that read also clears the refresh's error.
-export default function MasteryFreshness({ state, syncedAt, now }) {
+// `subject` names what was read (#108: the triage and course reads pass submissions and scores).
+const MASTERY = { label: 'Mastery levels', short: 'levels' };
+export default function MasteryFreshness({ state, syncedAt, now, subject = MASTERY }) {
+  const lower = subject.label.toLowerCase();
   const refreshAt = state?.syncedAt ?? null;
   const dataNewer = Boolean(syncedAt) && (!refreshAt || Date.parse(syncedAt) > Date.parse(refreshAt));
   const at = dataNewer ? syncedAt : refreshAt ?? syncedAt ?? null;
@@ -28,14 +31,14 @@ export default function MasteryFreshness({ state, syncedAt, now }) {
   let text;
   let tone = '';
   if (status === 'refreshing') {
-    text = when ? `Mastery levels as of ${when}. Checking Schoology for changes…` : 'Reading mastery levels from Schoology…';
+    text = when ? `${subject.label} as of ${when}. Checking Schoology for changes…` : `Reading ${lower} from Schoology…`;
   } else if (status === 'error') {
     tone = ' mastery-freshness--error';
-    text = `Could not refresh mastery levels from Schoology. ${when ? `Showing levels read at ${when}.` : 'No levels read yet.'}`;
+    text = `Could not refresh ${lower} from Schoology. ${when ? `Showing ${subject.short} read at ${when}.` : `No ${subject.short} read yet.`}`;
   } else if (when) {
-    text = `Mastery levels read from Schoology at ${when}.`;
+    text = `${subject.label} read from Schoology at ${when}.`;
   } else {
-    text = 'Mastery levels not yet read from Schoology.';
+    text = `${subject.label} not yet read from Schoology.`;
   }
   return (
     <p className={`mastery-freshness${tone}`} role="status" title={status === 'error' && !state.signIn ? state.error : undefined}>

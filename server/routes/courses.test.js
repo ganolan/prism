@@ -544,6 +544,8 @@ describe('POST /api/courses/:id/refresh (#108)', () => {
     refreshTasks.mockReset().mockResolvedValue({ refreshed: 1, readAt: null, failed: [] });
     expect(await post(`/api/courses/${course}/refresh`, {})).toEqual({ status: 200, body: { refreshed: 1, readAt: null, failed: [] } });
     expect(refreshTasks.mock.calls[0][0]).toEqual([task]);
+    // Mastery only for the triage panel's tasks (none here); the page reads the course's mastery itself.
+    expect(refreshTasks.mock.calls[0][1]).toEqual({ mastery: [] });
     expect((await post('/api/courses/99999/refresh', {})).status).toBe(404);
     const old = db.prepare(`INSERT INTO courses (schoology_section_id, course_name, archived) VALUES ('sec-old', 'C', 1)`).run().lastInsertRowid;
     expect((await post(`/api/courses/${old}/refresh`, {})).body).toEqual({ refreshed: 0, readAt: null, failed: [] });

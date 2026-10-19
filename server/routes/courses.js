@@ -13,7 +13,7 @@ import { toSchoologyWebUrl } from '../lib/schoologyWebUrl.js';
 import { timelineContext } from '../services/submissionTimeline.js';
 import { setPublished, PublishError } from '../services/assessmentPublish.js';
 import { refreshTasks } from '../services/taskRefresh.js';
-import { courseRefreshTargets } from '../services/triage.js';
+import { courseRefreshTargets, triageRefreshTargets } from '../services/triage.js';
 
 const router = Router();
 
@@ -82,7 +82,9 @@ router.post('/:id/refresh', async (req, res) => {
   if (!course) return res.status(404).json({ error: 'Course not found' });
   if (course.archived) return res.json({ refreshed: 0, readAt: null, failed: [] });
   try {
-    res.json(await refreshTasks(courseRefreshTargets(db, course.id)));
+    // Mastery only for the triage panel's tasks: the page reads the course's mastery itself (#52).
+    const mastery = triageRefreshTargets(db, { courseId: course.id, includeFormative: true });
+    res.json(await refreshTasks(courseRefreshTargets(db, course.id), { mastery }));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

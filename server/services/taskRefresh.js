@@ -74,13 +74,14 @@ async function readCourse(db, tasks, { reader, nowIso, force, mastery, readSince
       fetchDocuments: reader ? (aid) => reader.fetchDocuments(aid) : undefined,
       fetchTestAttempts: reader ? (sid, uids, items) => reader.fetchTestAttempts(sid, uids, items) : undefined,
       keepStatusOnFailure: true,
+      failTaskOnError: true,
     });
     revisionsRead = r.revisionsRead;
     for (const t of tasks) {
       if (r.readInFull.has(t.id)) continue;
-      if (needsSession(t) && !reader) { out.signIn = true; continue; } // left as it is
+      if (needsSession(t) && (!reader || reader.expired)) { out.signIn = true; continue; } // left as it is
       if (r.failedAssignmentIds.includes(t.ext) || t.accepts_submissions === 1 || t.is_test === 1) {
-        fail(t, new Error(`Could not read the submissions of "${t.title || t.ext}"`));
+        fail(t, new Error(r.taskErrors.get(t.ext) ?? `Could not read the submissions of "${t.title || t.ext}"`));
       }
     }
   } catch (err) {
@@ -101,7 +102,7 @@ async function readCourse(db, tasks, { reader, nowIso, force, mastery, readSince
   }
 
   if (mastery) {
-    for (const t of tasks.filter((x) => x.aligned)) {
+    for (const t of tasks.filter((x) => x.aligned && (mastery === true || mastery.has(x.id)))) {
       const m = await deps.refreshMastery(courseId, t.ext, { force }).catch((err) => ({ error: String(err?.message || err) }));
       if (m?.error) {
         fail(t, m.error);
@@ -110,7 +111,7 @@ async function readCourse(db, tasks, { reader, nowIso, force, mastery, readSince
     }
   }
 
-  for (const t of tasks) if (!out.failed.has(t.id) && !(needsSession(t) && !reader)) out.read.add(t.id);
+  for (const t of tasks) if (!out.failed.has(t.id) && !(needsSession(t) && (!reader || reader.expired))) out.read.add(t.id);
   deps.afterRead(db, { courseId, revisionsRead, readSince });
   return out;
 }
@@ -139,6 +140,8 @@ async function readBatch(db, tasks, opts) {
 
 // Read these tasks' submissions and scores from Schoology. `assignmentIds`: local
 // assignments.id values; unknown, removed and archived-course tasks are skipped.
+// `mastery`: true (every aligned task), false, or a list of task ids (only those; the course page
+// passes its triage panel's tasks, since it reads the course's mastery itself).
 // → { refreshed, readAt, failed, error?, signIn? }. `refreshed`: tasks read by this call
 // (or by a read it joined); `readAt`: the oldest submissions_read_at among the tasks, so a
 // page never claims a fresher read than its stalest task.
@@ -151,6 +154,7 @@ export async function refreshTasks(assignmentIds, {
     ...deps,
   };
   const tasks = loadTasks(db, [...new Set(assignmentIds)]);
+  const masteryFor = Array.isArray(mastery) ? new Set(mastery.map(Number)) : Boolean(mastery);
   const t0 = now();
   const stale = tasks.filter((t) => force || !t.submissions_read_at || t0 - Date.parse(t.submissions_read_at) >= FRESH_MS);
 
@@ -159,7 +163,7 @@ export async function refreshTasks(assignmentIds, {
   const waits = [...new Set(joined.map((t) => running.get(t.id)))];
   if (mine.length) {
     const batch = readBatch(db, mine, {
-      openReader, nowIso: new Date(t0).toISOString(), force, mastery, readSince: Math.floor(t0 / 1000), deps: d,
+      openReader, nowIso: new Date(t0).toISOString(), force, mastery: masteryFor, readSince: Math.floor(t0 / 1000), deps: d,
     }).finally(() => { for (const t of mine) if (running.get(t.id) === batch) running.delete(t.id); });
     for (const t of mine) running.set(t.id, batch);
     waits.push(batch);

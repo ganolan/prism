@@ -26,10 +26,11 @@ export const KEEP_EARLIEST_FIRST_SUBMITTED = `
 // session: those tasks are left as they are). `keepStatusOnFailure`: a failed
 // lti/test read leaves lti_fetch_status / test_fetch_status as they were (a read
 // a page started); the full sync records 'failed'.
-// Non-transient native errors throw (the sync's contract).
+// Non-transient native errors throw (the sync's contract), unless `failTaskOnError`: then
+// that task alone fails (a page's read: a task deleted in Schoology answers 404).
 export async function readTaskSubmissions(db, {
   sectionId, now, students, native = [], lti = [], tests = [],
-  fetchDocuments, fetchTestAttempts, keepStatusOnFailure = false, backoffMs = 750, abandonAfter = 5,
+  fetchDocuments, fetchTestAttempts, keepStatusOnFailure = false, failTaskOnError = false, backoffMs = 750, abandonAfter = 5,
 }) {
   const selectStudentByUid = db.prepare('SELECT id FROM students WHERE schoology_uid = ?');
   const selectAssignmentByExt = db.prepare('SELECT id, max_points FROM assignments WHERE schoology_assignment_id = ?');
@@ -61,6 +62,7 @@ export async function readTaskSubmissions(db, {
   // results and continues.
   const acceptedResults = []; // committed at the end in one transaction
   const failedAssignmentIds = [];
+  const taskErrors = new Map(); // Schoology id → the failed read's message
   let submissionAbandoned = false;
   let rateLimitHits = 0;
   let transientFailures = 0;
@@ -92,6 +94,12 @@ export async function readTaskSubmissions(db, {
       if (err && err.transient) {
         if (err.rateLimited) rateLimitHits++; else transientFailures++;
         failedAssignmentIds.push(String(ext));
+        taskErrors.set(String(ext), String(err.message || err));
+        continue;
+      }
+      if (failTaskOnError) {
+        failedAssignmentIds.push(String(ext));
+        taskErrors.set(String(ext), String(err?.message || err));
         continue;
       }
       throw err;
@@ -230,6 +238,7 @@ export async function readTaskSubmissions(db, {
   return {
     submissionCount,
     failedAssignmentIds,
+    taskErrors,
     submissionAbandoned,
     submissionAttempts,
     rateLimitHits,

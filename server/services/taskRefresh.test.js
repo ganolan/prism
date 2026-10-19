@@ -137,4 +137,41 @@ describe('refreshTasks (#108)', () => {
     const r = await run([a, b]);
     expect(r.readAt).toBe(older);
   });
+
+  // Final review #1: a task Schoology no longer has (deleted there, not yet marked removed)
+  // answers 404; the course's other tasks are still read.
+  test('one task answering 404 fails alone; the others and every grade are read', async () => {
+    const gone = addTask(c1, 'GONE');
+    const ok = addTask(c1, 'OK');
+    const paper = addTask(c1, 'P', { dropbox: 0 });
+    getAssignmentSubmissions.mockImplementation(async (_s, aid) => {
+      if (aid === 'GONE') throw Object.assign(new Error('Schoology API 404'), { status: 404 });
+      return [];
+    });
+    const r = await run([gone, ok, paper]);
+    expect(r.failed).toEqual([gone]);
+    expect(stamp(ok)).not.toBeNull();
+    expect(stamp(paper)).not.toBeNull();
+    expect(getAssignmentGrades).toHaveBeenCalledTimes(3);
+  });
+
+  // Final review #2: saved but lapsed cookies: the reader exists, its reads answer null.
+  test('a lapsed session (reader present, expired) answers signIn', async () => {
+    const l = addTask(c1, 'L', { lti: 1 });
+    const reader = { expired: true, fetchDocuments: async () => null, fetchTestAttempts: async () => null, close: async () => {} };
+    const r = await run([l], { openReader: async () => reader });
+    expect(r.signIn).toBe(true);
+    expect(r.error).toMatch(/Log in to Schoology/);
+  });
+
+  // Final review #3: mastery only for the ids given (the course page: its triage tasks).
+  test('mastery as a list reads mastery for those tasks only', async () => {
+    const a = addTask(c1, 'A');
+    const b = addTask(c1, 'B');
+    align('A');
+    align('B');
+    await run([a, b], { mastery: [b] });
+    expect(refreshMastery).toHaveBeenCalledTimes(1);
+    expect(refreshMastery).toHaveBeenCalledWith(c1, 'B', expect.anything());
+  });
 });

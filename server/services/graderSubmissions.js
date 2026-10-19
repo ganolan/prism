@@ -77,6 +77,8 @@ export async function createSubmissionFetcher({ jar, fetchImpl = fetch } = {}) {
   };
 
   return {
+    // True once a read was sent to sign-in and could not be renewed (#108: the page says so).
+    get expired() { return expired; },
     async fetchDocuments(assignmentId) {
       return expired ? null : fetchAssignmentSubmissionState(web, assignmentId);
     },

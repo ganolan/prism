@@ -3,9 +3,11 @@ import { useParams, Link } from 'react-router-dom';
 import { formatDate, formatDateTime } from '../lib/formatDate.js';
 import {
   getStudent, updateStudent, updateParentPhone,
-  createNote, updateNote, deleteNote,
+  createNote, updateNote, deleteNote, refreshMasteryForCourse,
 } from '../services/api.js';
 import MasteryPerformanceSummary from '../components/MasteryPerformanceSummary.jsx';
+import MasteryFreshness from '../components/MasteryFreshness.jsx';
+import { useMasteryRefresh } from '../hooks/useMasteryRefresh.js';
 import AssignmentFeedback from '../components/AssignmentFeedback.jsx';
 import PsAlertReveal from '../components/PsAlertReveal.jsx';
 import AttemptLink from '../components/quiz/AttemptLink.jsx';
@@ -70,8 +72,18 @@ export function CourseSection({
   course, grades, flagsByAssignment, studentUid, scales, studentName = 'the student', attemptLinks = {}, rubrics = NO_RUBRICS,
   studentId = null, workLinks = {}, commentSummaries = null, onCommentSummary = () => {},
   fileSummaries = null, onFileSummary = () => {},
+  refreshKey = 0, onMasteryRefreshed = () => {},
 }) {
   const [expanded, setExpanded] = useState(true);
+  // #52: after the page loads, read this course's mastery from Schoology again (the server skips it
+  // when read in the last 2 minutes); when it was read, the summary and the page's topic chips reload.
+  // An archived course's levels no longer change, so it is not read.
+  const [masteryVersion, setMasteryVersion] = useState(0);
+  const masteryFreshness = useMasteryRefresh(
+    course.archived ? null : `${course.id}:${refreshKey}`,
+    () => refreshMasteryForCourse(course.id),
+    () => { setMasteryVersion((v) => v + 1); onMasteryRefreshed(); },
+  );
 
   return (
     <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -102,10 +114,12 @@ export function CourseSection({
         <div className="student-course__body">
           {/* Mastery Performance Summary (SBG grid) */}
           <div style={{ marginTop: '1rem', marginBottom: '0.5rem' }}>
+            {!course.archived && <MasteryFreshness state={masteryFreshness} />}
             <MasteryPerformanceSummary
               courseId={course.id}
               studentUid={studentUid}
               courseName={course.course_name}
+              reloadKey={masteryVersion}
             />
           </div>
 
@@ -551,6 +565,8 @@ export default function StudentPage() {
             onCommentSummary={setCommentSummary}
             fileSummaries={fileSummaries}
             onFileSummary={setFileSummary}
+            refreshKey={dataVersion}
+            onMasteryRefreshed={reload}
           />
         );
       })}

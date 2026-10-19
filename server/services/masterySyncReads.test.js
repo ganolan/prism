@@ -73,6 +73,8 @@ describe('syncMasteryForCourse over plain HTTP', () => {
       .toEqual([{ student_uid: '701', assignment_schoology_id: '900', topic_id: 't1', points: 75 }]);
     expect(db.prepare('SELECT title FROM assignments WHERE schoology_assignment_id = ?').get('900').title).toBe('Task');
     expect((await sessionStatus({ check: false, hasSession: () => true })).live).toBe('connected');
+    // #52: the course is stamped with when its mastery was read.
+    expect(Date.parse(db.prepare('SELECT mastery_synced_at FROM courses WHERE id = 5').get().mastery_synced_at)).toBeGreaterThan(Date.now() - 60000);
   });
 
   test('an observation with no level (points null) stores no score row and clears an old one', async () => {
@@ -87,9 +89,10 @@ describe('syncMasteryForCourse over plain HTTP', () => {
     expect(db.prepare('SELECT COUNT(*) AS n FROM mastery_scores').get().n).toBe(0);
   });
 
-  test('a non-2xx API answer fails the read as the in-page fetch did ("HTTP 500 for …")', async () => {
+  test('a non-2xx API answer fails the read as the in-page fetch did ("HTTP 500 for …"), and leaves no stamp', async () => {
     useWeb(routes({ [`${BASE}/api/aligned-objectives`]: { status: 500, text: '' } }));
     await expect(syncMasteryForCourse(5)).rejects.toThrow(/HTTP 500 for .*aligned-objectives/);
+    expect(db.prepare('SELECT mastery_synced_at FROM courses WHERE id = 5').get().mastery_synced_at).toBeNull();
   });
 
   test('signed out (no silent renewal): the sync stops at once, points to Settings, notes the session expired', async () => {
@@ -121,6 +124,7 @@ describe('syncMasteryForAssignment over plain HTTP', () => {
   test('one per-topic GET with the building id; stores this assignment\'s scores', async () => {
     db.prepare(`INSERT INTO measurement_topics (id, course_id, title) VALUES ('t1', 5, 'Topic')`).run();
     db.prepare(`INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id, synced_at) VALUES ('900', 't1', 5, 'x')`).run();
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (5, '900', 'Task')`).run();
     useWeb(routes({
       [`${BASE}/api/material-observations/search`]: { json: { data: [
         { student_uid: 701, points: 50, gradeable_material: { material_id: 900 } },
@@ -132,6 +136,9 @@ describe('syncMasteryForAssignment over plain HTTP', () => {
     const get = fake.requests.find((q) => q.path.endsWith('/material-observations/search'));
     expect(Object.fromEntries(get.query)).toEqual({ building_id: '97989879', objective_id: 't1', section_id: SID });
     expect(db.prepare('SELECT student_uid, points FROM mastery_scores').all()).toEqual([{ student_uid: '701', points: 50 }]);
+    // #52: the assignment is stamped (not the course: rollups and other assignments were not read).
+    expect(db.prepare('SELECT mastery_synced_at FROM assignments WHERE schoology_assignment_id = ?').get('900').mastery_synced_at).toBeTruthy();
+    expect(db.prepare('SELECT mastery_synced_at FROM courses WHERE id = 5').get().mastery_synced_at).toBeNull();
   });
 });
 

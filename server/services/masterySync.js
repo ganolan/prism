@@ -499,6 +499,8 @@ export async function syncMasteryForCourse(courseId, { onProgress } = {}) {
   const rollupsCount = persistRollups(db, courseId, rollupRows, now);
 
   log(`Done: ${categoriesCount} categories, ${topicsCount} topics, ${scoresCount} scores, ${rollupsCount} rollups, ${alignmentsCount} alignments`);
+  // #52: the pages show "mastery as of" this, and refresh on load when it is old.
+  db.prepare('UPDATE courses SET mastery_synced_at = ? WHERE id = ?').run(new Date().toISOString(), Number(courseId));
   return { categoriesCount, topicsCount, scoresCount, rollupsCount, alignmentsCount, materialsCount: allMaterialIds.size };
 
 }
@@ -645,6 +647,9 @@ export async function syncMasteryForAssignment(courseId, assignmentId) {
     console.warn(`[mastery sync] grade-comment pull failed for assignment ${assignmentId}: ${err.message}`);
   }
 
+  // #52: the assessment page shows "mastery as of" this, and refreshes on load when it is old.
+  db.prepare('UPDATE assignments SET mastery_synced_at = ? WHERE schoology_assignment_id = ? AND course_id = ?')
+    .run(new Date().toISOString(), String(assignmentId), Number(courseId));
   return { topicsCount: topicIds.length, scoresCount, commentsCount };
 }
 

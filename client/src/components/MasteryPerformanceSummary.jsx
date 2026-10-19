@@ -162,7 +162,8 @@ function LevelCell({ grade, size = 'md', dim = false, pending = false }) {
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-export default function MasteryPerformanceSummary({ courseId, studentUid, courseName }) {
+// reloadKey: a change reloads the data (the student page bumps it after a refresh from Schoology, #52).
+export default function MasteryPerformanceSummary({ courseId, studentUid, courseName, reloadKey = 0 }) {
   const scale = useProficiencyScale();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -177,7 +178,7 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
       .then(setData)
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [courseId, studentUid]);
+  }, [courseId, studentUid, reloadKey]);
 
   if (loading) return <p className="text-sm text-muted">Loading mastery data...</p>;
   if (!data || !data.topics?.length) return null;

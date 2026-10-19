@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
-import { hasMasterySession, syncMasteryForCourse, syncMasteryForAssignment, writeMasteryScores, writeMasteryScoresBatch, writeMasteryOverride, getMasteryForCourse, getRubricScoresForStudent } from '../services/masterySync.js';
+import { hasMasterySession, writeMasteryScores, writeMasteryScoresBatch, writeMasteryOverride, getMasteryForCourse, getRubricScoresForStudent } from '../services/masterySync.js';
 import { pushGradeComments, getSectionGrades } from '../services/schoology.js';
 import { settleResubmissions, resubmissionByStudent, arrivedKeys, pairResubmissionFields } from '../services/resubmissions.js';
 import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
+import { refreshCourseMastery, refreshAssignmentMastery } from '../services/masteryRefresh.js';
 import { STATUS_LINE_KINDS, putSucceeded, checkLine, lockPair, withCheckedLine } from '../services/statusLinePublisher.js';
 import { getFeedbackRows, getRowLevels, rowLevelsError, saveRowLevels } from '../services/feedbackRows.js';
 import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows, scoreScaleFor } from '../services/assessmentContext.js';
@@ -22,7 +23,6 @@ import { timelineContext, lateWorkByStudent } from '../services/submissionTimeli
 import { attentionByStudent } from '../services/cardAttention.js';
 
 const router = Router();
-const syncsInProgress = new Set();
 
 // Why `points` can't be written as a scale grade on this assignment, or null
 // when it can: the assignment must be on a configured score scale (#41) and
@@ -50,47 +50,43 @@ router.get('/login-status', async (req, res) => {
   res.json(await sessionStatus({ refresh, check, hasSession: hasMasterySession }));
 });
 
-// Rubric levels are part of the visible-feedback fingerprint, so every mastery pull
-// re-snapshots the course (Amendment B fix round 1) — otherwise the next revision is
-// judged against stale levels. Best-effort: never fails the pull.
-function snapshotAfterMasteryPull(db, courseId) {
-  try {
-    captureFeedbackSnapshots(db, { courseId: Number(courseId) });
-    settleResubmissions(db, { courseId: Number(courseId) });
-  } catch (err) {
-    console.error('[mastery] snapshot/settle after pull failed:', err.message);
-  }
-}
+// When this course's / assignment's mastery was last read from Schoology (#52).
+const courseSyncedAt = (db, courseId) => db.prepare('SELECT mastery_synced_at FROM courses WHERE id = ?').get(Number(courseId))?.mastery_synced_at ?? null;
 
-// POST /api/mastery/sync/:courseId — trigger Playwright mastery sync for a course
+// POST /api/mastery/sync/:courseId — the Sync Mastery button: read the course's mastery from
+// Schoology now (masteryRefresh, force). A read already running for the course is shared, not refused.
+// → the sync counts plus syncedAt; 500 { error } when the read fails.
 router.post('/sync/:courseId', async (req, res) => {
   const { courseId } = req.params;
-  if (syncsInProgress.has(courseId)) {
-    return res.status(409).json({ error: 'Mastery sync already in progress for this course' });
-  }
-  syncsInProgress.add(courseId);
   const db = getDb();
-  const now = new Date().toISOString();
-  const syncRow = db.prepare(
-    `INSERT INTO sync_log (sync_type, status, started_at) VALUES ('mastery', 'running', ?)`
-  ).run(now);
-  const syncId = syncRow.lastInsertRowid;
-
+  const syncId = db.prepare(`INSERT INTO sync_log (sync_type, status, started_at) VALUES ('mastery', 'running', ?)`)
+    .run(new Date().toISOString()).lastInsertRowid;
   try {
-    const result = await syncMasteryForCourse(courseId, {
-      onProgress: (p) => console.log(`[mastery] ${p.message}`),
-    });
+    const r = await refreshCourseMastery(courseId, { force: true });
+    if (r.error) {
+      console.error('[mastery sync] Error:', r.error);
+      db.prepare(`UPDATE sync_log SET status = 'error', error_message = ?, completed_at = ? WHERE id = ?`).run(r.error, new Date().toISOString(), syncId);
+      return res.status(500).json({ error: r.error });
+    }
     db.prepare(`UPDATE sync_log SET status = 'completed', records_synced = ?, completed_at = ? WHERE id = ?`)
-      .run(result.scoresCount || 0, new Date().toISOString(), syncId);
-    snapshotAfterMasteryPull(db, courseId);
-    res.json(result);
+      .run(r.result?.scoresCount || 0, new Date().toISOString(), syncId);
+    res.json({ ...r.result, syncedAt: r.syncedAt });
   } catch (err) {
-    console.error('[mastery sync] Error:', err);
-    db.prepare(`UPDATE sync_log SET status = 'error', error_message = ?, completed_at = ? WHERE id = ?`)
-      .run(err.message, new Date().toISOString(), syncId);
-    res.status(500).json({ error: err.message });
-  } finally {
-    syncsInProgress.delete(courseId);
+    db.prepare(`UPDATE sync_log SET status = 'error', error_message = ?, completed_at = ? WHERE id = ?`).run(err.message, new Date().toISOString(), syncId);
+    res.status(err.code === 'NOT_FOUND' ? 404 : 500).json({ error: err.message });
+  }
+});
+
+// POST /api/mastery/:courseId/refresh — the pages showing a course's mastery ask this after they load
+// (#52): read from Schoology unless read under 2 minutes ago. Always 200 (404 for an unknown course):
+// { refreshed, syncedAt, error?, signIn? } — the page reloads its mastery when `refreshed`, and says
+// why when `error` (signIn: the session needs a sign-in in Settings).
+router.post('/:courseId/refresh', async (req, res) => {
+  try {
+    const { result: _r, ...out } = await refreshCourseMastery(req.params.courseId);
+    res.json(out);
+  } catch (err) {
+    res.status(err.code === 'NOT_FOUND' ? 404 : 500).json({ error: err.message });
   }
 });
 
@@ -121,7 +117,7 @@ router.get('/:courseId', (req, res) => {
       JOIN assignments a ON a.schoology_assignment_id = ma.assignment_schoology_id
       WHERE ma.course_id = ? AND a.published = 1 AND a.removed_at IS NULL
     `).all(courseId);
-    res.json({ ...data, rollups, alignments });
+    res.json({ ...data, rollups, alignments, masterySyncedAt: courseSyncedAt(db, courseId) });
   } catch (err) {
     console.error('[mastery] Error fetching mastery data:', err);
     res.status(500).json({ error: err.message });
@@ -255,7 +251,7 @@ router.get('/:courseId/student/:studentUid', (req, res) => {
     WHERE student_uid = ? AND course_id = ?
   `).all(studentUid, courseId);
 
-  res.json({ topics, scores, alignments, rollups });
+  res.json({ topics, scores, alignments, rollups, masterySyncedAt: courseSyncedAt(db, courseId) });
 });
 
 // GET /api/mastery/:courseId/rubric — current scores for one student+assignment (pre-populate grading panel)
@@ -341,17 +337,30 @@ router.post('/:courseId/override', async (req, res) => {
   }
 });
 
-// POST /api/mastery/:courseId/assignment/:assignmentId/sync — re-pull scores
-// from Schoology for one assignment (faster than full course sync).
+// POST /api/mastery/:courseId/assignment/:assignmentId/sync — the assessment page's Refresh from
+// Schoology: re-pull scores and grade comments for one assignment now (masteryRefresh, force).
 router.post('/:courseId/assignment/:assignmentId/sync', async (req, res) => {
   const { courseId, assignmentId } = req.params;
   try {
-    const result = await syncMasteryForAssignment(courseId, assignmentId);
-    snapshotAfterMasteryPull(getDb(), courseId);
-    res.json(result);
+    const r = await refreshAssignmentMastery(courseId, assignmentId, { force: true });
+    if (r.error) {
+      console.error('[mastery assignment sync] Error:', r.error);
+      return res.status(500).json({ error: r.error });
+    }
+    res.json({ ...r.result, syncedAt: r.syncedAt });
   } catch (err) {
-    console.error('[mastery assignment sync] Error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(err.code === 'NOT_FOUND' ? 404 : 500).json({ error: err.message });
+  }
+});
+
+// POST /api/mastery/:courseId/assignment/:assignmentId/refresh — the assessment page asks this after it
+// loads (#52); as POST /:courseId/refresh, for one assignment's scores and comments.
+router.post('/:courseId/assignment/:assignmentId/refresh', async (req, res) => {
+  try {
+    const { result: _r, ...out } = await refreshAssignmentMastery(req.params.courseId, req.params.assignmentId);
+    res.json(out);
+  } catch (err) {
+    res.status(err.code === 'NOT_FOUND' ? 404 : 500).json({ error: err.message });
   }
 });
 
@@ -600,6 +609,8 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
     assignment: assignmentRow || { schoology_assignment_id: assignmentId, title: 'Unknown Assignment' },
     topics,
     scoreScale,
+    // #52: this assignment's own read (scores and comments), else the course's.
+    masterySyncedAt: assignmentRow?.mastery_synced_at ?? courseSyncedAt(db, courseId),
     students: students.map(s => {
       const resubmission = resubmissionMap.get(s.id) || null;
       // Arrival date for the card's "resubmission received" chip: the snapshot's

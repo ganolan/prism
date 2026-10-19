@@ -1,7 +1,7 @@
 import { goToSignIn } from '../lib/signIn.js';
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, triggerMasterySync, getSubmissionLinks, getTriage, setMakeUpIgnored, setAssessmentPublished, getQuizGroups, getCourseCommentSummaries } from '../services/api.js';
+import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, refreshMasteryForCourse, triggerMasterySync, getSubmissionLinks, getTriage, setMakeUpIgnored, setAssessmentPublished, getQuizGroups, getCourseCommentSummaries } from '../services/api.js';
 import AnalyticsView from '../components/AnalyticsView.jsx';
 import OverridePopup from '../components/OverridePopup.jsx';
 import TriageSection from '../components/triage/TriageSection.jsx';
@@ -9,6 +9,8 @@ import UrgencyRing from '../components/triage/UrgencyRing.jsx';
 import { waitsByAssignment, redCount } from '../lib/triage.js';
 import { LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
 import { LetterGradePopup, LETTER_GRADE_COLORS } from '../components/MasteryPerformanceSummary.jsx';
+import MasteryFreshness from '../components/MasteryFreshness.jsx';
+import { useMasteryRefresh } from '../hooks/useMasteryRefresh.js';
 import { gradeLabel, submissionStatus, ltiStatusUnavailable } from '../lib/gradeLabel.js';
 import { masteryCodeForLevel, computeLetterGrade } from '../lib/masteryLevels.js';
 import { useProficiencyScale } from '../hooks/useProficiencyScale.js';
@@ -115,12 +117,27 @@ export default function CoursePage() {
     setMastery(m);
   }
 
+  // #52: after the page loads, read this course's mastery from Schoology again (the server skips it
+  // when read in the last 2 minutes) and show the fresh levels, on the roster and in the gradebook
+  // (whose "aligned" flag a read can change). An archived course's levels no longer change, so it is
+  // not read.
+  const masteryFreshness = useMasteryRefresh(
+    courseLive ? `${id}:${dataVersion}` : null,
+    () => refreshMasteryForCourse(id),
+    async () => {
+      const g = await getGradebook(id).catch(() => null);
+      if (g) setGradebook(g);
+      await refreshMastery();
+    },
+  );
+
   async function handleMasterySync() {
     setMasterySyncing(true);
     setMasterySyncResult(null);
     try {
       const result = await triggerMasterySync(id);
       setMasterySyncResult({ success: true, ...result });
+      await refreshMastery(); // show what was read
     } catch (err) {
       const needsLogin = err.message?.includes('Not logged in') || err.message?.includes('mastery:login');
       setMasterySyncResult({ success: false, error: err.message, needsLogin });
@@ -191,6 +208,7 @@ export default function CoursePage() {
             </button>
           </div>
         </div>
+        {(courseLive || mastery?.masterySyncedAt) && <MasteryFreshness state={masteryFreshness} syncedAt={mastery?.masterySyncedAt} />}
 
         <div className="course-header__tabs">
           <button className={`tab-btn ${view === 'roster' ? 'active' : ''}`} onClick={() => setView('roster')}>

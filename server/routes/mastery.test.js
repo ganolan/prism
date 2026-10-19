@@ -2042,3 +2042,65 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
     });
   });
 });
+
+describe('#52: mastery refreshed on demand after a page loads', () => {
+  let courseId;
+  let n = 0;
+  beforeEach(async () => {
+    // A fresh course and assignment per test (no deletes: earlier tests leave rows that reference courses).
+    const db = getDb();
+    n++;
+    courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES (?, 'Course')`).run(`sec-r${n}`).lastInsertRowid;
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, ?, 'Project')`).run(courseId, `sa-r${n}`);
+    const { syncMasteryForCourse, syncMasteryForAssignment } = await import('../services/masterySync.js');
+    syncMasteryForCourse.mockReset();
+    syncMasteryForAssignment.mockReset();
+  });
+  const stampCourse = (at) => getDb().prepare('UPDATE courses SET mastery_synced_at = ? WHERE id = ?').run(at, courseId);
+
+  test('POST /:courseId/refresh reads a course never read, answers the new stamp; then fresh, no second read', async () => {
+    const { syncMasteryForCourse } = await import('../services/masterySync.js');
+    syncMasteryForCourse.mockImplementation(async () => { stampCourse('2026-10-19T06:00:00.000Z'); return { scoresCount: 4 }; });
+    expect(await post(`/api/mastery/${courseId}/refresh`, {})).toEqual({ status: 200, body: { refreshed: true, syncedAt: '2026-10-19T06:00:00.000Z' } });
+    stampCourse(new Date().toISOString());
+    expect((await post(`/api/mastery/${courseId}/refresh`, {})).body.refreshed).toBe(false);
+    expect(syncMasteryForCourse).toHaveBeenCalledTimes(1);
+  });
+
+  test('a failed refresh is a 200 with the error and signIn; an unknown course is 404', async () => {
+    const { syncMasteryForCourse } = await import('../services/masterySync.js');
+    syncMasteryForCourse.mockRejectedValue(new Error('Not logged in to Schoology: the mastery session has expired. Log in to Schoology in Settings, then retry.'));
+    expect(await post(`/api/mastery/${courseId}/refresh`, {})).toMatchObject({ status: 200, body: { refreshed: false, syncedAt: null, signIn: true } });
+    expect((await post('/api/mastery/99999/refresh', {})).status).toBe(404);
+  });
+
+  test('POST /:courseId/assignment/:id/refresh reads the assignment; the GETs carry masterySyncedAt', async () => {
+    const { syncMasteryForAssignment } = await import('../services/masterySync.js');
+    syncMasteryForAssignment.mockImplementation(async () => {
+      getDb().prepare(`UPDATE assignments SET mastery_synced_at = '2026-10-19T07:00:00.000Z' WHERE schoology_assignment_id = 'sa-r${n}'`).run();
+      return { scoresCount: 1 };
+    });
+    stampCourse('2026-10-19T03:00:00.000Z');
+    expect((await get(`/api/mastery/${courseId}/assignment/sa-r${n}`)).body.masterySyncedAt).toBe('2026-10-19T03:00:00.000Z');
+    expect((await post(`/api/mastery/${courseId}/assignment/sa-r${n}/refresh`, {})).body).toEqual({ refreshed: true, syncedAt: '2026-10-19T07:00:00.000Z' });
+    expect(syncMasteryForAssignment).toHaveBeenCalledWith(Number(courseId), `sa-r${n}`);
+    expect((await get(`/api/mastery/${courseId}/assignment/sa-r${n}`)).body.masterySyncedAt).toBe('2026-10-19T07:00:00.000Z');
+    expect((await get(`/api/mastery/${courseId}`)).body.masterySyncedAt).toBe('2026-10-19T03:00:00.000Z');
+    expect((await get(`/api/mastery/${courseId}/student/uid-x`)).body.masterySyncedAt).toBe('2026-10-19T03:00:00.000Z');
+  });
+
+  test('the Sync Mastery button (POST /sync/:courseId) always reads, and shares a refresh already running', async () => {
+    const { syncMasteryForCourse } = await import('../services/masterySync.js');
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    syncMasteryForCourse.mockImplementation(async () => { await gate; stampCourse('2026-10-19T08:00:00.000Z'); return { scoresCount: 2 }; });
+    stampCourse(new Date().toISOString()); // fresh: the page refresh would skip, the button still reads
+    const both = Promise.all([post(`/api/mastery/sync/${courseId}`, {}), post(`/api/mastery/sync/${courseId}`, {})]);
+    await new Promise((r) => setTimeout(r, 50));
+    release();
+    const [a, b] = await both;
+    expect([a.status, b.status]).toEqual([200, 200]);
+    expect(a.body).toMatchObject({ scoresCount: 2, syncedAt: '2026-10-19T08:00:00.000Z' });
+    expect(syncMasteryForCourse).toHaveBeenCalledTimes(1);
+  });
+});

@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS courses (
   hidden INTEGER DEFAULT 0,
   excluded INTEGER NOT NULL DEFAULT 0,
   synced_at TEXT,
-  submissions_read_at TEXT            -- archived: submissions read in full (null = never)
+  submissions_read_at TEXT,           -- archived: submissions read in full (null = never)
+  mastery_synced_at TEXT              -- #52: last full mastery read from Schoology (ISO; null = never)
 );
 
 CREATE TABLE IF NOT EXISTS enrolments (
@@ -99,6 +100,9 @@ CREATE TABLE IF NOT EXISTS assignments (
   -- (deleted there). Soft removal: the row and anything attached to it stay,
   -- but every listing hides it. Cleared if it ever reappears.
   removed_at TEXT,
+  -- #52: last mastery scores + grade comments read for this assignment alone
+  -- (syncMasteryForAssignment; ISO; null = never).
+  mastery_synced_at TEXT,
   synced_at TEXT
 );
 

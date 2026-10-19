@@ -1490,3 +1490,10 @@ Chosen 18/10/2026 from three mockups (state chip on every row, verb where it mat
 - **Verbatim, full width under the badges:** a boxed list (`.ps-support-summary`, `var(--bg-subtle)`) headed "Student Support Summary, read from PowerSchool DD/MM/YYYY HH:MM"; each row is PowerSchool's Category and Description (`dt` / `dd`), the Support Plan URL as a link. Prism infers nothing, not even the extra time: it stays in Support Notes in PowerSchool's words. On a phone each category sits above its description.
 - **States:** "Reading the Student Support Summary from PowerSchool…", "PowerSchool's Support Summary is empty.", or "Could not read the Support Summary: {reason}" in the amber warning colour. Never on a roster.
 
+
+## Mastery freshness line (October 2026, #52)
+
+- **Stored first, fresh after:** a page that shows mastery (course page, assessment page, each course on the student page) renders what Prism holds at once, then reads Schoology in the background (`useMasteryRefresh`). The server skips a read made in the last 2 minutes, so moving between pages does not re-read. Archived courses are never read.
+- **One muted line** (`MasteryFreshness`, `.mastery-freshness`, 0.8rem, `var(--text-muted)`), under the course header, beside the assessment page's Refresh from Schoology, above the student page's Mastery Performance Summary: "Mastery levels as of 03:02 today. Checking Schoology for changes…", then "Mastery levels read from Schoology at 22:31 today." Times are "HH:MM today", else DD/MM/YYYY, HH:MM.
+- **Failure:** "Could not refresh mastery levels from Schoology. Showing levels read at …" in `var(--badge-red-text)`, the reason in the tooltip; a sign-in failure adds **Log in to Schoology** (`.ghost.accent`, to Settings).
+- **Never under the teacher's hands:** the assessment page swaps in newer data only when no card has unsaved changes. Otherwise an `.alert-warning` banner: "Schoology has newer levels or comments for this assignment. Save or discard your changes, then reload to see them." with **Reload** (`.secondary`). Unchanged Schoology data reloads nothing; only the time moves.

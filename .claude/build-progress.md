@@ -1518,6 +1518,14 @@ submission comments.
   `oneDriveLinks.js`, and the Microsoft renewal itself (`renewSession`, #136: a plain `fetch` cannot make the
   SSO round trip).
 
+## Mastery refreshed on demand after a page loads (#52, 2026-10-19)
+
+- **Why it is feasible now:** over plain HTTP (#141) a course's mastery reads in 2.3-5 s and one assignment's in 1.8-2.9 s, about the same for a full year's scores (438) as for October's (54-63): the cost is a fixed set of requests, not the data size. Measured on a scratch copy of the dev database.
+- **Server:** `courses.mastery_synced_at` and `assignments.mastery_synced_at` (schema + MIGRATIONS), stamped by `syncMasteryForCourse` / `syncMasteryForAssignment` on success (the nightly sync too). `server/services/masteryRefresh.js`: skip a read made under 2 minutes ago, share a read already running, `force` for the buttons; the feedback snapshot after a pull moved there. Routes `POST /api/mastery/:courseId/refresh` and `/:courseId/assignment/:id/refresh` (always 200: `{ refreshed, syncedAt, error?, signIn? }`); Sync Mastery and Refresh from Schoology share the same reads (no more 409). The three mastery GETs return `masterySyncedAt`.
+- **Pages:** course page (roster, gradebook: its aligned flags reload too), assessment page (swaps in newer data only with no unsaved card; else a Reload banner), student page (each current course, the summary and the topic chips). The course page's Sync Mastery now reloads the levels it read (it never did). PrisMCP `get_assignment_context` refreshes the assignment first (`mastery_source`).
+- **Not refreshed:** Class Tools' balanced groups (uses rollups, shows no level), Analytics (alignment only).
+- **Verified live** on a dev server (port 3002, scratch database): course page read Schoology and showed "read … at 22:31 today"; the assessment page read the assignment (22:32); the student page a minute later did not read again.
+
 ## Every Schoology write, the OneDrive links and the session renewal on plain HTTP (#141, 2026-10-19)
 
 - **LTI unsubmit** (`ltiUnsubmit.js`): the CSRF pair from `/assignments/{aid}/info` over HTTP, the POST through `schoologyWeb.postJson`, the in-progress list read back. Live, one approved archived formative: submitted to in progress, 5.7 s. `scripts/verify-lti-unsubmit-http.js`.

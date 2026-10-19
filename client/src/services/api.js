@@ -216,6 +216,11 @@ export const triggerMasterySync = (courseId) => request(`/mastery/sync/${courseI
 export const getMasteryForCourse = (courseId) => request(`/mastery/${courseId}`);
 export const getMasteryForStudent = (courseId, studentUid) => request(`/mastery/${courseId}/student/${studentUid}`);
 export const getMasteryForAssignment = (courseId, assignmentId) => request(`/mastery/${courseId}/assignment/${assignmentId}`);
+// #52: after a page that shows mastery loads, read it from Schoology again unless it was read in
+// the last 2 minutes (the server decides). → { refreshed, syncedAt, error?, signIn? }; reload the
+// page's mastery when `refreshed`.
+export const refreshMasteryForCourse = (courseId) => request(`/mastery/${courseId}/refresh`, { method: 'POST' });
+export const refreshMasteryForAssignment = (courseId, assignmentId) => request(`/mastery/${courseId}/assignment/${assignmentId}/refresh`, { method: 'POST' });
 // Links to each student's own copy of an lti_submission assignment: OneDrive
 // (#120) or Google Drive (#142), the provider named on each link. Slow-ish for
 // OneDrive (the server drives a browser), so load it after the page, not with it.

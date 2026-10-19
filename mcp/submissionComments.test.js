@@ -1,6 +1,8 @@
 import { describe, test, expect, beforeEach, vi } from 'vitest';
 
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
+// get_assignment_context refreshes mastery from Schoology (#52): never in tests.
+vi.mock('../server/services/masteryRefresh.js', () => ({ refreshAssignmentMastery: vi.fn(async () => ({ refreshed: false, syncedAt: '2026-10-19T03:00:00.000Z' })) }));
 vi.mock('../server/services/schoology.js', () => ({
   getSubmissionComments: vi.fn(), postSubmissionComment: vi.fn(), deleteSubmissionComment: vi.fn(),
   getMyUserId: vi.fn(), getSectionEnrollments: vi.fn(),
@@ -69,5 +71,28 @@ describe('get_assignment_context submission comments', () => {
 
   test('an unknown assignment returns null', async () => {
     expect(await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: 'nope' }, ENV)).toBeNull();
+  });
+});
+
+describe('get_assignment_context mastery refresh (#52)', () => {
+  test('refreshes the assignment\'s levels and comments from Schoology, by Schoology id, and says so', async () => {
+    const refreshMastery = vi.fn(async () => ({ refreshed: true, syncedAt: '2026-10-19T06:00:00.000Z' }));
+    const db = getDb();
+    const localId = db.prepare(`SELECT id FROM assignments WHERE schoology_assignment_id = '8590105935'`).get().id;
+    // Either kind of id finds the assignment.
+    for (const assignment_id of ['8590105935', localId]) {
+      const ctx = await getAssignmentContextTool(db, { course_id: courseId, assignment_id }, ENV, { refreshMastery });
+      expect(ctx.mastery_source).toEqual({ refreshed: true, synced_at: '2026-10-19T06:00:00.000Z', cached_only: false });
+    }
+    expect(refreshMastery).toHaveBeenCalledWith(courseId, '8590105935', { db });
+  });
+
+  test('a failed refresh still returns the context, with the reason', async () => {
+    const refreshMastery = vi.fn(async () => ({ refreshed: false, syncedAt: '2026-10-19T03:00:00.000Z', error: 'Log in to Schoology in Settings', signIn: true }));
+    const ctx = await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590105935' }, ENV, { refreshMastery });
+    expect(ctx.students).toHaveLength(2);
+    expect(ctx.mastery_source).toEqual({ refreshed: false, synced_at: '2026-10-19T03:00:00.000Z', cached_only: true, note: 'could not refresh: Log in to Schoology in Settings' });
+    const thrown = await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590105935' }, ENV, { refreshMastery: async () => { throw new Error('boom'); } });
+    expect(thrown.mastery_source).toMatchObject({ refreshed: false, cached_only: true, note: 'could not refresh: boom' });
   });
 });

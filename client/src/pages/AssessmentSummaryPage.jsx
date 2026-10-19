@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import LargerScreenNote from '../components/LargerScreenNote.jsx';
 import { useParams, Link, useSearchParams, Navigate, useLocation } from 'react-router-dom';
-import { getMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, getTriagePair, loadQuizResults, rebuildQuizOverall, saveRowLevels, getAssignmentCommentSummaries, getAssignmentFileSummaries } from '../services/api.js';
+import { getMasteryForAssignment, refreshMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, getTriagePair, loadQuizResults, rebuildQuizOverall, saveRowLevels, getAssignmentCommentSummaries, getAssignmentFileSummaries } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 import { feedbackRowTopics, rowScores, rowTopicMapping, isRowKey, rowName } from '../lib/feedbackRows.js';
 import { makeDraftSaver } from '../lib/assessmentDraftSaver.js';
@@ -42,6 +42,9 @@ import { formatDateTime } from '../lib/formatDate.js';
 import { workLinkText, workLinksStatusText } from '../lib/workLink.js';
 import { briefFlags, textSignature } from '../lib/reviewerFlags.js';
 import { receivedLine, composeComment, lineDate } from '../lib/statusLines.js';
+import { afterRefresh } from '../lib/assessmentFreshness.js';
+import MasteryFreshness from '../components/MasteryFreshness.jsx';
+import { useMasteryRefresh } from '../hooks/useMasteryRefresh.js';
 
 const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
 // Suggestion accent — fuchsia CSS tokens (matches descriptor grid's --ai-suggest).
@@ -2142,8 +2145,9 @@ export default function AssessmentSummaryPage() {
     setBulkResult(null);
   }
 
-  function load() {
-    setLoading(true);
+  // quiet: no "Loading" screen (a background refresh swapping in newer data keeps the cards mounted).
+  function load({ quiet = false } = {}) {
+    if (!quiet) setLoading(true);
     Promise.all([
       getMasteryForAssignment(courseId, assignmentId),
       getFeedbackForAssignment(assignmentId).catch(() => ({})),
@@ -2155,6 +2159,7 @@ export default function AssessmentSummaryPage() {
     ])
       .then(([mastery, feedback, analysisRow, drafts, rubric]) => {
         setData(mastery);
+        setNewerInSchoology(false);
         setRubricData(rubric || null);
         setFeedbackByStudent(feedback || {});
         setAnalysis(analysisRow || null);
@@ -2188,7 +2193,28 @@ export default function AssessmentSummaryPage() {
     }
   }
 
-  useEffect(load, [courseId, assignmentId, dataVersion]);
+  useEffect(() => { load(); }, [courseId, assignmentId, dataVersion]);
+
+  // #52: after the page loads, read this assignment's levels and comments from Schoology again (the
+  // server skips it when read in the last 2 minutes). Newer data swaps in only when no card has
+  // unsaved changes; otherwise a banner asks for a save or discard first, since a reload would drop a
+  // draft that no longer matches Schoology. An archived course is not read.
+  const dataRef = useRef(null);
+  dataRef.current = data;
+  const pendingRef = useRef(pendingByUid);
+  pendingRef.current = pendingByUid;
+  const [newerInSchoology, setNewerInSchoology] = useState(false);
+  async function afterMasteryRefresh() {
+    const next = await getMasteryForAssignment(courseId, assignmentId).catch(() => null);
+    const step = afterRefresh(dataRef.current, next, pendingRef.current);
+    if (step === 'ask') setNewerInSchoology(true);
+    else if (step === 'reload') load({ quiet: true });
+  }
+  const masteryFreshness = useMasteryRefresh(
+    data && !data.course?.archived ? `${courseId}:${assignmentId}:${dataVersion}` : null,
+    () => refreshMasteryForAssignment(courseId, assignmentId),
+    afterMasteryRefresh,
+  );
 
   // Submission comment badges. The first read also queues a background read of
   // the submitted cells; one later re-read picks up what it found. null = the
@@ -2361,6 +2387,13 @@ export default function AssessmentSummaryPage() {
           </button>
           {refreshResult && (
             <span className="text-sm text-muted" style={{ fontSize: '0.75rem' }}>{refreshResult}</span>
+          )}
+          {(!data.course?.archived || data.masterySyncedAt) && <MasteryFreshness state={masteryFreshness} syncedAt={data.masterySyncedAt} />}
+          {newerInSchoology && (
+            <div className="alert alert-warning" role="alert" style={{ flexBasis: '100%' }}>
+              Schoology has newer levels or comments for this assignment. Save or discard your changes, then reload to see them.{' '}
+              <button type="button" className="secondary" onClick={() => load()}>Reload</button>
+            </div>
           )}
           {workLinksNote && (
             <span className="text-sm text-muted" style={{ fontSize: '0.75rem' }} title={workLinksNote.title}>

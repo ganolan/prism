@@ -12,6 +12,7 @@ import { LEVELS } from '../server/lib/proficiencyScale.js';
 import { getFeedbackRows } from '../server/services/feedbackRows.js';
 import { normalizeSubmissionStatus, gradingState, getRoster, scoreScaleFor, getAlignedTopics, getAssessmentContext } from '../server/services/assessmentContext.js';
 import { refreshAssignment } from '../server/services/submissionComments.js';
+import { refreshAssignmentMastery } from '../server/services/masteryRefresh.js';
 import { refreshAssignmentFiles, OPEN_MAX_AGE_SEC as FILES_OPEN_MAX_AGE_SEC } from '../server/services/submissionFiles.js';
 import { getFeatures } from '../server/middleware/featureGate.js';
 import { psAlertFieldsForAgents } from '../server/services/psAlertStore.js';
@@ -410,7 +411,10 @@ export function assertSchoologyConfigured(env = process.env) {
 // refresh fails, the cached threads are returned and the source says so.
 // The submitted students' native dropbox files (#162) are read the same way, at the
 // same time, from the cache when it is fresh (5 minutes, as the files popover).
-export async function getAssignmentContextTool(db, { course_id, assignment_id } = {}, env = process.env) {
+// The assignment's mastery levels and grade comments are refreshed from Schoology at
+// the same time too (#52, as the /assessment/ page does on load; not read again when
+// read under 2 minutes ago); `mastery_source` states whether that happened.
+export async function getAssignmentContextTool(db, { course_id, assignment_id } = {}, env = process.env, { refreshMastery = refreshAssignmentMastery } = {}) {
   const missing = SCHOOLOGY_ENV.filter((k) => !String(env[k] ?? '').trim());
   const refresh = async (feature, what, start) => {
     if (!getFeatures()[feature]) return { refreshed: 0, failed: 0, cached_only: true, note: `${feature} is off in config.yaml` };
@@ -428,12 +432,24 @@ export async function getAssignmentContextTool(db, { course_id, assignment_id } 
       return { refreshed: 0, failed: 0, cached_only: true, note: `could not refresh: ${err.message}` };
     }
   };
-  const [source, filesSource] = await Promise.all([
+  const mastery = async () => {
+    const localId = resolveAssignmentId(db, assignment_id);
+    const row = localId ? db.prepare('SELECT course_id, schoology_assignment_id FROM assignments WHERE id = ?').get(localId) : null;
+    if (!row) return null;
+    try {
+      const r = await refreshMastery(row.course_id, row.schoology_assignment_id, { db });
+      return { refreshed: r.refreshed, synced_at: r.syncedAt, cached_only: Boolean(r.error), ...(r.error ? { note: `could not refresh: ${r.error}` } : {}) };
+    } catch (err) {
+      return { refreshed: false, synced_at: null, cached_only: true, note: `could not refresh: ${err.message}` };
+    }
+  };
+  const [source, filesSource, masterySource] = await Promise.all([
     refresh('submission_comments', 'comments', () => refreshAssignment(db, assignment_id, { maxAgeSec: MCP_COMMENT_MAX_AGE_SEC })),
     refresh('submission_files', 'files', () => refreshAssignmentFiles(db, assignment_id, { maxAgeSec: FILES_OPEN_MAX_AGE_SEC })),
+    mastery(),
   ]);
   const ctx = getAssessmentContext(db, { courseId: course_id, assignmentId: assignment_id });
-  return ctx ? { ...ctx, submission_comments_source: source, submission_files_source: filesSource } : ctx;
+  return ctx ? { ...ctx, submission_comments_source: source, submission_files_source: filesSource, mastery_source: masterySource } : ctx;
 }
 
 // extend_deadline, both paths, gain comment_line? (published via the shared

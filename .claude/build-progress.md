@@ -1527,6 +1527,8 @@ submission comments.
 - **Routes:** `POST /api/triage/refresh` (the triage lists' tasks plus past-due tests whose attempts are unknown), `POST /api/courses/:id/refresh` (its triage tasks plus tasks due in the last 30 days or later and open resubmission requests), and the assessment page's refresh and Refresh from Schoology now also read the task (`submissions` in the answer).
 - **Pages:** the dashboard's triage rail and the course page show "Submissions and scores read from Schoology at …" and reload when anything was read; the course rail's "Counts as of the last sync" line is gone.
 - **Parity** (`scripts/parity-task-refresh.js`, two copies of prod's database): 28 tasks in 6 courses, 353 grades rows identical, 0 different, fetch statuses identical; the refresh 27 s (forced, mastery included) against the section reads' 58 s. The dashboard's 10 tasks: 4.2 s, 7.7 s with mastery.
+- **Prod after deploy (`3a086b8`, 20/10 00:40 HKT):** the dashboard's read, 10 tasks in 9.2 s with mastery, 0 failed; a repeat within 2 minutes 0.06 s; one course page (AP CSP) 2.7 s.
+- **Review fixes before and after shipping:** a task Schoology no longer has fails alone (`failTaskOnError`); a lapsed session answers `signIn` (`reader.expired`); the course page reads mastery for its triage tasks only; outcomes kept per task; the mastery read takes one task's grades (`?assignment_id=`); answered-but-uncovered tests and retried reads are stamped. The rest is #168.
 - **Also:** "0 failed" no longer counts as a sync warning (`syncRuns.js`; every nightly run since 18/10 showed one).
 - **Next:** #58 (rename to Sync Course / Sync Assignment, one stamp) can use these reads; submission comment threads are not read on demand yet.
 

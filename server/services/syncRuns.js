@@ -21,7 +21,8 @@ const FINISHED = ['completed', 'completed_with_errors', 'failed', 'interrupted']
 //             actually log; a plain "N skipped" tally is NOT a warning (PCG /
 //             template courses are skipped by design every sync).
 //   null    — everything else.
-const WARNING_LOG = /\bwarn(ing)?\b|\bfailed\b|\bcould(?: not|n't)\b|\babandon/i;
+// "0 failed" is a count, not a failure (the blocks phase's grade-level line).
+const WARNING_LOG = /\bwarn(ing)?\b|(?<!\b0 )\bfailed\b|\bcould(?: not|n't)\b|\babandon/i;
 
 export function classifyEvent(evt) {
   if (!evt || typeof evt !== 'object') return null;

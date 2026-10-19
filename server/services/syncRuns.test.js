@@ -31,6 +31,8 @@ describe('classifyEvent', () => {
     expect(classifyEvent({ phase: 'schoology', status: 'done', records: 9 })).toBe(null);
     expect(classifyEvent({ phase: 'blocks', status: 'done', records: 3, notReady: 0 })).toBe(null);
     expect(classifyEvent({ type: 'log', message: '[blocks] Done: 4 updated, 0 unchanged, 1 skipped (of 5).' })).toBe(null);
+    // A count of zero failures is not a failure (the grade-level line, every nightly run since 18/10/2026).
+    expect(classifyEvent({ type: 'log', message: '[blocks] Grade levels: 96 students updated (96 seen; sections: 9 from the student list, 0 from section_attendance, 0 failed; 629 ms).' })).toBe(null);
     expect(classifyEvent({ type: 'summary', elapsedMs: 1 })).toBe(null);
   });
 });

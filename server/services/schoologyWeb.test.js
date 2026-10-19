@@ -120,6 +120,15 @@ describe('cookieJar reload', () => {
     jar.reload();
     expect(jar.header()).toBe('SESSa=two');
   });
+
+  test('an expiring Set-Cookie removes the cookie (login_landing_dest=deleted, Max-Age=0)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'prism-jar-'));
+    const file = join(dir, 'storage-state.json');
+    writeFileSync(file, JSON.stringify({ cookies: [{ name: 'SESSa', value: 'one', domain: '.schoology.hkis.edu.hk' }, { name: 'login_landing_dest', value: '/home', domain: 'schoology.hkis.edu.hk' }] }));
+    const jar = cookieJar(file);
+    jar.take({ headers: { getSetCookie: () => ['login_landing_dest=deleted; expires=Thu, 01-Jan-1970 00:00:01 GMT; Max-Age=0; path=/', 'SESSa=two; path=/'] } });
+    expect(jar.header()).toBe('SESSa=two');
+  });
 });
 
 describe('postJson', () => {

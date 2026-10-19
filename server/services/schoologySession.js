@@ -14,10 +14,11 @@
 // page that renewal cannot fix is 'expired'.
 //
 // Playwright is imported lazily (see masterySync.js: a top-level import can hang boot).
-import { existsSync, writeFileSync, renameSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, renameSync } from 'fs';
 import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
 import { sessionStateFile } from '../lib/sessionPaths.js';
 import { cookieJar, getResource } from './schoologyWeb.js';
+import { stateCookieJar, USER_AGENT } from '../lib/stateCookieJar.js';
 
 export const LIVE_CHECK_TTL_MS = 10 * 60 * 1000;
 
@@ -40,8 +41,8 @@ export async function openSessionPage(file = sessionStateFile()) {
 }
 
 // Swappable for tests (never launch a real browser or reach the network there):
-// the renewal opens its page through sessionDeps.openPage; the liveness check and the
-// LTI unsubmit (ltiUnsubmit.js) read the saved cookies through openJar and fetch with fetch.
+// the liveness check and the LTI unsubmit (ltiUnsubmit.js) read the saved cookies through
+// openJar, and they and the renewal fetch with fetch. openPage is left for the parity scripts.
 export const sessionDeps = {
   openPage: openSessionPage,
   openJar: () => cookieJar(),
@@ -67,15 +68,35 @@ export async function checkSessionLive() {
   }
 }
 
-// Silent renewal (#136, probed 18/10/2026): a headless browser with the saved state
-// opens /home; when Schoology's own session has lapsed it is sent to Microsoft, whose
-// remembered sign-in (ESTSAUTHPERSISTENT in the same state) sends it straight back
-// signed in, with no input. The new cookies replace the saved file (temp file, then
-// rename, so a reader never sees half a file), and plain-HTTP reads work again.
-// Answers false when the browser stays at sign-in (Microsoft wants a real login),
-// cannot start, or there is no saved session. Reads that expire together share one
-// renewal.
-const RENEW_WAIT_MS = 45000;
+// Silent renewal (#136, probed 18/10/2026; plain HTTP since #141, 19/10/2026, see
+// scripts/probe-schoology-renew-http.js): GET /home with the saved state's cookies, redirects
+// followed by hand. A lapsed Schoology session is sent to /login/external_accounts/send/microsoft,
+// then login.windows.net and login.microsoftonline.com /oauth2/authorize, whose remembered sign-in
+// (ESTSAUTHPERSISTENT in the same state) redirects straight back through app.schoology.com and the
+// school's /login/external_accounts/receive/microsoft (new SESS… cookies) to /home, with no input.
+// A Microsoft page that answers with an auto-submitting form instead is posted on only to a Schoology
+// host. The jar drops the cookies Schoology expires (login_landing_dest=deleted would otherwise send
+// the sign-in to /deleted). Landing on /home, the cookies, Microsoft's rotated ones included, replace
+// the saved file's (temp file, then rename, so a reader never sees half a file). Answers false when it
+// ends anywhere else (Microsoft wants a real sign-in), Schoology is not reached, or there is no saved
+// session. Reads that expire together share one renewal.
+const RENEW_WAIT_MS = 30000; // each request
+const RENEW_HOPS = 15;
+const MICROSOFT = /(^|\.)(microsoftonline\.com|windows\.net|live\.com)$/;
+const SCHOOLOGY_HOST = /(^|\.)schoology\.com$|^schoology\.hkis\.edu\.hk$/;
+
+// The form a Microsoft page asks the browser to submit: { action, fields } or null.
+function formPost(html, base) {
+  const form = html.match(/<form\b[^>]*\baction="([^"]+)"[^>]*>([\s\S]*?)<\/form>/i);
+  if (!form) return null;
+  const decode = (v) => v.replace(/&quot;/g, '"').replace(/&#39;|&#039;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  const fields = [];
+  for (const [tag] of form[2].matchAll(/<input\b[^>]*>/gi)) {
+    const name = /type="hidden"/i.test(tag) ? tag.match(/\bname="([^"]*)"/i)?.[1] : null;
+    if (name) fields.push([decode(name), decode(tag.match(/\bvalue="([^"]*)"/i)?.[1] ?? '')]);
+  }
+  return { action: new URL(decode(form[1]), base).href, fields };
+}
 
 // Write a browser's storage state over the saved session: a temp file, then rename,
 // so a reader never sees half a file.
@@ -85,20 +106,39 @@ export function saveSessionState(stateFile, state) {
   renameSync(tmp, stateFile);
 }
 let renewing = null;
-export function renewSession({ stateFile = sessionStateFile(), now = Date.now } = {}) {
+export function renewSession({ stateFile = sessionStateFile(), now = Date.now, fetchImpl = (...args) => sessionDeps.fetch(...args) } = {}) {
   renewing ??= (async () => {
     await null; // always settle after `renewing` is set, so the finally below clears it
-    let s = null;
     try {
-      s = await sessionDeps.openPage(stateFile);
-      if (!s) return false;
-      await s.page.goto(`${SCHOOLOGY_BASE}/home`, { waitUntil: 'domcontentloaded', timeout: RENEW_WAIT_MS }).catch(() => {});
-      await s.page.waitForURL((u) => isLoggedInUrl(String(u)), { timeout: RENEW_WAIT_MS }).catch(() => {});
-      if (!isLoggedInUrl(s.page.url())) {
+      if (!existsSync(stateFile)) return false;
+      const state = JSON.parse(readFileSync(stateFile, 'utf8'));
+      const jar = stateCookieJar(state.cookies, { now });
+      const request = async (url, init = {}) => {
+        const res = await fetchImpl(url, {
+          ...init, redirect: 'manual', signal: AbortSignal.timeout(RENEW_WAIT_MS),
+          headers: { cookie: jar.header(url), 'User-Agent': USER_AGENT, ...init.headers },
+        });
+        jar.take(res, url);
+        const location = res.headers.get('location');
+        return { status: res.status, url, location: location ? new URL(location, url).href : null, text: await res.text() };
+      };
+      let r = await request(`${SCHOOLOGY_BASE}/home`);
+      for (let hops = 0; hops < RENEW_HOPS; hops++) {
+        if (r.location) { r = await request(r.location); continue; }
+        const host = new URL(r.url).host;
+        if (r.status !== 200 || !MICROSOFT.test(host)) break;
+        const form = formPost(r.text, r.url);
+        if (!form || !SCHOOLOGY_HOST.test(new URL(form.action).host)) break;
+        r = await request(form.action, {
+          method: 'POST', body: new URLSearchParams(form.fields).toString(), headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        });
+      }
+      const landed = new URL(r.url);
+      if (r.status !== 200 || !isLoggedInUrl(r.url) || landed.pathname !== '/home') {
         noteSessionLive('expired', 'Microsoft asked for a sign-in: log in to Schoology in Settings', now());
         return false;
       }
-      saveSessionState(stateFile, await s.page.context().storageState());
+      saveSessionState(stateFile, { ...state, cookies: jar.cookies() });
       noteSessionLive('connected', null, now());
       console.log('[schoologySession] Session renewed through Microsoft sign-in');
       return true;
@@ -106,7 +146,6 @@ export function renewSession({ stateFile = sessionStateFile(), now = Date.now } 
       console.warn(`[schoologySession] Could not renew the session: ${err.message}`);
       return false;
     } finally {
-      await s?.close().catch(() => {});
       renewing = null;
     }
   })();

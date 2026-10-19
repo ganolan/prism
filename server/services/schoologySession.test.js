@@ -155,65 +155,102 @@ describe('openSessionPage', () => {
   });
 });
 
-describe('renewSession (silent sign-in through Microsoft)', () => {
-  // A fake headless page: goto follows the SSO round trip and lands on `landing`;
-  // the context then holds `cookies`.
-  function renewalPage(landing, cookies = [{ name: 'SESSnew', value: 'v2', domain: '.schoology.hkis.edu.hk' }]) {
-    const page = {
-      url: vi.fn(() => landing),
-      goto: vi.fn(async () => {}),
-      waitForURL: vi.fn(async () => { if (!landing.includes('schoology.hkis.edu.hk/home')) throw new Error('timeout'); }),
-      context: () => ({ storageState: async () => ({ cookies, origins: [] }) }),
-    };
-    return { page, close: vi.fn(async () => {}) };
-  }
+describe('renewSession (silent sign-in through Microsoft, plain HTTP)', () => {
+  const SGY = 'https://schoology.hkis.edu.hk';
+  const AUTH = 'https://login.microsoftonline.com/common/oauth2/authorize';
+  const SAVED = [
+    { name: 'SESSold', value: 'v1', domain: '.schoology.hkis.edu.hk', path: '/', expires: -1, httpOnly: true, secure: true, sameSite: 'Lax' },
+    { name: 'ESTSAUTHPERSISTENT', value: 'p', domain: '.login.microsoftonline.com', path: '/', expires: 1800000000, httpOnly: true, secure: true, sameSite: 'None' },
+  ];
   const tmpState = () => {
     const dir = mkdtempSync(join(tmpdir(), 'prism-renew-'));
     const file = join(dir, 'storage-state.json');
-    writeFileSync(file, JSON.stringify({ cookies: [{ name: 'SESSold', value: 'v1', domain: '.schoology.hkis.edu.hk' }], origins: [] }));
+    writeFileSync(file, JSON.stringify({ cookies: SAVED, origins: [{ origin: SGY, localStorage: [] }] }));
     return { dir, file };
   };
+  // The chain observed 2026-10-19: /home → send/microsoft → authorize → receive (app.schoology.com,
+  // then the school) → /home. `authorize` answers the Microsoft step (a redirect when the remembered
+  // sign-in is enough). Records requests; never reaches the network.
+  function chain({ authorize } = {}) {
+    const requests = [];
+    const signedIn = (cookie) => String(cookie).includes('SESSnew=v2');
+    const routes = {
+      [`GET schoology.hkis.edu.hk/home`]: (q) => (signedIn(q.headers.cookie) ? { status: 200, body: 'home' }
+        : { status: 302, location: '/login/external_accounts/send/microsoft', setCookie: ['login_landing_dest=deleted; expires=Thu, 01-Jan-1970 00:00:01 GMT; Max-Age=0; path=/'] }),
+      [`GET schoology.hkis.edu.hk/login/external_accounts/send/microsoft`]: () => ({ status: 302, location: `${AUTH}?x=1` }),
+      [`GET login.microsoftonline.com/common/oauth2/authorize`]: authorize ?? ((q) => (String(q.headers.cookie).includes('ESTSAUTHPERSISTENT=p')
+        ? { status: 302, location: 'https://app.schoology.com/login/external_accounts/receive/microsoft?code=c', setCookie: ['ESTSAUTH=rotated; domain=.login.microsoftonline.com; path=/; secure; HttpOnly'] }
+        : { status: 200, body: '<html><script>$Config={"pgid":"Login"}</script></html>' })),
+      [`GET app.schoology.com/login/external_accounts/receive/microsoft`]: () => ({ status: 302, location: `${SGY}/login/external_accounts/receive/microsoft?s=1` }),
+      [`POST app.schoology.com/login/external_accounts/receive/microsoft`]: () => ({ status: 302, location: `${SGY}/login/external_accounts/receive/microsoft?s=1` }),
+      [`GET schoology.hkis.edu.hk/login/external_accounts/receive/microsoft`]: (q) => ({
+        status: 302, location: String(q.headers.cookie).includes('login_landing_dest=deleted') ? `${SGY}/deleted` : `${SGY}/home`,
+        setCookie: ['SESSold=; expires=Thu, 01-Jan-1970 00:00:01 GMT; path=/; domain=.schoology.hkis.edu.hk', 'SESSnew=v2; path=/; domain=.schoology.hkis.edu.hk; secure; HttpOnly'],
+      }),
+    };
+    const fetchImpl = async (url, init = {}) => {
+      const u = new URL(url);
+      const q = { key: `${init.method || 'GET'} ${u.host}${u.pathname}`, headers: init.headers || {}, body: init.body };
+      requests.push(q);
+      const r = routes[q.key]?.(q) ?? { status: 404 };
+      const headers = new Headers();
+      if (r.location) headers.set('location', new URL(r.location, url).href);
+      for (const c of r.setCookie ?? []) headers.append('set-cookie', c);
+      return new Response(r.body ?? '', { status: r.status, headers });
+    };
+    return { fetchImpl, requests };
+  }
 
-  test('lands signed in: saves the new cookies over the state file and notes the session live', async () => {
+  test('follows the sign-in to /home and saves the new cookies (Microsoft\'s rotated ones too) over the file', async () => {
     const { dir, file } = tmpState();
-    const s = renewalPage('https://schoology.hkis.edu.hk/home');
-    sessionDeps.openPage = vi.fn(async () => s);
-    expect(await renewSession({ stateFile: file, now })).toBe(true);
-    expect(sessionDeps.openPage).toHaveBeenCalledWith(file);
-    expect(JSON.parse(readFileSync(file, 'utf8')).cookies.map((c) => c.name)).toEqual(['SESSnew']);
+    const c = chain();
+    expect(await renewSession({ stateFile: file, now, fetchImpl: c.fetchImpl })).toBe(true);
+    const saved = JSON.parse(readFileSync(file, 'utf8'));
+    expect(saved.cookies.map((x) => `${x.name}=${x.value}`)).toEqual(['ESTSAUTHPERSISTENT=p', 'ESTSAUTH=rotated', 'SESSnew=v2']);
+    expect(saved.origins).toEqual([{ origin: SGY, localStorage: [] }]);
     expect(readdirSync(dir)).toEqual(['storage-state.json']); // the temp file was renamed into place
-    expect(s.close).toHaveBeenCalled();
     expect((await sessionStatus({ check: false, hasSession: () => true, now })).live).toBe('connected');
+    // No browser, and a browser-like User-Agent on every request.
+    for (const q of c.requests) expect(q.headers['User-Agent']).toMatch(/^Mozilla\/5\.0 /);
+    // Schoology's cookies never went to Microsoft.
+    expect(c.requests.find((q) => q.key.includes('microsoftonline')).headers.cookie).toBe('ESTSAUTHPERSISTENT=p');
   });
 
-  test('stuck at Microsoft sign-in: leaves the file alone, notes expired, answers false', async () => {
+  test('Microsoft wants a real sign-in (a page, no form): leaves the file alone, notes expired, answers false', async () => {
     const { file } = tmpState();
     const before = readFileSync(file, 'utf8');
-    const s = renewalPage('https://login.microsoftonline.com/common/oauth2/authorize');
-    sessionDeps.openPage = vi.fn(async () => s);
-    expect(await renewSession({ stateFile: file, now })).toBe(false);
+    const c = chain({ authorize: () => ({ status: 200, body: '<html><script>$Config={"pgid":"Login"}</script></html>' }) });
+    expect(await renewSession({ stateFile: file, now, fetchImpl: c.fetchImpl })).toBe(false);
     expect(readFileSync(file, 'utf8')).toBe(before);
-    expect(s.close).toHaveBeenCalled();
     expect((await sessionStatus({ check: false, hasSession: () => true, now })).live).toBe('expired');
+  });
+
+  test('a Microsoft form is posted on only to a Schoology host', async () => {
+    const form = (action) => () => ({ status: 200, body: `<form method="POST" action="${action}"><input type="hidden" name="code" value="c" /><input type="hidden" name="state" value="s" /></form>` });
+    const { file } = tmpState();
+    let c = chain({ authorize: form('https://app.schoology.com/login/external_accounts/receive/microsoft') });
+    expect(await renewSession({ stateFile: file, now, fetchImpl: c.fetchImpl })).toBe(true);
+    const post = c.requests.find((q) => q.key.startsWith('POST'));
+    expect(Object.fromEntries(new URLSearchParams(post.body))).toEqual({ code: 'c', state: 's' });
+    const other = tmpState();
+    c = chain({ authorize: form('https://evil.example/collect') });
+    expect(await renewSession({ stateFile: other.file, now, fetchImpl: c.fetchImpl })).toBe(false);
+    expect(c.requests.some((q) => q.key.startsWith('POST'))).toBe(false);
   });
 
   test('reads that expire together share one renewal', async () => {
     const { file } = tmpState();
-    let release;
-    const gate = new Promise((r) => { release = r; });
-    const s = renewalPage('https://schoology.hkis.edu.hk/home');
-    sessionDeps.openPage = vi.fn(async () => { await gate; return s; });
-    const both = Promise.all([renewSession({ stateFile: file, now }), renewSession({ stateFile: file, now })]);
-    release();
+    const c = chain();
+    const both = Promise.all([renewSession({ stateFile: file, now, fetchImpl: c.fetchImpl }), renewSession({ stateFile: file, now, fetchImpl: c.fetchImpl })]);
     expect(await both).toEqual([true, true]);
-    expect(sessionDeps.openPage).toHaveBeenCalledTimes(1);
+    expect(c.requests.filter((q) => q.key.endsWith('send/microsoft'))).toHaveLength(1);
   });
 
-  test('no saved session or no browser: false, nothing thrown', async () => {
+  test('no saved session, or Schoology not reached: false, nothing thrown, the file untouched', async () => {
+    expect(await renewSession({ stateFile: '/nonexistent/prism/storage-state.json', now, fetchImpl: chain().fetchImpl })).toBe(false);
     const { file } = tmpState();
-    sessionDeps.openPage = vi.fn(async () => null);
-    expect(await renewSession({ stateFile: file, now })).toBe(false);
-    sessionDeps.openPage = vi.fn(async () => { throw new Error('browser failed to start'); });
-    expect(await renewSession({ stateFile: file, now })).toBe(false);
+    const before = readFileSync(file, 'utf8');
+    expect(await renewSession({ stateFile: file, now, fetchImpl: async () => { throw new TypeError('fetch failed'); } })).toBe(false);
+    expect(readFileSync(file, 'utf8')).toBe(before);
   });
 });

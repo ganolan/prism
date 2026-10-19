@@ -41,12 +41,20 @@ export function cookieJar(stateFile = sessionStateFile()) {
       return true;
     },
     header: () => [...jar].map(([k, v]) => `${k}=${v}`).join('; '),
+    // An expiring Set-Cookie (Max-Age=0, or a past Expires) removes the cookie, as a browser does:
+    // Schoology expires login_landing_dest with the value "deleted" (2026-10-19), which, kept, would
+    // send a sign-in back to /deleted.
     take(res) {
       const set = typeof res.headers.getSetCookie === 'function' ? res.headers.getSetCookie() : [];
       for (const line of set) {
-        const [pair] = line.split(';');
+        const [pair, ...attrs] = line.split(';');
         const i = pair.indexOf('=');
-        if (i > 0) jar.set(pair.slice(0, i).trim(), pair.slice(i + 1).trim());
+        if (i <= 0) continue;
+        const attr = (name) => attrs.map((a) => a.trim()).find((a) => a.toLowerCase().startsWith(`${name}=`))?.slice(name.length + 1);
+        const maxAge = attr('max-age');
+        const expires = attr('expires');
+        if ((maxAge != null && Number(maxAge) <= 0) || (expires && Date.parse(expires) < Date.now())) jar.delete(pair.slice(0, i).trim());
+        else jar.set(pair.slice(0, i).trim(), pair.slice(i + 1).trim());
       }
     },
   };

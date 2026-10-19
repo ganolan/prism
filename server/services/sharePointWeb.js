@@ -10,39 +10,14 @@
 import { existsSync, readFileSync } from 'fs';
 import { sessionStateFile } from '../lib/sessionPaths.js';
 import { findFolderById } from '../lib/oneDriveSubmissions.js';
+import { stateCookieJar, USER_AGENT } from '../lib/stateCookieJar.js';
+
+export { USER_AGENT };
 
 // Created by the Schoology Microsoft OneDrive app in the teacher's Documents.
 export const ASSIGNMENTS_FOLDER = 'Schoology Microsoft OneDrive Assignments';
 const MICROSOFT = /(^|\.)(microsoftonline\.com|windows\.net|live\.com)$/;
 const MAX_HOPS = 12;
-// SharePoint answers 403 to Node's own User-Agent ("node") on the first page, and lets a browser's through
-// (2026-10-19). Any browser-like value served; this one names Prism.
-export const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Prism';
-
-// A cookie jar across hosts: domain → name → value. A cookie for "x.com" goes to x.com and its
-// subdomains. Seeded with every cookie in the saved state except Schoology's.
-function multiHostJar(cookies) {
-  const jar = new Map();
-  const put = (domain, name, value) => {
-    const d = String(domain).replace(/^\./, '').toLowerCase();
-    if (!jar.has(d)) jar.set(d, new Map());
-    jar.get(d).set(name, value);
-  };
-  for (const c of cookies || []) if (c?.domain && !/schoology/i.test(c.domain)) put(c.domain, c.name, c.value);
-  return {
-    header: (host) => [...jar].filter(([d]) => host === d || host.endsWith(`.${d}`)).flatMap(([, m]) => [...m].map(([k, v]) => `${k}=${v}`)).join('; '),
-    take(res, host) {
-      for (const line of res.headers.getSetCookie?.() ?? []) {
-        const [pair, ...attrs] = line.split(';');
-        const i = pair.indexOf('=');
-        if (i <= 0) continue;
-        const domain = attrs.map((a) => a.trim()).find((a) => /^domain=/i.test(a))?.slice(7) || host;
-        put(domain, pair.slice(0, i).trim(), pair.slice(i + 1).trim());
-      }
-    },
-  };
-}
-
 const decode = (v) => v.replace(/&quot;/g, '"').replace(/&#39;|&#039;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 
 // The form Microsoft's page asks the browser to submit: { action, fields } or null.
@@ -75,14 +50,14 @@ export async function signInToSharePoint({ state, origin, fetchImpl = fetch, tim
   try { saved = state === undefined ? readState() : state; } catch { return { status: 'no_session' }; }
   if (!saved) return { status: 'no_session' };
   const home = new URL(origin);
-  const jar = multiHostJar(saved.cookies);
+  // Schoology's cookies never go to SharePoint or Microsoft.
+  const jar = stateCookieJar(saved.cookies, { exclude: (c) => /schoology/i.test(c.domain) });
   const request = async (url, init = {}) => {
-    const u = new URL(url);
     const res = await fetchImpl(url, {
       ...init, redirect: 'manual', signal: AbortSignal.timeout(timeoutMs),
-      headers: { cookie: jar.header(u.host), 'User-Agent': USER_AGENT, ...init.headers },
+      headers: { cookie: jar.header(url), 'User-Agent': USER_AGENT, ...init.headers },
     });
-    jar.take(res, u.host);
+    jar.take(res, url);
     const location = res.headers.get('location');
     return { status: res.status, url, location: location ? new URL(location, url).href : null, text: await res.text() };
   };

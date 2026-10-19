@@ -35,6 +35,17 @@ touches them — they are **import-once**.
   preference is a deferred follow-up (would want a shared `formatDate` helper that
   all dates funnel through — formatting is currently scattered).
 
+### Submitted (one rule everywhere, 19 Oct 2026)
+
+- **Submitted** = a real submission signal: the OneDrive (LTI) state from the grader, a native dropbox
+  revision (`grades.submission_type`), or a test attempt (`test_attempt = 'took'`). Never
+  `grades.submitted_at`, which is the REST **grade** time (a teacher's comment alone sets it).
+  Triage, the card pill and filters, the timeline and PrisMCP all use this rule.
+- **Not tracked** = paper / gradebook-only work (`accepts_submissions = 0`, not a test): no submission
+  channel, so no Submitted / Missing badge; it counts as handed in for "to grade".
+- After an unsubmit, sync keeps the last-seen `latest_revision_at` / `late` as history (resubmission
+  detection needs them); no screen or tool shows them unless the work is submitted again.
+
 ### School days, lessons and "day N" (triage clock)
 
 - **School day** — a teaching day in the PowerSchool calendar (`school_days`: in session *and* a cycle day).

@@ -690,7 +690,7 @@ export function RubricModal({
     score: grade.score, exception: grade.exception, late: timeline?.submission?.late ?? grade.late,
     draft: grade.draft, submitted_at: grade.submitted_at, submission_type: grade.submission_type,
     is_lti_submission: assignment.is_lti_submission, lti_submission_state: grade.lti_submission_state,
-    due_date: assignment.due_date,
+    due_date: assignment.due_date, accepts_submissions: assignment.accepts_submissions, is_test: assignment.is_test,
   });
   const flags = [
     ...(grade.review_needed || []).map(f => ({ ...f, flag_type: 'review_needed' })),
@@ -1142,7 +1142,7 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                   const empty = submissionStatus({
                     score: null, exception: 0, late: 0, draft: 0, submitted_at: 0,
                     is_lti_submission: a.is_lti_submission, lti_submission_state: null,
-                    due_date: a.due_date,
+                    due_date: a.due_date, accepts_submissions: a.accepts_submissions, is_test: a.is_test,
                   });
                   if (!empty.length) return <td key={a.id} style={{ textAlign: 'center', position: 'relative' }} title={tlText || undefined}>-{commentBubble(a, s)}</td>;
                   return (
@@ -1180,7 +1180,7 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                   score: g.score, exception: g.exception, late: tl?.submission?.late ?? g.late, draft: g.draft,
                   submitted_at: g.submitted_at, submission_type: g.submission_type,
                   is_lti_submission: a.is_lti_submission, lti_submission_state: g.lti_submission_state,
-                  due_date: a.due_date,
+                  due_date: a.due_date, accepts_submissions: a.accepts_submissions, is_test: a.is_test,
                 });
                 // Don't double up exception text — gradeLabel already shows it.
                 const inlineBadges = status.filter(b => b.kind !== 'exception');

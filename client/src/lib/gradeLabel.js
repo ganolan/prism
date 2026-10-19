@@ -32,6 +32,10 @@ const EXCEPTION_LABELS = {
 //
 // Non-lti work: only submitted-or-not is knowable, so it consolidates to
 // green "Submitted" or red "Missing" (overdue only); nothing before due.
+// "Submitted" needs a real submission signal (submission_type: a dropbox revision
+// or a test attempt), the same rule as triage. submitted_at is the grade time and
+// is NOT one (a teacher's comment alone used to show "Submitted", 2026-10-19).
+// Paper / gradebook-only work (accepts_submissions 0, not a test) has no badges.
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 function dueProximity(due_date, today) {
@@ -64,14 +68,14 @@ function ltiBadges(state, submission_type, due_date, today, late) {
   return [];
 }
 
-function nonLtiBadges({ submission_type, submitted_at, late, due_date, today }) {
-  const submitted = !!submission_type || Number(submitted_at) > 0;
+function nonLtiBadges({ submission_type, late, due_date, today }) {
+  const submitted = !!submission_type;
   if (submitted) return [{ kind: 'submitted', label: 'Submitted', tone: 'green', ...(late ? { late: true } : {}) }];
   if (dueProximity(due_date, today) === 'overdue') return [{ kind: 'missing', label: 'Missing', tone: 'red' }];
-  return late ? [{ kind: 'late', label: 'Late', tone: 'red' }] : [];
+  return []; // a late flag with no submission is a stale value, not a state
 }
 
-export function submissionStatus({ score, exception, late, draft, submitted_at, submission_type, is_lti_submission, lti_submission_state, due_date, today = new Date() }) {
+export function submissionStatus({ score, exception, late, draft, submitted_at, submission_type, is_lti_submission, lti_submission_state, due_date, accepts_submissions, is_test, today = new Date() }) {
   const exLabel = EXCEPTION_LABELS[exception];
   if (exception && exception !== 4 && exLabel) {
     const tone = exception === 1 ? 'blue' : 'red';
@@ -79,7 +83,8 @@ export function submissionStatus({ score, exception, late, draft, submitted_at, 
   }
   if (score != null) return []; // graded — gradeLabel renders the score
   if (is_lti_submission) return ltiBadges(lti_submission_state, submission_type, due_date, today, late);
-  return nonLtiBadges({ submission_type, submitted_at, late, due_date, today });
+  if (accepts_submissions === 0 && !is_test) return []; // no submission channel
+  return nonLtiBadges({ submission_type, late, due_date, today });
 }
 
 // True when an lti_submission assignment's document fetch failed at the last

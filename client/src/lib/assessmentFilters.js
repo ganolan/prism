@@ -18,12 +18,17 @@ export const TONE_VARS = {
   resubmit: { bg: 'var(--badge-resubmit-bg)', text: 'var(--badge-resubmit-text)' },
 };
 
+// Same rule as the server (assessmentContext.normalizeSubmissionStatus) and triage:
+// a real submission signal, never grades.submitted_at (the grade time). Paper /
+// gradebook-only work is 'not_tracked'.
 export function normalizedSubmissionState(student, assignment) {
   if (assignment.is_lti_submission) {
     const s = student.lti_submission_state || (student.submission_type ? 'submitted' : null);
     return s || 'unknown';
   }
-  return (student.submission_type || Number(student.submitted_at) > 0) ? 'submitted' : 'not_started';
+  if (student.submission_type || student.test_attempt === 'took') return 'submitted';
+  if (assignment.accepts_submissions === 0 && !assignment.is_test) return 'not_tracked';
+  return 'not_started';
 }
 
 export function gradingStateOf(student, topics) {
@@ -206,7 +211,8 @@ export function studentReasons(student, ctx) {
     const grading = gradingStateOf(student, ctx.topics || []);
     const handedIn = student.attention
       ? student.attention.handedIn
-      : normalizedSubmissionState(student, ctx.assignment || {}) === 'submitted';
+      // Paper work has no submission channel: it counts as handed in (as triage's feedback owed does).
+      : ['submitted', 'not_tracked'].includes(normalizedSubmissionState(student, ctx.assignment || {}));
     // A Prism draft is the next step whatever Schoology holds, so it replaces to grade / partly graded.
     if (ctx.hasDraft?.(student)) out.push({ id: 'draft' });
     else if (grading === 'ungraded' && handedIn) out.push({ id: 'to_grade' });

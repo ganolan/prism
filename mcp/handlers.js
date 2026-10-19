@@ -92,20 +92,22 @@ function assignmentCounts(db, assignmentRow) {
     scoredByUid[r.student_uid] = (scoredByUid[r.student_uid] || 0) + 1;
   }
   const rows = db.prepare(`
-    SELECT s.schoology_uid, g.lti_submission_state, g.submission_type, g.submitted_at,
+    SELECT s.schoology_uid, g.lti_submission_state, g.submission_type, g.test_attempt,
            g.grade_comment, g.exception, sl.line AS stored_line
     FROM grades g JOIN students s ON s.id = g.student_id
     LEFT JOIN status_lines sl ON sl.student_id = g.student_id AND sl.assignment_id = g.assignment_id
     WHERE g.assignment_id = ?
   `).all(assignmentRow.id);
-  const submission = { submitted: 0, in_progress: 0, not_started: 0, unknown: 0, total: rows.length };
+  const submission = { submitted: 0, in_progress: 0, not_started: 0, unknown: 0, not_tracked: 0, total: rows.length };
   const grading = { ungraded: 0, partial: 0, complete: 0 };
   for (const r of rows) {
     const ss = normalizeSubmissionStatus({
       is_lti_submission: assignmentRow.is_lti_submission,
+      accepts_submissions: assignmentRow.accepts_submissions,
+      is_test: assignmentRow.is_test,
       lti_submission_state: r.lti_submission_state,
       submission_type: r.submission_type,
-      submitted_at: r.submitted_at,
+      test_attempt: r.test_attempt,
     });
     submission[ss] = (submission[ss] ?? 0) + 1;
     const gs = gradingState({
@@ -124,18 +126,23 @@ function assignmentCounts(db, assignmentRow) {
 export function listAssignments(db, { course_id }) {
   const rows = db.prepare(`
     SELECT a.id, a.schoology_assignment_id, a.title, a.due_date, a.assignment_type, a.is_lti_submission, a.course_id, a.grading_scale_id,
+           a.accepts_submissions, a.is_test,
            EXISTS (
              SELECT 1 FROM mastery_alignments ma
              WHERE ma.assignment_schoology_id = a.schoology_assignment_id
                AND ma.course_id = a.course_id
            ) AS has_aligned_topics,
-           (SELECT MAX(CASE WHEN a.is_lti_submission = 1 THEN g.latest_revision_at ELSE g.submitted_at END)
-              FROM grades g WHERE g.assignment_id = a.id) AS latest_submitted_at
+           -- The latest real submission: only students whose work IS submitted (OneDrive
+           -- state, or a dropbox revision), never the grade time (2026-10-19).
+           (SELECT MAX(g.latest_revision_at) FROM grades g WHERE g.assignment_id = a.id
+              AND (CASE WHEN a.is_lti_submission = 1
+                        THEN COALESCE(g.lti_submission_state, CASE WHEN g.submission_type IS NOT NULL THEN 'submitted' END) = 'submitted'
+                        ELSE g.submission_type IS NOT NULL END)) AS latest_submitted_at
     FROM assignments a
     WHERE a.course_id = ? AND a.removed_at IS NULL
     ORDER BY a.due_date, a.id
   `).all(Number(course_id));
-  return rows.map(({ latest_submitted_at, course_id: _c, is_lti_submission, grading_scale_id, ...r }) => {
+  return rows.map(({ latest_submitted_at, course_id: _c, is_lti_submission, grading_scale_id, accepts_submissions, is_test, ...r }) => {
     const scale = scoreScaleFor({ grading_scale_id }, r.has_aligned_topics ? 1 : 0);
     return {
       ...r,
@@ -152,7 +159,7 @@ export function listAssignments(db, { course_id }) {
       // 2026-10-03), so the query above reads that column for LTI assignments.
       // Surface the latest as an ISO string, null when nobody has submitted.
       latest_submission_at: latest_submitted_at > 0 ? new Date(latest_submitted_at * 1000).toISOString() : null,
-      ...assignmentCounts(db, { id: r.id, schoology_assignment_id: r.schoology_assignment_id, course_id: _c, is_lti_submission }),
+      ...assignmentCounts(db, { id: r.id, schoology_assignment_id: r.schoology_assignment_id, course_id: _c, is_lti_submission, accepts_submissions, is_test }),
     };
   });
 }

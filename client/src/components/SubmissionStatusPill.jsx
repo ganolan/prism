@@ -29,6 +29,8 @@ export default function SubmissionStatusPill({ student, assignment }) {
     is_lti_submission: assignment.is_lti_submission,
     lti_submission_state: student.lti_submission_state,
     due_date: assignment.due_date,
+    accepts_submissions: assignment.accepts_submissions,
+    is_test: assignment.is_test,
   });
 
   if (badges.length === 0) {

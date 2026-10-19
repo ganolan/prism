@@ -183,15 +183,19 @@ describe('listAssignments', () => {
     expect(nb.grading_counts).toMatchObject({ ungraded: 0, partial: 1, complete: 1 });
   });
 
-  test('latest_submission_at is the max submitted_at as ISO, null when never submitted', () => {
+  test('latest_submission_at is the latest real submission (dropbox revision) as ISO, never the grade time; null when none', () => {
     const db = getDb();
     const courseId = seedCourse(db);
     const submittedId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sub', 'Submitted')`).run(courseId).lastInsertRowid;
     db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'untouched', 'Untouched')`).run(courseId);
     const s1 = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u1','A','One')`).run().lastInsertRowid;
     const s2 = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u2','B','Two')`).run().lastInsertRowid;
-    db.prepare(`INSERT INTO grades (student_id, assignment_id, submitted_at) VALUES (?, ?, 1700000000)`).run(s1, submittedId);
-    db.prepare(`INSERT INTO grades (student_id, assignment_id, submitted_at) VALUES (?, ?, 1700000500)`).run(s2, submittedId);
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, submission_type, latest_revision_at, submitted_at) VALUES (?, ?, 'drop', 1700000000, 1800000000)`).run(s1, submittedId);
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, submission_type, latest_revision_at) VALUES (?, ?, 'drop', 1700000500)`).run(s2, submittedId);
+    // A grade with no submission (a teacher comment only) is not a submission.
+    const s3 = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u3','C','Three')`).run().lastInsertRowid;
+    const untouched = db.prepare(`SELECT id FROM assignments WHERE schoology_assignment_id = 'untouched'`).get().id;
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, submitted_at) VALUES (?, ?, 1700009999)`).run(s3, untouched);
 
     const byTitle = Object.fromEntries(listAssignments(db, { course_id: courseId }).map((a) => [a.title, a]));
     expect(byTitle.Submitted.latest_submission_at).toBe(new Date(1700000500 * 1000).toISOString());
@@ -204,7 +208,10 @@ describe('listAssignments', () => {
     const ltiId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, is_lti_submission) VALUES (?, 'lti-1', 'OneDrive Essay', 1)`).run(courseId).lastInsertRowid;
     const s1 = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u1','A','One')`).run().lastInsertRowid;
     // submitted_at here is the REST grade time (not the submission) — must be ignored for LTI.
-    db.prepare(`INSERT INTO grades (student_id, assignment_id, submitted_at, latest_revision_at) VALUES (?, ?, 0, 1700000900)`).run(s1, ltiId);
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, submitted_at, latest_revision_at, lti_submission_state) VALUES (?, ?, 0, 1700000900, 'submitted')`).run(s1, ltiId);
+    // Unsubmitted since (back in progress): its stored time is history, not a current submission.
+    const s2 = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u2','B','Two')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, latest_revision_at, lti_submission_state) VALUES (?, ?, 1700009999, 'in_progress')`).run(s2, ltiId);
 
     const byTitle = Object.fromEntries(listAssignments(db, { course_id: courseId }).map((a) => [a.title, a]));
     expect(byTitle['OneDrive Essay'].latest_submission_at).toBe(new Date(1700000900 * 1000).toISOString());

@@ -35,14 +35,22 @@ const epochToIso = (secs) => (Number(secs) > 0 ? new Date(secs * 1000).toISOStri
 // Normalized submission readiness (no colour/due-date logic — that is the
 // gradebook's client concern). LTI: the authoritative lti_submission_state, or
 // 'submitted' when only a corroborating submission_type exists (mirrors
-// gradeLabel.ltiBadges), else 'unknown'. Non-LTI: only submitted-or-not is
-// knowable.
-export function normalizeSubmissionStatus({ is_lti_submission, lti_submission_state, submission_type, submitted_at } = {}) {
+// gradeLabel.ltiBadges), else 'unknown'. Non-LTI: a real submission signal
+// (submission_type from a dropbox revision or a test attempt), the same rule as
+// triage's isSubmitted. grades.submitted_at is NOT one: it is the grade time, so a
+// teacher's comment alone used to read as "submitted" (2026-10-19). Paper /
+// gradebook-only work (accepts_submissions 0, not a test) has no submission
+// channel: 'not_tracked'. Pass submitted_at freely; it is ignored.
+export function normalizeSubmissionStatus({
+  is_lti_submission, lti_submission_state, submission_type, test_attempt, accepts_submissions, is_test,
+} = {}) {
   if (is_lti_submission) {
     const s = lti_submission_state || (submission_type ? 'submitted' : null);
     return s || 'unknown';
   }
-  return (submission_type || Number(submitted_at) > 0) ? 'submitted' : 'not_started';
+  if (submission_type || test_attempt === 'took') return 'submitted';
+  if (Number(accepts_submissions) === 0 && Number(is_test) !== 1 && accepts_submissions != null) return 'not_tracked';
+  return 'not_started';
 }
 
 // Grading completeness on the published finals. Excepted students (rubric
@@ -305,6 +313,14 @@ export function getAssessmentContext(db, { assignmentId }) {
       exception: meta.exception ?? 0,
     });
     const isLti = !!assignmentRow.is_lti_submission;
+    const submissionStatus = normalizeSubmissionStatus({
+      is_lti_submission: assignmentRow.is_lti_submission, accepts_submissions: assignmentRow.accepts_submissions, is_test: assignmentRow.is_test,
+      lti_submission_state: meta.lti_submission_state, submission_type: meta.submission_type, test_attempt: meta.test_attempt,
+    });
+    // Submission times only while the work IS submitted: sync keeps the last-seen
+    // time after an unsubmit (resubmission detection needs it), which must not read
+    // as a current submission (2026-10-19).
+    const handedIn = submissionStatus === 'submitted';
     return {
       id: st.id,
       schoology_uid: st.schoology_uid,
@@ -326,17 +342,13 @@ export function getAssessmentContext(db, { assignmentId }) {
       grade_comment: meta.grade_comment || '',
       display_to_student: (meta.comment_status ?? null) === 1,
       exception: meta.exception ?? 0,
-      submission_status: normalizeSubmissionStatus({
-        is_lti_submission: assignmentRow.is_lti_submission,
-        lti_submission_state: meta.lti_submission_state,
-        submission_type: meta.submission_type,
-        submitted_at: meta.submitted_at,
-      }),
-      // Submission time (ISO). Native: the REST timestamp (submission/grade-entry).
-      // LTI: the grader's submissionDate, stored in latest_revision_at — submitted_at
-      // holds the REST grade time there (triage resubmissions, 2026-10-03).
-      submitted_at: epochToIso(isLti ? meta.latest_revision_at : meta.submitted_at),
-      latest_revision_at: epochToIso(meta.latest_revision_at),
+      submission_status: submissionStatus,
+      // Submission time (ISO): the latest submission (native: the newest non-draft
+      // dropbox revision; LTI: the grader's submissionDate), never the REST grade
+      // time in grades.submitted_at (2026-10-19). null unless submitted.
+      submitted_at: handedIn ? epochToIso(meta.latest_revision_at || meta.first_submitted_at) : null,
+      latest_revision_at: handedIn ? epochToIso(meta.latest_revision_at) : null,
+      first_submitted_at: handedIn ? epochToIso(meta.first_submitted_at) : null,
       grading_state,
       is_lti: isLti,
       due_date: assignmentRow.due_date ?? null,

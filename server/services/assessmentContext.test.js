@@ -254,18 +254,20 @@ describe('getAssessmentContext', () => {
   test('per-student carries submission timestamps (ISO) for both non-LTI and LTI (#125)', () => {
     const db = getDb();
     const { courseId, assignmentId, studentId } = seedContext(db);
-    db.prepare(`UPDATE grades SET submitted_at = 1700000000, latest_revision_at = 1700000500 WHERE student_id = ? AND assignment_id = ?`).run(studentId, assignmentId);
+    db.prepare(`UPDATE grades SET submission_type = 'drop', submitted_at = 1700000000, latest_revision_at = 1700000500, first_submitted_at = 1700000400 WHERE student_id = ? AND assignment_id = ?`).run(studentId, assignmentId);
 
-    // non-LTI: surfaces as ISO strings
+    // non-LTI: the latest dropbox revision, never the REST grade time (2026-10-19)
     let s = getAssessmentContext(db, { courseId, assignmentId: 'sa-1' }).students[0];
-    expect(s.submitted_at).toBe(new Date(1700000000 * 1000).toISOString());
+    expect(s.submitted_at).toBe(new Date(1700000500 * 1000).toISOString());
     expect(s.latest_revision_at).toBe(new Date(1700000500 * 1000).toISOString());
+    expect(s.first_submitted_at).toBe(new Date(1700000400 * 1000).toISOString());
 
     // LTI: submitted_at stays the REST grade time (owned by upsertGrade); the
     // grader's authoritative submission time lives in latest_revision_at — so for
     // LTI the surfaced submitted_at tracks latest_revision_at, not the REST value
     // (triage resubmissions, 2026-10-03).
     db.prepare(`UPDATE assignments SET is_lti_submission = 1 WHERE id = ?`).run(assignmentId);
+    db.prepare(`UPDATE grades SET lti_submission_state = 'submitted' WHERE student_id = ? AND assignment_id = ?`).run(studentId, assignmentId);
     s = getAssessmentContext(db, { courseId, assignmentId: 'sa-1' }).students[0];
     expect(s.submitted_at).toBe(new Date(1700000500 * 1000).toISOString());
     expect(s.latest_revision_at).toBe(new Date(1700000500 * 1000).toISOString());
@@ -275,11 +277,29 @@ describe('getAssessmentContext', () => {
     const db = getDb();
     const { courseId, assignmentId, studentId } = seedContext(db);
     db.prepare(`UPDATE assignments SET is_lti_submission = 1 WHERE id = ?`).run(assignmentId);
-    db.prepare(`UPDATE grades SET submitted_at = 2000, latest_revision_at = 3000 WHERE student_id = ? AND assignment_id = ?`).run(studentId, assignmentId);
+    db.prepare(`UPDATE grades SET submitted_at = 2000, latest_revision_at = 3000, lti_submission_state = 'submitted' WHERE student_id = ? AND assignment_id = ?`).run(studentId, assignmentId);
 
     const s = getAssessmentContext(db, { courseId, assignmentId: 'sa-1' }).students[0];
     expect(s.submitted_at).toBe(new Date(3000 * 1000).toISOString());
     expect(s.latest_revision_at).toBe(new Date(3000 * 1000).toISOString());
+  });
+
+  test('unsubmitted since (back in progress): the stored time is history, not a current submission', () => {
+    const db = getDb();
+    const { courseId, assignmentId, studentId } = seedContext(db);
+    db.prepare(`UPDATE assignments SET is_lti_submission = 1 WHERE id = ?`).run(assignmentId);
+    db.prepare(`UPDATE grades SET latest_revision_at = 3000, first_submitted_at = 3000, late = 1, lti_submission_state = 'in_progress' WHERE student_id = ? AND assignment_id = ?`).run(studentId, assignmentId);
+    const s = getAssessmentContext(db, { courseId, assignmentId: 'sa-1' }).students[0];
+    expect(s).toMatchObject({ submission_status: 'in_progress', submitted_at: null, latest_revision_at: null, first_submitted_at: null });
+  });
+
+  test('a teacher comment alone (grade time, no revision) is not a submission', () => {
+    const db = getDb();
+    const { courseId, studentId, assignmentId } = seedContext(db);
+    db.prepare(`UPDATE assignments SET accepts_submissions = 1 WHERE id = ?`).run(assignmentId);
+    db.prepare(`UPDATE grades SET submitted_at = 1700000000 WHERE student_id = ? AND assignment_id = ?`).run(studentId, assignmentId);
+    const s = getAssessmentContext(db, { courseId, assignmentId: 'sa-1' }).students[0];
+    expect(s).toMatchObject({ submission_status: 'not_started', submitted_at: null });
   });
 
   test('LTI with no captured submission time still surfaces null timestamps (#125)', () => {
@@ -327,10 +347,13 @@ describe('normalizeSubmissionStatus', () => {
   test('LTI with nothing is unknown', () => {
     expect(normalizeSubmissionStatus({ is_lti_submission: 1, lti_submission_state: null, submission_type: null })).toBe('unknown');
   });
-  test('non-LTI is submitted vs not_started only', () => {
+  test('non-LTI: a real submission signal only; the grade time is not one; paper work is not tracked', () => {
     expect(normalizeSubmissionStatus({ is_lti_submission: 0, submission_type: 'drop' })).toBe('submitted');
-    expect(normalizeSubmissionStatus({ is_lti_submission: 0, submitted_at: 5 })).toBe('submitted');
+    expect(normalizeSubmissionStatus({ is_lti_submission: 0, is_test: 1, test_attempt: 'took' })).toBe('submitted');
+    expect(normalizeSubmissionStatus({ is_lti_submission: 0, accepts_submissions: 1, submitted_at: 5 })).toBe('not_started'); // grade time only
     expect(normalizeSubmissionStatus({ is_lti_submission: 0, submission_type: null, submitted_at: 0 })).toBe('not_started');
+    expect(normalizeSubmissionStatus({ is_lti_submission: 0, accepts_submissions: 0, submitted_at: 5 })).toBe('not_tracked');
+    expect(normalizeSubmissionStatus({ is_lti_submission: 0, accepts_submissions: 0, is_test: 1 })).toBe('not_started'); // a test is tracked by attempt
   });
 });
 

@@ -131,6 +131,8 @@ export function CourseSection({
                   is_lti_submission: g.is_lti_submission,
                   lti_submission_state: g.lti_submission_state,
                   due_date: g.due_date,
+                  accepts_submissions: g.accepts_submissions,
+                  is_test: g.is_test,
                 });
                 const aid = g.schoology_assignment_id;
                 const attempt = attemptLinks[aid] || null;

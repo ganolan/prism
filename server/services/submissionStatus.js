@@ -97,7 +97,9 @@ export function getSubmissionStatus(db, {
         if (itemKind == null) continue; // not_assigned: sits the other copy
         if (itemKind === 'unknown') unknown++;
         const owing = (itemKind === 'not_started' || itemKind === 'in_progress') && !s.scored;
-        const late = g.late === 1 ? true : g.late === 0 ? false : null;
+        // Schoology's late flag describes a submission: only meaningful while the work is
+        // submitted (sync keeps the last value after an unsubmit, 2026-10-19).
+        const late = itemKind !== 'submitted' ? null : g.late === 1 ? true : g.late === 0 ? false : null;
 
         if (!byStudent.has(st.id)) {
           byStudent.set(st.id, { studentId: st.id, studentName: fullName(st), studentEmail: st.email ?? null, items: [] });

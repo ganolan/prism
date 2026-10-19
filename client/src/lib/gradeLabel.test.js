@@ -17,9 +17,19 @@ describe('submissionStatus: late OneDrive (LTI) work', () => {
     expect(submissionStatus({ score: null, is_lti_submission: 0, submission_type: 'drop', late: 1, due_date: '2026-01-01' }))
       .toEqual([{ kind: 'submitted', label: 'Submitted', tone: 'green', late: true }]);
   });
-  it('a late flag with no status to attach to stays its own badge', () => {
-    expect(submissionStatus({ score: null, is_lti_submission: 0, late: 1, due_date: FUTURE }))
-      .toEqual([{ kind: 'late', label: 'Late', tone: 'red' }]);
+  it('a late flag with no submission behind it shows nothing (a stale or draft value, 2026-10-19)', () => {
+    expect(submissionStatus({ score: null, is_lti_submission: 0, late: 1, due_date: FUTURE })).toEqual([]);
+  });
+  it('the grade time (submitted_at) is not a submission: a teacher comment alone is not "Submitted"', () => {
+    expect(submissionStatus({ score: null, is_lti_submission: 0, submitted_at: 1700000000, due_date: '2020-01-01 15:00:00' }).map((b) => b.kind))
+      .toEqual(['missing']);
+    expect(submissionStatus({ score: null, is_lti_submission: 0, submission_type: 'drop', due_date: '2020-01-01 15:00:00' }).map((b) => b.kind))
+      .toEqual(['submitted']);
+  });
+  it('paper / gradebook-only work has no submission badges; a test is still tracked', () => {
+    expect(submissionStatus({ score: null, is_lti_submission: 0, accepts_submissions: 0, due_date: '2020-01-01 15:00:00' })).toEqual([]);
+    expect(submissionStatus({ score: null, is_lti_submission: 0, accepts_submissions: 0, is_test: 1, submission_type: 'assessment', due_date: '2020-01-01 15:00:00' }).map((b) => b.kind))
+      .toEqual(['submitted']);
   });
   it('late only matters once submitted', () => {
     expect(submissionStatus({ score: null, is_lti_submission: 1, lti_submission_state: 'in_progress', late: true, due_date: null }).map((b) => b.kind))

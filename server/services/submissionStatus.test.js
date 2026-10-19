@@ -345,3 +345,13 @@ describe('getSubmissionStatus - timeline per item', () => {
     expect(items['Bo Bell']).toMatchObject({ submission: { state: 'not_submitted' }, overdue: { day: 10, overLimit: true } }); // Fri 16/10 = day 10
   });
 });
+
+describe('getSubmissionStatus - a stale late flag after an unsubmit', () => {
+  test('OneDrive work back in progress reports late: null, not the last submission\'s flag', () => {
+    const ada = student('u1', 'Ada', 'Lin');
+    const id = assignment('a1', 'Essay', '2026-10-05', { lti: 1 });
+    grade(ada, id, { lti_submission_state: 'in_progress', late: 1, latest_revision_at: 1700000000 });
+    const item = getSubmissionStatus(db, { today: TODAY, status: 'all', courseId }).students[0].items[0];
+    expect(item).toMatchObject({ status: 'in_progress', late: null });
+  });
+});

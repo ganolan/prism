@@ -23,6 +23,13 @@ describe('normalizedSubmissionState', () => {
     expect(normalizedSubmissionState(stu({ submission_type: 'drop' }), NON_LTI)).toBe('submitted');
     expect(normalizedSubmissionState(stu(), NON_LTI)).toBe('not_started');
   });
+  it('the grade time (submitted_at) is not a submission (2026-10-19)', () => {
+    expect(normalizedSubmissionState(stu({ submitted_at: 1700000000 }), NON_LTI)).toBe('not_started');
+  });
+  it('paper work (accepts_submissions 0) is not tracked; a test attempt counts', () => {
+    expect(normalizedSubmissionState(stu(), { ...NON_LTI, accepts_submissions: 0 })).toBe('not_tracked');
+    expect(normalizedSubmissionState(stu({ test_attempt: 'took' }), { ...NON_LTI, accepts_submissions: 0, is_test: 1 })).toBe('submitted');
+  });
 });
 
 describe('gradingStateOf', () => {

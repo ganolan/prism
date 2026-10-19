@@ -144,8 +144,8 @@ export function studentsToRefresh(db, assignment) {
   return getRoster(db, assignment.course_id, assignment).filter((st) => {
     const m = metaByUid[st.schoology_uid] || {};
     const status = normalizeSubmissionStatus({
-      is_lti_submission: assignment.is_lti_submission, lti_submission_state: m.lti_submission_state,
-      submission_type: m.submission_type, submitted_at: m.submitted_at,
+      is_lti_submission: assignment.is_lti_submission, accepts_submissions: assignment.accepts_submissions, is_test: assignment.is_test,
+      lti_submission_state: m.lti_submission_state, submission_type: m.submission_type, test_attempt: m.test_attempt,
     });
     return status === 'submitted' || withComments.has(st.id);
   });
@@ -224,7 +224,7 @@ export function refreshStudent(db, studentId, { maxAgeSec = BACKGROUND_MAX_AGE_S
   const cachedIds = new Set(db.prepare('SELECT DISTINCT assignment_id FROM submission_comments WHERE student_id = ?')
     .all(student.id).map((r) => r.assignment_id));
   const rows = db.prepare(`
-    SELECT a.*, g.lti_submission_state, g.submission_type, g.submitted_at AS g_submitted_at
+    SELECT a.*, g.lti_submission_state, g.submission_type, g.test_attempt
     FROM enrolments e
     JOIN assignments a ON a.course_id = e.course_id AND COALESCE(a.published, 1) = 1 AND a.removed_at IS NULL
     LEFT JOIN grades g ON g.student_id = e.student_id AND g.assignment_id = a.id
@@ -232,8 +232,8 @@ export function refreshStudent(db, studentId, { maxAgeSec = BACKGROUND_MAX_AGE_S
   `).all(student.id);
   const due = rows.filter((a) => {
     const status = normalizeSubmissionStatus({
-      is_lti_submission: a.is_lti_submission, lti_submission_state: a.lti_submission_state,
-      submission_type: a.submission_type, submitted_at: a.g_submitted_at,
+      is_lti_submission: a.is_lti_submission, accepts_submissions: a.accepts_submissions, is_test: a.is_test,
+      lti_submission_state: a.lti_submission_state, submission_type: a.submission_type, test_attempt: a.test_attempt,
     });
     if (status !== 'submitted' && !cachedIds.has(a.id)) return false;
     const t = readThread(db, { assignmentId: a.id, studentId: student.id });

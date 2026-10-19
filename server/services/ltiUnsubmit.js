@@ -6,6 +6,7 @@
 //   POST {SCHOOLOGY_BASE}/iapi2/assignments/{aid}/submission-action/{uid}  {"isSubmit":false}
 //   headers X-Csrf-Token / X-Csrf-Key from Drupal.settings.s_common on /assignments/{aid}/info
 //   200 {"data":[]} → then the student must show in in-progress-documents.
+//   (Sent from a browser page until #141; now plain HTTP, verified live 2026-10-19.)
 //
 // The grade, comment and REST grade timestamp are untouched. Prism NEVER sends
 // {"isSubmit":true}: a teacher re-submit re-stamps the work as submitted now (late) and
@@ -13,19 +14,22 @@
 // leaves the work unsubmitted.
 //
 // Runs inside the triage act() sequence (server/services/triageActions.js), so the
-// per-pair lock is already held. Never relogs in interactively: a missing or dead
-// session fails with SCHOOLOGY_SESSION and the teacher reconnects in Settings.
-import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
+// per-pair lock is already held. Plain HTTP with the saved session's cookies, no browser
+// (#141; schoologyWeb.js). A session Schoology sends to sign-in is renewed once through
+// Microsoft (schoologyWeb.getResource); when that fails the unsubmit fails with
+// SCHOOLOGY_SESSION and the teacher reconnects in Settings.
+import { SCHOOLOGY_BASE } from '../lib/browserSession.js';
 import { TriageError } from './triageCommon.js';
 import { sessionDeps, noteSessionLive } from './schoologySession.js';
+import { getPage, getJson, postJson, drupalSettings } from './schoologyWeb.js';
 
 const SESSION_MESSAGE = 'Schoology connection expired: reconnect in Settings';
 const VERIFY_ATTEMPTS = 3;
 const VERIFY_WAIT_MS = 1500;
-const FETCH_TIMEOUT_MS = 20000; // each in-page fetch (the POST, each verification read)
+const FETCH_TIMEOUT_MS = 20000; // each request (the page, the POST, each verification read)
 
 // The assignment page whose grader has Schoology's own Unsubmit button — the fallback
-// link when Prism's unsubmit fails.
+// link when Prism's unsubmit fails. Its Drupal.settings carry the CSRF pair.
 export const unsubmitUrl = (schoologyAssignmentId) => `${SCHOOLOGY_BASE}/assignments/${schoologyAssignmentId}/info`;
 
 // Whether Prism offers to unsubmit this pair: OneDrive/LTI work Prism last saw submitted.
@@ -47,7 +51,7 @@ export function unsubmitAvailable(db, { studentId, assignmentId }) {
   return Boolean(t) && canUnsubmit({ isLti: t.is_lti_submission, ltiState: t.lti_submission_state });
 }
 
-// Validation (no browser work): LTI work, currently submitted, with the Schoology ids.
+// Validation (no request): LTI work, currently submitted, with the Schoology ids.
 // → { studentId, assignmentId, uid, schoologyAssignmentId, url }
 export function assertCanUnsubmit(db, { studentId, assignmentId }) {
   const t = target(db, studentId, assignmentId);
@@ -68,46 +72,8 @@ export function assertCanUnsubmit(db, { studentId, assignmentId }) {
   };
 }
 
-// In the page: the verified POST. The body is fixed here — never a parameter — so this
-// can only ever unsubmit. Times out after `timeoutMs` (a hung fetch would otherwise hold
-// the pair's lock forever); a fetch that throws reports { status: 0, fetchError }.
-async function postUnsubmit({ postUrl, timeoutMs }) {
-  const s = window.Drupal?.settings?.s_common || {};
-  if (!s.csrf_token || !s.csrf_key) return { status: 0, csrfMissing: true, body: '' };
-  try {
-    const r = await fetch(postUrl, {
-      method: 'POST',
-      credentials: 'include',
-      signal: AbortSignal.timeout(timeoutMs),
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        'X-Csrf-Token': s.csrf_token,
-        'X-Csrf-Key': s.csrf_key,
-      },
-      body: JSON.stringify({ isSubmit: false }),
-    });
-    return { status: r.status, body: (await r.text()).slice(0, 2000) };
-  } catch (err) {
-    return { status: 0, fetchError: String(err?.name || err) };
-  }
-}
-
-// In the page: the grader's in-progress list (flat { data: [{ id (= uid), … }] }).
-async function readInProgress({ listUrl, timeoutMs }) {
-  try {
-    const r = await fetch(listUrl, { credentials: 'include', headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(timeoutMs) });
-    let json = null;
-    try { json = JSON.parse(await r.text()); } catch { /* not JSON */ }
-    return { status: r.status, ids: Array.isArray(json?.data) ? json.data.map((d) => String(d?.id)) : null };
-  } catch (err) {
-    return { status: 0, ids: null, fetchError: String(err?.name || err) };
-  }
-}
-
-const okBody = (text) => {
-  try { return Array.isArray(JSON.parse(text)?.data); } catch { return false; }
-};
+// The verified body, fixed here and never a parameter, so this can only ever unsubmit.
+const UNSUBMIT_BODY = Object.freeze({ isSubmit: false });
 
 // Known NOT done: the POST was never sent, or Schoology rejected it (4xx).
 const fail = (message) => new TriageError('SCHOOLOGY_WRITE_FAILED', message);
@@ -117,73 +83,67 @@ const fail = (message) => new TriageError('SCHOOLOGY_WRITE_FAILED', message);
 export const UNCONFIRMED_PREFIX = 'Schoology didn\'t confirm the unsubmit';
 export const isUncertainUnsubmitError = (error) => String(error ?? '').startsWith(UNCONFIRMED_PREFIX);
 const unconfirmed = (detail) => new TriageError('SCHOOLOGY_UNCONFIRMED', `${UNCONFIRMED_PREFIX}: ${detail}`);
-
-// about:blank / an empty URL after goto = the page never loaded (a navigation error),
-// which says nothing about the session.
-const notLoaded = (url) => !url || url.startsWith('about:') || url.startsWith('chrome-error:');
+const expired = (message) => {
+  noteSessionLive('expired', message);
+  return new TriageError('SCHOOLOGY_SESSION', SESSION_MESSAGE);
+};
 
 // Unsubmit one student's LTI work. → { unsubmitted: true }. Throws TriageError:
-// NOT_FOUND / NOT_ELIGIBLE (before any browser work), SCHOOLOGY_SESSION (no saved or
-// a dead session), SCHOOLOGY_WRITE_FAILED (known not done: not sent, or rejected),
+// NOT_FOUND / NOT_ELIGIBLE (before any request), SCHOOLOGY_SESSION (no saved or a dead
+// session), SCHOOLOGY_WRITE_FAILED (known not done: not sent, or rejected),
 // SCHOOLOGY_UNCONFIRMED (sent, but not confirmed — may or may not have worked).
-export async function unsubmitLti(db, { studentId, assignmentId }, { openPage = () => sessionDeps.openPage(), wait = null } = {}) {
+// `jar` (null = no saved session) and `fetchImpl` default to sessionDeps; `wait` is the
+// pause between verification reads.
+export async function unsubmitLti(db, { studentId, assignmentId }, opts = {}) {
   const t = assertCanUnsubmit(db, { studentId, assignmentId });
-  let session;
+  const jar = 'jar' in opts ? opts.jar : sessionDeps.openJar();
+  const fetchImpl = opts.fetchImpl || sessionDeps.fetch;
+  const pause = opts.wait || ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const io = { fetchImpl, timeoutMs: FETCH_TIMEOUT_MS };
+  if (!jar) throw new TriageError('SCHOOLOGY_SESSION', SESSION_MESSAGE);
+
+  let csrf;
   try {
-    session = await openPage();
+    const { html } = await getPage(jar, `/assignments/${t.schoologyAssignmentId}/info`, io);
+    csrf = drupalSettings(html)?.s_common;
   } catch (err) {
-    throw fail(`Could not open a browser for Schoology (${err.message}): nothing was unsubmitted`);
+    if (err.code === 'SESSION_EXPIRED') throw expired('An unsubmit was sent to the login page');
+    throw fail(`Could not open the assignment page in Schoology (${err.message}): nothing was unsubmitted`);
   }
-  if (!session) throw new TriageError('SCHOOLOGY_SESSION', SESSION_MESSAGE);
-  const { page } = session;
-  const pause = wait || ((ms) => page.waitForTimeout(ms));
+  noteSessionLive('connected');
+  if (!csrf?.csrf_token || !csrf?.csrf_key) throw fail('Could not read Schoology\'s security token on the assignment page: nothing was unsubmitted');
+
+  let res;
   try {
-    let navError = null;
-    await page.goto(t.url, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch((err) => { navError = err; });
-    const landed = page.url();
-    if (!isLoggedInUrl(landed)) {
-      if (navError || notLoaded(landed)) {
-        throw fail(`Could not open the assignment page in Schoology${navError ? ` (${navError.message})` : ''}: nothing was unsubmitted`);
-      }
-      noteSessionLive('expired', 'An unsubmit was sent to the login page');
-      throw new TriageError('SCHOOLOGY_SESSION', SESSION_MESSAGE);
-    }
-    noteSessionLive('connected');
-    await page.waitForFunction(() => Boolean(window.Drupal?.settings?.s_common?.csrf_token), null, { timeout: 15000 }).catch(() => {});
-    let res;
-    try {
-      res = await page.evaluate(postUnsubmit, {
-        postUrl: `${SCHOOLOGY_BASE}/iapi2/assignments/${t.schoologyAssignmentId}/submission-action/${t.uid}`, timeoutMs: FETCH_TIMEOUT_MS,
-      });
-    } catch (err) {
-      throw unconfirmed(`the page failed while sending it (${err.message})`);
-    }
-    if (res.csrfMissing) throw fail('Could not read Schoology\'s security token on the assignment page: nothing was unsubmitted');
-    if (res.fetchError) throw unconfirmed(`no answer (${res.fetchError})`);
-    if (res.status >= 400 && res.status < 500) {
-      console.warn(`[lti unsubmit] ${t.studentId}:${t.assignmentId} rejected: HTTP ${res.status} ${String(res.body).slice(0, 200)}`);
-      throw fail(`Schoology refused the unsubmit (HTTP ${res.status})`);
-    }
-    if (res.status !== 200 || !okBody(res.body)) {
-      console.warn(`[lti unsubmit] ${t.studentId}:${t.assignmentId} unexpected answer: HTTP ${res.status} ${String(res.body).slice(0, 200)}`);
-      throw unconfirmed(`unexpected answer (HTTP ${res.status})`);
-    }
-    // Confirm: the student must now be in the grader's in-progress list.
-    const listUrl = `${SCHOOLOGY_BASE}/iapi2/assignments/${t.schoologyAssignmentId}/in-progress-documents/`;
-    let confirmed = false;
-    for (let i = 0; i < VERIFY_ATTEMPTS && !confirmed; i++) {
-      if (i > 0) await pause(VERIFY_WAIT_MS);
-      const list = await page.evaluate(readInProgress, { listUrl, timeoutMs: FETCH_TIMEOUT_MS }).catch(() => null);
-      confirmed = Boolean(list?.ids?.includes(t.uid));
-    }
-    if (!confirmed) throw unconfirmed('the student does not show as in progress yet');
-    db.prepare(`UPDATE grades SET lti_submission_state = 'in_progress' WHERE student_id = ? AND assignment_id = ?`).run(t.studentId, t.assignmentId);
-    db.prepare(`UPDATE resubmissions SET unsubmit_error = NULL WHERE student_id = ? AND assignment_id = ? AND unsubmit_error IS NOT NULL`)
-      .run(t.studentId, t.assignmentId);
-    return { unsubmitted: true };
-  } finally {
-    await session.close().catch(() => {});
+    res = await postJson(jar, `/iapi2/assignments/${t.schoologyAssignmentId}/submission-action/${t.uid}`, UNSUBMIT_BODY, { csrf, ...io });
+  } catch (err) {
+    // Sent to sign-in: Schoology did not take the write.
+    if (err.code === 'SESSION_EXPIRED') throw expired('An unsubmit was sent to the login page');
+    throw unconfirmed(`no answer (${err.message})`);
   }
+  if (res.status >= 400 && res.status < 500) {
+    console.warn(`[lti unsubmit] ${t.studentId}:${t.assignmentId} rejected: HTTP ${res.status} ${JSON.stringify(res.json)?.slice(0, 200)}`);
+    throw fail(`Schoology refused the unsubmit (HTTP ${res.status})`);
+  }
+  if (res.status !== 200 || !Array.isArray(res.json?.data)) {
+    console.warn(`[lti unsubmit] ${t.studentId}:${t.assignmentId} unexpected answer: HTTP ${res.status}`);
+    throw unconfirmed(`unexpected answer (HTTP ${res.status})`);
+  }
+
+  // Confirm: the student must now be in the grader's in-progress list.
+  const listPath = `/iapi2/assignments/${t.schoologyAssignmentId}/in-progress-documents/`;
+  let confirmed = false;
+  for (let i = 0; i < VERIFY_ATTEMPTS && !confirmed; i++) {
+    if (i > 0) await pause(VERIFY_WAIT_MS);
+    const list = await getJson(jar, listPath, io).catch(() => null);
+    const ids = list?.status === 200 && Array.isArray(list.json?.data) ? list.json.data.map((d) => String(d?.id)) : [];
+    confirmed = ids.includes(t.uid);
+  }
+  if (!confirmed) throw unconfirmed('the student does not show as in progress yet');
+  db.prepare(`UPDATE grades SET lti_submission_state = 'in_progress' WHERE student_id = ? AND assignment_id = ?`).run(t.studentId, t.assignmentId);
+  db.prepare(`UPDATE resubmissions SET unsubmit_error = NULL WHERE student_id = ? AND assignment_id = ? AND unsubmit_error IS NOT NULL`)
+    .run(t.studentId, t.assignmentId);
+  return { unsubmitted: true };
 }
 
 // The act() step: never throws. → { ok: true } | { ok: false, error, code, uncertain, url }.

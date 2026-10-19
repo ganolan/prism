@@ -5,16 +5,20 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 import { getDb } from '../db/index.js';
 import { unsubmitLti, tryUnsubmitLti, assertCanUnsubmit, unsubmitAvailable } from './ltiUnsubmit.js';
 import { sessionDeps, sessionStatus, resetSessionStatusCache } from './schoologySession.js';
-import { fakeSchoologyPage } from '../testing/fakeSchoologyPage.js';
+import { fakeLtiUnsubmit, assignmentPage, SCHOOLOGY } from '../testing/fakeLtiUnsubmit.js';
 
-const BASE = 'https://schoology.hkis.edu.hk';
+const BASE = SCHOOLOGY;
 const AID = '8000000001';
 const UID = '90001';
+const POST = `/iapi2/assignments/${AID}/submission-action/${UID}`;
+const LIST = `/iapi2/assignments/${AID}/in-progress-documents/`;
 
-const fakeSession = (opts = {}) => fakeSchoologyPage({ uid: UID, aid: AID, ...opts });
+const fake = (opts = {}) => fakeLtiUnsubmit({ uid: UID, aid: AID, ...opts });
+const run = (f, extra = {}) => unsubmitLti(db, { studentId, assignmentId }, { jar: f.jar, fetchImpl: f.fetchImpl, wait: async () => {}, ...extra });
 
 let db, studentId, assignmentId;
 const state = () => db.prepare('SELECT lti_submission_state FROM grades WHERE student_id = ? AND assignment_id = ?').get(studentId, assignmentId).lti_submission_state;
+const posts = (f) => f.requests.filter((q) => q.method === 'POST');
 
 beforeEach(() => {
   db = getDb();
@@ -25,143 +29,153 @@ beforeEach(() => {
     .run(courseId, AID).lastInsertRowid;
   db.prepare(`INSERT INTO grades (student_id, assignment_id, score, lti_submission_state) VALUES (?, ?, 3, 'submitted')`).run(studentId, assignmentId);
   resetSessionStatusCache();
-  sessionDeps.openPage = vi.fn(() => { throw new Error('tests must inject a fake page'); });
+  sessionDeps.openJar = vi.fn(() => { throw new Error('tests must inject a fake jar'); });
 });
 afterEach(() => resetSessionStatusCache());
 
-describe('unsubmitLti', () => {
-  test('success: loads the assignment page, POSTs exactly {"isSubmit":false} with the CSRF pair, verifies, marks in progress', async () => {
-    const f = fakeSession();
-    const r = await unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => f.session });
-    expect(r).toEqual({ unsubmitted: true });
-    expect(f.page.goto).toHaveBeenCalledWith(`${BASE}/assignments/${AID}/info`, expect.any(Object));
-    const post = f.requests.find((q) => q.method === 'POST');
-    expect(post.url).toBe(`${BASE}/iapi2/assignments/${AID}/submission-action/${UID}`);
+describe('unsubmitLti (plain HTTP, #141)', () => {
+  test('success: reads the CSRF pair from the assignment page, POSTs exactly {"isSubmit":false}, verifies, marks in progress', async () => {
+    const f = fake();
+    expect(await run(f)).toEqual({ unsubmitted: true });
+    expect(f.requests[0]).toMatchObject({ method: 'GET', path: `/assignments/${AID}/info` });
+    const [post] = posts(f);
+    expect(post.path).toBe(POST);
     expect(post.body).toBe('{"isSubmit":false}');
-    expect(post.headers).toMatchObject({ 'Content-Type': 'application/json', Accept: 'application/json', 'X-Csrf-Token': 'tok', 'X-Csrf-Key': 'key' });
-    expect(post.credentials).toBe('include');
-    expect(f.requests.some((q) => q.url === `${BASE}/iapi2/assignments/${AID}/in-progress-documents/`)).toBe(true);
+    expect(post.headers).toMatchObject({ cookie: 'SESS=old', 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-Token': 'tok', 'X-CSRF-Key': 'key' });
+    expect(f.requests.some((q) => q.method === 'GET' && q.path === LIST)).toBe(true);
     expect(state()).toBe('in_progress');
-    expect(f.session.close).toHaveBeenCalled();
     // Only one write, and never a re-submit.
-    expect(f.requests.filter((q) => q.method === 'POST')).toHaveLength(1);
-    expect(f.requests.some((q) => String(q.body).includes('true'))).toBe(false);
+    expect(posts(f)).toHaveLength(1);
+    expect(f.requests.some((q) => String(q.body ?? '').includes('true'))).toBe(false);
+    expect((await sessionStatus({ hasSession: () => true, check: false })).live).toBe('connected');
   });
 
-  test('not LTI → NOT_ELIGIBLE before any browser work', async () => {
+  test('the default jar and fetch come from sessionDeps', async () => {
+    const f = fake();
+    sessionDeps.openJar = vi.fn(() => f.jar);
+    const prevFetch = sessionDeps.fetch;
+    sessionDeps.fetch = f.fetchImpl;
+    try {
+      await unsubmitLti(db, { studentId, assignmentId }, { wait: async () => {} });
+    } finally { sessionDeps.fetch = prevFetch; }
+    expect(posts(f)).toHaveLength(1);
+  });
+
+  test('not LTI → NOT_ELIGIBLE before any request', async () => {
     db.prepare('UPDATE assignments SET is_lti_submission = 0').run();
-    const openPage = vi.fn();
-    await expect(unsubmitLti(db, { studentId, assignmentId }, { openPage })).rejects.toMatchObject({ code: 'NOT_ELIGIBLE' });
-    expect(openPage).not.toHaveBeenCalled();
+    const f = fake();
+    await expect(run(f)).rejects.toMatchObject({ code: 'NOT_ELIGIBLE' });
+    expect(f.requests).toHaveLength(0);
   });
 
-  test('not submitted → NOT_ELIGIBLE before any browser work', async () => {
+  test('not submitted → NOT_ELIGIBLE before any request', async () => {
     for (const s of ['in_progress', 'not_started', null]) {
       db.prepare('UPDATE grades SET lti_submission_state = ?').run(s);
-      const openPage = vi.fn();
-      await expect(unsubmitLti(db, { studentId, assignmentId }, { openPage })).rejects.toMatchObject({ code: 'NOT_ELIGIBLE' });
-      expect(openPage).not.toHaveBeenCalled();
+      const f = fake();
+      await expect(run(f)).rejects.toMatchObject({ code: 'NOT_ELIGIBLE' });
+      expect(f.requests).toHaveLength(0);
     }
   });
 
   test('no saved session → SCHOOLOGY_SESSION', async () => {
-    await expect(unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => null }))
+    await expect(unsubmitLti(db, { studentId, assignmentId }, { jar: null }))
       .rejects.toMatchObject({ code: 'SCHOOLOGY_SESSION', message: 'Schoology connection expired: reconnect in Settings' });
     expect(state()).toBe('submitted');
   });
 
-  test('a dead session (bounced to SSO) → SCHOOLOGY_SESSION, nothing POSTed, the live status becomes expired', async () => {
-    const f = fakeSession({ landing: 'https://login.microsoftonline.com/xyz' });
-    await expect(unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => f.session })).rejects.toMatchObject({ code: 'SCHOOLOGY_SESSION' });
-    expect(f.requests).toHaveLength(0);
-    expect(f.session.close).toHaveBeenCalled();
+  test('a dead session (sent to sign-in, renewal fails) → SCHOOLOGY_SESSION, nothing POSTed, the live status becomes expired', async () => {
+    const f = fake({ page: { login: true } });
+    f.jar.renew = vi.fn(async () => false);
+    await expect(run(f)).rejects.toMatchObject({ code: 'SCHOOLOGY_SESSION' });
+    expect(f.jar.renew).toHaveBeenCalledTimes(1);
+    expect(posts(f)).toHaveLength(0);
     expect((await sessionStatus({ hasSession: () => true, check: false })).live).toBe('expired');
   });
 
-  test('non-200 → failure, state unchanged', async () => {
-    const f = fakeSession({ post: (respond) => respond(403, { data: null }) });
-    await expect(unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => f.session }))
-      .rejects.toMatchObject({ code: 'SCHOOLOGY_WRITE_FAILED', message: expect.stringMatching(/HTTP 403/) });
-    expect(state()).toBe('submitted');
+  test('a session renewed through Microsoft goes on to unsubmit', async () => {
+    let first = true;
+    const f = fake({ page: () => (first ? ((first = false), { login: true }) : { text: assignmentPage() }) });
+    f.jar.renew = vi.fn(async () => true);
+    expect(await run(f)).toEqual({ unsubmitted: true });
+    expect(posts(f)).toHaveLength(1);
+  });
+
+  test('a 4xx → known refusal, state unchanged', async () => {
+    for (const status of [400, 403]) {
+      const f = fake({ post: { status, json: { data: null } } });
+      await expect(run(f)).rejects.toMatchObject({ code: 'SCHOOLOGY_WRITE_FAILED', message: expect.stringMatching(new RegExp(`HTTP ${status}`)) });
+      expect(state()).toBe('submitted');
+    }
   });
 
   test('200 with an unexpected body → unconfirmed (may or may not have worked)', async () => {
-    const f = fakeSession({ post: (respond) => respond(200, '<html>oops</html>') });
-    await expect(unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => f.session }))
-      .rejects.toMatchObject({ code: 'SCHOOLOGY_UNCONFIRMED', message: expect.stringMatching(/^Schoology didn't confirm the unsubmit/) });
+    const f = fake({ post: { text: '<html>oops</html>' } });
+    await expect(run(f)).rejects.toMatchObject({ code: 'SCHOOLOGY_UNCONFIRMED', message: expect.stringMatching(/^Schoology didn't confirm the unsubmit/) });
     expect(state()).toBe('submitted');
   });
 
-  test('a 5xx → unconfirmed; a 4xx → known refusal', async () => {
-    let f = fakeSession({ post: (respond) => respond(502, 'bad gateway') });
-    await expect(unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => f.session })).rejects.toMatchObject({ code: 'SCHOOLOGY_UNCONFIRMED' });
-    f = fakeSession({ post: (respond) => respond(400, { data: null }) });
-    await expect(unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => f.session })).rejects.toMatchObject({ code: 'SCHOOLOGY_WRITE_FAILED' });
+  test('a 5xx → unconfirmed', async () => {
+    const f = fake({ post: { status: 502, text: 'bad gateway' } });
+    await expect(run(f)).rejects.toMatchObject({ code: 'SCHOOLOGY_UNCONFIRMED' });
   });
 
-  test('every in-page fetch carries a timeout signal; a POST that times out is unconfirmed, not failed', async () => {
-    const ok = fakeSession();
-    await unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => ok.session });
-    expect(ok.requests.length).toBeGreaterThan(1);
-    for (const q of ok.requests) expect(q.signal).toBeInstanceOf(AbortSignal);
+  test('every request carries a timeout signal; a POST that times out is unconfirmed, not failed', async () => {
+    const ok = fake();
+    const signals = [];
+    await run(ok, { fetchImpl: (url, init) => { signals.push(init.signal); return ok.fetchImpl(url, init); } });
+    expect(signals.length).toBeGreaterThan(2);
+    for (const s of signals) expect(s).toBeInstanceOf(AbortSignal);
     db.prepare(`UPDATE grades SET lti_submission_state = 'submitted'`).run();
-    const hung = fakeSession({ post: () => { throw Object.assign(new Error('signal timed out'), { name: 'TimeoutError' }); } });
-    await expect(unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => hung.session }))
-      .rejects.toMatchObject({ code: 'SCHOOLOGY_UNCONFIRMED', message: expect.stringMatching(/TimeoutError/) });
+    const hung = fake({ post: { throws: Object.assign(new Error('signal timed out'), { name: 'TimeoutError' }) } });
+    await expect(run(hung)).rejects.toMatchObject({ code: 'SCHOOLOGY_UNCONFIRMED', message: expect.stringMatching(/timed out/) });
     expect(state()).toBe('submitted');
   });
 
-  test('a verification read that times out counts as not confirmed', async () => {
-    const f = fakeSession({ inProgress: () => { throw Object.assign(new Error('t'), { name: 'TimeoutError' }); } });
-    await expect(unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => f.session })).rejects.toMatchObject({ code: 'SCHOOLOGY_UNCONFIRMED' });
+  test('a POST sent to sign-in → SCHOOLOGY_SESSION (Schoology did not take it)', async () => {
+    const f = fake({ post: { login: true } });
+    await expect(run(f)).rejects.toMatchObject({ code: 'SCHOOLOGY_SESSION' });
+    expect(state()).toBe('submitted');
   });
 
-  test('a navigation error / about:blank is an honest failure, not "expired" (nothing POSTed)', async () => {
-    for (const setup of [
-      (f) => { f.page.goto.mockRejectedValue(new Error('net::ERR_NAME_NOT_RESOLVED')); f.page.url.mockReturnValue('about:blank'); },
-      (f) => { f.page.url.mockReturnValue('about:blank'); },
-    ]) {
+  test('a verification read that fails counts as not confirmed', async () => {
+    const f = fake({ inProgress: { throws: Object.assign(new Error('t'), { name: 'TimeoutError' }) } });
+    await expect(run(f)).rejects.toMatchObject({ code: 'SCHOOLOGY_UNCONFIRMED' });
+  });
+
+  test('an assignment page that cannot be read is an honest failure, not "expired" (nothing POSTed)', async () => {
+    for (const page of [{ throws: new Error('ENOTFOUND') }, { status: 500, text: 'err' }]) {
       resetSessionStatusCache();
-      const f = fakeSession();
-      setup(f);
-      await expect(unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => f.session }))
-        .rejects.toMatchObject({ code: 'SCHOOLOGY_WRITE_FAILED', message: expect.stringMatching(/Could not open the assignment page/) });
-      expect(f.requests).toHaveLength(0);
+      const f = fake({ page });
+      await expect(run(f)).rejects.toMatchObject({ code: 'SCHOOLOGY_WRITE_FAILED', message: expect.stringMatching(/Could not open the assignment page/) });
+      expect(posts(f)).toHaveLength(0);
       expect((await sessionStatus({ hasSession: () => true, check: false })).live).toBeNull();
     }
   });
 
-  test('a browser that fails to launch → known failure', async () => {
-    await expect(unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => { throw new Error('no chromium'); } }))
-      .rejects.toMatchObject({ code: 'SCHOOLOGY_WRITE_FAILED' });
-  });
-
-  test('accepted but the student is not in progress afterwards → failure (after retries)', async () => {
-    const f = fakeSession({ inProgress: (respond) => respond(200, { data: [{ id: 12345 }] }) });
-    await expect(unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => f.session }))
-      .rejects.toMatchObject({ code: 'SCHOOLOGY_UNCONFIRMED', message: expect.stringMatching(/does not show as in progress/) });
-    expect(f.requests.filter((q) => q.url.includes('in-progress-documents'))).toHaveLength(3);
+  test('accepted but the student is not in progress afterwards → unconfirmed (after retries)', async () => {
+    const f = fake({ inProgress: { json: { data: [{ id: 12345 }] } } });
+    await expect(run(f)).rejects.toMatchObject({ code: 'SCHOOLOGY_UNCONFIRMED', message: expect.stringMatching(/does not show as in progress/) });
+    expect(f.requests.filter((q) => q.path === LIST)).toHaveLength(3);
     expect(state()).toBe('submitted');
   });
 
   test('no CSRF pair on the page → failure, nothing POSTed', async () => {
-    const f = fakeSession({ csrf: {} });
-    await expect(unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => f.session })).rejects.toMatchObject({ code: 'SCHOOLOGY_WRITE_FAILED' });
-    expect(f.requests).toHaveLength(0);
+    const f = fake({ csrf: {} });
+    await expect(run(f)).rejects.toMatchObject({ code: 'SCHOOLOGY_WRITE_FAILED' });
+    expect(posts(f)).toHaveLength(0);
   });
 
   test('a later success clears a recorded unsubmit_error for the pair', async () => {
     db.prepare(`INSERT INTO resubmissions (student_id, assignment_id, course_id, kind, status, requested_at, lessons, unsubmit_error)
       SELECT ?, ?, course_id, 'request', 'open', datetime('now'), 3, 'old failure' FROM assignments WHERE id = ?`).run(studentId, assignmentId, assignmentId);
-    const f = fakeSession();
-    await unsubmitLti(db, { studentId, assignmentId }, { openPage: async () => f.session });
+    await run(fake());
     expect(db.prepare('SELECT unsubmit_error FROM resubmissions').get().unsubmit_error).toBeNull();
   });
 });
 
 describe('tryUnsubmitLti / eligibility', () => {
   test('a failure becomes { ok: false, error, code, url } — the assignment page with the Unsubmit button', async () => {
-    const r = await tryUnsubmitLti(db, { studentId, assignmentId }, { openPage: async () => null });
+    const r = await tryUnsubmitLti(db, { studentId, assignmentId }, { jar: null });
     expect(r).toEqual({
       ok: false, code: 'SCHOOLOGY_SESSION', error: 'Schoology connection expired: reconnect in Settings', uncertain: false,
       url: `${BASE}/assignments/${AID}/info`,
@@ -169,14 +183,14 @@ describe('tryUnsubmitLti / eligibility', () => {
   });
 
   test('an unconfirmed failure is marked uncertain', async () => {
-    const f = fakeSession({ post: (respond) => respond(503, '') });
-    expect(await tryUnsubmitLti(db, { studentId, assignmentId }, { openPage: async () => f.session }))
+    const f = fake({ post: { status: 503, text: '' } });
+    expect(await tryUnsubmitLti(db, { studentId, assignmentId }, { jar: f.jar, fetchImpl: f.fetchImpl }))
       .toMatchObject({ ok: false, code: 'SCHOOLOGY_UNCONFIRMED', uncertain: true });
   });
 
   test('success → { ok: true }', async () => {
-    const f = fakeSession();
-    expect(await tryUnsubmitLti(db, { studentId, assignmentId }, { openPage: async () => f.session })).toEqual({ ok: true });
+    const f = fake();
+    expect(await tryUnsubmitLti(db, { studentId, assignmentId }, { jar: f.jar, fetchImpl: f.fetchImpl })).toEqual({ ok: true });
   });
 
   test('unsubmitAvailable / assertCanUnsubmit', () => {

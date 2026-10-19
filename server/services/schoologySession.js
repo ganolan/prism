@@ -40,8 +40,8 @@ export async function openSessionPage(file = sessionStateFile()) {
 }
 
 // Swappable for tests (never launch a real browser or reach the network there):
-// every caller here and in ltiUnsubmit.js opens its page through sessionDeps.openPage;
-// the liveness check reads the saved cookies through openJar and fetches with fetch.
+// the renewal opens its page through sessionDeps.openPage; the liveness check and the
+// LTI unsubmit (ltiUnsubmit.js) read the saved cookies through openJar and fetch with fetch.
 export const sessionDeps = {
   openPage: openSessionPage,
   openJar: () => cookieJar(),

@@ -119,7 +119,8 @@ export async function getJson(jar, path, opts = {}) {
 // pages' scripts do: Content-Type and Accept JSON, X-Requested-With, and the
 // page's CSRF pair (Drupal.settings.s_common → X-CSRF-Token / X-CSRF-Key; without
 // them the district_mastery POSTs answer 403 {"data":null}). For reads that the
-// API shapes as POST searches; it is not a write helper. → { status, url, json }.
+// API shapes as POST searches, and for the LTI unsubmit (ltiUnsubmit.js), whose
+// caller does the write's checks: it is sent once, never retried. → { status, url, json }.
 // A redirect is the session ending (SESSION_EXPIRED when it goes to sign-in).
 export async function postJson(jar, path, body, { csrf, fetchImpl = fetch, timeoutMs = 30000 } = {}) {
   if (!csrf?.csrf_token || !csrf?.csrf_key) throw new WebSessionError('NO_CSRF', 'CSRF token/key missing from Drupal.settings.s_common');

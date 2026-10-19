@@ -12,11 +12,12 @@ import { addDays, todayLocal } from '../lib/schoolDays.js';
 import { storeSchoolDays, loadCalendar } from '../services/schoolCalendar.js';
 import { settleResubmissions, recordSchoologyUnsubmit } from '../services/resubmissions.js';
 import { sessionDeps, resetSessionStatusCache } from '../services/schoologySession.js';
-import { fakeSchoologyPage, SCHOOLOGY } from '../testing/fakeSchoologyPage.js';
+import { fakeLtiUnsubmit, SCHOOLOGY } from '../testing/fakeLtiUnsubmit.js';
 
-// The LTI unsubmit drives a real browser — never in tests.
-const noBrowser = () => { throw new Error('tests must inject a fake Schoology page'); };
-sessionDeps.openPage = noBrowser;
+// The LTI unsubmit reaches Schoology over HTTP — never in tests.
+const noSession = () => { throw new Error('tests must inject a fake Schoology session'); };
+sessionDeps.openJar = noSession;
+sessionDeps.fetch = noSession;
 
 async function call(method, path, body) {
   const app = express();
@@ -514,30 +515,31 @@ describe('Ask with unsubmit (Phase 2, LTI unsubmit on Ask)', () => {
     db.prepare(`INSERT INTO grades (student_id, assignment_id, score, lti_submission_state) VALUES (?, ?, 2, 'submitted')`).run(studentId, assignmentId);
     getSectionGrades.mockResolvedValue([fresh()]);
     pushGradeComments.mockResolvedValue({ status: 207, data: {} });
-    fake = fakeSchoologyPage({ uid: 'u1', aid: 'a1' });
-    sessionDeps.openPage = vi.fn(async () => fake.session);
+    fake = fakeLtiUnsubmit({ uid: 'u1', aid: 'a1' });
+    sessionDeps.openJar = vi.fn(() => fake.jar);
+    sessionDeps.fetch = (...args) => fake.fetchImpl(...args);
   });
-  afterEach(() => { sessionDeps.openPage = noBrowser; });
+  afterEach(() => { sessionDeps.openJar = noSession; sessionDeps.fetch = noSession; });
 
   test('success: publishes the line, unsubmits, records → { unsubmit: { ok: true } }', async () => {
     const res = await ask();
     expect(res.status).toBe(201);
     expect(res.body).toMatchObject({ outcome: 'asked', statusLine: { line: LINE }, unsubmit: { ok: true }, unsubmitError: null });
     expect(pushGradeComments).toHaveBeenCalledTimes(1);
-    expect(fake.requests.find((q) => q.method === 'POST')).toMatchObject({ url: `${SCHOOLOGY}/iapi2/assignments/a1/submission-action/u1`, body: '{"isSubmit":false}' });
+    expect(fake.requests.find((q) => q.method === 'POST')).toMatchObject({ path: '/iapi2/assignments/a1/submission-action/u1', body: '{"isSubmit":false}' });
     expect(ltiState()).toBe('in_progress');
   });
 
   test('order: the line is published before the unsubmit', async () => {
     const order = [];
     pushGradeComments.mockImplementation(async () => { order.push('publish'); return { status: 207, data: {} }; });
-    sessionDeps.openPage = vi.fn(async () => { order.push('unsubmit'); return fake.session; });
+    sessionDeps.openJar = vi.fn(() => { order.push('unsubmit'); return fake.jar; });
     await ask();
     expect(order).toEqual(['publish', 'unsubmit']);
   });
 
   test('failure (session expired): the line is still published and the ask recorded, with unsubmit_error and the Schoology link', async () => {
-    sessionDeps.openPage = vi.fn(async () => null);
+    sessionDeps.openJar = vi.fn(() => null);
     const res = await ask();
     expect(res.status).toBe(201);
     const url = `${SCHOOLOGY}/assignments/a1/info`;
@@ -555,7 +557,7 @@ describe('Ask with unsubmit (Phase 2, LTI unsubmit on Ask)', () => {
   });
 
   test('failure (Schoology refuses / does not confirm): recorded with the error; unconfirmed is marked uncertain', async () => {
-    fake = fakeSchoologyPage({ uid: 'u1', aid: 'a1', post: (respond) => respond(500, 'err') });
+    fake = fakeLtiUnsubmit({ uid: 'u1', aid: 'a1', post: { status: 500, text: 'err' } });
     const res = await ask();
     expect(res.body).toMatchObject({
       unsubmit: { ok: false, uncertain: true, error: expect.stringMatching(/HTTP 500/) }, unsubmitUncertain: true,
@@ -574,31 +576,31 @@ describe('Ask with unsubmit (Phase 2, LTI unsubmit on Ask)', () => {
     getDb().prepare('UPDATE assignments SET is_lti_submission = 1').run();
     await call('POST', '/api/triage/resubmissions', { studentId, assignmentId, lessons: 2 });
     expect(await ask()).toMatchObject({ status: 409, body: { code: 'ALREADY_OPEN' } });
-    expect(sessionDeps.openPage).not.toHaveBeenCalled();
+    expect(sessionDeps.openJar).not.toHaveBeenCalled();
     expect(pushGradeComments).not.toHaveBeenCalled();
   });
 
   test('a failed publish → nothing unsubmitted, nothing recorded', async () => {
     pushGradeComments.mockResolvedValue({ status: 401, data: 'nope' });
     expect(await ask()).toMatchObject({ status: 502, body: { code: 'SCHOOLOGY_WRITE_FAILED' } });
-    expect(sessionDeps.openPage).not.toHaveBeenCalled();
+    expect(sessionDeps.openJar).not.toHaveBeenCalled();
     expect(getDb().prepare('SELECT COUNT(*) AS n FROM resubmissions').get().n).toBe(0);
   });
 
-  test('without unsubmit nothing touches the browser; rows offer the unsubmit (unsubmitAvailable)', async () => {
+  test('without unsubmit nothing reaches Schoology; rows offer the unsubmit (unsubmitAvailable)', async () => {
     const res = await ask({ unsubmit: undefined });
     expect(res.status).toBe(201);
     expect(res.body.unsubmit).toBeUndefined();
     expect(res.body).toMatchObject({ unsubmitAvailable: true, ltiState: 'submitted' });
-    expect(sessionDeps.openPage).not.toHaveBeenCalled();
+    expect(sessionDeps.openJar).not.toHaveBeenCalled();
   });
 
   test('unsubmitted but the record then fails → 500 saying the work WAS unsubmitted', async () => {
-    sessionDeps.openPage = vi.fn(async () => {
+    sessionDeps.openJar = vi.fn(() => {
       // A concurrent ask lands between validation and record.
       getDb().prepare(`INSERT INTO resubmissions (student_id, assignment_id, course_id, kind, status, requested_at, lessons, source) VALUES (?, ?, ?, 'request', 'open', datetime('now'), 2, 'app')`)
         .run(studentId, assignmentId, courseId);
-      return fake.session;
+      return fake.jar;
     });
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const res = await ask();
@@ -622,7 +624,7 @@ describe('Ask with unsubmit (Phase 2, LTI unsubmit on Ask)', () => {
   });
 
   test('Undo of an ask on work that is still submitted deletes it (as before)', async () => {
-    sessionDeps.openPage = vi.fn(async () => null); // unsubmit fails → still submitted
+    sessionDeps.openJar = vi.fn(() => null); // unsubmit fails → still submitted
     const asked = await ask();
     expect((await call('DELETE', `/api/triage/resubmissions/${asked.body.id}`)).body).toEqual({ deleted: true });
   });
@@ -667,7 +669,7 @@ describe('Ask with unsubmit (Phase 2, LTI unsubmit on Ask)', () => {
   });
 
   test('a sync that sees the work in progress clears the failure', async () => {
-    sessionDeps.openPage = vi.fn(async () => null);
+    sessionDeps.openJar = vi.fn(() => null);
     await ask();
     getDb().prepare(`UPDATE grades SET lti_submission_state = 'in_progress'`).run();
     settleResubmissions(getDb());
@@ -675,7 +677,7 @@ describe('Ask with unsubmit (Phase 2, LTI unsubmit on Ask)', () => {
   });
 
   test('a newer submission after the ask also clears it; an older one does not', async () => {
-    sessionDeps.openPage = vi.fn(async () => null);
+    sessionDeps.openJar = vi.fn(() => null);
     await ask();
     const askedAt = Math.floor(Date.now() / 1000);
     getDb().prepare('UPDATE grades SET latest_revision_at = ?').run(askedAt - 3600);

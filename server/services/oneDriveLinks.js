@@ -2,32 +2,27 @@
  * oneDriveLinks.js
  *
  * On-demand lookup of the student copies of a OneDrive lti_submission assignment
- * in the teacher's OneDrive (#120), through SharePoint REST in the saved
- * Playwright browser session (the Microsoft SSO cookies from mastery:login sign
- * into SharePoint silently). Read-only GETs.
+ * in the teacher's OneDrive (#120), through SharePoint REST over plain HTTP
+ * (sharePointWeb.js, #141): the saved session's Microsoft sign-in cookies sign
+ * into SharePoint without a browser. Read-only GETs.
  *
  * The teacher's OneDrive is discovered, not configured: SharePoint's
  * GetMyProperties returns the signed-in user's PersonalUrl, so this works for
  * whichever teacher owns the session. Only the tenant host is config
  * (`microsoft.sharepointHost`).
  *
- * Best-effort like the other browser-session services: every failure resolves to
- * a status, never a throw. Successful listings are cached briefly so reopening
- * the page doesn't relaunch a browser; failures are not cached.
+ * Best-effort like the other session services: every failure resolves to a
+ * status, never a throw. Successful listings are cached briefly so reopening
+ * the page doesn't sign in again; failures are not cached.
  */
-import { existsSync } from 'fs';
-import { sessionStateFile } from '../lib/sessionPaths.js';
-import { findFolderById } from '../lib/oneDriveSubmissions.js';
 import { getMicrosoftConfig } from '../middleware/featureGate.js';
-
-// Created by the Schoology Microsoft OneDrive app in the teacher's Documents.
-export const ASSIGNMENTS_FOLDER = 'Schoology Microsoft OneDrive Assignments';
+import { signInToSharePoint, listAssignmentFiles } from './sharePointWeb.js';
 export const CACHE_TTL_MS = 5 * 60 * 1000;
 
 const cache = new Map();    // `${sectionId}:${assignmentId}` → { at, result }
 const inFlight = new Map(); // same key → Promise<result>
 
-// Replaced in tests: the real session drives a headless browser.
+// Replaced in tests: the real session signs in to SharePoint over HTTP.
 export const oneDriveDeps = {
   openSession: () => openSharePointSession(),
 };
@@ -54,8 +49,8 @@ export async function getAssignmentFiles({ sectionId, assignmentId, refresh = fa
 
 /**
  * Several assignments at once (the student page, #135): cached listings come
- * straight back; the rest share ONE browser session (one SSO round trip, one
- * browser launch) instead of one each. → Map(`${sectionId}:${assignmentId}` → result).
+ * straight back; the rest share ONE SharePoint session (one sign-in) instead
+ * of one each. → Map(`${sectionId}:${assignmentId}` → result).
  */
 export async function getAssignmentFilesMany(pairs, { refresh = false } = {}) {
   const out = new Map();
@@ -122,64 +117,12 @@ export function clearOneDriveCache() {
   cache.clear();
 }
 
-// A signed-in SharePoint session in the saved browser state:
+// A signed-in SharePoint session from the saved state:
 // { status: 'ok', origin, listFiles(sectionId, assignmentId), close() } or
 // { status: 'no_session' | 'sso_failed' | 'error' }.
 async function openSharePointSession() {
-  if (!existsSync(sessionStateFile())) return { status: 'no_session' };
-  const host = getMicrosoftConfig().sharepointHost.replace(/\/+$/, '');
-  const origin = new URL(host).origin;
-
-  let browser;
-  const fail = async (status) => {
-    if (browser) await browser.close().catch(() => {});
-    return { status };
-  };
-  try {
-    const { chromium } = await import('playwright');
-    browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext({ storageState: sessionStateFile() });
-    const page = await context.newPage();
-
-    // A SharePoint UI page runs the Microsoft SSO redirect chain; wait to land back.
-    await page.goto(`${origin}/_layouts/15/onedrive.aspx`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.waitForURL((u) => u.origin === origin, { timeout: 60000 }).catch(() => {});
-    if (new URL(page.url()).origin !== origin) return fail('sso_failed');
-
-    const getJson = (url) => page.evaluate(async (u) => {
-      const r = await fetch(u, { headers: { Accept: 'application/json;odata=nometadata' }, credentials: 'include' });
-      if (r.status !== 200) return null;
-      try { return await r.json(); } catch { return null; }
-    }, url);
-
-    const me = await getJson(`${origin}/_api/SP.UserProfiles.PeopleManager/GetMyProperties?$select=PersonalUrl`);
-    if (!me?.PersonalUrl) return fail('sso_failed');
-    const personal = me.PersonalUrl.replace(/\/?$/, '/');           // https://…/personal/{user}/
-    const personalPath = new URL(personal).pathname;                  // /personal/{user}/
-    const byPath = (p) => `${personal}_api/web/GetFolderByServerRelativePath(decodedurl='${encodeURIComponent(p.replace(/'/g, "''"))}')`;
-    // Folder listings are reused within the session (many assignments share a section).
-    const folderCache = new Map();
-    const subfolders = async (p) => {
-      if (!folderCache.has(p)) folderCache.set(p, (await getJson(`${byPath(p)}/Folders?$select=Name,ServerRelativeUrl`))?.value ?? null);
-      return folderCache.get(p);
-    };
-
-    return {
-      status: 'ok',
-      origin,
-      async listFiles(sectionId, assignmentId) {
-        const section = findFolderById(await subfolders(`${personalPath}Documents/${ASSIGNMENTS_FOLDER}`), sectionId);
-        if (!section) return { status: 'no_folder' };
-        const assignment = findFolderById(await subfolders(section.ServerRelativeUrl), assignmentId);
-        if (!assignment) return { status: 'no_folder' };
-        const files = await getJson(`${byPath(assignment.ServerRelativeUrl)}/Files?$select=Name,ServerRelativeUrl,LinkingUrl,TimeLastModified`);
-        if (!Array.isArray(files?.value)) return { status: 'error' };
-        return { status: 'ok', origin, files: files.value };
-      },
-      close: () => browser.close(),
-    };
-  } catch (err) {
-    console.error('[onedrive links] Error:', err.message);
-    return fail('error');
-  }
+  const origin = new URL(getMicrosoftConfig().sharepointHost.replace(/\/+$/, '')).origin;
+  const s = await signInToSharePoint({ origin });
+  if (s.status !== 'ok') return { status: s.status };
+  return { status: 'ok', origin: s.origin, listFiles: listAssignmentFiles(s), close: async () => {} };
 }

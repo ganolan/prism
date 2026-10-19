@@ -4,6 +4,7 @@ import Database from 'better-sqlite3';
 import { migrate, __setTestDb } from '../db/index.js';
 import {
   masteryDeps, masteryBuildingId, openMasteryReader, syncMasteryForCourse, syncMasteryForAssignment, getRubricScoresForStudent, writeMasteryScores,
+  writeMasteryScoresBatch, writeMasteryOverride,
 } from './masterySync.js';
 import { fakeSchoologyWeb } from '../testing/fakeSchoologyWeb.js';
 import { sessionStatus, resetSessionStatusCache } from './schoologySession.js';
@@ -149,15 +150,69 @@ describe('getRubricScoresForStudent over plain HTTP', () => {
   });
 });
 
-describe('mastery writes when signed out', () => {
-  test('the browser lands on sign-in: stop at once, point to Settings, close the browser, note expired', async () => {
-    const browser = { close: vi.fn(async () => {}) };
-    const page = { goto: vi.fn(async () => {}), url: () => 'https://login.microsoftonline.com/common/oauth2/authorize' };
-    masteryDeps.openPage = vi.fn(async () => ({ browser, page, context: {} }));
-    await expect(writeMasteryScores({ sectionId: SID, enrollmentId: 1, assignmentId: 900, gradeInfo: {}, gradingPeriodId: 11, gradingCategoryId: 22 }))
-      .rejects.toThrow(/Log in to Schoology in Settings/);
-    expect(masteryDeps.openPage).toHaveBeenCalledTimes(1);
-    expect(browser.close).toHaveBeenCalled();
+describe('mastery writes over plain HTTP (#141)', () => {
+  const OBS = `/iapi2/district-mastery/course/${SID}/observations`;
+  const OVR = `${BASE}/api/nodes/t1/outcome-override`;
+  const entry = (enrollmentId) => ({ enrollmentId, assignmentId: 900, gradeInfo: { t1: { grade: '75.00', gradingScaleId: 21337256 } }, gradingPeriodId: 11, gradingCategoryId: 22 });
+  const posts = () => fake.requests.filter((q) => q.method === 'POST');
+
+  test('writeMasteryScores: one page GET for the CSRF pair, then the observation POST with the browser\'s headers and body', async () => {
+    useWeb(routes({ [`POST ${OBS}`]: { json: { data: { ok: 1 } } } }));
+    expect(await writeMasteryScores({ sectionId: SID, ...entry(1) })).toEqual({ data: { ok: 1 } });
+    expect(fake.requests[0]).toMatchObject({ method: 'GET', path: BASE });
+    const [post] = posts();
+    expect(post.path).toBe(OBS);
+    expect(post.headers).toMatchObject({ 'Content-Type': 'application/json', Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-Token': 'tok', 'X-CSRF-Key': 'key' });
+    expect(post.json).toEqual({
+      enrollmentId: 1, gradeInfo: { t1: { grade: '75.00', gradingScaleId: 21337256 } }, gradeItemId: 900, isGradebook: true, materialId: 900,
+      materialType: 'ASSIGNMENT', maxPoints: 100, overrideGrade: null, isCollectedOnly: false, gradingPeriodId: 11, gradingCategoryId: 22,
+    });
+    expect((await sessionStatus({ check: false, hasSession: () => true })).live).toBe('connected');
+  });
+
+  test('writeMasteryScoresBatch: one page GET for the whole batch, one POST per enrollment, in order', async () => {
+    useWeb(routes({ [`POST ${OBS}`]: (q) => ({ json: { data: { enrollmentId: q.json.enrollmentId } } }) }));
+    const results = await writeMasteryScoresBatch({ sectionId: SID, entries: [entry(1), entry(2), entry(3)] });
+    expect(results.map((r) => r.enrollmentId)).toEqual([1, 2, 3]);
+    expect(fake.requests.filter((q) => q.path === BASE)).toHaveLength(1);
+    expect(posts().map((q) => q.json.enrollmentId)).toEqual([1, 2, 3]);
+  });
+
+  test('a batch stops at the first refused POST and says which status', async () => {
+    useWeb(routes({ [`POST ${OBS}`]: (q) => (q.json.enrollmentId === 2 ? { status: 403, json: { data: null } } : { json: { data: {} } }) }));
+    await expect(writeMasteryScoresBatch({ sectionId: SID, entries: [entry(1), entry(2), entry(3)] })).rejects.toThrow(/HTTP 403/);
+    expect(posts().map((q) => q.json.enrollmentId)).toEqual([1, 2]);
+  });
+
+  test('writeMasteryOverride: the building id from the page, the verified body', async () => {
+    useWeb(routes({ [`POST ${OVR}`]: { json: { data: { outcome_override: { grade_scaled_rounded: 87.5 } } } } }));
+    const r = await writeMasteryOverride({ sectionId: SID, objectiveId: 't1', studentUid: 701, gradeScaled: '87.50', gradingScaleId: 21337256 });
+    expect(r).toEqual({ data: { outcome_override: { grade_scaled_rounded: 87.5 } } });
+    expect(posts()[0].json).toEqual({ building_id: 97989879, section_id: Number(SID), grading_period_id: 0, student_uid: 701, grade_scaled: '87.50', grading_scale_id: 21337256 });
+    expect(posts()[0].headers).toMatchObject({ 'X-CSRF-Token': 'tok', 'X-CSRF-Key': 'key' });
+  });
+
+  test('writeMasteryOverride: a clear sends grade_scaled null', async () => {
+    useWeb(routes({ [`POST ${OVR}`]: { json: { data: { outcome_override: null } } } }));
+    await writeMasteryOverride({ sectionId: SID, objectiveId: 't1', studentUid: 701, gradeScaled: null, gradingScaleId: 21337256 });
+    expect(posts()[0].json.grade_scaled).toBeNull();
+  });
+
+  test('signed out (the page is sent to sign-in): no POST, point to Settings, note expired', async () => {
+    useWeb(routes({ [BASE]: { login: true } }));
+    await expect(writeMasteryScores({ sectionId: SID, ...entry(1) })).rejects.toThrow(/Log in to Schoology in Settings/);
+    expect(posts()).toHaveLength(0);
     expect((await sessionStatus({ check: false, hasSession: () => true })).live).toBe('expired');
+  });
+
+  test('a write POST sent to sign-in also points to Settings', async () => {
+    useWeb(routes({ [`POST ${OBS}`]: { login: true } }));
+    await expect(writeMasteryScoresBatch({ sectionId: SID, entries: [entry(1)] })).rejects.toThrow(/Log in to Schoology in Settings/);
+    expect((await sessionStatus({ check: false, hasSession: () => true })).live).toBe('expired');
+  });
+
+  test('no saved session → points to Settings', async () => {
+    masteryDeps.web = () => ({ jar: null });
+    await expect(writeMasteryOverride({ sectionId: SID, objectiveId: 't1', studentUid: 701, gradeScaled: '87.50' })).rejects.toThrow(/Log in to Schoology in Settings/);
   });
 });

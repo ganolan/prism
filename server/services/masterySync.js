@@ -15,16 +15,16 @@
  *        POST /course/{id}/district_mastery/api/outcomes/objectives
  *        GET  /course/{id}/district_mastery/api/observations/search (one student)
  *
- * WRITE (still a headless browser page with the saved session; #141 has not
- * moved the writes): POST /iapi2/district-mastery/course/{courseId}/observations,
+ * WRITE (plain HTTP through the same client, the page's CSRF pair; #141):
+ *        POST /iapi2/district-mastery/course/{courseId}/observations,
  *        POST /course/{id}/district_mastery/api/nodes/{objectiveId}/outcome-override
  *
  * Signing in: Settings → Log in to Schoology (RemoteSignIn, any device);
  * interactiveLogin (a visible browser) is left only for `npm run mastery:login`.
  */
 
-// Playwright is loaded lazily inside the functions that actually launch a
-// browser (openPage, interactiveLogin). A top-level `import 'playwright'`
+// Playwright is loaded lazily inside interactiveLogin, the one function left that
+// launches a browser (reads and writes are plain HTTP, #141). A top-level `import 'playwright'`
 // would run at server boot and pull in chromium's whole module graph for
 // every dev start — and on Node 25 the chromium ESM bridge can hang the
 // import indefinitely, blocking the Express server from binding its port.
@@ -44,36 +44,6 @@ const SCHOOLOGY_BASE = 'https://schoology.hkis.edu.hk';
 // the session may still be expired — this only reports presence, not validity.
 export function hasMasterySession() {
   return existsSync(sessionStateFile());
-}
-
-/**
- * Launch a headless browser with saved Schoology session cookies.
- * Uses explicit storageState (a JSON file of cookies + localStorage)
- * rather than a persistent context directory, which avoids profile
- * lock issues and headed-vs-headless cookie mismatches.
- */
-async function openPage() {
-  const { chromium } = await import('playwright');
-  const browser = await chromium.launch({ headless: true });
-  const contextOpts = {};
-  if (existsSync(sessionStateFile())) {
-    contextOpts.storageState = sessionStateFile();
-  }
-  const context = await browser.newContext(contextOpts);
-  const page = await context.newPage();
-  return { browser, page, context };
-}
-
-/**
- * After navigating to a Schoology course page, check if we actually landed
- * there or got redirected to a login/SSO page.
- */
-function checkLoggedIn(page) {
-  const url = page.url();
-  // If we're still on the intended course page, we're logged in
-  if (url.includes('/district_mastery') || url.includes('/course/')) return true;
-  // Anything else (login page, SSO redirect, etc.) means not logged in
-  return false;
 }
 
 /**
@@ -122,36 +92,6 @@ export async function interactiveLogin() {
 }
 
 /**
- * POST JSON to an internal district_mastery API endpoint from a browser page
- * (the override write; reads use openMasteryReader). These POSTs require
- * both X-CSRF-Token and X-CSRF-Key, read from Drupal.settings.s_common in the
- * page. Without them the server returns 403 {"data":null}.
- */
-async function postInternal(page, url, body) {
-  return page.evaluate(async ({ url, body }) => {
-    const csrf = {
-      token: window.Drupal?.settings?.s_common?.csrf_token,
-      key: window.Drupal?.settings?.s_common?.csrf_key,
-    };
-    if (!csrf.token || !csrf.key) throw new Error('CSRF token/key missing from Drupal.settings.s_common');
-    const res = await fetch(url, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-        'X-CSRF-Token': csrf.token,
-        'X-CSRF-Key': csrf.key,
-      },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status} for POST ${url}`);
-    return res.json();
-  }, { url, body });
-}
-
-/**
  * Get building_id and section_id needed for district_mastery API calls.
  * These come from the course's Schoology section data already in the DB.
  */
@@ -159,16 +99,14 @@ function getCourseRow(db, courseId) {
   return db.prepare('SELECT * FROM courses WHERE id = ?').get(courseId);
 }
 
-// Swappable for tests: the saved session's cookies for plain HTTP, and the
-// headless page the mastery writes use.
+// Swappable for tests: the saved session's cookies for plain HTTP.
 export const masteryDeps = {
   web: () => ({ jar: cookieJar(), fetchImpl: fetch }),
-  openPage: () => openPage(),
 };
 
-// Signed out even after the silent renewal (plain reads renew in getResource; a
-// browser makes the Microsoft round trip by itself): Microsoft wants a real
-// sign-in, which is Settings → Log in to Schoology (RemoteSignIn, any device).
+// Signed out even after the silent renewal (getResource renews through Microsoft
+// once): Microsoft wants a real sign-in, which is Settings → Log in to Schoology
+// (RemoteSignIn, any device).
 const SIGN_IN_NEEDED = 'Not logged in to Schoology: the mastery session has expired. Log in to Schoology in Settings, then retry.';
 
 // The building id the district_mastery API wants (97989879 for the HKIS HS
@@ -191,16 +129,17 @@ export function masteryBuildingId(settings, html = '') {
 }
 
 /**
- * A read client for one section's district_mastery API over plain HTTP with the
- * saved session's cookies (#141; the browser page it replaces is kept only for
- * the mastery writes). GETs /course/{sectionId}/district_mastery once for the
- * building id and the CSRF pair the POST searches need.
+ * A client for one section's district_mastery API over plain HTTP with the saved
+ * session's cookies (#141): the reads, and the writes (observations, overrides).
+ * GETs /course/{sectionId}/district_mastery once for the building id and the CSRF
+ * pair the POSTs need. `use` ('read' | 'write') names it in the session status.
  * Signed out (no saved session, or still sent to sign-in after getResource's silent
- * renewal): throws SIGN_IN_NEEDED, which points to Settings.
+ * renewal, or a POST sent to sign-in): throws SIGN_IN_NEEDED, which points to Settings.
  * → { buildingId, getJson(url), postJson(url, body) }; getJson/postJson throw
- * "HTTP {status} for …" on a non-2xx answer, as the in-page fetches did.
+ * "HTTP {status} for …" on a non-2xx answer, as the in-page fetches did. A POST is
+ * sent once, never retried.
  */
-export async function openMasteryReader(sectionId) {
+export async function openMasteryReader(sectionId, use = 'read') {
   const path = `/course/${sectionId}/district_mastery`;
   const open = async () => {
     let web;
@@ -214,7 +153,7 @@ export async function openMasteryReader(sectionId) {
     opened = await open();
   } catch (err) {
     if (!signedOut(err)) throw err;
-    noteSessionLive('expired', 'A mastery read was sent to the login page');
+    noteSessionLive('expired', `A mastery ${use} was sent to the login page`);
     throw new Error(SIGN_IN_NEEDED);
   }
   noteSessionLive('connected');
@@ -231,7 +170,17 @@ export async function openMasteryReader(sectionId) {
   return {
     buildingId,
     getJson: async (url) => ok(await getJson(web.jar, url, io), url),
-    postJson: async (url, body) => ok(await postJson(web.jar, url, body, { ...io, csrf: settings?.s_common }), `POST ${url}`),
+    postJson: async (url, body) => {
+      let r;
+      try {
+        r = await postJson(web.jar, url, body, { ...io, csrf: settings?.s_common });
+      } catch (err) {
+        if (!signedOut(err)) throw err;
+        noteSessionLive('expired', `A mastery ${use} was sent to the login page`);
+        throw new Error(SIGN_IN_NEEDED);
+      }
+      return ok(r, `POST ${url}`);
+    },
   };
 }
 
@@ -571,37 +520,17 @@ export async function writeMasteryOverride({
   gradingScaleId = schoologyScaleId(),
   gradingPeriodId = 0,
 }) {
-  const { browser, page } = await openPage();
-  try {
-    // Network-intercept building_id from the page's own XHR URLs — this is
-    // what the sync uses. `Drupal.settings.s_common.school_id` is null in
-    // this environment, so the DOM fallback doesn't work.
-    let bId = buildingId ? String(buildingId) : null;
-    if (!bId) {
-      page.on('request', req => {
-        const m = req.url().match(/building_id=(\d+)/);
-        if (m && !bId) bId = m[1];
-      });
-    }
-    await page.goto(`${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery`, {
-      waitUntil: 'load',
-    });
-    if (!bId) throw new Error('Could not determine building_id for override write (no XHR with building_id seen during page load)');
-
-    const url = `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/nodes/${objectiveId}/outcome-override`;
-    const body = {
-      building_id: Number(bId),
-      section_id: Number(sectionId),
-      grading_period_id: Number(gradingPeriodId) || 0,
-      student_uid: Number(studentUid),
-      grade_scaled: gradeScaled,     // string or null
-      grading_scale_id: Number(gradingScaleId),
-    };
-    const result = await postInternal(page, url, body);
-    return result;
-  } finally {
-    await browser.close();
-  }
+  const client = await openMasteryReader(sectionId, 'write');
+  const url = `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/nodes/${objectiveId}/outcome-override`;
+  const body = {
+    building_id: Number(buildingId || client.buildingId),
+    section_id: Number(sectionId),
+    grading_period_id: Number(gradingPeriodId) || 0,
+    student_uid: Number(studentUid),
+    grade_scaled: gradeScaled,     // string or null
+    grading_scale_id: Number(gradingScaleId),
+  };
+  return client.postJson(url, body);
 }
 
 /**
@@ -739,26 +668,22 @@ export async function writeMasteryScores({
   gradingPeriodId,
   gradingCategoryId,
 }) {
-  const { browser, page } = await openMasterySession(sectionId);
-  try {
-    return await postObservation(page, {
-      sectionId, enrollmentId, assignmentId, gradeInfo, gradingPeriodId, gradingCategoryId,
-    });
-  } finally {
-    await browser.close();
-  }
+  const client = await openMasteryReader(sectionId, 'write');
+  return postObservation(client, {
+    sectionId, enrollmentId, assignmentId, gradeInfo, gradingPeriodId, gradingCategoryId,
+  });
 }
 
 /**
  * Batched variant of {@link writeMasteryScores}: writes every entry's
- * observation set through a *single* browser session — one Chromium launch and
- * one navigation for the whole batch instead of per student. This is the
- * dominant cost of the assessment-page "Send all", so collapsing N launches
- * into one is the real win (the /observations endpoint is still posted
+ * observation set through one client, so the mastery page is read once for the
+ * CSRF pair for the whole batch (the /observations endpoint is still posted
  * per-enrollment; it is not known to accept multiple enrollments at once).
+ * Plain HTTP since #141: the browser launch was the dominant cost of the
+ * assessment-page "Send all".
  *
- * Fail-fast / all-or-nothing: the first failed observation throws (after the
- * browser is closed), and the caller treats the whole batch as failed so
+ * Fail-fast / all-or-nothing: the first failed observation throws, and the
+ * caller treats the whole batch as failed so
  * nothing downstream (comments, local mirror) runs. A retry is safe — the
  * endpoint replaces the observation set for an enrollment.
  *
@@ -767,55 +692,29 @@ export async function writeMasteryScores({
  * @param {Array<{enrollmentId, assignmentId, gradeInfo, gradingPeriodId, gradingCategoryId}>} params.entries
  */
 export async function writeMasteryScoresBatch({ sectionId, entries }) {
-  const { browser, page } = await openMasterySession(sectionId);
-  try {
-    const results = [];
-    for (const e of entries) {
-      const result = await postObservation(page, {
-        sectionId,
-        enrollmentId: e.enrollmentId,
-        assignmentId: e.assignmentId,
-        gradeInfo: e.gradeInfo,
-        gradingPeriodId: e.gradingPeriodId,
-        gradingCategoryId: e.gradingCategoryId,
-      });
-      results.push({ enrollmentId: e.enrollmentId, result });
-    }
-    return results;
-  } finally {
-    await browser.close();
+  const client = await openMasteryReader(sectionId, 'write');
+  const results = [];
+  for (const e of entries) {
+    const result = await postObservation(client, {
+      sectionId,
+      enrollmentId: e.enrollmentId,
+      assignmentId: e.assignmentId,
+      gradeInfo: e.gradeInfo,
+      gradingPeriodId: e.gradingPeriodId,
+      gradingCategoryId: e.gradingCategoryId,
+    });
+    results.push({ enrollmentId: e.enrollmentId, result });
   }
+  return results;
 }
 
 /**
- * Open a logged-in district-mastery page for a section, to establish session +
- * CSRF context. The headless browser makes the Microsoft round trip by itself
- * when Schoology's own session has lapsed; still on a sign-in page means
- * Microsoft wants a real sign-in, so this stops with SIGN_IN_NEEDED (no window
- * on the server's screen). Returns the live { browser, page }: the caller owns
- * closing the browser.
- */
-async function openMasterySession(sectionId) {
-  const { browser, page, context } = await masteryDeps.openPage();
-  await page.goto(`${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery`, {
-    waitUntil: 'domcontentloaded',
-  });
-  if (!checkLoggedIn(page)) {
-    await browser.close();
-    noteSessionLive('expired', 'A mastery write was sent to the login page');
-    throw new Error(SIGN_IN_NEEDED);
-  }
-  noteSessionLive('connected'); // the Settings card / Sync dialog status follows real use
-  return { browser, page, context };
-}
-
-/**
- * POST one enrollment's observation set to the district-mastery endpoint inside
- * an already-logged-in page. The /observations call replaces the whole
+ * POST one enrollment's observation set to the district-mastery endpoint through
+ * a client (openMasteryReader). The /observations call replaces the whole
  * observation set for this enrollment+material, so callers must pass gradeInfo
  * for every aligned topic. Throws on a non-OK response.
  */
-async function postObservation(page, { sectionId, enrollmentId, assignmentId, gradeInfo, gradingPeriodId, gradingCategoryId }) {
+async function postObservation(client, { sectionId, enrollmentId, assignmentId, gradeInfo, gradingPeriodId, gradingCategoryId }) {
   const url = `${SCHOOLOGY_BASE}/iapi2/district-mastery/course/${sectionId}/observations`;
   const payload = {
     enrollmentId: Number(enrollmentId),
@@ -835,33 +734,9 @@ async function postObservation(page, { sectionId, enrollmentId, assignmentId, gr
   console.log(`[mastery write] enrollment=${enrollmentId} assignment=${assignmentId} topics=${topicCount}`);
   console.log(`[mastery write] gradeInfo=${JSON.stringify(gradeInfo)}`);
 
-  const result = await page.evaluate(async ({ url, payload }) => {
-    const csrf = {
-      token: window.Drupal?.settings?.s_common?.csrf_token,
-      key: window.Drupal?.settings?.s_common?.csrf_key,
-    };
-    if (!csrf.token || !csrf.key) {
-      return { status: 0, ok: false, body: 'CSRF token/key missing from Drupal.settings.s_common' };
-    }
-    const res = await fetch(url, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-        'X-CSRF-Token': csrf.token,
-        'X-CSRF-Key': csrf.key,
-      },
-      body: JSON.stringify(payload),
-    });
-    const text = await res.text();
-    return { status: res.status, ok: res.ok, body: text };
-  }, { url, payload });
-
-  console.log(`[mastery write] response status=${result.status} body=${result.body.slice(0, 500)}`);
-  if (!result.ok) throw new Error(`HTTP ${result.status}: ${result.body}`);
-  return JSON.parse(result.body);
+  const result = await client.postJson(url, payload);
+  console.log(`[mastery write] answer=${JSON.stringify(result).slice(0, 500)}`);
+  return result;
 }
 
 /**
@@ -969,7 +844,9 @@ export function getMasteryForCourse(courseId) {
  * Endpoint: GET /course/{sectionId}/district_mastery/api/observations/search
  *   ?student_uids={uid}&section_id={sectionId}&material_type=ASSIGNMENT&material_id={assignmentId}
  *
- * Returns an array of { alignment_id (= topic UUID), points, grade_percentage, ... }
+ * Returns an array of { alignment_id, points, grade_percentage, ... }. alignment_id is the
+ * alignment's own id, NOT the topic UUID (checked live 2026-10-19): alignments/search maps
+ * it to the topic (its `id` → `objective.id`).
  */
 // One GET over plain HTTP with the saved session's cookies (#141): the browser
 // path loaded the mastery page first, which this GET does not need.

@@ -85,6 +85,16 @@ npm run test:api   # Schoology API smoke test
 - **Product spec and roadmap**: `product-spec.md`
 - **Hosting + deploy — live since cutover on 2026-09-24**: `docs/deploy.md` (operations), `docs/adr/0003-prism-served-from-a-home-server-over-tailscale.md` and `docs/superpowers/specs/2026-09-23-prism-hosting-and-deploy-design.md` (design). **Prod is the Mac mini** (`https://prism.swordtail-everest.ts.net`, tailnet only — a Tailscale Service; the mini itself is `macmini`, tagged `tag:server`) and holds the one authoritative database; push to `main` deploys it once CI is green. Every other clone — the laptop included — is a disposable dev clone: never run `db:backup` from one, and never point PrisMCP at one for real grading. `CONTEXT.md` holds the vocabulary (prod / release / dev clone / snapshot / cutover).
 
+## Definition of done (every task, unprompted)
+
+Graham relies on the agent to catch what he would miss (19 Oct 2026). Before reporting a task finished:
+
+- **Issues:** search `ganolan/prism` for every issue the work touches (`gh issue list --search …`, and the milestone's other issues). Comment on each with what changed (commit ids, evidence), close what is done, open issues for follow-ups. Nothing is left only in the chat.
+- **Docs:** update everything that describes the changed behaviour: `.claude/schoology-api-reference.md` / `.claude/powerschool-api-reference.md` (verified intel, dated), `.claude/build-progress.md`, `docs/design-language.md` (UI decisions), `docs/deploy.md`, `docs/prismcp-install-and-verify.md` and PrisMCP tool descriptions in `mcp/server.js`, this file. Grep code, client, tests and docs for the old wording and fix every hit.
+- **Tests:** `npx vitest run` at the root (server, `mcp/`, `scripts/`) **and** `cd client && npx vitest run`, then `npm run build`. After pushing `main`, CI must be green on that commit and prod must serve it (`curl -s 127.0.0.1:3001/api/version` on the mini).
+- **Loose ends:** fix, don't list: stale comments, small bugs found on the way, missing tests, wrong memories. Stop dev servers you started (`npm run dev:stop`, never by port). Delete scratch database copies, screenshots and page snapshots: they hold student data.
+- **Handoff:** leave memory current for a new session (what shipped, what is next). The report states what was done and verified; open items are only Graham's decisions, asked with the question tool.
+
 ## Working Notes
 
 - **Never run Prism from a cloud-synced folder** (#121). The live SQLite trio (`.db` + `-wal` + `-shm`) tears under sync, and `.git` can arrive incomplete — observed 2026-09-22: the OneDrive clone was missing 8 objects and could not read its own HEAD tree, while `git status` still reported clean. This includes OneDrive **and** macOS `~/Documents` when Desktop & Documents sync is enabled. `npm run db:backup` (SQLite backup API) is the only safe way to copy the database; `db:restore` must clear stale `-wal`/`-shm` first or a foreign WAL can be replayed over the restored file.
@@ -114,6 +124,9 @@ Read `.claude/api-exploration-playbook.md` first — a spike is a *lower bound*,
 - **Resolve ids before probing** — a 404 on a `null`/guessed id is not a missing route. Pull ids from a live session JSON (roster / LTI launch form), not a throwaway script whose `apiGet` returned `null` because `.env` wasn't loaded.
 - **A list endpoint returning a record does not mean the record is current.** Schoology keeps returning dropped students from `/sections/{id}/enrollments` with `status: "5"`; filtering on `admin` alone re-added them every sync (#128). Check for a lifecycle/status field before treating a list response as "the current set".
 - **Never document a response shape you didn't observe in tool output.** Fabricated shapes have been committed + posted publicly before; a documented shape must trace to a specific probe result. Re-read the actual JSON before each api-ref edit. (Pairs with "Preserve verified API intel" above.)
+- **A lapsed Schoology session answers the grader document lists `403`, not a sign-in redirect** (2026-10-19). Load a page (`/home`) to tell the two apart: a lapsed session is sent to sign-in there.
+- **SharePoint answers `403` to Node's own `User-Agent`;** send a browser-like one (`lib/stateCookieJar.js` `USER_AGENT`).
+- **Drop cookies a `Set-Cookie` expires** (`Max-Age=0` or a past `Expires`). Schoology expires `login_landing_dest` with the value `deleted`; a jar that keeps it ends a sign-in at `/deleted`.
 - **Discovery method ranking:** driving the real page and capturing its XHRs is most reliable; grepping the cross-origin React/Angular bundles (`asset-cdn.schoology.com`, the PS attendance app bundle) for `/iapi(2)/` / `/ws/` literals is a strong second — then live-probe each literal.
 
 ## Agent skills

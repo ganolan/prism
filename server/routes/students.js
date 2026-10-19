@@ -204,7 +204,8 @@ router.get('/:id', (req, res) => {
 // status: { [aid]: 'ok' | 'not_lti' | lookup status } }. Files are matched against
 // the whole class (a name shared by two students matches neither), but only this
 // student's link is returned: the page is shown to parents. The client asks for a
-// few assignments at a time after the page renders; they share one browser session.
+// few assignments at a time after the page renders; they share one SharePoint sign-in
+// (plain HTTP, sharePointWeb.js, #141).
 const MAX_WORK_LINK_IDS = 10;
 router.get('/:id/work-links', async (req, res) => {
   const db = getDb();

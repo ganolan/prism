@@ -6,8 +6,8 @@
 // Reads go over plain HTTP with the session's cookies (openHttpReader,
 // schoologyWeb.js, #141; checked against the browser reader with
 // scripts/parity-quiz-reads.js). The browser reader (openReader: the same GETs
-// as fetches inside a headless page) stays for quizWriteback.js, a write path
-// #141 has not moved yet.
+// as fetches inside a headless page) is kept only for that parity script; the
+// FRQ write-back is plain HTTP too (quizWriteback.openClient, #141).
 import { SCHOOLOGY_BASE, isLoggedInUrl } from '../lib/browserSession.js';
 import { noteSessionLive } from './schoologySession.js';
 import { cookieJar, getResource, WebSessionError } from './schoologyWeb.js';

@@ -43,7 +43,7 @@ function scalePointsError(db, courseId, assignmentId, points) {
 // file exists), live: 'connected' | 'expired' | 'none' | null, checkedAt, message? }.
 // live = one cheap authenticated page load with the saved session, cached ~10 min
 // (server/services/schoologySession.js); refresh=1 forces a re-check; check=0 never
-// opens a browser (live = the cached answer, or null). Best-effort, never fails.
+// reaches Schoology (live = the cached answer, or null). Best-effort, never fails.
 router.get('/login-status', async (req, res) => {
   const refresh = req.query.refresh === '1' || req.query.refresh === 'true';
   const check = req.query.check !== '0';

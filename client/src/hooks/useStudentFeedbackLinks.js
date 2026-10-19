@@ -9,7 +9,7 @@ export const WORK_LINK_CHUNK = 3;
 const GIVE_UP = new Set(['no_session', 'sso_failed']);
 
 // The student's own OneDrive copy per lti assignment: { [aid]: link }. Asked for a
-// few assignments at a time (each request shares one browser session on the
+// few assignments at a time (each request shares one SharePoint sign-in on the
 // server), filled in as each answer arrives.
 export function useStudentWorkLinks(studentId, assignmentIds = [], reloadKey = 0) {
   const ids = [...new Set(assignmentIds.filter(Boolean).map(String))].join(',');

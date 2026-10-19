@@ -223,7 +223,7 @@ export const refreshMasteryForCourse = (courseId) => request(`/mastery/${courseI
 export const refreshMasteryForAssignment = (courseId, assignmentId) => request(`/mastery/${courseId}/assignment/${assignmentId}/refresh`, { method: 'POST' });
 // Links to each student's own copy of an lti_submission assignment: OneDrive
 // (#120) or Google Drive (#142), the provider named on each link. Slow-ish for
-// OneDrive (the server drives a browser), so load it after the page, not with it.
+// OneDrive (a SharePoint sign-in, 2-4 s), so load it after the page, not with it.
 export const getSubmissionLinks = (courseId, assignmentId, { refresh = false } = {}) =>
   request(`/mastery/${courseId}/assignment/${assignmentId}/submission-links${refresh ? '?refresh=1' : ''}`);
 export const syncMasteryForAssignment =(courseId, assignmentId) => request(`/mastery/${courseId}/assignment/${assignmentId}/sync`, { method: 'POST' });

@@ -19,8 +19,8 @@ export function classifyMasteryError(err) {
   return 'other';
 }
 
-// Run the unified sync: the Schoology public-API pull, then a Playwright
-// mastery pull for each requested course. Every step reports through onEvent.
+// Run the unified sync: the Schoology public-API pull, then a mastery pull
+// (plain HTTP with the saved session, #141) for each requested course. Every step reports through onEvent.
 // Event shapes:
 //   { phase:'schoology', status:'running'|'done'|'error', records?, message? }
 //   { phase:'mastery', courseId, courseName, status, records?, errorKind?, message? }

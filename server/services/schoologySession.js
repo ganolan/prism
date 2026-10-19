@@ -1,7 +1,8 @@
-// The saved Schoology browser session (npm run mastery:login / POST /api/mastery/login):
-// opening a headless page with it, and a cached "is it still live?" check for the
-// Settings "Schoology connection" card, the Sync dialog and the Ask modal's unsubmit
-// option (Phase 2, LTI unsubmit on Ask).
+// The saved Schoology session (storage-state.json, from Settings → Log in to Schoology or
+// npm run mastery:login): a cached "is it still live?" check for the Settings "Schoology
+// connection" card, the Sync dialog and the Ask modal's unsubmit option, and its silent
+// renewal through Microsoft (plain HTTP, #141). openSessionPage (a headless page with it)
+// is kept only for the parity scripts.
 //
 // Liveness is one cheap authenticated GET of {SCHOOLOGY_BASE}/home over plain HTTP
 // with the saved cookies (schoologyWeb.getResource, #141: no browser), never the

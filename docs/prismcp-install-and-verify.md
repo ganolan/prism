@@ -21,16 +21,18 @@ erased at the next `npm run db:refresh`.
 A relative path is refused because it resolves against whichever directory
 the client launched from. `:memory:` and `file:` URIs are accepted.
 
-## The saved Schoology session for unsubmit-on-ask (since 2026-10-03)
+## The saved Schoology session (unsubmit-on-ask since 2026-10-03, mastery refresh since 2026-10-19)
 
 `request_resubmission` unsubmits submitted OneDrive (LTI) work by default
-(`unsubmit`), through the saved Schoology **browser session**, not the API
-keys. PrisMCP finds it the same way the server does: `PRISM_SESSION_DIR`, else
+(`unsubmit`), and `get_assignment_context` reads the assignment's current mastery
+levels from Schoology before it answers (`mastery_source`, #52), both through the
+saved Schoology session (plain HTTP, no browser), not the API keys. PrisMCP finds it the same way the server does: `PRISM_SESSION_DIR`, else
 `.playwright-session/` under its working directory. On the mini set
 `PRISM_SESSION_DIR=/Users/gnolan/prism/data/.playwright-session` in the entry's
 `env` block (or the remote command) unless `~/prism/data/.env` already sets it.
 Without it the unsubmit fails safely: the ask is recorded and the tool result
-carries the Schoology link so the teacher can unsubmit by hand.
+carries the Schoology link so the teacher can unsubmit by hand; the context is
+returned with the levels as last read, and `mastery_source.note` says why.
 
 ## Schoology credentials for the status-line tools (since 2026-10-03)
 

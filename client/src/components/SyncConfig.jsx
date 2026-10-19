@@ -199,8 +199,8 @@ export default function SyncConfig({ courses, calendar, loggedIn, busy, onStart,
         ) : (
           <>
             <div className="alert alert-warning sync-disclaimer">
-              Mastery sync opens a browser session and runs one course at a time,
-              roughly 20-40s per course. Pick only what you need.
+              Mastery is read one course at a time, about 3 to 5 seconds per course.
+              Pages also read it again when they open.
             </div>
             {groups.map((group) => {
               const ids = group.courses.map((c) => c.id);

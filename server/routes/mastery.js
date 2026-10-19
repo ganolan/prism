@@ -5,6 +5,7 @@ import { pushGradeComments, getSectionGrades } from '../services/schoology.js';
 import { settleResubmissions, resubmissionByStudent, arrivedKeys, pairResubmissionFields } from '../services/resubmissions.js';
 import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
 import { refreshCourseMastery, refreshAssignmentMastery } from '../services/masteryRefresh.js';
+import { refreshTasks } from '../services/taskRefresh.js';
 import { STATUS_LINE_KINDS, putSucceeded, checkLine, lockPair, withCheckedLine } from '../services/statusLinePublisher.js';
 import { getFeedbackRows, getRowLevels, rowLevelsError, saveRowLevels } from '../services/feedbackRows.js';
 import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows, scoreScaleFor } from '../services/assessmentContext.js';
@@ -337,17 +338,28 @@ router.post('/:courseId/override', async (req, res) => {
   }
 });
 
+// #108: the assessment page's reads also cover the task's submissions and grades (taskRefresh.js);
+// mastery is read by the route itself. A task Prism does not hold answers an empty read.
+function readTask(courseId, schoologyAssignmentId, force) {
+  const row = getDb().prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ? AND course_id = ?').get(String(schoologyAssignmentId), Number(courseId));
+  if (!row) return Promise.resolve({ refreshed: 0, readAt: null, failed: [] });
+  return refreshTasks([row.id], { force, mastery: false });
+}
+
 // POST /api/mastery/:courseId/assignment/:assignmentId/sync — the assessment page's Refresh from
 // Schoology: re-pull scores and grade comments for one assignment now (masteryRefresh, force).
 router.post('/:courseId/assignment/:assignmentId/sync', async (req, res) => {
   const { courseId, assignmentId } = req.params;
   try {
-    const r = await refreshAssignmentMastery(courseId, assignmentId, { force: true });
+    const [r, submissions] = await Promise.all([
+      refreshAssignmentMastery(courseId, assignmentId, { force: true }),
+      readTask(courseId, assignmentId, true),
+    ]);
     if (r.error) {
       console.error('[mastery assignment sync] Error:', r.error);
       return res.status(500).json({ error: r.error });
     }
-    res.json({ ...r.result, syncedAt: r.syncedAt });
+    res.json({ ...r.result, syncedAt: r.syncedAt, submissions });
   } catch (err) {
     res.status(err.code === 'NOT_FOUND' ? 404 : 500).json({ error: err.message });
   }
@@ -357,8 +369,11 @@ router.post('/:courseId/assignment/:assignmentId/sync', async (req, res) => {
 // loads (#52); as POST /:courseId/refresh, for one assignment's scores and comments.
 router.post('/:courseId/assignment/:assignmentId/refresh', async (req, res) => {
   try {
-    const { result: _r, ...out } = await refreshAssignmentMastery(req.params.courseId, req.params.assignmentId);
-    res.json(out);
+    const [{ result: _r, ...out }, submissions] = await Promise.all([
+      refreshAssignmentMastery(req.params.courseId, req.params.assignmentId),
+      readTask(req.params.courseId, req.params.assignmentId, false),
+    ]);
+    res.json({ ...out, refreshed: out.refreshed || submissions.refreshed > 0, submissions });
   } catch (err) {
     res.status(err.code === 'NOT_FOUND' ? 404 : 500).json({ error: err.message });
   }

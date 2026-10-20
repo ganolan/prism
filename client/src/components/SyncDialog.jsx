@@ -27,9 +27,10 @@ const NOTICES = {
 //   presetCourse ({ id, name }, Sync Course): skip the course list and sync that one course
 //     (everything, PowerSchool off).
 //   followRunId: open on a run that is already queued or running (a page's "Syncing…" chip).
+//   group: the course group ticked at first ('archived' from the dashboard's Archived tab).
 //   onRun(runId): the run a press here queued (or joined), so the page's chip follows it after
 //     the dialog closes.
-export default function SyncDialog({ onClose, onSyncComplete, onRun, presetCourse = null, followRunId = null, pollMs = POLL_MS, giveUpMs = GIVE_UP_MS }) {
+export default function SyncDialog({ onClose, onSyncComplete, onRun, group, presetCourse = null, followRunId = null, pollMs = POLL_MS, giveUpMs = GIVE_UP_MS }) {
   // stalled = following a run but Prism has been unreachable for giveUpMs of visible time;
   // held = the run waits for a Schoology sign-in.
   const [mode, setMode] = useState('loading'); // loading | config | running | stalled | held | done
@@ -225,6 +226,7 @@ export default function SyncDialog({ onClose, onSyncComplete, onRun, presetCours
             onCancel={onClose}
             onLogin={goToSignIn}
             connection={connection}
+            group={group}
           />
         )}
 

@@ -6,6 +6,8 @@ import SchoologyConnectionStatus, { connectionState } from './SchoologyConnectio
 
 // #58: one list; each ticked course gets everything (Schoology data and mastery). Current courses are
 // ticked by default; hidden and archived ones are not (a ticked archived course is read again in full).
+// `group` ('visible' | 'archived'): the group ticked and opened at first (the dashboard's Archived tab
+// opens the list on its archived courses).
 const GROUPS = [
   { key: 'visible',  label: 'Current courses',  match: (c) => !c.hidden && !c.archived && !c.excluded },
   { key: 'hidden',   label: 'Hidden courses',   match: (c) => c.hidden && !c.archived && !c.excluded },
@@ -19,20 +21,21 @@ const LOGIN_NOTE = SIGN_IN_NOTE;
 
 // connection (optional) = useSchoologyConnection() from the dialog: the saved session's
 // live status beside the login option, plus a login prompt when it has expired.
-export default function SyncConfig({ courses, calendar, loggedIn, busy, onStart, onCancel, onLogin, connection = null }) {
+export default function SyncConfig({ courses, calendar, loggedIn, busy, onStart, onCancel, onLogin, connection = null, group = 'visible' }) {
   const groups = useMemo(
     () => GROUPS.map((g) => ({ ...g, courses: courses.filter(g.match) })).filter((g) => g.courses.length),
     [courses]
   );
-  const visibleIds = useMemo(
-    () => courses.filter(GROUPS[0].match).map((c) => c.id),
-    [courses]
+  const firstGroup = GROUPS.find((g) => g.key === group) ?? GROUPS[0];
+  const initialIds = useMemo(
+    () => courses.filter(firstGroup.match).map((c) => c.id),
+    [courses, firstGroup]
   );
 
   // Selection is seeded once at mount. The parent (SyncDialog) only renders
   // SyncConfig after courses have loaded, so `courses` is stable on mount.
-  const [selected, setSelected] = useState(() => new Set(visibleIds));
-  const [collapsed, setCollapsed] = useState({ visible: false, hidden: true, archived: true });
+  const [selected, setSelected] = useState(() => new Set(initialIds));
+  const [collapsed, setCollapsed] = useState(() => ({ visible: true, hidden: true, archived: true, [firstGroup.key]: false }));
 
   // #106 (revised 2026-08-11, #126 follow-up): default the block sync ON when
   // an active course has never had a block PASS run, OFF once every active

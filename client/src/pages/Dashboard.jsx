@@ -12,9 +12,9 @@ import TriageSection from '../components/triage/TriageSection.jsx';
 import StatsStrip from '../components/triage/StatsStrip.jsx';
 import { courseTriageSummary, courseRedLine } from '../lib/triage.js';
 
-// The oldest course_synced_at among the visible current courses; null when one never synced.
-function oldestSynced(courses) {
-  const live = courses.filter((c) => !c.archived && !c.hidden);
+// The oldest course_synced_at among the tab's visible courses; null when one never synced.
+function oldestSynced(courses, archived) {
+  const live = courses.filter((c) => Boolean(c.archived) === archived && !c.hidden);
   if (!live.length || live.some((c) => !c.course_synced_at)) return null;
   return live.map((c) => c.course_synced_at).sort()[0];
 }
@@ -157,18 +157,25 @@ export default function Dashboard() {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', gap: '1rem', flexWrap: 'wrap' }}>
         <h2 className="page-title" style={{ marginBottom: 0 }}>Dashboard</h2>
-        {activeTab === 'current' && (
-          // The oldest current course's full-sync time: the dashboard is only as fresh as that.
-          <SyncStatus
-            label="Sync Courses"
-            syncedAt={oldestSynced(courses)}
-            sync={backgroundSync}
-            onSync={() => setSyncOpen(true)}
-            onOpen={(runId) => setFollowRun(runId)}
-          />
-        )}
+        {/* The oldest full-sync time among the tab's courses: the tab is only as fresh as that. Both
+            tabs offer Sync Courses; on Archived the list opens with the archived courses ticked. */}
+        <SyncStatus
+          label="Sync Courses"
+          syncedAt={oldestSynced(courses, activeTab === 'archived')}
+          archived={activeTab === 'archived'}
+          sync={backgroundSync}
+          onSync={() => setSyncOpen(true)}
+          onOpen={(runId) => setFollowRun(runId)}
+        />
       </div>
-      {syncOpen && <SyncDialog onClose={() => setSyncOpen(false)} onSyncComplete={bumpDataVersion} onRun={backgroundSync.follow} />}
+      {syncOpen && (
+        <SyncDialog
+          group={activeTab === 'archived' ? 'archived' : 'visible'}
+          onClose={() => setSyncOpen(false)}
+          onSyncComplete={bumpDataVersion}
+          onRun={backgroundSync.follow}
+        />
+      )}
       {followRun != null && !syncOpen && (
         <SyncDialog followRunId={followRun} onClose={() => setFollowRun(null)} onSyncComplete={bumpDataVersion} />
       )}

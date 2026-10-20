@@ -341,3 +341,14 @@ describe('Dashboard — background sync', () => {
   });
 });
 
+describe('Dashboard: Sync Courses on every tab', () => {
+  it('the Archived tab has Sync Courses too, opening the list with archived courses ticked', async () => {
+    api.getCoursesByView.mockImplementation(async (view) => (view === 'archived'
+      ? [{ id: 4, course_name: 'Archived Bio', hidden: 0, archived: 1, course_synced_at: null }] : []));
+    api.getCourses.mockResolvedValue([{ id: 4, course_name: 'Archived Bio', hidden: 0, archived: 1 }]);
+    renderDashboard();
+    fireEvent.click(await screen.findByRole('button', { name: 'Archived' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sync Courses' }));
+    expect(await screen.findByLabelText('Archived Bio')).toBeChecked();
+  });
+});

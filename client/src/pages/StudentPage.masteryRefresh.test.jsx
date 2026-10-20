@@ -91,3 +91,20 @@ describe('CourseSection', () => {
     await waitFor(() => expect(summary).toHaveBeenLastCalledWith(expect.objectContaining({ reloadKey: 1 })));
   });
 });
+
+describe('StudentPage: Sync Courses always offered', () => {
+  it('a student with only archived courses: Sync Courses reads those, and nothing syncs in the background', async () => {
+    getStudent.mockResolvedValue({ ...student, courses: [{ id: 3, course_name: 'Old', archived: 1, course_synced_at: null }], grades: [grade(3)] });
+    startSync.mockResolvedValue({ runId: 9, state: 'queued', joined: false });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Sync Courses' }));
+    await waitFor(() => expect(startSync).toHaveBeenCalledWith({ courseIds: [3], syncBlocks: false }));
+    expect(ensureSync).not.toHaveBeenCalled();
+  });
+
+  it('a student with no grades yet still has Sync Courses', async () => {
+    getStudent.mockResolvedValue({ ...student, grades: [] });
+    renderPage();
+    expect(await screen.findByRole('button', { name: 'Sync Courses' })).toBeInTheDocument();
+  });
+});

@@ -300,13 +300,15 @@ export default function StudentPage() {
   const backgroundSync = useBackgroundSync(liveCourseIds.length ? { kind: 'courses', courseIds: liveCourseIds } : null, {
     onDone: () => { reload(); setSyncVersion((v) => v + 1); },
   });
+  // A student with only archived courses (a past student): the button reads those courses again.
+  const allCourses = student?.courses ?? [];
+  const syncCourses = liveCourseIds.length ? allCourses.filter((c) => !c.archived) : allCourses;
   async function syncStudentCourses() {
-    const r = await startSync({ courseIds: liveCourseIds, syncBlocks: false }).catch(() => null);
+    const r = await startSync({ courseIds: syncCourses.map((c) => c.id), syncBlocks: false }).catch(() => null);
     if (r?.runId != null) backgroundSync.follow(r.runId);
   }
-  const liveCourses = (student?.courses ?? []).filter((c) => !c.archived);
-  const oldestSynced = liveCourses.length && liveCourses.every((c) => c.course_synced_at)
-    ? liveCourses.map((c) => c.course_synced_at).sort()[0] : null;
+  const oldestSynced = syncCourses.length && syncCourses.every((c) => c.course_synced_at)
+    ? syncCourses.map((c) => c.course_synced_at).sort()[0] : null;
 
   // The student's attempts on linked or combined Schoology tests, by Schoology assignment id.
   const attemptLinks = useAttemptLinks({ studentId: id, reloadKey: dataVersion });
@@ -374,7 +376,6 @@ export default function StudentPage() {
     gradesByCourse[g.course_id].push(g);
   }
 
-  const coursesWithGrades = student.courses.filter((c, i) => (gradesByCourse[c.id] || []).length > 0);
 
   return (
     <div className="fade-in">
@@ -553,18 +554,17 @@ export default function StudentPage() {
       </div>
 
       {/* Per-course collapsible sections */}
-      {coursesWithGrades.length > 0 && (
+      {syncCourses.length > 0 && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', margin: '1.5rem 0 0.5rem' }}>
           <h3 style={{ margin: 0, fontWeight: 600 }}>Courses</h3>
-          {liveCourseIds.length > 0 && (
-            <SyncStatus
-              label="Sync Courses"
-              syncedAt={oldestSynced}
-              sync={backgroundSync}
-              onSync={syncStudentCourses}
-              onOpen={(runId) => setFollowRun(runId)}
-            />
-          )}
+          <SyncStatus
+            label="Sync Courses"
+            syncedAt={oldestSynced}
+            archived={!liveCourseIds.length}
+            sync={backgroundSync}
+            onSync={syncStudentCourses}
+            onOpen={(runId) => setFollowRun(runId)}
+          />
         </div>
       )}
       {followRun != null && (

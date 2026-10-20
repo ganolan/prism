@@ -24,6 +24,7 @@ function renderConfig(props = {}) {
       onStart={props.onStart || (() => {})}
       onCancel={props.onCancel || (() => {})}
       onLogin={props.onLogin || (() => {})}
+      group={props.group}
     />
   );
 }
@@ -204,5 +205,13 @@ describe('SyncConfig', () => {
   it('every sync is full: no recent-only option', () => {
     renderConfig();
     expect(screen.queryByLabelText(/include only recent submissions/i)).not.toBeInTheDocument();
+  });
+
+  it('opened from the Archived tab: the archived courses are ticked and shown, nothing else', () => {
+    const onStart = vi.fn();
+    renderConfig({ onStart, group: 'archived' });
+    expect(screen.getByLabelText('Archived Bio')).toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: /sync courses/i }));
+    expect(onStart).toHaveBeenCalledWith([4], expect.any(Object));
   });
 });

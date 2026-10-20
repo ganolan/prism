@@ -39,7 +39,8 @@ export default function FeedbackPage() {
   }
 
   useEffect(() => { reload(); }, [filter, courseFilter]);
-  useEffect(() => { getCourses().then(setCourses); }, []);
+  // Excluded sections (the template, never read) stay off the course list (#171).
+  useEffect(() => { getCourses().then((all) => setCourses(all.filter((c) => !c.excluded))); }, []);
   useEffect(() => { getGradingScales().then(setScales).catch(console.error); }, []);
 
   async function handleProcessInbox() {

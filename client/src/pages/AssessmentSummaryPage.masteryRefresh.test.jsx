@@ -99,6 +99,22 @@ describe('AssessmentSummaryPage background sync', () => {
     expect(dot).toHaveAttribute('aria-label', expect.stringContaining('refreshed when you press Sync Courses on the dashboard.'));
   });
 
+  it('final review #8: the "?" is there when the sync status cannot be read', async () => {
+    getSyncStatus.mockRejectedValue(new Error('Prism is restarting'));
+    getMasteryForAssignment.mockResolvedValue(page('Same'));
+    renderPage();
+    const dot = await screen.findByRole('img', { name: /Press Sync Assignment only if you changed something in Schoology just now\./ });
+    expect(dot).toHaveAttribute('aria-label', expect.stringContaining('refreshed when you press Sync Courses on the dashboard.'));
+  });
+
+  it('an archived course\'s task: the "?" says past courses are not refreshed, and how to read it again', async () => {
+    getMasteryForAssignment.mockResolvedValue(page('Same', { archived: 1 }));
+    renderPage();
+    expect(await screen.findByRole('img', {
+      name: 'Prism does not refresh past courses automatically. Press Sync Assignment to read it again.',
+    })).toBeInTheDocument();
+  });
+
   it('a background sync that ends swaps the new data in, without the Loading screen, when nothing is unsaved', async () => {
     getMasteryForAssignment.mockResolvedValueOnce(page('Old')).mockResolvedValue(page('New from Schoology', { at: NEW }));
     ensureSync.mockResolvedValue({ state: 'running', runId: 4 });

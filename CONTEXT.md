@@ -134,11 +134,14 @@ full once when archived, then only by a button on a course page, or on a past st
   run, newest school year first, one queue run per course (run kind `import`), while the teacher
   works. The Archived tab reads "Importing past courses: 7 of 30". It happens once per install:
   the settings row `firstRun.pastImport` holds its state (`waiting`, `importing`, `done`), and an
-  interrupted import resumes with the courses still missing. Not the **Import archived courses**
+  interrupted import resumes with the courses still missing (the course whose run the restart cut
+  off is retried, not taken as done). Any `kind: 'all'` run on an empty database (the nightly run
+  too) makes it due. Not the **Import archived courses**
   discovery surface, which the teacher drives by hand.
 - **Nightly data**: blocks, calendar and alerts, the data only the PowerSchool pass reads. Its
   stamp (settings key `sync.nightlyDataReadAt`) is the last pass in which all three finished
-  without error, whichever run made it. The dashboard shows it as "Blocks, calendar and alerts:
+  without error, whichever run made it; a blocks pass that stopped early (its time budget) or had
+  no current course to read is not one. The dashboard shows it as "Blocks, calendar and alerts:
   03:01 today", amber over 26 hours.
 
 ## Deployment topology and its vocabulary

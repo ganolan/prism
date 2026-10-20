@@ -163,9 +163,10 @@ time (`server/services/syncQueue.js`):
   **Sync Assignment** (assessment page) queue a sync now, ahead of the pages' own.
 - **First run:** a database with no course (a new install, or a restored empty one) starts a
   full run by itself when the dashboard opens, then imports the past courses in the background,
-  once per install (settings key `firstRun.pastImport`). Courses appear as each first read
+  once per install (settings key `firstRun.pastImport`; a nightly run that fills an empty
+  database starts it too). Courses appear as each first read
   finishes. The dashboard's "Blocks, calendar and alerts" line comes from the settings key
-  `sync.nightlyDataReadAt`, the last pass that read all three without error; it goes amber over
+  `sync.nightlyDataReadAt`, the last pass that read all three in full without error; it goes amber over
   26 hours, so a missed night shows.
 - **Session down:** a sync is held (nothing read) and the pages show **Log in to Schoology**;
   the sign-in in Settings runs the held syncs. The nightly run is never held.

@@ -4,10 +4,22 @@ import HelpDot from './HelpDot.jsx';
 // the teacher's words (the data, not the systems behind it). `button` is the page's sync button;
 // `nightly` is whether the night's refresh is on (the scheduler is armed and Settings has it on);
 // `onDashboard` says where the button lives when the night's refresh is off.
+// `archived` (a past course: the dashboard's Archived tab, an archived course or assessment page)
+// says instead that nothing refreshes it automatically, and how to read it again: two lines, no
+// bullets.
 export const HELP_INTRO = 'Prism keeps this up to date for you.';
 export const HELP_LIVE = { label: 'Courses, students, grades and submissions:', text: 'refreshed when you open a page, if older than 10 minutes.' };
 
-export function syncHelpParts({ button, nightly, onDashboard = false }) {
+export const HELP_ARCHIVED = 'Prism does not refresh past courses automatically.';
+
+export function syncHelpParts({ button, nightly, onDashboard = false, archived = false }) {
+  if (archived) {
+    return {
+      intro: HELP_ARCHIVED,
+      bullets: [],
+      last: onDashboard ? 'Open a course and press Sync Course to read it again.' : `Press ${button} to read it again.`,
+    };
+  }
   const night = nightly
     ? 'refreshed every night.'
     : onDashboard ? `refreshed when you press ${button}.` : 'refreshed when you press Sync Courses on the dashboard.';
@@ -24,9 +36,11 @@ export default function SyncHelp(props) {
   return (
     <HelpDot text={label}>
       <span className="sync-help__intro">{intro}</span>
-      <ul className="sync-help__list">
-        {bullets.map((b) => <li key={b.label}><strong>{b.label}</strong> {b.text}</li>)}
-      </ul>
+      {bullets.length > 0 && (
+        <ul className="sync-help__list">
+          {bullets.map((b) => <li key={b.label}><strong>{b.label}</strong> {b.text}</li>)}
+        </ul>
+      )}
       <span className="sync-help__last">{last}</span>
     </HelpDot>
   );

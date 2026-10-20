@@ -794,45 +794,10 @@ button.filter-btn-link { background: none; border: none; padding: 0; color: var(
 
 /* ── Sync dialog ─────────────────────────────────────────────── */
 .sync-dialog { width: 540px; max-width: 92vw; padding: 0; }
-.sync-config, .sync-progress { display: flex; flex-direction: column; }
-.sync-config, .sync-progress { padding: 1.25rem 1.5rem; }
+.sync-progress { display: flex; flex-direction: column; padding: 1.25rem 1.5rem; }
 
-.sync-step {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.75rem 0.9rem;
-  margin-bottom: 0.85rem;
-}
-.sync-step-title { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; }
-.sync-step-desc { color: var(--text-muted); font-size: 0.85rem; margin: 0.35rem 0 0; }
-.sync-step-toggles {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
-  padding-left: 0.25rem;
-}
-.sync-step-toggles label {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: var(--text);
-  cursor: pointer;
-  font-size: 0.95em;
-}
-.sync-step-toggles input[type="checkbox"] {
-  cursor: pointer;
-}
-.sync-badge {
-  font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.04em;
-  padding: 0.1rem 0.45rem; border-radius: 4px;
-  background: var(--table-header-bg); color: var(--text-muted);
-}
-.sync-badge-run { background: var(--accent-subtle); color: var(--accent); }
-
-.sync-disclaimer, .sync-login-prompt { font-size: 0.8rem; margin: 0.6rem 0; }
+.sync-login-prompt { font-size: 0.8rem; margin: 0.6rem 0; }
 .sync-login-prompt button { margin-top: 0.5rem; }
-.sync-toggle-row { display: flex; align-items: center; gap: 0.4rem; }
 
 /* Reusable help affordance: a stand-out circular "?" with an INSTANT popover on
    hover/focus (mirrors the gradebook HelpDot/popover). See docs/design-language.md. */
@@ -884,16 +849,6 @@ button.filter-btn-link { background: none; border: none; padding: 0; color: var(
   pointer-events: none;
 }
 
-.sync-recent-days {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  font-size: 0.9em;
-  padding-left: 1.65rem;
-  margin-top: 0.1rem;
-  color: var(--text-muted);
-}
-
 /* Number stepper: prominent −/+ controls flanking a number that reads as plain
    text until focused. Native spinners hidden. See docs/design-language.md. */
 .number-stepper {
@@ -942,24 +897,6 @@ button.filter-btn-link { background: none; border: none; padding: 0; color: var(
 }
 .number-stepper input[type="number"]:focus { background: var(--bg-subtle); }
 
-.sync-group { margin: 0.25rem 0 0.25rem 0.5rem; }
-.sync-group-head { display: flex; align-items: center; gap: 0.4rem; }
-.sync-caret {
-  background: none; border: none; cursor: pointer;
-  color: var(--text-muted); font-size: 0.8rem; padding: 0.15rem;
-}
-.sync-group-label { display: flex; align-items: center; gap: 0.4rem; font-weight: 600; }
-.sync-group-name {
-  cursor: pointer; background: none; border: none; padding: 0;
-  font: inherit; font-weight: 600; color: var(--text); text-align: left;
-}
-.sync-course-list { margin-left: 1.6rem; }
-.sync-course { display: flex; align-items: center; gap: 0.4rem; padding: 0.15rem 0; }
-/* Course name on the left (wraps freely), the muted "synced …" note pinned right
-   and vertically centred so a wrapping title can't offset it. */
-.sync-course-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
-/* Keep the "synced …" note on one line, pinned right, even when the title wraps. */
-.sync-course-synced { white-space: nowrap; flex-shrink: 0; }
 /* ── Archived-course import (Dashboard Archived tab, #69) ────────── */
 .archived-import { margin-bottom: 2rem; }
 .archived-import-title {
@@ -1440,7 +1377,6 @@ button.stat-tile--red { border-color: var(--danger); }
 .schoology-connection__dot--success { background: var(--success); }
 .schoology-connection__dot--warning { background: var(--warning); }
 .schoology-connection__text { font-weight: 600; }
-.sync-connection { font-size: 0.85rem; margin: 0.4rem 0; }
 
 .settings-section { margin-bottom: 1rem; }
 .settings-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin: 0.6rem 0; }
@@ -1612,7 +1548,10 @@ button.cell-open:focus-visible { outline: 2px solid var(--accent); outline-offse
 /* The dashboard's second line (blocks, calendar and alerts); amber, like the Synced time, when missed. */
 .sync-status__nightly { font-size: 0.78rem; color: var(--text-muted); padding: 0.1rem 0.6rem; border-radius: 999px; }
 .sync-status__nightly--stale { color: var(--badge-amber-text); background: var(--badge-amber-bg); }
-/* Help popover for the Synced time (SyncHelp): intro, two bullets, last line. */
+/* Help popover for the Synced time (SyncHelp): intro, two bullets, last line (a past course's
+   help: the two lines alone, so each is its own block). */
+.help-pop .sync-help__intro, .help-pop .sync-help__last { display: block; }
+.help-pop .sync-help__intro + .sync-help__last { margin-top: 0.35rem; }
 .help-pop .sync-help__list { margin: 0.35rem 0; padding-left: 1.1rem; }
 .help-pop .sync-help__list li + li { margin-top: 0.25rem; }
 /* Background sync: the chip beside the label while the page's sync waits, runs, failed or needs a

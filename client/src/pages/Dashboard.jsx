@@ -20,6 +20,8 @@ import { courseTriageSummary, courseRedLine } from '../lib/triage.js';
 const isPending = (c) => c.first_sync === 'pending';
 const COURSES_POLL_MS = 3000;
 const PAST_IMPORT_POLL_MS = 5000;
+// After the run stops, a waiting import is checked this long: it starts once its discovery ends.
+const PAST_IMPORT_WAIT_MS = 2 * 60 * 1000;
 
 // The oldest course_synced_at among the tab's visible courses; null when one never synced.
 // `reading`: pending courses are being read (and are not shown), so they do not count.
@@ -78,6 +80,9 @@ export default function Dashboard() {
       setListedDuringRun(duringRun);
     } catch (err) {
       console.error(err);
+      // The list in hand may be from the run: with its end unread, pending rows are not taken as
+      // being read any longer (else the "Getting your courses" line sticks and they stay hidden).
+      if (mine === reloadToken.current) setListedDuringRun(false);
     } finally {
       if (mine === reloadToken.current) setLoading(false);
     }
@@ -88,12 +93,24 @@ export default function Dashboard() {
   }, [reload, dataVersion]);
 
   // When the run stops going (done, failed, or held for a sign-in, which bumps no data version),
-  // the list is read again, so a pending row it left shows as "Sync failed".
+  // the list is read again, so a pending row it left shows as "Sync failed". A waiting past-course
+  // import is watched for PAST_IMPORT_WAIT_MS from then (`importWatch` counts the run ends).
   const wasActive = useRef(runActive);
+  const [importWatch, setImportWatch] = useState(0);
+  const [watchingImport, setWatchingImport] = useState(false);
   useEffect(() => {
-    if (wasActive.current && !runActive) reload();
+    if (wasActive.current && !runActive) {
+      reload();
+      setImportWatch((n) => n + 1);
+    }
     wasActive.current = runActive;
   }, [runActive, reload]);
+  useEffect(() => {
+    if (!importWatch) return undefined;
+    setWatchingImport(true);
+    const timer = setTimeout(() => setWatchingImport(false), PAST_IMPORT_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, [importWatch]);
 
   // The first run: "Getting your courses: X of Y" over the Current tab's courses (not the excluded
   // ones), X those whose first read finished, while the run goes. The list is fetched again every
@@ -111,11 +128,18 @@ export default function Dashboard() {
   }, [pollCourses, reload]);
 
   // The past-course import (Archived tab): its status every 5 seconds while it imports, or while
-  // it waits to start during a run (the run's end reloads the status too), and the archived
-  // courses again whenever its count moves.
+  // it waits to start during a run and for PAST_IMPORT_WAIT_MS after the run stops (the import
+  // starts when its discovery ends, after the run), and the archived courses again whenever its
+  // count moves. Opening the tab reads the status again.
   const pastImport = syncFacts.pastImport;
   const importing = activeTab === 'archived' && pastImport?.state === 'importing';
-  const pollImport = importing || (activeTab === 'archived' && pastImport?.state === 'waiting' && runActive);
+  const pollImport = importing
+    || (activeTab === 'archived' && pastImport?.state === 'waiting' && (runActive || watchingImport));
+  const lastTab = useRef(activeTab);
+  useEffect(() => {
+    if (activeTab === 'archived' && lastTab.current !== 'archived') syncFacts.reload();
+    lastTab.current = activeTab;
+  }, [activeTab, syncFacts.reload]);
   useEffect(() => {
     if (!pollImport) return undefined;
     const timer = setInterval(syncFacts.reload, PAST_IMPORT_POLL_MS);
@@ -235,7 +259,7 @@ export default function Dashboard() {
           sync={backgroundSync}
           onSync={() => setSyncOpen(true)}
           onOpen={(runId) => setFollowRun(runId)}
-          help={syncFacts.nightlyData && <SyncHelp button="Sync Courses" nightly={syncFacts.nightlyData.nightly} onDashboard />}
+          help={<SyncHelp button="Sync Courses" nightly={syncFacts.nightlyData?.nightly ?? false} onDashboard archived={activeTab === 'archived'} />}
           nightlyData={activeTab === 'archived' ? undefined : syncFacts.nightlyData}
         />
       </div>

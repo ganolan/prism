@@ -340,6 +340,14 @@ describe('Dashboard — background sync', () => {
     expect(screen.getByText('Blocks, calendar and alerts: 2 days old. Press Sync Courses to refresh them.')).toHaveClass('sync-status__nightly--stale');
   });
 
+  it('final review #8: the "?" is there when the sync status cannot be read (nightly taken as off)', async () => {
+    api.getCoursesByView.mockResolvedValue([{ id: 1, course_name: 'A', course_synced_at: new Date().toISOString() }]);
+    api.getSyncStatus.mockRejectedValue(new Error('Prism is restarting'));
+    renderDashboard();
+    const dot = await screen.findByRole('img', { name: /Press Sync Courses only if you changed something in Schoology just now\./ });
+    expect(dot).toHaveAttribute('aria-label', expect.stringContaining('Blocks, calendar and alerts: refreshed when you press Sync Courses.'));
+  });
+
   it('Sync Courses on the Current tab is one click: it posts { everything: true } and shows the progress', async () => {
     api.getCoursesByView.mockResolvedValue([{ id: 1, course_name: 'A', course_synced_at: new Date().toISOString() }]);
     api.startSync.mockResolvedValue({ runId: 7, state: 'queued', joined: false });
@@ -353,14 +361,16 @@ describe('Dashboard — background sync', () => {
 });
 
 describe('Dashboard: the Archived tab', () => {
-  it('has the help "?" but no nightly line and no button', async () => {
+  it('has the help "?" (past courses are not refreshed) but no nightly line and no button', async () => {
     api.getSyncStatus.mockResolvedValue({ nightlyData: { readAt: null, nightly: true } });
     api.getCoursesByView.mockImplementation(async (view) => (view === 'archived'
       ? [{ id: 4, course_name: 'Archived Bio', hidden: 0, archived: 1, course_synced_at: '2026-06-18T03:02:00.000Z' }] : []));
     renderDashboard();
     fireEvent.click(await screen.findByRole('button', { name: 'Archived' }));
     expect(await screen.findByText('Archived Bio')).toBeInTheDocument();
-    expect(await screen.findByRole('img', { name: /Press Sync Courses only if/ })).toBeInTheDocument();
+    expect(await screen.findByRole('img', {
+      name: 'Prism does not refresh past courses automatically. Open a course and press Sync Course to read it again.',
+    })).toBeInTheDocument();
     expect(screen.queryByText(/Blocks, calendar and alerts: not read yet/)).toBeNull();
   });
 
@@ -460,6 +470,29 @@ describe('Dashboard: the first run (#171)', () => {
     await act(() => vi.advanceTimersByTimeAsync(3000));
     expect(api.getCoursesByView).toHaveBeenCalledTimes(calls);
     expect(screen.queryByText(/Getting your courses/)).toBeNull();
+  });
+
+  it('final review #7: a failed reload after the run ends still shows the pending course as "Sync failed"', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let going = true;
+    api.ensureSync.mockResolvedValue({ state: 'queued', runId: 5 });
+    api.getCurrentSync.mockImplementation(async () => (going
+      ? { running: { runId: 5 }, runId: 5, queued: [], held: [] } : { running: null, runId: null, queued: [], held: [] }));
+    api.getSyncRun.mockResolvedValue({ status: 'interrupted' });
+    const listed = [course(1, { first_sync: 'pending' }), course(2)];
+    api.getCoursesByView.mockResolvedValueOnce(listed).mockResolvedValueOnce(listed)
+      .mockRejectedValue(new Error('Prism is restarting'));
+    renderDashboard();
+    expect(await screen.findByText('Getting your courses: 1 of 2')).toBeInTheDocument();
+    await act(() => vi.advanceTimersByTimeAsync(3000)); // a poll lists the courses while the run goes
+    await waitFor(() => expect(api.getCoursesByView).toHaveBeenCalledTimes(2));
+    going = false;
+    await act(() => vi.advanceTimersByTimeAsync(2500)); // the run's end is seen; its reload fails
+    const card = (await screen.findByText('Course 1')).closest('a');
+    expect(within(card).getByText('Sync failed')).toBeInTheDocument();
+    expect(screen.queryByText(/Getting your courses/)).toBeNull();
+    error.mockRestore();
   });
 
   it('a late poll answer never lands on the other tab', async () => {
@@ -571,6 +604,58 @@ describe('Dashboard: the past-course import on the Archived tab (#171)', () => {
     const calls = api.getSyncStatus.mock.calls.length;
     await act(() => vi.advanceTimersByTimeAsync(15000));
     expect(api.getSyncStatus).toHaveBeenCalledTimes(calls);
+  });
+
+  it('final review #1: the run ends while the import still waits; the status is checked on, and the line appears', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let going = true;
+    api.ensureSync.mockResolvedValue({ state: 'queued', runId: 5 });
+    api.getCurrentSync.mockImplementation(async () => (going
+      ? { running: { runId: 5 }, runId: 5, queued: [], held: [] } : { running: null, runId: null, queued: [], held: [] }));
+    api.getSyncRun.mockResolvedValue({ status: 'completed' });
+    api.getSyncStatus.mockResolvedValue({ pastImport: { state: 'waiting', done: 0, total: 0 } });
+    renderDashboard();
+    fireEvent.click(await screen.findByRole('button', { name: 'Archived' }));
+    await screen.findByRole('button', { name: /Check Schoology for archived courses/ });
+    going = false;
+    await act(() => vi.advanceTimersByTimeAsync(2500)); // the run ends; the status still says waiting
+    expect(screen.queryByText(/Importing past courses/)).toBeNull();
+    // The discovery finishes: no data version moves, the next check finds it importing.
+    api.getSyncStatus.mockResolvedValue({ pastImport: { state: 'importing', done: 0, total: 12 } });
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    expect(await screen.findByText('Importing past courses: 0 of 12')).toBeInTheDocument();
+  });
+
+  it('final review #1: after the run ends, a waiting import is checked for 2 minutes, then no more', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let going = true;
+    api.ensureSync.mockResolvedValue({ state: 'queued', runId: 5 });
+    api.getCurrentSync.mockImplementation(async () => (going
+      ? { running: { runId: 5 }, runId: 5, queued: [], held: [] } : { running: null, runId: null, queued: [], held: [] }));
+    api.getSyncRun.mockResolvedValue({ status: 'completed' });
+    api.getSyncStatus.mockResolvedValue({ pastImport: { state: 'waiting', done: 0, total: 0 } });
+    renderDashboard();
+    fireEvent.click(await screen.findByRole('button', { name: 'Archived' }));
+    await screen.findByRole('button', { name: /Check Schoology for archived courses/ });
+    going = false;
+    await act(() => vi.advanceTimersByTimeAsync(2500)); // the run ends
+    const atEnd = api.getSyncStatus.mock.calls.length;
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+    expect(api.getSyncStatus.mock.calls.length).toBeGreaterThanOrEqual(atEnd + 11);
+    await act(() => vi.advanceTimersByTimeAsync(65_000)); // past the 2 minutes
+    const after = api.getSyncStatus.mock.calls.length;
+    await act(() => vi.advanceTimersByTimeAsync(30_000));
+    expect(api.getSyncStatus).toHaveBeenCalledTimes(after);
+  });
+
+  it('final review #1: switching from Current to Archived reads the status again and shows the import', async () => {
+    api.getSyncStatus.mockResolvedValue({ pastImport: { state: 'waiting', done: 0, total: 0 } });
+    renderDashboard();
+    await screen.findByRole('button', { name: 'Archived' });
+    await waitFor(() => expect(api.getSyncStatus).toHaveBeenCalled());
+    api.getSyncStatus.mockResolvedValue({ pastImport: { state: 'importing', done: 2, total: 12 } });
+    fireEvent.click(screen.getByRole('button', { name: 'Archived' }));
+    expect(await screen.findByText('Importing past courses: 2 of 12')).toBeInTheDocument();
   });
 
   it('stops polling when the user leaves the tab', async () => {

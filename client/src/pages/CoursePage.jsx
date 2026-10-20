@@ -173,7 +173,7 @@ export default function CoursePage() {
               sync={backgroundSync}
               onSync={() => setSyncOpen(true)}
               onOpen={(runId) => setFollowRun(runId)}
-              help={syncFacts.nightlyData && <SyncHelp button="Sync Course" nightly={syncFacts.nightlyData.nightly} />}
+              help={<SyncHelp button="Sync Course" nightly={syncFacts.nightlyData?.nightly ?? false} archived={!courseLive} />}
             />
           </div>
         </div>

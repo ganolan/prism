@@ -63,6 +63,13 @@ describe('StudentPage background sync', () => {
     expect(dot).toHaveAttribute('aria-label', expect.stringContaining('Blocks, calendar and alerts: refreshed every night.'));
   });
 
+  it('final review #8: the "?" is there when the sync status cannot be read (nightly taken as off)', async () => {
+    getSyncStatus.mockRejectedValue(new Error('Prism is restarting'));
+    renderPage();
+    const dot = await screen.findByRole('img', { name: /Press Sync Courses only if you changed something in Schoology just now\./ });
+    expect(dot).toHaveAttribute('aria-label', expect.stringContaining('refreshed when you press Sync Courses on the dashboard.'));
+  });
+
   it('when the sync ends, the page and each course summary reload', async () => {
     ensureSync.mockResolvedValue({ state: 'running', runId: 4 });
     getSyncRun.mockResolvedValue({ id: 4, status: 'completed' });

@@ -2431,7 +2431,7 @@ export default function AssessmentSummaryPage() {
             sync={backgroundSync}
             onSync={handleRefresh}
             onOpen={(runId) => setFollowRun(runId)}
-            help={syncFacts.nightlyData && <SyncHelp button="Sync Assignment" nightly={syncFacts.nightlyData.nightly} />}
+            help={<SyncHelp button="Sync Assignment" nightly={syncFacts.nightlyData?.nightly ?? false} archived={Boolean(data.course?.archived)} />}
           />
           {followRun != null && (
             // No onSyncComplete: the chip's run is the hook's, whose onDone reloads past the unsaved-draft guard.

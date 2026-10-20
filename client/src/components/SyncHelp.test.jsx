@@ -41,4 +41,21 @@ describe('SyncHelp', () => {
     expect(text.match(/Schoology/g)).toHaveLength(1);
     expect(text).not.toMatch(/—/);
   });
+
+  describe('archived (final review ruling): no automatic refresh, and how to read it again', () => {
+    const ARCHIVED = 'Prism does not refresh past courses automatically.';
+    it.each([
+      ['the dashboard\'s Archived tab', { archived: true, onDashboard: true }, 'Open a course and press Sync Course to read it again.'],
+      ['an archived course page', { archived: true, button: 'Sync Course' }, 'Press Sync Course to read it again.'],
+      ['an archived assessment page', { archived: true, button: 'Sync Assignment' }, 'Press Sync Assignment to read it again.'],
+    ])('%s', (_, props, second) => {
+      const c = open(props);
+      expect(screen.getByRole('img')).toHaveAttribute('aria-label', `${ARCHIVED} ${second}`);
+      const pop = c.querySelector('.help-pop');
+      expect(pop.querySelector('ul')).toBeNull(); // no bullets
+      expect(pop.querySelector('.sync-help__intro')).toHaveTextContent(ARCHIVED);
+      expect(pop.querySelector('.sync-help__last')).toHaveTextContent(second);
+      expect(pop.textContent).not.toMatch(/—|nightly|every night/);
+    });
+  });
 });

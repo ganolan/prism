@@ -61,6 +61,21 @@ describe('CoursePage background sync', () => {
     expect(dot).toHaveAttribute('aria-label', expect.stringContaining('Blocks, calendar and alerts: refreshed every night.'));
   });
 
+  it('final review #8: the "?" is there when the sync status cannot be read (nightly taken as off)', async () => {
+    vi.mocked(api.getSyncStatus).mockRejectedValue(new Error('Prism is restarting'));
+    renderPage();
+    const dot = await screen.findByRole('img', { name: /Press Sync Course only if you changed something in Schoology just now\./ });
+    expect(dot).toHaveAttribute('aria-label', expect.stringContaining('refreshed when you press Sync Courses on the dashboard.'));
+  });
+
+  it('an archived course: the "?" says past courses are not refreshed, and how to read it again', async () => {
+    vi.mocked(api.getCourse).mockResolvedValue({ id: 5, course_name: 'AP CSP', archived: 1, course_synced_at: SYNCED });
+    renderPage();
+    expect(await screen.findByRole('img', {
+      name: 'Prism does not refresh past courses automatically. Press Sync Course to read it again.',
+    })).toBeInTheDocument();
+  });
+
   it('while it syncs: the chip; clicking it opens the progress on that run; when it ends the page reloads', async () => {
     vi.mocked(api.ensureSync).mockResolvedValue({ state: 'running', runId: 4 });
     let running = true;

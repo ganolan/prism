@@ -50,11 +50,15 @@ router.get('/', (req, res) => {
   // shells like the master/template course without an extra round-trip.
   const select = 'SELECT *, (SELECT COUNT(*) FROM enrolments WHERE course_id = courses.id AND dropped_at IS NULL) AS student_count FROM courses';
 
+  // The dashboard's tabs leave out excluded sections (no course code and no school code: the
+  // template), which the sync marks and never reads, so they would show as a card that never
+  // synced (#171). The legacy path below still returns them (the dashboard's Show hidden list and
+  // the Tools page filter `excluded` themselves).
   let rows;
   if (view === 'current') {
-    rows = db.prepare(`${select} WHERE archived = 0 AND hidden = 0 ORDER BY course_name`).all();
+    rows = db.prepare(`${select} WHERE archived = 0 AND hidden = 0 AND COALESCE(excluded, 0) = 0 ORDER BY course_name`).all();
   } else if (view === 'archived') {
-    rows = db.prepare(`${select} WHERE archived = 1 AND hidden = 0 ORDER BY course_name`).all();
+    rows = db.prepare(`${select} WHERE archived = 1 AND hidden = 0 AND COALESCE(excluded, 0) = 0 ORDER BY course_name`).all();
   } else {
     // Legacy behaviour — keep for backwards compatibility
     const includeArchived = req.query.archived === 'true';

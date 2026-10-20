@@ -348,6 +348,23 @@ describe('Dashboard — background sync', () => {
     expect(dot).toHaveAttribute('aria-label', expect.stringContaining('Blocks, calendar and alerts: refreshed when you press Sync Courses.'));
   });
 
+  it('with Show hidden on, an excluded template is neither shown nor counted in the Synced time (#171)', async () => {
+    const recent = new Date().toISOString();
+    api.getCourses.mockResolvedValue([
+      { id: 1, course_name: 'Real Course', archived: 0, hidden: 0, course_synced_at: recent },
+      { id: 2, course_name: 'Hidden Course', archived: 0, hidden: 1, course_synced_at: recent },
+      { id: 3, course_name: 'Template', archived: 0, hidden: 0, excluded: 1, course_synced_at: null },
+    ]);
+    renderDashboard();
+    fireEvent.click(await screen.findByRole('switch', { name: 'Show hidden' }));
+    await waitFor(() => expect(api.getCourses).toHaveBeenCalledWith(true, true));
+    expect(await screen.findByText('Hidden Course')).toBeInTheDocument();
+    expect(screen.getByText('Real Course')).toBeInTheDocument();
+    expect(screen.queryByText('Template')).toBeNull();
+    expect(screen.getByText(/^Synced \d\d:\d\d today$/)).toBeInTheDocument();
+    expect(screen.queryByText('Not synced yet')).toBeNull();
+  });
+
   it('Sync Courses on the Current tab is one click: it posts { everything: true } and shows the progress', async () => {
     api.getCoursesByView.mockResolvedValue([{ id: 1, course_name: 'A', course_synced_at: new Date().toISOString() }]);
     api.startSync.mockResolvedValue({ runId: 7, state: 'queued', joined: false });

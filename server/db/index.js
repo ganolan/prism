@@ -193,6 +193,18 @@ const MIGRATIONS = [
   // ('pending'), or keeps why that read failed ('failed'). Existing rows stay NULL (no backfill).
   `ALTER TABLE courses ADD COLUMN first_sync TEXT`,
   `ALTER TABLE courses ADD COLUMN first_sync_error TEXT`,
+  // #171: an archived course read in full before the import stamped its Synced time gets one from
+  // finalized_at: finalized with a session, its mastery read then (mastery_synced_at at or after
+  // it), its submissions read with a session, and every task that takes submissions (or is a test)
+  // read in full. Only rows no stamping sync or import has touched (sync_attempted_at null), so it
+  // runs once per row and never overrides an incomplete read the new stamps recorded.
+  `UPDATE courses SET course_synced_at = finalized_at
+    WHERE archived = 1 AND COALESCE(excluded, 0) = 0
+      AND course_synced_at IS NULL AND sync_attempted_at IS NULL
+      AND finalized_at IS NOT NULL AND submissions_read_at IS NOT NULL
+      AND mastery_synced_at >= finalized_at
+      AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.course_id = courses.id AND a.removed_at IS NULL
+        AND (a.accepts_submissions = 1 OR a.is_test = 1) AND a.submissions_read_at IS NULL)`,
 ];
 
 // Remove orphaned auto-flag rows. The auto-flag feature that wrote 'missing',

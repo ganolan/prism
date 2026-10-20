@@ -332,6 +332,33 @@ describe('GET /api/courses/:id/students — PowerSchool alerts (#117)', () => {
   });
 });
 
+// A template section (no course code, no school code) is marked excluded by the sync and never
+// read, so it must not reach the dashboard's tabs as a course card (#171).
+describe('GET /api/courses?view= leaves out excluded sections (#171)', () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name, archived, excluded) VALUES ('tpl-cur', 'Template', 0, 1)`
+    ).run();
+    db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name, archived, excluded) VALUES ('tpl-old', 'Old template', 1, 1)`
+    ).run();
+    db.prepare(
+      `INSERT INTO courses (schoology_section_id, course_name, archived) VALUES ('past-1', 'Past course', 1)`
+    ).run();
+  });
+
+  test('view=current lists the course but not the excluded template', async () => {
+    const { body } = await get('/api/courses?view=current');
+    expect(body.map((c) => c.course_name)).toEqual(['Course']);
+  });
+
+  test('view=archived lists the past course but not the excluded one', async () => {
+    const { body } = await get('/api/courses?view=archived');
+    expect(body.map((c) => c.course_name)).toEqual(['Past course']);
+  });
+});
+
 describe('GET /api/courses/archived/discover', () => {
   test('no session → { available: false }', async () => {
     getArchivedSections.mockResolvedValue(null);

@@ -84,6 +84,41 @@ describe('importArchivedCourse (#70, moved from POST /api/courses/import for #17
     warn.mockRestore();
   });
 
+  // #171: the Archived tab's Synced time. The import is no orchestrator run, so it stamps itself.
+  const complete = { studentsCount: 1, assignmentsCount: 2, gradesCount: 3, finalized: true, masteryError: null,
+    fullRead: true, failedAssignmentIds: [], submissionAbandoned: false };
+  const stamps = () => db.prepare("SELECT course_synced_at, sync_attempted_at, synced_at FROM courses WHERE schoology_section_id = 'sec-9'").get();
+
+  test('a complete read stamps the course synced and attempted, at the import\'s time', async () => {
+    finalizeArchivedCourse.mockResolvedValueOnce(complete);
+    await importArchivedCourse(db, 'sec-9');
+    const s = stamps();
+    expect(s.course_synced_at).toBe(s.synced_at);
+    expect(s.sync_attempted_at).toBe(s.synced_at);
+  });
+
+  test.each([
+    ['the mastery read failed', { masteryError: 'Schoology sign-in needed' }],
+    ['there was no saved session (not finalized)', { finalized: false, masteryError: 'No saved Schoology session', fullRead: false }],
+    ['submissions were read dropbox only', { fullRead: false }],
+    ['a task\'s submissions could not be read', { failedAssignmentIds: ['a-1'] }],
+    ['the submission read was abandoned', { submissionAbandoned: true }],
+  ])('%s: only the attempt is stamped', async (_, over) => {
+    finalizeArchivedCourse.mockResolvedValueOnce({ ...complete, ...over });
+    await importArchivedCourse(db, 'sec-9');
+    const s = stamps();
+    expect(s.sync_attempted_at).toBe(s.synced_at);
+    expect(s.course_synced_at).toBeNull();
+  });
+
+  test('a read that throws still stamps the attempt', async () => {
+    finalizeArchivedCourse.mockRejectedValueOnce(new Error('Schoology API 500'));
+    await expect(importArchivedCourse(db, 'sec-9')).rejects.toThrow('500');
+    const s = stamps();
+    expect(s.sync_attempted_at).toBe(s.synced_at);
+    expect(s.course_synced_at).toBeNull();
+  });
+
   test('a Schoology error is thrown as it came (the route maps 403 and 404)', async () => {
     apiGet.mockRejectedValue(new Error('Schoology API 403: Forbidden'));
     await expect(importArchivedCourse(db, 'sec-9')).rejects.toThrow('403');

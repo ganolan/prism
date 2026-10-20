@@ -99,6 +99,71 @@ describe('migration: courses.finalized_at (#70)', () => {
   });
 });
 
+// #171: archived courses read in full before the import stamped its Synced time get it from
+// finalized_at, once; a course whose read is not known to be complete keeps none.
+describe('migration: archived courses get course_synced_at from finalized_at (#171)', () => {
+  const F = '2026-06-18T03:02:00.000Z';
+  const LATER = '2026-06-18T03:09:00.000Z';
+  const EARLIER = '2026-05-01T00:00:00.000Z';
+  function seed(db, sectionId, over = {}) {
+    const row = { archived: 1, excluded: 0, finalized_at: F, submissions_read_at: F, mastery_synced_at: LATER,
+      course_synced_at: null, sync_attempted_at: null, ...over };
+    const cols = Object.keys(row);
+    return db.prepare(`INSERT INTO courses (schoology_section_id, course_name, ${cols.join(', ')})
+      VALUES (?, ?, ${cols.map(() => '?').join(', ')})`).run(sectionId, sectionId, ...Object.values(row)).lastInsertRowid;
+  }
+  const synced = (db, id) => db.prepare('SELECT course_synced_at FROM courses WHERE id = ?').get(id).course_synced_at;
+  function task(db, courseId, over = {}) {
+    const row = { accepts_submissions: 1, is_test: 0, submissions_read_at: F, removed_at: null, ...over };
+    const cols = Object.keys(row);
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, ${cols.join(', ')})
+      VALUES (?, ?, 'T', ${cols.map(() => '?').join(', ')})`).run(courseId, `a-${Math.random()}`, ...Object.values(row));
+  }
+
+  test('a fully read archived course is stamped at its finalized_at, and a second boot changes nothing', () => {
+    const db = new Database(':memory:');
+    migrate(db);
+    const id = seed(db, 'full');
+    task(db, id);
+    task(db, id, { accepts_submissions: 0, is_test: 0, submissions_read_at: null }); // no submission channel
+    task(db, id, { submissions_read_at: null, removed_at: F }); // deleted in Schoology
+    migrate(db);
+    expect(synced(db, id)).toBe(F);
+    db.prepare('UPDATE courses SET finalized_at = ? WHERE id = ?').run(LATER, id);
+    migrate(db);
+    expect(synced(db, id)).toBe(F);
+  });
+
+  test.each([
+    ['current course', { archived: 0 }],
+    ['excluded section', { excluded: 1 }],
+    ['never finalized', { finalized_at: null }],
+    ['submissions never read with a session', { submissions_read_at: null }],
+    ['mastery not read at or after finalizing', { mastery_synced_at: EARLIER }],
+    ['mastery never read', { mastery_synced_at: null }],
+    ['already stamped', { course_synced_at: LATER }],
+    ['already attempted by a stamping sync or import', { sync_attempted_at: LATER }],
+  ])('%s: left as it is', (_, over) => {
+    const db = new Database(':memory:');
+    migrate(db);
+    const id = seed(db, 'x', over);
+    migrate(db);
+    expect(synced(db, id)).toBe(over.course_synced_at ?? null);
+  });
+
+  test.each([
+    ['a dropbox task', { accepts_submissions: 1 }],
+    ['a test', { accepts_submissions: 0, is_test: 1 }],
+  ])('%s never read in full: left unstamped', (_, over) => {
+    const db = new Database(':memory:');
+    migrate(db);
+    const id = seed(db, 'x');
+    task(db, id, { ...over, submissions_read_at: null });
+    migrate(db);
+    expect(synced(db, id)).toBeNull();
+  });
+});
+
 describe('migration: feedback_snapshots.arrival_write_at (residual review R2)', () => {
   test('a dev DB whose feedback_snapshots predates the column gains it (default 0)', () => {
     const db = new Database(':memory:');

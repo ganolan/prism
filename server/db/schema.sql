@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS courses (
   hidden INTEGER DEFAULT 0,
   excluded INTEGER NOT NULL DEFAULT 0,
   synced_at TEXT,
+  finalized_at TEXT,                  -- #70: archived: finalized with a session (mastery attempted; null = not yet)
   submissions_read_at TEXT,           -- archived: submissions read in full (null = never)
   mastery_synced_at TEXT,             -- #52: last full mastery read from Schoology (ISO; null = never)
   course_synced_at TEXT,              -- #58: last sync that read EVERYTHING of this course (ISO; null = never)

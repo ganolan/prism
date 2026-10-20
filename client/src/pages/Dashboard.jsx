@@ -24,6 +24,7 @@ const PAST_IMPORT_POLL_MS = 5000;
 const PAST_IMPORT_WAIT_MS = 2 * 60 * 1000;
 
 // The oldest course_synced_at among the tab's visible courses; null when one never synced.
+// Excluded sections (the template) are never in the list, so they never count (#171).
 // `reading`: pending courses are being read (and are not shown), so they do not count.
 function oldestSynced(courses, archived, reading) {
   const live = courses.filter((c) => Boolean(c.archived) === archived && !c.hidden && !(reading && isPending(c)));
@@ -67,8 +68,9 @@ export default function Dashboard() {
     try {
       let coursesData;
       if (showHidden) {
-        // Fetch all including hidden, filter by tab client-side
-        const all = await getCourses(true, true);
+        // Fetch all including hidden, filter by tab client-side. Excluded sections (the template,
+        // never read) stay off, as the tab views leave them out (#171).
+        const all = (await getCourses(true, true)).filter(c => !c.excluded);
         coursesData = activeTab === 'current'
           ? all.filter(c => !c.archived)
           : all.filter(c => c.archived);

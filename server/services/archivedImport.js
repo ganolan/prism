@@ -8,8 +8,9 @@ import { finalizeArchivedCourse, enrichStudentProfiles } from './sync.js';
 import { syncPsAttendance } from './psAttendanceSync.js';
 
 // → { course, studentsCount, assignmentsCount, gradesCount, finalized, masteryError }: finalized and
-// masteryError are finalizeArchivedCourse's (masteryError null when mastery was read). A Schoology
-// error is thrown as it came: its message carries the status (403, 404) the route maps to its answer.
+// masteryError are finalizeArchivedCourse's (masteryError null when mastery was read). Stamps
+// sync_attempted_at, and course_synced_at when the read was complete (#171). A Schoology error is
+// thrown as it came: its message carries the status (403, 404) the route maps to its answer.
 export async function importArchivedCourse(db, sectionId) {
   const [sec, periodsData] = await Promise.all([
     apiGet(`/sections/${sectionId}`),
@@ -37,8 +38,15 @@ export async function importArchivedCourse(db, sectionId) {
   );
 
   const courseRow = db.prepare('SELECT * FROM courses WHERE schoology_section_id = ?').get(String(sec.id));
-  const { studentsCount, assignmentsCount, gradesCount, finalized, masteryError } =
-    await finalizeArchivedCourse(db, { courseId: courseRow.id, sectionId: String(sec.id), now, runMastery: true });
+  // #171: the import is no orchestrator run, so it stamps the course's Synced time itself: the
+  // attempt always (a read that throws too), course_synced_at below only when the read was complete.
+  let read;
+  try {
+    read = await finalizeArchivedCourse(db, { courseId: courseRow.id, sectionId: String(sec.id), now, runMastery: true });
+  } finally {
+    db.prepare('UPDATE courses SET sync_attempted_at = ? WHERE id = ?').run(now, courseRow.id);
+  }
+  const { studentsCount, assignmentsCount, gradesCount, finalized, masteryError } = read;
   // Bring the imported section's students to full parity (email + guardians).
   const sectionStudents = db.prepare(`
     SELECT s.id, s.schoology_uid FROM students s
@@ -55,6 +63,12 @@ export async function importArchivedCourse(db, sectionId) {
   } catch (err) {
     console.warn(`[import] block-number resolve failed for ${courseRow.course_name}: ${err.message}`);
   }
+
+  // Complete as a listed archived re-read counts it in fullSync (archivedComplete): mastery read,
+  // submissions read with a session (OneDrive/LTI states and test attempts too), none failed.
+  const complete = finalized && !masteryError && read.fullRead
+    && !(read.failedAssignmentIds || []).length && !read.submissionAbandoned;
+  if (complete) db.prepare('UPDATE courses SET course_synced_at = ? WHERE id = ?').run(now, courseRow.id);
 
   const course = db.prepare('SELECT * FROM courses WHERE id = ?').get(courseRow.id);
   return { course, studentsCount, assignmentsCount, gradesCount, finalized, masteryError };

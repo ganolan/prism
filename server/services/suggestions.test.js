@@ -166,6 +166,21 @@ describe('upsertStudentSuggestion', () => {
       .toEqual({ data_as_of: '2026-10-20T09:00:00.000Z', suggested_at: '2026-10-20T09:05:00.000Z' });
   });
 
+  test('writeStudentSuggestions notes a fallback when no context_id was passed; upsertStudentSuggestion alone stays quiet', () => {
+    const db = getDb();
+    const { assignmentLocalId } = seed(db);
+    const NOTE = 'No context_id was passed, so the oldest read of this task in the last 3 hours was used. Pass the context_id from get_assignment_context.';
+    const students = [{ student: 'uid-1', narrative_feedback: 'Good.' }];
+    // No serve either: nothing to note.
+    expect(writeStudentSuggestions(db, { assignmentId: 'sa-1', students }).results[0].message).toBeUndefined();
+    recordServe(db, { assignmentId: assignmentLocalId, dataAsOf: new Date(Date.now() - 6 * 60000).toISOString(), now: new Date(Date.now() - 5 * 60000).toISOString() });
+    expect(writeStudentSuggestions(db, { assignmentId: 'sa-1', students }).results[0].message).toBe(NOTE);
+    expect(upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'Good.' }).message).toBeUndefined();
+    // With a context_id the note does not appear.
+    const contextId = recordServe(db, { assignmentId: assignmentLocalId, dataAsOf: new Date().toISOString() });
+    expect(writeStudentSuggestions(db, { assignmentId: 'sa-1', students, contextId }).results[0].message).toBeUndefined();
+  });
+
   test('a serve older than 3 hours is never copied by the fallback', () => {
     const db = getDb();
     const { assignmentLocalId } = seed(db);

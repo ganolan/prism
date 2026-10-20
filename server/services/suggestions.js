@@ -20,7 +20,7 @@ import { serveFor } from './contextServes.js';
 // suggested_at): the serve its contextId names (contextServes.js), else the fallback rule.
 export function upsertStudentSuggestion(db, {
   assignmentId, student, narrative_feedback, rubric_scores, reviewer_flags, strengths, suggestions,
-  scale_level, evidence, reviewer_flags_brief, quiz_overall, contextId,
+  scale_level, evidence, reviewer_flags_brief, quiz_overall, contextId, noteFallback = false,
 }) {
   const studentLocalId = resolveStudentId(db, student);
   if (!studentLocalId) return { student, status: 'error', message: `Student not found: ${student}` };
@@ -147,6 +147,7 @@ export function upsertStudentSuggestion(db, {
   if (unresolvedRows.length) result.unresolved_rows = unresolvedRows;
   const notes = [];
   if (serve.unknownId) notes.push(`context_id ${contextId} is not a get_assignment_context answer Prism still holds, so the oldest read of this task in the last 3 hours stands in for it${serve.source === 'none' ? ' (there is none, so the task\'s last sync time is used)' : ''}.`);
+  if (noteFallback && contextId == null && serve.source === 'fallback') notes.push('No context_id was passed, so the oldest read of this task in the last 3 hours was used. Pass the context_id from get_assignment_context.');
   if (unresolvedRows.length) notes.push(`Unknown row(s) ${unresolvedRows.join(', ')}: the rows of "${feedbackRows.rubric.name}" are ${rows.map(r => r.criterion).join(', ')}.`);
   if (scoreScale && !rows.length && unresolvedTopics.length) notes.push(`This assignment is graded on ${scoreScale.name} with no rubric: attach a rubric (attach_rubric) to send row levels, or send scale_level only.`);
   if (numericLevels.length) notes.push(`Ignored numeric value(s) for ${numericLevels.join(', ')}: emit proficiency levels; Prism owns the points conversion.`);
@@ -159,7 +160,7 @@ export function upsertStudentSuggestion(db, {
 // Batched whole-class write. Returns a per-student written/error summary.
 // contextId is the context_id of the get_assignment_context answer the class was graded from.
 export function writeStudentSuggestions(db, { assignmentId, students, contextId }) {
-  const results = (students || []).map((s) => upsertStudentSuggestion(db, { assignmentId, contextId, ...s }));
+  const results = (students || []).map((s) => upsertStudentSuggestion(db, { assignmentId, contextId, noteFallback: true, ...s }));
   return { results };
 }
 

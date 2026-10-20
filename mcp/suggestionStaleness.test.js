@@ -132,7 +132,7 @@ describe('suggestion staleness is measured when the context is served', () => {
     expect(stored()).toMatchObject({ data_as_of: at(4 * 60 * MIN - 20 * MIN), suggested_at: at(4 * 60 * MIN), data_stale: true });
   });
 
-  test('a restart between the read and the write keeps the id valid (the serve is in the database)', async () => {
+  test('the context_id resolves from the database alone, with nothing held in memory (so a restart between read and write loses nothing)', async () => {
     const { context_id } = await serve(async () => ({ state: 'synced', runId: 1, dataAsOf: at(-1 * MIN) }));
     // Nothing is held in memory: the write resolves the id from context_serves alone.
     vi.setSystemTime(at(25 * MIN));

@@ -263,9 +263,9 @@ CREATE TABLE IF NOT EXISTS feedback (
   source_file TEXT,
   suggestion_state TEXT,
   -- The data time of the context the grading session was given (the context_serves row its
-  -- context_id names, else the oldest serve in 3 hours, else task_synced_at at write time): how old the data a suggestion was made from was
-  -- ('never': the task had never been synced; null: a row from before this was recorded, not
-  -- judged). See #131.
+  -- context_id names, else the oldest serve in 3 hours, else task_synced_at at write time): how
+  -- old the data a suggestion was made from was ('never': the task had never been synced; null:
+  -- a row from before this was recorded, not judged). See #131.
   data_as_of TEXT,
   -- When the grading session got its data (that serve's served_at, else the write time;
   -- ISO). Not the write time itself: a grader reads once and writes at the end. updated_at also
@@ -884,3 +884,4 @@ CREATE TABLE IF NOT EXISTS context_serves (
   served_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_context_serves_assignment ON context_serves(assignment_id, served_at);
+CREATE INDEX IF NOT EXISTS idx_context_serves_served_at ON context_serves(served_at);

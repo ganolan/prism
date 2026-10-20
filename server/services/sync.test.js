@@ -934,6 +934,112 @@ describe('fullSync — course skip matrix (#56)', () => {
   });
 });
 
+describe('fullSync — a list of courses (#58)', () => {
+  let db;
+  let sch;
+  const ids = {};
+  beforeEach(async () => {
+    db = new Database(':memory:');
+    migrate(db);
+    const dbModule = await import('../db/index.js');
+    dbModule.__setTestDb?.(db);
+    const stmt = db.prepare(`INSERT INTO courses (schoology_section_id, course_name, course_code, section_school_code, archived, finalized_at, course_synced_at)
+      VALUES (?, ?, 'C', 'S', ?, ?, ?)`);
+    ids.a = stmt.run('sec-a', 'A', 0, null, '2026-10-01T00:00:00Z').lastInsertRowid;
+    ids.b = stmt.run('sec-b', 'B', 0, null, '2026-10-01T00:00:00Z').lastInsertRowid;
+    ids.old = stmt.run('sec-old', 'Old', 1, '2026-06-01T00:00:00Z', null).lastInsertRowid;
+    for (const [uid, course] of [['u-a', ids.a], ['u-b', ids.b]]) {
+      const st = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES (?, 'X', 'Y')`).run(uid).lastInsertRowid;
+      db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, ?)`).run(st, course, `e-${uid}`);
+    }
+    sch = await import('./schoology.js');
+    sch.getMyUserId.mockResolvedValue('user-1');
+    sch.getSectionGradingPeriods.mockResolvedValue([]);
+    // Each section's roster holds its stored student (an empty roster would drop them).
+    const roster = { 'sec-a': 'u-a', 'sec-b': 'u-b' };
+    sch.getSectionEnrollments.mockReset().mockImplementation(async (sid) => (roster[sid]
+      ? [{ id: `e-${roster[sid]}`, uid: roster[sid], name_first: 'X', name_last: 'Y', admin: '0' }] : []));
+    sch.getSectionAssignments.mockResolvedValue([]);
+    sch.getSectionGrades.mockResolvedValue([]);
+    sch.getSectionFolders.mockResolvedValue([]);
+    sch.getSectionGradingCategories.mockResolvedValue([]);
+    sch.getSectionGradingScales.mockResolvedValue([]);
+    sch.getUserProfilesBatch.mockReset().mockResolvedValue(new Map());
+    sch.getSection.mockResolvedValue({ id: 'sec-old' });
+    sch.getMySections.mockResolvedValue([
+      { id: 'sec-a', course_title: 'A', section_title: 'A', course_code: 'C', section_school_code: 'S' },
+      { id: 'sec-b', course_title: 'B', section_title: 'B', course_code: 'C', section_school_code: 'S' },
+    ]);
+  });
+  const visited = () => sch.getSectionEnrollments.mock.calls.map((c) => c[0]);
+  const stamp = (id) => db.prepare('SELECT course_synced_at FROM courses WHERE id = ?').get(id).course_synced_at;
+
+  test('reads only the listed sections and stamps course_synced_at', async () => {
+    await fullSync(() => {}, { courseIds: [ids.a] });
+    expect(visited()).toEqual(['sec-a']);
+    expect(stamp(ids.a)).not.toBe('2026-10-01T00:00:00Z');
+    expect(stamp(ids.b)).toBe('2026-10-01T00:00:00Z');
+  });
+
+  test('still reads a section Prism did not hold before this sync', async () => {
+    sch.getMySections.mockResolvedValue([
+      { id: 'sec-a', course_title: 'A', section_title: 'A', course_code: 'C', section_school_code: 'S' },
+      { id: 'sec-new', course_title: 'New', section_title: 'N', course_code: 'C', section_school_code: 'S' },
+    ]);
+    await fullSync(() => {}, { courseIds: [ids.a] });
+    expect(visited().sort()).toEqual(['sec-a', 'sec-new']);
+  });
+
+  test('reads a listed archived course through finalize', async () => {
+    const r = await fullSync(() => {}, { courseIds: [ids.old] });
+    expect(visited()).toEqual(['sec-old']);
+    expect(r.archivedRead).toEqual([ids.old]);
+    expect(stamp(ids.old)).not.toBeNull();
+  });
+
+  test('refreshes only the read courses\' students', async () => {
+    await fullSync(() => {}, { courseIds: [ids.a] });
+    expect(sch.getUserProfilesBatch.mock.calls.map((c) => c[0])).toEqual([['u-a']]);
+  });
+
+  test('without a list: every current course and every student, as before', async () => {
+    const r = await fullSync(() => {});
+    expect(visited().sort()).toEqual(['sec-a', 'sec-b']);
+    expect(sch.getUserProfilesBatch.mock.calls[0][0].sort()).toEqual(['u-a', 'u-b']);
+    expect(r.archivedRead).toEqual([]);
+  });
+});
+
+describe('syncSectionData — task_synced_at (#58)', () => {
+  let db;
+  let courseId;
+  beforeEach(() => {
+    db = new Database(':memory:');
+    migrate(db);
+    courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-T2', 'T')`).run().lastInsertRowid;
+    getSectionEnrollments.mockReset().mockResolvedValue([{ id: '801', uid: '701', name_first: 'A', name_last: 'B', admin: '0' }]);
+    getSectionGrades.mockResolvedValue([]);
+    getAssignmentSubmissions.mockReset();
+  });
+
+  test('stamps every task read, except dropbox tasks outside the window and failed ones', async () => {
+    const NOW = '2026-10-20T00:00:00.000Z';
+    getSectionAssignments.mockResolvedValue([
+      { id: 'OLD', title: 'Old', published: 1, allow_dropbox: '1', due: '2026-06-01 15:30:00' },
+      { id: 'NEW', title: 'New', published: 1, allow_dropbox: '1', due: '2026-10-15 15:30:00' },
+      { id: 'BAD', title: 'Bad', published: 1, allow_dropbox: '1', due: '2026-10-16 15:30:00' },
+      { id: 'PAPER', title: 'Paper', published: 1, allow_dropbox: '0', due: '2026-06-01 15:30:00' },
+    ]);
+    getAssignmentSubmissions.mockImplementation(async (_s, aid) => {
+      if (aid === 'BAD') throw Object.assign(new Error('503'), { transient: true });
+      return [];
+    });
+    await syncSectionData(db, 'sec-T2', courseId, NOW, { recentOnly: true, recentDays: 30 });
+    const stamps = Object.fromEntries(db.prepare('SELECT schoology_assignment_id AS id, task_synced_at AS t FROM assignments').all().map((r) => [r.id, r.t]));
+    expect(stamps).toEqual({ OLD: null, NEW: NOW, BAD: null, PAPER: NOW });
+  });
+});
+
 describe('enrichStudentProfiles — reconcile guardians (#70)', () => {
   let db;
   let studentId;

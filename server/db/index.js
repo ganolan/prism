@@ -175,6 +175,9 @@ const MIGRATIONS = [
   `ALTER TABLE courses ADD COLUMN submissions_read_at TEXT`,
   // #108: when one task's submissions were last read in full (sync or a page's refresh).
   `ALTER TABLE assignments ADD COLUMN submissions_read_at TEXT`,
+  // #58: the "Synced" times on the course and assessment pages.
+  `ALTER TABLE courses ADD COLUMN course_synced_at TEXT`,
+  `ALTER TABLE assignments ADD COLUMN task_synced_at TEXT`,
 ];
 
 // Remove orphaned auto-flag rows. The auto-flag feature that wrote 'missing',

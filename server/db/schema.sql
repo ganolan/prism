@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS courses (
   excluded INTEGER NOT NULL DEFAULT 0,
   synced_at TEXT,
   submissions_read_at TEXT,           -- archived: submissions read in full (null = never)
-  mastery_synced_at TEXT              -- #52: last full mastery read from Schoology (ISO; null = never)
+  mastery_synced_at TEXT,             -- #52: last full mastery read from Schoology (ISO; null = never)
+  course_synced_at TEXT               -- #58: last sync that read this course's Schoology data (ISO; null = never)
 );
 
 CREATE TABLE IF NOT EXISTS enrolments (
@@ -106,6 +107,8 @@ CREATE TABLE IF NOT EXISTS assignments (
   -- #108: last time this task's submissions were read in full (dropbox revisions,
   -- OneDrive/LTI documents or test attempts), by a sync or a page (ISO; null = never).
   submissions_read_at TEXT,
+  -- #58: last sync that read this task's data in full (a sync's section read or Sync Assignment).
+  task_synced_at TEXT,
   synced_at TEXT
 );
 

@@ -249,6 +249,19 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     abandonAfter: submissionAbandonAfter,
   });
 
+  // #58: a task's "Synced" time: set when its data was read in full this pass (a task with no
+  // submission channel has nothing more to read; one outside the recent window, or whose read
+  // failed, keeps its older time).
+  const stampTask = db.prepare('UPDATE assignments SET task_synced_at = ? WHERE id = ?');
+  db.transaction(() => {
+    for (const a of assignments) {
+      const row = selectAssignment.get(String(a.id));
+      if (!row) continue;
+      const hasChannel = a.allow_dropbox === '1' || a.allow_dropbox === 1 || isTest(a);
+      if (!hasChannel || result.readInFull.has(row.id)) stampTask.run(now, row.id);
+    }
+  })();
+
   return {
     studentsCount: studentEnrollments.length,
     assignmentsCount: assignments.length,
@@ -556,7 +569,11 @@ export async function backfillArchivedSubmissions(db, now, { log = () => {} } = 
   return read;
 }
 
-export async function fullSync(onProgress, { includeHidden = false, recentOnly = false, recentDays = 30 } = {}) {
+// `courseIds` (#58): null = every current course (hidden ones when includeHidden), as the nightly
+// sync does. A list = the Sync Courses ticks or one Sync Course: those courses (a listed archived
+// course is read again in full through finalizeArchivedCourse), plus any section Prism did not hold
+// before this sync, and only those courses' students' profiles.
+export async function fullSync(onProgress, { includeHidden = false, recentOnly = false, recentDays = 30, courseIds = null } = {}) {
   const db = getDb();
   const log = (msg) => onProgress?.({ message: msg });
   const now = new Date().toISOString();
@@ -603,6 +620,11 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
 
     log('Fetching course sections...');
     const sections = await getMySections(userId);
+    const listed = courseIds ? new Set(courseIds.map(Number)) : null;
+    const known = new Set(db.prepare('SELECT schoology_section_id AS s FROM courses').all().map((r) => String(r.s)));
+    const stampCourse = db.prepare('UPDATE courses SET course_synced_at = ? WHERE id = ?');
+    const readCourseIds = new Set();
+    const archivedReadIds = [];
     log(`Found ${sections.length} sections`);
 
     let totalRecords = 0;
@@ -676,8 +698,10 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
       const courseRow = selectCourseFlags.get(sectionId);
       if (!courseRow) continue;
       if (courseRow.excluded) { metrics.sections_skipped++; continue; }
-      if (courseRow.hidden && !includeHidden) { metrics.sections_skipped++; continue; }
       if (courseRow.archived) { metrics.sections_skipped++; continue; }
+      if (listed) {
+        if (!listed.has(courseRow.id) && known.has(sectionId)) { metrics.sections_skipped++; continue; }
+      } else if (courseRow.hidden && !includeHidden) { metrics.sections_skipped++; continue; }
 
       log(`Syncing "${sec.course_title}"...`);
       const result = await syncSectionData(db, sectionId, courseRow.id, now, {
@@ -698,6 +722,8 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
         metrics.failed_assignment_ids.push({ sectionId, courseId: courseRow.id, assignmentExtId: aid });
       }
       for (const id of (result.revisionsReadAssignmentIds || [])) revisionsRead.add(id);
+      stampCourse.run(now, courseRow.id);
+      readCourseIds.add(courseRow.id);
       totalRecords += result.studentsCount + result.assignmentsCount + result.gradesCount + (result.submissionCount || 0);
 
       // Sync folders
@@ -764,15 +790,30 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
     // One-time: read the submissions of archived courses finalised without them (#72 reversed).
     const archivedRead = await backfillArchivedSubmissions(db, now, { log });
     if (archivedRead) log(`Read the submissions of ${archivedRead} archived course${archivedRead === 1 ? '' : 's'} (one time)`);
+    // #58: a ticked archived course is read again in full (its mastery too).
+    if (listed) {
+      for (const c of db.prepare(`SELECT id, schoology_section_id FROM courses WHERE archived = 1 AND excluded = 0
+        AND id IN (SELECT value FROM json_each(?))`).all(JSON.stringify([...listed]))) {
+        await finalizeArchivedCourse(db, { courseId: c.id, sectionId: c.schoology_section_id, now, runMastery: true });
+        stampCourse.run(now, c.id);
+        readCourseIds.add(c.id);
+        archivedReadIds.push(c.id);
+      }
+    }
     // Auto-archive courses that dropped off the active list this turn (#70).
     // Runs AFTER backfill so a course archived this turn isn't immediately
     // re-finalised by backfill in the same pass.
     await detectArchivedTransitions(db, new Set(sections.map((s) => String(s.id))), now);
 
     // 3. Refresh + reconcile every retained student's profile + guardians.
-    //    Runs for ALL students every sync (including those in no active course)
-    //    so student data never goes stale. See enrichStudentProfiles (#70).
-    const allStudents = db.prepare('SELECT id, schoology_uid FROM students WHERE schoology_uid IS NOT NULL').all();
+    //    A full run (no list) does ALL students (including those in no active course)
+    //    so student data never goes stale. See enrichStudentProfiles (#70). A list
+    //    (#58) does the students of the courses it read.
+    const allStudents = listed
+      ? db.prepare(`SELECT DISTINCT s.id, s.schoology_uid FROM students s JOIN enrolments e ON e.student_id = s.id
+          WHERE s.schoology_uid IS NOT NULL AND e.dropped_at IS NULL AND e.course_id IN (SELECT value FROM json_each(?))`)
+        .all(JSON.stringify([...readCourseIds]))
+      : db.prepare('SELECT id, schoology_uid FROM students WHERE schoology_uid IS NOT NULL').all();
     log(`Fetching profiles for ${allStudents.length} students...`);
     const profileCount = await enrichStudentProfiles(db, allStudents, now);
     log(`Fetched ${profileCount} profiles, reconciled parent contacts`);
@@ -811,7 +852,7 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
 
     log(`Sync complete: ${totalRecords} records`);
     // metricsId: the orchestrator adds the run's per-phase times to this row (#143).
-    return { success: true, records: totalRecords, metricsId: Number(metricsId) };
+    return { success: true, records: totalRecords, metricsId: Number(metricsId), archivedRead: archivedReadIds };
 
   } catch (err) {
     db.prepare(`UPDATE sync_log SET status = 'error', error_message = ?, completed_at = ? WHERE id = ?`)

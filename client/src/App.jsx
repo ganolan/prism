@@ -81,7 +81,7 @@ function Shell({ onSyncComplete }) {
         <NavLink to="/settings">Settings</NavLink>
         <div className="sidebar-spacer" />
         <button className="sync-btn" onClick={() => { setNavOpen(false); setSyncOpen(true); }}>
-          Sync
+          Sync Courses
         </button>
         <VersionBadge />
       </nav>

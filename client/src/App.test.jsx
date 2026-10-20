@@ -71,7 +71,7 @@ describe('App shell — phone menu', () => {
   it('closes the menu when Sync opens its dialog', () => {
     const { container } = renderApp();
     fireEvent.click(menuButton());
-    fireEvent.click(screen.getByRole('button', { name: 'Sync' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Sync Courses' }));
     expect(screen.getByText('Sync dialog')).toBeInTheDocument();
     expect(shell(container)).not.toHaveClass('nav-open');
   });

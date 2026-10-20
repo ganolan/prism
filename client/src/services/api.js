@@ -79,14 +79,14 @@ export const getCurrentSync = () => request('/sync/current');
 // Error with `status: 409` and the running `runId`. `signal` aborts the stream
 // (the sync itself carries on server-side).
 export async function runSync(
-  { masteryCourseIds = [], skipSchoology = false, includeHidden = false, recentOnly = false, recentDays = 30, syncBlocks = true },
+  { masteryCourseIds = [], skipSchoology = false, includeHidden = false, recentOnly = false, recentDays = 30, syncBlocks = true, courseIds = null },
   onEvent,
   { signal } = {},
 ) {
   const res = await fetch(`${BASE}/sync`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ masteryCourseIds, skipSchoology, includeHidden, recentOnly, recentDays, syncBlocks }),
+    body: JSON.stringify({ masteryCourseIds, skipSchoology, includeHidden, recentOnly, recentDays, syncBlocks, courseIds }),
     signal,
   });
   if (res.status === 409) {

@@ -31,13 +31,19 @@ function startErrorMessage(err) {
 const NOTICES = {
   lost: 'Connection lost: still syncing on the server…',
   joined: 'A sync is already running: showing its progress.',
+  waiting: 'Waiting for the running sync of other courses to finish, then this course syncs.',
 };
+
+// #58: does the running run (GET /api/sync/current) read this course? null = a full run.
+const covers = (cur, courseId) => cur?.courseIds == null || cur.courseIds.map(Number).includes(Number(courseId));
 
 // A sync is a server-side run (see server/routes/schoology.js). The dialog
 // follows it over the streaming POST; if that stream drops (iOS kills it when
 // the screen locks) it keeps following by polling the run's stored events from
 // the last `seq` it saw, so a dropped connection is never shown as an error.
-export default function SyncDialog({ onClose, onSyncComplete, pollMs = POLL_MS, giveUpMs = GIVE_UP_MS }) {
+// `presetCourse` ({ id, name }, #58 Sync Course): skip the course list and sync that one course
+// (everything, PowerSchool off); a running sync that does not cover it is waited out first.
+export default function SyncDialog({ onClose, onSyncComplete, presetCourse = null, pollMs = POLL_MS, giveUpMs = GIVE_UP_MS }) {
   // stalled = following a run but Prism has been unreachable for giveUpMs of
   // visible time: neutral, closable, with "Try again".
   const [mode, setMode] = useState('loading'); // loading | config | running | stalled | done
@@ -80,7 +86,12 @@ export default function SyncDialog({ onClose, onSyncComplete, pollMs = POLL_MS, 
       .then(() => current)
       .then((cur) => {
         if (cancelled) return;
-        if (cur?.running && cur.runId != null) joinRun(cur.runId, 'joined');
+        if (presetCourse) {
+          if (cur?.running && cur.runId != null) {
+            if (covers(cur, presetCourse.id)) joinRun(cur.runId, 'joined');
+            else waitThenRun(cur.runId, startPreset);
+          } else startPreset();
+        } else if (cur?.running && cur.runId != null) joinRun(cur.runId, 'joined');
         else setMode('config');
       });
     return () => {
@@ -218,6 +229,26 @@ export default function SyncDialog({ onClose, onSyncComplete, pollMs = POLL_MS, 
     else locate(r);
   }
 
+  // #58: follow another run to its end without finishing, then start ours.
+  async function waitThenRun(runId, start) {
+    const r = { runId, lastSeq: 0, stage: 'poll', controller: null, wake: null };
+    runRef.current = r;
+    setEvents([]);
+    setMetrics(null);
+    setNotice('waiting');
+    setMode('running');
+    const out = await follow(r);
+    if (out.cancelled || unmounted.current) return;
+    if (out.unreachable) return stall(r);
+    r.stage = 'done';
+    return start();
+  }
+
+  function startPreset() {
+    const id = Number(presetCourse.id);
+    return startSync([id], { courseIds: [id], syncBlocks: false });
+  }
+
   function joinRun(runId, why) {
     const r = { runId, lastSeq: 0, stage: 'poll', controller: null, wake: null };
     runRef.current = r;
@@ -232,7 +263,7 @@ export default function SyncDialog({ onClose, onSyncComplete, pollMs = POLL_MS, 
   // events). While running the dialog can be closed with its Close button
   // (the sync carries on server-side; reopening Sync joins it) — there is
   // still no backdrop/Escape handler, so it never closes by accident.
-  async function startSync(masteryCourseIds, { skipSchoology = false, includeHidden = false, recentOnly = false, recentDays = 30, syncBlocks = true } = {}) {
+  async function startSync(masteryCourseIds, { skipSchoology = false, includeHidden = false, recentOnly = false, recentDays = 30, syncBlocks = true, courseIds = null } = {}) {
     const r = { runId: null, lastSeq: 0, stage: 'stream', controller: new AbortController(), wake: null, quietSwitch: false, sawEnd: false };
     runRef.current = r;
     setEvents([]);
@@ -240,7 +271,7 @@ export default function SyncDialog({ onClose, onSyncComplete, pollMs = POLL_MS, 
     setNotice(null);
     setMode('running');
     try {
-      await runSync({ masteryCourseIds, skipSchoology, includeHidden, recentOnly, recentDays, syncBlocks }, (evt) => {
+      await runSync({ masteryCourseIds, skipSchoology, includeHidden, recentOnly, recentDays, syncBlocks, courseIds }, (evt) => {
         if (evt.type === 'run') { r.runId = evt.runId; return; }
         if (r.stage === 'stream') ingest(r, [evt]);
       }, { signal: r.controller.signal });
@@ -248,8 +279,9 @@ export default function SyncDialog({ onClose, onSyncComplete, pollMs = POLL_MS, 
       if (unmounted.current) return;
       if (err?.status === 409) {
         // Someone (another device, or this one before a reload) is syncing.
-        let runId = err.runId;
-        if (runId == null) runId = (await getCurrentSync().catch(() => null))?.runId;
+        const cur = await getCurrentSync().catch(() => null);
+        const runId = err.runId ?? cur?.runId;
+        if (runId != null && presetCourse && cur && !covers(cur, presetCourse.id)) return waitThenRun(runId, startPreset);
         if (runId != null) return joinRun(runId, 'joined');
       } else if (r.runId != null) {
         // The stream dropped (or we dropped it on return to the page); the
@@ -304,7 +336,9 @@ export default function SyncDialog({ onClose, onSyncComplete, pollMs = POLL_MS, 
             calendar={calendar}
             loggedIn={loggedIn}
             busy={busy}
-            onStart={(ids, opts) => startSync(ids, opts)}
+            // #58: the ticks decide everything: each ticked course gets its Schoology data and,
+            // with a saved session, its mastery.
+            onStart={(ids, opts) => startSync(loggedIn ? ids : [], { ...opts, courseIds: ids })}
             onCancel={onClose}
             onLogin={handleLogin}
             connection={connection}

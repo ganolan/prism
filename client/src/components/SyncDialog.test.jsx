@@ -53,14 +53,14 @@ function pollScript(responses) {
 }
 
 async function clickStart() {
-  await waitFor(() => screen.getByRole('button', { name: /start sync/i }));
-  fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
+  await waitFor(() => screen.getByRole('button', { name: /sync courses/i }));
+  fireEvent.click(screen.getByRole('button', { name: /sync courses/i }));
 }
 
 describe('SyncDialog', () => {
   it('loads courses and shows the config step', async () => {
     render(<SyncDialog onClose={() => {}} />);
-    await waitFor(() => expect(screen.getByText(/Step 1 · Schoology/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Each ticked course gets everything/)).toBeInTheDocument());
     expect(screen.getByLabelText('Biology 9')).toBeInTheDocument();
   });
 
@@ -70,8 +70,8 @@ describe('SyncDialog', () => {
       onEvent({ type: 'summary', schoology: { records: 5 }, mastery: [], elapsedMs: 1000 });
     });
     render(<SyncDialog onClose={() => {}} />);
-    await waitFor(() => screen.getByRole('button', { name: /start sync/i }));
-    fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
+    await waitFor(() => screen.getByRole('button', { name: /sync courses/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sync courses/i }));
     await waitFor(() => expect(screen.getByText(/Sync complete/)).toBeInTheDocument());
   });
 
@@ -87,8 +87,8 @@ describe('SyncDialog', () => {
       });
     });
     render(<SyncDialog onClose={() => {}} />);
-    await waitFor(() => screen.getByRole('button', { name: /start sync/i }));
-    fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
+    await waitFor(() => screen.getByRole('button', { name: /sync courses/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sync courses/i }));
     await waitFor(() => expect(screen.getByText('Syncing…')).toBeInTheDocument());
     finish();
     await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
@@ -106,8 +106,8 @@ describe('SyncDialog', () => {
       }
     });
     render(<SyncDialog onClose={() => {}} />);
-    await waitFor(() => screen.getByRole('button', { name: /start sync/i }));
-    fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
+    await waitFor(() => screen.getByRole('button', { name: /sync courses/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sync courses/i }));
     await waitFor(() => expect(screen.getByText(/Sync finished with issues/)).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: /retry/i }));
     await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
@@ -121,8 +121,8 @@ describe('SyncDialog', () => {
   it('shows a failure heading when runSync throws', async () => {
     vi.mocked(api.runSync).mockRejectedValue(new Error('network down'));
     render(<SyncDialog onClose={() => {}} />);
-    await waitFor(() => screen.getByRole('button', { name: /start sync/i }));
-    fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
+    await waitFor(() => screen.getByRole('button', { name: /sync courses/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sync courses/i }));
     await waitFor(() => expect(screen.getByText('Sync failed')).toBeInTheDocument());
   });
 
@@ -133,8 +133,8 @@ describe('SyncDialog', () => {
     });
     const onSyncComplete = vi.fn();
     render(<SyncDialog onClose={() => {}} onSyncComplete={onSyncComplete} />);
-    await waitFor(() => screen.getByRole('button', { name: /start sync/i }));
-    fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
+    await waitFor(() => screen.getByRole('button', { name: /sync courses/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sync courses/i }));
     await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
     expect(onSyncComplete).toHaveBeenCalledTimes(1);
   });
@@ -143,8 +143,8 @@ describe('SyncDialog', () => {
     vi.mocked(api.runSync).mockRejectedValue(new Error('network down'));
     const onSyncComplete = vi.fn();
     render(<SyncDialog onClose={() => {}} onSyncComplete={onSyncComplete} />);
-    await waitFor(() => screen.getByRole('button', { name: /start sync/i }));
-    fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
+    await waitFor(() => screen.getByRole('button', { name: /sync courses/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sync courses/i }));
     await waitFor(() => expect(screen.getByText('Sync failed')).toBeInTheDocument());
     expect(onSyncComplete).not.toHaveBeenCalled();
   });
@@ -158,8 +158,8 @@ describe('SyncDialog', () => {
       id: 1, abandoned: 1, retries_failed: 0, failed_assignment_ids: [],
     });
     render(<SyncDialog onClose={() => {}} />);
-    await waitFor(() => screen.getByRole('button', { name: /start sync/i }));
-    fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
+    await waitFor(() => screen.getByRole('button', { name: /sync courses/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sync courses/i }));
     await waitFor(() => expect(screen.getByText(/abandoned/i)).toBeInTheDocument());
   });
 
@@ -286,7 +286,7 @@ describe('SyncDialog', () => {
       render(<SyncDialog onClose={() => {}} pollMs={1} />);
       expect(await screen.findByText('Already under way')).toBeInTheDocument();
       expect(screen.getByText(/A sync is already running: showing its progress/)).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /start sync/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /sync courses/i })).not.toBeInTheDocument();
       expect(api.runSync).not.toHaveBeenCalled();
     });
 
@@ -343,9 +343,9 @@ describe('SyncDialog', () => {
       });
       vi.mocked(api.getSyncRunEvents).mockRejectedValue(new TypeError('Load failed'));
       render(<SyncDialog onClose={() => {}} pollMs={1} giveUpMs={40} />);
-      await waitFor(() => screen.getByRole('button', { name: /start sync/i }));
+      await waitFor(() => screen.getByRole('button', { name: /sync courses/i }));
       visibility = 'hidden';
-      fireEvent.click(screen.getByRole('button', { name: /start sync/i }));
+      fireEvent.click(screen.getByRole('button', { name: /sync courses/i }));
       await wait(150); // well past the budget, but all of it hidden
       expect(screen.queryByText(/Couldn't reach Prism/)).not.toBeInTheDocument();
       expect(screen.getByText('Syncing…')).toBeInTheDocument();
@@ -491,3 +491,59 @@ describe('SyncDialog — Schoology connection status', () => {
     go.mockRestore();
   });
 });
+
+describe('SyncDialog: Sync Courses and Sync Course (#58)', () => {
+  const finishedRun = () => pollScript([{ status: 'completed', finished: true, events: [{ seq: 1, type: 'summary', schoology: null, mastery: [], elapsedMs: 1 }] }]);
+  const streamDone = () => vi.mocked(api.runSync).mockImplementation(async (opts, onEvent) => {
+    onEvent({ type: 'run', runId: 9 });
+    onEvent({ seq: 1, type: 'summary', schoology: null, mastery: [], elapsedMs: 1 });
+  });
+
+  it('sends the ticked courses as both the course list and the mastery list', async () => {
+    streamDone();
+    render(<SyncDialog onClose={() => {}} />);
+    await clickStart();
+    await waitFor(() => expect(api.runSync).toHaveBeenCalled());
+    expect(api.runSync.mock.calls[0][0]).toMatchObject({ courseIds: [1], masteryCourseIds: [1] });
+  });
+
+  it('without a mastery session the ticked courses still sync, with no mastery list', async () => {
+    vi.mocked(api.getMasteryLoginStatus).mockResolvedValue({ loggedIn: false });
+    streamDone();
+    render(<SyncDialog onClose={() => {}} />);
+    await clickStart();
+    await waitFor(() => expect(api.runSync).toHaveBeenCalled());
+    expect(api.runSync.mock.calls[0][0]).toMatchObject({ courseIds: [1], masteryCourseIds: [] });
+  });
+
+  it('a preset course starts at once: that course, with mastery, no PowerSchool', async () => {
+    streamDone();
+    render(<SyncDialog presetCourse={{ id: 5, name: 'AP CSP' }} onClose={() => {}} />);
+    await waitFor(() => expect(api.runSync).toHaveBeenCalled());
+    expect(api.runSync.mock.calls[0][0]).toMatchObject({ courseIds: [5], masteryCourseIds: [5], syncBlocks: false });
+    expect(screen.queryByRole('button', { name: /sync courses/i })).not.toBeInTheDocument();
+  });
+
+  it('a preset course joins a running sync that covers it', async () => {
+    vi.mocked(api.getCurrentSync).mockResolvedValue({ running: true, runId: 4, courseIds: null });
+    finishedRun();
+    render(<SyncDialog presetCourse={{ id: 5, name: 'AP CSP' }} onClose={() => {}} />);
+    await waitFor(() => expect(api.getSyncRunEvents).toHaveBeenCalledWith(4, 0));
+    await wait(30);
+    expect(api.runSync).not.toHaveBeenCalled();
+  });
+
+  it('a preset course waits for a running sync of other courses, then runs its own', async () => {
+    vi.mocked(api.getCurrentSync).mockResolvedValue({ running: true, runId: 4, courseIds: [2, 3] });
+    let finish;
+    vi.mocked(api.getSyncRunEvents).mockImplementation(() => new Promise((r) => { finish = r; }));
+    streamDone();
+    render(<SyncDialog presetCourse={{ id: 5, name: 'AP CSP' }} onClose={() => {}} pollMs={5} />);
+    expect(await screen.findByText(/Waiting for the running sync/)).toBeInTheDocument();
+    expect(api.runSync).not.toHaveBeenCalled();
+    finish({ status: 'completed', finished: true, events: [] });
+    await waitFor(() => expect(api.runSync).toHaveBeenCalled());
+    expect(api.runSync.mock.calls[0][0]).toMatchObject({ courseIds: [5] });
+  });
+});
+

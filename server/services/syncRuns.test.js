@@ -39,10 +39,10 @@ describe('classifyEvent', () => {
 
 describe('sync runs', () => {
   test('startRun creates a running run with its options', () => {
-    const id = startRun(db(), { masteryCourseIds: [1, 2], recentOnly: true });
+    const id = startRun(db(), { masteryCourseIds: [1, 2], includeHidden: true });
     const run = getRun(db(), id);
     expect(run).toMatchObject({ id, status: 'running', finished_at: null, error_count: 0, warning_count: 0 });
-    expect(run.options).toEqual({ masteryCourseIds: [1, 2], recentOnly: true });
+    expect(run.options).toEqual({ masteryCourseIds: [1, 2], includeHidden: true });
     expect(run.started_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 

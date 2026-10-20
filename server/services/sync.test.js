@@ -1072,7 +1072,7 @@ describe('syncSectionData — tasks read in full (#58)', () => {
     getAssignmentSubmissions.mockReset();
   });
 
-  test('reports every task read in full, except dropbox tasks outside the window and failed ones; stamps none', async () => {
+  test('reports every task read in full, except failed ones; stamps none', async () => {
     const NOW = '2026-10-20T00:00:00.000Z';
     getSectionAssignments.mockResolvedValue([
       { id: 'OLD', title: 'Old', published: 1, allow_dropbox: '1', due: '2026-06-01 15:30:00' },
@@ -1084,9 +1084,9 @@ describe('syncSectionData — tasks read in full (#58)', () => {
       if (aid === 'BAD') throw Object.assign(new Error('503'), { transient: true });
       return [];
     });
-    const r = await syncSectionData(db, 'sec-T2', courseId, NOW, { recentOnly: true, recentDays: 30 });
+    const r = await syncSectionData(db, 'sec-T2', courseId, NOW, {});
     const ext = (id) => db.prepare('SELECT schoology_assignment_id AS e FROM assignments WHERE id = ?').get(id).e;
-    expect(r.readInFullTaskIds.map(ext).sort()).toEqual(['NEW', 'PAPER']);
+    expect(r.readInFullTaskIds.map(ext).sort()).toEqual(['NEW', 'OLD', 'PAPER']);
     expect(db.prepare('SELECT COUNT(*) AS n FROM assignments WHERE task_synced_at IS NOT NULL').get().n).toBe(0);
   });
 });
@@ -1302,10 +1302,10 @@ describe('detectArchivedTransitions (#70)', () => {
   });
 });
 
-describe('syncSectionData — recent-only submission window (#55)', () => {
+describe('syncSectionData — every dropbox assignment is read (no recent-only window)', () => {
   let db;
   let courseId;
-  const NOW = '2026-06-06T00:00:00.000Z'; // 30-day cutoff = 2026-05-07
+  const NOW = '2026-06-06T00:00:00.000Z';
 
   beforeEach(() => {
     db = new Database(':memory:');
@@ -1330,34 +1330,9 @@ describe('syncSectionData — recent-only submission window (#55)', () => {
     ]);
   });
 
-  test('recentOnly skips old + undated dropbox assignments', async () => {
-    const result = await syncSectionData(db, 'sec-w', courseId, NOW, { recentOnly: true, recentDays: 30 });
-    expect(getAssignmentSubmissions).toHaveBeenCalledTimes(1); // only the 1 recent assignment
-    expect(result.windowSkipped).toBe(2);
-  });
-
-  // Final review 5c: an assignment with an open resubmission request is still
-  // checked even when it is outside the recent window — the arrival is exactly
-  // what the request is waiting for.
-  test('recentOnly still checks an old assignment with an open resubmission request', async () => {
-    await syncSectionData(db, 'sec-w', courseId, NOW, { recentOnly: false }); // creates students + assignments
-    const studentId = db.prepare(`SELECT id FROM students WHERE schoology_uid = '700001'`).get().id;
-    const oldId = db.prepare(`SELECT id FROM assignments WHERE schoology_assignment_id = '5002'`).get().id;
-    const undatedId = db.prepare(`SELECT id FROM assignments WHERE schoology_assignment_id = '5003'`).get().id;
-    const ins = db.prepare(`INSERT INTO resubmissions (student_id, assignment_id, course_id, kind, status, requested_at, lessons) VALUES (?, ?, ?, 'request', ?, '2026-06-01 00:00:00', 3)`);
-    ins.run(studentId, oldId, courseId, 'open');
-    ins.run(studentId, undatedId, courseId, 'closed'); // a closed request does not widen the window
-    getAssignmentSubmissions.mockClear();
-
-    const result = await syncSectionData(db, 'sec-w', courseId, NOW, { recentOnly: true, recentDays: 30 });
-    expect(getAssignmentSubmissions.mock.calls.map((c) => c[1]).sort()).toEqual(['5001', '5002']);
-    expect(result.windowSkipped).toBe(1);
-  });
-
-  test('recentOnly off checks every dropbox assignment (unchanged)', async () => {
-    const result = await syncSectionData(db, 'sec-w', courseId, NOW, { recentOnly: false });
-    expect(getAssignmentSubmissions).toHaveBeenCalledTimes(3); // 3 assignments
-    expect(result.windowSkipped).toBe(0);
+  test('checks every dropbox assignment, old and undated included', async () => {
+    await syncSectionData(db, 'sec-w', courseId, NOW);
+    expect(getAssignmentSubmissions.mock.calls.map((c) => c[1]).sort()).toEqual(['5001', '5002', '5003']);
   });
 });
 
@@ -1722,15 +1697,14 @@ describe('syncSectionData — Schoology test attempts (make-up tests)', () => {
     expect(row('701', 'T1').submission_type).toBe('assessment');
   });
 
-  test('recentOnly: a test outside the window is not fetched and keeps its previous status', async () => {
+  test('a test due long ago is fetched too: there is no recent-only window', async () => {
     getSectionAssignments.mockResolvedValue([
       { id: 'T1', title: 'Recent test', type: 'assessment', published: 1, due: '2026-09-28 14:00:00' },
       { id: 'T9', title: 'Old test', type: 'assessment', published: 1, due: '2026-03-01 14:00:00' },
     ]);
     const fetchTestAttempts = vi.fn().mockResolvedValue(attempts());
-    await syncSectionData(db, 'sec-T', courseId, NOW, { fetchTestAttempts, recentOnly: true, recentDays: 30, ltiFetchBackoffMs: 0 });
-    expect(fetchTestAttempts).toHaveBeenCalledWith('sec-T', ['701', '702', '703'], ['T1']);
-    expect(status('T9').test_fetch_status).toBeNull();
+    await syncSectionData(db, 'sec-T', courseId, NOW, { fetchTestAttempts, ltiFetchBackoffMs: 0 });
+    expect(fetchTestAttempts).toHaveBeenCalledWith('sec-T', ['701', '702', '703'], ['T1', 'T9']);
   });
 
   test('makeup_ignored is Prism-owned: a re-sync never overwrites it', async () => {

@@ -32,7 +32,7 @@ export function classifyMasteryError(err) {
 // times are stored on a sync_metrics row (#143, for the #108 lazy-or-eager
 // decision).
 export async function runUnifiedSync(
-  { masteryCourseIds = [], skipSchoology = false, includeHidden = false, recentOnly = false, recentDays = 30, syncBlocks = true, refreshQuizzes = false, courseIds = null },
+  { masteryCourseIds = [], skipSchoology = false, includeHidden = false, syncBlocks = true, refreshQuizzes = false, courseIds = null },
   onEvent
 ) {
   const emit = (evt) => onEvent?.(evt);
@@ -60,7 +60,7 @@ export async function runUnifiedSync(
     try {
       const result = await fullSync(
         (progress) => emit({ type: 'log', message: progress.message }),
-        { includeHidden, recentOnly, recentDays, courseIds }
+        { includeHidden, courseIds }
       );
       // #58: an archived course read through finalize already had its mastery read.
       for (const id of result.archivedRead ?? []) skipMastery.add(id);

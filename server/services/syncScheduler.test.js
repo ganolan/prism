@@ -35,7 +35,7 @@ describe('scheduledSyncOptions', () => {
     ).run(sid, sid, hidden, archived, excluded).lastInsertRowid);
   }
 
-  test('every scheduled sync is full: mastery for every active visible course, no recent window', () => {
+  test('every scheduled sync is full: mastery for every active visible course', () => {
     const live = addCourse('live');
     addCourse('hidden', { hidden: 1 });
     addCourse('archived', { archived: 1 });

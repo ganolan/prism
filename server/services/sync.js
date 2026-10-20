@@ -13,7 +13,6 @@ import {
   getAssignmentSubmissions,
   getSection,
 } from './schoology.js';
-import { filterRecentAssignments } from './recentWindow.js';
 import { groupRevisionsByUid, deriveNativeSubmission } from '../lib/submissionRevisions.js';
 import { droppedAtFor } from '../lib/enrolmentStatus.js';
 import { createSubmissionFetcher } from './graderSubmissions.js';
@@ -53,8 +52,6 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     skipSubmissions = false,
     // An archived section reports every enrolment as status "2" (section ended).
     archivedSection = false,
-    recentOnly = false,
-    recentDays = 30,
   } = opts;
 
   const upsertStudent = db.prepare(`
@@ -133,18 +130,8 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   const dropboxAll = skipSubmissions
     ? []
     : assignments.filter(a => a.allow_dropbox === '1' || a.allow_dropbox === 1);
-  // #55: when recentOnly, restrict the submission check to assignments due within
-  // recentDays or in the future; skip undated + clearly-old work. An assignment
-  // with an open resubmission request is always checked — however old, its new
-  // submission is what the request is waiting for.
-  const openResubmissionIds = recentOnly
-    ? new Set(db.prepare(`
-        SELECT DISTINCT a.schoology_assignment_id AS id FROM resubmissions r JOIN assignments a ON a.id = r.assignment_id
-        WHERE r.course_id = ? AND r.kind = 'request' AND r.status = 'open'
-      `).all(courseId).map((r) => String(r.id)))
-    : null;
-  const { target: dropboxAssignments, windowSkipped } =
-    filterRecentAssignments(dropboxAll, recentOnly, recentDays, now, openResubmissionIds);
+  // Every sync reads every dropbox assignment (Graham, 20/10/2026): there is no recent-only window.
+  const dropboxAssignments = dropboxAll;
 
   // #62: lti_submission assignments use the per-assignment document endpoints
   // (true state, whole roster in 2 calls); native dropbox uses the bulk
@@ -158,8 +145,8 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     students: studentEnrollments.map((e) => ({ id: String(e.id), uid: String(e.uid) })),
     native: nativeDropboxAssignments.map((a) => String(a.id)),
     lti: ltiAssignments.map((a) => String(a.id)),
-    // Make-up tests: who has an attempt on each Schoology test in the sync window.
-    tests: filterRecentAssignments(skipSubmissions ? [] : assignments.filter(isTest), recentOnly, recentDays, now).target.map((a) => String(a.id)),
+    // Make-up tests: who has an attempt on each Schoology test.
+    tests: (skipSubmissions ? [] : assignments.filter(isTest)).map((a) => String(a.id)),
     fetchDocuments: opts.fetchDocuments,
     fetchTestAttempts: opts.fetchTestAttempts,
     backoffMs: opts.ltiFetchBackoffMs ?? 750,
@@ -167,7 +154,7 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   });
 
   // #58: the tasks whose data was read in full this pass (a task with no submission channel has
-  // nothing more to read; one outside the recent window, or whose read failed, is left out). The
+  // nothing more to read; one whose read failed is left out). The
   // orchestrator sets their "Synced" time only when the whole course synced (mastery too).
   const readInFullTaskIds = [];
   for (const a of assignments) {
@@ -185,7 +172,6 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     failedAssignmentIds: result.failedAssignmentIds,
     submissionAbandoned: result.submissionAbandoned,
     submissionAttempts: result.submissionAttempts,
-    windowSkipped,
     rateLimitHits: result.rateLimitHits,
     transientFailures: result.transientFailures,
     revisionsReadAssignmentIds: [...result.revisionsRead],
@@ -491,7 +477,7 @@ export async function backfillArchivedSubmissions(db, now, { log = () => {}, ski
 // sync does. A list = the Sync Courses ticks or one Sync Course: those courses (a listed archived
 // course is read again in full through finalizeArchivedCourse), plus any section Prism did not hold
 // before this sync, and only those courses' students' profiles.
-export async function fullSync(onProgress, { includeHidden = false, recentOnly = false, recentDays = 30, courseIds = null } = {}) {
+export async function fullSync(onProgress, { includeHidden = false, courseIds = null } = {}) {
   const db = getDb();
   const log = (msg) => onProgress?.({ message: msg });
   const now = new Date().toISOString();
@@ -513,7 +499,6 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
     const startedAt = Date.now();
     const metrics = {
       submission_calls: 0,
-      window_skipped: 0, // #55: assignments skipped by the recent-only due-date window
       rate_limit_hits: 0,
       transient_failures: 0,
       retries_attempted: 0,
@@ -632,15 +617,12 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
       log(`Syncing "${sec.course_title}"...`);
       const result = await syncSectionData(db, sectionId, courseRow.id, now, {
         ...syncConfig,
-        recentOnly,
-        recentDays,
         fetchDocuments: submissionFetcher ? (aid) => submissionFetcher.fetchDocuments(aid) : undefined,
         fetchTestAttempts: submissionFetcher
           ? (sid, uids, itemIds) => submissionFetcher.fetchTestAttempts(sid, uids, itemIds)
           : undefined,
       });
       metrics.submission_calls += result.submissionAttempts || 0;
-      metrics.window_skipped += result.windowSkipped || 0;
       metrics.rate_limit_hits += result.rateLimitHits || 0;
       metrics.transient_failures += result.transientFailures || 0;
       if (result.submissionAbandoned) { metrics.abandoned = 1; abandonedCourseIds.add(courseRow.id); }
@@ -699,9 +681,6 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
     // The session fetcher (lti state, test attempts) is only needed during the section loop
     // above (the retry pass uses the public API only). Release it now.
     if (submissionFetcher) { await submissionFetcher.close().catch(() => {}); submissionFetcher = null; }
-    if (metrics.window_skipped > 0) {
-      log(`Recent-only window skipped ${metrics.window_skipped} assignment${metrics.window_skipped === 1 ? '' : 's'} (undated or due > the chosen window).`);
-    }
 
     // Retry pass: one serial attempt for assignments that hit transient errors.
     // No rate limiter, no Retry-After honoring, no further retries on failure.

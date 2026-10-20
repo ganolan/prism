@@ -135,7 +135,7 @@ so they compose without clashing with the border.
 A stand-out circular **?** that reveals an **instant** popover on hover/focus —
 no native-`title` delay. First built inline as the gradebook `HelpDot`
 (`CoursePage.jsx`); now extracted to reusable `app.css` classes and used by the
-Sync dialog's recent-only control (June 2026).
+Sync dialog's recent-only control (June 2026; that control was removed on 20/10/2026).
 - **`.help-dot`** — 16px circle, `var(--accent-subtle)` fill, `1px solid
   var(--accent)` border, accent **?**, `cursor: help`. Hover/focus → fills
   `var(--accent)` with a white glyph, so it reads as interactive and stands out

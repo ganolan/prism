@@ -227,7 +227,7 @@ CREATE TABLE IF NOT EXISTS sync_metrics (
 -- status: 'running' | 'completed' | 'completed_with_errors' | 'failed' |
 -- 'interrupted' (left 'running' by a crash/restart/deploy; set at server start).
 -- error_count / warning_count are kept live as events arrive (see
--- server/services/syncRuns.js classifyEvent). Pruned to the newest 30 runs.
+-- server/services/syncRuns.js classifyEvent). Pruned to the newest 30 full syncs and the newest 30 task and quiz runs.
 CREATE TABLE IF NOT EXISTS sync_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   started_at TEXT NOT NULL,

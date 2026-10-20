@@ -50,8 +50,8 @@ export default function Dashboard() {
   const [syncOpen, setSyncOpen] = useState(false);
   const [followRun, setFollowRun] = useState(null);
 
-  // A course list asked for while the background run was going holds pending rows that run is
-  // still reading; one asked for after it may hold rows a stopped run left behind.
+  // The course list fetched while the background run was going holds pending rows that run is
+  // still reading; one fetched after it may hold rows a stopped run left behind.
   const runActive = backgroundSync.state === 'queued' || backgroundSync.state === 'running';
   const runActiveRef = useRef(runActive);
   runActiveRef.current = runActive;

@@ -10,8 +10,7 @@ terminology or a cross-cutting decision changes.
 - **Archived** — the **canonical** term for a completed / past course (a previous
   year or semester). Backed by the `courses.archived` flag. Use it everywhere
   user-facing (the Dashboard **Archived** tab — which hosts both the imported-course
-  cards and the **Import archived courses** discovery surface — and the Sync Courses
-  dialog's **Archived courses** group) and in app-level code
+  cards and the **Import archived courses** discovery surface) and in app-level code
   (`server/services/archivedCourses.js`, `getArchivedSections`,
   `discoverArchivedCourses`, `GET /api/courses/archived/discover`,
   `ArchivedCoursesPanel`).
@@ -115,12 +114,32 @@ and is never a caller or teacher input.** The numeric mapping is configured once
 
 ## Archived-course surfaces (avoid label collisions)
 
-The **Sync Courses** dialog has a single archived-course surface — the **"Archived
-courses"** group, which ticks already-imported archived courses for a full re-read
-(everything, mastery included; #58, 20/10/2026). The **Import archived courses** discovery surface
-(`ArchivedCoursesPanel`: discovers archived sections from Schoology and imports them
-once) lives on the **Dashboard Archived tab**, above the imported-course cards. Keep these
-two labels distinct.
+The **Import archived courses** discovery surface (`ArchivedCoursesPanel`: discovers archived
+sections from Schoology and imports them once) lives on the **Dashboard Archived tab**, above
+the imported-course cards. Archived courses have no Sync Courses button there: they are read in
+full once when archived, then only by a button on a course page, or on a past student's page
+(#171, 20/10/2026; the Sync Courses dialog and its "Archived courses" group are gone). The
+**past-course import** (below) fills the same tab without that surface. Keep the labels distinct.
+
+## First run and the past-course import (#171)
+
+- **First run**: the dashboard's first sync on an empty database (a new install, or a restored
+  empty one). It reads every current course, PowerSchool included, with no setup screen. A course
+  found by it stays off the dashboard until its first section read finishes (`courses.first_sync`
+  `'pending'`); a course whose first read failed shows with a **Sync failed** badge
+  (`first_sync = 'failed'`, the error in `first_sync_error`). Not a later partial failure (mastery,
+  comment threads): those show in the chip and the progress dialog. A new section that appears
+  mid-year follows the same rule. The line above the cards reads "Getting your courses: 4 of 12".
+- **Past-course import**: the background import of the teacher's archived courses after a first
+  run, newest school year first, one queue run per course (run kind `import`), while the teacher
+  works. The Archived tab reads "Importing past courses: 7 of 30". It happens once per install:
+  the settings row `firstRun.pastImport` holds its state (`waiting`, `importing`, `done`), and an
+  interrupted import resumes with the courses still missing. Not the **Import archived courses**
+  discovery surface, which the teacher drives by hand.
+- **Nightly data**: blocks, calendar and alerts, the data only the PowerSchool pass reads. Its
+  stamp (settings key `sync.nightlyDataReadAt`) is the last pass in which all three finished
+  without error, whichever run made it. The dashboard shows it as "Blocks, calendar and alerts:
+  03:01 today", amber over 26 hours.
 
 ## Deployment topology and its vocabulary
 

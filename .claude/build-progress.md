@@ -260,6 +260,8 @@ green (server 121, client 123).
 
 ## Archived-Import Relocation (#69) — COMPLETE (2026-05-31)
 
+> Superseded 20/10/2026 by #171: `SyncConfig` and the Sync dialog's course list were removed; the discovery panel on the Archived tab is unchanged.
+
 Spec `docs/superpowers/specs/2026-05-31-archived-import-relocation-design.md`, plan
 `docs/superpowers/plans/2026-05-31-archived-import-relocation.md`. Frontend-only; built via subagent-driven
 TDD with two-stage (spec + code-quality) review per task. All tests green (server 122, client 126); prod
@@ -1078,6 +1080,8 @@ Plan: `docs/superpowers/plans/2026-10-13-feedback-rows.md`.
 
 ## PowerSchool student alerts (2026-10-17, branch `issue-117-ps-sen-alert-flags`, issue #117)
 
+> Superseded 20/10/2026 by #171: the "Sync from PowerSchool" box is gone; Sync Courses and the nightly run read the alerts whenever `powerschool_alerts` is on.
+
 Each sync (with "Sync from PowerSchool" ticked and `powerschool_alerts` on) reads the alerts PowerSchool's MBA
 custom-alerts plugin shows beside each student of every active course: accommodation plan, accommodations only,
 ILP, learning support 1/2/3, support summary, EpiPen, allergies, health care plan, mobility, elevator, no photo
@@ -1518,7 +1522,19 @@ submission comments.
   `oneDriveLinks.js`, and the Microsoft renewal itself (`renewSession`, #136: a plain `fetch` cannot make the
   SSO round trip).
 
+## Sync, simplified: one button, one signal, a first run (#171, 2026-10-20)
+
+- **Why (Graham, 20/10/2026):** a teacher should see that the data is current "without having to think too hard". Spec `docs/superpowers/specs/2026-10-20-sync-simplified-design.md`, plan `docs/superpowers/plans/2026-10-20-sync-simplified.md`.
+- **Commits:** `67463a0` nightly-data stamp; `24935a3` a scoped run with alerts on is not a full read; `ac6ca10` one-click Sync Courses, course list and sidebar button removed; `20b1f80` help "?" beside every Synced time and the nightly line; `d769ec5` `first_sync` mark and mastery for courses a run discovers; `5ccea9e` background past-course import; `b4e4b00` a failed import run is retried, a failed mastery read is a warning; `da8c614` the first run shows courses as they sync; `091b9ed` a pending course with no run going shows as Sync failed.
+- **One click:** the dashboard's Sync Courses (Current tab) posts `POST /api/sync { everything: true }`: `kind: 'all'`, blocks, quiz refresh, hidden courses as the nightly setting says. `SyncConfig` (the course-ticking list and the PowerSchool box), the dialog's config mode and `group` prop, and the sidebar button are gone. The Archived tab has no Sync Courses button (archived data is frozen; it keeps its Synced time and "?"). The progress dialog and its retry buttons stay.
+- **Name the data, not the system:** the freshness line and the help "?" never say PowerSchool or "Schoology's systems". Dashboard line "Blocks, calendar and alerts: 03:01 today" from the settings key `sync.nightlyDataReadAt` (the last pass where blocks, calendar and alerts all finished without error; `notReady` is not an error). **Amber rule:** missing or over 26 hours old, whether the night was missed, failed or the nightly run is off, in one wording: "N days old. Press Sync Courses to refresh them." Provenance labels (alert badges, Settings, CSV import) keep "PowerSchool".
+- **First run:** an empty database starts a `kind: 'all'` run itself. Discovery marks each course `first_sync = 'pending'` (new columns `first_sync`, `first_sync_error`; schema and MIGRATIONS); `fullSync` clears it when that section's read finishes, or sets `'failed'` with the error. The dashboard hides a pending course only while its run is queued or running; a pending row with no run going shows as "Sync failed", and the server marks such rows failed at startup. "Getting your courses: X of Y" above the cards. A `kind: 'all'` run takes its mastery list after its section phase (`masteryCourseIds: null`), so discovered courses get mastery. Rows from before #171 carry no mark.
+- **Past-course import, once per install:** the first run marks `firstRun.pastImport` `waiting`; after the next finished `kind: 'all'` run the archived sections are discovered and each missing one with a course code is imported, newest school year first, one queue run per course (run kind `import`, `archivedImportRun.js`), one at a time so page syncs interleave. A section whose run did not complete is listed failed, tried once more at the end, then the state is `done` for good; a restart resumes with the sections still missing. "Importing past courses: X of Y" on the Archived tab, from `GET /api/sync/status` `pastImport`.
+- **Docs:** `CONTEXT.md` (first run, past-course import, nightly data), `docs/design-language.md`, `docs/deploy.md` (Scheduled sync). Stale "ticked" comments in `syncOrchestrator.js`, `sync.js`, `sync.test.js` and `Dashboard.jsx` reworded.
+
 ## Background sync: everything, or nothing (2026-10-20; closes #168, #169)
+
+> Superseded 20/10/2026 by #171: the Sync Courses dialog's course list and the Archived tab's Sync Courses button described below are gone; Sync Courses is one click on the Current tab.
 
 - **Why (Graham, 20/10):** "Confidence comes from not having to second guess the data." Every sync is full; pages sync themselves; one "Synced" time per page. Spec `docs/superpowers/specs/2026-10-20-background-sync-design.md`, plan `docs/superpowers/plans/2026-10-20-background-sync.md`.
 - **One queue** (`server/services/syncQueue.js`, replaces the one-run lock in `syncRunner.js`): every sync is a `sync_runs` row from the moment it is queued (`queued`, `running`, `held`, finished). A request covered by a queued or running run joins it; a button never joins a running run and goes ahead of queued page requests; a mastery-only retry covers nothing. Session preflight: `expired`/`none` holds the run (nothing read) until a sign-in (`resumeHeld`, called by the remote sign-in), `unknown` runs it, the nightly run is never held; a mastery sign-in error mid-run holds it too. `POST /api/sync` answers `{ runId, state, joined }` (no stream); `GET /api/sync/current` lists running, queued and held runs with their courses.
@@ -1531,6 +1547,8 @@ submission comments.
 - **A Sync button wherever synced data shows (Graham, 20/10: "that gives back some control"):** the dashboard's Archived tab offers Sync Courses too (the list opens with the archived courses ticked, `SyncDialog group`), and the student page always offers Sync Courses: the student's current courses, or their archived ones for a past student, even before any grades (`1e77428`). Archived courses are never synced in the background or nightly: they are read in full once when archived, then only by a button (Graham, 20/10: keep it on demand).
 
 ## Simplify Sync: Sync Courses, Sync Course, Sync Assignment (#58, 2026-10-20)
+
+> Superseded 20/10/2026 by #171: the sidebar Sync Courses dialog (the ticked course list, the Current/Hidden/Archived groups) was removed; the dashboard's Sync Courses runs the nightly scope in one click. Sync Course and Sync Assignment are unchanged.
 
 - **Why (Graham, #58):** a teacher must see at once whether data is fresh and how to sync it; Schoology data and mastery belong together. Spec `docs/superpowers/specs/2026-10-20-simplify-sync-design.md`, plan `docs/superpowers/plans/2026-10-20-simplify-sync.md`.
 - **Sync Courses (sidebar):** one dialog list grouped Current, Hidden, Archived; each ticked course gets everything (Schoology data and, with a session, mastery); an unticked course gets nothing. A ticked archived course is read again in full (`finalizeArchivedCourse`). `fullSync` / `POST /api/sync` take `courseIds` (null = the nightly's full run, unchanged); a list also reads any section Prism did not hold, scopes the PowerSchool block and alerts passes and the comment threads, and refreshes only those courses' students.

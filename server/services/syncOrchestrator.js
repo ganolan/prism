@@ -52,7 +52,7 @@ export async function runUnifiedSync(
   const startedAt = Date.now();
   const summary = { schoology: null, blocks: null, alerts: null, mastery: [], comments: null, quizzes: null };
   const phaseMs = { schoology: null, blocks: null, alerts: null, mastery: null, comments: null, quizzes: null };
-  // #58: a course list (Sync Courses ticks, one Sync Course) scopes every phase; null = everything.
+  // #58: a course list (Sync Course, or the Sync Courses on a student page) scopes every phase; null = everything.
   const scoped = courseIds ? { courseIds } : {};
   const skipMastery = new Set();
   summary.phaseMs = phaseMs;
@@ -129,7 +129,7 @@ export async function runUnifiedSync(
   }
 
   // #117: PowerSchool student alerts (accommodation, health), over plain HTTP,
-  // on the same "Sync from PowerSchool" opt-out and behind powerschool_alerts.
+  // in the same PowerSchool pass as the blocks (syncBlocks) and behind powerschool_alerts.
   // Best-effort: a failure is reported in the run and never fails the sync.
   const alertsRun = syncBlocks && getFeatures().powerschool_alerts;
   if (alertsRun) {
@@ -272,7 +272,7 @@ export async function runUnifiedSync(
 
 // "Synced" means everything synced (Graham, 20/10/2026): a course is stamped only when its
 // Schoology data and every submission read finished (fullSync's `complete`), its mastery read
-// succeeded (or, for a ticked archived course, finalize read it), and none of its comment threads
+// succeeded (or, for a listed archived course, finalize read it), and none of its comment threads
 // failed; its tasks read in full are stamped with it. Every course read gets an attempt time,
 // so a course that keeps failing waits out the background-sync window too.
 export function stampCompleteSyncs(db, { result, masteryDone, commentsFailed, at }) {

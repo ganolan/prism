@@ -1004,7 +1004,7 @@ describe('fullSync — a list of courses (#58)', () => {
     expect(r.readCourseIds).toEqual([ids.old]);
   });
 
-  test('a ticked archived course read without a session reader (dropbox only) is not complete', async () => {
+  test('a listed archived course read without a session reader (dropbox only) is not complete', async () => {
     hasMasterySession.mockReturnValue(true);
     createSubmissionFetcher.mockResolvedValue(null);
     const r = await fullSync(() => {}, { courseIds: [ids.old] });
@@ -1017,7 +1017,7 @@ describe('fullSync — a list of courses (#58)', () => {
     createSubmissionFetcher.mockResolvedValue(null);
   });
 
-  test('a ticked archived course that fails to read is reported, not fatal', async () => {
+  test('a listed archived course that fails to read is reported, not fatal', async () => {
     const roster = sch.getSectionEnrollments.getMockImplementation();
     sch.getSectionEnrollments.mockImplementation(async (sid) => {
       if (sid === 'sec-old') throw Object.assign(new Error('Schoology API 403'), { status: 403 });

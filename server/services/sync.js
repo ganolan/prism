@@ -733,7 +733,7 @@ export async function fullSync(onProgress, { includeHidden = false, courseIds = 
     // One-time: read the submissions of archived courses finalised without them (#72 reversed).
     const archivedRead = await backfillArchivedSubmissions(db, now, { log, skip: listed ?? new Set() });
     if (archivedRead) log(`Read the submissions of ${archivedRead} archived course${archivedRead === 1 ? '' : 's'} (one time)`);
-    // #58: a ticked archived course is read again in full (its mastery too).
+    // #58: a listed archived course (Sync Courses on a past student's page) is read again in full (its mastery too).
     if (listed) {
       for (const c of db.prepare(`SELECT id, schoology_section_id FROM courses WHERE archived = 1 AND excluded = 0
         AND id IN (SELECT value FROM json_each(?))`).all(JSON.stringify([...listed]))) {

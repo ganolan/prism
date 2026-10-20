@@ -23,7 +23,8 @@
 //                   no MCP session), and the next call starts a fresh run.
 //   SYNC_PENDING    still going after waitMs: { runId }. Calling again follows the same run.
 import { resolveAssignmentId } from './idResolvers.js';
-import { enqueue, whenDone, resumeHeld, queueDeps, TOOL_WAIT_MS } from './syncQueue.js';
+import { enqueue, whenDone, resumeHeld, queueDeps } from './syncQueue.js';
+import { TOOL_WAIT_MS } from '../lib/toolWait.js';
 import { getEvents } from './syncRuns.js';
 
 export const GRADING_FRESH_MS = 5 * 60 * 1000;

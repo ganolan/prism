@@ -1873,13 +1873,15 @@ function ReviewerAnalysisBody({ topics, feedbackRows, analysis }) {
 const RUN_POLL_MS = 1000;
 
 // Follow a queue run by its id until it is no longer waiting or running → the run (with its
-// summary), or null once `wanted()` says nobody is looking any more.
+// summary), or null once `wanted()` says nobody is looking any more. `wanted` is checked after
+// every wait too, so a page that was left makes no further request.
 async function waitForRun(runId, wanted) {
   for (;;) {
     const run = await getSyncRun(runId);
     if (!['queued', 'running', 'held'].includes(run.status)) return run;
     if (!wanted()) return null;
     await new Promise((resolve) => setTimeout(resolve, RUN_POLL_MS));
+    if (!wanted()) return null;
   }
 }
 
@@ -1949,10 +1951,13 @@ export default function AssessmentSummaryPage() {
         if (!run) return;
         if (run.summary?.quizError) throw new Error(run.summary.quizError.message);
         if (!run.summary?.quiz) throw new Error('The load did not finish: try again');
-        r = { summary: run.summary.quiz, group: (await getQuizGroupFor(assignmentId)).group };
+        // The run succeeded: a failed read of the group afterwards must not turn that into an error.
+        // The line below still says "loaded"; the group refreshes on the next visit.
+        const fresh = await getQuizGroupFor(assignmentId).then((x) => x.group, () => null);
+        r = { summary: run.summary.quiz, group: fresh };
       }
       if (quizGroupIdRef.current !== groupId) return;
-      setQuizGroup(r.group);
+      if (r.group) setQuizGroup(r.group);
       const failed = r.summary.failed?.length ? `, ${r.summary.failed.length} failed` : '';
       setQuizLoad({ busy: false, message: `${r.summary.attempts} attempts loaded${failed}` });
     } catch (e) {

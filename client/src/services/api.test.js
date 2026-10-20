@@ -11,11 +11,13 @@ describe('sync run endpoints', () => {
     const f = ok({});
     vi.stubGlobal('fetch', f);
     await getSyncRuns(30);
+    await getSyncRuns();
     await getSyncRun(5);
     await getSyncRunEvents(5, 12);
     await getCurrentSync();
     expect(f.mock.calls.map((c) => c[0])).toEqual([
       '/api/sync/runs?limit=30',
+      '/api/sync/runs?limit=60', // the default: twice the server's KEEP_RUNS
       '/api/sync/runs/5',
       '/api/sync/runs/5/events?after=12',
       '/api/sync/current',

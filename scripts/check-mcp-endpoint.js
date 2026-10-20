@@ -7,7 +7,7 @@
 // fails, or the endpoint is the other kind (a dev copy without --expect-dev, prod with it).
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { DEV_COPY_WARNING } from '../mcp/server.js';
+import { DEV_COPY_WARNING } from '../mcp/devCopy.js';
 import { isMain } from '../server/lib/isMain.js';
 
 export const PROD_URL = 'https://prism.swordtail-everest.ts.net/mcp';

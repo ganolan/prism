@@ -10,9 +10,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { getDb } from '../db/index.js';
-import { createServer } from '../../mcp/server.js';
+import { createServer, DEV_COPY_WARNING } from '../../mcp/server.js';
 import { mountMcp } from './mcp.js';
-import { DEV_COPY_WARNING } from '../../mcp/server.js';
 import { requestResubmissionTool } from '../../mcp/handlers.js';
 
 const ALLOWED_ORIGINS = ['https://prism.swordtail-everest.ts.net'];

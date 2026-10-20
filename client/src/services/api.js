@@ -64,7 +64,8 @@ export const getSyncStatus = () => request('/sync/status');
 export const getSyncMetrics = () => request('/sync/metrics');
 
 // Sync runs (persisted history + event log; see server/routes/schoology.js).
-export const getSyncRuns = (limit = 30) => request(`/sync/runs?limit=${limit}`);
+// The default is twice the server's KEEP_RUNS (30 full runs and 30 task and quiz runs are kept).
+export const getSyncRuns = (limit = 60) => request(`/sync/runs?limit=${limit}`);
 export const getSyncRun = (id) => request(`/sync/runs/${id}`);
 // A run's events after `afterSeq`: { status ('queued' | 'held' | 'running' | finished), finished, events: [{ seq, ... }] }.
 export const getSyncRunEvents = (id, afterSeq = 0) => request(`/sync/runs/${id}/events?after=${afterSeq}`);

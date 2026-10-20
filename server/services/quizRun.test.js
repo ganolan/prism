@@ -4,7 +4,8 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../db/index.js';
 import { queueDeps, resetQueue, idle, currentSync, enqueue, waiterCount } from './syncQueue.js';
-import { runQuizLoad, loadQuizQueued } from './quizRun.js';
+import { runQuizLoad } from './quizLoadRun.js';
+import { loadQuizQueued } from './quizRun.js';
 import { QuizError } from './quizError.js';
 
 const tick = () => new Promise((r) => setTimeout(r, 5));

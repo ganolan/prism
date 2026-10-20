@@ -141,7 +141,7 @@ describe('GET /api/feedback/for-assignment/:assignmentId - data time', () => {
   test('a suggestion the teacher used or ignored no longer counts; revised and untouched still do', async () => {
     const stale = { dataAsOf: '2026-10-20T09:00:00.000Z', suggestedAt: '2026-10-20T10:30:00.000Z' };
     const used = suggestion(s1, stale);
-    const revised = suggestion(s2, { ...stale, state: 'revised' });
+    suggestion(s2, { ...stale, state: 'revised' });
     expect((await call('PUT', `/api/feedback/${used}/suggestion-state`, { state: 'used' })).status).toBe(200);
     let body = await get();
     expect(body[s1].data_stale).toBe(false);
@@ -149,8 +149,9 @@ describe('GET /api/feedback/for-assignment/:assignmentId - data time', () => {
     expect((await call('PUT', `/api/feedback/${used}/suggestion-state`, { state: 'ignored' })).status).toBe(200);
     expect((await get())[s1].data_stale).toBe(false);
     expect((await call('PUT', `/api/feedback/${used}/suggestion-state`, { state: null })).status).toBe(200);
-    expect((await get())[s1].data_stale).toBe(true);
-    expect(revised).toBeTruthy();
+    body = await get();
+    expect(body[s1].data_stale).toBe(true);
+    expect(body[s2].data_stale).toBe(true); // the revised one counted throughout
   });
 });
 

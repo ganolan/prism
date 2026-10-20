@@ -8,7 +8,7 @@
 //               assignmentId?, grading?, includeHidden?, syncBlocks?, skipSchoology?,
 //               refreshQuizzes?, trigger: 'page' | 'button' | 'scheduled', force?,
 //               sessionCheckedAt?, sessionLive? }
-//             | { kind: 'quiz', groupId, trigger: 'button', noHold: true }   (quizRun.js)
+//             | { kind: 'quiz', groupId, trigger: 'button', noHold: true }   (quizLoadRun.js)
 //
 // Joining: a request whose courses (and options: PowerSchool, quizzes, hidden courses) a queued,
 // running or held request already covers joins it instead of queueing twice. A forced request (a
@@ -36,11 +36,9 @@ import { runUnifiedSync } from './syncOrchestrator.js';
 import { appendEvent, finishRun, pruneRuns, KEEP_RUNS } from './syncRuns.js';
 import { sessionStatus } from './schoologySession.js';
 import { runTaskSync } from './taskSyncRun.js';
-import { runQuizLoad } from './quizRun.js';
+import { runQuizLoad } from './quizLoadRun.js';
 
 export const SYNC_FRESH_MS = 10 * 60 * 1000;
-// How long a caller waits for a queue run before answering with the run id.
-export const TOOL_WAIT_MS = 50_000;
 // A session check this recent (a caller's own, carried on the request) is not made again.
 export const SESSION_CHECK_MS = 60_000;
 
@@ -394,7 +392,7 @@ async function runOne(entry) {
   }
   if (!request.skipSchoology && request.kind !== 'quiz') recordAttempt(d, entry);
   const signInLost = (summary?.mastery ?? []).some((m) => m.errorKind === 'login') || summary?.signIn === true;
-  if (signInLost && request.trigger !== 'scheduled' && !request.noHold) {
+  if (signInLost && request.trigger !== 'scheduled') {
     hold(entry);
     return;
   }

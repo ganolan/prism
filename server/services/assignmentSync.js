@@ -1,10 +1,10 @@
 // #58: Sync Assignment. Everything about one task, read from Schoology now: its details (title,
 // due date, points, assignees), then its submissions and grades (taskRefresh.js, forced), then its
 // submission comment threads (started, not awaited: the page polls them; the grading sync, #131,
-// awaits the job's `done`). The route reads the
-// mastery scores beside this. A task Schoology answers 404 for was deleted there: it is marked
-// removed, as the full sync would, and nothing else is read. A grading sync (`grading`) whose
-// submissions read failed, or lost the sign-in, is already failing: it starts no thread read (#170).
+// awaits the job's `done`). The route reads the mastery scores beside this. A task Schoology
+// answers 404 for was deleted there: it is marked removed, as the full sync would, and nothing
+// else is read. A grading sync (`grading`) whose submissions read failed, or lost the sign-in, is
+// already failing: it starts no thread read (#170).
 import { getDb } from '../db/index.js';
 import { getSectionAssignment } from './schoology.js';
 import { writeAssignments } from './taskAssignments.js';

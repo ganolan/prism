@@ -3,7 +3,8 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../db/index.js';
-import { queueDeps, resetQueue, currentSync, enqueue, waiterCount, TOOL_WAIT_MS } from './syncQueue.js';
+import { queueDeps, resetQueue, currentSync, enqueue, waiterCount } from './syncQueue.js';
+import { TOOL_WAIT_MS } from '../lib/toolWait.js';
 import { markInterruptedRuns } from './syncRuns.js';
 import { gradingSync, GradingSyncError, GRADING_FRESH_MS, GRADING_WAIT_MS, SIGN_IN_URL } from './gradingSync.js';
 

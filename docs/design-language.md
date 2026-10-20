@@ -776,7 +776,6 @@ each colour standing for a *function* so the hierarchy reads at a glance.
   Search or Directory tables overflow their card, if the student header
   overflows, or if the note form loses its full-width box or 44px buttons.
 
-
 ## Student work link — "Open" beside the status pill (September 2026, #120)
 
 On the `/assessment/` page, each card for a OneDrive (`lti_submission`)
@@ -1490,7 +1489,6 @@ Chosen 18/10/2026 from three mockups (state chip on every row, verb where it mat
 - **Verbatim, full width under the badges:** a boxed list (`.ps-support-summary`, `var(--bg-subtle)`) headed "Student Support Summary, read from PowerSchool DD/MM/YYYY HH:MM"; each row is PowerSchool's Category and Description (`dt` / `dd`), the Support Plan URL as a link. Prism infers nothing, not even the extra time: it stays in Support Notes in PowerSchool's words. On a phone each category sits above its description.
 - **States:** "Reading the Student Support Summary from PowerSchool…", "PowerSchool's Support Summary is empty.", or "Could not read the Support Summary: {reason}" in the amber warning colour. Never on a roster.
 
-
 ## Mastery freshness line (October 2026, #52)
 
 - **Stored first, fresh after:** a page that shows mastery (course page, assessment page, each course on the student page) renders what Prism holds at once, then reads Schoology in the background (`useMasteryRefresh`). The server skips a read made in the last 2 minutes, so moving between pages does not re-read. Archived courses are never read.
@@ -1521,7 +1519,6 @@ Chosen 18/10/2026 from three mockups (state chip on every row, verb where it mat
 - **The chip** beside it while the page's background sync is queued ("Waiting to sync…"), running ("Syncing…", with the small spinner), failed ("Sync failed", red outline) or held for a sign-in ("Log in to Schoology", amber fill). A rounded outline button (`.sync-status__chip`, 0.78rem, weight 600); clicking it opens the progress dialog on that run (or the sign-in). The Sync button is disabled only while the chip shows a running sync: a press while a page sync waits goes ahead of it in the queue. A run a Sync button starts is followed by the same chip after its dialog closes (`SyncDialog onRun`). A scope whose last try failed within 10 minutes shows "Sync failed" on that run instead of trying again at once.
 - **Where:** course page (Sync Course), assessment page (Sync Assignment), dashboard header on the Current tab (Sync Courses; the time is the oldest current course's), student page beside "Courses" (Sync Courses for that student's courses; the oldest of them).
 - **The dialog** follows queued runs: "Waiting for the running sync to finish, then this one starts."; a held run shows "Waiting for a Schoology sign-in" with **Log in to Schoology**, and the dialog keeps following it, so a sign-in on another page or device lets it run on in the same dialog. On the assessment page the dialog does not reload the page itself: the page's own refresh decides, so an unsaved draft is never replaced.
-
 
 ## Suggestions made from old data (October 2026, #131)
 

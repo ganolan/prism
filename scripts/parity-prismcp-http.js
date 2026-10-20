@@ -27,8 +27,8 @@ const matches = (rule, key) => (rule instanceof RegExp ? rule.test(key) : rule =
 
 // Paths of the leaves where `a` and `b` differ. `ignore`: key names (string or RegExp) whose
 // VALUE is not compared, at any depth; a key missing on one side is still reported, so an ignore
-// rule can never hide a field that one side lacks. A value whose type differs (object / array / scalar / null) is
-// reported at the value itself. Root differences are reported as `$`.
+// rule can never hide a field that one side lacks. A value whose type differs (object, array,
+// scalar or null) is reported at the value itself. Root differences are reported as `$`.
 export function diffAnswers(a, b, { ignore = [] } = {}) {
   const out = [];
   const skip = (key) => ignore.some((rule) => matches(rule, key));
@@ -226,8 +226,10 @@ export function judge(direct, http) {
   const ignore = EXCEPTIONS.map((e) => e.rule);
   const real = diffAnswers(direct, http, { ignore });
   const excused = strict.filter((p) => !real.includes(p));
+  // A path is excused by a rule when any key on it matches: the excused value may be an object or
+  // array that differs inside (`rows[0].mastery_source.live`), not only a leaf.
   const reasons = EXCEPTIONS
-    .filter((e) => excused.some((p) => matches(e.rule, p.split(/[.[\]]/).filter(Boolean).pop())))
+    .filter((e) => excused.some((p) => p.split(/[.[\]]/).filter(Boolean).some((key) => matches(e.rule, key))))
     .map((e) => `${e.rule}: ${e.reason}`);
   return { real, excused, reasons };
 }
@@ -248,6 +250,21 @@ export function judgeCase({ expectError }, direct, http) {
   }
   return { ...judge(direct, http), failures };
 }
+
+// One case's report line and outcome ('same' | 'differs' | 'failed'). A difference is reported as
+// DIFFERS and keeps its failures on the line, so a case that both differs and fails shows both.
+export function reportCase(label, { real, excused, reasons, failures }, { expectError = false } = {}) {
+  if (real.length) {
+    const also = failures.length ? `; also failed: ${failures.join('; ')}` : '';
+    return { outcome: 'differs', line: `DIFFERS  ${label}: ${real.join(', ')}${also}` };
+  }
+  if (failures.length) return { outcome: 'failed', line: `FAILED   ${label}: ${failures.join('; ')}` };
+  const note = `${expectError ? ' [the expected error, on both sides]' : ''}${excused.length ? ` (excused: ${excused.join(', ')}; ${reasons.join('; ')})` : ''}`;
+  return { outcome: 'same', line: `same     ${label}${note}` };
+}
+
+// The script's exit code: any difference or failure is 1.
+export const exitCode = ({ differing, failing }) => (differing || failing ? 1 : 0);
 
 async function main() {
   const { url, db: dbArg } = parseArgs(process.argv.slice(2));
@@ -314,17 +331,11 @@ async function main() {
     const d = normalise(await call(direct, tool, toolArgs), { dropDevWarning: false, warning: DEV_COPY_WARNING });
     const h = normalise(await call(http, tool, toolArgs), { dropDevWarning: true, warning: DEV_COPY_WARNING });
     warnings += h.dropped;
-    const { real, excused, reasons, failures } = judgeCase({ expectError }, d.answer, h.answer);
-    if (real.length) {
-      differing++;
-      console.log(`DIFFERS  ${label}: ${real.join(', ')}`);
-    } else if (failures.length) {
-      failing++;
-      console.log(`FAILED   ${label}: ${failures.join('; ')}`);
-    } else {
-      same++;
-      console.log(`same     ${label}${expectError ? ' [the expected error, on both sides]' : ''}${excused.length ? ` (excused: ${excused.join(', ')}; ${reasons.join('; ')})` : ''}`);
-    }
+    const { outcome, line } = reportCase(label, judgeCase({ expectError }, d.answer, h.answer), { expectError });
+    console.log(line);
+    if (outcome === 'differs') differing++;
+    else if (outcome === 'failed') failing++;
+    else same++;
   }
 
   // Coverage: the script is the proof that every tool the server serves was checked.
@@ -347,7 +358,7 @@ async function main() {
   if (!args.group) console.log('NOTE: the copy has no quiz group, so the quiz tools were compared on the empty list and the error answer only, not on real quiz data');
   console.log(`${same} same, ${differing} differing, ${failing} failed, ${skipped} skipped`);
   await Promise.allSettled([direct.close(), http.close()]);
-  process.exit(differing || failing ? 1 : 0);
+  process.exit(exitCode({ differing, failing }));
 }
 
 if (isMain(import.meta.url)) {

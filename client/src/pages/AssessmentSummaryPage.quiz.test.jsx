@@ -112,6 +112,44 @@ describe('AssessmentSummaryPage with a quiz group', () => {
     expect(screen.getByRole('button', { name: 'Load results' })).toBeEnabled();
   });
 
+  it('a followed load that succeeded shows "loaded" when only the follow-up group read fails', async () => {
+    getQuizGroupFor.mockResolvedValue({ group: GROUP });
+    loadQuizResults.mockResolvedValue({ runId: 43 });
+    getSyncRun.mockResolvedValue({ id: 43, status: 'completed', summary: { type: 'summary', quiz: { attempts: 18, failed: [] } } });
+    renderAt('/course/5/assessment/950');
+    const button = await screen.findByRole('button', { name: 'Load results' });
+    getQuizGroupFor.mockRejectedValue(new Error('Network down'));
+    fireEvent.click(button);
+    expect(await screen.findByText('18 attempts loaded')).toBeInTheDocument();
+    expect(screen.queryByText('Network down')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Load results' })).toBeEnabled();
+  });
+
+  it('following a load stops when the page is left (unmount): no further polls', async () => {
+    getQuizGroupFor.mockResolvedValue({ group: GROUP });
+    loadQuizResults.mockResolvedValue({ runId: 44 });
+    getSyncRun.mockResolvedValue({ id: 44, status: 'queued', summary: null });
+    const { unmount } = renderAt('/course/5/assessment/950');
+    fireEvent.click(await screen.findByRole('button', { name: 'Load results' }));
+    await waitFor(() => expect(getSyncRun).toHaveBeenCalledTimes(1));
+    unmount();
+    await new Promise((r) => setTimeout(r, 1400));
+    expect(getSyncRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('following a load stops when another assignment is opened (group change): no further polls', async () => {
+    getQuizGroupFor.mockImplementation(async (id) => ({ group: String(id) === '950' ? GROUP : null }));
+    loadQuizResults.mockResolvedValue({ runId: 45 });
+    getSyncRun.mockResolvedValue({ id: 45, status: 'queued', summary: null });
+    renderAt('/course/5/assessment/950');
+    fireEvent.click(await screen.findByRole('button', { name: 'Load results' }));
+    await waitFor(() => expect(getSyncRun).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('link', { name: 'go to B' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Load results' })).toBeNull());
+    await new Promise((r) => setTimeout(r, 1400));
+    expect(getSyncRun).toHaveBeenCalledTimes(1);
+  });
+
   it('a followed load that fails shows the run\'s error', async () => {
     getQuizGroupFor.mockResolvedValue({ group: GROUP });
     loadQuizResults.mockResolvedValue({ runId: 42 });

@@ -11,6 +11,7 @@ import {
   getSubmissionStatusTool,
 } from './handlers.js';
 import { ALERT_DEFS } from '../server/lib/psAlerts.js';
+import { DEV_COPY_WARNING } from './devCopy.js';
 
 // #117: the PowerSchool alert fields list_students and get_assignment_context add per
 // student (when powerschool_alerts is on in config.yaml). Labels only, per ADR 0002.
@@ -62,8 +63,7 @@ export function connectDb() {
   return db;
 }
 
-export const DEV_COPY_WARNING =
-  'This is a dev copy of Prism: its data is replaced at the next refresh, and it refuses Schoology writes.';
+export { DEV_COPY_WARNING };
 
 // Build the PrisMCP server with all tools/resources/prompts registered. Pure
 // construction — no transport, no DB side effects — so tests can drive it over

@@ -4,24 +4,11 @@
 //
 //   request = { kind: 'quiz', groupId, trigger: 'button', noHold: true }
 //
-// The run's summary event is { type: 'summary', quiz: <loadGroup summary> }, or for a QuizError
-// { type: 'summary', fatal: true, quizError: { code, message } } (BUSY keeps its meaning). Any
-// other error is left for the queue to log: the run finishes failed with no summary.
-import { getDb } from '../db/index.js';
+// The queue runs it with runQuizLoad (quizLoadRun.js), whose summary event this reads back.
 import { QuizError } from './quizError.js';
 import { getGroup } from './quizGroups.js';
-import { loadGroup } from './quizLoader.js';
-import { enqueue, whenDone, queueDeps, TOOL_WAIT_MS } from './syncQueue.js';
-
-export async function runQuizLoad(request, emit, { db = getDb(), deps = {} } = {}) {
-  const d = { loadGroup, ...deps };
-  try {
-    emit({ type: 'summary', quiz: await d.loadGroup(db, { groupId: request.groupId }) });
-  } catch (err) {
-    if (!(err instanceof QuizError)) throw err;
-    emit({ type: 'summary', fatal: true, quizError: { code: err.code, message: err.message } });
-  }
-}
+import { enqueue, whenDone, queueDeps } from './syncQueue.js';
+import { TOOL_WAIT_MS } from '../lib/toolWait.js';
 
 // Load a quiz group's attempts through the queue → the loadGroup summary. Throws a QuizError:
 // NOT_FOUND (no such group) and NO_SESSION (checked first, at once, nothing queued), the load's own

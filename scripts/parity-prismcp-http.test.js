@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { diffAnswers, judge, judgeCase, checkCoverage, checkWarning, EXCEPTIONS } from './parity-prismcp-http.js';
+import { diffAnswers, judge, judgeCase, reportCase, exitCode, checkCoverage, checkWarning, EXCEPTIONS } from './parity-prismcp-http.js';
 
 describe('diffAnswers', () => {
   it('returns no paths for equal values', () => {
@@ -57,6 +57,23 @@ describe('judge', () => {
 
   it('reports nothing for equal answers', () => {
     expect(judge({ a: 1 }, { a: 1 })).toEqual({ real: [], excused: [], reasons: [] });
+  });
+});
+
+describe('judge with a source exception', () => {
+  it('names the exception when the excused value is an object or array that differs inside', () => {
+    const r = judge({ rows: [{ mastery_source: { live: true } }] }, { rows: [{ mastery_source: { live: false } }] });
+    expect(r.real).toEqual([]);
+    expect(r.excused).toEqual(['rows[0].mastery_source.live']);
+    expect(r.reasons).toEqual([expect.stringMatching(/^mastery_source: /)]);
+    const arr = judge({ submission_files_source: ['a'] }, { submission_files_source: ['b'] });
+    expect(arr.reasons).toEqual([expect.stringMatching(/^submission_files_source: /)]);
+  });
+
+  it('does not excuse a similar key by name or by a path segment of another key', () => {
+    const r = judge({ other: { mastery_source_x: 1 } }, { other: { mastery_source_x: 2 } });
+    expect(r.real).toEqual(['other.mastery_source_x']);
+    expect(r.reasons).toEqual([]);
   });
 });
 
@@ -133,5 +150,36 @@ describe('checkWarning', () => {
   it('fails when any result lacked it (the target may not be a dev copy)', () => {
     expect(checkWarning({ dropped: 21, results: 22 })).toMatch(/21 of 22/);
     expect(checkWarning({ dropped: 0, results: 0 })).toMatch(/0 of 0/);
+  });
+});
+
+describe('reportCase', () => {
+  const differ = { real: ['content[0].rows'], excused: [], reasons: [], failures: [] };
+
+  it('prints a difference as DIFFERS with its paths', () => {
+    expect(reportCase('list_students', differ)).toEqual({ outcome: 'differs', line: 'DIFFERS  list_students: content[0].rows' });
+  });
+
+  it('prints the failures on a DIFFERS line too, so none is hidden by the difference', () => {
+    const r = reportCase('get_triage', { ...differ, failures: ['http answered an error (expected a result)'] });
+    expect(r.outcome).toBe('differs');
+    expect(r.line).toBe('DIFFERS  get_triage: content[0].rows; also failed: http answered an error (expected a result)');
+  });
+
+  it('prints failures alone as FAILED, and equal answers as same with what was excused', () => {
+    expect(reportCase('x', { real: [], excused: [], reasons: [], failures: ['a', 'b'] })).toEqual({ outcome: 'failed', line: 'FAILED   x: a; b' });
+    expect(reportCase('x', { real: [], excused: [], reasons: [], failures: [] }, { expectError: true }))
+      .toEqual({ outcome: 'same', line: 'same     x [the expected error, on both sides]' });
+    expect(reportCase('x', { real: [], excused: ['data_as_of'], reasons: ['data_as_of: why'], failures: [] }).line)
+      .toBe('same     x (excused: data_as_of; data_as_of: why)');
+  });
+});
+
+describe('exitCode', () => {
+  it('is 0 only when nothing differs and nothing failed', () => {
+    expect(exitCode({ differing: 0, failing: 0 })).toBe(0);
+    expect(exitCode({ differing: 1, failing: 0 })).toBe(1);
+    expect(exitCode({ differing: 0, failing: 1 })).toBe(1);
+    expect(exitCode({ differing: 2, failing: 3 })).toBe(1);
   });
 });

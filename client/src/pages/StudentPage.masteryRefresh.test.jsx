@@ -67,6 +67,11 @@ describe('StudentPage background sync', () => {
     startSync.mockResolvedValue({ runId: 9, state: 'queued', joined: false });
     getCurrentSync.mockResolvedValue({ ...IDLE, running: { runId: 9 }, runId: 9 });
     renderPage();
+    // The button shows as soon as the student renders, but the page's mount effect (which calls
+    // ensureSync, and would take over the follow of a run started before it) runs a task later.
+    // A click in that gap loses its follow to the effect and the chip never shows: wait for the
+    // effect, as a person always does.
+    await waitFor(() => expect(ensureSync).toHaveBeenCalled());
     fireEvent.click(await screen.findByRole('button', { name: 'Sync Courses' }));
     await waitFor(() => expect(startSync).toHaveBeenCalledWith({ courseIds: [1, 2], syncBlocks: false }));
     expect(await screen.findByRole('button', { name: 'Syncing…' })).toBeInTheDocument();

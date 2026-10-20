@@ -44,7 +44,7 @@ import {
   getSection,
 } from './schoology.js';
 import { syncMasteryForCourse, hasMasterySession } from './masterySync.js';
-import { syncSectionData, retrySubmissions, fullSync, enrichStudentProfiles, finalizeArchivedCourse, detectArchivedTransitions, backfillUnfinalizedArchived, backfillArchivedSubmissions } from './sync.js';
+import { syncSectionData, retrySubmissions, fullSync, enrichStudentProfiles, finalizeArchivedCourse, detectArchivedTransitions, backfillUnfinalizedArchived, backfillArchivedSubmissions, markUnfinishedFirstSyncs } from './sync.js';
 import { createSubmissionFetcher } from './graderSubmissions.js';
 
 describe('syncSectionData — assignee mapping (#54)', () => {
@@ -1155,6 +1155,23 @@ describe('fullSync — a course\'s first sync (#171)', () => {
     expect(db.prepare(`SELECT excluded FROM courses WHERE schoology_section_id = 'sec-t'`).get().excluded).toBe(1);
     expect(mark('sec-t')).toEqual({ first_sync: null, first_sync_error: null });
     expect(seen['sec-t']).toBeUndefined();
+  });
+});
+
+describe('markUnfinishedFirstSyncs (#171: at startup, a run the process lost)', () => {
+  test('every course still pending becomes failed with "The sync stopped before this course."; others are untouched', () => {
+    const db = new Database(':memory:');
+    migrate(db);
+    const add = (sid, firstSync, error = null) => db.prepare(`INSERT INTO courses (schoology_section_id, course_name, first_sync, first_sync_error)
+      VALUES (?, ?, ?, ?)`).run(sid, sid, firstSync, error);
+    add('p1', 'pending'); add('p2', 'pending'); add('f1', 'failed', 'Schoology API 500'); add('ok', null);
+    expect(markUnfinishedFirstSyncs(db)).toBe(2);
+    const mark = (sid) => db.prepare('SELECT first_sync, first_sync_error FROM courses WHERE schoology_section_id = ?').get(sid);
+    expect(mark('p1')).toEqual({ first_sync: 'failed', first_sync_error: 'The sync stopped before this course.' });
+    expect(mark('p2')).toEqual({ first_sync: 'failed', first_sync_error: 'The sync stopped before this course.' });
+    expect(mark('f1')).toEqual({ first_sync: 'failed', first_sync_error: 'Schoology API 500' });
+    expect(mark('ok')).toEqual({ first_sync: null, first_sync_error: null });
+    expect(markUnfinishedFirstSyncs(db)).toBe(0);
   });
 });
 

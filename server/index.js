@@ -31,6 +31,7 @@ import { getScaleTable, schoologyScaleId } from './lib/proficiencyScale.js';
 import { resolveHost, resolvePort } from './lib/listenConfig.js';
 import { resolveVersion } from './lib/version.js';
 import { markInterruptedRuns } from './services/syncRuns.js';
+import { markUnfinishedFirstSyncs } from './services/sync.js';
 import { startPastImport } from './services/pastImport.js';
 import { startSyncScheduler } from './services/syncScheduler.js';
 import { seedFeedbackSnapshotsIfEmpty } from './services/feedbackSnapshots.js';
@@ -125,6 +126,9 @@ app.listen(PORT, HOST, () => {
   // a dev copy pointed at the same DB) must not interrupt the live one's run.
   const interrupted = markInterruptedRuns(getDb());
   if (interrupted) console.log(`[sync] Marked ${interrupted} unfinished sync run(s) as interrupted`);
+  // A course a lost run left waiting for its first read shows as "Sync failed" (#171).
+  const unread = markUnfinishedFirstSyncs(getDb());
+  if (unread) console.log(`[sync] Marked ${unread} course(s) whose first read never finished as failed`);
   // The background import of past courses (#171): continues after each import run, starts after
   // the first run's kind 'all' run, and resumes an import this restart cut off.
   startPastImport({ db: getDb() });

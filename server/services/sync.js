@@ -477,6 +477,14 @@ export async function backfillArchivedSubmissions(db, now, { log = () => {}, ski
 // sync does. A list = one Sync Course (or a retry): those courses (a listed archived
 // course is read again in full through finalizeArchivedCourse), plus any section Prism did not hold
 // before this sync, and only those courses' students' profiles.
+// #171: every course still waiting for its first read ('pending') is marked failed, so the
+// dashboard shows it with "Sync failed" instead of hiding it. A run that stops calls this; so does
+// the server at startup (beside markInterruptedRuns), for a run the process lost. → rows marked.
+export function markUnfinishedFirstSyncs(db) {
+  return db.prepare(`UPDATE courses SET first_sync = 'failed', first_sync_error = ? WHERE first_sync = 'pending'`)
+    .run('The sync stopped before this course.').changes;
+}
+
 export async function fullSync(onProgress, { includeHidden = false, courseIds = null } = {}) {
   const db = getDb();
   const log = (msg) => onProgress?.({ message: msg });
@@ -808,8 +816,7 @@ export async function fullSync(onProgress, { includeHidden = false, courseIds = 
       .run(err.message, new Date().toISOString(), syncId);
     // #171: a course this run never reached shows as "Sync failed", not hidden until the next run.
     try {
-      db.prepare(`UPDATE courses SET first_sync = 'failed', first_sync_error = ? WHERE first_sync = 'pending'`)
-        .run('The sync stopped before this course.');
+      markUnfinishedFirstSyncs(db);
     } catch (markErr) {
       console.error('[sync] could not mark the courses not reached:', markErr.message);
     }

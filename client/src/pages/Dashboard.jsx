@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { getCourses, getCoursesByView, toggleCourseVisibility } from '../services/api.js';
 import { groupBySemester, groupByYearAndSemester } from '../lib/courseDisplay.js';
@@ -15,14 +15,16 @@ import StatsStrip from '../components/triage/StatsStrip.jsx';
 import { courseTriageSummary, courseRedLine } from '../lib/triage.js';
 
 // The first run (#171): a course whose first read has not finished yet is 'pending', and stays off
-// the dashboard until it has (one whose read failed is shown, with a "Sync failed" badge).
+// the dashboard while a run reads it (one whose read failed is shown, with a "Sync failed" badge).
+// A pending row with no run going was left by a run that stopped: it shows as "Sync failed" too.
 const isPending = (c) => c.first_sync === 'pending';
 const COURSES_POLL_MS = 3000;
 const PAST_IMPORT_POLL_MS = 5000;
 
 // The oldest course_synced_at among the tab's visible courses; null when one never synced.
-function oldestSynced(courses, archived) {
-  const live = courses.filter((c) => Boolean(c.archived) === archived && !c.hidden && !isPending(c));
+// `reading`: pending courses are being read (and are not shown), so they do not count.
+function oldestSynced(courses, archived, reading) {
+  const live = courses.filter((c) => Boolean(c.archived) === archived && !c.hidden && !(reading && isPending(c)));
   if (!live.length || live.some((c) => !c.course_synced_at)) return null;
   return live.map((c) => c.course_synced_at).sort()[0];
 }
@@ -48,7 +50,18 @@ export default function Dashboard() {
   const [syncOpen, setSyncOpen] = useState(false);
   const [followRun, setFollowRun] = useState(null);
 
-  async function reload() {
+  // A course list asked for while the background run was going holds pending rows that run is
+  // still reading; one asked for after it may hold rows a stopped run left behind.
+  const runActive = backgroundSync.state === 'queued' || backgroundSync.state === 'running';
+  const runActiveRef = useRef(runActive);
+  runActiveRef.current = runActive;
+  const [listedDuringRun, setListedDuringRun] = useState(false);
+  // Only the latest reload's answer is applied: a slow poll never lands on the other tab.
+  const reloadToken = useRef(0);
+
+  const reload = useCallback(async () => {
+    const mine = (reloadToken.current += 1);
+    const duringRun = runActiveRef.current;
     try {
       let coursesData;
       if (showHidden) {
@@ -60,48 +73,61 @@ export default function Dashboard() {
       } else {
         coursesData = await getCoursesByView(activeTab);
       }
+      if (mine !== reloadToken.current) return;
       setCourses(coursesData);
+      setListedDuringRun(duringRun);
     } catch (err) {
       console.error(err);
     } finally {
-      setLoading(false);
+      if (mine === reloadToken.current) setLoading(false);
     }
-  }
+  }, [activeTab, showHidden]);
 
   useEffect(() => {
     reload();
-  }, [activeTab, showHidden, dataVersion]);
+  }, [reload, dataVersion]);
+
+  // When the run stops going (done, failed, or held for a sign-in, which bumps no data version),
+  // the list is read again, so a pending row it left shows as "Sync failed".
+  const wasActive = useRef(runActive);
+  useEffect(() => {
+    if (wasActive.current && !runActive) reload();
+    wasActive.current = runActive;
+  }, [runActive, reload]);
 
   // The first run: "Getting your courses: X of Y" over the Current tab's courses (not the excluded
-  // ones), X those whose first read finished. The list is fetched again every 3 seconds while any
-  // is pending, and while the run goes with no course listed yet (so its first courses show).
+  // ones), X those whose first read finished, while the run goes. The list is fetched again every
+  // 3 seconds while the run goes and a course is pending, or no course is listed yet.
+  // Pending rows are being read. Before the page knows whether a run goes ('idle'), they are taken
+  // as being read, so a course mid-read never flashes "Sync failed".
+  const reading = runActive || listedDuringRun || backgroundSync.state === 'idle';
   const counted = activeTab === 'current' ? courses.filter((c) => !c.excluded) : [];
-  const pendingCount = counted.filter(isPending).length;
-  const waitingForCourses = courses.length === 0 && (backgroundSync.state === 'queued' || backgroundSync.state === 'running');
-  const pollCourses = activeTab === 'current' && (pendingCount > 0 || waitingForCourses);
+  const pendingCount = reading ? counted.filter(isPending).length : 0;
+  const pollCourses = activeTab === 'current' && runActive && (pendingCount > 0 || courses.length === 0);
   useEffect(() => {
     if (!pollCourses) return undefined;
     const timer = setInterval(reload, COURSES_POLL_MS);
     return () => clearInterval(timer);
-  }, [pollCourses, showHidden]);
+  }, [pollCourses, reload]);
 
-  // The past-course import (Archived tab): its status every 5 seconds while it imports (or waits to
-  // start: the first run has just ended), and the archived courses again whenever its count moves.
+  // The past-course import (Archived tab): its status every 5 seconds while it imports, or while
+  // it waits to start during a run (the run's end reloads the status too), and the archived
+  // courses again whenever its count moves.
   const pastImport = syncFacts.pastImport;
   const importing = activeTab === 'archived' && pastImport?.state === 'importing';
-  const pollImport = activeTab === 'archived' && (pastImport?.state === 'importing' || pastImport?.state === 'waiting');
+  const pollImport = importing || (activeTab === 'archived' && pastImport?.state === 'waiting' && runActive);
   useEffect(() => {
     if (!pollImport) return undefined;
     const timer = setInterval(syncFacts.reload, PAST_IMPORT_POLL_MS);
     return () => clearInterval(timer);
   }, [pollImport, syncFacts.reload]);
-  const lastImportDone = useRef(null);
+  const importDone = pastImport?.done ?? null;
+  const lastImportDone = useRef(importDone);
   useEffect(() => {
-    const done = pastImport?.done ?? null;
-    const moved = lastImportDone.current != null && done !== lastImportDone.current;
-    lastImportDone.current = done;
+    const moved = lastImportDone.current != null && importDone !== lastImportDone.current;
+    lastImportDone.current = importDone;
     if (moved && activeTab === 'archived') reload();
-  }, [pastImport?.done]);
+  }, [importDone, activeTab, reload]);
 
   async function handleToggleVisibility(e, courseId) {
     e.preventDefault();
@@ -112,7 +138,7 @@ export default function Dashboard() {
 
   if (loading) return <div className="loading">Loading...</div>;
 
-  const shown = courses.filter((c) => !isPending(c));
+  const shown = reading ? courses.filter((c) => !isPending(c)) : courses;
   const semesterGroups = groupBySemester(shown);
   const yearGroups = groupByYearAndSemester(shown);
   const firstRunLine = pendingCount > 0 ? `Getting your courses: ${counted.length - pendingCount} of ${counted.length}` : null;
@@ -160,7 +186,7 @@ export default function Dashboard() {
               </span>
             )}
             {!!c.hidden && <span className="badge" style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }}>Hidden</span>}
-            {c.first_sync === 'failed' && <span className="badge badge-red" title={c.first_sync_error || undefined}>Sync failed</span>}
+            {(c.first_sync === 'failed' || isPending(c)) && <span className="badge badge-red" title={c.first_sync_error || undefined}>Sync failed</span>}
           </div>
 
           {isSettings ? (
@@ -204,7 +230,7 @@ export default function Dashboard() {
             Current tab has the Sync Courses button; archived data is frozen, so Archived shows the time alone. */}
         <SyncStatus
           label={activeTab === 'archived' ? null : 'Sync Courses'}
-          syncedAt={oldestSynced(courses, activeTab === 'archived')}
+          syncedAt={oldestSynced(courses, activeTab === 'archived', reading)}
           archived={activeTab === 'archived'}
           sync={backgroundSync}
           onSync={() => setSyncOpen(true)}

@@ -385,8 +385,13 @@ describe('Dashboard: the first run (#171)', () => {
     course(13, { excluded: 1, first_sync: 'pending' }),
   ];
   afterEach(() => { vi.useRealTimers(); });
+  const runGoing = () => {
+    api.ensureSync.mockResolvedValue({ state: 'queued', runId: 5 });
+    api.getCurrentSync.mockResolvedValue({ running: { runId: 5 }, runId: 5, queued: [], held: [] });
+  };
 
   it('hides pending courses and counts the finished ones: "Getting your courses: 4 of 12"', async () => {
+    runGoing();
     api.getCoursesByView.mockResolvedValue(firstRunCourses());
     renderDashboard();
     expect(await screen.findByText('Getting your courses: 4 of 12')).toBeInTheDocument();
@@ -396,11 +401,12 @@ describe('Dashboard: the first run (#171)', () => {
   });
 
   it('a course whose first read failed shows with a "Sync failed" badge and links to its page', async () => {
-    api.getCoursesByView.mockResolvedValue([course(9), course(12, { first_sync: 'failed' })]);
+    api.getCoursesByView.mockResolvedValue([course(9), course(12, { first_sync: 'failed', first_sync_error: 'Schoology API 500' })]);
     renderDashboard();
     const card = (await screen.findByText('Course 12')).closest('a');
     expect(card).toHaveAttribute('href', '/course/12');
     expect(within(card).getByText('Sync failed')).toHaveClass('badge', 'badge-red');
+    expect(within(card).getByText('Sync failed')).toHaveAttribute('title', 'Schoology API 500'); // the first read's error
     expect(within(screen.getByText('Course 9').closest('a')).queryByText('Sync failed')).toBeNull();
     expect(screen.queryByText(/Getting your courses/)).toBeNull(); // none pending: no line
   });
@@ -414,6 +420,7 @@ describe('Dashboard: the first run (#171)', () => {
 
   it('re-fetches the courses every 3 seconds while any is pending, and stops when none is', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
+    runGoing();
     api.getCoursesByView
       .mockResolvedValueOnce([course(1, { first_sync: 'pending' }), course(2)])
       .mockResolvedValueOnce([course(1, { first_sync: 'pending' }), course(2)])
@@ -429,6 +436,50 @@ describe('Dashboard: the first run (#171)', () => {
     expect(screen.queryByText(/Getting your courses/)).toBeNull();
     await act(() => vi.advanceTimersByTimeAsync(9000));
     expect(api.getCoursesByView).toHaveBeenCalledTimes(calls + 2);
+  });
+
+  // Pending rows can outlive their run (the server was stopped mid-run): with no run going they are
+  // not "being read", so they show as cards with "Sync failed", and nothing polls.
+  it.each([
+    ['done', () => {
+      api.ensureSync.mockResolvedValue({ state: 'queued', runId: 5 });
+      api.getSyncRun.mockResolvedValue({ status: 'completed' });
+    }],
+    ['failed', () => { api.ensureSync.mockResolvedValue({ state: 'failed', runId: 5 }); }],
+  ])('pending courses with the background run %s: shown with "Sync failed", no line, no polling', async (_, setUp) => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    setUp();
+    api.getCoursesByView.mockResolvedValue([course(1, { first_sync: 'pending' }), course(2)]);
+    renderDashboard();
+    const card = (await screen.findByText('Course 1')).closest('a');
+    expect(card).toHaveAttribute('href', '/course/1');
+    expect(within(card).getByText('Sync failed')).toHaveClass('badge', 'badge-red');
+    await waitFor(() => expect(api.getCoursesByView.mock.calls.length).toBeGreaterThan(0));
+    await act(() => vi.advanceTimersByTimeAsync(100)); // the run's end reloads once
+    const calls = api.getCoursesByView.mock.calls.length;
+    await act(() => vi.advanceTimersByTimeAsync(3000));
+    expect(api.getCoursesByView).toHaveBeenCalledTimes(calls);
+    expect(screen.queryByText(/Getting your courses/)).toBeNull();
+  });
+
+  it('a late poll answer never lands on the other tab', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    runGoing();
+    let answerLate;
+    api.getCoursesByView
+      .mockResolvedValueOnce([course(1, { first_sync: 'pending' }), course(2)])
+      .mockImplementationOnce(() => new Promise((resolve) => { answerLate = resolve; }))
+      .mockImplementation(async (view) => (view === 'archived'
+        ? [{ id: 50, course_name: 'Past 1', archived: 1, grading_period: '2023-2024: 08/14/2023 - 06/01/2024' }] : []));
+    renderDashboard();
+    await screen.findByText('Getting your courses: 1 of 2');
+    await act(() => vi.advanceTimersByTimeAsync(3000)); // the poll goes out and waits
+    expect(answerLate).toBeTypeOf('function');
+    fireEvent.click(screen.getByRole('button', { name: 'Archived' }));
+    expect(await screen.findByText('Past 1')).toBeInTheDocument();
+    await act(async () => { answerLate([course(1), course(2)]); });
+    expect(screen.queryByText('Course 2')).toBeNull();
+    expect(screen.getByText('Past 1')).toBeInTheDocument();
   });
 
   it('no courses and a run held for a sign-in: the empty state says so beside the chip', async () => {
@@ -450,8 +501,7 @@ describe('Dashboard: the first run (#171)', () => {
 
   it('no courses while the first run goes: the list is fetched every 3 seconds until its courses appear', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    api.ensureSync.mockResolvedValue({ state: 'queued', runId: 5 });
-    api.getCurrentSync.mockResolvedValue({ running: { runId: 5 }, runId: 5, queued: [], held: [] });
+    runGoing();
     api.getCoursesByView.mockResolvedValueOnce([]).mockResolvedValue([course(1, { first_sync: 'pending' }), course(2)]);
     renderDashboard();
     expect(await screen.findByText('Getting your courses…')).toBeInTheDocument();
@@ -498,8 +548,10 @@ describe('Dashboard: the past-course import on the Archived tab (#171)', () => {
     expect(archivedCalls()).toBe(before + 1);
   });
 
-  it('checks every 5 seconds while the import waits to start, and shows the line once it imports', async () => {
+  it('checks every 5 seconds while the import waits to start during a run, and shows the line once it imports', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
+    api.ensureSync.mockResolvedValue({ state: 'queued', runId: 5 });
+    api.getCurrentSync.mockResolvedValue({ running: { runId: 5 }, runId: 5, queued: [], held: [] });
     api.getSyncStatus.mockResolvedValue({ pastImport: { state: 'waiting', done: 0, total: 0 } });
     renderDashboard();
     fireEvent.click(await screen.findByRole('button', { name: 'Archived' }));
@@ -508,6 +560,17 @@ describe('Dashboard: the past-course import on the Archived tab (#171)', () => {
     api.getSyncStatus.mockResolvedValue({ pastImport: { state: 'importing', done: 0, total: 30 } });
     await act(() => vi.advanceTimersByTimeAsync(5000));
     expect(await screen.findByText('Importing past courses: 0 of 30')).toBeInTheDocument();
+  });
+
+  it('does not check while the import waits with no run going (the run\'s end reloads the status)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    api.getSyncStatus.mockResolvedValue({ pastImport: { state: 'waiting', done: 0, total: 0 } });
+    renderDashboard();
+    fireEvent.click(await screen.findByRole('button', { name: 'Archived' }));
+    await screen.findByRole('button', { name: /Check Schoology for archived courses/ });
+    const calls = api.getSyncStatus.mock.calls.length;
+    await act(() => vi.advanceTimersByTimeAsync(15000));
+    expect(api.getSyncStatus).toHaveBeenCalledTimes(calls);
   });
 
   it('stops polling when the user leaves the tab', async () => {

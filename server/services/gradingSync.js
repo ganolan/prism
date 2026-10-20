@@ -2,7 +2,7 @@
 // grading from data the teacher changed in Schoology a minute ago is the failure this prevents.
 // It asks the one sync queue for a grading sync of the task (taskSyncRun.js: details, submissions,
 // grades, mastery, the comment threads waited for, the files of everyone who uploaded) and waits,
-// unless the task's last full sync (`task_synced_at`) is under 5 minutes old.
+// unless the task's last grading sync (`grading_synced_at`) is under 5 minutes old.
 //
 //   gradingSync(db, assignmentRef, { useStoredData, waitMs, now, onProgress, progressMs, deps })
 //     → { state: 'fresh' | 'synced' | 'stored', runId?, dataAsOf, summary? }
@@ -17,7 +17,7 @@
 //                   the message says why. Calling again starts a fresh run.
 //   SYNC_PENDING    still going after waitMs: { runId }. Calling again follows the same run.
 import { resolveAssignmentId } from './idResolvers.js';
-import { enqueue, whenDone, queueDeps, TOOL_WAIT_MS } from './syncQueue.js';
+import { enqueue, whenDone, resumeHeld, queueDeps, TOOL_WAIT_MS } from './syncQueue.js';
 import { getEvents } from './syncRuns.js';
 
 export const GRADING_FRESH_MS = 5 * 60 * 1000;
@@ -54,23 +54,30 @@ function failure(db, runId, status) {
 export async function gradingSync(db, assignmentRef, {
   useStoredData = false, waitMs = GRADING_WAIT_MS, now = Date.now(), onProgress, progressMs = PROGRESS_MS, deps = {},
 } = {}) {
-  const d = { enqueue, whenDone, sessionStatus: queueDeps.sessionStatus, ...deps };
+  const d = { enqueue, whenDone, resumeHeld, sessionStatus: queueDeps.sessionStatus, ...deps };
   const localId = resolveAssignmentId(db, assignmentRef);
   const task = localId && db.prepare('SELECT id, course_id, schoology_assignment_id FROM assignments WHERE id = ?').get(localId);
   if (!task) throw new GradingSyncError('NOT_FOUND', `Unknown assignment ${assignmentRef}`);
+  // dataAsOf, and what the teacher is told: when the task's data was last read (any full task read).
   const syncedAt = () => db.prepare('SELECT task_synced_at FROM assignments WHERE id = ?').get(task.id)?.task_synced_at ?? null;
+  // The 5 minute skip counts only a grading sync: a plain task run does not wait for the comment
+  // threads or read the files.
+  const gradedAt = db.prepare('SELECT grading_synced_at FROM assignments WHERE id = ?').get(task.id)?.grading_synced_at;
 
   const before = syncedAt();
-  if (before && now - Date.parse(before) < GRADING_FRESH_MS) return { state: 'fresh', dataAsOf: before };
+  if (gradedAt && now - Date.parse(gradedAt) < GRADING_FRESH_MS) return { state: 'fresh', dataAsOf: before };
   if (useStoredData) return { state: 'stored', dataAsOf: before };
 
   let live = 'unknown';
   try { live = (await d.sessionStatus({ refresh: true }))?.live ?? 'unknown'; } catch { live = 'unknown'; }
   if (live === 'expired' || live === 'none') throw lapsed(before);
 
-  const { runId } = d.enqueue({
+  const { runId, state } = d.enqueue({
     kind: 'task', courseId: task.course_id, assignmentId: task.schoology_assignment_id, grading: true, trigger: 'button',
   });
+  // A run held for a sign-in that has since happened: the session works, so it runs again (as
+  // runOne does when a session check passes); nothing else resumes it, and waiting on it would not end.
+  if (state === 'held' && live === 'connected') d.resumeHeld();
   const started = Date.now();
   let timer; let ticker;
   if (onProgress) ticker = setInterval(() => { try { onProgress({ runId, waitedMs: Date.now() - started }); } catch { /* progress is best effort */ } }, progressMs);

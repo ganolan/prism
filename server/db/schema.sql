@@ -110,6 +110,9 @@ CREATE TABLE IF NOT EXISTS assignments (
   submissions_read_at TEXT,
   -- #58: last sync that read this task's data in full (a sync's section read or Sync Assignment).
   task_synced_at TEXT,
+  -- #131: last grading sync that completed cleanly (comment threads and files read too); PrisMCP's
+  -- 5 minute skip counts only this, not task_synced_at.
+  grading_synced_at TEXT,
   -- last sync of this task, complete or not (background-sync window).
   task_sync_attempted_at TEXT,
   synced_at TEXT

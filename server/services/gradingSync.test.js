@@ -14,6 +14,7 @@ const ago = (ms) => new Date(NOW - ms).toISOString();
 
 let course; let task;
 const stamp = (at) => getDb().prepare('UPDATE assignments SET task_synced_at = ? WHERE id = ?').run(at, task);
+const stampGrading = (at) => getDb().prepare('UPDATE assignments SET task_synced_at = ?, grading_synced_at = ? WHERE id = ?').run(at, at, task);
 const summary = { type: 'summary', mastery: [{ status: 'done' }], comments: { refreshed: 3, failed: 0 }, files: { refreshed: 2, failed: 0 } };
 
 beforeEach(() => {
@@ -25,7 +26,8 @@ beforeEach(() => {
   queueDeps.sessionStatus = vi.fn().mockResolvedValue({ loggedIn: true, live: 'connected' });
   // A grading run that succeeds: it stamps the task, as taskSyncRun.js does.
   queueDeps.runTaskSync = vi.fn(async (request, emit) => {
-    db.prepare('UPDATE assignments SET task_synced_at = ? WHERE id = ?').run(new Date().toISOString(), task);
+    const at = new Date().toISOString();
+    db.prepare('UPDATE assignments SET task_synced_at = ?, grading_synced_at = ? WHERE id = ?').run(at, at, task);
     emit(summary);
   });
 });
@@ -36,16 +38,30 @@ describe('gradingSync', () => {
     expect(GRADING_FRESH_MS).toBe(5 * 60 * 1000);
   });
 
-  test('a task synced under 5 minutes ago is fresh: nothing queued, no session check', async () => {
-    stamp(ago(4 * 60 * 1000));
+  test('a task grading-synced under 5 minutes ago is fresh: nothing queued, no session check', async () => {
+    stampGrading(ago(4 * 60 * 1000));
     const r = await gradingSync(getDb(), 'A1', { now: NOW });
     expect(r).toEqual({ state: 'fresh', dataAsOf: ago(4 * 60 * 1000) });
     expect(runs()).toHaveLength(0);
     expect(queueDeps.sessionStatus).not.toHaveBeenCalled();
   });
 
+  test('a plain task run 1 minute ago does not make a grading call fresh: a grading run is queued', async () => {
+    stamp(ago(60 * 1000));
+    const r = await gradingSync(getDb(), 'A1', { now: NOW });
+    expect(r.state).toBe('synced');
+    expect(queueDeps.runTaskSync).toHaveBeenCalledWith(expect.objectContaining({ grading: true }), expect.any(Function));
+  });
+
+  test('a grading run 1 minute ago does', async () => {
+    stampGrading(ago(60 * 1000));
+    const r = await gradingSync(getDb(), 'A1', { now: NOW });
+    expect(r).toEqual({ state: 'fresh', dataAsOf: ago(60 * 1000) });
+    expect(queueDeps.runTaskSync).not.toHaveBeenCalled();
+  });
+
   test('a sync 5 minutes old or more is not fresh', async () => {
-    stamp(ago(GRADING_FRESH_MS));
+    stampGrading(ago(GRADING_FRESH_MS));
     const r = await gradingSync(getDb(), 'A1', { now: NOW });
     expect(r.state).toBe('synced');
   });
@@ -135,6 +151,25 @@ describe('gradingSync', () => {
     expect(err).toMatchObject({ code: 'SESSION_LAPSED', signInUrl: SIGN_IN_URL, lastSyncedAt: ago(60 * 60 * 1000) });
     expect(currentSync().held).toHaveLength(1);
     expect(runs()[0].status).toBe('held');
+  });
+
+  test('after a held run, a call with a working session resumes it instead of waiting on nothing', async () => {
+    stamp(ago(60 * 60 * 1000));
+    let calls = 0;
+    queueDeps.runTaskSync = vi.fn(async (request, emit) => {
+      calls++;
+      if (calls === 1) return emit({ type: 'summary', mastery: [{ status: 'error', errorKind: 'login' }], signIn: true });
+      return emit(summary);
+    });
+    await expect(gradingSync(getDb(), 'A1', { now: NOW, waitMs: 2000 })).rejects.toMatchObject({ code: 'SESSION_LAPSED' });
+    expect(currentSync().held).toHaveLength(1);
+    const heldRun = runs()[0].id;
+
+    // The teacher signed in (no hook ran): the session is connected again.
+    const r = await gradingSync(getDb(), 'A1', { now: NOW, waitMs: 2000 });
+    expect(r).toMatchObject({ state: 'synced', runId: heldRun });
+    expect(queueDeps.runTaskSync).toHaveBeenCalledTimes(2);
+    expect(currentSync().held).toEqual([]);
   });
 
   test('a failed run answers SYNC_FAILED with its run id and the reason', async () => {

@@ -181,6 +181,8 @@ const MIGRATIONS = [
   // Background sync: the last attempt, complete or not, so a failing scope waits out the window too.
   `ALTER TABLE courses ADD COLUMN sync_attempted_at TEXT`,
   `ALTER TABLE assignments ADD COLUMN task_sync_attempted_at TEXT`,
+  // #131: the last grading sync that completed cleanly (get_assignment_context's 5 minute skip).
+  `ALTER TABLE assignments ADD COLUMN grading_synced_at TEXT`,
 ];
 
 // Remove orphaned auto-flag rows. The auto-flag feature that wrote 'missing',

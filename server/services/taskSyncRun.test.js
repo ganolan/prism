@@ -20,6 +20,7 @@ describe('runTaskSync (Sync Assignment as a queued run)', () => {
   });
   const run = () => runTaskSync({ kind: 'task', courseId, assignmentId: 'A1' }, (e) => events.push(e), { db, deps });
   const task = () => db.prepare('SELECT task_synced_at, task_sync_attempted_at FROM assignments WHERE id = ?').get(taskId);
+  const grading = () => db.prepare('SELECT grading_synced_at FROM assignments WHERE id = ?').get(taskId).grading_synced_at;
   const T = '2026-10-20T00:00:00.000Z';
 
   test('reads the task, then its mastery; stamps it when both succeeded', async () => {
@@ -69,6 +70,7 @@ describe('runTaskSync (Sync Assignment as a queued run)', () => {
       expect(events.at(-1)).toMatchObject({ type: 'summary', comments: { refreshed: 3, failed: 0 }, files: { refreshed: 2, failed: 0 } });
       expect(events.at(-1).comments).not.toHaveProperty('done');
       expect(task()).toEqual({ task_synced_at: T, task_sync_attempted_at: T });
+      expect(grading()).toBe(T);
       expect(events.filter((e) => e.phase).map((e) => `${e.phase}:${e.status}`)).toEqual(['assignment:running', 'assignment:done', 'mastery:running', 'mastery:done']);
     });
 
@@ -110,6 +112,13 @@ describe('runTaskSync (Sync Assignment as a queued run)', () => {
       expect(task()).toEqual({ task_synced_at: T, task_sync_attempted_at: T });
     });
 
+    test('a failed grading run stamps neither task_synced_at nor grading_synced_at', async () => {
+      deps.refreshFiles.mockReturnValue({ queued: 2, done: Promise.reject(new Error('files 503')) });
+      await runGrading();
+      expect(task().task_synced_at).toBeNull();
+      expect(grading()).toBeNull();
+    });
+
     test('a failed thread read fails the run (no stamp)', async () => {
       const rejected = Promise.reject(new Error('threads 503'));
       rejected.catch(() => {});
@@ -143,5 +152,6 @@ describe('runTaskSync (Sync Assignment as a queued run)', () => {
     expect(events.at(-1)).toEqual(expect.objectContaining({ type: 'summary', comments: { queued: 2 } }));
     expect(events.at(-1)).not.toHaveProperty('files');
     expect(task()).toEqual({ task_synced_at: T, task_sync_attempted_at: T });
+    expect(grading()).toBeNull(); // a plain run is not a grading sync
   });
 });

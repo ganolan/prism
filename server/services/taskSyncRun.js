@@ -7,7 +7,8 @@
 //
 // A grading sync (request.grading, #131; PrisMCP's get_assignment_context) also waits for the
 // comment threads and reads the files of every student who uploaded, and reports both in the
-// summary. It is "Synced" only when those read in full too: a OneDrive task has no Schoology
+// summary. It is "Synced" (and stamps `grading_synced_at`, which PrisMCP's 5 minute skip counts: a
+// plain run is not a full read for grading) only when those read in full too: a OneDrive task has no Schoology
 // files, which is not a failure (`files.notNative`), and a source switched off in config.yaml
 // (`submission_comments`, `submission_files`) is skipped, reported as `disabled`, not a failure. A
 // plain run starts the threads and moves on.
@@ -78,7 +79,10 @@ export async function runTaskSync(request, emit, { db = getDb(), deps = {} } = {
 
   if (id) {
     db.prepare('UPDATE assignments SET task_sync_attempted_at = ? WHERE id = ?').run(at, id);
-    if (submissionsOk && !gradingError && !m?.error) db.prepare('UPDATE assignments SET task_synced_at = ? WHERE id = ?').run(at, id);
+    if (submissionsOk && !gradingError && !m?.error) {
+      db.prepare('UPDATE assignments SET task_synced_at = ? WHERE id = ?').run(at, id);
+      if (request.grading) db.prepare('UPDATE assignments SET grading_synced_at = ? WHERE id = ?').run(at, id);
+    }
   }
   emit({
     type: 'summary', mastery: [mastery], comments, ...(files ? { files } : {}), elapsedMs: d.now() - startedAt,

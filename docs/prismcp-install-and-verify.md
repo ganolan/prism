@@ -29,7 +29,8 @@ before it answers (#131): a run in the sync queue that reads the task's details,
 submissions, grades, mastery levels and grade comments, waits for the comment
 threads and reads the files of every student who uploaded (`mastery_source`,
 `submission_comments_source`, `submission_files_source` report it, and
-`data_as_of` is the task's last full sync). A task fully synced under 5 minutes
+`data_as_of` is the task's last full sync). A task whose last grading sync (`assignments.grading_synced_at`, stamped only by a grading run
+that read everything; a plain Sync Assignment or course sync does not count) finished under 5 minutes
 ago is not read again. Both go through the saved Schoology session (plain HTTP,
 no browser), not the API keys. PrisMCP finds it the same way the server does: `PRISM_SESSION_DIR`, else
 `.playwright-session/` under its working directory. On the mini set

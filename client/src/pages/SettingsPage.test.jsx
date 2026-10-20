@@ -185,7 +185,7 @@ describe('SettingsPage — Schoology connection card', () => {
 
 
 describe('SettingsPage — Scheduled sync card', () => {
-  const SCHEDULE = { enabled: true, time: '03:00', mastery: 'all', syncBlocks: true, includeHidden: false, recentOnly: false, recentDays: 30 };
+  const SCHEDULE = { enabled: true, time: '03:00', syncBlocks: true, includeHidden: false };
 
   function withSchedule(status) {
     api.getSettings.mockResolvedValue({ triage: TRIAGE, syncSchedule: SCHEDULE, syncScheduleStatus: status });
@@ -214,7 +214,7 @@ describe('SettingsPage — Scheduled sync card', () => {
     expect(screen.getByTestId('scheduled-sync-last')).toHaveTextContent('No scheduled sync has run yet.');
   });
 
-  it('saves time, mastery and toggles server-side', async () => {
+  it('saves time and toggles server-side; no mastery or recent-only controls', async () => {
     withSchedule({ active: true, nextRunAt: '2026-10-06T19:00:00Z', last: null });
     render(<SettingsPage />);
     const time = await screen.findByLabelText('Scheduled sync time');
@@ -222,8 +222,8 @@ describe('SettingsPage — Scheduled sync card', () => {
     fireEvent.change(time, { target: { value: '04:30' } });
     await waitFor(() => expect(api.updateSettings).toHaveBeenCalledWith({ syncSchedule: { time: '04:30' } }));
 
-    fireEvent.change(screen.getByLabelText('Mastery'), { target: { value: 'none' } });
-    await waitFor(() => expect(api.updateSettings).toHaveBeenCalledWith({ syncSchedule: { mastery: 'none' } }));
+    expect(screen.queryByLabelText('Mastery')).not.toBeInTheDocument();
+    expect(screen.queryByText(/recent submissions/i)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText('Sync every day at'));
     await waitFor(() => expect(api.updateSettings).toHaveBeenCalledWith({ syncSchedule: { enabled: false } }));

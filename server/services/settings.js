@@ -94,16 +94,13 @@ export function updateTriageSettings(db, patch = {}) {
 }
 
 // Scheduled sync (server/services/syncScheduler.js): a nightly unified sync at
-// `time` (server-local HH:MM). Options mirror the Sync dialog; `mastery: 'all'`
-// pulls mastery for every active course the dialog would tick by default.
+// `time` (server-local HH:MM). Every sync reads everything (Graham, 20/10/2026): the
+// former `mastery` and `recentOnly`/`recentDays` options are gone; stored values are ignored.
 const SYNC_SCHEDULE_KEYS = {
   enabled: { def: true, bool: true },
   time: { def: '03:00', time: true },
-  mastery: { def: 'all', oneOf: ['all', 'none'] },
   syncBlocks: { def: true, bool: true },
   includeHidden: { def: false, bool: true },
-  recentOnly: { def: false, bool: true },
-  recentDays: { def: 30, min: 1, max: 365 },
 };
 
 export const SYNC_SCHEDULE_DEFAULTS = Object.fromEntries(Object.entries(SYNC_SCHEDULE_KEYS).map(([k, s]) => [k, s.def]));

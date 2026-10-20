@@ -10,7 +10,6 @@
 // today's time waits for tomorrow (no catch-up).
 import { getSyncScheduleSettings } from './settings.js';
 import { launchSync, SyncBusyError } from './syncRunner.js';
-import { clampDays } from './recentWindow.js';
 
 const TICK_MS = 30_000;
 const LAST_KEY = 'syncScheduleState.lastRun';
@@ -24,23 +23,18 @@ export function nextRunAt(now, time) {
   return at;
 }
 
-// The same options the Sync dialog sends, built from the schedule settings.
-// mastery 'all' = the courses the dialog ticks by default (active, not hidden),
-// plus hidden ones when hidden courses are included.
+// The scheduled run, built from the schedule settings: every sync is full, so mastery for
+// every course it reads (active, not hidden; hidden ones too when hidden courses are included).
 export function scheduledSyncOptions(db, s) {
-  const masteryCourseIds = s.mastery === 'all'
-    ? db.prepare(`
-        SELECT id FROM courses
-        WHERE COALESCE(archived, 0) = 0 AND COALESCE(excluded, 0) = 0 AND (COALESCE(hidden, 0) = 0 OR ?)
-        ORDER BY id
-      `).all(s.includeHidden ? 1 : 0).map((r) => r.id)
-    : [];
+  const masteryCourseIds = db.prepare(`
+    SELECT id FROM courses
+    WHERE COALESCE(archived, 0) = 0 AND COALESCE(excluded, 0) = 0 AND (COALESCE(hidden, 0) = 0 OR ?)
+    ORDER BY id
+  `).all(s.includeHidden ? 1 : 0).map((r) => r.id);
   return {
     masteryCourseIds,
     skipSchoology: false,
     includeHidden: s.includeHidden,
-    recentOnly: s.recentOnly,
-    recentDays: clampDays(s.recentDays),
     syncBlocks: s.syncBlocks,
     refreshQuizzes: true,
     trigger: 'scheduled',

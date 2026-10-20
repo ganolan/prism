@@ -137,22 +137,23 @@ describe('triage settings', () => {
 describe('sync schedule settings', () => {
   beforeEach(() => { getDb().exec("DELETE FROM settings WHERE key LIKE 'syncSchedule.%'"); });
 
-  test('defaults: on, 03:00, mastery for all, blocks on, full sync', () => {
+  test('defaults: on, 03:00, blocks on; every sync is full (no mastery or recent-only options)', () => {
     expect(getSyncScheduleSettings(getDb())).toEqual({
-      enabled: true, time: '03:00', mastery: 'all', syncBlocks: true, includeHidden: false, recentOnly: false, recentDays: 30,
+      enabled: true, time: '03:00', syncBlocks: true, includeHidden: false,
     });
     expect(SYNC_SCHEDULE_DEFAULTS.time).toBe('03:00');
   });
 
   test('saves a partial patch and returns the full settings', () => {
     const s = updateSyncScheduleSettings(getDb(), { enabled: false, time: '4:30', mastery: 'none' });
-    expect(s).toMatchObject({ enabled: false, time: '04:30', mastery: 'none', syncBlocks: true });
+    expect(s).toEqual({ enabled: false, time: '04:30', syncBlocks: true, includeHidden: false });
     expect(getSyncScheduleSettings(getDb()).time).toBe('04:30');
   });
 
   test('invalid values fall back to the default; days are clamped', () => {
-    const s = updateSyncScheduleSettings(getDb(), { time: '25:00', mastery: 'some', recentDays: 999, bogus: 1 });
-    expect(s).toMatchObject({ time: '03:00', mastery: 'all', recentDays: 365 });
+    const s = updateSyncScheduleSettings(getDb(), { time: '25:00', recentDays: 999, bogus: 1 });
+    expect(s).toMatchObject({ time: '03:00' });
+    expect(getDb().prepare("SELECT COUNT(*) AS n FROM settings WHERE key = 'syncSchedule.recentDays'").get().n).toBe(0);
     expect(getDb().prepare("SELECT COUNT(*) AS n FROM settings WHERE key = 'syncSchedule.bogus'").get().n).toBe(0);
   });
 });

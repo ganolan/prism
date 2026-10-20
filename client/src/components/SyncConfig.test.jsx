@@ -65,7 +65,7 @@ describe('SyncConfig', () => {
     renderConfig({ onStart });
     fireEvent.click(screen.getByRole('button', { name: /sync courses/i }));
     // #58: the ticks decide everything; there is no separate include-hidden option.
-    expect(onStart).toHaveBeenCalledWith([1, 2], { recentOnly: false, recentDays: 30, syncBlocks: false });
+    expect(onStart).toHaveBeenCalledWith([1, 2], { syncBlocks: false });
   });
 
   it('defaults block sync OFF once every active course has had a block pass (block_synced_at set)', () => {
@@ -201,19 +201,8 @@ describe('SyncConfig', () => {
     expect(screen.getByText(/synced 20\/05\/2026/)).toBeInTheDocument();
   });
 
-  it('reveals the day stepper only when "recent submissions" is checked', () => {
+  it('every sync is full: no recent-only option', () => {
     renderConfig();
-    expect(screen.queryByLabelText(/day window/i)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText(/include only recent submissions/i));
-    expect(screen.getByLabelText(/day window/i)).toBeInTheDocument();
-  });
-
-  it('passes recentOnly + recentDays on Start and persists them', () => {
-    const onStart = vi.fn();
-    renderConfig({ onStart });
-    fireEvent.click(screen.getByLabelText(/include only recent submissions/i));
-    fireEvent.click(screen.getByRole('button', { name: /sync courses/i }));
-    expect(onStart).toHaveBeenCalledWith([1, 2], expect.objectContaining({ recentOnly: true, recentDays: 30 }));
-    expect(localStorage.getItem('prism:sync:recent-only')).toBe('true');
+    expect(screen.queryByLabelText(/include only recent submissions/i)).not.toBeInTheDocument();
   });
 });

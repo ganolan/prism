@@ -81,13 +81,6 @@ function ScheduledSyncCard({ schedule, status, message, onSave }) {
           onChange={(e) => { if (e.target.value) onSave({ time: e.target.value }); }}
         />
       </div>
-      <div className="settings-row">
-        <label htmlFor="scheduled-sync-mastery">Mastery</label>
-        <select id="scheduled-sync-mastery" value={schedule.mastery} onChange={(e) => onSave({ mastery: e.target.value })} style={{ width: 'auto' }}>
-          <option value="all">All active courses</option>
-          <option value="none">None</option>
-        </select>
-      </div>
       <label className="settings-row">
         <input type="checkbox" checked={schedule.syncBlocks} onChange={(e) => onSave({ syncBlocks: e.target.checked })} />
         <span>Sync PowerSchool blocks and school calendar</span>
@@ -96,14 +89,6 @@ function ScheduledSyncCard({ schedule, status, message, onSave }) {
         <input type="checkbox" checked={schedule.includeHidden} onChange={(e) => onSave({ includeHidden: e.target.checked })} />
         <span>Include hidden courses</span>
       </label>
-      <div className="settings-row">
-        <label className="settings-row">
-          <input type="checkbox" checked={schedule.recentOnly} onChange={(e) => onSave({ recentOnly: e.target.checked })} />
-          <span>Only check submissions from the last</span>
-        </label>
-        <NumberStepper value={schedule.recentDays} min={1} max={365} onChange={(v) => onSave({ recentDays: v })} aria-label="Scheduled sync recent days" />
-        <span>days</span>
-      </div>
       {status.active && (
         <p className="text-sm text-muted" data-testid="scheduled-sync-next">
           {status.nextRunAt ? `Next run: ${formatDateTime(status.nextRunAt)}` : 'Off: no sync is scheduled.'}

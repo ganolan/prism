@@ -2,8 +2,6 @@ import { SIGN_IN_NOTE } from '../lib/signIn.js';
 import { useState, useMemo } from 'react';
 import { formatLastSynced } from '../lib/courseDisplay.js';
 import TriCheckbox from './TriCheckbox.jsx';
-import { getSyncPrefs, setSyncPrefs } from '../lib/syncPrefs.js';
-import NumberStepper from './NumberStepper.jsx';
 import SchoologyConnectionStatus, { connectionState } from './SchoologyConnectionStatus.jsx';
 
 // #58: one list; each ticked course gets everything (Schoology data and mastery). Current courses are
@@ -14,8 +12,6 @@ const GROUPS = [
   { key: 'archived', label: 'Archived courses', match: (c) => c.archived && !c.excluded },
 ];
 
-const RECENT_HELP =
-  'Skips submission checks for assignments with no due date and those due more than the chosen number of days ago. Students, assignments, grades and mastery still sync fully.';
 
 const CALENDAR_STALE_DAYS = 14;
 // The login window opens on the server's screen, not the teacher's device.
@@ -73,18 +69,6 @@ export default function SyncConfig({ courses, calendar, loggedIn, busy, onStart,
     ? ' (calendar over 2 weeks old)'
     : '';
   const [syncBlocks, setSyncBlocks] = useState(() => needsFirstBlockSync || calendarMissing || calendarStale);
-  const initialPrefs = useState(getSyncPrefs)[0];
-  const [recentOnly, setRecentOnly] = useState(initialPrefs.recentOnly);
-  const [recentDays, setRecentDays] = useState(initialPrefs.recentDays);
-  // Instant help popover for the recent-only "?" (mirrors the gradebook
-  // HelpDot/popover). Positioned fixed from the dot's rect so the modal's
-  // overflow can't clip it.
-  const [helpPos, setHelpPos] = useState(null);
-  const showHelp = (e) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    setHelpPos({ left: r.left + r.width / 2, top: r.bottom + 8 });
-  };
-  const hideHelp = () => setHelpPos(null);
 
   const toggleCourse = (id) => setSelected((prev) => {
     const next = new Set(prev);
@@ -120,39 +104,6 @@ export default function SyncConfig({ courses, calendar, loggedIn, busy, onStart,
             />
             <span>Sync from PowerSchool (block numbers, school calendar, student alerts){syncBlocksReason}</span>
           </label>
-          <div className="sync-toggle-row">
-            <label>
-              <input
-                type="checkbox"
-                checked={recentOnly}
-                onChange={(e) => setRecentOnly(e.target.checked)}
-              />
-              <span>Include only recent submissions</span>
-            </label>
-            <span
-              className="help-dot"
-              role="img"
-              tabIndex={0}
-              aria-label={RECENT_HELP}
-              onMouseEnter={showHelp}
-              onMouseLeave={hideHelp}
-              onFocus={showHelp}
-              onBlur={hideHelp}
-            >?</span>
-          </div>
-          {recentOnly && (
-            <div className="sync-recent-days">
-              <span>Due within</span>
-              <NumberStepper
-                value={recentDays}
-                onChange={setRecentDays}
-                min={1}
-                max={365}
-                aria-label="Day window"
-              />
-              <span>days</span>
-            </div>
-          )}
         </div>
 
         {connection && loggedIn && (
@@ -243,8 +194,7 @@ export default function SyncConfig({ courses, calendar, loggedIn, busy, onStart,
             type="button"
             className="primary"
             onClick={() => {
-              setSyncPrefs({ recentOnly, recentDays });
-              onStart([...selected], { recentOnly, recentDays, syncBlocks });
+              onStart([...selected], { syncBlocks });
             }}
             disabled={busy || count === 0}
           >
@@ -253,11 +203,6 @@ export default function SyncConfig({ courses, calendar, loggedIn, busy, onStart,
         </div>
       </div>
 
-      {helpPos && (
-        <div className="help-pop" role="tooltip" style={{ left: helpPos.left, top: helpPos.top }}>
-          {RECENT_HELP}
-        </div>
-      )}
     </div>
   );
 }

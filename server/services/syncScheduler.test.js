@@ -36,16 +36,17 @@ describe('scheduledSyncOptions', () => {
     ).run(sid, sid, hidden, archived, excluded).lastInsertRowid);
   }
 
-  test('mastery "all" = active visible courses, like the Sync dialog default', () => {
+  test('every scheduled sync is full: mastery for every active visible course, no recent window', () => {
     const live = addCourse('live');
     addCourse('hidden', { hidden: 1 });
     addCourse('archived', { archived: 1 });
     addCourse('excluded', { excluded: 1 });
+    // Old stored values for the removed options are ignored.
     const opts = scheduledSyncOptions(getDb(), {
-      mastery: 'all', includeHidden: false, recentOnly: false, recentDays: 30, syncBlocks: true,
+      mastery: 'none', includeHidden: false, recentOnly: true, recentDays: 3, syncBlocks: true,
     });
     expect(opts).toEqual({
-      masteryCourseIds: [live], skipSchoology: false, includeHidden: false, recentOnly: false, recentDays: 30,
+      masteryCourseIds: [live], skipSchoology: false, includeHidden: false,
       syncBlocks: true, refreshQuizzes: true, trigger: 'scheduled',
     });
   });
@@ -53,13 +54,8 @@ describe('scheduledSyncOptions', () => {
   test('includes hidden courses only when hidden courses are included', () => {
     const live = addCourse('live');
     const hidden = addCourse('hidden', { hidden: 1 });
-    const opts = scheduledSyncOptions(getDb(), { mastery: 'all', includeHidden: true, recentOnly: true, recentDays: 7, syncBlocks: false });
-    expect(opts).toMatchObject({ masteryCourseIds: [live, hidden], includeHidden: true, recentOnly: true, recentDays: 7, syncBlocks: false });
-  });
-
-  test('mastery "none" pulls no mastery', () => {
-    addCourse('live');
-    expect(scheduledSyncOptions(getDb(), { mastery: 'none', includeHidden: false, recentOnly: false, recentDays: 30, syncBlocks: true }).masteryCourseIds).toEqual([]);
+    const opts = scheduledSyncOptions(getDb(), { includeHidden: true, syncBlocks: false });
+    expect(opts).toMatchObject({ masteryCourseIds: [live, hidden], includeHidden: true, syncBlocks: false });
   });
 });
 

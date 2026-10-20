@@ -106,6 +106,20 @@ describe('the sync queue', () => {
     runs[1].finish(); await idle();
   });
 
+  test('while its session is being checked, a run still shows as queued (a page never thinks it ended)', async () => {
+    const runs = gatedRuns();
+    let release;
+    queueDeps.sessionStatus = vi.fn(() => new Promise((r) => { release = () => r({ loggedIn: true, live: 'connected' }); }));
+    const r = enqueue({ kind: 'courses', courseIds: [a], trigger: 'page' });
+    await tick();
+    const cur = currentSync();
+    expect([cur.running?.runId, ...cur.queued.map((q) => q.runId)]).toContain(r.runId);
+    release();
+    await tick();
+    runs[0].finish();
+    await idle();
+  });
+
   test('a run whose mastery hit a sign-in error is held, and runs again after the sign-in', async () => {
     const runs = gatedRuns();
     const r = enqueue({ kind: 'courses', courseIds: [a], trigger: 'page' });

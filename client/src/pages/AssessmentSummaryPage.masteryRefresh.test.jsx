@@ -98,6 +98,15 @@ describe('AssessmentSummaryPage background sync', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
+  it('a sync that changed nothing still moves the "Synced" time (no reload of the cards)', async () => {
+    const LATER = new Date(Date.now() + 60_000).toISOString();
+    getMasteryForAssignment.mockResolvedValueOnce(page('Same', { taskSyncedAt: OLD })).mockResolvedValue(page('Same', { taskSyncedAt: LATER }));
+    ensureSync.mockResolvedValue({ state: 'running', runId: 4 });
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/^Synced \d\d:\d\d today$/)).toBeInTheDocument());
+    expect(getFeedbackForAssignment).toHaveBeenCalledTimes(1); // nothing changed in Schoology: no reload
+  });
+
   it('an archived course is not synced in the background', async () => {
     getMasteryForAssignment.mockResolvedValue(page('Done', { archived: 1 }));
     renderPage();

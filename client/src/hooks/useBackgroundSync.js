@@ -3,6 +3,7 @@ import { ensureSync, getCurrentSync, getSyncRun } from '../services/api.js';
 
 const POLL_MS = 2000;
 const FAILED = ['failed', 'completed_with_errors', 'interrupted'];
+const ACTIVE = ['queued', 'running', 'held'];
 
 // Background sync (20/10/2026): a page asks the server to sync its scope after it loads
 // (POST /api/sync/ensure: nothing when synced or tried in the last 10 minutes), then follows the
@@ -31,15 +32,21 @@ export function useBackgroundSync(scope, { onDone, pollMs = POLL_MS } = {}) {
           : (cur.queued ?? []).some((q) => q.runId === runId) ? 'queued'
           : (cur.held ?? []).some((q) => q.runId === runId) ? 'held'
           : null;
+        let state = where;
         if (!where) {
+          // Not in the queue's answer: its own record decides (it may be between two states).
           let status = 'completed';
           try { status = (await getSyncRun(runId))?.status ?? status; } catch { /* keep 'completed' */ }
           if (!live()) return;
-          setSync({ state: FAILED.includes(status) ? 'failed' : 'done', runId });
-          await onDoneRef.current?.(status, runId);
-          return;
+          if (ACTIVE.includes(status)) {
+            state = status;
+          } else {
+            setSync({ state: FAILED.includes(status) ? 'failed' : 'done', runId });
+            await onDoneRef.current?.(status, runId);
+            return;
+          }
         }
-        setSync({ state: where, runId });
+        setSync({ state, runId });
       }
       await new Promise((r) => setTimeout(r, pollMs));
       if (!live()) return;

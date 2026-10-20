@@ -177,7 +177,8 @@ function pump() {
   if (pumping) return pumping;
   pumping = (async () => {
     try {
-      while (queue.length) await runOne(queue.shift());
+      // The head stays in `queue` (so it shows as queued) until it starts or is held.
+      while (queue.length) await runOne(queue[0]);
     } finally {
       pumping = null;
     }
@@ -185,7 +186,13 @@ function pump() {
   return pumping;
 }
 
+const leaveQueue = (entry) => {
+  const i = queue.indexOf(entry);
+  if (i >= 0) queue.splice(i, 1);
+};
+
 const hold = (entry) => {
+  leaveQueue(entry);
   db().prepare(`UPDATE sync_runs SET status = 'held' WHERE id = ?`).run(entry.runId);
   held.push(entry);
   settle(entry.runId, 'held');
@@ -199,6 +206,7 @@ async function runOne(entry) {
     try { live = (await queueDeps.sessionStatus({ refresh: true }))?.live ?? 'unknown'; } catch { live = 'unknown'; }
     if (live === 'expired' || live === 'none') return hold(entry);
   }
+  leaveQueue(entry);
   running = entry;
   d.prepare(`UPDATE sync_runs SET status = 'running', started_at = ? WHERE id = ?`).run(new Date().toISOString(), runId);
   let summary = null;

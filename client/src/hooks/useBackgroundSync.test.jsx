@@ -40,6 +40,17 @@ describe('useBackgroundSync', () => {
     expect(onDone).toHaveBeenCalledWith('completed', 9);
   });
 
+  it('a run missing from one queue answer is followed until its own record says it finished', async () => {
+    api.ensureSync.mockResolvedValue({ state: 'queued', runId: 9 });
+    api.getCurrentSync.mockResolvedValue(idleQueue);
+    api.getSyncRun.mockResolvedValueOnce({ id: 9, status: 'queued' }).mockResolvedValue({ id: 9, status: 'completed' });
+    const onDone = vi.fn();
+    const { result } = renderHook(() => useBackgroundSync({ kind: 'courses', courseIds: [5] }, { onDone, pollMs: 5 }));
+    await waitFor(() => expect(result.current.state).toBe('done'));
+    expect(api.getSyncRun).toHaveBeenCalledTimes(2);
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
   it('a failed run: failed; a held run: held', async () => {
     api.ensureSync.mockResolvedValue({ state: 'running', runId: 9 });
     api.getCurrentSync.mockResolvedValue(idleQueue);

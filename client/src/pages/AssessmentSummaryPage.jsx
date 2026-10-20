@@ -2209,6 +2209,12 @@ export default function AssessmentSummaryPage() {
     const step = afterRefresh(dataRef.current, next, pendingRef.current);
     if (step === 'ask') setNewerInSchoology(true);
     else if (step === 'reload') load({ quiet: true });
+    // The label follows every sync, even one that changed nothing on the cards (or one waiting on
+    // a save): only the task's sync times and removal are taken over here.
+    if (next?.assignment && step !== 'reload') {
+      const { task_synced_at: taskSyncedAt, task_sync_attempted_at: attemptedAt, removed_at: removedAt } = next.assignment;
+      setData((d) => (d ? { ...d, assignment: { ...d.assignment, task_synced_at: taskSyncedAt, task_sync_attempted_at: attemptedAt, removed_at: removedAt } } : d));
+    }
   }
   const backgroundSync = useBackgroundSync(
     data && !data.course?.archived ? { kind: 'task', courseId: Number(courseId), assignmentId: String(assignmentId) } : null,

@@ -115,6 +115,11 @@ export async function getSectionAssignments(sectionId) {
   return paginateGet(`/sections/${sectionId}/assignments`, 'assignment');
 }
 
+// One task's REST record (verified: same fields as the section list; 404 once deleted).
+export async function getSectionAssignment(sectionId, assignmentId) {
+  return apiGet(`/sections/${sectionId}/assignments/${assignmentId}`);
+}
+
 export async function getSectionGrades(sectionId) {
   // Returns flat array from grades.grade[]
   const data = await apiGet(`/sections/${sectionId}/grades`);

@@ -131,12 +131,18 @@ For a planned restart (e.g. macOS updates) skip the prompt once with
 ## Scheduled sync
 
 Prod runs a full sync by itself every day (default **03:00**, mini local time).
-Between syncs, the dashboard, course and assessment pages read what they show from
-Schoology after they load (mastery #52; submissions and scores #108).
-By hand: **Sync Courses** (sidebar, the ticked courses), **Sync Course** (course page) and
-**Sync Assignment** (assessment page) each sync everything in their scope (#58); each page shows
-"Synced HH:MM" for its last full sync.
-Time, mastery, blocks, hidden courses and the recent-only window are set in
+Every sync reads everything (Schoology data, every submission, comment threads, mastery);
+there is no partial sync (20/10/2026). All syncs go through one queue on the server, one at a
+time (`server/services/syncQueue.js`):
+- **Background:** the dashboard, course, assessment and student pages sync their scope after
+  they load when it was last synced (or tried) over 10 minutes ago; a chip beside the "Synced"
+  time opens the progress.
+- **By hand:** **Sync Courses** (sidebar or dashboard), **Sync Course** (course page) and
+  **Sync Assignment** (assessment page) queue a sync now, ahead of the pages' own.
+- **Session down:** a sync is held (nothing read) and the pages show **Log in to Schoology**;
+  the sign-in in Settings runs the held syncs. The nightly run is never held.
+
+Time, PowerSchool blocks and hidden courses are set in
 **Settings → Scheduled sync**, which also shows the next run and how the last
 one went; each run appears in Recent syncs labelled *Scheduled*. It is armed
 only where the server agent sets `PRISM_SCHEDULED_SYNC=1` (`scripts/deploy/launchd.js`),
@@ -158,10 +164,9 @@ signed in (about 5 s). The new cookies are saved to `storage-state.json` and the
 again. A sign-in is needed only when Microsoft itself asks for one (its remembered
 sign-in has lapsed); then the session shows *Expired* and the steps below apply.
 
-Mastery sync and the pages' mastery refresh (#52), the pages' OneDrive and test-attempt
-reads (#108; native dropbox submissions and grades are read without it), OneDrive links, the Ask
-modal's "unsubmit their OneDrive work" option, FRQ and mastery write-back need the
-saved session; the rest of the app keeps working. No server path opens a browser
+Every sync except the nightly run waits for a live session (see Scheduled sync). OneDrive
+links, the Ask modal's "unsubmit their OneDrive work" option, FRQ and mastery write-back need
+the saved session too; the rest of the app keeps working. No server path opens a browser
 any more except the sign-in itself (#141). **Settings →
 Schoology connection** shows whether it is live (*Connected · checked HH:MM* /
 *Expired* / *Not set up*, re-checked at most every 10 minutes, or on *Check now*).

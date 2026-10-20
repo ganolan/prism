@@ -2,10 +2,9 @@ import { Router } from 'express';
 import { getDb } from '../db/index.js';
 import { getGradingScalesMap } from '../db/scales.js';
 import { apiGet } from '../services/schoology.js';
-import { finalizeArchivedCourse, enrichStudentProfiles } from '../services/sync.js';
 import { openRequestKeys, arrivedKeys } from '../services/resubmissions.js';
 import { getArchivedSections } from '../services/archivedCourses.js';
-import { syncPsAttendance } from '../services/psAttendanceSync.js';
+import { importArchivedCourse } from '../services/archivedImport.js';
 import { getSchoologyConfig, getFeatures } from '../middleware/featureGate.js';
 import { psAlertsByStudent } from '../services/psAlertStore.js';
 import { forRoster } from '../lib/psAlerts.js';
@@ -297,60 +296,14 @@ router.get('/:id/gradebook', (req, res) => {
   res.json({ assignments: filteredAssignments, students, grades: gradeMap, timelines: timelineMap, folders, grading_scales: getGradingScalesMap() });
 });
 
-// POST /api/courses/import — fetch a past course from Schoology and sync it
+// POST /api/courses/import — fetch a past course from Schoology and sync it (importArchivedCourse;
+// the background import of past courses runs the same import through the queue, #171).
 router.post('/import', async (req, res) => {
   const { sectionId } = req.body;
   if (!sectionId) return res.status(400).json({ error: 'sectionId required' });
 
   try {
-    const [sec, periodsData] = await Promise.all([
-      apiGet(`/sections/${sectionId}`),
-      apiGet(`/sections/${sectionId}/grading_periods`),
-    ]);
-
-    const gradingPeriod = periodsData?.grading_period?.[0]?.title || null;
-    const now = new Date().toISOString();
-    const db = getDb();
-
-    db.prepare(`
-      INSERT INTO courses (schoology_section_id, course_name, section_name, course_code, section_school_code, grading_period, archived, synced_at)
-      VALUES (?, ?, ?, ?, ?, ?, 1, ?)
-      ON CONFLICT(schoology_section_id) DO UPDATE SET
-        course_name = excluded.course_name,
-        section_name = excluded.section_name,
-        course_code = excluded.course_code,
-        section_school_code = excluded.section_school_code,
-        grading_period = excluded.grading_period,
-        archived = 1,
-        synced_at = excluded.synced_at
-    `).run(
-      String(sec.id), sec.course_title, sec.section_title,
-      sec.course_code || null, sec.section_school_code || null,
-      gradingPeriod, now
-    );
-
-    const courseRow = db.prepare('SELECT * FROM courses WHERE schoology_section_id = ?').get(String(sec.id));
-    const { studentsCount, assignmentsCount, gradesCount } =
-      await finalizeArchivedCourse(db, { courseId: courseRow.id, sectionId: String(sec.id), now, runMastery: true });
-    // Bring the imported section's students to full parity (email + guardians).
-    const sectionStudents = db.prepare(`
-      SELECT s.id, s.schoology_uid FROM students s
-      JOIN enrolments e ON e.student_id = s.id
-      WHERE e.course_id = ? AND s.schoology_uid IS NOT NULL AND e.dropped_at IS NULL
-    `).all(courseRow.id);
-    await enrichStudentProfiles(db, sectionStudents, now);
-
-    // #106: best-effort resolve this archived course's PowerSchool block number
-    // at import time (the regular sync only covers active courses). Only
-    // current-year sections resolve; prior-year ones skip. Never fails the import.
-    try {
-      await syncPsAttendance({ courseIds: [courseRow.id] });
-    } catch (err) {
-      console.warn(`[import] block-number resolve failed for ${courseRow.course_name}: ${err.message}`);
-    }
-
-    const importedCourse = db.prepare('SELECT * FROM courses WHERE id = ?').get(courseRow.id);
-    res.json({ course: importedCourse, studentsCount, assignmentsCount, gradesCount });
+    res.json(await importArchivedCourse(getDb(), sectionId));
   } catch (err) {
     if (err.message.includes('403')) return res.status(403).json({ error: 'Section not accessible: check the section ID and try again' });
     if (err.message.includes('404')) return res.status(404).json({ error: 'Section not found: check the section ID and try again' });

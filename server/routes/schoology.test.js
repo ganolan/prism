@@ -25,6 +25,7 @@ import router from './schoology.js';
 import { getDb } from '../db/index.js';
 import { queueDeps, resetQueue, idle } from '../services/syncQueue.js';
 import { recordNightlyDataRead } from '../services/nightlyData.js';
+import { PAST_IMPORT_KEY, markPastImportDue } from '../services/pastImport.js';
 
 function startServer() {
   const app = express();
@@ -139,6 +140,19 @@ describe('POST /api/sync (the queue, background sync)', () => {
       expect((await api(port, 'GET', '/api/sync/status')).body.nightlyData).toEqual({ readAt: '2026-10-20T03:00:00.000Z', nightly: false });
     } finally {
       server.close();
+    }
+  });
+
+  test('#171: GET /sync/status carries pastImport: the background import of past courses', async () => {
+    getDb().prepare(`DELETE FROM settings WHERE key = ?`).run(PAST_IMPORT_KEY);
+    const { server, port } = startServer();
+    try {
+      expect((await api(port, 'GET', '/api/sync/status')).body.pastImport).toEqual({ state: 'none', done: 0, total: 0 });
+      markPastImportDue(getDb());
+      expect((await api(port, 'GET', '/api/sync/status')).body.pastImport).toEqual({ state: 'waiting', done: 0, total: 0 });
+    } finally {
+      server.close();
+      getDb().prepare(`DELETE FROM settings WHERE key = ?`).run(PAST_IMPORT_KEY);
     }
   });
 

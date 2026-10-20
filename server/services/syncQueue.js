@@ -9,6 +9,7 @@
 //               refreshQuizzes?, trigger: 'page' | 'button' | 'scheduled', force?,
 //               sessionCheckedAt?, sessionLive? }
 //             | { kind: 'quiz', groupId, trigger: 'button', noHold: true }   (quizLoadRun.js)
+//             | { kind: 'import', sectionId, trigger: 'page' }   (archivedImportRun.js, #171)
 //
 // Joining: a request whose courses (and options: PowerSchool, quizzes, hidden courses) a queued,
 // running or held request already covers joins it instead of queueing twice. A forced request (a
@@ -24,6 +25,14 @@
 // queued or running load of the same group, and covers no course or task. It records no attempt
 // stamp. `noHold`: a caller is waiting on it, so a lapsed session ends it failed (a NO_SESSION
 // summary) instead of holding it.
+// A past course's import (kind 'import', #171: pastImport.js queues one per archived section, one
+// at a time, so page syncs interleave) likewise covers no course: it joins only an import of the
+// same section, and nothing else joins it. It records no attempt stamp. A held one (the session
+// lapsed) runs again after a sign-in like any held run.
+//
+// onRunFinished(listener) hears every run that finished (not one held for a sign-in) with its
+// request and final status; pastImport.js uses it to queue the next section. A listener never
+// breaks the queue: what it throws (or rejects with) is logged.
 //
 // Everything or nothing (Graham, 20/10/2026): before a request that reads Schoology starts, the
 // session is checked (renewed when possible). 'expired' or 'none' holds it until a sign-in
@@ -37,21 +46,44 @@ import { appendEvent, finishRun, pruneRuns, KEEP_RUNS } from './syncRuns.js';
 import { sessionStatus } from './schoologySession.js';
 import { runTaskSync } from './taskSyncRun.js';
 import { runQuizLoad } from './quizLoadRun.js';
+import { runPastImport } from './archivedImportRun.js';
 
 export const SYNC_FRESH_MS = 10 * 60 * 1000;
 // A session check this recent (a caller's own, carried on the request) is not made again.
 export const SESSION_CHECK_MS = 60_000;
 
-export const queueDeps = { sessionStatus, runUnifiedSync, runTaskSync, runQuizLoad, getDb };
+export const queueDeps = { sessionStatus, runUnifiedSync, runTaskSync, runQuizLoad, runPastImport, getDb };
 
 let running = null; // { runId, request, covered }
 let queue = []; // [{ runId, request, covered }]
 let held = []; // [{ runId, request, covered }]
 let pumping = null; // the promise of the current pump loop
 const waiters = new Map(); // runId → [resolve(finalStatus)]
+const finishedListeners = new Set(); // (request, status) => void
 
+// Also drops the onRunFinished listeners, so a test never leaks one into the next.
 export function resetQueue() {
-  running = null; queue = []; held = []; pumping = null; waiters.clear();
+  running = null; queue = []; held = []; pumping = null; waiters.clear(); finishedListeners.clear();
+}
+
+// Hear every run that finished (not one held for a sign-in): listener(request, finalStatus).
+// → unsubscribe.
+export function onRunFinished(listener) {
+  finishedListeners.add(listener);
+  return () => finishedListeners.delete(listener);
+}
+
+function announceFinished(request, status) {
+  for (const listener of [...finishedListeners]) {
+    try {
+      const result = listener(request, status);
+      if (typeof result?.catch === 'function') {
+        result.catch((err) => console.error('[sync] A finished-run listener failed:', err?.message ?? err));
+      }
+    } catch (err) {
+      console.error('[sync] A finished-run listener failed:', err?.message ?? err);
+    }
+  }
 }
 
 // Resolves with the run's final status once it finishes (or 'held'). A caller that stops waiting
@@ -91,7 +123,7 @@ const db = () => queueDeps.getDb();
 export function coveredCourseIds(request) {
   if (request.skipSchoology) return [];
   if (request.kind === 'courses') return (request.courseIds ?? []).map(Number);
-  if (request.kind === 'task' || request.kind === 'quiz') return [];
+  if (request.kind === 'task' || request.kind === 'quiz' || request.kind === 'import') return [];
   return currentCourseIds(db(), { includeHidden: !!request.includeHidden });
 }
 
@@ -109,6 +141,9 @@ function covers(entry, request) {
   if (entry.request.skipSchoology) return false;
   if (request.kind === 'quiz' || entry.request.kind === 'quiz') {
     return request.kind === entry.request.kind && String(request.groupId) === String(entry.request.groupId);
+  }
+  if (request.kind === 'import' || entry.request.kind === 'import') {
+    return request.kind === entry.request.kind && String(request.sectionId) === String(entry.request.sectionId);
   }
   const have = extras(entry.request);
   const want = extras(request);
@@ -141,7 +176,8 @@ function unifiedOptions(request, covered) {
 
 const view = (e) => e && { runId: e.runId, kind: e.request.kind, courseIds: e.covered, trigger: e.request.trigger,
   ...(e.request.kind === 'task' ? { courseId: Number(e.request.courseId), assignmentId: String(e.request.assignmentId) } : {}),
-  ...(e.request.kind === 'quiz' ? { groupId: Number(e.request.groupId) } : {}) };
+  ...(e.request.kind === 'quiz' ? { groupId: Number(e.request.groupId) } : {}),
+  ...(e.request.kind === 'import' ? { sectionId: String(e.request.sectionId) } : {}) };
 
 // What is syncing now, what waits, and what waits for a sign-in. `running`/`runId` stay for older callers.
 export function currentSync() {
@@ -220,8 +256,8 @@ function lastFailedRun(d, { courseIds = [], task = null }) {
     let o = {};
     try { o = JSON.parse(r.options_json || '{}'); } catch { o = {}; }
     if (task && o.kind === 'task' && String(o.assignmentId) === String(task.assignmentId)) return r.id;
-    // A task or quiz run is not a course's sync: its failure is not the course's (#170).
-    if (o.kind === 'task' || o.kind === 'quiz') continue;
+    // A task, quiz or import run is not a course's sync: its failure is not the course's (#170, #171).
+    if (o.kind === 'task' || o.kind === 'quiz' || o.kind === 'import') continue;
     const ids = (o.coveredCourseIds ?? o.courseIds ?? []).map(Number);
     if (courseIds.some((id) => ids.includes(id))) return r.id;
   }
@@ -334,6 +370,7 @@ function failNoSession(d, entry, live) {
     console.error('[sync] Could not finish the sync run:', err.message);
   }
   settle(entry.runId, 'failed');
+  announceFinished(entry.request, 'failed');
 }
 
 // Every run records when its scope was last tried, whatever the outcome (a run that threw too), so
@@ -381,6 +418,7 @@ async function runOne(entry) {
   try {
     if (request.kind === 'task') await queueDeps.runTaskSync(request, write);
     else if (request.kind === 'quiz') await queueDeps.runQuizLoad(request, write);
+    else if (request.kind === 'import') await queueDeps.runPastImport(request, write);
     else await queueDeps.runUnifiedSync(unifiedOptions(request, entry.covered), write);
     if (summary?.fatal) status = 'failed';
   } catch (err) {
@@ -390,7 +428,7 @@ async function runOne(entry) {
   } finally {
     running = null;
   }
-  if (!request.skipSchoology && request.kind !== 'quiz') recordAttempt(d, entry);
+  if (!request.skipSchoology && request.kind !== 'quiz' && request.kind !== 'import') recordAttempt(d, entry);
   const signInLost = (summary?.mastery ?? []).some((m) => m.errorKind === 'login') || summary?.signIn === true;
   if (signInLost && request.trigger !== 'scheduled') {
     hold(entry);
@@ -402,5 +440,7 @@ async function runOne(entry) {
   } catch (err) {
     console.error('[sync] Could not finish the sync run:', err.message);
   }
-  settle(runId, d.prepare('SELECT status FROM sync_runs WHERE id = ?').get(runId)?.status ?? status);
+  const final = d.prepare('SELECT status FROM sync_runs WHERE id = ?').get(runId)?.status ?? status;
+  settle(runId, final);
+  announceFinished(request, final);
 }

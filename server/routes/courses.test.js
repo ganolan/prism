@@ -5,20 +5,15 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 vi.mock('../services/archivedCourses.js', () => ({ getArchivedSections: vi.fn() }));
 vi.mock('../services/schoology.js', () => ({ apiGet: vi.fn(), apiPut: vi.fn() }));
-vi.mock('../services/sync.js', () => ({
-  finalizeArchivedCourse: vi.fn().mockResolvedValue({ studentsCount: 1, assignmentsCount: 2, gradesCount: 3 }),
-  enrichStudentProfiles: vi.fn().mockResolvedValue(1),
-}));
-// Mock the Playwright-backed block service so the import test never launches a
-// browser / hits the network — and so we can assert block-on-import (#106).
-vi.mock('../services/psAttendanceSync.js', () => ({ syncPsAttendance: vi.fn().mockResolvedValue({ processed: 1, updated: 1, unchanged: 0, skipped: 0, results: [] }) }));
+// The import itself (finalise, enrich, block resolve) is tested in services/archivedImport.test.js;
+// here only the route's answers.
+vi.mock('../services/archivedImport.js', () => ({ importArchivedCourse: vi.fn() }));
 
 import router from './courses.js';
 import { getDb } from '../db/index.js';
 import { getArchivedSections } from '../services/archivedCourses.js';
 import { apiGet, apiPut } from '../services/schoology.js';
-import { finalizeArchivedCourse, enrichStudentProfiles } from '../services/sync.js';
-import { syncPsAttendance } from '../services/psAttendanceSync.js';
+import { importArchivedCourse } from '../services/archivedImport.js';
 import { requestResubmission } from '../services/resubmissions.js';
 import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
 
@@ -390,42 +385,31 @@ describe('GET /api/courses/archived/discover', () => {
   });
 });
 
-describe('POST /api/courses/import — finalise + enrich (#70)', () => {
-  test('imports an archived course, finalising (mastery) and enriching its students', async () => {
-    apiGet.mockReset();
-    apiGet.mockImplementation((p) =>
-      p.endsWith('/grading_periods')
-        ? Promise.resolve({ grading_period: [{ title: 'Semester 1: 08/14/2024 - 01/11/2025' }] })
-        : Promise.resolve({ id: 'sec-9', course_title: 'Old Bio', section_title: 'A', course_code: 'BIO', active: 0 }));
-    finalizeArchivedCourse.mockClear();
-    enrichStudentProfiles.mockClear();
-    syncPsAttendance.mockClear();
+describe('POST /api/courses/import (#70; the import is importArchivedCourse, #171)', () => {
+  beforeEach(() => { importArchivedCourse.mockReset(); });
 
+  test('answers the imported course and its counts', async () => {
+    importArchivedCourse.mockResolvedValue({ course: { id: 9, course_name: 'Old Bio' }, studentsCount: 1, assignmentsCount: 2, gradesCount: 3 });
     const res = await post('/api/courses/import', { sectionId: 'sec-9' });
-
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ studentsCount: 1, assignmentsCount: 2, gradesCount: 3 });
-    expect(finalizeArchivedCourse).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ sectionId: 'sec-9', runMastery: true }),
-    );
-    expect(enrichStudentProfiles).toHaveBeenCalledWith(expect.anything(), expect.any(Array), expect.any(String));
-    // #106: the import resolves the new course's block number (best-effort).
-    const imported = getDb().prepare("SELECT id FROM courses WHERE schoology_section_id = 'sec-9'").get();
-    expect(syncPsAttendance).toHaveBeenCalledWith(expect.objectContaining({ courseIds: [imported.id] }));
+    expect(res.body).toEqual({ course: { id: 9, course_name: 'Old Bio' }, studentsCount: 1, assignmentsCount: 2, gradesCount: 3 });
+    expect(importArchivedCourse).toHaveBeenCalledWith(getDb(), 'sec-9');
   });
 
-  test('a block-resolve failure does not fail the import (best-effort)', async () => {
-    apiGet.mockReset();
-    apiGet.mockImplementation((p) =>
-      p.endsWith('/grading_periods')
-        ? Promise.resolve({ grading_period: [{ title: 'S1' }] })
-        : Promise.resolve({ id: 'sec-x', course_title: 'Old X', section_title: 'A', course_code: 'X', active: 0 }));
-    syncPsAttendance.mockRejectedValueOnce(new Error('PowerSchool session stale'));
+  test('400 without a sectionId', async () => {
+    const res = await post('/api/courses/import', {});
+    expect(res).toEqual({ status: 400, body: { error: 'sectionId required' } });
+    expect(importArchivedCourse).not.toHaveBeenCalled();
+  });
 
-    const res = await post('/api/courses/import', { sectionId: 'sec-x' });
-    expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ studentsCount: 1 });
+  test.each([
+    ['Schoology API 403: Forbidden', 403, 'Section not accessible: check the section ID and try again'],
+    ['Schoology API 404: Not Found', 404, 'Section not found: check the section ID and try again'],
+    ['database is locked', 500, 'database is locked'],
+  ])('an import that throws "%s" answers %i', async (message, status, error) => {
+    importArchivedCourse.mockRejectedValue(new Error(message));
+    const res = await post('/api/courses/import', { sectionId: 'sec-9' });
+    expect(res).toEqual({ status, body: { error } });
   });
 });
 

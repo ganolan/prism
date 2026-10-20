@@ -36,8 +36,9 @@ describe('describeOptions', () => {
       .toBe('Scheduled · Schoology · blocks · 1 mastery course');
   });
 
-  it('labels a quiz load and the task runs by their kind (#131)', () => {
+  it('labels a quiz load, a past course import and the task runs by their kind (#131, #171)', () => {
     expect(describeOptions({ kind: 'quiz', groupId: 7, trigger: 'button', noHold: true })).toBe('Quiz results load');
+    expect(describeOptions({ kind: 'import', sectionId: '7001', trigger: 'page' })).toBe('Past course import');
     expect(describeOptions({ kind: 'task', courseId: 1, assignmentId: 'A1', trigger: 'button' })).toBe('Sync Assignment');
     expect(describeOptions({ kind: 'task', courseId: 1, assignmentId: 'A1', grading: true, trigger: 'button' })).toBe('Grading sync');
     expect(describeOptions({ kind: 'courses', courseIds: [1], trigger: 'page' })).toBe('Schoology');

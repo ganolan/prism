@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../db/index.js';
-import { enqueue, currentSync, resumeHeld, queueDeps, resetQueue, idle, ensure, whenDone, waiterCount, SYNC_FRESH_MS } from './syncQueue.js';
+import { enqueue, currentSync, resumeHeld, queueDeps, resetQueue, idle, ensure, whenDone, waiterCount, onRunFinished, SYNC_FRESH_MS } from './syncQueue.js';
 import { markInterruptedRuns } from './syncRuns.js';
 
 // A controllable run: each started run waits until the test finishes it.
@@ -434,6 +434,95 @@ describe('the sync queue', () => {
       const r = enqueue(quiz);
       await idle();
       expect(status(r.runId)).toBe('completed');
+    });
+  });
+
+  describe('past course imports (#171)', () => {
+    const imp = (sectionId) => ({ kind: 'import', sectionId, trigger: 'page' });
+    beforeEach(() => { queueDeps.runPastImport = vi.fn(async (request, emit) => emit({ type: 'summary', import: {} })); });
+
+    test('an import request covers nothing and joins only an import of the same section', async () => {
+      const runs = gatedRuns();
+      enqueue({ kind: 'courses', courseIds: [a], trigger: 'page', force: true });
+      await tick();
+      const x = enqueue(imp('9001'));
+      expect(enqueue(imp('9001'))).toMatchObject({ runId: x.runId, joined: true });
+      expect(enqueue(imp('9002')).joined).toBe(false);
+      // A course request is not covered by an import, nor an import by a course run.
+      const all = enqueue({ kind: 'all', trigger: 'page' });
+      expect([x.runId]).not.toContain(all.runId);
+      expect(currentSync().queued.map((q) => [q.kind, q.sectionId ?? null, q.courseIds]))
+        .toEqual([['import', '9001', []], ['import', '9002', []], ['all', null, [a, b]]]);
+      runs[0].finish();
+      while (runs.length < 2) await tick();
+      runs[1].finish();
+      await idle();
+    });
+
+    test('an import run records no attempt stamp and runs through queueDeps.runPastImport', async () => {
+      const r = enqueue(imp('9001'));
+      await idle();
+      expect(queueDeps.runPastImport).toHaveBeenCalledWith(expect.objectContaining({ kind: 'import', sectionId: '9001' }), expect.any(Function));
+      expect(status(r.runId)).toBe('completed');
+      expect(getDb().prepare('SELECT COUNT(*) n FROM courses WHERE sync_attempted_at IS NOT NULL').get().n).toBe(0);
+    });
+
+    test('onRunFinished fires once per finished run with its request and status, not for a held run', async () => {
+      const seen = [];
+      const stop = onRunFinished((request, s) => seen.push([request.kind, request.sectionId, s]));
+      try {
+        queueDeps.runPastImport = vi.fn(async () => { throw new Error('boom'); });
+        enqueue(imp('9001'));
+        await idle();
+        expect(seen).toEqual([['import', '9001', 'failed']]);
+
+        queueDeps.sessionStatus.mockResolvedValueOnce({ loggedIn: true, live: 'expired' });
+        const held = enqueue(imp('9002'));
+        await idle();
+        expect(status(held.runId)).toBe('held');
+        expect(seen).toHaveLength(1);
+
+        queueDeps.runPastImport = vi.fn(async (request, emit) => emit({ type: 'summary', import: {} }));
+        resumeHeld();
+        await idle();
+        expect(seen).toEqual([['import', '9001', 'failed'], ['import', '9002', 'completed']]);
+      } finally {
+        stop();
+      }
+      enqueue(imp('9003'));
+      await idle();
+      expect(seen).toHaveLength(2);
+    });
+
+    test('a listener that throws (or rejects) never breaks the queue', async () => {
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const stops = [
+        onRunFinished(() => { throw new Error('listener broke'); }),
+        onRunFinished(async () => { throw new Error('listener rejected'); }),
+      ];
+      const later = vi.fn();
+      stops.push(onRunFinished(later));
+      try {
+        const first = enqueue(imp('9001'));
+        const second = enqueue(imp('9002'));
+        await idle();
+        await tick();
+        expect(status(first.runId)).toBe('completed');
+        expect(status(second.runId)).toBe('completed');
+        expect(later).toHaveBeenCalledTimes(2);
+      } finally {
+        stops.forEach((s) => s());
+        errors.mockRestore();
+      }
+    });
+
+    test('resetQueue drops the listeners (tests never leak them)', async () => {
+      const listener = vi.fn();
+      onRunFinished(listener);
+      resetQueue();
+      enqueue(imp('9001'));
+      await idle();
+      expect(listener).not.toHaveBeenCalled();
     });
   });
 

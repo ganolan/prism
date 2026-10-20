@@ -4,10 +4,10 @@
 //      getEvents(runId, afterSeq) from the last seq they saw; the run carries on
 //      server-side whether or not anyone is following it.
 //   2. History: Settings → Recent syncs lists the newest runs and their logs. pruneRuns
-//      keeps KEEP_RUNS full syncs and KEEP_RUNS task/quiz runs, counted separately.
+//      keeps KEEP_RUNS full syncs and KEEP_RUNS task/quiz/import runs, counted separately.
 // Event shapes are the orchestrator's (see syncOrchestrator.js).
 
-// Per group: full syncs and task/quiz runs are each kept to this many (see pruneRuns).
+// Per group: full syncs and task/quiz/import runs are each kept to this many (see pruneRuns).
 export const KEEP_RUNS = 30;
 const LIST_DEFAULT = KEEP_RUNS * 2;
 
@@ -110,15 +110,17 @@ export function isFinished(status) {
   return FINISHED.includes(status);
 }
 
-// A task or quiz run (kind 'task' / 'quiz') is a small, frequent request; everything else
-// is a full sync. A row whose options_json cannot be read counts as a full run.
+// A task, quiz or past-course import run (kind 'task' / 'quiz' / 'import') is a small,
+// frequent request; everything else is a full sync. A row whose options_json cannot be read
+// counts as a full run.
+const SMALL_KINDS = ['task', 'quiz', 'import'];
 function isSmallRun(optionsJson) {
   const o = parse(optionsJson);
-  return o != null && typeof o === 'object' && (o.kind === 'task' || o.kind === 'quiz');
+  return o != null && typeof o === 'object' && SMALL_KINDS.includes(o.kind);
 }
 
-// Keep the newest `keep` full runs and, counted separately, the newest `keep` task and
-// quiz runs; delete older runs and their events. Grading and quiz runs are frequent, so
+// Keep the newest `keep` full runs and, counted separately, the newest `keep` task, quiz
+// and import runs; delete older runs and their events. Grading and quiz runs are frequent, so
 // one shared cap would push full syncs out of Settings → Recent syncs within a day.
 export function pruneRuns(db, keep = KEEP_RUNS) {
   db.transaction(() => {

@@ -1,7 +1,8 @@
 /**
  * schoolYear.js — read a school year and term out of a Schoology grading-period
  * title (`courses.grading_period`), so a student's history can be grouped by
- * year without a schema change.
+ * year without a schema change. academicYearStart (below) orders the background
+ * import of past courses by year, by the client's rules (#171).
  *
  * Formats seen in the HKIS archive (2026-10-08, every archived section from
  * 2021-22 to 2026-27):
@@ -50,4 +51,28 @@ export function schoolYearOf(gradingPeriod) {
   const t = String(gradingPeriod ?? '').trim();
   const school_year = t ? yearFromTitle(t) : null;
   return { school_year, term: school_year ? termFromTitle(t) : null };
+}
+
+/**
+ * The year a school year starts in, for ordering past courses newest first (#171's background
+ * import). Twin of parseAcademicYear in client/src/lib/courseDisplay.js, which groups the Archived
+ * tab by year: the same rules, so the import goes through the tab's years in order. A 4-digit
+ * range, then an `NN-NN` range, then a date (month 8 or later starts that school year, an earlier
+ * month belongs to the year before). Unlike schoolYearOf, July belongs to the year before.
+ * @param {string|null} gradingPeriod
+ * @returns {number|null}
+ */
+export function academicYearStart(gradingPeriod) {
+  const s = String(gradingPeriod ?? '');
+  let m = s.match(/(20\d{2})\s*-\s*20\d{2}/);
+  if (m) return Number(m[1]);
+  m = s.match(/\b(\d{2})-\d{2}\b/);
+  if (m) return 2000 + Number(m[1]);
+  m = s.match(/(\d{1,2})\/\d{1,2}\/(\d{2,4})/);
+  if (m) {
+    const raw = Number(m[2]);
+    const year = raw < 100 ? 2000 + raw : raw;
+    return Number(m[1]) >= 8 ? year : year - 1;
+  }
+  return null;
 }

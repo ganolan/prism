@@ -147,6 +147,22 @@ describe('sync runs', () => {
     }
   });
 
+  test('#171: a past-course import run counts with the small runs', () => {
+    const mk = (options) => {
+      const id = startRun(db(), options);
+      finishRun(db(), id, { status: 'completed' });
+      return id;
+    };
+    const full = mk({ kind: 'all' });
+    const imports = [];
+    for (let i = 0; i < 4; i++) imports.push(mk({ kind: 'import', sectionId: String(i) }));
+    pruneRuns(db(), 3);
+    const left = new Set(listRuns(db(), { limit: 200 }).map((r) => r.id));
+    expect(left.has(full)).toBe(true);
+    expect(left.has(imports[0])).toBe(false);
+    for (const id of imports.slice(1)) expect(left.has(id)).toBe(true);
+  });
+
   test('#170: a run whose options_json cannot be read counts as a full sync', () => {
     const ids = [];
     for (let i = 0; i < 4; i++) {

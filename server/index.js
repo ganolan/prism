@@ -31,6 +31,7 @@ import { getScaleTable, schoologyScaleId } from './lib/proficiencyScale.js';
 import { resolveHost, resolvePort } from './lib/listenConfig.js';
 import { resolveVersion } from './lib/version.js';
 import { markInterruptedRuns } from './services/syncRuns.js';
+import { startPastImport } from './services/pastImport.js';
 import { startSyncScheduler } from './services/syncScheduler.js';
 import { seedFeedbackSnapshotsIfEmpty } from './services/feedbackSnapshots.js';
 
@@ -124,6 +125,9 @@ app.listen(PORT, HOST, () => {
   // a dev copy pointed at the same DB) must not interrupt the live one's run.
   const interrupted = markInterruptedRuns(getDb());
   if (interrupted) console.log(`[sync] Marked ${interrupted} unfinished sync run(s) as interrupted`);
+  // The background import of past courses (#171): continues after each import run, starts after
+  // the first run's kind 'all' run, and resumes an import this restart cut off.
+  startPastImport({ db: getDb() });
   // Nightly scheduled sync (Settings → Scheduled sync). Armed only where the prod
   // launchd agent sets PRISM_SCHEDULED_SYNC=1 — dev clones carry prod's settings
   // in their copied database and must not sync on their own.

@@ -16,6 +16,8 @@ export function parseGradingPeriod(gradingPeriod) {
 // Derive a canonical "YYYY-YY" academic year, preferring the most reliable
 // signal: an explicit 4-digit range, then an abbreviated range, then a date
 // (month >= 8 ⇒ that's the start year). Tolerant of single-digit months.
+// Twin: academicYearStart in server/lib/schoolYear.js orders the background import of past
+// courses by these rules (#171); change both together.
 function parseAcademicYear(s) {
   let m = s.match(/(20\d{2})\s*-\s*20\d{2}/);
   if (m) { const start = Number(m[1]); return `${start}-${String(start + 1).slice(-2)}`; }

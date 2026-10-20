@@ -42,6 +42,10 @@ const app = express();
 // No CORS headers: other sites cannot read Prism's answers. originGuard refuses
 // writes sent from another site's page.
 app.use('/api', originGuard({ allowed: getServerConfig().allowedOrigins }));
+// PrisMCP over HTTP (#131), mounted before the general parser below: /mcp parses its own
+// bodies (up to 25 MB, a tool call can carry a rubric or a batch of suggestions). A server that
+// is not a deployed release is a dev copy: its tools say so and refuse Schoology writes.
+mountMcp(app, { allowedOrigins: getServerConfig().allowedOrigins, devCopy: resolveVersion().mode !== 'release' });
 // A submission comment with a file carries it as base64 (up to 15 MB), past the
 // default 100 KB; parsed here first, so the general parser below skips it.
 app.use('/api/submission-comments', express.json({ limit: '25mb' }));
@@ -72,10 +76,6 @@ app.use('/api/triage', triageRouter);
 app.use('/api/quizzes', quizzesRouter);
 app.use('/api/submission-comments', submissionCommentsRouter);
 app.use('/api/submission-files', submissionFilesRouter);
-
-// PrisMCP over HTTP (#131). A server that is not a deployed release is a dev copy: its tools
-// say so and refuse Schoology writes.
-mountMcp(app, { allowedOrigins: getServerConfig().allowedOrigins, devCopy: resolveVersion().mode !== 'release' });
 
 // Feature flags endpoint
 app.get('/api/features', (req, res) => {

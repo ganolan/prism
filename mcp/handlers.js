@@ -385,8 +385,9 @@ export function setMakeupTrackingTool(db, { assignment_id, tracked } = {}) {
   return setMakeUpIgnored(db, assignment_id, typeof tracked === 'boolean' ? !tracked : tracked);
 }
 
-// The server's schoology client reads its credentials from the environment at import
-// (server/index.js loads .env first). A tool that reads or writes the student's Schoology
+// The schoology client reads its credentials from the environment at import. The server loads
+// .env first (server/index.js); the stdio entry (mcp/server.js main, until it is removed) loads
+// none, so they must be in its MCP env block. A tool that reads or writes the student's Schoology
 // comment (preview_status_line, comment_line, remove_line) needs them, checked at call time
 // so a missing one is named plainly (final review I3) instead of surfacing as a failed read.
 const SCHOOLOGY_ENV = ['SCHOOLOGY_BASE_URL', 'SCHOOLOGY_CONSUMER_KEY', 'SCHOOLOGY_CONSUMER_SECRET'];
@@ -511,7 +512,9 @@ export async function undoExtensionTool(db, { id, remove_line } = {}, { devCopy 
 // `unsubmit` says what happened and links Schoology's own Unsubmit button.
 export async function requestResubmissionTool(db, { student_id, assignment_id, lessons, note, comment_line, unsubmit } = {}, { unsubmitOpts, devCopy = false } = {}) {
   const doUnsubmit = unsubmit ?? unsubmitAvailable(db, { studentId: student_id, assignmentId: assignment_id });
-  if (hasLine(comment_line) || doUnsubmit === true) assertSchoologyWritable({ devCopy });
+  // The LTI unsubmit rides the saved web session, not the API keys: only a comment_line needs those.
+  if (hasLine(comment_line)) assertSchoologyWritable({ devCopy });
+  else if (devCopy && doUnsubmit === true) assertSchoologyWritable({ devCopy });
   const r = await askResubmission(db, {
     studentId: student_id, assignmentId: assignment_id, lessons: lessons ?? null, note, commentLine: comment_line,
     unsubmit: doUnsubmit === true, source: 'mcp', unsubmitOpts,

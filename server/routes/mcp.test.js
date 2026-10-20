@@ -1,6 +1,8 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import http from 'http';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
 
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
@@ -10,6 +12,8 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { getDb } from '../db/index.js';
 import { createServer } from '../../mcp/server.js';
 import { mountMcp } from './mcp.js';
+import { DEV_COPY_WARNING } from '../../mcp/server.js';
+import { requestResubmissionTool } from '../../mcp/handlers.js';
 
 const ALLOWED_ORIGINS = ['https://prism.swordtail-everest.ts.net'];
 const open = []; // every server, client and transport a test started, closed after it
@@ -23,14 +27,23 @@ function listen(app, port = 0) {
 async function startApp({ devCopy = false, port = 0 } = {}) {
   const app = express();
   mountMcp(app, { allowedOrigins: ALLOWED_ORIGINS, devCopy });
+  app.use(express.json()); // as server/index.js: the general 100 KB parser, after /mcp
   const server = await listen(app, port);
   open.push(() => new Promise((resolve) => { server.close(resolve); server.closeAllConnections(); }));
   return { server, port: server.address().port };
 }
 
-async function connectClient(port) {
+// keepAlive false: each request opens its own connection, so a restarted server is never
+// reached through a pooled socket the old one closed.
+const fetchWithoutKeepAlive = (url, init = {}) => {
+  const headers = new Headers(init.headers);
+  headers.set('Connection', 'close');
+  return fetch(url, { ...init, headers });
+};
+
+async function connectClient(port, { keepAlive = true } = {}) {
   const client = new Client({ name: 'test', version: '1.0.0' });
-  const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`));
+  const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), keepAlive ? {} : { fetch: fetchWithoutKeepAlive });
   await client.connect(transport);
   open.push(() => client.close());
   return client;
@@ -94,6 +107,23 @@ describe('/mcp over HTTP', () => {
     expect(JSON.parse(res.content[0].text).map((c) => c.course_name)).toEqual(['Robotics']);
   });
 
+  test('a tool call over 100 KB gets through, though a 100 KB parser follows /mcp (as in server/index.js)', async () => {
+    seedPair();
+    const { port } = await startApp();
+    const client = await connectClient(port);
+    const res = await client.callTool({ name: 'find_student', arguments: { query: 'x'.repeat(200 * 1024) } });
+    expect(res.content[0].text).not.toMatch(/too large|413/i);
+  });
+
+  test('server/index.js mounts /mcp before the general JSON parser', () => {
+    const src = readFileSync(fileURLToPath(new URL('../index.js', import.meta.url)), 'utf8');
+    const mount = src.indexOf('mountMcp(app');
+    const general = src.indexOf('app.use(express.json())');
+    expect(mount).toBeGreaterThan(-1);
+    expect(general).toBeGreaterThan(-1);
+    expect(mount).toBeLessThan(general);
+  });
+
   test('GET and DELETE answer 405 (stateless: no stream to resume, no session to end)', async () => {
     const { port } = await startApp();
     for (const method of ['GET', 'DELETE']) {
@@ -124,12 +154,11 @@ describe('/mcp over HTTP', () => {
   test('a request survives a server restart: a new app on the same port answers the next call', async () => {
     seedPair();
     const first = await startApp();
-    const client = await connectClient(first.port);
+    const client = await connectClient(first.port, { keepAlive: false });
     expect((await client.callTool({ name: 'list_courses', arguments: {} })).isError).toBeFalsy();
 
     await new Promise((resolve) => { first.server.close(resolve); first.server.closeAllConnections(); });
     await startApp({ port: first.port });
-    await new Promise((resolve) => setTimeout(resolve, 50)); // the client's pooled socket notices the close
     const res = await client.callTool({ name: 'list_courses', arguments: {} });
     expect(JSON.parse(res.content[0].text).map((c) => c.course_name)).toEqual(['Robotics']);
   });
@@ -141,7 +170,8 @@ describe('/mcp over HTTP', () => {
       const client = await connectClient(port);
 
       const ok = await client.callTool({ name: 'list_courses', arguments: {} });
-      expect(ok.content[0].text).toMatch(/dev copy of Prism/i);
+      expect(ok.content[0].text).toBe('This is a dev copy of Prism: its data is replaced at the next refresh, and it refuses Schoology writes.');
+      expect(ok.content[0].text).toBe(DEV_COPY_WARNING);
       expect(JSON.parse(ok.content[1].text).map((c) => c.course_name)).toEqual(['Robotics']);
 
       const bad = await client.callTool({ name: 'list_assignments', arguments: { course_id: 999999 } });

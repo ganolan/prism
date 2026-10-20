@@ -919,6 +919,17 @@ describe('request_resubmission unsubmit (Phase 2, LTI unsubmit on Ask)', () => {
     expect(fake.requests.find((q) => q.method === 'POST').body).toBe('{"isSubmit":false}');
   });
 
+  // The LTI unsubmit uses the saved Schoology web session, not the API keys: a missing key must
+  // not refuse an unsubmit-only call (only comment_line needs them).
+  test('an unsubmit with no API credentials is not refused as SCHOOLOGY_NOT_CONFIGURED', async () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedLtiPair(db);
+    vi.stubEnv('SCHOOLOGY_CONSUMER_SECRET', '');
+    const fake = fakeLtiUnsubmit({ uid: 'ru1', aid: 'rs-a1' });
+    const r = await requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId, unsubmit: true }, { unsubmitOpts: http(fake) });
+    expect(r).toMatchObject({ outcome: 'asked', unsubmit: { ok: true } });
+  });
+
   test('unsubmit: false → nothing in Schoology changes', async () => {
     const db = getDb();
     const { studentId, assignmentId } = seedLtiPair(db);

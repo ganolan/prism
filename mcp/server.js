@@ -64,7 +64,7 @@ export function connectDb() {
 }
 
 export const DEV_COPY_WARNING =
-  'This is a dev copy of Prism, not the live server: its data is replaced at the next refresh from prod, and it refuses Schoology writes (status lines, unsubmit). Do not treat anything here as the teacher\'s real record.';
+  'This is a dev copy of Prism: its data is replaced at the next refresh, and it refuses Schoology writes.';
 
 // Build the PrisMCP server with all tools/resources/prompts registered. Pure
 // construction — no transport, no DB side effects — so tests can drive it over

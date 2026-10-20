@@ -4,7 +4,6 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../db/index.js';
 import { updateSyncScheduleSettings } from './settings.js';
-import { SyncBusyError } from './syncRunner.js';
 import { nextRunAt, scheduledSyncOptions, createSyncScheduler, readLastScheduledRun } from './syncScheduler.js';
 
 // Local-time dates, so the tests hold in any timezone.
@@ -45,17 +44,14 @@ describe('scheduledSyncOptions', () => {
     const opts = scheduledSyncOptions(getDb(), {
       mastery: 'none', includeHidden: false, recentOnly: true, recentDays: 3, syncBlocks: true,
     });
-    expect(opts).toEqual({
-      masteryCourseIds: [live], skipSchoology: false, includeHidden: false,
-      syncBlocks: true, refreshQuizzes: true, trigger: 'scheduled',
-    });
+    expect(opts).toEqual({ kind: 'all', includeHidden: false, syncBlocks: true, refreshQuizzes: true, trigger: 'scheduled' });
   });
 
   test('includes hidden courses only when hidden courses are included', () => {
     const live = addCourse('live');
     const hidden = addCourse('hidden', { hidden: 1 });
     const opts = scheduledSyncOptions(getDb(), { includeHidden: true, syncBlocks: false });
-    expect(opts).toMatchObject({ masteryCourseIds: [live, hidden], includeHidden: true, syncBlocks: false });
+    expect(opts).toMatchObject({ kind: 'all', includeHidden: true, syncBlocks: false });
   });
 });
 
@@ -109,7 +105,7 @@ describe('createSyncScheduler', () => {
     setNow(at(2026, 10, 6, 3, 0, 10));
     await scheduler.tick();
     expect(launch).toHaveBeenCalledTimes(1);
-    expect(launch.mock.calls[0][0]).toMatchObject({ trigger: 'scheduled', skipSchoology: false, syncBlocks: true });
+    expect(launch.mock.calls[0][0]).toMatchObject({ kind: 'all', trigger: 'scheduled', syncBlocks: true });
     expect(readLastScheduledRun(getDb())).toEqual({ at: at(2026, 10, 6, 3, 0, 10).toISOString(), status: 'completed', runId: 7 });
     expect(scheduler.status().nextRunAt).toBe(at(2026, 10, 7, 3, 0).toISOString());
 
@@ -125,12 +121,12 @@ describe('createSyncScheduler', () => {
     expect(readLastScheduledRun(getDb())).toMatchObject({ status: 'completed_with_errors', runId: 9 });
   });
 
-  test('skips (and records it) when a sync is already running', async () => {
-    const { scheduler, setNow } = setup({ launch: () => { throw new SyncBusyError(4); } });
+  test('a launch that fails to queue is recorded as failed, and re-arms', async () => {
+    const { scheduler, setNow } = setup({ launch: () => { throw new Error('database is locked'); } });
     scheduler.start();
     setNow(at(2026, 10, 6, 3, 0, 5));
     await scheduler.tick();
-    expect(readLastScheduledRun(getDb())).toMatchObject({ status: 'skipped', runId: 4 });
+    expect(readLastScheduledRun(getDb())).toMatchObject({ status: 'failed', message: 'database is locked' });
     expect(scheduler.status().nextRunAt).toBe(at(2026, 10, 7, 3, 0).toISOString());
   });
 

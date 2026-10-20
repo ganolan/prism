@@ -112,13 +112,16 @@ export function pruneRuns(db, keep = KEEP_RUNS) {
   db.transaction(() => {
     const cutoff = db.prepare('SELECT id FROM sync_runs ORDER BY id DESC LIMIT 1 OFFSET ?').get(keep - 1);
     if (!cutoff) return;
-    db.prepare('DELETE FROM sync_run_events WHERE run_id < ?').run(cutoff.id);
-    db.prepare('DELETE FROM sync_runs WHERE id < ?').run(cutoff.id);
+    // A queued, held or running run is never pruned (the queue still holds it).
+    const old = `id < ? AND status NOT IN ('queued', 'held', 'running')`;
+    db.prepare(`DELETE FROM sync_run_events WHERE run_id IN (SELECT id FROM sync_runs WHERE ${old})`).run(cutoff.id);
+    db.prepare(`DELETE FROM sync_runs WHERE ${old}`).run(cutoff.id);
   })();
 }
 
 // Called once at server start: nothing can be running in a fresh process, so a
-// run still marked 'running' was cut off by a crash, restart or deploy. Its
+// run still marked 'running' (or 'queued' / 'held': the queue lives in memory) was cut
+// off by a crash, restart or deploy; the next page visit queues it again. Its
 // finished_at is when it was last heard from (its last event, or its start if
 // it logged nothing), so its duration isn't stretched to the next boot.
 export function markInterruptedRuns(db) {
@@ -129,6 +132,6 @@ export function markInterruptedRuns(db) {
         (SELECT MAX(at) FROM sync_run_events WHERE run_id = sync_runs.id),
         started_at
       )
-    WHERE status = 'running'
+    WHERE status IN ('running', 'queued', 'held')
   `).run().changes;
 }

@@ -101,14 +101,19 @@ describe('sync runs', () => {
     for (let i = 0; i < 33; i++) {
       const id = startRun(db(), {});
       appendEvent(db(), id, { type: 'log', message: `run ${i}` });
+      finishRun(db(), id, { status: 'completed' });
       ids.push(id);
     }
+    // A queued, held or running run is never pruned, however old (the queue still holds it).
+    db().prepare(`UPDATE sync_runs SET status = 'held' WHERE id = ?`).run(ids[1]);
     pruneRuns(db());
     const left = listRuns(db(), { limit: 100 }).map((r) => r.id);
-    expect(left.length).toBe(30);
+    expect(left.length).toBe(31);
+    expect(left).toContain(ids[1]);
+    db().prepare(`UPDATE sync_runs SET status = 'completed' WHERE id = ?`).run(ids[1]);
     expect(left).not.toContain(ids[0]);
     expect(left).toContain(ids[3]);
-    const orphanEvents = db().prepare('SELECT COUNT(*) AS n FROM sync_run_events WHERE run_id IN (?, ?, ?)').get(ids[0], ids[1], ids[2]).n;
+    const orphanEvents = db().prepare('SELECT COUNT(*) AS n FROM sync_run_events WHERE run_id IN (?, ?)').get(ids[0], ids[2]).n;
     expect(orphanEvents).toBe(0);
     pruneRuns(db(), 5);
     expect(listRuns(db(), { limit: 100 }).length).toBe(5);

@@ -21,6 +21,7 @@ vi.mock('../services/syncRuns.js', async (importOriginal) => {
 
 import router from './schoology.js';
 import { getDb } from '../db/index.js';
+import { queueDeps, resetQueue, idle } from '../services/syncQueue.js';
 
 function startServer() {
   const app = express();
@@ -35,160 +36,96 @@ async function readNdjson(res) {
   return text.split('\n').filter(Boolean).map((l) => JSON.parse(l));
 }
 
-describe('POST /api/sync', () => {
-  beforeEach(() => {
-    h.impl = async (opts, onEvent) => {
-      onEvent({ phase: 'schoology', status: 'done', records: 9 });
-      onEvent({ type: 'summary', schoology: { records: 9 }, mastery: [], elapsedMs: 1 });
-    };
-  });
-
-  test('streams newline-delimited JSON progress events', async () => {
-    const { server, port } = startServer();
-    try {
-      const res = await fetch(`http://localhost:${port}/api/sync`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ masteryCourseIds: [] }),
-      });
-      expect(res.status).toBe(200);
-      expect(res.headers.get('content-type')).toMatch(/application\/x-ndjson/);
-      const events = await readNdjson(res);
-      expect(events[0]).toMatchObject({ type: 'run', runId: expect.any(Number) });
-      expect(events[1]).toMatchObject({ phase: 'schoology', status: 'done', seq: 1 });
-      expect(events.at(-1)).toMatchObject({ type: 'summary', seq: 2 });
-    } finally {
-      server.close();
-    }
-  });
-
-  test('returns 409 when a sync is already in progress', async () => {
-    let release;
-    const gate = new Promise((r) => { release = r; });
-    h.impl = async (opts, onEvent) => {
-      onEvent({ phase: 'schoology', status: 'running' });
-      await gate;
-      onEvent({ type: 'summary', schoology: null, mastery: [], elapsedMs: 1 });
-    };
-    const { server, port } = startServer();
-    try {
-      const firstRes = await fetch(`http://localhost:${port}/api/sync`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      const second = await fetch(`http://localhost:${port}/api/sync`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      expect(second.status).toBe(409);
-      const body = await second.json();
-      expect(body).toMatchObject({ error: 'Sync already in progress', runId: expect.any(Number) });
-      const current = await (await fetch(`http://localhost:${port}/api/sync/current`)).json();
-      expect(current).toEqual({ running: true, runId: body.runId, courseIds: null });
-      release();
-      await firstRes.text();
-    } finally {
-      server.close();
-    }
-  });
-
-  test('streams an error event and resets syncInProgress when orchestrator throws', async () => {
-    const { server, port } = startServer();
-    try {
-      h.impl = async (opts, onEvent) => {
-        onEvent({ phase: 'schoology', status: 'running' });
-        throw new Error('orchestrator blew up');
-      };
-      const res = await fetch(`http://localhost:${port}/api/sync`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      const events = await readNdjson(res);
-      expect(events.at(-1)).toMatchObject({ type: 'error', message: 'orchestrator blew up' });
-
-      // Confirm syncInProgress was reset — a second request must succeed (200, not 409).
-      h.impl = async (opts, onEvent) => {
-        onEvent({ phase: 'schoology', status: 'done', records: 0 });
-        onEvent({ type: 'summary', schoology: { records: 0 }, mastery: [], elapsedMs: 1 });
-      };
-      const second = await fetch(`http://localhost:${port}/api/sync`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      expect(second.status).toBe(200);
-      await second.text();
-    } finally {
-      server.close();
-    }
-  });
+beforeEach(() => {
+  getDb().exec('DELETE FROM sync_run_events; DELETE FROM sync_runs; DELETE FROM courses;');
+  resetQueue();
+  queueDeps.sessionStatus = vi.fn().mockResolvedValue({ loggedIn: true, live: 'connected' });
+  h.impl = async (opts, onEvent) => { onEvent({ type: 'summary', schoology: null, mastery: [], elapsedMs: 1 }); };
 });
 
-describe('POST /api/sync — recent-only params (#55)', () => {
-  let captured;
-  beforeEach(() => {
-    captured = null;
-    h.impl = async (opts, onEvent) => {
-      captured = opts;
-      onEvent({ type: 'summary', schoology: null, mastery: [], elapsedMs: 1 });
-    };
+async function api(port, method, path, body) {
+  const res = await fetch(`http://localhost:${port}${path}`, {
+    method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body),
   });
+  return { status: res.status, body: await res.json() };
+}
 
-  async function post(body) {
+describe('POST /api/sync (the queue, background sync)', () => {
+  test('queues a button run and answers its runId at once', async () => {
     const { server, port } = startServer();
     try {
-      const res = await fetch(`http://localhost:${port}/api/sync`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      await res.text(); // drain the ndjson stream
+      const r = await api(port, 'POST', '/api/sync', { courseIds: [3, '4'] });
+      expect(r).toMatchObject({ status: 200, body: { runId: expect.any(Number), joined: false } });
+      await idle();
+      const run = await api(port, 'GET', `/api/sync/runs/${r.body.runId}`);
+      expect(run.body).toMatchObject({ status: 'completed', options: { kind: 'courses', courseIds: [3, 4], trigger: 'button', force: true } });
     } finally {
       server.close();
     }
-  }
-
-  test('defaults to recentOnly false / 30 days when omitted', async () => {
-    await post({ masteryCourseIds: [] });
-    expect(captured.recentOnly).toBe(false);
-    expect(captured.recentDays).toBe(30);
   });
 
-  test('passes through recentOnly and clamps recentDays into 1..365', async () => {
-    await post({ recentOnly: true, recentDays: 9999 });
-    expect(captured.recentOnly).toBe(true);
-    expect(captured.recentDays).toBe(365);
+  test('every sync is full: recent-only fields are ignored, mastery for every course read', async () => {
+    let seen;
+    h.impl = async (opts, onEvent) => { seen = opts; onEvent({ type: 'summary', mastery: [], elapsedMs: 1 }); };
+    const { server, port } = startServer();
+    try {
+      await api(port, 'POST', '/api/sync', { courseIds: [3], recentOnly: true, recentDays: 2 });
+      await idle();
+      expect(seen).toMatchObject({ courseIds: [3], masteryCourseIds: [3] });
+      expect(seen.recentOnly).toBeUndefined();
+    } finally {
+      server.close();
+    }
   });
 
-  test('coerces a non-numeric recentDays to the default', async () => {
-    await post({ recentOnly: true, recentDays: 'abc' });
-    expect(captured.recentDays).toBe(30);
+  test('an empty course list is refused', async () => {
+    const { server, port } = startServer();
+    try {
+      expect((await api(port, 'POST', '/api/sync', { courseIds: [] })).status).toBe(400);
+    } finally {
+      server.close();
+    }
   });
 
-  test('defaults an explicit null recentDays to 30', async () => {
-    await post({ recentOnly: true, recentDays: null });
-    expect(captured.recentDays).toBe(30);
+  test('GET /sync/current shows the running run with its courses; /sync/status keeps its shape', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    h.impl = async (opts, onEvent) => { onEvent({ phase: 'schoology', status: 'running' }); await gate; onEvent({ type: 'summary', mastery: [], elapsedMs: 1 }); };
+    const { server, port } = startServer();
+    try {
+      const r = await api(port, 'POST', '/api/sync', { courseIds: [7] });
+      await new Promise((res) => setTimeout(res, 20));
+      const cur = await api(port, 'GET', '/api/sync/current');
+      expect(cur.body).toMatchObject({ runId: r.body.runId, running: { runId: r.body.runId, courseIds: [7] }, queued: [], held: [] });
+      expect((await api(port, 'GET', '/api/sync/status')).body).toMatchObject({ syncing: true, runId: r.body.runId });
+      const inc = await api(port, 'GET', `/api/sync/runs/${r.body.runId}/events?after=0`);
+      expect(inc.body).toMatchObject({ status: 'running', finished: false });
+      release();
+      await idle();
+      expect((await api(port, 'GET', '/api/sync/current')).body).toMatchObject({ running: null, runId: null });
+    } finally {
+      server.close();
+    }
+  });
+
+  test('POST /sync/resume runs held requests after a sign-in', async () => {
+    queueDeps.sessionStatus.mockResolvedValueOnce({ loggedIn: true, live: 'expired' });
+    const { server, port } = startServer();
+    try {
+      const r = await api(port, 'POST', '/api/sync', { courseIds: [7] });
+      await idle();
+      expect((await api(port, 'GET', `/api/sync/runs/${r.body.runId}`)).body.status).toBe('held');
+      expect((await api(port, 'POST', '/api/sync/resume', {})).body).toEqual({ resumed: 1 });
+      await idle();
+      expect((await api(port, 'GET', `/api/sync/runs/${r.body.runId}`)).body.status).toBe('completed');
+    } finally {
+      server.close();
+    }
   });
 });
 
 describe('sync runs + events', () => {
-  beforeEach(() => {
-    getDb().exec('DELETE FROM sync_run_events; DELETE FROM sync_runs;');
-  });
-
-  async function runOnce(port, body = {}) {
-    const res = await fetch(`http://localhost:${port}/api/sync`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    return readNdjson(res);
-  }
-
-  test('a run is recorded with every streamed event and finished', async () => {
+  test('a run is recorded with every event and finished', async () => {
     h.impl = async (opts, onEvent) => {
       onEvent({ phase: 'schoology', status: 'done', records: 9 });
       onEvent({ phase: 'mastery', courseId: 1, courseName: 'Bio', status: 'error', message: 'boom' });
@@ -197,54 +134,15 @@ describe('sync runs + events', () => {
     };
     const { server, port } = startServer();
     try {
-      const streamed = await runOnce(port, { masteryCourseIds: [1] });
-      const runId = streamed[0].runId;
-      const list = await (await fetch(`http://localhost:${port}/api/sync/runs?limit=5`)).json();
+      const { runId } = (await api(port, 'POST', '/api/sync', { courseIds: [1] })).body;
+      await idle();
+      const list = (await api(port, 'GET', '/api/sync/runs?limit=5')).body;
       expect(list[0]).toMatchObject({ id: runId, status: 'completed_with_errors', error_count: 1, warning_count: 1 });
-      expect(list[0].options).toMatchObject({ masteryCourseIds: [1] });
-      expect(list[0].summary).toMatchObject({ elapsedMs: 1 });
-
-      const run = await (await fetch(`http://localhost:${port}/api/sync/runs/${runId}`)).json();
+      const run = (await api(port, 'GET', `/api/sync/runs/${runId}`)).body;
       expect(run.events.map((e) => e.seq)).toEqual([1, 2, 3, 4]);
-      expect(run.events[1]).toMatchObject({ level: 'error', message: 'boom' });
-
-      const inc = await (await fetch(`http://localhost:${port}/api/sync/runs/${runId}/events?after=2`)).json();
-      expect(inc.status).toBe('completed_with_errors');
-      expect(inc.finished).toBe(true);
+      const inc = (await api(port, 'GET', `/api/sync/runs/${runId}/events?after=2`)).body;
+      expect(inc).toMatchObject({ status: 'completed_with_errors', finished: true });
       expect(inc.events.map((e) => e.seq)).toEqual([3, 4]);
-      expect(inc.events[1]).toMatchObject({ type: 'summary' });
-
-      const status = await (await fetch(`http://localhost:${port}/api/sync/status`)).json();
-      expect(status).toMatchObject({ syncing: false, runId: null });
-      const current = await (await fetch(`http://localhost:${port}/api/sync/current`)).json();
-      expect(current).toEqual({ running: false, runId: null, courseIds: null });
-    } finally {
-      server.close();
-    }
-  });
-
-  test('events?after= reports an unfinished run while it is running', async () => {
-    let release;
-    const gate = new Promise((r) => { release = r; });
-    h.impl = async (opts, onEvent) => {
-      onEvent({ phase: 'schoology', status: 'running' });
-      await gate;
-      onEvent({ type: 'summary', schoology: null, mastery: [], elapsedMs: 1 });
-    };
-    const { server, port } = startServer();
-    try {
-      const pending = fetch(`http://localhost:${port}/api/sync`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
-      });
-      const res = await pending;
-      const reader = res.body.getReader();
-      await reader.read(); // headers + first event(s) are flushed
-      const { runId } = await (await fetch(`http://localhost:${port}/api/sync/current`)).json();
-      const inc = await (await fetch(`http://localhost:${port}/api/sync/runs/${runId}/events?after=0`)).json();
-      expect(inc).toMatchObject({ status: 'running', finished: false });
-      expect(inc.events[0]).toMatchObject({ seq: 1, phase: 'schoology', status: 'running' });
-      release();
-      while (!(await reader.read()).done) { /* drain */ }
     } finally {
       server.close();
     }
@@ -252,52 +150,42 @@ describe('sync runs + events', () => {
 
   test('a thrown orchestrator marks the run failed', async () => {
     h.impl = async () => { throw new Error('kaput'); };
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { server, port } = startServer();
     try {
-      const streamed = await runOnce(port);
-      expect(streamed.at(-1)).toMatchObject({ type: 'error', message: 'kaput', seq: 1 });
-      const run = await (await fetch(`http://localhost:${port}/api/sync/runs/${streamed[0].runId}`)).json();
-      expect(run).toMatchObject({ status: 'failed', error_count: 1 });
+      const { runId } = (await api(port, 'POST', '/api/sync', {})).body;
+      await idle();
+      expect((await api(port, 'GET', `/api/sync/runs/${runId}`)).body).toMatchObject({ status: 'failed', error_count: 1 });
     } finally {
+      errSpy.mockRestore();
       server.close();
     }
   });
 
-  test('a fatal summary (Schoology step failed, sync stopped) marks the run failed', async () => {
+  test('a fatal summary marks the run failed', async () => {
     h.impl = async (opts, onEvent) => {
       onEvent({ phase: 'schoology', status: 'error', message: 'down' });
       onEvent({ type: 'summary', schoology: null, mastery: [], elapsedMs: 1, fatal: true });
     };
     const { server, port } = startServer();
     try {
-      const streamed = await runOnce(port);
-      const run = await (await fetch(`http://localhost:${port}/api/sync/runs/${streamed[0].runId}`)).json();
-      expect(run.status).toBe('failed');
+      const { runId } = (await api(port, 'POST', '/api/sync', {})).body;
+      await idle();
+      expect((await api(port, 'GET', `/api/sync/runs/${runId}`)).body.status).toBe('failed');
     } finally {
       server.close();
     }
   });
 
-  test('a failing event log never breaks the stream; the lock still resets', async () => {
-    h.impl = async (opts, onEvent) => {
-      onEvent({ phase: 'schoology', status: 'done', records: 1 });
-      onEvent({ type: 'summary', schoology: { records: 1 }, mastery: [], elapsedMs: 1 });
-    };
+  test('a failing event log never stops the run', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     h.failAppend = true;
     const { server, port } = startServer();
     try {
-      const streamed = await runOnce(port);
-      expect(streamed[0]).toMatchObject({ type: 'run' });
-      expect(streamed.slice(1)).toEqual([
-        { phase: 'schoology', status: 'done', records: 1 },
-        { type: 'summary', schoology: { records: 1 }, mastery: [], elapsedMs: 1 },
-      ]);
+      const { runId } = (await api(port, 'POST', '/api/sync', {})).body;
+      await idle();
       h.failAppend = false;
-      const again = await runOnce(port); // 200 + a fresh run, not 409
-      expect(again[0]).toMatchObject({ type: 'run' });
-      expect(again[0].runId).not.toBe(streamed[0].runId);
-      expect((await (await fetch(`http://localhost:${port}/api/sync/current`)).json()).running).toBe(false);
+      expect((await api(port, 'GET', `/api/sync/runs/${runId}`)).body.status).toBe('completed');
     } finally {
       h.failAppend = false;
       errSpy.mockRestore();
@@ -322,7 +210,7 @@ describe('sync runs + events', () => {
     `).run();
     const { server, port } = startServer();
     try {
-      const m = await (await fetch(`http://localhost:${port}/api/sync/metrics`)).json();
+      const m = (await api(port, 'GET', '/api/sync/metrics')).body;
       expect(m).toMatchObject({ schoology_ms: 60000, blocks_ms: 8500, mastery_ms: null, quizzes_ms: 4000, total_ms: 72500, failed_assignment_ids: [] });
     } finally {
       server.close();
@@ -330,48 +218,10 @@ describe('sync runs + events', () => {
   });
 
   test('keeps only the newest 30 runs', async () => {
-    h.impl = async (opts, onEvent) => { onEvent({ type: 'summary', mastery: [], elapsedMs: 1 }); };
     const { server, port } = startServer();
     try {
-      for (let i = 0; i < 32; i++) await runOnce(port);
-      const list = await (await fetch(`http://localhost:${port}/api/sync/runs?limit=100`)).json();
-      expect(list.length).toBe(30);
-    } finally {
-      server.close();
-    }
-  });
-});
-
-describe('POST /api/sync with courseIds (#58)', () => {
-  test('passes courseIds to the run; GET /sync/current returns them while it runs', async () => {
-    let release;
-    const gate = new Promise((r) => { release = r; });
-    let seen;
-    h.impl = async (opts, onEvent) => { seen = opts; await gate; onEvent({ type: 'summary', schoology: null, mastery: [], elapsedMs: 1 }); };
-    const { server, port } = startServer();
-    try {
-      const res = fetch(`http://localhost:${port}/api/sync`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ courseIds: [3, '4'], masteryCourseIds: [3] }),
-      });
-      await new Promise((r) => setTimeout(r, 30));
-      expect(seen.courseIds).toEqual([3, 4]);
-      expect(await (await fetch(`http://localhost:${port}/api/sync/current`)).json()).toMatchObject({ running: true, courseIds: [3, 4] });
-      release();
-      await (await res).text();
-    } finally {
-      server.close();
-    }
-  });
-});
-
-describe('POST /api/sync with an empty course list (#58 review)', () => {
-  test('is refused: there is nothing to sync', async () => {
-    const { server, port } = startServer();
-    try {
-      const res = await fetch(`http://localhost:${port}/api/sync`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ courseIds: [] }),
-      });
-      expect(res.status).toBe(400);
+      for (let i = 0; i < 32; i++) { await api(port, 'POST', '/api/sync', { courseIds: [i + 1] }); await idle(); }
+      expect((await api(port, 'GET', '/api/sync/runs?limit=100')).body.length).toBe(30);
     } finally {
       server.close();
     }

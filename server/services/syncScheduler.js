@@ -9,7 +9,7 @@
 // missed while the machine slept fires once on wake. A server that starts after
 // today's time waits for tomorrow (no catch-up).
 import { getSyncScheduleSettings } from './settings.js';
-import { launchSync, SyncBusyError } from './syncRunner.js';
+import { launchQueued } from './syncQueue.js';
 
 const TICK_MS = 30_000;
 const LAST_KEY = 'syncScheduleState.lastRun';
@@ -23,22 +23,10 @@ export function nextRunAt(now, time) {
   return at;
 }
 
-// The scheduled run, built from the schedule settings: every sync is full, so mastery for
-// every course it reads (active, not hidden; hidden ones too when hidden courses are included).
+// The scheduled run, a queue request built from the schedule settings: every current course
+// (hidden ones too when included), everything (mastery for every course it reads).
 export function scheduledSyncOptions(db, s) {
-  const masteryCourseIds = db.prepare(`
-    SELECT id FROM courses
-    WHERE COALESCE(archived, 0) = 0 AND COALESCE(excluded, 0) = 0 AND (COALESCE(hidden, 0) = 0 OR ?)
-    ORDER BY id
-  `).all(s.includeHidden ? 1 : 0).map((r) => r.id);
-  return {
-    masteryCourseIds,
-    skipSchoology: false,
-    includeHidden: s.includeHidden,
-    syncBlocks: s.syncBlocks,
-    refreshQuizzes: true,
-    trigger: 'scheduled',
-  };
+  return { kind: 'all', includeHidden: s.includeHidden, syncBlocks: s.syncBlocks, refreshQuizzes: true, trigger: 'scheduled' };
 }
 
 export function readLastScheduledRun(db) {
@@ -63,7 +51,7 @@ function writeLastScheduledRun(db, last) {
 export function createSyncScheduler({
   db,
   active,
-  launch = launchSync,
+  launch = launchQueued,
   now = () => new Date(),
   setIntervalFn = setInterval,
   clearIntervalFn = clearInterval,
@@ -90,13 +78,8 @@ export function createSyncScheduler({
       writeLastScheduledRun(db, { at: startedAt, status, runId });
       log(`[schedule] Scheduled sync ${status} (run ${runId})`);
     } catch (err) {
-      if (err instanceof SyncBusyError) {
-        writeLastScheduledRun(db, { at: startedAt, status: 'skipped', runId: err.runId, message: 'A sync was already running' });
-        log(`[schedule] Scheduled sync skipped: run ${err.runId} was already running`);
-      } else {
-        writeLastScheduledRun(db, { at: startedAt, status: 'failed', message: err.message });
-        log(`[schedule] Scheduled sync could not start: ${err.message}`);
-      }
+      writeLastScheduledRun(db, { at: startedAt, status: 'failed', message: err.message });
+      log(`[schedule] Scheduled sync could not start: ${err.message}`);
     } finally {
       reschedule();
     }

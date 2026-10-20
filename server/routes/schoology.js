@@ -1,82 +1,48 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
-import { launchSync, currentSync, SyncBusyError } from '../services/syncRunner.js';
-import { clampDays } from '../services/recentWindow.js';
+import { enqueue, currentSync, resumeHeld } from '../services/syncQueue.js';
 import { listRuns, getRun, getEvents, isFinished, KEEP_RUNS } from '../services/syncRuns.js';
 
 const router = Router();
 
-// POST /api/sync — run the unified sync, streaming progress as newline-
-// delimited JSON. Body: {
-//   masteryCourseIds?: number[],
-//   skipSchoology?: boolean,
-//   includeHidden?: boolean,    // #56: opt in to syncing hidden courses
-//   recentOnly?: boolean,       // #55: skip submissions outside the day window
-//   recentDays?: number,        // #55: window size, clamped 1..365 (default 30)
-//   syncBlocks?: boolean,       // #106: resolve active courses' PowerSchool block numbers (default true)
-// }.
-//
-// Runs + events (server/services/syncRuns.js): every sync is recorded as a
-// sync_runs row, and every progress event it streams is also stored in
-// sync_run_events with a per-run `seq` (1, 2, 3…). The stream's FIRST line is
-// `{ type: 'run', runId }`; every later line is the orchestrator event plus its
-// `seq`. The run is finished in `finally` ('completed', 'completed_with_errors'
-// when any error events were logged, or 'failed' — the orchestrator threw or
-// reported a fatal summary) and history is pruned to the newest 30 runs. A run
-// left 'running' by a crash/restart/deploy is marked 'interrupted' at boot.
-//
-// Re-attach protocol: if the client disconnects mid-stream the sync continues
-// to completion server-side (there is no cancellation). iOS drops the stream
-// when the screen locks, so the client keeps `runId` + the last `seq` it saw
-// and, on a dropped stream, polls GET /api/sync/runs/:id/events?after=<seq>
-// until `finished`. A second POST while a sync runs gets 409 with the running
-// `runId` so that client can join it from seq 0; GET /api/sync/current tells a
-// client that never saw a runId (or a freshly opened dialog) what is running.
-router.post('/sync', async (req, res) => {
-  const {
-    masteryCourseIds = [],
-    skipSchoology = false,
-    includeHidden = false,
-    recentOnly = false,
-    recentDays = 30,
-    syncBlocks = true,
-    courseIds = null,
-  } = req.body || {};
+// POST /api/sync — a sync started by a button (Sync Courses, Sync Course, a retry), queued behind the
+// running one (server/services/syncQueue.js). Body: {
+//   courseIds?: number[],       // #58: the courses to sync; absent = every current course
+//   masteryCourseIds?: number[],// a mastery-only retry (with skipSchoology)
+//   skipSchoology?: boolean,    // a mastery-only or blocks-only retry
+//   includeHidden?: boolean,    // with no courseIds: hidden courses too
+//   syncBlocks?: boolean,       // #106: the PowerSchool block pass (default: on for every course, off for a list)
+// } → { runId, state: 'queued' | 'running', joined }. Every sync reads everything (no recent window).
+// The run is a sync_runs row from now on; follow it with GET /api/sync/runs/:id/events?after=<seq>
+// (a run left queued, held or running by a restart is marked 'interrupted' at boot).
+router.post('/sync', (req, res) => {
+  const { courseIds = null, masteryCourseIds, skipSchoology = false, includeHidden = false, syncBlocks } = req.body || {};
   if (Array.isArray(courseIds) && courseIds.length === 0) {
     return res.status(400).json({ error: 'No courses selected' });
   }
-  const options = {
-    masteryCourseIds, skipSchoology, includeHidden: !!includeHidden, recentOnly: !!recentOnly,
-    recentDays: clampDays(recentDays), syncBlocks: syncBlocks !== false,
-    // #58: the courses to sync (Sync Courses ticks, or one Sync Course); null = a full run.
-    courseIds: Array.isArray(courseIds) ? courseIds.map(Number).filter(Number.isInteger) : null,
+  const ids = (list) => list.map(Number).filter(Number.isInteger);
+  const listed = Array.isArray(courseIds) ? ids(courseIds) : (skipSchoology && Array.isArray(masteryCourseIds) ? ids(masteryCourseIds) : null);
+  const request = {
+    kind: listed ? 'courses' : 'all',
+    ...(listed ? { courseIds: listed } : {}),
+    ...(Array.isArray(masteryCourseIds) ? { masteryCourseIds: ids(masteryCourseIds) } : {}),
+    skipSchoology: !!skipSchoology,
+    includeHidden: !!includeHidden,
+    ...(syncBlocks === undefined ? {} : { syncBlocks: syncBlocks !== false }),
+    trigger: 'button',
+    force: true,
   };
-
-  // The stream may be gone (client disconnected) — the sync and the stored
-  // event log carry on regardless.
-  const send = (obj) => {
-    if (res.writableEnded || res.destroyed) return;
-    try { res.write(JSON.stringify(obj) + '\n'); } catch { /* client gone */ }
-  };
-  let run;
   try {
-    run = launchSync(options, {
-      onRun: (runId) => {
-        res.set('Content-Type', 'application/x-ndjson');
-        res.flushHeaders();
-        send({ type: 'run', runId });
-      },
-      onEvent: send,
-    });
+    res.json(enqueue(request));
   } catch (err) {
-    if (err instanceof SyncBusyError) {
-      return res.status(409).json({ error: 'Sync already in progress', runId: err.runId });
-    }
-    console.error('[sync] Could not start a sync run:', err);
-    return res.status(500).json({ error: err.message });
+    console.error('[sync] Could not queue a sync run:', err);
+    res.status(500).json({ error: err.message });
   }
-  await run.done;
-  res.end();
+});
+
+// POST /api/sync/resume — after a sign-in: the syncs held for it run now. → { resumed }.
+router.post('/sync/resume', (req, res) => {
+  res.json({ resumed: resumeHeld() });
 });
 
 // GET /api/sync/status — last sync info (+ the running sync's runId, if any)
@@ -84,10 +50,10 @@ router.get('/sync/status', (req, res) => {
   const db = getDb();
   const last = db.prepare('SELECT * FROM sync_log ORDER BY id DESC LIMIT 1').get();
   const { running, runId } = currentSync();
-  res.json({ syncing: running, runId, last: last || null });
+  res.json({ syncing: Boolean(running), runId, last: last || null });
 });
 
-// GET /api/sync/current — is a sync running right now, and which run is it?
+// GET /api/sync/current — the running run, the queued ones and the held ones, each with its courses.
 router.get('/sync/current', (req, res) => {
   res.json(currentSync());
 });

@@ -172,6 +172,27 @@ describe('runTaskSync (Sync Assignment as a queued run)', () => {
       }
     });
 
+    test('#170: after a failed submissions read, the mastery read is skipped too, reported, and nothing is stamped', async () => {
+      for (const submissions of [{ refreshed: 0, failed: [], error: 'Schoology 503' }, { refreshed: 1, failed: ['555'] }, { refreshed: 1, failed: [], signIn: true }]) {
+        events = [];
+        deps.refreshAssignmentMastery.mockClear();
+        deps.syncAssignment.mockResolvedValue({ removed: false, submissions, comments: { queued: 0 } });
+        await runGrading();
+        expect(deps.refreshAssignmentMastery).not.toHaveBeenCalled();
+        expect(events.at(-1).mastery).toEqual([expect.objectContaining({ courseId, status: 'skipped' })]);
+        expect(events.find((e) => e.phase === 'mastery' && e.status !== 'running')).toMatchObject({ status: 'skipped' });
+        expect(events.some((e) => e.phase === 'mastery' && e.status === 'running')).toBe(false);
+        expect(task()).toEqual({ task_synced_at: null, task_sync_attempted_at: T });
+        expect(grading()).toBeNull();
+      }
+    });
+
+    test('a plain run still reads mastery after a failed submissions read', async () => {
+      deps.syncAssignment.mockResolvedValue({ removed: false, submissions: { refreshed: 0, failed: [], error: 'Schoology 503' }, comments: { queued: 0 } });
+      await run();
+      expect(deps.refreshAssignmentMastery).toHaveBeenCalled();
+    });
+
     test('#170 item 4: a comment job with no done is an error (fails closed), not a success', async () => {
       deps.syncAssignment.mockResolvedValue({ removed: false, submissions: { refreshed: 1, failed: [] }, comments: { queued: 2 } });
       await runGrading();

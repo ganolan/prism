@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, vi } from 'vitest';
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 // Status-line publishing (Amendment B) reads/writes the student's Schoology
@@ -6,6 +6,7 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 vi.mock('../server/services/schoology.js', () => ({ getSectionGrades: vi.fn(), pushGradeComments: vi.fn() }));
 
 import { getDb } from '../server/db/index.js';
+import { withDataTime } from '../server/routes/feedback.js';
 import { todayLocal } from '../server/lib/schoolDays.js';
 import { getSectionGrades, pushGradeComments } from '../server/services/schoology.js';
 import { listCourses, listAssignments, listStudents, writeRubric, attachRubricTool, assertSchoologyWritable } from './handlers.js';
@@ -1083,6 +1084,48 @@ describe('quiz tools', () => {
     const r = getQuizResultsTool(getDb(), { group_id: g });
     expect(r.group.result.topics).toEqual([{ external_id: 'CSP.1.1', title: 'Knowledge' }]);
     expect(r.students[0]).toMatchObject({ student: 'Ana Lee', schoology_uid: '701', ready: true, frq: [{ question: 21, source: 'schoology', levels: [{ level: 'Developing' }] }] });
+  });
+
+  describe('the overall result is stamped with the data time of the results it was graded from (#170)', () => {
+    const NOW = new Date('2026-10-20T10:00:00.000Z');
+    const feedbackOf = () => withDataTime(getDb().prepare('SELECT * FROM feedback ORDER BY id DESC LIMIT 1').get());
+    const gradeFrom = (g) => {
+      getQuizResultsTool(getDb(), { group_id: g });
+      vi.setSystemTime(new Date(NOW.getTime() + 20 * 60000));
+      writeQuizOverallSuggestionsTool(getDb(), { group_id: g, students: [{ student: '701', rubric_scores: { 'CSP.1.1': 'Developing' }, impression: 'Good.' }] });
+    };
+    beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); getDb().exec('DELETE FROM context_serves'); });
+    afterEach(() => vi.useRealTimers());
+
+    test('get_quiz_results records a serve for the result task with the group loaded_at; the write copies it', () => {
+      const { g } = seedOverall();
+      getDb().prepare(`UPDATE quiz_groups SET loaded_at = '2026-10-20 09:58:30' WHERE id = ?`).run(g);
+      gradeFrom(g);
+      expect(getDb().prepare('SELECT data_as_of, served_at FROM context_serves').all())
+        .toEqual([{ data_as_of: '2026-10-20T09:58:30.000Z', served_at: NOW.toISOString() }]);
+      expect(feedbackOf()).toMatchObject({ data_as_of: '2026-10-20T09:58:30.000Z', suggested_at: NOW.toISOString(), data_stale: false });
+    });
+
+    test('results loaded 2 days ago show stale', () => {
+      const { g } = seedOverall();
+      getDb().prepare(`UPDATE quiz_groups SET loaded_at = '2026-10-18 10:00:00' WHERE id = ?`).run(g);
+      gradeFrom(g);
+      expect(feedbackOf()).toMatchObject({ data_as_of: '2026-10-18T10:00:00.000Z', suggested_at: NOW.toISOString(), data_stale: true });
+    });
+
+    test('a group never loaded is served as never', () => {
+      const { g } = seedOverall();
+      getDb().prepare('UPDATE quiz_groups SET loaded_at = NULL WHERE id = ?').run(g);
+      getQuizResultsTool(getDb(), { group_id: g });
+      expect(getDb().prepare('SELECT data_as_of FROM context_serves').all()).toEqual([{ data_as_of: 'never' }]);
+    });
+
+    test('a group with no result task records nothing', () => {
+      const { g } = seedOverall();
+      getDb().prepare('UPDATE quiz_groups SET result_assignment_id = NULL WHERE id = ?').run(g);
+      getQuizResultsTool(getDb(), { group_id: g });
+      expect(getDb().prepare('SELECT COUNT(*) AS n FROM context_serves').get().n).toBe(0);
+    });
   });
 
   test('write_quiz_overall_suggestions writes the built comment and reports per student', () => {

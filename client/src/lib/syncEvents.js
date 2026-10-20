@@ -77,7 +77,7 @@ export function reduceSyncEvents(events) {
   }
 
   const failures = phases.filter((p) => p.status === 'error');
-  const done = phases.filter((p) => p.status === 'done' || p.status === 'error').length;
+  const done = phases.filter((p) => ['done', 'error', 'skipped'].includes(p.status)).length;
   const progress = phases.length ? done / phases.length : 0;
   return { phases, logLines, summary, fatal, failures, progress };
 }

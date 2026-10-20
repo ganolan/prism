@@ -13,6 +13,7 @@ function PhaseRow({ phase }) {
         {phase.status === 'done' && phase.records != null && `${phase.records} records`}
         {phase.status === 'running' && 'syncing…'}
         {phase.status === 'error' && 'not synced'}
+        {phase.status === 'skipped' && 'skipped'}
       </span>
     </div>
   );

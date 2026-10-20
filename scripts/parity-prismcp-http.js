@@ -62,6 +62,10 @@ export const EXCEPTIONS = [
     rule: 'data_as_of',
     reason: 'a timestamp of when the answer was assembled; two calls moments apart read it at different times',
   },
+  {
+    rule: 'context_id',
+    reason: 'each call records its own serve; two calls get consecutive ids',
+  },
   ...['mastery_source', 'submission_files_source', 'submission_comments_source'].map((rule) => ({
     rule,
     reason: 'names the live source (a sync or the stored copy) the answer drew on, which can differ between the two processes',

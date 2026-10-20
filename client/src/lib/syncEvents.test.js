@@ -74,6 +74,14 @@ describe('reduceSyncEvents', () => {
     expect(progress).toBe(0.5);
   });
 
+  it('counts a skipped phase as finished, and not as a failure', () => {
+    const { progress, failures } = reduceSyncEvents([
+      { phase: 'mastery', courseId: 1, courseName: 'A', status: 'skipped', message: 'Not read: the submissions read failed' },
+    ]);
+    expect(progress).toBe(1);
+    expect(failures).toEqual([]);
+  });
+
   it('marks fatal when a summary is fatal', () => {
     const { fatal } = reduceSyncEvents([{ type: 'summary', fatal: true, mastery: [] }]);
     expect(fatal).toBe(true);

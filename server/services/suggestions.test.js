@@ -166,19 +166,41 @@ describe('upsertStudentSuggestion', () => {
       .toEqual({ data_as_of: '2026-10-20T09:00:00.000Z', suggested_at: '2026-10-20T09:05:00.000Z' });
   });
 
-  test('writeStudentSuggestions notes a fallback when no context_id was passed; upsertStudentSuggestion alone stays quiet', () => {
+  test('writeStudentSuggestions notes a fallback once for the batch when no context_id was passed; upsertStudentSuggestion alone stays quiet', () => {
     const db = getDb();
     const { assignmentLocalId } = seed(db);
     const NOTE = 'No context_id was passed, so the oldest read of this task in the last 3 hours was used. Pass the context_id from get_assignment_context.';
-    const students = [{ student: 'uid-1', narrative_feedback: 'Good.' }];
+    const students = [{ student: 'uid-1', narrative_feedback: 'Good.' }, { student: 'uid-1', narrative_feedback: 'Fine.' }];
     // No serve either: nothing to note.
-    expect(writeStudentSuggestions(db, { assignmentId: 'sa-1', students }).results[0].message).toBeUndefined();
+    const none = writeStudentSuggestions(db, { assignmentId: 'sa-1', students });
+    expect(none.note).toBeUndefined();
+    expect(none.results[0].message).toBeUndefined();
     recordServe(db, { assignmentId: assignmentLocalId, dataAsOf: new Date(Date.now() - 6 * 60000).toISOString(), now: new Date(Date.now() - 5 * 60000).toISOString() });
-    expect(writeStudentSuggestions(db, { assignmentId: 'sa-1', students }).results[0].message).toBe(NOTE);
+    const r = writeStudentSuggestions(db, { assignmentId: 'sa-1', students });
+    expect(r.note).toBe(NOTE);
+    expect(r.results.map(x => x.message)).toEqual([undefined, undefined]);
     expect(upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'Good.' }).message).toBeUndefined();
     // With a context_id the note does not appear.
     const contextId = recordServe(db, { assignmentId: assignmentLocalId, dataAsOf: new Date().toISOString() });
-    expect(writeStudentSuggestions(db, { assignmentId: 'sa-1', students, contextId }).results[0].message).toBeUndefined();
+    const withId = writeStudentSuggestions(db, { assignmentId: 'sa-1', students, contextId });
+    expect(withId.note).toBeUndefined();
+    expect(withId.results[0].message).toBeUndefined();
+  });
+
+  test('writeStudentSuggestions says an unknown context_id once for the batch and keeps per-student messages that differ', () => {
+    const db = getDb();
+    const { assignmentLocalId } = seed(db);
+    recordServe(db, { assignmentId: assignmentLocalId, dataAsOf: new Date(Date.now() - 6 * 60000).toISOString(), now: new Date(Date.now() - 5 * 60000).toISOString() });
+    const r = writeStudentSuggestions(db, { assignmentId: 'sa-1', contextId: 987654, students: [
+      { student: 'uid-1', narrative_feedback: 'Good.' },
+      { student: 'uid-1', narrative_feedback: 'Again.', rubric_scores: { 'ART.5.1': 'Amazing' } },
+      { student: 'nobody', narrative_feedback: 'x' },
+    ] });
+    expect(r.note).toMatch(/context_id 987654/);
+    expect(r.results[0].message).toBeUndefined();
+    expect(r.results[1].message).toMatch(/out-of-vocabulary/i);
+    expect(r.results[1].message).not.toMatch(/987654/);
+    expect(r.results[2].message).toMatch(/Student not found/);
   });
 
   test('a serve older than 3 hours is never copied by the fallback', () => {

@@ -12,7 +12,7 @@
 // files, which is not a failure (`files.notNative`), and a source switched off in config.yaml
 // (`submission_comments`, `submission_files`) is skipped, reported as `disabled`, not a failure. A
 // plain run starts the threads and moves on. A grading run whose submissions read failed or lost the
-// sign-in is already failing: it reads no threads or files (`skipped`), and a thread job that
+// sign-in is already failing: it reads no threads, files or mastery (`skipped`), and a thread job that
 // brings no `done` to wait on is an error, never a success (#170).
 import { getDb } from '../db/index.js';
 import { syncAssignment, submissionsRead } from './assignmentSync.js';
@@ -75,12 +75,17 @@ export async function runTaskSync(request, emit, { db = getDb(), deps = {} } = {
     ? { phase: 'assignment', status: 'done', title }
     : { phase: 'assignment', status: 'error', title, message: task.submissions?.error || gradingError || 'Submissions not read' });
 
-  emit({ phase: 'mastery', courseId, courseName: title, status: 'running' });
-  const m = await d.refreshAssignmentMastery(courseId, aid, { db, force: true })
+  // A grading run whose submissions read failed is already failing: it skips the mastery read as it
+  // skips the threads and files, so a run that cannot succeed makes no more Schoology requests.
+  const skipMastery = request.grading && !submissionsOk;
+  if (!skipMastery) emit({ phase: 'mastery', courseId, courseName: title, status: 'running' });
+  const m = skipMastery ? null : await d.refreshAssignmentMastery(courseId, aid, { db, force: true })
     .catch((err) => ({ error: String(err?.message || err) }));
-  const mastery = m?.error
-    ? { courseId, courseName: title, status: 'error', message: m.error, ...(m.signIn ? { errorKind: 'login' } : {}) }
-    : { courseId, courseName: title, status: 'done' };
+  const mastery = skipMastery
+    ? { courseId, courseName: title, status: 'skipped', message: 'Not read: the submissions read failed' }
+    : m?.error
+      ? { courseId, courseName: title, status: 'error', message: m.error, ...(m.signIn ? { errorKind: 'login' } : {}) }
+      : { courseId, courseName: title, status: 'done' };
   emit({ phase: 'mastery', ...mastery });
 
   if (id) {

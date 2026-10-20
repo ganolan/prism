@@ -146,8 +146,13 @@ export function upsertStudentSuggestion(db, {
   if (unresolvedTopics.length) result.unresolved_topics = unresolvedTopics;
   if (unresolvedRows.length) result.unresolved_rows = unresolvedRows;
   const notes = [];
-  if (serve.unknownId) notes.push(`context_id ${contextId} is not a get_assignment_context answer Prism still holds, so the oldest read of this task in the last 3 hours stands in for it${serve.source === 'none' ? ' (there is none, so the task\'s last sync time is used)' : ''}.`);
-  if (noteFallback && contextId == null && serve.source === 'fallback') notes.push('No context_id was passed, so the oldest read of this task in the last 3 hours was used. Pass the context_id from get_assignment_context.');
+  // What the serve fell back to is the same for every student of a batch, so a batch (noteFallback)
+  // returns it as `serve_note` for writeStudentSuggestions to say once; a single write keeps it in
+  // its message, though only the unknown id (a lone write that passed no id has nothing to note).
+  const serveNotes = [];
+  if (serve.unknownId) serveNotes.push(`context_id ${contextId} is not a get_assignment_context answer Prism still holds, so the oldest read of this task in the last 3 hours stands in for it${serve.source === 'none' ? ' (there is none, so the task\'s last sync time is used)' : ''}.`);
+  if (noteFallback && contextId == null && serve.source === 'fallback') serveNotes.push('No context_id was passed, so the oldest read of this task in the last 3 hours was used. Pass the context_id from get_assignment_context.');
+  if (noteFallback) { if (serveNotes.length) result.serve_note = serveNotes.join(' '); } else notes.push(...serveNotes);
   if (unresolvedRows.length) notes.push(`Unknown row(s) ${unresolvedRows.join(', ')}: the rows of "${feedbackRows.rubric.name}" are ${rows.map(r => r.criterion).join(', ')}.`);
   if (scoreScale && !rows.length && unresolvedTopics.length) notes.push(`This assignment is graded on ${scoreScale.name} with no rubric: attach a rubric (attach_rubric) to send row levels, or send scale_level only.`);
   if (numericLevels.length) notes.push(`Ignored numeric value(s) for ${numericLevels.join(', ')}: emit proficiency levels; Prism owns the points conversion.`);
@@ -159,9 +164,16 @@ export function upsertStudentSuggestion(db, {
 
 // Batched whole-class write. Returns a per-student written/error summary.
 // contextId is the context_id of the get_assignment_context answer the class was graded from.
+// How the data time was found, when it was not the context_id's own serve, comes back once as a
+// top-level `note` for the whole batch; each student's `message` keeps only what differs per student.
 export function writeStudentSuggestions(db, { assignmentId, students, contextId }) {
-  const results = (students || []).map((s) => upsertStudentSuggestion(db, { assignmentId, contextId, noteFallback: true, ...s }));
-  return { results };
+  let note;
+  const results = (students || []).map((s) => {
+    const { serve_note: serveNote, ...r } = upsertStudentSuggestion(db, { assignmentId, contextId, noteFallback: true, ...s });
+    if (serveNote && !note) note = serveNote;
+    return r;
+  });
+  return note ? { note, results } : { results };
 }
 
 // Upsert the single assessment-wide analysis row (PK assignment_id) in the

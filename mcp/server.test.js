@@ -162,6 +162,7 @@ describe('PrisMCP server', () => {
       expect(d.description).toMatch(/retry/);
       expect(d.description).toMatch(/never choose stored data yourself/);
       expect(d.inputSchema.properties).toHaveProperty('use_stored_data');
+      expect(d.description).toMatch(/NOT_FOUND means no such assignment, or a `course_id` that is not the assignment's course \(the error names the right one\)/);
       expect(d.description).toMatch(/`context_id` \(integer, this read\): pass that `context_id` to write_student_suggestions/);
     });
 
@@ -171,6 +172,7 @@ describe('PrisMCP server', () => {
       expect(w.inputSchema.properties).toHaveProperty('context_id');
       expect(w.inputSchema.required ?? []).not.toContain('context_id');
       expect(w.description).toMatch(/Pass the `context_id` of the get_assignment_context answer you graded from/);
+      expect(w.description).toMatch(/the result's top-level `note` says so/);
     });
 
     test('progressNotifier sends progress only when the request asked for it', async () => {
@@ -225,6 +227,45 @@ describe('PrisMCP server', () => {
     const body = JSON.parse(res.content[0].text);
     expect(db.prepare('SELECT data_as_of, suggested_at FROM feedback WHERE id = ?').get(body.results[0].feedback_id))
       .toEqual({ data_as_of: '2026-10-20T09:00:00.000Z', suggested_at: '2026-10-20T09:05:00.000Z' });
+  });
+
+  describe('write_student_suggestions context_id input', () => {
+    const setup = () => {
+      const db = getDb();
+      const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s1', 'AIML')`).run().lastInsertRowid;
+      const assignmentLocalId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-1', 'Project')`).run(courseId).lastInsertRowid;
+      db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-1', 'Ada', 'Lovelace')`).run();
+      const contextId = recordServe(db, { assignmentId: assignmentLocalId, dataAsOf: '2026-10-20T09:00:00.000Z', now: '2026-10-20T09:05:00.000Z' });
+      return { db, courseId, contextId };
+    };
+    const write = async (courseId, context_id) => {
+      const client = await connect();
+      const args = { course_id: courseId, assignment_id: 'sa-1', students: [{ student: 'uid-1', narrative_feedback: 'Good.' }] };
+      if (context_id !== undefined) args.context_id = context_id;
+      return client.callTool({ name: 'write_student_suggestions', arguments: args });
+    };
+
+    test('a digit string is the same as the integer', async () => {
+      const { db, courseId, contextId } = setup();
+      const res = await write(courseId, String(contextId));
+      expect(res.isError).toBeFalsy();
+      const body = JSON.parse(res.content[0].text);
+      expect(db.prepare('SELECT data_as_of, suggested_at FROM feedback WHERE id = ?').get(body.results[0].feedback_id))
+        .toEqual({ data_as_of: '2026-10-20T09:00:00.000Z', suggested_at: '2026-10-20T09:05:00.000Z' });
+    });
+
+    test('a non-numeric string is refused', async () => {
+      const { courseId } = setup();
+      const res = await write(courseId, 'abc');
+      expect(res.isError).toBe(true);
+    });
+
+    test('null falls back like an absent context_id', async () => {
+      const { courseId } = setup();
+      const res = await write(courseId, null);
+      expect(res.isError).toBeFalsy();
+      expect(JSON.parse(res.content[0].text).results[0].status).toBe('written');
+    });
   });
 
   test('write_assessment_analysis upserts the assessment-wide analysis row', async () => {

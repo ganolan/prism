@@ -81,7 +81,7 @@ describe('exceptions', () => {
   it('lists exact key names only, so scale_level_source is never excused', () => {
     expect(EXCEPTIONS.every((e) => typeof e.rule === 'string')).toBe(true);
     expect(EXCEPTIONS.map((e) => e.rule).sort()).toEqual(
-      ['data_as_of', 'mastery_source', 'submission_comments_source', 'submission_files_source']);
+      ['context_id', 'data_as_of', 'mastery_source', 'submission_comments_source', 'submission_files_source']);
     const r = judge({ scale_level_source: 'ai' }, { scale_level_source: 'teacher' });
     expect(r.real).toEqual(['scale_level_source']);
   });
@@ -91,6 +91,14 @@ describe('exceptions', () => {
       { mastery_source: 'b', submission_files_source: 'b', submission_comments_source: 'b' });
     expect(r.real).toEqual([]);
     expect(r.excused).toHaveLength(3);
+  });
+
+  it('excuses context_id (each call records its own serve) but not a similar key', () => {
+    const r = judge({ context_id: 7, n: 1 }, { context_id: 8, n: 1 });
+    expect(r.real).toEqual([]);
+    expect(r.excused).toEqual(['context_id']);
+    expect(r.reasons.join()).toMatch(/context_id: each call records its own serve/);
+    expect(judge({ context_ids: [1] }, { context_ids: [2] }).real).toEqual(['context_ids[0]']);
   });
 });
 

@@ -24,14 +24,14 @@ describe('syncAssignment (#58)', () => {
   });
   const task = () => db.prepare('SELECT due_date, removed_at, task_synced_at FROM assignments WHERE id = ?').get(localId);
 
-  test('reads the task\'s details, then its submissions and grades, then its comment threads; stamps it', async () => {
+  test('reads the task\'s details, then its submissions and grades, then its comment threads', async () => {
     const r = await syncAssignment(courseId, 'A1', { db, deps });
     expect(deps.getSectionAssignment).toHaveBeenCalledWith('S1', 'A1');
     expect(task().due_date).toBe('2026-10-31 15:30:00');
     expect(deps.refreshTasks).toHaveBeenCalledWith([localId], expect.objectContaining({ force: true, mastery: false }));
     expect(deps.refreshComments).toHaveBeenCalledWith(db, localId, { maxAgeSec: 0 });
-    expect(r).toMatchObject({ removed: false, comments: { queued: 3 }, taskSyncedAt: new Date(NOW).toISOString() });
-    expect(task().task_synced_at).toBe(new Date(NOW).toISOString());
+    expect(r).toMatchObject({ removed: false, comments: { queued: 3 } });
+    expect(task().task_synced_at).toBeNull(); // the task run stamps it, after the mastery read
   });
 
   test('a task deleted in Schoology (404) is marked removed and nothing else is read', async () => {
@@ -45,14 +45,13 @@ describe('syncAssignment (#58)', () => {
     deps.refreshTasks.mockResolvedValue({ refreshed: 0, readAt: null, failed: [localId], error: '503' });
     const r = await syncAssignment(courseId, 'A1', { db, deps });
     expect(task().task_synced_at).toBeNull();
-    expect(r.taskSyncedAt).toBeNull();
   });
 
   test('an archived course\'s task: no stamp (its submissions are not read), and a 404 removes nothing', async () => {
     db.prepare('UPDATE courses SET archived = 1 WHERE id = ?').run(courseId);
     deps.refreshTasks.mockResolvedValue({ refreshed: 0, readAt: null, failed: [] });
     const r = await syncAssignment(courseId, 'A1', { db, deps });
-    expect(r.taskSyncedAt).toBeNull();
+    expect(task().task_synced_at).toBeNull();
     deps.getSectionAssignment.mockRejectedValue(Object.assign(new Error('Schoology API 404'), { status: 404 }));
     await expect(syncAssignment(courseId, 'A1', { db, deps })).rejects.toThrow(/404/);
     expect(task().removed_at).toBeNull();

@@ -130,6 +130,37 @@ export function enqueue(request, { onEvent } = {}) {
   return { runId, state: 'queued', joined: false };
 }
 
+// A page asks for its scope after it loads (POST /api/sync/ensure). Fresh = every course in it
+// (or the task) was synced, or tried, within SYNC_FRESH_MS; archived courses are only re-read by a
+// button. A scope a queued or running request already covers follows that run. Otherwise the
+// stale part is queued as a page request. → { state: 'fresh' | 'queued' | 'running', runId? }.
+//   scope = { kind: 'all' } | { kind: 'courses', courseIds } | { kind: 'task', courseId, assignmentId }
+export function ensure(scope, { now = Date.now() } = {}) {
+  const d = db();
+  const isFresh = (...stamps) => stamps.some((s) => s && now - Date.parse(s) < SYNC_FRESH_MS);
+  if (scope.kind === 'task') {
+    const t = d.prepare(`SELECT a.task_synced_at, a.task_sync_attempted_at, c.archived FROM assignments a
+      JOIN courses c ON c.id = a.course_id WHERE a.schoology_assignment_id = ? AND a.course_id = ?`).get(String(scope.assignmentId), Number(scope.courseId));
+    if (!t || t.archived || isFresh(t.task_synced_at, t.task_sync_attempted_at)) return { state: 'fresh' };
+    const request = { kind: 'task', courseId: Number(scope.courseId), assignmentId: String(scope.assignmentId), trigger: 'page' };
+    const following = [running, ...queue].find((e) => e && covers(e, request));
+    if (following) return { state: following === running ? 'running' : 'queued', runId: following.runId };
+    const r = enqueue(request);
+    return { state: r.state, runId: r.runId };
+  }
+  const ids = scope.kind === 'all' ? coveredCourseIds({ kind: 'all' }) : (scope.courseIds ?? []).map(Number);
+  const rows = ids.length ? d.prepare(`SELECT id, archived, course_synced_at, sync_attempted_at FROM courses
+    WHERE id IN (SELECT value FROM json_each(?)) AND COALESCE(excluded, 0) = 0`).all(JSON.stringify(ids)) : [];
+  const live = rows.filter((c) => !c.archived);
+  const following = [running, ...queue].find((e) => e && !e.request.skipSchoology && live.length
+    && live.every((c) => e.covered.includes(c.id)));
+  if (following) return { state: following === running ? 'running' : 'queued', runId: following.runId };
+  const stale = live.filter((c) => !isFresh(c.course_synced_at, c.sync_attempted_at)).map((c) => c.id);
+  if (!stale.length) return { state: 'fresh' };
+  const r = enqueue({ kind: 'courses', courseIds: stale, trigger: 'page' });
+  return { state: r.state, runId: r.runId };
+}
+
 // After a sign-in: every held request runs again (same runs, back in the queue).
 export function resumeHeld() {
   const back = held;

@@ -30,14 +30,12 @@ vi.mock('../services/schoology.js', () => ({
 // The OneDrive lookup drives a real browser — never launch one in tests (#120).
 vi.mock('../services/oneDriveLinks.js', () => ({ getAssignmentFiles: vi.fn() }));
 vi.mock('../services/taskRefresh.js', () => ({ refreshTasks: vi.fn().mockResolvedValue({ refreshed: 0, readAt: null, failed: [] }) }));
-vi.mock('../services/assignmentSync.js', () => ({
-  syncAssignment: vi.fn().mockResolvedValue({ removed: false, submissions: { refreshed: 0, readAt: null, failed: [] }, comments: { queued: 0 }, taskSyncedAt: null }),
-}));
+vi.mock('../services/syncQueue.js', () => ({ enqueue: vi.fn(() => ({ runId: 77, state: 'queued', joined: false })) }));
 vi.mock('../services/ltiSubmissionApps.js', () => ({ getLtiSubmissionApp: vi.fn(), getSubmittedDocuments: vi.fn() }));
 
 import router from './mastery.js';
 import { refreshTasks } from '../services/taskRefresh.js';
-import { syncAssignment } from '../services/assignmentSync.js';
+import { enqueue } from '../services/syncQueue.js';
 import triageRouter from './triage.js';
 import { getDb } from '../db/index.js';
 import { saveRowLevels } from '../services/feedbackRows.js';
@@ -660,12 +658,8 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     });
     expect((await post(`/api/mastery/sync/${courseId}`, {})).status).toBe(200);
     expect(levels()).toEqual(['t-wc:EX']);
-    syncMasteryForAssignment.mockImplementation(async () => {
-      db.prepare(`UPDATE mastery_scores SET grade = 'ED', points = 100`).run();
-      return { scoresCount: 1 };
-    });
-    expect((await post(`/api/mastery/${courseId}/assignment/sa-wc/sync`, {})).status).toBe(200);
-    expect(levels()).toEqual(['t-wc:ED']);
+    // The assignment pull now runs as a queued task run (taskSyncRun.js → refreshAssignmentMastery,
+    // whose afterPull re-snapshots the course): see taskSyncRun.test.js and masteryRefresh.test.js.
   });
 
   test('a rubric save (POST /write) captures the snapshot so a rubric regrade of an arrival clears it at once', async () => {
@@ -2105,15 +2099,14 @@ describe('#52: mastery refreshed on demand after a page loads', () => {
     const r = (await post(`/api/mastery/${courseId}/assignment/sa-r${n}/refresh`, {})).body;
     expect(r.refreshed).toBe(true); // mastery was fresh; the submission read ran
     expect(refreshTasks).toHaveBeenCalledWith([localId], { force: false, mastery: false });
-    const { syncMasteryForAssignment } = await import('../services/masterySync.js');
-    syncMasteryForAssignment.mockResolvedValue({ scoresCount: 2 });
-    syncAssignment.mockClear().mockResolvedValueOnce({
-      removed: false, submissions: { refreshed: 1, readAt: 'x', failed: [] }, comments: { queued: 2 }, taskSyncedAt: '2026-10-20T00:00:00.000Z',
-    });
-    const s = (await post(`/api/mastery/${courseId}/assignment/sa-r${n}/sync`, {})).body;
-    // #58 Sync Assignment: the task's details, submissions, grades and comments, then mastery.
-    expect(syncAssignment).toHaveBeenCalledWith(courseId, `sa-r${n}`);
-    expect(s).toMatchObject({ scoresCount: 2, submissions: { refreshed: 1 }, taskSyncedAt: '2026-10-20T00:00:00.000Z' });
+  });
+
+  test('Sync Assignment queues a forced task run and answers its runId (background sync)', async () => {
+    enqueue.mockClear();
+    const s = await post(`/api/mastery/${courseId}/assignment/sa-r${n}/sync`, {});
+    expect(s).toEqual({ status: 200, body: { runId: 77, state: 'queued', joined: false } });
+    expect(enqueue).toHaveBeenCalledWith({ kind: 'task', courseId: Number(courseId), assignmentId: `sa-r${n}`, trigger: 'button', force: true });
+    expect((await post(`/api/mastery/${courseId}/assignment/missing-task/sync`, {})).status).toBe(404);
   });
 
   test('a failed submissions read keeps the mastery answer, and the reverse (#108 review)', async () => {
@@ -2122,20 +2115,6 @@ describe('#52: mastery refreshed on demand after a page loads', () => {
     const r = await post(`/api/mastery/${courseId}/assignment/sa-r${n}/refresh`, {});
     expect(r.status).toBe(200);
     expect(r.body.submissions).toMatchObject({ refreshed: 0, error: 'database is locked' });
-    const { syncMasteryForAssignment } = await import('../services/masterySync.js');
-    syncMasteryForAssignment.mockRejectedValueOnce(new Error('Schoology API 500'));
-    syncAssignment.mockResolvedValueOnce({ removed: false, submissions: { refreshed: 2, readAt: null, failed: [] }, comments: { queued: 0 }, taskSyncedAt: null });
-    const s = await post(`/api/mastery/${courseId}/assignment/sa-r${n}/sync`, {});
-    expect(s.status).toBe(500);
-    expect(s.body).toMatchObject({ error: 'Schoology API 500', submissions: { refreshed: 2 } });
-  });
-
-  test('Sync Assignment on a task deleted in Schoology answers removed and reads no mastery (#58)', async () => {
-    const { syncMasteryForAssignment } = await import('../services/masterySync.js');
-    syncMasteryForAssignment.mockClear();
-    syncAssignment.mockResolvedValueOnce({ removed: true });
-    expect(await post(`/api/mastery/${courseId}/assignment/sa-r${n}/sync`, {})).toEqual({ status: 200, body: { removed: true } });
-    expect(syncMasteryForAssignment).not.toHaveBeenCalled();
   });
 
   test('POST /sync/:courseId always reads, and shares a refresh already running', async () => {

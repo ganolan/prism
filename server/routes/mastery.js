@@ -6,7 +6,7 @@ import { settleResubmissions, resubmissionByStudent, arrivedKeys, pairResubmissi
 import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
 import { refreshCourseMastery, refreshAssignmentMastery } from '../services/masteryRefresh.js';
 import { refreshTasks } from '../services/taskRefresh.js';
-import { syncAssignment } from '../services/assignmentSync.js';
+import { enqueue } from '../services/syncQueue.js';
 import { STATUS_LINE_KINDS, putSucceeded, checkLine, lockPair, withCheckedLine } from '../services/statusLinePublisher.js';
 import { getFeedbackRows, getRowLevels, rowLevelsError, saveRowLevels } from '../services/feedbackRows.js';
 import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows, scoreScaleFor } from '../services/assessmentContext.js';
@@ -350,25 +350,14 @@ function readTask(courseId, schoologyAssignmentId, force) {
     .catch((err) => ({ refreshed: 0, readAt: null, failed: [row.id], error: String(err?.message || err) }));
 }
 
-// POST /api/mastery/:courseId/assignment/:assignmentId/sync — the assessment page's Sync Assignment
-// (#58): the task's details, submissions, grades and comment threads (assignmentSync.js), then its
-// mastery scores and grade comments now (masteryRefresh, force). A task deleted in Schoology answers
-// { removed: true } and reads nothing more.
-router.post('/:courseId/assignment/:assignmentId/sync', async (req, res) => {
+// POST /api/mastery/:courseId/assignment/:assignmentId/sync — the assessment page's Sync Assignment:
+// a forced task run in the sync queue (taskSyncRun.js: the task's details, submissions, grades and
+// comment threads, then its mastery). → { runId, state, joined }; the page follows the run.
+router.post('/:courseId/assignment/:assignmentId/sync', (req, res) => {
   const { courseId, assignmentId } = req.params;
-  try {
-    const task = await syncAssignment(Number(courseId), assignmentId);
-    if (task.removed) return res.json({ removed: true });
-    const extras = { submissions: task.submissions, comments: task.comments, taskSyncedAt: task.taskSyncedAt };
-    const r = await refreshAssignmentMastery(courseId, assignmentId, { force: true });
-    if (r.error) {
-      console.error('[mastery assignment sync] Error:', r.error);
-      return res.status(500).json({ error: r.error, ...extras });
-    }
-    res.json({ ...r.result, syncedAt: r.syncedAt, ...extras });
-  } catch (err) {
-    res.status(err.code === 'NOT_FOUND' ? 404 : 500).json({ error: err.message });
-  }
+  const known = getDb().prepare('SELECT 1 FROM assignments WHERE schoology_assignment_id = ? AND course_id = ?').get(String(assignmentId), Number(courseId));
+  if (!known) return res.status(404).json({ error: `Assignment ${assignmentId} not found in course ${courseId}` });
+  res.json(enqueue({ kind: 'task', courseId: Number(courseId), assignmentId: String(assignmentId), trigger: 'button', force: true }));
 });
 
 // POST /api/mastery/:courseId/assignment/:assignmentId/refresh — the assessment page asks this after it

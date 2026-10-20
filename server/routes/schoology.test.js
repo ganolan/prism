@@ -227,3 +227,23 @@ describe('sync runs + events', () => {
     }
   });
 });
+
+describe('POST /api/sync/ensure (background sync)', () => {
+  test('a page asks for its scope: fresh, or queued with a runId', async () => {
+    const db = getDb();
+    const c = db.prepare(`INSERT INTO courses (schoology_section_id, course_name, course_synced_at) VALUES ('se', 'E', ?)`).run(new Date().toISOString()).lastInsertRowid;
+    const { server, port } = startServer();
+    try {
+      expect((await api(port, 'POST', '/api/sync/ensure', { scope: { kind: 'courses', courseIds: [c] } })).body).toEqual({ state: 'fresh' });
+      db.prepare('UPDATE courses SET course_synced_at = NULL WHERE id = ?').run(c);
+      const r = (await api(port, 'POST', '/api/sync/ensure', { scope: { kind: 'courses', courseIds: [c] } })).body;
+      expect(r).toMatchObject({ state: 'queued', runId: expect.any(Number) });
+      await idle();
+      expect((await api(port, 'GET', `/api/sync/runs/${r.runId}`)).body.options).toMatchObject({ kind: 'courses', courseIds: [c], trigger: 'page' });
+      expect((await api(port, 'POST', '/api/sync/ensure', { scope: { kind: 'nonsense' } })).status).toBe(400);
+    } finally {
+      server.close();
+    }
+  });
+});
+

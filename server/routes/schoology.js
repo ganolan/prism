@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
-import { enqueue, currentSync, resumeHeld } from '../services/syncQueue.js';
+import { enqueue, currentSync, resumeHeld, ensure } from '../services/syncQueue.js';
 import { listRuns, getRun, getEvents, isFinished, KEEP_RUNS } from '../services/syncRuns.js';
 
 const router = Router();
@@ -36,6 +36,23 @@ router.post('/sync', (req, res) => {
     res.json(enqueue(request));
   } catch (err) {
     console.error('[sync] Could not queue a sync run:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/sync/ensure { scope } — a page asks for its scope after it loads (background sync):
+// scope { kind: 'all' } (dashboard), { kind: 'courses', courseIds } (course, student page) or
+// { kind: 'task', courseId, assignmentId } (assessment page). Synced (or tried) within 10 minutes →
+// { state: 'fresh' }; else { state: 'queued' | 'running', runId } to follow.
+router.post('/sync/ensure', (req, res) => {
+  const scope = req.body?.scope;
+  const ok = scope && (scope.kind === 'all'
+    || (scope.kind === 'courses' && Array.isArray(scope.courseIds))
+    || (scope.kind === 'task' && scope.courseId != null && scope.assignmentId != null));
+  if (!ok) return res.status(400).json({ error: 'A scope is required: all, courses or task' });
+  try {
+    res.json(ensure(scope));
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });

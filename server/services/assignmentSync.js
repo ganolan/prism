@@ -9,7 +9,7 @@ import { writeAssignments } from './taskAssignments.js';
 import { refreshTasks } from './taskRefresh.js';
 import { refreshAssignment } from './submissionComments.js';
 
-// → { removed: true } | { removed: false, submissions, comments: { queued }, taskSyncedAt }.
+// → { removed: true } | { removed: false, submissions, comments: { queued } }.
 export async function syncAssignment(courseId, schoologyAssignmentId, { db = getDb(), deps = {} } = {}) {
   const d = { getSectionAssignment, refreshTasks, refreshComments: refreshAssignment, now: Date.now, ...deps };
   const course = db.prepare('SELECT id, schoology_section_id, archived FROM courses WHERE id = ?').get(Number(courseId));
@@ -44,9 +44,6 @@ export async function syncAssignment(courseId, schoologyAssignmentId, { db = get
     comments = { queued: 0, error: err.message };
   }
 
-  // Stamped only when the task was read (an archived course's tasks are not: refreshTasks skips them).
-  const clean = submissions.refreshed > 0 && !submissions.error && !(submissions.failed ?? []).length;
-  if (clean) db.prepare('UPDATE assignments SET task_synced_at = ? WHERE id = ?').run(now, task.id);
-  const taskSyncedAt = db.prepare('SELECT task_synced_at FROM assignments WHERE id = ?').get(task.id).task_synced_at;
-  return { removed: false, submissions, comments, taskSyncedAt };
+  // The "Synced" stamp is the task run's (taskSyncRun.js): it needs the mastery read too.
+  return { removed: false, submissions, comments };
 }

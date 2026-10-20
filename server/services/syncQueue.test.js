@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../db/index.js';
-import { enqueue, currentSync, resumeHeld, queueDeps, resetQueue, idle } from './syncQueue.js';
+import { enqueue, currentSync, resumeHeld, queueDeps, resetQueue, idle, ensure, SYNC_FRESH_MS } from './syncQueue.js';
 import { markInterruptedRuns } from './syncRuns.js';
 
 // A controllable run: each started run waits until the test finishes it.
@@ -148,4 +148,63 @@ describe('the sync queue', () => {
     markInterruptedRuns(db);
     expect(db.prepare(`SELECT COUNT(*) AS n FROM sync_runs WHERE status = 'interrupted'`).get().n).toBe(3);
   });
+
+  describe('ensure: pages ask for their scope', () => {
+    const iso = (msAgo) => new Date(Date.now() - msAgo).toISOString();
+    const setCourse = (id, cols) => getDb().prepare(`UPDATE courses SET ${Object.keys(cols).map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...Object.values(cols), id);
+
+    test('a course synced within 10 minutes is fresh; an older one is queued', async () => {
+      const runs = gatedRuns();
+      setCourse(a, { course_synced_at: iso(60_000) });
+      expect(ensure({ kind: 'courses', courseIds: [a] })).toEqual({ state: 'fresh' });
+      setCourse(a, { course_synced_at: iso(SYNC_FRESH_MS + 1000) });
+      const r = ensure({ kind: 'courses', courseIds: [a] });
+      expect(r).toMatchObject({ state: 'queued', runId: expect.any(Number) });
+      await tick();
+      runs[0].finish(); await idle();
+    });
+
+    test('a failed attempt within the window counts too (a failing course is not retried on every visit)', () => {
+      setCourse(a, { course_synced_at: null, sync_attempted_at: iso(60_000) });
+      expect(ensure({ kind: 'courses', courseIds: [a] })).toEqual({ state: 'fresh' });
+    });
+
+    test('the dashboard queues only its stale courses', async () => {
+      const runs = gatedRuns();
+      setCourse(a, { course_synced_at: iso(60_000) });
+      ensure({ kind: 'all' });
+      await tick();
+      expect(runs[0].options.courseIds).toEqual([b]);
+      runs[0].finish(); await idle();
+    });
+
+    test('an archived course or its task is fresh for a page (only the button re-reads it)', () => {
+      setCourse(a, { archived: 1 });
+      const t = getDb().prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'TA', 'T')`).run(a).lastInsertRowid;
+      expect(ensure({ kind: 'courses', courseIds: [a] })).toEqual({ state: 'fresh' });
+      expect(ensure({ kind: 'task', courseId: a, assignmentId: 'TA' })).toEqual({ state: 'fresh' });
+      expect(t).toBeGreaterThan(0);
+    });
+
+    test('a task synced by its course\'s sync is fresh; a stale one is queued as a task run', async () => {
+      const runs = gatedRuns();
+      getDb().prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, task_synced_at) VALUES (?, 'T1', 'T', ?)`).run(a, iso(1000));
+      expect(ensure({ kind: 'task', courseId: a, assignmentId: 'T1' })).toEqual({ state: 'fresh' });
+      getDb().prepare(`UPDATE assignments SET task_synced_at = ? WHERE schoology_assignment_id = 'T1'`).run(iso(SYNC_FRESH_MS + 1000));
+      ensure({ kind: 'task', courseId: a, assignmentId: 'T1' });
+      await tick();
+      expect(runs[0].request).toMatchObject({ kind: 'task', assignmentId: 'T1', trigger: 'page' });
+      runs[0].finish(); await idle();
+    });
+
+    test('a page whose scope is already syncing follows that run', async () => {
+      const runs = gatedRuns();
+      const r = enqueue({ kind: 'courses', courseIds: [a], trigger: 'button', force: true });
+      await tick();
+      setCourse(a, { course_synced_at: iso(60_000) });
+      expect(ensure({ kind: 'courses', courseIds: [a] })).toEqual({ state: 'running', runId: r.runId });
+      runs[0].finish(); await idle();
+    });
+  });
 });
+

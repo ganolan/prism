@@ -40,10 +40,13 @@ router.post('/sync', async (req, res) => {
     recentOnly = false,
     recentDays = 30,
     syncBlocks = true,
+    courseIds = null,
   } = req.body || {};
   const options = {
     masteryCourseIds, skipSchoology, includeHidden: !!includeHidden, recentOnly: !!recentOnly,
     recentDays: clampDays(recentDays), syncBlocks: syncBlocks !== false,
+    // #58: the courses to sync (Sync Courses ticks, or one Sync Course); null = a full run.
+    courseIds: Array.isArray(courseIds) ? courseIds.map(Number).filter(Number.isInteger) : null,
   };
 
   // The stream may be gone (client disconnected) — the sync and the stored

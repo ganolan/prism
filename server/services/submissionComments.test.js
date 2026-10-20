@@ -158,6 +158,12 @@ describe('refreshRecentComments (Sync\'s Comments phase)', () => {
     db.prepare('UPDATE courses SET archived = 1').run();
     expect(await refreshRecentComments(db)).toEqual({ assignments: 0, refreshed: 0, failed: 0 });
   });
+  test('#58: a course list reads only those courses\' tasks', async () => {
+    const db = getDb(); const { courseId } = seed(db);
+    const other = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-other', 'Other')`).run().lastInsertRowid;
+    expect(await refreshRecentComments(db, { courseIds: [other] })).toEqual({ assignments: 0, refreshed: 0, failed: 0 });
+    expect((await refreshRecentComments(db, { courseIds: [courseId] })).assignments).toBe(1);
+  });
 });
 
 describe('refreshAssignment', () => {

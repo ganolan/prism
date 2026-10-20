@@ -420,3 +420,35 @@ describe('runUnifiedSync — per-phase timing (#143)', () => {
     expect(errSpy).toHaveBeenCalled();
   });
 });
+
+describe('runUnifiedSync with a course list (#58)', () => {
+  beforeEach(() => {
+    h.db = new Database(':memory:');
+    migrate(h.db);
+    fullSync.mockReset();
+    syncMasteryForCourse.mockReset().mockResolvedValue({ scoresCount: 1 });
+    syncPsAttendance.mockReset().mockResolvedValue({ updated: 0, skipped: 0 });
+    syncPsAlerts.mockReset().mockResolvedValue({ students: 0, withAlerts: 0, failed: 0 });
+    refreshRecentComments.mockReset().mockResolvedValue({ assignments: 0, refreshed: 0, failed: 0 });
+    h.features = { powerschool_alerts: true, submission_comments: true };
+  });
+
+  test('passes the list to every phase and skips mastery for an archived course already read', async () => {
+    const a = seedCourse(h.db, 'A');
+    const old = seedCourse(h.db, 'Old');
+    fullSync.mockResolvedValue({ success: true, records: 1, archivedRead: [old] });
+    await runUnifiedSync({ courseIds: [a, old], masteryCourseIds: [a, old] }, () => {});
+    expect(fullSync.mock.calls[0][1]).toMatchObject({ courseIds: [a, old] });
+    expect(syncPsAttendance.mock.calls[0][0]).toMatchObject({ courseIds: [a, old] });
+    expect(syncPsAlerts.mock.calls[0][0]).toMatchObject({ courseIds: [a, old] });
+    expect(refreshRecentComments.mock.calls[0][1]).toMatchObject({ courseIds: [a, old] });
+    expect(syncMasteryForCourse.mock.calls.map((c) => c[0])).toEqual([a]);
+  });
+
+  test('no list: the phases get courseIds null', async () => {
+    fullSync.mockResolvedValue({ success: true, records: 1 });
+    await runUnifiedSync({}, () => {});
+    expect(fullSync.mock.calls[0][1].courseIds).toBeNull();
+    expect(syncPsAttendance.mock.calls[0][0].courseIds).toBeUndefined();
+  });
+});

@@ -59,14 +59,16 @@ async function readSection(ps, plan, sectionDcid) {
  * deps: { fetchImpl, jar } for tests. → { processed, read, failed, skipped,
  * students, withAlerts, results: [{ courseId, courseName, status, students?, reason? }] }
  */
-export async function syncPsAlerts({ onProgress, db = getDb(), deps = {} } = {}) {
+// `courseIds` (#58): only those courses (a Sync Course or the Sync Courses ticks); absent = every active course.
+export async function syncPsAlerts({ onProgress, courseIds = null, db = getDb(), deps = {} } = {}) {
   const log = (message) => { console.log(`[psAlertsSync] ${message}`); onProgress?.({ message }); };
   const summary = { processed: 0, read: 0, failed: 0, skipped: 0, students: 0, withAlerts: 0, results: [] };
   const courses = db.prepare(`
     SELECT id, schoology_section_id, course_name FROM courses
     WHERE excluded = 0 AND archived = 0 AND schoology_section_id IS NOT NULL
+      AND (? IS NULL OR id IN (SELECT value FROM json_each(?)))
     ORDER BY course_name
-  `).all();
+  `).all(courseIds ? 1 : null, JSON.stringify(courseIds ?? []));
   if (!courses.length) { log('No active courses.'); return summary; }
 
   const sgyJar = deps.jar ?? cookieJar();

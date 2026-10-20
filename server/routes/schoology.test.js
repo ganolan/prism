@@ -86,7 +86,7 @@ describe('POST /api/sync', () => {
       const body = await second.json();
       expect(body).toMatchObject({ error: 'Sync already in progress', runId: expect.any(Number) });
       const current = await (await fetch(`http://localhost:${port}/api/sync/current`)).json();
-      expect(current).toEqual({ running: true, runId: body.runId });
+      expect(current).toEqual({ running: true, runId: body.runId, courseIds: null });
       release();
       await firstRes.text();
     } finally {
@@ -217,7 +217,7 @@ describe('sync runs + events', () => {
       const status = await (await fetch(`http://localhost:${port}/api/sync/status`)).json();
       expect(status).toMatchObject({ syncing: false, runId: null });
       const current = await (await fetch(`http://localhost:${port}/api/sync/current`)).json();
-      expect(current).toEqual({ running: false, runId: null });
+      expect(current).toEqual({ running: false, runId: null, courseIds: null });
     } finally {
       server.close();
     }
@@ -336,6 +336,28 @@ describe('sync runs + events', () => {
       for (let i = 0; i < 32; i++) await runOnce(port);
       const list = await (await fetch(`http://localhost:${port}/api/sync/runs?limit=100`)).json();
       expect(list.length).toBe(30);
+    } finally {
+      server.close();
+    }
+  });
+});
+
+describe('POST /api/sync with courseIds (#58)', () => {
+  test('passes courseIds to the run; GET /sync/current returns them while it runs', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    let seen;
+    h.impl = async (opts, onEvent) => { seen = opts; await gate; onEvent({ type: 'summary', schoology: null, mastery: [], elapsedMs: 1 }); };
+    const { server, port } = startServer();
+    try {
+      const res = fetch(`http://localhost:${port}/api/sync`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ courseIds: [3, '4'], masteryCourseIds: [3] }),
+      });
+      await new Promise((r) => setTimeout(r, 30));
+      expect(seen.courseIds).toEqual([3, 4]);
+      expect(await (await fetch(`http://localhost:${port}/api/sync/current`)).json()).toMatchObject({ running: true, courseIds: [3, 4] });
+      release();
+      await (await res).text();
     } finally {
       server.close();
     }

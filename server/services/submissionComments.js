@@ -187,7 +187,8 @@ export function refreshAssignment(db, assignmentId, { maxAgeSec = BACKGROUND_MAX
 // submission in that time; within each, refreshAssignment's students (submitted, or
 // already holding cached comments) whose thread is older than maxAgeSec.
 // → { assignments, refreshed, failed }.
-export async function refreshRecentComments(db, { days = 30, maxAgeSec = BACKGROUND_MAX_AGE_SEC, onAssignment = null } = {}) {
+// `courseIds` (#58): only those courses' tasks; absent = every current course.
+export async function refreshRecentComments(db, { days = 30, maxAgeSec = BACKGROUND_MAX_AGE_SEC, onAssignment = null, courseIds = null } = {}) {
   const since = commentDeps.now() - days * 86400;
   const sinceDate = new Date(since * 1000).toISOString().slice(0, 10);
   const today = new Date(commentDeps.now() * 1000).toISOString().slice(0, 10);
@@ -198,8 +199,9 @@ export async function refreshRecentComments(db, { days = 30, maxAgeSec = BACKGRO
       AND ((a.due_date IS NOT NULL AND substr(a.due_date, 1, 10) BETWEEN ? AND ?)
         OR EXISTS (SELECT 1 FROM grades g WHERE g.assignment_id = a.id
                    AND MAX(COALESCE(g.submitted_at, 0), COALESCE(g.latest_revision_at, 0)) >= ?))
+      AND (? IS NULL OR c.id IN (SELECT value FROM json_each(?)))
     ORDER BY c.course_name, a.due_date
-  `).all(sinceDate, today, since);
+  `).all(sinceDate, today, since, courseIds ? 1 : null, JSON.stringify(courseIds ?? []));
   let refreshed = 0; let failed = 0;
   for (const t of tasks) {
     const job = refreshAssignment(db, t.id, { maxAgeSec });

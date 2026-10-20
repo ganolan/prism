@@ -6,6 +6,7 @@ import { runUnifiedSync } from './syncOrchestrator.js';
 import { startRun, appendEvent, finishRun, pruneRuns, KEEP_RUNS } from './syncRuns.js';
 
 let currentRunId = null;
+let currentCourseIds = null; // the running run's course list (#58); null = a full run
 
 export class SyncBusyError extends Error {
   constructor(runId) {
@@ -15,7 +16,7 @@ export class SyncBusyError extends Error {
 }
 
 export function currentSync() {
-  return { running: currentRunId != null, runId: currentRunId };
+  return { running: currentRunId != null, runId: currentRunId, courseIds: currentRunId != null ? currentCourseIds : null };
 }
 
 // Start a sync run. Throws SyncBusyError if one is running (or the error from
@@ -28,6 +29,7 @@ export function launchSync(options, { onRun, onEvent } = {}) {
   const db = getDb();
   const runId = startRun(db, options);
   currentRunId = runId;
+  currentCourseIds = Array.isArray(options?.courseIds) ? options.courseIds : null;
   onRun?.(runId);
 
   const done = (async () => {
@@ -54,6 +56,7 @@ export function launchSync(options, { onRun, onEvent } = {}) {
         console.error('[sync] Could not finish the sync run:', err.message);
       }
       currentRunId = null;
+      currentCourseIds = null;
     }
     return db.prepare('SELECT status FROM sync_runs WHERE id = ?').get(runId)?.status ?? status;
   })();

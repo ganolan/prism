@@ -32,7 +32,7 @@ export function classifyMasteryError(err) {
 // times are stored on a sync_metrics row (#143, for the #108 lazy-or-eager
 // decision).
 export async function runUnifiedSync(
-  { masteryCourseIds = [], skipSchoology = false, includeHidden = false, recentOnly = false, recentDays = 30, syncBlocks = true, refreshQuizzes = false },
+  { masteryCourseIds = [], skipSchoology = false, includeHidden = false, recentOnly = false, recentDays = 30, syncBlocks = true, refreshQuizzes = false, courseIds = null },
   onEvent
 ) {
   const emit = (evt) => onEvent?.(evt);
@@ -40,6 +40,9 @@ export async function runUnifiedSync(
   const startedAt = Date.now();
   const summary = { schoology: null, blocks: null, alerts: null, mastery: [], comments: null, quizzes: null };
   const phaseMs = { schoology: null, blocks: null, alerts: null, mastery: null, comments: null, quizzes: null };
+  // #58: a course list (Sync Courses ticks, one Sync Course) scopes every phase; null = everything.
+  const scoped = courseIds ? { courseIds } : {};
+  const skipMastery = new Set();
   summary.phaseMs = phaseMs;
   let metricsId = null;
 
@@ -56,8 +59,10 @@ export async function runUnifiedSync(
     try {
       const result = await fullSync(
         (progress) => emit({ type: 'log', message: progress.message }),
-        { includeHidden, recentOnly, recentDays }
+        { includeHidden, recentOnly, recentDays, courseIds }
       );
+      // #58: an archived course read through finalize already had its mastery read.
+      for (const id of result.archivedRead ?? []) skipMastery.add(id);
       metricsId = result.metricsId ?? null;
       phaseMs.schoology = Date.now() - schoologyStartedAt;
       summary.schoology = { records: result.records, elapsedMs: phaseMs.schoology };
@@ -82,6 +87,7 @@ export async function runUnifiedSync(
     try {
       const r = await syncPsAttendance({
         onProgress: (p) => emit({ type: 'log', message: `[blocks] ${p.message}` }),
+        ...scoped,
       });
       const gradeLevelsUpdated = r.gradeLevels?.updated ?? 0;
       // A course whose reason is 'section-info-failed' means PowerSchool didn't
@@ -114,7 +120,7 @@ export async function runUnifiedSync(
     emit({ phase: 'alerts', status: 'running' });
     const alertsStartedAt = Date.now();
     try {
-      const r = await syncPsAlerts({ onProgress: (p) => emit({ type: 'log', message: `[alerts] ${p.message}` }) });
+      const r = await syncPsAlerts({ onProgress: (p) => emit({ type: 'log', message: `[alerts] ${p.message}` }), ...scoped });
       phaseMs.alerts = Date.now() - alertsStartedAt;
       summary.alerts = { students: r.students, withAlerts: r.withAlerts, failed: r.failed, elapsedMs: phaseMs.alerts };
       emit({ phase: 'alerts', status: 'done', records: r.students, failed: r.failed, elapsedMs: summary.alerts.elapsedMs });
@@ -137,7 +143,7 @@ export async function runUnifiedSync(
     `UPDATE sync_log SET status = 'error', error_message = ?, completed_at = ? WHERE id = ?`
   );
 
-  for (const courseId of masteryCourseIds) {
+  for (const courseId of masteryCourseIds.filter((id) => !skipMastery.has(Number(id)))) {
     const courseRow = selectCourse.get(courseId);
     const courseName = courseRow?.course_name || `Course ${courseId}`;
     emit({ phase: 'mastery', courseId, courseName, status: 'running' });
@@ -184,6 +190,7 @@ export async function runUnifiedSync(
     const commentsStartedAt = Date.now();
     try {
       const r = await refreshRecentComments(db, {
+        ...scoped,
         onAssignment: (a) => a.queued && emit({ type: 'log', message: `[comments] ${a.title}: ${a.refreshed} read${a.failed ? `, ${a.failed} failed` : ''}` }),
       });
       phaseMs.comments = Date.now() - commentsStartedAt;

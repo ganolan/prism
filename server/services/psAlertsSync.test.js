@@ -109,6 +109,15 @@ describe('syncPsAlerts', () => {
     expect(web.requests.find((q) => q.path.endsWith('stuFieldValues.json')).params.stuList).toBe('101,102');
   });
 
+
+  test('#58: a course list reads only those courses', async () => {
+    const s1 = addCourse('S1', 'Alpha'); addCourse('S2', 'Beta');
+    addStudent('5001'); addStudent('5002'); addStudent('5003');
+    const web = fakePowerSchoolWeb({ schoology: { S1: '9001', S2: '9002' }, sections });
+    const r = await syncPsAlerts({ db, courseIds: [s1], deps: { fetchImpl: web.fetchImpl, jar: web.jar } });
+    expect(r).toMatchObject({ processed: 1, students: 2 });
+  });
+
   test('a student read again loses the alerts that no longer fire', async () => {
     addCourse('S1', 'Alpha');
     const a = addStudent('5001');

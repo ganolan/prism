@@ -74,8 +74,8 @@ secret and the sync queue, and PrisMCP is part of the server.
   it controls (DNS rebinding).
 - **Dev copies** *(author's call)*: a dev clone's server also serves `/mcp`. Every tool result from a dev
   server (`/api/version` mode other than `release`) starts with a warning: this is a dev copy, and its
-  Prism data is replaced at the next refresh. A dev server's `/mcp` refuses every Schoology write (status
-  lines, unsubmit, FRQ marks, rubric attach) with that reason: students would see the write, and prod
+  Prism data is replaced at the next refresh. A dev server's `/mcp` refuses every Schoology write (status lines and LTI
+  unsubmit, the only ones PrisMCP makes) with that reason: students would see the write, and prod
   would have no record of it.
 - **The `prism://assignment/.../context` resource** stays a database read with no sync *(author's
   call)*: a resource is attached by the teacher, not called by a tool.
@@ -92,8 +92,8 @@ task's last full sync (`task_synced_at`) is under 5 minutes old (Graham's decisi
   running.
 - **Joining** *(builder's-reviewer question, settled by the author)*: a grading sync joins only a queued
   or running grading sync of the same task. A second call from the same session therefore follows the
-  first call's run, so it never loops. It never joins a course run: a course run waits for no comment
-  threads and reads no files.
+  first call's run, so it never loops. It never joins a course run: a course run returns before the comment
+  threads finish, and files are read only on demand.
 - **When it completes:** the context is built from the database, as now. The `*_source` fields
   (`mastery_source`, `submission_comments_source`, `submission_files_source`) report what the sync read.
 - **When it fails:** the tool answers with the error and the run id. It does not return stale data
@@ -117,8 +117,7 @@ task's last full sync (`task_synced_at`) is under 5 minutes old (Graham's decisi
   its turn behind a running sync, with the long-call handling below. `UNREACHABLE` and `BUSY` (the group
   is locked) keep their meaning.
 - **Single reads and writes stay direct**, as the pages do them: `preview_status_line` (one comment read),
-  `get_support_summary` (one PowerSchool page), and every write (status lines, unsubmit, FRQ marks, rubric
-  attach). Their safety steps do not change: re-read, refuse if Schoology changed, write, read back.
+  `get_support_summary` (one PowerSchool page), and the Schoology writes (status lines, LTI unsubmit). Their safety steps do not change: re-read, refuse if Schoology changed, write, read back.
 
 ### Long calls
 

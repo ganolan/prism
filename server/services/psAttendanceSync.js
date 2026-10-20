@@ -184,7 +184,9 @@ export function applyGradeLevels(db, gradeByDcid, now = new Date()) {
  *
  * Returns { processed, updated, unchanged, skipped, schoolDays, gradeLevels:
  * { seen, updated }, results:[{ courseId, courseName, blockNumber, blockName?,
- * reason, status }] }. schoolDays = school-calendar rows stored (0 when the
+ * reason, status }], noCourses, stoppedEarly }. noCourses = there was no course
+ * to read (nothing was read); stoppedEarly = the time budget stopped the loop
+ * (some courses were not read, and the calendar was kept). schoolDays = school-calendar rows stored (0 when the
  * calendar was not replaced: a targeted sync, a loop that stopped early, or
  * none returned); gradeLevels = students whose PowerSchool grade level was
  * seen / changed.
@@ -212,9 +214,10 @@ export async function syncPsAttendance({ onProgress, courseIds, db = getDb(), de
      WHERE ${where.join(' AND ')} ORDER BY course_name`
   ).all(...params);
 
-  const summary = { processed: 0, updated: 0, unchanged: 0, skipped: 0, schoolDays: 0, gradeLevels: { seen: 0, updated: 0 }, results: [] };
+  const summary = { processed: 0, updated: 0, unchanged: 0, skipped: 0, schoolDays: 0, gradeLevels: { seen: 0, updated: 0 }, results: [], noCourses: false, stoppedEarly: false };
   if (courses.length === 0) {
     log('No courses to sync blocks for.');
+    summary.noCourses = true;
     return summary; // returns before any request
   }
 
@@ -230,6 +233,7 @@ export async function syncPsAttendance({ onProgress, courseIds, db = getDb(), de
   const calendarByDate = new Map(); // date → merged school day (triage calendar)
   const todayIso = new Date().toISOString().slice(0, 10);
   const loopStartedAt = Date.now();
+  const loopBudgetMs = deps.loopBudgetMs ?? LOOP_TIME_BUDGET_MS; // tests stop the loop with 0
   let loopCompleted = true; // false if the time-budget break below fires — then calendarByDate is partial
   let started = false;
 
@@ -237,9 +241,10 @@ export async function syncPsAttendance({ onProgress, courseIds, db = getDb(), de
     // Safety net (see LOOP_TIME_BUDGET_MS): if PowerSchool is stalling on
     // every section, stop instead of paying PS_FETCH_TIMEOUT_MS per
     // remaining course — they're picked up on the next sync.
-    if (loopTimeBudgetExceeded(loopStartedAt, LOOP_TIME_BUDGET_MS)) {
-      log(`Time budget (${LOOP_TIME_BUDGET_MS / 1000}s) exceeded: stopping with ${courses.length - summary.processed} course(s) left for the next sync.`);
+    if (loopTimeBudgetExceeded(loopStartedAt, loopBudgetMs)) {
+      log(`Time budget (${loopBudgetMs / 1000}s) exceeded: stopping with ${courses.length - summary.processed} course(s) left for the next sync.`);
       loopCompleted = false;
+      summary.stoppedEarly = true;
       break;
     }
     summary.processed++;

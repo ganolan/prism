@@ -1,6 +1,6 @@
 // The last full PowerSchool read (blocks, school calendar, alerts), stamped by the unified sync
-// (#171). The sync dialog and the Sync page say when this data was last read and whether the
-// nightly run keeps it fresh, so the teacher need not tick a PowerSchool box.
+// (#171). The dashboard's nightly line says when this data was last read, and the sync help ("?")
+// whether the nightly run keeps it fresh, so the teacher need not tick a PowerSchool box.
 import { getSyncScheduleSettings } from './settings.js';
 
 export const NIGHTLY_DATA_KEY = 'sync.nightlyDataReadAt';

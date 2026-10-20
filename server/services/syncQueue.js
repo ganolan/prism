@@ -163,11 +163,12 @@ function covers(entry, request) {
 // The options runUnifiedSync takes, from a request. Everything is read: mastery for every course.
 // A PowerSchool-only or mastery-only retry (skipSchoology) runs over every course (courseIds null).
 // #171: a `kind: 'all'` run takes its mastery list after its section phase (masteryCourseIds null),
-// not the list fixed when it was queued, so the courses it discovers get their mastery too.
+// not the list fixed when it was queued, so the courses it discovers get their mastery too. A
+// `kind: 'all'` PowerSchool-only retry (skipSchoology) reads no mastery.
 function unifiedOptions(request, covered) {
   return {
     courseIds: request.kind === 'courses' && !request.skipSchoology ? covered : null,
-    masteryCourseIds: request.masteryCourseIds ?? (request.kind === 'all' ? null : covered),
+    masteryCourseIds: request.masteryCourseIds ?? (request.kind === 'all' && !request.skipSchoology ? null : covered),
     skipSchoology: !!request.skipSchoology,
     includeHidden: !!request.includeHidden,
     ...extras(request),
@@ -300,7 +301,8 @@ export function ensure(scope, { now = Date.now() } = {}) {
   const live = rows.filter((c) => !c.archived);
   if (!live.length) return { state: 'fresh' };
   // A kind 'all' run covers the current courses as they are now, not its queued list: a first run
-  // was queued with none, and the courses it inserts follow it (#171).
+  // was queued with none, and the courses it inserts follow it (#171). It can over-claim a course
+  // unhidden while it runs (its section phase skipped that course as hidden).
   const coverage = new Map(active().map((e) => [e, e.request.kind === 'all' ? coveredCourseIds(e.request) : e.covered]));
   const following = active().find((e) => live.every((c) => coverage.get(e).includes(c.id)));
   if (following) return { state: stateOf(following), runId: following.runId };
@@ -432,6 +434,15 @@ async function runOne(entry) {
   }
   // Read after the check: a grading request may have upgraded this run while it waited (#170).
   const request = entry.request;
+  // A kind 'all' run that fills an empty install (the nightly run, or Sync Courses, before any page
+  // asked for the first run) makes the past-course import due too (#171).
+  if (request.kind === 'all' && !request.skipSchoology) {
+    try {
+      if (!d.prepare('SELECT 1 FROM courses LIMIT 1').get()) markPastImportDue(d);
+    } catch (err) {
+      console.error('[sync] Could not mark the past-course import due:', err.message);
+    }
+  }
   leaveQueue(entry);
   running = entry;
   d.prepare(`UPDATE sync_runs SET status = 'running', started_at = ? WHERE id = ?`).run(new Date().toISOString(), runId);

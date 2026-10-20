@@ -561,29 +561,35 @@ export async function fullSync(onProgress, { includeHidden = false, courseIds = 
     const courseIdBySection = db.prepare('SELECT id FROM courses WHERE schoology_section_id = ?');
     const listedSection = (sectionId) => !listed || !known.has(sectionId)
       || listed.has(courseIdBySection.get(sectionId)?.id);
+    // #171: every grading period is read first, then every row is written (with the templates
+    // marked) in one transaction, so the first run's "Getting your courses" total never jumps.
+    const toUpsert = [];
     for (const sec of sections) {
       if (!listedSection(String(sec.id))) continue;
       const periods = await getSectionGradingPeriods(String(sec.id));
-      const gradingPeriod = periods[0]?.title || null;
-      upsertCourse.run(
-        String(sec.id),
-        sec.course_title,
-        sec.section_title,
-        sec.course_code || null,
-        sec.section_school_code || null,
-        gradingPeriod,
-        now
-      );
+      toUpsert.push({ sec, gradingPeriod: periods[0]?.title || null });
     }
+    db.transaction(() => {
+      for (const { sec, gradingPeriod } of toUpsert) {
+        upsertCourse.run(
+          String(sec.id),
+          sec.course_title,
+          sec.section_title,
+          sec.course_code || null,
+          sec.section_school_code || null,
+          gradingPeriod,
+          now
+        );
+      }
+      // Issue #56: mark template sections (no codes) as permanently excluded.
+      // Subsumes the previous auto-hide pass — the section loop below skips
+      // excluded courses unconditionally, so they never reach the expensive
+      // per-section API calls.
+      markExcludedCourses(db);
+      // #171: a template section is never read, so it never waits for a first read.
+      db.exec(`UPDATE courses SET first_sync = NULL, first_sync_error = NULL WHERE excluded = 1 AND first_sync IS NOT NULL`);
+    })();
     totalRecords += sections.length;
-
-    // Issue #56: mark template sections (no codes) as permanently excluded.
-    // Subsumes the previous auto-hide pass — the section loop below skips
-    // excluded courses unconditionally, so they never reach the expensive
-    // per-section API calls.
-    markExcludedCourses(db);
-    // #171: a template section is never read, so it never waits for a first read.
-    db.exec(`UPDATE courses SET first_sync = NULL, first_sync_error = NULL WHERE excluded = 1 AND first_sync IS NOT NULL`);
 
     // 2. For each section, sync enrollments, assignments, grades, folders, categories
     const upsertFolder = db.prepare(`
@@ -640,8 +646,9 @@ export async function fullSync(onProgress, { includeHidden = false, courseIds = 
         // A course Prism has read before fails the run, as it always has. A course still waiting
         // for its first read (#171) records why and the run goes on: it shows as "Sync failed".
         if (courseRow.first_sync == null) throw err;
-        setFirstSync.run('failed', err.message, courseRow.id);
-        log(`Could not sync "${sec.course_title}": ${err.message}`);
+        const message = err?.message ?? String(err);
+        setFirstSync.run('failed', message, courseRow.id);
+        log(`Could not sync "${sec.course_title}": ${message}`);
         continue;
       }
       metrics.submission_calls += result.submissionAttempts || 0;

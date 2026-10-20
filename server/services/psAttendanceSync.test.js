@@ -25,7 +25,7 @@ describe('syncPsAttendance — guard', () => {
   // is safe to run without a Playwright session.)
   test('no active courses → processed 0, no browser launched', async () => {
     const s = await syncPsAttendance();
-    expect(s).toEqual({ processed: 0, updated: 0, unchanged: 0, skipped: 0, schoolDays: 0, gradeLevels: { seen: 0, updated: 0 }, results: [] });
+    expect(s).toEqual({ processed: 0, updated: 0, unchanged: 0, skipped: 0, schoolDays: 0, gradeLevels: { seen: 0, updated: 0 }, results: [], noCourses: true, stoppedEarly: false });
   });
 
   test('default (active) ignores archived/excluded courses → no-op', async () => {
@@ -179,6 +179,21 @@ describe('syncPsAttendance over plain HTTP (no browser, #141)', () => {
     web = fakePowerSchoolWeb();
     await expect(syncPsAttendance({ deps: { jar: null, fetchImpl: web.fetchImpl } })).rejects.toThrow(/mastery:login/);
     expect(web.requests).toEqual([]);
+  });
+
+  test('a whole pass reports that it neither stopped early nor found no course', async () => {
+    seed(h.db, 'A');
+    web = fakePowerSchoolWeb({ schoology: { 'sec-A': '9001' }, sectionInfo: { 9001: info('Block 2') } });
+    expect(await run()).toMatchObject({ noCourses: false, stoppedEarly: false, schoolDays: 3 });
+  });
+
+  test('final review #4: a pass the time budget stopped reports stoppedEarly and keeps the calendar', async () => {
+    seed(h.db, 'A');
+    seed(h.db, 'B');
+    web = fakePowerSchoolWeb({ schoology: { 'sec-A': '9001', 'sec-B': '9002' }, sectionInfo: { 9001: info('Block 2'), 9002: info('Block 3') } });
+    const s = await run({ deps: { jar: web.jar, fetchImpl: web.fetchImpl, loopBudgetMs: 0 } });
+    expect(s).toMatchObject({ stoppedEarly: true, noCourses: false, processed: 0, schoolDays: 0 });
+    expect(h.db.prepare('SELECT COUNT(*) n FROM school_days').get().n).toBe(0);
   });
 
   test('a targeted sync never replaces the school calendar', async () => {

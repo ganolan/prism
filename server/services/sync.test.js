@@ -1156,6 +1156,29 @@ describe('fullSync — a course\'s first sync (#171)', () => {
     expect(mark('sec-t')).toEqual({ first_sync: null, first_sync_error: null });
     expect(seen['sec-t']).toBeUndefined();
   });
+
+  test('final review #6: every grading period is read before any new row is written (the count never jumps)', async () => {
+    sch.getMySections.mockResolvedValue([section('sec-old', 'Existing'), section('sec-r', 'Robotics'), section('sec-t', 'MASTER Template', false)]);
+    const rowsWhenRead = [];
+    sch.getSectionGradingPeriods.mockImplementation(async () => {
+      rowsWhenRead.push(db.prepare('SELECT COUNT(*) AS n FROM courses').get().n);
+      return [];
+    });
+    await fullSync(() => {});
+    expect(rowsWhenRead).toEqual([1, 1, 1]); // only the existing row while the periods are read
+    expect(mark('sec-t')).toEqual({ first_sync: null, first_sync_error: null });
+  });
+
+  test('final review #10: a non-Error throw is stored as its text', async () => {
+    sch.getSectionEnrollments.mockImplementation(async (sid) => {
+      if (sid === 'sec-r') throw 'Schoology said no'; // eslint-disable-line no-throw-literal
+      return [];
+    });
+    const logs = [];
+    await fullSync((p) => logs.push(p.message));
+    expect(mark('sec-r')).toEqual({ first_sync: 'failed', first_sync_error: 'Schoology said no' });
+    expect(logs).toContain('Could not sync "Robotics": Schoology said no');
+  });
 });
 
 describe('markUnfinishedFirstSyncs (#171: at startup, a run the process lost)', () => {

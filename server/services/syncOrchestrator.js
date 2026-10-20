@@ -29,6 +29,14 @@ export function currentCourseIds(db, { includeHidden = false } = {}) {
       AND (COALESCE(hidden, 0) = 0 OR ?) ORDER BY id`).all(includeHidden ? 1 : 0).map((r) => r.id);
 }
 
+// The ids whose first read finished (first_sync NULL): not 'pending' or 'failed' (#171).
+function withFirstReadDone(db, ids) {
+  if (!ids.length) return ids;
+  const done = new Set(db.prepare(`SELECT id FROM courses WHERE first_sync IS NULL
+    AND id IN (SELECT value FROM json_each(?))`).all(JSON.stringify(ids)).map((r) => r.id));
+  return ids.filter((id) => done.has(id));
+}
+
 // Run the unified sync: the Schoology public-API pull, then a mastery pull
 // (plain HTTP with the saved session, #141) for each requested course. Every step reports through onEvent.
 // Event shapes:
@@ -89,12 +97,12 @@ export async function runUnifiedSync(
   }
 
   // #106: resolve every active course's PowerSchool block number with the same
-  // saved Schoology session, over plain HTTP (#141; opt-out via the sync dialog's
-  // `syncBlocks`). Runs every sync so a course synced before its block was
-  // published self-heals; the service no-ops (no request) when there are no
-  // active courses. Best-effort:
-  // a stale PowerSchool session logs an error but never aborts the sync. Wall
-  // time is measured for the sync-perf / lazy-refresh evaluation.
+  // saved Schoology session, over plain HTTP (#141), whenever the request asks for
+  // the PowerSchool pass (`syncBlocks`: every kind 'all' run), so a course synced
+  // before its block was published self-heals; the service no-ops (no request)
+  // when there are no active courses. Best-effort: a stale PowerSchool session
+  // logs an error but never aborts the sync. Wall time is measured for the
+  // sync-perf / lazy-refresh evaluation.
   if (syncBlocks) {
     emit({ phase: 'blocks', status: 'running' });
     const blocksStartedAt = Date.now();
@@ -113,7 +121,11 @@ export async function runUnifiedSync(
       // explain this specific case instead of a generic "N skipped".
       const notReady = (r.results || []).filter((row) => row.reason === 'section-info-failed').length;
       phaseMs.blocks = Date.now() - blocksStartedAt;
-      summary.blocks = { updated: r.updated, skipped: r.skipped, notReady, gradeLevelsUpdated, elapsedMs: phaseMs.blocks };
+      // stoppedEarly (the time budget stopped the loop) and noCourses (nothing to read): not a full read.
+      summary.blocks = {
+        updated: r.updated, skipped: r.skipped, notReady, gradeLevelsUpdated,
+        stoppedEarly: Boolean(r.stoppedEarly), noCourses: Boolean(r.noCourses), elapsedMs: phaseMs.blocks,
+      };
       emit({ phase: 'blocks', status: 'done', records: r.updated, skipped: r.skipped, notReady, gradeLevelsUpdated, elapsedMs: summary.blocks.elapsedMs });
     } catch (err) {
       // classifyMasteryError's string matching is generic to the shared
@@ -148,13 +160,15 @@ export async function runUnifiedSync(
     }
   }
 
-  // #171: the last FULL PowerSchool read (blocks, calendar, alerts), which the sync dialog and the
-  // Sync page show. A course not ready yet (notReady) is still a full read; a failed phase is not.
-  // With the alerts feature off there is no alerts phase, so a clean blocks phase is the whole read
-  // (blocks and the calendar are always whole). A scoped run (courseIds) reads alerts only for the
-  // listed courses, so with alerts on it is not a full read.
+  // #171: the last FULL PowerSchool read (blocks, calendar, alerts), which the dashboard's nightly
+  // line shows. A course not ready yet (notReady) is still a full read; a failed phase is not, nor
+  // is a blocks pass that stopped early (time budget: some blocks unread, the calendar kept) or had
+  // no active course to read. With the alerts feature off there is no alerts phase, so a whole
+  // blocks pass is the whole read (blocks and the calendar are always whole). A scoped run
+  // (courseIds) reads alerts only for the listed courses, so with alerts on it is not a full read.
   const alertsClean = alertsRun ? Boolean(summary.alerts && !summary.alerts.error) && !courseIds : true;
-  if (syncBlocks && summary.blocks && !summary.blocks.error && alertsClean) {
+  const blocksWhole = Boolean(summary.blocks) && !summary.blocks.error && !summary.blocks.stoppedEarly && !summary.blocks.noCourses;
+  if (syncBlocks && blocksWhole && alertsClean) {
     try {
       recordNightlyDataRead(db, new Date().toISOString());
     } catch (err) {
@@ -173,7 +187,9 @@ export async function runUnifiedSync(
     `UPDATE sync_log SET status = 'error', error_message = ?, completed_at = ? WHERE id = ?`
   );
 
-  const masteryList = masteryCourseIds ?? currentCourseIds(db, { includeHidden });
+  // null: the current courses, less any whose first read failed or did not finish (#171): their
+  // sections were not read, so neither is their mastery. A list is used as given.
+  const masteryList = masteryCourseIds ?? withFirstReadDone(db, currentCourseIds(db, { includeHidden }));
   for (const courseId of masteryList.filter((id) => !skipMastery.has(Number(id)))) {
     const courseRow = selectCourse.get(courseId);
     const courseName = courseRow?.course_name || `Course ${courseId}`;

@@ -129,6 +129,22 @@ describe('runUnifiedSync', () => {
       expect(readAt()).not.toBeNull();
     });
 
+    test('final review #4: not stamped when the blocks pass stopped early (time budget: calendar kept, blocks partial)', async () => {
+      h.features = { quizzes: true };
+      syncPsAttendance.mockResolvedValueOnce({ updated: 1, skipped: 0, stoppedEarly: true, noCourses: false });
+      const summary = await runUnifiedSync({}, () => {});
+      expect(summary.blocks).toMatchObject({ stoppedEarly: true, noCourses: false });
+      expect(readAt()).toBeNull();
+    });
+
+    test('final review #4: not stamped when the blocks pass had no active course to read', async () => {
+      h.features = { quizzes: true };
+      syncPsAttendance.mockResolvedValueOnce({ updated: 0, skipped: 0, stoppedEarly: false, noCourses: true });
+      const summary = await runUnifiedSync({}, () => {});
+      expect(summary.blocks).toMatchObject({ stoppedEarly: false, noCourses: true });
+      expect(readAt()).toBeNull();
+    });
+
     test('not stamped when syncBlocks is false', async () => {
       h.features = { quizzes: true, powerschool_alerts: true };
       await runUnifiedSync({ syncBlocks: false }, () => {});
@@ -558,6 +574,21 @@ describe('runUnifiedSync: masteryCourseIds null = the current courses after the 
     fullSync.mockResolvedValue({ success: true, records: 1, archivedRead: [a] });
     await runUnifiedSync({ masteryCourseIds: null, includeHidden: true }, () => {});
     expect(syncMasteryForCourse.mock.calls.map((c) => c[0])).toEqual([hid]);
+  });
+
+  test('final review #5: a course whose first read failed (or is pending) gets no mastery read from null', async () => {
+    const a = insert('s-a', 'A');
+    const failed = insert('s-f', 'Failed');
+    const pending = insert('s-p', 'Pending');
+    h.db.prepare(`UPDATE courses SET first_sync = 'failed' WHERE id = ?`).run(failed);
+    h.db.prepare(`UPDATE courses SET first_sync = 'pending' WHERE id = ?`).run(pending);
+    fullSync.mockResolvedValue({ success: true, records: 1 });
+    await runUnifiedSync({ masteryCourseIds: null }, () => {});
+    expect(syncMasteryForCourse.mock.calls.map((c) => c[0])).toEqual([a]);
+    // A list is used as given.
+    syncMasteryForCourse.mockClear();
+    await runUnifiedSync({ masteryCourseIds: [failed] }, () => {});
+    expect(syncMasteryForCourse.mock.calls.map((c) => c[0])).toEqual([failed]);
   });
 
   test('with Schoology skipped, null still means the current courses', async () => {

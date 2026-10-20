@@ -448,6 +448,41 @@ describe('the sync queue', () => {
       expect(runs[0].options.courseIds).toBeNull();
       runs[0].finish(); await idle();
     });
+
+    test('final review #3: a kind \'all\' PowerSchool-only retry reads no mastery (not every course)', async () => {
+      const runs = gatedRuns();
+      enqueue({ kind: 'all', skipSchoology: true, syncBlocks: true, trigger: 'button', force: true });
+      await tick();
+      expect(runs[0].options).toMatchObject({ courseIds: null, masteryCourseIds: [], skipSchoology: true });
+      runs[0].finish(); await idle();
+    });
+  });
+
+  describe('final review #14: a kind \'all\' run on an empty install marks the past import due', () => {
+    const pastImport = () => getDb().prepare('SELECT value FROM settings WHERE key = ?').get(PAST_IMPORT_KEY);
+    beforeEach(() => { getDb().prepare('DELETE FROM settings WHERE key = ?').run(PAST_IMPORT_KEY); });
+
+    test('the nightly run that fills an empty courses table marks it due', async () => {
+      getDb().exec('DELETE FROM courses');
+      const runs = gatedRuns();
+      enqueue({ kind: 'all', trigger: 'scheduled' });
+      await tick();
+      expect(JSON.parse(pastImport().value).state).toBe('waiting');
+      runs[0].finish(); await idle();
+    });
+
+    test('a kind \'all\' run on an install with courses, or a PowerSchool-only retry, does not', async () => {
+      const runs = gatedRuns();
+      enqueue({ kind: 'all', trigger: 'scheduled' });
+      await tick();
+      runs[0].finish(); await idle();
+      expect(pastImport()).toBeUndefined();
+      getDb().exec('DELETE FROM courses');
+      enqueue({ kind: 'all', skipSchoology: true, syncBlocks: true, trigger: 'button', force: true });
+      await tick();
+      runs[1].finish(); await idle();
+      expect(pastImport()).toBeUndefined();
+    });
   });
 
   describe('quiz loads (#131)', () => {

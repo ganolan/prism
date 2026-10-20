@@ -24,6 +24,7 @@ import { syncPsAlerts } from './psAlertsSync.js';
 import { refreshRecentQuizzes } from './quizRefresh.js';
 import { refreshRecentComments } from './submissionComments.js';
 import { runUnifiedSync, classifyMasteryError } from './syncOrchestrator.js';
+import { nightlyDataStatus } from './nightlyData.js';
 
 function seedCourse(db, name) {
   return db.prepare(
@@ -75,6 +76,52 @@ describe('runUnifiedSync', () => {
     expect(again.find((e) => e.phase === 'alerts' && e.status === 'error')).toMatchObject({ errorKind: 'login' });
     expect(again.some((e) => e.phase === 'mastery' && e.status === 'done')).toBe(true);
     expect(again.at(-1).fatal).toBeUndefined();
+  });
+
+  describe('#171: the nightly-data stamp (last full read of blocks, calendar and alerts)', () => {
+    const readAt = () => nightlyDataStatus(h.db, { schedulerActive: false }).readAt;
+
+    test('stamped when blocks and alerts both finish', async () => {
+      h.features = { quizzes: true, powerschool_alerts: true };
+      await runUnifiedSync({}, () => {});
+      expect(readAt()).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    });
+
+    test('stamped when blocks finish with courses not ready (notReady > 0)', async () => {
+      h.features = { quizzes: true, powerschool_alerts: true };
+      syncPsAttendance.mockResolvedValueOnce({ updated: 1, skipped: 1, results: [{ reason: 'section-info-failed' }] });
+      const summary = await runUnifiedSync({}, () => {});
+      expect(summary.blocks.notReady).toBe(1);
+      expect(readAt()).not.toBeNull();
+    });
+
+    test('stamped when blocks finish and the powerschool_alerts feature is off', async () => {
+      h.features = { quizzes: true };
+      await runUnifiedSync({}, () => {});
+      expect(syncPsAlerts).not.toHaveBeenCalled();
+      expect(readAt()).not.toBeNull();
+    });
+
+    test('not stamped when the blocks phase errors', async () => {
+      h.features = { quizzes: true, powerschool_alerts: true };
+      syncPsAttendance.mockRejectedValueOnce(new Error('PowerSchool down'));
+      await runUnifiedSync({}, () => {});
+      expect(readAt()).toBeNull();
+    });
+
+    test('not stamped when the alerts phase errors', async () => {
+      h.features = { quizzes: true, powerschool_alerts: true };
+      syncPsAlerts.mockRejectedValueOnce(new Error('alerts down'));
+      await runUnifiedSync({}, () => {});
+      expect(readAt()).toBeNull();
+    });
+
+    test('not stamped when syncBlocks is false', async () => {
+      h.features = { quizzes: true, powerschool_alerts: true };
+      await runUnifiedSync({ syncBlocks: false }, () => {});
+      expect(syncPsAttendance).not.toHaveBeenCalled();
+      expect(readAt()).toBeNull();
+    });
   });
 
   test('#117: no alerts phase when the feature is off or PowerSchool is opted out', async () => {

@@ -22,6 +22,7 @@ vi.mock('../services/syncRuns.js', async (importOriginal) => {
 import router from './schoology.js';
 import { getDb } from '../db/index.js';
 import { queueDeps, resetQueue, idle } from '../services/syncQueue.js';
+import { recordNightlyDataRead } from '../services/nightlyData.js';
 
 function startServer() {
   const app = express();
@@ -103,6 +104,19 @@ describe('POST /api/sync (the queue, background sync)', () => {
       release();
       await idle();
       expect((await api(port, 'GET', '/api/sync/current')).body).toMatchObject({ running: null, runId: null });
+    } finally {
+      server.close();
+    }
+  });
+
+  test('#171: GET /sync/status carries nightlyData: the last full read and whether nightly keeps it fresh', async () => {
+    getDb().prepare(`DELETE FROM settings WHERE key = 'sync.nightlyDataReadAt'`).run();
+    const { server, port } = startServer();
+    try {
+      // No scheduler is started in this process, so nightly is off.
+      expect((await api(port, 'GET', '/api/sync/status')).body).toMatchObject({ syncing: false, nightlyData: { readAt: null, nightly: false } });
+      recordNightlyDataRead(getDb(), '2026-10-20T03:00:00.000Z');
+      expect((await api(port, 'GET', '/api/sync/status')).body.nightlyData).toEqual({ readAt: '2026-10-20T03:00:00.000Z', nightly: false });
     } finally {
       server.close();
     }

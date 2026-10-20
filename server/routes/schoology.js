@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { getDb } from '../db/index.js';
 import { enqueue, currentSync, resumeHeld, ensure } from '../services/syncQueue.js';
 import { listRuns, getRun, getEvents, isFinished } from '../services/syncRuns.js';
+import { nightlyDataStatus } from '../services/nightlyData.js';
+import { getSyncScheduler } from '../services/syncScheduler.js';
 
 const router = Router();
 
@@ -62,12 +64,14 @@ router.post('/sync/resume', (req, res) => {
   res.json({ resumed: resumeHeld() });
 });
 
-// GET /api/sync/status — last sync info (+ the running sync's runId, if any)
+// GET /api/sync/status — last sync info (+ the running sync's runId, if any, and nightlyData:
+// when blocks, calendar and alerts were last fully read and whether the nightly run keeps them fresh, #171)
 router.get('/sync/status', (req, res) => {
   const db = getDb();
   const last = db.prepare('SELECT * FROM sync_log ORDER BY id DESC LIMIT 1').get();
   const { running, runId } = currentSync();
-  res.json({ syncing: Boolean(running), runId, last: last || null });
+  const nightlyData = nightlyDataStatus(db, { schedulerActive: getSyncScheduler()?.status().active ?? false });
+  res.json({ syncing: Boolean(running), runId, last: last || null, nightlyData });
 });
 
 // GET /api/sync/current — the running run, the queued ones and the held ones, each with its courses.

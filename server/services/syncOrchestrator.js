@@ -8,6 +8,7 @@ import { syncPsAttendance } from './psAttendanceSync.js';
 import { syncPsAlerts } from './psAlertsSync.js';
 import { captureFeedbackSnapshots } from './feedbackSnapshots.js';
 import { settleResubmissions } from './resubmissions.js';
+import { recordNightlyDataRead } from './nightlyData.js';
 
 // Classify a mastery sync failure: 'login' means the Schoology browser session
 // is missing/expired (recoverable by re-login); 'other' is anything else.
@@ -132,6 +133,18 @@ export async function runUnifiedSync(
       phaseMs.alerts = Date.now() - alertsStartedAt;
       summary.alerts = { error: err.message, errorKind, elapsedMs: phaseMs.alerts };
       emit({ phase: 'alerts', status: 'error', errorKind, message: err.message, elapsedMs: phaseMs.alerts });
+    }
+  }
+
+  // #171: the last FULL PowerSchool read (blocks, calendar, alerts), which the sync dialog and the
+  // Sync page show. A course not ready yet (notReady) is still a full read; a failed phase is not.
+  // With the alerts feature off there is no alerts phase, so a clean blocks phase is the whole read.
+  const alertsClean = !getFeatures().powerschool_alerts || (summary.alerts && !summary.alerts.error);
+  if (syncBlocks && summary.blocks && !summary.blocks.error && alertsClean) {
+    try {
+      recordNightlyDataRead(db, new Date().toISOString());
+    } catch (err) {
+      console.error('[sync] could not stamp the PowerSchool read:', err.message);
     }
   }
 

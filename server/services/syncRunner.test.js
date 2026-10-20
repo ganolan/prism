@@ -17,7 +17,7 @@ describe('launchSync', () => {
     let finish;
     runUnifiedSync.mockImplementation((opts, emit) => new Promise((r) => { finish = () => { emit({ type: 'summary' }); r(); }; }));
     const first = launchSync({ trigger: 'scheduled' });
-    expect(currentSync()).toEqual({ running: true, runId: first.runId });
+    expect(currentSync()).toEqual({ running: true, runId: first.runId, courseIds: null });
 
     let busy;
     try { launchSync({}); } catch (err) { busy = err; }
@@ -26,7 +26,7 @@ describe('launchSync', () => {
 
     finish();
     expect(await first.done).toBe('completed');
-    expect(currentSync()).toEqual({ running: false, runId: null });
+    expect(currentSync()).toEqual({ running: false, runId: null, courseIds: null });
   });
 
   test('calls onRun before the first event, numbers events, and stores the options', async () => {
@@ -49,5 +49,16 @@ describe('launchSync', () => {
     runUnifiedSync.mockRejectedValue(new Error('boom'));
     expect(await launchSync({}).done).toBe('failed');
     expect(currentSync().running).toBe(false);
+  });
+
+  test('#58: currentSync names the running run\'s course list', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    runUnifiedSync.mockImplementation(async () => { await gate; });
+    const run = launchSync({ courseIds: [7] });
+    expect(currentSync()).toEqual({ running: true, runId: run.runId, courseIds: [7] });
+    release();
+    await run.done;
+    expect(currentSync().courseIds).toBeNull();
   });
 });

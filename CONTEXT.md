@@ -135,7 +135,7 @@ full once when archived, then only by a button on a course page, or on a past st
   works. The Archived tab reads "Importing past courses: 7 of 30". It happens once per install:
   the settings row `firstRun.pastImport` holds its state (`waiting`, `importing`, `done`), and an
   interrupted import resumes with the courses still missing (the course whose run the restart cut
-  off is retried, not taken as done). Any `kind: 'all'` run on an empty database (the nightly run
+  off is never taken as done: it is retried at the end, unless that run was already its retry). Any `kind: 'all'` run on an empty database (the nightly run
   too) makes it due. Not the **Import archived courses**
   discovery surface, which the teacher drives by hand.
 - **Nightly data**: blocks, calendar and alerts, the data only the PowerSchool pass reads. Its

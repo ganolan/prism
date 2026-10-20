@@ -86,10 +86,10 @@ already refreshes in the background within 10 minutes of opening a page.
   `Blocks, calendar and alerts: refreshed when you press Sync Courses.` on the dashboard and
   `... when you press Sync Courses on the dashboard.` elsewhere, so it never promises a night that does
   not happen.
-- **A past course** (final review, 20/10/2026): on the Archived tab and an archived course or assessment
-  page the "?" reads `Prism does not refresh past courses automatically.` then how to read it again
+- **A past course** (final review, 20/10/2026): on the Archived tab, an archived course or assessment
+  page and a past student's page the "?" reads `Prism does not refresh past courses automatically.` then how to read it again
   (`Open a course and press Sync Course to read it again.` on the dashboard, `Press Sync Course to read
-  it again.` / `Press Sync Assignment to read it again.` on the page). No bullets.
+  it again.` / `Press Sync Assignment to read it again.` / `Press Sync Courses to read it again.` on the page). No bullets.
 
 ### First run
 

@@ -15,9 +15,10 @@
 // does not prove the import. When the list is through, each failed section is tried once more
 // (`retried`; the import's upsert makes a second try safe), then the import is 'done' for good.
 // The section whose run is queued or going is kept as `current`: a restart (which marks that run
-// interrupted, and no listener hears it) counts it as an interrupted run, so it joins the failed
-// list and gets its retry; the import then resumes with the sections still missing, never the
-// ones already imported. The state is one settings row:
+// interrupted, and no listener hears it) counts it as an interrupted run. In the first pass it
+// joins the failed list (and is retried at the end), and the import resumes with the sections
+// still missing, never the ones already imported. In the retry pass it was already its retry: the
+// import resumes with the failed section after it. The state is one settings row:
 //   PAST_IMPORT_KEY → { state: 'waiting' | 'importing' | 'done', total, sectionIds, failed,
 //                       retried, current }
 // with sectionIds in import order. GET /api/sync/status reports pastImportStatus.
@@ -101,7 +102,8 @@ function nextSection(s, missing, finished, status) {
     return s.failed[0] ?? null;
   }
   // The retry pass goes through the failed list once, in order, whether or not a section's row
-  // exists. A restart in this pass starts it again from the first failed section.
+  // exists. A restart in this pass resumes after the section whose run it cut off (`current`),
+  // which gets no second retry; a state with no `current` starts the pass again from the first.
   const from = finished != null && s.failed.includes(finished) ? s.failed.indexOf(finished) + 1 : 0;
   return s.failed[from] ?? null;
 }

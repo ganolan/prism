@@ -113,6 +113,14 @@ describe('CourseSection', () => {
 });
 
 describe('StudentPage: Sync Courses always offered', () => {
+  it('a past student (only archived courses): the "?" says past courses are not refreshed, and how to read them again', async () => {
+    getStudent.mockResolvedValue({ ...student, courses: [{ id: 3, course_name: 'Old', archived: 1, course_synced_at: null }], grades: [grade(3)] });
+    renderPage();
+    expect(await screen.findByRole('img', {
+      name: 'Prism does not refresh past courses automatically. Press Sync Courses to read it again.',
+    })).toBeInTheDocument();
+  });
+
   it('a student with only archived courses: Sync Courses reads those, and nothing syncs in the background', async () => {
     getStudent.mockResolvedValue({ ...student, courses: [{ id: 3, course_name: 'Old', archived: 1, course_synced_at: null }], grades: [grade(3)] });
     startSync.mockResolvedValue({ runId: 9, state: 'queued', joined: false });

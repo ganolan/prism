@@ -4,7 +4,8 @@ import HelpDot from './HelpDot.jsx';
 // the teacher's words (the data, not the systems behind it). `button` is the page's sync button;
 // `nightly` is whether the night's refresh is on (the scheduler is armed and Settings has it on);
 // `onDashboard` says where the button lives when the night's refresh is off.
-// `archived` (a past course: the dashboard's Archived tab, an archived course or assessment page)
+// `archived` (a past course: the dashboard's Archived tab, an archived course or assessment page,
+// a past student's page)
 // says instead that nothing refreshes it automatically, and how to read it again: two lines, no
 // bullets.
 export const HELP_INTRO = 'Prism keeps this up to date for you.';

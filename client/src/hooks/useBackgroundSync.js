@@ -61,6 +61,8 @@ export function useBackgroundSync(scope, { onDone, pollMs = POLL_MS } = {}) {
       .then((r) => {
         if (mine !== token.current) return;
         if (r?.state === 'fresh' || r?.runId == null) setSync({ state: 'fresh', runId: null });
+        // Tried and failed within the window: show that run's failure; the queue retries later.
+        else if (r.state === 'failed') setSync({ state: 'failed', runId: r.runId });
         else follow(r.runId);
       })
       .catch(() => { if (mine === token.current) setSync({ state: 'failed', runId: null }); });

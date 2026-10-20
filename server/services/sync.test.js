@@ -1004,6 +1004,19 @@ describe('fullSync — a list of courses (#58)', () => {
     expect(r.readCourseIds).toEqual([ids.old]);
   });
 
+  test('a ticked archived course read without a session reader (dropbox only) is not complete', async () => {
+    hasMasterySession.mockReturnValue(true);
+    createSubmissionFetcher.mockResolvedValue(null);
+    const r = await fullSync(() => {}, { courseIds: [ids.old] });
+    expect(r.archivedRead).toEqual([ids.old]);
+    expect(r.archivedComplete).toEqual([]);
+    createSubmissionFetcher.mockResolvedValue({ fetchDocuments: async () => null, fetchTestAttempts: async () => null, close: async () => {} });
+    const r2 = await fullSync(() => {}, { courseIds: [ids.old] });
+    expect(r2.archivedComplete).toEqual([ids.old]);
+    hasMasterySession.mockReturnValue(false);
+    createSubmissionFetcher.mockResolvedValue(null);
+  });
+
   test('a ticked archived course that fails to read is reported, not fatal', async () => {
     const roster = sch.getSectionEnrollments.getMockImplementation();
     sch.getSectionEnrollments.mockImplementation(async (sid) => {

@@ -180,7 +180,9 @@ describe('the sync queue', () => {
 
     test('a failed attempt within the window counts too (a failing course is not retried on every visit)', () => {
       setCourse(a, { course_synced_at: null, sync_attempted_at: iso(60_000) });
-      expect(ensure({ kind: 'courses', courseIds: [a] })).toEqual({ state: 'fresh' });
+      // Not queued again within the window; the chip shows the failure.
+      expect(ensure({ kind: 'courses', courseIds: [a] })).toMatchObject({ state: 'failed' });
+      expect(currentSync().queued).toEqual([]);
     });
 
     test('the dashboard queues only its stale courses', async () => {
@@ -217,6 +219,116 @@ describe('the sync queue', () => {
       await tick();
       setCourse(a, { course_synced_at: iso(60_000) });
       expect(ensure({ kind: 'courses', courseIds: [a] })).toEqual({ state: 'running', runId: r.runId });
+      runs[0].finish(); await idle();
+    });
+  });
+
+  describe('review fixes', () => {
+    const iso = (msAgo) => new Date(Date.now() - msAgo).toISOString();
+    const errorCount = (id) => getDb().prepare('SELECT error_count FROM sync_runs WHERE id = ?').get(id).error_count;
+
+    test('#1: while the session is down, page visits join the held run instead of piling up', async () => {
+      gatedRuns();
+      queueDeps.sessionStatus.mockResolvedValue({ loggedIn: true, live: 'expired' });
+      const first = enqueue({ kind: 'courses', courseIds: [a], trigger: 'page' });
+      await idle();
+      expect(enqueue({ kind: 'courses', courseIds: [a], trigger: 'page' })).toMatchObject({ runId: first.runId, state: 'held', joined: true });
+      expect(ensure({ kind: 'courses', courseIds: [a] })).toEqual({ state: 'held', runId: first.runId });
+      expect(currentSync().held).toHaveLength(1);
+    });
+
+    test('#1: a run whose session check passes also releases the held runs', async () => {
+      const runs = gatedRuns();
+      queueDeps.sessionStatus.mockResolvedValueOnce({ loggedIn: true, live: 'expired' });
+      const held = enqueue({ kind: 'courses', courseIds: [a], trigger: 'page' });
+      await idle();
+      enqueue({ kind: 'courses', courseIds: [b], trigger: 'page' }); // the session works again
+      await tick();
+      runs[0].finish(); await tick();
+      expect(status(held.runId)).toBe('running');
+      runs[1].finish(); await idle();
+    });
+
+    test('#2: a held run that succeeds after the sign-in ends completed, not with errors', async () => {
+      queueDeps.runUnifiedSync = vi.fn()
+        .mockImplementationOnce(async (o, emit) => {
+          emit({ phase: 'mastery', courseId: a, status: 'error', errorKind: 'login', message: 'expired' });
+          emit({ type: 'summary', mastery: [{ courseId: a, status: 'error', errorKind: 'login' }] });
+        })
+        .mockImplementation(async (o, emit) => { emit({ type: 'summary', mastery: [{ courseId: a, status: 'done' }] }); });
+      const r = enqueue({ kind: 'courses', courseIds: [a], trigger: 'page' });
+      await idle();
+      expect(status(r.runId)).toBe('held');
+      expect(errorCount(r.runId)).toBe(1);
+      resumeHeld();
+      await idle();
+      expect(status(r.runId)).toBe('completed');
+      expect(errorCount(r.runId)).toBe(0);
+    });
+
+    test('#3: a request needing more than a queued run does (PowerSchool, quizzes) queues its own', async () => {
+      const runs = gatedRuns();
+      enqueue({ kind: 'courses', courseIds: [b], trigger: 'page' });
+      await tick();
+      enqueue({ kind: 'courses', courseIds: [a], trigger: 'page' });
+      const button = enqueue({ kind: 'courses', courseIds: [a], trigger: 'button', force: true, syncBlocks: true });
+      expect(button.joined).toBe(false);
+      const nightly = enqueue({ kind: 'all', trigger: 'scheduled', refreshQuizzes: true, syncBlocks: true });
+      expect(nightly.joined).toBe(false);
+      runs[0].finish(); await tick();
+      runs[1].finish(); await tick();
+      runs[2].finish(); await tick();
+      runs[3].finish(); await idle();
+    });
+
+    test('#3: a button joining a queued page run moves it ahead of the other page runs', async () => {
+      const runs = gatedRuns();
+      enqueue({ kind: 'courses', courseIds: [a], trigger: 'page', force: true });
+      await tick();
+      const p1 = enqueue({ kind: 'courses', courseIds: [b], trigger: 'page' });
+      const c = getDb().prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sc', 'C')`).run().lastInsertRowid;
+      const p2 = enqueue({ kind: 'courses', courseIds: [c], trigger: 'page' });
+      const button = enqueue({ kind: 'courses', courseIds: [c], trigger: 'button', force: true });
+      expect(button).toMatchObject({ runId: p2.runId, joined: true });
+      expect(currentSync().queued.map((q) => q.runId)).toEqual([p2.runId, p1.runId]);
+      for (const _ of [0, 1, 2]) { runs.at(-1)?.finish(); await tick(); }
+      runs.forEach((r) => r.finish());
+      await idle();
+    });
+
+    test('#4: a revisit after a failed attempt answers failed, with that run', async () => {
+      const run = getDb().prepare(`INSERT INTO sync_runs (started_at, status, options_json) VALUES (datetime('now'), 'completed_with_errors', ?)`)
+        .run(JSON.stringify({ kind: 'courses', courseIds: [a], coveredCourseIds: [a] })).lastInsertRowid;
+      getDb().prepare('UPDATE courses SET course_synced_at = ?, sync_attempted_at = ? WHERE id = ?').run(iso(SYNC_FRESH_MS * 3), iso(60_000), a);
+      expect(ensure({ kind: 'courses', courseIds: [a] })).toEqual({ state: 'failed', runId: run });
+    });
+
+    test('#5: the dashboard leaves out a course that is syncing right now', async () => {
+      const runs = gatedRuns();
+      const own = enqueue({ kind: 'courses', courseIds: [a], trigger: 'page' });
+      await tick();
+      const dash = ensure({ kind: 'all' });
+      expect(dash.runId).not.toBe(own.runId);
+      expect(currentSync().queued[0].courseIds).toEqual([b]);
+      runs[0].finish(); await tick();
+      runs[1].finish(); await idle();
+    });
+
+    test('#8: a run that throws still records the attempt (no retry on every visit)', async () => {
+      queueDeps.runUnifiedSync = vi.fn(async () => { throw new Error('Schoology API 503'); });
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      enqueue({ kind: 'courses', courseIds: [a], trigger: 'page' });
+      await idle();
+      errSpy.mockRestore();
+      expect(getDb().prepare('SELECT sync_attempted_at FROM courses WHERE id = ?').get(a).sync_attempted_at).not.toBeNull();
+      expect(ensure({ kind: 'courses', courseIds: [a] }).state).toBe('failed');
+    });
+
+    test('minor: a PowerSchool-only retry reads every course (not an empty list)', async () => {
+      const runs = gatedRuns();
+      enqueue({ kind: 'courses', courseIds: [], masteryCourseIds: [], skipSchoology: true, syncBlocks: true, trigger: 'button', force: true });
+      await tick();
+      expect(runs[0].options.courseIds).toBeNull();
       runs[0].finish(); await idle();
     });
   });

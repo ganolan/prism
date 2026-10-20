@@ -406,7 +406,8 @@ export async function finalizeArchivedCourse(db, { courseId, sectionId, now, run
     }
     db.prepare('UPDATE courses SET finalized_at = ? WHERE id = ?').run(now, courseId);
   }
-  return { ...counts, finalized: sessionPresent, masteryError };
+  // fullRead: OneDrive/LTI states and test attempts were read too (a session reader was open).
+  return { ...counts, finalized: sessionPresent, masteryError, fullRead: Boolean(reader) };
 }
 
 // Auto-archive: a previously-synced active course (archived=0, has synced_at)
@@ -746,7 +747,7 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
         archivedReadIds.push(c.id);
         taskIdsByCourse[c.id] = [...(r.readInFullTaskIds || [])];
         if (r.masteryError) log(`Archived "${name}": mastery not read (${r.masteryError})`);
-        else if (!(r.failedAssignmentIds || []).length && !r.submissionAbandoned) archivedComplete.push(c.id);
+        else if (r.fullRead && !(r.failedAssignmentIds || []).length && !r.submissionAbandoned) archivedComplete.push(c.id);
       }
     }
     // Auto-archive courses that dropped off the active list this turn (#70).

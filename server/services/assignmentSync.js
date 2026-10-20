@@ -34,7 +34,8 @@ export async function syncAssignment(courseId, schoologyAssignmentId, { db = get
     WHERE e.course_id = ? AND e.schoology_enrolment_id IS NOT NULL`).all(course.id).map((r) => [String(r.eid), String(r.uid)]));
   writeAssignments(db, { courseId: course.id, assignments: [record], now, enrolmentIdToUid, complete: false });
 
-  const submissions = await d.refreshTasks([task.id], { db, force: true, mastery: false });
+  // An archived course's task is read too: only Sync Assignment reaches it (pages leave it alone).
+  const submissions = await d.refreshTasks([task.id], { db, force: true, mastery: false, includeArchived: true });
   let comments = { queued: 0 };
   try {
     const job = d.refreshComments(db, task.id, { maxAgeSec: 0 });

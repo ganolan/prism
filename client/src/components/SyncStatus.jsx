@@ -33,7 +33,8 @@ export default function SyncStatus({ label, syncedAt, archived = false, sync = {
             {chip}
           </button>
         )}
-        <button type="button" className="primary sync-status__button" onClick={onSync} disabled={busy}>
+        {/* Usable while the page's sync only waits: a press goes ahead of page syncs. */}
+        <button type="button" className="primary sync-status__button" onClick={onSync} disabled={sync?.state === 'running'}>
           {label}
         </button>
       </div>

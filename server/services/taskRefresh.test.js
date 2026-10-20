@@ -93,6 +93,13 @@ describe('refreshTasks (#108)', () => {
     expect(r2.refreshed).toBe(1);
   });
 
+  test('Sync Assignment on an archived course\'s task reads it (includeArchived)', async () => {
+    const old = addTask(addCourse('S8', 1), 'OLDT');
+    const r = await run([old], { force: true, includeArchived: true });
+    expect(r.refreshed).toBe(1);
+    expect(getAssignmentSubmissions).toHaveBeenCalledWith('S8', 'OLDT');
+  });
+
   test('skips archived-course and removed tasks without error', async () => {
     const old = addTask(addCourse('S9', 1), 'OLD');
     const gone = addTask(c1, 'GONE', { removed: '2026-10-01' });

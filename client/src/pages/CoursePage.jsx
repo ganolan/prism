@@ -167,7 +167,7 @@ export default function CoursePage() {
               label="Sync Course"
               syncedAt={course.course_synced_at}
               archived={!courseLive}
-              sync={syncOpen ? { state: 'running' } : backgroundSync}
+              sync={backgroundSync}
               onSync={() => setSyncOpen(true)}
               onOpen={(runId) => setFollowRun(runId)}
             />
@@ -178,6 +178,7 @@ export default function CoursePage() {
             presetCourse={{ id: Number(id), name: course.course_name }}
             onClose={() => setSyncOpen(false)}
             onSyncComplete={bumpDataVersion}
+            onRun={backgroundSync.follow}
           />
         )}
         {followRun != null && !syncOpen && (

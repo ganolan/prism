@@ -9,7 +9,7 @@ import { useUndoableText } from '../hooks/useUndoableText.js';
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
 import { rubricAverage } from '../lib/rubricAverage.js';
 import { studentFullName } from '../lib/studentNames.js';
-import { useDataVersion, useBumpDataVersion } from '../hooks/useDataVersion.jsx';
+import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import { LEVELS, LEVEL_LABELS, LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
 import { useProficiencyScale } from '../hooks/useProficiencyScale.js';
 import RubricDescriptorGrid from '../components/RubricDescriptorGrid.jsx';
@@ -1877,7 +1877,6 @@ export default function AssessmentSummaryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [followRun, setFollowRun] = useState(null); // the chip opens the progress on this run
-  const bumpDataVersion = useBumpDataVersion();
   const [refreshResult, setRefreshResult] = useState(null);
   const [feedbackByStudent, setFeedbackByStudent] = useState({});
   const [draftByStudent, setDraftByStudent] = useState({});
@@ -2396,7 +2395,8 @@ export default function AssessmentSummaryPage() {
             onOpen={(runId) => setFollowRun(runId)}
           />
           {followRun != null && (
-            <SyncDialog followRunId={followRun} onClose={() => setFollowRun(null)} onSyncComplete={bumpDataVersion} />
+            // No onSyncComplete: the chip's run is the hook's, whose onDone reloads past the unsaved-draft guard.
+            <SyncDialog followRunId={followRun} onClose={() => setFollowRun(null)} />
           )}
           {refreshResult && (
             <span className="text-sm text-muted" style={{ fontSize: '0.75rem' }}>{refreshResult}</span>

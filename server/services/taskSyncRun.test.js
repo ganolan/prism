@@ -44,4 +44,11 @@ describe('runTaskSync (Sync Assignment as a queued run)', () => {
     expect(events.some((e) => e.type === 'log' && /Deleted in Schoology/.test(e.message))).toBe(true);
     expect(task().task_synced_at).toBeNull();
   });
+
+  test('a OneDrive or test read that needs a sign-in is reported for the queue to hold', async () => {
+    deps.syncAssignment.mockResolvedValue({ removed: false, submissions: { refreshed: 1, failed: [], signIn: true }, comments: { queued: 0 } });
+    await run();
+    expect(events.at(-1)).toMatchObject({ type: 'summary', signIn: true });
+    expect(task().task_synced_at).toBeNull();
+  });
 });

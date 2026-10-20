@@ -27,7 +27,9 @@ const NOTICES = {
 //   presetCourse ({ id, name }, Sync Course): skip the course list and sync that one course
 //     (everything, PowerSchool off).
 //   followRunId: open on a run that is already queued or running (a page's "Syncing…" chip).
-export default function SyncDialog({ onClose, onSyncComplete, presetCourse = null, followRunId = null, pollMs = POLL_MS, giveUpMs = GIVE_UP_MS }) {
+//   onRun(runId): the run a press here queued (or joined), so the page's chip follows it after
+//     the dialog closes.
+export default function SyncDialog({ onClose, onSyncComplete, onRun, presetCourse = null, followRunId = null, pollMs = POLL_MS, giveUpMs = GIVE_UP_MS }) {
   // stalled = following a run but Prism has been unreachable for giveUpMs of visible time;
   // held = the run waits for a Schoology sign-in.
   const [mode, setMode] = useState('loading'); // loading | config | running | stalled | held | done
@@ -41,7 +43,7 @@ export default function SyncDialog({ onClose, onSyncComplete, presetCourse = nul
   const [busy] = useState(false);
   const [metrics, setMetrics] = useState(null);
   const [notice, setNotice] = useState(null); // null | 'joined' | 'waiting'
-  // The run being followed: { runId, lastSeq, stage: 'poll' | 'stalled' | 'held' | 'done', wake, failSince }.
+  // The run being followed: { runId, lastSeq, stage: 'poll' | 'stalled' | 'done', wake, failSince }.
   const runRef = useRef(null);
   const unmounted = useRef(false);
 
@@ -104,8 +106,8 @@ export default function SyncDialog({ onClose, onSyncComplete, presetCourse = nul
     });
   }
 
-  // Poll the run's stored events until it finishes → { status }, it is held → { held: true },
-  // polls have failed for giveUpMs of visible time → { unreachable: true }, or { cancelled: true }.
+  // Poll the run's stored events until it finishes → { status } (showing the sign-in while it is
+  // held), polls have failed for giveUpMs of visible time → { unreachable: true }, or { cancelled: true }.
   async function follow(r) {
     r.stage = 'poll';
     r.failSince = null;
@@ -115,8 +117,11 @@ export default function SyncDialog({ onClose, onSyncComplete, presetCourse = nul
         r.failSince = null;
         ingest(r, res.events || []);
         if (res.finished) return { status: res.status };
-        if (res.status === 'held') return { held: true };
-        if (!unmounted.current) setNotice((n) => (res.status === 'queued' ? 'waiting' : n === 'waiting' ? null : n));
+        if (!unmounted.current) {
+          // A held run stays followed: a sign-in (here or on another page) lets it run on.
+          setMode((m) => (res.status === 'held' ? 'held' : m === 'held' ? 'running' : m));
+          setNotice((n) => (res.status === 'queued' ? 'waiting' : n === 'waiting' ? null : n));
+        }
       } catch {
         if (document.hidden) r.failSince = null;
         else if (r.failSince == null) r.failSince = Date.now();
@@ -142,7 +147,6 @@ export default function SyncDialog({ onClose, onSyncComplete, presetCourse = nul
     const out = await follow(r);
     if (out.cancelled || unmounted.current || r.stage === 'done') return;
     if (out.unreachable) { r.stage = 'stalled'; setMode('stalled'); return; }
-    if (out.held) { r.stage = 'held'; setMode('held'); return; }
     if (out.status === 'interrupted') {
       ingest(r, [{ type: 'error', message: 'The sync was interrupted: the server restarted before it finished. Run it again.' }]);
     }
@@ -176,6 +180,7 @@ export default function SyncDialog({ onClose, onSyncComplete, presetCourse = nul
     setNotice(null);
     try {
       const r = await queueSync(request);
+      onRun?.(r.runId);
       if (unmounted.current) return undefined;
       return joinRun(r.runId, r.joined ? 'joined' : null);
     } catch (err) {

@@ -1,8 +1,8 @@
-// Persistent record of unified-sync runs (POST /api/sync) and every progress
-// event each one reported. Two jobs:
-//   1. Re-attach: a client whose NDJSON stream dropped (iOS kills it on screen
-//      lock) polls getEvents(runId, afterSeq) to keep following the run, which
-//      carries on server-side regardless of the connection.
+// Persistent record of every run in the sync queue (syncQueue.js: queued, held,
+// running, finished) and every progress event each one reported. Two jobs:
+//   1. Following: the progress dialog and the pages' chips poll
+//      getEvents(runId, afterSeq) from the last seq they saw; the run carries on
+//      server-side whether or not anyone is following it.
 //   2. History: Settings → Recent syncs lists the newest runs and their logs.
 // Event shapes are the orchestrator's (see syncOrchestrator.js).
 

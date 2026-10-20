@@ -73,6 +73,14 @@ describe('SyncDialog (the sync queue)', () => {
     go.mockRestore();
   });
 
+  it('review: a held run keeps being followed, and runs on after a sign-in elsewhere', async () => {
+    pollScript([{ status: 'held', finished: false, events: [] }, { status: 'running', finished: false, events: [] }, done()]);
+    render(<SyncDialog onClose={() => {}} pollMs={2} />);
+    await clickStart();
+    await screen.findByText('Waiting for a Schoology sign-in'); // shown while held (the next poll moves on)
+    await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
+  });
+
   it('Sync Course (presetCourse) queues that one course at once, PowerSchool off', async () => {
     pollScript([done()]);
     render(<SyncDialog presetCourse={{ id: 5, name: 'AP CSP' }} onClose={() => {}} pollMs={1} />);

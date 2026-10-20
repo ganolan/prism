@@ -8,10 +8,11 @@
 //               assignmentId?, includeHidden?, syncBlocks?, skipSchoology?, refreshQuizzes?,
 //               trigger: 'page' | 'button' | 'scheduled', force? }
 //
-// Joining: a request whose courses a queued or running request already covers joins it instead of
-// queueing twice. A forced request (a button) may join only a queued one: a running one may have
-// read the course before the teacher's change. Button requests go ahead of queued page requests.
-// A mastery-only or blocks-only retry (skipSchoology) covers nothing.
+// Joining: a request whose courses (and options: PowerSchool, quizzes, hidden courses) a queued,
+// running or held request already covers joins it instead of queueing twice. A forced request (a
+// button) never joins a running one: it may have read the course before the teacher's change. A
+// button goes ahead of queued page requests, and lifts a queued page run it joins there too. A
+// mastery-only or blocks-only retry (skipSchoology) covers nothing.
 //
 // Everything or nothing (Graham, 20/10/2026): before a request that reads Schoology starts, the
 // session is checked (renewed when possible). 'expired' or 'none' holds it until a sign-in
@@ -31,11 +32,10 @@ let running = null; // { runId, request, covered }
 let queue = []; // [{ runId, request, covered }]
 let held = []; // [{ runId, request, covered }]
 let pumping = null; // the promise of the current pump loop
-const listeners = new Map(); // runId → [fn(evt)]
 const waiters = new Map(); // runId → [resolve(finalStatus)]
 
 export function resetQueue() {
-  running = null; queue = []; held = []; pumping = null; listeners.clear(); waiters.clear();
+  running = null; queue = []; held = []; pumping = null; waiters.clear();
 }
 
 // Resolves with the run's final status once it finishes (or 'held'). For the nightly run.
@@ -71,27 +71,36 @@ export function coveredCourseIds(request) {
       AND (COALESCE(hidden, 0) = 0 OR ?) ORDER BY id`).all(request.includeHidden ? 1 : 0).map((r) => r.id);
 }
 
+// The PowerSchool pass and the quizzes phase a request asks for (they are part of what it reads).
+const extras = (request) => ({
+  syncBlocks: request.syncBlocks ?? (request.kind === 'all'),
+  refreshQuizzes: !!request.refreshQuizzes,
+});
+
 function covers(entry, request) {
   if (entry.request.skipSchoology) return false;
-  const have = new Set(entry.covered);
+  const have = extras(entry.request);
+  const want = extras(request);
+  if ((want.syncBlocks && !have.syncBlocks) || (want.refreshQuizzes && !have.refreshQuizzes)) return false;
+  const ids = new Set(entry.covered);
   if (request.kind === 'task') {
     const same = entry.request.kind === 'task' && Number(entry.request.courseId) === Number(request.courseId)
       && String(entry.request.assignmentId) === String(request.assignmentId);
-    return same || have.has(Number(request.courseId));
+    return same || ids.has(Number(request.courseId));
   }
-  const want = coveredCourseIds(request);
-  return want.length > 0 && want.every((id) => have.has(id));
+  const need = coveredCourseIds(request);
+  return need.length > 0 && need.every((id) => ids.has(id));
 }
 
 // The options runUnifiedSync takes, from a request. Everything is read: mastery for every course.
+// A PowerSchool-only or mastery-only retry (skipSchoology) runs over every course (courseIds null).
 function unifiedOptions(request, covered) {
   return {
-    courseIds: request.kind === 'courses' ? covered : null,
+    courseIds: request.kind === 'courses' && !request.skipSchoology ? covered : null,
     masteryCourseIds: request.masteryCourseIds ?? covered,
     skipSchoology: !!request.skipSchoology,
     includeHidden: !!request.includeHidden,
-    syncBlocks: request.syncBlocks ?? (request.kind === 'all'),
-    refreshQuizzes: !!request.refreshQuizzes,
+    ...extras(request),
     trigger: request.trigger,
   };
 }
@@ -107,44 +116,75 @@ export function currentSync() {
   };
 }
 
+// Buttons go ahead of queued page requests (behind other button and scheduled ones).
+function place(entry) {
+  const firstPage = entry.request.trigger === 'button' ? queue.findIndex((e) => e.request.trigger === 'page') : -1;
+  if (firstPage >= 0) queue.splice(firstPage, 0, entry); else queue.push(entry);
+}
+
 // Queue a request (or join one that covers it). → { runId, state: 'queued' | 'running' | 'held', joined }.
-export function enqueue(request, { onEvent } = {}) {
-  const join = (e, state) => {
-    if (onEvent) listeners.set(e.runId, [...(listeners.get(e.runId) ?? []), onEvent]);
-    return { runId: e.runId, state, joined: true };
-  };
-  if (!request.force && running && covers(running, request)) return join(running, 'running');
+export function enqueue(request) {
+  if (!request.force && running && covers(running, request)) return { runId: running.runId, state: 'running', joined: true };
   const queuedCover = queue.find((e) => covers(e, request));
-  if (queuedCover) return join(queuedCover, 'queued');
+  if (queuedCover) {
+    // A button lifts the page run it joins ahead of the other page runs (not the head being checked).
+    if (request.trigger === 'button' && queuedCover.request.trigger === 'page' && queuedCover !== queue[0]) {
+      queue.splice(queue.indexOf(queuedCover), 1);
+      queuedCover.request = { ...queuedCover.request, trigger: 'button' };
+      place(queuedCover);
+    }
+    return { runId: queuedCover.runId, state: 'queued', joined: true };
+  }
+  const heldCover = held.find((e) => covers(e, request));
+  if (heldCover) return { runId: heldCover.runId, state: 'held', joined: true };
 
   const covered = request.kind === 'task' ? [Number(request.courseId)] : coveredCourseIds(request);
   const runId = Number(db().prepare(
     `INSERT INTO sync_runs (started_at, status, options_json) VALUES (?, 'queued', ?)`,
   ).run(new Date().toISOString(), JSON.stringify({ ...request, coveredCourseIds: covered })).lastInsertRowid);
-  const entry = { runId, request, covered: request.kind === 'task' ? [] : covered };
-  if (onEvent) listeners.set(runId, [onEvent]);
-  // Buttons go ahead of queued page requests (behind other button and scheduled ones).
-  const firstPage = request.trigger === 'button' ? queue.findIndex((e) => e.request.trigger === 'page') : -1;
-  if (firstPage >= 0) queue.splice(firstPage, 0, entry); else queue.push(entry);
+  place({ runId, request, covered: request.kind === 'task' ? [] : covered });
   pump();
   return { runId, state: 'queued', joined: false };
 }
 
-// A page asks for its scope after it loads (POST /api/sync/ensure). Fresh = every course in it
-// (or the task) was synced, or tried, within SYNC_FRESH_MS; archived courses are only re-read by a
-// button. A scope a queued or running request already covers follows that run. Otherwise the
-// stale part is queued as a page request. → { state: 'fresh' | 'queued' | 'running', runId? }.
+// The newest finished run of a scope that did not complete cleanly, for the "Sync failed" chip.
+function lastFailedRun(d, { courseIds = [], task = null }) {
+  const rows = d.prepare(`SELECT id, options_json FROM sync_runs WHERE status IN ('failed', 'completed_with_errors', 'interrupted')
+    ORDER BY id DESC LIMIT 50`).all();
+  for (const r of rows) {
+    let o = {};
+    try { o = JSON.parse(r.options_json || '{}'); } catch { o = {}; }
+    if (task && o.kind === 'task' && String(o.assignmentId) === String(task.assignmentId)) return r.id;
+    const ids = (o.coveredCourseIds ?? o.courseIds ?? []).map(Number);
+    if (courseIds.some((id) => ids.includes(id))) return r.id;
+  }
+  return null;
+}
+
+// A page asks for its scope after it loads (POST /api/sync/ensure). A scope a running, queued or
+// held request covers follows that run. Fresh = every course in it (or the task) was synced, or
+// tried, within SYNC_FRESH_MS; a scope whose latest try failed answers 'failed' with that run (the
+// chip). Archived courses are only re-read by a button. Otherwise the stale part not already
+// syncing is queued as a page request.
+// → { state: 'fresh' | 'failed' | 'queued' | 'running' | 'held', runId? }.
 //   scope = { kind: 'all' } | { kind: 'courses', courseIds } | { kind: 'task', courseId, assignmentId }
 export function ensure(scope, { now = Date.now() } = {}) {
   const d = db();
-  const isFresh = (...stamps) => stamps.some((s) => s && now - Date.parse(s) < SYNC_FRESH_MS);
+  const within = (stamp) => Boolean(stamp) && now - Date.parse(stamp) < SYNC_FRESH_MS;
+  const later = (a, b) => Boolean(a) && (!b || Date.parse(a) > Date.parse(b));
+  const stateOf = (e) => (e === running ? 'running' : held.includes(e) ? 'held' : 'queued');
+  const active = () => [running, ...queue, ...held].filter((e) => e && !e.request.skipSchoology);
   if (scope.kind === 'task') {
     const t = d.prepare(`SELECT a.task_synced_at, a.task_sync_attempted_at, c.archived FROM assignments a
       JOIN courses c ON c.id = a.course_id WHERE a.schoology_assignment_id = ? AND a.course_id = ?`).get(String(scope.assignmentId), Number(scope.courseId));
-    if (!t || t.archived || isFresh(t.task_synced_at, t.task_sync_attempted_at)) return { state: 'fresh' };
+    if (!t || t.archived) return { state: 'fresh' };
     const request = { kind: 'task', courseId: Number(scope.courseId), assignmentId: String(scope.assignmentId), trigger: 'page' };
-    const following = [running, ...queue].find((e) => e && covers(e, request));
-    if (following) return { state: following === running ? 'running' : 'queued', runId: following.runId };
+    const following = active().find((e) => covers(e, request));
+    if (following) return { state: stateOf(following), runId: following.runId };
+    if (within(t.task_synced_at) && !later(t.task_sync_attempted_at, t.task_synced_at)) return { state: 'fresh' };
+    if (within(t.task_sync_attempted_at)) {
+      return { state: 'failed', runId: lastFailedRun(d, { courseIds: [Number(scope.courseId)], task: scope }) };
+    }
     const r = enqueue(request);
     return { state: r.state, runId: r.runId };
   }
@@ -152,21 +192,33 @@ export function ensure(scope, { now = Date.now() } = {}) {
   const rows = ids.length ? d.prepare(`SELECT id, archived, course_synced_at, sync_attempted_at FROM courses
     WHERE id IN (SELECT value FROM json_each(?)) AND COALESCE(excluded, 0) = 0`).all(JSON.stringify(ids)) : [];
   const live = rows.filter((c) => !c.archived);
-  const following = [running, ...queue].find((e) => e && !e.request.skipSchoology && live.length
-    && live.every((c) => e.covered.includes(c.id)));
-  if (following) return { state: following === running ? 'running' : 'queued', runId: following.runId };
-  const stale = live.filter((c) => !isFresh(c.course_synced_at, c.sync_attempted_at)).map((c) => c.id);
-  if (!stale.length) return { state: 'fresh' };
-  const r = enqueue({ kind: 'courses', courseIds: stale, trigger: 'page' });
-  return { state: r.state, runId: r.runId };
+  if (!live.length) return { state: 'fresh' };
+  const following = active().find((e) => live.every((c) => e.covered.includes(c.id)));
+  if (following) return { state: stateOf(following), runId: following.runId };
+  const failed = live.filter((c) => within(c.sync_attempted_at) && later(c.sync_attempted_at, c.course_synced_at));
+  const stale = live.filter((c) => !within(c.course_synced_at) && !within(c.sync_attempted_at)).map((c) => c.id);
+  // A course already syncing (or waiting for a sign-in) is not queued a second time.
+  const busy = new Set(active().flatMap((e) => e.covered));
+  const toQueue = stale.filter((id) => !busy.has(id));
+  if (toQueue.length) {
+    const r = enqueue({ kind: 'courses', courseIds: toQueue, trigger: 'page' });
+    return { state: r.state, runId: r.runId };
+  }
+  const partly = active().find((e) => stale.some((id) => e.covered.includes(id)));
+  if (partly) return { state: stateOf(partly), runId: partly.runId };
+  if (failed.length) return { state: 'failed', runId: lastFailedRun(d, { courseIds: failed.map((c) => c.id) }) };
+  return { state: 'fresh' };
 }
 
-// After a sign-in: every held request runs again (same runs, back in the queue).
+// After a sign-in (or a run whose session check passed): every held request runs again, as the
+// same run, its earlier attempt's error and warning counts cleared and a line in its log.
 export function resumeHeld() {
   const back = held;
   held = [];
+  const d = db();
   for (const e of back) {
-    db().prepare(`UPDATE sync_runs SET status = 'queued' WHERE id = ?`).run(e.runId);
+    d.prepare(`UPDATE sync_runs SET status = 'queued', error_count = 0, warning_count = 0 WHERE id = ?`).run(e.runId);
+    try { appendEvent(d, e.runId, { type: 'log', message: 'Signed in to Schoology: running again.', restart: true }); } catch { /* the log is best effort */ }
     queue.push(e);
   }
   pump();
@@ -198,6 +250,22 @@ const hold = (entry) => {
   settle(entry.runId, 'held');
 };
 
+// Every run records when its scope was last tried, whatever the outcome (a run that threw too), so
+// a failing scope waits out the background window instead of re-running on every visit.
+function recordAttempt(d, entry) {
+  const at = new Date().toISOString();
+  try {
+    if (entry.request.kind === 'task') {
+      d.prepare('UPDATE assignments SET task_sync_attempted_at = ? WHERE schoology_assignment_id = ? AND course_id = ?')
+        .run(at, String(entry.request.assignmentId), Number(entry.request.courseId));
+    } else if (entry.covered.length) {
+      d.prepare('UPDATE courses SET sync_attempted_at = ? WHERE id IN (SELECT value FROM json_each(?))').run(at, JSON.stringify(entry.covered));
+    }
+  } catch (err) {
+    console.error('[sync] Could not record the attempt:', err.message);
+  }
+}
+
 async function runOne(entry) {
   const { request, runId } = entry;
   const d = db();
@@ -205,6 +273,8 @@ async function runOne(entry) {
     let live = 'unknown';
     try { live = (await queueDeps.sessionStatus({ refresh: true }))?.live ?? 'unknown'; } catch { live = 'unknown'; }
     if (live === 'expired' || live === 'none') return hold(entry);
+    // The session works again: what waited for a sign-in runs after this.
+    if (live === 'connected' && held.length) resumeHeld();
   }
   leaveQueue(entry);
   running = entry;
@@ -213,9 +283,7 @@ async function runOne(entry) {
   let status = 'completed';
   const write = (evt) => {
     if (evt?.type === 'summary') summary = evt;
-    let seq = null;
-    try { seq = appendEvent(d, runId, evt); } catch (err) { console.error('[sync] Could not log event:', err.message); }
-    for (const fn of listeners.get(runId) ?? []) { try { fn(seq == null ? evt : { ...evt, seq }); } catch { /* listener gone */ } }
+    try { appendEvent(d, runId, evt); } catch (err) { console.error('[sync] Could not log event:', err.message); }
   };
   try {
     if (request.kind === 'task') await queueDeps.runTaskSync(request, write);
@@ -228,6 +296,7 @@ async function runOne(entry) {
   } finally {
     running = null;
   }
+  if (!request.skipSchoology) recordAttempt(d, entry);
   const signInLost = (summary?.mastery ?? []).some((m) => m.errorKind === 'login') || summary?.signIn === true;
   if (signInLost && request.trigger !== 'scheduled') {
     hold(entry);
@@ -239,6 +308,5 @@ async function runOne(entry) {
   } catch (err) {
     console.error('[sync] Could not finish the sync run:', err.message);
   }
-  listeners.delete(runId);
   settle(runId, d.prepare('SELECT status FROM sync_runs WHERE id = ?').get(runId)?.status ?? status);
 }

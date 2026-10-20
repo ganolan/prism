@@ -3,7 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import AssessmentSummaryPage from './AssessmentSummaryPage.jsx';
-import { getMasteryForAssignment, getFeedbackForAssignment, syncMasteryForAssignment, ensureSync, getCurrentSync, getSyncRun } from '../services/api.js';
+import { BumpDataVersionContext } from '../hooks/useDataVersion.jsx';
+import { getMasteryForAssignment, getFeedbackForAssignment, syncMasteryForAssignment, ensureSync, getCurrentSync, getSyncRun, getSyncRunEvents } from '../services/api.js';
 
 vi.mock('../lib/assessmentDraftSaver.js', () => ({ makeDraftSaver: () => ({ save: vi.fn(), remove: vi.fn(), flush: vi.fn(), dispose: vi.fn() }) }));
 vi.mock('../services/api.js', () => ({
@@ -128,5 +129,23 @@ describe('AssessmentSummaryPage background sync', () => {
     getMasteryForAssignment.mockResolvedValue({ ...page('Same'), assignment: { title: 'Project', is_test: 0, removed_at: '2026-10-20T00:00:00Z' } });
     renderPage();
     expect(await screen.findByText('This task was deleted in Schoology.')).toBeInTheDocument();
+  });
+
+  it('review: the progress dialog opened from the chip never reloads the page past the unsaved-draft guard', async () => {
+    getMasteryForAssignment.mockResolvedValue(page('Same'));
+    ensureSync.mockResolvedValue({ state: 'running', runId: 4 });
+    getCurrentSync.mockResolvedValue({ ...IDLE, running: { runId: 4 }, runId: 4 });
+    getSyncRunEvents.mockResolvedValue({ status: 'completed', finished: true, events: [] });
+    const bump = vi.fn();
+    render(
+      <BumpDataVersionContext.Provider value={bump}>
+        <MemoryRouter initialEntries={['/course/5/assessment/950']}>
+          <Routes><Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} /></Routes>
+        </MemoryRouter>
+      </BumpDataVersionContext.Provider>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Syncing…' }));
+    expect(await screen.findByText('Sync complete')).toBeInTheDocument();
+    expect(bump).not.toHaveBeenCalled(); // the page's own refresh (afterRefresh) decides
   });
 });

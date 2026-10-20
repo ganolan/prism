@@ -48,4 +48,9 @@ describe('SyncStatus (background sync)', () => {
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
   });
+
+  it('review: the button stays usable while the page\'s sync only waits (a press goes ahead of page syncs)', () => {
+    render(<SyncStatus label="Sync Course" syncedAt={null} sync={{ state: 'queued', runId: 4 }} onSync={() => {}} onOpen={() => {}} now={NOW} />);
+    expect(screen.getByRole('button', { name: 'Sync Course' })).toBeEnabled();
+  });
 });

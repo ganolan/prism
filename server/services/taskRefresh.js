@@ -32,14 +32,14 @@ function snapshotAfterRead(db, { courseId, revisionsRead, readSince }) {
 
 const running = new Map(); // task id → Promise of the batch reading it
 
-function loadTasks(db, ids) {
+function loadTasks(db, ids, { includeArchived = false } = {}) {
   return db.prepare(`
     SELECT a.id, a.course_id, a.schoology_assignment_id AS ext, a.title, a.accepts_submissions, a.is_lti_submission,
       a.is_test, a.submissions_read_at, c.schoology_section_id AS section_id, ${ALIGNED_SQL} AS aligned
     FROM assignments a JOIN courses c ON c.id = a.course_id
     WHERE a.id IN (SELECT value FROM json_each(?))
-      AND a.removed_at IS NULL AND COALESCE(c.archived, 0) = 0
-  `).all(JSON.stringify(ids.map(Number)));
+      AND a.removed_at IS NULL AND (COALESCE(c.archived, 0) = 0 OR ?)
+  `).all(JSON.stringify(ids.map(Number)), includeArchived ? 1 : 0);
 }
 
 const needsSession = (t) => t.is_test === 1 || (t.accepts_submissions === 1 && t.is_lti_submission === 1);
@@ -147,14 +147,14 @@ async function readBatch(db, tasks, opts) {
 // (or by a read it joined), grades included; `readAt`: the oldest submissions_read_at among the
 // tasks that have one, so a page never claims a fresher read than its stalest task read.
 export async function refreshTasks(assignmentIds, {
-  db = getDb(), force = false, mastery = true, now = Date.now, openReader = createSubmissionFetcher, deps = {},
+  db = getDb(), force = false, mastery = true, now = Date.now, openReader = createSubmissionFetcher, deps = {}, includeArchived = false,
 } = {}) {
   const d = {
     refreshMastery: (courseId, ext, o) => refreshAssignmentMastery(courseId, ext, { db, ...o }),
     afterRead: snapshotAfterRead,
     ...deps,
   };
-  const tasks = loadTasks(db, [...new Set(assignmentIds)]);
+  const tasks = loadTasks(db, [...new Set(assignmentIds)], { includeArchived });
   const masteryFor = Array.isArray(mastery) ? new Set(mastery.map(Number)) : Boolean(mastery);
   const t0 = now();
   const stale = tasks.filter((t) => force || !t.submissions_read_at || t0 - Date.parse(t.submissions_read_at) >= FRESH_MS);

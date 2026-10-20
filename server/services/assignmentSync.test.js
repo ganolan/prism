@@ -51,6 +51,8 @@ describe('syncAssignment (#58)', () => {
     db.prepare('UPDATE courses SET archived = 1 WHERE id = ?').run(courseId);
     deps.refreshTasks.mockResolvedValue({ refreshed: 0, readAt: null, failed: [] });
     const r = await syncAssignment(courseId, 'A1', { db, deps });
+    // An archived course's task is read too: only the button reaches it.
+    expect(deps.refreshTasks).toHaveBeenCalledWith([localId], expect.objectContaining({ includeArchived: true }));
     expect(task().task_synced_at).toBeNull();
     deps.getSectionAssignment.mockRejectedValue(Object.assign(new Error('Schoology API 404'), { status: 404 }));
     await expect(syncAssignment(courseId, 'A1', { db, deps })).rejects.toThrow(/404/);

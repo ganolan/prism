@@ -25,7 +25,8 @@ export async function runTaskSync(request, emit, { db = getDb(), deps = {} } = {
     emit({ type: 'summary', mastery: [], removed: true, elapsedMs: d.now() - startedAt });
     return;
   }
-  const submissionsOk = task.submissions?.refreshed > 0 && !task.submissions?.error && !(task.submissions?.failed ?? []).length;
+  const submissionsOk = task.submissions?.refreshed > 0 && !task.submissions?.error && !task.submissions?.signIn
+    && !(task.submissions?.failed ?? []).length;
   emit(submissionsOk
     ? { phase: 'assignment', status: 'done', title }
     : { phase: 'assignment', status: 'error', title, message: task.submissions?.error || 'Submissions not read' });
@@ -45,6 +46,6 @@ export async function runTaskSync(request, emit, { db = getDb(), deps = {} } = {
   }
   emit({
     type: 'summary', mastery: [mastery], comments: task.comments ?? null, elapsedMs: d.now() - startedAt,
-    ...(m?.signIn ? { signIn: true } : {}),
+    ...(m?.signIn || task.submissions?.signIn ? { signIn: true } : {}),
   });
 }

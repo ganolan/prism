@@ -78,4 +78,15 @@ describe('useBackgroundSync', () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(api.ensureSync).not.toHaveBeenCalled();
   });
+
+  it('review: a scope whose last try failed is "failed" with that run; a held scope is followed', async () => {
+    api.ensureSync.mockResolvedValue({ state: 'failed', runId: 3 });
+    const { result, rerender } = renderHook(({ scope }) => useBackgroundSync(scope, { pollMs: 5 }), { initialProps: { scope: { kind: 'courses', courseIds: [5] } } });
+    await waitFor(() => expect(result.current).toMatchObject({ state: 'failed', runId: 3 }));
+    expect(api.getCurrentSync).not.toHaveBeenCalled();
+    api.ensureSync.mockResolvedValue({ state: 'held', runId: 8 });
+    api.getCurrentSync.mockResolvedValue({ ...idleQueue, held: [{ runId: 8 }] });
+    rerender({ scope: { kind: 'courses', courseIds: [6] } });
+    await waitFor(() => expect(result.current).toMatchObject({ state: 'held', runId: 8 }));
+  });
 });

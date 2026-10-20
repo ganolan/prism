@@ -82,4 +82,17 @@ describe('CoursePage background sync', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Sync Course' }));
     await waitFor(() => expect(api.startSync).toHaveBeenCalledWith({ courseIds: [5], syncBlocks: false }));
   });
+
+  it('review: an open Sync Course dialog does not fake "Syncing…"; the chip follows the run it started', async () => {
+    let runs = 0;
+    vi.mocked(api.getCurrentSync).mockImplementation(async () => (runs
+      ? { running: { runId: 9 }, runId: 9, queued: [], held: [] }
+      : { running: null, runId: null, queued: [], held: [] }));
+    vi.mocked(api.startSync).mockImplementation(async () => { runs += 1; return { runId: 9, state: 'queued', joined: false }; });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Sync Course' }));
+    await waitFor(() => expect(api.startSync).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(await screen.findByRole('button', { name: 'Syncing…' })).toBeInTheDocument();
+  });
 });

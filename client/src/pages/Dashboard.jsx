@@ -162,13 +162,13 @@ export default function Dashboard() {
           <SyncStatus
             label="Sync Courses"
             syncedAt={oldestSynced(courses)}
-            sync={syncOpen ? { state: 'running' } : backgroundSync}
+            sync={backgroundSync}
             onSync={() => setSyncOpen(true)}
             onOpen={(runId) => setFollowRun(runId)}
           />
         )}
       </div>
-      {syncOpen && <SyncDialog onClose={() => setSyncOpen(false)} onSyncComplete={bumpDataVersion} />}
+      {syncOpen && <SyncDialog onClose={() => setSyncOpen(false)} onSyncComplete={bumpDataVersion} onRun={backgroundSync.follow} />}
       {followRun != null && !syncOpen && (
         <SyncDialog followRunId={followRun} onClose={() => setFollowRun(null)} onSyncComplete={bumpDataVersion} />
       )}

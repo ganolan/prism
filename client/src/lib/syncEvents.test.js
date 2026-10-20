@@ -130,4 +130,16 @@ describe('reduceSyncEvents', () => {
     const s = reduceSyncEvents([{ phase: 'quizzes', status: 'running' }, { phase: 'quizzes', status: 'done', records: 2 }]);
     expect(s.phases).toEqual([{ key: 'quizzes', kind: 'quizzes', label: 'Quiz results', status: 'done', records: 2 }]);
   });
+
+  it('a run held for a sign-in and run again shows only its last attempt (from the restart line)', () => {
+    const r = reduceSyncEvents([
+      { phase: 'mastery', courseId: 1, courseName: 'Bio', status: 'error', message: 'expired' },
+      { type: 'summary', mastery: [{ courseId: 1, status: 'error' }], elapsedMs: 1 },
+      { type: 'log', message: 'Signed in to Schoology: running again.', restart: true },
+      { phase: 'mastery', courseId: 1, courseName: 'Bio', status: 'done', records: 3 },
+      { type: 'summary', mastery: [{ courseId: 1, status: 'done' }], elapsedMs: 2 },
+    ]);
+    expect(r.failures).toEqual([]);
+    expect(r.summary.elapsedMs).toBe(2);
+  });
 });

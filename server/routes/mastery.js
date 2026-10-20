@@ -55,8 +55,8 @@ router.get('/login-status', async (req, res) => {
 // When this course's / assignment's mastery was last read from Schoology (#52).
 const courseSyncedAt = (db, courseId) => db.prepare('SELECT mastery_synced_at FROM courses WHERE id = ?').get(Number(courseId))?.mastery_synced_at ?? null;
 
-// POST /api/mastery/sync/:courseId — the Sync Mastery button: read the course's mastery from
-// Schoology now (masteryRefresh, force). A read already running for the course is shared, not refused.
+// POST /api/mastery/sync/:courseId — read the course's mastery from Schoology now (masteryRefresh,
+// force). No page button since #58: the course page's Sync Course runs a full sync (POST /api/sync). A read already running for the course is shared, not refused.
 // → the sync counts plus syncedAt; 500 { error } when the read fails.
 router.post('/sync/:courseId', async (req, res) => {
   const { courseId } = req.params;

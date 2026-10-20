@@ -133,6 +133,9 @@ For a planned restart (e.g. macOS updates) skip the prompt once with
 Prod runs a full sync by itself every day (default **03:00**, mini local time).
 Between syncs, the dashboard, course and assessment pages read what they show from
 Schoology after they load (mastery #52; submissions and scores #108).
+By hand: **Sync Courses** (sidebar, the ticked courses), **Sync Course** (course page) and
+**Sync Assignment** (assessment page) each sync everything in their scope (#58); each page shows
+"Synced HH:MM" for its last full sync.
 Time, mastery, blocks, hidden courses and the recent-only window are set in
 **Settings → Scheduled sync**, which also shows the next run and how the last
 one went; each run appears in Recent syncs labelled *Scheduled*. It is armed

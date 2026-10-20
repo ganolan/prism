@@ -15,7 +15,7 @@ export function freshnessTime(iso, now = new Date()) {
 // #52: one line under a page header: when the mastery levels on the page were read from Schoology,
 // whether a refresh is running, or why it failed. `state` is useMasteryRefresh's answer; `syncedAt`
 // the stamp the page's data came with (shown until the refresh answers).
-// The later of the two stamps wins: a page reloaded after Sync Mastery carries a newer one than the
+// The later of the two stamps wins: a page reloaded after a sync carries a newer one than the
 // background refresh answered, and that read also clears the refresh's error.
 // `subject` names what was read (#108: the triage and course reads pass submissions and scores).
 const MASTERY = { label: 'Mastery levels', short: 'levels' };

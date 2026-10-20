@@ -64,7 +64,7 @@ describe('SyncDialog', () => {
     expect(screen.getByLabelText('Biology 9')).toBeInTheDocument();
   });
 
-  it('switches to the progress overlay when Start sync is clicked', async () => {
+  it('switches to the progress overlay when Sync Courses is clicked', async () => {
     vi.mocked(api.runSync).mockImplementation(async (opts, onEvent) => {
       onEvent({ phase: 'schoology', status: 'done', records: 5 });
       onEvent({ type: 'summary', schoology: { records: 5 }, mastery: [], elapsedMs: 1000 });

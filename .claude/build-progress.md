@@ -1518,6 +1518,14 @@ submission comments.
   `oneDriveLinks.js`, and the Microsoft renewal itself (`renewSession`, #136: a plain `fetch` cannot make the
   SSO round trip).
 
+## Simplify Sync: Sync Courses, Sync Course, Sync Assignment (#58, 2026-10-20)
+
+- **Why (Graham, #58):** a teacher must see at once whether data is fresh and how to sync it; Schoology data and mastery belong together. Spec `docs/superpowers/specs/2026-10-20-simplify-sync-design.md`, plan `docs/superpowers/plans/2026-10-20-simplify-sync.md`.
+- **Sync Courses (sidebar):** one dialog list grouped Current, Hidden, Archived; each ticked course gets everything (Schoology data and, with a session, mastery); an unticked course gets nothing. A ticked archived course is read again in full (`finalizeArchivedCourse`). `fullSync` / `POST /api/sync` take `courseIds` (null = the nightly's full run, unchanged); a list also reads any section Prism did not hold, scopes the PowerSchool block and alerts passes and the comment threads, and refreshes only those courses' students.
+- **Sync Course (course page):** opens the sync dialog preset to the course (`presetCourse`): joins a running sync that covers it, or waits for one that does not. **Sync Assignment** (assessment page): the task's REST record (404 = removed), submissions and grades (forced), comment threads, then mastery (`assignmentSync.js`; `writeAssignments` moved to `taskAssignments.js`).
+- **Label:** `SyncStatus`: "Synced 03:02 today" from `courses.course_synced_at` / `assignments.task_synced_at` (new; schema + MIGRATIONS), amber when a day old or never, and one "Checked for new work at ..." line for the pages' background reads (#52, #108). Existing courses read "Not synced yet" until their next sync.
+- **Live (dev server on a copy of prod, 20/10):** Sync Course on AP CSP 39.6 s (Schoology 23.0 s, comment threads 11.1 s, mastery 2.6 s); label "Not synced yet" (amber) became "Synced 09:21 today". Sync Assignment on CPT 2: 4.2 s. `check:mobile`: 0 failures. A list sync then stopped reading unlisted sections' grading periods.
+
 ## Submissions and scores read on demand after a page loads (#108, 2026-10-19)
 
 - **Why:** triage asked Graham to chase a student who had already submitted; submission data was as old as the last full sync. Spec `docs/superpowers/specs/2026-10-19-on-demand-submissions-design.md`, plan `docs/superpowers/plans/2026-10-19-on-demand-submissions.md`.

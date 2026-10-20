@@ -212,7 +212,6 @@ export const getMasteryLoginStatus = ({ refresh = false, check = true } = {}) =>
   const qs = q.toString();
   return request(`/mastery/login-status${qs ? `?${qs}` : ''}`);
 };
-export const triggerMasterySync = (courseId) => request(`/mastery/sync/${courseId}`, { method: 'POST' });
 export const getMasteryForCourse = (courseId) => request(`/mastery/${courseId}`);
 export const getMasteryForStudent = (courseId, studentUid) => request(`/mastery/${courseId}/student/${studentUid}`);
 export const getMasteryForAssignment = (courseId, assignmentId) => request(`/mastery/${courseId}/assignment/${assignmentId}`);

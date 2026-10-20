@@ -540,8 +540,8 @@ export async function writeMasteryOverride({
  * full course sync: fetches observations only for topics aligned to this
  * assignment, then upserts mastery_scores filtered to this assignment.
  *
- * Used by the assessment page's "Refresh from Schoology" button so teachers
- * can pick up out-of-band edits made directly in Schoology's gradebook.
+ * Used by the assessment page's Sync Assignment button (#58) and its background refresh (#52), so
+ * teachers pick up edits made directly in Schoology's gradebook.
  */
 export async function syncMasteryForAssignment(courseId, assignmentId) {
   const db = getDb();

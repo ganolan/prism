@@ -89,7 +89,7 @@ Assignments table extended with `mastery_grading_period_id`, `mastery_grading_ca
    - Editable teacher comment field
    - "Update Schoology" button: writes proficiencies + comment simultaneously
 
-3. **CoursePage** — "Sync Mastery" button with:
+3. **CoursePage** — "Sync Mastery" button (replaced 20 Oct 2026 by **Sync Course**, a full sync of the course, #58) with:
    - Spinner during sync
    - Success/error messages
    - "Log in to Schoology" button when session expired

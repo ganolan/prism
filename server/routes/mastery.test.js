@@ -2138,7 +2138,7 @@ describe('#52: mastery refreshed on demand after a page loads', () => {
     expect(syncMasteryForAssignment).not.toHaveBeenCalled();
   });
 
-  test('the Sync Mastery button (POST /sync/:courseId) always reads, and shares a refresh already running', async () => {
+  test('POST /sync/:courseId always reads, and shares a refresh already running', async () => {
     const { syncMasteryForCourse } = await import('../services/masterySync.js');
     let release;
     const gate = new Promise((r) => { release = r; });

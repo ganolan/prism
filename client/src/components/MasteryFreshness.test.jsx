@@ -46,7 +46,7 @@ describe('MasteryFreshness (#52)', () => {
     go.mockRestore();
   });
 
-  it('a newer stamp on the page\'s own data (after Sync Mastery) wins, and clears an earlier error', () => {
+  it('a newer stamp on the page\'s own data (after a sync) wins, and clears an earlier error', () => {
     render(<MasteryFreshness state={{ status: 'error', syncedAt: YESTERDAY, error: 'x', signIn: true }} syncedAt={TODAY} now={NOW} />);
     expect(screen.getByRole('status').textContent).toBe('Mastery levels read from Schoology at 03:02 today.');
     expect(screen.queryByRole('button')).toBeNull();

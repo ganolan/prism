@@ -1,8 +1,8 @@
 // #52: mastery read from Schoology on demand. The pages that show mastery render what Prism holds, then
 // ask for a refresh in the background; this decides whether Schoology needs reading. Data read under
 // FRESH_MS ago is not read again (navigating between pages does not re-read); a refresh already
-// running for the same course or assignment is shared; `force` (the Sync Mastery and Refresh from
-// Schoology buttons) reads regardless. Measured 2026-10-19 over plain HTTP: a course 2.3-5 s, one
+// running for the same course or assignment is shared; `force` (the assessment page's Sync Assignment,
+// and POST /api/mastery/sync/:courseId) reads regardless. Measured 2026-10-19 over plain HTTP: a course 2.3-5 s, one
 // assignment 1.8-2.9 s, about the same for a full year's scores as for October's.
 // The nightly sync still reads every active course (syncScheduler.js); this covers the day between.
 import { getDb } from '../db/index.js';
@@ -64,7 +64,7 @@ export function refreshCourseMastery(courseId, {
 }
 
 // One assignment's scores and grade comments (syncMasteryForAssignment), as the assessment page's
-// Refresh from Schoology does. Fresh by the assignment's own stamp: a course read does not pull its
+// Sync Assignment does. Fresh by the assignment's own stamp: a course read does not pull its
 // comments. syncedAt falls back to the course stamp when the assignment was never read alone.
 export function refreshAssignmentMastery(courseId, schoologyAssignmentId, {
   db = getDb(), force = false, now = Date.now, syncAssignment = syncMasteryForAssignment, afterPull = snapshotAfterMasteryPull,

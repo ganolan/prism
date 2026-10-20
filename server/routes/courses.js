@@ -303,7 +303,8 @@ router.post('/import', async (req, res) => {
   if (!sectionId) return res.status(400).json({ error: 'sectionId required' });
 
   try {
-    res.json(await importArchivedCourse(getDb(), sectionId));
+    const { course, studentsCount, assignmentsCount, gradesCount } = await importArchivedCourse(getDb(), sectionId);
+    res.json({ course, studentsCount, assignmentsCount, gradesCount });
   } catch (err) {
     if (err.message.includes('403')) return res.status(403).json({ error: 'Section not accessible: check the section ID and try again' });
     if (err.message.includes('404')) return res.status(404).json({ error: 'Section not found: check the section ID and try again' });

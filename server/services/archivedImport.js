@@ -7,8 +7,9 @@ import { apiGet } from './schoology.js';
 import { finalizeArchivedCourse, enrichStudentProfiles } from './sync.js';
 import { syncPsAttendance } from './psAttendanceSync.js';
 
-// → { course, studentsCount, assignmentsCount, gradesCount }. A Schoology error is thrown as it
-// came: its message carries the status (403, 404) the route maps to its answer.
+// → { course, studentsCount, assignmentsCount, gradesCount, finalized, masteryError }: finalized and
+// masteryError are finalizeArchivedCourse's (masteryError null when mastery was read). A Schoology
+// error is thrown as it came: its message carries the status (403, 404) the route maps to its answer.
 export async function importArchivedCourse(db, sectionId) {
   const [sec, periodsData] = await Promise.all([
     apiGet(`/sections/${sectionId}`),
@@ -36,7 +37,7 @@ export async function importArchivedCourse(db, sectionId) {
   );
 
   const courseRow = db.prepare('SELECT * FROM courses WHERE schoology_section_id = ?').get(String(sec.id));
-  const { studentsCount, assignmentsCount, gradesCount } =
+  const { studentsCount, assignmentsCount, gradesCount, finalized, masteryError } =
     await finalizeArchivedCourse(db, { courseId: courseRow.id, sectionId: String(sec.id), now, runMastery: true });
   // Bring the imported section's students to full parity (email + guardians).
   const sectionStudents = db.prepare(`
@@ -56,5 +57,5 @@ export async function importArchivedCourse(db, sectionId) {
   }
 
   const course = db.prepare('SELECT * FROM courses WHERE id = ?').get(courseRow.id);
-  return { course, studentsCount, assignmentsCount, gradesCount };
+  return { course, studentsCount, assignmentsCount, gradesCount, finalized, masteryError };
 }

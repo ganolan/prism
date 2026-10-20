@@ -388,8 +388,10 @@ describe('GET /api/courses/archived/discover', () => {
 describe('POST /api/courses/import (#70; the import is importArchivedCourse, #171)', () => {
   beforeEach(() => { importArchivedCourse.mockReset(); });
 
-  test('answers the imported course and its counts', async () => {
-    importArchivedCourse.mockResolvedValue({ course: { id: 9, course_name: 'Old Bio' }, studentsCount: 1, assignmentsCount: 2, gradesCount: 3 });
+  test('answers the imported course and its counts (the same answer as before #171)', async () => {
+    importArchivedCourse.mockResolvedValue({
+      course: { id: 9, course_name: 'Old Bio' }, studentsCount: 1, assignmentsCount: 2, gradesCount: 3, finalized: true, masteryError: null,
+    });
     const res = await post('/api/courses/import', { sectionId: 'sec-9' });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ course: { id: 9, course_name: 'Old Bio' }, studentsCount: 1, assignmentsCount: 2, gradesCount: 3 });

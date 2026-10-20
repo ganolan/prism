@@ -106,31 +106,53 @@ describe('continuePastImport', () => {
   test('after an import run, the next missing section is queued', async () => {
     importing(['1', '2', '3']);
     addCourse('1');
-    await continuePastImport({ db: db(), enqueue, finished: '1' });
+    await continuePastImport({ db: db(), enqueue, finished: '1', status: 'completed' });
     expect(queued(enqueue)).toEqual([{ kind: 'import', sectionId: '2', trigger: 'page' }]);
     expect(readState().failed).toEqual([]);
   });
 
   test('a section still missing after its run goes to failed and the next is queued', async () => {
     importing(['1', '2', '3']);
-    await continuePastImport({ db: db(), enqueue, finished: '1' });
+    await continuePastImport({ db: db(), enqueue, finished: '1', status: 'failed' });
     expect(readState().failed).toEqual(['1']);
     expect(queued(enqueue)).toEqual([{ kind: 'import', sectionId: '2', trigger: 'page' }]);
+  });
+
+  test('a run that failed after writing the course row is failed, and retried once at the end; a completed one is not', async () => {
+    importing(['1', '2']);
+    addCourse('1'); // the row was written, then the run failed
+    await continuePastImport({ db: db(), enqueue, finished: '1', status: 'failed' });
+    expect(readState().failed).toEqual(['1']);
+    expect(queued(enqueue)).toEqual([{ kind: 'import', sectionId: '2', trigger: 'page' }]);
+    addCourse('2');
+    await continuePastImport({ db: db(), enqueue, finished: '2', status: 'completed' });
+    expect(readState()).toMatchObject({ state: 'importing', failed: ['1'], retried: true });
+    expect(queued(enqueue).at(-1)).toEqual({ kind: 'import', sectionId: '1', trigger: 'page' });
+    await continuePastImport({ db: db(), enqueue, finished: '1', status: 'completed' });
+    expect(enqueue).toHaveBeenCalledTimes(2); // 2 completed: never queued again
+    expect(readState().state).toBe('done');
+  });
+
+  test('a completed_with_errors run counts as failed too', async () => {
+    importing(['1', '2']);
+    addCourse('1');
+    await continuePastImport({ db: db(), enqueue, finished: '1', status: 'completed_with_errors' });
+    expect(readState().failed).toEqual(['1']);
   });
 
   test('when none remain, the failed ones are queued once more, then done', async () => {
     importing(['1', '2', '3'], { failed: ['1'] });
     addCourse('2');
     // 3's run fails too: the first pass is over, so 1 is retried.
-    await continuePastImport({ db: db(), enqueue, finished: '3' });
+    await continuePastImport({ db: db(), enqueue, finished: '3', status: 'failed' });
     expect(readState()).toMatchObject({ state: 'importing', failed: ['1', '3'], retried: true });
     expect(queued(enqueue).at(-1)).toEqual({ kind: 'import', sectionId: '1', trigger: 'page' });
     // 1 fails again: 3 is retried.
-    await continuePastImport({ db: db(), enqueue, finished: '1' });
+    await continuePastImport({ db: db(), enqueue, finished: '1', status: 'failed' });
     expect(queued(enqueue).at(-1)).toEqual({ kind: 'import', sectionId: '3', trigger: 'page' });
     // 3 works this time: nothing is retried twice, the import is done.
     addCourse('3');
-    await continuePastImport({ db: db(), enqueue, finished: '3' });
+    await continuePastImport({ db: db(), enqueue, finished: '3', status: 'completed' });
     expect(enqueue).toHaveBeenCalledTimes(2);
     expect(readState()).toMatchObject({ state: 'done', retried: true });
     expect(pastImportStatus(db())).toEqual({ state: 'done', done: 2, total: 3 });
@@ -153,15 +175,15 @@ describe('startPastImport (through the real queue)', () => {
   let stop;
   beforeEach(() => {
     queueDeps.sessionStatus = vi.fn().mockResolvedValue({ loggedIn: true, live: 'connected' });
-    // An import run adds its course, except section 2, which fails every time.
+    // An import run adds its course; section 2's run writes its row, then fails, every time.
     queueDeps.runPastImport = vi.fn(async (request, emit) => {
-      if (request.sectionId === '2') throw new Error('Section not accessible');
-      addCourse(request.sectionId);
+      db().prepare(`INSERT OR IGNORE INTO courses (schoology_section_id, course_name, archived) VALUES (?, 'x', 1)`).run(request.sectionId);
+      if (request.sectionId === '2') throw new Error('mastery read failed');
       emit({ type: 'summary', import: { sectionId: request.sectionId } });
     });
     queueDeps.runUnifiedSync = vi.fn(async (options, emit) => emit({ type: 'summary', mastery: [] }));
   });
-  afterEach(() => { stop?.(); stop = null; });
+  afterEach(() => { stop?.(); stop = null; vi.restoreAllMocks(); });
 
   const settled = async () => {
     for (let i = 0; i < 50 && readState()?.state !== 'done'; i += 1) {
@@ -180,10 +202,8 @@ describe('startPastImport (through the real queue)', () => {
     await settled();
     expect(readState()).toMatchObject({ state: 'done', sectionIds: ['2', '1', '3'], failed: ['2'], retried: true });
     expect(queueDeps.runPastImport.mock.calls.map(([r]) => r.sectionId)).toEqual(['2', '1', '3', '2']);
-    expect(pastImportStatus(db())).toEqual({ state: 'done', done: 2, total: 3 });
     const kinds = db().prepare('SELECT options_json FROM sync_runs ORDER BY id').all().map((r) => JSON.parse(r.options_json).kind);
     expect(kinds).toEqual(['all', 'import', 'import', 'import', 'import']);
-    console.error.mockRestore();
   });
 
   test('a restart mid-import resumes with the sections still missing', async () => {

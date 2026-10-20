@@ -8,9 +8,10 @@
 // run per course ({ kind: 'import', sectionId }, archivedImportRun.js), one at a time, so page syncs
 // interleave: when an import run finishes, the queue's onRunFinished listener queues the next.
 //
-// A section still missing after its run is listed as failed and the import moves on; when the
-// list is through, each failed section is tried once more (`retried`), then the import is 'done'
-// for good. A restart resumes it (startPastImport): the sections still missing are queued, never
+// A section whose run did not finish 'completed' (or that is still missing after it) is listed as
+// failed and the import moves on: a run can fail after writing the course row, so the row alone
+// does not prove the import. When the list is through, each failed section is tried once more
+// (`retried`; the import's upsert makes a second try safe), then the import is 'done' for good. A restart resumes it (startPastImport): the sections still missing are queued, never
 // the ones already imported. The state is one settings row:
 //   PAST_IMPORT_KEY → { state: 'waiting' | 'importing' | 'done', total, sectionIds, failed, retried }
 // with sectionIds in import order. GET /api/sync/status reports pastImportStatus.
@@ -84,25 +85,26 @@ function importOrder(db, sections) {
     .map((r) => r.id);
 }
 
-// The next section to import, updating `s` (failed, retried, state). `finished`: the section
-// whose import run just ended.
-function nextSection(s, missing, finished) {
-  if (finished != null && !s.retried && missing.has(finished) && s.sectionIds.includes(finished)
-    && !s.failed.includes(finished)) {
+// The next section to import, updating `s` (failed, retried). `finished`: the section whose import
+// run just ended, and `status` that run's final status.
+function nextSection(s, missing, finished, status) {
+  const failedRun = finished != null && ((status != null && status !== 'completed') || missing.has(finished));
+  if (failedRun && !s.retried && s.sectionIds.includes(finished) && !s.failed.includes(finished)) {
     s.failed.push(finished);
   }
   if (!s.retried) {
     const next = s.sectionIds.find((id) => missing.has(id) && !s.failed.includes(id));
     if (next) return next;
     s.retried = true;
-    return s.failed.find((id) => missing.has(id)) ?? null;
+    return s.failed[0] ?? null;
   }
-  // The retry pass goes through the failed list once, in order.
+  // The retry pass goes through the failed list once, in order, whether or not a section's row
+  // exists. A restart in this pass starts it again from the first failed section.
   const from = finished != null && s.failed.includes(finished) ? s.failed.indexOf(finished) + 1 : 0;
-  return s.failed.slice(from).find((id) => missing.has(id)) ?? null;
+  return s.failed[from] ?? null;
 }
 
-async function step({ db, discover, enqueue, finished }) {
+async function step({ db, discover, enqueue, finished, status }) {
   let s = readState(db);
   if (!s || s.state === 'done') return;
   if (s.state === 'waiting') {
@@ -113,7 +115,7 @@ async function step({ db, discover, enqueue, finished }) {
     s = { state: 'importing', total: sectionIds.length, sectionIds, failed: [], retried: false };
     console.log(`[past import] ${sectionIds.length} past course(s) to import`);
   }
-  const next = nextSection(s, missingOf(db, s.sectionIds), finished == null ? null : String(finished));
+  const next = nextSection(s, missingOf(db, s.sectionIds), finished == null ? null : String(finished), status);
   if (!next) {
     s.state = 'done';
     writeState(db, s);
@@ -126,17 +128,18 @@ async function step({ db, discover, enqueue, finished }) {
 let chain = Promise.resolve();
 
 // Take the import one step: start it (waiting), queue the next section (importing), or finish it.
-// Steps run one after another, so two runs finishing together never queue twice.
-export function continuePastImport({ db, discover = getArchivedSections, enqueue = queueRequest, finished = null }) {
-  const run = chain.then(() => step({ db, discover, enqueue, finished }));
+// After an import run: `finished` is its section and `status` its final status. Steps run one
+// after another, so two runs finishing together never queue twice.
+export function continuePastImport({ db, discover = getArchivedSections, enqueue = queueRequest, finished = null, status = null }) {
+  const run = chain.then(() => step({ db, discover, enqueue, finished, status }));
   chain = run.catch(() => {});
   return run;
 }
 
 // At server start: listen for finished runs, and resume an import a restart cut off. → unsubscribe.
 export function startPastImport({ db, discover = getArchivedSections }) {
-  const stop = onRunFinished((request) => {
-    if (request.kind === 'import') return continuePastImport({ db, discover, finished: request.sectionId });
+  const stop = onRunFinished((request, status) => {
+    if (request.kind === 'import') return continuePastImport({ db, discover, finished: request.sectionId, status });
     if (request.kind === 'all' && readState(db)?.state === 'waiting') return continuePastImport({ db, discover });
     return undefined;
   });

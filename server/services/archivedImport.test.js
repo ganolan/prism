@@ -4,7 +4,7 @@ import { migrate } from '../db/index.js';
 
 vi.mock('./schoology.js', () => ({ apiGet: vi.fn() }));
 vi.mock('./sync.js', () => ({
-  finalizeArchivedCourse: vi.fn().mockResolvedValue({ studentsCount: 1, assignmentsCount: 2, gradesCount: 3 }),
+  finalizeArchivedCourse: vi.fn().mockResolvedValue({ studentsCount: 1, assignmentsCount: 2, gradesCount: 3, finalized: true, masteryError: null }),
   enrichStudentProfiles: vi.fn().mockResolvedValue(1),
 }));
 // The block-number service reads PowerSchool: mocked so the import never reaches the network,
@@ -13,6 +13,7 @@ vi.mock('./psAttendanceSync.js', () => ({ syncPsAttendance: vi.fn().mockResolved
 
 import { importArchivedCourse } from './archivedImport.js';
 import { runPastImport } from './archivedImportRun.js';
+import { classifyEvent } from './syncRuns.js';
 import { apiGet } from './schoology.js';
 import { finalizeArchivedCourse, enrichStudentProfiles } from './sync.js';
 import { syncPsAttendance } from './psAttendanceSync.js';
@@ -44,7 +45,7 @@ describe('importArchivedCourse (#70, moved from POST /api/courses/import for #17
       grading_period: 'Semester 1: 08/14/2024 - 01/11/2025',
     });
     expect(course.synced_at).toBeTruthy();
-    expect(result).toEqual({ course, studentsCount: 1, assignmentsCount: 2, gradesCount: 3 });
+    expect(result).toEqual({ course, studentsCount: 1, assignmentsCount: 2, gradesCount: 3, finalized: true, masteryError: null });
     expect(finalizeArchivedCourse).toHaveBeenCalledWith(db, expect.objectContaining({
       courseId: course.id, sectionId: 'sec-9', runMastery: true,
     }));
@@ -98,11 +99,25 @@ describe('runPastImport (the queue runner for kind import, #171)', () => {
     await runPastImport({ kind: 'import', sectionId: 7001, trigger: 'page' }, (e) => events.push(e), { db, deps: { importArchivedCourse: importer } });
     expect(importer).toHaveBeenCalledWith(db, '7001');
     expect(events[0]).toEqual({ type: 'log', message: 'Imported Old Bio: 20 students, 30 assignments, 400 grades' });
+    expect(events).toHaveLength(2); // no warning line: mastery was read
     expect(events[1]).toMatchObject({
       type: 'summary',
       import: { sectionId: '7001', courseId: 4, courseName: 'Old Bio', studentsCount: 20, assignmentsCount: 30, gradesCount: 400 },
       elapsedMs: expect.any(Number),
     });
+  });
+
+  test('a mastery read that failed is a warning line in the run, and in the summary', async () => {
+    const events = [];
+    const importer = vi.fn().mockResolvedValue({
+      course: { id: 4, course_name: 'Old Bio' }, studentsCount: 20, assignmentsCount: 30, gradesCount: 400,
+      finalized: true, masteryError: 'Schoology sign-in needed',
+    });
+    await runPastImport({ kind: 'import', sectionId: '7001' }, (e) => events.push(e), { db, deps: { importArchivedCourse: importer } });
+    const warning = events.find((e) => e.type === 'log' && e.message.includes('mastery'));
+    expect(warning.message).toBe('Imported "Old Bio"; mastery could not be read: Schoology sign-in needed');
+    expect(classifyEvent(warning)).toBe('warning');
+    expect(events.at(-1).import.masteryError).toBe('Schoology sign-in needed');
   });
 
   test('an import error is left for the queue (the run fails, no summary)', async () => {

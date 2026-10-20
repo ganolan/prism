@@ -53,4 +53,10 @@ describe('SyncStatus (background sync)', () => {
     render(<SyncStatus label="Sync Course" syncedAt={null} sync={{ state: 'queued', runId: 4 }} onSync={() => {}} onOpen={() => {}} now={NOW} />);
     expect(screen.getByRole('button', { name: 'Sync Course' })).toBeEnabled();
   });
+
+  it('label null: no Sync button, the Synced time stays', () => {
+    render(<SyncStatus label={null} syncedAt={at('2026-06-18T03:02:00')} archived sync={{ state: 'idle' }} onSync={() => {}} now={NOW} />);
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(screen.getByText(/^Synced /)).toBeInTheDocument();
+  });
 });

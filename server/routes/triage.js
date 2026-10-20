@@ -99,9 +99,9 @@ router.get('/', (req, res) => {
 });
 
 // GET /api/triage/calendar — school-calendar freshness only (source,
-// totalSchoolDays, syncedAt). SyncConfig uses this to decide whether the
-// PowerSchool step should be pre-ticked, without paying for the full triage
-// payload (every current course's late-work + feedback-owed computation).
+// totalSchoolDays, syncedAt), without paying for the full triage payload
+// (every current course's late-work + feedback-owed computation). The client no
+// longer calls it (SyncConfig, its only caller, went in #171).
 router.get('/calendar', (req, res) => {
   const cal = loadCalendar(getDb());
   res.json({ source: cal.source, totalSchoolDays: cal.totalSchoolDays, syncedAt: cal.syncedAt });

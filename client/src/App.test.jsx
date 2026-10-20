@@ -15,7 +15,6 @@ vi.mock('./pages/ImportPage.jsx', () => ({ default: () => null }));
 vi.mock('./pages/ToolsPage.jsx', () => ({ default: () => null }));
 vi.mock('./pages/FeedbackPage.jsx', () => ({ default: () => null }));
 vi.mock('./pages/AssessmentSummaryPage.jsx', () => ({ default: () => null }));
-vi.mock('./components/SyncDialog.jsx', () => ({ default: () => <div>Sync dialog</div> }));
 vi.mock('./components/VersionBadge.jsx', () => ({ default: () => null }));
 
 const renderApp = () => render(<App />);
@@ -68,12 +67,9 @@ describe('App shell — phone menu', () => {
     expect(shell(container)).not.toHaveClass('nav-open');
   });
 
-  it('closes the menu when Sync opens its dialog', () => {
-    const { container } = renderApp();
-    fireEvent.click(menuButton());
-    fireEvent.click(screen.getByRole('button', { name: 'Sync Courses' }));
-    expect(screen.getByText('Sync dialog')).toBeInTheDocument();
-    expect(shell(container)).not.toHaveClass('nav-open');
+  it('the sidebar has no Sync Courses button (it lives on the dashboard)', () => {
+    renderApp();
+    expect(screen.queryByRole('button', { name: 'Sync Courses' })).toBeNull();
   });
 });
 

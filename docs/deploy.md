@@ -159,7 +159,7 @@ time (`server/services/syncQueue.js`):
 - **Background:** the dashboard, course, assessment and student pages sync their scope after
   they load when it was last synced (or tried) over 10 minutes ago; a chip beside the "Synced"
   time opens the progress.
-- **By hand:** **Sync Courses** (sidebar or dashboard), **Sync Course** (course page) and
+- **By hand:** **Sync Courses** (dashboard, Current tab: one click, the nightly run's scope with PowerSchool on), **Sync Course** (course page) and
   **Sync Assignment** (assessment page) queue a sync now, ahead of the pages' own.
 - **Session down:** a sync is held (nothing read) and the pages show **Log in to Schoology**;
   the sign-in in Settings runs the held syncs. The nightly run is never held.

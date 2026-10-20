@@ -1,12 +1,8 @@
 import { goToSignIn } from '../lib/signIn.js';
 import { useState, useEffect, useMemo, useRef } from 'react';
-import {
-  getCourses, getMasteryLoginStatus, startSync as queueSync, getSyncMetrics, getTriageCalendar, getSyncRunEvents,
-} from '../services/api.js';
+import { startSync as queueSync, getSyncMetrics, getSyncRunEvents } from '../services/api.js';
 import { reduceSyncEvents } from '../lib/syncEvents.js';
-import SyncConfig from './SyncConfig.jsx';
 import SyncProgress from './SyncProgress.jsx';
-import { useSchoologyConnection } from './SchoologyConnectionStatus.jsx';
 
 // How often the dialog polls the run's stored events, and how long polls may keep failing (in
 // VISIBLE time only, restarted on every return to the page) before it stops in the neutral
@@ -24,24 +20,20 @@ const NOTICES = {
 // one (POST /api/sync → runId) and follows it by polling its stored events from the last `seq`
 // it saw, so a dropped connection or a locked phone is never shown as an error. Closing the
 // dialog only stops following: the run carries on, and nothing queued is lost.
-//   presetCourse ({ id, name }, Sync Course): skip the course list and sync that one course
-//     (everything, PowerSchool off).
+//   request (a POST /api/sync body): asks for that run on mount. The dashboard's Sync Courses sends
+//     { everything: true }, the nightly run's scope with PowerSchool on (#171). There is no course
+//     list to tick.
+//   presetCourse ({ id, name }, Sync Course): the same path, for that one course (everything,
+//     PowerSchool off).
 //   followRunId: open on a run that is already queued or running (a page's "Syncing…" chip).
-//   group: the course group ticked at first ('archived' from the dashboard's Archived tab).
 //   onRun(runId): the run a press here queued (or joined), so the page's chip follows it after
 //     the dialog closes.
-export default function SyncDialog({ onClose, onSyncComplete, onRun, group, presetCourse = null, followRunId = null, pollMs = POLL_MS, giveUpMs = GIVE_UP_MS }) {
+export default function SyncDialog({ onClose, onSyncComplete, onRun, request = null, presetCourse = null, followRunId = null, pollMs = POLL_MS, giveUpMs = GIVE_UP_MS }) {
   // stalled = following a run but Prism has been unreachable for giveUpMs of visible time;
   // held = the run waits for a Schoology sign-in.
-  const [mode, setMode] = useState('loading'); // loading | config | running | stalled | held | done
-  const [courses, setCourses] = useState([]);
-  const [loggedIn, setLoggedIn] = useState(false);
-  const connection = useSchoologyConnection({ enabled: !presetCourse && followRunId == null });
-  // Calendar freshness, so SyncConfig can seed its PowerSchool default once, at mount.
-  const [calendar, setCalendar] = useState(null);
+  const [mode, setMode] = useState('running'); // running | stalled | held | done
   const [events, setEvents] = useState([]);
   const [retryEnabled, setRetryEnabled] = useState(false);
-  const [busy] = useState(false);
   const [metrics, setMetrics] = useState(null);
   const [notice, setNotice] = useState(null); // null | 'joined' | 'waiting'
   // The run being followed: { runId, lastSeq, stage: 'poll' | 'stalled' | 'done', wake, failSince }.
@@ -50,25 +42,14 @@ export default function SyncDialog({ onClose, onSyncComplete, onRun, group, pres
 
   useEffect(() => {
     unmounted.current = false;
-    let cancelled = false;
     if (followRunId != null) {
       joinRun(followRunId, null);
+    } else if (request) {
+      startSync(request);
     } else if (presetCourse) {
-      startPreset();
-    } else {
-      // check: false — the live session check runs separately (useSchoologyConnection).
-      Promise.all([getCourses(true, true), getMasteryLoginStatus({ check: false }), getTriageCalendar()])
-        .then(([courseList, status, cal]) => {
-          if (cancelled) return;
-          setCourses(courseList);
-          setLoggedIn(!!status.loggedIn);
-          setCalendar(cal ?? null);
-        })
-        .catch(() => {})
-        .then(() => { if (!cancelled) setMode('config'); });
+      startSync({ courseIds: [Number(presetCourse.id)], syncBlocks: false });
     }
     return () => {
-      cancelled = true;
       unmounted.current = true;
       const r = runRef.current;
       if (r) { r.stage = 'done'; r.wake?.(); }
@@ -193,11 +174,6 @@ export default function SyncDialog({ onClose, onSyncComplete, onRun, group, pres
     }
   }
 
-  function startPreset() {
-    const id = Number(presetCourse.id);
-    return startSync({ courseIds: [id], syncBlocks: false });
-  }
-
   function handleRetry(courseIds) {
     setRetryEnabled(false);
     // Retry is mastery-only: don't re-run Schoology or the PowerSchool block pass.
@@ -212,24 +188,6 @@ export default function SyncDialog({ onClose, onSyncComplete, onRun, group, pres
   return (
     <div className="modal-overlay">
       <div className="modal-content sync-dialog">
-        {mode === 'loading' && <p className="loading">Loading courses…</p>}
-
-        {mode === 'config' && (
-          <SyncConfig
-            courses={courses}
-            calendar={calendar}
-            loggedIn={loggedIn}
-            busy={busy}
-            // Every sync is everything: each ticked course gets its Schoology data and mastery. A
-            // lapsed session holds the sync until the sign-in, then it runs.
-            onStart={(ids, opts) => startSync({ ...opts, courseIds: ids })}
-            onCancel={onClose}
-            onLogin={goToSignIn}
-            connection={connection}
-            group={group}
-          />
-        )}
-
         {mode === 'held' && (
           <div className="sync-progress">
             <div className="sync-progress-head sync-head-warn"><h2>Waiting for a Schoology sign-in</h2></div>

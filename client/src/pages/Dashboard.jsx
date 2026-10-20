@@ -31,8 +31,9 @@ export default function Dashboard() {
   const [triage, setTriage] = useState(null);
   const bumpDataVersion = useBumpDataVersion();
   // Background sync: every current course, in full, when one was last synced over 10 minutes ago;
-  // when that run ends every open page reloads. Sync Courses opens the course list; the chip opens
-  // the progress of the background run.
+  // when that run ends every open page reloads. Sync Courses (Current tab) is one click: it asks for
+  // the nightly run's scope with PowerSchool on and opens its progress (#171); the chip opens the
+  // progress of the background run.
   const backgroundSync = useBackgroundSync({ kind: 'all' }, { onDone: () => bumpDataVersion() });
   const [syncOpen, setSyncOpen] = useState(false);
   const [followRun, setFollowRun] = useState(null);
@@ -157,10 +158,10 @@ export default function Dashboard() {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', gap: '1rem', flexWrap: 'wrap' }}>
         <h2 className="page-title" style={{ marginBottom: 0 }}>Dashboard</h2>
-        {/* The oldest full-sync time among the tab's courses: the tab is only as fresh as that. Both
-            tabs offer Sync Courses; on Archived the list opens with the archived courses ticked. */}
+        {/* The oldest full-sync time among the tab's courses: the tab is only as fresh as that. Only the
+            Current tab has the Sync Courses button; archived data is frozen, so Archived shows the time alone. */}
         <SyncStatus
-          label="Sync Courses"
+          label={activeTab === 'archived' ? null : 'Sync Courses'}
           syncedAt={oldestSynced(courses, activeTab === 'archived')}
           archived={activeTab === 'archived'}
           sync={backgroundSync}
@@ -170,7 +171,7 @@ export default function Dashboard() {
       </div>
       {syncOpen && (
         <SyncDialog
-          group={activeTab === 'archived' ? 'archived' : 'visible'}
+          request={{ everything: true }}
           onClose={() => setSyncOpen(false)}
           onSyncComplete={bumpDataVersion}
           onRun={backgroundSync.follow}
@@ -222,7 +223,7 @@ export default function Dashboard() {
           <div className="triage-layout__main">
             {courses.length === 0 ? (
               <div className="card empty-state">
-                <p>No courses synced yet. Click <strong>Sync Courses</strong> in the sidebar to pull your courses.</p>
+                <p>No courses yet. Press <strong>Sync Courses</strong> to get your courses.</p>
               </div>
             ) : (
               semesterGroups.map(({ semester, courses: semCourses }) => (

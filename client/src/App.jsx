@@ -11,7 +11,6 @@ import FeedbackPage from './pages/FeedbackPage.jsx';
 import AssessmentSummaryPage from './pages/AssessmentSummaryPage.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
 import { DataVersionContext, BumpDataVersionContext } from './hooks/useDataVersion.jsx';
-import SyncDialog from './components/SyncDialog.jsx';
 import VersionBadge from './components/VersionBadge.jsx';
 import PrismLogo from './components/PrismLogo.jsx';
 import './app.css';
@@ -25,7 +24,7 @@ export default function App() {
     <DataVersionContext.Provider value={dataVersion}>
     <BumpDataVersionContext.Provider value={bumpDataVersion}>
     <BrowserRouter>
-      <Shell onSyncComplete={bumpDataVersion} />
+      <Shell />
     </BrowserRouter>
     </BumpDataVersionContext.Provider>
     </DataVersionContext.Provider>
@@ -33,8 +32,7 @@ export default function App() {
 }
 
 // Inside the router so the phone menu can close itself on navigation.
-function Shell({ onSyncComplete }) {
-  const [syncOpen, setSyncOpen] = useState(false);
+function Shell() {
   // Phone menu: below 768px the sidebar is a drawer (app.css). On desktop the
   // top bar and backdrop are hidden, so this state changes nothing visible.
   const [navOpen, setNavOpen] = useState(false);
@@ -82,9 +80,6 @@ function Shell({ onSyncComplete }) {
         <NavLink to="/import">Import CSV</NavLink>
         <NavLink to="/settings">Settings</NavLink>
         <div className="sidebar-spacer" />
-        <button className="sync-btn" onClick={() => { setNavOpen(false); setSyncOpen(true); }}>
-          Sync Courses
-        </button>
         <VersionBadge />
       </nav>
       <main className="content">
@@ -101,12 +96,6 @@ function Shell({ onSyncComplete }) {
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </main>
-      {syncOpen && (
-        <SyncDialog
-          onClose={() => setSyncOpen(false)}
-          onSyncComplete={onSyncComplete}
-        />
-      )}
     </div>
   );
 }

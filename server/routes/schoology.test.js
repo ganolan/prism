@@ -65,6 +65,24 @@ describe('POST /api/sync (the queue, background sync)', () => {
     }
   });
 
+  test('#171: { everything: true } queues the nightly scope with PowerSchool on, from the button', async () => {
+    getDb().prepare(`INSERT INTO settings (key, value, updated_at) VALUES ('syncSchedule.includeHidden', 'true', datetime('now'))
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run();
+    const { server, port } = startServer();
+    try {
+      const r = await api(port, 'POST', '/api/sync', { everything: true });
+      expect(r.status).toBe(200);
+      await idle();
+      const run = await api(port, 'GET', `/api/sync/runs/${r.body.runId}`);
+      expect(run.body.options).toMatchObject({
+        kind: 'all', syncBlocks: true, refreshQuizzes: true, includeHidden: true, trigger: 'button', force: true,
+      });
+    } finally {
+      getDb().prepare(`DELETE FROM settings WHERE key = 'syncSchedule.includeHidden'`).run();
+      server.close();
+    }
+  });
+
   test('every sync is full: recent-only fields are ignored, mastery for every course read', async () => {
     let seen;
     h.impl = async (opts, onEvent) => { seen = opts; onEvent({ type: 'summary', mastery: [], elapsedMs: 1 }); };

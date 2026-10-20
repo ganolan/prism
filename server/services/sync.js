@@ -474,7 +474,7 @@ export async function backfillArchivedSubmissions(db, now, { log = () => {}, ski
 }
 
 // `courseIds` (#58): null = every current course (hidden ones when includeHidden), as the nightly
-// sync does. A list = the Sync Courses ticks or one Sync Course: those courses (a listed archived
+// sync does. A list = one Sync Course (or a retry): those courses (a listed archived
 // course is read again in full through finalizeArchivedCourse), plus any section Prism did not hold
 // before this sync, and only those courses' students' profiles.
 export async function fullSync(onProgress, { includeHidden = false, courseIds = null } = {}) {

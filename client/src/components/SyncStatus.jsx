@@ -12,7 +12,8 @@ const CHIP = {
 
 // One "Synced …" per page (Graham, 20/10/2026: confidence comes from not having to second guess
 // the data): the last time everything in the page's scope synced, amber when a day old or never
-// (never amber for an archived course, whose data is frozen). Beside it, the Sync button, and
+// (never amber for an archived course, whose data is frozen). Beside it, the Sync button (none when
+// `label` is null: the Archived tab shows the time alone, #171), and
 // while the page's background sync (useBackgroundSync) is queued, running, failed or waiting for
 // a sign-in, a chip that opens the progress dialog on that run (`onOpen(runId)`), or the sign-in.
 export default function SyncStatus({ label, syncedAt, archived = false, sync = { state: 'idle' }, onSync, onOpen, now = new Date() }) {
@@ -34,9 +35,11 @@ export default function SyncStatus({ label, syncedAt, archived = false, sync = {
           </button>
         )}
         {/* Usable while the page's sync only waits: a press goes ahead of page syncs. */}
-        <button type="button" className="primary sync-status__button" onClick={onSync} disabled={sync?.state === 'running'}>
-          {label}
-        </button>
+        {label != null && (
+          <button type="button" className="primary sync-status__button" onClick={onSync} disabled={sync?.state === 'running'}>
+            {label}
+          </button>
+        )}
       </div>
     </div>
   );

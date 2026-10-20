@@ -3,12 +3,15 @@ import { getDb } from '../db/index.js';
 import { enqueue, currentSync, resumeHeld, ensure } from '../services/syncQueue.js';
 import { listRuns, getRun, getEvents, isFinished } from '../services/syncRuns.js';
 import { nightlyDataStatus } from '../services/nightlyData.js';
-import { getSyncScheduler } from '../services/syncScheduler.js';
+import { getSyncScheduler, scheduledSyncOptions } from '../services/syncScheduler.js';
+import { getSyncScheduleSettings } from '../services/settings.js';
 
 const router = Router();
 
 // POST /api/sync — a sync started by a button (Sync Courses, Sync Course, a retry), queued behind the
 // running one (server/services/syncQueue.js). Body: {
+//   everything?: true,          // #171: the dashboard's Sync Courses = the nightly run's scope (every current
+//                               //   course, hidden ones per Settings, PowerSchool on), run now; other fields ignored
 //   courseIds?: number[],       // #58: the courses to sync; absent = every current course
 //   masteryCourseIds?: number[],// a mastery-only retry (with skipSchoology)
 //   skipSchoology?: boolean,    // a mastery-only or blocks-only retry
@@ -18,6 +21,16 @@ const router = Router();
 // The run is a sync_runs row from now on; follow it with GET /api/sync/runs/:id/events?after=<seq>
 // (a run left queued, held or running by a restart is marked 'interrupted' at boot).
 router.post('/sync', (req, res) => {
+  if (req.body?.everything === true) {
+    const db = getDb();
+    const request = { ...scheduledSyncOptions(db, getSyncScheduleSettings(db)), syncBlocks: true, trigger: 'button', force: true };
+    try {
+      return res.json(enqueue(request));
+    } catch (err) {
+      console.error('[sync] Could not queue a sync run:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  }
   const { courseIds = null, masteryCourseIds, skipSchoology = false, includeHidden = false, syncBlocks } = req.body || {};
   if (Array.isArray(courseIds) && courseIds.length === 0) {
     return res.status(400).json({ error: 'No courses selected' });

@@ -59,7 +59,7 @@ async function readSection(ps, plan, sectionDcid) {
  * deps: { fetchImpl, jar } for tests. → { processed, read, failed, skipped,
  * students, withAlerts, results: [{ courseId, courseName, status, students?, reason? }] }
  */
-// `courseIds` (#58): only those courses (a Sync Course or the Sync Courses ticks); absent = every active course.
+// `courseIds` (#58): only those courses (a Sync Course or a retry); absent = every active course.
 export async function syncPsAlerts({ onProgress, courseIds = null, db = getDb(), deps = {} } = {}) {
   const log = (message) => { console.log(`[psAlertsSync] ${message}`); onProgress?.({ message }); };
   const summary = { processed: 0, read: 0, failed: 0, skipped: 0, students: 0, withAlerts: 0, results: [] };

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Dashboard from './Dashboard.jsx';
 import * as api from '../services/api.js';
@@ -20,7 +20,6 @@ vi.mock('../services/api.js', () => ({
   getCurrentSync: vi.fn(),
   getSyncRun: vi.fn(),
   getSyncRunEvents: vi.fn(),
-  getTriageCalendar: vi.fn(),
   getSyncMetrics: vi.fn(),
   startSync: vi.fn(),
 }));
@@ -35,7 +34,6 @@ beforeEach(() => {
   api.getMasteryLoginStatus.mockResolvedValue({ loggedIn: true, live: 'connected' });
   api.ensureSync.mockResolvedValue({ state: 'fresh' });
   api.getCurrentSync.mockResolvedValue({ running: null, runId: null, queued: [], held: [] });
-  api.getTriageCalendar.mockResolvedValue(null);
 });
 
 function renderDashboard() {
@@ -66,7 +64,7 @@ describe('Dashboard — Current tab', () => {
 
   it('shows the empty state when there are no current courses', async () => {
     renderDashboard();
-    expect(await screen.findByText(/No courses synced yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/No courses yet\. Press/)).toBeInTheDocument();
     expect(screen.queryByRole('heading', { level: 4 })).not.toBeInTheDocument();
   });
 });
@@ -333,22 +331,26 @@ describe('Dashboard — background sync', () => {
     expect(screen.queryByText(/^Synced \d\d:\d\d today$/)).toBeNull(); // the oldest, not the newest
   });
 
-  it('Sync Courses on the dashboard opens the course list', async () => {
+  it('Sync Courses on the Current tab is one click: it posts { everything: true } and shows the progress', async () => {
     api.getCoursesByView.mockResolvedValue([{ id: 1, course_name: 'A', course_synced_at: new Date().toISOString() }]);
+    api.startSync.mockResolvedValue({ runId: 7, state: 'queued', joined: false });
+    api.getSyncRunEvents.mockResolvedValue({ status: 'running', finished: false, events: [] });
     renderDashboard();
     fireEvent.click(await screen.findByRole('button', { name: 'Sync Courses' }));
-    expect(await screen.findByText(/Each ticked course gets everything/)).toBeInTheDocument();
+    await waitFor(() => expect(api.startSync).toHaveBeenCalledWith({ everything: true }));
+    expect(await screen.findByText('Syncing…', { selector: 'h2, h3, .sync-progress-head *' })).toBeInTheDocument();
+    expect(screen.queryByText(/Each ticked course/)).toBeNull();
   });
 });
 
-describe('Dashboard: Sync Courses on every tab', () => {
-  it('the Archived tab has Sync Courses too, opening the list with archived courses ticked', async () => {
+describe('Dashboard: the Archived tab', () => {
+  it('has no Sync Courses button, and still shows its Synced time', async () => {
     api.getCoursesByView.mockImplementation(async (view) => (view === 'archived'
-      ? [{ id: 4, course_name: 'Archived Bio', hidden: 0, archived: 1, course_synced_at: null }] : []));
-    api.getCourses.mockResolvedValue([{ id: 4, course_name: 'Archived Bio', hidden: 0, archived: 1 }]);
+      ? [{ id: 4, course_name: 'Archived Bio', hidden: 0, archived: 1, course_synced_at: '2026-06-18T03:02:00.000Z' }] : []));
     renderDashboard();
     fireEvent.click(await screen.findByRole('button', { name: 'Archived' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Sync Courses' }));
-    expect(await screen.findByLabelText('Archived Bio')).toBeChecked();
+    expect(await screen.findByText('Archived Bio')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sync Courses' })).toBeNull();
+    expect(screen.getByText(/^Synced /)).toBeInTheDocument();
   });
 });

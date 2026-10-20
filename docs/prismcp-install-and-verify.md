@@ -80,8 +80,9 @@ and for `undo_extension` with `remove_line`. How depends on where it runs:
   shell-safe — no unquoted spaces or `$` (quote such a value with single quotes).
 
 Without them those tools fail before touching anything, with
-`SCHOOLOGY_NOT_CONFIGURED: PrisMCP cannot reach Schoology: … not set in its
-environment — nothing was read, published or recorded`. Every other tool —
+`SCHOOLOGY_NOT_CONFIGURED: Prism cannot reach Schoology: … missing from the
+server's .env: nothing was read, published or recorded` (this doc is rewritten
+when PrisMCP moves into the server, #131; the server reads its own `.env`). Every other tool —
 including the same actions *without* `comment_line` / `remove_line` — works
 without them. Restart the MCP server after adding them.
 

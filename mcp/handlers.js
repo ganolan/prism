@@ -385,19 +385,30 @@ export function setMakeupTrackingTool(db, { assignment_id, tracked } = {}) {
   return setMakeUpIgnored(db, assignment_id, typeof tracked === 'boolean' ? !tracked : tracked);
 }
 
-// PrisMCP loads no dotenv (mcp/dbGuard.js), and server/services/schoology.js reads
-// its credentials from the environment at import. A tool that reads or writes the
-// student's Schoology comment (preview_status_line, comment_line, remove_line) needs
-// them in the prism MCP server's env block — checked at call time so a missing one
-// is named plainly (final review I3) instead of surfacing as a failed read.
+// The server's schoology client reads its credentials from the environment at import
+// (server/index.js loads .env first). A tool that reads or writes the student's Schoology
+// comment (preview_status_line, comment_line, remove_line) needs them, checked at call time
+// so a missing one is named plainly (final review I3) instead of surfacing as a failed read.
 const SCHOOLOGY_ENV = ['SCHOOLOGY_BASE_URL', 'SCHOOLOGY_CONSUMER_KEY', 'SCHOOLOGY_CONSUMER_SECRET'];
 export function assertSchoologyConfigured(env = process.env) {
   const missing = SCHOOLOGY_ENV.filter((k) => !String(env[k] ?? '').trim());
   if (missing.length === 0) return;
   throw new TriageError('SCHOOLOGY_NOT_CONFIGURED',
-    `PrisMCP cannot reach Schoology: ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not set in its environment: nothing was read, published or recorded. ` +
-    'Add SCHOOLOGY_BASE_URL, SCHOOLOGY_CONSUMER_KEY and SCHOOLOGY_CONSUMER_SECRET to the prism MCP server\'s "env" block ' +
-    '(docs/prismcp-install-and-verify.md), then restart it, or leave out comment_line / remove_line to keep the action Prism-only.');
+    `Prism cannot reach Schoology: ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} missing from the server's .env: nothing was read, published or recorded. ` +
+    'Tell the teacher to add SCHOOLOGY_BASE_URL, SCHOOLOGY_CONSUMER_KEY and SCHOOLOGY_CONSUMER_SECRET to the Prism server\'s .env ' +
+    '(docs/deploy.md) and restart it, or leave out comment_line / remove_line to keep the action Prism-only.');
+}
+
+// A write to Schoology (a status line, an LTI unsubmit): refused on a dev copy of Prism, whose
+// students and database are not the ones Schoology holds (prod's copy would never learn of the
+// write), else the credentials check. A refusal records nothing.
+export function assertSchoologyWritable({ devCopy = false, env = process.env } = {}) {
+  if (devCopy) {
+    throw new TriageError('DEV_COPY',
+      'This is a dev copy of Prism, so it refuses Schoology writes: nothing was published, unsubmitted or recorded. ' +
+      'Call again without comment_line / remove_line, and with unsubmit: false, to keep the action Prism-only.');
+  }
+  assertSchoologyConfigured(env);
 }
 
 // get_assignment_context forces a grading sync of the task first (gradingSync.js: the queue reads
@@ -446,8 +457,8 @@ export async function getAssignmentContextTool(db, { course_id, assignment_id, u
 // lock → validate → publish → record orchestration in triageActions.js, same
 // as the HTTP routes). With resubmission_id: kind 'extend_resubmission'.
 // Otherwise: kind 'make_up' for a Schoology test, else 'extension'.
-export async function extendDeadlineTool(db, { student_id, assignment_id, lessons, note, resubmission_id, comment_line } = {}) {
-  if (hasLine(comment_line)) assertSchoologyConfigured();
+export async function extendDeadlineTool(db, { student_id, assignment_id, lessons, note, resubmission_id, comment_line } = {}, { devCopy = false } = {}) {
+  if (hasLine(comment_line)) assertSchoologyWritable({ devCopy });
   if (resubmission_id != null) {
     return act(db, {
       pair: () => pairOf(db, 'resubmissions', resubmission_id),
@@ -479,8 +490,8 @@ export async function extendDeadlineTool(db, { student_id, assignment_id, lesson
 
 // undo_extension gains remove_line?: first removes the line THIS extension
 // published (if it is still the stored line) before deleting the record.
-export async function undoExtensionTool(db, { id, remove_line } = {}) {
-  if (remove_line) assertSchoologyConfigured();
+export async function undoExtensionTool(db, { id, remove_line } = {}, { devCopy = false } = {}) {
+  if (remove_line) assertSchoologyWritable({ devCopy });
   return act(db, {
     pair: () => pairOf(db, 'extensions', id),
     validate: () => pairOf(db, 'extensions', id),
@@ -498,9 +509,9 @@ export async function undoExtensionTool(db, { id, remove_line } = {}) {
 // can edit it. Default: true when the work is LTI and Prism last saw it submitted, else
 // false. Never re-submits. A failed unsubmit still records the ask; the result's
 // `unsubmit` says what happened and links Schoology's own Unsubmit button.
-export async function requestResubmissionTool(db, { student_id, assignment_id, lessons, note, comment_line, unsubmit } = {}, { unsubmitOpts } = {}) {
-  if (hasLine(comment_line)) assertSchoologyConfigured();
+export async function requestResubmissionTool(db, { student_id, assignment_id, lessons, note, comment_line, unsubmit } = {}, { unsubmitOpts, devCopy = false } = {}) {
   const doUnsubmit = unsubmit ?? unsubmitAvailable(db, { studentId: student_id, assignmentId: assignment_id });
+  if (hasLine(comment_line) || doUnsubmit === true) assertSchoologyWritable({ devCopy });
   const r = await askResubmission(db, {
     studentId: student_id, assignmentId: assignment_id, lessons: lessons ?? null, note, commentLine: comment_line,
     unsubmit: doUnsubmit === true, source: 'mcp', unsubmitOpts,
@@ -521,8 +532,8 @@ export async function requestResubmissionTool(db, { student_id, assignment_id, l
 // is computed once and shared between the validate and record steps, so a
 // clock tick between them (e.g. a request that straddles midnight) can't make
 // the two disagree about whether the deadline has passed.
-export async function gradeStandsTool(db, { id, comment_line } = {}) {
-  if (hasLine(comment_line)) assertSchoologyConfigured();
+export async function gradeStandsTool(db, { id, comment_line } = {}, { devCopy = false } = {}) {
+  if (hasLine(comment_line)) assertSchoologyWritable({ devCopy });
   const today = todayLocal();
   return act(db, {
     pair: () => pairOf(db, 'resubmissions', id),

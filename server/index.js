@@ -23,6 +23,7 @@ import triageRouter from './routes/triage.js';
 import quizzesRouter from './routes/quizzes.js';
 import submissionCommentsRouter from './routes/submissionComments.js';
 import submissionFilesRouter from './routes/submissionFiles.js';
+import { mountMcp } from './routes/mcp.js';
 import { getGradingScalesMap } from './db/scales.js';
 import { getFeatures, getServerConfig } from './middleware/featureGate.js';
 import { originGuard } from './middleware/originGuard.js';
@@ -71,6 +72,10 @@ app.use('/api/triage', triageRouter);
 app.use('/api/quizzes', quizzesRouter);
 app.use('/api/submission-comments', submissionCommentsRouter);
 app.use('/api/submission-files', submissionFilesRouter);
+
+// PrisMCP over HTTP (#131). A server that is not a deployed release is a dev copy: its tools
+// say so and refuse Schoology writes.
+mountMcp(app, { allowedOrigins: getServerConfig().allowedOrigins, devCopy: resolveVersion().mode !== 'release' });
 
 // Feature flags endpoint
 app.get('/api/features', (req, res) => {

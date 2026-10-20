@@ -8,7 +8,7 @@ vi.mock('../server/services/schoology.js', () => ({ getSectionGrades: vi.fn(), p
 import { getDb } from '../server/db/index.js';
 import { todayLocal } from '../server/lib/schoolDays.js';
 import { getSectionGrades, pushGradeComments } from '../server/services/schoology.js';
-import { listCourses, listAssignments, listStudents, writeRubric, attachRubricTool } from './handlers.js';
+import { listCourses, listAssignments, listStudents, writeRubric, attachRubricTool, assertSchoologyWritable } from './handlers.js';
 import {
   resolveCourseRef, getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool,
   extendDeadlineTool, undoExtensionTool, setMakeupTrackingTool,
@@ -499,6 +499,31 @@ describe('status lines on resubmission/extension tools (Amendment B)', () => {
     expect(db.prepare('SELECT COUNT(*) AS n FROM extensions').get().n).toBe(0);
     // Prism-only actions (no comment_line) still work without them.
     await expect(requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId })).resolves.toMatchObject({ outcome: 'asked' });
+  });
+
+  test('the not-configured message points at the server\'s .env, not an MCP env block', () => {
+    expect(() => assertSchoologyWritable({ env: {} })).toThrow(/server's \.env.*docs\/deploy\.md/s);
+    expect(() => assertSchoologyWritable({ env: {} })).not.toThrow(/"env" block|restart the MCP/);
+  });
+
+  // A dev copy of Prism refuses every Schoology write (status lines, LTI unsubmit) before it
+  // reads, publishes or records anything; Prism-only calls still work.
+  test('on a dev copy the Schoology-writing tools refuse with DEV_COPY and record nothing', async () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedEligiblePair(db);
+    const devCopy = expect.objectContaining({ code: 'DEV_COPY', message: expect.stringContaining('dev copy of Prism') });
+    const dev = { devCopy: true };
+    await expect(requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId, comment_line: LINE }, dev)).rejects.toEqual(devCopy);
+    await expect(requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId, unsubmit: true }, dev)).rejects.toEqual(devCopy);
+    await expect(extendDeadlineTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 2, comment_line: 'x' }, dev)).rejects.toEqual(devCopy);
+    await expect(gradeStandsTool(db, { id: 1, comment_line: 'x' }, dev)).rejects.toEqual(devCopy);
+    await expect(undoExtensionTool(db, { id: 1, remove_line: true }, dev)).rejects.toEqual(devCopy);
+    expect(getSectionGrades).not.toHaveBeenCalled();
+    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(db.prepare('SELECT COUNT(*) AS n FROM resubmissions').get().n).toBe(0);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM extensions').get().n).toBe(0);
+    await expect(previewStatusLineTool(db, { student_id: studentId, assignment_id: assignmentId, kind: 'ask', lessons: 2 }, dev)).resolves.toBeTruthy();
+    await expect(requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId, unsubmit: false }, dev)).resolves.toMatchObject({ outcome: 'asked' });
   });
 
   test('request_resubmission without comment_line never touches Schoology (Prism-only, as before)', async () => {

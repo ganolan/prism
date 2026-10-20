@@ -63,14 +63,34 @@ export function connectDb() {
   return db;
 }
 
+export const DEV_COPY_WARNING =
+  'This is a dev copy of Prism, not the live server: its data is replaced at the next refresh from prod, and it refuses Schoology writes (status lines, unsubmit). Do not treat anything here as the teacher\'s real record.';
+
 // Build the PrisMCP server with all tools/resources/prompts registered. Pure
 // construction — no transport, no DB side effects — so tests can drive it over
-// an in-memory transport against a seeded :memory: DB.
-export function createServer() {
+// an in-memory transport against a seeded :memory: DB. `devCopy` (a server that
+// is not a deployed release): every tool result starts with DEV_COPY_WARNING,
+// and the tools that write to Schoology refuse (handlers.js assertSchoologyWritable).
+export function createServer({ devCopy = false } = {}) {
   const server = new McpServer(
     { name: 'prism', version: '0.1.0' },
     { instructions: INSTRUCTIONS }
   );
+
+  if (devCopy) {
+    // Wrap every tool so its result, an error too, leads with the warning. (Arguments the SDK
+    // rejects before a tool runs are not wrapped: nothing ran.)
+    const register = server.registerTool.bind(server);
+    server.registerTool = (name, config, cb) => register(name, config, async (...args) => {
+      let result;
+      try {
+        result = await cb(...args);
+      } catch (err) {
+        result = { isError: true, content: [{ type: 'text', text: err instanceof Error ? err.message : String(err) }] };
+      }
+      return { ...result, content: [{ type: 'text', text: DEV_COPY_WARNING }, ...result.content] };
+    });
+  }
 
   server.registerTool(
     'list_courses',
@@ -497,7 +517,7 @@ export function createServer() {
         comment_line: z.string().optional().describe('Exact status line to publish to the student\'s Schoology comment, get it from preview_status_line. Omit for a Prism-only change (as before).'),
       },
     },
-    async (args) => text(() => extendDeadlineTool(getDb(), args))
+    async (args) => text(() => extendDeadlineTool(getDb(), args, { devCopy }))
   );
 
   server.registerTool(
@@ -509,7 +529,7 @@ export function createServer() {
         remove_line: z.boolean().optional().describe('Also remove the status line this extension published from the Schoology comment, if still present verbatim'),
       },
     },
-    async (args) => text(() => undoExtensionTool(getDb(), args))
+    async (args) => text(() => undoExtensionTool(getDb(), args, { devCopy }))
   );
 
   server.registerTool(
@@ -527,7 +547,7 @@ export function createServer() {
         unsubmit: z.boolean().optional().describe("Unsubmit the student's OneDrive (LTI) submission in Schoology so they can edit it (changes their submission; never re-submits). Default: true when the work is LTI and submitted, else false"),
       },
     },
-    async (args) => text(() => requestResubmissionTool(getDb(), args))
+    async (args) => text(() => requestResubmissionTool(getDb(), args, { devCopy }))
   );
 
   server.registerTool(
@@ -540,7 +560,7 @@ export function createServer() {
         comment_line: z.string().optional().describe('Exact status line to publish to the student\'s Schoology comment, get it from preview_status_line'),
       },
     },
-    async (args) => text(() => gradeStandsTool(getDb(), args))
+    async (args) => text(() => gradeStandsTool(getDb(), args, { devCopy }))
   );
 
   server.registerTool(

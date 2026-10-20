@@ -22,7 +22,7 @@ import { getStudent, ensureSync, getCurrentSync, getSyncRun, startSync } from '.
 import StudentPage, { CourseSection } from './StudentPage.jsx';
 
 const RECENT = new Date().toISOString();
-const OLDER = '2026-10-18T19:00:00.000Z';
+const OLDER = new Date('2026-10-19T03:00:00').toISOString(); // 03:00 local, in any time zone (CI runs in UTC)
 const grade = (courseId) => ({ course_id: courseId, assignment_id: 10 + courseId, schoology_assignment_id: `sa-${courseId}`, assignment_title: 'Portfolio', score: null, exception: 0, mastery: { topics: [] } });
 const student = {
   id: 7, first_name: 'Ana', last_name: 'Lee', schoology_uid: 'u7', notes: [], flags: [], parents: [], grading_scales: {},

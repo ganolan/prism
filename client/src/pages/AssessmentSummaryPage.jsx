@@ -2196,6 +2196,7 @@ export default function AssessmentSummaryPage() {
       }
     } catch (err) {
       setRefreshResult(`Error: ${err.message}`);
+      load(); // a failed mastery read comes after the task's details, submissions and grades were synced
     } finally {
       setRefreshing(false);
     }

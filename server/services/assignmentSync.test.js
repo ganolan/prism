@@ -47,4 +47,15 @@ describe('syncAssignment (#58)', () => {
     expect(task().task_synced_at).toBeNull();
     expect(r.taskSyncedAt).toBeNull();
   });
+
+  test('an archived course\'s task: no stamp (its submissions are not read), and a 404 removes nothing', async () => {
+    db.prepare('UPDATE courses SET archived = 1 WHERE id = ?').run(courseId);
+    deps.refreshTasks.mockResolvedValue({ refreshed: 0, readAt: null, failed: [] });
+    const r = await syncAssignment(courseId, 'A1', { db, deps });
+    expect(r.taskSyncedAt).toBeNull();
+    deps.getSectionAssignment.mockRejectedValue(Object.assign(new Error('Schoology API 404'), { status: 404 }));
+    await expect(syncAssignment(courseId, 'A1', { db, deps })).rejects.toThrow(/404/);
+    expect(task().removed_at).toBeNull();
+  });
 });
+

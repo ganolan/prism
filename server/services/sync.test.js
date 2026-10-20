@@ -404,8 +404,9 @@ describe('retrySubmissions (#55)', () => {
     const read = new Set();
     await retrySubmissions(db, [{ sectionId: 'sec-R', courseId, assignmentExtId: 'RA1' }], '2026-10-02T00:00:00Z', metrics, read);
     expect([...read]).toEqual([db.prepare(`SELECT id FROM assignments WHERE schoology_assignment_id = 'RA1'`).get().id]);
-    // #168: a successful retry is a read in full, stamped like the main pass.
-    expect(db.prepare(`SELECT submissions_read_at FROM assignments WHERE schoology_assignment_id = 'RA1'`).get().submissions_read_at).toBe('2026-10-02T00:00:00Z');
+    // #168: a successful retry is a read in full, stamped like the main pass (#58: its task time too).
+    expect(db.prepare(`SELECT submissions_read_at, task_synced_at FROM assignments WHERE schoology_assignment_id = 'RA1'`).get())
+      .toEqual({ submissions_read_at: '2026-10-02T00:00:00Z', task_synced_at: '2026-10-02T00:00:00Z' });
   });
 
   test('retry succeeds → row written, retries_succeeded incremented', async () => {
@@ -998,6 +999,30 @@ describe('fullSync — a list of courses (#58)', () => {
     expect(visited()).toEqual(['sec-old']);
     expect(r.archivedRead).toEqual([ids.old]);
     expect(stamp(ids.old)).not.toBeNull();
+  });
+
+  test('a ticked archived course that fails to read is reported, not fatal', async () => {
+    const roster = sch.getSectionEnrollments.getMockImplementation();
+    sch.getSectionEnrollments.mockImplementation(async (sid) => {
+      if (sid === 'sec-old') throw Object.assign(new Error('Schoology API 403'), { status: 403 });
+      return roster(sid);
+    });
+    const logs = [];
+    const r = await fullSync((p) => logs.push(p.message), { courseIds: [ids.a, ids.old] });
+    expect(r.success).toBe(true);
+    expect(r.archivedRead).toEqual([]);
+    expect(stamp(ids.old)).toBeNull();
+    expect(stamp(ids.a)).not.toBe('2026-10-01T00:00:00Z');
+    expect(logs.some((m) => /Old.*not read.*403/.test(m))).toBe(true);
+  });
+
+  test('a course whose submission read still failed after the retry keeps its old time', async () => {
+    sch.getSectionAssignments.mockImplementation(async (sid) => (sid === 'sec-a'
+      ? [{ id: 'T1', title: 'T', published: 1, allow_dropbox: '1', due: '2026-10-15 15:30:00' }] : []));
+    sch.getAssignmentSubmissions.mockReset().mockRejectedValue(Object.assign(new Error('503'), { transient: true }));
+    await fullSync(() => {}, { courseIds: [ids.a, ids.b] });
+    expect(stamp(ids.a)).toBe('2026-10-01T00:00:00Z');
+    expect(stamp(ids.b)).not.toBe('2026-10-01T00:00:00Z');
   });
 
   test('refreshes only the read courses\' students', async () => {

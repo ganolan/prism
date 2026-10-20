@@ -42,6 +42,9 @@ router.post('/sync', async (req, res) => {
     syncBlocks = true,
     courseIds = null,
   } = req.body || {};
+  if (Array.isArray(courseIds) && courseIds.length === 0) {
+    return res.status(400).json({ error: 'No courses selected' });
+  }
   const options = {
     masteryCourseIds, skipSchoology, includeHidden: !!includeHidden, recentOnly: !!recentOnly,
     recentDays: clampDays(recentDays), syncBlocks: syncBlocks !== false,

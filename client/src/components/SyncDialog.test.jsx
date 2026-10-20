@@ -547,3 +547,44 @@ describe('SyncDialog: Sync Courses and Sync Course (#58)', () => {
   });
 });
 
+describe('SyncDialog review fixes (#58)', () => {
+  const streamDone = () => vi.mocked(api.runSync).mockImplementation(async (opts, onEvent) => {
+    onEvent({ type: 'run', runId: 9 });
+    onEvent({ seq: 1, type: 'summary', schoology: null, mastery: [], elapsedMs: 1 });
+  });
+
+  it('an expired session: the ticked courses sync without mastery', async () => {
+    vi.mocked(api.getMasteryLoginStatus).mockResolvedValue({ loggedIn: true, live: 'expired' });
+    streamDone();
+    render(<SyncDialog onClose={() => {}} />);
+    await screen.findByText(/Mastery will be skipped/);
+    await clickStart();
+    await waitFor(() => expect(api.runSync).toHaveBeenCalled());
+    expect(api.runSync.mock.calls[0][0]).toMatchObject({ courseIds: [1], masteryCourseIds: [] });
+  });
+
+  it('a preset course whose 409 race finds nothing running starts its own run again', async () => {
+    vi.mocked(api.runSync)
+      .mockRejectedValueOnce(Object.assign(new Error('A sync is already running.'), { status: 409, runId: 4 }))
+      .mockImplementation(async (opts, onEvent) => { onEvent({ type: 'run', runId: 9 }); onEvent({ seq: 1, type: 'summary', schoology: null, mastery: [], elapsedMs: 1 }); });
+    vi.mocked(api.getCurrentSync).mockResolvedValue({ running: false, runId: null, courseIds: null });
+    render(<SyncDialog presetCourse={{ id: 5, name: 'AP CSP' }} onClose={() => {}} />);
+    await waitFor(() => expect(api.runSync).toHaveBeenCalledTimes(2));
+  });
+
+  it('Try again after a stall while waiting still runs this course afterwards', async () => {
+    vi.mocked(api.getCurrentSync).mockResolvedValue({ running: true, runId: 4, courseIds: [2] });
+    let reachable = false;
+    vi.mocked(api.getSyncRunEvents).mockImplementation(async () => {
+      if (!reachable) throw new TypeError('Failed to fetch');
+      return { status: 'completed', finished: true, events: [] };
+    });
+    streamDone();
+    render(<SyncDialog presetCourse={{ id: 5, name: 'AP CSP' }} onClose={() => {}} pollMs={5} giveUpMs={20} />);
+    fireEvent.click(await screen.findByRole('button', { name: /try again/i }));
+    reachable = true;
+    await waitFor(() => expect(api.runSync).toHaveBeenCalled());
+    expect(api.runSync.mock.calls[0][0]).toMatchObject({ courseIds: [5] });
+  });
+});
+

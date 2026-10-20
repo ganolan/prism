@@ -87,7 +87,8 @@ export async function runUnifiedSync(
     try {
       const r = await syncPsAttendance({
         onProgress: (p) => emit({ type: 'log', message: `[blocks] ${p.message}` }),
-        ...scoped,
+        // Whole on purpose, even for a course list (#58 review): the same pass stores the school
+        // calendar, which a targeted pass skips.
       });
       const gradeLevelsUpdated = r.gradeLevels?.updated ?? 0;
       // A course whose reason is 'section-info-failed' means PowerSchool didn't

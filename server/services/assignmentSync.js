@@ -12,7 +12,7 @@ import { refreshAssignment } from './submissionComments.js';
 // → { removed: true } | { removed: false, submissions, comments: { queued }, taskSyncedAt }.
 export async function syncAssignment(courseId, schoologyAssignmentId, { db = getDb(), deps = {} } = {}) {
   const d = { getSectionAssignment, refreshTasks, refreshComments: refreshAssignment, now: Date.now, ...deps };
-  const course = db.prepare('SELECT id, schoology_section_id FROM courses WHERE id = ?').get(Number(courseId));
+  const course = db.prepare('SELECT id, schoology_section_id, archived FROM courses WHERE id = ?').get(Number(courseId));
   const task = course && db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ? AND course_id = ?')
     .get(String(schoologyAssignmentId), course.id);
   if (!task) throw Object.assign(new Error(`Assignment ${schoologyAssignmentId} not found in course ${courseId}`), { code: 'NOT_FOUND' });
@@ -22,7 +22,8 @@ export async function syncAssignment(courseId, schoologyAssignmentId, { db = get
   try {
     record = await d.getSectionAssignment(String(course.schoology_section_id), String(schoologyAssignmentId));
   } catch (err) {
-    if (err?.status === 404) {
+    // "404 = deleted" is verified on current sections only; an archived task is never removed here.
+    if (err?.status === 404 && !course.archived) {
       db.prepare('UPDATE assignments SET removed_at = COALESCE(removed_at, ?) WHERE id = ?').run(now, task.id);
       return { removed: true };
     }
@@ -43,7 +44,8 @@ export async function syncAssignment(courseId, schoologyAssignmentId, { db = get
     comments = { queued: 0, error: err.message };
   }
 
-  const clean = !submissions.error && !(submissions.failed ?? []).length;
+  // Stamped only when the task was read (an archived course's tasks are not: refreshTasks skips them).
+  const clean = submissions.refreshed > 0 && !submissions.error && !(submissions.failed ?? []).length;
   if (clean) db.prepare('UPDATE assignments SET task_synced_at = ? WHERE id = ?').run(now, task.id);
   const taskSyncedAt = db.prepare('SELECT task_synced_at FROM assignments WHERE id = ?').get(task.id).task_synced_at;
   return { removed: false, submissions, comments, taskSyncedAt };

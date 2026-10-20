@@ -162,7 +162,7 @@ export default function SyncConfig({ courses, calendar, loggedIn, busy, onStart,
         )}
         {loggedIn && connectionState(connection?.status) === 'expired' && (
           <div className="alert alert-warning sync-login-prompt">
-            <p>The saved Schoology session has expired: log in again before syncing mastery.</p>
+            <p>Mastery will be skipped: the saved Schoology session has expired. Log in again to sync it too.</p>
             <button className="secondary" onClick={onLogin} disabled={busy}>
               Log in to Schoology
             </button>

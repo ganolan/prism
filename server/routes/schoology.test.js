@@ -363,3 +363,17 @@ describe('POST /api/sync with courseIds (#58)', () => {
     }
   });
 });
+
+describe('POST /api/sync with an empty course list (#58 review)', () => {
+  test('is refused: there is nothing to sync', async () => {
+    const { server, port } = startServer();
+    try {
+      const res = await fetch(`http://localhost:${port}/api/sync`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ courseIds: [] }),
+      });
+      expect(res.status).toBe(400);
+    } finally {
+      server.close();
+    }
+  });
+});

@@ -7,7 +7,7 @@ import {
 import { reduceSyncEvents } from '../lib/syncEvents.js';
 import SyncConfig from './SyncConfig.jsx';
 import SyncProgress from './SyncProgress.jsx';
-import { useSchoologyConnection } from './SchoologyConnectionStatus.jsx';
+import { useSchoologyConnection, connectionState } from './SchoologyConnectionStatus.jsx';
 
 // How often a dialog that lost its stream polls the run's stored events, and
 // how long polls may keep failing — counted in VISIBLE time only, restarted on
@@ -66,6 +66,7 @@ export default function SyncDialog({ onClose, onSyncComplete, presetCourse = nul
   // the poll loop and the visibility handler all read it mid-flight.
   const runRef = useRef(null);
   const unmounted = useRef(false);
+  const presetRetried = useRef(false); // a preset's 409 that found nothing running is retried once
 
   useEffect(() => {
     unmounted.current = false;
@@ -225,7 +226,8 @@ export default function SyncDialog({ onClose, onSyncComplete, presetCourse = nul
     const r = runRef.current;
     if (!r || r.stage !== 'stalled') return;
     setMode('running');
-    if (r.runId != null) pollToEnd(r);
+    if (r.then && r.runId != null) waitThenRun(r.runId, r.then);
+    else if (r.runId != null) pollToEnd(r);
     else locate(r);
   }
 
@@ -237,6 +239,7 @@ export default function SyncDialog({ onClose, onSyncComplete, presetCourse = nul
     setMetrics(null);
     setNotice('waiting');
     setMode('running');
+    r.then = start; // kept so "Try again" after a stall still runs ours afterwards
     const out = await follow(r);
     if (out.cancelled || unmounted.current) return;
     if (out.unreachable) return stall(r);
@@ -280,6 +283,11 @@ export default function SyncDialog({ onClose, onSyncComplete, presetCourse = nul
       if (err?.status === 409) {
         // Someone (another device, or this one before a reload) is syncing.
         const cur = await getCurrentSync().catch(() => null);
+        // The other run ended between our POST and this check: try ours once more.
+        if (presetCourse && cur && !cur.running && !presetRetried.current) {
+          presetRetried.current = true;
+          return startPreset();
+        }
         const runId = err.runId ?? cur?.runId;
         if (runId != null && presetCourse && cur && !covers(cur, presetCourse.id)) return waitThenRun(runId, startPreset);
         if (runId != null) return joinRun(runId, 'joined');
@@ -338,7 +346,10 @@ export default function SyncDialog({ onClose, onSyncComplete, presetCourse = nul
             busy={busy}
             // #58: the ticks decide everything: each ticked course gets its Schoology data and,
             // with a saved session, its mastery.
-            onStart={(ids, opts) => startSync(loggedIn ? ids : [], { ...opts, courseIds: ids })}
+            onStart={(ids, opts) => startSync(
+              loggedIn && connectionState(connection?.status) !== 'expired' ? ids : [],
+              { ...opts, courseIds: ids },
+            )}
             onCancel={onClose}
             onLogin={handleLogin}
             connection={connection}

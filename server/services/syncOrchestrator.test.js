@@ -439,7 +439,8 @@ describe('runUnifiedSync with a course list (#58)', () => {
     fullSync.mockResolvedValue({ success: true, records: 1, archivedRead: [old] });
     await runUnifiedSync({ courseIds: [a, old], masteryCourseIds: [a, old] }, () => {});
     expect(fullSync.mock.calls[0][1]).toMatchObject({ courseIds: [a, old] });
-    expect(syncPsAttendance.mock.calls[0][0]).toMatchObject({ courseIds: [a, old] });
+    // The PowerSchool block pass stays whole: it also stores the school calendar (review #1).
+    expect(syncPsAttendance.mock.calls[0][0].courseIds).toBeUndefined();
     expect(syncPsAlerts.mock.calls[0][0]).toMatchObject({ courseIds: [a, old] });
     expect(refreshRecentComments.mock.calls[0][1]).toMatchObject({ courseIds: [a, old] });
     expect(syncMasteryForCourse.mock.calls.map((c) => c[0])).toEqual([a]);

@@ -279,8 +279,8 @@ export async function retrySubmissions(db, failedEntries, now, metrics, revision
         writeRetry(cellResults);
       }
       revisionsRead?.add(assignRow.id);
-      // A successful retry is a read in full, stamped like the main pass (#168).
-      db.prepare('UPDATE assignments SET submissions_read_at = ? WHERE id = ?').run(now, assignRow.id);
+      // A successful retry is a read in full, stamped like the main pass (#168, #58).
+      db.prepare('UPDATE assignments SET submissions_read_at = ?, task_synced_at = ? WHERE id = ?').run(now, now, assignRow.id);
       metrics.retries_succeeded++;
     } catch (err) {
       // Non-transient errors (or unexpected enrollments fetch failures): mark
@@ -539,6 +539,7 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
     const known = new Set(db.prepare('SELECT schoology_section_id AS s FROM courses').all().map((r) => String(r.s)));
     const stampCourse = db.prepare('UPDATE courses SET course_synced_at = ? WHERE id = ?');
     const readCourseIds = new Set();
+    const abandonedCourseIds = new Set();
     const archivedReadIds = [];
     log(`Found ${sections.length} sections`);
 
@@ -558,8 +559,9 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
     `);
 
     // With a list (#58), a section Prism already holds and was not asked for is left as it is.
+    const courseIdBySection = db.prepare('SELECT id FROM courses WHERE schoology_section_id = ?');
     const listedSection = (sectionId) => !listed || !known.has(sectionId)
-      || listed.has(db.prepare('SELECT id FROM courses WHERE schoology_section_id = ?').get(sectionId)?.id);
+      || listed.has(courseIdBySection.get(sectionId)?.id);
     for (const sec of sections) {
       if (!listedSection(String(sec.id))) continue;
       const periods = await getSectionGradingPeriods(String(sec.id));
@@ -636,12 +638,11 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
       metrics.window_skipped += result.windowSkipped || 0;
       metrics.rate_limit_hits += result.rateLimitHits || 0;
       metrics.transient_failures += result.transientFailures || 0;
-      if (result.submissionAbandoned) metrics.abandoned = 1;
+      if (result.submissionAbandoned) { metrics.abandoned = 1; abandonedCourseIds.add(courseRow.id); }
       for (const aid of (result.failedAssignmentIds || [])) {
         metrics.failed_assignment_ids.push({ sectionId, courseId: courseRow.id, assignmentExtId: aid });
       }
       for (const id of (result.revisionsReadAssignmentIds || [])) revisionsRead.add(id);
-      stampCourse.run(now, courseRow.id);
       readCourseIds.add(courseRow.id);
       totalRecords += result.studentsCount + result.assignmentsCount + result.gradesCount + (result.submissionCount || 0);
 
@@ -703,6 +704,12 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
       metrics.retries_attempted = metrics.failed_assignment_ids.length;
       metrics.failed_assignment_ids = await retrySubmissions(db, metrics.failed_assignment_ids, now, metrics, revisionsRead);
     }
+    // #58: a course's "Synced" time only when every submission read of it finished (none abandoned,
+    // none still failing after the retry pass).
+    const stillFailing = new Set(metrics.failed_assignment_ids.map((f) => f.courseId));
+    for (const id of readCourseIds) {
+      if (!abandonedCourseIds.has(id) && !stillFailing.has(id)) stampCourse.run(now, id);
+    }
 
     // One-time: finalise archived courses imported before #70 (capture mastery).
     await backfillUnfinalizedArchived(db, now);
@@ -713,7 +720,14 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
     if (listed) {
       for (const c of db.prepare(`SELECT id, schoology_section_id FROM courses WHERE archived = 1 AND excluded = 0
         AND id IN (SELECT value FROM json_each(?))`).all(JSON.stringify([...listed]))) {
-        await finalizeArchivedCourse(db, { courseId: c.id, sectionId: c.schoology_section_id, now, runMastery: true });
+        const name = db.prepare('SELECT course_name FROM courses WHERE id = ?').get(c.id)?.course_name ?? c.id;
+        try {
+          await finalizeArchivedCourse(db, { courseId: c.id, sectionId: c.schoology_section_id, now, runMastery: true });
+        } catch (err) {
+          // One old section that no longer answers must not stop the rest of the run.
+          log(`Archived "${name}": not read (${err.message})`);
+          continue;
+        }
         stampCourse.run(now, c.id);
         readCourseIds.add(c.id);
         archivedReadIds.push(c.id);

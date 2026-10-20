@@ -72,9 +72,9 @@ controls, three scopes, each syncing everything in its scope:
 - **The orchestrator and `POST /api/sync` take `courseIds`**, passed to `fullSync`; the
   comments phase reads only those courses' threads when a list is given. The Sync dialog sends the
   ticked ids as both `courseIds` and `masteryCourseIds`. **Scheduled sync keeps `courseIds: null`**
-  (today's behaviour, every student's profile refreshed). The PowerSchool block and alerts passes
-  run for the listed courses where their services take a course list; the school calendar is
-  always read. *(My call.)*
+  (today's behaviour, every student's profile refreshed). The alerts pass runs for the listed
+  courses; the block pass stays whole, since it also stores the school calendar (changed after the
+  review, 20 Oct 2026). *(My call.)*
 - **Sync Course** uses the same run: `POST /api/sync` with `courseIds: [id]`,
   `masteryCourseIds: [id]`, PowerSchool off. When a sync is already running, `GET /api/sync/current`
   also returns its `courseIds`: if it covers this course (null, or a list holding it) the button

@@ -124,4 +124,18 @@ describe('AssessmentSummaryPage Sync Assignment (#58)', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Sync Assignment' }));
     expect(await screen.findByText('This task was deleted in Schoology.')).toBeInTheDocument();
   });
+
+  it('a failed mastery read still reloads the page (the task\'s other data was synced)', async () => {
+    getMasteryForAssignment.mockResolvedValue(page('Same'));
+    refreshMasteryForAssignment.mockResolvedValue({ refreshed: false, syncedAt: NEW });
+    syncMasteryForAssignment.mockRejectedValue(new Error('Schoology API 500'));
+    renderPage();
+    const button = await screen.findByRole('button', { name: 'Sync Assignment' });
+    await waitFor(() => expect(refreshMasteryForAssignment).toHaveBeenCalled());
+    const before = getMasteryForAssignment.mock.calls.length;
+    fireEvent.click(button);
+    await screen.findByText(/^Error: Schoology API 500/);
+    await waitFor(() => expect(getMasteryForAssignment.mock.calls.length).toBe(before + 1));
+  });
 });
+

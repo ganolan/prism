@@ -159,9 +159,13 @@ function place(entry) {
   if (firstPage >= 0) queue.splice(firstPage, 0, entry); else queue.push(entry);
 }
 
+// A request as its sync_runs row records it: the session check a caller passed
+// (sessionCheckedAt, sessionLive) stays on the in-memory request only (#170).
+const recorded = ({ sessionCheckedAt, sessionLive, ...request }, covered) => JSON.stringify({ ...request, coveredCourseIds: covered });
+
 // What a joining request adds to the run it joins: a grading request upgrades a plain task run, a
 // lifted page run becomes a button run, and a newer session check (gradingSync's) replaces an older
-// one. Recorded on the run's row too.
+// one. The row records the grading upgrade and the lift (not the check).
 function absorb(entry, request, { lift = false } = {}) {
   const was = entry.request;
   const next = { ...was };
@@ -171,11 +175,11 @@ function absorb(entry, request, { lift = false } = {}) {
     next.sessionCheckedAt = request.sessionCheckedAt;
     next.sessionLive = request.sessionLive;
   }
-  if (next.grading === was.grading && next.trigger === was.trigger && next.sessionCheckedAt === was.sessionCheckedAt) return;
   entry.request = next;
+  if (next.grading === was.grading && next.trigger === was.trigger) return;
   try {
     db().prepare('UPDATE sync_runs SET options_json = ? WHERE id = ?')
-      .run(JSON.stringify({ ...next, coveredCourseIds: next.kind === 'task' ? [Number(next.courseId)] : entry.covered }), entry.runId);
+      .run(recorded(next, next.kind === 'task' ? [Number(next.courseId)] : entry.covered), entry.runId);
   } catch (err) {
     console.error('[sync] Could not record the joined request:', err.message);
   }
@@ -204,7 +208,7 @@ export function enqueue(request) {
   const covered = request.kind === 'task' ? [Number(request.courseId)] : coveredCourseIds(request);
   const runId = Number(db().prepare(
     `INSERT INTO sync_runs (started_at, status, options_json) VALUES (?, 'queued', ?)`,
-  ).run(new Date().toISOString(), JSON.stringify({ ...request, coveredCourseIds: covered })).lastInsertRowid);
+  ).run(new Date().toISOString(), recorded(request, covered)).lastInsertRowid);
   place({ runId, request, covered: request.kind === 'task' ? [] : covered });
   pump();
   return { runId, state: 'queued', joined: false };

@@ -488,6 +488,23 @@ describe('the sync queue', () => {
       runs[1].finish(); await idle();
     });
 
+    test('#170 review 3: the session check stays on the in-memory request, never in options_json', async () => {
+      gatedRuns();
+      const options = (id) => JSON.parse(getDb().prepare('SELECT options_json FROM sync_runs WHERE id = ?').get(id).options_json);
+      enqueue({ kind: 'courses', courseIds: [b], trigger: 'page' }); // runs, so the next ones wait
+      await tick();
+      const g = enqueue({ ...grading, courseId: a, sessionCheckedAt: Date.now(), sessionLive: 'connected' });
+      expect(options(g.runId)).toMatchObject({ grading: true });
+      expect(options(g.runId)).not.toHaveProperty('sessionCheckedAt');
+      expect(options(g.runId)).not.toHaveProperty('sessionLive');
+      const plain = enqueue({ kind: 'task', courseId: a, assignmentId: '951', trigger: 'page' });
+      enqueue({ ...grading, courseId: a, assignmentId: '951', sessionCheckedAt: Date.now(), sessionLive: 'unknown' }); // absorbed
+      expect(options(plain.runId)).toMatchObject({ grading: true });
+      expect(options(plain.runId)).not.toHaveProperty('sessionCheckedAt');
+      expect(options(plain.runId)).not.toHaveProperty('sessionLive');
+      expect(currentSync().queued.map((q) => q.runId)).toContain(plain.runId);
+    });
+
     test('#170 item 6: a scheduled run is never checked, whatever it carries', async () => {
       const runs = gatedRuns();
       enqueue({ kind: 'all', trigger: 'scheduled' });

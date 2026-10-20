@@ -8,6 +8,7 @@ import {
 } from './schoology.js';
 import { authorRole } from '../lib/submissionComments.js';
 import { resolveAssignmentId } from './idResolvers.js';
+import { needsFollowUp } from '../lib/readFollowUp.js';
 import { normalizeSubmissionStatus, getGradeMetaRows, getRoster } from './assessmentContext.js';
 import { readThread, storeThread, storeReadError, markSeen } from './submissionCommentStore.js';
 import { noteSessionLive } from './schoologySession.js';
@@ -153,12 +154,13 @@ export function studentsToRefresh(db, assignment) {
 
 // Background refresh of one assignment's submitted cells older than maxAgeSec,
 // one GET at a time. A second call while one runs returns the running job. A
-// stricter call (a smaller maxAgeSec: the grading sync's 0) joining a looser job
-// (a page's) waits for it, then reads the students that job left older than the
-// call wants, measured from when the call was made (#170); its `done` then counts
-// both reads (`failed` is the second read's: a failed read keeps the old read time,
-// so the second read tries that student again).
-const inflight = new Map(); // assignment id → { info, done, maxAgeSec }
+// stricter call (lib/readFollowUp.js: a smaller maxAgeSec, the grading sync's 0, or
+// a 0 call joining a 0 job that started earlier) waits for it, then reads the students that job left
+// older than the call wants, measured from when the call was made (#170). Its
+// `queued` is the joined job's (the second read is not known yet); its `done`
+// resolves { queued, refreshed, failed } over both reads (`failed` is the second
+// read's: a failed read keeps the old read time, so the second read retries it).
+const inflight = new Map(); // assignment id → { info, done, maxAgeSec, asOf }
 export function refreshAssignment(db, assignmentId, { maxAgeSec = BACKGROUND_MAX_AGE_SEC } = {}) {
   const localId = resolveAssignmentId(db, assignmentId);
   const assignment = localId ? db.prepare('SELECT * FROM assignments WHERE id = ?').get(localId) : null;
@@ -169,10 +171,14 @@ export function refreshAssignment(db, assignmentId, { maxAgeSec = BACKGROUND_MAX
 function assignmentJob(db, assignment, { maxAgeSec, asOf }) {
   const running = inflight.get(assignment.id);
   if (running) {
-    if (maxAgeSec >= running.maxAgeSec) return { ...running.info, done: running.done, joined: true };
+    if (!needsFollowUp(running, { maxAgeSec, asOf })) return { ...running.info, done: running.done, joined: true };
     const done = running.done.then(async (first) => {
-      const rest = await assignmentJob(db, assignment, { maxAgeSec, asOf }).done;
-      return { refreshed: (first?.refreshed ?? 0) + rest.refreshed, failed: rest.failed };
+      const next = assignmentJob(db, assignment, { maxAgeSec, asOf });
+      const rest = await next.done;
+      return {
+        queued: running.info.queued + (rest.queued ?? next.queued),
+        refreshed: (first?.refreshed ?? 0) + rest.refreshed, failed: rest.failed,
+      };
     });
     return { ...running.info, done, joined: true };
   }
@@ -190,7 +196,7 @@ function assignmentJob(db, assignment, { maxAgeSec, asOf }) {
     }
     return { refreshed, failed };
   })().finally(() => inflight.delete(assignment.id));
-  inflight.set(assignment.id, { info, done, maxAgeSec });
+  inflight.set(assignment.id, { info, done, maxAgeSec, asOf });
   return { ...info, done };
 }
 

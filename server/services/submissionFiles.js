@@ -12,6 +12,7 @@ import { getSubmissionRevisions, openFile } from './schoology.js';
 import { resolveAssignmentId } from './idResolvers.js';
 import { getRoster, getGradeMetaRows } from './assessmentContext.js';
 import { readRevisions, storeRevisions, storeReadError, storedFile } from './submissionFileStore.js';
+import { needsFollowUp } from '../lib/readFollowUp.js';
 
 // Replaced in tests; the real calls reach Schoology.
 export const fileDeps = {
@@ -106,19 +107,25 @@ const stale = (db, assignmentId, studentId, maxAgeSec, asOf = fileDeps.now()) =>
 // Read the pairs `duePairs(asOf)` lists ([{ assignment, course, student }], due
 // as of `asOf`, epoch seconds) one GET at a time under `key`; a second call with
 // the same key while one runs joins it. A stricter call (a smaller maxAgeSec: the
-// grading sync's 0) joining a looser job waits for it, then reads the pairs still
-// due as of when the call was made (#170); its `done` counts both reads (`failed`
-// is the second read's: a failed read keeps the old read time, so it is tried
-// again). Nothing due: no job.
-const inflight = new Map(); // key → { info, done, maxAgeSec }
+// grading sync's 0, or a 0 call joining a 0 job that started earlier;
+// lib/readFollowUp.js) waits for it, then reads the pairs still
+// due as of when the call was made (#170). Its `queued` is the joined job's; its
+// `done` resolves { queued, refreshed, failed } over both reads (`failed` is the
+// second read's: a failed read keeps the old read time, so it is tried again).
+// Nothing due: no job.
+const inflight = new Map(); // key → { info, done, maxAgeSec, asOf }
 export function resetFileQueues() { inflight.clear(); }
 function runQueue(db, key, { maxAgeSec, asOf = fileDeps.now() }, duePairs) {
   const running = inflight.get(key);
   if (running) {
-    if (maxAgeSec >= running.maxAgeSec) return { ...running.info, done: running.done, joined: true };
+    if (!needsFollowUp(running, { maxAgeSec, asOf })) return { ...running.info, done: running.done, joined: true };
     const done = running.done.then(async (first) => {
-      const rest = await runQueue(db, key, { maxAgeSec, asOf }, duePairs).done;
-      return { refreshed: (first?.refreshed ?? 0) + rest.refreshed, failed: rest.failed };
+      const next = runQueue(db, key, { maxAgeSec, asOf }, duePairs);
+      const rest = await next.done;
+      return {
+        queued: running.info.queued + (rest.queued ?? next.queued),
+        refreshed: (first?.refreshed ?? 0) + rest.refreshed, failed: rest.failed,
+      };
     });
     return { ...running.info, done, joined: true };
   }
@@ -133,7 +140,7 @@ function runQueue(db, key, { maxAgeSec, asOf = fileDeps.now() }, duePairs) {
     }
     return { refreshed, failed };
   })().finally(() => inflight.delete(key));
-  inflight.set(key, { info, done, maxAgeSec });
+  inflight.set(key, { info, done, maxAgeSec, asOf });
   return { ...info, done };
 }
 

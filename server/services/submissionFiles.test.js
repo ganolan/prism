@@ -228,9 +228,44 @@ describe('refreshAssignmentFiles (PrisMCP get_assignment_context)', () => {
     expect(await first.done).toEqual({ refreshed: 1, failed: 0 });
     while (!gates.length) await new Promise((r) => setTimeout(r, 1));
     gates.shift()(); // the follow-up: Cy, read before the grading call started
-    expect(await grading.done).toEqual({ refreshed: 2, failed: 0 });
+    expect(await grading.done).toEqual({ queued: 2, refreshed: 2, failed: 0 });
     expect(fileDeps.getSubmissionRevisions.mock.calls.map((c) => c[2])).toEqual(['555', '777']);
     expect(readRevisions(db, { assignmentId, studentId: cy }).read_at_epoch).toBe(clock);
+  });
+
+  test('#170 review 1+2: a strict caller joining an EARLIER strict read (maxAgeSec 0 both) follows up too, and counts it', async () => {
+    const db = getDb(); const { ana, cy, assignmentId } = seed(db);
+    uploaded(db, ana, assignmentId);
+    uploaded(db, cy, assignmentId);
+    const gates = [];
+    const real = fileDeps.getSubmissionRevisions;
+    fileDeps.getSubmissionRevisions = vi.fn((...a) => new Promise((resolve) => gates.push(() => resolve(real(...a)))));
+    const first = refreshAssignmentFiles(db, '8590105935', { maxAgeSec: 0 }); // Ana, Cy
+    expect(first.queued).toBe(2);
+    while (!gates.length) await new Promise((r) => setTimeout(r, 1));
+    gates.shift()(); // Ana is read before the grading call starts
+    while (!gates.length) await new Promise((r) => setTimeout(r, 1));
+    clock += 2;
+    const grading = refreshAssignmentFiles(db, '8590105935', { maxAgeSec: 0 });
+    expect(grading.joined).toBe(true);
+    clock += 2;
+    gates.shift()(); // Cy, read after the grading call started
+    expect(await first.done).toEqual({ refreshed: 2, failed: 0 });
+    while (!gates.length) await new Promise((r) => setTimeout(r, 1));
+    gates.shift()(); // the follow-up: Ana only
+    expect(await grading.done).toEqual({ queued: 3, refreshed: 3, failed: 0 });
+    expect(fileDeps.getSubmissionRevisions.mock.calls.map((c) => c[2])).toEqual(['555', '777', '555']);
+  });
+
+  test('#170 review 1: a looser read still just joins an earlier strict one (pages unchanged)', async () => {
+    const db = getDb(); const { ana, assignmentId } = seed(db);
+    uploaded(db, ana, assignmentId);
+    const first = refreshAssignmentFiles(db, '8590105935', { maxAgeSec: 0 });
+    clock += 5;
+    const page = refreshAssignmentFiles(db, '8590105935');
+    expect(page.done).toBe(first.done);
+    await first.done;
+    expect(fileDeps.getSubmissionRevisions).toHaveBeenCalledTimes(1);
   });
 
   test('archived course: every student on the roster is read once (the sync\'s upload marks are patchy there, #72), then never again', async () => {

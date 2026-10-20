@@ -215,8 +215,32 @@ describe('refreshAssignment', () => {
     expect(await page.done).toEqual({ refreshed: 1, failed: 0 }); // the page's own job is unchanged
     while (!gates.length) await new Promise((r) => setTimeout(r, 1));
     gates.shift()(); // the follow-up: Ana, read before the grading call started
-    expect(await grading.done).toEqual({ refreshed: 2, failed: 0 });
+    expect(await grading.done).toEqual({ queued: 2, refreshed: 2, failed: 0 });
     expect(commentDeps.getSubmissionComments.mock.calls.map((c) => c[2])).toEqual(['666', '555']);
+    expect(readThread(db, { assignmentId, studentId: ana }).read_at_epoch).toBe(clock);
+    expect(readThread(db, { assignmentId, studentId: ben }).read_at_epoch).toBe(clock);
+  });
+
+  test('#170 review 1+2: a strict caller joining an EARLIER strict job (maxAgeSec 0 both) follows up too, and counts it', async () => {
+    const db = getDb(); const { ana, ben, assignmentId } = seed(db);
+    const gates = [];
+    const real = commentDeps.getSubmissionComments;
+    commentDeps.getSubmissionComments = vi.fn((...a) => new Promise((resolve) => gates.push(() => resolve(real(...a)))));
+    const plain = refreshAssignment(db, '8590105935', { maxAgeSec: 0 }); // a plain task run's job: Ana, Ben
+    expect(plain.queued).toBe(2);
+    while (!gates.length) await new Promise((r) => setTimeout(r, 1));
+    gates.shift()(); // Ana is read before the grading call starts
+    while (gates.length < 1) await new Promise((r) => setTimeout(r, 1));
+    clock += 2;
+    const grading = refreshAssignment(db, '8590105935', { maxAgeSec: 0 });
+    expect(grading.joined).toBe(true);
+    clock += 2;
+    gates.shift()(); // Ben, read after the grading call started
+    expect(await plain.done).toEqual({ refreshed: 2, failed: 0 });
+    while (!gates.length) await new Promise((r) => setTimeout(r, 1));
+    gates.shift()(); // the follow-up: Ana only
+    expect(await grading.done).toEqual({ queued: 3, refreshed: 3, failed: 0 });
+    expect(commentDeps.getSubmissionComments.mock.calls.map((c) => c[2])).toEqual(['555', '666', '555']);
     expect(readThread(db, { assignmentId, studentId: ana }).read_at_epoch).toBe(clock);
     expect(readThread(db, { assignmentId, studentId: ben }).read_at_epoch).toBe(clock);
   });

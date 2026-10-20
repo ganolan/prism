@@ -65,7 +65,8 @@ export async function importArchivedCourse(db, sectionId) {
   }
 
   // Complete as a listed archived re-read counts it in fullSync (archivedComplete): mastery read,
-  // submissions read with a session (OneDrive/LTI states and test attempts too), none failed.
+  // submissions read with a session (OneDrive/LTI states and test attempts too), none failed. Unlike
+  // stampCompleteSyncs (syncOrchestrator.js), comment threads are not checked: the import reads none.
   const complete = finalized && !masteryError && read.fullRead
     && !(read.failedAssignmentIds || []).length && !read.submissionAbandoned;
   if (complete) db.prepare('UPDATE courses SET course_synced_at = ? WHERE id = ?').run(now, courseRow.id);

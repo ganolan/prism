@@ -1,9 +1,9 @@
-import { describe, test, expect, beforeEach } from 'vitest';
+import { describe, test, expect, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { migrate, migrateMasteryRollupsPk, migrateResubmitFlags, purgeEmptyMasteryScores, purgeLegacyAutoFlags, purgeStudentScopedFlags } from './index.js';
+import { backfillArchivedSyncedAt, migrate, migrateMasteryRollupsPk, migrateResubmitFlags, purgeEmptyMasteryScores, purgeLegacyAutoFlags, purgeStudentScopedFlags } from './index.js';
 
 function seedFlag(db, studentId, flagType) {
   db.prepare(
@@ -100,13 +100,14 @@ describe('migration: courses.finalized_at (#70)', () => {
 });
 
 // #171: archived courses read in full before the import stamped its Synced time get it from
-// finalized_at, once; a course whose read is not known to be complete keeps none.
-describe('migration: archived courses get course_synced_at from finalized_at (#171)', () => {
+// finalized_at; a course whose read is not known to be complete keeps none. migrate() runs it on
+// each boot.
+describe('backfillArchivedSyncedAt: archived courses get course_synced_at from finalized_at (#171)', () => {
   const F = '2026-06-18T03:02:00.000Z';
   const LATER = '2026-06-18T03:09:00.000Z';
   const EARLIER = '2026-05-01T00:00:00.000Z';
   function seed(db, sectionId, over = {}) {
-    const row = { archived: 1, excluded: 0, finalized_at: F, submissions_read_at: F, mastery_synced_at: LATER,
+    const row = { course_code: 'BIO', archived: 1, excluded: 0, finalized_at: F, submissions_read_at: F, mastery_synced_at: LATER,
       course_synced_at: null, sync_attempted_at: null, ...over };
     const cols = Object.keys(row);
     return db.prepare(`INSERT INTO courses (schoology_section_id, course_name, ${cols.join(', ')})
@@ -127,10 +128,10 @@ describe('migration: archived courses get course_synced_at from finalized_at (#1
     task(db, id);
     task(db, id, { accepts_submissions: 0, is_test: 0, submissions_read_at: null }); // no submission channel
     task(db, id, { submissions_read_at: null, removed_at: F }); // deleted in Schoology
-    migrate(db);
+    migrate(db); // the next boot
     expect(synced(db, id)).toBe(F);
     db.prepare('UPDATE courses SET finalized_at = ? WHERE id = ?').run(LATER, id);
-    migrate(db);
+    backfillArchivedSyncedAt(db);
     expect(synced(db, id)).toBe(F);
   });
 
@@ -147,7 +148,7 @@ describe('migration: archived courses get course_synced_at from finalized_at (#1
     const db = new Database(':memory:');
     migrate(db);
     const id = seed(db, 'x', over);
-    migrate(db);
+    backfillArchivedSyncedAt(db);
     expect(synced(db, id)).toBe(over.course_synced_at ?? null);
   });
 
@@ -159,8 +160,30 @@ describe('migration: archived courses get course_synced_at from finalized_at (#1
     migrate(db);
     const id = seed(db, 'x');
     task(db, id, { ...over, submissions_read_at: null });
-    migrate(db);
+    backfillArchivedSyncedAt(db);
     expect(synced(db, id)).toBeNull();
+  });
+
+  test('a failure is logged and the boot goes on (the later backfills still run)', () => {
+    const db = new Database(':memory:');
+    migrate(db);
+    const id = seed(db, 'x');
+    db.exec(`CREATE TRIGGER no_stamp BEFORE UPDATE OF course_synced_at ON courses
+      BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`);
+    const studentId = newStudent(db);
+    const assignmentId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'a-x', 'T')`)
+      .run(id).lastInsertRowid;
+    db.prepare('INSERT INTO grades (student_id, assignment_id, latest_revision_at, first_submitted_at) VALUES (?, ?, 500, 0)')
+      .run(studentId, assignmentId);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(() => migrate(db)).not.toThrow();
+      expect(error).toHaveBeenCalledWith(expect.stringContaining('Synced times'), 'disk I/O error');
+    } finally {
+      error.mockRestore();
+    }
+    expect(synced(db, id)).toBeNull();
+    expect(db.prepare('SELECT first_submitted_at FROM grades').get().first_submitted_at).toBe(500);
   });
 });
 

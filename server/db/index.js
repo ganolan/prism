@@ -193,18 +193,6 @@ const MIGRATIONS = [
   // ('pending'), or keeps why that read failed ('failed'). Existing rows stay NULL (no backfill).
   `ALTER TABLE courses ADD COLUMN first_sync TEXT`,
   `ALTER TABLE courses ADD COLUMN first_sync_error TEXT`,
-  // #171: an archived course read in full before the import stamped its Synced time gets one from
-  // finalized_at: finalized with a session, its mastery read then (mastery_synced_at at or after
-  // it), its submissions read with a session, and every task that takes submissions (or is a test)
-  // read in full. Only rows no stamping sync or import has touched (sync_attempted_at null), so it
-  // runs once per row and never overrides an incomplete read the new stamps recorded.
-  `UPDATE courses SET course_synced_at = finalized_at
-    WHERE archived = 1 AND COALESCE(excluded, 0) = 0
-      AND course_synced_at IS NULL AND sync_attempted_at IS NULL
-      AND finalized_at IS NOT NULL AND submissions_read_at IS NOT NULL
-      AND mastery_synced_at >= finalized_at
-      AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.course_id = courses.id AND a.removed_at IS NULL
-        AND (a.accepts_submissions = 1 OR a.is_test = 1) AND a.submissions_read_at IS NULL)`,
 ];
 
 // Remove orphaned auto-flag rows. The auto-flag feature that wrote 'missing',
@@ -252,6 +240,25 @@ export function backfillExcludedCourses(database) {
     WHERE excluded = 0
       AND (course_code IS NULL OR course_code = '')
       AND (section_school_code IS NULL OR section_school_code = '')
+  `);
+}
+
+// #171: an archived course read in full before the import stamped its Synced time gets one from
+// finalized_at: finalized with a session, its mastery read then (mastery_synced_at at or after it),
+// its submissions read with a session, and every live task that takes submissions (or is a test)
+// read in full. Runs on each boot, and never touches a row that is already stamped or has an attempt
+// (sync_attempted_at: a stamping sync or import read it, and its own stamp, or none, stands). A row
+// a sync's backfill completes later (backfillUnfinalizedArchived or backfillArchivedSubmissions, as
+// on a nightly run) gets its stamp at the next start. Idempotent. migrate() logs a failure and goes on.
+export function backfillArchivedSyncedAt(database) {
+  database.exec(`
+    UPDATE courses SET course_synced_at = finalized_at
+    WHERE archived = 1 AND COALESCE(excluded, 0) = 0
+      AND course_synced_at IS NULL AND sync_attempted_at IS NULL
+      AND finalized_at IS NOT NULL AND submissions_read_at IS NOT NULL
+      AND mastery_synced_at >= finalized_at
+      AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.course_id = courses.id AND a.removed_at IS NULL
+        AND (a.accepts_submissions = 1 OR a.is_test = 1) AND a.submissions_read_at IS NULL)
   `);
 }
 
@@ -356,6 +363,12 @@ export function migrate(database) {
   purgeStudentScopedFlags(database);
   purgeEmptyMasteryScores(database);
   backfillExcludedCourses(database);
+  // A failure here is logged, not fatal: the Synced times are a convenience, startup is not.
+  try {
+    backfillArchivedSyncedAt(database);
+  } catch (err) {
+    console.error('[db] could not backfill archived courses\' Synced times:', err.message);
+  }
   backfillFirstSubmittedAt(database);
   migrateResubmitFlags(database);
 }

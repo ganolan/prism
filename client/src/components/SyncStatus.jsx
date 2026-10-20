@@ -1,48 +1,42 @@
-import { freshnessTime } from './MasteryFreshness.jsx';
+import { freshnessTime } from '../lib/formatDate.js';
 import { goToSignIn } from '../lib/signIn.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-// The check line: the pages' own background reads (useMasteryRefresh states: mastery #52,
-// submissions and scores #108). Refreshing while any is; else a failure if any failed; else the
-// latest time any of them read.
-function checkLine(checks, now) {
-  if (!checks.length) return null;
-  if (checks.some((c) => c?.status === 'refreshing')) return { text: 'Checking Schoology for new work…' };
-  const failed = checks.filter((c) => c?.status === 'error');
-  if (failed.length) {
-    return {
-      text: 'Could not check Schoology for new work.', error: true,
-      title: failed.map((c) => c.error).filter(Boolean).join('; '), signIn: failed.some((c) => c.signIn),
-    };
-  }
-  const times = checks.map((c) => c?.syncedAt).filter(Boolean).sort();
-  const latest = times[times.length - 1];
-  return latest ? { text: `Checked for new work at ${freshnessTime(latest, now)}.` } : null;
-}
+const CHIP = {
+  queued: 'Waiting to sync…',
+  running: 'Syncing…',
+  failed: 'Sync failed',
+  held: 'Log in to Schoology',
+};
 
-// #58: a prominent "Synced …" (the last full sync of the course or task: nightly, Sync Courses, or
-// this button), amber when a day old or never; the button beside it; and one small line for the
-// pages' own background reads.
-export default function SyncStatus({ label, syncedAt, syncing = false, onSync, checks = [], now = new Date() }) {
-  const stale = !syncedAt || now.getTime() - Date.parse(syncedAt) >= DAY_MS;
-  const check = checkLine(checks, now);
+// One "Synced …" per page (Graham, 20/10/2026: confidence comes from not having to second guess
+// the data): the last time everything in the page's scope synced, amber when a day old or never
+// (never amber for an archived course, whose data is frozen). Beside it, the Sync button, and
+// while the page's background sync (useBackgroundSync) is queued, running, failed or waiting for
+// a sign-in, a chip that opens the progress dialog on that run (`onOpen(runId)`), or the sign-in.
+export default function SyncStatus({ label, syncedAt, archived = false, sync = { state: 'idle' }, onSync, onOpen, now = new Date() }) {
+  const stale = !archived && (!syncedAt || now.getTime() - Date.parse(syncedAt) >= DAY_MS);
+  const chip = CHIP[sync?.state];
+  const busy = sync?.state === 'queued' || sync?.state === 'running';
   return (
     <div className={`sync-status${stale ? ' sync-status--stale' : ''}`}>
       <div className="sync-status__row">
         <span className="sync-status__time">{syncedAt ? `Synced ${freshnessTime(syncedAt, now)}` : 'Not synced yet'}</span>
-        <button type="button" className="primary sync-status__button" onClick={onSync} disabled={syncing}>
-          {syncing ? 'Syncing…' : label}
+        {chip && (
+          <button
+            type="button"
+            className={`sync-status__chip sync-status__chip--${sync.state}`}
+            onClick={() => (sync.state === 'held' ? goToSignIn() : onOpen?.(sync.runId))}
+          >
+            {busy && <span className="sync-spinner" aria-hidden="true" />}
+            {chip}
+          </button>
+        )}
+        <button type="button" className="primary sync-status__button" onClick={onSync} disabled={busy}>
+          {label}
         </button>
       </div>
-      {check && (
-        <p className={`sync-status__check${check.error ? ' sync-status__check--error' : ''}`} role="status" title={check.title || undefined}>
-          {check.text}
-          {check.signIn && (
-            <> <button type="button" className="ghost accent sync-status__signin" onClick={goToSignIn}>Log in to Schoology</button></>
-          )}
-        </p>
-      )}
     </div>
   );
 }

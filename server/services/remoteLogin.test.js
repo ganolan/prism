@@ -42,7 +42,7 @@ beforeEach(async () => {
   file = join(dir, 'storage-state.json');
   writeFileSync(file, JSON.stringify({ cookies: [{ name: 'SESSold', value: 'v' }], origins: [] }));
   fake = fakeBrowser(MS);
-  Object.assign(remoteLoginDeps, { launch: vi.fn(async () => fake.browser), stateFile: () => file, settleMs: 0 });
+  Object.assign(remoteLoginDeps, { launch: vi.fn(async () => fake.browser), stateFile: () => file, settleMs: 0, onSignedIn: vi.fn() });
 });
 afterEach(async () => {
   await stopRemoteLogin();
@@ -76,6 +76,8 @@ describe('remote sign-in', () => {
     expect(readdirSync(dir)).toEqual(['storage-state.json']);
     expect(fake.browser.close).toHaveBeenCalled();
     expect((await sessionStatus({ check: false, hasSession: () => true })).live).toBe('connected');
+    // Background sync: the syncs held for a sign-in run now.
+    expect(remoteLoginDeps.onSignedIn).toHaveBeenCalledTimes(1);
   });
 
   test('already signed in (Microsoft remembered): done at once', async () => {

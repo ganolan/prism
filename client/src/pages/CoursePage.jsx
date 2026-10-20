@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, refreshMasteryForCourse, getSubmissionLinks, getTriage, setMakeUpIgnored, setAssessmentPublished, getQuizGroups, getCourseCommentSummaries, refreshCourse } from '../services/api.js';
+import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, getSubmissionLinks, getTriage, setMakeUpIgnored, setAssessmentPublished, getQuizGroups, getCourseCommentSummaries } from '../services/api.js';
 import AnalyticsView from '../components/AnalyticsView.jsx';
 import OverridePopup from '../components/OverridePopup.jsx';
 import TriageSection from '../components/triage/TriageSection.jsx';
@@ -10,7 +10,7 @@ import { LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
 import { LetterGradePopup, LETTER_GRADE_COLORS } from '../components/MasteryPerformanceSummary.jsx';
 import SyncStatus from '../components/SyncStatus.jsx';
 import SyncDialog from '../components/SyncDialog.jsx';
-import { useMasteryRefresh } from '../hooks/useMasteryRefresh.js';
+import { useBackgroundSync } from '../hooks/useBackgroundSync.js';
 import { gradeLabel, submissionStatus, ltiStatusUnavailable } from '../lib/gradeLabel.js';
 import { masteryCodeForLevel, computeLetterGrade } from '../lib/masteryLevels.js';
 import { useProficiencyScale } from '../hooks/useProficiencyScale.js';
@@ -50,8 +50,10 @@ export default function CoursePage() {
   const [mastery, setMastery] = useState(null);
   const [view, setView] = useStickyTab('course', 'roster');
   const [loading, setLoading] = useState(true);
-  // #58: Sync Course opens the sync dialog preset to this course.
+  // #58: Sync Course opens the sync dialog preset to this course; the chip opens it on the
+  // background sync's run (followRun).
   const [syncOpen, setSyncOpen] = useState(false);
+  const [followRun, setFollowRun] = useState(null);
   const bumpDataVersion = useBumpDataVersion();
   const [overrideTarget, setOverrideTarget] = useState(null); // { studentUid, category, currentLevel, hasOverride }
   const [overrideSaving, setOverrideSaving] = useState(false);
@@ -118,33 +120,18 @@ export default function CoursePage() {
     setMastery(m);
   }
 
-  // #52: after the page loads, read this course's mastery from Schoology again (the server skips it
-  // when read in the last 2 minutes) and show the fresh levels, on the roster and in the gradebook
-  // (whose "aligned" flag a read can change). An archived course's levels no longer change, so it is
-  // not read.
-  const masteryFreshness = useMasteryRefresh(
-    courseLive ? `${id}:${dataVersion}` : null,
-    () => refreshMasteryForCourse(id),
-    async () => {
-      const g = await getGradebook(id).catch(() => null);
+  // Background sync: after the page loads, the server syncs this course in full when it was last
+  // synced (or tried) over 10 minutes ago; when that run ends, every part of the page reloads. An
+  // archived course's data is frozen: only Sync Course re-reads it.
+  const backgroundSync = useBackgroundSync(courseLive ? { kind: 'courses', courseIds: [Number(id)] } : null, {
+    onDone: async () => {
+      const [c, g] = await Promise.all([getCourse(id).catch(() => null), getGradebook(id).catch(() => null)]);
+      if (c) setCourse(c);
       if (g) setGradebook(g);
       await refreshMastery();
-    },
-  );
-
-  // #108: then read this course's tasks (its triage panel's, and those due in the last 30 days or
-  // later) from Schoology: new submissions and scores reach the gradebook and the triage rail
-  // without a sync. The rail does not read on its own here (refresh={false}).
-  const submissionsFreshness = useMasteryRefresh(
-    courseLive ? `${id}:${dataVersion}` : null,
-    () => refreshCourse(id),
-    async () => {
-      const g = await getGradebook(id).catch(() => null);
-      if (g) setGradebook(g);
       setTriageVersion((v) => v + 1);
     },
-  );
-
+  });
 
   if (loading) return <div className="loading">Loading...</div>;
   if (!course) return <div className="error-msg">Course not found</div>;
@@ -175,14 +162,14 @@ export default function CoursePage() {
           </p>
 
           <div className="course-header__actions">
-            {/* #58: when this course last had a full sync, and the button for one now. The check line
-                is the page's own background reads (mastery #52, submissions and scores #108). */}
+            {/* When this course last synced in full, the background sync's chip, and Sync Course. */}
             <SyncStatus
               label="Sync Course"
               syncedAt={course.course_synced_at}
+              archived={!courseLive}
+              sync={syncOpen ? { state: 'running' } : backgroundSync}
               onSync={() => setSyncOpen(true)}
-              syncing={syncOpen}
-              checks={courseLive ? [masteryFreshness, submissionsFreshness] : []}
+              onOpen={(runId) => setFollowRun(runId)}
             />
           </div>
         </div>
@@ -192,6 +179,9 @@ export default function CoursePage() {
             onClose={() => setSyncOpen(false)}
             onSyncComplete={bumpDataVersion}
           />
+        )}
+        {followRun != null && !syncOpen && (
+          <SyncDialog followRunId={followRun} onClose={() => setFollowRun(null)} onSyncComplete={bumpDataVersion} />
         )}
 
         <div className="course-header__tabs">
@@ -267,7 +257,7 @@ export default function CoursePage() {
         </div>
         {courseLive && (
           <TriageSection
-            id="course-triage" version={triageVersion} courseId={Number(id)} refresh={false}
+            id="course-triage" version={triageVersion} courseId={Number(id)}
             hidden={view === 'gradebook' && !railOnGradebook}
             onLoaded={(t) => setTriageRed(redCount(t))}
             onMakeUpIgnored={(aid) => patchMakeUpIgnored(aid, true)}

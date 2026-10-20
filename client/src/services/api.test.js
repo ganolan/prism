@@ -1,72 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as api from './api.js';
-import { runSync, getSyncRuns, getSyncRun, getSyncRunEvents, getCurrentSync, previewStatusLine, getStatusLineUntil, undoResubmission, undoExtension, recordExtension } from './api.js';
-
-function streamResponse(lines) {
-  const body = {
-    getReader() {
-      let i = 0;
-      const enc = new TextEncoder();
-      return {
-        read() {
-          if (i < lines.length) {
-            return Promise.resolve({ done: false, value: enc.encode(lines[i++]) });
-          }
-          return Promise.resolve({ done: true, value: undefined });
-        },
-      };
-    },
-  };
-  return { ok: true, status: 200, body };
-}
+import { getSyncRuns, getSyncRun, getSyncRunEvents, getCurrentSync, previewStatusLine, getStatusLineUntil, undoResubmission, undoExtension, recordExtension } from './api.js';
 
 afterEach(() => { vi.unstubAllGlobals(); });
-
-describe('runSync', () => {
-  it('parses newline-delimited JSON events and calls onEvent for each', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(streamResponse([
-      '{"phase":"schoology","status":"done"}\n{"type":',
-      '"summary","mastery":[]}\n',
-    ])));
-    const events = [];
-    await runSync({ masteryCourseIds: [1] }, (e) => events.push(e));
-    expect(events).toEqual([
-      { phase: 'schoology', status: 'done' },
-      { type: 'summary', mastery: [] },
-    ]);
-  });
-
-  it('throws a clear error on 409', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: false, status: 409, json: async () => ({ error: 'Sync already in progress' }),
-    }));
-    await expect(runSync({}, () => {})).rejects.toThrow(/already running/i);
-  });
-
-  it('a 409 error carries the running runId so the caller can join it', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: false, status: 409, json: async () => ({ error: 'Sync already in progress', runId: 42 }),
-    }));
-    await expect(runSync({}, () => {})).rejects.toMatchObject({ status: 409, runId: 42 });
-  });
-
-  it('passes an abort signal through to fetch', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(streamResponse(['{"type":"run","runId":7}\n']));
-    vi.stubGlobal('fetch', fetchMock);
-    const controller = new AbortController();
-    const events = [];
-    await runSync({}, (e) => events.push(e), { signal: controller.signal });
-    expect(fetchMock.mock.calls[0][1].signal).toBe(controller.signal);
-    expect(events).toEqual([{ type: 'run', runId: 7 }]);
-  });
-
-  it('throws the server-provided message on a generic error', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: false, status: 500, json: async () => ({ error: 'internal error' }),
-    }));
-    await expect(runSync({}, () => {})).rejects.toThrow('internal error');
-  });
-});
 
 describe('sync run endpoints', () => {
   const ok = (body) => vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => body });
@@ -136,16 +72,21 @@ describe('triage status lines (Amendment B)', () => {
   });
 });
 
-describe('on-demand reads (#108)', () => {
-  it('refreshTriage and refreshCourse POST and answer syncedAt = readAt for the refresh hook', async () => {
+describe('the sync queue (background sync)', () => {
+  it('startSync, ensureSync and resumeSync POST JSON and answer it', async () => {
     const calls = [];
     vi.stubGlobal('fetch', vi.fn(async (url, opts) => {
       calls.push([url, opts.method, opts.body]);
-      return { ok: true, status: 200, json: async () => ({ refreshed: 1, readAt: '2026-10-19T07:00:00.000Z', failed: [] }) };
+      return { ok: true, status: 200, json: async () => ({ runId: 4, state: 'queued', joined: false }) };
     }));
-    expect(await api.refreshTriage({ courseId: 5 })).toMatchObject({ refreshed: 1, syncedAt: '2026-10-19T07:00:00.000Z' });
-    expect(await api.refreshCourse(5)).toMatchObject({ syncedAt: '2026-10-19T07:00:00.000Z' });
-    expect(calls[0]).toEqual(['/api/triage/refresh', 'POST', JSON.stringify({ courseId: 5 })]);
-    expect(calls[1].slice(0, 2)).toEqual(['/api/courses/5/refresh', 'POST']);
+    expect(await api.startSync({ courseIds: [5] })).toEqual({ runId: 4, state: 'queued', joined: false });
+    await api.ensureSync({ kind: 'courses', courseIds: [5] });
+    await api.resumeSync();
+    expect(calls).toEqual([
+      ['/api/sync', 'POST', JSON.stringify({ courseIds: [5] })],
+      ['/api/sync/ensure', 'POST', JSON.stringify({ scope: { kind: 'courses', courseIds: [5] } })],
+      ['/api/sync/resume', 'POST', '{}'],
+    ]);
   });
 });
+

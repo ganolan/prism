@@ -1513,3 +1513,11 @@ Chosen 18/10/2026 from three mockups (state chip on every row, verb where it mat
 - **One small line under it** for the page's own background reads (#52, #108): "Checked for new work at 10:05 today.", "Checking Schoology for new work…", or "Could not check Schoology for new work." in `var(--badge-red-text)` with **Log in to Schoology** when the session lapsed. It replaces the course page's two muted freshness lines and the assessment page's mastery line.
 - **Sync Course runs in the sync dialog** (the same progress view as Sync Courses), so it shows each phase and survives a dropped connection; the button reads "Syncing…" while the dialog is open.
 - **Phone:** the label and button sit at the start of the line (PHONE LAYOUT block).
+
+## Background sync: one "Synced" time and a chip (October 2026)
+
+- **One time per page** (Graham, 20/10/2026: "Confidence comes from not having to second guess the data"): `SyncStatus` shows only "Synced 10:05 today", the last time *everything* in the page's scope synced (Schoology data, every submission read, comment threads, mastery). The "Checked for new work" line and the muted mastery lines are gone. Amber when a day old or never; never amber for an archived course (frozen data).
+- **The chip** beside it while the page's background sync is queued ("Waiting to sync…"), running ("Syncing…", with the small spinner), failed ("Sync failed", red outline) or held for a sign-in ("Log in to Schoology", amber fill). A rounded outline button (`.sync-status__chip`, 0.78rem, weight 600); clicking it opens the progress dialog on that run (or the sign-in). The Sync button is disabled while the chip shows a queued or running sync.
+- **Where:** course page (Sync Course), assessment page (Sync Assignment), dashboard header on the Current tab (Sync Courses; the time is the oldest current course's), student page beside "Courses" (Sync Courses for that student's courses; the oldest of them).
+- **The dialog** follows queued runs: "Waiting for the running sync to finish, then this one starts."; a held run shows "Waiting for a Schoology sign-in" with **Log in to Schoology**.
+

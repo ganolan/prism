@@ -3,12 +3,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import AssessmentSummaryPage from './AssessmentSummaryPage.jsx';
-import { getMasteryForAssignment, refreshMasteryForAssignment, getFeedbackForAssignment, syncMasteryForAssignment } from '../services/api.js';
+import { getMasteryForAssignment, getFeedbackForAssignment, syncMasteryForAssignment, ensureSync, getCurrentSync, getSyncRun } from '../services/api.js';
 
 vi.mock('../lib/assessmentDraftSaver.js', () => ({ makeDraftSaver: () => ({ save: vi.fn(), remove: vi.fn(), flush: vi.fn(), dispose: vi.fn() }) }));
 vi.mock('../services/api.js', () => ({
   getMasteryForAssignment: vi.fn(),
-  refreshMasteryForAssignment: vi.fn(),
+  ensureSync: vi.fn(),
+  getCurrentSync: vi.fn(),
+  getSyncRun: vi.fn(),
+  getSyncRunEvents: vi.fn(),
   getSubmissionLinks: vi.fn().mockResolvedValue({ status: 'not_lti', links: {} }),
   getAttemptLinks: vi.fn().mockResolvedValue({ links: {} }),
   getQuizGroupFor: vi.fn().mockResolvedValue({ group: null }),
@@ -67,75 +70,54 @@ const renderPage = () => render(
     <Routes><Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} /></Routes>
   </MemoryRouter>,
 );
-const check = () => screen.getByText(/new work/);
+const IDLE = { running: null, runId: null, queued: [], held: [] };
 
 beforeEach(() => {
   vi.clearAllMocks();
   sessionStorage.clear();
+  ensureSync.mockResolvedValue({ state: 'fresh' });
+  getCurrentSync.mockResolvedValue(IDLE);
+  getSyncRun.mockResolvedValue({ id: 4, status: 'completed', summary: { comments: { queued: 0 } } });
 });
 
-describe('AssessmentSummaryPage mastery refresh (#52)', () => {
-  it('Schoology changed and nothing is unsaved: the new data swaps in without the Loading screen', async () => {
-    getMasteryForAssignment.mockResolvedValueOnce(page('Old')).mockResolvedValue(page('New from Schoology', { at: NEW }));
-    refreshMasteryForAssignment.mockResolvedValue({ refreshed: true, syncedAt: NEW });
+describe('AssessmentSummaryPage background sync', () => {
+  it('asks the queue for this task after loading; no partial reads; one "Synced" time', async () => {
+    getMasteryForAssignment.mockResolvedValue(page('Same'));
     renderPage();
-    await waitFor(() => expect(refreshMasteryForAssignment).toHaveBeenCalledWith('5', '950'));
-    // The compare read, then the quiet reload (which fetches the rest of the page again).
+    await waitFor(() => expect(ensureSync).toHaveBeenCalledWith({ kind: 'task', courseId: 5, assignmentId: '950' }));
+    expect(await screen.findByText(/^Synced \d\d:\d\d today$/)).toBeInTheDocument();
+    expect(screen.queryByText(/new work/)).toBeNull();
+  });
+
+  it('a background sync that ends swaps the new data in, without the Loading screen, when nothing is unsaved', async () => {
+    getMasteryForAssignment.mockResolvedValueOnce(page('Old')).mockResolvedValue(page('New from Schoology', { at: NEW }));
+    ensureSync.mockResolvedValue({ state: 'running', runId: 4 });
+    renderPage();
     await waitFor(() => expect(getFeedbackForAssignment).toHaveBeenCalledTimes(2));
     expect(screen.queryByText('Loading...')).toBeNull();
-    await waitFor(() => expect(check().textContent).toMatch(/^Checked for new work at /));
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
-  it('nothing changed in Schoology: only the time moves, no reload', async () => {
-    getMasteryForAssignment.mockResolvedValue(page('Same'));
-    refreshMasteryForAssignment.mockResolvedValue({ refreshed: true, syncedAt: NEW });
-    renderPage();
-    await waitFor(() => expect(getMasteryForAssignment).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(check().textContent).toMatch(/^Checked for new work at /));
-    expect(getFeedbackForAssignment).toHaveBeenCalledTimes(1);
-  });
-
-  it('an archived course is not refreshed', async () => {
+  it('an archived course is not synced in the background', async () => {
     getMasteryForAssignment.mockResolvedValue(page('Done', { archived: 1 }));
     renderPage();
     await screen.findByText(/^Synced /);
-    expect(refreshMasteryForAssignment).not.toHaveBeenCalled();
-    expect(screen.queryByText(/new work/)).toBeNull();
+    expect(ensureSync).not.toHaveBeenCalled();
   });
-});
 
-describe('AssessmentSummaryPage Sync Assignment (#58)', () => {
-  it('shows when the task was last synced, and Sync Assignment syncs it', async () => {
+  it('Sync Assignment queues the task and follows its run (the chip shows it)', async () => {
     getMasteryForAssignment.mockResolvedValue(page('Same'));
-    refreshMasteryForAssignment.mockResolvedValue({ refreshed: false, syncedAt: NEW });
-    syncMasteryForAssignment.mockResolvedValue({ scoresCount: 1, taskSyncedAt: SYNCED });
+    syncMasteryForAssignment.mockResolvedValue({ runId: 12, state: 'queued', joined: false });
+    getCurrentSync.mockResolvedValue({ ...IDLE, running: { runId: 12 }, runId: 12 });
     renderPage();
-    expect(await screen.findByText(/^Synced \d\d:\d\d today$/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Sync Assignment' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sync Assignment' }));
     await waitFor(() => expect(syncMasteryForAssignment).toHaveBeenCalledWith('5', '950'));
+    expect(await screen.findByRole('button', { name: 'Syncing…' })).toBeInTheDocument();
   });
 
   it('a task deleted in Schoology says so', async () => {
-    getMasteryForAssignment.mockResolvedValue(page('Same'));
-    refreshMasteryForAssignment.mockResolvedValue({ refreshed: false, syncedAt: NEW });
-    syncMasteryForAssignment.mockResolvedValue({ removed: true });
+    getMasteryForAssignment.mockResolvedValue({ ...page('Same'), assignment: { title: 'Project', is_test: 0, removed_at: '2026-10-20T00:00:00Z' } });
     renderPage();
-    fireEvent.click(await screen.findByRole('button', { name: 'Sync Assignment' }));
     expect(await screen.findByText('This task was deleted in Schoology.')).toBeInTheDocument();
   });
-
-  it('a failed mastery read still reloads the page (the task\'s other data was synced)', async () => {
-    getMasteryForAssignment.mockResolvedValue(page('Same'));
-    refreshMasteryForAssignment.mockResolvedValue({ refreshed: false, syncedAt: NEW });
-    syncMasteryForAssignment.mockRejectedValue(new Error('Schoology API 500'));
-    renderPage();
-    const button = await screen.findByRole('button', { name: 'Sync Assignment' });
-    await waitFor(() => expect(refreshMasteryForAssignment).toHaveBeenCalled());
-    const before = getMasteryForAssignment.mock.calls.length;
-    fireEvent.click(button);
-    await screen.findByText(/^Error: Schoology API 500/);
-    await waitFor(() => expect(getMasteryForAssignment.mock.calls.length).toBe(before + 1));
-  });
 });
-

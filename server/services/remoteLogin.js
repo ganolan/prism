@@ -23,6 +23,8 @@ export const remoteLoginDeps = {
   now: () => Date.now(),
   idleMs: 10 * 60 * 1000,
   settleMs: 400, // after a tap or key, let the page react before the next screen
+  // Background sync: the syncs held for a sign-in run as soon as the teacher signs in.
+  onSignedIn: async () => (await import('./syncQueue.js')).resumeHeld(),
 };
 
 let current = null; // { browser, page, status, lastActive, message }
@@ -52,6 +54,7 @@ async function finishIfSignedIn() {
   noteSessionLive('connected');
   console.log('[remoteLogin] Signed in; session saved');
   await close('done');
+  try { await remoteLoginDeps.onSignedIn(); } catch (err) { console.error('[remoteLogin] Could not resume held syncs:', err.message); }
   return true;
 }
 

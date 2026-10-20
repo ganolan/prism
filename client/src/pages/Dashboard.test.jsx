@@ -16,6 +16,13 @@ vi.mock('../services/api.js', () => ({
   getReferrals: vi.fn(),
   undoReferral: vi.fn(),
   getMasteryLoginStatus: vi.fn(),
+  ensureSync: vi.fn(),
+  getCurrentSync: vi.fn(),
+  getSyncRun: vi.fn(),
+  getSyncRunEvents: vi.fn(),
+  getTriageCalendar: vi.fn(),
+  getSyncMetrics: vi.fn(),
+  startSync: vi.fn(),
 }));
 
 beforeEach(() => {
@@ -26,6 +33,9 @@ beforeEach(() => {
   api.getSyncStatus.mockResolvedValue({});
   api.getTriage.mockResolvedValue(null);
   api.getMasteryLoginStatus.mockResolvedValue({ loggedIn: true, live: 'connected' });
+  api.ensureSync.mockResolvedValue({ state: 'fresh' });
+  api.getCurrentSync.mockResolvedValue({ running: null, runId: null, queued: [], held: [] });
+  api.getTriageCalendar.mockResolvedValue(null);
 });
 
 function renderDashboard() {
@@ -309,3 +319,25 @@ describe('Dashboard — stats strip (#137)', () => {
     expect(screen.queryByRole('region', { name: 'At a glance' })).not.toBeInTheDocument();
   });
 });
+
+describe('Dashboard — background sync', () => {
+  it('asks the queue to sync every current course; shows the oldest course\'s time', async () => {
+    const recent = new Date().toISOString();
+    api.getCoursesByView.mockResolvedValue([
+      { id: 1, course_name: 'A', course_synced_at: recent },
+      { id: 2, course_name: 'B', course_synced_at: '2026-10-18T19:00:00.000Z' },
+    ]);
+    renderDashboard();
+    expect(await screen.findByText(/^Synced 19\/10\/2026|^Synced 18\/10\/2026|^Synced \d\d:\d\d today$/)).toBeInTheDocument();
+    expect(api.ensureSync).toHaveBeenCalledWith({ kind: 'all' });
+    expect(screen.queryByText(/^Synced \d\d:\d\d today$/)).toBeNull(); // the oldest, not the newest
+  });
+
+  it('Sync Courses on the dashboard opens the course list', async () => {
+    api.getCoursesByView.mockResolvedValue([{ id: 1, course_name: 'A', course_synced_at: new Date().toISOString() }]);
+    renderDashboard();
+    fireEvent.click(await screen.findByRole('button', { name: 'Sync Courses' }));
+    expect(await screen.findByText(/Each ticked course gets everything/)).toBeInTheDocument();
+  });
+});
+

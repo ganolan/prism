@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatDate, formatDateTime, formatTime, localIsoDate } from './formatDate.js';
+import { formatDate, formatDateTime, formatTime, localIsoDate, freshnessTime } from './formatDate.js';
 
 // A fixed local-time moment, so the test passes in any timezone.
 const d = new Date(2026, 8, 6, 17, 40, 43); // 6 September 2026, 17:40:43
@@ -44,5 +44,14 @@ describe('localIsoDate', () => {
     expect(localIsoDate(new Date(2026, 0, 5, 23, 59))).toBe('2026-01-05');
     expect(localIsoDate(new Date(2026, 9, 3, 0, 1))).toBe('2026-10-03');
     expect(localIsoDate('nonsense')).toBe('');
+  });
+});
+
+describe('freshnessTime (the "Synced" label)', () => {
+  const NOW = new Date('2026-10-19T06:30:00');
+  it('a time today, else the day-first date and time', () => {
+    expect(freshnessTime(new Date('2026-10-19T03:02:00').toISOString(), NOW)).toBe('03:02 today');
+    expect(freshnessTime(new Date('2026-10-18T03:02:00').toISOString(), NOW)).toBe('18/10/2026, 03:02');
+    expect(freshnessTime(null, NOW)).toBe('');
   });
 });

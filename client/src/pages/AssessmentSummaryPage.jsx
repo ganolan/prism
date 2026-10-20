@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import LargerScreenNote from '../components/LargerScreenNote.jsx';
 import { useParams, Link, useSearchParams, Navigate, useLocation } from 'react-router-dom';
-import { getMasteryForAssignment, refreshMasteryForAssignment, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, getTriagePair, loadQuizResults, rebuildQuizOverall, saveRowLevels, getAssignmentCommentSummaries, getAssignmentFileSummaries } from '../services/api.js';
+import { getMasteryForAssignment, getSyncRun, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, getTriagePair, loadQuizResults, rebuildQuizOverall, saveRowLevels, getAssignmentCommentSummaries, getAssignmentFileSummaries } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 import { feedbackRowTopics, rowScores, rowTopicMapping, isRowKey, rowName } from '../lib/feedbackRows.js';
 import { makeDraftSaver } from '../lib/assessmentDraftSaver.js';
@@ -9,7 +9,7 @@ import { useUndoableText } from '../hooks/useUndoableText.js';
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
 import { rubricAverage } from '../lib/rubricAverage.js';
 import { studentFullName } from '../lib/studentNames.js';
-import { useDataVersion } from '../hooks/useDataVersion.jsx';
+import { useDataVersion, useBumpDataVersion } from '../hooks/useDataVersion.jsx';
 import { LEVELS, LEVEL_LABELS, LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
 import { useProficiencyScale } from '../hooks/useProficiencyScale.js';
 import RubricDescriptorGrid from '../components/RubricDescriptorGrid.jsx';
@@ -44,7 +44,8 @@ import { briefFlags, textSignature } from '../lib/reviewerFlags.js';
 import { receivedLine, composeComment, lineDate } from '../lib/statusLines.js';
 import { afterRefresh } from '../lib/assessmentFreshness.js';
 import SyncStatus from '../components/SyncStatus.jsx';
-import { useMasteryRefresh } from '../hooks/useMasteryRefresh.js';
+import { useBackgroundSync } from '../hooks/useBackgroundSync.js';
+import SyncDialog from '../components/SyncDialog.jsx';
 
 const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
 // Suggestion accent — fuchsia CSS tokens (matches descriptor grid's --ai-suggest).
@@ -1875,9 +1876,9 @@ export default function AssessmentSummaryPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [refreshing, setRefreshing] = useState(false);
+  const [followRun, setFollowRun] = useState(null); // the chip opens the progress on this run
+  const bumpDataVersion = useBumpDataVersion();
   const [refreshResult, setRefreshResult] = useState(null);
-  const [removedInSchoology, setRemovedInSchoology] = useState(false);
   const [feedbackByStudent, setFeedbackByStudent] = useState({});
   const [draftByStudent, setDraftByStudent] = useState({});
   const [analysis, setAnalysis] = useState(null);
@@ -2179,35 +2180,25 @@ export default function AssessmentSummaryPage() {
       .catch(() => settle({ status: 'error', links: {} }));
   }
 
-  // #58 Sync Assignment: the task's details, submissions, grades, comments and mastery, read now.
+  // Sync Assignment: a forced task run in the server's queue (the task's details, submissions,
+  // grades, comment threads, then its mastery); the chip follows it and the page reloads at the end.
   async function handleRefresh() {
-    setRefreshing(true);
     setRefreshResult(null);
     if (data?.assignment?.is_lti_submission) loadWorkLinks({ refresh: true });
     try {
-      const result = await syncMasteryForAssignment(courseId, assignmentId);
-      if (result?.removed) { setRemovedInSchoology(true); return; }
-      load();
-      // The comment threads it started are read in the background: look again when they should be done.
-      const queued = result?.comments?.queued ?? 0;
-      if (queued > 0) {
-        clearTimeout(commentPoll.current);
-        commentPoll.current = setTimeout(() => loadCommentSummaries(false), Math.min(60000, queued * 700 + 2000));
-      }
+      const r = await syncMasteryForAssignment(courseId, assignmentId);
+      backgroundSync.follow(r.runId);
     } catch (err) {
       setRefreshResult(`Error: ${err.message}`);
-      load(); // a failed mastery read comes after the task's details, submissions and grades were synced
-    } finally {
-      setRefreshing(false);
     }
   }
 
   useEffect(() => { load(); }, [courseId, assignmentId, dataVersion]);
 
-  // #52: after the page loads, read this assignment's levels and comments from Schoology again (the
-  // server skips it when read in the last 2 minutes). Newer data swaps in only when no card has
+  // Background sync: after the page loads, the server syncs this task in full when it was last synced
+  // (or tried) over 10 minutes ago. When a sync of it ends, newer data swaps in only when no card has
   // unsaved changes; otherwise a banner asks for a save or discard first, since a reload would drop a
-  // draft that no longer matches Schoology. An archived course is not read.
+  // draft that no longer matches Schoology. An archived course is only re-read by Sync Assignment.
   const dataRef = useRef(null);
   dataRef.current = data;
   const pendingRef = useRef(pendingByUid);
@@ -2219,10 +2210,18 @@ export default function AssessmentSummaryPage() {
     if (step === 'ask') setNewerInSchoology(true);
     else if (step === 'reload') load({ quiet: true });
   }
-  const masteryFreshness = useMasteryRefresh(
-    data && !data.course?.archived ? `${courseId}:${assignmentId}:${dataVersion}` : null,
-    () => refreshMasteryForAssignment(courseId, assignmentId),
-    afterMasteryRefresh,
+  const backgroundSync = useBackgroundSync(
+    data && !data.course?.archived ? { kind: 'task', courseId: Number(courseId), assignmentId: String(assignmentId) } : null,
+    {
+      onDone: async (status, runId) => {
+        await afterMasteryRefresh();
+        // The comment threads the run started are read in the background: look again when they should be done.
+        const queued = (await getSyncRun(runId).catch(() => null))?.summary?.comments?.queued ?? 0;
+        clearTimeout(commentPoll.current);
+        if (queued > 0) commentPoll.current = setTimeout(() => loadCommentSummaries(false), Math.min(60000, queued * 700 + 2000));
+        else loadCommentSummaries(false);
+      },
+    },
   );
 
   // Submission comment badges. The first read also queues a background read of
@@ -2385,14 +2384,18 @@ export default function AssessmentSummaryPage() {
           <SyncStatus
             label="Sync Assignment"
             syncedAt={assignment.task_synced_at}
-            syncing={refreshing}
+            archived={Boolean(data.course?.archived)}
+            sync={backgroundSync}
             onSync={handleRefresh}
-            checks={data.course?.archived ? [] : [masteryFreshness]}
+            onOpen={(runId) => setFollowRun(runId)}
           />
+          {followRun != null && (
+            <SyncDialog followRunId={followRun} onClose={() => setFollowRun(null)} onSyncComplete={bumpDataVersion} />
+          )}
           {refreshResult && (
             <span className="text-sm text-muted" style={{ fontSize: '0.75rem' }}>{refreshResult}</span>
           )}
-          {removedInSchoology && (
+          {assignment.removed_at && (
             <div className="alert alert-warning" role="alert" style={{ flexBasis: '100%' }}>This task was deleted in Schoology.</div>
           )}
           {newerInSchoology && (

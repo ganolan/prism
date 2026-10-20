@@ -3,11 +3,12 @@ import { useParams, Link } from 'react-router-dom';
 import { formatDate, formatDateTime } from '../lib/formatDate.js';
 import {
   getStudent, updateStudent, updateParentPhone,
-  createNote, updateNote, deleteNote, refreshMasteryForCourse,
+  createNote, updateNote, deleteNote, startSync,
 } from '../services/api.js';
 import MasteryPerformanceSummary from '../components/MasteryPerformanceSummary.jsx';
-import MasteryFreshness from '../components/MasteryFreshness.jsx';
-import { useMasteryRefresh } from '../hooks/useMasteryRefresh.js';
+import { useBackgroundSync } from '../hooks/useBackgroundSync.js';
+import SyncStatus from '../components/SyncStatus.jsx';
+import SyncDialog from '../components/SyncDialog.jsx';
 import AssignmentFeedback from '../components/AssignmentFeedback.jsx';
 import PsAlertReveal from '../components/PsAlertReveal.jsx';
 import AttemptLink from '../components/quiz/AttemptLink.jsx';
@@ -20,7 +21,7 @@ import SubmissionFiles, { hasNativeSubmission } from '../components/SubmissionFi
 import HelpDot from '../components/HelpDot.jsx';
 import { CLOCK_HELP, lateText } from '../lib/submissionTimeline.js';
 import { gradeLabel, submissionStatus } from '../lib/gradeLabel.js';
-import { useDataVersion } from '../hooks/useDataVersion.jsx';
+import { useDataVersion, useBumpDataVersion } from '../hooks/useDataVersion.jsx';
 import { formatGradeBadge } from '../lib/gradeLevel.js';
 import { preferredFirstName } from '../lib/studentNames.js';
 
@@ -72,18 +73,11 @@ export function CourseSection({
   course, grades, flagsByAssignment, studentUid, scales, studentName = 'the student', attemptLinks = {}, rubrics = NO_RUBRICS,
   studentId = null, workLinks = {}, commentSummaries = null, onCommentSummary = () => {},
   fileSummaries = null, onFileSummary = () => {},
-  refreshKey = 0, onMasteryRefreshed = () => {},
+  refreshKey = 0,
 }) {
   const [expanded, setExpanded] = useState(true);
-  // #52: after the page loads, read this course's mastery from Schoology again (the server skips it
-  // when read in the last 2 minutes); when it was read, the summary and the page's topic chips reload.
-  // An archived course's levels no longer change, so it is not read.
-  const [masteryVersion, setMasteryVersion] = useState(0);
-  const masteryFreshness = useMasteryRefresh(
-    course.archived ? null : `${course.id}:${refreshKey}`,
-    () => refreshMasteryForCourse(course.id),
-    () => { setMasteryVersion((v) => v + 1); onMasteryRefreshed(); },
-  );
+  // The page syncs its courses in the background and bumps `refreshKey` when a sync ends: the summary
+  // reloads with it.
 
   return (
     <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -114,12 +108,11 @@ export function CourseSection({
         <div className="student-course__body">
           {/* Mastery Performance Summary (SBG grid) */}
           <div style={{ marginTop: '1rem', marginBottom: '0.5rem' }}>
-            {!course.archived && <MasteryFreshness state={masteryFreshness} />}
             <MasteryPerformanceSummary
               courseId={course.id}
               studentUid={studentUid}
               courseName={course.course_name}
-              reloadKey={masteryVersion}
+              reloadKey={refreshKey}
             />
           </div>
 
@@ -296,6 +289,24 @@ export default function StudentPage() {
   }
 
   useEffect(() => { reload(); }, [id, dataVersion]);
+
+  // Background sync: the student's current courses, in full, when one was last synced (or tried) over
+  // 10 minutes ago; when that run ends the page and every course summary reload. Sync Courses here
+  // queues those courses now; the chip opens the progress of the run.
+  const liveCourseIds = (student?.courses ?? []).filter((c) => !c.archived).map((c) => c.id);
+  const [syncVersion, setSyncVersion] = useState(0);
+  const [followRun, setFollowRun] = useState(null);
+  const bumpDataVersion = useBumpDataVersion();
+  const backgroundSync = useBackgroundSync(liveCourseIds.length ? { kind: 'courses', courseIds: liveCourseIds } : null, {
+    onDone: () => { reload(); setSyncVersion((v) => v + 1); },
+  });
+  async function syncStudentCourses() {
+    const r = await startSync({ courseIds: liveCourseIds, syncBlocks: false }).catch(() => null);
+    if (r?.runId != null) backgroundSync.follow(r.runId);
+  }
+  const liveCourses = (student?.courses ?? []).filter((c) => !c.archived);
+  const oldestSynced = liveCourses.length && liveCourses.every((c) => c.course_synced_at)
+    ? liveCourses.map((c) => c.course_synced_at).sort()[0] : null;
 
   // The student's attempts on linked or combined Schoology tests, by Schoology assignment id.
   const attemptLinks = useAttemptLinks({ studentId: id, reloadKey: dataVersion });
@@ -543,7 +554,21 @@ export default function StudentPage() {
 
       {/* Per-course collapsible sections */}
       {coursesWithGrades.length > 0 && (
-        <h3 style={{ margin: '1.5rem 0 0.5rem', fontWeight: 600 }}>Courses</h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', margin: '1.5rem 0 0.5rem' }}>
+          <h3 style={{ margin: 0, fontWeight: 600 }}>Courses</h3>
+          {liveCourseIds.length > 0 && (
+            <SyncStatus
+              label="Sync Courses"
+              syncedAt={oldestSynced}
+              sync={backgroundSync}
+              onSync={syncStudentCourses}
+              onOpen={(runId) => setFollowRun(runId)}
+            />
+          )}
+        </div>
+      )}
+      {followRun != null && (
+        <SyncDialog followRunId={followRun} onClose={() => setFollowRun(null)} onSyncComplete={bumpDataVersion} />
       )}
       {student.courses.map(course => {
         const grades = gradesByCourse[course.id] || [];
@@ -565,8 +590,7 @@ export default function StudentPage() {
             onCommentSummary={setCommentSummary}
             fileSummaries={fileSummaries}
             onFileSummary={setFileSummary}
-            refreshKey={dataVersion}
-            onMasteryRefreshed={reload}
+            refreshKey={dataVersion + syncVersion}
           />
         );
       })}

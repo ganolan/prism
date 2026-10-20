@@ -1,6 +1,6 @@
-// #52/#108: the course page reads its mastery, submissions and scores from Schoology after it loads, and
-// reloads what changed. #58: a prominent "Synced …" (course_synced_at) beside Sync Course, and one
-// "Checked for new work …" line for those background reads.
+// Background sync: the course page asks the queue to sync its course after it loads (nothing when synced
+// in the last 10 minutes), shows one "Synced …" (course_synced_at) with a chip while it syncs, and
+// reloads when the sync ends. Sync Course queues a full sync now.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
@@ -22,6 +22,11 @@ beforeEach(() => {
   vi.mocked(api.getCourseStudents).mockResolvedValue([]);
   vi.mocked(api.getGradebook).mockResolvedValue({ assignments: [], folders: [], students: [], grades: {} });
   vi.mocked(api.getTriage).mockResolvedValue(null);
+  vi.mocked(api.getMasteryForCourse).mockResolvedValue(mastery(OLD));
+  vi.mocked(api.ensureSync).mockResolvedValue({ state: 'fresh' });
+  vi.mocked(api.getCurrentSync).mockResolvedValue({ running: null, runId: null, queued: [], held: [] });
+  vi.mocked(api.startSync).mockResolvedValue({ runId: 9, state: 'queued', joined: false });
+  vi.mocked(api.getSyncRunEvents).mockResolvedValue({ status: 'running', finished: false, events: [] });
   vi.mocked(api.getProficiencyScale).mockResolvedValue({
     schoologyScaleId: 21337256,
     levels: [
@@ -39,64 +44,42 @@ const renderPage = () => render(
     <Routes><Route path="/course/:id" element={<CoursePage />} /></Routes>
   </MemoryRouter>,
 );
-const check = () => screen.getByText(/new work/);
 
-describe('CoursePage background reads (#52, #108)', () => {
-  it('after loading, refreshes mastery and reloads the levels when it was read', async () => {
-    vi.mocked(api.getMasteryForCourse).mockResolvedValueOnce(mastery(OLD)).mockResolvedValue(mastery(NEW));
-    vi.mocked(api.refreshMasteryForCourse).mockResolvedValue({ refreshed: true, syncedAt: NEW });
+describe('CoursePage background sync', () => {
+  it('asks the queue for this course after loading; no partial reads', async () => {
     renderPage();
-    await waitFor(() => expect(api.refreshMasteryForCourse).toHaveBeenCalledWith('5'));
-    await waitFor(() => expect(api.getMasteryForCourse).toHaveBeenCalledTimes(2));
-    expect(api.getGradebook).toHaveBeenCalledTimes(2); // its "aligned" flags can change too
-  });
-
-  it('reads the course\'s tasks once and reloads the gradebook when it read some', async () => {
-    vi.mocked(api.getMasteryForCourse).mockResolvedValue(mastery(OLD));
-    vi.mocked(api.refreshMasteryForCourse).mockResolvedValue({ refreshed: false, syncedAt: OLD });
-    vi.mocked(api.refreshCourse).mockResolvedValue({ refreshed: 3, readAt: NEW, syncedAt: NEW, failed: [] });
-    renderPage();
-    await waitFor(() => expect(api.refreshCourse).toHaveBeenCalledWith('5'));
-    await waitFor(() => expect(api.getGradebook).toHaveBeenCalledTimes(2));
-    expect(api.refreshCourse).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(check().textContent).toMatch(/^Checked for new work at /));
-  });
-
-  it('a failed check says so and offers the sign-in', async () => {
-    vi.mocked(api.getMasteryForCourse).mockResolvedValue(mastery(OLD));
-    vi.mocked(api.refreshMasteryForCourse).mockResolvedValue({ refreshed: false, syncedAt: OLD, error: 'Log in to Schoology in Settings', signIn: true });
-    vi.mocked(api.refreshCourse).mockResolvedValue({ refreshed: 0, readAt: NEW, syncedAt: NEW, failed: [] });
-    renderPage();
-    await waitFor(() => expect(check().textContent).toMatch(/^Could not check Schoology for new work\./));
-    expect(screen.getByRole('button', { name: 'Log in to Schoology' })).toBeInTheDocument();
-  });
-
-  it('an archived course is not read', async () => {
-    vi.mocked(api.getCourse).mockResolvedValue({ id: 5, course_name: 'AP CSP', archived: 1, course_synced_at: SYNCED });
-    vi.mocked(api.getMasteryForCourse).mockResolvedValue(mastery(OLD));
-    renderPage();
-    await screen.findByText(/^Synced /);
-    expect(api.refreshMasteryForCourse).not.toHaveBeenCalled();
-    expect(api.refreshCourse).not.toHaveBeenCalled();
-  });
-});
-
-describe('CoursePage Sync Course (#58)', () => {
-  it('shows when the course was last synced, prominently', async () => {
-    vi.mocked(api.getMasteryForCourse).mockResolvedValue(mastery(OLD));
-    renderPage();
+    await waitFor(() => expect(api.ensureSync).toHaveBeenCalledWith({ kind: 'courses', courseIds: [5] }));
+    expect(api.refreshMasteryForCourse).toBeUndefined(); // the partial page read is gone
+    expect(screen.queryByText(/new work/)).toBeNull();
     expect(await screen.findByText(/^Synced \d\d:\d\d today$/)).toBeInTheDocument();
   });
 
-  it('Sync Course syncs this course, everything, through the sync dialog', async () => {
-    vi.mocked(api.getMasteryForCourse).mockResolvedValue(mastery(OLD));
-    vi.mocked(api.getCurrentSync).mockResolvedValue({ running: false, runId: null, courseIds: null });
-    vi.mocked(api.getMasteryLoginStatus).mockResolvedValue({ loggedIn: true });
-    vi.mocked(api.getCourses).mockResolvedValue([]);
-    vi.mocked(api.runSync).mockResolvedValue(undefined);
+  it('while it syncs: the chip; clicking it opens the progress on that run; when it ends the page reloads', async () => {
+    vi.mocked(api.ensureSync).mockResolvedValue({ state: 'running', runId: 4 });
+    let running = true;
+    vi.mocked(api.getCurrentSync).mockImplementation(async () => (running
+      ? { running: { runId: 4 }, runId: 4, queued: [], held: [] }
+      : { running: null, runId: null, queued: [], held: [] }));
+    vi.mocked(api.getSyncRun).mockResolvedValue({ id: 4, status: 'completed' });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Syncing…' }));
+    await waitFor(() => expect(api.getSyncRunEvents).toHaveBeenCalledWith(4, 0));
+    const before = vi.mocked(api.getGradebook).mock.calls.length;
+    running = false;
+    await waitFor(() => expect(vi.mocked(api.getGradebook).mock.calls.length).toBeGreaterThan(before), { timeout: 4000 });
+  });
+
+  it('an archived course: no background sync, never amber', async () => {
+    vi.mocked(api.getCourse).mockResolvedValue({ id: 5, course_name: 'AP CSP', archived: 1, course_synced_at: OLD });
+    const { container } = renderPage();
+    await screen.findByText(/^Synced /);
+    expect(api.ensureSync).not.toHaveBeenCalled();
+    expect(container.querySelector('.sync-status')).not.toHaveClass('sync-status--stale');
+  });
+
+  it('Sync Course queues a full sync of this course and shows its progress', async () => {
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: 'Sync Course' }));
-    await waitFor(() => expect(api.runSync).toHaveBeenCalled());
-    expect(api.runSync.mock.calls[0][0]).toMatchObject({ courseIds: [5], masteryCourseIds: [5], syncBlocks: false });
+    await waitFor(() => expect(api.startSync).toHaveBeenCalledWith({ courseIds: [5], syncBlocks: false }));
   });
 });

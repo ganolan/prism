@@ -1,14 +1,12 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import {
   getTriage, recordReferral, recordExtension, setMakeUpIgnored,
-  updateResubmission, getStatusLineUntil, refreshTriage,
+  updateResubmission, getStatusLineUntil,
 } from '../../services/api.js';
 import { extensionLine, makeUpLine, extendResubmissionLine, gradeStandsLine } from '../../lib/statusLines.js';
 import StatusLineModal from '../StatusLineModal.jsx';
 import { useDataVersion } from '../../hooks/useDataVersion.jsx';
 import { localIsoDate } from '../../lib/formatDate.js';
-import { useMasteryRefresh } from '../../hooks/useMasteryRefresh.js';
-import MasteryFreshness from '../MasteryFreshness.jsx';
 import LateWorkPanel from './LateWorkPanel.jsx';
 import FeedbackOwedPanel from './FeedbackOwedPanel.jsx';
 import MakeUpPanel from './MakeUpPanel.jsx';
@@ -42,11 +40,8 @@ export function orderPanels(panels) {
     .map(({ p }) => p);
 }
 
-// After its first load the rail reads its tasks' submissions and scores from Schoology (#108) and
-// reloads when any were read; `refresh={false}` leaves that to the page (the course page reads its
-// own wider set and bumps `version`).
-const READ = { label: 'Submissions and scores', short: 'submissions' };
-export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnored, version = 0, hidden = false, id, refresh = true }) {
+// The page around it syncs from Schoology (background sync) and bumps `version` when a sync ends.
+export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnored, version = 0, hidden = false, id }) {
   const dataVersion = useDataVersion();
   const [data, setData] = useState(null);
   const [includeFormative, setIncludeFormative] = useState(undefined); // undefined → the Settings default
@@ -70,12 +65,6 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
   }, [courseId, includeFormative]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load(); }, [load, dataVersion, version]);
-
-  const freshness = useMasteryRefresh(
-    refresh && data ? `${courseId}:${includeFormative}:${dataVersion}` : null,
-    () => refreshTriage({ courseId, includeFormative }),
-    () => load(),
-  );
 
   // A write, then refresh the lists (and an open history).
   async function write(fn) {
@@ -158,7 +147,6 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
   return rail(
     <>
       {error && <div className="alert alert-warning">{error}</div>}
-      {refresh && <MasteryFreshness state={freshness} subject={READ} />}
       {orderPanels([
         {
           key: 'unfinished', rows: data.unfinishedGrading ?? [], pinned: true,

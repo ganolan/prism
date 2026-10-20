@@ -3,11 +3,21 @@ import { Link } from 'react-router-dom';
 import { getCourses, getCoursesByView, getSyncStatus, toggleCourseVisibility } from '../services/api.js';
 import { groupBySemester, groupByYearAndSemester } from '../lib/courseDisplay.js';
 import ArchivedCoursesPanel from '../components/ArchivedCoursesPanel.jsx';
-import { useDataVersion } from '../hooks/useDataVersion.jsx';
+import { useDataVersion, useBumpDataVersion } from '../hooks/useDataVersion.jsx';
+import { useBackgroundSync } from '../hooks/useBackgroundSync.js';
+import SyncStatus from '../components/SyncStatus.jsx';
+import SyncDialog from '../components/SyncDialog.jsx';
 import { useStickyTab } from '../hooks/useStickyTab.js';
 import TriageSection from '../components/triage/TriageSection.jsx';
 import StatsStrip from '../components/triage/StatsStrip.jsx';
 import { courseTriageSummary, courseRedLine } from '../lib/triage.js';
+
+// The oldest course_synced_at among the visible current courses; null when one never synced.
+function oldestSynced(courses) {
+  const live = courses.filter((c) => !c.archived && !c.hidden);
+  if (!live.length || live.some((c) => !c.course_synced_at)) return null;
+  return live.map((c) => c.course_synced_at).sort()[0];
+}
 
 export default function Dashboard() {
   const dataVersion = useDataVersion();
@@ -19,6 +29,13 @@ export default function Dashboard() {
   // editingBlock: courseId currently being edited, blockDraft: current input value
   const [settingsCard, setSettingsCard] = useState(null);
   const [triage, setTriage] = useState(null);
+  const bumpDataVersion = useBumpDataVersion();
+  // Background sync: every current course, in full, when one was last synced over 10 minutes ago;
+  // when that run ends every open page reloads. Sync Courses opens the course list; the chip opens
+  // the progress of the background run.
+  const backgroundSync = useBackgroundSync({ kind: 'all' }, { onDone: () => bumpDataVersion() });
+  const [syncOpen, setSyncOpen] = useState(false);
+  const [followRun, setFollowRun] = useState(null);
 
   async function reload() {
     try {
@@ -138,9 +155,23 @@ export default function Dashboard() {
   return (
     <div className="fade-in">
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', gap: '1rem', flexWrap: 'wrap' }}>
         <h2 className="page-title" style={{ marginBottom: 0 }}>Dashboard</h2>
+        {activeTab === 'current' && (
+          // The oldest current course's full-sync time: the dashboard is only as fresh as that.
+          <SyncStatus
+            label="Sync Courses"
+            syncedAt={oldestSynced(courses)}
+            sync={syncOpen ? { state: 'running' } : backgroundSync}
+            onSync={() => setSyncOpen(true)}
+            onOpen={(runId) => setFollowRun(runId)}
+          />
+        )}
       </div>
+      {syncOpen && <SyncDialog onClose={() => setSyncOpen(false)} onSyncComplete={bumpDataVersion} />}
+      {followRun != null && !syncOpen && (
+        <SyncDialog followRunId={followRun} onClose={() => setFollowRun(null)} onSyncComplete={bumpDataVersion} />
+      )}
 
       {/* Controls: tab toggle + show hidden */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>

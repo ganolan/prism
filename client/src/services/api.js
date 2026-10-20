@@ -66,60 +66,20 @@ export const getSyncMetrics = () => request('/sync/metrics');
 // Sync runs (persisted history + event log; see server/routes/schoology.js).
 export const getSyncRuns = (limit = 30) => request(`/sync/runs?limit=${limit}`);
 export const getSyncRun = (id) => request(`/sync/runs/${id}`);
-// Incremental events for re-attaching to a run: { status, finished, events: [{ seq, ... }] }.
+// A run's events after `afterSeq`: { status ('queued' | 'held' | 'running' | finished), finished, events: [{ seq, ... }] }.
 export const getSyncRunEvents = (id, afterSeq = 0) => request(`/sync/runs/${id}/events?after=${afterSeq}`);
-// { running, runId } — what (if anything) is syncing right now.
+// The queue: { running: { runId, courseIds, kind } | null, runId, queued: [...], held: [...] }.
 export const getCurrentSync = () => request('/sync/current');
 
-// Run the unified sync. Streams newline-delimited JSON progress events from the
-// server; each parsed event is passed to onEvent. The first event is
-// { type: 'run', runId } and every later one carries its `seq`, so a caller
-// whose stream drops can re-attach with getSyncRunEvents(runId, lastSeq).
-// Resolves when the stream ends. A 409 (a sync is already running) throws an
-// Error with `status: 409` and the running `runId`. `signal` aborts the stream
-// (the sync itself carries on server-side).
-export async function runSync(
-  { masteryCourseIds = [], skipSchoology = false, includeHidden = false, recentOnly = false, recentDays = 30, syncBlocks = true, courseIds = null },
-  onEvent,
-  { signal } = {},
-) {
-  const res = await fetch(`${BASE}/sync`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ masteryCourseIds, skipSchoology, includeHidden, recentOnly, recentDays, syncBlocks, courseIds }),
-    signal,
-  });
-  if (res.status === 409) {
-    const body = await res.json().catch(() => ({}));
-    const err = new Error('A sync is already running.');
-    err.status = 409;
-    err.runId = body.runId ?? null;
-    throw err;
-  }
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || `Sync failed: ${res.status}`);
-  }
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  const flush = (final) => {
-    let nl;
-    while ((nl = buffer.indexOf('\n')) >= 0) {
-      const line = buffer.slice(0, nl).trim();
-      buffer = buffer.slice(nl + 1);
-      if (line) onEvent(JSON.parse(line));
-    }
-    if (final && buffer.trim()) onEvent(JSON.parse(buffer.trim()));
-  };
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    flush(false);
-  }
-  flush(true);
-}
+// Background sync (20/10/2026): every sync is a run in the server's queue.
+// startSync: a button's sync → { runId, state, joined } (follow it with getSyncRunEvents).
+//   body: { courseIds?, masteryCourseIds?, skipSchoology?, includeHidden?, syncBlocks? }
+export const startSync = (body = {}) => request('/sync', { method: 'POST', body: JSON.stringify(body) });
+// ensureSync: a page asks for its scope after it loads → { state: 'fresh' | 'queued' | 'running', runId? }.
+//   scope: { kind: 'all' } | { kind: 'courses', courseIds } | { kind: 'task', courseId, assignmentId }
+export const ensureSync = (scope) => request('/sync/ensure', { method: 'POST', body: JSON.stringify({ scope }) });
+// resumeSync: after a sign-in, the syncs held for it run → { resumed }.
+export const resumeSync = () => request('/sync/resume', { method: 'POST', body: '{}' });
 
 // People search (school-wide directory — users outside your sections)
 export const searchPeople = (q, maxPages) =>
@@ -218,8 +178,6 @@ export const getMasteryForAssignment = (courseId, assignmentId) => request(`/mas
 // #52: after a page that shows mastery loads, read it from Schoology again unless it was read in
 // the last 2 minutes (the server decides). → { refreshed, syncedAt, error?, signIn? }; reload the
 // page's mastery when `refreshed`.
-export const refreshMasteryForCourse = (courseId) => request(`/mastery/${courseId}/refresh`, { method: 'POST' });
-export const refreshMasteryForAssignment = (courseId, assignmentId) => request(`/mastery/${courseId}/assignment/${assignmentId}/refresh`, { method: 'POST' });
 // Links to each student's own copy of an lti_submission assignment: OneDrive
 // (#120) or Google Drive (#142), the provider named on each link. Slow-ish for
 // OneDrive (a SharePoint sign-in, 2-4 s), so load it after the page, not with it.
@@ -278,14 +236,6 @@ export const getTriage = ({ courseId, includeFormative } = {}) => {
   const qs = p.toString();
   return request(`/triage${qs ? `?${qs}` : ''}`);
 };
-// #108: read the triage lists' tasks (submissions and scores) from Schoology again; the
-// server skips a task read in the last 2 minutes. → { refreshed, readAt, failed, error?, signIn? },
-// plus syncedAt (= readAt) for useMasteryRefresh.
-const withSyncedAt = (r) => (r ? { ...r, syncedAt: r.readAt ?? null } : r);
-export const refreshTriage = ({ courseId = null, includeFormative } = {}) =>
-  request('/triage/refresh', { method: 'POST', body: JSON.stringify({ courseId, includeFormative }) }).then(withSyncedAt);
-// #108: the course page's read: its triage tasks plus its recent tasks.
-export const refreshCourse = (courseId) => request(`/courses/${courseId}/refresh`, { method: 'POST' }).then(withSyncedAt);
 // Calendar freshness only (source, totalSchoolDays, syncedAt) — cheaper than
 // the full triage payload; SyncConfig uses it to decide whether the
 // PowerSchool step should default on.

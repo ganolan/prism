@@ -1614,10 +1614,6 @@ button.cell-open:focus-visible { outline: 2px solid var(--accent); outline-offse
    a phone hides (email, grade, school). */
 .person-sub { font-size: 0.78rem; color: var(--text-muted); overflow-wrap: anywhere; }
 
-/* #52: when the mastery levels on a page were read from Schoology (MasteryFreshness). */
-.mastery-freshness { font-size: 0.8rem; color: var(--text-muted); margin: 0.25rem 0 0.5rem; }
-.mastery-freshness--error { color: var(--badge-red-text); }
-.mastery-freshness__action { font-size: 0.8rem; padding: 0 0.3rem; }
 
 /* #58: the prominent "Synced ..." label beside Sync Course / Sync Assignment, with the check line. */
 .sync-status { display: flex; flex-direction: column; align-items: flex-end; gap: 0.2rem; }
@@ -1628,9 +1624,17 @@ button.cell-open:focus-visible { outline: 2px solid var(--accent); outline-offse
 }
 .sync-status--stale .sync-status__time { color: var(--badge-amber-text); background: var(--badge-amber-bg); }
 .sync-status__button { white-space: nowrap; }
-.sync-status__check { font-size: 0.78rem; color: var(--text-muted); margin: 0; text-align: right; }
-.sync-status__check--error { color: var(--badge-red-text); }
-.sync-status__signin { font-size: 0.78rem; padding: 0 0.3rem; }
+/* Background sync: the chip beside the label while the page's sync waits, runs, failed or needs a
+   sign-in; it opens the progress dialog (or the sign-in). */
+.sync-status__chip {
+  display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.78rem; font-weight: 600;
+  padding: 0.2rem 0.6rem; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--card-bg); color: var(--text-muted); cursor: pointer;
+}
+.sync-status__chip--running, .sync-status__chip--queued { color: var(--accent); border-color: var(--accent-light); }
+.sync-status__chip--failed { color: var(--badge-red-text); border-color: var(--badge-red-text); }
+.sync-status__chip--held { color: var(--badge-amber-text); background: var(--badge-amber-bg); border-color: var(--badge-amber-bg); }
+.sync-status__chip .sync-spinner { width: 10px; height: 10px; }
 
 /* ========================================================================
    PHONE LAYOUT
@@ -1827,5 +1831,4 @@ button.cell-open:focus-visible { outline: 2px solid var(--accent); outline-offse
   /* #58: the sync label sits at the start of the line on a phone, not the right edge. */
   .sync-status { align-items: flex-start; }
   .sync-status__row { justify-content: flex-start; }
-  .sync-status__check { text-align: left; }
 }

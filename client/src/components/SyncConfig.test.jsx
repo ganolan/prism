@@ -162,13 +162,13 @@ describe('SyncConfig', () => {
     expect(groupCheckbox.indeterminate).toBe(true);
   });
 
-  it('#58: not logged in: the course list still shows, with a note that mastery will be skipped', () => {
+  it('not logged in: the course list still shows, and the sync waits for the sign-in', () => {
     render(
       <SyncConfig courses={COURSES} loggedIn={false} busy={false}
         onStart={() => {}} onCancel={() => {}} onLogin={() => {}} />
     );
     expect(screen.getByRole('button', { name: /log in to schoology/i })).toBeInTheDocument();
-    expect(screen.getByText(/Mastery will be skipped/)).toBeInTheDocument();
+    expect(screen.getByText(/the sync waits for the sign-in/)).toBeInTheDocument();
     expect(screen.getByLabelText('Biology 9')).toBeInTheDocument();
   });
 

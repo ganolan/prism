@@ -6,17 +6,15 @@ import { signInDeps } from '../lib/signIn.js';
 
 vi.mock('../services/api.js');
 
+const SUMMARY = { seq: 2, type: 'summary', schoology: { records: 5 }, mastery: [], elapsedMs: 1000 };
+
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(api.getCourses).mockResolvedValue([
-    { id: 1, course_name: 'Biology 9', hidden: 0, archived: 0 },
-  ]);
+  vi.mocked(api.getCourses).mockResolvedValue([{ id: 1, course_name: 'Biology 9', hidden: 0, archived: 0 }]);
   vi.mocked(api.getMasteryLoginStatus).mockResolvedValue({ loggedIn: true });
   vi.mocked(api.getSyncMetrics).mockResolvedValue(null);
-  vi.mocked(api.getTriageCalendar).mockResolvedValue({
-    source: 'powerschool', totalSchoolDays: 120, syncedAt: new Date().toISOString(),
-  });
-  vi.mocked(api.getCurrentSync).mockResolvedValue({ running: false, runId: null });
+  vi.mocked(api.getTriageCalendar).mockResolvedValue({ source: 'powerschool', totalSchoolDays: 120, syncedAt: new Date().toISOString() });
+  vi.mocked(api.startSync).mockResolvedValue({ runId: 9, state: 'queued', joined: false });
   vi.mocked(api.getSyncRunEvents).mockReset();
 });
 
@@ -24,445 +22,129 @@ beforeEach(() => {
 let visibility = 'visible';
 Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => visibility });
 Object.defineProperty(document, 'hidden', { configurable: true, get: () => visibility === 'hidden' });
-function setVisibility(v) {
-  visibility = v;
-  document.dispatchEvent(new Event('visibilitychange'));
-}
 afterEach(() => { visibility = 'visible'; });
 
-const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-
-// A stream that hangs until aborted (records the signal).
-function hangingStream(runId, evts = []) {
-  const box = {};
-  vi.mocked(api.runSync).mockImplementation((opts, onEvent, o) => {
-    box.signal = o?.signal;
-    onEvent({ type: 'run', runId });
-    for (const e of evts) onEvent(e);
-    return new Promise((resolve, reject) => {
-      o.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
-    });
-  });
-  return box;
-}
-
-// A scripted poll endpoint: each call returns the next response.
+// A scripted poll endpoint: each call returns the next response (the last one repeats).
 function pollScript(responses) {
   const queue = [...responses];
   vi.mocked(api.getSyncRunEvents).mockImplementation(async () => (queue.length > 1 ? queue.shift() : queue[0]));
 }
+const done = (events = [{ seq: 1, phase: 'schoology', status: 'done', records: 5 }, SUMMARY]) => ({ status: 'completed', finished: true, events });
 
 async function clickStart() {
   await waitFor(() => screen.getByRole('button', { name: /sync courses/i }));
   fireEvent.click(screen.getByRole('button', { name: /sync courses/i }));
 }
 
-describe('SyncDialog', () => {
-  it('loads courses and shows the config step', async () => {
+describe('SyncDialog (the sync queue)', () => {
+  it('loads courses and shows the course list', async () => {
     render(<SyncDialog onClose={() => {}} />);
     await waitFor(() => expect(screen.getByText(/Each ticked course gets everything/)).toBeInTheDocument());
     expect(screen.getByLabelText('Biology 9')).toBeInTheDocument();
   });
 
-  it('switches to the progress overlay when Sync Courses is clicked', async () => {
-    vi.mocked(api.runSync).mockImplementation(async (opts, onEvent) => {
-      onEvent({ phase: 'schoology', status: 'done', records: 5 });
-      onEvent({ type: 'summary', schoology: { records: 5 }, mastery: [], elapsedMs: 1000 });
-    });
-    render(<SyncDialog onClose={() => {}} />);
-    await waitFor(() => screen.getByRole('button', { name: /sync courses/i }));
-    fireEvent.click(screen.getByRole('button', { name: /sync courses/i }));
-    await waitFor(() => expect(screen.getByText(/Sync complete/)).toBeInTheDocument());
-  });
-
-  it('shows the running overlay before the sync completes', async () => {
-    let finish;
-    vi.mocked(api.runSync).mockImplementation((opts, onEvent) => {
-      onEvent({ phase: 'schoology', status: 'running' });
-      return new Promise((resolve) => {
-        finish = () => {
-          onEvent({ type: 'summary', schoology: { records: 1 }, mastery: [], elapsedMs: 1 });
-          resolve();
-        };
-      });
-    });
-    render(<SyncDialog onClose={() => {}} />);
-    await waitFor(() => screen.getByRole('button', { name: /sync courses/i }));
-    fireEvent.click(screen.getByRole('button', { name: /sync courses/i }));
-    await waitFor(() => expect(screen.getByText('Syncing…')).toBeInTheDocument());
-    finish();
-    await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
-  });
-
-  it('retry re-runs the sync with skipSchoology for the failed course', async () => {
-    vi.mocked(api.runSync).mockImplementation(async (opts, onEvent) => {
-      if (opts.skipSchoology) {
-        onEvent({ phase: 'mastery', courseId: 1, courseName: 'Biology 9', status: 'done', records: 4 });
-        onEvent({ type: 'summary', schoology: null, mastery: [], elapsedMs: 1 });
-      } else {
-        onEvent({ phase: 'schoology', status: 'done', records: 5 });
-        onEvent({ phase: 'mastery', courseId: 1, courseName: 'Biology 9', status: 'error', errorKind: 'other', message: 'boom' });
-        onEvent({ type: 'summary', schoology: { records: 5 }, mastery: [], elapsedMs: 1 });
-      }
-    });
-    render(<SyncDialog onClose={() => {}} />);
-    await waitFor(() => screen.getByRole('button', { name: /sync courses/i }));
-    fireEvent.click(screen.getByRole('button', { name: /sync courses/i }));
-    await waitFor(() => expect(screen.getByText(/Sync finished with issues/)).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: /retry/i }));
-    await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
-    expect(api.runSync).toHaveBeenLastCalledWith(
-      expect.objectContaining({ skipSchoology: true, masteryCourseIds: [1] }),
-      expect.any(Function),
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
-    );
-  });
-
-  it('shows a failure heading when runSync throws', async () => {
-    vi.mocked(api.runSync).mockRejectedValue(new Error('network down'));
-    render(<SyncDialog onClose={() => {}} />);
-    await waitFor(() => screen.getByRole('button', { name: /sync courses/i }));
-    fireEvent.click(screen.getByRole('button', { name: /sync courses/i }));
-    await waitFor(() => expect(screen.getByText('Sync failed')).toBeInTheDocument());
-  });
-
-  it('calls onSyncComplete after a sync run finishes so open pages can refresh', async () => {
-    vi.mocked(api.runSync).mockImplementation(async (opts, onEvent) => {
-      onEvent({ phase: 'schoology', status: 'done', records: 5 });
-      onEvent({ type: 'summary', schoology: { records: 5 }, mastery: [], elapsedMs: 1000 });
-    });
+  it('Sync Courses queues the ticked courses and follows the run to the end', async () => {
+    pollScript([done()]);
     const onSyncComplete = vi.fn();
-    render(<SyncDialog onClose={() => {}} onSyncComplete={onSyncComplete} />);
-    await waitFor(() => screen.getByRole('button', { name: /sync courses/i }));
-    fireEvent.click(screen.getByRole('button', { name: /sync courses/i }));
+    render(<SyncDialog onClose={() => {}} onSyncComplete={onSyncComplete} pollMs={1} />);
+    await clickStart();
     await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
+    expect(api.startSync).toHaveBeenCalledWith(expect.objectContaining({ courseIds: [1] }));
+    expect(api.startSync.mock.calls[0][0].masteryCourseIds).toBeUndefined(); // mastery for every course read
+    expect(api.getSyncRunEvents).toHaveBeenCalledWith(9, 0);
     expect(onSyncComplete).toHaveBeenCalledTimes(1);
   });
 
-  it('does not call onSyncComplete when the sync request fails outright', async () => {
-    vi.mocked(api.runSync).mockRejectedValue(new Error('network down'));
+  it('a queued run says it is waiting its turn', async () => {
+    pollScript([{ status: 'queued', finished: false, events: [] }]);
+    render(<SyncDialog onClose={() => {}} pollMs={5} />);
+    await clickStart();
+    expect(await screen.findByText(/Waiting for the running sync to finish/)).toBeInTheDocument();
+  });
+
+  it('a held run asks for the sign-in; nothing ran', async () => {
+    pollScript([{ status: 'held', finished: false, events: [] }]);
+    const go = vi.spyOn(signInDeps, 'go').mockImplementation(() => {});
+    render(<SyncDialog onClose={() => {}} pollMs={1} />);
+    await clickStart();
+    expect(await screen.findByText('Waiting for a Schoology sign-in')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Log in to Schoology' }));
+    expect(go).toHaveBeenCalledWith('/settings#schoology-signin');
+    go.mockRestore();
+  });
+
+  it('Sync Course (presetCourse) queues that one course at once, PowerSchool off', async () => {
+    pollScript([done()]);
+    render(<SyncDialog presetCourse={{ id: 5, name: 'AP CSP' }} onClose={() => {}} pollMs={1} />);
+    await waitFor(() => expect(api.startSync).toHaveBeenCalledWith({ courseIds: [5], syncBlocks: false }));
+    expect(api.getCourses).not.toHaveBeenCalled();
+  });
+
+  it('followRunId (a page chip) follows that run and starts nothing', async () => {
+    pollScript([done()]);
+    render(<SyncDialog followRunId={4} onClose={() => {}} pollMs={1} />);
+    await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
+    expect(api.getSyncRunEvents).toHaveBeenCalledWith(4, 0);
+    expect(api.startSync).not.toHaveBeenCalled();
+  });
+
+  it('a request the queue joined says so', async () => {
+    api.startSync.mockResolvedValue({ runId: 3, state: 'queued', joined: true });
+    pollScript([{ status: 'running', finished: false, events: [] }]);
+    render(<SyncDialog onClose={() => {}} pollMs={5} />);
+    await clickStart();
+    expect(await screen.findByText(/already queued/)).toBeInTheDocument();
+  });
+
+  it('polls from the last seq it saw', async () => {
+    pollScript([
+      { status: 'running', finished: false, events: [{ seq: 1, type: 'log', message: 'Fetching sections' }] },
+      done([{ seq: 2, type: 'summary', schoology: { records: 2 }, mastery: [], elapsedMs: 1 }]),
+    ]);
+    render(<SyncDialog onClose={() => {}} pollMs={1} />);
+    await clickStart();
+    await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
+    expect(screen.getByText('Fetching sections')).toBeInTheDocument();
+    expect(api.getSyncRunEvents).toHaveBeenNthCalledWith(2, 9, 1);
+  });
+
+  it('an interrupted run (server restarted) ends as a failure', async () => {
+    pollScript([{ status: 'interrupted', finished: true, events: [] }]);
+    render(<SyncDialog onClose={() => {}} pollMs={1} />);
+    await clickStart();
+    await waitFor(() => expect(screen.getByText('Sync failed')).toBeInTheDocument());
+    expect(screen.getByText(/interrupted/i)).toBeInTheDocument();
+  });
+
+  it('a request that fails outright says the sync did not start, and refreshes nothing', async () => {
+    api.startSync.mockRejectedValue(new Error('Prism is restarting'));
     const onSyncComplete = vi.fn();
     render(<SyncDialog onClose={() => {}} onSyncComplete={onSyncComplete} />);
-    await waitFor(() => screen.getByRole('button', { name: /sync courses/i }));
-    fireEvent.click(screen.getByRole('button', { name: /sync courses/i }));
-    await waitFor(() => expect(screen.getByText('Sync failed')).toBeInTheDocument());
+    await clickStart();
+    expect(await screen.findByText(/The sync didn't start: Prism is restarting/)).toBeInTheDocument();
     expect(onSyncComplete).not.toHaveBeenCalled();
   });
 
-  it('shows the abandoned banner when sync_metrics reports abandoned', async () => {
-    vi.mocked(api.runSync).mockImplementation(async (opts, onEvent) => {
-      onEvent({ phase: 'schoology', status: 'done', records: 5 });
-      onEvent({ type: 'summary', schoology: { records: 5 }, mastery: [], elapsedMs: 1000 });
+  it('unreachable for long enough: the neutral stalled state, and Try again resumes', async () => {
+    let reachable = false;
+    vi.mocked(api.getSyncRunEvents).mockImplementation(async () => {
+      if (!reachable) throw new TypeError('Failed to fetch');
+      return done();
     });
-    vi.mocked(api.getSyncMetrics).mockResolvedValue({
-      id: 1, abandoned: 1, retries_failed: 0, failed_assignment_ids: [],
-    });
-    render(<SyncDialog onClose={() => {}} />);
-    await waitFor(() => screen.getByRole('button', { name: /sync courses/i }));
-    fireEvent.click(screen.getByRole('button', { name: /sync courses/i }));
-    await waitFor(() => expect(screen.getByText(/abandoned/i)).toBeInTheDocument());
+    render(<SyncDialog onClose={() => {}} pollMs={2} giveUpMs={10} />);
+    await clickStart();
+    fireEvent.click(await screen.findByRole('button', { name: /try again/i }));
+    reachable = true;
+    await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
   });
 
-  describe('surviving a dropped connection', () => {
-    it('stream error after the runId: no error, polls the run from the last seq, then completes', async () => {
-      vi.mocked(api.runSync).mockImplementation(async (opts, onEvent) => {
-        onEvent({ type: 'run', runId: 7 });
-        onEvent({ phase: 'schoology', status: 'running', seq: 1 });
-        onEvent({ type: 'log', message: 'Fetching sections', seq: 2 });
-        throw new TypeError('Load failed');
-      });
-      pollScript([
-        { status: 'running', finished: false, events: [{ seq: 3, type: 'log', message: 'Fetching grades' }] },
-        { status: 'completed', finished: true, events: [
-          { seq: 4, phase: 'schoology', status: 'done', records: 12 },
-          { seq: 5, type: 'summary', schoology: { records: 12 }, mastery: [], elapsedMs: 9000 },
-        ] },
-      ]);
-      const onSyncComplete = vi.fn();
-      render(<SyncDialog onClose={() => {}} onSyncComplete={onSyncComplete} pollMs={1} />);
-      await clickStart();
-      await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
-      expect(screen.queryByText(/Load failed/)).not.toBeInTheDocument();
-      expect(screen.getByText('Fetching sections')).toBeInTheDocument();
-      expect(screen.getByText('Fetching grades')).toBeInTheDocument();
-      expect(screen.getByText('12 records')).toBeInTheDocument();
-      expect(api.getSyncRunEvents).toHaveBeenNthCalledWith(1, 7, 2);
-      expect(api.getSyncRunEvents).toHaveBeenNthCalledWith(2, 7, 3);
-      expect(onSyncComplete).toHaveBeenCalledTimes(1);
-    });
-
-    it('shows the muted "connection lost" notice while it follows the run', async () => {
-      vi.mocked(api.runSync).mockImplementation(async (opts, onEvent) => {
-        onEvent({ type: 'run', runId: 7 });
-        throw new TypeError('Load failed');
-      });
-      pollScript([{ status: 'running', finished: false, events: [] }]);
-      render(<SyncDialog onClose={() => {}} pollMs={1} />);
-      await clickStart();
-      expect(await screen.findByText(/Connection lost: still syncing on the server/)).toBeInTheDocument();
-      expect(screen.getByText('Syncing…')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Close' })).toBeEnabled();
-    });
-
-    it('a stream that ends without a summary is followed to the end too', async () => {
-      vi.mocked(api.runSync).mockImplementation(async (opts, onEvent) => {
-        onEvent({ type: 'run', runId: 3 });
-        onEvent({ phase: 'schoology', status: 'running', seq: 1 });
-      });
-      pollScript([{ status: 'completed', finished: true, events: [
-        { seq: 2, phase: 'schoology', status: 'done', records: 4 },
-        { seq: 3, type: 'summary', schoology: { records: 4 }, mastery: [], elapsedMs: 1 },
-      ] }]);
-      render(<SyncDialog onClose={() => {}} pollMs={1} />);
-      await clickStart();
-      await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
-      expect(api.getSyncRunEvents).toHaveBeenCalledWith(3, 1);
-    });
-
-    it('an interrupted run (server restarted) ends as a failure', async () => {
-      vi.mocked(api.runSync).mockImplementation(async (opts, onEvent) => {
-        onEvent({ type: 'run', runId: 7 });
-        throw new TypeError('Load failed');
-      });
-      pollScript([{ status: 'interrupted', finished: true, events: [] }]);
-      render(<SyncDialog onClose={() => {}} pollMs={1} />);
-      await clickStart();
-      await waitFor(() => expect(screen.getByText('Sync failed')).toBeInTheDocument());
-      expect(screen.getByText(/interrupted/i)).toBeInTheDocument();
-    });
-
-    it('a drop before any runId joins the running sync if there is one', async () => {
-      vi.mocked(api.runSync).mockRejectedValue(new TypeError('Load failed'));
-      vi.mocked(api.getCurrentSync)
-        .mockResolvedValueOnce({ running: false, runId: null }) // dialog open
-        .mockResolvedValueOnce({ running: true, runId: 11 }); // after the drop
-      pollScript([{ status: 'completed', finished: true, events: [
-        { seq: 1, phase: 'schoology', status: 'done', records: 2 },
-        { seq: 2, type: 'summary', schoology: { records: 2 }, mastery: [], elapsedMs: 1 },
-      ] }]);
-      render(<SyncDialog onClose={() => {}} pollMs={1} />);
-      await clickStart();
-      await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
-      expect(api.getSyncRunEvents).toHaveBeenCalledWith(11, 0);
-    });
-
-    it('409: joins the running sync and shows its earlier events', async () => {
-      const conflict = Object.assign(new Error('A sync is already running.'), { status: 409, runId: 21 });
-      vi.mocked(api.runSync).mockRejectedValue(conflict);
-      let finishRun;
-      const gate = new Promise((r) => { finishRun = r; });
-      let calls = 0;
-      vi.mocked(api.getSyncRunEvents).mockImplementation(async () => {
-        if (calls++ === 0) {
-          return { status: 'running', finished: false, events: [
-            { seq: 1, phase: 'schoology', status: 'running' },
-            { seq: 2, type: 'log', message: 'Earlier line from the first device' },
-          ] };
-        }
-        await gate;
-        return { status: 'completed', finished: true, events: [
-          { seq: 3, phase: 'schoology', status: 'done', records: 8 },
-          { seq: 4, type: 'summary', schoology: { records: 8 }, mastery: [], elapsedMs: 1 },
-        ] };
-      });
-      render(<SyncDialog onClose={() => {}} pollMs={1} />);
-      await clickStart();
-      expect(await screen.findByText(/A sync is already running: showing its progress/)).toBeInTheDocument();
-      expect(await screen.findByText('Earlier line from the first device')).toBeInTheDocument();
-      finishRun();
-      await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
-      expect(api.getSyncRunEvents).toHaveBeenNthCalledWith(1, 21, 0);
-      expect(screen.queryByText('Sync failed')).not.toBeInTheDocument();
-    });
-
-    it('opening the dialog while a sync runs goes straight to the joined view', async () => {
-      vi.mocked(api.getCurrentSync).mockResolvedValue({ running: true, runId: 5 });
-      pollScript([
-        { status: 'running', finished: false, events: [
-          { seq: 1, phase: 'schoology', status: 'running' },
-          { seq: 2, type: 'log', message: 'Already under way' },
-        ] },
-      ]);
-      render(<SyncDialog onClose={() => {}} pollMs={1} />);
-      expect(await screen.findByText('Already under way')).toBeInTheDocument();
-      expect(screen.getByText(/A sync is already running: showing its progress/)).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /sync courses/i })).not.toBeInTheDocument();
-      expect(api.runSync).not.toHaveBeenCalled();
-    });
-
-    it('returning to the page while streaming switches to polling (stream may be silently dead)', async () => {
-      let signal;
-      vi.mocked(api.runSync).mockImplementation((opts, onEvent, o) => {
-        signal = o?.signal;
-        onEvent({ type: 'run', runId: 9 });
-        onEvent({ phase: 'schoology', status: 'running', seq: 1 });
-        // A hung stream: never resolves until aborted.
-        return new Promise((resolve, reject) => {
-          signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
-        });
-      });
-      pollScript([{ status: 'completed', finished: true, events: [
-        { seq: 2, phase: 'schoology', status: 'done', records: 3 },
-        { seq: 3, type: 'summary', schoology: { records: 3 }, mastery: [], elapsedMs: 1 },
-      ] }]);
-      render(<SyncDialog onClose={() => {}} pollMs={1} />);
-      await clickStart();
-      await waitFor(() => expect(signal).toBeDefined());
-      document.dispatchEvent(new Event('visibilitychange'));
-      await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
-      expect(signal.aborted).toBe(true);
-      expect(api.getSyncRunEvents).toHaveBeenCalledWith(9, 1);
-      expect(screen.queryByText(/aborted/)).not.toBeInTheDocument();
-    });
-
-    it('stream and poll overlap: events at or below the last seq are not repeated', async () => {
-      vi.mocked(api.runSync).mockImplementation(async (opts, onEvent) => {
-        onEvent({ type: 'run', runId: 7 });
-        onEvent({ type: 'log', message: 'line A', seq: 1 });
-        onEvent({ type: 'log', message: 'line B', seq: 2 });
-        throw new TypeError('Load failed');
-      });
-      pollScript([{ status: 'completed', finished: true, events: [
-        { seq: 1, type: 'log', message: 'line A' },
-        { seq: 2, type: 'log', message: 'line B' },
-        { seq: 3, type: 'log', message: 'line C' },
-        { seq: 4, type: 'summary', schoology: null, mastery: [], elapsedMs: 1 },
-      ] }]);
-      render(<SyncDialog onClose={() => {}} pollMs={1} />);
-      await clickStart();
-      await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
-      expect(screen.getAllByText('line A')).toHaveLength(1);
-      expect(screen.getAllByText('line B')).toHaveLength(1);
-      expect(screen.getAllByText('line C')).toHaveLength(1);
-    });
-
-    it('poll failures while the page is hidden do not count toward giving up', async () => {
-      vi.mocked(api.runSync).mockImplementation(async (opts, onEvent) => {
-        onEvent({ type: 'run', runId: 7 });
-        throw new TypeError('Load failed');
-      });
-      vi.mocked(api.getSyncRunEvents).mockRejectedValue(new TypeError('Load failed'));
-      render(<SyncDialog onClose={() => {}} pollMs={1} giveUpMs={40} />);
-      await waitFor(() => screen.getByRole('button', { name: /sync courses/i }));
-      visibility = 'hidden';
-      fireEvent.click(screen.getByRole('button', { name: /sync courses/i }));
-      await wait(150); // well past the budget, but all of it hidden
-      expect(screen.queryByText(/Couldn't reach Prism/)).not.toBeInTheDocument();
-      expect(screen.getByText('Syncing…')).toBeInTheDocument();
-      setVisibility('visible');
-      expect(await screen.findByText(/Couldn't reach Prism/)).toBeInTheDocument();
-    });
-
-    it('the visible-time budget ends in a neutral "can\'t reach" state, never "Sync failed"; Try again resumes', async () => {
-      vi.mocked(api.runSync).mockImplementation(async (opts, onEvent) => {
-        onEvent({ type: 'run', runId: 7 });
-        onEvent({ type: 'log', message: 'Fetching sections', seq: 1 });
-        throw new TypeError('Load failed');
-      });
-      vi.mocked(api.getSyncRunEvents).mockRejectedValue(new TypeError('Load failed'));
-      const onSyncComplete = vi.fn();
-      render(<SyncDialog onClose={() => {}} onSyncComplete={onSyncComplete} pollMs={1} giveUpMs={30} />);
-      await clickStart();
-      expect(await screen.findByText(/Couldn't reach Prism: the sync may still be running/)).toBeInTheDocument();
-      expect(screen.getByText(/Recent syncs/)).toBeInTheDocument();
-      expect(screen.queryByText('Sync failed')).not.toBeInTheDocument();
-      expect(screen.queryByText(/Load failed/)).not.toBeInTheDocument();
-      expect(screen.getByText('Fetching sections')).toBeInTheDocument();
-      expect(onSyncComplete).not.toHaveBeenCalled();
-
-      pollScript([{ status: 'completed', finished: true, events: [
-        { seq: 2, type: 'summary', schoology: null, mastery: [], elapsedMs: 1 },
-      ] }]);
-      fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
-      await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
-      expect(api.getSyncRunEvents).toHaveBeenLastCalledWith(7, 1);
-      expect(onSyncComplete).toHaveBeenCalledTimes(1);
-    });
-
-    it('returning to the page resets the failure clock', async () => {
-      vi.mocked(api.runSync).mockImplementation(async (opts, onEvent) => {
-        onEvent({ type: 'run', runId: 7 });
-        throw new TypeError('Load failed');
-      });
-      vi.mocked(api.getSyncRunEvents).mockRejectedValue(new TypeError('Load failed'));
-      render(<SyncDialog onClose={() => {}} pollMs={5} giveUpMs={400} />);
-      await clickStart();
-      await wait(250);
-      setVisibility('hidden');
-      setVisibility('visible'); // unlock: clock restarts
-      await wait(200); // ~450ms since the first failure, but only ~200ms since return
-      expect(screen.queryByText(/Couldn't reach Prism/)).not.toBeInTheDocument();
-      expect(await screen.findByText(/Couldn't reach Prism/)).toBeInTheDocument();
-    });
-
-    it('a drop before any runId retries finding the run before saying anything', async () => {
-      vi.mocked(api.runSync).mockRejectedValue(new TypeError('Load failed'));
-      vi.mocked(api.getCurrentSync)
-        .mockResolvedValueOnce({ running: false, runId: null }) // dialog open
-        .mockRejectedValueOnce(new TypeError('Load failed')) // still reconnecting
-        .mockRejectedValueOnce(new TypeError('Load failed'))
-        .mockResolvedValueOnce({ running: true, runId: 11 });
-      pollScript([{ status: 'completed', finished: true, events: [
-        { seq: 1, type: 'summary', schoology: null, mastery: [], elapsedMs: 1 },
-      ] }]);
-      render(<SyncDialog onClose={() => {}} pollMs={1} />);
-      await clickStart();
-      await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
-      expect(api.getCurrentSync).toHaveBeenCalledTimes(4);
-      expect(api.getSyncRunEvents).toHaveBeenCalledWith(11, 0);
-    });
-
-    it('a drop before any runId with Prism unreachable is the neutral state, not "Load failed"', async () => {
-      vi.mocked(api.runSync).mockRejectedValue(new TypeError('Load failed'));
-      vi.mocked(api.getCurrentSync)
-        .mockResolvedValueOnce({ running: false, runId: null })
-        .mockRejectedValue(new TypeError('Load failed'));
-      render(<SyncDialog onClose={() => {}} pollMs={1} />);
-      await clickStart();
-      expect(await screen.findByText(/Couldn't reach Prism/)).toBeInTheDocument();
-      expect(screen.queryByText(/Load failed/)).not.toBeInTheDocument();
-      expect(screen.queryByText('Sync failed')).not.toBeInTheDocument();
-      // Try again re-checks, finds the run, and follows it.
-      vi.mocked(api.getCurrentSync).mockResolvedValue({ running: true, runId: 4 });
-      pollScript([{ status: 'completed', finished: true, events: [
-        { seq: 1, type: 'summary', schoology: null, mastery: [], elapsedMs: 1 },
-      ] }]);
-      fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
-      await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
-    });
-
-    it('a network failure when Prism says nothing is running reads plainly', async () => {
-      vi.mocked(api.runSync).mockRejectedValue(new TypeError('Load failed'));
-      render(<SyncDialog onClose={() => {}} pollMs={1} />);
-      await clickStart();
-      await waitFor(() => expect(screen.getByText('Sync failed')).toBeInTheDocument());
-      expect(screen.queryByText(/Load failed/)).not.toBeInTheDocument();
-      expect(screen.getByText(/didn't start/)).toBeInTheDocument();
-    });
-
-    it('Close while following: closes, and the stream is aborted on unmount', async () => {
-      const box = hangingStream(9, [{ phase: 'schoology', status: 'running', seq: 1 }]);
-      const onClose = vi.fn();
-      const { unmount } = render(<SyncDialog onClose={onClose} pollMs={1} />);
-      await clickStart();
-      await waitFor(() => expect(box.signal).toBeDefined());
-      expect(screen.getByText(/keeps running on the server/)).toBeInTheDocument();
-      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-      expect(onClose).toHaveBeenCalledTimes(1);
-      unmount();
-      expect(box.signal.aborted).toBe(true);
-      expect(api.getSyncRunEvents).not.toHaveBeenCalled();
-    });
-
-    it('Close is offered on a joined run too', async () => {
-      vi.mocked(api.getCurrentSync).mockResolvedValue({ running: true, runId: 5 });
-      pollScript([{ status: 'running', finished: false, events: [{ seq: 1, type: 'log', message: 'Going' }] }]);
-      const onClose = vi.fn();
-      render(<SyncDialog onClose={onClose} pollMs={1} />);
-      await screen.findByText('Going');
-      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-      expect(onClose).toHaveBeenCalledTimes(1);
-    });
+  it('a mastery-only retry asks for skipSchoology on the failed course', async () => {
+    pollScript([done([{ seq: 1, phase: 'mastery', courseId: 1, courseName: 'Biology 9', status: 'error', message: 'boom' }, SUMMARY])]);
+    render(<SyncDialog onClose={() => {}} pollMs={1} />);
+    await clickStart();
+    const retry = await screen.findByRole('button', { name: /retry/i });
+    fireEvent.click(retry);
+    await waitFor(() => expect(api.startSync).toHaveBeenLastCalledWith({ masteryCourseIds: [1], skipSchoology: true, syncBlocks: false }));
   });
 });
 
@@ -474,117 +156,17 @@ describe('SyncDialog — Schoology connection status', () => {
     render(<SyncDialog onClose={() => {}} />);
     expect(await screen.findByText(/^Connected · checked/)).toBeInTheDocument();
     expect(api.getMasteryLoginStatus).toHaveBeenCalledWith({ check: false });
-    expect(api.getMasteryLoginStatus).toHaveBeenCalledWith({ refresh: false });
-    expect(screen.getByRole('button', { name: 'Check now' })).toBeInTheDocument();
   });
 
-  it('an expired session offers the login (even though a session file exists); it opens the sign-in in Settings', async () => {
+  it('an expired session offers the login; the sync waits for it', async () => {
     vi.mocked(api.getMasteryLoginStatus).mockImplementation(async ({ check = true } = {}) => (
       check ? { loggedIn: true, live: 'expired', checkedAt: null } : { loggedIn: true, live: null, checkedAt: null }
     ));
     const go = vi.spyOn(signInDeps, 'go').mockImplementation(() => {});
     render(<SyncDialog onClose={() => {}} />);
-    expect(await screen.findByText('Expired')).toBeInTheDocument();
-    expect(screen.getByText('Opens the sign-in in Settings, on this device: a phone works too.')).toBeInTheDocument();
+    expect(await screen.findByText(/waits for you to log in/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Log in to Schoology' }));
     expect(go).toHaveBeenCalledWith('/settings#schoology-signin');
     go.mockRestore();
   });
 });
-
-describe('SyncDialog: Sync Courses and Sync Course (#58)', () => {
-  const finishedRun = () => pollScript([{ status: 'completed', finished: true, events: [{ seq: 1, type: 'summary', schoology: null, mastery: [], elapsedMs: 1 }] }]);
-  const streamDone = () => vi.mocked(api.runSync).mockImplementation(async (opts, onEvent) => {
-    onEvent({ type: 'run', runId: 9 });
-    onEvent({ seq: 1, type: 'summary', schoology: null, mastery: [], elapsedMs: 1 });
-  });
-
-  it('sends the ticked courses as both the course list and the mastery list', async () => {
-    streamDone();
-    render(<SyncDialog onClose={() => {}} />);
-    await clickStart();
-    await waitFor(() => expect(api.runSync).toHaveBeenCalled());
-    expect(api.runSync.mock.calls[0][0]).toMatchObject({ courseIds: [1], masteryCourseIds: [1] });
-  });
-
-  it('without a mastery session the ticked courses still sync, with no mastery list', async () => {
-    vi.mocked(api.getMasteryLoginStatus).mockResolvedValue({ loggedIn: false });
-    streamDone();
-    render(<SyncDialog onClose={() => {}} />);
-    await clickStart();
-    await waitFor(() => expect(api.runSync).toHaveBeenCalled());
-    expect(api.runSync.mock.calls[0][0]).toMatchObject({ courseIds: [1], masteryCourseIds: [] });
-  });
-
-  it('a preset course starts at once: that course, with mastery, no PowerSchool', async () => {
-    streamDone();
-    render(<SyncDialog presetCourse={{ id: 5, name: 'AP CSP' }} onClose={() => {}} />);
-    await waitFor(() => expect(api.runSync).toHaveBeenCalled());
-    expect(api.runSync.mock.calls[0][0]).toMatchObject({ courseIds: [5], masteryCourseIds: [5], syncBlocks: false });
-    expect(screen.queryByRole('button', { name: /sync courses/i })).not.toBeInTheDocument();
-  });
-
-  it('a preset course joins a running sync that covers it', async () => {
-    vi.mocked(api.getCurrentSync).mockResolvedValue({ running: true, runId: 4, courseIds: null });
-    finishedRun();
-    render(<SyncDialog presetCourse={{ id: 5, name: 'AP CSP' }} onClose={() => {}} />);
-    await waitFor(() => expect(api.getSyncRunEvents).toHaveBeenCalledWith(4, 0));
-    await wait(30);
-    expect(api.runSync).not.toHaveBeenCalled();
-  });
-
-  it('a preset course waits for a running sync of other courses, then runs its own', async () => {
-    vi.mocked(api.getCurrentSync).mockResolvedValue({ running: true, runId: 4, courseIds: [2, 3] });
-    let finish;
-    vi.mocked(api.getSyncRunEvents).mockImplementation(() => new Promise((r) => { finish = r; }));
-    streamDone();
-    render(<SyncDialog presetCourse={{ id: 5, name: 'AP CSP' }} onClose={() => {}} pollMs={5} />);
-    expect(await screen.findByText(/Waiting for the running sync/)).toBeInTheDocument();
-    expect(api.runSync).not.toHaveBeenCalled();
-    finish({ status: 'completed', finished: true, events: [] });
-    await waitFor(() => expect(api.runSync).toHaveBeenCalled());
-    expect(api.runSync.mock.calls[0][0]).toMatchObject({ courseIds: [5] });
-  });
-});
-
-describe('SyncDialog review fixes (#58)', () => {
-  const streamDone = () => vi.mocked(api.runSync).mockImplementation(async (opts, onEvent) => {
-    onEvent({ type: 'run', runId: 9 });
-    onEvent({ seq: 1, type: 'summary', schoology: null, mastery: [], elapsedMs: 1 });
-  });
-
-  it('an expired session: the ticked courses sync without mastery', async () => {
-    vi.mocked(api.getMasteryLoginStatus).mockResolvedValue({ loggedIn: true, live: 'expired' });
-    streamDone();
-    render(<SyncDialog onClose={() => {}} />);
-    await screen.findByText(/Mastery will be skipped/);
-    await clickStart();
-    await waitFor(() => expect(api.runSync).toHaveBeenCalled());
-    expect(api.runSync.mock.calls[0][0]).toMatchObject({ courseIds: [1], masteryCourseIds: [] });
-  });
-
-  it('a preset course whose 409 race finds nothing running starts its own run again', async () => {
-    vi.mocked(api.runSync)
-      .mockRejectedValueOnce(Object.assign(new Error('A sync is already running.'), { status: 409, runId: 4 }))
-      .mockImplementation(async (opts, onEvent) => { onEvent({ type: 'run', runId: 9 }); onEvent({ seq: 1, type: 'summary', schoology: null, mastery: [], elapsedMs: 1 }); });
-    vi.mocked(api.getCurrentSync).mockResolvedValue({ running: false, runId: null, courseIds: null });
-    render(<SyncDialog presetCourse={{ id: 5, name: 'AP CSP' }} onClose={() => {}} />);
-    await waitFor(() => expect(api.runSync).toHaveBeenCalledTimes(2));
-  });
-
-  it('Try again after a stall while waiting still runs this course afterwards', async () => {
-    vi.mocked(api.getCurrentSync).mockResolvedValue({ running: true, runId: 4, courseIds: [2] });
-    let reachable = false;
-    vi.mocked(api.getSyncRunEvents).mockImplementation(async () => {
-      if (!reachable) throw new TypeError('Failed to fetch');
-      return { status: 'completed', finished: true, events: [] };
-    });
-    streamDone();
-    render(<SyncDialog presetCourse={{ id: 5, name: 'AP CSP' }} onClose={() => {}} pollMs={5} giveUpMs={20} />);
-    fireEvent.click(await screen.findByRole('button', { name: /try again/i }));
-    reachable = true;
-    await waitFor(() => expect(api.runSync).toHaveBeenCalled());
-    expect(api.runSync.mock.calls[0][0]).toMatchObject({ courseIds: [5] });
-  });
-});
-

@@ -34,3 +34,14 @@ export function localIsoDate(value = new Date()) {
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
+
+// The "Synced" label (SyncStatus): "14:05 today", else "18/10/2026, 03:02".
+export function freshnessTime(iso, now = new Date()) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  if (localIsoDate(d) === localIsoDate(now)) {
+    return `${d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })} today`;
+  }
+  return formatDateTime(d);
+}

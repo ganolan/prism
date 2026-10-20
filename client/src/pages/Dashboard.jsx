@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { getCourses, getCoursesByView, toggleCourseVisibility } from '../services/api.js';
 import { groupBySemester, groupByYearAndSemester } from '../lib/courseDisplay.js';
@@ -14,9 +14,15 @@ import TriageSection from '../components/triage/TriageSection.jsx';
 import StatsStrip from '../components/triage/StatsStrip.jsx';
 import { courseTriageSummary, courseRedLine } from '../lib/triage.js';
 
+// The first run (#171): a course whose first read has not finished yet is 'pending', and stays off
+// the dashboard until it has (one whose read failed is shown, with a "Sync failed" badge).
+const isPending = (c) => c.first_sync === 'pending';
+const COURSES_POLL_MS = 3000;
+const PAST_IMPORT_POLL_MS = 5000;
+
 // The oldest course_synced_at among the tab's visible courses; null when one never synced.
 function oldestSynced(courses, archived) {
-  const live = courses.filter((c) => Boolean(c.archived) === archived && !c.hidden);
+  const live = courses.filter((c) => Boolean(c.archived) === archived && !c.hidden && !isPending(c));
   if (!live.length || live.some((c) => !c.course_synced_at)) return null;
   return live.map((c) => c.course_synced_at).sort()[0];
 }
@@ -66,6 +72,37 @@ export default function Dashboard() {
     reload();
   }, [activeTab, showHidden, dataVersion]);
 
+  // The first run: "Getting your courses: X of Y" over the Current tab's courses (not the excluded
+  // ones), X those whose first read finished. The list is fetched again every 3 seconds while any
+  // is pending, and while the run goes with no course listed yet (so its first courses show).
+  const counted = activeTab === 'current' ? courses.filter((c) => !c.excluded) : [];
+  const pendingCount = counted.filter(isPending).length;
+  const waitingForCourses = courses.length === 0 && (backgroundSync.state === 'queued' || backgroundSync.state === 'running');
+  const pollCourses = activeTab === 'current' && (pendingCount > 0 || waitingForCourses);
+  useEffect(() => {
+    if (!pollCourses) return undefined;
+    const timer = setInterval(reload, COURSES_POLL_MS);
+    return () => clearInterval(timer);
+  }, [pollCourses, showHidden]);
+
+  // The past-course import (Archived tab): its status every 5 seconds while it imports (or waits to
+  // start: the first run has just ended), and the archived courses again whenever its count moves.
+  const pastImport = syncFacts.pastImport;
+  const importing = activeTab === 'archived' && pastImport?.state === 'importing';
+  const pollImport = activeTab === 'archived' && (pastImport?.state === 'importing' || pastImport?.state === 'waiting');
+  useEffect(() => {
+    if (!pollImport) return undefined;
+    const timer = setInterval(syncFacts.reload, PAST_IMPORT_POLL_MS);
+    return () => clearInterval(timer);
+  }, [pollImport, syncFacts.reload]);
+  const lastImportDone = useRef(null);
+  useEffect(() => {
+    const done = pastImport?.done ?? null;
+    const moved = lastImportDone.current != null && done !== lastImportDone.current;
+    lastImportDone.current = done;
+    if (moved && activeTab === 'archived') reload();
+  }, [pastImport?.done]);
+
   async function handleToggleVisibility(e, courseId) {
     e.preventDefault();
     e.stopPropagation();
@@ -75,8 +112,10 @@ export default function Dashboard() {
 
   if (loading) return <div className="loading">Loading...</div>;
 
-  const semesterGroups = groupBySemester(courses);
-  const yearGroups = groupByYearAndSemester(courses);
+  const shown = courses.filter((c) => !isPending(c));
+  const semesterGroups = groupBySemester(shown);
+  const yearGroups = groupByYearAndSemester(shown);
+  const firstRunLine = pendingCount > 0 ? `Getting your courses: ${counted.length - pendingCount} of ${counted.length}` : null;
 
   // Shared course card renderer
   function CourseCard({ c, showSemester = false }) {
@@ -121,6 +160,7 @@ export default function Dashboard() {
               </span>
             )}
             {!!c.hidden && <span className="badge" style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }}>Hidden</span>}
+            {c.first_sync === 'failed' && <span className="badge badge-red" title={c.first_sync_error || undefined}>Sync failed</span>}
           </div>
 
           {isSettings ? (
@@ -225,10 +265,19 @@ export default function Dashboard() {
       {activeTab === 'current' && (
         <div className="triage-layout">
           <div className="triage-layout__main">
-            {courses.length === 0 ? (
-              <div className="card empty-state">
-                <p>No courses yet. Press <strong>Sync Courses</strong> to get your courses.</p>
-              </div>
+            {firstRunLine && <p className="text-sm text-muted dashboard-progress" role="status">{firstRunLine}</p>}
+            {shown.length === 0 ? (
+              !firstRunLine && (
+                <div className="card empty-state">
+                  {backgroundSync.state === 'held' ? (
+                    <p>Your courses appear here once you log in to Schoology.</p>
+                  ) : backgroundSync.state === 'running' || backgroundSync.state === 'queued' ? (
+                    <p>Getting your courses…</p>
+                  ) : (
+                    <p>No courses yet. Press <strong>Sync Courses</strong> to get your courses.</p>
+                  )}
+                </div>
+              )
             ) : (
               semesterGroups.map(({ semester, courses: semCourses }) => (
                 <div key={semester} style={{ marginBottom: '1.5rem' }}>
@@ -247,6 +296,9 @@ export default function Dashboard() {
       {/* Archived tab */}
       {activeTab === 'archived' && (
         <div>
+          {importing && (
+            <p className="text-sm text-muted dashboard-progress" role="status">{`Importing past courses: ${pastImport.done} of ${pastImport.total}`}</p>
+          )}
           <ArchivedCoursesPanel onImported={reload} />
 
           {yearGroups.length === 0 ? (

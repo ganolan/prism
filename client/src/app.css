@@ -1061,6 +1061,10 @@ button.filter-btn-link { background: none; border: none; padding: 0; color: var(
   margin: 0.25rem 0 0.5rem; letter-spacing: 0.04em;
 }
 
+/* The Dashboard's progress lines (#171): "Getting your courses: X of Y" during a first run (Current
+   tab), "Importing past courses: X of Y" while past courses import (Archived tab). */
+.dashboard-progress { margin: 0 0 0.75rem; }
+
 .version-badge {
   margin-top: 0.75rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

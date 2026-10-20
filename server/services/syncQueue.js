@@ -47,6 +47,7 @@ import { sessionStatus } from './schoologySession.js';
 import { runTaskSync } from './taskSyncRun.js';
 import { runQuizLoad } from './quizLoadRun.js';
 import { runPastImport } from './archivedImportRun.js';
+import { markPastImportDue } from './pastImportState.js';
 
 export const SYNC_FRESH_MS = 10 * 60 * 1000;
 // A session check this recent (a caller's own, carried on the request) is not made again.
@@ -268,7 +269,8 @@ function lastFailedRun(d, { courseIds = [], task = null }) {
 // held request covers follows that run. Fresh = every course in it (or the task) was synced, or
 // tried, within SYNC_FRESH_MS; a scope whose latest try failed answers 'failed' with that run (the
 // chip). Archived courses are only re-read by a button. Otherwise the stale part not already
-// syncing is queued as a page request.
+// syncing is queued as a page request. The dashboard on a database with no course starts the
+// first run (firstRun, #171).
 // → { state: 'fresh' | 'failed' | 'queued' | 'running' | 'held', runId? }.
 //   scope = { kind: 'all' } | { kind: 'courses', courseIds } | { kind: 'task', courseId, assignmentId }
 export function ensure(scope, { now = Date.now() } = {}) {
@@ -291,26 +293,50 @@ export function ensure(scope, { now = Date.now() } = {}) {
     const r = enqueue(request);
     return { state: r.state, runId: r.runId };
   }
+  if (scope.kind === 'all' && !d.prepare('SELECT 1 FROM courses LIMIT 1').get()) return firstRun(d, { within, stateOf, active });
   const ids = scope.kind === 'all' ? coveredCourseIds({ kind: 'all' }) : (scope.courseIds ?? []).map(Number);
   const rows = ids.length ? d.prepare(`SELECT id, archived, course_synced_at, sync_attempted_at FROM courses
     WHERE id IN (SELECT value FROM json_each(?)) AND COALESCE(excluded, 0) = 0`).all(JSON.stringify(ids)) : [];
   const live = rows.filter((c) => !c.archived);
   if (!live.length) return { state: 'fresh' };
-  const following = active().find((e) => live.every((c) => e.covered.includes(c.id)));
+  // A kind 'all' run covers the current courses as they are now, not its queued list: a first run
+  // was queued with none, and the courses it inserts follow it (#171).
+  const coverage = new Map(active().map((e) => [e, e.request.kind === 'all' ? coveredCourseIds(e.request) : e.covered]));
+  const following = active().find((e) => live.every((c) => coverage.get(e).includes(c.id)));
   if (following) return { state: stateOf(following), runId: following.runId };
   const failed = live.filter((c) => within(c.sync_attempted_at) && later(c.sync_attempted_at, c.course_synced_at));
   const stale = live.filter((c) => !within(c.course_synced_at) && !within(c.sync_attempted_at)).map((c) => c.id);
   // A course already syncing (or waiting for a sign-in) is not queued a second time.
-  const busy = new Set(active().flatMap((e) => e.covered));
+  const busy = new Set(active().flatMap((e) => coverage.get(e)));
   const toQueue = stale.filter((id) => !busy.has(id));
   if (toQueue.length) {
     const r = enqueue({ kind: 'courses', courseIds: toQueue, trigger: 'page' });
     return { state: r.state, runId: r.runId };
   }
-  const partly = active().find((e) => stale.some((id) => e.covered.includes(id)));
+  const partly = active().find((e) => stale.some((id) => coverage.get(e).includes(id)));
   if (partly) return { state: stateOf(partly), runId: partly.runId };
   if (failed.length) return { state: 'failed', runId: lastFailedRun(d, { courseIds: failed.map((c) => c.id) }) };
   return { state: 'fresh' };
+}
+
+// The first run (#171): the dashboard on a database with no course at all. It follows a kind 'all'
+// run already queued, running or held; a kind 'all' run that finished within SYNC_FRESH_MS (the
+// teacher has no courses, or Schoology failed) answers fresh or failed, so a visit does not queue
+// another. Otherwise the past-course import is marked due and a kind 'all' page run is queued (it
+// reads blocks, calendar and alerts too).
+function firstRun(d, { within, stateOf, active }) {
+  const following = active().find((e) => e.request.kind === 'all');
+  if (following) return { state: stateOf(following), runId: following.runId };
+  const last = d.prepare(`SELECT id, status, started_at FROM sync_runs
+    WHERE json_extract(options_json, '$.kind') = 'all' AND COALESCE(json_extract(options_json, '$.skipSchoology'), 0) = 0
+      AND status NOT IN ('queued', 'running', 'held')
+    ORDER BY id DESC LIMIT 1`).get();
+  if (last && within(last.started_at)) {
+    return last.status === 'completed' ? { state: 'fresh' } : { state: 'failed', runId: last.id };
+  }
+  markPastImportDue(d);
+  const r = enqueue({ kind: 'all', trigger: 'page' });
+  return { state: r.state, runId: r.runId };
 }
 
 // After a sign-in (or a run whose session check passed): every held request runs again, as the

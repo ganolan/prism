@@ -5,6 +5,7 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 import { getDb } from '../db/index.js';
 import { enqueue, currentSync, resumeHeld, queueDeps, resetQueue, idle, ensure, whenDone, waiterCount, onRunFinished, SYNC_FRESH_MS } from './syncQueue.js';
 import { markInterruptedRuns } from './syncRuns.js';
+import { PAST_IMPORT_KEY } from './pastImport.js';
 
 // A controllable run: each started run waits until the test finishes it.
 function gatedRuns() {
@@ -234,6 +235,79 @@ describe('the sync queue', () => {
       setCourse(a, { course_synced_at: iso(60_000) });
       expect(ensure({ kind: 'courses', courseIds: [a] })).toEqual({ state: 'running', runId: r.runId });
       runs[0].finish(); await idle();
+    });
+  });
+
+  describe('ensure: the first run (#171)', () => {
+    const pastImport = () => getDb().prepare('SELECT value FROM settings WHERE key = ?').get(PAST_IMPORT_KEY);
+    beforeEach(() => {
+      getDb().exec('DELETE FROM courses');
+      getDb().prepare('DELETE FROM settings WHERE key = ?').run(PAST_IMPORT_KEY);
+    });
+
+    test('an empty database: the dashboard queues a kind "all" page run and the past import is due', async () => {
+      const runs = gatedRuns();
+      const r = ensure({ kind: 'all' });
+      expect(r).toEqual({ state: 'queued', runId: expect.any(Number) });
+      expect(JSON.parse(pastImport().value).state).toBe('waiting');
+      await tick();
+      expect(currentSync().running).toMatchObject({ runId: r.runId, kind: 'all', trigger: 'page' });
+      // A first run reads blocks, calendar and alerts too, and takes its mastery list after its sections.
+      expect(runs[0].options).toMatchObject({ courseIds: null, masteryCourseIds: null, syncBlocks: true, trigger: 'page' });
+      runs[0].finish(); await idle();
+    });
+
+    test('a second visit during the first run follows it (nothing inserted yet)', async () => {
+      const runs = gatedRuns();
+      const r = ensure({ kind: 'all' });
+      await tick();
+      expect(ensure({ kind: 'all' })).toEqual({ state: 'running', runId: r.runId });
+      expect(currentSync().queued).toEqual([]);
+      runs[0].finish(); await idle();
+    });
+
+    test('a database with any course row (an archived one too) is not a first run', () => {
+      getDb().prepare(`INSERT INTO courses (schoology_section_id, course_name, archived) VALUES ('old', 'Old', 1)`).run();
+      expect(ensure({ kind: 'all' })).toEqual({ state: 'fresh' });
+      expect(pastImport()).toBeUndefined();
+      expect(currentSync().queued).toEqual([]);
+    });
+
+    test('while the first run inserts courses, the dashboard and a new course\'s page follow it', async () => {
+      const runs = gatedRuns();
+      const r = ensure({ kind: 'all' });
+      await tick();
+      // The run's section phase writes two courses (one still pending, one read).
+      const fresh = getDb().prepare(`INSERT INTO courses (schoology_section_id, course_name, first_sync) VALUES ('n1', 'N1', 'pending')`).run().lastInsertRowid;
+      getDb().prepare(`INSERT INTO courses (schoology_section_id, course_name, course_synced_at) VALUES ('n2', 'N2', ?)`).run(new Date(Date.now() - SYNC_FRESH_MS - 1000).toISOString());
+      expect(ensure({ kind: 'all' })).toEqual({ state: 'running', runId: r.runId });
+      expect(ensure({ kind: 'courses', courseIds: [fresh] })).toEqual({ state: 'running', runId: r.runId });
+      expect(currentSync().queued).toEqual([]);
+      runs[0].finish(); await idle();
+      expect(queueDeps.runUnifiedSync).toHaveBeenCalledTimes(1);
+    });
+
+    test('a first run that just finished with no courses is not queued again on every visit', async () => {
+      const runs = gatedRuns();
+      ensure({ kind: 'all' });
+      await tick();
+      runs[0].finish(); await idle();
+      expect(ensure({ kind: 'all' })).toEqual({ state: 'fresh' });
+      expect(currentSync().queued).toEqual([]);
+    });
+
+    test('a first run that just failed answers failed with its run, and is not queued again', async () => {
+      queueDeps.runUnifiedSync = vi.fn(async () => { throw new Error('Schoology down'); });
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const r = ensure({ kind: 'all' });
+        await idle();
+        expect(status(r.runId)).toBe('failed');
+        expect(ensure({ kind: 'all' })).toEqual({ state: 'failed', runId: r.runId });
+        expect(currentSync().queued).toEqual([]);
+      } finally {
+        errors.mockRestore();
+      }
     });
   });
 

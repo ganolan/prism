@@ -1,7 +1,8 @@
 // The background import of the teacher's past (archived) courses after a first run (#171).
 //
 // Once per install: the first run on an empty database marks it due (markPastImportDue,
-// 'waiting'). After the next finished `kind: 'all'` run, the archived sections are discovered
+// 'waiting', from syncQueue's ensure; it lives in pastImportState.js so the queue need not import
+// this file). After the next finished `kind: 'all'` run, the archived sections are discovered
 // (getArchivedSections; no session → it stays waiting for a later run), and each one not yet in
 // `courses` (and with a course code: a section with none is a template or a "not taught" one, as
 // GET /api/courses/archived/discover marks them) is imported, newest school year first. One queue
@@ -18,8 +19,9 @@
 import { enqueue as queueRequest, onRunFinished } from './syncQueue.js';
 import { getArchivedSections } from './archivedCourses.js';
 import { academicYearStart } from '../lib/schoolYear.js';
+import { PAST_IMPORT_KEY, markPastImportDue } from './pastImportState.js';
 
-export const PAST_IMPORT_KEY = 'firstRun.pastImport';
+export { PAST_IMPORT_KEY, markPastImportDue };
 
 function readState(db) {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(PAST_IMPORT_KEY);
@@ -52,12 +54,6 @@ function missingOf(db, sectionIds) {
   const known = new Set(db.prepare(`SELECT schoology_section_id AS id FROM courses
     WHERE schoology_section_id IN (SELECT value FROM json_each(?))`).all(JSON.stringify(sectionIds)).map((r) => String(r.id)));
   return new Set(sectionIds.filter((id) => !known.has(id)));
-}
-
-// The first run marks the import due. A state already there (waiting, importing or done) stays.
-export function markPastImportDue(db) {
-  db.prepare(`INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))`)
-    .run(PAST_IMPORT_KEY, JSON.stringify({ state: 'waiting', total: 0, sectionIds: [], failed: [], retried: false }));
 }
 
 // → { state: 'none' | 'waiting' | 'importing' | 'done', done, total }: done counts the sections

@@ -187,29 +187,36 @@ export function refreshAssignment(db, assignmentId, { maxAgeSec = BACKGROUND_MAX
 // submission in that time; within each, refreshAssignment's students (submitted, or
 // already holding cached comments) whose thread is older than maxAgeSec.
 // → { assignments, refreshed, failed }.
-// `courseIds` (#58): only those courses' tasks; absent = every current course.
+// `courseIds` (#58): only those courses' tasks; absent = every current course. A listed archived
+// course (a re-read in full, #169) has every dropbox task's threads read, not only recent ones.
+// → { assignments, refreshed, failed, failedCourseIds } (courses with a thread not read).
 export async function refreshRecentComments(db, { days = 30, maxAgeSec = BACKGROUND_MAX_AGE_SEC, onAssignment = null, courseIds = null } = {}) {
   const since = commentDeps.now() - days * 86400;
   const sinceDate = new Date(since * 1000).toISOString().slice(0, 10);
   const today = new Date(commentDeps.now() * 1000).toISOString().slice(0, 10);
   const tasks = db.prepare(`
-    SELECT a.id, a.title FROM assignments a JOIN courses c ON c.id = a.course_id
-    WHERE c.archived = 0 AND c.excluded = 0 AND COALESCE(a.published, 1) = 1 AND a.removed_at IS NULL
+    SELECT a.id, a.title, a.course_id FROM assignments a JOIN courses c ON c.id = a.course_id
+    WHERE c.excluded = 0 AND COALESCE(a.published, 1) = 1 AND a.removed_at IS NULL
       AND COALESCE(a.is_lti_submission, 0) = 0 AND COALESCE(a.accepts_submissions, 1) = 1
-      AND ((a.due_date IS NOT NULL AND substr(a.due_date, 1, 10) BETWEEN ? AND ?)
-        OR EXISTS (SELECT 1 FROM grades g WHERE g.assignment_id = a.id
-                   AND MAX(COALESCE(g.submitted_at, 0), COALESCE(g.latest_revision_at, 0)) >= ?))
+      AND (
+        (c.archived = 0 AND ((a.due_date IS NOT NULL AND substr(a.due_date, 1, 10) BETWEEN ? AND ?)
+          OR EXISTS (SELECT 1 FROM grades g WHERE g.assignment_id = a.id
+                     AND MAX(COALESCE(g.submitted_at, 0), COALESCE(g.latest_revision_at, 0)) >= ?)))
+        OR (c.archived = 1 AND ? IS NOT NULL)
+      )
       AND (? IS NULL OR c.id IN (SELECT value FROM json_each(?)))
     ORDER BY c.course_name, a.due_date
-  `).all(sinceDate, today, since, courseIds ? 1 : null, JSON.stringify(courseIds ?? []));
+  `).all(sinceDate, today, since, courseIds ? 1 : null, courseIds ? 1 : null, JSON.stringify(courseIds ?? []));
   let refreshed = 0; let failed = 0;
+  const failedCourseIds = new Set();
   for (const t of tasks) {
     const job = refreshAssignment(db, t.id, { maxAgeSec });
     const r = (await job.done) || { refreshed: 0, failed: 0 };
     refreshed += r.refreshed; failed += r.failed;
+    if (r.failed) failedCourseIds.add(t.course_id);
     onAssignment?.({ title: t.title, queued: job.queued, ...r });
   }
-  return { assignments: tasks.length, refreshed, failed };
+  return { assignments: tasks.length, refreshed, failed, failedCourseIds: [...failedCourseIds] };
 }
 
 // Background refresh of ONE student's threads across their courses (the student

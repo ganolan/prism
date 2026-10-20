@@ -453,3 +453,54 @@ describe('runUnifiedSync with a course list (#58)', () => {
     expect(syncPsAttendance.mock.calls[0][0].courseIds).toBeUndefined();
   });
 });
+
+describe('runUnifiedSync: "Synced" only for complete syncs (background sync)', () => {
+  const T = '2026-10-20T00:00:00.000Z';
+  let a; let b; let ta; let tb;
+  beforeEach(() => {
+    h.db = new Database(':memory:');
+    migrate(h.db);
+    a = seedCourse(h.db, 'A'); b = seedCourse(h.db, 'B');
+    const task = (c, ext) => h.db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, ?, ?)`).run(c, ext, ext).lastInsertRowid;
+    ta = task(a, 'TA'); tb = task(b, 'TB');
+    fullSync.mockReset().mockResolvedValue({
+      success: true, records: 1, archivedRead: [], archivedComplete: [], readCourseIds: [a, b],
+      complete: { courseIds: [a, b], taskIdsByCourse: { [a]: [ta], [b]: [tb] } },
+    });
+    syncMasteryForCourse.mockReset().mockResolvedValue({ scoresCount: 1 });
+    syncPsAttendance.mockReset().mockResolvedValue({ updated: 0, skipped: 0 });
+    syncPsAlerts.mockReset().mockResolvedValue({ students: 0, withAlerts: 0, failed: 0 });
+    refreshRecentComments.mockReset().mockResolvedValue({ assignments: 0, refreshed: 0, failed: 0, failedCourseIds: [] });
+    h.features = { submission_comments: true };
+  });
+  const row = (table, id, cols) => h.db.prepare(`SELECT ${cols} FROM ${table} WHERE id = ?`).get(id);
+
+  test('a course whose mastery fails keeps its old time but is marked attempted; the other is stamped', async () => {
+    syncMasteryForCourse.mockImplementation(async (id) => { if (id === a) throw new Error('Schoology API 500'); return { scoresCount: 1 }; });
+    vi.spyOn(Date.prototype, 'toISOString').mockReturnValue(T);
+    await runUnifiedSync({ courseIds: [a, b], masteryCourseIds: [a, b], syncBlocks: false }, () => {});
+    vi.restoreAllMocks();
+    expect(row('courses', a, 'course_synced_at, sync_attempted_at')).toEqual({ course_synced_at: null, sync_attempted_at: T });
+    expect(row('courses', b, 'course_synced_at, sync_attempted_at')).toEqual({ course_synced_at: T, sync_attempted_at: T });
+    expect(row('assignments', ta, 'task_synced_at, task_sync_attempted_at')).toEqual({ task_synced_at: null, task_sync_attempted_at: T });
+    expect(row('assignments', tb, 'task_synced_at')).toEqual({ task_synced_at: T });
+  });
+
+  test('a comment-thread failure for a course withholds its time', async () => {
+    refreshRecentComments.mockResolvedValue({ assignments: 1, refreshed: 0, failed: 1, failedCourseIds: [b] });
+    await runUnifiedSync({ courseIds: [a, b], masteryCourseIds: [a, b], syncBlocks: false }, () => {});
+    expect(row('courses', a, 'course_synced_at').course_synced_at).not.toBeNull();
+    expect(row('courses', b, 'course_synced_at').course_synced_at).toBeNull();
+  });
+
+  test('an archived course read complete through finalize is stamped without the mastery phase', async () => {
+    fullSync.mockResolvedValue({
+      success: true, records: 1, archivedRead: [b], archivedComplete: [b], readCourseIds: [b],
+      complete: { courseIds: [], taskIdsByCourse: { [b]: [tb] } },
+    });
+    await runUnifiedSync({ courseIds: [b], masteryCourseIds: [b], syncBlocks: false }, () => {});
+    expect(syncMasteryForCourse).not.toHaveBeenCalled();
+    expect(row('courses', b, 'course_synced_at').course_synced_at).not.toBeNull();
+  });
+});
+

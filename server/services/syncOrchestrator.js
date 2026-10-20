@@ -45,6 +45,7 @@ export async function runUnifiedSync(
   const skipMastery = new Set();
   summary.phaseMs = phaseMs;
   let metricsId = null;
+  let schoologyResult = null; // fullSync's answer: what was read, for the "Synced" stamps
 
   const finish = (extra = {}) => {
     const elapsedMs = Date.now() - startedAt;
@@ -64,6 +65,7 @@ export async function runUnifiedSync(
       // #58: an archived course read through finalize already had its mastery read.
       for (const id of result.archivedRead ?? []) skipMastery.add(id);
       metricsId = result.metricsId ?? null;
+      schoologyResult = result;
       phaseMs.schoology = Date.now() - schoologyStartedAt;
       summary.schoology = { records: result.records, elapsedMs: phaseMs.schoology };
       emit({ phase: 'schoology', status: 'done', records: result.records, elapsedMs: phaseMs.schoology });
@@ -228,7 +230,40 @@ export async function runUnifiedSync(
     }
   }
 
+  if (schoologyResult) {
+    stampCompleteSyncs(db, {
+      result: schoologyResult,
+      masteryDone: new Set(summary.mastery.filter((m) => m.status === 'done').map((m) => Number(m.courseId))),
+      // Comment threads: a phase that failed outright leaves every course incomplete.
+      commentsFailed: summary.comments?.error ? 'all' : new Set(summary.comments?.failedCourseIds ?? []),
+      at: new Date(startedAt).toISOString(),
+    });
+  }
   return finish();
+}
+
+// "Synced" means everything synced (Graham, 20/10/2026): a course is stamped only when its
+// Schoology data and every submission read finished (fullSync's `complete`), its mastery read
+// succeeded (or, for a ticked archived course, finalize read it), and none of its comment threads
+// failed; its tasks read in full are stamped with it. Every course read gets an attempt time,
+// so a course that keeps failing waits out the background-sync window too.
+export function stampCompleteSyncs(db, { result, masteryDone, commentsFailed, at }) {
+  const complete = new Set([
+    ...(result.complete?.courseIds ?? []).filter((id) => masteryDone.has(Number(id))),
+    ...(result.archivedComplete ?? []),
+  ].filter((id) => commentsFailed !== 'all' && !commentsFailed.has(Number(id))));
+  const attempted = result.readCourseIds ?? [];
+  db.transaction(() => {
+    const attemptCourse = db.prepare('UPDATE courses SET sync_attempted_at = ? WHERE id = ?');
+    const attemptTasks = db.prepare('UPDATE assignments SET task_sync_attempted_at = ? WHERE course_id = ? AND removed_at IS NULL');
+    for (const id of attempted) { attemptCourse.run(at, id); attemptTasks.run(at, id); }
+    const stampCourse = db.prepare('UPDATE courses SET course_synced_at = ? WHERE id = ?');
+    const stampTask = db.prepare('UPDATE assignments SET task_synced_at = ? WHERE id = ?');
+    for (const id of complete) {
+      stampCourse.run(at, id);
+      for (const t of result.complete?.taskIdsByCourse?.[id] ?? []) stampTask.run(at, t);
+    }
+  })();
 }
 
 // #143: store the run's per-phase times. A run whose Schoology phase finished

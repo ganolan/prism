@@ -178,6 +178,9 @@ const MIGRATIONS = [
   // #58: the "Synced" times on the course and assessment pages.
   `ALTER TABLE courses ADD COLUMN course_synced_at TEXT`,
   `ALTER TABLE assignments ADD COLUMN task_synced_at TEXT`,
+  // Background sync: the last attempt, complete or not, so a failing scope waits out the window too.
+  `ALTER TABLE courses ADD COLUMN sync_attempted_at TEXT`,
+  `ALTER TABLE assignments ADD COLUMN task_sync_attempted_at TEXT`,
 ];
 
 // Remove orphaned auto-flag rows. The auto-flag feature that wrote 'missing',

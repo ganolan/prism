@@ -404,9 +404,9 @@ describe('retrySubmissions (#55)', () => {
     const read = new Set();
     await retrySubmissions(db, [{ sectionId: 'sec-R', courseId, assignmentExtId: 'RA1' }], '2026-10-02T00:00:00Z', metrics, read);
     expect([...read]).toEqual([db.prepare(`SELECT id FROM assignments WHERE schoology_assignment_id = 'RA1'`).get().id]);
-    // #168: a successful retry is a read in full, stamped like the main pass (#58: its task time too).
+    // #168: a successful retry is a read in full; its "Synced" time is the orchestrator's to set (complete syncs only).
     expect(db.prepare(`SELECT submissions_read_at, task_synced_at FROM assignments WHERE schoology_assignment_id = 'RA1'`).get())
-      .toEqual({ submissions_read_at: '2026-10-02T00:00:00Z', task_synced_at: '2026-10-02T00:00:00Z' });
+      .toEqual({ submissions_read_at: '2026-10-02T00:00:00Z', task_synced_at: null });
   });
 
   test('retry succeeds → row written, retries_succeeded incremented', async () => {
@@ -975,14 +975,15 @@ describe('fullSync — a list of courses (#58)', () => {
   const visited = () => sch.getSectionEnrollments.mock.calls.map((c) => c[0]);
   const stamp = (id) => db.prepare('SELECT course_synced_at FROM courses WHERE id = ?').get(id).course_synced_at;
 
-  test('reads only the listed sections and stamps course_synced_at', async () => {
+  test('reads only the listed sections and reports them complete; it stamps nothing itself', async () => {
     sch.getSectionGradingPeriods.mockClear();
-    await fullSync(() => {}, { courseIds: [ids.a] });
+    const r = await fullSync(() => {}, { courseIds: [ids.a] });
     expect(visited()).toEqual(['sec-a']);
     // An unlisted section Prism already holds is not touched at all (no grading-period read).
     expect(sch.getSectionGradingPeriods.mock.calls.map((c) => c[0])).toEqual(['sec-a']);
-    expect(stamp(ids.a)).not.toBe('2026-10-01T00:00:00Z');
-    expect(stamp(ids.b)).toBe('2026-10-01T00:00:00Z');
+    expect(r.complete.courseIds).toEqual([ids.a]);
+    expect(r.readCourseIds).toEqual([ids.a]);
+    expect(stamp(ids.a)).toBe('2026-10-01T00:00:00Z'); // the orchestrator stamps, after mastery
   });
 
   test('still reads a section Prism did not hold before this sync', async () => {
@@ -998,7 +999,9 @@ describe('fullSync — a list of courses (#58)', () => {
     const r = await fullSync(() => {}, { courseIds: [ids.old] });
     expect(visited()).toEqual(['sec-old']);
     expect(r.archivedRead).toEqual([ids.old]);
-    expect(stamp(ids.old)).not.toBeNull();
+    // No mastery session in this test: an archived course read without its mastery is not complete.
+    expect(r.archivedComplete).toEqual([]);
+    expect(r.readCourseIds).toEqual([ids.old]);
   });
 
   test('a ticked archived course that fails to read is reported, not fatal', async () => {
@@ -1011,8 +1014,8 @@ describe('fullSync — a list of courses (#58)', () => {
     const r = await fullSync((p) => logs.push(p.message), { courseIds: [ids.a, ids.old] });
     expect(r.success).toBe(true);
     expect(r.archivedRead).toEqual([]);
-    expect(stamp(ids.old)).toBeNull();
-    expect(stamp(ids.a)).not.toBe('2026-10-01T00:00:00Z');
+    expect(r.readCourseIds).toEqual([ids.a]);
+    expect(r.complete.courseIds).toEqual([ids.a]);
     expect(logs.some((m) => /Old.*not read.*403/.test(m))).toBe(true);
   });
 
@@ -1020,9 +1023,15 @@ describe('fullSync — a list of courses (#58)', () => {
     sch.getSectionAssignments.mockImplementation(async (sid) => (sid === 'sec-a'
       ? [{ id: 'T1', title: 'T', published: 1, allow_dropbox: '1', due: '2026-10-15 15:30:00' }] : []));
     sch.getAssignmentSubmissions.mockReset().mockRejectedValue(Object.assign(new Error('503'), { transient: true }));
-    await fullSync(() => {}, { courseIds: [ids.a, ids.b] });
-    expect(stamp(ids.a)).toBe('2026-10-01T00:00:00Z');
-    expect(stamp(ids.b)).not.toBe('2026-10-01T00:00:00Z');
+    const r = await fullSync(() => {}, { courseIds: [ids.a, ids.b] });
+    expect(r.complete.courseIds).toEqual([ids.b]);
+    expect(r.readCourseIds.sort()).toEqual([ids.a, ids.b].sort());
+  });
+
+  test('#169: the one-time archived backfills leave a listed course to the list', async () => {
+    db.prepare('UPDATE courses SET finalized_at = NULL WHERE id = ?').run(ids.old);
+    await fullSync(() => {}, { courseIds: [ids.old] });
+    expect(visited()).toEqual(['sec-old']); // read once, by the list, not again by a backfill
   });
 
   test('refreshes only the read courses\' students', async () => {
@@ -1038,7 +1047,7 @@ describe('fullSync — a list of courses (#58)', () => {
   });
 });
 
-describe('syncSectionData — task_synced_at (#58)', () => {
+describe('syncSectionData — tasks read in full (#58)', () => {
   let db;
   let courseId;
   beforeEach(() => {
@@ -1050,7 +1059,7 @@ describe('syncSectionData — task_synced_at (#58)', () => {
     getAssignmentSubmissions.mockReset();
   });
 
-  test('stamps every task read, except dropbox tasks outside the window and failed ones', async () => {
+  test('reports every task read in full, except dropbox tasks outside the window and failed ones; stamps none', async () => {
     const NOW = '2026-10-20T00:00:00.000Z';
     getSectionAssignments.mockResolvedValue([
       { id: 'OLD', title: 'Old', published: 1, allow_dropbox: '1', due: '2026-06-01 15:30:00' },
@@ -1062,9 +1071,10 @@ describe('syncSectionData — task_synced_at (#58)', () => {
       if (aid === 'BAD') throw Object.assign(new Error('503'), { transient: true });
       return [];
     });
-    await syncSectionData(db, 'sec-T2', courseId, NOW, { recentOnly: true, recentDays: 30 });
-    const stamps = Object.fromEntries(db.prepare('SELECT schoology_assignment_id AS id, task_synced_at AS t FROM assignments').all().map((r) => [r.id, r.t]));
-    expect(stamps).toEqual({ OLD: null, NEW: NOW, BAD: null, PAPER: NOW });
+    const r = await syncSectionData(db, 'sec-T2', courseId, NOW, { recentOnly: true, recentDays: 30 });
+    const ext = (id) => db.prepare('SELECT schoology_assignment_id AS e FROM assignments WHERE id = ?').get(id).e;
+    expect(r.readInFullTaskIds.map(ext).sort()).toEqual(['NEW', 'PAPER']);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM assignments WHERE task_synced_at IS NOT NULL').get().n).toBe(0);
   });
 });
 

@@ -152,16 +152,24 @@ describe('refreshRecentComments (Sync\'s Comments phase)', () => {
     const lti = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, is_lti_submission, due_date) VALUES (?, 'lti-1', 'OneDrive task', 1, '2026-10-15 15:00:00')`).run(courseId).lastInsertRowid;
     db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date) VALUES (?, 'old-1', 'Old task', '2026-01-10 15:00:00')`).run(courseId);
     const r = await refreshRecentComments(db);
-    expect(r).toEqual({ assignments: 1, refreshed: 2, failed: 0 }); // Flappy Bird: Ana and Ben
+    expect(r).toEqual({ assignments: 1, refreshed: 2, failed: 0, failedCourseIds: [] }); // Flappy Bird: Ana and Ben
     expect(readThread(db, { assignmentId, studentId: db.prepare(`SELECT id FROM students WHERE schoology_uid = '555'`).get().id }).read_at).not.toBeNull();
     expect(db.prepare('SELECT COUNT(*) AS n FROM submission_comment_reads WHERE assignment_id = ?').get(lti).n).toBe(0);
     db.prepare('UPDATE courses SET archived = 1').run();
-    expect(await refreshRecentComments(db)).toEqual({ assignments: 0, refreshed: 0, failed: 0 });
+    expect(await refreshRecentComments(db)).toEqual({ assignments: 0, refreshed: 0, failed: 0, failedCourseIds: [] });
   });
+  test('#169: a listed archived course\'s threads are read; failures are reported by course', async () => {
+    const db = getDb(); const { courseId } = seed(db);
+    db.prepare('UPDATE courses SET archived = 1 WHERE id = ?').run(courseId);
+    const r = await refreshRecentComments(db, { courseIds: [courseId] });
+    expect(r.assignments).toBe(1);
+    expect(r.failedCourseIds).toEqual([]);
+  });
+
   test('#58: a course list reads only those courses\' tasks', async () => {
     const db = getDb(); const { courseId } = seed(db);
     const other = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-other', 'Other')`).run().lastInsertRowid;
-    expect(await refreshRecentComments(db, { courseIds: [other] })).toEqual({ assignments: 0, refreshed: 0, failed: 0 });
+    expect(await refreshRecentComments(db, { courseIds: [other] })).toEqual({ assignments: 0, refreshed: 0, failed: 0, failedCourseIds: [] });
     expect((await refreshRecentComments(db, { courseIds: [courseId] })).assignments).toBe(1);
   });
 });

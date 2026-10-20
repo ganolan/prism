@@ -166,18 +166,16 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     abandonAfter: submissionAbandonAfter,
   });
 
-  // #58: a task's "Synced" time: set when its data was read in full this pass (a task with no
-  // submission channel has nothing more to read; one outside the recent window, or whose read
-  // failed, keeps its older time).
-  const stampTask = db.prepare('UPDATE assignments SET task_synced_at = ? WHERE id = ?');
-  db.transaction(() => {
-    for (const a of assignments) {
-      const row = selectAssignment.get(String(a.id));
-      if (!row) continue;
-      const hasChannel = a.allow_dropbox === '1' || a.allow_dropbox === 1 || isTest(a);
-      if (!hasChannel || result.readInFull.has(row.id)) stampTask.run(now, row.id);
-    }
-  })();
+  // #58: the tasks whose data was read in full this pass (a task with no submission channel has
+  // nothing more to read; one outside the recent window, or whose read failed, is left out). The
+  // orchestrator sets their "Synced" time only when the whole course synced (mastery too).
+  const readInFullTaskIds = [];
+  for (const a of assignments) {
+    const row = selectAssignment.get(String(a.id));
+    if (!row) continue;
+    const hasChannel = a.allow_dropbox === '1' || a.allow_dropbox === 1 || isTest(a);
+    if (!hasChannel || result.readInFull.has(row.id)) readInFullTaskIds.push(row.id);
+  }
 
   return {
     studentsCount: studentEnrollments.length,
@@ -191,6 +189,7 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
     rateLimitHits: result.rateLimitHits,
     transientFailures: result.transientFailures,
     revisionsReadAssignmentIds: [...result.revisionsRead],
+    readInFullTaskIds,
   };
 }
 
@@ -279,8 +278,8 @@ export async function retrySubmissions(db, failedEntries, now, metrics, revision
         writeRetry(cellResults);
       }
       revisionsRead?.add(assignRow.id);
-      // A successful retry is a read in full, stamped like the main pass (#168, #58).
-      db.prepare('UPDATE assignments SET submissions_read_at = ?, task_synced_at = ? WHERE id = ?').run(now, now, assignRow.id);
+      // A successful retry is a read in full (#168); its "Synced" time is the orchestrator's (#58).
+      db.prepare('UPDATE assignments SET submissions_read_at = ? WHERE id = ?').run(now, assignRow.id);
       metrics.retries_succeeded++;
     } catch (err) {
       // Non-transient errors (or unexpected enrollments fetch failures): mark
@@ -396,16 +395,18 @@ export async function finalizeArchivedCourse(db, { courseId, sectionId, now, run
     await reader?.close().catch(() => {});
   }
   const sessionPresent = runMastery && hasMasterySession();
+  let masteryError = sessionPresent ? null : 'No saved Schoology session';
   if (sessionPresent) {
     try {
       await syncMasteryForCourse(courseId);
-    } catch {
-      // Best-effort: a mastery failure still counts as "attempted with a
-      // session" so backfill doesn't retry forever; re-import is the escape hatch.
+    } catch (err) {
+      // A mastery failure still counts as "attempted with a session" so backfill doesn't retry
+      // forever; re-import is the escape hatch. A listed re-read reports it (#169).
+      masteryError = err.message;
     }
     db.prepare('UPDATE courses SET finalized_at = ? WHERE id = ?').run(now, courseId);
   }
-  return { ...counts, finalized: sessionPresent };
+  return { ...counts, finalized: sessionPresent, masteryError };
 }
 
 // Auto-archive: a previously-synced active course (archived=0, has synced_at)
@@ -445,10 +446,11 @@ export async function detectArchivedTransitions(db, activeSectionIds, now) {
 // (imported under the old flow). Captures mastery when a session is present;
 // converges over session-enabled syncs and never re-runs once finalized_at is
 // set. Returns the number of courses processed. (#70)
-export async function backfillUnfinalizedArchived(db, now) {
+// `skip`: course ids a list sync reads itself this pass (#169), left to it.
+export async function backfillUnfinalizedArchived(db, now, { skip = new Set() } = {}) {
   const courses = db.prepare(
     'SELECT id, schoology_section_id FROM courses WHERE archived = 1 AND excluded = 0 AND finalized_at IS NULL'
-  ).all();
+  ).all().filter((c) => !skip.has(c.id));
   for (const c of courses) {
     await finalizeArchivedCourse(db, { courseId: c.id, sectionId: String(c.schoology_section_id), now });
   }
@@ -459,11 +461,11 @@ export async function backfillUnfinalizedArchived(db, now) {
 // archived course finalised without them (dropbox uploads and lateness, OneDrive/
 // LTI states, test takers). Waits for a saved session, so a stamp always means a
 // full read; a course that fails is tried again on the next sync. → courses read.
-export async function backfillArchivedSubmissions(db, now, { log = () => {} } = {}) {
+export async function backfillArchivedSubmissions(db, now, { log = () => {}, skip = new Set() } = {}) {
   const courses = db.prepare(`
     SELECT id, schoology_section_id, course_name FROM courses
     WHERE archived = 1 AND excluded = 0 AND finalized_at IS NOT NULL AND submissions_read_at IS NULL
-    ORDER BY id`).all();
+    ORDER BY id`).all().filter((c) => !skip.has(c.id));
   if (!courses.length) return 0;
   const reader = await openSubmissionReader();
   if (!reader) return 0;
@@ -537,10 +539,12 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
     const sections = await getMySections(userId);
     const listed = courseIds ? new Set(courseIds.map(Number)) : null;
     const known = new Set(db.prepare('SELECT schoology_section_id AS s FROM courses').all().map((r) => String(r.s)));
-    const stampCourse = db.prepare('UPDATE courses SET course_synced_at = ? WHERE id = ?');
+    // What was read, for the orchestrator's "Synced" stamps (complete syncs only).
     const readCourseIds = new Set();
     const abandonedCourseIds = new Set();
     const archivedReadIds = [];
+    const archivedComplete = [];
+    const taskIdsByCourse = {};
     log(`Found ${sections.length} sections`);
 
     let totalRecords = 0;
@@ -644,6 +648,7 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
       }
       for (const id of (result.revisionsReadAssignmentIds || [])) revisionsRead.add(id);
       readCourseIds.add(courseRow.id);
+      taskIdsByCourse[courseRow.id] = [...(result.readInFullTaskIds || [])];
       totalRecords += result.studentsCount + result.assignmentsCount + result.gradesCount + (result.submissionCount || 0);
 
       // Sync folders
@@ -702,35 +707,46 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
     if (metrics.failed_assignment_ids.length > 0 && metrics.abandoned === 0) {
       log(`Retrying ${metrics.failed_assignment_ids.length} failed assignments...`);
       metrics.retries_attempted = metrics.failed_assignment_ids.length;
+      const before = metrics.failed_assignment_ids;
       metrics.failed_assignment_ids = await retrySubmissions(db, metrics.failed_assignment_ids, now, metrics, revisionsRead);
+      // A task the retry read is read in full too.
+      const still = new Set(metrics.failed_assignment_ids.map((f) => `${f.courseId}:${f.assignmentExtId}`));
+      const localId = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?');
+      for (const f of before) {
+        if (still.has(`${f.courseId}:${f.assignmentExtId}`)) continue;
+        const id = localId.get(String(f.assignmentExtId))?.id;
+        if (id) (taskIdsByCourse[f.courseId] ||= []).push(id);
+      }
     }
-    // #58: a course's "Synced" time only when every submission read of it finished (none abandoned,
-    // none still failing after the retry pass).
+    // #58: a course's Schoology data is complete only when every submission read of it finished
+    // (none abandoned, none still failing after the retry pass).
     const stillFailing = new Set(metrics.failed_assignment_ids.map((f) => f.courseId));
-    for (const id of readCourseIds) {
-      if (!abandonedCourseIds.has(id) && !stillFailing.has(id)) stampCourse.run(now, id);
-    }
+    const completeCourseIds = [...readCourseIds].filter((id) => !abandonedCourseIds.has(id) && !stillFailing.has(id));
 
-    // One-time: finalise archived courses imported before #70 (capture mastery).
-    await backfillUnfinalizedArchived(db, now);
+    // One-time: finalise archived courses imported before #70 (capture mastery). A course the list
+    // reads itself is left to it (#169).
+    await backfillUnfinalizedArchived(db, now, { skip: listed ?? new Set() });
     // One-time: read the submissions of archived courses finalised without them (#72 reversed).
-    const archivedRead = await backfillArchivedSubmissions(db, now, { log });
+    const archivedRead = await backfillArchivedSubmissions(db, now, { log, skip: listed ?? new Set() });
     if (archivedRead) log(`Read the submissions of ${archivedRead} archived course${archivedRead === 1 ? '' : 's'} (one time)`);
     // #58: a ticked archived course is read again in full (its mastery too).
     if (listed) {
       for (const c of db.prepare(`SELECT id, schoology_section_id FROM courses WHERE archived = 1 AND excluded = 0
         AND id IN (SELECT value FROM json_each(?))`).all(JSON.stringify([...listed]))) {
         const name = db.prepare('SELECT course_name FROM courses WHERE id = ?').get(c.id)?.course_name ?? c.id;
+        let r;
         try {
-          await finalizeArchivedCourse(db, { courseId: c.id, sectionId: c.schoology_section_id, now, runMastery: true });
+          r = await finalizeArchivedCourse(db, { courseId: c.id, sectionId: c.schoology_section_id, now, runMastery: true });
         } catch (err) {
           // One old section that no longer answers must not stop the rest of the run.
           log(`Archived "${name}": not read (${err.message})`);
           continue;
         }
-        stampCourse.run(now, c.id);
         readCourseIds.add(c.id);
         archivedReadIds.push(c.id);
+        taskIdsByCourse[c.id] = [...(r.readInFullTaskIds || [])];
+        if (r.masteryError) log(`Archived "${name}": mastery not read (${r.masteryError})`);
+        else if (!(r.failedAssignmentIds || []).length && !r.submissionAbandoned) archivedComplete.push(c.id);
       }
     }
     // Auto-archive courses that dropped off the active list this turn (#70).
@@ -785,7 +801,11 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
 
     log(`Sync complete: ${totalRecords} records`);
     // metricsId: the orchestrator adds the run's per-phase times to this row (#143).
-    return { success: true, records: totalRecords, metricsId: Number(metricsId), archivedRead: archivedReadIds };
+    return {
+      success: true, records: totalRecords, metricsId: Number(metricsId), archivedRead: archivedReadIds,
+      // #58 / background sync: what was read, so the orchestrator stamps complete syncs only.
+      readCourseIds: [...readCourseIds], archivedComplete, complete: { courseIds: completeCourseIds, taskIdsByCourse },
+    };
 
   } catch (err) {
     db.prepare(`UPDATE sync_log SET status = 'error', error_message = ?, completed_at = ? WHERE id = ?`)

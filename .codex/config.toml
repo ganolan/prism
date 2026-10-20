@@ -1,2 +1,3 @@
+# Not verified with Codex: the same endpoint Claude Code uses (docs/prismcp-install-and-verify.md).
 [mcp_servers.prism]
 url = "https://prism.swordtail-everest.ts.net/mcp"

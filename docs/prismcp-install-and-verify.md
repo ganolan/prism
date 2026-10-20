@@ -22,7 +22,7 @@ Omitting `comment_line` or `remove_line` keeps the action Prism-only, as with ev
 - **Triage:** `get_triage` (the late-work referral watch, feedback-owed, make-up-test and **resubmission** lists, with the same numbers as the dashboard; each row's `day` counts the due or test date as day 1; referral after day 8, feedback overdue after day 10 by default). `get_submission_status` (roster-wide submission state for a course, one assignment or one student, for "who has not submitted X?", with a ready-to-paste email list; `status` defaults to `not_submitted`, the whole-school view, and `all` needs a course, `assignment_id` or student because it lists every item). `list_referrals` (history: `{ referrals, extensions }`). `school_calendar` (school-day information and counts between dates).
 - **Triage writes:** `record_referral` (mark a late-work row at the limit as referred), `undo_referral` (delete a referral by id), `extend_deadline` (give one student N more lessons, counted in school days, on a summative task, a Schoology test or quiz, or via `resubmission_id` an open resubmission request; on a make-up it moves the make-up clock), `undo_extension` (delete an extension by id, with `remove_line: true` to also remove the status line it published), `set_makeup_tracking` (ignore one Schoology test or quiz for make-ups, or track it again, for all students).
 - **Resubmissions (Amendment B):** `request_resubmission` (ask a student to resubmit, with a deadline in lessons), `grade_stands` (close an open request once its deadline has passed, with no resubmission, so the original grade stands), `preview_status_line` (render the exact status-line text and due date before publishing; never guess them), `list_resubmissions` (history by course, student, since and state). An arrival clears only on genuinely new visible feedback.
-- **Student history (read-only, since 2026-10-08):** `find_student` (by legal or preferred name, email, email number or uid, across archived years, with graduation year and courses to tell same-named students apart) and `get_student_history` (every course and year with the teacher: per assessment the overall level, levels per measurement topic and the grade comment verbatim; published finals only, never AI suggestions; summative-only by default with `omitted` counts; `detail: 'compact'` and `limit` / `offset` paging). See `docs/superpowers/specs/2026-10-08-prismcp-student-history-design.md`.
+- **Student history (read-only, since 2026-10-08):** `find_student` (by legal or preferred name, email, email number or uid, across archived years, with graduation year and courses to distinguish same-named students) and `get_student_history` (every course and year with the teacher: per assessment the overall level, levels per measurement topic and the grade comment verbatim; published finals only, never AI suggestions; summative-only by default with `omitted` counts; `detail: 'compact'` and `limit` / `offset` paging). See `docs/superpowers/specs/2026-10-08-prismcp-student-history-design.md`.
 
 ## Install
 
@@ -32,7 +32,7 @@ One line per machine, on the laptop and on the mini. It adds the tools to Claude
 claude mcp add --transport http -s user prism https://prism.swordtail-everest.ts.net/mcp
 ```
 
-Nothing else is needed: no path, no key, no SSH. Prism has no login, and the tailnet is the perimeter (ADR 0003), so the machine must be on the tailnet.
+Nothing else is needed. The command holds no path, key or SSH setting. Prism has no login, and the tailnet is the perimeter (ADR 0003), so the machine must be on the tailnet.
 
 **If the machine still has the old entry** (a `node` or `ssh` command that ran `mcp/server.js`), remove it first. The file no longer exists, so the old entry cannot start:
 
@@ -45,7 +45,11 @@ Local scope outranks user scope, and project scope (`.mcp.json`) outranks both. 
 
 A machine with no `prism` entry has no prism tools. That is visible, not silent.
 
-Open Claude Code sessions pick up a deploy at the next call, because the tools run in the server. There is nothing to reconnect after a deploy. See [Deploys](#deploys-and-dropped-calls).
+Open Claude Code sessions use the new tools at the next call after a deploy, because the tools run in the server. There is nothing to reconnect after a deploy. See [Deploys](#deploys-and-dropped-calls).
+
+### Codex
+
+The repository's `.codex/config.toml` points Codex at the same endpoint (`url = "https://prism.swordtail-everest.ts.net/mcp"`). This entry is not verified with Codex.
 
 ### Claude Desktop and Cowork
 
@@ -60,7 +64,7 @@ node scripts/check-mcp-endpoint.js                                 # prod, over 
 node scripts/check-mcp-endpoint.js http://127.0.0.1:3002/mcp --expect-dev   # a dev copy
 ```
 
-The script connects the way Claude Code does, lists the tools and calls `list_courses`. It prints counts only, never course names, for example `https://prism.swordtail-everest.ts.net/mcp: 36 tools; list_courses 12 courses; prod`. It exits 0 when the endpoint answers and is the kind expected: prod, or with `--expect-dev` a dev copy. It exits 1 when the endpoint does not answer, `list_courses` fails, or the endpoint is the other kind. Run it after an install, after a deploy that touched `/mcp`, and before grading from a new machine. Its test is `scripts/check-mcp-endpoint.test.js`.
+The script connects the way Claude Code does, lists the tools and calls `list_courses`. It prints counts only, never course names, for example `https://prism.swordtail-everest.ts.net/mcp: 36 tools; list_courses 12 courses; prod` (an example of the format, not a measured count). It exits 0 when the endpoint answers and is the kind expected: prod, or with `--expect-dev` a dev copy. It exits 1 when the endpoint does not answer, `list_courses` fails, or the endpoint is the other kind. Run it after an install, after a deploy that touched `/mcp`, and before grading from a new machine. Its test is `scripts/check-mcp-endpoint.test.js`.
 
 Check the Claude Code side with `claude mcp list`: `prism` shows as connected.
 
@@ -87,7 +91,7 @@ Remove it when finished: `claude mcp remove prism-dev -s local`. `/mcp` accepts 
 
 - **Skipped when fresh:** if the task's last grading sync (`assignments.grading_synced_at`, stamped only by a grading run that read everything; a plain Sync Assignment or course sync does not count) finished under 5 minutes ago, the tool does not read again. Delivery, calibration and rubric review call the tool several times in one session, and this stops each call from waiting.
 - **Live timings (prod, 20/10/2026):** the first call took 20.9 s. A second call within 5 minutes answered in 65 ms.
-- **What the answer reports:** `data_as_of` is the task's last full sync. `mastery_source`, `submission_comments_source` and `submission_files_source` report what the sync read. For a fresh answer, each of the three says the earlier grading sync read it.
+- **What the answer reports:** `data_as_of` is the task's last full sync. `mastery_source`, `submission_comments_source` and `submission_files_source` report what the sync read. For a fresh answer, each of the three notes that the earlier grading sync read it.
 - **Suggestions record their data time:** the answer records, on the assignment, the data time and the moment it was served. The suggestions written later carry both, so Prism's stale-data banner judges the data the agent was given, however long grading took.
 - **Progress:** while it waits, the tool sends MCP progress notifications every 10 s when the client asked for them.
 - **Config:** a source switched off in `config.yaml` (`submission_comments`, `submission_files`) is not read. Its `*_source` answers `cached_only: true` with "is off in config.yaml".
@@ -95,7 +99,7 @@ Remove it when finished: `claude mcp remove prism-dev -s local`. `/mcp` accepts 
 The tool never returns older data silently. Its errors start with a code:
 
 - `SESSION_LAPSED`: the saved Schoology session has expired, or was lost during the sync. The error carries the sign-in link (`https://prism.swordtail-everest.ts.net/settings#schoology-signin`) and the task's last full sync. **The agent asks the teacher** to sign in and call again, or to call again with `use_stored_data: true`. That flag skips the sync and returns the context from the database, with `stale_data` ("Data as of <time>. Sign in to Schoology for a fresh sync.") as its first key. The agent never chooses stored data itself.
-- `SYNC_FAILED`: the run failed or finished with errors. The error names the run and the reason. **The agent tells the teacher** what failed. The teacher may retry (calling again starts a new run) or, if a read keeps failing, choose `use_stored_data: true` (the stored data, with the `stale_data` warning). The agent never chooses stored data itself.
+- `SYNC_FAILED`: the run failed or finished with errors. The error names the run and the reason. **The agent reports to the teacher** what failed. The teacher may retry (calling again starts a new run) or, if a read keeps failing, choose `use_stored_data: true` (the stored data, with the `stale_data` warning). The agent never chooses stored data itself.
 - `SYNC_PENDING`: the run is still going after about 50 s, for example because it waits behind a dashboard sync. Calling again follows the same run.
 - `NOT_FOUND`: no such assignment, or Schoology no longer has the task.
 

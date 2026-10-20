@@ -136,6 +136,27 @@ describe('runTaskSync (Sync Assignment as a queued run)', () => {
       expect(task().task_synced_at).toBeNull();
     });
 
+    test('threads that finished with failures (comments.failed > 0): no stamp, the run fails', async () => {
+      deps.syncAssignment.mockResolvedValue({
+        removed: false, submissions: { refreshed: 1, failed: [] },
+        comments: { queued: 3, done: Promise.resolve({ refreshed: 2, failed: 1 }) },
+      });
+      await runGrading();
+      expect(events.at(-1).comments).toMatchObject({ refreshed: 2, failed: 1 });
+      expect(events.find((e) => e.phase === 'assignment' && e.status !== 'running')).toMatchObject({ status: 'error', message: '1 comment thread(s) not read' });
+      expect(task()).toEqual({ task_synced_at: null, task_sync_attempted_at: T });
+      expect(grading()).toBeNull();
+    });
+
+    test('a comments.error set synchronously by the task read: no stamp, the run fails', async () => {
+      deps.syncAssignment.mockResolvedValue({ removed: false, submissions: { refreshed: 1, failed: [] }, comments: { queued: 0, error: 'threads 401' } });
+      await runGrading();
+      expect(events.at(-1).comments).toEqual({ refreshed: 0, failed: 0, error: 'threads 401' });
+      expect(events.find((e) => e.phase === 'assignment' && e.status !== 'running')).toMatchObject({ status: 'error', message: 'threads 401' });
+      expect(task()).toEqual({ task_synced_at: null, task_sync_attempted_at: T });
+      expect(grading()).toBeNull();
+    });
+
     test('a failed file read fails the run (no stamp)', async () => {
       deps.refreshFiles.mockReturnValue({ queued: 2, done: Promise.reject(new Error('files 503')) });
       await runGrading();

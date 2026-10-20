@@ -119,7 +119,34 @@ describe('PrisMCP server', () => {
       expect(ctx).not.toHaveProperty('stale_data');
       expect(ctx.data_as_of).toBe('2026-10-20T10:00:00.000Z');
       expect(ctx.mastery_source).toMatchObject({ refreshed: true, cached_only: false });
+      expect(ctx.submission_comments_source).toEqual({ refreshed: 0, failed: 0, cached_only: false });
+      expect(ctx.submission_files_source).toEqual({ refreshed: 0, failed: 0, cached_only: false });
       expect(queueDeps.runTaskSync).toHaveBeenCalledWith(expect.objectContaining({ kind: 'task', assignmentId: 'sa-1', grading: true }), expect.any(Function));
+    });
+
+    test('a fresh answer (grading-synced under 5 minutes ago) says the three sources were read by that sync, not that nothing was read', async () => {
+      const gradedAt = new Date(Date.now() - 60 * 1000).toISOString();
+      getDb().prepare('UPDATE assignments SET task_synced_at = ?, grading_synced_at = ?').run(gradedAt, gradedAt);
+      queueDeps.runTaskSync = vi.fn();
+      const client = await connect();
+      const res = await client.callTool({ name: 'get_assignment_context', arguments: { course_id: courseId, assignment_id: 'sa-1' } });
+      expect(res.isError).toBeFalsy();
+      const ctx = JSON.parse(res.content[0].text);
+      expect(queueDeps.runTaskSync).not.toHaveBeenCalled();
+      const note = `read by the grading sync at ${gradedAt}, under 5 minutes ago`;
+      expect(ctx.submission_comments_source).toEqual({ refreshed: 0, failed: 0, cached_only: false, note });
+      expect(ctx.submission_files_source).toEqual({ refreshed: 0, failed: 0, cached_only: false, note });
+      expect(ctx.mastery_source).toEqual({ refreshed: false, synced_at: gradedAt, cached_only: false, note });
+    });
+
+    test('a SYNC_FAILED answer tells the agent the teacher may retry or choose use_stored_data', async () => {
+      queueDeps.sessionStatus = vi.fn().mockResolvedValue({ loggedIn: true, live: 'connected' });
+      queueDeps.runTaskSync = vi.fn(async () => { throw new Error('Schoology 503'); });
+      const client = await connect();
+      const res = await client.callTool({ name: 'get_assignment_context', arguments: { course_id: courseId, assignment_id: 'sa-1' } });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/^SYNC_FAILED:/);
+      expect(res.content[0].text).toContain('use_stored_data: true');
     });
 
     test('its description states the force rule, the 5 minute window, and that the teacher chooses stored data', async () => {
@@ -130,6 +157,9 @@ describe('PrisMCP server', () => {
       expect(d.description).toMatch(/SYNC_PENDING/);
       expect(d.description).toMatch(/SESSION_LAPSED/);
       expect(d.description).toMatch(/never decide yourself/);
+      expect(d.description).toMatch(/SYNC_FAILED[^.]*tell the teacher what failed/);
+      expect(d.description).toMatch(/retry/);
+      expect(d.description).toMatch(/never choose stored data yourself/);
       expect(d.inputSchema.properties).toHaveProperty('use_stored_data');
     });
 

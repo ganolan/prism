@@ -102,9 +102,10 @@ describe('get_assignment_context mastery source (#52, #131)', () => {
   });
 
   test('a fresh task (synced under 5 minutes ago) is not read again', async () => {
+    getDb().prepare(`UPDATE assignments SET grading_synced_at = ? WHERE schoology_assignment_id = '8590105935'`).run(AT);
     const sync = vi.fn(async () => ({ state: 'fresh', dataAsOf: AT }));
     const ctx = await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590105935' }, { sync });
-    expect(ctx.mastery_source).toEqual({ refreshed: false, synced_at: AT, cached_only: false });
+    expect(ctx.mastery_source).toEqual({ refreshed: false, synced_at: AT, cached_only: false, note: `read by the grading sync at ${AT}, under 5 minutes ago` });
     expect(ctx).not.toHaveProperty('stale_data');
   });
 

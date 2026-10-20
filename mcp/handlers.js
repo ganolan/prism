@@ -425,14 +425,16 @@ const STORED_NOTE = (at) => `Data as of ${at ?? 'never (this task has not been f
 function contextSources(db, { assignment_id }, r) {
   const features = getFeatures();
   const localId = resolveAssignmentId(db, assignment_id);
-  const task = db.prepare('SELECT is_lti_submission FROM assignments WHERE id = ?').get(localId);
+  const task = db.prepare('SELECT is_lti_submission, grading_synced_at FROM assignments WHERE id = ?').get(localId);
   const run = r.summary ?? {};
   const kept = r.state === 'stored';
-  const note = kept ? { note: STORED_NOTE(r.dataAsOf) } : {};
+  // A fresh answer ran no sync of its own, so its counts are 0: say the earlier grading sync read them.
+  const note = kept ? { note: STORED_NOTE(r.dataAsOf) }
+    : r.state === 'fresh' ? { note: `read by the grading sync at ${task?.grading_synced_at ?? r.dataAsOf}, under 5 minutes ago` } : {};
   const asRead = (feature, part) => {
     if (!features[feature] || part?.disabled) return { refreshed: 0, failed: 0, cached_only: true, note: `${feature} is off in config.yaml` };
     if (kept) return { refreshed: 0, failed: 0, cached_only: true, ...note };
-    return { refreshed: part?.refreshed ?? 0, failed: part?.failed ?? 0, cached_only: false };
+    return { refreshed: part?.refreshed ?? 0, failed: part?.failed ?? 0, cached_only: false, ...note };
   };
   const files = task?.is_lti_submission || run.files?.notNative
     ? { refreshed: 0, failed: 0, cached_only: true, note: 'this task takes OneDrive or Google Drive work, not Schoology uploads: submission_files is empty' }
@@ -448,6 +450,11 @@ export async function getAssignmentContextTool(db, { course_id, assignment_id, u
   const r = await sync(db, assignment_id, { useStoredData: use_stored_data === true, ...syncOptions });
   const ctx = getAssessmentContext(db, { courseId: course_id, assignmentId: assignment_id });
   if (!ctx) return ctx;
+  // What this grading session was given, and when: the suggestions it writes later (possibly after
+  // a long run) are judged stale by the age of THIS data, not by what a sync stamped by then.
+  const localId = resolveAssignmentId(db, assignment_id);
+  db.prepare('UPDATE assignments SET context_data_as_of = ?, context_served_at = ? WHERE id = ?')
+    .run(r.dataAsOf ?? 'never', new Date().toISOString(), localId);
   return {
     ...(r.state === 'stored' ? { stale_data: STORED_NOTE(r.dataAsOf) } : {}),
     ...ctx, ...contextSources(db, { assignment_id }, r), data_as_of: r.dataAsOf,

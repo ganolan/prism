@@ -29,7 +29,7 @@ before it answers (#131): a run in the sync queue that reads the task's details,
 submissions, grades, mastery levels and grade comments, waits for the comment
 threads and reads the files of every student who uploaded (`mastery_source`,
 `submission_comments_source`, `submission_files_source` report it, and
-`data_as_of` is the task's last full sync). A task whose last grading sync (`assignments.grading_synced_at`, stamped only by a grading run
+`data_as_of` is the task's last full sync; a `fresh` answer's three `*_source` fields say the earlier grading sync read them). The answer also records, on the assignment, the data time and the moment it was served; the suggestions the agent writes later carry them, so Prism's stale-data banner judges the data the agent was given, however long grading took. A task whose last grading sync (`assignments.grading_synced_at`, stamped only by a grading run
 that read everything; a plain Sync Assignment or course sync does not count) finished under 5 minutes
 ago is not read again. Both go through the saved Schoology session (plain HTTP,
 no browser), not the API keys. PrisMCP finds it the same way the server does: `PRISM_SESSION_DIR`, else
@@ -47,7 +47,9 @@ carries the Schoology link so the teacher can unsubmit by hand.
   sync and returns the context from the database with `stale_data` ("Data as of <time>. Sign in to Schoology
   for a fresh sync.") as its first key. The agent never chooses stored data itself.
 - `SYNC_FAILED`: the run failed, was interrupted by a restart or deploy, or finished with errors; the error
-  names the run and the reason. Calling again starts a new sync.
+  names the run and the reason. The agent tells the teacher what failed; they may retry (calling again starts
+  a new sync) or, if a read keeps failing, choose `use_stored_data: true` (the stored data, with `stale_data`).
+  The agent never chooses stored data itself.
 - `SYNC_PENDING`: still running after about 50 s (the run may be waiting behind a dashboard sync); calling
   again follows the same run.
 - `NOT_FOUND`: no such assignment.

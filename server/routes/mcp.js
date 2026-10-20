@@ -56,6 +56,13 @@ export function mcpRouter({ allowedHosts, devCopy = false }) {
 // the Host check. Called by server/index.js before the SPA fallback, and by the tests on a fresh
 // app, so both run the same chain. `allowedOrigins`: config.yaml server.allowedOrigins.
 export function mountMcp(app, { allowedOrigins = [], devCopy = false } = {}) {
-  const allowedHosts = ['127.0.0.1', 'localhost', ...allowedOrigins.map((o) => new URL(o).hostname)];
+  // A malformed entry is skipped with a warning, so one typo in config.yaml cannot stop the server booting.
+  const originHosts = allowedOrigins.flatMap((o) => {
+    try { return [new URL(o).hostname]; } catch {
+      console.warn(`[mcp] ignoring server.allowedOrigins entry ${JSON.stringify(o)}: not a valid URL (it is not an allowed Host for /mcp)`);
+      return [];
+    }
+  });
+  const allowedHosts = ['127.0.0.1', 'localhost', ...originHosts];
   app.use('/mcp', originGuard({ allowed: allowedOrigins }), mcpRouter({ allowedHosts, devCopy }));
 }

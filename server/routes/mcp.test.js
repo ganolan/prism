@@ -151,6 +151,22 @@ describe('/mcp over HTTP', () => {
     expect(await rawPost(port, { Origin: 'null' })).toBe(403);
   });
 
+  test('a malformed allowedOrigins entry is skipped with a warning naming it; the rest still work', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const app = express();
+      expect(() => mountMcp(app, { allowedOrigins: ['not a url', ALLOWED_ORIGINS[0]] })).not.toThrow();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('not a url'));
+      app.use(express.json());
+      const server = await listen(app);
+      open.push(() => new Promise((resolve) => { server.close(resolve); server.closeAllConnections(); }));
+      const { port } = server.address();
+      // The good entry still counts: its tailnet name is let through, a stranger's is not.
+      expect(await rawPost(port, { Host: 'prism.swordtail-everest.ts.net' })).not.toBe(403);
+      expect(await rawPost(port, { Host: 'evil.example' })).toBe(403);
+    } finally { warn.mockRestore(); }
+  });
+
   test('a request survives a server restart: a new app on the same port answers the next call', async () => {
     seedPair();
     const first = await startApp();

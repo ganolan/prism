@@ -115,6 +115,12 @@ CREATE TABLE IF NOT EXISTS assignments (
   grading_synced_at TEXT,
   -- last sync of this task, complete or not (background-sync window).
   task_sync_attempted_at TEXT,
+  -- #131: what PrisMCP's get_assignment_context last handed a grading session, and when: the
+  -- data time of the answer ('never' for a task not yet synced) and the moment it was served.
+  -- upsertStudentSuggestion copies them onto a suggestion, so staleness is the age of the data
+  -- the grader was given, not of whatever a background sync stamped by write time.
+  context_data_as_of TEXT,
+  context_served_at TEXT,
   synced_at TEXT
 );
 
@@ -258,12 +264,15 @@ CREATE TABLE IF NOT EXISTS feedback (
   revision_history TEXT DEFAULT '[]',
   source_file TEXT,
   suggestion_state TEXT,
-  -- The assignment's task_synced_at when an AI suggestion was written: how old the data it
-  -- was made from was ('never': the task had never been synced; null: a row from before
-  -- this was recorded, not judged). See #131.
+  -- The data time of the context the grading session was given (assignments.context_data_as_of,
+  -- else task_synced_at at write time): how old the data a suggestion was made from was
+  -- ('never': the task had never been synced; null: a row from before this was recorded, not
+  -- judged). See #131.
   data_as_of TEXT,
-  -- When the suggestion was written (ISO). updated_at also moves on teacher edits, so
-  -- staleness compares data_as_of with this. Set only by upsertStudentSuggestion.
+  -- When the grading session got its data (assignments.context_served_at, else the write time;
+  -- ISO). Not the write time itself: a grader reads once and writes at the end. updated_at also
+  -- moves on teacher edits, so staleness compares data_as_of with this. Set only by
+  -- upsertStudentSuggestion.
   suggested_at TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))

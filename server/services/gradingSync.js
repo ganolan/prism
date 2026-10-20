@@ -9,12 +9,13 @@
 //
 // `assignmentRef` is a local or Schoology assignment id. It never returns stale data silently: a
 // lapsed session, a failed run and a wait past `waitMs` each throw a GradingSyncError.
-//   NOT_FOUND       no such assignment (nothing queued)
+//   NOT_FOUND       no such assignment (nothing queued), or the run found the task deleted in Schoology
 //   SESSION_LAPSED  Schoology is signed out, checked first or lost mid-run (the queue holds that
 //                   run): { signInUrl, lastSyncedAt }. The teacher chooses: sign in and call again,
 //                   or call again with useStoredData (state 'stored', the database as it is).
 //   SYNC_FAILED     the run failed, was interrupted (a deploy) or finished with errors: { runId },
-//                   the message says why. Calling again starts a fresh run.
+//                   the message says why. The teacher chooses: call again (a fresh run), or call
+//                   again with useStoredData (the database as it is, with the stale_data warning).
 //   SYNC_PENDING    still going after waitMs: { runId }. Calling again follows the same run.
 import { resolveAssignmentId } from './idResolvers.js';
 import { enqueue, whenDone, resumeHeld, queueDeps, TOOL_WAIT_MS } from './syncQueue.js';
@@ -47,7 +48,9 @@ function failure(db, runId, status) {
   const lines = getEvents(db, runId).filter((e) => e.level === 'error').map((e) => e.message || e.title).filter(Boolean);
   const why = lines.length ? lines.join('; ') : `the sync ${status === 'interrupted' ? 'was interrupted (Prism restarted)' : status}`;
   return new GradingSyncError('SYNC_FAILED',
-    `The Schoology sync of this task did not finish cleanly (run ${runId}): ${why}. Calling again starts a new sync.`,
+    `The Schoology sync of this task did not finish cleanly (run ${runId}): ${why}. ` +
+    'Tell the teacher what failed. They may retry (calling again starts a new sync), or, if it keeps failing, choose to call again with use_stored_data: true, ' +
+    'which returns the data Prism already holds with a stale_data warning. Do not choose stored data yourself.',
     { runId });
 }
 
@@ -96,5 +99,7 @@ export async function gradingSync(db, assignmentRef, {
   const row = db.prepare('SELECT summary_json FROM sync_runs WHERE id = ?').get(runId);
   let summary = null;
   try { summary = JSON.parse(row?.summary_json ?? 'null'); } catch { summary = null; }
+  // A task deleted in Schoology: the run completes (and says so), but there is nothing to grade.
+  if (summary?.removed) throw new GradingSyncError('NOT_FOUND', `This task was deleted in Schoology (run ${runId}), so there is nothing to read.`, { runId });
   return { state: 'synced', runId, dataAsOf: syncedAt(), summary };
 }

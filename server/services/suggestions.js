@@ -15,7 +15,7 @@ import { getFeedbackRows, resolveRowKey } from './feedbackRows.js';
 // (external_id then title, case-insensitive), and reports — never silently
 // drops — unresolved keys and out-of-vocabulary levels. Always writes a fresh
 // status='draft' row, pushing any prior feedback_json to revision_history. The row
-// records the task's task_synced_at as data_as_of ('never' if not yet synced) and suggested_at.
+// records the data time and serve time of the context the grader was given (data_as_of, suggested_at).
 export function upsertStudentSuggestion(db, {
   assignmentId, student, narrative_feedback, rubric_scores, reviewer_flags, strengths, suggestions,
   scale_level, evidence, reviewer_flags_brief, quiz_overall,
@@ -25,7 +25,7 @@ export function upsertStudentSuggestion(db, {
   const assignmentLocalId = resolveAssignmentId(db, assignmentId);
   if (!assignmentLocalId) return { student, status: 'error', message: `Assignment not found: ${assignmentId}` };
 
-  const assignmentRow = db.prepare('SELECT schoology_assignment_id, course_id, grading_scale_id, task_synced_at FROM assignments WHERE id = ?').get(assignmentLocalId);
+  const assignmentRow = db.prepare('SELECT schoology_assignment_id, course_id, grading_scale_id, task_synced_at, context_data_as_of, context_served_at FROM assignments WHERE id = ?').get(assignmentLocalId);
   const topics = getAlignedTopics(db, assignmentRow.course_id, assignmentRow.schoology_assignment_id);
 
   // Score-scale suggestion for an unaligned assignment (#41), e.g. an agent
@@ -87,11 +87,16 @@ export function upsertStudentSuggestion(db, {
     ...(quiz_overall ? { quiz_overall } : {}),
   });
 
-  // How old the data this suggestion was made from is. 'never' marks a task that was never synced
-  // (null is a row from before this was recorded, and is not judged). suggested_at is the clock
-  // staleness is measured against: updated_at also moves when the teacher edits the row.
-  const dataAsOf = assignmentRow.task_synced_at ?? 'never';
-  const suggestedAt = new Date().toISOString();
+  // How old the data this suggestion was made from is, and when the grading session got it. Both
+  // come from the context get_assignment_context last served (a grader reads once and may write
+  // suggestions long after, so write time and a later sync stamp say nothing about what it read).
+  // Without one (a suggestion written with no get_assignment_context), the task's task_synced_at
+  // and now. 'never' marks a task that was never synced (null is a row from before this was
+  // recorded, and is not judged). suggested_at is the clock staleness is measured against:
+  // updated_at also moves when the teacher edits the row.
+  const served = assignmentRow.context_served_at != null;
+  const dataAsOf = served ? (assignmentRow.context_data_as_of ?? 'never') : (assignmentRow.task_synced_at ?? 'never');
+  const suggestedAt = served ? assignmentRow.context_served_at : new Date().toISOString();
 
   const write = db.transaction(() => {
     // The single active suggestion = the most recent feedback row for this

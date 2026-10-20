@@ -16,11 +16,13 @@ router.get('/inbox-log', (req, res) => {
 });
 
 // data_stale: an AI suggestion (status 'draft') made from data over SYNC_FRESH_MS older than itself (#131), or
-// from a task that was never synced ('never'). Measured against suggested_at, not updated_at,
-// which also moves when the teacher edits the row. Not judged (false): a null data_as_of or
+// from a task that was never synced ('never'). data_as_of and suggested_at are the data time and the
+// moment get_assignment_context served it to the grader (upsertStudentSuggestion copies them), so
+// the age is what the grader was given, not what the write came long after. Measured against
+// suggested_at, not updated_at, which also moves when the teacher edits the row. Not judged (false): a null data_as_of or
 // suggested_at (a row from before they were recorded), a teacher's own saved grade, and a
 // suggestion the teacher used or ignored.
-function withDataTime(row) {
+export function withDataTime(row) {
   const dataAsOf = row.data_as_of ?? null;
   let stale = false;
   if (row.status === 'draft' && dataAsOf && row.suggested_at && !['used', 'ignored'].includes(row.suggestion_state)) {

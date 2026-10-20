@@ -185,6 +185,9 @@ const MIGRATIONS = [
   `ALTER TABLE assignments ADD COLUMN task_sync_attempted_at TEXT`,
   // #131: the last grading sync that completed cleanly (get_assignment_context's 5 minute skip).
   `ALTER TABLE assignments ADD COLUMN grading_synced_at TEXT`,
+  // #131: the data time and serve time of the last get_assignment_context answer (stale-suggestion banner).
+  `ALTER TABLE assignments ADD COLUMN context_data_as_of TEXT`,
+  `ALTER TABLE assignments ADD COLUMN context_served_at TEXT`,
 ];
 
 // Remove orphaned auto-flag rows. The auto-flag feature that wrote 'missing',

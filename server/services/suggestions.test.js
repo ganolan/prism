@@ -99,6 +99,25 @@ describe('upsertStudentSuggestion', () => {
     expect(db.prepare('SELECT data_as_of FROM feedback WHERE id = ?').get(second.feedback_id).data_as_of).toBe('2026-10-20T10:25:00.000Z');
   });
 
+  test('a served context (get_assignment_context) sets data_as_of and suggested_at, not task_synced_at and the write time', () => {
+    const db = getDb();
+    const { assignmentLocalId } = seed(db);
+    db.prepare('UPDATE assignments SET task_synced_at = ?, context_data_as_of = ?, context_served_at = ? WHERE id = ?')
+      .run('2026-10-20T10:20:00.000Z', '2026-10-20T09:00:00.000Z', '2026-10-20T09:05:00.000Z', assignmentLocalId);
+    const result = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'Good.' });
+    expect(db.prepare('SELECT data_as_of, suggested_at FROM feedback WHERE id = ?').get(result.feedback_id))
+      .toEqual({ data_as_of: '2026-10-20T09:00:00.000Z', suggested_at: '2026-10-20T09:05:00.000Z' });
+  });
+
+  test("a served context for a never-synced task stores 'never', even once the task has since been synced", () => {
+    const db = getDb();
+    const { assignmentLocalId } = seed(db);
+    db.prepare('UPDATE assignments SET task_synced_at = ?, context_data_as_of = ?, context_served_at = ? WHERE id = ?')
+      .run('2026-10-20T10:20:00.000Z', 'never', '2026-10-20T09:05:00.000Z', assignmentLocalId);
+    const result = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'Good.' });
+    expect(db.prepare('SELECT data_as_of FROM feedback WHERE id = ?').get(result.feedback_id).data_as_of).toBe('never');
+  });
+
   test('accepts level codes and reports out-of-vocabulary levels without storing them', () => {
     const db = getDb();
     seed(db);

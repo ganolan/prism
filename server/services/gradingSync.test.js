@@ -180,6 +180,28 @@ describe('gradingSync', () => {
     expect(err.message).toContain(`run ${runs()[0].id}`);
   });
 
+  test('SYNC_FAILED tells the teacher what failed and the way forward: retry, or use_stored_data', async () => {
+    queueDeps.runTaskSync = vi.fn(async () => { throw new Error('Schoology 503'); });
+    const err = await gradingSync(getDb(), 'A1', { waitMs: 2000 }).catch((e) => e);
+    expect(err.message).toContain('Schoology 503');
+    expect(err.message).toContain('Tell the teacher what failed');
+    expect(err.message).toContain('retry');
+    expect(err.message).toContain('use_stored_data: true');
+    expect(err.message).toContain('stale_data');
+    expect(err.message).toContain('Do not choose stored data yourself');
+  });
+
+  test('a task deleted in Schoology is NOT_FOUND, not a synced answer', async () => {
+    queueDeps.runTaskSync = vi.fn(async (request, emit) => {
+      emit({ phase: 'assignment', status: 'done', title: 'Essay', removed: true });
+      emit({ type: 'summary', mastery: [], removed: true });
+    });
+    const err = await gradingSync(getDb(), 'A1', { waitMs: 2000 }).catch((e) => e);
+    expect(err).toBeInstanceOf(GradingSyncError);
+    expect(err).toMatchObject({ code: 'NOT_FOUND' });
+    expect(err.message).toContain('deleted in Schoology');
+  });
+
   test('a run that finished with errors is SYNC_FAILED, never stale data', async () => {
     queueDeps.runTaskSync = vi.fn(async (request, emit) => {
       emit({ phase: 'assignment', status: 'error', title: 'Essay', message: '1 comment thread(s) not read' });

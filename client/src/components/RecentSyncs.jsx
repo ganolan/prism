@@ -5,7 +5,7 @@ import { runStatus, formatDuration, describeOptions, describeRunEvent } from '..
 import { reduceSyncEvents } from '../lib/syncEvents.js';
 import PhaseTimings from './PhaseTimings.jsx';
 
-const LIMIT = 30;
+const LIMIT = 60; // server keeps 30 full syncs + 30 task/quiz runs (KEEP_RUNS each)
 // How often an expanded log of a still-running sync re-fetches itself.
 const REFRESH_MS = 3000;
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -88,7 +88,7 @@ function RunLog({ runId, reloadKey, refreshMs, onFinished }) {
   );
 }
 
-// Settings → Recent syncs: the last 30 sync runs, each expandable to the full
+// Settings → Recent syncs: the last 30 full syncs and the last 30 task and quiz runs, each expandable to the full
 // event log it reported (kept server-side, so a sync whose dialog lost its
 // connection still has a complete record).
 export default function RecentSyncs({ refreshMs = REFRESH_MS }) {

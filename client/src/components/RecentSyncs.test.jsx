@@ -39,7 +39,7 @@ describe('RecentSyncs', () => {
     expect(screen.getByText('2m 30s')).toBeInTheDocument();
     expect(screen.getByText('2 errors · 1 warning')).toBeInTheDocument();
     expect(screen.getByText('30/09/2026, ' + new Date('2026-09-30T09:00:00Z').toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }))).toBeInTheDocument();
-    expect(api.getSyncRuns).toHaveBeenCalledWith(30);
+    expect(api.getSyncRuns).toHaveBeenCalledWith(60);
   });
 
   it('expanding a run shows its log with errors and warnings highlighted', async () => {

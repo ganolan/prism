@@ -119,6 +119,55 @@ describe('sync runs', () => {
     expect(listRuns(db(), { limit: 100 }).length).toBe(5);
   });
 
+  test('#170: pruneRuns counts full syncs and task/quiz runs separately, and never deletes an active row', () => {
+    const mk = (options) => {
+      const id = startRun(db(), options);
+      appendEvent(db(), id, { type: 'log', message: 'x' });
+      finishRun(db(), id, { status: 'completed' });
+      return id;
+    };
+    const full = [];
+    const small = [];
+    // Oldest first: 35 full runs (a mix of the three shapes) under 40 task and quiz runs.
+    for (let i = 0; i < 35; i++) full.push(mk(i % 3 === 0 ? {} : { kind: i % 3 === 1 ? 'all' : 'courses' }));
+    for (let i = 0; i < 40; i++) small.push(mk(i % 3 === 0 ? { kind: 'quiz' } : { kind: 'task', grading: i % 2 === 0 }));
+    // An old running full row and an old held task row survive, outside the kept 30.
+    db().prepare(`UPDATE sync_runs SET status = 'running' WHERE id = ?`).run(full[0]);
+    db().prepare(`UPDATE sync_runs SET status = 'held' WHERE id = ?`).run(small[0]);
+    pruneRuns(db());
+    const left = new Set(listRuns(db(), { limit: 200 }).map((r) => r.id));
+    expect([...left].length).toBe(30 + 30 + 2);
+    for (const id of full.slice(-30)) expect(left.has(id)).toBe(true);
+    for (const id of small.slice(-30)) expect(left.has(id)).toBe(true);
+    expect(left.has(full[0])).toBe(true);
+    expect(left.has(small[0])).toBe(true);
+    for (const id of [...full.slice(1, 5), ...small.slice(1, 10)]) {
+      expect(left.has(id)).toBe(false);
+      expect(db().prepare('SELECT COUNT(*) AS n FROM sync_run_events WHERE run_id = ?').get(id).n).toBe(0);
+    }
+  });
+
+  test('#170: a run whose options_json cannot be read counts as a full sync', () => {
+    const ids = [];
+    for (let i = 0; i < 4; i++) {
+      const id = startRun(db(), {});
+      finishRun(db(), id, { status: 'completed' });
+      ids.push(id);
+    }
+    db().prepare(`UPDATE sync_runs SET options_json = 'not json' WHERE id = ?`).run(ids[0]);
+    db().prepare(`UPDATE sync_runs SET options_json = NULL WHERE id = ?`).run(ids[1]);
+    const tasks = [];
+    for (let i = 0; i < 5; i++) {
+      const id = startRun(db(), { kind: 'task' });
+      finishRun(db(), id, { status: 'completed' });
+      tasks.push(id);
+    }
+    pruneRuns(db(), 3);
+    const left = listRuns(db(), { limit: 100 }).map((r) => r.id).sort((a, b) => a - b);
+    // Full group (the unreadable and null rows are full): newest 3 of 4 kept; task group: newest 3 of 5.
+    expect(left).toEqual([...ids.slice(1), ...tasks.slice(2)]);
+  });
+
   test('an interrupted run ends at its last event, not at the next boot', () => {
     const stale = startRun(db(), {});
     appendEvent(db(), stale, { type: 'log', message: 'a' });

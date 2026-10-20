@@ -3,10 +3,13 @@
 //   1. Following: the progress dialog and the pages' chips poll
 //      getEvents(runId, afterSeq) from the last seq they saw; the run carries on
 //      server-side whether or not anyone is following it.
-//   2. History: Settings → Recent syncs lists the newest runs and their logs.
+//   2. History: Settings → Recent syncs lists the newest runs and their logs. pruneRuns
+//      keeps KEEP_RUNS full syncs and KEEP_RUNS task/quiz runs, counted separately.
 // Event shapes are the orchestrator's (see syncOrchestrator.js).
 
+// Per group: full syncs and task/quiz runs are each kept to this many (see pruneRuns).
 export const KEEP_RUNS = 30;
+const LIST_DEFAULT = KEEP_RUNS * 2;
 
 const FINISHED = ['completed', 'completed_with_errors', 'failed', 'interrupted'];
 
@@ -85,8 +88,8 @@ export function finishRun(db, runId, { status = 'completed', summary = null } = 
     .run(final, nowIso(), summary == null ? null : JSON.stringify(summary), runId);
 }
 
-export function listRuns(db, { limit = KEEP_RUNS } = {}) {
-  const n = Math.max(1, Math.min(200, Number.parseInt(limit, 10) || KEEP_RUNS));
+export function listRuns(db, { limit = LIST_DEFAULT } = {}) {
+  const n = Math.max(1, Math.min(200, Number.parseInt(limit, 10) || LIST_DEFAULT));
   return db.prepare('SELECT * FROM sync_runs ORDER BY id DESC LIMIT ?').all(n).map(shapeRun);
 }
 
@@ -107,15 +110,30 @@ export function isFinished(status) {
   return FINISHED.includes(status);
 }
 
-// Keep the newest `keep` runs; delete older runs and their events.
+// A task or quiz run (kind 'task' / 'quiz') is a small, frequent request; everything else
+// is a full sync. A row whose options_json cannot be read counts as a full run.
+function isSmallRun(optionsJson) {
+  const o = parse(optionsJson);
+  return o != null && typeof o === 'object' && (o.kind === 'task' || o.kind === 'quiz');
+}
+
+// Keep the newest `keep` full runs and, counted separately, the newest `keep` task and
+// quiz runs; delete older runs and their events. Grading and quiz runs are frequent, so
+// one shared cap would push full syncs out of Settings → Recent syncs within a day.
 export function pruneRuns(db, keep = KEEP_RUNS) {
   db.transaction(() => {
-    const cutoff = db.prepare('SELECT id FROM sync_runs ORDER BY id DESC LIMIT 1 OFFSET ?').get(keep - 1);
-    if (!cutoff) return;
-    // A queued, held or running run is never pruned (the queue still holds it).
-    const old = `id < ? AND status NOT IN ('queued', 'held', 'running')`;
-    db.prepare(`DELETE FROM sync_run_events WHERE run_id IN (SELECT id FROM sync_runs WHERE ${old})`).run(cutoff.id);
-    db.prepare(`DELETE FROM sync_runs WHERE ${old}`).run(cutoff.id);
+    const rows = db.prepare('SELECT id, status, options_json FROM sync_runs ORDER BY id DESC').all();
+    const seen = { full: 0, small: 0 };
+    const doomed = [];
+    for (const r of rows) {
+      const group = isSmallRun(r.options_json) ? 'small' : 'full';
+      seen[group] += 1;
+      // A queued, held or running run is never pruned (the queue still holds it).
+      if (seen[group] > keep && !['queued', 'held', 'running'].includes(r.status)) doomed.push(r.id);
+    }
+    const delEvents = db.prepare('DELETE FROM sync_run_events WHERE run_id = ?');
+    const delRun = db.prepare('DELETE FROM sync_runs WHERE id = ?');
+    for (const id of doomed) { delEvents.run(id); delRun.run(id); }
   })();
 }
 

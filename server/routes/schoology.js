@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
 import { enqueue, currentSync, resumeHeld, ensure } from '../services/syncQueue.js';
-import { listRuns, getRun, getEvents, isFinished, KEEP_RUNS } from '../services/syncRuns.js';
+import { listRuns, getRun, getEvents, isFinished } from '../services/syncRuns.js';
 
 const router = Router();
 
@@ -77,7 +77,7 @@ router.get('/sync/current', (req, res) => {
 
 // GET /api/sync/runs?limit= — newest sync runs (no events), for Settings.
 router.get('/sync/runs', (req, res) => {
-  res.json(listRuns(getDb(), { limit: req.query.limit ?? KEEP_RUNS }));
+  res.json(listRuns(getDb(), { limit: req.query.limit }));
 });
 
 // GET /api/sync/runs/:id — one run with its full event log.

@@ -994,7 +994,7 @@ second error. Nothing kept a record of what a sync reported.
   - A drop before the runId retries `/sync/current` with backoff.
   - Runs are marked interrupted inside the `app.listen` callback, with `finished_at` set to the
     last event. Settings → **Recent syncs**
-  (`RecentSyncs.jsx`, `lib/syncRunLog.js`) lists the last 30 runs, and each one expands to its log.
+  (`RecentSyncs.jsx`, `lib/syncRunLog.js`) lists the last 30 full syncs and the last 30 task and quiz runs (#170), and each one expands to its log.
 
 **Tests:** 907 server + 630 client Vitest tests pass; `npm run build` succeeds (2026-10-02).
 

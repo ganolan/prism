@@ -37,7 +37,10 @@ export function formatDuration(startedAt, finishedAt) {
 export function describeOptions(options) {
   if (!options) return '';
   const parts = options.trigger === 'scheduled' ? ['Scheduled'] : [];
-  if (!options.skipSchoology) parts.push(options.recentOnly ? `Schoology (last ${options.recentDays} days)` : 'Schoology');
+  // A quiz load and a task run have their own labels; they carry no PowerSchool or mastery parts.
+  if (options.kind === 'quiz') return [...parts, 'Quiz results load'].join(' · ');
+  if (options.kind === 'task') return [...parts, options.grading ? 'Grading sync' : 'Sync Assignment'].join(' · ');
+  if (!options.skipSchoology) parts.push('Schoology');
   if (options.syncBlocks) parts.push('blocks');
   const n = options.masteryCourseIds?.length || 0;
   if (n) parts.push(plural(n, 'mastery course'));

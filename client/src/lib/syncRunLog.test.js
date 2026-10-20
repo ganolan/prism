@@ -29,12 +29,18 @@ describe('describeOptions', () => {
   it('summarises what the run synced', () => {
     expect(describeOptions({ skipSchoology: false, syncBlocks: true, masteryCourseIds: [1, 2] }))
       .toBe('Schoology · blocks · 2 mastery courses');
-    expect(describeOptions({ skipSchoology: false, recentOnly: true, recentDays: 14, syncBlocks: false, masteryCourseIds: [] }))
-      .toBe('Schoology (last 14 days)');
+    expect(describeOptions({ skipSchoology: false, syncBlocks: false, masteryCourseIds: [] })).toBe('Schoology');
     expect(describeOptions({ skipSchoology: true, syncBlocks: false, masteryCourseIds: [5] })).toBe('1 mastery course');
     expect(describeOptions(null)).toBe('');
     expect(describeOptions({ trigger: 'scheduled', skipSchoology: false, syncBlocks: true, masteryCourseIds: [1] }))
       .toBe('Scheduled · Schoology · blocks · 1 mastery course');
+  });
+
+  it('labels a quiz load and the task runs by their kind (#131)', () => {
+    expect(describeOptions({ kind: 'quiz', groupId: 7, trigger: 'button', noHold: true })).toBe('Quiz results load');
+    expect(describeOptions({ kind: 'task', courseId: 1, assignmentId: 'A1', trigger: 'button' })).toBe('Sync Assignment');
+    expect(describeOptions({ kind: 'task', courseId: 1, assignmentId: 'A1', grading: true, trigger: 'button' })).toBe('Grading sync');
+    expect(describeOptions({ kind: 'courses', courseIds: [1], trigger: 'page' })).toBe('Schoology');
   });
 });
 

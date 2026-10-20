@@ -39,15 +39,19 @@ export default function SyncDialog({ onClose, onSyncComplete, onRun, request = n
   // The run being followed: { runId, lastSeq, stage: 'poll' | 'stalled' | 'done', wake, failSince }.
   const runRef = useRef(null);
   const unmounted = useRef(false);
+  // A request is posted once per dialog: React StrictMode runs the mount effect twice in dev. A
+  // followed run is simply followed again (the first follow was cancelled by the cleanup).
+  const started = useRef(false);
 
   useEffect(() => {
     unmounted.current = false;
     if (followRunId != null) {
       joinRun(followRunId, null);
-    } else if (request) {
-      startSync(request);
-    } else if (presetCourse) {
-      startSync({ courseIds: [Number(presetCourse.id)], syncBlocks: false });
+    } else if (!started.current) {
+      // Posted once: on StrictMode's second mount, the first post's answer joins the run (startSync).
+      started.current = true;
+      if (request) startSync(request);
+      else if (presetCourse) startSync({ courseIds: [Number(presetCourse.id)], syncBlocks: false });
     }
     return () => {
       unmounted.current = true;
@@ -96,6 +100,7 @@ export default function SyncDialog({ onClose, onSyncComplete, onRun, request = n
     while (!unmounted.current && r.stage === 'poll') {
       try {
         const res = await getSyncRunEvents(r.runId, r.lastSeq);
+        if (r.stage !== 'poll') break; // cancelled while it waited (a newer follow took over)
         r.failSince = null;
         ingest(r, res.events || []);
         if (res.finished) return { status: res.status };

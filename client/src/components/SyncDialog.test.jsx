@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { StrictMode } from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import SyncDialog from './SyncDialog.jsx';
 import * as api from '../services/api.js';
@@ -72,7 +73,25 @@ describe('SyncDialog (the sync queue)', () => {
     pollScript([done()]);
     render(<SyncDialog presetCourse={{ id: 5, name: 'AP CSP' }} onClose={() => {}} pollMs={1} />);
     await waitFor(() => expect(api.startSync).toHaveBeenCalledWith({ courseIds: [5], syncBlocks: false }));
-      });
+  });
+
+  it('final review #11: under React StrictMode a request is posted once, and the run followed to the end', async () => {
+    pollScript([done()]);
+    render(<StrictMode><SyncDialog request={EVERYTHING} onClose={() => {}} pollMs={1} /></StrictMode>);
+    await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
+    expect(api.startSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('final review #11: under React StrictMode a followed run lists each event once', async () => {
+    // The answer depends on the seq asked from, as the server's does.
+    vi.mocked(api.getSyncRunEvents).mockImplementation(async (runId, after) => (after < 1
+      ? { status: 'running', finished: false, events: [{ seq: 1, type: 'log', message: 'Fetching sections' }] }
+      : done([{ seq: 2, type: 'summary', schoology: { records: 2 }, mastery: [], elapsedMs: 1 }])));
+    render(<StrictMode><SyncDialog followRunId={4} onClose={() => {}} pollMs={1} /></StrictMode>);
+    await waitFor(() => expect(screen.getByText('Sync complete')).toBeInTheDocument());
+    expect(screen.getAllByText('Fetching sections')).toHaveLength(1);
+    expect(api.startSync).not.toHaveBeenCalled();
+  });
 
   it('followRunId (a page chip) follows that run and starts nothing', async () => {
     pollScript([done()]);

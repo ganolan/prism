@@ -90,7 +90,7 @@ describe('continuePastImport', () => {
     ]);
     await continuePastImport({ db: db(), discover, enqueue });
     expect(readState()).toEqual({
-      state: 'importing', total: 5, sectionIds: ['3', '4', '7', '1', '2'], failed: [], retried: false,
+      state: 'importing', total: 5, sectionIds: ['3', '4', '7', '1', '2'], failed: [], retried: false, current: '3',
     });
     expect(queued(enqueue)).toEqual([{ kind: 'import', sectionId: '3', trigger: 'page' }]);
     expect(pastImportStatus(db())).toEqual({ state: 'importing', done: 0, total: 5 });
@@ -213,6 +213,29 @@ describe('startPastImport (through the real queue)', () => {
     await settled();
     expect(queueDeps.runPastImport.mock.calls.map(([r]) => r.sectionId)).toEqual(['3']);
     expect(readState().state).toBe('done');
+  });
+
+  test('final review #2: each queued section is kept as current, and cleared when the import is done', async () => {
+    importing(['1']);
+    const enqueue = vi.fn(() => ({ runId: 1, state: 'queued', joined: false }));
+    await continuePastImport({ db: db(), enqueue });
+    expect(readState().current).toBe('1');
+    addCourse('1');
+    await continuePastImport({ db: db(), enqueue, finished: '1', status: 'completed' });
+    expect(readState()).toMatchObject({ state: 'done', current: null });
+  });
+
+  test('final review #2: a restart cut off a section\'s run after it wrote its row: failed, and retried', async () => {
+    importing(['2', '3'], { current: '2' });
+    addCourse('2'); // the run wrote the course row, then the server stopped before it finished
+    queueDeps.runPastImport = vi.fn(async (request, emit) => {
+      db().prepare(`INSERT OR IGNORE INTO courses (schoology_section_id, course_name, archived) VALUES (?, 'x', 1)`).run(request.sectionId);
+      emit({ type: 'summary', import: { sectionId: request.sectionId } });
+    });
+    stop = startPastImport({ db: db(), discover: vi.fn() });
+    await settled();
+    expect(readState()).toMatchObject({ state: 'done', failed: ['2'], retried: true, current: null });
+    expect(queueDeps.runPastImport.mock.calls.map(([r]) => r.sectionId)).toEqual(['3', '2']);
   });
 
   test('a page sync finishing does not touch a waiting import', async () => {

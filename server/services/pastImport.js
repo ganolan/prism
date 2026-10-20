@@ -1,20 +1,25 @@
 // The background import of the teacher's past (archived) courses after a first run (#171).
 //
-// Once per install: the first run on an empty database marks it due (markPastImportDue,
-// 'waiting', from syncQueue's ensure; it lives in pastImportState.js so the queue need not import
-// this file). After the next finished `kind: 'all'` run, the archived sections are discovered
-// (getArchivedSections; no session → it stays waiting for a later run), and each one not yet in
-// `courses` (and with a course code: a section with none is a template or a "not taught" one, as
-// GET /api/courses/archived/discover marks them) is imported, newest school year first. One queue
-// run per course ({ kind: 'import', sectionId }, archivedImportRun.js), one at a time, so page syncs
-// interleave: when an import run finishes, the queue's onRunFinished listener queues the next.
+// Once per install: the first run on an empty database marks it due (markPastImportDue, 'waiting':
+// syncQueue's ensure, and any kind 'all' run that starts with no course; it lives in
+// pastImportState.js so the queue need not import this file). After the next finished
+// `kind: 'all'` run, the archived sections are discovered (getArchivedSections; no session → it
+// stays waiting for a later run), and each one not yet in `courses` (and with a course code: a
+// section with none is a template or a "not taught" one, as GET /api/courses/archived/discover
+// marks them) is imported, newest school year first. One queue run per course
+// ({ kind: 'import', sectionId }, archivedImportRun.js), one at a time, so page syncs interleave:
+// when an import run finishes, the queue's onRunFinished listener queues the next.
 //
-// A section whose run did not finish 'completed' (or that is still missing after it) is listed as
+// A section whose run did not finish 'completed' (or did, and left no course row) is listed as
 // failed and the import moves on: a run can fail after writing the course row, so the row alone
 // does not prove the import. When the list is through, each failed section is tried once more
-// (`retried`; the import's upsert makes a second try safe), then the import is 'done' for good. A restart resumes it (startPastImport): the sections still missing are queued, never
-// the ones already imported. The state is one settings row:
-//   PAST_IMPORT_KEY → { state: 'waiting' | 'importing' | 'done', total, sectionIds, failed, retried }
+// (`retried`; the import's upsert makes a second try safe), then the import is 'done' for good.
+// The section whose run is queued or going is kept as `current`: a restart (which marks that run
+// interrupted, and no listener hears it) counts it as an interrupted run, so it joins the failed
+// list and gets its retry; the import then resumes with the sections still missing, never the
+// ones already imported. The state is one settings row:
+//   PAST_IMPORT_KEY → { state: 'waiting' | 'importing' | 'done', total, sectionIds, failed,
+//                       retried, current }
 // with sectionIds in import order. GET /api/sync/status reports pastImportStatus.
 import { enqueue as queueRequest, onRunFinished } from './syncQueue.js';
 import { getArchivedSections } from './archivedCourses.js';
@@ -35,6 +40,7 @@ function readState(db) {
       sectionIds: Array.isArray(s.sectionIds) ? s.sectionIds.map(String) : [],
       failed: Array.isArray(s.failed) ? s.failed.map(String) : [],
       retried: !!s.retried,
+      current: s.current == null ? null : String(s.current),
     };
   } catch {
     return null;
@@ -108,17 +114,15 @@ async function step({ db, discover, enqueue, finished, status }) {
     try { sections = await discover(); } catch { sections = null; }
     if (!sections) return; // no session: a later run tries again
     const sectionIds = importOrder(db, sections);
-    s = { state: 'importing', total: sectionIds.length, sectionIds, failed: [], retried: false };
+    s = { state: 'importing', total: sectionIds.length, sectionIds, failed: [], retried: false, current: null };
     console.log(`[past import] ${sectionIds.length} past course(s) to import`);
   }
   const next = nextSection(s, missingOf(db, s.sectionIds), finished == null ? null : String(finished), status);
-  if (!next) {
-    s.state = 'done';
-    writeState(db, s);
-    return;
-  }
+  // Kept before the run is queued, so a restart knows which section's run it cut off.
+  s.current = next;
+  if (!next) s.state = 'done';
   writeState(db, s);
-  enqueue({ kind: 'import', sectionId: next, trigger: 'page' });
+  if (next) enqueue({ kind: 'import', sectionId: next, trigger: 'page' });
 }
 
 let chain = Promise.resolve();
@@ -132,15 +136,19 @@ export function continuePastImport({ db, discover = getArchivedSections, enqueue
   return run;
 }
 
-// At server start: listen for finished runs, and resume an import a restart cut off. → unsubscribe.
+// At server start: listen for finished runs, and resume an import a restart cut off. The section
+// whose run the restart cut off (`current`; markInterruptedRuns marked its run interrupted) counts
+// as an interrupted run. → unsubscribe.
 export function startPastImport({ db, discover = getArchivedSections }) {
   const stop = onRunFinished((request, status) => {
     if (request.kind === 'import') return continuePastImport({ db, discover, finished: request.sectionId, status });
     if (request.kind === 'all' && readState(db)?.state === 'waiting') return continuePastImport({ db, discover });
     return undefined;
   });
-  if (readState(db)?.state === 'importing') {
-    continuePastImport({ db, discover }).catch((err) => console.error('[past import] Could not resume:', err.message));
+  const s = readState(db);
+  if (s?.state === 'importing') {
+    const cutOff = s.current == null ? {} : { finished: s.current, status: 'interrupted' };
+    continuePastImport({ db, discover, ...cutOff }).catch((err) => console.error('[past import] Could not resume:', err.message));
   }
   return stop;
 }

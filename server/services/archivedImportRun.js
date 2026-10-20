@@ -4,8 +4,9 @@
 //
 // A log line names the course and its counts (and a warning line follows when its mastery could not
 // be read), and the summary event is { type: 'summary', import: { sectionId, courseId, courseName,
-// studentsCount, assignmentsCount, gradesCount, masteryError }, elapsedMs }. An error is left for the queue to log: the run finishes failed with
-// no summary, and the section is still missing from courses (pastImport.js retries it once).
+// studentsCount, assignmentsCount, gradesCount, masteryError }, elapsedMs }. An error is left for
+// the queue to log: the run finishes failed with no summary, whether or not the course row was
+// written (pastImport.js retries once any run that did not finish 'completed').
 import { getDb } from '../db/index.js';
 import { importArchivedCourse } from './archivedImport.js';
 

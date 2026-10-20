@@ -332,5 +332,46 @@ describe('the sync queue', () => {
       runs[0].finish(); await idle();
     });
   });
+
+  describe('grading sync (#131)', () => {
+    const grading = { kind: 'task', assignmentId: '950', grading: true, trigger: 'button' };
+
+    test('a grading request joins only a grading run of the same task', () => {
+      gatedRuns();
+      const x = enqueue({ ...grading, courseId: a });
+      const y = enqueue({ ...grading, courseId: a });
+      expect(y).toMatchObject({ runId: x.runId, joined: true });
+      expect(enqueue({ ...grading, courseId: a, assignmentId: '951' }).joined).toBe(false);
+    });
+
+    test('a grading request never joins a course run or a plain task run of that task', () => {
+      gatedRuns();
+      const course = enqueue({ kind: 'courses', courseIds: [a], trigger: 'page' });
+      const plain = enqueue({ kind: 'task', courseId: a, assignmentId: '950', trigger: 'page' });
+      const g = enqueue({ ...grading, courseId: a });
+      expect(g.joined).toBe(false);
+      expect([course.runId, plain.runId]).not.toContain(g.runId);
+    });
+
+    test('a plain task request joins a queued grading run (it reads more)', async () => {
+      gatedRuns();
+      enqueue({ kind: 'courses', courseIds: [b], trigger: 'page' }); // holds the queue so the next ones wait
+      await tick();
+      const g = enqueue({ ...grading, courseId: a });
+      expect(g.state).toBe('queued');
+      expect(enqueue({ kind: 'task', courseId: a, assignmentId: '950', trigger: 'page' })).toMatchObject({ runId: g.runId, joined: true });
+    });
+
+    test('a grading request joins a RUNNING grading run of the same task', async () => {
+      const runs = gatedRuns();
+      const x = enqueue({ ...grading, courseId: a });
+      await tick();
+      expect(status(x.runId)).toBe('running');
+      expect(enqueue({ ...grading, courseId: a })).toMatchObject({ runId: x.runId, state: 'running', joined: true });
+      runs[0].finish();
+      await idle();
+      expect(queueDeps.runTaskSync).toHaveBeenCalledTimes(1);
+    });
+  });
 });
 

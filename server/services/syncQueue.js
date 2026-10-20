@@ -5,14 +5,17 @@
 // follow it by its runId at once.
 //
 //   request = { kind: 'all' | 'courses' | 'task', courseIds?, masteryCourseIds?, courseId?,
-//               assignmentId?, includeHidden?, syncBlocks?, skipSchoology?, refreshQuizzes?,
-//               trigger: 'page' | 'button' | 'scheduled', force? }
+//               assignmentId?, grading?, includeHidden?, syncBlocks?, skipSchoology?,
+//               refreshQuizzes?, trigger: 'page' | 'button' | 'scheduled', force? }
 //
 // Joining: a request whose courses (and options: PowerSchool, quizzes, hidden courses) a queued,
 // running or held request already covers joins it instead of queueing twice. A forced request (a
 // button) never joins a running one: it may have read the course before the teacher's change. A
 // button goes ahead of queued page requests, and lifts a queued page run it joins there too. A
-// mastery-only or blocks-only retry (skipSchoology) covers nothing.
+// mastery-only or blocks-only retry (skipSchoology) covers nothing. A grading sync (kind 'task',
+// grading: true; PrisMCP's get_assignment_context, #131) also waits for the task's comment threads
+// and reads its files, which a course run does not: it joins only a grading run of the same task,
+// while a plain task request may join a grading run (it reads more).
 //
 // Everything or nothing (Graham, 20/10/2026): before a request that reads Schoology starts, the
 // session is checked (renewed when possible). 'expired' or 'none' holds it until a sign-in
@@ -86,6 +89,7 @@ function covers(entry, request) {
   if (request.kind === 'task') {
     const same = entry.request.kind === 'task' && Number(entry.request.courseId) === Number(request.courseId)
       && String(entry.request.assignmentId) === String(request.assignmentId);
+    if (request.grading) return same && !!entry.request.grading;
     return same || ids.has(Number(request.courseId));
   }
   const need = coveredCourseIds(request);

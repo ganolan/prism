@@ -18,7 +18,7 @@ describe('syncAssignment (#58)', () => {
     deps = {
       getSectionAssignment: vi.fn().mockResolvedValue({ id: 'A1', title: 'Essay', due: '2026-10-31 15:30:00', allow_dropbox: '1' }),
       refreshTasks: vi.fn().mockResolvedValue({ refreshed: 1, readAt: 'x', failed: [] }),
-      refreshComments: vi.fn().mockReturnValue({ queued: 3 }),
+      refreshComments: vi.fn().mockReturnValue({ queued: 3, done: Promise.resolve({ refreshed: 3, failed: 0 }) }),
       now: () => NOW,
     };
   });
@@ -31,6 +31,8 @@ describe('syncAssignment (#58)', () => {
     expect(deps.refreshTasks).toHaveBeenCalledWith([localId], expect.objectContaining({ force: true, mastery: false }));
     expect(deps.refreshComments).toHaveBeenCalledWith(db, localId, { maxAgeSec: 0 });
     expect(r).toMatchObject({ removed: false, comments: { queued: 3 } });
+    // The grading sync (#131) waits on the threads: the job's promise comes back with the count.
+    await expect(r.comments.done).resolves.toEqual({ refreshed: 3, failed: 0 });
     expect(task().task_synced_at).toBeNull(); // the task run stamps it, after the mastery read
   });
 

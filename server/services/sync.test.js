@@ -975,8 +975,11 @@ describe('fullSync — a list of courses (#58)', () => {
   const stamp = (id) => db.prepare('SELECT course_synced_at FROM courses WHERE id = ?').get(id).course_synced_at;
 
   test('reads only the listed sections and stamps course_synced_at', async () => {
+    sch.getSectionGradingPeriods.mockClear();
     await fullSync(() => {}, { courseIds: [ids.a] });
     expect(visited()).toEqual(['sec-a']);
+    // An unlisted section Prism already holds is not touched at all (no grading-period read).
+    expect(sch.getSectionGradingPeriods.mock.calls.map((c) => c[0])).toEqual(['sec-a']);
     expect(stamp(ids.a)).not.toBe('2026-10-01T00:00:00Z');
     expect(stamp(ids.b)).toBe('2026-10-01T00:00:00Z');
   });

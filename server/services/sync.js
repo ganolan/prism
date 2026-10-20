@@ -557,7 +557,11 @@ export async function fullSync(onProgress, { includeHidden = false, recentOnly =
         synced_at = excluded.synced_at
     `);
 
+    // With a list (#58), a section Prism already holds and was not asked for is left as it is.
+    const listedSection = (sectionId) => !listed || !known.has(sectionId)
+      || listed.has(db.prepare('SELECT id FROM courses WHERE schoology_section_id = ?').get(sectionId)?.id);
     for (const sec of sections) {
+      if (!listedSection(String(sec.id))) continue;
       const periods = await getSectionGradingPeriods(String(sec.id));
       const gradingPeriod = periods[0]?.title || null;
       upsertCourse.run(

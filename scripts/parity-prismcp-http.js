@@ -8,7 +8,8 @@
 // Run (see docs/prismcp-install-and-verify.md): copy the database with the SQLite backup API,
 // start a dev server on the copy (`DB_PATH=<copy> PORT=3002 npm run dev:server`), then
 //   node scripts/parity-prismcp-http.js --url http://127.0.0.1:3002/mcp --db <copy>
-// One line per tool call: `same` or the differing paths. Exit 1 on any difference.
+// One line per tool call: `same`, the differing paths, or `FAILED` (a call that errored when it
+// should not, a tool in no coverage list, a target that is not a dev copy). Exit 1 on any of them.
 //
 // Never point --db at the live database: use a copy made with `sqlite3 <db> ".backup <copy>"`.
 //
@@ -23,8 +24,9 @@ import { isMain } from '../server/lib/isMain.js';
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const matches = (rule, key) => (rule instanceof RegExp ? rule.test(key) : rule === key);
 
-// Paths of the leaves where `a` and `b` differ. `ignore`: key names (string or RegExp), skipped
-// at any depth on either side. A value whose type differs (object / array / scalar / null) is
+// Paths of the leaves where `a` and `b` differ. `ignore`: key names (string or RegExp) whose
+// VALUE is not compared, at any depth; a key missing on one side is still reported, so an ignore
+// rule can never hide a field that one side lacks. A value whose type differs (object / array / scalar / null) is
 // reported at the value itself. Root differences are reported as `$`.
 export function diffAnswers(a, b, { ignore = [] } = {}) {
   const out = [];
@@ -36,11 +38,10 @@ export function diffAnswers(a, b, { ignore = [] } = {}) {
         else walk(x[i], y[i], `${path}[${i}]`);
       }
     } else if (isObj(x) && isObj(y)) {
-      const keys = [...new Set([...Object.keys(x), ...Object.keys(y)])].filter((k) => !skip(k));
-      for (const k of keys) {
+      for (const k of new Set([...Object.keys(x), ...Object.keys(y)])) {
         const child = path === '$' ? k : `${path}.${k}`;
         if (!(k in x) || !(k in y)) out.push(child);
-        else walk(x[k], y[k], child);
+        else if (!skip(k)) walk(x[k], y[k], child);
       }
     } else if (!Object.is(x, y)) {
       out.push(path);
@@ -53,15 +54,17 @@ export function diffAnswers(a, b, { ignore = [] } = {}) {
 // ---- exceptions: each with its reason --------------------------------------------------------
 // An exception only ever hides a path that really differs, and every use is printed with its
 // reason, so none can silently make a difference disappear.
-const EXCEPTIONS = [
+// Exact key names only (never a pattern: `scale_level_source`, whose value says whose level a
+// draft carries, is deterministic and must match).
+export const EXCEPTIONS = [
   {
     rule: 'data_as_of',
     reason: 'a timestamp of when the answer was assembled; two calls moments apart read it at different times',
   },
-  {
-    rule: /_source$/,
+  ...['mastery_source', 'submission_files_source', 'submission_comments_source'].map((rule) => ({
+    rule,
     reason: 'names the live source (a sync or the stored copy) the answer drew on, which can differ between the two processes',
-  },
+  })),
 ];
 // Not an ignore rule: the dev server leads every result with this warning (mcp/server.js
 // DEV_COPY_WARNING), which the direct side, a non-dev server, does not have. It is dropped from
@@ -74,6 +77,35 @@ export const EXCLUDED_READS = [
   ['get_support_summary', 'reads the live PowerSchool Student Support Summary'],
   ['load_quiz_results', 'queues a Schoology sync run (a read from Schoology, and writes the stored results)'],
 ];
+
+// Every other tool the server serves writes (Prism, Schoology or the queue): never called here.
+export const WRITERS = [
+  'write_student_suggestions', 'write_assessment_analysis', 'set_question_tags', 'write_frq_suggestions',
+  'mark_frq_writeback', 'write_quiz_overall_suggestions', 'write_rubric', 'attach_rubric', 'record_referral',
+  'undo_referral', 'extend_deadline', 'undo_extension', 'request_resubmission', 'grade_stands', 'set_makeup_tracking',
+];
+
+// Every tool the server serves must be compared (and have run), excluded as a live read, or be a
+// listed writer: exactly one. Returns the problems (empty = covered).
+export function checkCoverage({ served, ran, excluded, writers }) {
+  const problems = [];
+  const lists = { compared: new Set(ran), excluded: new Set(excluded), writer: new Set(writers) };
+  const all = new Set([...lists.compared, ...lists.excluded, ...lists.writer]);
+  for (const name of served) {
+    const where = Object.entries(lists).filter(([, set]) => set.has(name)).map(([k]) => k);
+    if (where.length === 0) problems.push(`${name}: served but neither compared, excluded nor a listed writer`);
+    if (where.length > 1) problems.push(`${name}: listed in more than one place (${where.join(', ')})`);
+  }
+  for (const name of all) if (!served.includes(name)) problems.push(`${name}: listed but not served by the server`);
+  return problems;
+}
+
+// A dev server leads every /mcp tool result with the dev-copy warning, so it was dropped from all
+// of them; fewer means the target was not a dev copy (prod, say) or a result lacked it.
+export function checkWarning({ dropped, results }) {
+  return results > 0 && dropped === results ? null
+    : `the dev-copy warning led ${dropped} of ${results} /mcp results, not all: the target may not be a dev copy`;
+}
 
 // ---- running the cases -----------------------------------------------------------------------
 
@@ -152,13 +184,14 @@ function quizCases(p) {
   return [
     [`list_quiz_groups${note}`, 'list_quiz_groups', courseId ? { course: courseId } : null],
     [`get_tag_results${note}`, 'get_tag_results', courseId ? { course: courseId, tag } : null],
-    [`get_frq_responses${note}`, 'get_frq_responses', { group_id: groupId }],
-    [`list_frq_writebacks${note}`, 'list_frq_writebacks', { group_id: groupId }],
-    [`get_quiz_results${note}`, 'get_quiz_results', { group_id: groupId }],
+    [`get_frq_responses${note}`, 'get_frq_responses', { group_id: groupId }, !g],
+    [`list_frq_writebacks${note}`, 'list_frq_writebacks', { group_id: groupId }, !g],
+    [`get_quiz_results${note}`, 'get_quiz_results', { group_id: groupId }, !g],
   ];
 }
 
-// [label, tool, args] per case; null args mean the copy had no data to call it with.
+// [label, tool, args, expectError] per case; expectError is true only where the call is made on
+// purpose with a group that does not exist; null args mean the copy had no data to call it with.
 export function buildCases(p) {
   const c = p.course?.id;
   const needs = (ok, args) => (ok ? args : null);
@@ -196,6 +229,23 @@ export function judge(direct, http) {
     .filter((e) => excused.some((p) => matches(e.rule, p.split(/[.[\]]/).filter(Boolean).pop())))
     .map((e) => `${e.rule}: ${e.reason}`);
   return { real, excused, reasons };
+}
+
+const isProtocol = (answer) => answer.content.some((c) => typeof c === 'string' && c.startsWith('PROTOCOL:'));
+
+// One case's verdict: the differing paths plus the failures that are not differences between the
+// sides. A protocol-level rejection always fails; otherwise each side's isError must equal
+// `expectError` (true only for a call made on purpose with a group that does not exist), so a
+// broken call answered the same on both sides does not pass as parity.
+export function judgeCase({ expectError }, direct, http) {
+  const failures = [];
+  for (const [side, answer] of [['direct', direct], ['http', http]]) {
+    if (isProtocol(answer)) failures.push(`${side} was rejected at the protocol level`);
+    else if (answer.isError !== expectError) {
+      failures.push(`${side} ${answer.isError ? 'answered an error' : 'did not answer the error'} (expected ${expectError ? 'an error' : 'a result'})`);
+    }
+  }
+  return { ...judge(direct, http), failures };
 }
 
 async function main() {
@@ -250,32 +300,53 @@ async function main() {
   console.log(`${toolsDiff.length ? 'DIFFERS' : 'same   '}  tools/list (${dl.tools.length} direct, ${hl.tools.length} http) + instructions${toolsDiff.length ? ': ' + toolsDiff.join(', ') : ''}`);
   if (toolsDiff.length) differing++; else same++;
 
-  for (const [label, tool, toolArgs] of buildCases(args)) {
+  let failing = 0;
+  const ran = new Set();
+  for (const [label, tool, toolArgs, expectError = false] of buildCases(args)) {
     if (!toolArgs) {
       skipped++;
       console.log(`skipped  ${label}: the copy has no data to call it with`);
       continue;
     }
     calls++;
+    ran.add(tool);
     const d = normalise(await call(direct, tool, toolArgs), { dropDevWarning: false, warning: DEV_COPY_WARNING });
     const h = normalise(await call(http, tool, toolArgs), { dropDevWarning: true, warning: DEV_COPY_WARNING });
     warnings += h.dropped;
-    const { real, excused, reasons } = judge(d.answer, h.answer);
-    const state = d.answer.isError ? ' [tool answered an error on both sides]' : '';
+    const { real, excused, reasons, failures } = judgeCase({ expectError }, d.answer, h.answer);
     if (real.length) {
       differing++;
       console.log(`DIFFERS  ${label}: ${real.join(', ')}`);
+    } else if (failures.length) {
+      failing++;
+      console.log(`FAILED   ${label}: ${failures.join('; ')}`);
     } else {
       same++;
-      console.log(`same     ${label}${excused.length ? ` (excused: ${excused.join(', ')}; ${reasons.join('; ')})` : ''}${d.answer.isError && h.answer.isError ? state : ''}`);
+      console.log(`same     ${label}${expectError ? ' [the expected error, on both sides]' : ''}${excused.length ? ` (excused: ${excused.join(', ')}; ${reasons.join('; ')})` : ''}`);
     }
   }
 
+  // Coverage: the script is the proof that every tool the server serves was checked.
+  const coverage = checkCoverage({
+    served: hl.tools.map((t) => t.name),
+    ran: [...ran],
+    excluded: EXCLUDED_READS.map(([t]) => t),
+    writers: WRITERS,
+  });
+  for (const problem of coverage) console.log(`FAILED   coverage: ${problem}`);
+  console.log(`${coverage.length ? 'FAILED  ' : 'same    '} coverage: ${ran.size} tools compared, ${EXCLUDED_READS.length} excluded reads, ${WRITERS.length} writers, ${hl.tools.length} served`);
+  failing += coverage.length;
+
   console.log(`dev-copy warning dropped from ${warnings} of ${calls} /mcp results`);
+  const warningProblem = checkWarning({ dropped: warnings, results: calls });
+  if (warningProblem) {
+    failing++;
+    console.log(`FAILED   ${warningProblem}`);
+  }
   if (!args.group) console.log('NOTE: the copy has no quiz group, so the quiz tools were compared on the empty list and the error answer only, not on real quiz data');
-  console.log(`${same} same, ${differing} differing, ${skipped} skipped`);
+  console.log(`${same} same, ${differing} differing, ${failing} failed, ${skipped} skipped`);
   await Promise.allSettled([direct.close(), http.close()]);
-  process.exit(differing ? 1 : 0);
+  process.exit(differing || failing ? 1 : 0);
 }
 
 if (isMain(import.meta.url)) {

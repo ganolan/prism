@@ -2338,11 +2338,11 @@ export default function AssessmentSummaryPage() {
   const hasAnalysis = Object.keys(feedbackByStudent).length > 0 || !!analysis;
   // One banner for suggestions made from old data (#131). The server decides which are stale
   // (data_stale: the data was over 10 minutes older than the suggestion; never a teacher's own
-  // grade); the banner names the oldest, and a suggestion with no data time was made before the
-  // task was ever synced, which is older than any time.
+  // grade); the banner names the oldest, and data_as_of 'never' (made before the task was ever
+  // synced) is older than any time.
   const staleSuggestions = Object.values(feedbackByStudent).filter(f => f.data_stale);
-  const neverSynced = staleSuggestions.some(f => !f.data_as_of);
-  const oldestStaleDataTime = staleSuggestions.map(f => f.data_as_of).filter(Boolean).sort()[0] ?? null;
+  const neverSynced = staleSuggestions.some(f => f.data_as_of === 'never');
+  const oldestStaleDataTime = staleSuggestions.map(f => f.data_as_of).filter(t => t && t !== 'never').sort()[0] ?? null;
 
   const alignedTopics = topics;
   // Feedback rows (spec 2026-10-13): a rubric attached to a score-scale task.

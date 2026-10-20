@@ -179,6 +179,7 @@ const MIGRATIONS = [
   `ALTER TABLE courses ADD COLUMN course_synced_at TEXT`,
   `ALTER TABLE assignments ADD COLUMN task_synced_at TEXT`,
   `ALTER TABLE feedback ADD COLUMN data_as_of TEXT`,
+  `ALTER TABLE feedback ADD COLUMN suggested_at TEXT`,
   // Background sync: the last attempt, complete or not, so a failing scope waits out the window too.
   `ALTER TABLE courses ADD COLUMN sync_attempted_at TEXT`,
   `ALTER TABLE assignments ADD COLUMN task_sync_attempted_at TEXT`,

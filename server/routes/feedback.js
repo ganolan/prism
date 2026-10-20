@@ -15,23 +15,26 @@ router.get('/inbox-log', (req, res) => {
   res.json(rows);
 });
 
+// data_stale: an AI suggestion (status 'draft') made from data over SYNC_FRESH_MS older than itself (#131), or
+// from a task that was never synced ('never'). Measured against suggested_at, not updated_at,
+// which also moves when the teacher edits the row. Not judged (false): a null data_as_of or
+// suggested_at (a row from before they were recorded), a teacher's own saved grade, and a
+// suggestion the teacher used or ignored.
+function withDataTime(row) {
+  const dataAsOf = row.data_as_of ?? null;
+  let stale = false;
+  if (row.status === 'draft' && dataAsOf && row.suggested_at && !['used', 'ignored'].includes(row.suggestion_state)) {
+    stale = dataAsOf === 'never' || Date.parse(row.suggested_at) - Date.parse(dataAsOf) > SYNC_FRESH_MS;
+  }
+  return { ...row, data_as_of: dataAsOf, data_stale: stale };
+}
+
 // GET /api/feedback/for-assignment/:assignmentId — all draft/teacher_modified
 // feedback rows for one assignment, keyed by student_id, each with parsed JSON.
 // :assignmentId is the SCHOOLOGY assignment id (matches the assessment page URL
 // + the mastery route); resolved to the local assignment id internally.
 // Must be registered before GET /:id (catch-all). approved rows are excluded so
-// they stop re-surfacing as suggestions. Each draft (an AI suggestion) carries
-// data_as_of and data_stale: made from data over SYNC_FRESH_MS older than the
-// suggestion itself (#131). updated_at is SQLite datetime('now'), UTC with no Z,
-// so it is read as UTC here, not left to a local-time parse. A teacher's own
-// saved grade is never stale.
-function withDataTime(row) {
-  const wrote = Date.parse(`${row.updated_at.replace(' ', 'T')}Z`);
-  const stale = row.status === 'draft'
-    && (!row.data_as_of || wrote - Date.parse(row.data_as_of) > SYNC_FRESH_MS);
-  return { ...row, data_as_of: row.data_as_of ?? null, data_stale: stale };
-}
-
+// they stop re-surfacing as suggestions. Each row also carries data_as_of and data_stale.
 router.get('/for-assignment/:assignmentId', (req, res) => {
   const db = getDb();
   const assignment = db.prepare(

@@ -2688,11 +2688,11 @@ describe('AssessmentSummaryPage - suggestions made from old data (#131)', () => 
     expect(screen.getAllByText(/AI suggestions were made/)).toHaveLength(1);
   });
 
-  it('names the task as never synced when the oldest stale suggestion has no data time', async () => {
+  it('names the task as never synced when the oldest stale suggestion was made before the first sync', async () => {
     getMasteryForAssignment.mockResolvedValue(makeData());
     getFeedbackForAssignment.mockResolvedValue({
       1: row({ data_as_of: at('09:30'), data_stale: true }),
-      2: row({ data_as_of: null, data_stale: true }),
+      2: row({ data_as_of: 'never', data_stale: true }),
     });
     renderPage();
     expect(await screen.findByText('AI suggestions were made before this task was ever synced. Sync Assignment, then grade again for current data.')).toBeInTheDocument();

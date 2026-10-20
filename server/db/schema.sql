@@ -259,8 +259,12 @@ CREATE TABLE IF NOT EXISTS feedback (
   source_file TEXT,
   suggestion_state TEXT,
   -- The assignment's task_synced_at when an AI suggestion was written: how old the data it
-  -- was made from was (null: the task had never been synced). See #131.
+  -- was made from was ('never': the task had never been synced; null: a row from before
+  -- this was recorded, not judged). See #131.
   data_as_of TEXT,
+  -- When the suggestion was written (ISO). updated_at also moves on teacher edits, so
+  -- staleness compares data_as_of with this. Set only by upsertStudentSuggestion.
+  suggested_at TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );

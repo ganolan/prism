@@ -63,11 +63,27 @@ describe('upsertStudentSuggestion', () => {
     expect(db.prepare('SELECT data_as_of FROM feedback WHERE id = ?').get(result.feedback_id).data_as_of).toBe('2026-10-20T09:00:00.000Z');
   });
 
-  test('a suggestion for a task that was never synced has no data_as_of', () => {
+  test("a suggestion for a task that was never synced stores 'never' as data_as_of", () => {
     const db = getDb();
     seed(db);
     const result = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'Good.' });
-    expect(db.prepare('SELECT data_as_of FROM feedback WHERE id = ?').get(result.feedback_id).data_as_of).toBeNull();
+    expect(db.prepare('SELECT data_as_of FROM feedback WHERE id = ?').get(result.feedback_id).data_as_of).toBe('never');
+  });
+
+  test('a suggestion stamps suggested_at on write and again on rewrite', () => {
+    vi.useFakeTimers();
+    try {
+      const db = getDb();
+      seed(db);
+      vi.setSystemTime(new Date('2026-10-20T10:00:00.000Z'));
+      const first = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'First.' });
+      expect(db.prepare('SELECT suggested_at FROM feedback WHERE id = ?').get(first.feedback_id).suggested_at).toBe('2026-10-20T10:00:00.000Z');
+      vi.setSystemTime(new Date('2026-10-20T11:00:00.000Z'));
+      upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'Second.' });
+      expect(db.prepare('SELECT suggested_at FROM feedback WHERE id = ?').get(first.feedback_id).suggested_at).toBe('2026-10-20T11:00:00.000Z');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test('a rewrite updates data_as_of', () => {

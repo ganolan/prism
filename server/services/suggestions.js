@@ -15,7 +15,7 @@ import { getFeedbackRows, resolveRowKey } from './feedbackRows.js';
 // (external_id then title, case-insensitive), and reports — never silently
 // drops — unresolved keys and out-of-vocabulary levels. Always writes a fresh
 // status='draft' row, pushing any prior feedback_json to revision_history. The row
-// records the task's task_synced_at as data_as_of: how old the data it was made from was.
+// records the task's task_synced_at as data_as_of ('never' if not yet synced) and suggested_at.
 export function upsertStudentSuggestion(db, {
   assignmentId, student, narrative_feedback, rubric_scores, reviewer_flags, strengths, suggestions,
   scale_level, evidence, reviewer_flags_brief, quiz_overall,
@@ -87,6 +87,12 @@ export function upsertStudentSuggestion(db, {
     ...(quiz_overall ? { quiz_overall } : {}),
   });
 
+  // How old the data this suggestion was made from is. 'never' marks a task that was never synced
+  // (null is a row from before this was recorded, and is not judged). suggested_at is the clock
+  // staleness is measured against: updated_at also moves when the teacher edits the row.
+  const dataAsOf = assignmentRow.task_synced_at ?? 'never';
+  const suggestedAt = new Date().toISOString();
+
   const write = db.transaction(() => {
     // The single active suggestion = the most recent feedback row for this
     // (student, assignment), regardless of status — a re-grade does not skip
@@ -112,14 +118,14 @@ export function upsertStudentSuggestion(db, {
       });
       db.prepare(
         `UPDATE feedback SET status = 'draft', score = ?, feedback_json = ?,
-           revision_history = ?, suggestion_state = ?, data_as_of = ?, updated_at = datetime('now') WHERE id = ?`
-      ).run(null, feedbackJson, JSON.stringify(history), suggestionState ?? null, assignmentRow.task_synced_at ?? null, existing.id);
+           revision_history = ?, suggestion_state = ?, data_as_of = ?, suggested_at = ?, updated_at = datetime('now') WHERE id = ?`
+      ).run(null, feedbackJson, JSON.stringify(history), suggestionState ?? null, dataAsOf, suggestedAt, existing.id);
       return existing.id;
     }
     return db.prepare(
-      `INSERT INTO feedback (student_id, assignment_id, status, score, feedback_json, data_as_of)
-       VALUES (?, ?, 'draft', ?, ?, ?)`
-    ).run(studentLocalId, assignmentLocalId, null, feedbackJson, assignmentRow.task_synced_at ?? null).lastInsertRowid;
+      `INSERT INTO feedback (student_id, assignment_id, status, score, feedback_json, data_as_of, suggested_at)
+       VALUES (?, ?, 'draft', ?, ?, ?, ?)`
+    ).run(studentLocalId, assignmentLocalId, null, feedbackJson, dataAsOf, suggestedAt).lastInsertRowid;
   });
 
   const feedbackId = write();

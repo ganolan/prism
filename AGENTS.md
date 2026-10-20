@@ -30,7 +30,7 @@ SCHOOLOGY_CONSUMER_KEY=...
 SCHOOLOGY_CONSUMER_SECRET=...
 ```
 
-The SQLite database lives at `server/db/students.db` (gitignored). PowerSchool CSV drops go in `data/imports/`. Optional local overrides: `PORT`, `HOST` (default `127.0.0.1`), `DB_PATH` (default `server/db/students.db`), `PRISM_SESSION_DIR`, `INBOX_DIR`, `CONFIG_PATH`, `PRISM_SKIP_BROWSERS`, `PRISM_SCHEDULED_SYNC` (`1` arms the nightly scheduled sync; set only by the prod launchd agent, never in a dev clone). PrisMCP additionally **requires** an absolute `DB_PATH` and is configured per machine — see `docs/prismcp-install-and-verify.md`.
+The SQLite database lives at `server/db/students.db` (gitignored). PowerSchool CSV drops go in `data/imports/`. Optional local overrides: `PORT`, `HOST` (default `127.0.0.1`), `DB_PATH` (default `server/db/students.db`), `PRISM_SESSION_DIR`, `INBOX_DIR`, `CONFIG_PATH`, `PRISM_SKIP_BROWSERS`, `PRISM_SCHEDULED_SYNC` (`1` arms the nightly scheduled sync; set only by the prod launchd agent, never in a dev clone). PrisMCP needs no setting of its own: the Prism server hosts it at `/mcp` (20 Oct 2026, #131), and each machine installs it with one `claude mcp add --transport http` line, see `docs/prismcp-install-and-verify.md`.
 
 Mastery sync (SBG data from Schoology's internal API) requires a one-time browser login:
 ```bash
@@ -59,8 +59,9 @@ npm run test:api   # Schoology API smoke test
 - **Local-first app** with React frontend, Express backend, and SQLite persistence
 - **OAuth 1.0a** two-legged auth with PLAINTEXT signature via `oauth-1.0a` package
 - Frontend talks to backend only through relative `/api/...` endpoints
-- **No CORS; writes only from Prism's own pages** (18 Oct 2026): the API sends no CORS headers, and `server/middleware/originGuard.js` refuses any non-GET request whose `Origin` is another site (no `Origin`, as from curl or PrisMCP, is fine). Allowed: the request's own host or `X-Forwarded-Host`, plus `config.yaml` `server.allowedOrigins` (prod's tailnet address). The Vite dev proxy sends `X-Forwarded-Host` (`client/devProxy.js`, `xfwd`). A new client on another origin needs its origin added there.
+- **No CORS; writes only from Prism's own pages** (18 Oct 2026): the API sends no CORS headers, and `server/middleware/originGuard.js` refuses any non-GET request whose `Origin` is another site (no `Origin`, as from curl or Claude Code, is fine). Allowed: the request's own host or `X-Forwarded-Host`, plus `config.yaml` `server.allowedOrigins` (prod's tailnet address). The Vite dev proxy sends `X-Forwarded-Host` (`client/devProxy.js`, `xfwd`). A new client on another origin needs its origin added there.
 - Feature flags live in `config.yaml`
+- **PrisMCP is part of the server** (20 Oct 2026, #131): `server/routes/mcp.js` serves the tools of `mcp/server.js` at `/mcp` over stateless streamable HTTP, behind the same `originGuard` plus a `Host` check. Claude Code reaches `https://prism.swordtail-everest.ts.net/mcp`. No other process opens the database. `node scripts/check-mcp-endpoint.js [url] [--expect-dev]` checks an endpoint.
 - All Schoology API requests go to `https://api.schoology.com/v1/...` — never the school domain
 
 ### Frontend Conventions
@@ -83,7 +84,7 @@ npm run test:api   # Schoology API smoke test
 - **PowerSchool API probe results and access plan**: `.claude/powerschool-api-reference.md`
 - **Build progress across all phases**: `.claude/build-progress.md`
 - **Product spec and roadmap**: `product-spec.md`
-- **Hosting + deploy — live since cutover on 2026-09-24**: `docs/deploy.md` (operations), `docs/adr/0003-prism-served-from-a-home-server-over-tailscale.md` and `docs/superpowers/specs/2026-09-23-prism-hosting-and-deploy-design.md` (design). **Prod is the Mac mini** (`https://prism.swordtail-everest.ts.net`, tailnet only — a Tailscale Service; the mini itself is `macmini`, tagged `tag:server`) and holds the one authoritative database; push to `main` deploys it once CI is green. Every other clone — the laptop included — is a disposable dev clone: never run `db:backup` from one, and never point PrisMCP at one for real grading. `CONTEXT.md` holds the vocabulary (prod / release / dev clone / snapshot / cutover).
+- **Hosting + deploy — live since cutover on 2026-09-24**: `docs/deploy.md` (operations), `docs/adr/0003-prism-served-from-a-home-server-over-tailscale.md` and `docs/superpowers/specs/2026-09-23-prism-hosting-and-deploy-design.md` (design). **Prod is the Mac mini** (`https://prism.swordtail-everest.ts.net`, tailnet only — a Tailscale Service; the mini itself is `macmini`, tagged `tag:server`) and holds the one authoritative database; push to `main` deploys it once CI is green. Every other clone — the laptop included — is a disposable dev clone: never run `db:backup` from one, and never grade for real on one: its `/mcp` starts every tool result with a dev-copy warning and refuses Schoology writes. `CONTEXT.md` holds the vocabulary (prod / release / dev clone / snapshot / cutover).
 
 ## Definition of done (every task, unprompted)
 

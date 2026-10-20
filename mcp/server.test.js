@@ -12,7 +12,7 @@ import { SIGN_IN_URL } from '../server/services/gradingSync.js';
 
 // Spin up the PrisMCP server and a client linked by an in-memory transport
 // pair, so tests exercise the real MCP request/response path (registration,
-// dispatch, serialization) without stdio.
+// dispatch, serialization) without HTTP.
 async function connect() {
   const server = createServer();
   const client = new Client({ name: 'test', version: '1.0.0' });
@@ -294,7 +294,7 @@ describe('PrisMCP server', () => {
     expect(INSTRUCTIONS.length).toBeLessThan(2048);
   });
 
-  test('connectDb sets busy_timeout so MCP writes coexist with the Express server', () => {
+  test('connectDb sets busy_timeout so a write collision retries', () => {
     const db = connectDb();
     expect(db.pragma('busy_timeout', { simple: true })).toBe(5000);
   });

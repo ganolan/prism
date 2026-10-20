@@ -90,3 +90,25 @@ premise need revisiting — that would be a new decision, not an extension.
   loudly rather than write to a scratch copy.
 - Development against live prod data is possible (mode 3 in the design) and
   carries the cost that writes land in real student records.
+
+## Update, 20/10/2026: option B adopted, PrisMCP is part of the server
+
+Decision 6 ("processes move to the data") first put PrisMCP on the mini as its
+own process, reached from the laptop over SSH. #131 replaced that with the
+other option: the Prism server hosts PrisMCP itself (design:
+`docs/superpowers/specs/2026-10-20-prismcp-over-http-design.md`).
+
+- The server serves the tools at `/mcp` over stateless streamable HTTP
+  (`server/routes/mcp.js`). Claude Code on the laptop and on the mini connects to
+  `https://prism.swordtail-everest.ts.net/mcp`.
+- Only the server process opens the database, reads Schoology and holds the
+  API keys and the saved session. Every bulk Schoology read a tool starts is a
+  run in the sync queue.
+- The perimeter is unchanged: the tailnet, with no application login. `/mcp`
+  has the same `originGuard` as `/api`, plus a `Host` check against the
+  server's own names.
+- Removed: the stdio entry, `mcp/dbGuard.js` (the `DB_PATH` guard), and the
+  SSH and Keychain setup. A wrong `DB_PATH` can no longer send grading to a
+  copy, which was the failure the last Consequences bullet describes.
+- A dev clone's server also serves `/mcp`. It starts every tool result with a
+  dev-copy warning and refuses Schoology writes.

@@ -481,8 +481,8 @@ describe('status lines on resubmission/extension tools (Amendment B)', () => {
     expect(storedLine(db, studentId, assignmentId)).toEqual({ line: LINE, kind: 'ask' });
   });
 
-  // Final review I3: PrisMCP loads no dotenv; without the Schoology credentials in its
-  // env block every publish would fail with a misleading read error. Say what is missing.
+  // Final review I3: without the Schoology credentials in the server's .env every publish
+  // would fail with a misleading read error. Say what is missing.
   test('without the Schoology env vars, publishing tools fail with SCHOOLOGY_NOT_CONFIGURED and write nothing', async () => {
     const db = getDb();
     const { studentId, assignmentId } = seedEligiblePair(db);
@@ -501,7 +501,7 @@ describe('status lines on resubmission/extension tools (Amendment B)', () => {
     await expect(requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId })).resolves.toMatchObject({ outcome: 'asked' });
   });
 
-  test('the not-configured message points at the server\'s .env, not an MCP env block', () => {
+  test('the not-configured message points at the server\'s .env', () => {
     expect(() => assertSchoologyWritable({ env: {} })).toThrow(/server's \.env.*docs\/deploy\.md/s);
     expect(() => assertSchoologyWritable({ env: {} })).not.toThrow(/"env" block|restart the MCP/);
   });

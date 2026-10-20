@@ -1,8 +1,9 @@
 // Parity check for PrisMCP over HTTP (#131): every READ tool, called two ways with the same
 // arguments against the same database copy, must answer the same.
 //
-//   direct  the tools exactly as the stdio process builds them (mcp/server.js createServer(),
-//           handlers on getDb() of --db), reached over an in-memory MCP transport
+//   direct  the tools as mcp/server.js createServer() builds them, with the handlers on getDb()
+//           of --db, reached over an in-memory MCP transport (the path the removed stdio
+//           entry served)
 //   http    the Prism server's /mcp (server/routes/mcp.js), over the MCP SDK's HTTP client
 //
 // Run (see docs/prismcp-install-and-verify.md): copy the database with the SQLite backup API,
@@ -290,7 +291,7 @@ async function main() {
 
   // The tool list and the server instructions travel the same way, so they are part of the parity.
   const [dl, hl] = await Promise.all([direct.listTools(), http.listTools()]);
-  // Through JSON, as the stdio and HTTP transports carry it: the in-memory transport hands over
+  // Through JSON, as a real transport carries it: the in-memory transport hands over
   // the objects themselves, with `title: undefined` keys that JSON drops.
   const listing = (l, c) => JSON.parse(JSON.stringify({
     tools: [...l.tools].sort((a, b) => a.name.localeCompare(b.name)),

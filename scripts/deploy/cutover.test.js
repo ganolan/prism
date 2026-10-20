@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { deploy } from './deploy.js';
-import { cutover, cutoverProblems, snapshotTime, mcpCommands, MAX_SNAPSHOT_AGE_MS } from './cutover.js';
+import { cutover, cutoverProblems, snapshotTime, mcpCommand, MAX_SNAPSHOT_AGE_MS } from './cutover.js';
 import { acquireLock, releaseLock, releaseSha, currentRelease } from './lib.js';
 import { snapshotName } from '../db-backup.js';
 import { makeFixture } from './testing.js';
@@ -184,10 +184,10 @@ describe('cutoverProblems', () => {
   });
 });
 
-describe('mcpCommands', () => {
-  it('gives both machines an absolute DB_PATH and a spelled-out node', () => {
-    const { mini, laptop } = mcpCommands();
-    expect(mini).toMatch(/-e DB_PATH=\/Users\/gnolan\/prism\/data\/students\.db/);
-    expect(laptop).toMatch(/ssh gnolan@macmini '.*\/usr\/local\/bin\/node mcp\/server\.js'/);
+describe('mcpCommand', () => {
+  it('points every machine at the HTTP endpoint, with no DB_PATH or SSH', () => {
+    const cmd = mcpCommand();
+    expect(cmd).toContain('claude mcp add --transport http -s user prism https://prism.swordtail-everest.ts.net/mcp');
+    expect(cmd).not.toMatch(/DB_PATH|ssh|mcp\/server\.js/);
   });
 });

@@ -385,11 +385,11 @@ export function setMakeupTrackingTool(db, { assignment_id, tracked } = {}) {
   return setMakeUpIgnored(db, assignment_id, typeof tracked === 'boolean' ? !tracked : tracked);
 }
 
-// The schoology client reads its credentials from the environment at import. The server loads
-// .env first (server/index.js); the stdio entry (mcp/server.js main, until it is removed) loads
-// none, so they must be in its MCP env block. A tool that reads or writes the student's Schoology
-// comment (preview_status_line, comment_line, remove_line) needs them, checked at call time
-// so a missing one is named plainly (final review I3) instead of surfacing as a failed read.
+// The schoology client reads its credentials from the environment at import. The Prism server
+// loads .env first (server/index.js) and hosts these tools at /mcp, so the credentials come from
+// the server's .env. A tool that reads or writes the student's Schoology comment
+// (preview_status_line, comment_line, remove_line) needs them, checked at call time so a missing
+// one is named plainly (final review I3) instead of surfacing as a failed read.
 const SCHOOLOGY_ENV = ['SCHOOLOGY_BASE_URL', 'SCHOOLOGY_CONSUMER_KEY', 'SCHOOLOGY_CONSUMER_SECRET'];
 export function assertSchoologyConfigured(env = process.env) {
   const missing = SCHOOLOGY_ENV.filter((k) => !String(env[k] ?? '').trim());

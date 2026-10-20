@@ -13,9 +13,11 @@
 //   SESSION_LAPSED  Schoology is signed out, checked first or lost mid-run (the queue holds that
 //                   run): { signInUrl, lastSyncedAt }. The teacher chooses: sign in and call again,
 //                   or call again with useStoredData (state 'stored', the database as it is).
-//   SYNC_FAILED     the run failed, was interrupted (a deploy) or finished with errors: { runId },
-//                   the message says why. The teacher chooses: call again (a fresh run), or call
-//                   again with useStoredData (the database as it is, with the stale_data warning).
+//   SYNC_FAILED     the run failed or finished with errors: { runId }, the message says why. The
+//                   teacher chooses: call again (a fresh run), or call again with useStoredData
+//                   (the database as it is, with the stale_data warning). A deploy restart does not
+//                   answer this: the call that was waiting loses its connection (the server keeps
+//                   no MCP session), and the next call starts a fresh run.
 //   SYNC_PENDING    still going after waitMs: { runId }. Calling again follows the same run.
 import { resolveAssignmentId } from './idResolvers.js';
 import { enqueue, whenDone, resumeHeld, queueDeps, TOOL_WAIT_MS } from './syncQueue.js';

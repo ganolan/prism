@@ -158,8 +158,7 @@ Two rules follow, and both have already been violated once:
   school-managed Mac OneDrive Known Folder Move redirects it outright. Clones
   live at `~/repos/`, which neither can reach. Check a new machine with
   `readlink ~/Documents` — any output means redirected.
-- **A process that touches student data must declare which database it opens.**
-  PrisMCP reads SQLite directly and loads no dotenv, so a launch without an
-  explicit `DB_PATH` silently opens whatever sits beside the code — on a dev
-  clone, a throwaway copy. Processes run where the data is; they do not reach
-  across a network to it.
+- **A process that touches student data runs where the data is.** Only the Prism
+  server opens the database. PrisMCP is part of that server and is reached at
+  `/mcp` over the tailnet (#131, 20/10/2026), so no other process opens the
+  database file, and a wrong `DB_PATH` cannot send grading to a copy.

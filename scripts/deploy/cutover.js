@@ -64,7 +64,7 @@ export function cutoverProblems({ snapshotPath, snapshotExists, nowMs, allowOld,
   }
   if (!sshListening) {
     problems.push(
-      'Remote Login is off, so the laptop cannot reach PrisMCP over SSH: System Settings → General → Sharing → Remote Login.',
+      'Remote Login is off, so the mini cannot be repaired over SSH: System Settings → General → Sharing → Remote Login.',
     );
   }
   return problems;
@@ -76,15 +76,9 @@ export function cutoverWarnings({ keyExpiry }) {
     : [];
 }
 
-export function mcpCommands() {
-  return {
-    mini:
-      'claude mcp remove prism -s user; claude mcp add prism -s user -e DB_PATH=/Users/gnolan/prism/data/students.db ' +
-      '-- /usr/local/bin/node /Users/gnolan/prism/current/mcp/server.js',
-    laptop:
-      'claude mcp remove prism -s user; claude mcp add prism -s user -- ssh gnolan@macmini ' +
-      "'cd ~/prism/current && DB_PATH=$HOME/prism/data/students.db /usr/local/bin/node mcp/server.js'",
-  };
+// PrisMCP is served by the Prism server at /mcp (#131): the same command on every machine.
+export function mcpCommand() {
+  return 'claude mcp remove prism -s user; claude mcp add --transport http -s user prism https://prism.swordtail-everest.ts.net/mcp';
 }
 
 function countCourses(dbPath) {
@@ -174,7 +168,7 @@ export async function cutover({ root, snapshotPath, allowOld = false, dryRun = f
     fx.serve();
     log('published on the tailnet');
     rmSync(p.hold, { force: true });
-    return { restored: restored.snapshot, warnings, mcp: mcpCommands() };
+    return { restored: restored.snapshot, warnings, mcp: mcpCommand() };
   } catch (err) {
     err.message +=
       `\nThe watchdog will not restart the server while ${p.hold} exists. ` +
@@ -207,7 +201,7 @@ if (isMain(import.meta.url)) {
     } else {
       console.log(
         '\nThe mini is now master. The laptop copy is disposable dev data: do not run db:backup there again.\n' +
-          `\nOn the mini:\n  ${r.mcp.mini}\n\nOn the laptop:\n  ${r.mcp.laptop}\n`,
+          `\nOn the mini and on the laptop:\n  ${r.mcp}\n`,
       );
     }
   } catch (err) {

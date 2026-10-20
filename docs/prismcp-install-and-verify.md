@@ -1,281 +1,165 @@
-# PrisMCP — install & verify
+# PrisMCP: install and verify
 
-Operational guide for the PrisMCP server (spec: `docs/superpowers/specs/2026-06-06-prismcp-server.md`, tracking issue #84). PrisMCP is a local **stdio** MCP server that lets an interactive Claude grading session read a Prism course/assignment's roster, rubric measurement-topics, and current grades, and write AI grading **suggestions** back into Prism's local SQLite DB for teacher review on `/assessment/:id` (the violet ✦ layer). It never reads submissions. **It writes to Schoology only through Prism's status lines** (triage resubmissions spec Amendment B, 2026-10-03) — a single line at the top of a student's Schoology grade comment, never a score:
+Operational guide for PrisMCP, Prism's MCP server for AI grading (spec: `docs/superpowers/specs/2026-06-06-prismcp-server.md`, tracking issues #84 and #131). Since 20/10/2026 **the Prism server hosts PrisMCP at `/mcp`** over streamable HTTP. No PrisMCP process runs on the laptop or the mini, and none opens the database. The server owns the database, the saved Schoology session, the Schoology API keys and the sync queue. An interactive Claude grading session reads a Prism course or assignment (roster, rubric measurement topics, current grades) and writes AI grading **suggestions** back into Prism for teacher review on `/assessment/:id` (the violet ✦ layer).
 
-- `request_resubmission`, `grade_stands` and `extend_deadline` publish one **only when the caller passes `comment_line`** (and only after calling `preview_status_line` first to render it);
-- `undo_extension` removes the line that extension published **only when the caller passes `remove_line: true`**;
+The design is `docs/superpowers/specs/2026-10-20-prismcp-over-http-design.md`. The operations side is in `docs/deploy.md`.
+
+**It writes to Schoology only through Prism's status lines** (triage resubmissions spec Amendment B, 2026-10-03). A status line is a single line at the top of a student's Schoology grade comment, never a score:
+
+- `request_resubmission`, `grade_stands` and `extend_deadline` publish one **only when the caller passes `comment_line`**. The caller first calls `preview_status_line` to render it.
+- `undo_extension` removes the line that extension published **only when the caller passes `remove_line: true`**.
 - `preview_status_line` writes nothing, but it does a fresh **read** of the student's Schoology comment.
 
-Omitting `comment_line` / `remove_line` keeps the action Prism-only, same as every other write below. These Schoology-touching tools need the Schoology credentials in the server's environment — see [Schoology credentials](#schoology-credentials-for-the-status-line-tools-since-2026-10-03).
+Omitting `comment_line` or `remove_line` keeps the action Prism-only, as with every other write below. These tools use the Schoology credentials in the server's `.env` (see [Schoology credentials](#schoology-credentials-for-the-status-line-tools-since-2026-10-03)).
 
-Surface: tools `list_courses` (`include_archived: true` adds archived courses with `school_year`/`term`), `list_assignments`, `list_students` (`include_dropped: true` adds leavers), `get_assignment_context` (forces a Schoology sync of the task first; `use_stored_data` skips it when the sign-in has lapsed and the teacher chooses), `write_student_suggestions`, `write_assessment_analysis`; linked-quiz tools `list_quiz_groups`, `load_quiz_results` (reads the attempts from Schoology through the saved browser session and sends nothing to Schoology; stores them in Prism, replacing any earlier load and removing attempts since deleted in Schoology; runs as a run in Prism's sync queue, so it waits behind a running sync (`server/services/quizRun.js`); fails with `NO_SESSION` when the saved login has expired, `UNREACHABLE` when Schoology could not be reached (try again, the session is not at fault), `BUSY`, or `PENDING` when it is still going after about 50 s, carrying the sync run id: call it again to join that run) and `set_question_tags`; rubric tools `list_rubrics`, `read_rubric`, `write_rubric`, `attach_rubric`; `@`-mention resources `prism://courses`, `prism://course/{courseId}/assignments`, `prism://assignment/{courseId}/{assignmentId}/context`; and the `grade-assignment` prompt. Also: `get_triage` (the late-work referral watch, feedback-owed, make-up-test and **resubmission** lists, same numbers as the dashboard — each row's `day` counts the due/test date as day 1: referral after day 8, feedback overdue after day 10 by default), `get_submission_status` (roster-wide submission state for a course, one assignment or one student: "who still hasn't submitted X?", with a ready-to-paste email list; `status` defaults to `not_submitted`, the whole-school view, and `all` needs a course, assignment_id or student since it lists every item), `list_referrals` (history: `{ referrals, extensions }`), `school_calendar` (school-day info and between-dates counts), `record_referral` (mark a late-work row at the limit as referred), `undo_referral` (delete a referral by id), `extend_deadline` (give one student N more lessons — school days — on a summative task, a Schoology test/quiz, or (via `resubmission_id`) an open resubmission request; on a make-up it moves the make-up clock), `undo_extension` (delete an extension by id, optionally `remove_line: true` to also remove the status line it published), `set_makeup_tracking` (ignore — or track again — one Schoology test/quiz for make-ups, all students), and the Amendment B resubmission set: `request_resubmission` (ask a student to resubmit, deadline in lessons), `grade_stands` (close an open request once its deadline has passed, with no resubmission — the original grade stands; "Reviewed"/`close_resubmission`/`mark_resubmission_reviewed` were removed, since an arrival now only clears on genuinely new visible feedback), `preview_status_line` (render — never guess — the exact status-line text and due date for `request_resubmission` / `extend_deadline` / `grade_stands` before publishing), and `list_resubmissions` (history by course/student/since/state). Student history (read-only, since 2026-10-08): `find_student` (by legal or preferred name, email, email number or uid, across archived years, with grad year and courses to tell same-named students apart) and `get_student_history` (every course and year with the teacher: per assessment the overall level, levels per measurement topic and the grade comment verbatim; published finals only, never AI suggestions; summative-only by default with `omitted` counts; `detail: 'compact'` and `limit`/`offset` paging). See `docs/superpowers/specs/2026-10-08-prismcp-student-history-design.md`.
+## Tools
 
-## `DB_PATH` is required, and must be absolute (since 2026-09-23)
-
-**PrisMCP refuses to start unless `DB_PATH` is set to an absolute path.** It
-writes grading suggestions straight into SQLite and loads no dotenv, so the
-path it is given *is* the database every write lands in — and every write
-reports success. A wrong path is silent; on a disposable dev clone the work is
-erased at the next `npm run db:refresh`.
-
-A relative path is refused because it resolves against whichever directory
-the client launched from. `:memory:` and `file:` URIs are accepted.
-
-## The saved Schoology session (unsubmit-on-ask since 2026-10-03, grading sync since 2026-10-20)
-
-`request_resubmission` unsubmits submitted OneDrive (LTI) work by default
-(`unsubmit`), and `get_assignment_context` forces a **grading sync** of the task
-before it answers (#131): a run in the sync queue that reads the task's details,
-submissions, grades, mastery levels and grade comments, waits for the comment
-threads and reads the files of every student who uploaded (`mastery_source`,
-`submission_comments_source`, `submission_files_source` report it, and
-`data_as_of` is the task's last full sync; a `fresh` answer's three `*_source` fields say the earlier grading sync read them). The answer also records, on the assignment, the data time and the moment it was served; the suggestions the agent writes later carry them, so Prism's stale-data banner judges the data the agent was given, however long grading took. A task whose last grading sync (`assignments.grading_synced_at`, stamped only by a grading run
-that read everything; a plain Sync Assignment or course sync does not count) finished under 5 minutes
-ago is not read again. Both go through the saved Schoology session (plain HTTP,
-no browser), not the API keys. PrisMCP finds it the same way the server does: `PRISM_SESSION_DIR`, else
-`.playwright-session/` under its working directory. On the mini set
-`PRISM_SESSION_DIR=/Users/gnolan/prism/data/.playwright-session` in the entry's
-`env` block (or the remote command) unless `~/prism/data/.env` already sets it.
-Without it the unsubmit fails safely: the ask is recorded and the tool result
-carries the Schoology link so the teacher can unsubmit by hand.
-
-`get_assignment_context` never returns older data silently. Its errors start with a code:
-
-- `SESSION_LAPSED`: the saved session has expired (or was lost mid-sync). The error carries the sign-in link
-  (`https://prism.swordtail-everest.ts.net/settings#schoology-signin`) and the task's last full sync. The
-  agent asks the teacher: sign in and call again, or call again with `use_stored_data: true`, which skips the
-  sync and returns the context from the database with `stale_data` ("Data as of <time>. Sign in to Schoology
-  for a fresh sync.") as its first key. The agent never chooses stored data itself.
-- `SYNC_FAILED`: the run failed, was interrupted by a restart or deploy, or finished with errors; the error
-  names the run and the reason. The agent tells the teacher what failed; they may retry (calling again starts
-  a new sync) or, if a read keeps failing, choose `use_stored_data: true` (the stored data, with `stale_data`).
-  The agent never chooses stored data itself.
-- `SYNC_PENDING`: still running after about 50 s (the run may be waiting behind a dashboard sync); calling
-  again follows the same run.
-- `NOT_FOUND`: no such assignment.
-
-A source switched off in `config.yaml` (`submission_comments`, `submission_files`) is not read: its `*_source`
-answers `cached_only: true` with "is off in config.yaml". While it waits the tool sends MCP progress
-notifications every 10 s when the client asked for them. The `prism://assignment/.../context` resource stays a
-database read with no sync.
-
-## Schoology credentials for the status-line tools (since 2026-10-03)
-
-PrisMCP loads no dotenv (see above), and Prism's Schoology client reads
-`SCHOOLOGY_BASE_URL`, `SCHOOLOGY_CONSUMER_KEY` and `SCHOOLOGY_CONSUMER_SECRET`
-from the process environment when it starts. So **the server process must be
-started with all three set** — for `preview_status_line`, for
-`request_resubmission` / `grade_stands` / `extend_deadline` with `comment_line`,
-and for `undo_extension` with `remove_line`. How depends on where it runs:
-
-- **On the mini** (PrisMCP runs there directly): put them in the entry's `env`
-  block alongside `DB_PATH`, copied from the server's `.env`
-  (`~/prism/data/.env`, mode 600); `SCHOOLOGY_BASE_URL` is
-  `https://api.schoology.com`. That config file then holds the consumer secret,
-  so keep it as private as `.env` itself — it never leaves the mini.
-- **From the laptop over SSH**: **never copy the secret into the laptop's
-  config.** The remote command sources the mini's own `.env` on the mini
-  (`set -a; . ~/prism/data/.env; set +a`), so the secret never leaves the mini
-  and a key rotation there needs no laptop change. The `.env` is plain
-  `KEY=value` lines, which a shell can source; `set -a` exports them.
-  **Caution:** sourcing runs the file as shell, so every value must be
-  shell-safe — no unquoted spaces or `$` (quote such a value with single quotes).
-
-Without them those tools fail before touching anything, with
-`SCHOOLOGY_NOT_CONFIGURED: Prism cannot reach Schoology: … missing from the
-server's .env: nothing was read, published or recorded` (this doc is rewritten
-when PrisMCP moves into the server, #131; the server reads its own `.env`). Every other tool —
-including the same actions *without* `comment_line` / `remove_line` — works
-without them. Restart the MCP server after adding them.
+- **Courses and rosters:** `list_courses` (`include_archived: true` adds archived courses with `school_year` and `term`), `list_assignments`, `list_students` (`include_dropped: true` adds leavers).
+- **Grading:** `get_assignment_context` (forces a Schoology sync of the task first, see [Grading sync](#the-grading-sync-get_assignment_context)), `write_student_suggestions`, `write_assessment_analysis`.
+- **Linked quizzes:** `list_quiz_groups`, `load_quiz_results`, `set_question_tags`. `load_quiz_results` reads the attempts from Schoology through the saved session and sends nothing to Schoology. It stores them in Prism, replaces any earlier load and removes attempts that were deleted in Schoology. It runs as a run in Prism's sync queue, so it waits behind a running sync (`server/services/quizRun.js`). It fails with `NO_SESSION` when the saved login has expired, `UNREACHABLE` when Schoology could not be reached (try again, the session is not at fault), `BUSY`, or `PENDING` when it is still going after about 50 s. `PENDING` carries the sync run id: call again to join that run.
+- **Rubrics:** `list_rubrics`, `read_rubric`, `write_rubric`, `attach_rubric`.
+- **Resources and prompt:** `prism://courses`, `prism://course/{courseId}/assignments`, `prism://assignment/{courseId}/{assignmentId}/context` (a database read with no sync), and the `grade-assignment` prompt.
+- **Triage:** `get_triage` (the late-work referral watch, feedback-owed, make-up-test and **resubmission** lists, with the same numbers as the dashboard; each row's `day` counts the due or test date as day 1; referral after day 8, feedback overdue after day 10 by default). `get_submission_status` (roster-wide submission state for a course, one assignment or one student, for "who has not submitted X?", with a ready-to-paste email list; `status` defaults to `not_submitted`, the whole-school view, and `all` needs a course, `assignment_id` or student because it lists every item). `list_referrals` (history: `{ referrals, extensions }`). `school_calendar` (school-day information and counts between dates).
+- **Triage writes:** `record_referral` (mark a late-work row at the limit as referred), `undo_referral` (delete a referral by id), `extend_deadline` (give one student N more lessons, counted in school days, on a summative task, a Schoology test or quiz, or via `resubmission_id` an open resubmission request; on a make-up it moves the make-up clock), `undo_extension` (delete an extension by id, with `remove_line: true` to also remove the status line it published), `set_makeup_tracking` (ignore one Schoology test or quiz for make-ups, or track it again, for all students).
+- **Resubmissions (Amendment B):** `request_resubmission` (ask a student to resubmit, with a deadline in lessons), `grade_stands` (close an open request once its deadline has passed, with no resubmission, so the original grade stands), `preview_status_line` (render the exact status-line text and due date before publishing; never guess them), `list_resubmissions` (history by course, student, since and state). An arrival clears only on genuinely new visible feedback.
+- **Student history (read-only, since 2026-10-08):** `find_student` (by legal or preferred name, email, email number or uid, across archived years, with graduation year and courses to tell same-named students apart) and `get_student_history` (every course and year with the teacher: per assessment the overall level, levels per measurement topic and the grade comment verbatim; published finals only, never AI suggestions; summative-only by default with `omitted` counts; `detail: 'compact'` and `limit` / `offset` paging). See `docs/superpowers/specs/2026-10-08-prismcp-student-history-design.md`.
 
 ## Install
 
-### Claude Code — once per machine, user-scoped
-
-There is **no committed `.mcp.json`**. Claude Code ranks project scope
-(`.mcp.json`) above user scope, so a committed `prism` entry would silently
-override the route to the server's database on every machine. Configure it
-once per machine instead:
-
-**Before cutover** *(historical — cutover was 2026-09-24; use the After-cutover commands)* — the laptop was master and graded against its own clone:
+One line per machine, on the laptop and on the mini. It adds the tools to Claude Code for every project (user scope):
 
 ```bash
-claude mcp add prism -s user -e DB_PATH="$HOME/repos/prism/server/db/students.db" -- /usr/local/bin/node "$HOME/repos/prism/mcp/server.js"
+claude mcp add --transport http -s user prism https://prism.swordtail-everest.ts.net/mcp
 ```
 
-**After cutover** — the cutover script prints both of these:
+Nothing else is needed: no path, no key, no SSH. Prism has no login, and the tailnet is the perimeter (ADR 0003), so the machine must be on the tailnet.
+
+**If the machine still has the old entry** (a `node` or `ssh` command that ran `mcp/server.js`), remove it first. The file no longer exists, so the old entry cannot start:
 
 ```bash
-# on the mini: straight at prod
 claude mcp remove prism -s user
-claude mcp add prism -s user -e DB_PATH=/Users/gnolan/prism/data/students.db -- /usr/local/bin/node /Users/gnolan/prism/current/mcp/server.js
-
-# on the laptop: over SSH to the mini (needs Remote Login on the mini + the Keychain setup below)
-claude mcp remove prism -s user
-claude mcp add prism -s user -- ssh gnolan@macmini 'set -a; . ~/prism/data/.env; set +a; cd ~/prism/current && DB_PATH=$HOME/prism/data/students.db /usr/local/bin/node mcp/server.js'
+claude mcp remove prism -s local   # only if an old per-project entry exists
 ```
 
-For the status-line tools the server needs the three Schoology variables (see
-[Schoology credentials](#schoology-credentials-for-the-status-line-tools-since-2026-10-03)).
-On the mini, add `-e SCHOOLOGY_BASE_URL=https://api.schoology.com -e SCHOOLOGY_CONSUMER_KEY=… -e SCHOOLOGY_CONSUMER_SECRET=…`
-to its `claude mcp add`. The laptop's SSH command above already has them: it
-sources the mini's `~/prism/data/.env` on the mini, so no secret is ever typed
-into, or stored in, the laptop's Claude config.
+Local scope outranks user scope, and project scope (`.mcp.json`) outranks both. There is no committed `.mcp.json`, so a committed `prism` entry cannot override this one.
 
-The SSH command is single-quoted so `~` and `$HOME` expand — and `.env` is
-read — **on the mini**.
-`/usr/local/bin/node` is spelled out because a non-interactive SSH session's
-`PATH` is `/usr/bin:/bin:/usr/sbin:/sbin`. MCP is a stdio protocol and does
-not care that the pipe runs through SSH; Claude, the grading plugin and the
-prompts stay on the laptop.
+A machine with no `prism` entry has no prism tools. That is visible, not silent.
 
-### Laptop → mini SSH: passwordless, via the Keychain (set up 2026-09-26)
+Open Claude Code sessions pick up a deploy at the next call, because the tools run in the server. There is nothing to reconnect after a deploy. See [Deploys](#deploys-and-dropped-calls).
 
-Claude launches `ssh` with no terminal, so it cannot type a password or a key
-passphrase. If SSH needs either, the server fails to connect. Claude Desktop's
-log (`~/Library/Logs/Claude/mcp-server-prism.log`) then shows `Permission
-denied, please try again` twice, followed by `Too many authentication failures`.
-The laptop's key (`~/.ssh/id_ed25519`, `gnolan@Mr-Nolan.local`) is already in
-the mini's `~/.ssh/authorized_keys`. It has a passphrase, so that passphrase
-lives in the macOS Keychain. Once per laptop:
+### Claude Desktop and Cowork
+
+This guide covers Claude Code. Claude Desktop starts local commands from `~/Library/Application Support/Claude/claude_desktop_config.json`, and the old `prism` entry there (`node` on `mcp/server.js`, or `ssh`) no longer works. Quit Desktop (Cmd-Q), remove the `prism` entry from `"mcpServers"`, then reopen it. Desktop keeps the config in memory and can write it back over an edit made while it runs. Connecting Desktop to the HTTP endpoint is not verified.
+
+How Desktop showed the earlier server (2026-06-06): the `grade-assignment` prompt as "Grade an assignment (Prism)" under the composer's **＋ → Connectors → Add from prism**, and `prism://courses` as "Prism courses". The templated resources did not appear, and `@`-mention did nothing. Claude Code shows the prompt as `/mcp__prism__grade-assignment` and resources as `@prism:...`.
+
+## Verify an endpoint
 
 ```bash
-# 1. Only if the mini doesn't trust this key yet (asks for the mini password once)
-ssh-copy-id -i ~/.ssh/id_ed25519.pub gnolan@macmini
-
-# 2. Store the key's passphrase in the Keychain (asks for it one last time)
-ssh-add --apple-use-keychain ~/.ssh/id_ed25519
-
-# 3. Always use that key, and the Keychain, for the mini
-cat >> ~/.ssh/config <<'EOF'
-
-Host macmini
-  User gnolan
-  IdentityFile ~/.ssh/id_ed25519
-  IdentitiesOnly yes
-  AddKeysToAgent yes
-  UseKeychain yes
-EOF
-
-# 4. Must return at once, with no prompt of any kind
-ssh macmini true
+node scripts/check-mcp-endpoint.js                                 # prod, over the tailnet
+node scripts/check-mcp-endpoint.js http://127.0.0.1:3002/mcp --expect-dev   # a dev copy
 ```
 
-Here is what each of those `~/.ssh/config` lines does:
+The script connects the way Claude Code does, lists the tools and calls `list_courses`. It prints counts only, never course names, for example `https://prism.swordtail-everest.ts.net/mcp: 36 tools; list_courses 12 courses; prod`. It exits 0 when the endpoint answers and is the kind expected: prod, or with `--expect-dev` a dev copy. It exits 1 when the endpoint does not answer, `list_courses` fails, or the endpoint is the other kind. Run it after an install, after a deploy that touched `/mcp`, and before grading from a new machine. Its test is `scripts/check-mcp-endpoint.test.js`.
 
-- `IdentitiesOnly` offers the mini only this one key. Offering every key the
-  agent holds is what trips the server's `Too many authentication failures`
-  limit.
-- `UseKeychain` and `AddKeysToAgent` unlock the key from the Keychain, and the
-  setting survives a reboot.
+Check the Claude Code side with `claude mcp list`: `prism` shows as connected.
 
-Check the key the mini trusts with `ssh-keygen -lf ~/.ssh/id_ed25519.pub`. It
-should print `SHA256:k82FEDC9l/K1H4k8k1G8EYwfPy5rJyXioZw44hb9vGg`.
+## Dev copies
 
-Check with `claude mcp list`. **Local scope outranks user scope**, so if an old
-per-project entry exists, remove it: `claude mcp remove prism -s local`.
-PrisMCP logs the database it opened to stderr at startup
-(`[prismcp] database: …`).
+A dev clone's server also serves `/mcp` (a server whose `/api/version` mode is not `release` is a dev copy). Its database is a disposable snapshot of prod. So that grading on it cannot be mistaken for the real thing:
 
-A machine with no `prism` entry simply has no prism tools — visible, not silent.
+- **Every tool result starts with a warning:** "This is a dev copy of Prism: its data is replaced at the next refresh, and it refuses Schoology writes."
+- **Schoology writes are refused** with the code `DEV_COPY` (a status line, an LTI unsubmit). Students would see the write, and prod would have no record of it. Nothing is published, unsubmitted or recorded. Prism-only calls still work.
+- **Suggestions written to a dev copy are lost** at the next `npm run db:refresh`. Never grade for real on one.
 
-### Claude Desktop / Cowork (absolute paths)
-
-Desktop/Cowork spawn the server with an **absolute** command. The config lives
-at `~/Library/Application Support/Claude/claude_desktop_config.json`.
-
-**Quit Desktop (Cmd-Q) before you edit it.** Desktop keeps the config in memory
-and can write that copy back over the file when it quits, so an edit made while
-Desktop is running can vanish on restart. The safe order is: quit, then
-`open -a TextEdit ~/Library/Application\ Support/Claude/claude_desktop_config.json`,
-then save, then reopen. Add the entry inside the existing `"mcpServers"` block
-and leave the rest of the file alone.
-
-**On the mini**, run the server directly against prod:
-
-```json
-"prism": {
-  "command": "/usr/local/bin/node",
-  "args": ["/Users/gnolan/prism/current/mcp/server.js"],
-  "env": {
-    "DB_PATH": "/Users/gnolan/prism/data/students.db",
-    "SCHOOLOGY_BASE_URL": "https://api.schoology.com",
-    "SCHOOLOGY_CONSUMER_KEY": "<from ~/prism/data/.env>",
-    "SCHOOLOGY_CONSUMER_SECRET": "<from ~/prism/data/.env>"
-  }
-}
-```
-
-The three `SCHOOLOGY_*` entries are only needed for the status-line tools (see
-[Schoology credentials](#schoology-credentials-for-the-status-line-tools-since-2026-10-03)).
-Over SSH (below), don't copy them: the remote command sources the mini's `.env`.
-
-**On the laptop**, go over SSH to the mini. This needs the Keychain setup
-above; the `Host macmini` block supplies the user and the key:
-
-```json
-"prism": {
-  "command": "/usr/bin/ssh",
-  "args": [
-    "macmini",
-    "set -a; . ~/prism/data/.env; set +a; cd ~/prism/current && DB_PATH=$HOME/prism/data/students.db /usr/local/bin/node mcp/server.js"
-  ]
-}
-```
-
-The remote command sources `~/prism/data/.env` **on the mini** before starting
-the server, so the Schoology consumer secret never leaves the mini — the
-laptop's config holds no credentials. `DB_PATH` is set after the source, so it
-wins over anything the `.env` might define.
-
-- All paths are absolute, and `DB_PATH` is mandatory (see above).
-- If a path contains spaces, keep it as a single array element; don't split it.
-- Check it: **＋ → Connectors** lists **prism**. The log above ends with
-  `[prismcp] database: /Users/gnolan/prism/data/students.db`.
-
-## Verify
-
-### 1. Automated headless e2e — one command
+To point Claude Code at a dev copy, give it a different name. Do not reuse `prism`, because local scope outranks user scope and would hide prod:
 
 ```bash
-npm run mcp:e2e
+claude mcp add --transport http -s local prism-dev http://127.0.0.1:3002/mcp
+node scripts/check-mcp-endpoint.js http://127.0.0.1:3002/mcp --expect-dev
 ```
 
-Seeds a **throwaway temp DB** (never `students.db`), spawns `mcp/server.js` over real stdio, runs the `grade-assignment` prompt + both write tools, then reads the result back from a separate ("Express-side") connection. Expect 5× `PASS`, proving the full loop and cross-process WAL coexistence (spec §7).
+Remove it when finished: `claude mcp remove prism-dev -s local`. `/mcp` accepts the `Host` names `127.0.0.1`, `localhost` and the hosts in `config.yaml` `server.allowedOrigins`. Another name gets a 403.
 
-Also useful: `npx vitest run` (the 188 unit/integration tests, incl. the MCP handlers, must stay green).
+## The grading sync (`get_assignment_context`)
+
+`get_assignment_context` forces a **grading sync** of the task before it answers. This is a run in the sync queue that reads the task's details, submissions, grades, mastery levels and grade comments, waits for the comment threads, and reads the files of every student who uploaded. The run goes ahead of page syncs and waits for a sync that is already running.
+
+- **Skipped when fresh:** if the task's last grading sync (`assignments.grading_synced_at`, stamped only by a grading run that read everything; a plain Sync Assignment or course sync does not count) finished under 5 minutes ago, the tool does not read again. Delivery, calibration and rubric review call the tool several times in one session, and this stops each call from waiting.
+- **Live timings (prod, 20/10/2026):** the first call took 20.9 s. A second call within 5 minutes answered in 65 ms.
+- **What the answer reports:** `data_as_of` is the task's last full sync. `mastery_source`, `submission_comments_source` and `submission_files_source` report what the sync read. For a fresh answer, each of the three says the earlier grading sync read it.
+- **Suggestions record their data time:** the answer records, on the assignment, the data time and the moment it was served. The suggestions written later carry both, so Prism's stale-data banner judges the data the agent was given, however long grading took.
+- **Progress:** while it waits, the tool sends MCP progress notifications every 10 s when the client asked for them.
+- **Config:** a source switched off in `config.yaml` (`submission_comments`, `submission_files`) is not read. Its `*_source` answers `cached_only: true` with "is off in config.yaml".
+
+The tool never returns older data silently. Its errors start with a code:
+
+- `SESSION_LAPSED`: the saved Schoology session has expired, or was lost during the sync. The error carries the sign-in link (`https://prism.swordtail-everest.ts.net/settings#schoology-signin`) and the task's last full sync. **The agent asks the teacher** to sign in and call again, or to call again with `use_stored_data: true`. That flag skips the sync and returns the context from the database, with `stale_data` ("Data as of <time>. Sign in to Schoology for a fresh sync.") as its first key. The agent never chooses stored data itself.
+- `SYNC_FAILED`: the run failed or finished with errors. The error names the run and the reason. **The agent tells the teacher** what failed. The teacher may retry (calling again starts a new run) or, if a read keeps failing, choose `use_stored_data: true` (the stored data, with the `stale_data` warning). The agent never chooses stored data itself.
+- `SYNC_PENDING`: the run is still going after about 50 s, for example because it waits behind a dashboard sync. Calling again follows the same run.
+- `NOT_FOUND`: no such assignment, or Schoology no longer has the task.
+
+### Deploys and dropped calls
+
+The server keeps no MCP session, so a restart ends no session. A call that is in flight during a deploy restart gets a dropped connection. The next call starts a fresh run. Call again.
+
+## The saved Schoology session
+
+`request_resubmission` unsubmits submitted OneDrive (LTI) work by default (`unsubmit`), and the grading sync reads comments and files. Both use the saved Schoology session over plain HTTP, not the API keys and not a browser. The server finds it through `PRISM_SESSION_DIR` (on the mini, `~/prism/data/.playwright-session`). The teacher signs in from Settings (`#schoology-signin`). A lapsed session shows as `SESSION_LAPSED` above. For `request_resubmission` it fails safely: the ask is recorded, and the tool result carries the Schoology link so the teacher can unsubmit by hand.
+
+## Schoology credentials for the status-line tools (since 2026-10-03)
+
+Prism's Schoology client reads `SCHOOLOGY_BASE_URL`, `SCHOOLOGY_CONSUMER_KEY` and `SCHOOLOGY_CONSUMER_SECRET` from the server's environment, which the server loads from its own `.env` (`~/prism/data/.env` on the mini, mode 600). They are needed for `preview_status_line`, for `request_resubmission`, `grade_stands` and `extend_deadline` with `comment_line`, and for `undo_extension` with `remove_line`. No machine that runs Claude holds them.
+
+If one is missing, those tools fail before touching anything with `SCHOOLOGY_NOT_CONFIGURED: Prism cannot reach Schoology: ... missing from the server's .env: nothing was read, published or recorded`. Add the variables to the server's `.env` and restart the server (`docs/deploy.md`). Every other tool works without them, and so do the same actions without `comment_line` or `remove_line`.
+
+## Parity check
+
+`scripts/parity-prismcp-http.js` compares every read tool called two ways with the same arguments on the same database copy: the handlers called directly (as `mcp/server.js` `createServer()` builds them, the path the removed stdio entry served) and the server's `/mcp`. Run it on a scratch copy, never on the live database:
+
+```bash
+sqlite3 ~/prism/data/students.db ".backup <copy>"          # a copy of prod
+DB_PATH=<copy> PORT=3002 npm run dev:server               # a dev copy on the scratch database
+node scripts/parity-prismcp-http.js --url http://127.0.0.1:3002/mcp --db <copy>
+npm run dev:stop                                          # then delete <copy>
+```
+
+It prints one line per call: `same`, the differing paths, or `FAILED`. Each exception lists its reason in the script. It exits 1 on any difference, an errored call, an uncovered tool or a target that is not a dev copy. Its output holds no answers, but the copy holds student data: delete it when done.
+
+Result on 20/10/2026, on a copy of prod: 23 of 23 calls the same. Coverage 36 of 36 tools: 18 compared, 3 excluded, 15 writers (not called).
+
+## Verify a change
+
+### 1. Automated
+
+```bash
+npx vitest run                  # root: server, mcp/, scripts/ (includes server/routes/mcp.test.js, the /mcp transport)
+cd client && npx vitest run
+```
+
+`server/routes/mcp.test.js` drives the tools through a real HTTP client against an in-process Express app. Then run `node scripts/check-mcp-endpoint.js` against the deployed server.
 
 ### 2. Manual render check on `/assessment/:id`
 
 The headless e2e proves the data path; this confirms the pixels.
 
-1. `npm run dev` (Express :3001 + Vite :5173).
+1. Open the app on a dev copy (`PORT=3002 npm run dev` on the mini) or, to grade for real, on prod. Check what answers with `node scripts/check-mcp-endpoint.js <url>/mcp`.
 2. Open a real assignment in the app and note its **course id** and **Schoology assignment id** (the assessment page URL / the mastery route uses the Schoology id).
-3. From **Claude Code** (with `prism` configured per machine — see Install), run the real workflow against that assignment — `/mcp__prism__grade-assignment`, or call `write_student_suggestions` + `write_assessment_analysis` directly with one or two students.
+3. From **Claude Code** (with `prism` configured per machine, see Install), run the real workflow against that assignment: `/mcp__prism__grade-assignment`, or call `write_student_suggestions` + `write_assessment_analysis` directly with one or two students.
 4. Reload `/assessment/:id` and confirm:
    - [ ] violet ✦ dashed ring on the suggested rubric cell(s), **coexisting** with any teacher mark on the same row (agree-case = solid border + dashed ring + ✦);
    - [ ] the `✦ Suggested feedback` box + `↑ Use suggestion`;
    - [ ] the `⚑ Reviewer flags` strip as short bullet lines (`reviewer_flags_brief` when written, else the first sentence of each `reviewer_flags` paragraph), with the full text behind `▾ Show detailed flags`;
    - [ ] the `✦ Reviewer Analysis` button → drawer with the proposed distribution + noticings (when `write_assessment_analysis` was called).
-5. **Concurrent check:** with the page open and the dev server running, run another `write_student_suggestions`; reload → the new ✦ appears (v1 has no live push, so a reload/refetch is expected).
+5. **Concurrent check:** with the page open, run another `write_student_suggestions`. Reload the page: the new ✦ appears (there is no live push, so a reload is expected).
 6. **Score-scale suggestions (#41):** for an unaligned assignment (`list_assignments` shows a `score_scale`, e.g. "Completion Scale"), `get_assignment_context` returns `score_scale.levels` (best → worst) and each student's `current_scale_level`. Write `scale_level` (code or label) plus a teacher-facing `evidence` note instead of `rubric_scores`. This is the path for an agent that checks a third-party platform and marks work Completed. Reload `/assessment/:id` and confirm:
    - [ ] the suggested level shows the violet ring and a `✦ Suggested` tag, with `✦ Suggested <level>: <evidence>` under the level buttons;
    - [ ] the class bar shows `✦ Accept all suggestions (N)` (N = suggestions that differ from the current grade, on unlocked students). It only **stages** them; `Publish all` is still the teacher's step;
-   - [ ] a level outside the assignment's scale is rejected with a message naming the valid levels (verified 2026-09-28 over stdio: "Great" → rejected; "Consistent" / "i" → C / I).
-
-### 3. Cowork/Desktop prompt-picker spike — RESOLVED (2026-06-06, Claude Desktop)
-
-How PrisMCP surfaces in **Claude Desktop**: under the composer's **＋ → Connectors → Add from prism** submenu — **not** as `/` slash commands and **not** via `@`-mention (that's the Claude Code surface).
-
-- **`grade-assignment` prompt** → listed as **"Grade an assignment (Prism)"** (chat-bubble icon). Selecting it inserts the orchestration message; the `assignment` / `assignment_type` args are given inline in the chat.
-- **`prism://courses` resource** → listed as **"Prism courses"** (document icon). The *templated* resources (`.../assignments`, `.../context`) do **not** appear as menu items — they need parameters, so the agent reaches that data through the `list_assignments` / `get_assignment_context` **tools** instead.
-- **`@`-mention does nothing** for resources in Desktop — resource attachment lives in the "Add from prism" menu, not `@`.
-- In practice the picker is optional: a plain instruction at the end of a grading run — *"upload the student feedback to prism"* — makes the agent call the write tools directly. **Confirmed end-to-end on a real grading run.**
-
-Claude Code surfaces the same prompt as `/mcp__prism__grade-assignment` and resources as `@prism:...`.
+   - [ ] a level outside the assignment's scale is rejected with a message naming the valid levels (verified 2026-09-28: "Great" → rejected; "Consistent" / "i" → C / I).
 
 ## Guardrails (confirmed 2026-06-06)
 
-- [x] The server contains **no** grading philosophy / rubric / extraction / output content, and **no** path outside the repo.
-- [x] It never reads submissions, and never writes a score to Schoology. *(Amended 2026-10-03: the status-line tools listed at the top write one line of a student's Schoology comment, only when given `comment_line` / `remove_line`.)*
-- [x] Grading writes target only the `feedback` and `assessment_analysis` tables — never `mastery_scores` or Schoology. *(Amended 2026-10-03: the triage tools also record referrals / extensions / resubmissions, and a published or removed status line is mirrored into `grades` + `status_lines`.)*
+- [x] The server contains **no** grading philosophy, rubric, extraction or output content.
+- [x] It never writes a score to Schoology. *(Amended 2026-10-03: the status-line tools listed at the top write one line of a student's Schoology comment, only when given `comment_line` or `remove_line`.)*
+- [x] Grading writes target only the `feedback` and `assessment_analysis` tables, never `mastery_scores` or Schoology. *(Amended 2026-10-03: the triage tools also record referrals, extensions and resubmissions, and a published or removed status line is mirrored into `grades` and `status_lines`.)*
+- [x] Only the Prism server opens the database. *(Since 2026-10-20, #131: the stdio entry, its `DB_PATH` guard and the SSH setup are removed.)*

@@ -102,7 +102,8 @@ Service with its own tailnet address, not the machine's own name (since
   by tagged devices. (Consequence: Taildrop to the mini no longer works.)
 - the policy file has `"tag:server": ["autogroup:admin"]` in `tagOwners`, and
   grants `autogroup:member` → `svc:prism` on 443 and → `tag:server` on `*`
-  (the second keeps SSH to the mini working for PrisMCP from the laptop);
+  (the second keeps SSH to the mini working; PrisMCP no longer uses SSH since
+  20/10/2026);
 - the `prism` service is defined (Services → Advertise → Define a Service,
   port `tcp:443`) and macmini is **approved** as its host.
 
@@ -110,6 +111,27 @@ On the mini: `tailscale serve --service=svc:prism --https=443 127.0.0.1:3001`
 (`tailscale serve status` shows it). Prism has **no login**: whoever is on the
 tailnet can see student data, so never add other users or share the mini, and
 never `tailscale funnel` it.
+
+## PrisMCP at `/mcp` (since 20/10/2026, #131)
+
+The Prism server hosts PrisMCP, the MCP server for AI grading, at
+`https://prism.swordtail-everest.ts.net/mcp` (and `http://127.0.0.1:3001/mcp` on
+the mini). No PrisMCP process runs on the mini or the laptop, and none opens the
+database. A deploy updates the tools for every open Claude session at once.
+
+- **Install:** one line per machine, `claude mcp add --transport http -s user prism
+  https://prism.swordtail-everest.ts.net/mcp`. See `docs/prismcp-install-and-verify.md`.
+- **Stateless:** the server keeps no MCP session. A restart, such as a deploy, ends
+  no session. The call that was running during the restart gets a dropped
+  connection, and the next call starts a fresh run.
+- **Same rules as `/api`:** `originGuard` refuses another site's POST. `/mcp` also
+  checks the `Host` header against `127.0.0.1`, `localhost` and the hosts in
+  `config.yaml` `server.allowedOrigins`, so a web page cannot reach it through a
+  name it controls. A new tailnet name needs adding to `server.allowedOrigins`.
+- **Credentials:** the tools use the server's own `.env` (`~/prism/data/.env`) and
+  Schoology session (`PRISM_SESSION_DIR`). Nothing is copied to a laptop.
+- **Check it:** `node scripts/check-mcp-endpoint.js [url]` lists the tools and
+  calls `list_courses`. It exits 0 on prod. Add `--expect-dev` to check a dev copy.
 
 ## Everyday commands
 
@@ -219,8 +241,8 @@ rebuild onto new hardware.
 - Tailscale admin console → DNS → enable **HTTPS Certificates**. *(Done 2026-09-23.)*
 - Tailscale admin console → Machines → macmini → **Disable key expiry**. *(Done 2026-09-23.)*
 - On the mini: System Settings → General → Sharing → **Remote Login** on (the
-  laptop reaches PrisMCP over SSH; its key's passphrase must be in the
-  Keychain — see `docs/prismcp-install-and-verify.md`).
+  cutover script checks it). PrisMCP needed it until 20/10/2026, when it moved
+  into the server.
 
 **On the day:**
 1. Laptop: stop the dev server and every Claude session with `prism` loaded.
@@ -230,7 +252,7 @@ rebuild onto new hardware.
    node ~/prism/current/scripts/deploy/cutover.js --dry-run --snapshot ~/Library/CloudStorage/OneDrive-HongKongInternationalSchool/_prism-data/students-<stamp>.db
    node ~/prism/current/scripts/deploy/cutover.js           --snapshot ~/Library/CloudStorage/OneDrive-HongKongInternationalSchool/_prism-data/students-<stamp>.db
    ```
-4. Run the two `claude mcp` commands it prints — one on the mini, one on the laptop.
+4. Run the `claude mcp` command it prints, on the mini and on the laptop.
 5. From then on: open `https://prism.swordtail-everest.ts.net`, and **never run
    `db:backup` on the laptop again** — its copy is disposable dev data, refreshed
    with `npm run db:refresh`.

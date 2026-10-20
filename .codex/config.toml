@@ -1,3 +1,2 @@
 [mcp_servers.prism]
-command = "node"
-args = ["mcp/server.js"]
+url = "https://prism.swordtail-everest.ts.net/mcp"

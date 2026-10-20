@@ -1,7 +1,5 @@
-import { isMain } from '../server/lib/isMain.js';
 import { z } from 'zod';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { getDb } from '../server/db/index.js';
 import { getAssessmentContext } from '../server/services/assessmentContext.js';
 import { writeStudentSuggestions, upsertAssessmentAnalysis } from '../server/services/suggestions.js';
@@ -12,7 +10,6 @@ import {
   requestResubmissionTool, gradeStandsTool, listResubmissionsTool, previewStatusLineTool,
   getSubmissionStatusTool,
 } from './handlers.js';
-import { assertExplicitDbPath } from './dbGuard.js';
 import { ALERT_DEFS } from '../server/lib/psAlerts.js';
 
 // #117: the PowerSchool alert fields list_students and get_assignment_context add per
@@ -54,9 +51,11 @@ export function progressNotifier(extra) {
 }
 
 // Open the shared Prism DB (resolved relative to server/db, honoring DB_PATH)
-// and set busy_timeout so a brief write collision with the Express server
-// retries rather than throwing SQLITE_BUSY under WAL (spec §7). Returns the
-// shared getDb() singleton — the same connection the tool handlers query.
+// and set busy_timeout so a brief write collision retries rather than throwing
+// SQLITE_BUSY under WAL. The Prism server hosts PrisMCP at /mcp (server/routes/mcp.js)
+// on its own connection; this helper is for tests and scripts that open a database
+// themselves (scripts/parity-prismcp-http.js). Returns the shared getDb() singleton,
+// the same connection the tool handlers query.
 export function connectDb() {
   const db = getDb();
   db.pragma('busy_timeout = 5000');
@@ -737,22 +736,4 @@ export function createServer({ devCopy = false } = {}) {
   );
 
   return server;
-}
-
-// Entrypoint: open the shared DB (resolved relative to server/db, honoring
-// DB_PATH) and serve over stdio. Guarded so importing this module in tests
-// does not boot a server.
-async function main() {
-  // stderr, never stdout — stdout is the MCP protocol channel.
-  console.error(`[prismcp] database: ${assertExplicitDbPath()}`);
-  connectDb();
-  const server = createServer();
-  await server.connect(new StdioServerTransport());
-}
-
-if (isMain(import.meta.url)) {
-  main().catch((err) => {
-    console.error('[prismcp] fatal:', err);
-    process.exit(1);
-  });
 }

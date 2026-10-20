@@ -24,6 +24,7 @@ beforeEach(() => {
   vi.mocked(api.getTriage).mockResolvedValue(null);
   vi.mocked(api.getMasteryForCourse).mockResolvedValue(mastery(OLD));
   vi.mocked(api.ensureSync).mockResolvedValue({ state: 'fresh' });
+  vi.mocked(api.getSyncStatus).mockResolvedValue({ nightlyData: { readAt: SYNCED, nightly: true }, syncing: false });
   vi.mocked(api.getCurrentSync).mockResolvedValue({ running: null, runId: null, queued: [], held: [] });
   vi.mocked(api.startSync).mockResolvedValue({ runId: 9, state: 'queued', joined: false });
   vi.mocked(api.getSyncRunEvents).mockResolvedValue({ status: 'running', finished: false, events: [] });
@@ -52,6 +53,12 @@ describe('CoursePage background sync', () => {
     expect(api.refreshMasteryForCourse).toBeUndefined(); // the partial page read is gone
     expect(screen.queryByText(/new work/)).toBeNull();
     expect(await screen.findByText(/^Synced \d\d:\d\d today$/)).toBeInTheDocument();
+  });
+
+  it('a help "?" sits beside the Synced time and names Sync Course', async () => {
+    renderPage();
+    const dot = await screen.findByRole('img', { name: /Press Sync Course only if you changed something in Schoology just now\./ });
+    expect(dot).toHaveAttribute('aria-label', expect.stringContaining('Blocks, calendar and alerts: refreshed every night.'));
   });
 
   it('while it syncs: the chip; clicking it opens the progress on that run; when it ends the page reloads', async () => {

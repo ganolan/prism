@@ -9,6 +9,8 @@ import { waitsByAssignment, redCount } from '../lib/triage.js';
 import { LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
 import { LetterGradePopup, LETTER_GRADE_COLORS } from '../components/MasteryPerformanceSummary.jsx';
 import SyncStatus from '../components/SyncStatus.jsx';
+import SyncHelp from '../components/SyncHelp.jsx';
+import { useSyncFacts } from '../hooks/useSyncFacts.js';
 import SyncDialog from '../components/SyncDialog.jsx';
 import { useBackgroundSync } from '../hooks/useBackgroundSync.js';
 import { gradeLabel, submissionStatus, ltiStatusUnavailable } from '../lib/gradeLabel.js';
@@ -120,6 +122,7 @@ export default function CoursePage() {
     setMastery(m);
   }
 
+  const syncFacts = useSyncFacts(); // whether the night's refresh is on, for the Synced time's help
   // Background sync: after the page loads, the server syncs this course in full when it was last
   // synced (or tried) over 10 minutes ago; when that run ends, every part of the page reloads. An
   // archived course's data is frozen: only Sync Course re-reads it.
@@ -170,6 +173,7 @@ export default function CoursePage() {
               sync={backgroundSync}
               onSync={() => setSyncOpen(true)}
               onOpen={(runId) => setFollowRun(runId)}
+              help={syncFacts.nightlyData && <SyncHelp button="Sync Course" nightly={syncFacts.nightlyData.nightly} />}
             />
           </div>
         </div>

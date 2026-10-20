@@ -57,3 +57,13 @@ describe('HelpDot', () => {
     expect(pop(container).style.left).toBe('138px');
   });
 });
+
+describe('HelpDot with children', () => {
+  it('shows the children in the popover; the text stays the aria-label', () => {
+    const { container } = render(<HelpDot text="Plain words"><ul><li>One</li></ul></HelpDot>);
+    const dot = screen.getByRole('img', { name: 'Plain words' });
+    fireEvent.click(dot);
+    expect(container.querySelector('.help-pop li')).toHaveTextContent('One');
+    expect(container.querySelector('.help-pop')).not.toHaveTextContent('Plain words');
+  });
+});

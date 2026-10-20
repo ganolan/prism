@@ -4,11 +4,12 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import AssessmentSummaryPage from './AssessmentSummaryPage.jsx';
 import { BumpDataVersionContext } from '../hooks/useDataVersion.jsx';
-import { getMasteryForAssignment, getFeedbackForAssignment, syncMasteryForAssignment, ensureSync, getCurrentSync, getSyncRun, getSyncRunEvents } from '../services/api.js';
+import { getSyncStatus, getMasteryForAssignment, getFeedbackForAssignment, syncMasteryForAssignment, ensureSync, getCurrentSync, getSyncRun, getSyncRunEvents } from '../services/api.js';
 
 vi.mock('../lib/assessmentDraftSaver.js', () => ({ makeDraftSaver: () => ({ save: vi.fn(), remove: vi.fn(), flush: vi.fn(), dispose: vi.fn() }) }));
 vi.mock('../services/api.js', () => ({
   getMasteryForAssignment: vi.fn(),
+  getSyncStatus: vi.fn(),
   ensureSync: vi.fn(),
   getCurrentSync: vi.fn(),
   getSyncRun: vi.fn(),
@@ -77,6 +78,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   sessionStorage.clear();
   ensureSync.mockResolvedValue({ state: 'fresh' });
+  getSyncStatus.mockResolvedValue({ nightlyData: { readAt: null, nightly: false } });
   getCurrentSync.mockResolvedValue(IDLE);
   getSyncRun.mockResolvedValue({ id: 4, status: 'completed', summary: { comments: { queued: 0 } } });
 });
@@ -88,6 +90,13 @@ describe('AssessmentSummaryPage background sync', () => {
     await waitFor(() => expect(ensureSync).toHaveBeenCalledWith({ kind: 'task', courseId: 5, assignmentId: '950' }));
     expect(await screen.findByText(/^Synced \d\d:\d\d today$/)).toBeInTheDocument();
     expect(screen.queryByText(/new work/)).toBeNull();
+  });
+
+  it('a help "?" sits beside the Synced time, names Sync Assignment and points to the dashboard when the night is off', async () => {
+    getMasteryForAssignment.mockResolvedValue(page('Same'));
+    renderPage();
+    const dot = await screen.findByRole('img', { name: /Press Sync Assignment only if you changed something in Schoology just now\./ });
+    expect(dot).toHaveAttribute('aria-label', expect.stringContaining('refreshed when you press Sync Courses on the dashboard.'));
   });
 
   it('a background sync that ends swaps the new data in, without the Loading screen, when nothing is unsaved', async () => {

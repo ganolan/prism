@@ -8,6 +8,8 @@ import {
 import MasteryPerformanceSummary from '../components/MasteryPerformanceSummary.jsx';
 import { useBackgroundSync } from '../hooks/useBackgroundSync.js';
 import SyncStatus from '../components/SyncStatus.jsx';
+import SyncHelp from '../components/SyncHelp.jsx';
+import { useSyncFacts } from '../hooks/useSyncFacts.js';
 import SyncDialog from '../components/SyncDialog.jsx';
 import AssignmentFeedback from '../components/AssignmentFeedback.jsx';
 import PsAlertReveal from '../components/PsAlertReveal.jsx';
@@ -297,6 +299,7 @@ export default function StudentPage() {
   const [syncVersion, setSyncVersion] = useState(0);
   const [followRun, setFollowRun] = useState(null);
   const bumpDataVersion = useBumpDataVersion();
+  const syncFacts = useSyncFacts(); // whether the night's refresh is on, for the Synced time's help
   const backgroundSync = useBackgroundSync(liveCourseIds.length ? { kind: 'courses', courseIds: liveCourseIds } : null, {
     onDone: () => { reload(); setSyncVersion((v) => v + 1); },
   });
@@ -564,6 +567,7 @@ export default function StudentPage() {
             sync={backgroundSync}
             onSync={syncStudentCourses}
             onOpen={(runId) => setFollowRun(runId)}
+            help={syncFacts.nightlyData && <SyncHelp button="Sync Courses" nightly={syncFacts.nightlyData.nightly} />}
           />
         </div>
       )}

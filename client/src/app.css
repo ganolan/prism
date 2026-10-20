@@ -1605,6 +1605,12 @@ button.cell-open:focus-visible { outline: 2px solid var(--accent); outline-offse
 }
 .sync-status--stale .sync-status__time { color: var(--badge-amber-text); background: var(--badge-amber-bg); }
 .sync-status__button { white-space: nowrap; }
+/* The dashboard's second line (blocks, calendar and alerts); amber, like the Synced time, when missed. */
+.sync-status__nightly { font-size: 0.78rem; color: var(--text-muted); padding: 0.1rem 0.6rem; border-radius: 999px; }
+.sync-status__nightly--stale { color: var(--badge-amber-text); background: var(--badge-amber-bg); }
+/* Help popover for the Synced time (SyncHelp): intro, two bullets, last line. */
+.help-pop .sync-help__list { margin: 0.35rem 0; padding-left: 1.1rem; }
+.help-pop .sync-help__list li + li { margin-top: 0.25rem; }
 /* Background sync: the chip beside the label while the page's sync waits, runs, failed or needs a
    sign-in; it opens the progress dialog (or the sign-in). */
 .sync-status__chip {
@@ -1811,4 +1817,5 @@ button.cell-open:focus-visible { outline: 2px solid var(--accent); outline-offse
   /* #58: the sync label sits at the start of the line on a phone, not the right edge. */
   .sync-status { align-items: flex-start; }
   .sync-status__row { justify-content: flex-start; }
+  .sync-status__nightly { padding-left: 0; }
 }

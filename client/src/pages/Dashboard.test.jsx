@@ -331,6 +331,15 @@ describe('Dashboard — background sync', () => {
     expect(screen.queryByText(/^Synced \d\d:\d\d today$/)).toBeNull(); // the oldest, not the newest
   });
 
+  it('a help "?" beside the Synced time, and the nightly line beneath it, amber when the night was missed', async () => {
+    api.getCoursesByView.mockResolvedValue([{ id: 1, course_name: 'A', course_synced_at: new Date().toISOString() }]);
+    api.getSyncStatus.mockResolvedValue({ nightlyData: { readAt: new Date(Date.now() - 50 * 3600 * 1000).toISOString(), nightly: false } });
+    renderDashboard();
+    const dot = await screen.findByRole('img', { name: /Press Sync Courses only if you changed something in Schoology just now\./ });
+    expect(dot).toHaveAttribute('aria-label', expect.stringContaining('Blocks, calendar and alerts: refreshed when you press Sync Courses.'));
+    expect(screen.getByText('Blocks, calendar and alerts: 2 days old. Press Sync Courses to refresh them.')).toHaveClass('sync-status__nightly--stale');
+  });
+
   it('Sync Courses on the Current tab is one click: it posts { everything: true } and shows the progress', async () => {
     api.getCoursesByView.mockResolvedValue([{ id: 1, course_name: 'A', course_synced_at: new Date().toISOString() }]);
     api.startSync.mockResolvedValue({ runId: 7, state: 'queued', joined: false });
@@ -344,6 +353,17 @@ describe('Dashboard — background sync', () => {
 });
 
 describe('Dashboard: the Archived tab', () => {
+  it('has the help "?" but no nightly line and no button', async () => {
+    api.getSyncStatus.mockResolvedValue({ nightlyData: { readAt: null, nightly: true } });
+    api.getCoursesByView.mockImplementation(async (view) => (view === 'archived'
+      ? [{ id: 4, course_name: 'Archived Bio', hidden: 0, archived: 1, course_synced_at: '2026-06-18T03:02:00.000Z' }] : []));
+    renderDashboard();
+    fireEvent.click(await screen.findByRole('button', { name: 'Archived' }));
+    expect(await screen.findByText('Archived Bio')).toBeInTheDocument();
+    expect(await screen.findByRole('img', { name: /Press Sync Courses only if/ })).toBeInTheDocument();
+    expect(screen.queryByText(/Blocks, calendar and alerts: not read yet/)).toBeNull();
+  });
+
   it('has no Sync Courses button, and still shows its Synced time', async () => {
     api.getCoursesByView.mockImplementation(async (view) => (view === 'archived'
       ? [{ id: 4, course_name: 'Archived Bio', hidden: 0, archived: 1, course_synced_at: '2026-06-18T03:02:00.000Z' }] : []));

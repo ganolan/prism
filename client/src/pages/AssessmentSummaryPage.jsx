@@ -44,6 +44,8 @@ import { briefFlags, textSignature } from '../lib/reviewerFlags.js';
 import { receivedLine, composeComment, lineDate } from '../lib/statusLines.js';
 import { afterRefresh } from '../lib/assessmentFreshness.js';
 import SyncStatus from '../components/SyncStatus.jsx';
+import SyncHelp from '../components/SyncHelp.jsx';
+import { useSyncFacts } from '../hooks/useSyncFacts.js';
 import { useBackgroundSync } from '../hooks/useBackgroundSync.js';
 import SyncDialog from '../components/SyncDialog.jsx';
 
@@ -2243,6 +2245,7 @@ export default function AssessmentSummaryPage() {
       setData((d) => (d ? { ...d, assignment: { ...d.assignment, task_synced_at: taskSyncedAt, task_sync_attempted_at: attemptedAt, removed_at: removedAt } } : d));
     }
   }
+  const syncFacts = useSyncFacts(); // whether the night's refresh is on, for the Synced time's help
   const backgroundSync = useBackgroundSync(
     data && !data.course?.archived ? { kind: 'task', courseId: Number(courseId), assignmentId: String(assignmentId) } : null,
     {
@@ -2428,6 +2431,7 @@ export default function AssessmentSummaryPage() {
             sync={backgroundSync}
             onSync={handleRefresh}
             onOpen={(runId) => setFollowRun(runId)}
+            help={syncFacts.nightlyData && <SyncHelp button="Sync Assignment" nightly={syncFacts.nightlyData.nightly} />}
           />
           {followRun != null && (
             // No onSyncComplete: the chip's run is the hook's, whose onDone reloads past the unsaved-draft guard.

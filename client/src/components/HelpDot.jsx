@@ -8,8 +8,9 @@ const EDGE = 138;
 // an instant popover on hover/focus, placed fixed from the dot so no overflow clips
 // it. The full text is also the aria-label, so screen readers don't need the popover.
 // A tap (click) shows it too, since a phone has no hover; tapping elsewhere blurs the
-// dot and scrolling moves the dot away, and either hides it (#134).
-export default function HelpDot({ text }) {
+// dot and scrolling moves the dot away, and either hides it (#134). `children`, when given, is the
+// popover's content (a short list, bold labels); `text` stays the aria-label either way.
+export default function HelpDot({ text, children }) {
   const [pos, setPos] = useState(null);
   const show = (e) => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -28,7 +29,7 @@ export default function HelpDot({ text }) {
     <>
       <span className="help-dot" role="img" tabIndex={0} aria-label={text}
         onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide} onClick={show}>?</span>
-      {pos && <span className="help-pop" style={{ left: pos.left, top: pos.top }} aria-hidden="true">{text}</span>}
+      {pos && <span className="help-pop" style={{ left: pos.left, top: pos.top }} aria-hidden="true">{children ?? text}</span>}
     </>
   );
 }

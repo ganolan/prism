@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import SyncStatus from './SyncStatus.jsx';
+import SyncStatus, { nightlyLine } from './SyncStatus.jsx';
+import HelpDot from './HelpDot.jsx';
 import { signInDeps } from '../lib/signIn.js';
 
 const NOW = new Date('2026-10-20T10:30:00');
@@ -58,5 +59,51 @@ describe('SyncStatus (background sync)', () => {
     render(<SyncStatus label={null} syncedAt={at('2026-06-18T03:02:00')} archived sync={{ state: 'idle' }} onSync={() => {}} now={NOW} />);
     expect(screen.queryByRole('button')).toBeNull();
     expect(screen.getByText(/^Synced /)).toBeInTheDocument();
+  });
+});
+
+describe('nightlyLine (blocks, calendar and alerts)', () => {
+  const hoursAgo = (h) => new Date(NOW.getTime() - h * 3600 * 1000).toISOString();
+
+  it('read 2 hours ago: the time, not amber', () => {
+    expect(nightlyLine({ readAt: hoursAgo(2), nightly: true }, NOW)).toEqual({ text: 'Blocks, calendar and alerts: 08:30 today', stale: false });
+  });
+
+  it('exactly 26 hours is still fresh; over 26 hours is amber, in whole days (at least 1)', () => {
+    expect(nightlyLine({ readAt: hoursAgo(26), nightly: true }, NOW).stale).toBe(false);
+    expect(nightlyLine({ readAt: hoursAgo(27), nightly: true }, NOW)).toEqual({
+      text: 'Blocks, calendar and alerts: 1 day old. Press Sync Courses to refresh them.', stale: true,
+    });
+    expect(nightlyLine({ readAt: hoursAgo(50), nightly: true }, NOW).text).toBe('Blocks, calendar and alerts: 2 days old. Press Sync Courses to refresh them.');
+  });
+
+  it('never read: amber, says so', () => {
+    expect(nightlyLine({ readAt: null, nightly: true }, NOW)).toEqual({
+      text: 'Blocks, calendar and alerts: not read yet. Press Sync Courses to refresh them.', stale: true,
+    });
+  });
+
+  it('a night that is off promises nothing: an old read is still amber', () => {
+    expect(nightlyLine({ readAt: hoursAgo(27), nightly: false }, NOW).stale).toBe(true);
+  });
+});
+
+describe('SyncStatus help and nightly line', () => {
+  const base = { label: 'Sync Courses', syncedAt: at('2026-10-20T10:05:00'), onSync: () => {}, now: NOW };
+
+  it('renders the help after the time and the nightly line beneath, amber only when missed', () => {
+    const { container, rerender } = render(<SyncStatus {...base} help={<HelpDot text="Help here" />} nightlyData={{ readAt: new Date(NOW.getTime() - 2 * 3600 * 1000).toISOString(), nightly: true }} />);
+    const row = container.querySelector('.sync-status__row');
+    expect(row.querySelector('.sync-status__time').nextElementSibling).toHaveClass('help-dot');
+    expect(screen.getByText('Blocks, calendar and alerts: 08:30 today')).not.toHaveClass('sync-status__nightly--stale');
+    rerender(<SyncStatus {...base} help={<HelpDot text="Help here" />} nightlyData={{ readAt: null, nightly: true }} />);
+    expect(screen.getByText(/^Blocks, calendar and alerts: not read yet/)).toHaveClass('sync-status__nightly--stale');
+  });
+
+  it('without nightlyData there is no second line; without label there is still the help', () => {
+    const { container } = render(<SyncStatus {...base} label={null} help={<HelpDot text="Help here" />} />);
+    expect(container.querySelector('.sync-status__nightly')).toBeNull();
+    expect(screen.getByRole('img', { name: 'Help here' })).toBeInTheDocument();
+    expect(screen.queryByRole('button')).toBeNull();
   });
 });

@@ -12,13 +12,14 @@ vi.mock('../services/api.js', () => ({
   updateStudent: vi.fn(), updateParentPhone: vi.fn(), createNote: vi.fn(), updateNote: vi.fn(), deleteNote: vi.fn(),
   getAttemptLinks: vi.fn().mockResolvedValue({ links: {} }),
   getRubricConfig: vi.fn().mockResolvedValue({ reportingCategoryColors: {} }),
+  getSyncStatus: vi.fn(),
   ensureSync: vi.fn(),
   getCurrentSync: vi.fn(),
   getSyncRun: vi.fn(),
   startSync: vi.fn(),
 }));
 
-import { getStudent, ensureSync, getCurrentSync, getSyncRun, startSync } from '../services/api.js';
+import { getStudent, getSyncStatus, ensureSync, getCurrentSync, getSyncRun, startSync } from '../services/api.js';
 import StudentPage, { CourseSection } from './StudentPage.jsx';
 
 const RECENT = new Date().toISOString();
@@ -43,6 +44,7 @@ const IDLE = { running: null, runId: null, queued: [], held: [] };
 beforeEach(() => {
   vi.clearAllMocks();
   getStudent.mockResolvedValue(student);
+  getSyncStatus.mockResolvedValue({ nightlyData: { readAt: RECENT, nightly: true } });
   ensureSync.mockResolvedValue({ state: 'fresh' });
   getCurrentSync.mockResolvedValue(IDLE);
 });
@@ -53,6 +55,12 @@ describe('StudentPage background sync', () => {
     await waitFor(() => expect(ensureSync).toHaveBeenCalledWith({ kind: 'courses', courseIds: [1, 2] }));
     expect(await screen.findByText('Synced 19/10/2026, 03:00')).toBeInTheDocument();
     expect(screen.queryByText(/Mastery levels/)).toBeNull();
+  });
+
+  it('a help "?" sits beside the Synced time and names Sync Courses', async () => {
+    renderPage();
+    const dot = await screen.findByRole('img', { name: /Press Sync Courses only if you changed something in Schoology just now\./ });
+    expect(dot).toHaveAttribute('aria-label', expect.stringContaining('Blocks, calendar and alerts: refreshed every night.'));
   });
 
   it('when the sync ends, the page and each course summary reload', async () => {

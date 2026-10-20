@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { getCourses, getCoursesByView, getSyncStatus, toggleCourseVisibility } from '../services/api.js';
+import { getCourses, getCoursesByView, toggleCourseVisibility } from '../services/api.js';
 import { groupBySemester, groupByYearAndSemester } from '../lib/courseDisplay.js';
 import ArchivedCoursesPanel from '../components/ArchivedCoursesPanel.jsx';
 import { useDataVersion, useBumpDataVersion } from '../hooks/useDataVersion.jsx';
 import { useBackgroundSync } from '../hooks/useBackgroundSync.js';
 import SyncStatus from '../components/SyncStatus.jsx';
+import SyncHelp from '../components/SyncHelp.jsx';
+import { useSyncFacts } from '../hooks/useSyncFacts.js';
 import SyncDialog from '../components/SyncDialog.jsx';
 import { useStickyTab } from '../hooks/useStickyTab.js';
 import TriageSection from '../components/triage/TriageSection.jsx';
@@ -24,7 +26,9 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useStickyTab('dashboard', 'current');
   const [showHidden, setShowHidden] = useState(false);
   const [courses, setCourses] = useState([]);
-  const [syncStatus, setSyncStatus] = useState(null);
+  // The sync status (the last run, and the nightly data's stamp), fetched again when a sync ends.
+  const syncFacts = useSyncFacts(dataVersion);
+  const syncStatus = syncFacts.status;
   const [loading, setLoading] = useState(true);
   // editingBlock: courseId currently being edited, blockDraft: current input value
   const [settingsCard, setSettingsCard] = useState(null);
@@ -50,9 +54,7 @@ export default function Dashboard() {
       } else {
         coursesData = await getCoursesByView(activeTab);
       }
-      const [, status] = await Promise.all([Promise.resolve(coursesData), getSyncStatus()]);
       setCourses(coursesData);
-      setSyncStatus(status);
     } catch (err) {
       console.error(err);
     } finally {
@@ -167,6 +169,8 @@ export default function Dashboard() {
           sync={backgroundSync}
           onSync={() => setSyncOpen(true)}
           onOpen={(runId) => setFollowRun(runId)}
+          help={syncFacts.nightlyData && <SyncHelp button="Sync Courses" nightly={syncFacts.nightlyData.nightly} onDashboard />}
+          nightlyData={activeTab === 'archived' ? undefined : syncFacts.nightlyData}
         />
       </div>
       {syncOpen && (

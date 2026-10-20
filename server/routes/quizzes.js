@@ -10,7 +10,8 @@ import {
   setQuestionTags, listCandidates, attemptLinks, attemptLinksForStudent, setCommentTemplate, checkGroupTests,
 } from '../services/quizGroups.js';
 import { compareQuestionLists } from '../services/quizParity.js';
-import { readQuestionLists, loadGroup } from '../services/quizLoader.js';
+import { readQuestionLists } from '../services/quizLoader.js';
+import { loadQuizQueued } from '../services/quizRun.js';
 import { groupStats } from '../services/quizStats.js';
 import { courseTagResults } from '../services/quizTagResults.js';
 import { frqResponses } from '../services/frqResponses.js';
@@ -27,6 +28,8 @@ const handle = (fn) => async (req, res) => {
   try {
     res.json(await fn(req, getDb()));
   } catch (err) {
+    // The load is still running past the wait: the page follows the run by its id.
+    if (err instanceof QuizError && err.code === 'PENDING') return res.status(202).json({ runId: err.runId });
     if (err instanceof QuizError) {
       return res.status(STATUS[err.code] ?? 500).json({ error: err.message, code: err.code, differences: err.differences });
     }
@@ -68,8 +71,9 @@ router.put('/:id/link', handle((req, db) => ({
 
 router.delete('/:id', handle((req, db) => { deleteGroup(db, { groupId: req.params.id }); return { ok: true }; }));
 
+// A queue run (quizRun.js): answers 202 { runId } when it is still going after the wait.
 router.post('/:id/load', handle(async (req, db) => {
-  const summary = await loadGroup(db, { groupId: req.params.id });
+  const summary = await loadQuizQueued(db, req.params.id);
   return { summary, group: getGroup(db, req.params.id) };
 }));
 

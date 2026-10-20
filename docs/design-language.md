@@ -1284,7 +1284,7 @@ The /assessment/ card header holds one line of action pills (Flag for review, Re
 
 ## Quiz controls on the assessment page (October 2026, linked quizzes)
 
-- **Quiz controls sit in the existing header row.** **Quiz setup…**, the chip, **Load results** and a "loaded {date} / not loaded" line follow **Manage rubrics…** as `.secondary` buttons and small muted text. They show only when the `quizzes` flag is on and the assessment is a test or already in a group. The load result line ("18 attempts loaded, 1 failed") replaces the loaded-at text until the page is reopened.
+- **Quiz controls sit in the existing header row.** **Quiz setup…**, the chip, **Load results** and a "loaded {date} / not loaded" line follow **Manage rubrics…** as `.secondary` buttons and small muted text. They show only when the `quizzes` flag is on and the assessment is a test or already in a group. The load result line ("18 attempts loaded, 1 failed") replaces the loaded-at text until the page is reopened. **Load results** is a run in the sync queue (#131): when it outlasts the server's 50 s wait the button stays busy and follows the run until it finishes, then shows the same line.
 - **Grading and Questions are `.tab-btn` tabs under the filter bar,** present whenever a group exists. The choice lives in `?tab=` (sticky), and Questions replaces the student cards rather than sitting beside them.
 - **One canonical page per group.** Any other member redirects (replace) to the canonical assessment and keeps the query string.
 - **The course Assessments list folds member tests** under the canonical row, which carries the `QuizChip`. Gradebook columns are not folded.

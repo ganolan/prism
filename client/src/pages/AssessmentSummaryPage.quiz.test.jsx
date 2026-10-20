@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, Link } from 'react-router-dom';
 import AssessmentSummaryPage from './AssessmentSummaryPage.jsx';
-import { getQuizGroupFor, loadQuizResults, getMasteryForAssignment } from '../services/api.js';
+import { getQuizGroupFor, loadQuizResults, getMasteryForAssignment, getSyncRun } from '../services/api.js';
 import { formatDateTime } from '../lib/formatDate.js';
 
 vi.mock('../lib/assessmentDraftSaver.js', () => ({ makeDraftSaver: () => ({ save: vi.fn(), remove: vi.fn(), flush: vi.fn(), dispose: vi.fn() }) }));
@@ -15,6 +15,7 @@ vi.mock('../services/api.js', () => ({
   getQuizGroupFor: vi.fn(),
   getFeatures: vi.fn().mockResolvedValue({ quizzes: true }),
   loadQuizResults: vi.fn(),
+  getSyncRun: vi.fn(),
   getQuizCandidates: vi.fn().mockResolvedValue({ tests: [], summatives: [] }),
   setSuggestionState: vi.fn().mockResolvedValue({}),
   getFeedbackForAssignment: vi.fn().mockResolvedValue({}),
@@ -93,6 +94,31 @@ describe('AssessmentSummaryPage with a quiz group', () => {
     renderAt('/course/5/assessment/950');
     fireEvent.click(await screen.findByRole('button', { name: 'Load results' }));
     expect(await screen.findByText('18 attempts loaded, 1 failed')).toBeInTheDocument();
+  });
+
+  it('a load that outlasts the server wait (202 with a run id) is followed until the run finishes', async () => {
+    getQuizGroupFor.mockResolvedValue({ group: GROUP });
+    loadQuizResults.mockResolvedValue({ runId: 41 });
+    getSyncRun
+      .mockResolvedValueOnce({ id: 41, status: 'queued', summary: null })
+      .mockResolvedValue({ id: 41, status: 'completed', summary: { type: 'summary', quiz: { attempts: 18, failed: [] } } });
+    renderAt('/course/5/assessment/950');
+    fireEvent.click(await screen.findByRole('button', { name: 'Load results' }));
+    await waitFor(() => expect(getSyncRun).toHaveBeenCalledWith(41));
+    expect(screen.queryByText('18 attempts loaded')).toBeNull();
+    getQuizGroupFor.mockResolvedValue({ group: { ...GROUP, loaded_at: '2026-10-20 07:00:00' } });
+    expect(await screen.findByText('18 attempts loaded', {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(getSyncRun).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('button', { name: 'Load results' })).toBeEnabled();
+  });
+
+  it('a followed load that fails shows the run\'s error', async () => {
+    getQuizGroupFor.mockResolvedValue({ group: GROUP });
+    loadQuizResults.mockResolvedValue({ runId: 42 });
+    getSyncRun.mockResolvedValue({ id: 42, status: 'failed', summary: { type: 'summary', fatal: true, quizError: { code: 'UNREACHABLE', message: 'Could not reach Schoology: try again' } } });
+    renderAt('/course/5/assessment/950');
+    fireEvent.click(await screen.findByRole('button', { name: 'Load results' }));
+    expect(await screen.findByText('Could not reach Schoology: try again')).toBeInTheDocument();
   });
 
   it('shows load warnings above the tabs, and on the Questions tab too', async () => {

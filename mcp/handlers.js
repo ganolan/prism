@@ -43,7 +43,7 @@ import { todayLocal } from '../server/lib/schoolDays.js';
 import { statusLineUntil } from '../server/services/statusLineDue.js';
 import { listGroups, setQuestionTags } from '../server/services/quizGroups.js';
 import { courseTagResults } from '../server/services/quizTagResults.js';
-import { loadGroup } from '../server/services/quizLoader.js';
+import { loadQuizQueued } from '../server/services/quizRun.js';
 import { frqResponses, listWritebacks, levelsOf } from '../server/services/frqResponses.js';
 import { writeFrqSuggestions, recordWriteback } from '../server/services/frqMarks.js';
 import { plainTextLines } from '../server/lib/quizText.js';
@@ -592,8 +592,9 @@ export function listQuizGroupsTool(db, { course }) {
   return listGroups(db, { courseId: resolveCourseRef(db, course) });
 }
 
-export async function loadQuizResultsTool(db, { group_id }, deps = { loadGroup }) {
-  return { summary: await deps.loadGroup(db, { groupId: group_id }) };
+// A queue run (quizRun.js): never beside a sync. PENDING (the wait passed) carries the run id.
+export async function loadQuizResultsTool(db, { group_id }, deps = { loadQuizQueued }) {
+  return { summary: await deps.loadQuizQueued(db, group_id) };
 }
 
 export function setQuestionTagsTool(db, { group_id, tags, texts }) {

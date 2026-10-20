@@ -25,6 +25,7 @@ import { setFrqMark } from '../server/services/frqMarks.js';
 import { askLine, extendResubmissionLine, gradeStandsLine, extensionLine, makeUpLine } from '../server/lib/statusLines.js';
 import { sessionDeps, resetSessionStatusCache } from '../server/services/schoologySession.js';
 import { fakeLtiUnsubmit } from '../server/testing/fakeLtiUnsubmit.js';
+import { queueDeps, resetQueue } from '../server/services/syncQueue.js';
 
 beforeEach(() => {
   // Publishing tools check the Schoology credentials are configured (final review I3);
@@ -1009,16 +1010,27 @@ describe('quiz tools', () => {
     expect(listFrqWritebacksTool(getDb(), { group_id: g }).writebacks).toHaveLength(0);
   });
 
-  test('load_quiz_results returns the loader summary', async () => {
+  test('load_quiz_results loads through the queue and returns the loader summary', async () => {
     const { g } = seedQuiz();
-    const ok = await loadQuizResultsTool(getDb(), { group_id: g }, { loadGroup: async () => ({ attempts: 2 }) });
+    const loadQuizQueued = vi.fn(async () => ({ attempts: 2 }));
+    const ok = await loadQuizResultsTool(getDb(), { group_id: g }, { loadQuizQueued });
     expect(ok).toEqual({ summary: { attempts: 2 } });
+    expect(loadQuizQueued).toHaveBeenCalledWith(getDb(), g);
   });
 
   test('load_quiz_results lets a loader error propagate with its code', async () => {
     const { g } = seedQuiz();
-    const loadGroup = async () => { throw Object.assign(new Error('No saved Schoology session'), { code: 'NO_SESSION' }); };
-    await expect(loadQuizResultsTool(getDb(), { group_id: g }, { loadGroup })).rejects.toMatchObject({ code: 'NO_SESSION', message: 'No saved Schoology session' });
+    const loadQuizQueued = async () => { throw Object.assign(new Error('No saved Schoology session'), { code: 'NO_SESSION' }); };
+    await expect(loadQuizResultsTool(getDb(), { group_id: g }, { loadQuizQueued })).rejects.toMatchObject({ code: 'NO_SESSION', message: 'No saved Schoology session' });
+  });
+
+  test('load_quiz_results with the real queue: a lapsed session is NO_SESSION and nothing is queued', async () => {
+    const { g } = seedQuiz();
+    resetQueue();
+    getDb().exec('DELETE FROM sync_run_events; DELETE FROM sync_runs');
+    queueDeps.sessionStatus = vi.fn().mockResolvedValue({ loggedIn: true, live: 'expired' });
+    await expect(loadQuizResultsTool(getDb(), { group_id: g })).rejects.toMatchObject({ code: 'NO_SESSION' });
+    expect(getDb().prepare('SELECT COUNT(*) n FROM sync_runs').get().n).toBe(0);
   });
 
   function seedOverall() {

@@ -7,6 +7,7 @@
 //   request = { kind: 'all' | 'courses' | 'task', courseIds?, masteryCourseIds?, courseId?,
 //               assignmentId?, grading?, includeHidden?, syncBlocks?, skipSchoology?,
 //               refreshQuizzes?, trigger: 'page' | 'button' | 'scheduled', force? }
+//             | { kind: 'quiz', groupId, trigger: 'button', noHold: true }   (quizRun.js)
 //
 // Joining: a request whose courses (and options: PowerSchool, quizzes, hidden courses) a queued,
 // running or held request already covers joins it instead of queueing twice. A forced request (a
@@ -15,7 +16,11 @@
 // mastery-only or blocks-only retry (skipSchoology) covers nothing. A grading sync (kind 'task',
 // grading: true; PrisMCP's get_assignment_context, #131) also waits for the task's comment threads
 // and reads its files, which a course run does not: it joins only a grading run of the same task,
-// while a plain task request may join a grading run (it reads more).
+// while a plain task request may join a grading run (it reads more). A quiz load (kind 'quiz',
+// #131: loading a linked quiz's attempts, from PrisMCP or the page's Load button) joins only a
+// queued or running load of the same group, and covers no course or task. It records no attempt
+// stamp. `noHold`: a caller is waiting on it, so a lapsed session ends it failed (a NO_SESSION
+// summary) instead of holding it.
 //
 // Everything or nothing (Graham, 20/10/2026): before a request that reads Schoology starts, the
 // session is checked (renewed when possible). 'expired' or 'none' holds it until a sign-in
@@ -26,10 +31,13 @@ import { runUnifiedSync } from './syncOrchestrator.js';
 import { appendEvent, finishRun, pruneRuns, KEEP_RUNS } from './syncRuns.js';
 import { sessionStatus } from './schoologySession.js';
 import { runTaskSync } from './taskSyncRun.js';
+import { runQuizLoad } from './quizRun.js';
 
 export const SYNC_FRESH_MS = 10 * 60 * 1000;
+// How long a caller waits for a queue run before answering with the run id.
+export const TOOL_WAIT_MS = 50_000;
 
-export const queueDeps = { sessionStatus, runUnifiedSync, runTaskSync, getDb };
+export const queueDeps = { sessionStatus, runUnifiedSync, runTaskSync, runQuizLoad, getDb };
 
 let running = null; // { runId, request, covered }
 let queue = []; // [{ runId, request, covered }]
@@ -68,7 +76,7 @@ const db = () => queueDeps.getDb();
 export function coveredCourseIds(request) {
   if (request.skipSchoology) return [];
   if (request.kind === 'courses') return (request.courseIds ?? []).map(Number);
-  if (request.kind === 'task') return [];
+  if (request.kind === 'task' || request.kind === 'quiz') return [];
   return db().prepare(`
     SELECT id FROM courses WHERE COALESCE(archived, 0) = 0 AND COALESCE(excluded, 0) = 0
       AND (COALESCE(hidden, 0) = 0 OR ?) ORDER BY id`).all(request.includeHidden ? 1 : 0).map((r) => r.id);
@@ -82,6 +90,9 @@ const extras = (request) => ({
 
 function covers(entry, request) {
   if (entry.request.skipSchoology) return false;
+  if (request.kind === 'quiz' || entry.request.kind === 'quiz') {
+    return request.kind === entry.request.kind && String(request.groupId) === String(entry.request.groupId);
+  }
   const have = extras(entry.request);
   const want = extras(request);
   if ((want.syncBlocks && !have.syncBlocks) || (want.refreshQuizzes && !have.refreshQuizzes)) return false;
@@ -110,7 +121,8 @@ function unifiedOptions(request, covered) {
 }
 
 const view = (e) => e && { runId: e.runId, kind: e.request.kind, courseIds: e.covered, trigger: e.request.trigger,
-  ...(e.request.kind === 'task' ? { courseId: Number(e.request.courseId), assignmentId: String(e.request.assignmentId) } : {}) };
+  ...(e.request.kind === 'task' ? { courseId: Number(e.request.courseId), assignmentId: String(e.request.assignmentId) } : {}),
+  ...(e.request.kind === 'quiz' ? { groupId: Number(e.request.groupId) } : {}) };
 
 // What is syncing now, what waits, and what waits for a sign-in. `running`/`runId` stay for older callers.
 export function currentSync() {
@@ -254,6 +266,22 @@ const hold = (entry) => {
   settle(entry.runId, 'held');
 };
 
+// A run with a caller waiting on it (`noHold`) is not held for a sign-in: it finishes failed with a
+// NO_SESSION answer, which the caller turns into its error.
+function failNoSession(d, entry, live) {
+  const message = live === 'none' ? 'No saved Schoology session: reconnect in Settings' : 'Schoology connection expired: reconnect in Settings';
+  leaveQueue(entry);
+  const summary = { type: 'summary', fatal: true, quizError: { code: 'NO_SESSION', message } };
+  try {
+    appendEvent(d, entry.runId, summary);
+    finishRun(d, entry.runId, { status: 'failed', summary });
+    pruneRuns(d, KEEP_RUNS);
+  } catch (err) {
+    console.error('[sync] Could not finish the sync run:', err.message);
+  }
+  settle(entry.runId, 'failed');
+}
+
 // Every run records when its scope was last tried, whatever the outcome (a run that threw too), so
 // a failing scope waits out the background window instead of re-running on every visit.
 function recordAttempt(d, entry) {
@@ -276,7 +304,7 @@ async function runOne(entry) {
   if (request.trigger !== 'scheduled') {
     let live = 'unknown';
     try { live = (await queueDeps.sessionStatus({ refresh: true }))?.live ?? 'unknown'; } catch { live = 'unknown'; }
-    if (live === 'expired' || live === 'none') return hold(entry);
+    if (live === 'expired' || live === 'none') return request.noHold ? failNoSession(d, entry, live) : hold(entry);
     // The session works again: what waited for a sign-in runs after this.
     if (live === 'connected' && held.length) resumeHeld();
   }
@@ -291,6 +319,7 @@ async function runOne(entry) {
   };
   try {
     if (request.kind === 'task') await queueDeps.runTaskSync(request, write);
+    else if (request.kind === 'quiz') await queueDeps.runQuizLoad(request, write);
     else await queueDeps.runUnifiedSync(unifiedOptions(request, entry.covered), write);
     if (summary?.fatal) status = 'failed';
   } catch (err) {
@@ -300,9 +329,9 @@ async function runOne(entry) {
   } finally {
     running = null;
   }
-  if (!request.skipSchoology) recordAttempt(d, entry);
+  if (!request.skipSchoology && request.kind !== 'quiz') recordAttempt(d, entry);
   const signInLost = (summary?.mastery ?? []).some((m) => m.errorKind === 'login') || summary?.signIn === true;
-  if (signInLost && request.trigger !== 'scheduled') {
+  if (signInLost && request.trigger !== 'scheduled' && !request.noHold) {
     hold(entry);
     return;
   }

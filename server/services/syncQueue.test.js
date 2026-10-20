@@ -333,6 +333,67 @@ describe('the sync queue', () => {
     });
   });
 
+  describe('quiz loads (#131)', () => {
+    const quiz = { kind: 'quiz', groupId: 7, trigger: 'button', noHold: true };
+    beforeEach(() => { queueDeps.runQuizLoad = vi.fn(async (request, emit) => emit({ type: 'summary', quiz: {} })); });
+
+    test('a quiz request joins only a queued or running quiz run of the same group', async () => {
+      const runs = gatedRuns();
+      enqueue({ kind: 'courses', courseIds: [a], trigger: 'page', force: true });
+      await tick();
+      const x = enqueue(quiz);
+      expect(enqueue(quiz)).toMatchObject({ runId: x.runId, joined: true });
+      expect(enqueue({ ...quiz, groupId: 8 }).joined).toBe(false);
+      expect(currentSync().queued.map((q) => [q.kind, q.groupId, q.courseIds])).toEqual([['quiz', 7, []], ['quiz', 8, []]]);
+      runs[0].finish();
+      await tick();
+    });
+
+    test('a quiz run covers no course or task: ensure queues its own', async () => {
+      queueDeps.runQuizLoad = vi.fn(() => new Promise(() => {}));
+      enqueue(quiz);
+      await tick();
+      expect(currentSync().running).toMatchObject({ kind: 'quiz', groupId: 7, courseIds: [] });
+      const quizRunId = currentSync().running.runId;
+      const task = enqueue({ kind: 'task', courseId: a, assignmentId: 'T1', trigger: 'page' });
+      expect(task.joined).toBe(false);
+      const ensured = ensure({ kind: 'courses', courseIds: [b] });
+      expect(ensured.state).toBe('queued');
+      expect([task.runId, ensured.runId]).not.toContain(quizRunId);
+      expect(enqueue({ kind: 'all', trigger: 'page' }).joined).toBe(false);
+    });
+
+    test('a quiz run records no attempt stamp and runs through queueDeps.runQuizLoad', async () => {
+      queueDeps.runQuizLoad = vi.fn(async (request, emit) => emit({ type: 'summary', quiz: { attempts: 2 } }));
+      const r = enqueue(quiz);
+      await idle();
+      expect(queueDeps.runQuizLoad).toHaveBeenCalledWith(expect.objectContaining({ kind: 'quiz', groupId: 7 }), expect.any(Function));
+      expect(status(r.runId)).toBe('completed');
+      expect(getDb().prepare('SELECT COUNT(*) n FROM courses WHERE sync_attempted_at IS NOT NULL').get().n).toBe(0);
+      expect(JSON.parse(getDb().prepare('SELECT summary_json FROM sync_runs WHERE id = ?').get(r.runId).summary_json)).toMatchObject({ quiz: { attempts: 2 } });
+    });
+
+    test('a noHold run whose session check fails finishes failed (never held)', async () => {
+      queueDeps.runQuizLoad = vi.fn();
+      queueDeps.sessionStatus.mockResolvedValueOnce({ loggedIn: true, live: 'expired' });
+      const r = enqueue(quiz);
+      await idle();
+      expect(status(r.runId)).toBe('failed');
+      expect(queueDeps.runQuizLoad).not.toHaveBeenCalled();
+      expect(currentSync().held).toEqual([]);
+      expect(JSON.parse(getDb().prepare('SELECT summary_json FROM sync_runs WHERE id = ?').get(r.runId).summary_json))
+        .toMatchObject({ fatal: true, quizError: { code: 'NO_SESSION' } });
+    });
+
+    test('a noHold run still runs when Schoology was not reached (unknown)', async () => {
+      queueDeps.runQuizLoad = vi.fn(async (request, emit) => emit({ type: 'summary', quiz: {} }));
+      queueDeps.sessionStatus.mockResolvedValueOnce({ loggedIn: true, live: 'unknown' });
+      const r = enqueue(quiz);
+      await idle();
+      expect(status(r.runId)).toBe('completed');
+    });
+  });
+
   describe('grading sync (#131)', () => {
     const grading = { kind: 'task', assignmentId: '950', grading: true, trigger: 'button' };
 

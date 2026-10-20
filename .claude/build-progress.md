@@ -1614,3 +1614,8 @@ submission comments.
 - **No source found** (left as known limits): grad year for former students (not in Schoology's profile, `?extended=1` included; PowerSchool answers for this year's sections only); a mid-year drop in an archived section (Schoology marks every enrolment ended); past-year block numbers.
 - **Tests:** 7 in `sync.test.js` (3 rewritten from the #72 skip).
 
+## Quiz loads are queue runs (#131, 2026-10-20)
+
+- **Why:** every bulk Schoology read is a run in the one sync queue (`syncQueue.js`), so reads never overlap. `loadGroup` (a linked quiz's attempts) was called straight from the route and the PrisMCP tool.
+- **Now:** `loadQuizQueued` (`server/services/quizRun.js`) checks the session at once (`NO_SESSION`, nothing queued), queues a `{ kind: 'quiz', groupId, noHold: true }` run and waits up to `TOOL_WAIT_MS` (50 s) for it, then answers with the `loadGroup` summary, the load's own `QuizError` (`BUSY`, `UNREACHABLE`, ...) or `PENDING` with the run id. Loading again joins the queued or running load of that group. The route answers `PENDING` with 202 `{ runId }`, and the Load button follows `getSyncRun(runId)` until the run finishes. A quiz run covers no course or task, records no attempt stamp, and a `noHold` run with a lapsed session ends failed instead of held. The queue's view lists it with `kind: 'quiz'` and its `groupId`.
+- **Tests:** `quizRun.test.js` (new), 5 in `syncQueue.test.js`, 4 in `quizzes.test.js` (one replaces the old load test), 1 new and 2 rewritten in `mcp/handlers.test.js`, 2 in `AssessmentSummaryPage.quiz.test.jsx`.

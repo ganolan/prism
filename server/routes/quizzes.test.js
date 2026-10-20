@@ -2,6 +2,11 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 vi.mock('../services/quizLoader.js', () => ({ readQuestionLists: vi.fn(), loadGroup: vi.fn() }));
+// The real loadQuizQueued, unless a test needs the wait to run out (PENDING).
+vi.mock('../services/quizRun.js', async (orig) => {
+  const real = await orig();
+  return { ...real, loadQuizQueued: vi.fn((...args) => real.loadQuizQueued(...args)) };
+});
 vi.mock('../services/quizWriteback.js', () => ({ postWritebacks: vi.fn(async () => ({ results: [], remaining: 0 })) }));
 // Every flag is on unless a test turns it off (flagsOff), so a route's own gate can be checked.
 const flagsOff = vi.hoisted(() => new Set());
@@ -13,6 +18,8 @@ import { getDb } from '../db/index.js';
 import { readQuestionLists, loadGroup } from '../services/quizLoader.js';
 import { QuizError } from '../services/quizError.js';
 import { postWritebacks } from '../services/quizWriteback.js';
+import { loadQuizQueued } from '../services/quizRun.js';
+import { queueDeps, resetQueue } from '../services/syncQueue.js';
 
 async function call(method, path, body) {
   const app = express();
@@ -92,12 +99,43 @@ describe('/api/quizzes', () => {
     expect([r.status, r.body.code, r.body.error]).toEqual([502, 'UNREACHABLE', 'Could not reach Schoology: try again']);
   });
 
-  test('load returns the summary; BUSY is 409', async () => {
-    const id = (await call('POST', '/api/quizzes', { course_id: course, assignment_ids: ['900'], title: 'T' })).body.group.id;
-    vi.mocked(loadGroup).mockResolvedValueOnce({ attempts: 3 });
-    expect((await call('POST', `/api/quizzes/${id}/load`)).body.summary).toEqual({ attempts: 3 });
-    vi.mocked(loadGroup).mockRejectedValueOnce(new QuizError('BUSY', 'already loading'));
-    expect((await call('POST', `/api/quizzes/${id}/load`)).status).toBe(409);
+  describe('load as a queue run (#131)', () => {
+    let id;
+    beforeEach(async () => {
+      resetQueue();
+      queueDeps.sessionStatus = vi.fn().mockResolvedValue({ loggedIn: true, live: 'connected' });
+      id = (await call('POST', '/api/quizzes', { course_id: course, assignment_ids: ['900'], title: 'T' })).body.group.id;
+      getDb().exec('DELETE FROM sync_run_events; DELETE FROM sync_runs');
+    });
+
+    test('POST /api/quizzes/:id/load goes through the queue (a sync_runs row of kind quiz)', async () => {
+      vi.mocked(loadGroup).mockResolvedValueOnce({ attempts: 3 });
+      const r = await call('POST', `/api/quizzes/${id}/load`);
+      expect([r.status, r.body.summary, r.body.group.id]).toEqual([200, { attempts: 3 }, id]);
+      const rows = getDb().prepare('SELECT status, options_json FROM sync_runs').all();
+      expect(rows).toHaveLength(1);
+      expect(rows[0].status).toBe('completed');
+      expect(JSON.parse(rows[0].options_json)).toMatchObject({ kind: 'quiz', groupId: id, trigger: 'button' });
+    });
+
+    test('a loader error keeps its status: BUSY is 409', async () => {
+      vi.mocked(loadGroup).mockRejectedValueOnce(new QuizError('BUSY', 'already loading'));
+      const r = await call('POST', `/api/quizzes/${id}/load`);
+      expect([r.status, r.body.code, r.body.error]).toEqual([409, 'BUSY', 'already loading']);
+    });
+
+    test('a lapsed session is 503 NO_SESSION and queues nothing', async () => {
+      queueDeps.sessionStatus.mockResolvedValue({ loggedIn: true, live: 'expired' });
+      const r = await call('POST', `/api/quizzes/${id}/load`);
+      expect([r.status, r.body.code]).toEqual([503, 'NO_SESSION']);
+      expect(getDb().prepare('SELECT COUNT(*) n FROM sync_runs').get().n).toBe(0);
+    });
+
+    test('a load still waiting after the wait answers 202 with the run id', async () => {
+      vi.mocked(loadQuizQueued).mockRejectedValueOnce(Object.assign(new QuizError('PENDING', 'still loading'), { runId: 41 }));
+      const r = await call('POST', `/api/quizzes/${id}/load`);
+      expect([r.status, r.body]).toEqual([202, { runId: 41 }]);
+    });
   });
 
   test('FRQ responses and a teacher action', async () => {

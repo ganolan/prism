@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import LargerScreenNote from '../components/LargerScreenNote.jsx';
 import { useParams, Link, useSearchParams, Navigate, useLocation } from 'react-router-dom';
-import { getMasteryForAssignment, getSyncRun, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, getTriagePair, loadQuizResults, rebuildQuizOverall, saveRowLevels, getAssignmentCommentSummaries, getAssignmentFileSummaries } from '../services/api.js';
+import { getMasteryForAssignment, getSyncRun, getQuizGroupFor, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, getTriagePair, loadQuizResults, rebuildQuizOverall, saveRowLevels, getAssignmentCommentSummaries, getAssignmentFileSummaries } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 import { feedbackRowTopics, rowScores, rowTopicMapping, isRowKey, rowName } from '../lib/feedbackRows.js';
 import { makeDraftSaver } from '../lib/assessmentDraftSaver.js';
@@ -1870,6 +1870,19 @@ function ReviewerAnalysisBody({ topics, feedbackRows, analysis }) {
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
+const RUN_POLL_MS = 1000;
+
+// Follow a queue run by its id until it is no longer waiting or running → the run (with its
+// summary), or null once `wanted()` says nobody is looking any more.
+async function waitForRun(runId, wanted) {
+  for (;;) {
+    const run = await getSyncRun(runId);
+    if (!['queued', 'running', 'held'].includes(run.status)) return run;
+    if (!wanted()) return null;
+    await new Promise((resolve) => setTimeout(resolve, RUN_POLL_MS));
+  }
+}
+
 export default function AssessmentSummaryPage() {
   const { id: courseId, assignmentId } = useParams();
   const dataVersion = useDataVersion();
@@ -1923,11 +1936,21 @@ export default function AssessmentSummaryPage() {
   const quizGroupIdRef = useRef(null);
   quizGroupIdRef.current = quizGroup?.id ?? null;
   useEffect(() => { setQuizLoad({ busy: false, message: null }); }, [quizGroup?.id]);
+  useEffect(() => () => { quizGroupIdRef.current = null; }, []);
+  // The load is a run in the server's sync queue. It answers at once when the run finishes within
+  // its wait; otherwise 202 { runId }, and the button follows that run until it is finished.
   async function handleLoadQuiz() {
     const groupId = quizGroup.id;
     setQuizLoad({ busy: true, message: null });
     try {
-      const r = await loadQuizResults(groupId);
+      let r = await loadQuizResults(groupId);
+      if (r.runId != null) {
+        const run = await waitForRun(r.runId, () => quizGroupIdRef.current === groupId);
+        if (!run) return;
+        if (run.summary?.quizError) throw new Error(run.summary.quizError.message);
+        if (!run.summary?.quiz) throw new Error('The load did not finish: try again');
+        r = { summary: run.summary.quiz, group: (await getQuizGroupFor(assignmentId)).group };
+      }
       if (quizGroupIdRef.current !== groupId) return;
       setQuizGroup(r.group);
       const failed = r.summary.failed?.length ? `, ${r.summary.failed.length} failed` : '';

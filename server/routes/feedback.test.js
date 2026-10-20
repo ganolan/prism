@@ -80,6 +80,42 @@ describe('GET /api/feedback/for-assignment/:assignmentId', () => {
   });
 });
 
+describe('GET /api/feedback/for-assignment/:assignmentId - data time', () => {
+  // feedback.updated_at is SQLite datetime('now'): UTC, 'YYYY-MM-DD HH:MM:SS', no Z.
+  function suggestion(studentId, { dataAsOf, updatedAt, status = 'draft' }) {
+    return getDb().prepare(
+      `INSERT INTO feedback (student_id, assignment_id, status, feedback_json, data_as_of, updated_at) VALUES (?, ?, ?, '{}', ?, ?)`
+    ).run(studentId, localAssignmentId, status, dataAsOf, updatedAt).lastInsertRowid;
+  }
+  const get = async () => (await call('GET', `/api/feedback/for-assignment/${assignmentSchoolId}`)).body;
+
+  test('carries data_as_of and flags a suggestion made from data over 10 minutes older than itself', async () => {
+    suggestion(s1, { dataAsOf: '2026-10-20T09:00:00.000Z', updatedAt: '2026-10-20 10:30:00' });
+    const body = await get();
+    expect(body[s1]).toMatchObject({ data_as_of: '2026-10-20T09:00:00.000Z', data_stale: true });
+  });
+
+  test('reads both times as UTC, so a 9 minute gap is current in any server time zone', async () => {
+    suggestion(s1, { dataAsOf: '2026-10-20T10:21:00.000Z', updatedAt: '2026-10-20 10:30:00' });
+    suggestion(s2, { dataAsOf: '2026-10-20T10:19:00.000Z', updatedAt: '2026-10-20 10:30:00' });
+    const body = await get();
+    expect(body[s1].data_stale).toBe(false);
+    expect(body[s2].data_stale).toBe(true);
+  });
+
+  test('a suggestion with no data_as_of was made before the task was ever synced: stale', async () => {
+    suggestion(s1, { dataAsOf: null, updatedAt: '2026-10-20 10:30:00' });
+    const body = await get();
+    expect(body[s1]).toMatchObject({ data_as_of: null, data_stale: true });
+  });
+
+  test('a teacher\'s own saved grade (teacher_modified) is never stale', async () => {
+    suggestion(s1, { dataAsOf: null, updatedAt: '2026-10-20 10:30:00', status: 'teacher_modified' });
+    const body = await get();
+    expect(body[s1].data_stale).toBe(false);
+  });
+});
+
 describe('GET /api/feedback/analysis/:assignmentId', () => {
   test('returns the parsed analysis record when present', async () => {
     const analysis = { noticings: [{ title: 'AI use', body: 'half the class' }], moderation_note: 'spot-check' };

@@ -3,6 +3,7 @@ import multer from 'multer';
 import { getDb } from '../db/index.js';
 import { processInbox, importSingleFeedback } from '../services/inbox.js';
 import { getExistingSuggestions } from '../services/assessmentContext.js';
+import { SYNC_FRESH_MS } from '../services/syncQueue.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -19,14 +20,26 @@ router.get('/inbox-log', (req, res) => {
 // :assignmentId is the SCHOOLOGY assignment id (matches the assessment page URL
 // + the mastery route); resolved to the local assignment id internally.
 // Must be registered before GET /:id (catch-all). approved rows are excluded so
-// they stop re-surfacing as suggestions.
+// they stop re-surfacing as suggestions. Each draft (an AI suggestion) carries
+// data_as_of and data_stale: made from data over SYNC_FRESH_MS older than the
+// suggestion itself (#131). updated_at is SQLite datetime('now'), UTC with no Z,
+// so it is read as UTC here, not left to a local-time parse. A teacher's own
+// saved grade is never stale.
+function withDataTime(row) {
+  const wrote = Date.parse(`${row.updated_at.replace(' ', 'T')}Z`);
+  const stale = row.status === 'draft'
+    && (!row.data_as_of || wrote - Date.parse(row.data_as_of) > SYNC_FRESH_MS);
+  return { ...row, data_as_of: row.data_as_of ?? null, data_stale: stale };
+}
+
 router.get('/for-assignment/:assignmentId', (req, res) => {
   const db = getDb();
   const assignment = db.prepare(
     'SELECT id FROM assignments WHERE schoology_assignment_id = ?'
   ).get(req.params.assignmentId);
   if (!assignment) return res.json({});
-  res.json(getExistingSuggestions(db, assignment.id));
+  const rows = getExistingSuggestions(db, assignment.id);
+  res.json(Object.fromEntries(Object.entries(rows).map(([id, row]) => [id, withDataTime(row)])));
 });
 
 // GET /api/feedback/analysis/:assignmentId — the assessment_analysis record for

@@ -53,6 +53,36 @@ describe('upsertStudentSuggestion', () => {
     expect(fj.reviewer_flags).toBe('check sources');
   });
 
+  test('a suggestion stores the task_synced_at of its assignment as data_as_of', () => {
+    const db = getDb();
+    const { assignmentLocalId } = seed(db);
+    db.prepare('UPDATE assignments SET task_synced_at = ? WHERE id = ?').run('2026-10-20T09:00:00.000Z', assignmentLocalId);
+
+    const result = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'Good.' });
+
+    expect(db.prepare('SELECT data_as_of FROM feedback WHERE id = ?').get(result.feedback_id).data_as_of).toBe('2026-10-20T09:00:00.000Z');
+  });
+
+  test('a suggestion for a task that was never synced has no data_as_of', () => {
+    const db = getDb();
+    seed(db);
+    const result = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'Good.' });
+    expect(db.prepare('SELECT data_as_of FROM feedback WHERE id = ?').get(result.feedback_id).data_as_of).toBeNull();
+  });
+
+  test('a rewrite updates data_as_of', () => {
+    const db = getDb();
+    const { assignmentLocalId } = seed(db);
+    db.prepare('UPDATE assignments SET task_synced_at = ? WHERE id = ?').run('2026-10-20T09:00:00.000Z', assignmentLocalId);
+    const first = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'First.' });
+
+    db.prepare('UPDATE assignments SET task_synced_at = ? WHERE id = ?').run('2026-10-20T10:25:00.000Z', assignmentLocalId);
+    const second = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'Second.' });
+
+    expect(second.feedback_id).toBe(first.feedback_id);
+    expect(db.prepare('SELECT data_as_of FROM feedback WHERE id = ?').get(second.feedback_id).data_as_of).toBe('2026-10-20T10:25:00.000Z');
+  });
+
   test('accepts level codes and reports out-of-vocabulary levels without storing them', () => {
     const db = getDb();
     seed(db);

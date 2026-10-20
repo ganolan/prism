@@ -5,6 +5,7 @@ import { useState } from 'react';
 import AssessmentSummaryPage, { StudentRubricCard } from './AssessmentSummaryPage.jsx';
 import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, getAttemptLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale, requestResubmission, undoResubmission, getFeatures, getQuizGroupFor, getQuizResults, rebuildQuizOverall, saveRowLevels, getDraftsForAssignment, getAssignmentFileSummaries } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
+import { formatDateTime } from '../lib/formatDate.js';
 import { feedbackRowTopics, rowScores, rowTopicMapping } from '../lib/feedbackRows.js';
 
 // Stub the DB saver so tests assert wiring, not I/O.
@@ -2648,5 +2649,70 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
     });
     renderAssessmentPage();
     expect(await screen.findByRole('button', { name: /accept all suggestions \(1\)/i })).toBeInTheDocument();
+  });
+});
+
+describe('AssessmentSummaryPage - suggestions made from old data (#131)', () => {
+  function makeData() {
+    return {
+      assignment: { id: 50, schoology_assignment_id: '8', title: 'Quiz', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+      topics: [{ id: 't1', title: 'Topic 1', category_title: 'Cat', external_id: 'X1' }],
+      students: [
+        { ...makeStudent(), id: 1, schoology_uid: 'uid-1', enrollment_id: 'enr-1', scores: {} },
+        { ...makeStudent(), id: 2, schoology_uid: 'uid-2', first_name: 'Alan', last_name: 'Turing', enrollment_id: 'enr-2', scores: {} },
+      ],
+    };
+  }
+  function renderPage() {
+    return render(
+      <MemoryRouter initialEntries={['/course/4/assessment/8']}>
+        <Routes>
+          <Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+  }
+  // Local-time instants, never Z literals: formatDateTime shows local time, and CI runs in UTC.
+  const at = (hhmm) => new Date(`2026-10-20T${hhmm}:00`).toISOString();
+  const row = (extra) => ({ status: 'draft', feedback_parsed: { rubric_scores: { X1: 'ED' } }, ...extra });
+
+  it('suggestions made from data over 10 minutes older than the suggestion show one banner with that time', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    getFeedbackForAssignment.mockResolvedValue({
+      1: row({ data_as_of: at('09:00'), data_stale: true }),
+      2: row({ data_as_of: at('09:30'), data_stale: true }),
+    });
+    renderPage();
+    const banner = await screen.findByText(`AI suggestions were made from data as of ${formatDateTime(at('09:00'))}. Sync Assignment, then grade again for current data.`);
+    expect(banner).toHaveClass('alert', 'alert-warning');
+    expect(screen.getAllByText(/AI suggestions were made/)).toHaveLength(1);
+  });
+
+  it('names the task as never synced when the oldest stale suggestion has no data time', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    getFeedbackForAssignment.mockResolvedValue({
+      1: row({ data_as_of: at('09:30'), data_stale: true }),
+      2: row({ data_as_of: null, data_stale: true }),
+    });
+    renderPage();
+    expect(await screen.findByText('AI suggestions were made before this task was ever synced. Sync Assignment, then grade again for current data.')).toBeInTheDocument();
+  });
+
+  it('no banner when the data was current', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    getFeedbackForAssignment.mockResolvedValue({ 1: row({ data_as_of: at('10:25'), data_stale: false }) });
+    renderPage();
+    await screen.findByText('Quiz');
+    expect(screen.queryByText(/AI suggestions were made/)).not.toBeInTheDocument();
+  });
+
+  it('a teacher\'s own saved grade never triggers the banner', async () => {
+    getMasteryForAssignment.mockResolvedValue(makeData());
+    getFeedbackForAssignment.mockResolvedValue({
+      1: row({ status: 'teacher_modified', data_as_of: null, data_stale: false }),
+    });
+    renderPage();
+    await screen.findByText('Quiz');
+    expect(screen.queryByText(/AI suggestions were made/)).not.toBeInTheDocument();
   });
 });

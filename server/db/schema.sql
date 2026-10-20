@@ -258,6 +258,9 @@ CREATE TABLE IF NOT EXISTS feedback (
   revision_history TEXT DEFAULT '[]',
   source_file TEXT,
   suggestion_state TEXT,
+  -- The assignment's task_synced_at when an AI suggestion was written: how old the data it
+  -- was made from was (null: the task had never been synced). See #131.
+  data_as_of TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );

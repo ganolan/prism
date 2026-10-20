@@ -2336,6 +2336,13 @@ export default function AssessmentSummaryPage() {
   const scoreScale = data.scoreScale || null;
   const bulkLevel = scoreScale?.bulkLevel ? scoreScale.levels.find(l => l.code === scoreScale.bulkLevel) : null;
   const hasAnalysis = Object.keys(feedbackByStudent).length > 0 || !!analysis;
+  // One banner for suggestions made from old data (#131). The server decides which are stale
+  // (data_stale: the data was over 10 minutes older than the suggestion; never a teacher's own
+  // grade); the banner names the oldest, and a suggestion with no data time was made before the
+  // task was ever synced, which is older than any time.
+  const staleSuggestions = Object.values(feedbackByStudent).filter(f => f.data_stale);
+  const neverSynced = staleSuggestions.some(f => !f.data_as_of);
+  const oldestStaleDataTime = staleSuggestions.map(f => f.data_as_of).filter(Boolean).sort()[0] ?? null;
 
   const alignedTopics = topics;
   // Feedback rows (spec 2026-10-13): a rubric attached to a score-scale task.
@@ -2534,6 +2541,13 @@ export default function AssessmentSummaryPage() {
         </div>
       ) : (
         <>
+          {staleSuggestions.length > 0 && (
+            <div className="alert alert-warning" role="alert">
+              {neverSynced
+                ? 'AI suggestions were made before this task was ever synced. Sync Assignment, then grade again for current data.'
+                : `AI suggestions were made from data as of ${formatDateTime(oldestStaleDataTime)}. Sync Assignment, then grade again for current data.`}
+            </div>
+          )}
           {shownCount === 0 && (
             <div className="card">
               <p className="text-muted" style={{ marginTop: 0 }}>No students match {activeLabels.length <= 3 ? activeLabels.join(' + ') : 'the selected filters'}.</p>

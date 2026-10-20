@@ -1522,3 +1522,9 @@ Chosen 18/10/2026 from three mockups (state chip on every row, verb where it mat
 - **Where:** course page (Sync Course), assessment page (Sync Assignment), dashboard header on the Current tab (Sync Courses; the time is the oldest current course's), student page beside "Courses" (Sync Courses for that student's courses; the oldest of them).
 - **The dialog** follows queued runs: "Waiting for the running sync to finish, then this one starts."; a held run shows "Waiting for a Schoology sign-in" with **Log in to Schoology**, and the dialog keeps following it, so a sign-in on another page or device lets it run on in the same dialog. On the assessment page the dialog does not reload the page itself: the page's own refresh decides, so an unsaved draft is never replaced.
 
+
+## Suggestions made from old data (October 2026, #131)
+
+- **One banner, not a line on every card.** A grading run writes every card from the same data, so the assessment page shows a single `.alert.alert-warning` above the cards: "AI suggestions were made from data as of 20/10/2026, 17:00. Sync Assignment, then grade again for current data." It names the oldest stale data time. If a stale suggestion was made before the task was ever synced, it says "AI suggestions were made before this task was ever synced." instead. This overrides the spec's "beside the suggestions", which would repeat one fact on every card.
+- **Stale means over 10 minutes.** A suggestion is stale when its data (`feedback.data_as_of`, the task's `task_synced_at` when it was written) is more than `SYNC_FRESH_MS` older than the suggestion. The server decides (`data_stale` on `/api/feedback/for-assignment`), because `feedback.updated_at` is UTC without a `Z` and a browser would read it as local time.
+- **Only AI suggestions count.** A teacher's own saved grade never shows the banner.

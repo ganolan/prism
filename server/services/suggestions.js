@@ -14,7 +14,8 @@ import { getFeedbackRows, resolveRowKey } from './feedbackRows.js';
 // levels, resolves rubric keys against the assignment's aligned topics
 // (external_id then title, case-insensitive), and reports — never silently
 // drops — unresolved keys and out-of-vocabulary levels. Always writes a fresh
-// status='draft' row, pushing any prior feedback_json to revision_history.
+// status='draft' row, pushing any prior feedback_json to revision_history. The row
+// records the task's task_synced_at as data_as_of: how old the data it was made from was.
 export function upsertStudentSuggestion(db, {
   assignmentId, student, narrative_feedback, rubric_scores, reviewer_flags, strengths, suggestions,
   scale_level, evidence, reviewer_flags_brief, quiz_overall,
@@ -24,7 +25,7 @@ export function upsertStudentSuggestion(db, {
   const assignmentLocalId = resolveAssignmentId(db, assignmentId);
   if (!assignmentLocalId) return { student, status: 'error', message: `Assignment not found: ${assignmentId}` };
 
-  const assignmentRow = db.prepare('SELECT schoology_assignment_id, course_id, grading_scale_id FROM assignments WHERE id = ?').get(assignmentLocalId);
+  const assignmentRow = db.prepare('SELECT schoology_assignment_id, course_id, grading_scale_id, task_synced_at FROM assignments WHERE id = ?').get(assignmentLocalId);
   const topics = getAlignedTopics(db, assignmentRow.course_id, assignmentRow.schoology_assignment_id);
 
   // Score-scale suggestion for an unaligned assignment (#41), e.g. an agent
@@ -111,14 +112,14 @@ export function upsertStudentSuggestion(db, {
       });
       db.prepare(
         `UPDATE feedback SET status = 'draft', score = ?, feedback_json = ?,
-           revision_history = ?, suggestion_state = ?, updated_at = datetime('now') WHERE id = ?`
-      ).run(null, feedbackJson, JSON.stringify(history), suggestionState ?? null, existing.id);
+           revision_history = ?, suggestion_state = ?, data_as_of = ?, updated_at = datetime('now') WHERE id = ?`
+      ).run(null, feedbackJson, JSON.stringify(history), suggestionState ?? null, assignmentRow.task_synced_at ?? null, existing.id);
       return existing.id;
     }
     return db.prepare(
-      `INSERT INTO feedback (student_id, assignment_id, status, score, feedback_json)
-       VALUES (?, ?, 'draft', ?, ?)`
-    ).run(studentLocalId, assignmentLocalId, null, feedbackJson).lastInsertRowid;
+      `INSERT INTO feedback (student_id, assignment_id, status, score, feedback_json, data_as_of)
+       VALUES (?, ?, 'draft', ?, ?, ?)`
+    ).run(studentLocalId, assignmentLocalId, null, feedbackJson, assignmentRow.task_synced_at ?? null).lastInsertRowid;
   });
 
   const feedbackId = write();

@@ -11,14 +11,9 @@ import { resolveAssignmentId } from '../server/services/idResolvers.js';
 import { LEVELS } from '../server/lib/proficiencyScale.js';
 import { getFeedbackRows } from '../server/services/feedbackRows.js';
 import { normalizeSubmissionStatus, gradingState, getRoster, scoreScaleFor, getAlignedTopics, getAssessmentContext } from '../server/services/assessmentContext.js';
-import { refreshAssignment } from '../server/services/submissionComments.js';
-import { refreshAssignmentMastery } from '../server/services/masteryRefresh.js';
-import { refreshAssignmentFiles, OPEN_MAX_AGE_SEC as FILES_OPEN_MAX_AGE_SEC } from '../server/services/submissionFiles.js';
+import { gradingSync } from '../server/services/gradingSync.js';
 import { getFeatures } from '../server/middleware/featureGate.js';
 import { psAlertFieldsForAgents } from '../server/services/psAlertStore.js';
-
-// A grading run reads threads at most a minute old.
-const MCP_COMMENT_MAX_AGE_SEC = 60;
 import { preferredFirstName } from '../server/services/studentNames.js';
 import { findStudents, getStudentHistory, resolveStudent } from '../server/services/studentHistory.js';
 import { schoolYearOf } from '../server/lib/schoolYear.js';
@@ -405,51 +400,46 @@ export function assertSchoologyConfigured(env = process.env) {
     '(docs/prismcp-install-and-verify.md), then restart it, or leave out comment_line / remove_line to keep the action Prism-only.');
 }
 
-// get_assignment_context: refresh the submitted students' submission comment
-// threads from Schoology first (students often type their answers there), then
-// compose the context from the cache. Without Schoology credentials, or when the
-// refresh fails, the cached threads are returned and the source says so.
-// The submitted students' native dropbox files (#162) are read the same way, at the
-// same time, from the cache when it is fresh (5 minutes, as the files popover).
-// The assignment's mastery levels and grade comments are refreshed from Schoology at
-// the same time too (#52, as the /assessment/ page does on load; not read again when
-// read under 2 minutes ago); `mastery_source` states whether that happened.
-export async function getAssignmentContextTool(db, { course_id, assignment_id } = {}, env = process.env, { refreshMastery = refreshAssignmentMastery } = {}) {
-  const missing = SCHOOLOGY_ENV.filter((k) => !String(env[k] ?? '').trim());
-  const refresh = async (feature, what, start) => {
-    if (!getFeatures()[feature]) return { refreshed: 0, failed: 0, cached_only: true, note: `${feature} is off in config.yaml` };
-    if (missing.length) {
-      return { refreshed: 0, failed: 0, cached_only: true, note: `Schoology credentials are not set (${missing.join(', ')}): ${what} are as last read in Prism (see ${feature}_read_at)` };
-    }
-    try {
-      const job = start();
-      const r = job.done ? await job.done : { refreshed: 0, failed: 0 };
-      return { refreshed: r.refreshed, failed: r.failed, cached_only: false };
-    } catch (err) {
-      if (err?.code === 'NOT_NATIVE') {
-        return { refreshed: 0, failed: 0, cached_only: true, note: 'this task takes OneDrive or Google Drive work, not Schoology uploads: submission_files is empty' };
-      }
-      return { refreshed: 0, failed: 0, cached_only: true, note: `could not refresh: ${err.message}` };
-    }
+// get_assignment_context forces a grading sync of the task first (gradingSync.js: the queue reads
+// its details, submissions, grades, mastery, comment threads and files), then composes the context
+// from the database; unless the task fully synced under 5 minutes ago (`state: 'fresh'`). With
+// `use_stored_data` it skips the sync and answers `stale_data` first (the teacher's choice when the
+// Schoology sign-in has lapsed). A GradingSyncError (NOT_FOUND, SESSION_LAPSED, SYNC_FAILED,
+// SYNC_PENDING) is thrown for the tool wrapper to answer with its code.
+// The `*_source` fields say what the sync read (the run's summary), or that the answer is as last
+// read: a source switched off in config.yaml (submission_comments, submission_files) is never read.
+const STORED_NOTE = (at) => `Data as of ${at ?? 'never (this task has not been fully synced)'}. Sign in to Schoology for a fresh sync.`;
+
+function contextSources(db, { assignment_id }, r) {
+  const features = getFeatures();
+  const localId = resolveAssignmentId(db, assignment_id);
+  const task = db.prepare('SELECT is_lti_submission FROM assignments WHERE id = ?').get(localId);
+  const run = r.summary ?? {};
+  const kept = r.state === 'stored';
+  const note = kept ? { note: STORED_NOTE(r.dataAsOf) } : {};
+  const asRead = (feature, part) => {
+    if (!features[feature] || part?.disabled) return { refreshed: 0, failed: 0, cached_only: true, note: `${feature} is off in config.yaml` };
+    if (kept) return { refreshed: 0, failed: 0, cached_only: true, ...note };
+    return { refreshed: part?.refreshed ?? 0, failed: part?.failed ?? 0, cached_only: false };
   };
-  const mastery = async () => {
-    const localId = resolveAssignmentId(db, assignment_id);
-    const row = localId ? db.prepare('SELECT course_id, schoology_assignment_id FROM assignments WHERE id = ?').get(localId) : null;
-    if (!row) return null;
-    try {
-      const r = await refreshMastery(row.course_id, row.schoology_assignment_id, { db });
-      return { refreshed: r.refreshed, synced_at: r.syncedAt, cached_only: Boolean(r.error), ...(r.error ? { note: `could not refresh: ${r.error}` } : {}) };
-    } catch (err) {
-      return { refreshed: false, synced_at: null, cached_only: true, note: `could not refresh: ${err.message}` };
-    }
+  const files = task?.is_lti_submission || run.files?.notNative
+    ? { refreshed: 0, failed: 0, cached_only: true, note: 'this task takes OneDrive or Google Drive work, not Schoology uploads: submission_files is empty' }
+    : asRead('submission_files', run.files);
+  return {
+    submission_comments_source: asRead('submission_comments', run.comments),
+    submission_files_source: files,
+    mastery_source: { refreshed: r.state === 'synced', synced_at: r.dataAsOf, cached_only: kept, ...note },
   };
-  const [source, filesSource, masterySource] = await Promise.all([
-    refresh('submission_comments', 'comments', () => refreshAssignment(db, assignment_id, { maxAgeSec: MCP_COMMENT_MAX_AGE_SEC })),
-    refresh('submission_files', 'files', () => refreshAssignmentFiles(db, assignment_id, { maxAgeSec: FILES_OPEN_MAX_AGE_SEC })),
-    mastery(),
-  ]);
+}
+
+export async function getAssignmentContextTool(db, { course_id, assignment_id, use_stored_data } = {}, { sync = gradingSync, syncOptions = {} } = {}) {
+  const r = await sync(db, assignment_id, { useStoredData: use_stored_data === true, ...syncOptions });
   const ctx = getAssessmentContext(db, { courseId: course_id, assignmentId: assignment_id });
-  return ctx ? { ...ctx, submission_comments_source: source, submission_files_source: filesSource, mastery_source: masterySource } : ctx;
+  if (!ctx) return ctx;
+  return {
+    ...(r.state === 'stored' ? { stale_data: STORED_NOTE(r.dataAsOf) } : {}),
+    ...ctx, ...contextSources(db, { assignment_id }, r), data_as_of: r.dataAsOf,
+  };
 }
 
 // extend_deadline, both paths, gain comment_line? (published via the shared

@@ -1,8 +1,12 @@
 import { describe, test, expect, beforeEach, vi } from 'vitest';
 
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
-// get_assignment_context refreshes mastery from Schoology (#52): never in tests.
-vi.mock('../server/services/masteryRefresh.js', () => ({ refreshAssignmentMastery: vi.fn(async () => ({ refreshed: false, syncedAt: '2026-10-19T03:00:00.000Z' })) }));
+// A feature switched off in config.yaml (null = the real config).
+const h = vi.hoisted(() => ({ features: null }));
+vi.mock('../server/middleware/featureGate.js', async (orig) => {
+  const real = await orig();
+  return { ...real, getFeatures: () => h.features ?? real.getFeatures() };
+});
 vi.mock('../server/services/schoology.js', () => ({
   getSubmissionComments: vi.fn(), postSubmissionComment: vi.fn(), deleteSubmissionComment: vi.fn(),
   getMyUserId: vi.fn(), getSectionEnrollments: vi.fn(), getSubmissionRevisions: vi.fn(), openFile: vi.fn(),
@@ -11,9 +15,12 @@ vi.mock('../server/services/schoology.js', () => ({
 import { getDb } from '../server/db/index.js';
 import { getAssignmentContextTool } from './handlers.js';
 import { commentDeps, resetCommentCaches } from '../server/services/submissionComments.js';
-import { fileDeps, resetFileQueues } from '../server/services/submissionFiles.js';
+import { fileDeps, resetFileQueues, refreshAssignmentFiles } from '../server/services/submissionFiles.js';
 
-const ENV = { SCHOOLOGY_BASE_URL: 'https://api.schoology.test', SCHOOLOGY_CONSUMER_KEY: 'k', SCHOOLOGY_CONSUMER_SECRET: 's' };
+const AT = '2026-10-20T09:58:00.000Z';
+// The grading sync is the queue's (gradingSync.test.js, taskSyncRun.test.js): here it is stubbed to
+// answer as it would after the run, and the file cache is filled by the same read the run waits for.
+const synced = () => vi.fn(async () => ({ state: 'synced', runId: 7, dataAsOf: AT, summary: { comments: { refreshed: 0, failed: 0 }, files: { refreshed: 1, failed: 0 } } }));
 let courseId; let ana; let cy; let clock;
 
 // The shape observed on MGD Flappy Bird (F), 17 Oct 2026 (ids and names invented).
@@ -23,6 +30,7 @@ const file = (id, name, filemime, extra = {}) => ({
 });
 
 beforeEach(() => {
+  h.features = null;
   const db = getDb();
   db.exec('DELETE FROM submission_comments; DELETE FROM submission_comment_reads; DELETE FROM submission_revisions; DELETE FROM submission_revision_reads; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
   resetCommentCaches();
@@ -51,8 +59,9 @@ beforeEach(() => {
 });
 
 describe('get_assignment_context submission files (#162)', () => {
-  test('reads the students who uploaded first and lists their files, newest revision first', async () => {
-    const ctx = await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590105935' }, ENV);
+  test('lists the files of the students who uploaded, newest revision first', async () => {
+    await refreshAssignmentFiles(getDb(), '8590105935', { maxAgeSec: 0 }).done;
+    const ctx = await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590105935' }, { sync: synced() });
     expect(ctx.submission_files_source).toEqual({ refreshed: 1, failed: 0, cached_only: false });
     expect(fileDeps.getSubmissionRevisions).toHaveBeenCalledTimes(1);
     const a = ctx.students.find((s) => s.id === ana);
@@ -68,27 +77,25 @@ describe('get_assignment_context submission files (#162)', () => {
     expect(ctx.students.find((s) => s.id === cy)).toMatchObject({ submission_files: [], submission_files_read_at: null });
   });
 
-  test('a fresh cache is used without a read', async () => {
-    await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590105935' }, ENV);
-    clock += 120;
-    const ctx = await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590105935' }, ENV);
-    expect(ctx.submission_files_source).toEqual({ refreshed: 0, failed: 0, cached_only: false });
-    expect(fileDeps.getSubmissionRevisions).toHaveBeenCalledTimes(1);
-    expect(ctx.students.find((s) => s.id === ana).submission_files).toHaveLength(3);
+  test('the tool itself reads no file: the sync did', async () => {
+    await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590105935' }, { sync: synced() });
+    expect(fileDeps.getSubmissionRevisions).not.toHaveBeenCalled();
   });
 
-  test('without credentials it returns the cache and says so; a failed read is counted', async () => {
-    const cached = await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590105935' }, {});
-    expect(cached.submission_files_source).toMatchObject({ cached_only: true, refreshed: 0 });
-    expect(cached.submission_files_source.note).toMatch(/SCHOOLOGY_BASE_URL/);
-    expect(fileDeps.getSubmissionRevisions).not.toHaveBeenCalled();
-    fileDeps.getSubmissionRevisions.mockRejectedValueOnce(new Error('Schoology API 503'));
-    const ctx = await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590105935' }, ENV);
-    expect(ctx.submission_files_source).toEqual({ refreshed: 0, failed: 1, cached_only: false });
+  test('stored data: the cache as it is, and the source says so', async () => {
+    const sync = vi.fn(async () => ({ state: 'stored', dataAsOf: AT }));
+    const ctx = await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590105935', use_stored_data: true }, { sync });
+    expect(ctx.submission_files_source).toEqual({ refreshed: 0, failed: 0, cached_only: true, note: `Data as of ${AT}. Sign in to Schoology for a fresh sync.` });
+  });
+
+  test('submission_files off in config.yaml: cached only', async () => {
+    h.features = { submission_comments: true, submission_files: false };
+    const ctx = await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590105935' }, { sync: synced() });
+    expect(ctx.submission_files_source).toEqual({ refreshed: 0, failed: 0, cached_only: true, note: 'submission_files is off in config.yaml' });
   });
 
   test('an OneDrive task reads nothing and says why', async () => {
-    const ctx = await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590106104' }, ENV);
+    const ctx = await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590106104' }, { sync: synced() });
     expect(fileDeps.getSubmissionRevisions).not.toHaveBeenCalled();
     expect(ctx.submission_files_source).toMatchObject({ refreshed: 0, cached_only: true });
     expect(ctx.submission_files_source.note).toMatch(/OneDrive/);

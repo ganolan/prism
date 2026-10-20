@@ -1,8 +1,12 @@
 import { describe, test, expect, beforeEach, vi } from 'vitest';
 
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
-// get_assignment_context refreshes mastery from Schoology (#52): never in tests.
-vi.mock('../server/services/masteryRefresh.js', () => ({ refreshAssignmentMastery: vi.fn(async () => ({ refreshed: false, syncedAt: '2026-10-19T03:00:00.000Z' })) }));
+// A feature switched off in config.yaml (null = the real config).
+const h = vi.hoisted(() => ({ features: null }));
+vi.mock('../server/middleware/featureGate.js', async (orig) => {
+  const real = await orig();
+  return { ...real, getFeatures: () => h.features ?? real.getFeatures() };
+});
 vi.mock('../server/services/schoology.js', () => ({
   getSubmissionComments: vi.fn(), postSubmissionComment: vi.fn(), deleteSubmissionComment: vi.fn(),
   getMyUserId: vi.fn(), getSectionEnrollments: vi.fn(),
@@ -10,12 +14,17 @@ vi.mock('../server/services/schoology.js', () => ({
 
 import { getDb } from '../server/db/index.js';
 import { getAssignmentContextTool } from './handlers.js';
-import { commentDeps, resetCommentCaches } from '../server/services/submissionComments.js';
+import { commentDeps, resetCommentCaches, refreshAssignment } from '../server/services/submissionComments.js';
 
-const ENV = { SCHOOLOGY_BASE_URL: 'https://api.schoology.test', SCHOOLOGY_CONSUMER_KEY: 'k', SCHOOLOGY_CONSUMER_SECRET: 's' };
+const AT = '2026-10-20T09:58:00.000Z';
+// The grading sync is the queue's (gradingSync.test.js, taskSyncRun.test.js): here it is stubbed to
+// answer as it would after the run, and the thread cache is filled by the same read the run waits for.
+const synced = () => vi.fn(async () => ({ state: 'synced', runId: 7, dataAsOf: AT, summary: { comments: { refreshed: 1, failed: 0 }, files: { refreshed: 0, failed: 0 } } }));
+const stored = () => vi.fn(async () => ({ state: 'stored', dataAsOf: AT }));
 let courseId; let ana; let cy;
 
 beforeEach(() => {
+  h.features = null;
   const db = getDb();
   db.exec('DELETE FROM submission_comments; DELETE FROM submission_comment_reads; DELETE FROM submission_revisions; DELETE FROM submission_revision_reads; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
   resetCommentCaches();
@@ -38,8 +47,9 @@ beforeEach(() => {
 });
 
 describe('get_assignment_context submission comments', () => {
-  test('refreshes submitted students first and returns their threads', async () => {
-    const ctx = await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590105935' }, ENV);
+  test('lists the cached threads of the students who submitted, oldest first', async () => {
+    await refreshAssignment(getDb(), '8590105935', { maxAgeSec: 0 }).done;
+    const ctx = await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590105935' }, { sync: synced() });
     expect(ctx.submission_comments_source).toEqual({ refreshed: 1, failed: 0, cached_only: false });
     const a = ctx.students.find((s) => s.id === ana);
     expect(a.submission_comments).toEqual([
@@ -55,44 +65,54 @@ describe('get_assignment_context submission comments', () => {
     expect(c).toMatchObject({ submission_comments: [], submission_comments_read_at: null });
   });
 
-  test('without credentials it returns the cache and says so', async () => {
-    const ctx = await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590105935' }, {});
-    expect(ctx.submission_comments_source).toMatchObject({ cached_only: true, refreshed: 0 });
-    expect(ctx.submission_comments_source.note).toMatch(/SCHOOLOGY_BASE_URL/);
+  test('the tool itself reads no thread: the sync did', async () => {
+    await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590105935' }, { sync: synced() });
     expect(commentDeps.getSubmissionComments).not.toHaveBeenCalled();
   });
 
-  test('a failed read is counted and the context still returns', async () => {
-    commentDeps.getSubmissionComments.mockRejectedValueOnce(new Error('Schoology API 503'));
-    const ctx = await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590105935' }, ENV);
-    expect(ctx.submission_comments_source).toEqual({ refreshed: 0, failed: 1, cached_only: false });
-    expect(ctx.students).toHaveLength(2);
+  test('stored data: the cache as it is, and the source says so', async () => {
+    const ctx = await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590105935', use_stored_data: true }, { sync: stored() });
+    expect(ctx.submission_comments_source).toEqual({ refreshed: 0, failed: 0, cached_only: true, note: `Data as of ${AT}. Sign in to Schoology for a fresh sync.` });
   });
 
-  test('an unknown assignment returns null', async () => {
-    expect(await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: 'nope' }, ENV)).toBeNull();
+  test('submission_comments off in config.yaml: cached only, whatever the sync did', async () => {
+    h.features = { submission_comments: false, submission_files: true };
+    const ctx = await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590105935' }, { sync: synced() });
+    expect(ctx.submission_comments_source).toEqual({ refreshed: 0, failed: 0, cached_only: true, note: 'submission_comments is off in config.yaml' });
+    expect(ctx.submission_files_source).toMatchObject({ cached_only: false });
+  });
+
+  test('an unknown assignment is NOT_FOUND from the sync step, nothing read', async () => {
+    await expect(getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: 'nope' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 });
 
-describe('get_assignment_context mastery refresh (#52)', () => {
-  test('refreshes the assignment\'s levels and comments from Schoology, by Schoology id, and says so', async () => {
-    const refreshMastery = vi.fn(async () => ({ refreshed: true, syncedAt: '2026-10-19T06:00:00.000Z' }));
+describe('get_assignment_context mastery source (#52, #131)', () => {
+  test('after a sync it says the levels and comments were read, and when', async () => {
+    const sync = synced();
     const db = getDb();
     const localId = db.prepare(`SELECT id FROM assignments WHERE schoology_assignment_id = '8590105935'`).get().id;
     // Either kind of id finds the assignment.
     for (const assignment_id of ['8590105935', localId]) {
-      const ctx = await getAssignmentContextTool(db, { course_id: courseId, assignment_id }, ENV, { refreshMastery });
-      expect(ctx.mastery_source).toEqual({ refreshed: true, synced_at: '2026-10-19T06:00:00.000Z', cached_only: false });
+      const ctx = await getAssignmentContextTool(db, { course_id: courseId, assignment_id }, { sync });
+      expect(ctx.mastery_source).toEqual({ refreshed: true, synced_at: AT, cached_only: false });
+      expect(ctx.data_as_of).toBe(AT);
     }
-    expect(refreshMastery).toHaveBeenCalledWith(courseId, '8590105935', { db });
+    expect(sync).toHaveBeenCalledWith(db, '8590105935', { useStoredData: false });
   });
 
-  test('a failed refresh still returns the context, with the reason', async () => {
-    const refreshMastery = vi.fn(async () => ({ refreshed: false, syncedAt: '2026-10-19T03:00:00.000Z', error: 'Log in to Schoology in Settings', signIn: true }));
-    const ctx = await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590105935' }, ENV, { refreshMastery });
-    expect(ctx.students).toHaveLength(2);
-    expect(ctx.mastery_source).toEqual({ refreshed: false, synced_at: '2026-10-19T03:00:00.000Z', cached_only: true, note: 'could not refresh: Log in to Schoology in Settings' });
-    const thrown = await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590105935' }, ENV, { refreshMastery: async () => { throw new Error('boom'); } });
-    expect(thrown.mastery_source).toMatchObject({ refreshed: false, cached_only: true, note: 'could not refresh: boom' });
+  test('a fresh task (synced under 5 minutes ago) is not read again', async () => {
+    const sync = vi.fn(async () => ({ state: 'fresh', dataAsOf: AT }));
+    const ctx = await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590105935' }, { sync });
+    expect(ctx.mastery_source).toEqual({ refreshed: false, synced_at: AT, cached_only: false });
+    expect(ctx).not.toHaveProperty('stale_data');
+  });
+
+  test('stored data: stale_data is the first key, and the levels are as last read', async () => {
+    const ctx = await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590105935', use_stored_data: true }, { sync: stored() });
+    expect(Object.keys(ctx)[0]).toBe('stale_data');
+    expect(ctx.stale_data).toBe(`Data as of ${AT}. Sign in to Schoology for a fresh sync.`);
+    expect(ctx.mastery_source).toMatchObject({ refreshed: false, synced_at: AT, cached_only: true });
+    expect(ctx.data_as_of).toBe(AT);
   });
 });

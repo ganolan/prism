@@ -2,13 +2,13 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 import { ALERT_DEFS } from '../server/lib/psAlerts.js';
 
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
-// get_assignment_context refreshes mastery from Schoology (#52): never in tests.
-vi.mock('../server/services/masteryRefresh.js', () => ({ refreshAssignmentMastery: vi.fn(async () => ({ refreshed: false, syncedAt: '2026-10-19T03:00:00.000Z' })) }));
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { getDb } from '../server/db/index.js';
-import { createServer, connectDb, INSTRUCTIONS } from './server.js';
+import { createServer, connectDb, INSTRUCTIONS, progressNotifier } from './server.js';
+import { queueDeps, resetQueue } from '../server/services/syncQueue.js';
+import { SIGN_IN_URL } from '../server/services/gradingSync.js';
 
 // Spin up the PrisMCP server and a client linked by an in-memory transport
 // pair, so tests exercise the real MCP request/response path (registration,
@@ -57,22 +57,92 @@ describe('PrisMCP server', () => {
     expect(data.map((a) => a.title)).toEqual(['App Project']);
   });
 
-  test('exposes get_assignment_context accepting a Schoology assignment id', async () => {
+  test('exposes get_assignment_context accepting a Schoology assignment id, and use_stored_data', async () => {
     const db = getDb();
     const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s1', 'AIML')`).run().lastInsertRowid;
     db.prepare(`INSERT INTO reporting_categories (id, course_id, external_id, title) VALUES ('cat-1', ?, 'ART.5', 'Creating')`).run(courseId);
     db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES ('topic-1', 'cat-1', ?, 'ART.5.1', 'Generates media')`).run(courseId);
-    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-1', 'Project')`).run(courseId);
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, task_synced_at) VALUES (?, 'sa-1', 'Project', '2026-10-20T01:00:00.000Z')`).run(courseId);
     db.prepare(`INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id) VALUES ('sa-1', 'topic-1', ?)`).run(courseId);
     const studentId = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-1', 'Ada', 'Lovelace')`).run().lastInsertRowid;
     db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'enr-1')`).run(studentId, courseId);
 
     const client = await connect();
-    const res = await client.callTool({ name: 'get_assignment_context', arguments: { course_id: courseId, assignment_id: 'sa-1' } });
+    const res = await client.callTool({ name: 'get_assignment_context', arguments: { course_id: courseId, assignment_id: 'sa-1', use_stored_data: true } });
     const ctx = JSON.parse(res.content[0].text);
     expect(ctx.assignment.schoology_assignment_id).toBe('sa-1');
     expect(ctx.topics.map((t) => t.external_id)).toEqual(['ART.5.1']);
     expect(ctx.students.map((s) => s.schoology_uid)).toEqual(['uid-1']);
+    expect(Object.keys(ctx)[0]).toBe('stale_data');
+    expect(ctx.stale_data).toBe('Data as of 2026-10-20T01:00:00.000Z. Sign in to Schoology for a fresh sync.');
+    expect(ctx.data_as_of).toBe('2026-10-20T01:00:00.000Z');
+  });
+
+  describe('get_assignment_context forces the grading sync (#131)', () => {
+    let courseId;
+    beforeEach(() => {
+      const db = getDb();
+      db.exec('DELETE FROM sync_run_events; DELETE FROM sync_runs;');
+      courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s1', 'AIML')`).run().lastInsertRowid;
+      db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-1', 'Project')`).run(courseId);
+      resetQueue();
+    });
+
+    test('a lapsed Schoology session is an error that names SESSION_LAPSED and the sign-in link', async () => {
+      queueDeps.sessionStatus = vi.fn().mockResolvedValue({ loggedIn: false, live: 'expired' });
+      const client = await connect();
+      const res = await client.callTool({ name: 'get_assignment_context', arguments: { course_id: courseId, assignment_id: 'sa-1' } });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/^SESSION_LAPSED:/);
+      expect(res.content[0].text).toContain(SIGN_IN_URL);
+      expect(res.content[0].text).toContain('use_stored_data');
+      expect(getDb().prepare('SELECT COUNT(*) AS n FROM sync_runs').get().n).toBe(0);
+    });
+
+    test('an unknown assignment is NOT_FOUND', async () => {
+      const client = await connect();
+      const res = await client.callTool({ name: 'get_assignment_context', arguments: { course_id: courseId, assignment_id: 'nope' } });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/^NOT_FOUND:/);
+    });
+
+    test('a call runs a grading sync through the queue and answers with its data time', async () => {
+      queueDeps.sessionStatus = vi.fn().mockResolvedValue({ loggedIn: true, live: 'connected' });
+      queueDeps.runTaskSync = vi.fn(async (request, emit) => {
+        getDb().prepare(`UPDATE assignments SET task_synced_at = '2026-10-20T10:00:00.000Z'`).run();
+        emit({ type: 'summary', mastery: [{ status: 'done' }], comments: { refreshed: 0, failed: 0 }, files: { refreshed: 0, failed: 0 } });
+      });
+      const client = await connect();
+      const res = await client.callTool({ name: 'get_assignment_context', arguments: { course_id: courseId, assignment_id: 'sa-1' } });
+      expect(res.isError).toBeFalsy();
+      const ctx = JSON.parse(res.content[0].text);
+      expect(ctx).not.toHaveProperty('stale_data');
+      expect(ctx.data_as_of).toBe('2026-10-20T10:00:00.000Z');
+      expect(ctx.mastery_source).toMatchObject({ refreshed: true, cached_only: false });
+      expect(queueDeps.runTaskSync).toHaveBeenCalledWith(expect.objectContaining({ kind: 'task', assignmentId: 'sa-1', grading: true }), expect.any(Function));
+    });
+
+    test('its description states the force rule, the 5 minute window, and that the teacher chooses stored data', async () => {
+      const client = await connect();
+      const d = (await client.listTools()).tools.find((t) => t.name === 'get_assignment_context');
+      expect(d.description).toMatch(/Every call first runs a fresh Schoology sync/);
+      expect(d.description).toMatch(/under 5 minutes ago/);
+      expect(d.description).toMatch(/SYNC_PENDING/);
+      expect(d.description).toMatch(/SESSION_LAPSED/);
+      expect(d.description).toMatch(/never decide yourself/);
+      expect(d.inputSchema.properties).toHaveProperty('use_stored_data');
+    });
+
+    test('progressNotifier sends progress only when the request asked for it', async () => {
+      expect(progressNotifier({})).toBeUndefined();
+      expect(progressNotifier({ _meta: { progressToken: 't' } })).toBeUndefined();
+      const sendNotification = vi.fn(async () => {});
+      progressNotifier({ _meta: { progressToken: 't' }, sendNotification })({ runId: 9, waitedMs: 10_000 });
+      expect(sendNotification).toHaveBeenCalledWith({
+        method: 'notifications/progress',
+        params: { progressToken: 't', progress: 10_000, message: expect.stringContaining('run 9') },
+      });
+    });
   });
 
   test('write_student_suggestions writes drafts and returns a per-student summary', async () => {

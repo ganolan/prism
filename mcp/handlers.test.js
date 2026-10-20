@@ -1,8 +1,6 @@
 import { describe, test, expect, beforeEach, vi } from 'vitest';
 
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
-// get_assignment_context refreshes mastery from Schoology (#52): never in tests.
-vi.mock('../server/services/masteryRefresh.js', () => ({ refreshAssignmentMastery: vi.fn(async () => ({ refreshed: false, syncedAt: '2026-10-19T03:00:00.000Z' })) }));
 // Status-line publishing (Amendment B) reads/writes the student's Schoology
 // comment — never for real in tests.
 vi.mock('../server/services/schoology.js', () => ({ getSectionGrades: vi.fn(), pushGradeComments: vi.fn() }));

@@ -94,6 +94,22 @@ describe('runTaskSync (Sync Assignment as a queued run)', () => {
       expect(task()).toEqual({ task_synced_at: T, task_sync_attempted_at: T });
     });
 
+    test('submission_comments off in config.yaml: the threads are not waited for, and that is not a failure', async () => {
+      deps.getFeatures = () => ({ submission_comments: false, submission_files: true });
+      deps.syncAssignment.mockResolvedValue({ removed: false, submissions: { refreshed: 1, failed: [] }, comments: { queued: 3, done: new Promise(() => {}) } });
+      await runGrading();
+      expect(events.at(-1)).toMatchObject({ type: 'summary', comments: { refreshed: 0, failed: 0, disabled: true }, files: { refreshed: 2, failed: 0 } });
+      expect(task()).toEqual({ task_synced_at: T, task_sync_attempted_at: T });
+    });
+
+    test('submission_files off in config.yaml: no file read, and that is not a failure', async () => {
+      deps.getFeatures = () => ({ submission_comments: true, submission_files: false });
+      await runGrading();
+      expect(deps.refreshFiles).not.toHaveBeenCalled();
+      expect(events.at(-1)).toMatchObject({ type: 'summary', comments: { refreshed: 3, failed: 0 }, files: { refreshed: 0, failed: 0, disabled: true } });
+      expect(task()).toEqual({ task_synced_at: T, task_sync_attempted_at: T });
+    });
+
     test('a failed thread read fails the run (no stamp)', async () => {
       const rejected = Promise.reject(new Error('threads 503'));
       rejected.catch(() => {});

@@ -8,7 +8,7 @@ Operational guide for the PrisMCP server (spec: `docs/superpowers/specs/2026-06-
 
 Omitting `comment_line` / `remove_line` keeps the action Prism-only, same as every other write below. These Schoology-touching tools need the Schoology credentials in the server's environment — see [Schoology credentials](#schoology-credentials-for-the-status-line-tools-since-2026-10-03).
 
-Surface: tools `list_courses` (`include_archived: true` adds archived courses with `school_year`/`term`), `list_assignments`, `list_students` (`include_dropped: true` adds leavers), `get_assignment_context`, `write_student_suggestions`, `write_assessment_analysis`; linked-quiz tools `list_quiz_groups`, `load_quiz_results` (reads the attempts from Schoology through the saved browser session and sends nothing to Schoology; stores them in Prism, replacing any earlier load and removing attempts since deleted in Schoology; runs as a run in Prism's sync queue, so it waits behind a running sync (`server/services/quizRun.js`); fails with `NO_SESSION` when the saved login has expired, `UNREACHABLE` when Schoology could not be reached (try again, the session is not at fault), `BUSY`, or `PENDING` when it is still going after about 50 s, carrying the sync run id: call it again to join that run) and `set_question_tags`; rubric tools `list_rubrics`, `read_rubric`, `write_rubric`, `attach_rubric`; `@`-mention resources `prism://courses`, `prism://course/{courseId}/assignments`, `prism://assignment/{courseId}/{assignmentId}/context`; and the `grade-assignment` prompt. Also: `get_triage` (the late-work referral watch, feedback-owed, make-up-test and **resubmission** lists, same numbers as the dashboard — each row's `day` counts the due/test date as day 1: referral after day 8, feedback overdue after day 10 by default), `get_submission_status` (roster-wide submission state for a course, one assignment or one student: "who still hasn't submitted X?", with a ready-to-paste email list; `status` defaults to `not_submitted`, the whole-school view, and `all` needs a course, assignment_id or student since it lists every item), `list_referrals` (history: `{ referrals, extensions }`), `school_calendar` (school-day info and between-dates counts), `record_referral` (mark a late-work row at the limit as referred), `undo_referral` (delete a referral by id), `extend_deadline` (give one student N more lessons — school days — on a summative task, a Schoology test/quiz, or (via `resubmission_id`) an open resubmission request; on a make-up it moves the make-up clock), `undo_extension` (delete an extension by id, optionally `remove_line: true` to also remove the status line it published), `set_makeup_tracking` (ignore — or track again — one Schoology test/quiz for make-ups, all students), and the Amendment B resubmission set: `request_resubmission` (ask a student to resubmit, deadline in lessons), `grade_stands` (close an open request once its deadline has passed, with no resubmission — the original grade stands; "Reviewed"/`close_resubmission`/`mark_resubmission_reviewed` were removed, since an arrival now only clears on genuinely new visible feedback), `preview_status_line` (render — never guess — the exact status-line text and due date for `request_resubmission` / `extend_deadline` / `grade_stands` before publishing), and `list_resubmissions` (history by course/student/since/state). Student history (read-only, since 2026-10-08): `find_student` (by legal or preferred name, email, email number or uid, across archived years, with grad year and courses to tell same-named students apart) and `get_student_history` (every course and year with the teacher: per assessment the overall level, levels per measurement topic and the grade comment verbatim; published finals only, never AI suggestions; summative-only by default with `omitted` counts; `detail: 'compact'` and `limit`/`offset` paging). See `docs/superpowers/specs/2026-10-08-prismcp-student-history-design.md`.
+Surface: tools `list_courses` (`include_archived: true` adds archived courses with `school_year`/`term`), `list_assignments`, `list_students` (`include_dropped: true` adds leavers), `get_assignment_context` (forces a Schoology sync of the task first; `use_stored_data` skips it when the sign-in has lapsed and the teacher chooses), `write_student_suggestions`, `write_assessment_analysis`; linked-quiz tools `list_quiz_groups`, `load_quiz_results` (reads the attempts from Schoology through the saved browser session and sends nothing to Schoology; stores them in Prism, replacing any earlier load and removing attempts since deleted in Schoology; runs as a run in Prism's sync queue, so it waits behind a running sync (`server/services/quizRun.js`); fails with `NO_SESSION` when the saved login has expired, `UNREACHABLE` when Schoology could not be reached (try again, the session is not at fault), `BUSY`, or `PENDING` when it is still going after about 50 s, carrying the sync run id: call it again to join that run) and `set_question_tags`; rubric tools `list_rubrics`, `read_rubric`, `write_rubric`, `attach_rubric`; `@`-mention resources `prism://courses`, `prism://course/{courseId}/assignments`, `prism://assignment/{courseId}/{assignmentId}/context`; and the `grade-assignment` prompt. Also: `get_triage` (the late-work referral watch, feedback-owed, make-up-test and **resubmission** lists, same numbers as the dashboard — each row's `day` counts the due/test date as day 1: referral after day 8, feedback overdue after day 10 by default), `get_submission_status` (roster-wide submission state for a course, one assignment or one student: "who still hasn't submitted X?", with a ready-to-paste email list; `status` defaults to `not_submitted`, the whole-school view, and `all` needs a course, assignment_id or student since it lists every item), `list_referrals` (history: `{ referrals, extensions }`), `school_calendar` (school-day info and between-dates counts), `record_referral` (mark a late-work row at the limit as referred), `undo_referral` (delete a referral by id), `extend_deadline` (give one student N more lessons — school days — on a summative task, a Schoology test/quiz, or (via `resubmission_id`) an open resubmission request; on a make-up it moves the make-up clock), `undo_extension` (delete an extension by id, optionally `remove_line: true` to also remove the status line it published), `set_makeup_tracking` (ignore — or track again — one Schoology test/quiz for make-ups, all students), and the Amendment B resubmission set: `request_resubmission` (ask a student to resubmit, deadline in lessons), `grade_stands` (close an open request once its deadline has passed, with no resubmission — the original grade stands; "Reviewed"/`close_resubmission`/`mark_resubmission_reviewed` were removed, since an arrival now only clears on genuinely new visible feedback), `preview_status_line` (render — never guess — the exact status-line text and due date for `request_resubmission` / `extend_deadline` / `grade_stands` before publishing), and `list_resubmissions` (history by course/student/since/state). Student history (read-only, since 2026-10-08): `find_student` (by legal or preferred name, email, email number or uid, across archived years, with grad year and courses to tell same-named students apart) and `get_student_history` (every course and year with the teacher: per assessment the overall level, levels per measurement topic and the grade comment verbatim; published finals only, never AI suggestions; summative-only by default with `omitted` counts; `detail: 'compact'` and `limit`/`offset` paging). See `docs/superpowers/specs/2026-10-08-prismcp-student-history-design.md`.
 
 ## `DB_PATH` is required, and must be absolute (since 2026-09-23)
 
@@ -21,18 +21,40 @@ erased at the next `npm run db:refresh`.
 A relative path is refused because it resolves against whichever directory
 the client launched from. `:memory:` and `file:` URIs are accepted.
 
-## The saved Schoology session (unsubmit-on-ask since 2026-10-03, mastery refresh since 2026-10-19)
+## The saved Schoology session (unsubmit-on-ask since 2026-10-03, grading sync since 2026-10-20)
 
 `request_resubmission` unsubmits submitted OneDrive (LTI) work by default
-(`unsubmit`), and `get_assignment_context` reads the assignment's current mastery
-levels from Schoology before it answers (`mastery_source`, #52), both through the
-saved Schoology session (plain HTTP, no browser), not the API keys. PrisMCP finds it the same way the server does: `PRISM_SESSION_DIR`, else
+(`unsubmit`), and `get_assignment_context` forces a **grading sync** of the task
+before it answers (#131): a run in the sync queue that reads the task's details,
+submissions, grades, mastery levels and grade comments, waits for the comment
+threads and reads the files of every student who uploaded (`mastery_source`,
+`submission_comments_source`, `submission_files_source` report it, and
+`data_as_of` is the task's last full sync). A task fully synced under 5 minutes
+ago is not read again. Both go through the saved Schoology session (plain HTTP,
+no browser), not the API keys. PrisMCP finds it the same way the server does: `PRISM_SESSION_DIR`, else
 `.playwright-session/` under its working directory. On the mini set
 `PRISM_SESSION_DIR=/Users/gnolan/prism/data/.playwright-session` in the entry's
 `env` block (or the remote command) unless `~/prism/data/.env` already sets it.
 Without it the unsubmit fails safely: the ask is recorded and the tool result
-carries the Schoology link so the teacher can unsubmit by hand; the context is
-returned with the levels as last read, and `mastery_source.note` says why.
+carries the Schoology link so the teacher can unsubmit by hand.
+
+`get_assignment_context` never returns older data silently. Its errors start with a code:
+
+- `SESSION_LAPSED`: the saved session has expired (or was lost mid-sync). The error carries the sign-in link
+  (`https://prism.swordtail-everest.ts.net/settings#schoology-signin`) and the task's last full sync. The
+  agent asks the teacher: sign in and call again, or call again with `use_stored_data: true`, which skips the
+  sync and returns the context from the database with `stale_data` ("Data as of <time>. Sign in to Schoology
+  for a fresh sync.") as its first key. The agent never chooses stored data itself.
+- `SYNC_FAILED`: the run failed, was interrupted by a restart or deploy, or finished with errors; the error
+  names the run and the reason. Calling again starts a new sync.
+- `SYNC_PENDING`: still running after about 50 s (the run may be waiting behind a dashboard sync); calling
+  again follows the same run.
+- `NOT_FOUND`: no such assignment.
+
+A source switched off in `config.yaml` (`submission_comments`, `submission_files`) is not read: its `*_source`
+answers `cached_only: true` with "is off in config.yaml". While it waits the tool sends MCP progress
+notifications every 10 s when the client asked for them. The `prism://assignment/.../context` resource stays a
+database read with no sync.
 
 ## Schoology credentials for the status-line tools (since 2026-10-03)
 

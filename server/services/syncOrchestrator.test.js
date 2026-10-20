@@ -116,6 +116,19 @@ describe('runUnifiedSync', () => {
       expect(readAt()).toBeNull();
     });
 
+    test('a scoped run (courseIds) is not a full read when alerts are on: not stamped', async () => {
+      h.features = { quizzes: true, powerschool_alerts: true };
+      await runUnifiedSync({ courseIds: [1] }, () => {});
+      expect(syncPsAlerts).toHaveBeenCalled();
+      expect(readAt()).toBeNull();
+    });
+
+    test('a scoped run with the alerts feature off still stamps (blocks and calendar are whole)', async () => {
+      h.features = { quizzes: true };
+      await runUnifiedSync({ courseIds: [1] }, () => {});
+      expect(readAt()).not.toBeNull();
+    });
+
     test('not stamped when syncBlocks is false', async () => {
       h.features = { quizzes: true, powerschool_alerts: true };
       await runUnifiedSync({ syncBlocks: false }, () => {});

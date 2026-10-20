@@ -120,7 +120,8 @@ export async function runUnifiedSync(
   // #117: PowerSchool student alerts (accommodation, health), over plain HTTP,
   // on the same "Sync from PowerSchool" opt-out and behind powerschool_alerts.
   // Best-effort: a failure is reported in the run and never fails the sync.
-  if (syncBlocks && getFeatures().powerschool_alerts) {
+  const alertsRun = syncBlocks && getFeatures().powerschool_alerts;
+  if (alertsRun) {
     emit({ phase: 'alerts', status: 'running' });
     const alertsStartedAt = Date.now();
     try {
@@ -138,8 +139,10 @@ export async function runUnifiedSync(
 
   // #171: the last FULL PowerSchool read (blocks, calendar, alerts), which the sync dialog and the
   // Sync page show. A course not ready yet (notReady) is still a full read; a failed phase is not.
-  // With the alerts feature off there is no alerts phase, so a clean blocks phase is the whole read.
-  const alertsClean = !getFeatures().powerschool_alerts || (summary.alerts && !summary.alerts.error);
+  // With the alerts feature off there is no alerts phase, so a clean blocks phase is the whole read
+  // (blocks and the calendar are always whole). A scoped run (courseIds) reads alerts only for the
+  // listed courses, so with alerts on it is not a full read.
+  const alertsClean = alertsRun ? Boolean(summary.alerts && !summary.alerts.error) && !courseIds : true;
   if (syncBlocks && summary.blocks && !summary.blocks.error && alertsClean) {
     try {
       recordNightlyDataRead(db, new Date().toISOString());

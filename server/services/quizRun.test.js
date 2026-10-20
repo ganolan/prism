@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../db/index.js';
-import { queueDeps, resetQueue, idle, currentSync, enqueue } from './syncQueue.js';
+import { queueDeps, resetQueue, idle, currentSync, enqueue, waiterCount } from './syncQueue.js';
 import { runQuizLoad, loadQuizQueued } from './quizRun.js';
 import { QuizError } from './quizError.js';
 
@@ -96,6 +96,13 @@ describe('loadQuizQueued', () => {
     const err = await loadQuizQueued(getDb(), g).catch((e) => e);
     expect(err).not.toBeInstanceOf(QuizError);
     expect(err.message).toMatch(/did not finish/);
+  });
+
+  test('#170 item 9: a load that times out removes its waiter', async () => {
+    queueDeps.runQuizLoad = vi.fn(() => new Promise(() => {}));
+    const err = await loadQuizQueued(getDb(), g, { waitMs: 20 }).catch((e) => e);
+    expect(err.code).toBe('PENDING');
+    expect(waiterCount(err.runId)).toBe(0);
   });
 
   test('a wait past waitMs answers PENDING with the run id; loading again joins that run', async () => {

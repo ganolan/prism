@@ -101,3 +101,23 @@ describe('get_assignment_context submission files (#162)', () => {
     expect(ctx.submission_files_source.note).toMatch(/OneDrive/);
   });
 });
+
+describe('get_assignment_context loose ends (#170)', () => {
+  test('item 5: a course_id that does not own the assignment is NOT_FOUND before any sync', async () => {
+    const other = getDb().prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('9999', 'Other')`).run().lastInsertRowid;
+    const sync = synced();
+    const err = await getAssignmentContextTool(getDb(), { course_id: other, assignment_id: '8590105935' }, { sync }).catch((e) => e);
+    expect(err).toMatchObject({ code: 'NOT_FOUND' });
+    expect(err.message).toContain('8590105935');
+    expect(sync).not.toHaveBeenCalled();
+    // The owning course, as a number or a string, is fine.
+    await getAssignmentContextTool(getDb(), { course_id: String(courseId), assignment_id: '8590105935' }, { sync });
+    expect(sync).toHaveBeenCalledTimes(1);
+  });
+
+  test('item 10: on a OneDrive task with submission_files off, the feature-off note wins', async () => {
+    h.features = { submission_comments: true, submission_files: false };
+    const ctx = await getAssignmentContextTool(getDb(), { course_id: courseId, assignment_id: '8590106104' }, { sync: synced() });
+    expect(ctx.submission_files_source).toEqual({ refreshed: 0, failed: 0, cached_only: true, note: 'submission_files is off in config.yaml' });
+  });
+});

@@ -157,6 +157,30 @@ describe('runTaskSync (Sync Assignment as a queued run)', () => {
       expect(grading()).toBeNull();
     });
 
+    test('#170 item 3: after a failed submissions read, no threads are waited for and no files read', async () => {
+      for (const submissions of [{ refreshed: 0, failed: [], error: 'Schoology 503' }, { refreshed: 1, failed: ['555'] }, { refreshed: 1, failed: [], signIn: true }]) {
+        events = [];
+        deps.refreshFiles.mockClear();
+        deps.syncAssignment.mockResolvedValue({ removed: false, submissions, comments: { queued: 0 } });
+        await runGrading();
+        expect(deps.syncAssignment).toHaveBeenLastCalledWith(courseId, 'A1', expect.objectContaining({ grading: true }));
+        expect(deps.refreshFiles).not.toHaveBeenCalled();
+        expect(events.at(-1).comments).toMatchObject({ refreshed: 0, failed: 0, skipped: true });
+        expect(events.at(-1).files).toMatchObject({ refreshed: 0, failed: 0, skipped: true });
+        expect(events.find((e) => e.phase === 'assignment' && e.status !== 'running')).toMatchObject({ status: 'error' });
+        expect(grading()).toBeNull();
+      }
+    });
+
+    test('#170 item 4: a comment job with no done is an error (fails closed), not a success', async () => {
+      deps.syncAssignment.mockResolvedValue({ removed: false, submissions: { refreshed: 1, failed: [] }, comments: { queued: 2 } });
+      await runGrading();
+      expect(events.at(-1).comments).toMatchObject({ refreshed: 0, failed: 0, error: expect.any(String) });
+      expect(deps.refreshFiles).not.toHaveBeenCalled();
+      expect(task()).toEqual({ task_synced_at: null, task_sync_attempted_at: T });
+      expect(grading()).toBeNull();
+    });
+
     test('a failed file read fails the run (no stamp)', async () => {
       deps.refreshFiles.mockReturnValue({ queued: 2, done: Promise.reject(new Error('files 503')) });
       await runGrading();

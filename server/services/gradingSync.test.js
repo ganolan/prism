@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../db/index.js';
-import { queueDeps, resetQueue, currentSync, enqueue, TOOL_WAIT_MS } from './syncQueue.js';
+import { queueDeps, resetQueue, currentSync, enqueue, waiterCount, TOOL_WAIT_MS } from './syncQueue.js';
 import { markInterruptedRuns } from './syncRuns.js';
 import { gradingSync, GradingSyncError, GRADING_FRESH_MS, GRADING_WAIT_MS, SIGN_IN_URL } from './gradingSync.js';
 
@@ -15,6 +15,8 @@ const ago = (ms) => new Date(NOW - ms).toISOString();
 let course; let task;
 const stamp = (at) => getDb().prepare('UPDATE assignments SET task_synced_at = ? WHERE id = ?').run(at, task);
 const stampGrading = (at) => getDb().prepare('UPDATE assignments SET task_synced_at = ?, grading_synced_at = ? WHERE id = ?').run(at, at, task);
+// The task row gradingSync resolves and returns for the caller to reuse (#170).
+const row = () => expect.objectContaining({ id: task, course_id: course, schoology_assignment_id: 'A1', is_lti_submission: expect.anything() });
 const summary = { type: 'summary', mastery: [{ status: 'done' }], comments: { refreshed: 3, failed: 0 }, files: { refreshed: 2, failed: 0 } };
 
 beforeEach(() => {
@@ -41,7 +43,7 @@ describe('gradingSync', () => {
   test('a task grading-synced under 5 minutes ago is fresh: nothing queued, no session check', async () => {
     stampGrading(ago(4 * 60 * 1000));
     const r = await gradingSync(getDb(), 'A1', { now: NOW });
-    expect(r).toEqual({ state: 'fresh', dataAsOf: ago(4 * 60 * 1000) });
+    expect(r).toEqual({ state: 'fresh', dataAsOf: ago(4 * 60 * 1000), task: row() });
     expect(runs()).toHaveLength(0);
     expect(queueDeps.sessionStatus).not.toHaveBeenCalled();
   });
@@ -56,7 +58,7 @@ describe('gradingSync', () => {
   test('a grading run 1 minute ago does', async () => {
     stampGrading(ago(60 * 1000));
     const r = await gradingSync(getDb(), 'A1', { now: NOW });
-    expect(r).toEqual({ state: 'fresh', dataAsOf: ago(60 * 1000) });
+    expect(r).toEqual({ state: 'fresh', dataAsOf: ago(60 * 1000), task: row() });
     expect(queueDeps.runTaskSync).not.toHaveBeenCalled();
   });
 
@@ -132,14 +134,14 @@ describe('gradingSync', () => {
     stamp(ago(60 * 60 * 1000));
     queueDeps.sessionStatus.mockResolvedValue({ loggedIn: false, live: 'expired' });
     const r = await gradingSync(getDb(), 'A1', { useStoredData: true, now: NOW });
-    expect(r).toEqual({ state: 'stored', dataAsOf: ago(60 * 60 * 1000) });
+    expect(r).toEqual({ state: 'stored', dataAsOf: ago(60 * 60 * 1000), task: row() });
     expect(queueDeps.sessionStatus).not.toHaveBeenCalled();
     expect(runs()).toHaveLength(0);
   });
 
   test('use_stored_data on a task never fully synced → stored, dataAsOf null', async () => {
     const r = await gradingSync(getDb(), 'A1', { useStoredData: true, now: NOW });
-    expect(r).toEqual({ state: 'stored', dataAsOf: null });
+    expect(r).toEqual({ state: 'stored', dataAsOf: null, task: row() });
   });
 
   test('a run held mid-way (sign-in lost) answers SESSION_LAPSED', async () => {
@@ -243,6 +245,40 @@ describe('gradingSync', () => {
     expect(r).toMatchObject({ state: 'synced', runId: err.runId });
     expect(queueDeps.runTaskSync).toHaveBeenCalledTimes(1);
     expect(runs()).toHaveLength(1);
+  });
+
+  test('#170 item 6: one session check per call (the queue does not check again)', async () => {
+    const r = await gradingSync(getDb(), 'A1', { waitMs: 2000 });
+    expect(r.state).toBe('synced');
+    expect(queueDeps.sessionStatus).toHaveBeenCalledTimes(1);
+    expect(queueDeps.runTaskSync).toHaveBeenCalledWith(
+      expect.objectContaining({ grading: true, sessionCheckedAt: expect.any(Number) }), expect.any(Function),
+    );
+  });
+
+  test('#170 item 7: a held run with an unknown session check is resumed, and fails visibly', async () => {
+    stamp(ago(60 * 60 * 1000));
+    let calls = 0;
+    queueDeps.runTaskSync = vi.fn(async (request, emit) => {
+      calls++;
+      if (calls === 1) return emit({ type: 'summary', mastery: [{ status: 'error', errorKind: 'login' }], signIn: true });
+      throw new Error('Schoology could not be reached');
+    });
+    await expect(gradingSync(getDb(), 'A1', { now: NOW, waitMs: 2000 })).rejects.toMatchObject({ code: 'SESSION_LAPSED' });
+    const heldRun = runs()[0].id;
+
+    queueDeps.sessionStatus.mockRejectedValue(new Error('offline')); // 'unknown'
+    const err = await gradingSync(getDb(), 'A1', { now: NOW, waitMs: 2000 }).catch((e) => e);
+    expect(err).toMatchObject({ code: 'SYNC_FAILED', runId: heldRun });
+    expect(err.message).toContain('Schoology could not be reached');
+    expect(currentSync().held).toEqual([]);
+  });
+
+  test('#170 item 9: a call that times out removes its waiter', async () => {
+    queueDeps.runTaskSync = vi.fn(() => new Promise(() => {}));
+    const err = await gradingSync(getDb(), 'A1', { waitMs: 20 }).catch((e) => e);
+    expect(err).toMatchObject({ code: 'SYNC_PENDING' });
+    expect(waiterCount(err.runId)).toBe(0);
   });
 
   test('onProgress is called while waiting, and stops when the wait ends', async () => {

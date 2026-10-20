@@ -40,12 +40,14 @@ export async function loadQuizQueued(db, groupId, { waitMs = TOOL_WAIT_MS, deps 
 
   const { runId } = enqueue({ kind: 'quiz', groupId: group.id, trigger: 'button', noHold: true });
   let timer;
+  const done = whenDone(runId);
   const status = await Promise.race([
-    whenDone(runId),
+    done,
     new Promise((resolve) => { timer = setTimeout(() => resolve(null), waitMs); }),
   ]);
   clearTimeout(timer);
   if (status === null) {
+    done.cancel(); // stop waiting: loading again follows the run with its own waiter
     throw Object.assign(new QuizError('PENDING', `The quiz is still loading (run ${runId}): ask again to follow it`), { runId });
   }
 

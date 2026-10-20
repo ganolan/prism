@@ -49,6 +49,19 @@ describe('syncAssignment (#58)', () => {
     expect(task().task_synced_at).toBeNull();
   });
 
+  test('#170 item 3: a grading sync whose submissions read failed (or lost the sign-in) starts no thread read', async () => {
+    for (const sub of [{ refreshed: 0, readAt: null, failed: [localId], error: '503' }, { refreshed: 1, readAt: 'x', failed: [], signIn: true }]) {
+      deps.refreshComments.mockClear();
+      deps.refreshTasks.mockResolvedValue(sub);
+      const r = await syncAssignment(courseId, 'A1', { db, deps, grading: true });
+      expect(deps.refreshComments).not.toHaveBeenCalled();
+      expect(r.comments).toEqual({ queued: 0, skipped: true });
+    }
+    // A plain run starts the threads whatever happened (unchanged).
+    await syncAssignment(courseId, 'A1', { db, deps });
+    expect(deps.refreshComments).toHaveBeenCalledTimes(1);
+  });
+
   test('an archived course\'s task: no stamp (its submissions are not read), and a 404 removes nothing', async () => {
     db.prepare('UPDATE courses SET archived = 1 WHERE id = ?').run(courseId);
     deps.refreshTasks.mockResolvedValue({ refreshed: 0, readAt: null, failed: [] });

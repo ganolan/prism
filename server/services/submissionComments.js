@@ -152,20 +152,34 @@ export function studentsToRefresh(db, assignment) {
 }
 
 // Background refresh of one assignment's submitted cells older than maxAgeSec,
-// one GET at a time. A second call while one runs returns the running job.
-const inflight = new Map();
+// one GET at a time. A second call while one runs returns the running job. A
+// stricter call (a smaller maxAgeSec: the grading sync's 0) joining a looser job
+// (a page's) waits for it, then reads the students that job left older than the
+// call wants, measured from when the call was made (#170); its `done` then counts
+// both reads (`failed` is the second read's: a failed read keeps the old read time,
+// so the second read tries that student again).
+const inflight = new Map(); // assignment id → { info, done, maxAgeSec }
 export function refreshAssignment(db, assignmentId, { maxAgeSec = BACKGROUND_MAX_AGE_SEC } = {}) {
   const localId = resolveAssignmentId(db, assignmentId);
   const assignment = localId ? db.prepare('SELECT * FROM assignments WHERE id = ?').get(localId) : null;
   if (!assignment) throw new CommentError('NOT_FOUND', `Unknown assignment ${assignmentId}`, 404);
-  if (inflight.has(assignment.id)) {
-    const running = inflight.get(assignment.id);
-    return { ...running.info, done: running.done, joined: true };
+  return assignmentJob(db, assignment, { maxAgeSec, asOf: commentDeps.now() });
+}
+
+function assignmentJob(db, assignment, { maxAgeSec, asOf }) {
+  const running = inflight.get(assignment.id);
+  if (running) {
+    if (maxAgeSec >= running.maxAgeSec) return { ...running.info, done: running.done, joined: true };
+    const done = running.done.then(async (first) => {
+      const rest = await assignmentJob(db, assignment, { maxAgeSec, asOf }).done;
+      return { refreshed: (first?.refreshed ?? 0) + rest.refreshed, failed: rest.failed };
+    });
+    return { ...running.info, done, joined: true };
   }
   const course = db.prepare('SELECT * FROM courses WHERE id = ?').get(assignment.course_id);
   const due = studentsToRefresh(db, assignment).filter((st) => {
     const t = readThread(db, { assignmentId: assignment.id, studentId: st.id });
-    return !t.read_at_epoch || commentDeps.now() - t.read_at_epoch >= maxAgeSec;
+    return !t.read_at_epoch || asOf - t.read_at_epoch >= maxAgeSec;
   });
   const info = { queued: due.length };
   const done = (async () => {
@@ -176,7 +190,7 @@ export function refreshAssignment(db, assignmentId, { maxAgeSec = BACKGROUND_MAX
     }
     return { refreshed, failed };
   })().finally(() => inflight.delete(assignment.id));
-  inflight.set(assignment.id, { info, done });
+  inflight.set(assignment.id, { info, done, maxAgeSec });
   return { ...info, done };
 }
 

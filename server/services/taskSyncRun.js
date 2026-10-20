@@ -11,9 +11,11 @@
 // plain run is not a full read for grading) only when those read in full too: a OneDrive task has no Schoology
 // files, which is not a failure (`files.notNative`), and a source switched off in config.yaml
 // (`submission_comments`, `submission_files`) is skipped, reported as `disabled`, not a failure. A
-// plain run starts the threads and moves on.
+// plain run starts the threads and moves on. A grading run whose submissions read failed or lost the
+// sign-in is already failing: it reads no threads or files (`skipped`), and a thread job that
+// brings no `done` to wait on is an error, never a success (#170).
 import { getDb } from '../db/index.js';
-import { syncAssignment } from './assignmentSync.js';
+import { syncAssignment, submissionsRead } from './assignmentSync.js';
 import { refreshAssignmentMastery } from './masteryRefresh.js';
 import { refreshAssignmentFiles } from './submissionFiles.js';
 import { getFeatures } from '../middleware/featureGate.js';
@@ -35,7 +37,7 @@ export async function runTaskSync(request, emit, { db = getDb(), deps = {} } = {
   const title = taskRow()?.title ?? aid;
 
   emit({ phase: 'assignment', status: 'running', title });
-  const task = await d.syncAssignment(courseId, aid, { db });
+  const task = await d.syncAssignment(courseId, aid, { db, ...(request.grading ? { grading: true } : {}) });
   if (task.removed) {
     emit({ type: 'log', message: `"${title}": Deleted in Schoology` });
     emit({ phase: 'assignment', status: 'done', title, removed: true });
@@ -47,10 +49,16 @@ export async function runTaskSync(request, emit, { db = getDb(), deps = {} } = {
   let comments = task.comments ? commentsInfo : null;
   let files = null;
   let gradingError = null;
-  if (request.grading) {
+  const submissionsOk = submissionsRead(task.submissions);
+  if (request.grading && !submissionsOk) {
+    comments = { refreshed: 0, failed: 0, skipped: true };
+    files = { refreshed: 0, failed: 0, skipped: true };
+  } else if (request.grading) {
     const features = d.getFeatures();
     if (!features.submission_comments) comments = { refreshed: 0, failed: 0, disabled: true };
-    else comments = commentsInfo.error ? { refreshed: 0, failed: 0, error: commentsInfo.error } : await tally(threadsDone ?? { refreshed: 0, failed: 0 });
+    else if (commentsInfo.error) comments = { refreshed: 0, failed: 0, error: commentsInfo.error };
+    else if (!threadsDone) comments = { refreshed: 0, failed: 0, error: 'The comment threads were not read (no read job started)' };
+    else comments = await tally(threadsDone);
     if (comments.error || comments.failed) gradingError = comments.error || `${comments.failed} comment thread(s) not read`;
     else if (!features.submission_files) files = { refreshed: 0, failed: 0, disabled: true };
     else {
@@ -63,8 +71,6 @@ export async function runTaskSync(request, emit, { db = getDb(), deps = {} } = {
     }
   }
 
-  const submissionsOk = task.submissions?.refreshed > 0 && !task.submissions?.error && !task.submissions?.signIn
-    && !(task.submissions?.failed ?? []).length;
   emit(submissionsOk && !gradingError
     ? { phase: 'assignment', status: 'done', title }
     : { phase: 'assignment', status: 'error', title, message: task.submissions?.error || gradingError || 'Submissions not read' });

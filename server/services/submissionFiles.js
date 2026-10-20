@@ -98,20 +98,31 @@ export async function revisionsFor(db, { assignmentId, studentId, force = false,
   }
 }
 
-const stale = (db, assignmentId, studentId, maxAgeSec) => {
+const stale = (db, assignmentId, studentId, maxAgeSec, asOf = fileDeps.now()) => {
   const t = readRevisions(db, { assignmentId, studentId });
-  return !t.read_at_epoch || fileDeps.now() - t.read_at_epoch >= maxAgeSec;
+  return !t.read_at_epoch || asOf - t.read_at_epoch >= maxAgeSec;
 };
 
-// Read `pairs` ([{ assignment, course, student }]) one GET at a time under `key`;
-// a second call with the same key while one runs joins it. Nothing due: no job.
-const inflight = new Map();
+// Read the pairs `duePairs(asOf)` lists ([{ assignment, course, student }], due
+// as of `asOf`, epoch seconds) one GET at a time under `key`; a second call with
+// the same key while one runs joins it. A stricter call (a smaller maxAgeSec: the
+// grading sync's 0) joining a looser job waits for it, then reads the pairs still
+// due as of when the call was made (#170); its `done` counts both reads (`failed`
+// is the second read's: a failed read keeps the old read time, so it is tried
+// again). Nothing due: no job.
+const inflight = new Map(); // key → { info, done, maxAgeSec }
 export function resetFileQueues() { inflight.clear(); }
-function runQueue(db, key, pairs) {
-  if (inflight.has(key)) {
-    const running = inflight.get(key);
-    return { ...running.info, done: running.done, joined: true };
+function runQueue(db, key, { maxAgeSec, asOf = fileDeps.now() }, duePairs) {
+  const running = inflight.get(key);
+  if (running) {
+    if (maxAgeSec >= running.maxAgeSec) return { ...running.info, done: running.done, joined: true };
+    const done = running.done.then(async (first) => {
+      const rest = await runQueue(db, key, { maxAgeSec, asOf }, duePairs).done;
+      return { refreshed: (first?.refreshed ?? 0) + rest.refreshed, failed: rest.failed };
+    });
+    return { ...running.info, done, joined: true };
   }
+  const pairs = duePairs(asOf);
   const info = { queued: pairs.length };
   if (!pairs.length) return { ...info, done: Promise.resolve({ refreshed: 0, failed: 0 }) };
   const done = (async () => {
@@ -122,7 +133,7 @@ function runQueue(db, key, pairs) {
     }
     return { refreshed, failed };
   })().finally(() => inflight.delete(key));
-  inflight.set(key, { info, done });
+  inflight.set(key, { info, done, maxAgeSec });
   return { ...info, done };
 }
 
@@ -142,17 +153,18 @@ export function refreshAssignmentFiles(db, assignmentId, { maxAgeSec = OPEN_MAX_
     throw new FileError('NOT_NATIVE', 'This task takes OneDrive or Google Drive work, not Schoology uploads.', 409);
   }
   const course = db.prepare('SELECT * FROM courses WHERE id = ?').get(assignment.course_id);
-  const uploaded = new Set(getGradeMetaRows(db, assignment.schoology_assignment_id)
-    .filter((g) => g.submission_type === 'drop').map((g) => g.student_id));
-  const readBefore = new Set(db.prepare('SELECT student_id FROM submission_revision_reads WHERE assignment_id = ?')
-    .all(assignment.id).map((r) => r.student_id));
-  const due = course?.archived
-    ? (st) => !readRevisions(db, { assignmentId: assignment.id, studentId: st.id }).read_at_epoch
-    : (st) => (uploaded.has(st.id) || readBefore.has(st.id)) && stale(db, assignment.id, st.id, maxAgeSec);
-  const pairs = getRoster(db, assignment.course_id, assignment)
-    .filter((st) => st.schoology_uid && due(st))
-    .map((student) => ({ assignment, course, student }));
-  return runQueue(db, `a:${assignment.id}`, pairs);
+  return runQueue(db, `a:${assignment.id}`, { maxAgeSec }, (asOf) => {
+    const uploaded = new Set(getGradeMetaRows(db, assignment.schoology_assignment_id)
+      .filter((g) => g.submission_type === 'drop').map((g) => g.student_id));
+    const readBefore = new Set(db.prepare('SELECT student_id FROM submission_revision_reads WHERE assignment_id = ?')
+      .all(assignment.id).map((r) => r.student_id));
+    const due = course?.archived
+      ? (st) => !readRevisions(db, { assignmentId: assignment.id, studentId: st.id }).read_at_epoch
+      : (st) => (uploaded.has(st.id) || readBefore.has(st.id)) && stale(db, assignment.id, st.id, maxAgeSec, asOf);
+    return getRoster(db, assignment.course_id, assignment)
+      .filter((st) => st.schoology_uid && due(st))
+      .map((student) => ({ assignment, course, student }));
+  });
 }
 
 // ONE student's uploads across their current courses (the student page, #162):
@@ -175,11 +187,10 @@ export function refreshStudentFiles(db, studentId, { maxAgeSec = BACKGROUND_MAX_
     if (!courses.has(id)) courses.set(id, db.prepare('SELECT * FROM courses WHERE id = ?').get(id));
     return courses.get(id);
   };
-  const pairs = rows.filter((r) => stale(db, r.id, student.id, maxAgeSec)).map((r) => {
+  return runQueue(db, `s:${student.id}`, { maxAgeSec }, (asOf) => rows.filter((r) => stale(db, r.id, student.id, maxAgeSec, asOf)).map((r) => {
     const assignment = db.prepare('SELECT * FROM assignments WHERE id = ?').get(r.id);
     return { assignment, course: courseOf(assignment.course_id), student };
-  });
-  return runQueue(db, `s:${student.id}`, pairs);
+  }));
 }
 
 // One cached file (or, with copy 'converted', Schoology's converted copy of it),

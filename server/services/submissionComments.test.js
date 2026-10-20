@@ -196,6 +196,40 @@ describe('refreshAssignment', () => {
     await a.done;
   });
 
+  test('#170 item 2: a stricter caller (maxAgeSec 0) joining a page\'s job then reads what that job left older than its start', async () => {
+    const db = getDb(); const { assignmentId, ana, ben } = seed(db);
+    clock -= 300;
+    await threadFor(db, { assignmentId: '8590105935', studentId: ana, force: true }); // fresh enough for the page's 10 minutes
+    clock += 300;
+    const gates = [];
+    const real = commentDeps.getSubmissionComments;
+    commentDeps.getSubmissionComments = vi.fn((...a) => new Promise((resolve) => gates.push(() => resolve(real(...a)))));
+    const page = refreshAssignment(db, '8590105935'); // Ben only
+    expect(page.queued).toBe(1);
+    clock += 1;
+    const grading = refreshAssignment(db, '8590105935', { maxAgeSec: 0 });
+    expect(grading.joined).toBe(true);
+    clock += 5; // Ben's read lands after the grading call started: it counts
+    while (!gates.length) await new Promise((r) => setTimeout(r, 1));
+    gates.shift()();
+    expect(await page.done).toEqual({ refreshed: 1, failed: 0 }); // the page's own job is unchanged
+    while (!gates.length) await new Promise((r) => setTimeout(r, 1));
+    gates.shift()(); // the follow-up: Ana, read before the grading call started
+    expect(await grading.done).toEqual({ refreshed: 2, failed: 0 });
+    expect(commentDeps.getSubmissionComments.mock.calls.map((c) => c[2])).toEqual(['666', '555']);
+    expect(readThread(db, { assignmentId, studentId: ana }).read_at_epoch).toBe(clock);
+    expect(readThread(db, { assignmentId, studentId: ben }).read_at_epoch).toBe(clock);
+  });
+
+  test('#170 item 2: an equally strict or looser caller just joins (no second read)', async () => {
+    const db = getDb(); seed(db);
+    const first = refreshAssignment(db, '8590105935', { maxAgeSec: 0 });
+    const page = refreshAssignment(db, '8590105935');
+    expect(page.done).toBe(first.done);
+    await first.done;
+    expect(commentDeps.getSubmissionComments).toHaveBeenCalledTimes(2);
+  });
+
   test('summariesForCourse feeds the badges', async () => {
     const db = getDb(); const { courseId, ana, ben } = seed(db);
     await refreshAssignment(db, '8590105935').done;

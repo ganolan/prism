@@ -208,6 +208,31 @@ describe('refreshAssignmentFiles (PrisMCP get_assignment_context)', () => {
     expect(() => refreshAssignmentFiles(db, '8590105935')).toThrow(FileError);
   });
 
+  test('#170 item 2: a stricter caller (maxAgeSec 0) joining a running read then reads what it left older than its start', async () => {
+    const db = getDb(); const { ana, cy, assignmentId } = seed(db);
+    uploaded(db, ana, assignmentId);
+    clock -= 200;
+    await revisionsFor(db, { assignmentId: '8590105935', studentId: cy }); // read before: fresh for 5 minutes
+    clock += 200;
+    const gates = [];
+    const real = fileDeps.getSubmissionRevisions;
+    fileDeps.getSubmissionRevisions = vi.fn((...a) => new Promise((resolve) => gates.push(() => resolve(real(...a)))));
+    const first = refreshAssignmentFiles(db, '8590105935'); // Ana only
+    expect(first.queued).toBe(1);
+    clock += 1;
+    const grading = refreshAssignmentFiles(db, '8590105935', { maxAgeSec: 0 });
+    expect(grading.joined).toBe(true);
+    clock += 5;
+    while (!gates.length) await new Promise((r) => setTimeout(r, 1));
+    gates.shift()();
+    expect(await first.done).toEqual({ refreshed: 1, failed: 0 });
+    while (!gates.length) await new Promise((r) => setTimeout(r, 1));
+    gates.shift()(); // the follow-up: Cy, read before the grading call started
+    expect(await grading.done).toEqual({ refreshed: 2, failed: 0 });
+    expect(fileDeps.getSubmissionRevisions.mock.calls.map((c) => c[2])).toEqual(['555', '777']);
+    expect(readRevisions(db, { assignmentId, studentId: cy }).read_at_epoch).toBe(clock);
+  });
+
   test('archived course: every student on the roster is read once (the sync\'s upload marks are patchy there, #72), then never again', async () => {
     const db = getDb(); const { ana, cy, assignmentId } = seed(db);
     db.prepare('UPDATE courses SET archived = 1').run();

@@ -11,7 +11,7 @@ import { resolveAssignmentId } from '../server/services/idResolvers.js';
 import { LEVELS } from '../server/lib/proficiencyScale.js';
 import { getFeedbackRows } from '../server/services/feedbackRows.js';
 import { normalizeSubmissionStatus, gradingState, getRoster, scoreScaleFor, getAlignedTopics, getAssessmentContext } from '../server/services/assessmentContext.js';
-import { gradingSync } from '../server/services/gradingSync.js';
+import { gradingSync, GradingSyncError } from '../server/services/gradingSync.js';
 import { getFeatures } from '../server/middleware/featureGate.js';
 import { psAlertFieldsForAgents } from '../server/services/psAlertStore.js';
 import { preferredFirstName } from '../server/services/studentNames.js';
@@ -420,24 +420,28 @@ export function assertSchoologyWritable({ devCopy = false, env = process.env } =
 // Schoology sign-in has lapsed). A GradingSyncError (NOT_FOUND, SESSION_LAPSED, SYNC_FAILED,
 // SYNC_PENDING) is thrown for the tool wrapper to answer with its code.
 // The `*_source` fields say what the sync read (the run's summary), or that the answer is as last
-// read: a source switched off in config.yaml (submission_comments, submission_files) is never read.
+// read: a source switched off in config.yaml (submission_comments, submission_files) is never read,
+// and says so first (before the OneDrive note: switched off, nothing is read on any task). A
+// `course_id` that does not own the assignment is NOT_FOUND before any sync (#170).
 const STORED_NOTE = (at) => `Data as of ${at ?? 'never (this task has not been fully synced)'}. Sign in to Schoology for a fresh sync.`;
 
+// `task` is the assignment row gradingSync resolved (r.task), else read here.
 function contextSources(db, { assignment_id }, r) {
   const features = getFeatures();
-  const localId = resolveAssignmentId(db, assignment_id);
-  const task = db.prepare('SELECT is_lti_submission, grading_synced_at FROM assignments WHERE id = ?').get(localId);
+  const task = r.task ?? db.prepare('SELECT is_lti_submission, grading_synced_at FROM assignments WHERE id = ?')
+    .get(resolveAssignmentId(db, assignment_id));
   const run = r.summary ?? {};
   const kept = r.state === 'stored';
   // A fresh answer ran no sync of its own, so its counts are 0: say the earlier grading sync read them.
   const note = kept ? { note: STORED_NOTE(r.dataAsOf) }
     : r.state === 'fresh' ? { note: `read by the grading sync at ${task?.grading_synced_at ?? r.dataAsOf}, under 5 minutes ago` } : {};
+  const off = (feature, part) => !features[feature] || part?.disabled;
   const asRead = (feature, part) => {
-    if (!features[feature] || part?.disabled) return { refreshed: 0, failed: 0, cached_only: true, note: `${feature} is off in config.yaml` };
+    if (off(feature, part)) return { refreshed: 0, failed: 0, cached_only: true, note: `${feature} is off in config.yaml` };
     if (kept) return { refreshed: 0, failed: 0, cached_only: true, ...note };
     return { refreshed: part?.refreshed ?? 0, failed: part?.failed ?? 0, cached_only: false, ...note };
   };
-  const files = task?.is_lti_submission || run.files?.notNative
+  const files = !off('submission_files', run.files) && (task?.is_lti_submission || run.files?.notNative)
     ? { refreshed: 0, failed: 0, cached_only: true, note: 'this task takes OneDrive or Google Drive work, not Schoology uploads: submission_files is empty' }
     : asRead('submission_files', run.files);
   return {
@@ -448,13 +452,20 @@ function contextSources(db, { assignment_id }, r) {
 }
 
 export async function getAssignmentContextTool(db, { course_id, assignment_id, use_stored_data } = {}, { sync = gradingSync, syncOptions = {} } = {}) {
+  if (course_id != null && course_id !== '') {
+    const localId = resolveAssignmentId(db, assignment_id);
+    const owner = localId && db.prepare('SELECT course_id FROM assignments WHERE id = ?').get(localId)?.course_id;
+    if (owner != null && String(owner) !== String(course_id)) {
+      throw new GradingSyncError('NOT_FOUND', `Assignment ${assignment_id} is not in course ${course_id} (it is in course ${owner}): nothing was synced.`);
+    }
+  }
   const r = await sync(db, assignment_id, { useStoredData: use_stored_data === true, ...syncOptions });
   const ctx = getAssessmentContext(db, { courseId: course_id, assignmentId: assignment_id });
   if (!ctx) return ctx;
   // What this grading session was given, and when: recorded as a serve whose id (context_id) the
   // grader passes back on write, so the suggestions it writes later (possibly after a long run) are
   // judged stale by the age of THIS data, not by what a sync stamped by then.
-  const contextId = recordServe(db, { assignmentId: resolveAssignmentId(db, assignment_id), dataAsOf: r.dataAsOf ?? 'never' });
+  const contextId = recordServe(db, { assignmentId: r.task?.id ?? resolveAssignmentId(db, assignment_id), dataAsOf: r.dataAsOf ?? 'never' });
   return {
     ...(r.state === 'stored' ? { stale_data: STORED_NOTE(r.dataAsOf) } : {}),
     ...ctx, ...contextSources(db, { assignment_id }, r), data_as_of: r.dataAsOf, context_id: contextId,

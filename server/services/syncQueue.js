@@ -6,7 +6,8 @@
 //
 //   request = { kind: 'all' | 'courses' | 'task', courseIds?, masteryCourseIds?, courseId?,
 //               assignmentId?, grading?, includeHidden?, syncBlocks?, skipSchoology?,
-//               refreshQuizzes?, trigger: 'page' | 'button' | 'scheduled', force? }
+//               refreshQuizzes?, trigger: 'page' | 'button' | 'scheduled', force?,
+//               sessionCheckedAt?, sessionLive? }
 //             | { kind: 'quiz', groupId, trigger: 'button', noHold: true }   (quizRun.js)
 //
 // Joining: a request whose courses (and options: PowerSchool, quizzes, hidden courses) a queued,
@@ -16,7 +17,9 @@
 // mastery-only or blocks-only retry (skipSchoology) covers nothing. A grading sync (kind 'task',
 // grading: true; PrisMCP's get_assignment_context, #131) also waits for the task's comment threads
 // and reads its files, which a course run does not: it joins only a grading run of the same task,
-// while a plain task request may join a grading run (it reads more). A quiz load (kind 'quiz',
+// while a plain task request may join a grading run (it reads more). A grading request that finds
+// a QUEUED plain run of its task upgrades it to a grading run and joins it (lifted as a button); a
+// running plain run may have read the task already, so it is never joined (#170). A quiz load (kind 'quiz',
 // #131: loading a linked quiz's attempts, from PrisMCP or the page's Load button) joins only a
 // queued or running load of the same group, and covers no course or task. It records no attempt
 // stamp. `noHold`: a caller is waiting on it, so a lapsed session ends it failed (a NO_SESSION
@@ -26,6 +29,8 @@
 // session is checked (renewed when possible). 'expired' or 'none' holds it until a sign-in
 // (resumeHeld); 'unknown' (Schoology not reached) runs it, and it fails visibly. The nightly run is
 // never held: nobody can sign in at 03:00. A run whose mastery hit a sign-in error is held too.
+// A caller that checked the session itself (gradingSync) passes when (`sessionCheckedAt`, ms) and
+// what it found (`sessionLive`): a check under SESSION_CHECK_MS old is not made again (#170).
 import { getDb } from '../db/index.js';
 import { runUnifiedSync } from './syncOrchestrator.js';
 import { appendEvent, finishRun, pruneRuns, KEEP_RUNS } from './syncRuns.js';
@@ -36,6 +41,8 @@ import { runQuizLoad } from './quizRun.js';
 export const SYNC_FRESH_MS = 10 * 60 * 1000;
 // How long a caller waits for a queue run before answering with the run id.
 export const TOOL_WAIT_MS = 50_000;
+// A session check this recent (a caller's own, carried on the request) is not made again.
+export const SESSION_CHECK_MS = 60_000;
 
 export const queueDeps = { sessionStatus, runUnifiedSync, runTaskSync, runQuizLoad, getDb };
 
@@ -49,10 +56,20 @@ export function resetQueue() {
   running = null; queue = []; held = []; pumping = null; waiters.clear();
 }
 
-// Resolves with the run's final status once it finishes (or 'held'). For the nightly run.
+// Resolves with the run's final status once it finishes (or 'held'). A caller that stops waiting
+// (a tool's wait ran out) calls the promise's cancel(), so waiters do not pile up on a long run.
 export function whenDone(runId) {
-  return new Promise((resolve) => waiters.set(runId, [...(waiters.get(runId) ?? []), resolve]));
+  let mine;
+  const done = new Promise((resolve) => { mine = resolve; waiters.set(runId, [...(waiters.get(runId) ?? []), resolve]); });
+  done.cancel = () => {
+    const left = (waiters.get(runId) ?? []).filter((r) => r !== mine);
+    if (left.length) waiters.set(runId, left); else waiters.delete(runId);
+  };
+  return done;
 }
+
+// How many callers wait on a run (tests).
+export const waiterCount = (runId) => (waiters.get(runId) ?? []).length;
 
 // The scheduler's launch: queue a request and follow it to its end → { runId, done }.
 export function launchQueued(request) {
@@ -88,6 +105,10 @@ const extras = (request) => ({
   refreshQuizzes: !!request.refreshQuizzes,
 });
 
+// A queued plain task run (not started yet; runOne reads its request after the session check)
+// can become a grading run.
+const upgradable = (entry) => queue.includes(entry);
+
 function covers(entry, request) {
   if (entry.request.skipSchoology) return false;
   if (request.kind === 'quiz' || entry.request.kind === 'quiz') {
@@ -100,7 +121,7 @@ function covers(entry, request) {
   if (request.kind === 'task') {
     const same = entry.request.kind === 'task' && Number(entry.request.courseId) === Number(request.courseId)
       && String(entry.request.assignmentId) === String(request.assignmentId);
-    if (request.grading) return same && !!entry.request.grading;
+    if (request.grading) return same && (!!entry.request.grading || upgradable(entry));
     return same || ids.has(Number(request.courseId));
   }
   const need = coveredCourseIds(request);
@@ -138,21 +159,47 @@ function place(entry) {
   if (firstPage >= 0) queue.splice(firstPage, 0, entry); else queue.push(entry);
 }
 
+// What a joining request adds to the run it joins: a grading request upgrades a plain task run, a
+// lifted page run becomes a button run, and a newer session check (gradingSync's) replaces an older
+// one. Recorded on the run's row too.
+function absorb(entry, request, { lift = false } = {}) {
+  const was = entry.request;
+  const next = { ...was };
+  if (request.grading && !next.grading) next.grading = true;
+  if (lift) next.trigger = 'button';
+  if (request.sessionCheckedAt && !(next.sessionCheckedAt >= request.sessionCheckedAt)) {
+    next.sessionCheckedAt = request.sessionCheckedAt;
+    next.sessionLive = request.sessionLive;
+  }
+  if (next.grading === was.grading && next.trigger === was.trigger && next.sessionCheckedAt === was.sessionCheckedAt) return;
+  entry.request = next;
+  try {
+    db().prepare('UPDATE sync_runs SET options_json = ? WHERE id = ?')
+      .run(JSON.stringify({ ...next, coveredCourseIds: next.kind === 'task' ? [Number(next.courseId)] : entry.covered }), entry.runId);
+  } catch (err) {
+    console.error('[sync] Could not record the joined request:', err.message);
+  }
+}
+
 // Queue a request (or join one that covers it). → { runId, state: 'queued' | 'running' | 'held', joined }.
 export function enqueue(request) {
   if (!request.force && running && covers(running, request)) return { runId: running.runId, state: 'running', joined: true };
   const queuedCover = queue.find((e) => covers(e, request));
   if (queuedCover) {
     // A button lifts the page run it joins ahead of the other page runs (not the head being checked).
-    if (request.trigger === 'button' && queuedCover.request.trigger === 'page' && queuedCover !== queue[0]) {
+    const lift = request.trigger === 'button' && queuedCover.request.trigger === 'page' && queuedCover !== queue[0];
+    absorb(queuedCover, request, { lift });
+    if (lift) {
       queue.splice(queue.indexOf(queuedCover), 1);
-      queuedCover.request = { ...queuedCover.request, trigger: 'button' };
       place(queuedCover);
     }
     return { runId: queuedCover.runId, state: 'queued', joined: true };
   }
   const heldCover = held.find((e) => covers(e, request));
-  if (heldCover) return { runId: heldCover.runId, state: 'held', joined: true };
+  if (heldCover) {
+    absorb(heldCover, request);
+    return { runId: heldCover.runId, state: 'held', joined: true };
+  }
 
   const covered = request.kind === 'task' ? [Number(request.courseId)] : coveredCourseIds(request);
   const runId = Number(db().prepare(
@@ -171,6 +218,8 @@ function lastFailedRun(d, { courseIds = [], task = null }) {
     let o = {};
     try { o = JSON.parse(r.options_json || '{}'); } catch { o = {}; }
     if (task && o.kind === 'task' && String(o.assignmentId) === String(task.assignmentId)) return r.id;
+    // A task or quiz run is not a course's sync: its failure is not the course's (#170).
+    if (o.kind === 'task' || o.kind === 'quiz') continue;
     const ids = (o.coveredCourseIds ?? o.courseIds ?? []).map(Number);
     if (courseIds.some((id) => ids.includes(id))) return r.id;
   }
@@ -227,14 +276,17 @@ export function ensure(scope, { now = Date.now() } = {}) {
 }
 
 // After a sign-in (or a run whose session check passed): every held request runs again, as the
-// same run, its earlier attempt's error and warning counts cleared and a line in its log.
-export function resumeHeld() {
-  const back = held;
-  held = [];
+// same run, its earlier attempt's error and warning counts cleared and a line in its log. With
+// `runId`, only that run: a caller waiting on it whose session check did not reach Schoology
+// ('unknown') runs it, so it fails visibly instead of staying held (#170).
+export function resumeHeld({ runId = null } = {}) {
+  const back = runId == null ? held : held.filter((e) => e.runId === runId);
+  held = held.filter((e) => !back.includes(e));
   const d = db();
+  const message = runId == null ? 'Signed in to Schoology: running again.' : 'Asked for again: running again.';
   for (const e of back) {
     d.prepare(`UPDATE sync_runs SET status = 'queued', error_count = 0, warning_count = 0 WHERE id = ?`).run(e.runId);
-    try { appendEvent(d, e.runId, { type: 'log', message: 'Signed in to Schoology: running again.', restart: true }); } catch { /* the log is best effort */ }
+    try { appendEvent(d, e.runId, { type: 'log', message, restart: true }); } catch { /* the log is best effort */ }
     queue.push(e);
   }
   pump();
@@ -299,15 +351,22 @@ function recordAttempt(d, entry) {
 }
 
 async function runOne(entry) {
-  const { request, runId } = entry;
+  const { runId } = entry;
   const d = db();
-  if (request.trigger !== 'scheduled') {
-    let live = 'unknown';
-    try { live = (await queueDeps.sessionStatus({ refresh: true }))?.live ?? 'unknown'; } catch { live = 'unknown'; }
-    if (live === 'expired' || live === 'none') return request.noHold ? failNoSession(d, entry, live) : hold(entry);
+  if (entry.request.trigger !== 'scheduled') {
+    const asked = entry.request;
+    // The caller's own check, under a minute old, stands (one check per call, #170).
+    const recent = asked.sessionCheckedAt && Date.now() - asked.sessionCheckedAt < SESSION_CHECK_MS;
+    let live = recent ? (asked.sessionLive ?? 'unknown') : 'unknown';
+    if (!recent) {
+      try { live = (await queueDeps.sessionStatus({ refresh: true }))?.live ?? 'unknown'; } catch { live = 'unknown'; }
+    }
+    if (live === 'expired' || live === 'none') return entry.request.noHold ? failNoSession(d, entry, live) : hold(entry);
     // The session works again: what waited for a sign-in runs after this.
     if (live === 'connected' && held.length) resumeHeld();
   }
+  // Read after the check: a grading request may have upgraded this run while it waited (#170).
+  const request = entry.request;
   leaveQueue(entry);
   running = entry;
   d.prepare(`UPDATE sync_runs SET status = 'running', started_at = ? WHERE id = ?`).run(new Date().toISOString(), runId);

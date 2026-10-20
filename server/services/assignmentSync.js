@@ -3,15 +3,19 @@
 // submission comment threads (started, not awaited: the page polls them; the grading sync, #131,
 // awaits the job's `done`). The route reads the
 // mastery scores beside this. A task Schoology answers 404 for was deleted there: it is marked
-// removed, as the full sync would, and nothing else is read.
+// removed, as the full sync would, and nothing else is read. A grading sync (`grading`) whose
+// submissions read failed, or lost the sign-in, is already failing: it starts no thread read (#170).
 import { getDb } from '../db/index.js';
 import { getSectionAssignment } from './schoology.js';
 import { writeAssignments } from './taskAssignments.js';
 import { refreshTasks } from './taskRefresh.js';
 import { refreshAssignment } from './submissionComments.js';
 
-// → { removed: true } | { removed: false, submissions, comments: { queued, done?, error? } }.
-export async function syncAssignment(courseId, schoologyAssignmentId, { db = getDb(), deps = {} } = {}) {
+// Whether the submissions read (refreshTasks' answer) read the task in full.
+export const submissionsRead = (s) => s?.refreshed > 0 && !s?.error && !s?.signIn && !(s?.failed ?? []).length;
+
+// → { removed: true } | { removed: false, submissions, comments: { queued, done?, error?, skipped? } }.
+export async function syncAssignment(courseId, schoologyAssignmentId, { db = getDb(), deps = {}, grading = false } = {}) {
   const d = { getSectionAssignment, refreshTasks, refreshComments: refreshAssignment, now: Date.now, ...deps };
   const course = db.prepare('SELECT id, schoology_section_id, archived FROM courses WHERE id = ?').get(Number(courseId));
   const task = course && db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ? AND course_id = ?')
@@ -38,6 +42,7 @@ export async function syncAssignment(courseId, schoologyAssignmentId, { db = get
   // An archived course's task is read too: only Sync Assignment reaches it (pages leave it alone).
   const submissions = await d.refreshTasks([task.id], { db, force: true, mastery: false, includeArchived: true });
   let comments = { queued: 0 };
+  if (grading && !submissionsRead(submissions)) return { removed: false, submissions, comments: { queued: 0, skipped: true } };
   try {
     const job = d.refreshComments(db, task.id, { maxAgeSec: 0 });
     job.done?.catch((err) => console.error('[sync assignment] comment refresh failed:', err.message));

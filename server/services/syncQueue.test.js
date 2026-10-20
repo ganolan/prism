@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../db/index.js';
-import { enqueue, currentSync, resumeHeld, queueDeps, resetQueue, idle, ensure, SYNC_FRESH_MS } from './syncQueue.js';
+import { enqueue, currentSync, resumeHeld, queueDeps, resetQueue, idle, ensure, whenDone, waiterCount, SYNC_FRESH_MS } from './syncQueue.js';
 import { markInterruptedRuns } from './syncRuns.js';
 
 // A controllable run: each started run waits until the test finishes it.
@@ -324,6 +324,35 @@ describe('the sync queue', () => {
       expect(ensure({ kind: 'courses', courseIds: [a] }).state).toBe('failed');
     });
 
+    test('#170 item 8: a course scope\'s "Sync failed" chip ignores failed task and quiz runs', () => {
+      const add = (status, o) => getDb().prepare(`INSERT INTO sync_runs (started_at, status, options_json) VALUES (datetime('now'), ?, ?)`)
+        .run(status, JSON.stringify(o)).lastInsertRowid;
+      const courseRun = add('failed', { kind: 'courses', courseIds: [a], coveredCourseIds: [a] });
+      add('failed', { kind: 'task', courseId: a, assignmentId: 'T1', coveredCourseIds: [a] });
+      add('failed', { kind: 'quiz', groupId: 3, coveredCourseIds: [a] });
+      getDb().prepare('UPDATE courses SET course_synced_at = ?, sync_attempted_at = ? WHERE id = ?').run(iso(SYNC_FRESH_MS * 3), iso(60_000), a);
+      expect(ensure({ kind: 'courses', courseIds: [a] })).toEqual({ state: 'failed', runId: courseRun });
+    });
+
+    test('#170 item 8: a task scope still finds its own failed run', () => {
+      const t = getDb().prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, task_sync_attempted_at) VALUES (?, 'T1', 'T', ?)`)
+        .run(a, iso(60_000)).lastInsertRowid;
+      const run = getDb().prepare(`INSERT INTO sync_runs (started_at, status, options_json) VALUES (datetime('now'), 'failed', ?)`)
+        .run(JSON.stringify({ kind: 'task', courseId: a, assignmentId: 'T1', coveredCourseIds: [a] })).lastInsertRowid;
+      expect(ensure({ kind: 'task', courseId: a, assignmentId: 'T1' })).toEqual({ state: 'failed', runId: run });
+      expect(t).toBeGreaterThan(0);
+    });
+
+    test('#170 item 9: a waiter that gives up is removed', async () => {
+      gatedRuns();
+      const r = enqueue({ kind: 'courses', courseIds: [a], trigger: 'page' });
+      const w = whenDone(r.runId);
+      whenDone(r.runId);
+      expect(waiterCount(r.runId)).toBe(2);
+      w.cancel();
+      expect(waiterCount(r.runId)).toBe(1);
+    });
+
     test('minor: a PowerSchool-only retry reads every course (not an empty list)', async () => {
       const runs = gatedRuns();
       enqueue({ kind: 'courses', courseIds: [], masteryCourseIds: [], skipSchoology: true, syncBlocks: true, trigger: 'button', force: true });
@@ -405,13 +434,66 @@ describe('the sync queue', () => {
       expect(enqueue({ ...grading, courseId: a, assignmentId: '951' }).joined).toBe(false);
     });
 
-    test('a grading request never joins a course run or a plain task run of that task', () => {
+    // #170: this test also covered a QUEUED plain task run, which a grading request now upgrades
+    // and joins (item 1 below); a RUNNING plain run is still never joined.
+    test('a grading request never joins a course run', () => {
       gatedRuns();
       const course = enqueue({ kind: 'courses', courseIds: [a], trigger: 'page' });
-      const plain = enqueue({ kind: 'task', courseId: a, assignmentId: '950', trigger: 'page' });
       const g = enqueue({ ...grading, courseId: a });
       expect(g.joined).toBe(false);
-      expect([course.runId, plain.runId]).not.toContain(g.runId);
+      expect(g.runId).not.toBe(course.runId);
+    });
+
+    test('#170 item 1: a grading request upgrades a QUEUED plain run of the task (joins it, lifts it as a button)', async () => {
+      const runs = gatedRuns();
+      enqueue({ kind: 'courses', courseIds: [b], trigger: 'page' }); // runs, so the next ones wait
+      await tick();
+      const c = getDb().prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sc', 'C')`).run().lastInsertRowid;
+      const other = enqueue({ kind: 'courses', courseIds: [c], trigger: 'page' });
+      const plain = enqueue({ kind: 'task', courseId: a, assignmentId: '950', trigger: 'page' });
+      const g = enqueue({ ...grading, courseId: a });
+      expect(g).toMatchObject({ runId: plain.runId, state: 'queued', joined: true });
+      expect(currentSync().queued.map((q) => q.runId)).toEqual([plain.runId, other.runId]);
+      expect(JSON.parse(getDb().prepare('SELECT options_json FROM sync_runs WHERE id = ?').get(plain.runId).options_json))
+        .toMatchObject({ grading: true, trigger: 'button' });
+      runs[0].finish(); await tick();
+      expect(runs[1].request).toMatchObject({ kind: 'task', assignmentId: '950', grading: true, trigger: 'button' });
+      runs[1].finish(); await tick();
+      runs[2].finish(); await idle();
+    });
+
+    test('#170 item 1: a RUNNING plain run of the task is not joined', async () => {
+      const runs = gatedRuns();
+      const plain = enqueue({ kind: 'task', courseId: a, assignmentId: '950', trigger: 'page' });
+      await tick();
+      expect(status(plain.runId)).toBe('running');
+      const g = enqueue({ ...grading, courseId: a });
+      expect(g.joined).toBe(false);
+      expect(runs[0].request.grading).toBeUndefined();
+      runs[0].finish(); await tick();
+      expect(runs[1].request).toMatchObject({ grading: true });
+      runs[1].finish(); await idle();
+    });
+
+    test('#170 item 6: a request whose session was checked under 60 s ago is not checked again', async () => {
+      const runs = gatedRuns();
+      enqueue({ ...grading, courseId: a, sessionCheckedAt: Date.now() - 5_000, sessionLive: 'connected' });
+      await tick();
+      expect(queueDeps.sessionStatus).not.toHaveBeenCalled();
+      expect(runs).toHaveLength(1);
+      runs[0].finish(); await idle();
+      enqueue({ ...grading, courseId: a, sessionCheckedAt: Date.now() - 61_000, sessionLive: 'connected' });
+      await tick();
+      expect(queueDeps.sessionStatus).toHaveBeenCalledTimes(1);
+      runs[1].finish(); await idle();
+    });
+
+    test('#170 item 6: a scheduled run is never checked, whatever it carries', async () => {
+      const runs = gatedRuns();
+      enqueue({ kind: 'all', trigger: 'scheduled' });
+      await tick();
+      expect(queueDeps.sessionStatus).not.toHaveBeenCalled();
+      runs[0].finish(); await idle();
     });
 
     test('a plain task request joins a queued grading run (it reads more)', async () => {

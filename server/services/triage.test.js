@@ -8,7 +8,7 @@ import { storeSchoolDays } from './schoolCalendar.js';
 import { updateTriageSettings } from './settings.js';
 import {
   getTriage, recordReferral, undoReferral, listReferrals, recordExtension, undoExtension, listExtensions, toneFor, TriageError,
-  setMakeUpIgnored, triageRefreshTargets, courseRefreshTargets,
+  setMakeUpIgnored,
 } from './triage.js';
 import { requestResubmission, gradeStands } from './resubmissions.js';
 import { captureFeedbackSnapshots } from './feedbackSnapshots.js';
@@ -1037,36 +1037,3 @@ describe('waive: a late submission past the limit is not referred', () => {
 });
 
 
-describe('refresh targets (#108)', () => {
-  test('triageRefreshTargets: the listed tasks plus unchecked past-due tests, not ignored ones', () => {
-    const ada = student('u1', 'Ada', 'L');
-    const late = assignment('A-LATE', 'Essay', '2026-10-12');
-    const done = assignment('A-DONE', 'Done', '2026-10-12');
-    grade(ada, done, { submission_type: 'drop', latest_revision_at: epoch('2026-10-12'), score: 3, grade_comment: 'Well done' });
-    scoreTopic('u1', 'A-DONE');
-    // Formative (unaligned) tests: on no list, so only the unchecked-test rule adds them.
-    const unchecked = testItem('T-UNK', 'Quiz', '2026-10-14', { status: 'failed', summative: false });
-    const ignored = testItem('T-IGN', 'Quiz 2', '2026-10-14', { status: 'failed', summative: false });
-    db.prepare('UPDATE assignments SET makeup_ignored = 1 WHERE id = ?').run(ignored);
-    const ids = triageRefreshTargets(db, { today: TODAY, now: AFTER_SCHOOL, includeFormative: false });
-    expect(ids).toContain(late);
-    expect(ids).toContain(unchecked);
-    expect(ids).not.toContain(ignored);
-    expect(ids).not.toContain(done);
-    expect(new Set(ids).size).toBe(ids.length);
-  });
-
-  test('courseRefreshTargets: tasks due in the last 30 days or later, plus open resubmission requests', () => {
-    const recent = assignment('A-10', 'Recent', '2026-10-06');
-    const old = assignment('A-60', 'Old', '2026-08-17');
-    const asked = assignment('A-90', 'Asked', '2026-07-18');
-    const future = assignment('A-NEXT', 'Next', '2026-10-30');
-    const paper = assignment('A-PAPER', 'Paper', '2026-10-06', { accepts: 0 });
-    const ada = student('u1', 'Ada', 'L', { dropped: true });
-    db.prepare(`INSERT INTO resubmissions (student_id, assignment_id, course_id, kind, status) VALUES (?, ?, ?, 'request', 'open')`).run(ada, asked, courseId);
-    const ids = courseRefreshTargets(db, courseId, { today: TODAY, now: AFTER_SCHOOL });
-    expect(ids).toEqual(expect.arrayContaining([recent, asked, future]));
-    expect(ids).not.toContain(old);
-    expect(ids).not.toContain(paper);
-  });
-});

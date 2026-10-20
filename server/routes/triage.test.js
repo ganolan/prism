@@ -4,10 +4,8 @@ import express from 'express';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 // Status-line publishing reads/writes the student's Schoology comment — never for real.
 vi.mock('../services/schoology.js', () => ({ getSectionGrades: vi.fn(), pushGradeComments: vi.fn() }));
-vi.mock('../services/taskRefresh.js', () => ({ refreshTasks: vi.fn() }));
 
 import router from './triage.js';
-import { refreshTasks } from '../services/taskRefresh.js';
 import { getDb } from '../db/index.js';
 import { getSectionGrades, pushGradeComments } from '../services/schoology.js';
 import { addDays, todayLocal } from '../lib/schoolDays.js';
@@ -732,15 +730,3 @@ describe('GET /api/triage/pair', () => {
   });
 });
 
-describe('POST /api/triage/refresh (#108)', () => {
-  test('reads the tasks the triage lists show and answers the read', async () => {
-    const db = getDb();
-    const unchecked = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, published, is_test, test_fetch_status)
-      VALUES (?, 'T-R', 'Quiz', '2026-01-05 14:00:00', 1, 1, 'failed')`).run(courseId).lastInsertRowid;
-    refreshTasks.mockReset().mockResolvedValue({ refreshed: 1, readAt: '2026-10-19T15:00:00.000Z', failed: [] });
-    const r = await call('POST', '/api/triage/refresh', { courseId });
-    expect(r).toEqual({ status: 200, body: { refreshed: 1, readAt: '2026-10-19T15:00:00.000Z', failed: [] } });
-    expect(refreshTasks).toHaveBeenCalledTimes(1);
-    expect(refreshTasks.mock.calls[0][0]).toContain(unchecked);
-  });
-});

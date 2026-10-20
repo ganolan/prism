@@ -5,7 +5,6 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 vi.mock('../services/archivedCourses.js', () => ({ getArchivedSections: vi.fn() }));
 vi.mock('../services/schoology.js', () => ({ apiGet: vi.fn(), apiPut: vi.fn() }));
-vi.mock('../services/taskRefresh.js', () => ({ refreshTasks: vi.fn() }));
 vi.mock('../services/sync.js', () => ({
   finalizeArchivedCourse: vi.fn().mockResolvedValue({ studentsCount: 1, assignmentsCount: 2, gradesCount: 3 }),
   enrichStudentProfiles: vi.fn().mockResolvedValue(1),
@@ -15,7 +14,6 @@ vi.mock('../services/sync.js', () => ({
 vi.mock('../services/psAttendanceSync.js', () => ({ syncPsAttendance: vi.fn().mockResolvedValue({ processed: 1, updated: 1, unchanged: 0, skipped: 0, results: [] }) }));
 
 import router from './courses.js';
-import { refreshTasks } from '../services/taskRefresh.js';
 import { getDb } from '../db/index.js';
 import { getArchivedSections } from '../services/archivedCourses.js';
 import { apiGet, apiPut } from '../services/schoology.js';
@@ -534,21 +532,3 @@ describe('PUT /api/courses/:id/assessments/:assignmentId/published (#138)', () =
   });
 });
 
-describe('POST /api/courses/:id/refresh (#108)', () => {
-  test('reads the course\'s recent tasks; 404 for an unknown course; nothing for an archived one', async () => {
-    const db = getDb();
-    const course = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-refresh', 'C')`).run().lastInsertRowid;
-    const soon = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
-    const task = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, due_date, published, accepts_submissions)
-      VALUES (?, 'A-refresh', 'Task', ?, 1, 1)`).run(course, `${soon} 15:30:00`).lastInsertRowid;
-    refreshTasks.mockReset().mockResolvedValue({ refreshed: 1, readAt: null, failed: [] });
-    expect(await post(`/api/courses/${course}/refresh`, {})).toEqual({ status: 200, body: { refreshed: 1, readAt: null, failed: [] } });
-    expect(refreshTasks.mock.calls[0][0]).toEqual([task]);
-    // Mastery only for the triage panel's tasks (none here); the page reads the course's mastery itself.
-    expect(refreshTasks.mock.calls[0][1]).toEqual({ mastery: [] });
-    expect((await post('/api/courses/99999/refresh', {})).status).toBe(404);
-    const old = db.prepare(`INSERT INTO courses (schoology_section_id, course_name, archived) VALUES ('sec-old', 'C', 1)`).run().lastInsertRowid;
-    expect((await post(`/api/courses/${old}/refresh`, {})).body).toEqual({ refreshed: 0, readAt: null, failed: [] });
-    expect(refreshTasks).toHaveBeenCalledTimes(1);
-  });
-});

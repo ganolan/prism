@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
 import {
-  getTriage, triageRefreshTargets, listReferrals, recordReferral, undoReferral,
+  getTriage, listReferrals, recordReferral, undoReferral,
   listExtensions, recordExtension, undoExtension, setMakeUpIgnored, assertCanExtend, TriageError,
 } from '../services/triage.js';
 import {
@@ -19,7 +19,6 @@ import { lessonPlan } from '../services/lessonPlan.js';
 import { timelineForPair, pairState } from '../services/submissionTimeline.js';
 import { todayLocal } from '../lib/schoolDays.js';
 import { getUnfinishedGrading } from '../services/unfinishedGrading.js';
-import { refreshTasks } from '../services/taskRefresh.js';
 
 const router = Router();
 const STATUS = {
@@ -97,20 +96,6 @@ router.get('/', (req, res) => {
     // Unfinished work with no clock (drafts, hidden feedback, flags): the Unfinished grading panel.
     unfinishedGrading: getUnfinishedGrading(db, { courseId }),
   });
-});
-
-// POST /api/triage/refresh { courseId?, includeFormative? } — the triage view asks this after it
-// loads (#108): read the submissions and scores of the tasks on its lists from Schoology (each
-// task at most every 2 minutes). → { refreshed, readAt, failed, error?, signIn? }; the view
-// reloads its lists when `refreshed` > 0.
-router.post('/refresh', async (req, res) => {
-  try {
-    const { courseId = null, includeFormative } = req.body || {};
-    const ids = triageRefreshTargets(getDb(), { courseId, includeFormative: typeof includeFormative === 'boolean' ? includeFormative : undefined });
-    res.json(await refreshTasks(ids));
-  } catch (err) {
-    sendError(res, err);
-  }
 });
 
 // GET /api/triage/calendar — school-calendar freshness only (source,

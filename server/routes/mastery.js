@@ -4,8 +4,7 @@ import { hasMasterySession, writeMasteryScores, writeMasteryScoresBatch, writeMa
 import { pushGradeComments, getSectionGrades } from '../services/schoology.js';
 import { settleResubmissions, resubmissionByStudent, arrivedKeys, pairResubmissionFields } from '../services/resubmissions.js';
 import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
-import { refreshCourseMastery, refreshAssignmentMastery } from '../services/masteryRefresh.js';
-import { refreshTasks } from '../services/taskRefresh.js';
+import { refreshCourseMastery } from '../services/masteryRefresh.js';
 import { enqueue } from '../services/syncQueue.js';
 import { STATUS_LINE_KINDS, putSucceeded, checkLine, lockPair, withCheckedLine } from '../services/statusLinePublisher.js';
 import { getFeedbackRows, getRowLevels, rowLevelsError, saveRowLevels } from '../services/feedbackRows.js';
@@ -75,19 +74,6 @@ router.post('/sync/:courseId', async (req, res) => {
     res.json({ ...r.result, syncedAt: r.syncedAt });
   } catch (err) {
     db.prepare(`UPDATE sync_log SET status = 'error', error_message = ?, completed_at = ? WHERE id = ?`).run(err.message, new Date().toISOString(), syncId);
-    res.status(err.code === 'NOT_FOUND' ? 404 : 500).json({ error: err.message });
-  }
-});
-
-// POST /api/mastery/:courseId/refresh — the pages showing a course's mastery ask this after they load
-// (#52): read from Schoology unless read under 2 minutes ago. Always 200 (404 for an unknown course):
-// { refreshed, syncedAt, error?, signIn? } — the page reloads its mastery when `refreshed`, and says
-// why when `error` (signIn: the session needs a sign-in in Settings).
-router.post('/:courseId/refresh', async (req, res) => {
-  try {
-    const { result: _r, ...out } = await refreshCourseMastery(req.params.courseId);
-    res.json(out);
-  } catch (err) {
     res.status(err.code === 'NOT_FOUND' ? 404 : 500).json({ error: err.message });
   }
 });
@@ -339,17 +325,6 @@ router.post('/:courseId/override', async (req, res) => {
   }
 });
 
-// #108: the assessment page's reads also cover the task's submissions and grades (taskRefresh.js);
-// mastery is read by the route itself. A task Prism does not hold answers an empty read.
-// Never rejects: a failed read is answered as { refreshed: 0, error }, so the mastery answer
-// beside it is kept (and the reverse: a mastery error still carries this read).
-function readTask(courseId, schoologyAssignmentId, force) {
-  const row = getDb().prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ? AND course_id = ?').get(String(schoologyAssignmentId), Number(courseId));
-  if (!row) return Promise.resolve({ refreshed: 0, readAt: null, failed: [] });
-  return refreshTasks([row.id], { force, mastery: false })
-    .catch((err) => ({ refreshed: 0, readAt: null, failed: [row.id], error: String(err?.message || err) }));
-}
-
 // POST /api/mastery/:courseId/assignment/:assignmentId/sync — the assessment page's Sync Assignment:
 // a forced task run in the sync queue (taskSyncRun.js: the task's details, submissions, grades and
 // comment threads, then its mastery). → { runId, state, joined }; the page follows the run.
@@ -358,20 +333,6 @@ router.post('/:courseId/assignment/:assignmentId/sync', (req, res) => {
   const known = getDb().prepare('SELECT 1 FROM assignments WHERE schoology_assignment_id = ? AND course_id = ?').get(String(assignmentId), Number(courseId));
   if (!known) return res.status(404).json({ error: `Assignment ${assignmentId} not found in course ${courseId}` });
   res.json(enqueue({ kind: 'task', courseId: Number(courseId), assignmentId: String(assignmentId), trigger: 'button', force: true }));
-});
-
-// POST /api/mastery/:courseId/assignment/:assignmentId/refresh — the assessment page asks this after it
-// loads (#52); as POST /:courseId/refresh, for one assignment's scores and comments.
-router.post('/:courseId/assignment/:assignmentId/refresh', async (req, res) => {
-  try {
-    const [{ result: _r, ...out }, submissions] = await Promise.all([
-      refreshAssignmentMastery(req.params.courseId, req.params.assignmentId),
-      readTask(req.params.courseId, req.params.assignmentId, false),
-    ]);
-    res.json({ ...out, refreshed: out.refreshed || submissions.refreshed > 0, submissions });
-  } catch (err) {
-    res.status(err.code === 'NOT_FOUND' ? 404 : 500).json({ error: err.message });
-  }
 });
 
 // POST /api/mastery/:courseId/write — write scores back to Schoology for one student+assignment

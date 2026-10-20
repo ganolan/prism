@@ -29,12 +29,10 @@ vi.mock('../services/schoology.js', () => ({
 }));
 // The OneDrive lookup drives a real browser — never launch one in tests (#120).
 vi.mock('../services/oneDriveLinks.js', () => ({ getAssignmentFiles: vi.fn() }));
-vi.mock('../services/taskRefresh.js', () => ({ refreshTasks: vi.fn().mockResolvedValue({ refreshed: 0, readAt: null, failed: [] }) }));
 vi.mock('../services/syncQueue.js', () => ({ enqueue: vi.fn(() => ({ runId: 77, state: 'queued', joined: false })) }));
 vi.mock('../services/ltiSubmissionApps.js', () => ({ getLtiSubmissionApp: vi.fn(), getSubmittedDocuments: vi.fn() }));
 
 import router from './mastery.js';
-import { refreshTasks } from '../services/taskRefresh.js';
 import { enqueue } from '../services/syncQueue.js';
 import triageRouter from './triage.js';
 import { getDb } from '../db/index.js';
@@ -2058,48 +2056,9 @@ describe('#52: mastery refreshed on demand after a page loads', () => {
   });
   const stampCourse = (at) => getDb().prepare('UPDATE courses SET mastery_synced_at = ? WHERE id = ?').run(at, courseId);
 
-  test('POST /:courseId/refresh reads a course never read, answers the new stamp; then fresh, no second read', async () => {
-    const { syncMasteryForCourse } = await import('../services/masterySync.js');
-    syncMasteryForCourse.mockImplementation(async () => { stampCourse('2026-10-19T06:00:00.000Z'); return { scoresCount: 4 }; });
-    expect(await post(`/api/mastery/${courseId}/refresh`, {})).toEqual({ status: 200, body: { refreshed: true, syncedAt: '2026-10-19T06:00:00.000Z' } });
-    stampCourse(new Date().toISOString());
-    expect((await post(`/api/mastery/${courseId}/refresh`, {})).body.refreshed).toBe(false);
-    expect(syncMasteryForCourse).toHaveBeenCalledTimes(1);
-  });
 
-  test('a failed refresh is a 200 with the error and signIn; an unknown course is 404', async () => {
-    const { syncMasteryForCourse } = await import('../services/masterySync.js');
-    syncMasteryForCourse.mockRejectedValue(new Error('Not logged in to Schoology: the mastery session has expired. Log in to Schoology in Settings, then retry.'));
-    expect(await post(`/api/mastery/${courseId}/refresh`, {})).toMatchObject({ status: 200, body: { refreshed: false, syncedAt: null, signIn: true } });
-    expect((await post('/api/mastery/99999/refresh', {})).status).toBe(404);
-  });
 
-  test('POST /:courseId/assignment/:id/refresh reads the assignment; the GETs carry masterySyncedAt', async () => {
-    const { syncMasteryForAssignment } = await import('../services/masterySync.js');
-    syncMasteryForAssignment.mockImplementation(async () => {
-      getDb().prepare(`UPDATE assignments SET mastery_synced_at = '2026-10-19T07:00:00.000Z' WHERE schoology_assignment_id = 'sa-r${n}'`).run();
-      return { scoresCount: 1 };
-    });
-    stampCourse('2026-10-19T03:00:00.000Z');
-    expect((await get(`/api/mastery/${courseId}/assignment/sa-r${n}`)).body.masterySyncedAt).toBe('2026-10-19T03:00:00.000Z');
-    expect((await post(`/api/mastery/${courseId}/assignment/sa-r${n}/refresh`, {})).body).toEqual({
-      refreshed: true, syncedAt: '2026-10-19T07:00:00.000Z', submissions: { refreshed: 0, readAt: null, failed: [] },
-    });
-    expect(syncMasteryForAssignment).toHaveBeenCalledWith(Number(courseId), `sa-r${n}`);
-    expect((await get(`/api/mastery/${courseId}/assignment/sa-r${n}`)).body.masterySyncedAt).toBe('2026-10-19T07:00:00.000Z');
-    expect((await get(`/api/mastery/${courseId}`)).body.masterySyncedAt).toBe('2026-10-19T03:00:00.000Z');
-    expect((await get(`/api/mastery/${courseId}/student/uid-x`)).body.masterySyncedAt).toBe('2026-10-19T03:00:00.000Z');
-  });
 
-  test('the assessment refresh also reads the task\'s submissions and grades (#108)', async () => {
-    const localId = getDb().prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(`sa-r${n}`).id;
-    stampCourse(new Date().toISOString());
-    getDb().prepare('UPDATE assignments SET mastery_synced_at = ? WHERE id = ?').run(new Date().toISOString(), localId);
-    refreshTasks.mockClear().mockResolvedValueOnce({ refreshed: 1, readAt: '2026-10-19T15:00:00.000Z', failed: [] });
-    const r = (await post(`/api/mastery/${courseId}/assignment/sa-r${n}/refresh`, {})).body;
-    expect(r.refreshed).toBe(true); // mastery was fresh; the submission read ran
-    expect(refreshTasks).toHaveBeenCalledWith([localId], { force: false, mastery: false });
-  });
 
   test('Sync Assignment queues a forced task run and answers its runId (background sync)', async () => {
     enqueue.mockClear();
@@ -2109,13 +2068,6 @@ describe('#52: mastery refreshed on demand after a page loads', () => {
     expect((await post(`/api/mastery/${courseId}/assignment/missing-task/sync`, {})).status).toBe(404);
   });
 
-  test('a failed submissions read keeps the mastery answer, and the reverse (#108 review)', async () => {
-    stampCourse(new Date().toISOString());
-    refreshTasks.mockClear().mockRejectedValueOnce(new Error('database is locked'));
-    const r = await post(`/api/mastery/${courseId}/assignment/sa-r${n}/refresh`, {});
-    expect(r.status).toBe(200);
-    expect(r.body.submissions).toMatchObject({ refreshed: 0, error: 'database is locked' });
-  });
 
   test('POST /sync/:courseId always reads, and shares a refresh already running', async () => {
     const { syncMasteryForCourse } = await import('../services/masterySync.js');

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Parity (#108): the on-demand read (refreshTasks) against the full sync's read
-// (syncSectionData), on two DATABASE COPIES made at the same moment. Copy A (DB_PATH)
-// gets refreshTasks for every task the dashboard and the course pages would read; copy
+// Parity (#108): the per-task read (refreshTasks, now Sync Assignment's) against the full sync's
+// read (syncSectionData), on two DATABASE COPIES made at the same moment. Copy A (DB_PATH)
+// gets refreshTasks for every recent task of the current courses; copy
 // B gets a full read of the same courses' sections. The grades rows of those tasks must
 // come out the same. Read only on Schoology; writes only to the copies. Prints ids and
 // column names only, no student data.
@@ -9,7 +9,6 @@
 import Database from 'better-sqlite3';
 import { getDb, migrate } from '../server/db/index.js';
 import { refreshTasks } from '../server/services/taskRefresh.js';
-import { triageRefreshTargets, courseRefreshTargets } from '../server/services/triage.js';
 import { syncSectionData } from '../server/services/sync.js';
 import { createSubmissionFetcher } from '../server/services/graderSubmissions.js';
 
@@ -26,9 +25,12 @@ migrate(dbB);
 
 const courses = dbA.prepare(`SELECT id, schoology_section_id AS section FROM courses
   WHERE COALESCE(archived, 0) = 0 AND COALESCE(excluded, 0) = 0`).all();
-const ids = new Set(triageRefreshTargets(dbA, { includeFormative: true }));
-for (const c of courses) for (const id of courseRefreshTargets(dbA, c.id)) ids.add(id);
-const targets = [...ids];
+// The tasks: every current course's published tasks that take submissions (or are tests), due in
+// the last 30 days or later.
+const since = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+const targets = dbA.prepare(`SELECT a.id FROM assignments a JOIN courses c ON c.id = a.course_id
+  WHERE COALESCE(c.archived, 0) = 0 AND COALESCE(c.excluded, 0) = 0 AND a.published = 1 AND a.removed_at IS NULL
+    AND (a.accepts_submissions = 1 OR a.is_test = 1) AND substr(COALESCE(a.due_date, ''), 1, 10) >= ?`).all(since).map((r) => r.id);
 const touched = new Set(dbA.prepare(`SELECT DISTINCT course_id AS id FROM assignments WHERE id IN (SELECT value FROM json_each(?))`)
   .all(JSON.stringify(targets)).map((r) => r.id));
 console.log(`${targets.length} tasks in ${touched.size} courses`);

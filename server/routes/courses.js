@@ -12,8 +12,6 @@ import { forRoster } from '../lib/psAlerts.js';
 import { toSchoologyWebUrl } from '../lib/schoologyWebUrl.js';
 import { timelineContext } from '../services/submissionTimeline.js';
 import { setPublished, PublishError } from '../services/assessmentPublish.js';
-import { refreshTasks } from '../services/taskRefresh.js';
-import { courseRefreshTargets, triageRefreshTargets } from '../services/triage.js';
 
 const router = Router();
 
@@ -70,24 +68,6 @@ router.get('/', (req, res) => {
   }
 
   res.json(rows);
-});
-
-// POST /api/courses/:id/refresh — the course page asks this after it loads (#108): read from
-// Schoology the submissions and scores of its triage panel's tasks and its tasks due in the last
-// 30 days or later (each task at most every 2 minutes). An archived course is never read.
-// → { refreshed, readAt, failed, error?, signIn? }.
-router.post('/:id/refresh', async (req, res) => {
-  const db = getDb();
-  const course = db.prepare('SELECT id, archived FROM courses WHERE id = ?').get(req.params.id);
-  if (!course) return res.status(404).json({ error: 'Course not found' });
-  if (course.archived) return res.json({ refreshed: 0, readAt: null, failed: [] });
-  try {
-    // Mastery only for the triage panel's tasks: the page reads the course's mastery itself (#52).
-    const mastery = triageRefreshTargets(db, { courseId: course.id, includeFormative: true });
-    res.json(await refreshTasks(courseRefreshTargets(db, course.id), { mastery }));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
 });
 
 // GET /api/courses/:id — course detail with student count

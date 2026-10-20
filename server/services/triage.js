@@ -12,7 +12,7 @@
 // referral on day 9. Thresholds are unchanged: a limit is the LAST ALLOWED day
 // (red when day > limit ⇔ count ≥ limit).
 
-import { todayLocal, nowLocal, epochToLocalDate, addDays } from '../lib/schoolDays.js';
+import { todayLocal, nowLocal, epochToLocalDate } from '../lib/schoolDays.js';
 import { loadCalendar } from './schoolCalendar.js';
 import { getTriageSettings } from './settings.js';
 import { gradingState } from './assessmentContext.js';
@@ -333,41 +333,6 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
     // Past-due tests the teacher ignores for make-ups.
     makeUpsIgnored,
   };
-}
-
-// #108: the tasks a triage view shows, for the on-demand read (taskRefresh.js): every task
-// on its lists, plus past-due tests whose attempts are unknown (not 'ok', not ignored),
-// which the lists leave out until a read succeeds. → local assignment ids, deduplicated.
-export function triageRefreshTargets(db, { courseId = null, includeFormative, today, now } = {}) {
-  const t = getTriage(db, { courseId, includeFormative, today, now });
-  const ids = new Set();
-  for (const row of [...t.lateWork, ...t.makeUps, ...t.resubmissions, ...t.feedbackOwed]) ids.add(row.assignmentId);
-  const nowStamp = now ?? (today == null ? nowLocal(new Date()) : `${today} 23:59:59`);
-  for (const c of currentCourses(db, courseId)) {
-    for (const a of pastDueTests(db, c.id, nowStamp)) {
-      if (!a.makeup_ignored && a.test_fetch_status !== 'ok') ids.add(a.id);
-    }
-  }
-  return [...ids];
-}
-
-// #108: what the course page reads after it loads: its triage panel's tasks, plus its
-// published tasks that take submissions (or are tests) due in the last 30 days or later,
-// plus any task with an open resubmission request (the full sync's recent window, #55).
-export const COURSE_REFRESH_DAYS = 30;
-export function courseRefreshTargets(db, courseId, { today = todayLocal(), now } = {}) {
-  const ids = new Set(triageRefreshTargets(db, { courseId, includeFormative: true, today, now }));
-  const from = addDays(today, -COURSE_REFRESH_DAYS);
-  for (const r of db.prepare(`
-    SELECT a.id FROM assignments a
-    WHERE a.course_id = ? AND a.published = 1 AND a.removed_at IS NULL
-      AND (a.accepts_submissions = 1 OR a.is_test = 1)
-      AND a.due_date IS NOT NULL AND a.due_date != '' AND substr(a.due_date, 1, 10) >= ?
-    UNION
-    SELECT r.assignment_id FROM resubmissions r JOIN assignments a ON a.id = r.assignment_id
-    WHERE r.course_id = ? AND r.kind = 'request' AND r.status = 'open' AND a.removed_at IS NULL
-  `).all(courseId, from, courseId)) ids.add(r.id);
-  return [...ids];
 }
 
 export function listReferrals(db, { courseId = null, studentId = null, since = null, id = null } = {}) {

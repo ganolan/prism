@@ -184,7 +184,7 @@ export default function Dashboard() {
           <div className="triage-layout__main">
             {courses.length === 0 ? (
               <div className="card empty-state">
-                <p>No courses synced yet. Click <strong>Sync Schoology</strong> in the sidebar to pull your courses.</p>
+                <p>No courses synced yet. Click <strong>Sync Courses</strong> in the sidebar to pull your courses.</p>
               </div>
             ) : (
               semesterGroups.map(({ semester, courses: semCourses }) => (

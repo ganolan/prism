@@ -10,7 +10,7 @@ import ToolsPage from './pages/ToolsPage.jsx';
 import FeedbackPage from './pages/FeedbackPage.jsx';
 import AssessmentSummaryPage from './pages/AssessmentSummaryPage.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
-import { DataVersionContext } from './hooks/useDataVersion.jsx';
+import { DataVersionContext, BumpDataVersionContext } from './hooks/useDataVersion.jsx';
 import SyncDialog from './components/SyncDialog.jsx';
 import VersionBadge from './components/VersionBadge.jsx';
 import PrismLogo from './components/PrismLogo.jsx';
@@ -23,9 +23,11 @@ export default function App() {
 
   return (
     <DataVersionContext.Provider value={dataVersion}>
+    <BumpDataVersionContext.Provider value={bumpDataVersion}>
     <BrowserRouter>
       <Shell onSyncComplete={bumpDataVersion} />
     </BrowserRouter>
+    </BumpDataVersionContext.Provider>
     </DataVersionContext.Provider>
   );
 }

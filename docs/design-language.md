@@ -1505,3 +1505,11 @@ Chosen 18/10/2026 from three mockups (state chip on every row, verb where it mat
 - **One line per read,** not a merged line: each read has its own time and its own failure (mastery needs the saved session; submissions and grades mostly do not).
 - **Replaces** the course rail's "Counts as of the last sync, …" line, which the read made stale.
 - **The assessment page keeps one line** (mastery): its submissions and grades read runs with the mastery read and reloads the page with it.
+
+## Sync controls and the "Synced" label (October 2026, #58)
+
+- **Three names, three scopes:** **Sync Courses** (sidebar; one dialog list grouped Current, Hidden, Archived; each ticked course gets everything), **Sync Course** (course page), **Sync Assignment** (assessment page). Each syncs everything in its scope; there is no separate mastery sync.
+- **The label is the point:** `SyncStatus` puts "Synced 03:02 today" (`.sync-status__time`, 0.95rem, weight 600, a pill on `var(--accent-light)`) before the `.primary` button, right-aligned in the header. A day old, or "Not synced yet": the pill turns amber (`var(--badge-amber-bg)` / `var(--badge-amber-text)`). The time is the last full sync of that course or task (`course_synced_at`, `task_synced_at`), never a background read.
+- **One small line under it** for the page's own background reads (#52, #108): "Checked for new work at 10:05 today.", "Checking Schoology for new work…", or "Could not check Schoology for new work." in `var(--badge-red-text)` with **Log in to Schoology** when the session lapsed. It replaces the course page's two muted freshness lines and the assessment page's mastery line.
+- **Sync Course runs in the sync dialog** (the same progress view as Sync Courses), so it shows each phase and survives a dropped connection; the button reads "Syncing…" while the dialog is open.
+- **Phone:** the label and button sit at the start of the line (PHONE LAYOUT block).

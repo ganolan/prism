@@ -9,3 +9,11 @@ export const DataVersionContext = createContext(0);
 export function useDataVersion() {
   return useContext(DataVersionContext);
 }
+
+// Bumps that counter: a sync started from a page (#58 Sync Course) reloads every open page, as a
+// sidebar sync does. A no-op outside the provider (tests).
+export const BumpDataVersionContext = createContext(() => {});
+
+export function useBumpDataVersion() {
+  return useContext(BumpDataVersionContext);
+}

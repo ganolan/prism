@@ -1,7 +1,6 @@
-import { goToSignIn } from '../lib/signIn.js';
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, refreshMasteryForCourse, triggerMasterySync, getSubmissionLinks, getTriage, setMakeUpIgnored, setAssessmentPublished, getQuizGroups, getCourseCommentSummaries, refreshCourse } from '../services/api.js';
+import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, refreshMasteryForCourse, getSubmissionLinks, getTriage, setMakeUpIgnored, setAssessmentPublished, getQuizGroups, getCourseCommentSummaries, refreshCourse } from '../services/api.js';
 import AnalyticsView from '../components/AnalyticsView.jsx';
 import OverridePopup from '../components/OverridePopup.jsx';
 import TriageSection from '../components/triage/TriageSection.jsx';
@@ -9,7 +8,8 @@ import UrgencyRing from '../components/triage/UrgencyRing.jsx';
 import { waitsByAssignment, redCount } from '../lib/triage.js';
 import { LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
 import { LetterGradePopup, LETTER_GRADE_COLORS } from '../components/MasteryPerformanceSummary.jsx';
-import MasteryFreshness from '../components/MasteryFreshness.jsx';
+import SyncStatus from '../components/SyncStatus.jsx';
+import SyncDialog from '../components/SyncDialog.jsx';
 import { useMasteryRefresh } from '../hooks/useMasteryRefresh.js';
 import { gradeLabel, submissionStatus, ltiStatusUnavailable } from '../lib/gradeLabel.js';
 import { masteryCodeForLevel, computeLetterGrade } from '../lib/masteryLevels.js';
@@ -19,7 +19,7 @@ import PersonSub, { gradeText } from '../components/PersonSub.jsx';
 import LargerScreenNote from '../components/LargerScreenNote.jsx';
 import { preferredFirstName } from '../lib/studentNames.js';
 import { indexMastery, buildAssignmentRubric } from '../lib/gradebookMastery.js';
-import { useDataVersion } from '../hooks/useDataVersion.jsx';
+import { useDataVersion, useBumpDataVersion } from '../hooks/useDataVersion.jsx';
 import { useStickyTab } from '../hooks/useStickyTab.js';
 import AssignmentFeedback from '../components/AssignmentFeedback.jsx';
 import { useAttachedRubrics } from '../hooks/useAttachedRubrics.js';
@@ -39,8 +39,6 @@ import LateClock from '../components/LateClock.jsx';
 import { DEFAULT_TYPE_FILTER, isUnpublished, passesTypeFilter, typeFilterCounts } from '../lib/assessmentTypeFilter.js';
 
 const SHORT_BADGE = { late: 'L', draft: 'D', missing: 'M', 'not-started': 'NS', submitted: 'S', 'in-progress': 'IP' };
-// #108: the freshness line for the course's submissions and scores read.
-const SUBMISSIONS = { label: 'Submissions and scores', short: 'submissions' };
 const BADGE_TONE_CLASS = { red: 'badge-red', blue: 'badge-blue', amber: 'badge-pink', green: 'badge-green', yellow: 'badge-amber', neutral: 'badge-gray' };
 
 export default function CoursePage() {
@@ -52,8 +50,9 @@ export default function CoursePage() {
   const [mastery, setMastery] = useState(null);
   const [view, setView] = useStickyTab('course', 'roster');
   const [loading, setLoading] = useState(true);
-  const [masterySyncing, setMasterySyncing] = useState(false);
-  const [masterySyncResult, setMasterySyncResult] = useState(null);
+  // #58: Sync Course opens the sync dialog preset to this course.
+  const [syncOpen, setSyncOpen] = useState(false);
+  const bumpDataVersion = useBumpDataVersion();
   const [overrideTarget, setOverrideTarget] = useState(null); // { studentUid, category, currentLevel, hasOverride }
   const [overrideSaving, setOverrideSaving] = useState(false);
   const [triageWaits, setTriageWaits] = useState({ waits: {}, feedbackLimit: 10 });
@@ -146,25 +145,6 @@ export default function CoursePage() {
     },
   );
 
-  async function handleMasterySync() {
-    setMasterySyncing(true);
-    setMasterySyncResult(null);
-    try {
-      const result = await triggerMasterySync(id);
-      setMasterySyncResult({ success: true, ...result });
-      await refreshMastery(); // show what was read
-    } catch (err) {
-      const needsLogin = err.message?.includes('Not logged in') || err.message?.includes('mastery:login');
-      setMasterySyncResult({ success: false, error: err.message, needsLogin });
-    } finally {
-      setMasterySyncing(false);
-    }
-  }
-
-  // The sign-in opens in Settings, on this device (RemoteSignIn, #136).
-  function handleMasteryLogin() {
-    goToSignIn();
-  }
 
   if (loading) return <div className="loading">Loading...</div>;
   if (!course) return <div className="error-msg">Course not found</div>;
@@ -195,36 +175,24 @@ export default function CoursePage() {
           </p>
 
           <div className="course-header__actions">
-            {masterySyncResult && (
-              <span className="text-sm" style={{ color: masterySyncResult.success ? 'var(--success)' : 'var(--danger)', maxWidth: 400 }}>
-                {masterySyncResult.success
-                  ? (masterySyncResult.message || `Synced ${masterySyncResult.categoriesCount} categories, ${masterySyncResult.topicsCount} topics, ${masterySyncResult.scoresCount} scores`)
-                  : masterySyncResult.error}
-              </span>
-            )}
-            {masterySyncResult?.needsLogin && (
-              <button className="primary" onClick={handleMasteryLogin} style={{ whiteSpace: 'nowrap' }}>
-                Log in to Schoology
-              </button>
-            )}
-            <button
-              className="secondary"
-              onClick={handleMasterySync}
-              disabled={masterySyncing}
-              title="Sync mastery (SBG) data from Schoology for this course"
-              style={{ whiteSpace: 'nowrap' }}
-            >
-              {masterySyncing ? (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <span style={{ display: 'inline-block', width: 12, height: 12, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
-                  Syncing Mastery…
-                </span>
-              ) : 'Sync Mastery'}
-            </button>
+            {/* #58: when this course last had a full sync, and the button for one now. The check line
+                is the page's own background reads (mastery #52, submissions and scores #108). */}
+            <SyncStatus
+              label="Sync Course"
+              syncedAt={course.course_synced_at}
+              onSync={() => setSyncOpen(true)}
+              syncing={syncOpen}
+              checks={courseLive ? [masteryFreshness, submissionsFreshness] : []}
+            />
           </div>
         </div>
-        {(courseLive || mastery?.masterySyncedAt) && <MasteryFreshness state={masteryFreshness} syncedAt={mastery?.masterySyncedAt} />}
-        {courseLive && <MasteryFreshness state={submissionsFreshness} subject={SUBMISSIONS} />}
+        {syncOpen && (
+          <SyncDialog
+            presetCourse={{ id: Number(id), name: course.course_name }}
+            onClose={() => setSyncOpen(false)}
+            onSyncComplete={bumpDataVersion}
+          />
+        )}
 
         <div className="course-header__tabs">
           <button className={`tab-btn ${view === 'roster' ? 'active' : ''}`} onClick={() => setView('roster')}>
@@ -649,7 +617,7 @@ export function RosterView({ students, mastery, courseId, displayName, onOverrid
       </table>
       {categories.length === 0 && (
         <p className="text-sm text-muted" style={{ padding: '0.75rem' }}>
-          No mastery data yet. Click <strong>Sync Mastery</strong> above to pull reporting categories from Schoology.
+          No mastery data yet. Click <strong>Sync Course</strong> above to pull reporting categories from Schoology.
         </p>
       )}
       {categories.length > 0 && (

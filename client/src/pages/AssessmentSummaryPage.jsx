@@ -43,7 +43,7 @@ import { workLinkText, workLinksStatusText } from '../lib/workLink.js';
 import { briefFlags, textSignature } from '../lib/reviewerFlags.js';
 import { receivedLine, composeComment, lineDate } from '../lib/statusLines.js';
 import { afterRefresh } from '../lib/assessmentFreshness.js';
-import MasteryFreshness from '../components/MasteryFreshness.jsx';
+import SyncStatus from '../components/SyncStatus.jsx';
 import { useMasteryRefresh } from '../hooks/useMasteryRefresh.js';
 
 const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
@@ -1877,6 +1877,7 @@ export default function AssessmentSummaryPage() {
   const [error, setError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshResult, setRefreshResult] = useState(null);
+  const [removedInSchoology, setRemovedInSchoology] = useState(false);
   const [feedbackByStudent, setFeedbackByStudent] = useState({});
   const [draftByStudent, setDraftByStudent] = useState({});
   const [analysis, setAnalysis] = useState(null);
@@ -2178,14 +2179,21 @@ export default function AssessmentSummaryPage() {
       .catch(() => settle({ status: 'error', links: {} }));
   }
 
+  // #58 Sync Assignment: the task's details, submissions, grades, comments and mastery, read now.
   async function handleRefresh() {
     setRefreshing(true);
     setRefreshResult(null);
     if (data?.assignment?.is_lti_submission) loadWorkLinks({ refresh: true });
     try {
       const result = await syncMasteryForAssignment(courseId, assignmentId);
-      setRefreshResult(`Synced ${result.scoresCount ?? 0} scores across ${result.topicsCount ?? 0} topics${result.commentsCount ? `, ${result.commentsCount} comments` : ''}`);
+      if (result?.removed) { setRemovedInSchoology(true); return; }
       load();
+      // The comment threads it started are read in the background: look again when they should be done.
+      const queued = result?.comments?.queued ?? 0;
+      if (queued > 0) {
+        clearTimeout(commentPoll.current);
+        commentPoll.current = setTimeout(() => loadCommentSummaries(false), Math.min(60000, queued * 700 + 2000));
+      }
     } catch (err) {
       setRefreshResult(`Error: ${err.message}`);
     } finally {
@@ -2371,24 +2379,21 @@ export default function AssessmentSummaryPage() {
             label="View in Schoology"
             style={{ fontSize: '0.78rem' }}
           />
-          <button
-            className="primary"
-            onClick={handleRefresh}
-            disabled={refreshing}
-            title="Re-pull scores & comments from Schoology"
-            style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polyline points="23 4 23 10 17 10" />
-              <polyline points="1 20 1 14 7 14" />
-              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-            </svg>
-            {refreshing ? 'Refreshing...' : 'Refresh from Schoology'}
-          </button>
+          {/* #58: when this task last had a full sync, and the button for one now; the check line is
+              the page's own background read (#52, #108). */}
+          <SyncStatus
+            label="Sync Assignment"
+            syncedAt={assignment.task_synced_at}
+            syncing={refreshing}
+            onSync={handleRefresh}
+            checks={data.course?.archived ? [] : [masteryFreshness]}
+          />
           {refreshResult && (
             <span className="text-sm text-muted" style={{ fontSize: '0.75rem' }}>{refreshResult}</span>
           )}
-          {(!data.course?.archived || data.masterySyncedAt) && <MasteryFreshness state={masteryFreshness} syncedAt={data.masterySyncedAt} />}
+          {removedInSchoology && (
+            <div className="alert alert-warning" role="alert" style={{ flexBasis: '100%' }}>This task was deleted in Schoology.</div>
+          )}
           {newerInSchoology && (
             <div className="alert alert-warning" role="alert" style={{ flexBasis: '100%' }}>
               Schoology has newer levels or comments for this assignment. Save or discard your changes, then reload to see them.{' '}

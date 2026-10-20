@@ -770,7 +770,7 @@ describe('AssessmentSummaryPage — OneDrive work links (#120)', () => {
       .mockResolvedValueOnce({ status: 'ok', links: {} });
     renderPage();
     await waitFor(() => expect(getSubmissionLinks).toHaveBeenCalledTimes(1));
-    fireEvent.click(screen.getByRole('button', { name: /refresh from schoology/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sync assignment/i }));
     await waitFor(() => expect(getSubmissionLinks).toHaveBeenCalledTimes(2));
     resolveFirst({ status: 'ok', links: { 'uid-1': { url: 'https://stale.example/f', fileName: 'f', modifiedAt: '2026-09-01T00:00:00Z' } } });
     await new Promise(r => setTimeout(r, 0));

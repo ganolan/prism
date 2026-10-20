@@ -3,6 +3,7 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 import { getDb } from '../db/index.js';
 import { writeOverallSuggestions, rebuildOverallSuggestion } from './quizOverall.js';
 import { quizResults } from './quizResults.js';
+import { recordServe } from './contextServes.js';
 import { setFrqMark, writeFrqSuggestions } from './frqMarks.js';
 
 const RUBRIC = { id: 'r1', title: 'FRQ', totalPoints: 4, rows: [{ id: '146', title: 'Content Knowledge', maxPoints: 4, levels: [
@@ -17,7 +18,7 @@ const respond = (a, q, fields) => db.prepare(`INSERT INTO quiz_responses (attemp
 
 beforeEach(() => {
   db = getDb();
-  db.exec('DELETE FROM feedback; DELETE FROM frq_marks; DELETE FROM quiz_responses; DELETE FROM quiz_attempts; DELETE FROM quiz_question_copies; DELETE FROM quiz_questions; DELETE FROM quiz_group_members; DELETE FROM quiz_groups; DELETE FROM mastery_alignments; DELETE FROM measurement_topics; DELETE FROM reporting_categories; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
+  db.exec('DELETE FROM context_serves; DELETE FROM feedback; DELETE FROM frq_marks; DELETE FROM quiz_responses; DELETE FROM quiz_attempts; DELETE FROM quiz_question_copies; DELETE FROM quiz_questions; DELETE FROM quiz_group_members; DELETE FROM quiz_groups; DELETE FROM mastery_alignments; DELETE FROM measurement_topics; DELETE FROM reporting_categories; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
   c = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s', 'AP CSP')`).run().lastInsertRowid;
   db.prepare(`INSERT INTO reporting_categories (id, course_id, external_id, title) VALUES ('cat', ?, 'CSP.1', 'Theory')`).run(c);
   db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES ('t1', 'cat', ?, 'CSP.1.1', 'Knowledge')`).run(c);
@@ -68,6 +69,22 @@ describe('writeOverallSuggestions', () => {
     expect(fj.narrative_feedback).toBe('Multiple choice: 1/2 (50%)\nFree response: Q21 Exhibiting\nA secure start on variables.\nOpen your attempt on the test to read the feedback on each free-response question.');
     expect(fj.rubric_scores).toEqual({ 'CSP.1.1': 'EX' });
     expect(fj.quiz_overall).toEqual({ group_id: g, impression: 'A secure start on variables.', built: fj.narrative_feedback });
+  });
+
+  test('uses the fallback serve rule: the oldest serve in 3 hours, never an older one', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-20T10:00:00.000Z'));
+    const iso = (minAgo) => new Date(Date.now() - minAgo * 60000).toISOString();
+    db.prepare('UPDATE assignments SET task_synced_at = ? WHERE id = ?').run(iso(7), result);
+    recordServe(db, { assignmentId: result, dataAsOf: iso(5 * 24 * 60), now: iso(4 * 60) }); // 4 h old: ignored
+    const write = () => writeOverallSuggestions(db, { groupId: g, students: [{ student: 'u1', rubric_scores: { 'CSP.1.1': 'Exhibiting' }, impression: 'Good.' }] });
+    write();
+    expect(latest(stu.u1).data_as_of).toBe(iso(7));
+    recordServe(db, { assignmentId: result, dataAsOf: iso(100), now: iso(90) });
+    recordServe(db, { assignmentId: result, dataAsOf: iso(6), now: iso(5) });
+    write();
+    expect(latest(stu.u1)).toMatchObject({ data_as_of: iso(100), suggested_at: iso(90) });
+    vi.useRealTimers();
   });
 
   test('requires an impression', () => {

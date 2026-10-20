@@ -9,6 +9,7 @@ import { getDb } from '../server/db/index.js';
 import { createServer, connectDb, INSTRUCTIONS, progressNotifier } from './server.js';
 import { queueDeps, resetQueue } from '../server/services/syncQueue.js';
 import { SIGN_IN_URL } from '../server/services/gradingSync.js';
+import { recordServe } from '../server/services/contextServes.js';
 
 // Spin up the PrisMCP server and a client linked by an in-memory transport
 // pair, so tests exercise the real MCP request/response path (registration,
@@ -161,6 +162,15 @@ describe('PrisMCP server', () => {
       expect(d.description).toMatch(/retry/);
       expect(d.description).toMatch(/never choose stored data yourself/);
       expect(d.inputSchema.properties).toHaveProperty('use_stored_data');
+      expect(d.description).toMatch(/`context_id` \(integer, this read\): pass that `context_id` to write_student_suggestions/);
+    });
+
+    test('write_student_suggestions takes the context_id of the answer graded from, and its description says so', async () => {
+      const client = await connect();
+      const w = (await client.listTools()).tools.find((t) => t.name === 'write_student_suggestions');
+      expect(w.inputSchema.properties).toHaveProperty('context_id');
+      expect(w.inputSchema.required ?? []).not.toContain('context_id');
+      expect(w.description).toMatch(/Pass the `context_id` of the get_assignment_context answer you graded from/);
     });
 
     test('progressNotifier sends progress only when the request asked for it', async () => {
@@ -198,6 +208,23 @@ describe('PrisMCP server', () => {
     const row = db.prepare('SELECT status, feedback_json FROM feedback WHERE assignment_id = ?').get(assignmentLocalId);
     expect(row.status).toBe('draft');
     expect(JSON.parse(row.feedback_json).rubric_scores).toEqual({ 'ART.5.1': 'EX' });
+  });
+
+  test('write_student_suggestions with a context_id stamps the suggestion with that serve', async () => {
+    const db = getDb();
+    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s1', 'AIML')`).run().lastInsertRowid;
+    const assignmentLocalId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-1', 'Project')`).run(courseId).lastInsertRowid;
+    db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-1', 'Ada', 'Lovelace')`).run();
+    const contextId = recordServe(db, { assignmentId: assignmentLocalId, dataAsOf: '2026-10-20T09:00:00.000Z', now: '2026-10-20T09:05:00.000Z' });
+
+    const client = await connect();
+    const res = await client.callTool({
+      name: 'write_student_suggestions',
+      arguments: { course_id: courseId, assignment_id: 'sa-1', context_id: contextId, students: [{ student: 'uid-1', narrative_feedback: 'Good.' }] },
+    });
+    const body = JSON.parse(res.content[0].text);
+    expect(db.prepare('SELECT data_as_of, suggested_at FROM feedback WHERE id = ?').get(body.results[0].feedback_id))
+      .toEqual({ data_as_of: '2026-10-20T09:00:00.000Z', suggested_at: '2026-10-20T09:05:00.000Z' });
   });
 
   test('write_assessment_analysis upserts the assessment-wide analysis row', async () => {

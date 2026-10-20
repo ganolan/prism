@@ -44,6 +44,7 @@ import { writeFrqSuggestions, recordWriteback } from '../server/services/frqMark
 import { plainTextLines } from '../server/lib/quizText.js';
 import { quizResults } from '../server/services/quizResults.js';
 import { writeOverallSuggestions } from '../server/services/quizOverall.js';
+import { recordServe } from '../server/services/contextServes.js';
 
 // Active courses = not archived, not excluded, not hidden. Mirrors the
 // 'current' view in server/routes/courses.js, plus the excluded filter (#56,
@@ -450,14 +451,13 @@ export async function getAssignmentContextTool(db, { course_id, assignment_id, u
   const r = await sync(db, assignment_id, { useStoredData: use_stored_data === true, ...syncOptions });
   const ctx = getAssessmentContext(db, { courseId: course_id, assignmentId: assignment_id });
   if (!ctx) return ctx;
-  // What this grading session was given, and when: the suggestions it writes later (possibly after
-  // a long run) are judged stale by the age of THIS data, not by what a sync stamped by then.
-  const localId = resolveAssignmentId(db, assignment_id);
-  db.prepare('UPDATE assignments SET context_data_as_of = ?, context_served_at = ? WHERE id = ?')
-    .run(r.dataAsOf ?? 'never', new Date().toISOString(), localId);
+  // What this grading session was given, and when: recorded as a serve whose id (context_id) the
+  // grader passes back on write, so the suggestions it writes later (possibly after a long run) are
+  // judged stale by the age of THIS data, not by what a sync stamped by then.
+  const contextId = recordServe(db, { assignmentId: resolveAssignmentId(db, assignment_id), dataAsOf: r.dataAsOf ?? 'never' });
   return {
     ...(r.state === 'stored' ? { stale_data: STORED_NOTE(r.dataAsOf) } : {}),
-    ...ctx, ...contextSources(db, { assignment_id }, r), data_as_of: r.dataAsOf,
+    ...ctx, ...contextSources(db, { assignment_id }, r), data_as_of: r.dataAsOf, context_id: contextId,
   };
 }
 

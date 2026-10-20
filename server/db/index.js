@@ -185,7 +185,8 @@ const MIGRATIONS = [
   `ALTER TABLE assignments ADD COLUMN task_sync_attempted_at TEXT`,
   // #131: the last grading sync that completed cleanly (get_assignment_context's 5 minute skip).
   `ALTER TABLE assignments ADD COLUMN grading_synced_at TEXT`,
-  // #131: the data time and serve time of the last get_assignment_context answer (stale-suggestion banner).
+  // #131: the data time and serve time of the last get_assignment_context answer. Superseded by the
+  // context_serves table (#170); kept so existing databases keep the columns, no longer read or written.
   `ALTER TABLE assignments ADD COLUMN context_data_as_of TEXT`,
   `ALTER TABLE assignments ADD COLUMN context_served_at TEXT`,
 ];

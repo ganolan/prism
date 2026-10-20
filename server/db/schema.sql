@@ -115,10 +115,8 @@ CREATE TABLE IF NOT EXISTS assignments (
   grading_synced_at TEXT,
   -- last sync of this task, complete or not (background-sync window).
   task_sync_attempted_at TEXT,
-  -- #131: what PrisMCP's get_assignment_context last handed a grading session, and when: the
-  -- data time of the answer ('never' for a task not yet synced) and the moment it was served.
-  -- upsertStudentSuggestion copies them onto a suggestion, so staleness is the age of the data
-  -- the grader was given, not of whatever a background sync stamped by write time.
+  -- #131 (superseded by context_serves, #170; no longer read or written): what
+  -- get_assignment_context last handed a grading session.
   context_data_as_of TEXT,
   context_served_at TEXT,
   synced_at TEXT
@@ -264,12 +262,12 @@ CREATE TABLE IF NOT EXISTS feedback (
   revision_history TEXT DEFAULT '[]',
   source_file TEXT,
   suggestion_state TEXT,
-  -- The data time of the context the grading session was given (assignments.context_data_as_of,
-  -- else task_synced_at at write time): how old the data a suggestion was made from was
+  -- The data time of the context the grading session was given (the context_serves row its
+  -- context_id names, else the oldest serve in 3 hours, else task_synced_at at write time): how old the data a suggestion was made from was
   -- ('never': the task had never been synced; null: a row from before this was recorded, not
   -- judged). See #131.
   data_as_of TEXT,
-  -- When the grading session got its data (assignments.context_served_at, else the write time;
+  -- When the grading session got its data (that serve's served_at, else the write time;
   -- ISO). Not the write time itself: a grader reads once and writes at the end. updated_at also
   -- moves on teacher edits, so staleness compares data_as_of with this. Set only by
   -- upsertStudentSuggestion.
@@ -872,3 +870,17 @@ CREATE TABLE IF NOT EXISTS submission_comment_seen (
   seen_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (assignment_id, student_id)
 );
+
+-- #170: every grading read PrisMCP's get_assignment_context handed out. The answer's context_id is
+-- this row's id; write_student_suggestions takes it back, so a suggestion records the data time
+-- and serve time of the read it was graded from. data_as_of is 'never' for a task not yet synced.
+-- Rows older than 30 days are pruned (server/services/contextServes.js). No foreign key: a
+-- deleted task leaves rows that the prune clears.
+CREATE TABLE IF NOT EXISTS context_serves (
+  -- AUTOINCREMENT: a pruned id is never handed out again, so an old context_id cannot name a newer serve.
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  assignment_id INTEGER NOT NULL,
+  data_as_of TEXT NOT NULL,
+  served_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_context_serves_assignment ON context_serves(assignment_id, served_at);

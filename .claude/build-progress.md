@@ -1636,3 +1636,9 @@ submission comments.
 - **Parity** (`scripts/parity-prismcp-http.js`, handlers called directly against `/mcp`, on a copy of prod): 23 of 23 the same; coverage 36 of 36 tools (18 compared, 3 excluded, 15 writers).
 - **Live (prod, 20/10/2026):** the first `get_assignment_context` forced a grading sync in 20.9 s; a second call within 5 minutes answered in 65 ms. A deploy restart drops the in-flight call's connection and the next call starts a fresh run (it does not answer `SYNC_FAILED`).
 
+
+## PrisMCP loose ends (#170): suggestions carry the serve they were graded from (2026-10-20)
+
+- **Why:** the first #131 design kept the serve time on the assignment (`context_data_as_of`, `context_served_at`), so the latest read won for every later write and a stamp never expired. Graham decided: the grader passes back what it graded from.
+- **Now:** every `get_assignment_context` answer is a `context_serves` row (`server/services/contextServes.js`: `recordServe`, `serveFor`, `pruneServes`) and carries its `context_id`. `write_student_suggestions` takes an optional `context_id`; `upsertStudentSuggestion` stamps `feedback.data_as_of` / `suggested_at` from that serve. A `context_id` of another assignment is an error for each student (nothing written). An unknown or pruned id, or none (and `write_quiz_overall_suggestions`, which has no serve), falls back to the OLDEST serve of the task in the last 3 hours (the result notes an unknown id), else `task_synced_at ?? 'never'` and now. Serves older than 30 days are pruned on each `recordServe`. The table is in the database, so a restart between read and write loses nothing. `AUTOINCREMENT` keeps a pruned id from naming a newer serve. The assignment columns stay but are no longer read or written.
+- **Tests:** `server/services/contextServes.test.js` (new), additions in `suggestions.test.js`, `quizOverall.test.js`, `mcp/server.test.js`; `mcp/suggestionStaleness.test.js` rewritten around `context_id`.

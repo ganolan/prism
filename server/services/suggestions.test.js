@@ -5,6 +5,7 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 import { getDb } from '../db/index.js';
 import { upsertStudentSuggestion, writeStudentSuggestions, upsertAssessmentAnalysis } from './suggestions.js';
 import { saveRubric } from './rubricStore.js';
+import { recordServe } from './contextServes.js';
 
 // A course with one aligned measurement topic (ART.5.1 / "Generates media"),
 // an assignment (Schoology id 'sa-1'), and one enrolled student (uid-1).
@@ -21,7 +22,7 @@ function seed(db) {
 beforeEach(() => {
   getDb().exec(
     'DELETE FROM rubric_row_levels; DELETE FROM rubric_attachments; DELETE FROM rubric_criteria; DELETE FROM rubrics; ' +
-    'DELETE FROM assessment_analysis; DELETE FROM feedback; DELETE FROM mastery_alignments; ' +
+    'DELETE FROM assessment_analysis; DELETE FROM context_serves; DELETE FROM feedback; DELETE FROM mastery_alignments; ' +
     'DELETE FROM mastery_scores; DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
     'DELETE FROM grades; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
   );
@@ -99,23 +100,79 @@ describe('upsertStudentSuggestion', () => {
     expect(db.prepare('SELECT data_as_of FROM feedback WHERE id = ?').get(second.feedback_id).data_as_of).toBe('2026-10-20T10:25:00.000Z');
   });
 
-  test('a served context (get_assignment_context) sets data_as_of and suggested_at, not task_synced_at and the write time', () => {
+  test('a context_id sets data_as_of and suggested_at from that serve, not task_synced_at and the write time', () => {
     const db = getDb();
     const { assignmentLocalId } = seed(db);
-    db.prepare('UPDATE assignments SET task_synced_at = ?, context_data_as_of = ?, context_served_at = ? WHERE id = ?')
-      .run('2026-10-20T10:20:00.000Z', '2026-10-20T09:00:00.000Z', '2026-10-20T09:05:00.000Z', assignmentLocalId);
-    const result = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'Good.' });
+    db.prepare('UPDATE assignments SET task_synced_at = ? WHERE id = ?').run('2026-10-20T10:20:00.000Z', assignmentLocalId);
+    const contextId = recordServe(db, { assignmentId: assignmentLocalId, dataAsOf: '2026-10-20T09:00:00.000Z', now: '2026-10-20T09:05:00.000Z' });
+    const result = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'Good.', contextId });
     expect(db.prepare('SELECT data_as_of, suggested_at FROM feedback WHERE id = ?').get(result.feedback_id))
       .toEqual({ data_as_of: '2026-10-20T09:00:00.000Z', suggested_at: '2026-10-20T09:05:00.000Z' });
   });
 
-  test("a served context for a never-synced task stores 'never', even once the task has since been synced", () => {
+  test("a context_id for a never-synced task stores 'never', even once the task has since been synced", () => {
     const db = getDb();
     const { assignmentLocalId } = seed(db);
-    db.prepare('UPDATE assignments SET task_synced_at = ?, context_data_as_of = ?, context_served_at = ? WHERE id = ?')
-      .run('2026-10-20T10:20:00.000Z', 'never', '2026-10-20T09:05:00.000Z', assignmentLocalId);
-    const result = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'Good.' });
+    db.prepare('UPDATE assignments SET task_synced_at = ? WHERE id = ?').run('2026-10-20T10:20:00.000Z', assignmentLocalId);
+    const contextId = recordServe(db, { assignmentId: assignmentLocalId, dataAsOf: 'never', now: '2026-10-20T09:05:00.000Z' });
+    const result = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'Good.', contextId });
     expect(db.prepare('SELECT data_as_of FROM feedback WHERE id = ?').get(result.feedback_id).data_as_of).toBe('never');
+  });
+
+  test("another assignment's context_id is an error for the student and writes nothing", () => {
+    const db = getDb();
+    const { courseId, assignmentLocalId } = seed(db);
+    const other = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-2', 'Other')`).run(courseId).lastInsertRowid;
+    const contextId = recordServe(db, { assignmentId: other, dataAsOf: '2026-10-20T09:00:00.000Z' });
+    const r = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'Good.', contextId });
+    expect(r).toMatchObject({ student: 'uid-1', status: 'error' });
+    expect(r.message).toMatch(/another assignment/i);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM feedback WHERE assignment_id = ?').get(assignmentLocalId).n).toBe(0);
+  });
+
+  test('an unknown context_id falls back to the oldest serve in 3 hours and the result says so', () => {
+    const db = getDb();
+    const { assignmentLocalId } = seed(db);
+    const now = new Date();
+    recordServe(db, { assignmentId: assignmentLocalId, dataAsOf: new Date(now - 100 * 60000).toISOString(), now: new Date(now - 90 * 60000).toISOString() });
+    recordServe(db, { assignmentId: assignmentLocalId, dataAsOf: new Date(now - 6 * 60000).toISOString(), now: new Date(now - 5 * 60000).toISOString() });
+    const r = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'Good.', contextId: 987654 });
+    expect(r.status).toBe('written');
+    expect(r.message).toMatch(/context_id 987654/);
+    expect(db.prepare('SELECT data_as_of, suggested_at FROM feedback WHERE id = ?').get(r.feedback_id))
+      .toEqual({ data_as_of: new Date(now - 100 * 60000).toISOString(), suggested_at: new Date(now - 90 * 60000).toISOString() });
+  });
+
+  test('two sessions, one stored and one fresh, each write with their own context_id', () => {
+    const db = getDb();
+    const { assignmentLocalId } = seed(db);
+    const storedId = recordServe(db, { assignmentId: assignmentLocalId, dataAsOf: '2026-10-17T10:00:00.000Z', now: '2026-10-20T09:00:00.000Z' });
+    const freshId = recordServe(db, { assignmentId: assignmentLocalId, dataAsOf: '2026-10-20T09:29:00.000Z', now: '2026-10-20T09:30:00.000Z' });
+    const a = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'A.', contextId: storedId });
+    expect(db.prepare('SELECT data_as_of, suggested_at FROM feedback WHERE id = ?').get(a.feedback_id))
+      .toEqual({ data_as_of: '2026-10-17T10:00:00.000Z', suggested_at: '2026-10-20T09:00:00.000Z' });
+    const b = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'B.', contextId: freshId });
+    expect(db.prepare('SELECT data_as_of, suggested_at FROM feedback WHERE id = ?').get(b.feedback_id))
+      .toEqual({ data_as_of: '2026-10-20T09:29:00.000Z', suggested_at: '2026-10-20T09:30:00.000Z' });
+  });
+
+  test('writeStudentSuggestions passes the context_id to every student', () => {
+    const db = getDb();
+    const { assignmentLocalId } = seed(db);
+    const contextId = recordServe(db, { assignmentId: assignmentLocalId, dataAsOf: '2026-10-20T09:00:00.000Z', now: '2026-10-20T09:05:00.000Z' });
+    const { results } = writeStudentSuggestions(db, { assignmentId: 'sa-1', contextId, students: [{ student: 'uid-1', narrative_feedback: 'Good.' }] });
+    expect(results[0].status).toBe('written');
+    expect(db.prepare('SELECT data_as_of, suggested_at FROM feedback WHERE id = ?').get(results[0].feedback_id))
+      .toEqual({ data_as_of: '2026-10-20T09:00:00.000Z', suggested_at: '2026-10-20T09:05:00.000Z' });
+  });
+
+  test('a serve older than 3 hours is never copied by the fallback', () => {
+    const db = getDb();
+    const { assignmentLocalId } = seed(db);
+    db.prepare('UPDATE assignments SET task_synced_at = ? WHERE id = ?').run('2026-10-20T10:20:00.000Z', assignmentLocalId);
+    recordServe(db, { assignmentId: assignmentLocalId, dataAsOf: '2026-10-01T09:00:00.000Z', now: new Date(Date.now() - 4 * 3600 * 1000).toISOString() });
+    const r = upsertStudentSuggestion(db, { assignmentId: 'sa-1', student: 'uid-1', narrative_feedback: 'Good.' });
+    expect(db.prepare('SELECT data_as_of FROM feedback WHERE id = ?').get(r.feedback_id).data_as_of).toBe('2026-10-20T10:20:00.000Z');
   });
 
   test('accepts level codes and reports out-of-vocabulary levels without storing them', () => {

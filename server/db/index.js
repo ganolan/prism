@@ -189,6 +189,10 @@ const MIGRATIONS = [
   // context_serves table (#170); kept so existing databases keep the columns, no longer read or written.
   `ALTER TABLE assignments ADD COLUMN context_data_as_of TEXT`,
   `ALTER TABLE assignments ADD COLUMN context_served_at TEXT`,
+  // #171: a course discovered by a sync is marked until its first section read finishes
+  // ('pending'), or keeps why that read failed ('failed'). Existing rows stay NULL (no backfill).
+  `ALTER TABLE courses ADD COLUMN first_sync TEXT`,
+  `ALTER TABLE courses ADD COLUMN first_sync_error TEXT`,
 ];
 
 // Remove orphaned auto-flag rows. The auto-flag feature that wrote 'missing',

@@ -145,6 +145,20 @@ describe('the sync queue', () => {
     runs[1].finish(); await idle();
   });
 
+  // #171: an 'all' run's mastery list is taken after its section phase (it may discover courses);
+  // a course list keeps its own.
+  test('a kind \'all\' request passes masteryCourseIds null; a kind \'courses\' request passes its list', async () => {
+    const runs = gatedRuns();
+    enqueue({ kind: 'all', trigger: 'button', force: true });
+    await tick();
+    expect(runs[0].options).toMatchObject({ courseIds: null, masteryCourseIds: null });
+    runs[0].finish(); await idle();
+    enqueue({ kind: 'courses', courseIds: [b], trigger: 'button', force: true });
+    await tick();
+    expect(runs[1].options).toMatchObject({ courseIds: [b], masteryCourseIds: [b] });
+    runs[1].finish(); await idle();
+  });
+
   test('a mastery-only retry covers nothing', async () => {
     const runs = gatedRuns();
     enqueue({ kind: 'courses', courseIds: [a], masteryCourseIds: [a], skipSchoology: true, trigger: 'button', force: true });

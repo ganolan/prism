@@ -23,7 +23,7 @@ import { syncPsAttendance } from './psAttendanceSync.js';
 import { syncPsAlerts } from './psAlertsSync.js';
 import { refreshRecentQuizzes } from './quizRefresh.js';
 import { refreshRecentComments } from './submissionComments.js';
-import { runUnifiedSync, classifyMasteryError } from './syncOrchestrator.js';
+import { runUnifiedSync, classifyMasteryError, currentCourseIds } from './syncOrchestrator.js';
 import { nightlyDataStatus } from './nightlyData.js';
 
 function seedCourse(db, name) {
@@ -511,6 +511,70 @@ describe('runUnifiedSync with a course list (#58)', () => {
     await runUnifiedSync({}, () => {});
     expect(fullSync.mock.calls[0][1].courseIds).toBeNull();
     expect(syncPsAttendance.mock.calls[0][0].courseIds).toBeUndefined();
+  });
+});
+
+// #171: a `kind: 'all'` run takes its mastery list after the section phase, so a course the run
+// discovers (an empty database's first run, a new mid-year section) gets its mastery too.
+describe('runUnifiedSync: masteryCourseIds null = the current courses after the section phase (#171)', () => {
+  const insert = (section, name, flags = {}) => h.db.prepare(
+    `INSERT INTO courses (schoology_section_id, course_name, hidden, archived, excluded) VALUES (?, ?, ?, ?, ?)`
+  ).run(section, name, flags.hidden ? 1 : 0, flags.archived ? 1 : 0, flags.excluded ? 1 : 0).lastInsertRowid;
+  beforeEach(() => {
+    h.db = new Database(':memory:');
+    migrate(h.db);
+    fullSync.mockReset();
+    syncMasteryForCourse.mockReset().mockResolvedValue({ scoresCount: 1 });
+    syncPsAttendance.mockReset().mockResolvedValue({ updated: 0, skipped: 0 });
+    syncPsAlerts.mockReset().mockResolvedValue({ students: 0, withAlerts: 0, failed: 0 });
+    h.features = {};
+  });
+
+  test('currentCourseIds: not archived, not excluded, hidden only when included', () => {
+    const a = insert('s-a', 'A');
+    const hid = insert('s-h', 'Hidden', { hidden: true });
+    insert('s-o', 'Old', { archived: true });
+    insert('s-t', 'Template', { excluded: true });
+    expect(currentCourseIds(h.db, { includeHidden: false })).toEqual([a]);
+    expect(currentCourseIds(h.db, { includeHidden: true })).toEqual([a, hid]);
+    expect(currentCourseIds(h.db)).toEqual([a]);
+  });
+
+  test('mastery runs for the courses the section phase discovered', async () => {
+    const existing = insert('s-a', 'A');
+    insert('s-h', 'Hidden', { hidden: true });
+    let found;
+    fullSync.mockImplementation(async () => {
+      found = insert('s-new', 'New');
+      return { success: true, records: 1 };
+    });
+    await runUnifiedSync({ masteryCourseIds: null }, () => {});
+    expect(syncMasteryForCourse.mock.calls.map((c) => c[0])).toEqual([existing, found]);
+  });
+
+  test('includeHidden takes hidden courses too; an archived course already read is skipped', async () => {
+    const a = insert('s-a', 'A');
+    const hid = insert('s-h', 'Hidden', { hidden: true });
+    fullSync.mockResolvedValue({ success: true, records: 1, archivedRead: [a] });
+    await runUnifiedSync({ masteryCourseIds: null, includeHidden: true }, () => {});
+    expect(syncMasteryForCourse.mock.calls.map((c) => c[0])).toEqual([hid]);
+  });
+
+  test('with Schoology skipped, null still means the current courses', async () => {
+    const a = insert('s-a', 'A');
+    await runUnifiedSync({ masteryCourseIds: null, skipSchoology: true, syncBlocks: false }, () => {});
+    expect(syncMasteryForCourse.mock.calls.map((c) => c[0])).toEqual([a]);
+  });
+
+  test('a list is used as given; no list (undefined) still means no mastery', async () => {
+    const a = insert('s-a', 'A');
+    insert('s-b', 'B');
+    fullSync.mockResolvedValue({ success: true, records: 1 });
+    await runUnifiedSync({ masteryCourseIds: [a] }, () => {});
+    expect(syncMasteryForCourse.mock.calls.map((c) => c[0])).toEqual([a]);
+    syncMasteryForCourse.mockClear();
+    await runUnifiedSync({}, () => {});
+    expect(syncMasteryForCourse).not.toHaveBeenCalled();
   });
 });
 

@@ -32,7 +32,7 @@
 // A caller that checked the session itself (gradingSync) passes when (`sessionCheckedAt`, ms) and
 // what it found (`sessionLive`): a check under SESSION_CHECK_MS old is not made again (#170).
 import { getDb } from '../db/index.js';
-import { runUnifiedSync } from './syncOrchestrator.js';
+import { runUnifiedSync, currentCourseIds } from './syncOrchestrator.js';
 import { appendEvent, finishRun, pruneRuns, KEEP_RUNS } from './syncRuns.js';
 import { sessionStatus } from './schoologySession.js';
 import { runTaskSync } from './taskSyncRun.js';
@@ -92,9 +92,7 @@ export function coveredCourseIds(request) {
   if (request.skipSchoology) return [];
   if (request.kind === 'courses') return (request.courseIds ?? []).map(Number);
   if (request.kind === 'task' || request.kind === 'quiz') return [];
-  return db().prepare(`
-    SELECT id FROM courses WHERE COALESCE(archived, 0) = 0 AND COALESCE(excluded, 0) = 0
-      AND (COALESCE(hidden, 0) = 0 OR ?) ORDER BY id`).all(request.includeHidden ? 1 : 0).map((r) => r.id);
+  return currentCourseIds(db(), { includeHidden: !!request.includeHidden });
 }
 
 // The PowerSchool pass and the quizzes phase a request asks for (they are part of what it reads).
@@ -128,10 +126,12 @@ function covers(entry, request) {
 
 // The options runUnifiedSync takes, from a request. Everything is read: mastery for every course.
 // A PowerSchool-only or mastery-only retry (skipSchoology) runs over every course (courseIds null).
+// #171: a `kind: 'all'` run takes its mastery list after its section phase (masteryCourseIds null),
+// not the list fixed when it was queued, so the courses it discovers get their mastery too.
 function unifiedOptions(request, covered) {
   return {
     courseIds: request.kind === 'courses' && !request.skipSchoology ? covered : null,
-    masteryCourseIds: request.masteryCourseIds ?? covered,
+    masteryCourseIds: request.masteryCourseIds ?? (request.kind === 'all' ? null : covered),
     skipSchoology: !!request.skipSchoology,
     includeHidden: !!request.includeHidden,
     ...extras(request),

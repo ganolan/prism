@@ -20,6 +20,15 @@ export function classifyMasteryError(err) {
   return 'other';
 }
 
+// The current courses: not archived, not excluded (template sections), hidden ones only when included.
+// What a `kind: 'all'` request reads (syncQueue's coveredCourseIds) and, with `masteryCourseIds: null`,
+// the courses whose mastery a run reads.
+export function currentCourseIds(db, { includeHidden = false } = {}) {
+  return db.prepare(`
+    SELECT id FROM courses WHERE COALESCE(archived, 0) = 0 AND COALESCE(excluded, 0) = 0
+      AND (COALESCE(hidden, 0) = 0 OR ?) ORDER BY id`).all(includeHidden ? 1 : 0).map((r) => r.id);
+}
+
 // Run the unified sync: the Schoology public-API pull, then a mastery pull
 // (plain HTTP with the saved session, #141) for each requested course. Every step reports through onEvent.
 // Event shapes:
@@ -32,6 +41,8 @@ export function classifyMasteryError(err) {
 // (null = the phase did not run; mastery = the sum over its courses). The same
 // times are stored on a sync_metrics row (#143, for the #108 lazy-or-eager
 // decision).
+// `masteryCourseIds: null` (#171): the current courses once the section phase has run, so a course
+// that phase discovered gets its mastery too (a first run on an empty database, a new mid-year section).
 export async function runUnifiedSync(
   { masteryCourseIds = [], skipSchoology = false, includeHidden = false, syncBlocks = true, refreshQuizzes = false, courseIds = null },
   onEvent
@@ -162,7 +173,8 @@ export async function runUnifiedSync(
     `UPDATE sync_log SET status = 'error', error_message = ?, completed_at = ? WHERE id = ?`
   );
 
-  for (const courseId of masteryCourseIds.filter((id) => !skipMastery.has(Number(id)))) {
+  const masteryList = masteryCourseIds ?? currentCourseIds(db, { includeHidden });
+  for (const courseId of masteryList.filter((id) => !skipMastery.has(Number(id)))) {
     const courseRow = selectCourse.get(courseId);
     const courseName = courseRow?.course_name || `Course ${courseId}`;
     emit({ phase: 'mastery', courseId, courseName, status: 'running' });

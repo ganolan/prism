@@ -535,10 +535,11 @@ export async function fullSync(onProgress, { includeHidden = false, courseIds = 
 
     let totalRecords = 0;
 
-    // Upsert courses
+    // Upsert courses. #171: a section new to Prism is marked 'pending' until its first read
+    // finishes (the dashboard lists it then); the update leaves an existing row's mark alone.
     const upsertCourse = db.prepare(`
-      INSERT INTO courses (schoology_section_id, course_name, section_name, course_code, section_school_code, grading_period, archived, synced_at)
-      VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+      INSERT INTO courses (schoology_section_id, course_name, section_name, course_code, section_school_code, grading_period, archived, synced_at, first_sync)
+      VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'pending')
       ON CONFLICT(schoology_section_id) DO UPDATE SET
         course_name = excluded.course_name,
         section_name = excluded.section_name,
@@ -573,6 +574,8 @@ export async function fullSync(onProgress, { includeHidden = false, courseIds = 
     // excluded courses unconditionally, so they never reach the expensive
     // per-section API calls.
     markExcludedCourses(db);
+    // #171: a template section is never read, so it never waits for a first read.
+    db.exec(`UPDATE courses SET first_sync = NULL, first_sync_error = NULL WHERE excluded = 1 AND first_sync IS NOT NULL`);
 
     // 2. For each section, sync enrollments, assignments, grades, folders, categories
     const upsertFolder = db.prepare(`
@@ -602,8 +605,9 @@ export async function fullSync(onProgress, { includeHidden = false, courseIds = 
     `);
 
     const selectCourseFlags = db.prepare(
-      'SELECT id, hidden, archived, excluded FROM courses WHERE schoology_section_id = ?'
+      'SELECT id, hidden, archived, excluded, first_sync FROM courses WHERE schoology_section_id = ?'
     );
+    const setFirstSync = db.prepare('UPDATE courses SET first_sync = ?, first_sync_error = ? WHERE id = ?');
     for (const sec of sections) {
       const sectionId = String(sec.id);
       const courseRow = selectCourseFlags.get(sectionId);
@@ -615,13 +619,23 @@ export async function fullSync(onProgress, { includeHidden = false, courseIds = 
       } else if (courseRow.hidden && !includeHidden) { metrics.sections_skipped++; continue; }
 
       log(`Syncing "${sec.course_title}"...`);
-      const result = await syncSectionData(db, sectionId, courseRow.id, now, {
-        ...syncConfig,
-        fetchDocuments: submissionFetcher ? (aid) => submissionFetcher.fetchDocuments(aid) : undefined,
-        fetchTestAttempts: submissionFetcher
-          ? (sid, uids, itemIds) => submissionFetcher.fetchTestAttempts(sid, uids, itemIds)
-          : undefined,
-      });
+      let result;
+      try {
+        result = await syncSectionData(db, sectionId, courseRow.id, now, {
+          ...syncConfig,
+          fetchDocuments: submissionFetcher ? (aid) => submissionFetcher.fetchDocuments(aid) : undefined,
+          fetchTestAttempts: submissionFetcher
+            ? (sid, uids, itemIds) => submissionFetcher.fetchTestAttempts(sid, uids, itemIds)
+            : undefined,
+        });
+      } catch (err) {
+        // A course Prism has read before fails the run, as it always has. A course still waiting
+        // for its first read (#171) records why and the run goes on: it shows as "Sync failed".
+        if (courseRow.first_sync == null) throw err;
+        setFirstSync.run('failed', err.message, courseRow.id);
+        log(`Could not sync "${sec.course_title}": ${err.message}`);
+        continue;
+      }
       metrics.submission_calls += result.submissionAttempts || 0;
       metrics.rate_limit_hits += result.rateLimitHits || 0;
       metrics.transient_failures += result.transientFailures || 0;
@@ -676,6 +690,8 @@ export async function fullSync(onProgress, { includeHidden = false, courseIds = 
         totalRecords += scales.length;
       } catch { /* scales not available */ }
 
+      // #171: this course's first read is done; the dashboard lists it from now on.
+      if (courseRow.first_sync != null) setFirstSync.run(null, null, courseRow.id);
     }
 
     // The session fetcher (lti state, test attempts) is only needed during the section loop
@@ -790,6 +806,13 @@ export async function fullSync(onProgress, { includeHidden = false, courseIds = 
   } catch (err) {
     db.prepare(`UPDATE sync_log SET status = 'error', error_message = ?, completed_at = ? WHERE id = ?`)
       .run(err.message, new Date().toISOString(), syncId);
+    // #171: a course this run never reached shows as "Sync failed", not hidden until the next run.
+    try {
+      db.prepare(`UPDATE courses SET first_sync = 'failed', first_sync_error = ? WHERE first_sync = 'pending'`)
+        .run('The sync stopped before this course.');
+    } catch (markErr) {
+      console.error('[sync] could not mark the courses not reached:', markErr.message);
+    }
     throw err;
   } finally {
     if (submissionFetcher) await submissionFetcher.close().catch(() => {});

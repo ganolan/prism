@@ -1060,6 +1060,104 @@ describe('fullSync — a list of courses (#58)', () => {
   });
 });
 
+// #171: a course a sync discovers is marked until its first section read finishes, so the dashboard
+// lists each course once its own read is done, and a course whose first read failed still shows.
+describe('fullSync — a course\'s first sync (#171)', () => {
+  let db;
+  let sch;
+  const section = (id, title, codes = true) => ({
+    id, course_title: title, section_title: 'A', ...(codes ? { course_code: 'C', section_school_code: 'S' } : {}),
+  });
+  const mark = (sectionId) => db.prepare('SELECT first_sync, first_sync_error FROM courses WHERE schoology_section_id = ?').get(sectionId);
+  // The section reads that fail (getSectionEnrollments is syncSectionData's first call).
+  let failing;
+  // Each section's mark at the moment its read began.
+  let seen;
+
+  beforeEach(async () => {
+    db = new Database(':memory:');
+    migrate(db);
+    const dbModule = await import('../db/index.js');
+    dbModule.__setTestDb?.(db);
+    db.prepare(`INSERT INTO courses (schoology_section_id, course_name, course_code, section_school_code) VALUES ('sec-old', 'Existing', 'C', 'S')`).run();
+    failing = {};
+    seen = {};
+    sch = await import('./schoology.js');
+    sch.getMyUserId.mockResolvedValue('user-1');
+    sch.getSectionGradingPeriods.mockResolvedValue([]);
+    sch.getSectionEnrollments.mockReset().mockImplementation(async (sid) => {
+      seen[sid] = mark(sid).first_sync;
+      if (failing[sid]) throw new Error(failing[sid]);
+      return [];
+    });
+    sch.getSectionAssignments.mockResolvedValue([]);
+    sch.getSectionGrades.mockResolvedValue([]);
+    sch.getSectionFolders.mockResolvedValue([]);
+    sch.getSectionGradingCategories.mockResolvedValue([]);
+    sch.getSectionGradingScales.mockResolvedValue([]);
+    sch.getUserProfilesBatch.mockReset().mockResolvedValue(new Map());
+    sch.getMySections.mockResolvedValue([section('sec-old', 'Existing'), section('sec-r', 'Robotics'), section('sec-d', 'Design')]);
+  });
+
+  test('a new section is inserted pending and cleared when its read finishes; an existing row is never marked', async () => {
+    const r = await fullSync(() => {});
+    expect(seen).toEqual({ 'sec-old': null, 'sec-r': 'pending', 'sec-d': 'pending' });
+    for (const sid of ['sec-old', 'sec-r', 'sec-d']) expect(mark(sid)).toEqual({ first_sync: null, first_sync_error: null });
+    expect(r.readCourseIds).toHaveLength(3);
+  });
+
+  test('a new section whose read fails is marked failed with the message, and the run goes on', async () => {
+    failing['sec-r'] = 'Schoology API 500';
+    const logs = [];
+    const r = await fullSync((p) => logs.push(p.message));
+    expect(r.success).toBe(true);
+    expect(mark('sec-r')).toEqual({ first_sync: 'failed', first_sync_error: 'Schoology API 500' });
+    expect(logs).toContain('Could not sync "Robotics": Schoology API 500');
+    // The next section is read and cleared.
+    expect(seen['sec-d']).toBe('pending');
+    expect(mark('sec-d')).toEqual({ first_sync: null, first_sync_error: null });
+    const robotics = db.prepare(`SELECT id FROM courses WHERE schoology_section_id = 'sec-r'`).get().id;
+    expect(r.readCourseIds).not.toContain(robotics);
+    expect(r.complete.courseIds).not.toContain(robotics);
+  });
+
+  test('a failed course is read again by the next run and cleared when that read finishes', async () => {
+    failing['sec-r'] = 'Schoology API 500';
+    await fullSync(() => {});
+    delete failing['sec-r'];
+    await fullSync(() => {});
+    expect(seen['sec-r']).toBe('failed');
+    expect(mark('sec-r')).toEqual({ first_sync: null, first_sync_error: null });
+  });
+
+  test('an existing course whose read fails still fails the run', async () => {
+    failing['sec-old'] = 'Schoology API 401';
+    await expect(fullSync(() => {})).rejects.toThrow('Schoology API 401');
+    expect(mark('sec-old')).toEqual({ first_sync: null, first_sync_error: null });
+  });
+
+  test('a run that stops marks every course still pending as failed', async () => {
+    sch.getMySections.mockResolvedValue([
+      section('sec-d', 'Design'), section('sec-x', 'Physics'), section('sec-old', 'Existing'), section('sec-r', 'Robotics'),
+    ]);
+    failing['sec-x'] = 'Schoology API 500';
+    failing['sec-old'] = 'Schoology API 401';
+    await expect(fullSync(() => {})).rejects.toThrow('Schoology API 401');
+    expect(mark('sec-d')).toEqual({ first_sync: null, first_sync_error: null });       // read before the stop
+    expect(mark('sec-x')).toEqual({ first_sync: 'failed', first_sync_error: 'Schoology API 500' }); // keeps its own error
+    expect(mark('sec-r')).toEqual({ first_sync: 'failed', first_sync_error: 'The sync stopped before this course.' });
+    expect(mark('sec-old')).toEqual({ first_sync: null, first_sync_error: null });
+  });
+
+  test('a new template section (excluded) is never left pending', async () => {
+    sch.getMySections.mockResolvedValue([section('sec-old', 'Existing'), section('sec-t', 'MASTER Template', false)]);
+    await fullSync(() => {});
+    expect(db.prepare(`SELECT excluded FROM courses WHERE schoology_section_id = 'sec-t'`).get().excluded).toBe(1);
+    expect(mark('sec-t')).toEqual({ first_sync: null, first_sync_error: null });
+    expect(seen['sec-t']).toBeUndefined();
+  });
+});
+
 describe('syncSectionData — tasks read in full (#58)', () => {
   let db;
   let courseId;

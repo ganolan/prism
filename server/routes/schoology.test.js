@@ -3,7 +3,9 @@ import express from 'express';
 
 const h = vi.hoisted(() => { process.env.DB_PATH = ':memory:'; return { impl: null, failAppend: false }; });
 
-vi.mock('../services/syncOrchestrator.js', () => ({
+// Only the run itself is faked; the queue still uses the real current-course query.
+vi.mock('../services/syncOrchestrator.js', async (importOriginal) => ({
+  ...(await importOriginal()),
   runUnifiedSync: (opts, onEvent) => h.impl(opts, onEvent),
 }));
 

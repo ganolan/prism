@@ -110,3 +110,23 @@ describe('gradebook cell: exception chips', () => {
       expect(screen.getByRole('dialog', { name: 'Ada Lovelace: Essay' })).toBeInTheDocument();
     });
 });
+
+describe('gradebook cell: the Overdue letter (#40)', () => {
+  it('past due with nothing submitted shows the letter O, titled Overdue (Missing is Schoology\'s flag)', () => {
+    renderGrid({ score: null, exception: null, submission_type: null });
+    const badge = cell().querySelector('.badge');
+    expect(badge).toHaveTextContent(/^O$/);
+    expect(badge).toHaveAttribute('title', 'Overdue');
+    expect(cell()).not.toHaveTextContent('M');
+  });
+  it('no grade row at all gives the same letter', () => {
+    const data = {
+      assignments: [{ id: 1, title: 'Essay', schoology_assignment_id: 'sa-1', aligned: 0, is_lti_submission: 0, due_date: '2026-10-06 15:00:00', max_points: 100 }],
+      students: [{ id: 10, schoology_uid: 'u1', first_name: 'Ada', last_name: 'Lovelace' }],
+      grades: {}, timelines: {}, grading_scales: {},
+    };
+    getCourseCommentSummaries.mockResolvedValue({ assignments: {} });
+    render(<MemoryRouter><GradebookView data={data} courseId="5" mastery={null} /></MemoryRouter>);
+    expect(cell().querySelector('.badge')).toHaveTextContent(/^O$/);
+  });
+});

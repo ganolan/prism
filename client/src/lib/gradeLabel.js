@@ -36,7 +36,7 @@ const LATE_EXCEPTION = 4;
 // Tones escalate by due-proximity (see the spec's matrix).
 //
 // Non-lti work: only submitted-or-not is knowable, so it consolidates to
-// green "Submitted" or red "Missing" (overdue only); nothing before due.
+// green "Submitted" or red "Overdue" (past due only; "Missing" is Schoology's exception 3); nothing before due.
 // "Submitted" needs a real submission signal (submission_type: a dropbox revision
 // or a test attempt), the same rule as triage. submitted_at is the grade time and
 // is NOT one (a teacher's comment alone used to show "Submitted", 2026-10-19).
@@ -76,7 +76,7 @@ function ltiBadges(state, submission_type, due_date, today, late, flagged) {
 function nonLtiBadges({ submission_type, late, flagged, due_date, today }) {
   const submitted = !!submission_type;
   if (submitted) return [{ kind: 'submitted', label: 'Submitted', tone: 'green', ...(late ? { late: true } : {}), ...(flagged ? { flagged: true } : {}) }];
-  if (dueProximity(due_date, today) === 'overdue') return [{ kind: 'missing', label: 'Missing', tone: 'red' }];
+  if (dueProximity(due_date, today) === 'overdue') return [{ kind: 'overdue', label: 'Overdue', tone: 'red' }];
   return []; // a late flag with no submission is a stale value, not a state
 }
 

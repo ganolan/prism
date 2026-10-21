@@ -22,7 +22,7 @@ describe('submissionStatus: late OneDrive (LTI) work', () => {
   });
   it('the grade time (submitted_at) is not a submission: a teacher comment alone is not "Submitted"', () => {
     expect(submissionStatus({ score: null, is_lti_submission: 0, submitted_at: 1700000000, due_date: '2020-01-01 15:00:00' }).map((b) => b.kind))
-      .toEqual(['missing']);
+      .toEqual(['overdue']);
     expect(submissionStatus({ score: null, is_lti_submission: 0, submission_type: 'drop', due_date: '2020-01-01 15:00:00' }).map((b) => b.kind))
       .toEqual(['submitted']);
   });
@@ -75,10 +75,11 @@ describe('submissionStatus — non-lti consolidated (#62)', () => {
   it('submitted → green Submitted', () => {
     expect(nl({ submission_type: 'drop', due_date: PAST })).toEqual([{ kind: 'submitted', label: 'Submitted', tone: 'green' }]);
   });
-  it('not submitted + overdue → red Missing only (no Not Started)', () => {
+  it('not submitted + overdue → red Overdue only (no Not Started); Missing is Schoology\'s flag (#40)', () => {
     const b = nl({ submitted_at: 0, due_date: PAST });
-    expect(kinds(b)).toEqual(['missing']);
-    expect(tone(b, 'missing')).toBe('red');
+    expect(b).toEqual([{ kind: 'overdue', label: 'Overdue', tone: 'red' }]);
+    expect(kinds(b)).toEqual(['overdue']);
+    expect(tone(b, 'overdue')).toBe('red');
   });
   it('not submitted + before due → no badge', () => {
     expect(nl({ submitted_at: 0, due_date: FUTURE })).toEqual([]);
@@ -143,7 +144,7 @@ describe('submissionStatus: the Late flag (exception 4)', () => {
       .toEqual([{ kind: 'submitted', label: 'Submitted', tone: 'green', late: true, flagged: true }]);
   });
   it('flagged with nothing submitted still shows the status it already had (no late badge of its own)', () => {
-    expect(submissionStatus({ score: null, exception: 4, is_lti_submission: 0, due_date: PAST }).map((b) => b.kind)).toEqual(['missing']);
+    expect(submissionStatus({ score: null, exception: 4, is_lti_submission: 0, due_date: PAST }).map((b) => b.kind)).toEqual(['overdue']);
     expect(submissionStatus({ score: 9, exception: 4, is_lti_submission: 0, submission_type: 'drop', due_date: PAST })).toEqual([]);
   });
 });

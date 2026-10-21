@@ -4,8 +4,8 @@ import SubmissionBadges from './SubmissionBadges.jsx';
 
 describe('SubmissionBadges', () => {
   it('renders a status badge with the mapped tone class', () => {
-    render(<SubmissionBadges status={[{ kind: 'missing', label: 'Missing', tone: 'red' }]} />);
-    expect(screen.getByText('Missing')).toHaveClass('badge', 'badge-red');
+    render(<SubmissionBadges status={[{ kind: 'overdue', label: 'Overdue', tone: 'red' }]} />);
+    expect(screen.getByText('Overdue')).toHaveClass('badge', 'badge-red');
   });
 
   it('maps the amber tone to badge-amber (Incomplete, #40; it was pink while nothing used the tone)', () => {

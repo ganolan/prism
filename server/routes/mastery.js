@@ -844,7 +844,7 @@ router.post('/:courseId/write-comment', async (req, res) => {
       // submission timestamp. Grading on the assessment page reaches this route
       // (the comment write follows the rubric write), and `fresh` already holds
       // the just-entered grade — without mirroring it the local row keeps a
-      // stale NULL score and the gradebook shows "Missing • Not Started" for
+      // stale NULL score and the gradebook shows "Overdue • Not Started" for
       // graded work until the next full sync (#60).
       const studentRow = db.prepare(`
         SELECT s.id FROM students s

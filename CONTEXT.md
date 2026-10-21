@@ -41,7 +41,7 @@ touches them — they are **import-once**.
   `grades.submitted_at`, which is the REST **grade** time (a teacher's comment alone sets it).
   Triage, the card pill and filters, the timeline and PrisMCP all use this rule.
 - **Not tracked** = paper / gradebook-only work (`accepts_submissions = 0`, not a test): no submission
-  channel, so no Submitted / Missing badge; it counts as handed in for "to grade".
+  channel, so no Submitted / Overdue badge; it counts as handed in for "to grade".
 - After an unsubmit, sync keeps the last-seen `latest_revision_at` / `late` as history (resubmission
   detection needs them); no screen or tool shows them unless the work is submitted again.
 

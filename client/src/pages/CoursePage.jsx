@@ -41,7 +41,7 @@ import LateClock from '../components/LateClock.jsx';
 import ExceptionChip from '../components/ExceptionChip.jsx';
 import { DEFAULT_TYPE_FILTER, isUnpublished, passesTypeFilter, typeFilterCounts } from '../lib/assessmentTypeFilter.js';
 
-const SHORT_BADGE = { late: 'L', draft: 'D', missing: 'M', 'not-started': 'NS', submitted: 'S', 'in-progress': 'IP' };
+const SHORT_BADGE = { late: 'L', draft: 'D', overdue: 'O', 'not-started': 'NS', submitted: 'S', 'in-progress': 'IP' };
 const BADGE_TONE_CLASS = { red: 'badge-red', blue: 'badge-blue', amber: 'badge-amber', green: 'badge-green', yellow: 'badge-amber', neutral: 'badge-gray' };
 
 export default function CoursePage() {
@@ -1132,7 +1132,7 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                 if (!g) {
                   // No grade row — for lti this means the document pass found no
                   // state (no session / not covered); for native dropbox, past-due
-                  // unsubmitted → Missing. Render via the shared badge logic.
+                  // unsubmitted → Overdue. Render via the shared badge logic.
                   // #76: a recorded fetch failure shows the re-sync marker instead.
                   if (ltiStatusUnavailable({ is_lti_submission: a.is_lti_submission, lti_fetch_status: a.lti_fetch_status, score: null, exception: 0 })) {
                     return <td key={a.id} style={{ textAlign: 'center' }}>{unavailableMark()}</td>;

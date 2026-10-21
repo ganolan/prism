@@ -566,7 +566,7 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
 
   // The bug (#60): grading on the assessment page calls write-comment, which
   // fetched the fresh Schoology grade but mirrored only the comment — leaving
-  // the local row's score NULL, so the gradebook showed "Missing • Not Started"
+  // the local row's score NULL, so the gradebook showed "Overdue • Not Started"
   // for work that was actually graded.
   test('mirrors the freshly-fetched score and submission timestamp into a stale grades row', async () => {
     const db = getDb();

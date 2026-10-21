@@ -446,7 +446,7 @@ Spec/plan `docs/superpowers/{specs,plans}/2026-06-07-lti-submission-state-badges
 - **Badges (`gradeLabel.submissionStatus`):** one state machine, due-proximity tone ladder. lti: Submitted 🟢;
   In Progress 🔵 before due / 🟡 overdue; Not Started ⚪ early / 🔴 from a week before due through overdue;
   no-session fallback shows nothing before due, neutral "Ungraded" overdue (never a false Not Started).
-  Non-lti consolidates to 🟢 Submitted or 🔴 Missing (overdue only). Both `SubmissionBadges` (full) and the
+  Non-lti consolidates to 🟢 Submitted or 🔴 Overdue (past due only; renamed from "Missing" on 21 Oct 2026, #40: Missing now means only Schoology's exception 3). Both `SubmissionBadges` (full) and the
   gradebook compact badges updated; Submitted recoloured green per the user.
 - **Tests:** parser unit tests; full `submissionStatus` matrix (13 client tests); a sync test that lti uses
   `fetchDocuments` and skips the per-cell walk. 195 server + 229 client green (the lone failing file,

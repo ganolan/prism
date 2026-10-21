@@ -7,7 +7,7 @@ import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
 import { refreshCourseMastery } from '../services/masteryRefresh.js';
 import { enqueue } from '../services/syncQueue.js';
 import { STATUS_LINE_KINDS, putSucceeded, checkLine, lockPair, withCheckedLine, removeStatusLine } from '../services/statusLinePublisher.js';
-import { retireCopy } from '../services/gradeFlags.js';
+import { retireCopy, savedGradeView } from '../services/gradeFlags.js';
 import { FLAG_NAMES, isFinalFlag, isMarker } from '../lib/flags.js';
 import { getFeedbackRows, getRowLevels, rowLevelsError, saveRowLevels } from '../services/feedbackRows.js';
 import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows, scoreScaleFor } from '../services/assessmentContext.js';
@@ -568,6 +568,15 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
       statusLineMap[r.student_id] = { line: r.line, kind: r.kind };
     }
   }
+  // The grade Prism saved before a flag removed it, while it waits to be restored (#40): the card
+  // shows it grayed in the locked rubric and offers "Restore saved grade" once the flag is cleared.
+  const savedCopies = new Map(assignmentRow
+    ? db.prepare('SELECT * FROM excused_grades WHERE assignment_id = ? AND restored_at IS NULL').all(assignmentRow.id).map((r) => [r.student_id, r])
+    : []);
+  const savedGradeFor = (studentId) => {
+    if (!savedCopies.has(studentId)) return null;
+    try { return savedGradeView(db, assignmentRow.id, savedCopies.get(studentId)); } catch { return null; }
+  };
 
   // Triage resubmissions: open request (the card's pill) + derived state.
   const resubmissionMap = assignmentRow ? resubmissionByStudent(db, assignmentRow.id) : new Map();
@@ -621,6 +630,9 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
         resubmission,
         resubmitted: resubmittedMap[s.schoology_uid] === true,
         status_line: statusLineMap[s.id] || null,
+        // The flag's reason line, for the flag symbol's popover (#40).
+        flag_line: statusLineMap[s.id]?.kind === 'flag' ? statusLineMap[s.id].line : null,
+        saved_grade: savedGradeFor(s.id),
         arrived_on: arrivedOn,
         lti_submission_state: ltiStateMap[s.schoology_uid] ?? null,
         // Phase 2: the Ask modal offers to unsubmit OneDrive work Prism last saw submitted.

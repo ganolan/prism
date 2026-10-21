@@ -13,10 +13,12 @@ vi.mock('../services/api.js', async (orig) => ({
   getCourseCommentSummaries: vi.fn().mockResolvedValue({ assignments: {} }),
   getRubricsForAssignments: vi.fn().mockResolvedValue({ attachments: {} }),
   getRubricConfig: vi.fn().mockResolvedValue({ reportingCategoryColors: { produc: '#B4A7D6' } }),
+  getGradeFlags: vi.fn(),
+  setGradeFlag: vi.fn(),
 }));
 
 import { RubricModal, GradebookView } from './CoursePage.jsx';
-import { getRubricsForAssignments, getCourseCommentSummaries } from '../services/api.js';
+import { getRubricsForAssignments, getCourseCommentSummaries, getGradeFlags, setGradeFlag } from '../services/api.js';
 
 const STUDENT = { id: 10, schoology_uid: 'u1', first_name: 'Ada', last_name: 'Lovelace' };
 const TOPICS = [{ topic_id: 't1', title: 'Select, analyze', external_id: 'ART.5.1', category_title: 'HS Art: Producing', grade: 'EX' }];
@@ -193,5 +195,33 @@ describe('GradebookView: flagged cells on an aligned task (#40)', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Exempt: show feedback/ }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).queryByText('Measurement Topic')).not.toBeInTheDocument();
+  });
+});
+
+// #40: the Flags menu in the pop-up's badge row; a write refetches the gradebook (onFlagChange).
+describe('RubricModal: the Flags menu (#40)', () => {
+  it('with onFlagChange: a small Flags pill; clearing a flag with no copy writes, then refetches', async () => {
+    getGradeFlags.mockResolvedValue({ exception: 6, score: null, graded: false, gradeText: null, savedGrade: null, openRecords: [], hasDraft: false });
+    setGradeFlag.mockResolvedValue({ exception: 0, saved: false, withdrawn: [], line: null, restored: null });
+    const onFlagChange = vi.fn();
+    renderModal({
+      grade: { ...GRADE, score: null, exception: 6, saved_level: null },
+      assignment: { id: 3, title: 'Project', schoology_assignment_id: 'sa-1', due_date: null, is_lti_submission: 0, aligned: 1 },
+      onFlagChange,
+    });
+    const pill = screen.getByRole('button', { name: /Late/ });
+    expect(pill).toHaveClass('flags-pill--sm', 'flags-pill--late');
+    fireEvent.click(pill);
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /^Late/ }));
+    await vi.waitFor(() => expect(setGradeFlag).toHaveBeenCalledWith({
+      studentId: 10, assignmentId: 3, code: 0, expected: { exception: 6, score: null }, reason: null,
+    }));
+    await vi.waitFor(() => expect(onFlagChange).toHaveBeenCalledWith(expect.objectContaining({ exception: 0 })));
+    expect(getGradeFlags).toHaveBeenCalledWith(10, 3);
+  });
+
+  it('without onFlagChange (an archived course): no pill', () => {
+    renderModal();
+    expect(screen.queryByRole('button', { name: /Flags/ })).toBeNull();
   });
 });

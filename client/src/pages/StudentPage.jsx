@@ -76,6 +76,7 @@ export function CourseSection({
   studentId = null, workLinks = {}, commentSummaries = null, onCommentSummary = () => {},
   fileSummaries = null, onFileSummary = () => {},
   refreshKey = 0,
+  onFlagChange = null, // each task's Flags menu writes, then the page refetches (#40); off on an archived course
 }) {
   const [expanded, setExpanded] = useState(true);
   // The page syncs its courses in the background and bumps `refreshKey` when a sync ends: the summary
@@ -197,6 +198,12 @@ export function CourseSection({
                         palette={rubrics.palette}
                         exception={g.exception}
                         firstName={studentFirstName}
+                        savedLevel={g.saved_level ?? null}
+                        reasonLine={g.flag_line ?? null}
+                        flagsMenu={onFlagChange && !course.archived && studentId != null ? {
+                          student: { id: studentId, firstName: studentFirstName }, assignmentId: g.assignment_id,
+                          exception: g.exception, score: g.score ?? null, aligned: topics.length > 0, onChange: onFlagChange,
+                        } : null}
                         score={topics.length > 0 ? null : gradeLabel({
                           score: g.score, max_points: g.assignment_max_points,
                           exception: g.exception, grading_scale_id: g.grading_scale_id, scales,
@@ -401,7 +408,7 @@ export default function StudentPage() {
   }, [photoEnlarged]);
 
   function reload() {
-    getStudent(id)
+    return getStudent(id)
       .then(s => { setStudent(s); setPreferredVal(s.preferred_name_teacher || ''); })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -414,6 +421,11 @@ export default function StudentPage() {
   // queues those courses now; the chip opens the progress of the run.
   const liveCourseIds = (student?.courses ?? []).filter((c) => !c.archived).map((c) => c.id);
   const [syncVersion, setSyncVersion] = useState(0);
+  // After a flag write on one of the tasks (#40): the page and each course's summary reload.
+  async function handleFlagChange() {
+    await reload();
+    setSyncVersion((v) => v + 1);
+  }
   const [followRun, setFollowRun] = useState(null);
   const bumpDataVersion = useBumpDataVersion();
   const syncFacts = useSyncFacts(); // whether the night's refresh is on, for the Synced time's help
@@ -732,6 +744,7 @@ export default function StudentPage() {
             fileSummaries={fileSummaries}
             onFileSummary={setFileSummary}
             refreshKey={dataVersion + syncVersion}
+            onFlagChange={handleFlagChange}
           />
         );
       })}

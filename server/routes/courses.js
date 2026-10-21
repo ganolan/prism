@@ -11,6 +11,7 @@ import { forRoster } from '../lib/psAlerts.js';
 import { toSchoologyWebUrl } from '../lib/schoologyWebUrl.js';
 import { timelineContext } from '../services/submissionTimeline.js';
 import { setPublished, PublishError } from '../services/assessmentPublish.js';
+import { waitingCopies, flagLines } from '../services/savedGrades.js';
 
 const router = Router();
 
@@ -250,12 +251,19 @@ router.get('/:id/gradebook', (req, res) => {
   // Arrived resubmissions (visible-feedback snapshots, Amendment B) — the ↩ badge.
   const arrived = arrivedKeys(db, { courseId: Number(req.params.id) });
 
+  // A flagged cell's popover (#40): the grade Prism saved before the flag removed it, in words,
+  // and the flag's reason line.
+  const copies = waitingCopies(db, { courseId: Number(req.params.id) });
+  const lines = flagLines(db, { courseId: Number(req.params.id) });
+
   // Index grades by student_id -> assignment_id
   const gradeMap = {};
   for (const g of grades) {
     if (!gradeMap[g.student_id]) gradeMap[g.student_id] = {};
     g.resubmit_requested = resubmitSet.has(`${g.student_id}:${g.assignment_id}`);
     g.resubmitted = arrived.has(`${g.student_id}:${g.assignment_id}`);
+    g.saved_level = copies.get(`${g.student_id}:${g.assignment_id}`)?.summary ?? null;
+    g.flag_line = lines.get(`${g.student_id}:${g.assignment_id}`) ?? null;
     gradeMap[g.student_id][g.assignment_id] = g;
   }
 

@@ -4,12 +4,16 @@
 // here the pill and the grade coexist — the rubric grid shows the grade.
 // One pill for the student's state: a resubmission that has arrived reads
 // "Resubmitted" (the blue resubmission tone), and lateness is a clock on the pill's
-// corner (LateClock), not a pill of its own (17/10/2026). The Late flag (exception 6) is a flag: its own red "Late" pill (#40).
+// corner (LateClock), not a pill of its own (17/10/2026). A Schoology flag (Exempt, Late, Absent,
+// Incomplete, Missing; #40) shows as its symbol with its name, as everywhere a flag shows, with the
+// popover (what it does, the reason line, the grade Prism saved). `aligned`: the task has topics.
 
 import { submissionStatus, ltiStatusUnavailable } from '../lib/gradeLabel.js';
 import { TONE_VARS } from '../lib/assessmentFilters.js';
 import { lateText } from '../lib/submissionTimeline.js';
 import LateClock from './LateClock.jsx';
+import FlagSymbol from './FlagSymbol.jsx';
+import { preferredFirstName } from '../lib/studentNames.js';
 
 const PILL = {
   display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
@@ -17,7 +21,7 @@ const PILL = {
   borderRadius: 999, fontSize: '0.78rem', fontWeight: 700, whiteSpace: 'nowrap',
 };
 
-export default function SubmissionStatusPill({ student, assignment }) {
+export default function SubmissionStatusPill({ student, assignment, aligned = false }) {
   const badges = submissionStatus({
     score: null,
     exception: student.exception ?? 0,
@@ -54,9 +58,16 @@ export default function SubmissionStatusPill({ student, assignment }) {
   return (
     <span style={{ display: 'inline-flex', gap: '0.35rem' }}>
       {badges.map(b => {
+        if (b.kind === 'exception') {
+          return (
+            <span key={b.kind} className="status-pill-wrap status-pill-wrap--flag">
+              <FlagSymbol code={Number(student.exception)} size="inline" showName firstName={preferredFirstName(student)} aligned={aligned}
+                savedLevel={student.saved_grade?.summary ?? null} reasonLine={student.flag_line ?? null} />
+            </span>
+          );
+        }
         const shown = resubmitted && b.kind === 'submitted' ? { ...b, label: 'Resubmitted', tone: 'resubmit' } : b;
-        // A flag's amber is Incomplete's amber; the filter tone of that name is pink (make-up pill).
-        const v = TONE_VARS[shown.kind === 'exception' && shown.tone === 'amber' ? 'yellow' : shown.tone] || TONE_VARS.neutral;
+        const v = TONE_VARS[shown.tone] || TONE_VARS.neutral;
         return (
           <span key={b.kind} className="status-pill-wrap">
             <span style={{ ...PILL, background: v.bg, color: v.text, border: `1px solid ${v.text}` }}>

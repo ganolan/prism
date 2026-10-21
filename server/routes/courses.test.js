@@ -130,6 +130,25 @@ describe('GET /api/courses/:id/gradebook — resubmit_requested', () => {
   });
 });
 
+describe('GET /api/courses/:id/gradebook — a flagged cell\'s saved grade and reason line (#40)', () => {
+  test('saved_level is the waiting copy\'s summary; flag_line the flag\'s status line; null otherwise', async () => {
+    const db = getDb();
+    db.exec('DELETE FROM excused_grades; DELETE FROM status_lines;');
+    const before = await get(`/api/courses/${courseId}/gradebook`);
+    expect(before.body.grades[studentId][assignmentId]).toMatchObject({ saved_level: null, flag_line: null });
+    db.prepare('UPDATE grades SET exception = 1, score = NULL WHERE student_id = ? AND assignment_id = ?').run(studentId, assignmentId);
+    db.prepare(`INSERT INTO excused_grades (student_id, assignment_id, flag, saved_json, saved_at) VALUES (?, ?, 1, ?, '2026-10-21 02:00:00')`)
+      .run(studentId, assignmentId, JSON.stringify({ score: 90, max_points: 100, topics: {}, rows: {} }));
+    db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, 'Marked exempt on Wed 21/10.', 'flag')`).run(studentId, assignmentId);
+    try {
+      const { body } = await get(`/api/courses/${courseId}/gradebook`);
+      expect(body.grades[studentId][assignmentId]).toMatchObject({ saved_level: '90 / 100', flag_line: 'Marked exempt on Wed 21/10.' });
+    } finally {
+      db.exec('DELETE FROM excused_grades; DELETE FROM status_lines;');
+    }
+  });
+});
+
 describe('GET /api/courses/:id/gradebook — resubmitted', () => {
   test('cell resubmitted follows arrivedKeys: false before any snapshot, true once captured as arrived', async () => {
     const db = getDb();

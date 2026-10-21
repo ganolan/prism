@@ -22,6 +22,14 @@ const GLYPHS = {
   missing: (<><path d="M8 3.6v5.4" /><circle cx="8" cy="12" r="0.6" fill="currentColor" /></>),
 };
 
+// The flag's disc alone, with no popover, for a control that carries the flag (the Flags pill
+// and its menu items, #40). Nothing for a code that is not a flag.
+export function FlagDisc({ code, size = 'inline' }) {
+  const flag = FLAGS[Number(code)];
+  if (!flag || code === '' || code == null) return null;
+  return <span className={`flag-symbol flag-symbol--${flag.key} flag-symbol--${size}`} aria-hidden="true"><Disc flag={flag} /></span>;
+}
+
 function Disc({ flag }) {
   return (
     <span className="flag-symbol__disc" aria-hidden="true">

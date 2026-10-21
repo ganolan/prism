@@ -10,6 +10,7 @@ import { getFeatures } from '../middleware/featureGate.js';
 import { psAlertsForStudent } from '../services/psAlertStore.js';
 import { contactsForStudents } from '../services/guardianContactStore.js';
 import { readSupportSummary, SupportSummaryError } from '../services/psSupportSummary.js';
+import { waitingCopies, flagLines } from '../services/savedGrades.js';
 
 const router = Router();
 
@@ -104,7 +105,13 @@ router.get('/:id', (req, res) => {
   // The submission timeline per assignment (due, extension, submitted when and how
   // late, clock day if missing, referral): one context per course.
   const contexts = new Map();
+  // A flagged task's popover (#40): the grade Prism saved before the flag removed it, in words,
+  // and the flag's reason line.
+  const copies = waitingCopies(db, { studentId: student.id });
+  const lines = flagLines(db, { studentId: student.id });
   for (const g of grades) {
+    g.saved_level = copies.get(`${student.id}:${g.assignment_id}`)?.summary ?? null;
+    g.flag_line = lines.get(`${student.id}:${g.assignment_id}`) ?? null;
     if (!contexts.has(g.course_id)) contexts.set(g.course_id, timelineContext(db, { courseId: g.course_id }));
     const assignment = {
       id: g.assignment_id, due_date: g.due_date, is_lti_submission: g.is_lti_submission,

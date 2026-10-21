@@ -3,7 +3,9 @@
 // two always share one layout, in this order:
 //   1. badges row: submission status + flags, then the outbound links passed in
 //      `links` (the OneDrive "Open" link, "Attempt", the comments chip, and any
-//      later link component: it is a plain slot, so new ones drop straight in);
+//      later link component: it is a plain slot, so new ones drop straight in),
+//      then the small Flags menu when `flagsMenu` is given (#40), whose panel opens
+//      in its own row under the badges;
 //   2. the submission timeline;
 //   3. the rubric: full descriptors (RubricDescriptorGrid, read-only) when a
 //      rubric is attached and mapped, otherwise the compact grid; an unaligned
@@ -11,7 +13,9 @@
 //      levels) and then "Overall:" its scale level; any other task with no
 //      topics (points only, "50 / 100") shows its score here instead;
 //   4. the teacher's comment.
+import { useState } from 'react';
 import SubmissionBadges from './SubmissionBadges.jsx';
+import FlagsMenu from './FlagsMenu.jsx';
 import SubmissionTimeline from './SubmissionTimeline.jsx';
 import CompactRubric from './CompactRubric.jsx';
 import RubricDescriptorGrid from './RubricDescriptorGrid.jsx';
@@ -54,8 +58,8 @@ const DRAFT = Object.fromEntries(LEVELS.map((l) => [l, LEVEL_COLORS[l].draftFill
 // for General Academic levels, the raw text otherwise, red when it matches no level.
 // A flag (Exempt/Incomplete/Missing/Absent/Late) shows its symbol in the score's place.
 // savedLevel: the grade Prism saved when the flag was set (null when none).
-export function ScoreLabel({ label, savedLevel = null, firstName = null }) {
-  if (label.kind === 'exception') return <FlagSymbol code={label.exception} size="inline" showName firstName={firstName} savedLevel={savedLevel} />;
+export function ScoreLabel({ label, savedLevel = null, firstName = null, reasonLine = null }) {
+  if (label.kind === 'exception') return <FlagSymbol code={label.exception} size="inline" showName firstName={firstName} savedLevel={savedLevel} reasonLine={reasonLine} />;
   const code = label.kind === 'scale' ? masteryCodeForLevel(label.text) : null;
   const c = code ? LEVEL_COLORS[code] : null;
   const style = label.kind === 'mismatch' ? { color: 'var(--danger)' }
@@ -78,15 +82,20 @@ export default function AssignmentFeedback({
   topics = [], attachment = null, palette = {}, exception = 0,
   score = null,
   savedLevel = null, // the grade Prism saved before a flag removed it (shown in the flag's popover)
+  reasonLine = null, // the flag's status line Prism wrote (shown in the flag's popover)
   firstName = null, // the student's first name, for the flag's popover
   comment = '',
+  // The Flags menu's props (FlagsMenu: student, assignmentId, exception, score, aligned, onChange),
+  // or null for none (an archived course, or a surface that cannot write).
+  flagsMenu = null,
 }) {
-  const hasBadges = status.length > 0 || flags.length > 0 || resubmitted || !!links;
+  const [panelHost, setPanelHost] = useState(null);
+  const hasBadges = status.length > 0 || flags.length > 0 || resubmitted || !!links || !!flagsMenu;
   // A marker on a task with a rubric: its symbol (an aligned task shows no score label to carry it)
   // and the line the assessment card shows too.
   const markerNote = isMarker(exception) && (topics.length > 0 || feedbackRowView(attachment) != null) ? (
     <div className="assignment-feedback__marker text-sm">
-      {topics.length > 0 && <FlagSymbol code={Number(exception)} size="inline" showName firstName={firstName} aligned />}
+      {topics.length > 0 && <FlagSymbol code={Number(exception)} size="inline" showName firstName={firstName} aligned savedLevel={savedLevel} reasonLine={reasonLine} />}
       <span>Grading this work clears {FLAGS[Number(exception)].name}.</span>
     </div>
   ) : null;
@@ -106,7 +115,7 @@ export default function AssignmentFeedback({
     ? <FlagSymbol code={3} size="inline" firstName={firstName} aligned={false} /> : null;
   const missingNote = missing ? (
     <div className="assignment-feedback__marker text-sm">
-      <FlagSymbol code={3} size="inline" showName firstName={firstName} aligned={missing.hasLevels} />
+      <FlagSymbol code={3} size="inline" showName firstName={firstName} aligned={missing.hasLevels} savedLevel={savedLevel} reasonLine={reasonLine} />
       <span>{missing.line}</span>
     </div>
   ) : null;
@@ -131,7 +140,7 @@ export default function AssignmentFeedback({
         {score && (
           <div className="assignment-feedback__score">
             <span className="assignment-feedback__label">Overall:</span>
-            <ScoreLabel label={score} savedLevel={savedLevel} firstName={firstName} />
+            <ScoreLabel label={score} savedLevel={savedLevel} firstName={firstName} reasonLine={reasonLine} />
           </div>
         )}
       </>
@@ -139,6 +148,7 @@ export default function AssignmentFeedback({
   } else if (lock) {
     rubric = (
       <div className="assignment-feedback__notice text-sm">
+        <FlagSymbol code={Number(exception)} size="inline" firstName={firstName} aligned savedLevel={savedLevel} reasonLine={reasonLine} />{' '}
         <strong>{lock}</strong>
         {`, rubric hidden because ${flagEffect(exception)}`}
       </div>
@@ -168,7 +178,7 @@ export default function AssignmentFeedback({
     rubric = (
       <div className="assignment-feedback__score">
         <span className="assignment-feedback__label">Score:</span>
-        <ScoreLabel label={score} savedLevel={savedLevel} firstName={firstName} />
+        <ScoreLabel label={score} savedLevel={savedLevel} firstName={firstName} reasonLine={reasonLine} />
       </div>
     );
   }
@@ -177,10 +187,13 @@ export default function AssignmentFeedback({
     <div className="assignment-feedback">
       {hasBadges && (
         <div className="assignment-feedback__badges">
-          <SubmissionBadges status={status} flags={flags} resubmitted={resubmitted} lateTitle={lateTitle} />
+          {/* With the Flags pill here, it carries the flag (in its color): no second flag badge. */}
+          <SubmissionBadges status={flagsMenu ? status.filter((b) => b.kind !== 'exception') : status} flags={flags} resubmitted={resubmitted} lateTitle={lateTitle} />
           {links}
+          {flagsMenu && <FlagsMenu {...flagsMenu} size="sm" panelHost={panelHost} />}
         </div>
       )}
+      {flagsMenu && <div ref={setPanelHost} className="assignment-feedback__panel" />}
       {timeline
         ? <SubmissionTimeline timeline={timeline} help={timelineHelp} />
         : due && <span className="text-xs text-muted">Due: {due}</span>}

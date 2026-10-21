@@ -35,6 +35,7 @@ import { listExtensions, undoExtension, undoReferral } from './triage.js';
 import { listResubmissions, undoResubmission, settleResubmissions } from './resubmissions.js';
 import { captureFeedbackSnapshots } from './feedbackSnapshots.js';
 import { readPairLevels } from './masterySync.js';
+import { gradeSummary, joinParts, scaleForAssignment } from './savedGrades.js';
 
 const SCALE_KEY = '__scale__'; // the card's pending key for a score-scale overall
 const num = (v) => (v == null || v === '' ? null : Number(v));
@@ -318,11 +319,35 @@ function restoreDraft(db, t, copy) {
   }
 }
 
-const savedGradeOf = (db, t, copy) => (copy ? {
-  ...JSON.parse(copy.saved_json),
-  flag: copy.flag, savedAt: copy.saved_at,
-  notRestored: planRestore(db, assignmentOf(db, t), JSON.parse(copy.saved_json)).notRestored,
-} : null);
+// What a restore stages, in words ("Exhibiting (75) and 2 rubric row levels", "2 topic levels"),
+// for the clear panel's box; null when nothing can be staged.
+function stagedSummary(scale, pending) {
+  const parts = [];
+  const level = pending[SCALE_KEY] ? scale?.levels.find((l) => l.code === pending[SCALE_KEY]) : null;
+  if (level) parts.push(`${level.label} (${level.points})`);
+  const keys = Object.keys(pending).filter((k) => k !== SCALE_KEY);
+  const rows = keys.filter((k) => k.startsWith(ROW_PREFIX)).length;
+  const topics = keys.length - rows;
+  if (topics) parts.push(`${topics} topic level${topics === 1 ? '' : 's'}`);
+  if (rows) parts.push(`${rows} rubric row level${rows === 1 ? '' : 's'}`);
+  return parts.length ? joinParts(parts) : null;
+}
+
+// A waiting copy (an excused_grades row) as the panels and the card show it: the saved grade, its
+// flag and time, what it holds in words (summary), what a restore stages (restoreSummary) and what
+// it cannot (notRestored). The card's saved_grade (GET /api/mastery/.../assignment) is this too.
+export function savedGradeView(db, assignmentId, copy) {
+  if (!copy) return null;
+  const saved = JSON.parse(copy.saved_json);
+  const a = db.prepare('SELECT * FROM assignments WHERE id = ?').get(assignmentId);
+  const scale = scaleForAssignment(db, a);
+  const { pending, notRestored } = planRestore(db, a, saved);
+  return {
+    ...saved, flag: copy.flag, savedAt: copy.saved_at,
+    summary: gradeSummary(scale, saved), restoreSummary: stagedSummary(scale, pending), notRestored,
+  };
+}
+const savedGradeOf = (db, t, copy) => savedGradeView(db, t.assignmentId, copy);
 
 // A new grade was published over a marker (write-comment / send-all, #40): the grade the marker
 // removed is no longer the one to restore, so a waiting copy is retired (restored_at set) and
@@ -336,12 +361,17 @@ export function retireCopy(db, { studentId, assignmentId } = {}) {
 export async function readFlagState(db, { studentId, assignmentId } = {}) {
   const t = pairTarget(db, studentId, assignmentId);
   const fresh = await freshGrade(db, t);
+  const exception = Number(fresh?.exception) || 0;
+  // The grade a new flag would keep a copy of: Missing's 0 is the flag's own, not a grade (keepCopy).
+  const now = gradeNow(db, t, fresh);
+  if (exception === 3 && now.score === 0) now.score = null;
   return {
-    exception: Number(fresh?.exception) || 0,
+    exception,
     score: num(fresh?.grade),
     comment: fresh?.comment ?? '',
     commentStatus: fresh?.comment_status ?? null,
-    graded: isGraded(gradeNow(db, t, fresh)),
+    graded: isGraded(now),
+    gradeText: isGraded(now) ? gradeSummary(scaleForAssignment(db, assignmentOf(db, t)), now) : null,
     savedGrade: savedGradeOf(db, t, waitingCopy(db, t)),
     openRecords: openRecords(db, t),
     hasDraft: Boolean(db.prepare('SELECT 1 FROM assessment_drafts WHERE student_id = ? AND assignment_id = ?').get(t.studentId, t.assignmentId)),

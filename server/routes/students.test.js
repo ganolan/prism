@@ -60,6 +60,24 @@ describe('GET /api/students/:id — resubmitted follows arrivedKeys', () => {
   });
 });
 
+describe('GET /api/students/:id — a flagged task\'s saved grade and reason line (#40)', () => {
+  test('saved_level is the waiting copy\'s summary; flag_line the flag\'s status line; null otherwise', async () => {
+    const db = getDb();
+    db.exec('DELETE FROM excused_grades; DELETE FROM status_lines;');
+    const row = async () => (await get(`/api/students/${studentId}`)).body.grades.find((g) => g.assignment_id === assignmentId);
+    expect(await row()).toMatchObject({ saved_level: null, flag_line: null });
+    db.prepare('UPDATE grades SET exception = 6, score = NULL').run();
+    db.prepare(`INSERT INTO excused_grades (student_id, assignment_id, flag, saved_json, saved_at) VALUES (?, ?, 6, ?, '2026-10-21 02:00:00')`)
+      .run(studentId, assignmentId, JSON.stringify({ score: 80, max_points: 100, topics: {}, rows: {} }));
+    db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, 'Marked late on Wed 21/10.', 'flag')`).run(studentId, assignmentId);
+    try {
+      expect(await row()).toMatchObject({ saved_level: '80 / 100', flag_line: 'Marked late on Wed 21/10.' });
+    } finally {
+      db.exec('DELETE FROM excused_grades; DELETE FROM status_lines;');
+    }
+  });
+});
+
 describe('GET /api/students/:id — submission timeline per assignment', () => {
   test('each assignment row carries the timeline (late day from the stored first submission)', async () => {
     const db = getDb();

@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 import AssessmentSummaryPage, { StudentRubricCard, flagClearedPatch } from './AssessmentSummaryPage.jsx';
-import { writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, getAttemptLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale, requestResubmission, undoResubmission, getFeatures, getQuizGroupFor, getQuizResults, rebuildQuizOverall, saveRowLevels, getDraftsForAssignment, getAssignmentFileSummaries } from '../services/api.js';
+import { writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, getAttemptLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale, requestResubmission, undoResubmission, getFeatures, getQuizGroupFor, getQuizResults, rebuildQuizOverall, saveRowLevels, getDraftsForAssignment, getAssignmentFileSummaries, getGradeFlags, setGradeFlag } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 import { formatDateTime } from '../lib/formatDate.js';
 import { feedbackRowTopics, rowScores, rowTopicMapping } from '../lib/feedbackRows.js';
@@ -37,6 +37,8 @@ vi.mock('../services/api.js', () => ({
   sendAllGrades: vi.fn().mockResolvedValue({ results: [] }),
   getSettings: vi.fn().mockResolvedValue({ triage: { resubmitLessonsDefault: 3 } }),
   getTriagePair: vi.fn().mockResolvedValue(null),
+  getGradeFlags: vi.fn(),
+  setGradeFlag: vi.fn(),
   requestResubmission: vi.fn(),
   updateResubmission: vi.fn(),
   undoResubmission: vi.fn(),
@@ -2752,5 +2754,82 @@ describe('StudentRubricCard: final flags and markers (#40)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(writeMasteryComment).not.toHaveBeenCalled();
+  });
+});
+
+// #40 Task 8: the Flags menu on the card header, the flag symbol in the status area, the saved
+// grade grayed in the locked rubric, and "Restore saved grade" once the flag is cleared.
+describe('StudentRubricCard: the Flags menu (#40)', () => {
+  const SAVED = {
+    score: 75, max_points: 100, topics: { t1: 'EX' }, rows: {}, scale_level: null, flag: 1, savedAt: '2026-10-21 02:00:00',
+    summary: '75 / 100 and 1 topic level', restoreSummary: '1 topic level', notRestored: [],
+  };
+
+  it('a Flags pill sits in the header cluster; none on an archived course', () => {
+    const { unmount } = renderCard();
+    expect(screen.getByRole('button', { name: /Flags/ })).toHaveAttribute('aria-haspopup', 'menu');
+    unmount();
+    renderCard({ resubmitEnabled: false });
+    expect(screen.queryByRole('button', { name: /Flags/ })).toBeNull();
+  });
+
+  it('a flag shows its symbol in the status area and the pill takes its color', () => {
+    renderCard({ student: { ...makeStudent(), exception: 6 } });
+    expect(screen.getByRole('img', { name: 'Late' })).toHaveClass('flag-symbol--late');
+    expect(screen.getByRole('button', { name: /Late/ })).toHaveClass('flags-pill--late');
+  });
+
+  it('the flagged card shows the saved levels in the locked rubric, under the saved caption', () => {
+    renderCard({ student: { ...makeStudent(), exception: 1, saved_grade: SAVED } });
+    expect(screen.getByText('Saved before the flag on Wed 21/10. Clear the flag to restore it.')).toBeInTheDocument();
+    expect(screen.getByTitle('Set Topic 1 to Exhibiting')).toHaveTextContent('EX');
+    expect(screen.queryByRole('button', { name: 'Restore saved grade' })).toBeNull();
+  });
+
+  it('a locked card with no saved copy shows no caption and no levels', () => {
+    renderCard({ student: { ...makeStudent(), exception: 1 } });
+    expect(screen.queryByText(/Saved before the flag/)).toBeNull();
+    expect(screen.getByTitle('Set Topic 1 to Exhibiting')).not.toHaveTextContent('EX');
+  });
+
+  it('a marker keeps the live rubric (no saved levels drawn over it)', () => {
+    renderCard({ student: { ...makeStudent(), exception: 6, saved_grade: { ...SAVED, flag: 6 } } });
+    expect(screen.queryByText(/Saved before the flag/)).toBeNull();
+    expect(screen.getByTitle('Set Topic 1 to Exhibiting')).not.toHaveTextContent('EX');
+  });
+
+  it('no flag and a copy waiting: "Restore saved grade" restores it as a draft and stages it', async () => {
+    const onRefreshPair = vi.fn(async () => null);
+    setGradeFlag.mockResolvedValueOnce({ exception: 0, saved: false, withdrawn: [], line: null, restored: { draft: true, notRestored: [] } });
+    getDraftsForAssignment.mockResolvedValueOnce({ 1: { pending: { t1: 'EX' }, comment: '', display: false, displayTouched: false, base: 'x' } });
+    renderCard({ student: { ...makeStudent(), exception: 0, score: null, saved_grade: SAVED }, onRefreshPair });
+    expect(screen.getByText(/Grade saved in Prism: 75 \/ 100 and 1 topic level\./)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Restore saved grade' }));
+    await waitFor(() => expect(setGradeFlag).toHaveBeenCalledWith({
+      studentId: 1, assignmentId: 50, code: 0, expected: { exception: 0, score: null }, reason: null, restore: true,
+    }));
+    await waitFor(() => expect(screen.getByText('1 pending change')).toBeInTheDocument());
+    expect(onRefreshPair).toHaveBeenCalledWith('uid-1');
+    expect(getDraftsForAssignment).toHaveBeenCalledWith('8');
+  });
+
+  it('a copy the card cannot stage: no button, the parts to re-enter in Schoology', () => {
+    renderCard({ student: { ...makeStudent(), exception: 0, saved_grade: { ...SAVED, restoreSummary: null, notRestored: ['75'] } } });
+    expect(screen.queryByRole('button', { name: 'Restore saved grade' })).toBeNull();
+    expect(screen.getByText(/Re-enter in Schoology: 75\./)).toBeInTheDocument();
+  });
+
+  it('after a flag write the card refetches the pair and takes the fresh comment', async () => {
+    getGradeFlags.mockResolvedValueOnce({ exception: 0, score: null, graded: false, gradeText: null, savedGrade: null, openRecords: [], hasDraft: false });
+    setGradeFlag.mockResolvedValueOnce({ exception: 1, saved: false, withdrawn: [], line: { published: true, line: 'Marked exempt on Wed 21/10. Away.' }, restored: null });
+    const fresh = { ...makeStudent(), exception: 1, grade_comment: 'Marked exempt on Wed 21/10. Away.', comment_status: 1, status_line: { line: 'Marked exempt on Wed 21/10. Away.', kind: 'flag' } };
+    const onRefreshPair = vi.fn(async () => fresh);
+    renderCard({ student: { ...makeStudent(), exception: 0, score: null }, onRefreshPair });
+    fireEvent.click(screen.getByRole('button', { name: /Flags/ }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /^Exempt/ }));
+    fireEvent.change(await screen.findByLabelText('Reason for the student (optional)'), { target: { value: 'Away.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Mark exempt' }));
+    await waitFor(() => expect(onRefreshPair).toHaveBeenCalledWith('uid-1'));
+    await waitFor(() => expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue('Marked exempt on Wed 21/10. Away.'));
   });
 });

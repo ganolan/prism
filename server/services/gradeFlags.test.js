@@ -650,7 +650,7 @@ describe('readFlagState', () => {
     const extId = db.prepare(`INSERT INTO extensions (student_id, assignment_id, course_id, lessons, until) VALUES (?, ?, ?, 3, '2026-10-23')`).run(s, a, c).lastInsertRowid;
     const before = await readFlagState(db, { studentId: s, assignmentId: a });
     expect(before).toEqual({
-      exception: 0, score: 75, comment: 'Good work.', commentStatus: 1, graded: true, savedGrade: null,
+      exception: 0, score: 75, comment: 'Good work.', commentStatus: 1, graded: true, gradeText: '75 / 100 and 2 topic levels', savedGrade: null,
       openRecords: [{ type: 'extension', id: extId, label: 'Extension to Fri 23/10/2026' }], hasDraft: false,
     });
     expect(pushGradeUpdates).not.toHaveBeenCalled();
@@ -658,6 +658,32 @@ describe('readFlagState', () => {
     const after = await readFlagState(db, { studentId: s, assignmentId: a });
     expect(after).toMatchObject({ exception: 6, score: null, graded: false, hasDraft: false });
     expect(after.savedGrade).toMatchObject({ flag: 6, score: 75, topics: { t1: 'EX', t2: 'EX' }, notRestored: [], savedAt: expect.any(String) });
+    // The panel's words (#40): the copy, and what clearing can stage from it.
+    expect(after.savedGrade).toMatchObject({ summary: '75 / 100 and 2 topic levels', restoreSummary: '2 topic levels' });
+    expect(after.gradeText).toBeNull();
+  });
+
+  test('Missing\'s 0 is not a grade: an ungraded pair flagged Missing reads as not graded', async () => {
+    db.exec('DELETE FROM mastery_scores');
+    db.prepare('UPDATE grades SET score = NULL').run();
+    record = { ...record, grade: null };
+    await flag(3);
+    const state = await readFlagState(db, { studentId: s, assignmentId: a });
+    expect(state).toMatchObject({ exception: 3, score: 0, graded: false, gradeText: null, savedGrade: null });
+  });
+
+  test('a score-scale copy: its level, and nothing to stage for a score that is not a level\'s points', async () => {
+    db.exec('DELETE FROM mastery_scores; DELETE FROM mastery_alignments');
+    db.prepare('UPDATE assignments SET grading_scale_id = 23495360 WHERE id = ?').run(a);
+    expect((await readFlagState(db, { studentId: s, assignmentId: a })).gradeText).toBe('Exhibiting (75)');
+    await flag(1);
+    expect((await readFlagState(db, { studentId: s, assignmentId: a })).savedGrade)
+      .toMatchObject({ summary: 'Exhibiting (75)', restoreSummary: 'Exhibiting (75)', notRestored: [] });
+    record = { ...record, exception: 0, grade: 90 };
+    db.prepare(`UPDATE excused_grades SET saved_json = json_set(saved_json, '$.score', 90)`).run();
+    db.prepare('UPDATE grades SET exception = 0').run();
+    expect((await readFlagState(db, { studentId: s, assignmentId: a })).savedGrade)
+      .toMatchObject({ summary: 'Exhibiting Depth (90)', restoreSummary: null, notRestored: ['90'] });
   });
 
   test('a failed read: SCHOOLOGY_READ_FAILED', async () => {

@@ -1543,6 +1543,68 @@ img.file-viewer-media { background: transparent; }
 .flag-pop__line { display: block; }
 .flag-pop__line + .flag-pop__line { margin-top: 0.25rem; }
 .badge-slate { background: var(--flag-absent-bg); color: var(--flag-absent); }
+
+/* The Flags control (#40, FlagsMenu.jsx): a pill in the card header (after Refer) and, smaller
+   (--sm), in the shared view's badge row. Closed it reads "⚑ Flags ▾"; a set flag fills it with
+   the flag's color and shows its disc and name (Missing stays outlined, on the card color). */
+.flags-control { display: inline-flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.flags-pill {
+  --flag-c: var(--accent); --flag-c-bg: var(--card-bg);
+  display: inline-flex; align-items: center; gap: 0.35rem; height: 1.8rem; box-sizing: border-box;
+  border-radius: 999px; padding: 0 0.7rem; font-size: 0.85rem; font-weight: 600; white-space: nowrap;
+  border: 1.5px solid var(--accent); background: var(--card-bg); color: var(--text-muted); cursor: pointer;
+}
+.flags-pill__icon { color: var(--accent); }
+.flags-pill__caret { font-size: 0.7em; }
+.flags-pill:hover:not(:disabled) { color: var(--accent); }
+.flags-pill[aria-expanded="true"] { background: var(--accent-light); color: var(--accent); border: 2.5px solid var(--accent); }
+.flags-pill--exempt { --flag-c: var(--flag-exempt); --flag-c-bg: var(--flag-exempt-bg); }
+.flags-pill--late { --flag-c: var(--flag-late); --flag-c-bg: var(--flag-late-bg); }
+.flags-pill--absent { --flag-c: var(--flag-absent); --flag-c-bg: var(--flag-absent-bg); }
+.flags-pill--incomplete { --flag-c: var(--flag-incomplete); --flag-c-bg: var(--flag-incomplete-bg); }
+.flags-pill--missing { --flag-c: var(--flag-missing); --flag-c-bg: var(--card-bg); }
+.flags-pill--exempt, .flags-pill--late, .flags-pill--absent, .flags-pill--incomplete, .flags-pill--missing,
+.flags-pill--exempt:hover:not(:disabled), .flags-pill--late:hover:not(:disabled), .flags-pill--absent:hover:not(:disabled),
+.flags-pill--incomplete:hover:not(:disabled), .flags-pill--missing:hover:not(:disabled) {
+  border: 2.5px solid var(--flag-c); background: var(--flag-c-bg); color: var(--flag-c); padding-left: 0.35rem;
+}
+.flags-pill--sm { height: 1.5rem; font-size: 0.75rem; padding: 0 0.55rem; }
+.flags-pill--sm.flags-pill--exempt, .flags-pill--sm.flags-pill--late, .flags-pill--sm.flags-pill--absent,
+.flags-pill--sm.flags-pill--incomplete, .flags-pill--sm.flags-pill--missing { padding-left: 0.3rem; }
+.flags-pill--busy, .flags-pill:disabled { opacity: 0.6; cursor: progress; }
+.flags-error { color: var(--danger); }
+/* The open menu: fixed under the pill (FlagsMenu places it), so the card and the pop-up never clip it. */
+.flags-menu {
+  position: fixed; z-index: 1300; box-sizing: border-box; display: flex; flex-direction: column; padding: 4px;
+  background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 6px 18px rgba(30, 17, 69, 0.14);
+}
+.flags-menu__heading { padding: 6px 8px 4px; font-size: 0.68rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.flags-menu__item {
+  display: grid; grid-template-columns: 22px 1fr 1.2em; column-gap: 6px; align-items: center; width: 100%;
+  padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text);
+  font: inherit; font-size: 0.85rem; font-weight: 600; text-align: left; cursor: pointer;
+}
+.flags-menu__item:hover, .flags-menu__item:focus { background: var(--accent-light); outline: none; }
+.flags-menu__item:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.flags-menu__tick { color: var(--accent); text-align: center; }
+.flags-menu__line { grid-column: 2 / 4; font-size: 0.75rem; font-weight: 400; color: var(--text-muted); }
+.flags-menu__divider { border: 0; border-top: 1px solid var(--border); margin: 4px 2px; }
+.flags-menu__note { margin: 0; padding: 4px 8px 6px; font-size: 0.72rem; color: var(--text-muted); }
+/* The panels (FlagPanel, ClearFlagPanel), in the card's action-panel row or the shared view's. */
+.flag-panel__field { display: flex; flex-direction: column; gap: 4px; max-width: 36rem; font-size: 0.8rem; font-weight: 600; }
+.flag-panel__input.triage-note { width: 100%; box-sizing: border-box; font-weight: 400; }
+.flag-panel__preview { font-weight: 400; color: var(--text-muted); }
+.flag-panel__line { margin: 0; max-width: 40rem; font-size: 0.8rem; }
+.flag-panel__saved { margin: 0; max-width: 40rem; padding: 6px 8px; border-radius: 6px; font-size: 0.8rem; background: var(--badge-amber-bg); color: var(--badge-amber-text); }
+.flag-panel__check { display: flex; align-items: flex-start; gap: 8px; font-size: 0.82rem; }
+.flag-panel__check input { margin-top: 2px; }
+.assignment-feedback__panel { padding: 0.6rem 0.75rem; background: var(--bg-subtle); border: 1px solid var(--border); border-radius: 8px; }
+.assignment-feedback__panel:empty { display: none; }
+/* The card over a kept grade: the caption above a final flag's grayed rubric, and (no flag set)
+   the offer to restore it. */
+.flag-saved-caption { padding: 0.6rem 1rem 0; font-size: 0.75rem; color: var(--text-muted); }
+.flag-saved-offer { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; padding: 0.6rem 1rem 0; font-size: 0.78rem; color: var(--text-muted); }
+.status-pill-wrap--flag { align-items: center; }
 button.cell-open { background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; }
 button.cell-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 

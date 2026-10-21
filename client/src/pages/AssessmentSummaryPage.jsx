@@ -1,14 +1,14 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import LargerScreenNote from '../components/LargerScreenNote.jsx';
 import { useParams, Link, useSearchParams, Navigate, useLocation } from 'react-router-dom';
-import { getMasteryForAssignment, getSyncRun, getQuizGroupFor, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, getTriagePair, loadQuizResults, rebuildQuizOverall, saveRowLevels, getAssignmentCommentSummaries, getAssignmentFileSummaries } from '../services/api.js';
+import { getMasteryForAssignment, getSyncRun, getQuizGroupFor, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, getTriagePair, loadQuizResults, rebuildQuizOverall, saveRowLevels, getAssignmentCommentSummaries, getAssignmentFileSummaries, setGradeFlag } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 import { feedbackRowTopics, rowScores, rowTopicMapping, isRowKey, rowName } from '../lib/feedbackRows.js';
 import { makeDraftSaver } from '../lib/assessmentDraftSaver.js';
 import { useUndoableText } from '../hooks/useUndoableText.js';
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
 import { rubricAverage } from '../lib/rubricAverage.js';
-import { studentFullName } from '../lib/studentNames.js';
+import { studentFullName, preferredFirstName } from '../lib/studentNames.js';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import { LEVELS, LEVEL_LABELS, LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
 import { useProficiencyScale } from '../hooks/useProficiencyScale.js';
@@ -34,15 +34,16 @@ import SubmissionComments from '../components/SubmissionComments.jsx';
 import SubmissionFiles, { hasNativeSubmission } from '../components/SubmissionFiles.jsx';
 import ExtendControl from '../components/ExtendControl.jsx';
 import ReferControl from '../components/ReferControl.jsx';
+import FlagsMenu from '../components/FlagsMenu.jsx';
 import ScaleLevelPicker from '../components/ScaleLevelPicker.jsx';
 import AssessmentFilterBar from '../components/AssessmentFilterBar.jsx';
 import { passesFilters, studentReasons, reasonText, reasonTone, TONE_VARS, REASONS, filterGroups, parseFilterParam } from '../lib/assessmentFilters.js';
 import { useStickyTab } from '../hooks/useStickyTab.js';
-import { formatDateTime } from '../lib/formatDate.js';
+import { formatDateTime, localIsoDate } from '../lib/formatDate.js';
 import { workLinkText, workLinksStatusText } from '../lib/workLink.js';
 import { briefFlags, textSignature } from '../lib/reviewerFlags.js';
 import { receivedLine, composeComment, lineDate } from '../lib/statusLines.js';
-import { FLAGS, isExempt, isFinalFlag, isMarker, flagEffect } from '../lib/flags.js';
+import { FLAGS, isFlag, isExempt, isFinalFlag, isMarker, flagEffect } from '../lib/flags.js';
 import { afterRefresh } from '../lib/assessmentFreshness.js';
 import SyncStatus from '../components/SyncStatus.jsx';
 import SyncHelp from '../components/SyncHelp.jsx';
@@ -122,7 +123,7 @@ function topLineIs(text, line) {
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
-export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, attemptLink = null, quizResult = null, onRebuildQuiz = null, commentsEnabled = false, commentSummary = null, onCommentSummary = null, filesEnabled = false, fileSummary = null, onFileSummary = null, scoreScale = null, resubmitLessonsDefault = 3, resubmitEnabled = true, highlight = false, reasons = [], onSaved, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
+export function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, attemptLink = null, quizResult = null, onRebuildQuiz = null, commentsEnabled = false, commentSummary = null, onCommentSummary = null, filesEnabled = false, fileSummary = null, onFileSummary = null, scoreScale = null, resubmitLessonsDefault = 3, resubmitEnabled = true, highlight = false, reasons = [], onSaved, onRefreshPair = null, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
   const scale = useProficiencyScale();
   // The card's action-panel row (ActionPanel portals into it).
   const [panelHost, setPanelHost] = useState(null);
@@ -286,6 +287,19 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   const isRubricLocked = isFinalFlag(student.exception);
   const exceptionLabel = isRubricLocked ? FLAGS[Number(student.exception)].name : null;
   const markerNote = isMarker(student.exception) ? `Grading this work clears ${FLAGS[Number(student.exception)].name}.` : null;
+  // The grade Prism kept when a flag removed it (#40; GET /api/mastery/.../assignment saved_grade),
+  // while it waits to be restored. A final flag's locked rubric shows it grayed, with the caption;
+  // with no flag set, the card offers "Restore saved grade". A marker's rubric stays live.
+  const savedGrade = student.saved_grade || null;
+  const showSaved = isRubricLocked && savedGrade != null;
+  const shownScores = showSaved
+    ? (hasFeedbackRows ? rowScores(savedGrade.rows) : Object.fromEntries(Object.entries(savedGrade.topics || {}).map(([id, grade]) => [id, { grade }])))
+    : student.scores;
+  const shownScaleLevel = showSaved ? (savedGrade.scale_level ?? null) : (student.scale_level ?? null);
+  const savedOn = savedGrade?.savedAt ? lineDate(localIsoDate(new Date(`${String(savedGrade.savedAt).replace(' ', 'T')}Z`))) : null;
+  const offerRestore = savedGrade != null && !isFlag(student.exception);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreError, setRestoreError] = useState(null);
 
   // Comment publish state, verified against the synced Schoology value mirrored
   // in the local DB (grades.grade_comment → student.grade_comment). After a
@@ -503,6 +517,57 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // Refer / Waive / Undo (and after an extension): { timeline, late_work } for this student.
   function handlePairChange(state) {
     if (state) onSaved?.(student.schoology_uid, { timeline: state.timeline, late_work: state.late_work, attention: state.attention });
+  }
+
+  // After a flag write (#40): the page refetches this student (flag, score, levels, comment,
+  // status line, saved copy, timeline), the comment editor follows the line the flag wrote or
+  // removed (an unsaved edit keeps the teacher's text with the line swapped on top), and a restored
+  // copy becomes the card's staged draft.
+  async function handleFlagChange(result) {
+    const fresh = await onRefreshPair?.(student.schoology_uid);
+    if (fresh) {
+      const newLine = fresh.status_line?.line || '';
+      if (commentDirty) {
+        const onTop = topLineIs(comment, insertedLine) ? insertedLine : (student.status_line?.line || null);
+        setComment(composeComment(comment, onTop, newLine));
+      } else {
+        setComment(fresh.grade_comment || '');
+      }
+      setInsertedLine(null);
+      if (!displayTouched) setDisplay(fresh.comment_status === 1);
+      flushNextRef.current = true;
+    }
+    if (result?.restored?.draft) {
+      const drafts = await getDraftsForAssignment(assignmentId).catch(() => null);
+      const d = drafts?.[student.id];
+      if (d) {
+        flushNextRef.current = true;
+        setPending(d.pending || {});
+        if (typeof d.comment === 'string') setComment(d.comment);
+        if (typeof d.display === 'boolean') setDisplay(d.display);
+        setDisplayTouched(Boolean(d.displayTouched));
+        setAutoFlipArmed(false);
+      }
+    }
+  }
+
+  // "Restore saved grade": no flag is set and a copy waits (the flag was cleared with the box
+  // unticked). Code 0 over no flag restores the copy into the draft without a Schoology write.
+  async function restoreSavedGrade() {
+    setRestoring(true);
+    setRestoreError(null);
+    try {
+      const result = await setGradeFlag({
+        studentId: student.id, assignmentId: assignmentRow.id, code: 0,
+        expected: { exception: Number(student.exception) || 0, score: student.score ?? null }, reason: null, restore: true,
+      });
+      if (result?.restored?.error) setRestoreError(result.restored.error);
+      await handleFlagChange(result);
+    } catch (err) {
+      setRestoreError(err.message);
+    } finally {
+      setRestoring(false);
+    }
   }
 
   // Patch the student and keep the comment editor in step with a published / removed
@@ -930,7 +995,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // no criterion fall after. Built only when a rubric is attached.
   const descriptorRows = buildDescriptorRows(topics, rubric);
   const cellStateFor = (topicId, l) => {
-    const currentGrade = student.scores[topicId]?.grade || null;
+    const currentGrade = shownScores?.[topicId]?.grade || null;
     const pendingGrade = pending[topicId] ?? null;
     const suggestedLevel = suggestedByTopic[topicId] || null;
     return {
@@ -995,7 +1060,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         <Link to={`/student/${student.id}`} className="link" style={{ fontWeight: 600, fontSize: '0.95rem', whiteSpace: 'nowrap' }}>
           {displayName(student)}
         </Link>
-        <SubmissionStatusPill student={student} assignment={assignmentRow} />
+        <SubmissionStatusPill student={student} assignment={assignmentRow} aligned={!scoreScale && topics.length > 0} />
         {/* Why this student needs attention: the Needs action / Watch reasons, the same
             names as the filter pills above the cards. "Resubmitted" is left out: the
             status pill already says it (and the card has the blue ring). "Unread comment"
@@ -1055,6 +1120,18 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         {resubmitEnabled && (
           <ReferControl student={student} assignmentId={assignmentRow?.id} panelHost={panelHost} onChange={handlePairChange} />
         )}
+        {/* Schoology's flags (#40): after Refer, before Extend. */}
+        {resubmitEnabled && assignmentRow?.id && (
+          <FlagsMenu
+            student={{ id: student.id, firstName: preferredFirstName(student) }}
+            assignmentId={assignmentRow.id}
+            exception={student.exception}
+            score={student.score ?? null}
+            aligned={!scoreScale && topics.length > 0}
+            panelHost={panelHost}
+            onChange={handleFlagChange}
+          />
+        )}
         {/* Hidden once the work is in (no deadline left to extend) and for Exempt (the student is not doing the task). */}
         {resubmitEnabled && (topics.length > 0 || assignmentRow?.is_test === 1) && !isExempt(student.exception)
           && student.timeline?.submission?.state !== 'submitted' && (
@@ -1090,6 +1167,23 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
       )}
 
       {markerNote && <div className="flag-marker-note">{markerNote}</div>}
+      {showSaved && (
+        <div className="flag-saved-caption">
+          {`Saved before the flag${savedOn ? ` on ${savedOn}` : ''}. Clear the flag to restore it.`}
+        </div>
+      )}
+      {offerRestore && (
+        <div className="flag-saved-offer">
+          <span>
+            {`Grade saved in Prism: ${savedGrade.summary || 'a grade'}.`}
+            {savedGrade.notRestored?.length > 0 && ` Re-enter in Schoology: ${savedGrade.notRestored.join(', ')}.`}
+          </span>
+          {resubmitEnabled && assignmentRow?.id && savedGrade.restoreSummary && (
+            <button type="button" className="ghost accent btn-sm" disabled={restoring} onClick={restoreSavedGrade}>Restore saved grade</button>
+          )}
+          {restoreError && <span className="flags-error text-sm" role="alert">{restoreError}</span>}
+        </div>
+      )}
 
       {/* Rubric grid */}
       <div style={{
@@ -1138,7 +1232,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           </thead>
           <tbody>
             {topics.map(t => {
-              const currentGrade = student.scores[t.id]?.grade || null;
+              const currentGrade = shownScores?.[t.id]?.grade || null;
               const pendingGrade = pending[t.id] ?? null;
               const suggestedLevel = suggestedByTopic[t.id] || null;
 
@@ -1252,7 +1346,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           <>
             <ScaleLevelPicker
               scale={scoreScale}
-              syncedCode={student.scale_level ?? null}
+              syncedCode={shownScaleLevel}
               pendingCode={stagedScale}
               suggestedCode={suggestedScaleLabel ? suggestedScale : null}
               locked={isRubricLocked}
@@ -1913,6 +2007,15 @@ export default function AssessmentSummaryPage() {
     } : prev));
   }, []);
 
+  // After a flag write (#40): this student's fresh row from the page's own read, patched in place
+  // (the other cards keep their state). → the fresh student, or null when the read failed.
+  const handleRefreshPair = useCallback(async (uid) => {
+    const next = await getMasteryForAssignment(courseId, assignmentId).catch(() => null);
+    const fresh = next?.students?.find((s) => s.schoology_uid === uid) || null;
+    if (fresh) handleCardSaved(uid, fresh);
+    return fresh;
+  }, [courseId, assignmentId, handleCardSaved]);
+
   // Stable registry callbacks (empty deps) so the cards' effects don't churn.
   // The no-op guard keeps a card reporting an unchanged pending state from
   // triggering a re-render loop.
@@ -2476,6 +2579,7 @@ export default function AssessmentSummaryPage() {
               resubmitEnabled={!data.course?.archived && !data.course?.excluded}
               highlight={highlightId === student.id}
               onSaved={handleCardSaved}
+              onRefreshPair={handleRefreshPair}
               onPendingChange={handlePendingChange}
               onDisplayChange={handleDisplayChange}
               registerCard={registerCard}

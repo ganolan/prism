@@ -124,6 +124,15 @@ export default function CoursePage() {
     setMastery(m);
   }
 
+  // After a flag write from the gradebook pop-up (#40): the cells, topic levels and triage panels
+  // read the pair's new state (the flag, the removed or restored grade, withdrawn records).
+  async function refreshAfterFlag() {
+    const g = await getGradebook(id).catch(() => null);
+    if (g) setGradebook(g);
+    await refreshMastery();
+    setTriageVersion((v) => v + 1);
+  }
+
   const syncFacts = useSyncFacts(); // whether the night's refresh is on, for the Synced time's help
   // Background sync: after the page loads, the server syncs this course in full when it was last
   // synced (or tried) over 10 minutes ago; when that run ends, every part of the page reloads. An
@@ -252,7 +261,10 @@ export default function CoursePage() {
               onSaved={refreshMastery}
             />
           )}
-          {view === 'gradebook' && <GradebookView data={gradebook} courseId={id} mastery={mastery} filter={gradebookFilter} />}
+          {view === 'gradebook' && (
+            <GradebookView data={gradebook} courseId={id} mastery={mastery} filter={gradebookFilter}
+              onFlagChange={!course.archived && !course.excluded ? refreshAfterFlag : null} />
+          )}
           {view === 'assessments' && (
             <AssessmentsView
               data={gradebook} courseId={id} waits={triageWaits.waits} feedbackLimit={triageWaits.feedbackLimit}
@@ -668,6 +680,7 @@ function MiniRubricStrip({ topics, onClick }) {
 export function RubricModal({
   student, assignment, courseId, topics = [], comment, grade, timeline = null, score = null,
   commentSummary = null, onCommentSummary = null, onClose,
+  onFlagChange = null, // the Flags menu writes, then the page refetches (#40); null on an archived course
 }) {
   const name = preferredFirstName(student);
   const fullName = `${name} ${student.last_name}`;
@@ -758,7 +771,13 @@ export function RubricModal({
             topics={topics} attachment={attachment} palette={palette} exception={grade.exception}
             firstName={name}
             score={topics.length > 0 ? null : score}
+            savedLevel={grade.saved_level ?? null}
+            reasonLine={grade.flag_line ?? null}
             comment={comment}
+            flagsMenu={onFlagChange && assignment.id != null ? {
+              student: { id: student.id, firstName: name }, assignmentId: assignment.id,
+              exception: grade.exception, score: grade.score ?? null, aligned: !!assignment.aligned, onChange: onFlagChange,
+            } : null}
           />
         </div>
         <div style={{ padding: '0 1.1rem 1rem' }}>
@@ -877,9 +896,27 @@ const TYPE_LEGEND = (
   </div>
 );
 
-export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_FILTER }) {
+export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_FILTER, onFlagChange = null }) {
   const indexed = useMemo(() => indexMastery(mastery), [mastery]);
   const [rubricModal, setRubricModal] = useState(null);
+  // The pop-up for one cell, built from the current data, so a refetch after a flag write (#40)
+  // redraws the open pop-up with the pair's new state.
+  const modalFor = (studentId, assignmentId) => {
+    const s = data?.students.find((x) => x.id === studentId);
+    const a = data?.assignments.find((x) => x.id === assignmentId);
+    const g = data?.grades?.[studentId]?.[assignmentId];
+    if (!s || !a || !g) return null;
+    // Exempt hides the rubric in the pop-up; a marker keeps it, and Missing shows IE (AssignmentFeedback).
+    const locked = isFinalFlag(g.exception) && Number(g.exception) !== 3;
+    const topics = (a.aligned && !locked) ? buildAssignmentRubric(a.schoology_assignment_id, s.schoology_uid, indexed) : [];
+    const score = a.aligned
+      ? gradeLabel({ score: g.score, max_points: a.max_points, exception: g.exception, grading_scale_id: null, scales: null })
+      : gradeLabel({ score: g.score, max_points: a.max_points, exception: g.exception, grading_scale_id: a.grading_scale_id, scales: data.grading_scales });
+    return { student: s, assignment: a, topics, score, comment: g.grade_comment || '', grade: g, timeline: data.timelines?.[studentId]?.[assignmentId] || null };
+  };
+  useEffect(() => {
+    setRubricModal((m) => (m ? (modalFor(m.student.id, m.assignment.id) || m) : m));
+  }, [data, indexed]); // eslint-disable-line react-hooks/exhaustive-deps
   // Comment shown instantly on cell hover (#36): { text, top, left }.
   const [commentOverlay, setCommentOverlay] = useState(null);
   // Floating header popover (#37): full assessment title, the formative/
@@ -1205,14 +1242,11 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                   ...(g.resubmit_requested && { background: 'var(--badge-resubmit-bg)' }),
                   ...(g.resubmitted && { boxShadow: 'inset 0 0 0 2px var(--resubmit-ring)' }),
                 };
-                const openModal = (topics) => setRubricModal({
-                  student: s, assignment: a, topics, score: lbl,
-                  comment: g.grade_comment || '', grade: g, timeline: tl,
-                });
+                const openModal = () => setRubricModal(modalFor(s.id, a.id));
                 // A flag stands where the grade was: its symbol with its name under it. The cell
                 // button owns click and focus, so the symbol is hover-only here (passive).
                 const scoreText = lbl.kind === 'exception'
-                  ? <FlagSymbol code={lbl.exception} showName passive firstName={preferredFirstName(s)} aligned={Boolean(a.aligned)} savedLevel={g.saved_level ?? null} />
+                  ? <FlagSymbol code={lbl.exception} showName passive firstName={preferredFirstName(s)} aligned={Boolean(a.aligned)} savedLevel={g.saved_level ?? null} reasonLine={g.flag_line ?? null} />
                   : c
                   ? <span style={{ background: c.headerFill, color: CELL_TEXT, border: `1px solid ${c.finalBorder}`, padding: '0.1rem 0.4rem', borderRadius: 4, fontWeight: 500, display: 'inline-block', minWidth: 24 }}>{text}</span>
                   : text;
@@ -1220,9 +1254,9 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                 // scale level) opens the same modal: comment + timeline, no rubric.
                 const opensModal = !showStrip && (lbl.kind === 'numeric' || lbl.kind === 'scale' || lbl.kind === 'mismatch' || lbl.kind === 'exception');
                 const inner = showStrip
-                  ? <MiniRubricStrip topics={rubricTopics} onClick={() => openModal(rubricTopics)} />
+                  ? <MiniRubricStrip topics={rubricTopics} onClick={openModal} />
                   : opensModal
-                    ? <button type="button" className="cell-open" onClick={() => openModal(rubricTopics)}
+                    ? <button type="button" className="cell-open" onClick={openModal}
                         aria-label={`${lbl.text}: show feedback`} title="Show the comment and submission detail">{scoreText}</button>
                     : scoreText;
                 // #76: an ungraded cell whose lti document fetch failed shows the
@@ -1306,6 +1340,7 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
           },
         })) : null}
         onClose={() => setRubricModal(null)}
+        onFlagChange={onFlagChange}
       />
     )}
     {commentOverlay && (

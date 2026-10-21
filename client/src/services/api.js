@@ -227,6 +227,12 @@ export const getReferrals = ({ courseId } = {}) =>
   request(`/triage/referrals${courseId != null ? `?courseId=${courseId}` : ''}`);
 export const recordReferral = (body) => request('/triage/referrals', { method: 'POST', body: JSON.stringify(body) });
 export const undoReferral = (id) => request(`/triage/referrals/${id}`, { method: 'DELETE' });
+// Schoology's grade flags (#40). getGradeFlags: a fresh Schoology read for the Flags panels,
+// { exception, score, graded, gradeText, savedGrade, openRecords, hasDraft }. setGradeFlag:
+// { studentId, assignmentId, code (0 clears), expected: { exception, score } (what the page
+// loaded), reason?, restore? } → { exception, saved, withdrawn, line, restored }.
+export const getGradeFlags = (studentId, assignmentId) => request(`/grade-flags?${new URLSearchParams({ studentId, assignmentId })}`);
+export const setGradeFlag = (body) => request('/grade-flags', { method: 'POST', body: JSON.stringify(body) });
 // One student's card state after a triage action: { timeline, late_work }.
 export const getTriagePair = (studentId, assignmentId) => request(`/triage/pair?${new URLSearchParams({ studentId, assignmentId })}`);
 // Per-student deadline extensions: { studentId, assignmentId, lessons (school days), note? }.

@@ -159,6 +159,32 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — resubmit flags
     expect(body.students[0]).not.toHaveProperty('review_flag');
   });
 
+  test('each student carries the waiting saved copy (saved_grade) and the flag\'s status line (flag_line) (#40)', async () => {
+    const db = getDb();
+    db.exec('DELETE FROM excused_grades;');
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, exception, score) VALUES (?, ?, 1, NULL)`).run(studentId, assignmentInternalId);
+    const none = (await get(`/api/mastery/${courseId}/assignment/sa-1`)).body.students[0];
+    expect(none).toMatchObject({ saved_grade: null, flag_line: null });
+    db.prepare(`INSERT INTO excused_grades (student_id, assignment_id, flag, saved_json, saved_at) VALUES (?, ?, 1, ?, '2026-10-21 02:00:00')`)
+      .run(studentId, assignmentInternalId, JSON.stringify({ score: 75, max_points: 100, comment: 'Good.', topics: { t1: 'EX' }, rows: {}, scale_level: null }));
+    db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, 'Marked exempt on Wed 21/10. Medical leave.', 'flag')`)
+      .run(studentId, assignmentInternalId);
+    try {
+      const st = (await get(`/api/mastery/${courseId}/assignment/sa-1`)).body.students[0];
+      expect(st.saved_grade).toMatchObject({ score: 75, topics: { t1: 'EX' }, flag: 1, savedAt: '2026-10-21 02:00:00', summary: '75 / 100 and 1 topic level' });
+      // What clearing can stage: nothing on a task with no topics or scale (the score is re-entered).
+      expect(st.saved_grade).toMatchObject({ restoreSummary: null, notRestored: ['75'] });
+      expect(st.flag_line).toBe('Marked exempt on Wed 21/10. Medical leave.');
+      // Restored: no longer waiting. Another kind of status line is not the flag's.
+      db.prepare(`UPDATE excused_grades SET restored_at = '2026-10-22 00:00:00'`).run();
+      db.prepare(`UPDATE status_lines SET kind = 'extension'`).run();
+      const after = (await get(`/api/mastery/${courseId}/assignment/sa-1`)).body.students[0];
+      expect(after).toMatchObject({ saved_grade: null, flag_line: null });
+    } finally {
+      db.exec('DELETE FROM excused_grades;');
+    }
+  });
+
   test('each student carries attention: handedIn + the calendar reasons (cardAttention.test.js has the cases)', async () => {
     const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
     expect(body.students[0].attention).toEqual({ handedIn: expect.any(Boolean), reasons: expect.any(Array) });

@@ -152,3 +152,15 @@ describe('gradebook cell: the Overdue letter (#40)', () => {
     expect(cell().querySelector('.badge')).toHaveTextContent(/^O$/);
   });
 });
+
+// #40: a flagged cell's symbol carries the grade Prism saved and the flag's reason line.
+describe('gradebook cell: a flag\'s saved grade (#40)', () => {
+  it('the symbol\'s popover names the saved grade (saved_level) and the reason line (flag_line)', async () => {
+    renderGrid({ score: null, exception: 1, saved_level: '75 / 100', flag_line: 'Marked exempt on Wed 21/10. Away.' });
+    await waitFor(() => expect(getCourseCommentSummaries).toHaveBeenCalled());
+    fireEvent.mouseEnter(screen.getByRole('img', { name: 'Exempt' }));
+    const pop = screen.getByRole('tooltip');
+    expect(pop).toHaveTextContent('Grade saved in Prism: 75 / 100. Clear the flag to restore it.');
+    expect(pop).toHaveTextContent('Marked exempt on Wed 21/10. Away.');
+  });
+});

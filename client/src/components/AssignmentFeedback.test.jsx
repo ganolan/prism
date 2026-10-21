@@ -1,6 +1,9 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, within, fireEvent, waitFor } from '@testing-library/react';
 import AssignmentFeedback from './AssignmentFeedback.jsx';
+import { getGradeFlags } from '../services/api.js';
+
+vi.mock('../services/api.js', async (orig) => ({ ...(await orig()), getGradeFlags: vi.fn(), setGradeFlag: vi.fn() }));
 import { gradeLabel } from '../lib/gradeLabel.js';
 
 const TOPICS = [{ topic_id: 't1', title: 'Select, analyze', external_id: 'ART.5.1', category_title: 'HS Art: Producing', grade: 'EX' }];
@@ -230,5 +233,42 @@ describe('AssignmentFeedback', () => {
   it('renders no empty badges row', () => {
     const { container } = render(<AssignmentFeedback topics={TOPICS} />);
     expect(container.querySelector('.assignment-feedback__badges')).toBeNull();
+  });
+});
+
+// #40: the Flags menu in the shared view's badge row (the gradebook pop-up and the student page).
+describe('AssignmentFeedback: the Flags menu (#40)', () => {
+  const FLAGS = { student: { id: 7, firstName: 'Ada' }, assignmentId: 30, exception: 0, score: 75, aligned: true, onChange: () => {} };
+
+  it('flagsMenu puts a small Flags pill in the badge row, even with no other badge', () => {
+    render(<AssignmentFeedback topics={TOPICS} flagsMenu={FLAGS} />);
+    const pill = screen.getByRole('button', { name: /Flags/ });
+    expect(pill).toHaveClass('flags-pill', 'flags-pill--sm');
+    expect(pill.closest('.assignment-feedback__badges')).not.toBeNull();
+  });
+
+  it('the pill carries a set flag, so the status badges drop their flag badge', () => {
+    const status = [{ kind: 'exception', label: 'Exempt', tone: 'green' }];
+    const { unmount } = render(<AssignmentFeedback topics={TOPICS} status={status} flagsMenu={{ ...FLAGS, exception: 1 }} />);
+    expect(screen.getByRole('button', { name: /Exempt/ })).toHaveClass('flags-pill--exempt');
+    expect(document.querySelector('.assignment-feedback__badges .badge')).toBeNull();
+    unmount();
+    render(<AssignmentFeedback topics={TOPICS} status={status} />);
+    expect(document.querySelector('.assignment-feedback__badges .badge')).toHaveTextContent('Exempt');
+  });
+
+  it('no flagsMenu: no pill', () => {
+    render(<AssignmentFeedback topics={TOPICS} />);
+    expect(screen.queryByRole('button', { name: /Flags/ })).toBeNull();
+  });
+
+  it('the panel opens inside the view, under the badge row', async () => {
+    getGradeFlags.mockResolvedValue({ exception: 0, score: 75, graded: true, gradeText: '75 / 100', savedGrade: null, openRecords: [], hasDraft: false });
+    render(<AssignmentFeedback topics={TOPICS} flagsMenu={FLAGS} comment="Nice." />);
+    fireEvent.click(screen.getByRole('button', { name: /Flags/ }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /^Exempt/ }));
+    const panel = await screen.findByRole('group', { name: 'Mark Ada exempt?' });
+    await waitFor(() => expect(panel.closest('.assignment-feedback__panel')).not.toBeNull());
+    expect(follows(panel, screen.getByText('Nice.'))).toBe(true);
   });
 });

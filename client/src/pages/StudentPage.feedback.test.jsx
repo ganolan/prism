@@ -4,7 +4,7 @@
 // submission comment chips, loaded after the page renders. One batch request for
 // the rubrics (no N+1 on load).
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within, waitFor } from '@testing-library/react';
+import { render, screen, within, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 vi.mock('../components/MasteryPerformanceSummary.jsx', () => ({ default: () => null }));
@@ -230,5 +230,29 @@ describe('StudentPage: loading', () => {
       expect(await screen.findByRole('button', { name: 'Submitted files: 2 files in 1 revision. Open the list' })).toBeInTheDocument();
       expect(getStudentFileSummaries).toHaveBeenLastCalledWith(7, { refresh: false });
     } finally { vi.useRealTimers(); }
+  });
+});
+
+// #40: each task's Flags menu on the student page, and the saved grade in a flag's popover.
+describe('CourseSection: flags (#40)', () => {
+  it('with onFlagChange on a current course: a small Flags pill per task; none on an archived course', () => {
+    const { unmount } = renderSection([grade()], NONE, { onFlagChange: () => {}, studentFirstName: 'Ada' });
+    expect(screen.getByRole('button', { name: /Flags/ })).toHaveClass('flags-pill--sm');
+    unmount();
+    render(
+      <MemoryRouter>
+        <CourseSection course={{ id: 1, course_name: 'Art', archived: 1 }} grades={[grade()]} flagsByAssignment={{}}
+          studentUid="u1" scales={{}} studentName="Ada Lovelace" rubrics={NONE} studentId={7} onFlagChange={() => {}} />
+      </MemoryRouter>
+    );
+    expect(screen.queryByRole('button', { name: /Flags/ })).toBeNull();
+  });
+
+  it('a flagged points task: the symbol\'s popover names the saved grade (saved_level)', () => {
+    renderSection([grade({ mastery: null, score: null, exception: 1, saved_level: '75 / 100', flag_line: 'Marked exempt on Wed 21/10.' })], NONE);
+    fireEvent.mouseEnter(screen.getAllByRole('img', { name: 'Exempt' }).at(-1));
+    const pop = screen.getByRole('tooltip');
+    expect(pop).toHaveTextContent('Grade saved in Prism: 75 / 100. Clear the flag to restore it.');
+    expect(pop).toHaveTextContent('Marked exempt on Wed 21/10.');
   });
 });

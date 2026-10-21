@@ -436,6 +436,10 @@ router.post('/:courseId/write', async (req, res) => {
       } catch (err) {
         console.error('[mastery write] snapshot/settle failed:', err.message);
       }
+      // A newer published grade makes a waiting saved copy stale (#40): it is no longer offered.
+      try { retireCopy(db, { studentId: studentRow.id, assignmentId: localAssignment.id }); } catch (err) {
+        console.error('[mastery write] could not retire the saved copy:', err.message);
+      }
       resubmissionFields = savedPairFields(db, studentRow.id, localAssignment.id, 'write');
     }
 
@@ -1079,6 +1083,12 @@ router.post('/:courseId/write-comment', async (req, res) => {
         } catch (err) {
           console.error('[mastery write-comment] snapshot/settle failed:', err.message);
         }
+        // A score or levels published: a waiting saved copy is stale now (#40), over a flag or not.
+        if (wroteGrade) {
+          try { retireCopy(db, { studentId: studentRow.id, assignmentId: assignmentRow.id }); } catch (err) {
+            console.error('[mastery write-comment] could not retire the saved copy:', err.message);
+          }
+        }
         if (overMarker) flagCleared = await settleMarker(db, studentRow.id, assignmentRow.id, 'mastery write-comment');
         resubmissionFields = savedPairFields(db, studentRow.id, assignmentRow.id, 'write-comment');
       }
@@ -1441,6 +1451,12 @@ router.post('/:courseId/send-all', async (req, res) => {
       } catch (err) {
         console.error('[mastery send-all] snapshot/settle failed:', err.message);
       }
+    }
+    // Every pair that published a score or levels: a waiting saved copy is stale now (#40).
+    for (const e of entries.filter((x) => x.scores || x.grade)) {
+      const p = pairByUid.get(e.uid);
+      if (!p) continue;
+      try { retireCopy(db, p); } catch (err) { console.error('[mastery send-all] could not retire the saved copy:', e.uid, err.message); }
     }
     // Grades over a marker: retire the saved copy and remove the flag's line (#40), one pair at a time.
     const flagClearedByUid = new Map();

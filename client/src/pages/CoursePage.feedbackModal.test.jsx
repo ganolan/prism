@@ -205,7 +205,7 @@ describe('RubricModal: the Flags menu (#40)', () => {
     setGradeFlag.mockResolvedValue({ exception: 0, saved: false, withdrawn: [], line: null, restored: null });
     const onFlagChange = vi.fn();
     renderModal({
-      grade: { ...GRADE, score: null, exception: 6, saved_level: null },
+      grade: { ...GRADE, score: null, exception: 6, saved_level: null, grade_comment: 'Seen.' },
       assignment: { id: 3, title: 'Project', schoology_assignment_id: 'sa-1', due_date: null, is_lti_submission: 0, aligned: 1 },
       onFlagChange,
     });
@@ -214,7 +214,7 @@ describe('RubricModal: the Flags menu (#40)', () => {
     fireEvent.click(pill);
     fireEvent.click(screen.getByRole('menuitemradio', { name: /^Late/ }));
     await vi.waitFor(() => expect(setGradeFlag).toHaveBeenCalledWith({
-      studentId: 10, assignmentId: 3, code: 0, expected: { exception: 6, score: null }, reason: null,
+      studentId: 10, assignmentId: 3, code: 0, expected: { exception: 6, score: null, comment: 'Seen.' }, reason: null, restore: false,
     }));
     await vi.waitFor(() => expect(onFlagChange).toHaveBeenCalledWith(expect.objectContaining({ exception: 0 })));
     expect(getGradeFlags).toHaveBeenCalledWith(10, 3);

@@ -42,7 +42,9 @@ const num = (v) => (v == null || v === '' ? null : Number(v));
 const sameScore = (x, y) => (x == null || y == null ? x == null && y == null : Math.abs(x - y) < 1e-9);
 const flagName = (code) => (Number(code) ? FLAG_NAMES[Number(code)] ?? `code ${code}` : 'no flag');
 const scoreText = (score) => String(Number(score));
-const normalise = (text) => String(text ?? '').replace(/\r\n/g, '\n');
+// Comments compare as Prism compares them elsewhere (statusLinePublisher): CRLF as LF, and
+// trailing whitespace ignored (Schoology can round-trip either), so an unchanged comment never refuses.
+const normalise = (text) => String(text ?? '').replace(/\r\n/g, '\n').replace(/\s+$/, '');
 // "Fri 24/10/2026": the panel's dates for withdrawn records.
 const fullDate = (iso) => new Date(`${iso}T00:00:00`)
   .toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' }).replace(',', '');
@@ -399,7 +401,7 @@ export async function setGradeFlag(db, { studentId, assignmentId, code, expected
     if (!sameScore(score, want.score)) changed.push(`the score (now ${score == null ? 'none' : scoreText(score)})`);
     if (want.comment !== undefined && normalise(fresh?.comment) !== normalise(want.comment)) changed.push('the comment');
     if (changed.length) {
-      throw new TriageError('CHANGED', `Changed in Schoology since the page loaded: ${changed.join(', ')}. Nothing was written: reload, then try again.`);
+      throw new TriageError('CHANGED', `Changed in Schoology since Prism last read this task: ${changed.join(', ')}. Nothing was written. Sync, then try again.`);
     }
 
     if (target === was) {

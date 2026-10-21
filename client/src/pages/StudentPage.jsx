@@ -202,7 +202,8 @@ export function CourseSection({
                         reasonLine={g.flag_line ?? null}
                         flagsMenu={onFlagChange && !course.archived && studentId != null ? {
                           student: { id: studentId, firstName: studentFirstName }, assignmentId: g.assignment_id,
-                          exception: g.exception, score: g.score ?? null, aligned: topics.length > 0, onChange: onFlagChange,
+                          exception: g.exception, score: g.score ?? null, comment: g.grade_comment || '',
+                          aligned: topics.length > 0, onChange: onFlagChange,
                         } : null}
                         score={topics.length > 0 ? null : gradeLabel({
                           score: g.score, max_points: g.assignment_max_points,
@@ -408,7 +409,7 @@ export default function StudentPage() {
   }, [photoEnlarged]);
 
   function reload() {
-    return getStudent(id)
+    getStudent(id)
       .then(s => { setStudent(s); setPreferredVal(s.preferred_name_teacher || ''); })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -421,9 +422,11 @@ export default function StudentPage() {
   // queues those courses now; the chip opens the progress of the run.
   const liveCourseIds = (student?.courses ?? []).filter((c) => !c.archived).map((c) => c.id);
   const [syncVersion, setSyncVersion] = useState(0);
-  // After a flag write on one of the tasks (#40): the page and each course's summary reload.
+  // After a flag write on one of the tasks (#40): the page and each course's summary reload. A
+  // failed read throws, so the Flags pill says the page could not refresh.
   async function handleFlagChange() {
-    await reload();
+    const s = await getStudent(id);
+    setStudent(s);
     setSyncVersion((v) => v + 1);
   }
   const [followRun, setFollowRun] = useState(null);

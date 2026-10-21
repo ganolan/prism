@@ -9,6 +9,9 @@ const MENU_NOTE = 'On graded work, Schoology removes the grade while a flag is s
 // The page shows Prism's last read; a fresh read that differs means Schoology changed since (a sync
 // brings the page up to date). Nothing is written over a grade the teacher has not seen.
 const CHANGED = 'Changed in Schoology since Prism last read this task. Sync, then try again.';
+const REFRESH_FAILED = 'Saved, but the page could not refresh. Reload to see it.';
+// Errors that come after Schoology took the write: the page must refetch to show the true state.
+const AFTER_WRITE = ['READBACK_MISMATCH'];
 const MENU_WIDTH = 304; // 19rem
 const GUTTER = 16;
 
@@ -25,12 +28,15 @@ const sameScore = (x, y) => (x == null || y == null ? x == null && y == null : M
 // for the ticked flag, ClearFlagPanel when Prism kept a copy of the grade (clearing at once when it
 // did not). `expected` is what the page loaded, so the server refuses a write over a change.
 //   student     { id, firstName }
-//   exception   the flag the page loaded (0 or null for none); score the score it loaded
+//   exception   the flag the page loaded (0 or null for none); score the score it loaded;
+//               comment the comment it loaded (sent as expected.comment when given)
 //   aligned     the task has measurement topics (Missing's line)
 //   panelHost   where the panel draws (the card's action-panel row); inline when null
-//   onChange(result)  after a write; may return a promise (the page refetching the pair), and the
-//               pill stays busy until it settles
-export default function FlagsMenu({ student, assignmentId, exception = 0, score = null, aligned = false, size = 'md', panelHost = null, onChange }) {
+//   onChange(result)  after a write (result null after an error that followed the write, such as a
+//               read-back mismatch); may return a promise (the page refetching the pair), and the
+//               pill stays busy until it settles; a rejection shows "Saved, but the page could not
+//               refresh. Reload to see it."
+export default function FlagsMenu({ student, assignmentId, exception = 0, score = null, comment, aligned = false, size = 'md', panelHost = null, onChange }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -82,18 +88,29 @@ export default function FlagsMenu({ student, assignmentId, exception = 0, score 
 
   const close = () => { setOpen(false); pillRef.current?.focus(); };
 
+  // The page refetches the pair; a failed refetch is said beside the pill.
+  async function refresh(result) {
+    try {
+      await onChange?.(result);
+    } catch {
+      setError((prev) => (prev ? `${prev} ${REFRESH_FAILED}` : REFRESH_FAILED));
+    }
+  }
+
   async function write(body) {
     setBusy(true);
     setError(null);
+    const expected = { exception: current, score: num(score), ...(typeof comment === 'string' ? { comment } : {}) };
     try {
-      const result = await setGradeFlag({ studentId: student.id, assignmentId, expected: { exception: current, score: num(score) }, ...body });
+      const result = await setGradeFlag({ studentId: student.id, assignmentId, expected, ...body });
       setPanel(null);
       // Set, but a later step did not finish: the line in the comment, or the restore.
       const partial = result?.line?.error || result?.restored?.error || null;
       if (partial) setError(partial);
-      await onChange?.(result);
+      await refresh(result);
     } catch (err) {
       setError(err.message);
+      if (AFTER_WRITE.includes(err.code)) await refresh(null);
     } finally {
       setBusy(false);
     }
@@ -112,7 +129,9 @@ export default function FlagsMenu({ student, assignmentId, exception = 0, score 
       }
       if (code !== current) setPanel({ kind: 'set', code, state });
       else if (state.savedGrade) setPanel({ kind: 'clear', code, state });
-      else await write({ code: 0, reason: null });
+      // No copy waiting: clear at once, and never restore unannounced (a copy kept by this clear,
+      // e.g. Missing's levels, is offered on the card instead).
+      else await write({ code: 0, reason: null, restore: false });
     } catch (err) {
       setError(err.message);
     } finally {

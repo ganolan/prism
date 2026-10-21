@@ -275,10 +275,62 @@ describe('FlagsMenu: clearing', () => {
     const { onChange } = renderMenu({ exception: 6, score: null });
     await choose('Late');
     await waitFor(() => expect(api.setGradeFlag).toHaveBeenCalledWith({
-      studentId: 7, assignmentId: 30, code: 0, expected: { exception: 6, score: null }, reason: null,
+      studentId: 7, assignmentId: 30, code: 0, expected: { exception: 6, score: null }, reason: null, restore: false,
     }));
     expect(screen.queryByRole('group')).toBeNull();
     await waitFor(() => expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ exception: 0 })));
+  });
+});
+
+describe('FlagsMenu: clearing never replaces a draft unannounced (#40 review I1a)', () => {
+  it('clearing Missing with no waiting copy posts restore: false (a copy kept now is offered on the card instead)', async () => {
+    api.getGradeFlags.mockResolvedValue(state({ exception: 3, score: 0, graded: false, gradeText: null }));
+    api.setGradeFlag.mockResolvedValue({ exception: 0, saved: true, withdrawn: [], line: null, restored: null });
+    renderMenu({ exception: 3, score: 0 });
+    await choose('Missing');
+    await waitFor(() => expect(api.setGradeFlag).toHaveBeenCalledWith({
+      studentId: 7, assignmentId: 30, code: 0, expected: { exception: 3, score: 0 }, reason: null, restore: false,
+    }));
+  });
+});
+
+describe('FlagsMenu: the comment the teacher saw (#40 review M1)', () => {
+  it('expected carries the page\'s comment when one is given', async () => {
+    renderMenu({ comment: 'Good work.' });
+    await choose('Late');
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark late' }));
+    await waitFor(() => expect(api.setGradeFlag).toHaveBeenCalledWith(expect.objectContaining({
+      expected: { exception: 0, score: 75, comment: 'Good work.' },
+    })));
+  });
+});
+
+describe('FlagsMenu: refetching after a write (#40 review M3)', () => {
+  it('a read-back mismatch (after the Schoology write) still refetches the pair, and keeps its message', async () => {
+    api.setGradeFlag.mockRejectedValue(Object.assign(new Error('Schoology answered, but its record shows no flag, not Late.'), { code: 'READBACK_MISMATCH' }));
+    const { onChange } = renderMenu();
+    await choose('Late');
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark late' }));
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith(null));
+    expect(screen.getByRole('alert')).toHaveTextContent('its record shows no flag');
+  });
+
+  it('a refusal before any write (CHANGED) does not refetch', async () => {
+    api.setGradeFlag.mockRejectedValue(Object.assign(new Error('Changed.'), { code: 'CHANGED' }));
+    const { onChange } = renderMenu();
+    await choose('Late');
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark late' }));
+    await screen.findByRole('alert');
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('a failed refetch says so', async () => {
+    const onChange = vi.fn().mockRejectedValue(new Error('offline'));
+    render(<FlagsMenu student={STUDENT} assignmentId={30} exception={0} score={75} onChange={onChange} />);
+    fireEvent.click(pill());
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /^Late/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark late' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Saved, but the page could not refresh. Reload to see it.');
   });
 });
 

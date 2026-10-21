@@ -2798,15 +2798,57 @@ describe('StudentRubricCard: the Flags menu (#40)', () => {
     expect(screen.getByTitle('Set Topic 1 to Exhibiting')).not.toHaveTextContent('EX');
   });
 
+  it('the offer says what it restores and when it was saved', () => {
+    renderCard({ student: { ...makeStudent(), exception: 0, saved_grade: SAVED } });
+    expect(screen.getByText('Grade saved in Prism on Wed 21/10: 75 / 100 and 1 topic level. Restoring puts back 1 topic level as a draft.')).toBeInTheDocument();
+  });
+
+  it('with staged changes, "Restore saved grade" asks first, inside the card; Cancel writes nothing', async () => {
+    setGradeFlag.mockResolvedValueOnce({ exception: 0, saved: false, withdrawn: [], line: null, restored: { draft: true, notRestored: [] } });
+    renderCard({ student: { ...makeStudent(), exception: 0, score: null, saved_grade: SAVED }, onRefreshPair: vi.fn(async () => ({ ...makeStudent(), exception: 0 })) });
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(screen.getByRole('button', { name: 'Restore saved grade' }));
+    expect(screen.getByText('Restoring replaces your draft on this card with the saved grade (1 topic level).')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(setGradeFlag).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Restoring replaces your draft/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Restore saved grade' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Restore and replace your draft' }));
+    await waitFor(() => expect(setGradeFlag).toHaveBeenCalledWith(expect.objectContaining({ code: 0, restore: true })));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Restore saved grade' })).toBeEnabled());
+  });
+
+  it('a failed refetch after the restore says so', async () => {
+    setGradeFlag.mockResolvedValueOnce({ exception: 0, saved: false, withdrawn: [], line: null, restored: { draft: true, notRestored: [] } });
+    renderCard({ student: { ...makeStudent(), exception: 0, score: null, saved_grade: SAVED }, onRefreshPair: vi.fn(async () => { throw new Error('offline'); }) });
+    fireEvent.click(screen.getByRole('button', { name: 'Restore saved grade' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Saved, but the page could not refresh. Reload to see it.');
+  });
+
+  it('a final flag drops the staged levels (the comment edit stays), so nothing waits under the lock', async () => {
+    getGradeFlags.mockResolvedValueOnce({ exception: 0, score: null, graded: false, gradeText: null, savedGrade: null, openRecords: [], hasDraft: false });
+    setGradeFlag.mockResolvedValueOnce({ exception: 1, saved: false, withdrawn: [], line: null, restored: null });
+    const onRefreshPair = vi.fn(async () => ({ ...makeStudent(), exception: 1, score: null }));
+    renderCard({ student: { ...makeStudent(), exception: 0, score: null }, onRefreshPair });
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), { target: { value: 'Away this week.' } });
+    expect(screen.getByText('2 pending changes')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Flags/ }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /^Exempt/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark exempt' }));
+    await waitFor(() => expect(screen.getByText('1 pending change')).toBeInTheDocument());
+    expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue('Away this week.');
+  });
+
   it('no flag and a copy waiting: "Restore saved grade" restores it as a draft and stages it', async () => {
-    const onRefreshPair = vi.fn(async () => null);
+    const onRefreshPair = vi.fn(async () => ({ ...makeStudent(), exception: 0, score: null, saved_grade: null }));
     setGradeFlag.mockResolvedValueOnce({ exception: 0, saved: false, withdrawn: [], line: null, restored: { draft: true, notRestored: [] } });
     getDraftsForAssignment.mockResolvedValueOnce({ 1: { pending: { t1: 'EX' }, comment: '', display: false, displayTouched: false, base: 'x' } });
     renderCard({ student: { ...makeStudent(), exception: 0, score: null, saved_grade: SAVED }, onRefreshPair });
-    expect(screen.getByText(/Grade saved in Prism: 75 \/ 100 and 1 topic level\./)).toBeInTheDocument();
+    expect(screen.getByText(/Grade saved in Prism on Wed 21\/10: 75 \/ 100 and 1 topic level\./)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Restore saved grade' }));
     await waitFor(() => expect(setGradeFlag).toHaveBeenCalledWith({
-      studentId: 1, assignmentId: 50, code: 0, expected: { exception: 0, score: null }, reason: null, restore: true,
+      studentId: 1, assignmentId: 50, code: 0, expected: { exception: 0, score: null, comment: '' }, reason: null, restore: true,
     }));
     await waitFor(() => expect(screen.getByText('1 pending change')).toBeInTheDocument());
     expect(onRefreshPair).toHaveBeenCalledWith('uid-1');
@@ -2831,5 +2873,42 @@ describe('StudentRubricCard: the Flags menu (#40)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Mark exempt' }));
     await waitFor(() => expect(onRefreshPair).toHaveBeenCalledWith('uid-1'));
     await waitFor(() => expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue('Marked exempt on Wed 21/10. Away.'));
+  });
+});
+
+// #40 review I2: Publish all skips (never sends) a grade for a student on a final flag, and says who.
+describe('AssessmentSummaryPage: Publish all over a final flag (#40)', () => {
+  const topics = [{ id: 't1', title: 'T1', category_title: 'C', external_id: 'X1' }];
+  const base = { scores: {}, grade_comment: '', comment_status: 0, submission_type: null, late: 0, draft: 0, submitted_at: 0, resubmit_flag: null, lti_submission_state: 'submitted', attention: { handedIn: true, reasons: [] } };
+  const ada = { ...base, id: 1, schoology_uid: 'u1', enrollment_id: 'e1', first_name: 'Ada', last_name: 'L', exception: 0 };
+  const grace = { ...base, id: 2, schoology_uid: 'u2', enrollment_id: 'e2', first_name: 'Grace', last_name: 'H', exception: 1 };
+  const draft = (st) => ({ pending: { t1: 'EX' }, comment: '', display: false, displayTouched: false, base: draftBaseline(st, topics, { includeScore: false }) });
+
+  it('the flagged card is left out of the batch and named; the rest publish', async () => {
+    getMasteryForAssignment.mockResolvedValue({ assignment: { id: 50, title: 'Notebook 4', is_lti_submission: 1, due_date: '2026-06-01', lti_fetch_status: 'ok', mastery_grading_period_id: 1, mastery_grading_category_id: 2 }, topics, students: [ada, grace] });
+    getDraftsForAssignment.mockResolvedValueOnce({ 1: draft(ada), 2: draft(grace) });
+    sendAllGrades.mockResolvedValue({ results: [{ uid: 'u1', ok: true }] });
+    render(
+      <MR initialEntries={['/course/4/assessment/8']}>
+        <Rs><Rt path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} /></Rs>
+      </MR>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: /publish all to schoology \(2\)/i }));
+    await waitFor(() => expect(sendAllGrades).toHaveBeenCalledTimes(1));
+    expect(sendAllGrades.mock.calls[0][1].map((e) => e.uid)).toEqual(['u1']);
+    expect(await screen.findByText(/Skipped Grace H: flagged Exempt in Schoology/)).toBeInTheDocument();
+  });
+
+  it('only flagged cards: nothing is sent, and it says why', async () => {
+    getMasteryForAssignment.mockResolvedValue({ assignment: { id: 50, title: 'Notebook 4', is_lti_submission: 1, due_date: '2026-06-01', lti_fetch_status: 'ok' }, topics, students: [grace] });
+    getDraftsForAssignment.mockResolvedValueOnce({ 2: draft(grace) });
+    render(
+      <MR initialEntries={['/course/4/assessment/8']}>
+        <Rs><Rt path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} /></Rs>
+      </MR>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: /publish all to schoology \(1\)/i }));
+    expect(await screen.findByText(/Skipped Grace H: flagged Exempt in Schoology/)).toBeInTheDocument();
+    expect(sendAllGrades).not.toHaveBeenCalled();
   });
 });

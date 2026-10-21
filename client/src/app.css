@@ -1604,6 +1604,7 @@ img.file-viewer-media { background: transparent; }
    the offer to restore it. */
 .flag-saved-caption { padding: 0.6rem 1rem 0; font-size: 0.75rem; color: var(--text-muted); }
 .flag-saved-offer { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; padding: 0.6rem 1rem 0; font-size: 0.78rem; color: var(--text-muted); }
+.flag-saved-offer__confirm { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; color: var(--text); }
 .status-pill-wrap--flag { align-items: center; }
 button.cell-open { background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; }
 button.cell-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }

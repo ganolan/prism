@@ -126,9 +126,10 @@ export default function CoursePage() {
 
   // After a flag write from the gradebook pop-up (#40): the cells, topic levels and triage panels
   // read the pair's new state (the flag, the removed or restored grade, withdrawn records).
+  // A failed gradebook read throws, so the Flags pill says the page could not refresh.
   async function refreshAfterFlag() {
-    const g = await getGradebook(id).catch(() => null);
-    if (g) setGradebook(g);
+    const g = await getGradebook(id);
+    setGradebook(g);
     await refreshMastery();
     setTriageVersion((v) => v + 1);
   }
@@ -776,7 +777,8 @@ export function RubricModal({
             comment={comment}
             flagsMenu={onFlagChange && assignment.id != null ? {
               student: { id: student.id, firstName: name }, assignmentId: assignment.id,
-              exception: grade.exception, score: grade.score ?? null, aligned: !!assignment.aligned, onChange: onFlagChange,
+              exception: grade.exception, score: grade.score ?? null, comment: grade.grade_comment || '',
+              aligned: !!assignment.aligned, onChange: onFlagChange,
             } : null}
           />
         </div>

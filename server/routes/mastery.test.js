@@ -2187,7 +2187,7 @@ describe('grading over a flag (#40)', () => {
       expect(copyOf(scaleTask).restored_at).not.toBeNull();
     });
 
-    test('points with no flag echoes exception 0 and touches no copy', async () => {
+    test('points with no flag echoes exception 0, and a waiting copy is retired (a newer published grade makes it stale)', async () => {
       setRecord('sa-S', { exception: 0 });
       getDb().prepare(`INSERT INTO excused_grades (student_id, assignment_id, flag, saved_json, saved_at) VALUES (?, ?, 1, '{}', datetime('now'))`).run(studentId, scaleTask);
       const { status } = await post(`/api/mastery/${courseId}/write-comment`, {
@@ -2195,6 +2195,16 @@ describe('grading over a flag (#40)', () => {
       });
       expect(status).toBe(200);
       expect(pushGradeUpdates.mock.calls[0][1][0]).toMatchObject({ exception: 0 });
+      expect(copyOf(scaleTask).restored_at).not.toBeNull();
+    });
+
+    test('a comment-only save with no flag keeps a waiting copy (no grade was published)', async () => {
+      setRecord('sa-S', { exception: 0 });
+      getDb().prepare(`INSERT INTO excused_grades (student_id, assignment_id, flag, saved_json, saved_at) VALUES (?, ?, 1, '{}', datetime('now'))`).run(studentId, scaleTask);
+      const { status } = await post(`/api/mastery/${courseId}/write-comment`, {
+        enrollmentId: 'eF', assignmentId: 'sa-S', comment: 'x', commentStatus: true,
+      });
+      expect(status).toBe(200);
       expect(copyOf(scaleTask).restored_at).toBeNull();
     });
 
@@ -2330,6 +2340,14 @@ describe('grading over a flag (#40)', () => {
     const write = () => post(`/api/mastery/${courseId}/write`, { enrollmentId: 'eF', assignmentId: 'sa-A', gradeInfo, gradingPeriodId: 1, gradingCategoryId: 2 });
     beforeEach(() => { writeMasteryScores.mockReset().mockResolvedValue({}); });
 
+    test('levels published with no flag retire a waiting copy (/write)', async () => {
+      setRecord('sa-A', { exception: 0 });
+      getDb().prepare(`INSERT INTO excused_grades (student_id, assignment_id, flag, saved_json, saved_at) VALUES (?, ?, 1, '{}', datetime('now'))`).run(studentId, alignedTask);
+      const { status } = await write();
+      expect(status).toBe(200);
+      expect(copyOf(alignedTask).restored_at).not.toBeNull();
+    });
+
     test('a stale card (Prism holds Late, Schoology now Exempt): 409, no observations write', async () => {
       markLate(alignedTask, 'sa-A');
       records.get(key('sa-A', 'eF')).exception = 1;
@@ -2396,6 +2414,31 @@ describe('grading over a flag (#40)', () => {
       expect(lineOf(scaleTask)).toBeNull();
       expect(gradeOf(scaleTask)).toMatchObject({ score: 100, exception: 0, grade_comment: 'Good start.' });
       expect(body.results[0]).toMatchObject({ ok: true, flagCleared: { exception: 0, comment: 'Good start.', status_line: null } });
+    });
+
+    test('a grade or levels with no flag retire a waiting copy; a comment-only entry keeps it', async () => {
+      setRecord('sa-S', { exception: 0 });
+      setRecord('sa-A', { exception: 0 });
+      const db = getDb();
+      for (const t of [scaleTask, alignedTask]) db.prepare(`INSERT INTO excused_grades (student_id, assignment_id, flag, saved_json, saved_at) VALUES (?, ?, 1, '{}', datetime('now'))`).run(studentId, t);
+      const comment = await post(`/api/mastery/${courseId}/send-all`, {
+        entries: [{ uid: 'uid-F', enrollmentId: 'eF', assignmentId: 'sa-S', scores: null, comment: { comment: 'x', commentStatus: true } }],
+      });
+      expect(comment.status).toBe(200);
+      expect(copyOf(scaleTask).restored_at).toBeNull();
+      const graded = await post(`/api/mastery/${courseId}/send-all`, {
+        entries: [
+          { uid: 'uid-F', enrollmentId: 'eF', assignmentId: 'sa-S', scores: null, grade: { points: 100 }, comment: { comment: 'x', commentStatus: true } },
+        ],
+      });
+      expect(graded.status).toBe(200);
+      expect(copyOf(scaleTask).restored_at).not.toBeNull();
+      const levels = await post(`/api/mastery/${courseId}/send-all`, {
+        entries: [{ uid: 'uid-F', enrollmentId: 'eF', assignmentId: 'sa-A',
+          scores: { gradeInfo: { tF: { grade: '100', gradingScaleId: 1 } }, gradingPeriodId: 1, gradingCategoryId: 2 }, comment: null }],
+      });
+      expect(levels.status).toBe(200);
+      expect(copyOf(alignedTask).restored_at).not.toBeNull();
     });
 
     test('rubric scores over Late (Prism held the marker): copy retired, line removed, exception 0 mirrored', async () => {

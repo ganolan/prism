@@ -300,6 +300,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   const offerRestore = savedGrade != null && !isFlag(student.exception);
   const [restoring, setRestoring] = useState(false);
   const [restoreError, setRestoreError] = useState(null);
+  const [confirmRestore, setConfirmRestore] = useState(false); // the inline confirm over a draft
 
   // Comment publish state, verified against the synced Schoology value mirrored
   // in the local DB (grades.grade_comment → student.grade_comment). After a
@@ -523,8 +524,16 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // status line, saved copy, timeline), the comment editor follows the line the flag wrote or
   // removed (an unsaved edit keeps the teacher's text with the line swapped on top), and a restored
   // copy becomes the card's staged draft.
+  // A final flag (Exempt, Missing) locks the rubric: staged levels (topics, rows, the overall) are
+  // dropped, so none waits under the lock or blocks Publish all; the comment and Display edits stay.
+  // A failed refetch throws, so the Flags pill says the page could not refresh.
   async function handleFlagChange(result) {
-    const fresh = await onRefreshPair?.(student.schoology_uid);
+    const fresh = onRefreshPair ? await onRefreshPair(student.schoology_uid) : null;
+    if (onRefreshPair && !fresh) throw new Error('The page could not refresh.');
+    if (isFinalFlag(fresh?.exception ?? result?.exception)) {
+      flushNextRef.current = true;
+      setPending({});
+    }
     if (fresh) {
       const newLine = fresh.status_line?.line || '';
       if (commentDirty) {
@@ -553,18 +562,29 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
 
   // "Restore saved grade": no flag is set and a copy waits (the flag was cleared with the box
   // unticked). Code 0 over no flag restores the copy into the draft without a Schoology write.
-  async function restoreSavedGrade() {
+  // The restore replaces the card's draft, so over staged changes it asks first, inside the card.
+  async function restoreSavedGrade({ confirmed = false } = {}) {
+    if (hasPendingChanges && !confirmed) { setConfirmRestore(true); return; }
+    setConfirmRestore(false);
     setRestoring(true);
     setRestoreError(null);
+    let result;
     try {
-      const result = await setGradeFlag({
+      result = await setGradeFlag({
         studentId: student.id, assignmentId: assignmentRow.id, code: 0,
-        expected: { exception: Number(student.exception) || 0, score: student.score ?? null }, reason: null, restore: true,
+        expected: { exception: Number(student.exception) || 0, score: student.score ?? null, comment: student.grade_comment || '' },
+        reason: null, restore: true,
       });
-      if (result?.restored?.error) setRestoreError(result.restored.error);
-      await handleFlagChange(result);
     } catch (err) {
       setRestoreError(err.message);
+      setRestoring(false);
+      return;
+    }
+    if (result?.restored?.error) setRestoreError(result.restored.error);
+    try {
+      await handleFlagChange(result);
+    } catch {
+      setRestoreError('Saved, but the page could not refresh. Reload to see it.');
     } finally {
       setRestoring(false);
     }
@@ -1127,6 +1147,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             assignmentId={assignmentRow.id}
             exception={student.exception}
             score={student.score ?? null}
+            comment={student.grade_comment || ''}
             aligned={!scoreScale && topics.length > 0}
             panelHost={panelHost}
             onChange={handleFlagChange}
@@ -1175,11 +1196,19 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
       {offerRestore && (
         <div className="flag-saved-offer">
           <span>
-            {`Grade saved in Prism: ${savedGrade.summary || 'a grade'}.`}
+            {`Grade saved in Prism${savedOn ? ` on ${savedOn}` : ''}: ${savedGrade.summary || 'a grade'}.`}
+            {savedGrade.restoreSummary && ` Restoring puts back ${savedGrade.restoreSummary} as a draft.`}
             {savedGrade.notRestored?.length > 0 && ` Re-enter in Schoology: ${savedGrade.notRestored.join(', ')}.`}
           </span>
-          {resubmitEnabled && assignmentRow?.id && savedGrade.restoreSummary && (
-            <button type="button" className="ghost accent btn-sm" disabled={restoring} onClick={restoreSavedGrade}>Restore saved grade</button>
+          {resubmitEnabled && assignmentRow?.id && savedGrade.restoreSummary && !confirmRestore && (
+            <button type="button" className="ghost accent btn-sm" disabled={restoring} onClick={() => restoreSavedGrade()}>Restore saved grade</button>
+          )}
+          {confirmRestore && (
+            <span className="flag-saved-offer__confirm" role="group" aria-label="Restore the saved grade">
+              <span>{`Restoring replaces your draft on this card with the saved grade (${savedGrade.restoreSummary}).`}</span>
+              <button type="button" className="primary btn-sm" disabled={restoring} onClick={() => restoreSavedGrade({ confirmed: true })}>Restore and replace your draft</button>
+              <button type="button" className="ghost btn-sm" onClick={() => setConfirmRestore(false)}>Cancel</button>
+            </span>
           )}
           {restoreError && <span className="flags-error text-sm" role="alert">{restoreError}</span>}
         </div>
@@ -2009,8 +2038,9 @@ export default function AssessmentSummaryPage() {
 
   // After a flag write (#40): this student's fresh row from the page's own read, patched in place
   // (the other cards keep their state). → the fresh student, or null when the read failed.
+  // A failed read throws (the card's Flags pill then says the page could not refresh).
   const handleRefreshPair = useCallback(async (uid) => {
-    const next = await getMasteryForAssignment(courseId, assignmentId).catch(() => null);
+    const next = await getMasteryForAssignment(courseId, assignmentId);
     const fresh = next?.students?.find((s) => s.schoology_uid === uid) || null;
     if (fresh) handleCardSaved(uid, fresh);
     return fresh;
@@ -2095,11 +2125,26 @@ export default function AssessmentSummaryPage() {
     // the whole set in one batched request (#51) — one browser session for all
     // score writes + one bulk comment PUT, instead of a per-card loop.
     const items = [];
+    // A grade (levels or a score) for a student on a final flag (Exempt, Missing) is skipped, not
+    // sent: Schoology would clear Exempt, and the server refuses it (FLAGGED) as the backstop.
+    const skipped = [];
+    const byUid = new Map((data?.students || []).map((st) => [st.schoology_uid, st]));
     for (const uid of uids) {
       const built = cardsRef.current[uid]?.getEntry();
-      if (built) items.push({ uid, ...built });
+      if (!built) continue;
+      const st = byUid.get(uid);
+      if (st && isFinalFlag(st.exception) && (built.entry.scores || built.entry.grade)) {
+        skipped.push(`${studentFullName(st)}: flagged ${FLAGS[Number(st.exception)].name} in Schoology`);
+        continue;
+      }
+      items.push({ uid, ...built });
     }
-    if (items.length === 0) { setBulkSaving(false); return; }
+    const skippedText = skipped.length ? ` Skipped ${skipped.join('; ')} (clear the flag to publish a grade).` : '';
+    if (items.length === 0) {
+      setBulkSaving(false);
+      if (skipped.length) setBulkResult(`Nothing published.${skippedText}`);
+      return;
+    }
 
     try {
       const { results } = await sendAllGrades(courseId, items.map(i => i.entry));
@@ -2113,7 +2158,7 @@ export default function AssessmentSummaryPage() {
         // grade that cleared a marker its flagCleared (#40).
         if (success) { handleCardSaved(i.uid, { ...i.patch, ...resubmissionFieldsPatch(r.resubmissionFields), ...flagClearedPatch(r.flagCleared) }); ok++; } else { fail++; }
       }
-      setBulkResult(`Published ${ok} grade${ok !== 1 ? 's' : ''}${fail ? `, ${fail} failed` : ''}`);
+      setBulkResult(`Published ${ok} grade${ok !== 1 ? 's' : ''}${fail ? `, ${fail} failed` : ''}.${skippedText}`);
     } catch (err) {
       // All-or-nothing: a non-2xx (incl. the 502 abort) rejects here — mark every
       // card failed and leave them pending so a retry is one click away.

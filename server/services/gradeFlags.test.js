@@ -209,6 +209,20 @@ describe('setGradeFlag: setting a flag', () => {
     expect(copyRow()).toBeNull();
   });
 
+  test('the CHANGED message names the change and says to sync', async () => {
+    record = { ...record, grade: 50 };
+    await expect(setGradeFlag(db, { studentId: s, assignmentId: a, code: 1, expected: { exception: 0, score: 75 } }))
+      .rejects.toMatchObject({ message: 'Changed in Schoology since Prism last read this task: the score (now 50). Nothing was written. Sync, then try again.' });
+  });
+
+  test('expected.comment: an unchanged comment (CRLF, trailing whitespace) never refuses; an edited one does', async () => {
+    record = { ...record, comment: 'Good work.\r\nKeep going.  \n' };
+    await expect(setGradeFlag(db, { studentId: s, assignmentId: a, code: 6, expected: { exception: 0, score: 75, comment: 'Good work.\nKeep going.' } }))
+      .resolves.toMatchObject({ exception: 6 });
+    await expect(setGradeFlag(db, { studentId: s, assignmentId: a, code: 1, expected: { exception: 6, score: null, comment: 'Good work.' } }))
+      .rejects.toMatchObject({ code: 'CHANGED', message: expect.stringMatching(/the comment/) });
+  });
+
   test('a score that differs only as string vs number is not a change', async () => {
     record = { ...record, grade: '75' };
     await expect(setGradeFlag(db, { studentId: s, assignmentId: a, code: 1, expected: { exception: '0', score: 75 } })).resolves.toMatchObject({ exception: 1 });
@@ -564,6 +578,19 @@ describe('setGradeFlag: clearing', () => {
     expect(copyRow()).toBeNull();
     expect(levels()).toHaveLength(2);
     expect(gradeRow()).toMatchObject({ score: 0, exception: 3 });
+  });
+
+  test('clearing Missing set in Schoology (no copy yet) with restore: false keeps its levels in a copy, writes no draft (#40 review I1a)', async () => {
+    record = { ...record, exception: 3, grade: 0 };
+    db.prepare('UPDATE grades SET exception = 3, score = 0').run();
+    expect(copyRow()).toBeNull();
+    const out = await flag(0, { restore: false });
+    expect(sent()).toMatchObject({ exception: 0, grade: null });
+    expect(out).toMatchObject({ exception: 0, saved: true, restored: null });
+    expect(draftRow()).toBeNull();
+    expect(JSON.parse(copyRow().saved_json).topics).toEqual({ t1: 'EX', t2: 'EX' });
+    // The card then offers it: "Restore saved grade".
+    expect((await readFlagState(db, { studentId: s, assignmentId: a })).savedGrade).toMatchObject({ restoreSummary: '2 topic levels' });
   });
 
   test('clearing another flag never sends grade: null', async () => {

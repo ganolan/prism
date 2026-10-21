@@ -4,7 +4,8 @@ import { migrate } from '../db/index.js';
 import { syncPsAlerts } from './psAlertsSync.js';
 import { applyPsAlerts, psAlertsByStudent, psAlertsForStudent } from './psAlertStore.js';
 import { PowerSchoolWeb, launchForm } from './powerschoolWeb.js';
-import { fakePowerSchoolWeb } from '../testing/fakePowerSchoolWeb.js';
+import { fakePowerSchoolWeb, emergencyHtml } from '../testing/fakePowerSchoolWeb.js';
+import { parseEmergencyContacts } from '../lib/psEmergencyContacts.js';
 
 let db;
 const addCourse = (sectionId, name, extra = {}) => db.prepare(
@@ -72,6 +73,41 @@ describe('PowerSchoolWeb', () => {
     await ps.launch('S1', { form });
     expect(web.requests.filter((r) => r.path.startsWith('/apps/lti/'))).toHaveLength(1);
     expect(ps.launched).toBe(true);
+  });
+
+  test('teacherPage sends the Referer and no X-Requested-With', async () => {
+    const web = fakePowerSchoolWeb({ emergency: { 9001: emergencyHtml([{ student: 'Lee, Ana', g1: ['Lee, Mei', 'm@example.org'], g2: ['', ''] }]) } });
+    const ps = new PowerSchoolWeb({ sgyJar: web.jar, fetchImpl: web.fetchImpl });
+    await ps.launch('S1');
+    expect(await ps.teacherPage('/teachers/home.html')).toContain('<html');
+    const html = await ps.teacherPage('/teachers/StudEmgContacts.html?sectionid=9001', { referer: '/teachers/home.html' });
+    expect(html).toContain('Guardian 1');
+    const [home, list] = web.requests.filter((r) => r.path === '/teachers/home.html' || r.path === '/teachers/StudEmgContacts.html');
+    expect(home).toMatchObject({ method: 'GET', cookie: 'JSESSIONID=s1', accept: 'text/html', referer: null, xhr: null });
+    expect(list).toMatchObject({ method: 'GET', cookie: 'JSESSIONID=s1', params: { sectionid: '9001' }, referer: 'https://powerschool.hkis.edu.hk/teachers/home.html', xhr: null });
+  });
+
+  test('a Security Violation page is PS_SECURITY', async () => {
+    const web = fakePowerSchoolWeb({ failRead: (name) => name === 'StudEmgContacts.html' && '<h1>Security Violation Logged</h1>' });
+    const ps = new PowerSchoolWeb({ sgyJar: web.jar, fetchImpl: web.fetchImpl });
+    await ps.launch('S1');
+    await expect(ps.teacherPage('/teachers/StudEmgContacts.html?sectionid=9001')).rejects.toMatchObject({ code: 'PS_SECURITY' });
+  });
+
+  test('a redirect is PS_SESSION with sessionEnded; an error status is not a session end', async () => {
+    const web = fakePowerSchoolWeb({ expireOnce: 'home.html', failRead: (name) => name === 'StudEmgContacts.html' });
+    const ps = new PowerSchoolWeb({ sgyJar: web.jar, fetchImpl: web.fetchImpl });
+    await ps.launch('S1');
+    await expect(ps.teacherPage('/teachers/home.html')).rejects.toMatchObject({ code: 'PS_SESSION', status: 302, sessionEnded: true });
+    await ps.launch('S1');
+    await expect(ps.teacherPage('/teachers/StudEmgContacts.html?sectionid=9001')).rejects.toMatchObject({ code: 'PS_SESSION', status: 500, sessionEnded: false });
+  });
+
+  test('a section without a configured list answers a valid empty list', async () => {
+    const web = fakePowerSchoolWeb();
+    const ps = new PowerSchoolWeb({ sgyJar: web.jar, fetchImpl: web.fetchImpl });
+    await ps.launch('S1');
+    expect(parseEmergencyContacts(await ps.teacherPage('/teachers/StudEmgContacts.html?sectionid=9001'))).toEqual([]);
   });
 
   test('a refused launch is PS_LAUNCH', async () => {

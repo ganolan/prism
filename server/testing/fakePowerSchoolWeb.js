@@ -17,6 +17,13 @@ export const launchHtml = ({ sectionDcid = '9001', action = `${PS}/integrations/
 <input type="hidden" name="oauth_signature" value="sig&amp;=" />
 </form><script>document.forms[0].submit()</script></body></html>`;
 
+// A made-up Emergency Contact List (#66) in the probed shape: rows are
+// { student, g1: [name, email], g2: [name, email] }, names `Last, First`.
+export const emergencyHtml = (rows = []) => `<html><body><table><tr><td>Menu</td></tr></table>
+<table class="grid"><thead><tr><th>Student</th><th>Guardian 1</th><th>G1 Email</th><th>G1 Phone</th><th>G1 Faculty</th><th>Guardian 2</th><th>G2 Email</th><th>G2 Phone</th><th>G2 Faculty</th></tr></thead><tbody>
+${rows.map((r) => `<tr><td>${r.student}</td><td>${r.g1[0]}</td><td>${r.g1[1]}</td><td>555-0100</td><td></td><td>${r.g2[0]}</td><td>${r.g2[1]}</td><td>555-0101</td><td></td></tr>`).join('\n')}
+</tbody></table></body></html>`;
+
 const sf = (id, field, operator, operand = '') => ({
   id, trigger_type: 'sf', disabled: '0', name: `alert ${id}`, student_field: `U_Students_Extension.${field}`,
   ext_table_name: 'U_DEF_EXT_STUDENTS', student_field_operator: operator, student_field_operand: operand,
@@ -41,11 +48,14 @@ export const CATALOGUE = [
 //   the request's Referer and X-Requested-With are recorded.
 // sectionInfo: { [sectionDcid]: section_info[0] | { status } (an error answer) }
 //   (default: psmSectionId "P{sectionDcid}", a few in-session days)
+// emergency: { [sectionDcid]: html (emergencyHtml) | { status } } for /teachers/StudEmgContacts.html
+//   (#66; a section not listed answers a valid list with the header and no rows);
+//   /teachers/home.html answers 200. Both record the request's Referer and X-Requested-With.
 // failRead(name, entry) → true answers 500, a string answers 200 with that page;
 // expireOnce: the read name whose first call finds the PowerSchool session gone
 // (302 to sign-in).
 export function fakePowerSchoolWeb({
-  schoology = { S1: '9001' }, sections = {}, catalogue = CATALOGUE, popups = {}, sectionInfo = {},
+  schoology = { S1: '9001' }, sections = {}, catalogue = CATALOGUE, popups = {}, sectionInfo = {}, emergency = {},
   loginRedirect = false, launchStatus = 200, failRead, expireOnce,
 } = {}) {
   const requests = [];
@@ -87,6 +97,15 @@ export function fakePowerSchoolWeb({
       entry.xhr = opts.headers?.['X-Requested-With'] || null;
       const dcid = String(p.get('frn') || '').replace(/^001/, '');
       return answer(200, popups[dcid] ?? '<p style="margin-left:10px">\n</p>', { 'content-type': 'text/html;charset=UTF-8' });
+    }
+    if (name === 'home.html' || name === 'StudEmgContacts.html') {
+      entry.referer = opts.headers?.Referer || opts.headers?.referer || null;
+      entry.xhr = opts.headers?.['X-Requested-With'] || null;
+      const html = { 'content-type': 'text/html;charset=UTF-8' };
+      if (name === 'home.html') return answer(200, '<html><body>PowerTeacher home</body></html>', html);
+      const list = emergency[p.get('sectionid')];
+      if (list?.status) return answer(list.status, 'error');
+      return answer(200, list ?? emergencyHtml(), html);
     }
     // /ws/pt/v1 answers 500 ("no message body writer") unless asked for JSON alone.
     if (u.pathname.startsWith('/ws/pt/v1/') && entry.accept !== 'application/json') return answer(500, 'no message body writer');

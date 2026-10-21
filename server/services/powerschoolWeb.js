@@ -144,6 +144,30 @@ export class PowerSchoolWeb {
     return text;
   }
 
+  // One PowerTeacher page opened as a teacher clicks to it (#66: home.html, then
+  // StudEmgContacts.html with home as Referer): a plain GET for HTML with the session
+  // cookie and the previous page as `referer` (a path), no X-Requested-With. PowerSchool
+  // logs a security violation for a page reached out of order (AGENTS.md).
+  // → the page text. A redirect is PS_SESSION with sessionEnded: true (the session is
+  // gone: relaunch and ask again), another error status PS_SESSION with sessionEnded:
+  // false; a "Security Violation Logged" page is PS_SECURITY.
+  async teacherPage(path, { referer } = {}) {
+    const res = await this.fetchImpl(`${PS_BASE}${path}`, {
+      headers: { cookie: this.jar.header(), Accept: 'text/html', ...(referer ? { Referer: `${PS_BASE}${referer}` } : {}) },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    this.jar.take(res);
+    const text = await res.text();
+    if (SECURITY_VIOLATION.test(text)) throw securityError(path.split('?')[0]);
+    if (res.status !== 200) {
+      throw Object.assign(new WebSessionError('PS_SESSION', `PowerSchool answered ${res.status} for ${path.split('?')[0]}`), {
+        status: res.status, sessionEnded: res.status >= 300 && res.status < 400,
+      });
+    }
+    return text;
+  }
+
   // One read. → parsed JSON. Any other answer throws PS_SESSION with `status` and
   // `sessionEnded`: true for a redirect (to sign-in) or a page that is not JSON (the
   // session is gone: relaunch and ask again), false for an error status, which is

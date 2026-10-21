@@ -1098,7 +1098,7 @@ POSTed to PowerSchool with `fetch` (`server/services/powerschoolWeb.js`), then f
   remembered. Roster: learning, health and other only (never family), behind a **PowerSchool alerts** toggle,
   off by default, remembered per browser. PrisMCP `list_students` and `get_assignment_context` add
   `powerschool_alerts` (family included) + `powerschool_alerts_read_at` per student, as labels for the teacher only.
-  The contact fields never leave the database. No other view shows alerts yet.
+  The contact fields never leave the database. *(2026-10-21, #66: the raw values still stay in the database; the calculated contact status reaches the student page and Class Tools.)* No other view shows alerts yet.
 - **Verified live (2026-10-17, dev DB copy):** 9 of 9 active courses read, 96 students, 6.2 s
   (`scripts/parity-ps-alerts.js`). Shapes in `.claude/powerschool-api-reference.md` "Student alerts over plain
   HTTP (#117)".

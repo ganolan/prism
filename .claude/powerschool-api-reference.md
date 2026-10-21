@@ -636,7 +636,7 @@ pending shape probes.
 
 #### #66 resolution — "G1/G2 Correspondence" alerts are NOT per-guardian identities
 
-*(Superseded in part 2026-10-21: the per-guardian names and emails are on the Emergency Contact List, and `X_HomeEmail` is a one-character code. See "Guardian contacts (#66, verified 2026-10-21)" above. The 2026-05-30 findings are kept below.)*
+*(Superseded in part 2026-10-21: the per-guardian names and emails are on the Emergency Contact List, and `X_HomeEmail` is a one-character code. See "Guardian contacts (#66, verified 2026-10-21)" below. The 2026-05-30 findings are kept below.)*
 
 Verified via **GET-only** `aet_customalert_sf.html` reads (no POSTs): the three correspondence
 alerts — `G1 Correspondence` (32012479), `G2 Correspondence` (32012481), `G1&G2 Correspondence`
@@ -650,7 +650,7 @@ PII-bearing** value per student — so exact value decoding was left for a caref
 **Takeaway for Prism:** the genuinely *per-guardian* flags are the **paired** fields already in
 the catalog — `X_DNC_G1`/`X_DNC_G2` (do-not-contact) and `X_G1DECEASED`/`X_G2DECEASED` — not the
 Correspondence alerts. Distinct per-guardian *contact details* (names/emails) are not exposed by
-these alerts; they live in PowerSchool's guardian/contact tables (see Frontier). *(Found 2026-10-21: the Emergency Contact List; see "Guardian contacts (#66)" above.)*
+these alerts; they live in PowerSchool's guardian/contact tables (see Frontier). *(Found 2026-10-21: the Emergency Contact List; see "Guardian contacts (#66)" below.)*
 
 ### Student grade level, gender and postal address (#116, verified 2026-10-17)
 

@@ -172,7 +172,7 @@ state.
 Graham, 21 October 2026: a task marked Missing shows **IE on every measurement topic** in the shared
 feedback view (the student page and the gradebook pop-up), so it can inform discussions with the student.
 
-- **Prism's display only:** Schoology holds no IE for Missing (its 0 never reaches the topics, verified).
+- **Prism's display only:** Schoology keeps Missing off the topics: its 0 stays on the task (verified).
   Each IE carries the Missing symbol, and one line sits above the rubric: "Shown as IE because the work is
   marked Missing. Schoology's topic averages do not include it."
 - **Topic averages are untouched:** Prism's per-topic summaries keep Schoology's own numbers. Recording real

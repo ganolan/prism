@@ -7,6 +7,8 @@
  * CONTACT_FIELDS). Schoology's `parents` rows carry no slot, so each parent is
  * first placed in a slot, then given a status. Decided at read time, so a parent
  * Schoology adds between PowerSchool reads is "not matched" until a read holds them.
+ * decideParents does both for one student, and gives a flagged slot that no parent is
+ * placed in to every parent it could be.
  *
  * Fail safe throughout: when Prism cannot tell, the parent is not contactable.
  * Spec: docs/superpowers/specs/2026-10-21-do-not-contact-guardians-design.md "Decide".
@@ -84,4 +86,53 @@ export function statusFor({ checked, slot, flags = {}, correspondence }) {
   if (isSet(flags[`g${slot}_deceased`])) return { status: 'deceased', primary: false };
   const code = correspondence == null ? '' : String(correspondence).trim();
   return { status: 'contactable', primary: (code === '1' || code === '2') && code === String(slot) };
+}
+
+// Stronger first: a parent with both flags (from two slots, or two children) is do_not_contact.
+export const FLAG_RANK = { do_not_contact: 2, deceased: 1 };
+const rank = (status) => FLAG_RANK[status] ?? 0;
+const slotFlag = (flags, slot) => (isSet(flags[`dnc_g${slot}`]) ? 'do_not_contact' : isSet(flags[`g${slot}_deceased`]) ? 'deceased' : null);
+
+// The reason for a parent who takes the flag of a slot no parent is placed in.
+export const uncertainReason = (slot, status) => `${CONTACT_REASONS.not_matched}. Guardian ${slot} is flagged: ${CONTACT_REASONS[status]}`;
+
+/**
+ * Every parent of one student: Map<parentId, { status, primary, reason, uncertain? }>.
+ * checked = the student has a guardian read; slots and parents as placeParents; flags and
+ * correspondence from student_powerschool. reason = CONTACT_REASONS[status], null for
+ * contactable.
+ *
+ * A flagged slot with no parent in it (controller's ruling, 21 October 2026): when slot N
+ * is flagged (dnc_gN or gN_deceased, any value) and no parent is uniquely placed in N,
+ * the flagged guardian may be any parent Prism could not place. So every parent not
+ * uniquely placed in an unflagged slot takes N's flag, with `uncertain: true` and
+ * uncertainReason. Two parents placed in one slot by a shared email are not uniquely
+ * placed. do_not_contact wins over deceased when both slots qualify (slot 1 wins a tie),
+ * and a parent's own flag wins when it is as strong. A student with flags but no guardian
+ * read has no placed parents, so all of them take the strongest flag this way.
+ */
+export function decideParents({ checked, parents, slots = {}, flags = {}, correspondence }) {
+  const placed = checked ? placeParents(parents, slots) : new Map();
+  const inSlot = new Map(SLOTS.map((s) => [s, 0]));
+  for (const slot of placed.values()) if (slot) inSlot.set(slot, inSlot.get(slot) + 1);
+  const unique = (slot) => !!slot && inSlot.get(slot) === 1;
+
+  let open = null; // { slot, status }: the strongest flagged slot no parent is uniquely placed in
+  for (const slot of SLOTS) {
+    const status = slotFlag(flags, slot);
+    if (status && !unique(slot) && rank(status) > rank(open?.status)) open = { slot, status };
+  }
+
+  const out = new Map();
+  for (const p of parents) {
+    const slot = placed.get(p.id) ?? null;
+    const { status, primary } = statusFor({ checked, slot, flags, correspondence });
+    const clear = unique(slot) && !slotFlag(flags, slot);
+    if (open && !clear && rank(status) < rank(open.status)) {
+      out.set(p.id, { status: open.status, primary: false, reason: uncertainReason(open.slot, open.status), uncertain: true });
+    } else {
+      out.set(p.id, { status, primary, reason: CONTACT_REASONS[status] ?? null });
+    }
+  }
+  return out;
 }

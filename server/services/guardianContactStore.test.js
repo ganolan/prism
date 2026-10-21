@@ -130,6 +130,66 @@ describe('contactsForStudents', () => {
     expect(out.get(b).byParent.get(pb).status).toBe('do_not_contact');
   });
 
+  // Controller ruling, 21 October 2026: a flagged slot no parent is placed in.
+  test('a not_matched parent takes a flagged empty slot\'s status, uncertain, with its reason', () => {
+    const a = addStudent(1);
+    const placed = addParent(a, 'p1', 'Robin', 'Sample', 'robin@example.test');
+    const unplaced = addParent(a, 'p2', 'Jordan', 'Other', 'jordan@example.test');
+    addSlot(a, 1, 'Sample, Robin', 'robin@example.test');
+    addSlot(a, 2, 'Sample, Kit', 'kit@example.test');
+    setPs(a, { guardians_synced_at: SYNCED, g2_deceased: '1' });
+    const out = contactsForStudents(db, [a]).get(a);
+    expect(out.byParent.get(unplaced)).toEqual({
+      status: 'deceased', primary: false, uncertain: true,
+      reason: 'Not matched to a PowerSchool guardian. Guardian 2 is flagged: Deceased (PowerSchool)',
+    });
+    expect(out.byParent.get(placed)).toEqual({ status: 'contactable', primary: false, reason: null });
+  });
+
+  test('a student with flags but no guardian read: every parent takes the flag', () => {
+    const a = addStudent(1);
+    const p = addParent(a, 'p1', 'Robin', 'Sample', 'robin@example.test');
+    const q = addParent(a, 'p2', 'Kit', 'Sample', 'kit@example.test');
+    setPs(a, { alerts_synced_at: SYNCED, dnc_g1: '1' });
+    const out = contactsForStudents(db, [a]).get(a);
+    const dnc = { status: 'do_not_contact', primary: false, uncertain: true, reason: 'Not matched to a PowerSchool guardian. Guardian 1 is flagged: Do not contact (PowerSchool)' };
+    expect(out.byParent.get(p)).toEqual(dnc);
+    expect(out.byParent.get(q)).toEqual(dnc);
+  });
+
+  test('an uncertain flag spreads to a sibling\'s rows with the same uid or email, with the plain reason', () => {
+    const a = addStudent(1);
+    const b = addStudent(2);
+    // A: slot 2 is deceased and no parent is placed in it, so A's two unplaced parents take it.
+    addParent(a, 'uJ', 'Jordan', 'Other', 'jordan@example.test');
+    addParent(a, 'uM', 'Morgan', 'Else', 'morgan@example.test');
+    addSlot(a, 1, 'Sample, Robin', 'robin@example.test');
+    addSlot(a, 2, 'Sample, Kit', 'kit@example.test');
+    setPs(a, { guardians_synced_at: SYNCED, g2_deceased: '1' });
+    // B: the same two guardians, each uniquely placed in an unflagged slot of B's record.
+    const bJordan = addParent(b, 'uJ', 'Jordan', 'Other', 'jordan.work@example.test');
+    const bMorgan = addParent(b, 'uX', 'Morgan', 'Else', ' MORGAN@example.test');
+    addSlot(b, 1, 'Other, Jordan', 'jordan.work@example.test');
+    addSlot(b, 2, 'Else, Morgan', 'morgan@example.test');
+    setPs(b, { guardians_synced_at: SYNCED });
+    const out = contactsForStudents(db, [b]).get(b);
+    const deceased = { status: 'deceased', primary: false, reason: 'Deceased (PowerSchool)' };
+    expect(out.byParent.get(bJordan)).toEqual(deceased); // same uid
+    expect(out.byParent.get(bMorgan)).toEqual(deceased); // same email, any case
+  });
+
+  test('a sibling is found by an email padded with no-break spaces, as JS trim reads it', () => {
+    const a = addStudent(1);
+    const b = addStudent(2);
+    addParent(a, 'p1', 'Robin', 'Sample', 'robin@example.test');
+    addSlot(a, 1, 'Sample, Robin', 'robin@example.test');
+    setPs(a, { guardians_synced_at: SYNCED, dnc_g1: '1' });
+    const pb = addParent(b, 'p7', 'Robin', 'Sample', '\u00a0Robin@example.test\u00a0');
+    addSlot(b, 1, 'Sample, Robin', 'robin@example.test');
+    setPs(b, { guardians_synced_at: SYNCED });
+    expect(contactsForStudents(db, [b]).get(b).byParent.get(pb).status).toBe('do_not_contact');
+  });
+
   test('every requested student is listed, with no parents or none asked for', () => {
     const a = addStudent(1);
     const out = contactsForStudents(db, [a, String(a), 999]);

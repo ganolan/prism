@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { CONTACT_REASONS, placeParents, statusFor } from './guardianContacts.js';
+import { CONTACT_REASONS, decideParents, placeParents, statusFor } from './guardianContacts.js';
 
 // Masked fixtures: invented names and example.test addresses only.
 const parent = (id, first_name, last_name, email = null) => ({ id, first_name, last_name, email });
@@ -100,5 +100,65 @@ describe('statusFor', () => {
       not_matched: 'Not matched to a PowerSchool guardian',
       not_checked: 'Not checked against PowerSchool yet',
     });
+  });
+});
+
+// Controller ruling, 21 October 2026: a flagged slot that no parent is uniquely placed in
+// passes its flag to every parent not uniquely placed in an unflagged slot.
+describe('decideParents', () => {
+  const none = { dnc_g1: null, dnc_g2: null, g1_deceased: null, g2_deceased: null };
+  const slots = { 1: { name: 'Sample, Robin', email: 'r@example.test' }, 2: { name: 'Sample, Kit', email: 'k@example.test' } };
+  const uncertain = (status, slot) => ({
+    status, primary: false, uncertain: true,
+    reason: `Not matched to a PowerSchool guardian. Guardian ${slot} is flagged: ${CONTACT_REASONS[status]}`,
+  });
+
+  test('with no flags each parent gets statusFor plus its reason', () => {
+    const out = decideParents({ checked: true, parents: [parent(10, 'Robin', 'Sample', 'r@example.test'), parent(11, 'Jo', 'Other', 'j@example.test')], slots, flags: none, correspondence: '1' });
+    expect(out.get(10)).toEqual({ status: 'contactable', primary: true, reason: null });
+    expect(out.get(11)).toEqual({ status: 'not_matched', primary: false, reason: 'Not matched to a PowerSchool guardian' });
+  });
+
+  test('a not_matched parent takes a flagged slot no one is placed in; a parent placed in the unflagged slot stays contactable', () => {
+    const out = decideParents({ checked: true, parents: [parent(10, 'Robin', 'Sample', 'r@example.test'), parent(11, 'Jo', 'Other', 'j@example.test')], slots, flags: { ...none, g2_deceased: '1' }, correspondence: '1' });
+    expect(out.get(11)).toEqual(uncertain('deceased', 2));
+    expect(out.get(10)).toEqual({ status: 'contactable', primary: true, reason: null });
+  });
+
+  test('two parents on one slot by a shared email are not uniquely placed: both take the other slot\'s flag', () => {
+    const shared = { 1: { name: 'Sample, Robin', email: 'r@example.test' }, 2: { name: 'Sample, Kit', email: 'family@example.test' } };
+    const out = decideParents({ checked: true, parents: [parent(10, 'Kit', 'Sample', 'family@example.test'), parent(11, 'Jo', 'Other', 'FAMILY@example.test')], slots: shared, flags: { ...none, dnc_g1: '1' } });
+    expect(out.get(10)).toEqual(uncertain('do_not_contact', 1));
+    expect(out.get(11)).toEqual(uncertain('do_not_contact', 1));
+  });
+
+  test('a student with flags but no guardian read: every parent takes the strongest flag', () => {
+    const out = decideParents({ checked: false, parents: [parent(10, 'Robin', 'Sample', 'r@example.test'), parent(11, 'Jo', 'Other', null)], slots, flags: { ...none, g1_deceased: '1', dnc_g2: 'Y' } });
+    expect(out.get(10)).toEqual(uncertain('do_not_contact', 2));
+    expect(out.get(11)).toEqual(uncertain('do_not_contact', 2));
+    // No flags: not_checked as before.
+    expect(decideParents({ checked: false, parents: [parent(12, 'Robin', 'Sample')], slots, flags: none }).get(12))
+      .toEqual({ status: 'not_checked', primary: false, reason: 'Not checked against PowerSchool yet' });
+  });
+
+  test('do_not_contact wins when both slots qualify; slot 1 wins a tie', () => {
+    const parents = [parent(10, 'Jo', 'Other', 'j@example.test')];
+    expect(decideParents({ checked: true, parents, slots, flags: { ...none, g1_deceased: '1', dnc_g2: '1' } }).get(10)).toEqual(uncertain('do_not_contact', 2));
+    expect(decideParents({ checked: true, parents, slots, flags: { ...none, g1_deceased: '1', g2_deceased: '1' } }).get(10)).toEqual(uncertain('deceased', 1));
+  });
+
+  test('a flagged slot with its parent placed passes nothing on', () => {
+    const out = decideParents({ checked: true, parents: [parent(10, 'Kit', 'Sample', 'k@example.test'), parent(11, 'Jo', 'Other', 'j@example.test')], slots, flags: { ...none, g2_deceased: '1' } });
+    expect(out.get(10)).toEqual({ status: 'deceased', primary: false, reason: 'Deceased (PowerSchool)' });
+    expect(out.get(11)).toEqual({ status: 'not_matched', primary: false, reason: 'Not matched to a PowerSchool guardian' });
+  });
+
+  test('a parent placed in a flagged slot keeps the stronger of the two flags', () => {
+    // Robin is placed in slot 1 (deceased); slot 2 (do not contact) has no one placed.
+    const out = decideParents({ checked: true, parents: [parent(10, 'Robin', 'Sample', 'r@example.test')], slots, flags: { ...none, g1_deceased: '1', dnc_g2: '1' } });
+    expect(out.get(10)).toEqual(uncertain('do_not_contact', 2));
+    // The other way round, the parent's own do_not_contact is stronger and stays certain.
+    const own = decideParents({ checked: true, parents: [parent(10, 'Robin', 'Sample', 'r@example.test')], slots, flags: { ...none, dnc_g1: '1', g2_deceased: '1' } });
+    expect(own.get(10)).toEqual({ status: 'do_not_contact', primary: false, reason: 'Do not contact (PowerSchool)' });
   });
 });

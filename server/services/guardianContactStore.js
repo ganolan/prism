@@ -1,23 +1,23 @@
 // Each parent's contact status for the routes (#66): may Prism copy their address?
 // Reads parents, student_ps_guardians and student_powerschool (server/db/schema.sql);
 // the decision itself is server/lib/guardianContacts.js.
-import { CONTACT_REASONS, emailKey, placeParents, statusFor } from '../lib/guardianContacts.js';
+import { CONTACT_REASONS, FLAG_RANK as RANK, decideParents, emailKey } from '../lib/guardianContacts.js';
 
 const marks = (n) => Array(n).fill('?').join(',');
-// The SQL form, used only to find related rows: trims spaces, tabs and line breaks;
-// lower() folds ASCII case only, so two spellings of an address that differ in the
-// case of a non-ASCII letter are not linked (school addresses are ASCII).
-const SQL_EMAIL_KEY = (col) => `lower(trim(${col}, char(32, 9, 10, 13)))`;
-// Stronger first: a row flagged both ways (by different children) is do_not_contact.
-const RANK = { do_not_contact: 2, deceased: 1 };
+// The SQL form, used only to find related rows: trims spaces, tabs, line breaks and
+// no-break spaces (char(160), which JS trim also removes); lower() folds ASCII case
+// only, so two spellings of an address that differ in the case of a non-ASCII letter
+// are not linked (school addresses are ASCII).
+const SQL_EMAIL_KEY = (col) => `lower(trim(${col}, char(32, 9, 10, 13, 160)))`;
 // The keys that link a parent row to the same guardian's rows for other children.
 const keysOf = (p) => [p.schoology_uid && `uid:${p.schoology_uid}`, emailKey(p.email) && `email:${emailKey(p.email)}`].filter(Boolean);
 
 /**
- * Map<studentId, { guardiansSyncedAt, byParent: Map<parentId, { status, primary, reason }> }>
+ * Map<studentId, { guardiansSyncedAt, byParent: Map<parentId, { status, primary, reason, uncertain? }> }>
  * for each requested student (listed even with no parents). checked = the student has
- * a guardian read (student_powerschool.guardians_synced_at). reason = CONTACT_REASONS[status],
- * null for contactable.
+ * a guardian read (student_powerschool.guardians_synced_at). Each student's own parents
+ * are decided by decideParents (server/lib/guardianContacts.js), which also gives a
+ * flagged slot no parent is placed in to the parents it could be (`uncertain: true`).
  *
  * A flag for one child applies to every child: a parent row (any student) that is
  * do_not_contact or deceased gives that status to every row linked to it by the same
@@ -27,7 +27,10 @@ const keysOf = (p) => [p.schoology_uid && `uid:${p.schoology_uid}`, emailKey(p.e
  * row in it. So the students holding any row of a requested student's groups are
  * decided too, found by repeating the related-student query to a fixpoint. The loop is
  * finite (each round adds at least one new student, and there are finitely many) and in
- * practice ends in two or three rounds (a family's children).
+ * practice ends in two or three rounds (a family's children). A row that takes its
+ * status from another row gets the plain reason (CONTACT_REASONS) and no `uncertain`
+ * mark, even when the row it came from was uncertain: the uncertainty belongs to the
+ * other child's record, whose card states it.
  */
 export function contactsForStudents(db, studentIds) {
   const ids = [...new Set((studentIds || []).map(Number))];
@@ -64,11 +67,11 @@ export function contactsForStudents(db, studentIds) {
   const decided = new Map();
   for (const sid of decide) {
     const row = ps.get(sid);
-    const list = parentsOf.get(sid) || [];
-    const placed = placeParents(list, slots.get(sid) || {});
-    for (const p of list) {
-      decided.set(p.id, statusFor({ checked: row?.guardians_synced_at != null, slot: placed.get(p.id), flags: row || {}, correspondence: row?.correspondence }));
-    }
+    const byParent = decideParents({
+      checked: row?.guardians_synced_at != null, parents: parentsOf.get(sid) || [],
+      slots: slots.get(sid) || {}, flags: row || {}, correspondence: row?.correspondence,
+    });
+    for (const [id, contact] of byParent) decided.set(id, contact);
   }
 
   // Across students: group rows linked by a uid or an email (union-find), then give
@@ -91,10 +94,11 @@ export function contactsForStudents(db, studentIds) {
   for (const sid of ids) {
     const byParent = new Map();
     for (const p of parentsOf.get(sid) || []) {
-      let { status, primary } = decided.get(p.id);
+      const own = decided.get(p.id);
       const flag = flagOf.get(find(p.id));
-      if (flag && (RANK[status] ?? 0) < RANK[flag]) { status = flag; primary = false; }
-      byParent.set(p.id, { status, primary, reason: CONTACT_REASONS[status] ?? null });
+      byParent.set(p.id, flag && (RANK[own.status] ?? 0) < RANK[flag]
+        ? { status: flag, primary: false, reason: CONTACT_REASONS[flag] }
+        : own);
     }
     out.set(sid, { guardiansSyncedAt: ps.get(sid)?.guardians_synced_at ?? null, byParent });
   }

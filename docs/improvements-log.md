@@ -26,7 +26,7 @@ teacher picks one from a small menu in the gradebook. Nothing explains what each
 - **Late does not mean late.** A Late flag removes the work from the grade while it is set. A teacher who
   marks work late expecting it to still count gives the student a better grade, not a fair one.
 - **Missing does not reach the standards on its own.** Missing puts a 0 on the task but writes nothing
-  to the measurement topics. When the work never arrived, the topics hold no evidence from the task, so a
+  to the measurement topics. When the work was never handed in, the topics hold no evidence from the task, so the
   student's levels stay the same and Insufficient Evidence appears nowhere. (IE written first does count
   under Missing: tested on 22 October 2026.)
 - **Absent has no agreed meaning.** Some teachers use it for "this was their one chance", others as a

@@ -160,7 +160,11 @@ My call on storage: **a saved copy in its own table while excused, restored as a
   "Cancel" and "Clear Excused". If the student already has a draft, the box's text adds "(replaces your
   current draft)".
 - **Restoring:** after the clear write and its read-back, Prism writes the saved grade into the student's
-  draft (`assessment_drafts`), and sets `restored_at`. The card then shows the usual Publish button: the
+  draft (`assessment_drafts`), in the card's draft shape (`pending` keyed by topic id, `row:<criterion>`
+  and `__scale__`, plus `comment` and `display`), with `base` from `cardBaselineFor`
+  (`server/services/unfinishedGrading.js`) so the card does not discard it as stale, and sets
+  `restored_at`. A part the card cannot stage (a points-only score) is listed in the clear panel as
+  "Re-enter in Schoology: 45 / 50". The card then shows the usual Publish button: the
   grade returns to Schoology through the existing publish, with its checks. Clearing with the box unticked keeps the saved copy; while it exists and no flag is set, the card offers
   "Restore saved grade".
 - **If the probes show Schoology keeps the grade** when a task is excused, nothing is lost: Prism skips
@@ -308,7 +312,8 @@ Copy `server/services/quizWriteback.js`:
 - read the row back after the write, and confirm the flag (and, for Excused, that every part Schoology removed is in the saved copy);
 - update the local `grades` row from that read-back, not from the request.
 
-A dev copy refuses this write, as it refuses other Schoology writes.
+Like the assessment page's other writes, this one is a web route, so a dev copy's PrisMCP guard does not
+apply; test live writes only from prod or with a test task Graham names.
 
 ## Testing
 

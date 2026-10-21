@@ -3,7 +3,9 @@ import { LEVELS, LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
 // Compact rubric shown in place of the score column for aligned assignments.
 // One row per measurement topic, one column per level. The student's current
 // level is filled solid green (matching the AssessmentSummaryPage rubric).
-export default function CompactRubric({ topics }) {
+// `currentMark` (a node) follows the level in each current cell: the read-only view puts the
+// Missing symbol there when it shows IE for work marked Missing (#40).
+export default function CompactRubric({ topics, currentMark = null }) {
   return (
     <table style={{ borderCollapse: 'collapse', fontSize: '0.7rem', lineHeight: 1.2, width: '100%', tableLayout: 'fixed' }}>
       <thead>
@@ -51,7 +53,7 @@ export default function CompactRubric({ topics }) {
                   color: isCurrent ? CELL_TEXT : 'var(--text-muted)',
                   fontWeight: isCurrent ? 700 : 400,
                   fontSize: '0.7rem',
-                }}>{isCurrent ? l : ''}</td>
+                }}>{isCurrent ? l : ''}{isCurrent && currentMark && <span className="rubric-cell-mark">{currentMark}</span>}</td>
               );
             })}
           </tr>

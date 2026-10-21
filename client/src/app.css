@@ -1510,6 +1510,7 @@ img.file-viewer-media { background: transparent; }
 .assignment-feedback__notice { padding: 0.5rem 0.75rem; background: var(--bg-subtle); border: 1px dashed var(--border); border-radius: 6px; color: var(--text-muted); font-style: italic; }
 .assignment-feedback__notice strong { font-style: normal; color: var(--danger); }
 /* A marker flag (#40): its symbol and "Grading this work clears Late." above the rubric it keeps. */
+.rubric-cell-mark { display: inline-flex; vertical-align: middle; margin-left: 0.35rem; }
 .assignment-feedback__marker { display: flex; align-items: center; gap: 0.5rem; color: var(--text-muted); }
 
 /* Gradebook submission modal: 560px, widened to fit a five-level descriptor grid

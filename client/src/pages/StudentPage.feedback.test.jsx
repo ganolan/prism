@@ -90,6 +90,24 @@ describe('CourseSection: shared feedback view (#135)', () => {
   });
 });
 
+describe('CourseSection: Missing shows IE (#40)', () => {
+  it('no topic levels: IE with the Missing symbol on every topic, and the per-topic grade data is left alone', () => {
+    const g = grade({ exception: 3, score: null, mastery: { topics: [{ ...TOPICS[0], grade: null }] } });
+    renderSection([g], NONE);
+    const cell = screen.getByText('Select, analyze').closest('tr').querySelectorAll('td')[5];
+    expect(cell).toHaveTextContent('IE');
+    expect(within(cell).getByRole('img', { name: 'Missing' })).toBeInTheDocument();
+    expect(screen.getByText('Shown as IE because the work is marked Missing. Schoology holds no topic levels for this task yet.')).toBeInTheDocument();
+    expect(g.mastery.topics[0].grade).toBeNull();
+  });
+
+  it('with topic levels, they show as they are under the other line', () => {
+    renderSection([grade({ exception: 3 })], { attachments: { 'sa-10': ATTACHMENT }, palette: {} });
+    expect(screen.getByText('Clear and usable.').closest('td')).toHaveAttribute('data-awarded', 'true');
+    expect(screen.getByText('Marked Missing. These levels still count in the topic averages.')).toBeInTheDocument();
+  });
+});
+
 describe('CourseSection: this student\'s links', () => {
   it('shows the OneDrive Open link and the comments chip in the badges row', () => {
     renderSection([grade({ score: null })], NONE, {

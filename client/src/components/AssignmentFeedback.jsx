@@ -20,11 +20,31 @@ import FlagSymbol from './FlagSymbol.jsx';
 import { FLAGS, isFinalFlag, isMarker, flagEffect } from '../lib/flags.js';
 import { LEVELS, LEVEL_COLORS, CELL_TEXT, masteryCodeForLevel } from '../lib/masteryLevels.js';
 
-// The rubric is hidden while a final flag is set (Exempt or Missing, #40; /assessment/ locks the
-// same two): Schoology removes Exempt's grade and counts Missing as zero (flagEffect). A marker
-// (Late, Incomplete, Absent) keeps the rubric: the teacher grades straight through it, and a line
-// above it says grading clears the flag.
-const lockName = (exception) => (isFinalFlag(exception) ? FLAGS[Number(exception)].name : null);
+// The rubric is hidden while Exempt is set (#40; /assessment/ locks Exempt and Missing): Schoology
+// removes Exempt's grade (flagEffect). A marker (Late, Incomplete, Absent) keeps the rubric: the
+// teacher grades straight through it, and a line above it says grading clears the flag. Missing
+// keeps the rubric too, as a display transform (missingView): IE on every topic or row when
+// Schoology holds no levels for the task, the real levels when it does.
+const lockName = (exception) => (isFinalFlag(exception) && Number(exception) !== 3 ? FLAGS[Number(exception)].name : null);
+
+const MISSING_NO_LEVELS = 'Shown as IE because the work is marked Missing. Schoology holds no topic levels for this task yet.';
+const MISSING_LEVELS = 'Marked Missing. These levels still count in the topic averages.';
+
+// Graham, 21 Oct 2026: work marked Missing shows IE on every topic or row, to inform talks with the
+// student. Missing writes no levels and keeps those that exist (probed 21 and 22 Oct), so when none
+// exist every level is shown as IE, and when some do they show as they are. Display only: nothing
+// here is written, and the per-topic summaries keep Schoology's numbers. `grades` is the levels as
+// Schoology holds them (topic id to level or null); returns the levels to draw, or null when the
+// flag is not Missing.
+export function missingView(exception, grades) {
+  if (Number(exception) !== 3) return null;
+  const hasLevels = Object.values(grades).some(Boolean);
+  return {
+    hasLevels,
+    grades: hasLevels ? grades : Object.fromEntries(Object.keys(grades).map((id) => [id, 'IE'])),
+    line: hasLevels ? MISSING_LEVELS : MISSING_NO_LEVELS,
+  };
+}
 
 const HEADER = Object.fromEntries(LEVELS.map((l) => [l, LEVEL_COLORS[l].headerFill]));
 const BORDER = Object.fromEntries(LEVELS.map((l) => [l, LEVEL_COLORS[l].finalBorder]));
@@ -72,9 +92,24 @@ export default function AssignmentFeedback({
   ) : null;
   const lock = topics.length > 0 ? lockName(exception) : null;
   const rows = lock ? null : feedbackDescriptorRows(topics, attachment);
-  const gradeByTopic = Object.fromEntries(topics.map((t) => [t.topic_id, t.grade]));
   // Feedback rows: an unaligned score-scale task with a rubric attached in Prism.
   const rowView = topics.length === 0 ? feedbackRowView(attachment) : null;
+  // Work marked Missing: IE (or the real levels) on every topic or row, and the line saying which.
+  const hasRubric = topics.length > 0 ? !lock : !!rowView;
+  const missing = hasRubric ? missingView(exception, topics.length > 0
+    ? Object.fromEntries(topics.map((t) => [t.topic_id, t.grade]))
+    : rowView.gradeByTopic) : null;
+  const gradeByTopic = missing && topics.length > 0 ? missing.grades : Object.fromEntries(topics.map((t) => [t.topic_id, t.grade]));
+  const rowGrades = missing && rowView ? missing.grades : rowView?.gradeByTopic;
+  // The Missing symbol in each cell shown as IE (not beside real levels).
+  const iePlaceholder = missing && !missing.hasLevels
+    ? <FlagSymbol code={3} size="inline" firstName={firstName} aligned={false} /> : null;
+  const missingNote = missing ? (
+    <div className="assignment-feedback__marker text-sm">
+      <FlagSymbol code={3} size="inline" showName firstName={firstName} aligned={missing.hasLevels} />
+      <span>{missing.line}</span>
+    </div>
+  ) : null;
 
   let rubric = null;
   if (rowView) {
@@ -84,12 +119,13 @@ export default function AssignmentFeedback({
           <RubricDescriptorGrid
             rows={rowView.rows}
             levels={LEVELS}
-            cellState={(topicId, l) => ({ final: rowView.gradeByTopic[topicId] === l })}
+            cellState={(topicId, l) => ({ final: rowGrades[topicId] === l })}
             palette={palette}
             levelHeaderColors={HEADER}
             levelBorderColors={BORDER}
             levelDraftColors={DRAFT}
             firstColumnLabel="Criteria"
+            awardedMark={iePlaceholder}
           />
         </div>
         {score && (
@@ -104,7 +140,7 @@ export default function AssignmentFeedback({
     rubric = (
       <div className="assignment-feedback__notice text-sm">
         <strong>{lock}</strong>
-        {Number(exception) === 3 ? `, rubric hidden. ${flagEffect(exception)}` : `, rubric hidden because ${flagEffect(exception)}`}
+        {`, rubric hidden because ${flagEffect(exception)}`}
       </div>
     );
   } else if (rows) {
@@ -118,11 +154,16 @@ export default function AssignmentFeedback({
           levelHeaderColors={HEADER}
           levelBorderColors={BORDER}
           levelDraftColors={DRAFT}
+          awardedMark={iePlaceholder}
         />
       </div>
     );
   } else if (topics.length > 0) {
-    rubric = <div className="assignment-feedback__rubric"><CompactRubric topics={topics} /></div>;
+    rubric = (
+      <div className="assignment-feedback__rubric">
+        <CompactRubric topics={topics.map((t) => ({ ...t, grade: gradeByTopic[t.topic_id] }))} currentMark={iePlaceholder} />
+      </div>
+    );
   } else if (score) {
     rubric = (
       <div className="assignment-feedback__score">
@@ -144,6 +185,7 @@ export default function AssignmentFeedback({
         ? <SubmissionTimeline timeline={timeline} help={timelineHelp} />
         : due && <span className="text-xs text-muted">Due: {due}</span>}
       {markerNote}
+      {missingNote}
       {rubric}
       {comment && (
         <div className="assignment-feedback__comment text-sm">

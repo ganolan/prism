@@ -1158,9 +1158,10 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                 // Aligned summatives show a mini rubric strip of the student's
                 // per-topic proficiency instead of a numeric score (#32).
                 // A flagged cell shows the flag's symbol in the grade's place, never the strip. A
-                // final flag (Exempt, Missing) hides the rubric in the pop-up too; a marker (Late,
-                // Incomplete, Absent) is graded straight through, so its pop-up keeps the rubric (#40).
-                const isRubricLocked = isFinalFlag(g.exception);
+                // Exempt hides the rubric in the pop-up too; a marker (Late, Incomplete, Absent) is
+                // graded straight through, so its pop-up keeps the rubric, and Missing's pop-up shows
+                // IE on every topic when Schoology holds no levels (AssignmentFeedback, #40).
+                const isRubricLocked = isFinalFlag(g.exception) && Number(g.exception) !== 3;
                 const rubricTopics = (a.aligned && !isRubricLocked)
                   ? buildAssignmentRubric(a.schoology_assignment_id, s.schoology_uid, indexed)
                   : [];

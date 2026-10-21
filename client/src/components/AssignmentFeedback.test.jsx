@@ -95,12 +95,116 @@ describe('AssignmentFeedback', () => {
     expect(screen.queryByText(/rubric hidden/)).not.toBeInTheDocument();
   });
 
-  it('Missing says what Schoology really does: it counts the work as zero (it keeps the levels)', () => {
-    render(<AssignmentFeedback topics={TOPICS} attachment={ATTACHMENT} exception={3} />);
-    expect(screen.getByText('Missing')).toBeInTheDocument();
-    expect(screen.getByText(/rubric hidden\. Schoology counts this as zero while it is flagged/)).toBeInTheDocument();
-    expect(screen.queryByText(/removes the grade/)).not.toBeInTheDocument();
-    expect(screen.queryByText('Clear and usable.')).not.toBeInTheDocument();
+  describe('Missing shows IE on every topic (#40)', () => {
+    const NO_LEVELS = [{ ...TOPICS[0], grade: null }, { topic_id: 't2', title: 'Reflect', external_id: 'ART.6.1', category_title: 'HS Art: Responding', grade: null }];
+    const NO_LEVEL_LINE = 'Shown as IE because the work is marked Missing. Schoology holds no topic levels for this task yet.';
+    const LEVEL_LINE = 'Marked Missing. These levels still count in the topic averages.';
+    const ROWS = {
+      mode: 'feedback_rows',
+      rubric: { criteria: [
+        { id: 'c1', position: 1, criterion_name: 'Playtesting', standard_title: 'Refine work', reporting_category: 'Producing',
+          descriptors: { ED: 'Iterates from evidence.', EX: 'Tests and fixes.', D: 'Tests once.', EM: 'No testing.' } },
+        { id: 'c2', position: 2, criterion_name: 'Polish', standard_title: 'Present work', reporting_category: 'Producing',
+          descriptors: { ED: 'Seamless.', EX: 'Tidy.', D: 'Rough.', EM: 'Unfinished.' } },
+      ] },
+      topicByCriterion: [],
+      rowLevels: {},
+    };
+    const missingSymbols = (root) => within(root).queryAllByRole('img', { name: 'Missing' });
+
+    it('with no topic levels in Schoology, every topic of the descriptor grid shows IE with the Missing symbol', () => {
+      const attachment = { ...ATTACHMENT, rubric: { criteria: [
+        ATTACHMENT.rubric.criteria[0],
+        { id: 'c2', position: 2, criterion_name: 'Reflection', descriptors: { ED: 'Deep.', EX: 'Clear.', D: 'Some.', EM: 'Thin.' } },
+      ] }, topicByCriterion: [{ criterion_id: 'c1', topic_id: 't1' }, { criterion_id: 'c2', topic_id: 't2' }] };
+      render(<AssignmentFeedback topics={NO_LEVELS} attachment={attachment} exception={3} />);
+      const table = screen.getByRole('table');
+      const awarded = table.querySelectorAll('td[data-awarded="true"]');
+      expect(awarded).toHaveLength(2);
+      awarded.forEach((td) => {
+        expect(td.cellIndex).toBe(5); // topic column, then ED EX D EM IE
+        expect(missingSymbols(td)).toHaveLength(1);
+        expect(within(td).queryByText('MISSING')).toBeNull(); // no name beside the symbol
+      });
+      expect(screen.getByText(NO_LEVEL_LINE)).toBeInTheDocument();
+      expect(screen.queryByText(/rubric hidden/)).not.toBeInTheDocument();
+      expect(follows(screen.getByText(NO_LEVEL_LINE), table)).toBe(true);
+    });
+
+    it('with no topic levels, the compact grid shows IE on every topic too', () => {
+      render(<AssignmentFeedback topics={NO_LEVELS} attachment={null} exception={3} />);
+      const table = screen.getByRole('table');
+      for (const title of ['Select, analyze', 'Reflect']) {
+        const row = screen.getByText(title).closest('tr');
+        const cells = within(row).getAllByRole('cell');
+        expect(cells[5]).toHaveTextContent('IE');
+        expect(missingSymbols(cells[5])).toHaveLength(1);
+        expect(cells.slice(1, 5).every((c) => c.textContent === '')).toBe(true);
+      }
+      expect(missingSymbols(table)).toHaveLength(2);
+      expect(screen.getByText(NO_LEVEL_LINE)).toBeInTheDocument();
+    });
+
+    it('with topic levels in Schoology, the real levels show as they are, under the other line', () => {
+      render(<AssignmentFeedback topics={TOPICS} attachment={ATTACHMENT} exception={3} />);
+      expect(screen.getByText(LEVEL_LINE)).toBeInTheDocument();
+      expect(screen.queryByText(NO_LEVEL_LINE)).not.toBeInTheDocument();
+      const table = screen.getByRole('table');
+      expect(screen.getByText('Clear and usable.').closest('td')).toHaveAttribute('data-awarded', 'true');
+      expect(table.querySelectorAll('td[data-awarded="true"]')).toHaveLength(1);
+      expect(missingSymbols(table)).toHaveLength(0);
+      expect(follows(screen.getByText(LEVEL_LINE), table)).toBe(true);
+    });
+
+    it('the compact grid keeps the real levels too', () => {
+      render(<AssignmentFeedback topics={TOPICS} attachment={null} exception={3} />);
+      const row = screen.getByText('Select, analyze').closest('tr');
+      expect(within(row).getByText('EX')).toBeInTheDocument();
+      expect(within(row).queryByText('IE')).toBeNull();
+      expect(screen.getByText(LEVEL_LINE)).toBeInTheDocument();
+    });
+
+    it('the line carries the Missing symbol with its name', () => {
+      render(<AssignmentFeedback topics={NO_LEVELS} attachment={null} exception={3} />);
+      expect(screen.getByText('MISSING')).toBeInTheDocument();
+    });
+
+    it('on a feedback-row task with no row levels, every row shows IE', () => {
+      render(<AssignmentFeedback attachment={ROWS} exception={3} score={{ text: 'Exhibiting', kind: 'scale' }} />);
+      const table = screen.getByRole('table');
+      const awarded = table.querySelectorAll('td[data-awarded="true"]');
+      expect(awarded).toHaveLength(2);
+      awarded.forEach((td) => expect(missingSymbols(td)).toHaveLength(1));
+      expect(screen.getByText(NO_LEVEL_LINE)).toBeInTheDocument();
+      expect(follows(screen.getByText(NO_LEVEL_LINE), table)).toBe(true);
+    });
+
+    it('on a feedback-row task with row levels, they show as they are', () => {
+      render(<AssignmentFeedback attachment={{ ...ROWS, rowLevels: { Playtesting: 'EX', Polish: 'D' } }} exception={3} />);
+      expect(screen.getByText('Tests and fixes.').closest('td')).toHaveAttribute('data-awarded', 'true');
+      expect(screen.getByText('Rough.').closest('td')).toHaveAttribute('data-awarded', 'true');
+      expect(missingSymbols(screen.getByRole('table'))).toHaveLength(0);
+      expect(screen.getByText(LEVEL_LINE)).toBeInTheDocument();
+    });
+
+    it('is a display transform: the topics it was given are not changed', () => {
+      const topics = NO_LEVELS.map((t) => ({ ...t }));
+      render(<AssignmentFeedback topics={topics} attachment={null} exception={3} />);
+      expect(topics.map((t) => t.grade)).toEqual([null, null]);
+    });
+
+    it.each([0, 2, 5, 6])('exception %i shows no IE and neither line', (exception) => {
+      render(<AssignmentFeedback topics={NO_LEVELS} attachment={null} exception={exception} />);
+      expect(screen.queryByText(/Shown as IE/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Marked Missing/)).not.toBeInTheDocument();
+      expect(screen.queryAllByRole('cell').filter((c) => c.textContent === 'IE')).toHaveLength(0);
+    });
+
+    it('Exempt still hides the rubric', () => {
+      render(<AssignmentFeedback topics={NO_LEVELS} attachment={null} exception={1} />);
+      expect(screen.getByText(/rubric hidden/)).toBeInTheDocument();
+      expect(screen.queryByText(/Shown as IE/)).not.toBeInTheDocument();
+    });
   });
 
   it('a feedback-row task shows its rows with the student\'s levels, then the overall level', () => {

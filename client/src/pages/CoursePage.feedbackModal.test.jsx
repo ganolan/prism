@@ -140,8 +140,21 @@ describe('GradebookView: points-only cells open the modal', () => {
   });
 });
 
+// #40: work marked Missing shows IE on every topic in the pop-up (the shared view).
+describe('RubricModal: Missing shows IE (#40)', () => {
+  it('no topic levels: IE with the Missing symbol and the line above the rubric', async () => {
+    renderModal({ topics: [{ ...TOPICS[0], grade: null }], grade: { ...GRADE, score: null, exception: 3 } });
+    const line = await screen.findByText('Shown as IE because the work is marked Missing. Schoology holds no topic levels for this task yet.');
+    const dialog = screen.getByRole('dialog');
+    const cell = within(dialog).getByText('Select, analyze').closest('tr').querySelectorAll('td')[5];
+    expect(cell).toHaveTextContent('IE');
+    expect(within(cell).getByRole('img', { name: 'Missing' })).toBeInTheDocument();
+    expect(line.compareDocumentPosition(within(dialog).getByRole('table')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
 // #40: a marker (Late, Incomplete, Absent) keeps the symbol in the cell and the pop-up shows the
-// rubric; a final flag (Exempt, Missing) keeps the rubric hidden.
+// rubric; a Exempt keeps the rubric hidden, and Missing shows IE on every topic.
 describe('GradebookView: flagged cells on an aligned task (#40)', () => {
   const mastery = {
     alignments: [{ assignment_schoology_id: 'sa-1', topic_id: 't1', topic_title: 'Select, analyze', topic_external_id: 'ART.5.1', category_title: 'HS Art: Producing' }],
@@ -162,6 +175,17 @@ describe('GradebookView: flagged cells on an aligned task (#40)', () => {
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('Measurement Topic')).toBeInTheDocument();
     expect(within(dialog).getByText(`Grading this work clears ${name}.`)).toBeInTheDocument();
+  });
+
+  it('Missing: the cell keeps the symbol and the pop-up shows IE on every topic (no levels in Schoology)', async () => {
+    const noLevels = { ...mastery, scores: [] };
+    render(<MemoryRouter><GradebookView data={dataWith(3)} courseId="5" mastery={noLevels} /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: /Missing: show feedback/ }));
+    const dialog = await screen.findByRole('dialog');
+    const cell = within(dialog).getByText('Select, analyze').closest('tr').querySelectorAll('td')[5];
+    expect(cell).toHaveTextContent('IE');
+    expect(within(cell).getByRole('img', { name: 'Missing' })).toBeInTheDocument();
+    expect(within(dialog).getByText(/Shown as IE because the work is marked Missing/)).toBeInTheDocument();
   });
 
   it('a final flag (Exempt): the pop-up keeps the rubric hidden', async () => {

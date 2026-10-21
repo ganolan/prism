@@ -4,9 +4,11 @@ import { LEVEL_LABELS } from '../lib/masteryLevels.js';
 
 // Without `onSelect` the grid is read-only (the shared feedback view, #135): no
 // click, no pointer, no "Set ... to ..." hint; the awarded cell keeps its fill.
+// `awardedMark` (a node) sits at the end of every awarded cell: the read-only view puts the Missing
+// symbol there when it shows IE for work marked Missing (#40).
 export default function RubricDescriptorGrid({
   rows, levels, cellState, onSelect, palette, levelHeaderColors, levelBorderColors, levelDraftColors,
-  firstColumnLabel = 'Measurement Topic',
+  firstColumnLabel = 'Measurement Topic', awardedMark = null,
 }) {
   return (
     <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.8rem' }}>
@@ -73,6 +75,7 @@ export default function RubricDescriptorGrid({
                   {text && (l === 'IE'
                     ? <span style={{ color: '#999', fontStyle: 'italic' }}>{text}</span>
                     : text)}
+                  {st.final && awardedMark && <span className="rubric-cell-mark">{awardedMark}</span>}
                 </td>
               );
             })}

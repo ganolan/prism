@@ -25,9 +25,10 @@ teacher picks one from a small menu in the gradebook. Nothing explains what each
   school's setting "keep grades with flags" is off, so Schoology's own gradebook behaves the same way.
 - **Late does not mean late.** A Late flag removes the work from the grade while it is set. A teacher who
   marks work late expecting it to still count gives the student a better grade, not a fair one.
-- **Missing does not reach the standards.** Missing puts a 0 on the task, but the measurement-topic
-  averages stay the same. In a standards-based gradebook, a student's levels stay the same when work
-  is missing, and Insufficient Evidence appears nowhere.
+- **Missing does not reach the standards on its own.** Missing puts a 0 on the task but writes nothing
+  to the measurement topics. When the work never arrived, the topics hold no evidence from the task, so a
+  student's levels stay the same and Insufficient Evidence appears nowhere. (IE written first does count
+  under Missing: tested on 22 October 2026.)
 - **Absent has no agreed meaning.** Some teachers use it for "this was their one chance", others as a
   reminder to follow up. Either way the task leaves the grade without any notice.
 - **Nothing follows up.** A Late, Incomplete or Absent flag left in place raises the term grade, and no

@@ -16,6 +16,7 @@ vi.mock('../services/masterySync.js', () => ({
   writeMasteryOverride: vi.fn(),
   getMasteryForCourse: vi.fn(),
   getRubricScoresForStudent: vi.fn(),
+  readPairLevels: vi.fn(),
   interactiveLogin: vi.fn(),
 }));
 // The real feedback-rows service, with saveRowLevels wrapped so one test can make it fail.
@@ -1174,8 +1175,9 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
     expect(batchArg.sectionId).toBe('sec-sa');
     expect(batchArg.entries).toHaveLength(2);
 
-    // …and one bulk comment PUT covering both students.
-    expect(getSectionGrades).toHaveBeenCalledTimes(1);
+    // …and one bulk comment PUT covering both students. Two section reads: the flag check before
+    // the mastery batch (#40), then the echo read after it.
+    expect(getSectionGrades).toHaveBeenCalledTimes(2);
     expect(pushGradeUpdates).toHaveBeenCalledTimes(1);
     const [, comments] = pushGradeUpdates.mock.calls[0];
     expect(comments).toHaveLength(2);
@@ -1296,16 +1298,26 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
   });
 
   test('a failure after the rubric scores went says they may already be in Schoology', async () => {
-    getSectionGrades.mockRejectedValue(new Error('Schoology down'));
+    // The flag check's read (before the mastery batch) works; the echo read after it fails.
+    getSectionGrades.mockResolvedValueOnce([]).mockRejectedValue(new Error('Schoology down'));
     const withScores = await post(`/api/mastery/${courseId}/send-all`, { entries: [entry('uid-ada', 'enr-ada')] });
     expect(withScores.status).toBe(502);
     expect(withScores.body.error).toBe('Schoology down: nothing was recorded in Prism; rubric scores may already be in Schoology, sync, then check');
     pushGradeUpdates.mockResolvedValue({ status: 400 });
-    getSectionGrades.mockResolvedValue([{ assignment_id: 'sa-1', enrollment_id: 'enr-ada', grade: 95, exception: 0, timestamp: 1 }]);
+    getSectionGrades.mockReset().mockResolvedValue([{ assignment_id: 'sa-1', enrollment_id: 'enr-ada', grade: 95, exception: 0, timestamp: 1 }]);
     const rejected = await post(`/api/mastery/${courseId}/send-all`, { entries: [entry('uid-ada', 'enr-ada')] });
     expect(rejected.body.error).toMatch(/rubric scores may already be in Schoology/);
     const commentOnly = await post(`/api/mastery/${courseId}/send-all`, { entries: [entry('uid-ada', 'enr-ada', { scores: false })] });
     expect(commentOnly.body.error).toBe('Schoology rejected the update: nothing was recorded in Prism');
+  });
+
+  test('the flag check\'s read fails before the mastery batch: nothing is written (#40)', async () => {
+    getSectionGrades.mockRejectedValue(new Error('Schoology down'));
+    const { status, body } = await post(`/api/mastery/${courseId}/send-all`, { entries: [entry('uid-ada', 'enr-ada')] });
+    expect(status).toBe(502);
+    expect(body.error).toBe('Could not read the current Schoology grade: nothing was saved. Try again.');
+    expect(writeMasteryScoresBatch).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
   });
 
   test('all-or-nothing: a score-batch failure aborts before comments and mirrors nothing', async () => {
@@ -2225,6 +2237,123 @@ describe('grading over a flag (#40)', () => {
       expect(gradeOf(scaleTask)).toMatchObject({ score: 100, exception: 0 });
       expect(copyOf(scaleTask).restored_at).not.toBeNull();
       expect(lineOf(scaleTask)).toMatchObject({ kind: 'flag' }); // still there: removable later by its stored text
+    });
+  });
+
+  describe('settleMarker: a rubric-only save over a marker never writes the card\'s comment', () => {
+    test('with a flag line: exactly one PUT, the line removal composed from the FRESH comment', async () => {
+      markLate(alignedTask, 'sa-A');
+      // The rubric write cleared Late; the comment was edited in Schoology since the page loaded.
+      Object.assign(records.get(key('sa-A', 'eF')), { exception: 0, grade: 100, comment: `${LINE}\n\nGood start. Edited in Schoology.` });
+      const { status, body } = await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'eF', assignmentId: 'sa-A', settleMarker: true });
+      expect(status).toBe(200);
+      expect(pushGradeUpdates).toHaveBeenCalledTimes(1);
+      expect(pushGradeUpdates.mock.calls[0][1][0]).toMatchObject({ comment: 'Good start. Edited in Schoology.', grade: '100', exception: 0 });
+      expect(copyOf(alignedTask).restored_at).not.toBeNull();
+      expect(lineOf(alignedTask)).toBeNull();
+      expect(gradeOf(alignedTask)).toMatchObject({ score: 100, exception: 0, grade_comment: 'Good start. Edited in Schoology.' });
+      expect(body.flagCleared).toEqual({ exception: 0, comment: 'Good start. Edited in Schoology.', status_line: null });
+    });
+
+    test('with no flag line: no PUT at all; the copy is retired and exception 0 mirrored', async () => {
+      markLate(alignedTask, 'sa-A', { line: false });
+      Object.assign(records.get(key('sa-A', 'eF')), { exception: 0, grade: 100 });
+      const { status, body } = await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'eF', assignmentId: 'sa-A', settleMarker: true });
+      expect(status).toBe(200);
+      expect(pushGradeUpdates).not.toHaveBeenCalled();
+      expect(copyOf(alignedTask).restored_at).not.toBeNull();
+      expect(gradeOf(alignedTask)).toMatchObject({ score: 100, exception: 0, grade_comment: 'Good start.' });
+      expect(body.flagCleared).toEqual({ exception: 0 });
+    });
+
+    test('the flag is still set in Schoology: nothing changes', async () => {
+      markLate(alignedTask, 'sa-A');
+      const { status, body } = await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'eF', assignmentId: 'sa-A', settleMarker: true });
+      expect(status).toBe(200);
+      expect(pushGradeUpdates).not.toHaveBeenCalled();
+      expect(copyOf(alignedTask).restored_at).toBeNull();
+      expect(lineOf(alignedTask)).toMatchObject({ kind: 'flag' });
+      expect(body.flagCleared ?? null).toBeNull();
+    });
+
+    test('settleMarker with a comment is refused (a settle never writes a comment)', async () => {
+      markLate(alignedTask, 'sa-A');
+      const { status } = await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'eF', assignmentId: 'sa-A', settleMarker: true, comment: 'x' });
+      expect(status).toBe(400);
+      expect(pushGradeUpdates).not.toHaveBeenCalled();
+    });
+
+    test('send-all: a scores entry with settleMarker and no comment: only the line removal is PUT', async () => {
+      markLate(alignedTask, 'sa-A');
+      const { status, body } = await post(`/api/mastery/${courseId}/send-all`, {
+        entries: [{ uid: 'uid-F', enrollmentId: 'eF', assignmentId: 'sa-A', settleMarker: true, comment: null,
+          scores: { gradeInfo: { tF: { grade: '100', gradingScaleId: 1 } }, gradingPeriodId: 1, gradingCategoryId: 2 } }],
+      });
+      expect(status).toBe(200);
+      expect(writeMasteryScoresBatch).toHaveBeenCalledTimes(1);
+      expect(pushGradeUpdates).toHaveBeenCalledTimes(1);
+      expect(pushGradeUpdates.mock.calls[0][1][0]).toMatchObject({ comment: 'Good start.', exception: 0 });
+      expect(copyOf(alignedTask).restored_at).not.toBeNull();
+      expect(gradeOf(alignedTask)).toMatchObject({ exception: 0 });
+      expect(body.results[0]).toMatchObject({ ok: true, flagCleared: { exception: 0, comment: 'Good start.', status_line: null } });
+    });
+  });
+
+  describe('levels over a final flag are refused (a level write clears any flag but Missing, verified)', () => {
+    const gradeInfo = { tF: { grade: '75', gradingScaleId: 1 } };
+    const write = () => post(`/api/mastery/${courseId}/write`, { enrollmentId: 'eF', assignmentId: 'sa-A', gradeInfo, gradingPeriodId: 1, gradingCategoryId: 2 });
+    beforeEach(() => { writeMasteryScores.mockReset().mockResolvedValue({}); });
+
+    test('a stale card (Prism holds Late, Schoology now Exempt): 409, no observations write', async () => {
+      markLate(alignedTask, 'sa-A');
+      records.get(key('sa-A', 'eF')).exception = 1;
+      const { status, body } = await write();
+      expect(status).toBe(409);
+      expect(body.code).toBe('FLAGGED');
+      expect(writeMasteryScores).not.toHaveBeenCalled();
+    });
+
+    test('Prism holds Missing (Schoology cleared it since): still refused, reload first', async () => {
+      setRecord('sa-A', { exception: 0 });
+      getDb().prepare(`INSERT INTO grades (student_id, assignment_id, enrolment_id, score, exception) VALUES (?, ?, 'eF', 0, 3)`).run(studentId, alignedTask);
+      const { status } = await write();
+      expect(status).toBe(409);
+      expect(writeMasteryScores).not.toHaveBeenCalled();
+    });
+
+    test('a marker, or no flag: the levels are written', async () => {
+      markLate(alignedTask, 'sa-A');
+      expect((await write()).status).toBe(200);
+      expect(writeMasteryScores).toHaveBeenCalledTimes(1);
+    });
+
+    test('the fresh read fails: 502, nothing written', async () => {
+      vi.mocked(getSectionGrades).mockRejectedValueOnce(new Error('down'));
+      const { status } = await write();
+      expect(status).toBe(502);
+      expect(writeMasteryScores).not.toHaveBeenCalled();
+    });
+
+    test('send-all: a scores entry on a pair Prism holds as Exempt is refused before step 1', async () => {
+      getDb().prepare(`INSERT INTO grades (student_id, assignment_id, enrolment_id, exception) VALUES (?, ?, 'eF', 1)`).run(studentId, alignedTask);
+      setRecord('sa-A', { exception: 1 });
+      const { status, body } = await post(`/api/mastery/${courseId}/send-all`, {
+        entries: [{ uid: 'uid-F', enrollmentId: 'eF', assignmentId: 'sa-A', scores: { gradeInfo, gradingPeriodId: 1, gradingCategoryId: 2 }, comment: { comment: 'x', commentStatus: true } }],
+      });
+      expect(status).toBe(409);
+      expect(body.code).toBe('FLAGGED');
+      expect(writeMasteryScoresBatch).not.toHaveBeenCalled();
+      expect(pushGradeUpdates).not.toHaveBeenCalled();
+    });
+
+    test('send-all: Prism holds Late but Schoology now Missing: refused by the fresh read before step 1', async () => {
+      markLate(alignedTask, 'sa-A');
+      records.get(key('sa-A', 'eF')).exception = 3;
+      const { status } = await post(`/api/mastery/${courseId}/send-all`, {
+        entries: [{ uid: 'uid-F', enrollmentId: 'eF', assignmentId: 'sa-A', scores: { gradeInfo, gradingPeriodId: 1, gradingCategoryId: 2 }, comment: null }],
+      });
+      expect(status).toBe(409);
+      expect(writeMasteryScoresBatch).not.toHaveBeenCalled();
     });
   });
 

@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { migrate, __setTestDb } from '../db/index.js';
 import {
-  masteryDeps, masteryBuildingId, openMasteryReader, syncMasteryForCourse, syncMasteryForAssignment, getRubricScoresForStudent, writeMasteryScores,
+  masteryDeps, masteryBuildingId, openMasteryReader, syncMasteryForCourse, syncMasteryForAssignment, getRubricScoresForStudent, readPairLevels, writeMasteryScores,
   writeMasteryScoresBatch, writeMasteryOverride,
 } from './masterySync.js';
 import { getSectionGrades, getAssignmentGrades } from './schoology.js';
@@ -158,6 +158,35 @@ describe('getRubricScoresForStudent over plain HTTP', () => {
     useWeb(routes({ [`${BASE}/api/observations/search`]: { login: true } }));
     await expect(getRubricScoresForStudent({ sectionId: SID, studentUid: '701', assignmentId: '900' })).rejects.toThrow(/mastery session has expired/);
     expect((await sessionStatus({ check: false, hasSession: () => true })).live).toBe('expired');
+  });
+});
+
+describe('readPairLevels: one student\'s topic levels on one task, fresh (#40)', () => {
+  const OBS = { json: { data: [
+    { objective_id: 't1', student_uid: 701, points: '75', gradeable_material: { material: { id: 900 } } },
+    { objective_id: 't2', student_uid: 701, points: '100', gradeable_material: { material: { id: 900 } } },
+    { objective_id: 't3', student_uid: 701, points: null, gradeable_material: { material: { id: 900 } } }, // no score
+    { objective_id: 't1', student_uid: 702, points: '25', gradeable_material: { material: { id: 900 } } }, // another student
+    { objective_id: 't1', student_uid: 701, points: '50', gradeable_material: { material: { id: 901 } } }, // another task
+  ] } };
+  test('the page once, then one batched observations POST for the task\'s topics; levels keyed by topic', async () => {
+    useWeb(routes({ [`POST ${BASE}/api/material-observations/search`]: OBS }));
+    expect(await readPairLevels({ sectionId: SID, studentUid: '701', assignmentId: '900', topicIds: ['t1', 't2', 't3'] })).toEqual({ t1: 'EX', t2: 'ED' });
+    const post = fake.requests.find((q) => q.method === 'POST');
+    expect(post.path).toBe(`${BASE}/api/material-observations/search`);
+    expect(post.json).toEqual({ building_id: 97989879, section_id: Number(SID), objective_ids: 't1,t2,t3' });
+    expect(fake.requests.filter((q) => q.method === 'POST')).toHaveLength(1);
+  });
+
+  test('no topics: nothing read', async () => {
+    useWeb(routes());
+    expect(await readPairLevels({ sectionId: SID, studentUid: '701', assignmentId: '900', topicIds: [] })).toEqual({});
+    expect(fake.requests).toHaveLength(0);
+  });
+
+  test('a failed read throws', async () => {
+    useWeb(routes({ [`POST ${BASE}/api/material-observations/search`]: { status: 500, json: {} } }));
+    await expect(readPairLevels({ sectionId: SID, studentUid: '701', assignmentId: '900', topicIds: ['t1'] })).rejects.toThrow();
   });
 });
 

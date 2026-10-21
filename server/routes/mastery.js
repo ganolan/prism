@@ -337,6 +337,38 @@ router.post('/:courseId/assignment/:assignmentId/sync', (req, res) => {
   res.json(enqueue({ kind: 'task', courseId: Number(courseId), assignmentId: String(assignmentId), trigger: 'button', force: true }));
 });
 
+// A level write clears any flag but Missing in Schoology (verified), so levels are never written
+// over a final flag (Exempt, Missing; #40): the card keeps those locked, and a stale card (Prism
+// holding a marker that is now final in Schoology) must not wipe one. Checks Prism's row for each
+// pair, then (fresh: true) one read of the section's grades for all of them, before any write.
+// → null (go ahead) or { status, error, code } (nothing was written).
+async function finalFlagStop(db, sectionId, pairs, { fresh = true } = {}) {
+  if (pairs.length === 0) return null;
+  const local = db.prepare(`
+    SELECT g.exception FROM grades g
+    JOIN enrolments en ON en.student_id = g.student_id AND en.schoology_enrolment_id = ?
+    JOIN assignments a ON a.id = g.assignment_id AND a.schoology_assignment_id = ?
+  `);
+  for (const p of pairs) {
+    const code = local.get(String(p.enrollmentId), String(p.assignmentId))?.exception;
+    if (isFinalFlag(code)) return { status: 409, error: flaggedError(code), code: 'FLAGGED' };
+  }
+  if (!fresh) return null;
+  let all;
+  try {
+    all = await getSectionGrades(sectionId);
+  } catch (err) {
+    console.warn(`[mastery] flag check read failed: ${err.message}`);
+    return { status: 502, error: 'Could not read the current Schoology grade: nothing was saved. Try again.' };
+  }
+  const byKey = new Map((all || []).map((g) => [`${g.assignment_id}::${g.enrollment_id}`, g]));
+  for (const p of pairs) {
+    const code = byKey.get(`${p.assignmentId}::${p.enrollmentId}`)?.exception;
+    if (isFinalFlag(code)) return { status: 409, error: flaggedError(code), code: 'FLAGGED' };
+  }
+  return null;
+}
+
 // POST /api/mastery/:courseId/write — write scores back to Schoology for one student+assignment
 router.post('/:courseId/write', async (req, res) => {
   const { courseId } = req.params;
@@ -349,6 +381,9 @@ router.post('/:courseId/write', async (req, res) => {
   const db = getDb();
   const courseRow = db.prepare('SELECT schoology_section_id FROM courses WHERE id = ?').get(courseId);
   if (!courseRow) return res.status(404).json({ error: 'Course not found' });
+
+  const stop = await finalFlagStop(db, courseRow.schoology_section_id, [{ enrollmentId, assignmentId }]);
+  if (stop) return res.status(stop.status).json({ error: stop.error, ...(stop.code ? { code: stop.code } : {}) });
 
   try {
     const result = await writeMasteryScores({
@@ -714,6 +749,58 @@ async function settleMarker(db, studentId, assignmentId, label) {
   }
 }
 
+// A rubric-only save over a marker (write-comment with settleMarker: true, #40). The rubric
+// (mastery) write just before it cleared the flag in Schoology by itself; this writes no comment
+// of its own (the card's copy may be stale: a line PrisMCP published, or an edit in Schoology),
+// only mirrors the fresh score and exception 0 and runs settleMarker, whose line removal composes
+// from the fresh comment. Nothing happens unless the fresh exception is 0 and Prism held a marker.
+async function settleMarkerOnly(req, res) {
+  const { courseId } = req.params;
+  const { enrollmentId, assignmentId } = req.body;
+  const db = getDb();
+  const courseRow = db.prepare('SELECT schoology_section_id FROM courses WHERE id = ?').get(courseId);
+  if (!courseRow) return res.status(404).json({ error: 'Course not found' });
+  const studentRow = db.prepare('SELECT s.id FROM students s JOIN enrolments e ON e.student_id = s.id WHERE e.schoology_enrolment_id = ?').get(String(enrollmentId));
+  const assignmentRow = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(assignmentId));
+  if (!studentRow || !assignmentRow) return res.status(404).json({ error: 'No such student or assignment in Prism' });
+  let release;
+  try {
+    release = lockPair(studentRow.id, assignmentRow.id);
+  } catch (err) {
+    return res.status(409).json({ error: err.message, code: err.code });
+  }
+  try {
+    const localException = db.prepare('SELECT exception FROM grades WHERE student_id = ? AND assignment_id = ?').get(studentRow.id, assignmentRow.id)?.exception ?? 0;
+    let fresh;
+    try {
+      const all = await getSectionGrades(courseRow.schoology_section_id);
+      fresh = (all || []).find((g) => String(g.assignment_id) === String(assignmentId) && String(g.enrollment_id) === String(enrollmentId)) || null;
+    } catch (err) {
+      console.warn(`[mastery settle] fresh grade lookup failed: ${err.message}`);
+      return res.status(502).json({ error: 'The levels are published, but Prism could not read Schoology to clear the flag\'s line. Sync, then check the comment.' });
+    }
+    if (!gradedOverMarker({ wroteScore: false, wroteRubric: true, freshException: fresh?.exception, localException })) {
+      return res.json({ flagCleared: null });
+    }
+    captureBeforeSave(db, studentRow.id, assignmentRow.id, 'mastery settle');
+    db.prepare('UPDATE grades SET score = ?, exception = 0, submitted_at = ? WHERE student_id = ? AND assignment_id = ?')
+      .run(fresh.grade ?? null, gradeTimeAfterWrite(fresh), studentRow.id, assignmentRow.id);
+    try {
+      captureFeedbackSnapshots(db, { assignmentId: assignmentRow.id, studentId: studentRow.id, mode: 'save' });
+      settleResubmissions(db, { assignmentId: assignmentRow.id });
+    } catch (err) {
+      console.error('[mastery settle] snapshot/settle failed:', err.message);
+    }
+    const flagCleared = await settleMarker(db, studentRow.id, assignmentRow.id, 'mastery settle');
+    res.json({ flagCleared, resubmissionFields: savedPairFields(db, studentRow.id, assignmentRow.id, 'settle') });
+  } catch (err) {
+    console.error('[mastery settle] Error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    release();
+  }
+}
+
 // POST /api/mastery/:courseId/write-comment — write grade comment back to Schoology
 router.post('/:courseId/write-comment', async (req, res) => {
   const { courseId } = req.params;
@@ -722,6 +809,13 @@ router.post('/:courseId/write-comment', async (req, res) => {
 
   if (!enrollmentId || !assignmentId) {
     return res.status(400).json({ error: 'enrollmentId and assignmentId are required' });
+  }
+  // A rubric-only save over a marker (#40): settle the marker without writing the card's comment.
+  if (req.body.settleMarker === true) {
+    if (comment !== undefined || commentStatus !== undefined || points != null || statusLine != null || rowLevels != null) {
+      return res.status(400).json({ error: 'settleMarker writes no comment, display, score, status line or rows' });
+    }
+    return settleMarkerOnly(req, res);
   }
 
   // Optional Prism status line (triage resubmissions, Amendment B — e.g. the card's
@@ -1012,6 +1106,12 @@ router.post('/:courseId/send-all', async (req, res) => {
 
   const scoreEntries = entries.filter(e => e.scores);
   const commentEntries = entries.filter(e => e.comment);
+  // A rubric-only entry over a marker (#40): settle the marker after the batch, never writing the
+  // card's comment (settleMarkerOnly in one pass).
+  if (entries.some((e) => e.settleMarker === true && (e.comment || e.grade || !e.scores))) {
+    return res.status(400).json({ error: 'settleMarker goes with rubric scores and no comment or grade', results: entries.map(x => ({ uid: x.uid, ok: false })) });
+  }
+  const settleEntries = entries.filter((e) => e.settleMarker === true);
 
   // Scale grades (#41) ride the comment PUT; validate them all before writing
   // anything, so one bad entry can't leave the batch half-sent.
@@ -1059,9 +1159,11 @@ router.post('/:courseId/send-all', async (req, res) => {
     JOIN assignments a ON a.id = g.assignment_id AND a.schoology_assignment_id = ?
   `);
   const localExceptionOf = new Map(entries.map((e) => [e.uid, localFlag.get(String(e.enrollmentId), String(e.assignmentId))?.exception ?? 0]));
-  const flaggedEntry = entries.find((e) => e.grade && isFinalFlag(localExceptionOf.get(e.uid)));
-  if (flaggedEntry) {
-    return res.status(409).json({ error: flaggedError(localExceptionOf.get(flaggedEntry.uid)), code: 'FLAGGED', results: entries.map(x => ({ uid: x.uid, ok: false })) });
+  // Neither a score nor levels over a final flag: Prism's rows for every grade entry, and (when the
+  // batch writes levels, before the mastery batch) one fresh read for all of them.
+  const stop = await finalFlagStop(db, sectionId, entries.filter((e) => e.grade || e.scores), { fresh: scoreEntries.length > 0 });
+  if (stop) {
+    return res.status(stop.status).json({ error: stop.error, ...(stop.code ? { code: stop.code } : {}), results: entries.map(x => ({ uid: x.uid, ok: false })) });
   }
 
   // Per-pair lock (shared with write-comment/triage) for every entry carrying a
@@ -1071,8 +1173,8 @@ router.post('/:courseId/send-all', async (req, res) => {
   // pair is already busy, release what was taken and fail the whole batch
   // before touching Schoology — the rest is released in the finally below.
   const releases = [];
-  for (const e of commentEntries) {
-    if (!e.comment.statusLine && !e.grade && !e.scores) continue;
+  for (const e of [...commentEntries, ...settleEntries]) {
+    if (!e.comment?.statusLine && !e.grade && !e.scores) continue;
     const pairStudent = db.prepare(`
       SELECT s.id FROM students s JOIN enrolments en ON en.student_id = s.id WHERE en.schoology_enrolment_id = ?
     `).get(String(e.enrollmentId));
@@ -1182,6 +1284,23 @@ router.post('/:courseId/send-all', async (req, res) => {
       }
     }
 
+    // Rubric-only entries over a marker: the fresh state after the mastery batch (one read, shared
+    // with the comment entries when there are any). A failed read leaves them unsettled: their
+    // levels are published, and the next save or sync catches up.
+    if (settleEntries.length > 0 && commentEntries.length === 0) {
+      try {
+        for (const g of (await getSectionGrades(sectionId)) || []) freshByKey.set(`${g.assignment_id}::${g.enrollment_id}`, g);
+      } catch (err) {
+        console.error('[mastery send-all] settle read failed:', err.message);
+      }
+    }
+    for (const e of settleEntries) {
+      const fresh = freshByKey.get(`${e.assignmentId}::${e.enrollmentId}`);
+      if (fresh && gradedOverMarker({ wroteScore: false, wroteRubric: true, freshException: fresh.exception, localException: localExceptionOf.get(e.uid) })) {
+        overMarker.add(e.uid);
+      }
+    }
+
     // 3. Mirror to the local DB — only now that every write above succeeded.
     //    Scores → mastery_scores (like the single /write); comments → grades
     //    with the echoed fresh score/exception/timestamp (like write-comment),
@@ -1245,11 +1364,17 @@ router.post('/:courseId/send-all', async (req, res) => {
       if (p) echoFreshGrade(db, p.studentId, p.assignmentId, freshByKey.get(`${e.assignmentId}::${e.enrollmentId}`) || null, 'mastery send-all');
     }
 
+    const mirrorSettled = db.prepare('UPDATE grades SET score = ?, exception = 0, submitted_at = ? WHERE student_id = ? AND assignment_id = ?');
     for (const e of scoreEntries) {
       const studentRow = db.prepare(
         'SELECT s.id, s.schoology_uid FROM students s JOIN enrolments en ON en.student_id = s.id WHERE en.schoology_enrolment_id = ?'
       ).get(String(e.enrollmentId));
       if (!studentRow) continue;
+      if (e.settleMarker && overMarker.has(e.uid)) {
+        const fresh = freshByKey.get(`${e.assignmentId}::${e.enrollmentId}`);
+        const settledAssignment = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(e.assignmentId));
+        if (settledAssignment) mirrorSettled.run(fresh.grade ?? null, gradeTimeAfterWrite(fresh), studentRow.id, settledAssignment.id);
+      }
       for (const [topicId, info] of Object.entries(e.scores.gradeInfo)) {
         const points = Number(info.grade);
         upsertScore.run(studentRow.schoology_uid, String(e.assignmentId), topicId, points, pointsToLevel(points), now);
@@ -1307,7 +1432,7 @@ router.post('/:courseId/send-all', async (req, res) => {
     }
     // Grades over a marker: retire the saved copy and remove the flag's line (#40), one pair at a time.
     const flagClearedByUid = new Map();
-    for (const e of commentEntries) {
+    for (const e of [...commentEntries, ...settleEntries]) {
       const p = overMarker.has(e.uid) ? pairByUid.get(e.uid) : null;
       if (p) flagClearedByUid.set(e.uid, await settleMarker(db, p.studentId, p.assignmentId, 'mastery send-all'));
     }

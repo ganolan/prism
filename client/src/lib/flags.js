@@ -1,7 +1,8 @@
 // Schoology's grade flags ("exceptions"), as probed live on 21 October 2026 (#40,
 // .claude/schoology-api-reference.md "Grade exceptions (flags)"): 1 Exempt, 2 Incomplete,
-// 3 Missing, 5 Absent, 6 Late. 4 is invalid. Every flag removes the grade on this account
-// (Missing sets it to 0). The server mirror of the codes is server/lib/flags.js.
+// 3 Missing, 5 Absent, 6 Late. 4 is invalid. Exempt, Incomplete, Absent and Late remove the score
+// and every topic level on this account; Missing sets the score to 0 and keeps the levels already
+// entered, which still count. The server mirror of the codes is server/lib/flags.js.
 export const FLAGS = {
   1: { key: 'exempt', name: 'Exempt', verb: 'exempt' },
   2: { key: 'incomplete', name: 'Incomplete', verb: 'incomplete' },

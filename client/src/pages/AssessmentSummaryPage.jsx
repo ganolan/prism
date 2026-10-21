@@ -737,12 +737,17 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         },
       };
     }
+    const scores = (hasScoreChanges && assignmentRow && scale.ready) ? {
+      gradeInfo: buildGradeInfo(),
+      gradingPeriodId: assignmentRow.mastery_grading_period_id,
+      gradingCategoryId: assignmentRow.mastery_grading_category_id,
+    } : null;
     return {
       entry: {
         uid: student.schoology_uid,
         enrollmentId: student.enrollment_id,
         assignmentId,
-        // Guard on scale.ready: if the scale hasn't loaded yet, levelToPoints
+        // `scores` guards on scale.ready: if the scale hasn't loaded yet, levelToPoints
         // returns null for every topic, so buildGradeInfo() produces {} (all
         // topics skipped). Schoology's /observations write REPLACES the full
         // observation set, so posting an empty gradeInfo would wipe all scores.
@@ -751,15 +756,12 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         // disabled), so this mirrors that behaviour for the batch path.
         // NOTE: an empty gradeInfo when scale.ready IS true is a valid "clear
         // all topics" intent — do not use gradeInfo emptiness as the skip signal.
-        scores: (hasScoreChanges && assignmentRow && scale.ready) ? {
-          gradeInfo: buildGradeInfo(),
-          gradingPeriodId: assignmentRow.mastery_grading_period_id,
-          gradingCategoryId: assignmentRow.mastery_grading_category_id,
-        } : null,
-        // Over a marker the comment write rides along even when the comment is unchanged: the
-        // server takes the flag's line off it once the grade has cleared the flag (#40).
-        comment: (hasCommentChange || hasDisplayChange || (hasScoreChanges && isMarker(student.exception)))
-          ? { comment, commentStatus: display, ...statusLineFields() } : null,
+        scores,
+        comment: (hasCommentChange || hasDisplayChange) ? { comment, commentStatus: display, ...statusLineFields() } : null,
+        // Levels over a marker with the comment unchanged (#40): the server settles the marker
+        // (retires the saved copy, takes the flag's line off the FRESH comment) and never writes
+        // the card's comment, which may be stale.
+        ...(scores && !(hasCommentChange || hasDisplayChange) && isMarker(student.exception) ? { settleMarker: true } : {}),
       },
       patch: {
         scores: buildSavedScores(), grade_comment: comment, comment_status: display ? 1 : null,
@@ -851,26 +853,48 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         rubricSaved = true;
       }
 
-      // Over a marker the comment write follows the rubric write even when the comment is
-      // unchanged: the server takes the flag's line off the comment once the grade cleared it (#40).
       let cleared = null;
-      if (hasCommentChange || hasDisplayChange || (rubricSaved && isMarker(student.exception))) {
-        const saved = await writeMasteryComment(courseId, {
-          enrollmentId: student.enrollment_id,
-          assignmentId,
-          comment,
-          commentStatus: display,
-          ...statusLineFields(),
-          // This save wrote the rubric first, so the score Schoology recomputed (echoed by
-          // the comment write) is the teacher's change, not a Schoology-side one (round 5).
-          // Send all needs no flag: the server knows which entries carried scores.
-          ...(rubricSaved ? { rubricSaved: true } : {}),
-        });
+      let warning = null; // published, with a part that was not (shown as the card's error)
+      if (hasCommentChange || hasDisplayChange) {
+        let saved;
+        try {
+          saved = await writeMasteryComment(courseId, {
+            enrollmentId: student.enrollment_id,
+            assignmentId,
+            comment,
+            commentStatus: display,
+            ...statusLineFields(),
+            // This save wrote the rubric first, so the score Schoology recomputed (echoed by
+            // the comment write) is the teacher's change, not a Schoology-side one (round 5).
+            // Send all needs no flag: the server knows which entries carried scores.
+            ...(rubricSaved ? { rubricSaved: true } : {}),
+          });
+        } catch (err) {
+          if (!rubricSaved) throw err;
+          // The levels are in Schoology; only the comment is not. Keep the comment (and its draft)
+          // to publish again, and stop showing the levels as pending.
+          setPending({});
+          onSaved?.(student.schoology_uid, { scores: buildSavedScores(), ...resubmissionFieldsPatch(fields) });
+          setSaveResult(`error: Levels published to Schoology; the comment was not saved (${err.message}). Publish again to send it.`);
+          return false;
+        }
         fields = saved?.resubmissionFields ?? fields;
         cleared = saved?.flagCleared ?? null;
+      } else if (rubricSaved && isMarker(student.exception)) {
+        // Levels over a marker with the comment unchanged (#40): the server settles the marker
+        // (retires the saved copy, takes the flag's line off the FRESH comment) and writes no
+        // comment of the card's, which may be stale.
+        try {
+          const settled = await writeMasteryComment(courseId, { enrollmentId: student.enrollment_id, assignmentId, settleMarker: true });
+          fields = settled?.resubmissionFields ?? fields;
+          cleared = settled?.flagCleared ?? null;
+        } catch (err) {
+          warning = `Levels published to Schoology; the flag's line was not removed from the comment (${err.message}). Sync, then check the comment.`;
+        }
       }
+      if (cleared?.lineError) warning = cleared.lineError; // "Published, but the flag's line was not removed ..."
       if (typeof cleared?.comment === 'string') setComment(cleared.comment);
-      setSaveResult('saved');
+      setSaveResult(warning ? `error: ${warning}` : 'saved');
       setPending({});
       setInsertedLine(null);
       commentHistory.clearHistory(); // undo never crosses a publish (#75)

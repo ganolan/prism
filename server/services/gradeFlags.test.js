@@ -4,9 +4,12 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 // Flags are written to Schoology: never for real. The fake below behaves as the live probes
 // showed (.claude/schoology-api-reference.md "Grade exceptions (flags)").
 vi.mock('./schoology.js', () => ({ getSectionGrades: vi.fn(), pushGradeUpdates: vi.fn() }));
+// Clearing Missing reads the pair's topic levels fresh from Schoology (#40): never for real.
+vi.mock('./masterySync.js', () => ({ readPairLevels: vi.fn() }));
 
 import { getDb } from '../db/index.js';
 import { getSectionGrades, pushGradeUpdates } from './schoology.js';
+import { readPairLevels } from './masterySync.js';
 import { readFlagState, setGradeFlag, retireCopy } from './gradeFlags.js';
 import { cardBaselineFor } from './unfinishedGrading.js';
 import { saveRubric } from './rubricStore.js';
@@ -65,6 +68,8 @@ beforeEach(() => {
   db.prepare(`INSERT INTO grades (student_id, assignment_id, enrolment_id, score, exception, grade_comment, comment_status) VALUES (?, ?, 'enr', 75, 0, 'Good work.', 1)`).run(s, a);
   record = { assignment_id: 'sa', enrollment_id: 'enr', grade: 75, exception: 0, max_points: 100, comment: 'Good work.', comment_status: 1 };
   getSectionGrades.mockImplementation(async () => (record ? [{ ...record, enrollment_id: 'other' }, { ...record }] : []));
+  // By default Schoology holds what Prism last read: the pair's local topic levels.
+  readPairLevels.mockImplementation(async () => Object.fromEntries(levels().map((r) => [r.topic_id, r.grade])));
   pushGradeUpdates.mockImplementation(async (_section, entries) => {
     entries.forEach(applyPut);
     return { status: 207, data: { grades: { grade: entries.map(() => ({ response_code: 204 })) } } };
@@ -478,6 +483,67 @@ describe('setGradeFlag: clearing', () => {
     expect(out.restored).toEqual({ draft: true, notRestored: [] });
     expect(draftRow().pending).toEqual({ t1: 'ED', t2: 'ED' });
     expect(levels()).toEqual([]);
+  });
+
+  test('clearing Missing: levels entered in Schoology since Prism last read them are read fresh and saved before the PUT', async () => {
+    db.exec('DELETE FROM mastery_scores');
+    db.prepare('UPDATE grades SET score = NULL').run();
+    record = { ...record, grade: null };
+    await flag(3); // ungraded locally: no copy
+    readPairLevels.mockResolvedValueOnce({ t1: 'D', t2: 'EM' }); // only in Schoology
+    let copyAtPut = null;
+    pushGradeUpdates.mockImplementationOnce(async (_section, entries) => {
+      copyAtPut = copyRow();
+      entries.forEach(applyPut);
+      return { status: 207, data: {} };
+    });
+    await flag(0, { restore: false });
+    expect(readPairLevels).toHaveBeenLastCalledWith({ sectionId: 'sec', studentUid: 'u1', assignmentId: 'sa', topicIds: ['t1', 't2'] });
+    expect(copyAtPut).toMatchObject({ flag: 3, restored_at: null });
+    expect(JSON.parse(copyAtPut.saved_json).topics).toEqual({ t1: 'D', t2: 'EM' });
+  });
+
+  test('clearing Missing: Schoology\'s fresh levels win over stale local ones in the copy, and every local level of the pair goes', async () => {
+    db.exec('DELETE FROM mastery_scores');
+    db.prepare('UPDATE grades SET score = NULL').run();
+    record = { ...record, grade: null };
+    await flag(3);
+    db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('u1', 'sa', 't1', 25, 'EM')`).run(); // stale
+    readPairLevels.mockResolvedValueOnce({ t1: 'ED' });
+    await flag(0, { restore: false });
+    expect(JSON.parse(copyRow().saved_json).topics).toEqual({ t1: 'ED' });
+    expect(levels()).toEqual([]);
+  });
+
+  test('clearing Missing: the fresh level read fails: SCHOOLOGY_READ_FAILED, nothing written', async () => {
+    await flag(3);
+    pushGradeUpdates.mockClear();
+    const before = copyRow();
+    readPairLevels.mockRejectedValueOnce(new Error('Not logged in to Schoology'));
+    await expect(flag(0)).rejects.toMatchObject({ code: 'SCHOOLOGY_READ_FAILED' });
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
+    expect(copyRow()).toEqual(before);
+    expect(gradeRow()).toMatchObject({ exception: 3 });
+  });
+
+  test('clearing Missing on a task with no topics reads no levels', async () => {
+    db.exec('DELETE FROM mastery_scores; DELETE FROM mastery_alignments');
+    await flag(3);
+    await flag(0, { restore: false });
+    expect(readPairLevels).not.toHaveBeenCalled();
+    expect(sent(1)).toMatchObject({ grade: null, exception: 0 });
+  });
+
+  test('clearing Missing: Schoology cleared the flag but kept its 0: READBACK_MISMATCH, local levels and row kept', async () => {
+    await flag(3);
+    pushGradeUpdates.mockImplementationOnce(async (_section, entries) => {
+      entries.forEach((e) => applyPut({ ...e, grade: '0' })); // the 0 stayed
+      return { status: 207, data: {} };
+    });
+    await expect(flag(0, { restore: false })).rejects.toMatchObject({ code: 'READBACK_MISMATCH', message: expect.stringMatching(/0/) });
+    expect(levels()).toHaveLength(2);
+    expect(gradeRow()).toMatchObject({ score: 0, exception: 3 });
+    expect(copyRow()).not.toBeNull();
   });
 
   test('clearing Missing with a waiting copy that holds everything keeps that copy as it is', async () => {

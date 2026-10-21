@@ -13,6 +13,9 @@
 //   line -> (clearing) the draft -> release.
 // Clearing Missing sends `grade: null` as well, so no 0 is left counting; that also blanks the topic
 // levels Missing kept (probe dd0509e), so the copy takes them first, like a flag that removes them.
+// Those levels are read fresh from Schoology (readPairLevels): Prism's local mastery_scores can be
+// stale (levels entered in Schoology since Prism last read them). A failed read writes nothing. The
+// read-back must then show no score, or the clear is reported as not confirmed.
 // A gateway error (non-2xx, or a per-entry response_code of 400+) means Schoology wrote nothing:
 // nothing in Prism changes and it is never retried here (one transient 502 was seen in the probes).
 import { getSectionGrades, pushGradeUpdates } from './schoology.js';
@@ -31,6 +34,7 @@ import { cardBaselineFor } from './unfinishedGrading.js';
 import { listExtensions, undoExtension, undoReferral } from './triage.js';
 import { listResubmissions, undoResubmission, settleResubmissions } from './resubmissions.js';
 import { captureFeedbackSnapshots } from './feedbackSnapshots.js';
+import { readPairLevels } from './masterySync.js';
 
 const SCALE_KEY = '__scale__'; // the card's pending key for a score-scale overall
 const num = (v) => (v == null || v === '' ? null : Number(v));
@@ -77,12 +81,12 @@ function assertEligible(db, t) {
 const uidOf = (db, t) => db.prepare('SELECT schoology_uid FROM students WHERE id = ?').get(t.studentId).schoology_uid;
 const assignmentOf = (db, t) => db.prepare('SELECT * FROM assignments WHERE id = ?').get(t.assignmentId);
 
-// The pair's grade as it stands: the fresh record plus Prism's topic levels, rubric row levels
-// and (on a score-scale task) the overall level.
-function gradeNow(db, t, fresh) {
+// The pair's grade as it stands: the fresh record plus the topic levels (Prism's, or `freshTopics`
+// read from Schoology), rubric row levels (Prism-only) and (on a score-scale task) the overall level.
+function gradeNow(db, t, fresh, freshTopics = null) {
   const a = assignmentOf(db, t);
   const uid = uidOf(db, t);
-  const topics = Object.fromEntries(db.prepare(`
+  const topics = freshTopics ?? Object.fromEntries(db.prepare(`
     SELECT topic_id, grade FROM mastery_scores WHERE student_uid = ? AND assignment_schoology_id = ? AND grade IS NOT NULL ORDER BY topic_id
   `).all(uid, String(a.schoology_assignment_id)).map((r) => [r.topic_id, r.grade]));
   const rows = Object.fromEntries(db.prepare(`
@@ -112,10 +116,10 @@ function holdsAll(saved, now) {
   const within = (cur, kept) => Object.entries(cur || {}).every(([k, level]) => (kept || {})[k] === level);
   return within(now.topics, saved.topics) && within(now.rows, saved.rows);
 }
-function keepCopy(db, t, fresh, was, code) {
+function keepCopy(db, t, fresh, was, code, freshTopics = null) {
   const existing = copyOf(db, t);
   const waiting = existing && existing.restored_at == null;
-  const now = gradeNow(db, t, fresh);
+  const now = gradeNow(db, t, fresh, freshTopics);
   if (was === 3 && now.score === 0) { now.score = null; now.scale_level = null; } // Missing's zero, not a grade
   const undo = () => {
     if (existing) {
@@ -197,7 +201,11 @@ function mirror(db, t, back, code, was) {
       ON CONFLICT(student_id, assignment_id) DO UPDATE SET score = excluded.score, exception = excluded.exception, synced_at = excluded.synced_at
     `).run(t.studentId, t.assignmentId, t.enrollmentId, num(back.grade), Number(back.exception) || 0,
       back.comment ?? '', back.comment_status ?? null, new Date().toISOString());
-    if (removesLevels(code) || clearsMissing(was, code)) {
+    if (clearsMissing(was, code)) {
+      // grade: null blanked every level of the pair in Schoology (verified), and the copy holds the
+      // levels read fresh just before the write: Prism's local ones go, stale ones included.
+      db.prepare('DELETE FROM mastery_scores WHERE student_uid = ? AND assignment_schoology_id = ?').run(uidOf(db, t), String(a.schoology_assignment_id));
+    } else if (removesLevels(code)) {
       // Only levels the stored copy holds: a level Prism has no other record of is never dropped here.
       const kept = waitingCopy(db, t);
       const held = kept ? JSON.parse(kept.saved_json).topics || {} : {};
@@ -207,7 +215,7 @@ function mirror(db, t, back, code, was) {
   })();
 }
 
-// A flag is the teacher's visible feedback (every code counts, #40): the save routes' capture order
+// A flag write is a teacher save (#40): the save routes' capture order
 // (absorb other writers' state unstamped, mirror, then a stamped save) and settle. Best-effort.
 function capture(db, t, phase) {
   try {
@@ -374,8 +382,22 @@ export async function setGradeFlag(db, { studentId, assignmentId, code, expected
 
     // A copy before any flag, and before clearing Missing (its grade: null blanks the levels it
     // kept); the copy stays Missing's (flag 3) when clearing.
+    // Clearing Missing blanks Schoology's levels: read them fresh first, so the copy holds them.
+    let freshTopics = null;
+    if (clearsMissing(was, target)) {
+      const a = assignmentOf(db, t);
+      const topicIds = getAlignedTopics(db, a.course_id, a.schoology_assignment_id).map((tp) => String(tp.id));
+      if (topicIds.length > 0) {
+        try {
+          freshTopics = await readPairLevels({ sectionId: t.sectionId, studentUid: uidOf(db, t), assignmentId: t.schoologyAssignmentId, topicIds });
+        } catch (err) {
+          console.error('[grade flag] fresh level read failed:', err.message);
+          throw new TriageError('SCHOOLOGY_READ_FAILED', `Prism could not read the topic levels from Schoology, so nothing was written (${err.message}). Clearing Missing removes them, so Prism keeps a copy first. Try again.`);
+        }
+      }
+    }
     let copy = { saved: false, undo: () => {} };
-    if (target !== 0 || clearsMissing(was, target)) copy = keepCopy(db, t, fresh, was, target || was);
+    if (target !== 0 || clearsMissing(was, target)) copy = keepCopy(db, t, fresh, was, target || was, freshTopics);
     try {
       await putFlag(t, fresh, target, was);
     } catch (err) {
@@ -393,6 +415,11 @@ export async function setGradeFlag(db, { studentId, assignmentId, code, expected
         try { copy.undo(); } catch (e) { console.error('[grade flag] could not put the earlier copy back:', e.message); }
       }
       throw err;
+    }
+    // Clearing Missing must leave no 0 counting: the read-back shows no score, or Prism records nothing
+    // (the copy is kept, the local levels stay) and says so.
+    if (clearsMissing(was, target) && num(back.grade) != null) {
+      throw new TriageError('READBACK_MISMATCH', `Schoology cleared Missing but still shows a score of ${scoreText(back.grade)}: Prism has not recorded the change. Check the task in Schoology, then sync.`);
     }
     // The flag is set: Schoology must not have removed a grade Prism did not keep (anti-goal).
     if (target !== 0 && was === 0 && score != null && !sameScore(num(back.grade), score)) {

@@ -2686,7 +2686,7 @@ describe('StudentRubricCard: final flags and markers (#40)', () => {
     expect(screen.getByText('Grading this work clears Late.')).toBeInTheDocument();
   });
 
-  it('publishing rubric levels over a marker also sends the comment write (it clears the flag line), then patches the card from flagCleared', async () => {
+  it('publishing rubric levels over a marker sends a comment-free settle (never the card\'s comment), then patches from flagCleared', async () => {
     const onSaved = vi.fn();
     writeMasteryComment.mockResolvedValueOnce({ flagCleared: { exception: 0, comment: 'Good start.', status_line: null } });
     renderCard({ onSaved, student: { ...makeStudent(), exception: 6, grade_comment: 'Marked late on Wed 21/10.\n\nGood start.', comment_status: 1,
@@ -2696,18 +2696,46 @@ describe('StudentRubricCard: final flags and markers (#40)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(writeMasteryScores).toHaveBeenCalled();
-    expect(writeMasteryComment).toHaveBeenCalledWith('4', expect.objectContaining({ rubricSaved: true, comment: 'Marked late on Wed 21/10.\n\nGood start.' }));
+    expect(writeMasteryComment).toHaveBeenCalledTimes(1);
+    expect(writeMasteryComment.mock.calls[0][1]).toEqual({ enrollmentId: 'enr-1', assignmentId: '8', settleMarker: true });
     expect(onSaved.mock.calls[0][1]).toMatchObject({ exception: 0, grade_comment: 'Good start.', status_line: null });
+    expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue('Good start.');
   });
 
-  it('Send all over a marker: the entry carries the comment write with the scores, even with the comment unchanged', async () => {
+  it('a failed settle after the levels went says the levels are published and what was not', async () => {
+    writeMasteryComment.mockRejectedValueOnce(new Error('Another update for this student is in progress: try again'));
+    renderCard({ student: { ...makeStudent(), exception: 6, grade_comment: 'Hi', comment_status: 1 } });
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+    expect(await screen.findByText(/^error: Levels published to Schoology; the flag's line was not removed from the comment \(Another update/)).toBeInTheDocument();
+  });
+
+  it('M4: the levels publish but the comment write fails: the card says so, keeps the comment and drops the pending levels', async () => {
+    const onSaved = vi.fn();
+    writeMasteryComment.mockRejectedValueOnce(new Error('Another update for this student is in progress: try again'));
+    renderCard({ onSaved, student: { ...makeStudent(), grade_comment: 'Hi', comment_status: 1 } });
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), { target: { value: 'Hi there' } });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+    expect(await screen.findByText(/^error: Levels published to Schoology; the comment was not saved \(Another update.*Publish again to send it\.$/)).toBeInTheDocument();
+    expect(writeMasteryScores).toHaveBeenCalledTimes(1);
+    expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue('Hi there');
+    expect(screen.getByText('1 pending change')).toBeInTheDocument(); // the comment, not the published level
+    expect(onSaved.mock.calls[0][1]).not.toHaveProperty('grade_comment');
+    expect(mockSaver.remove).not.toHaveBeenCalled();
+  });
+
+  it('Send all over a marker: the entry carries the scores and settleMarker, and no comment', async () => {
     const handlers = {};
     renderCard({ student: { ...makeStudent(), exception: 6, grade_comment: 'Hi', comment_status: 1 },
       registerCard: (uid, h) => { handlers[uid] = h; }, unregisterCard: () => {} });
     fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
     await waitFor(() => expect(handlers['uid-1'].getEntry().entry.scores).not.toBeNull()); // once the scale loads
     const built = handlers['uid-1'].getEntry();
-    expect(built.entry.comment).toMatchObject({ comment: 'Hi', commentStatus: true });
+    expect(built.entry.comment).toBeNull(); // the card's comment is never sent unchanged
+    expect(built.entry.settleMarker).toBe(true);
   });
 
   it('flagClearedPatch: exception 0, the stripped comment and no status line; nothing without flagCleared', () => {

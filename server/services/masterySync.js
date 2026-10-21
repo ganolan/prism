@@ -844,6 +844,37 @@ export function getMasteryForCourse(courseId) {
 }
 
 /**
+ * One student's topic levels on one assignment, read fresh from Schoology (#40). Clearing Missing
+ * blanks the levels Missing kept, so the saved copy must hold Schoology's own levels, not a local
+ * read that may be stale. One page GET (the CSRF pair and building id), then ONE batched
+ * material-observations/search POST for the task's topics (the verified #104 shape, keyed by
+ * objective_id, normalised by normalizeObservation), filtered to the student and the task.
+ * observations/search (getRubricScoresForStudent) is not used: it keys scores by alignment_id,
+ * which needs alignments/search to map to a topic.
+ * → { [topicId]: level } for every scored topic. Throws when the read fails.
+ */
+export async function readPairLevels({ sectionId, studentUid, assignmentId, topicIds }) {
+  const ids = (topicIds || []).map(String);
+  if (ids.length === 0) return {};
+  const reader = await openMasteryReader(sectionId);
+  const resp = await reader.postJson(`${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/material-observations/search`, {
+    building_id: Number(reader.buildingId),
+    section_id: Number(sectionId),
+    objective_ids: ids.join(','),
+  });
+  const byTopic = groupObservationsByTopic((resp.data || []).map(normalizeObservation), ids);
+  const levels = {};
+  for (const id of ids) {
+    for (const obs of byTopic[id] || []) {
+      if (String(obs.student_uid) !== String(studentUid)) continue;
+      if (String(obs.gradeable_material?.material_id ?? '') !== String(assignmentId)) continue;
+      if (obs.points != null) levels[id] = pointsToLevel(obs.points);
+    }
+  }
+  return levels;
+}
+
+/**
  * Get current per-topic mastery scores for one student on one assignment.
  * Used to pre-populate the grading panel before writing.
  *

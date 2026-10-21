@@ -763,7 +763,7 @@ and 219 Prism parents (Prism's parents read from prod's database, opened read on
   way a teacher clicks to it: `GET /teachers/home.html` first, then the list with home as the Referer. It answered 200 for 9
   of 9 sections, with no security violation. Each page holds one HTML table, with the header
   `Student | Guardian 1 | G1 Email | G1 Phone | G1 Faculty | Guardian 2 | G2 Email | G2 Phone | G2 Faculty`, one row per
-  student, every cell set on all 110 rows and one email per email cell. Guardian names have the shape `Last, First`. All 110
+  student, one email per email cell. Every name, email and faculty cell was set on all 110 rows; G1 Phone on 108 and G2 Phone on 107 (corrected 2026-10-21: the first count covered one section only). A phone cell holds one number: of 220 cells, 208 are 8 digits, 7 have another format (10 to 14 digits, one with a space, one with a hyphen) and 5 are empty. Guardian names have the shape `Last, First`. All 110
   rows joined to the section roster by the `Student` cell equal to the roster's `lastfirst`.
 - **Matching Prism parents to slots** (219 parents):
   - by email to exactly one slot: 188; for each of these, first name plus surname named the same slot when it named any (178

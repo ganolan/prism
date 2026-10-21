@@ -45,7 +45,7 @@ headers, lengths and counts only. Probe: `scripts/probe-ps-guardian-contacts.js`
   reached as a teacher clicks to it (`/teachers/home.html` first, then the list with home as Referer): 200
   for 9 of 9 sections, no security violation. One HTML table per section, header
   `Student | Guardian 1 | G1 Email | G1 Phone | G1 Faculty | Guardian 2 | G2 Email | G2 Phone | G2 Faculty`,
-  one row per student, every cell set on all 110 rows, one email per email cell. Guardian names have the shape
+  one row per student, one email per email cell. Every name, email and faculty cell was set on all 110 rows; G1 Phone on 108 and G2 Phone on 107 (corrected 21 October 2026: the first count covered one section only). Guardian names have the shape
   `Last, First`. All 110 rows joined to the section roster by the `Student` cell equal to the roster's
   `lastfirst`.
 - **Matching Prism parents to slots:**

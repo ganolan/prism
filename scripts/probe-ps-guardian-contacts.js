@@ -73,6 +73,31 @@ console.log('launch (plain HTTP)');
 await ps.launch(sections[0]);
 const cat = await ps.read(`${Q}getAlertTypes.json`, { disabled: 0, student_schoolid: 40 });
 const corrDefs = (Array.isArray(cat) ? cat : []).filter((t) => CORR_IDS.includes(String(t.id)));
+
+// terms (#66 follow-up): how PowerTeacher's home page offers other terms, so a past
+// class's list could be reached the way a teacher clicks to it. Reads home.html only:
+// forms (action, field names, select options; term names are school configuration),
+// links that carry a term or year parameter (digits masked) and how many class links
+// the page lists. No other page is requested.
+if (only === 'terms') {
+  const home = await raw('/teachers/home.html');
+  const html = home.text.replace(/<script[\s\S]*?<\/script>/gi, '');
+  for (const [, attrs, body] of html.matchAll(/<form([^>]*)>([\s\S]*?)<\/form>/gi)) {
+    const action = (attrs.match(/action\s*=\s*["']([^"']*)/i) || [])[1] || '';
+    const fields = [...body.matchAll(/<(input|select)[^>]*name\s*=\s*["']([^"']+)/gi)].map((m) => `${m[1]}:${m[2]}`);
+    console.log(`  form action ${action.replace(/\d+/g, '#')} fields [${fields.join(', ')}]`);
+    for (const [, sAttrs, opts] of body.matchAll(/<select([^>]*)>([\s\S]*?)<\/select>/gi)) {
+      const name = (sAttrs.match(/name\s*=\s*["']([^"']+)/i) || [])[1];
+      const options = [...opts.matchAll(/<option([^>]*)>([^<]*)/gi)].map((m) => `${cellText(m[2])}${/selected/i.test(m[1]) ? ' (selected)' : ''}`);
+      console.log(`    select ${name}: ${options.length} options [${options.slice(0, 12).join(' | ')}]`);
+    }
+  }
+  const links = [...new Set([...html.matchAll(/href\s*=\s*["']([^"'#]+)/gi)].map((m) => m[1]).filter((h) => /term|year|yearid|termid/i.test(h)).map((h) => h.replace(/\d+/g, '#')))];
+  console.log(`  term/year links: ${links.join(' | ') || '(none)'}`);
+  const classLinks = [...html.matchAll(/href\s*=\s*["'][^"']*sectionid=(\d+)/gi)].map((m) => m[1]);
+  console.log(`  class links (sectionid): ${classLinks.length}, distinct sections ${new Set(classLinks).size}`);
+  process.exit(0);
+}
 if (want('catalogue')) {
   for (const t of (Array.isArray(cat) ? cat : []).filter((x) => /x_homeemail|x_dnc|deceased|relationship/i.test(String(x.student_field)))) {
     const { id, name, trigger_type, stub_url, student_field, ext_table_name, student_field_operator, student_field_operand } = t;
@@ -120,6 +145,8 @@ for (const sid of sections) {
       const em = [...new Set(body.map((row) => (row[i].text.match(EMAIL) || []).length))].join(',');
       const brs = [...new Set(body.map((row) => (row[i].html.match(/<br/gi) || []).length))].join(',');
       console.log(`    column "${h}": set ${set}/${body.length}; emails per cell {${em}}; <br> per cell {${brs}}`);
+      // Phone cells: their format with every digit masked (9) and letters masked (a).
+      if (/phone/i.test(h)) for (const row of body) bump(totals.slots, `phone format ${row[i].html.replace(/<br\s*\/?>/gi, ' | ').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim().replace(/\d/g, '9').replace(/[A-Za-z]/g, 'a') || '(empty)'}`);
     });
     // Join each row to the roster by the student's name (lastfirst), then match G1/G2 to Prism parents.
     const iStu = col('Student');
@@ -181,6 +208,40 @@ for (const sid of sections) {
     console.log(`  section: divorced ${divIds.length}, support summary ${ssIds.length}`);
   }
 
+  if (only === 'emailsrc') {
+    // Which email is which (#173): per student, the Emergency Contact List slot emails,
+    // the correspondence pop-up's emails and Prism's Schoology emails, compared as counts.
+    // Pop-ups only for students whose Schoology emails differ from the list, plus N others.
+    await raw('/teachers/home.html');
+    const r = await raw(`/teachers/StudEmgContacts.html?sectionid=${sectionDcid}`, '/teachers/home.html');
+    const t = tables(r.text).filter((x) => x.length > 1).sort((a, b) => b.length - a.length)[0] || [];
+    const header = (t.find((row) => row.some((c) => c.th)) || []).map((c) => c.text);
+    const ci = (n) => header.findIndex((h) => h.toLowerCase() === n.toLowerCase());
+    const body = t.filter((row) => !row.some((c) => c.th) && row.length === header.length);
+    const byName = new Map(roster.map((s) => [norm(s.lastfirst), s]));
+    const lc = (x) => String(x || '').trim().toLowerCase();
+    let others = 0;
+    for (const row of body) {
+      const s = byName.get(norm(row[ci('Student')]?.text));
+      if (!s) continue;
+      const emg = { 1: lc((row[ci('G1 Email')].text.match(EMAIL) || [])[0]), 2: lc((row[ci('G2 Email')].text.match(EMAIL) || [])[0]) };
+      const sgy = parentsOf(s.studentdcid).map((p) => lc(p.email)).filter(Boolean);
+      const differs = sgy.some((e) => e !== emg[1] && e !== emg[2]);
+      if (!differs && others >= N) continue;
+      if (!differs) others++;
+      const v = valueById.get(String(s.studentid)) || {};
+      const code = String(v.x_homeemail ?? '');
+      const def = corrDefs.find((d) => String(d.student_field_operand) === code) || corrDefs[0];
+      const q = new URLSearchParams({ url: def.stub_url, frn: `001${s.studentdcid}`, id: String(def.id), mba_frn: `001${s.studentdcid}`, student_field: `${def.ext_table_name}.X_HomeEmail`, tableName: def.ext_table_name });
+      const html = await ps.page(`/teachers/alerts/aet_customalert_custompopup.html?${q}`);
+      await sleep(300);
+      const corr = (html.match(EMAIL) || []).map(lc);
+      const where = (e) => [e === emg[1] && 'listG1', e === emg[2] && 'listG2', corr.includes(e) && 'corr'].filter(Boolean).join('+') || 'none';
+      const corrWhere = (e) => [e === emg[1] && 'listG1', e === emg[2] && 'listG2', sgy.includes(e) && 'sgy'].filter(Boolean).join('+') || 'none';
+      bump(totals.slots, `${differs ? 'DIFFERS' : 'agrees '} code ${code}: schoology emails in [${sgy.map(where).sort().join(', ')}]; corr emails in [${corr.map(corrWhere).sort().join(', ')}]`);
+    }
+  }
+
   if (want('corr')) {
     // Students with a one-guardian correspondence code first, then the rest, up to n.
     const pick = [...roster].sort((a, b) => {
@@ -219,3 +280,4 @@ if (want('emg')) {
   console.log(`  emergency list rows ${totals.emg.rows}, joined to roster ${totals.emg.joined}; guardian name shape (letters as w): "${totals.nameFormat}"`);
   for (const [k, n] of [...totals.slots].sort()) console.log(`    ${k}: ${n}`);
 }
+if (only === 'emailsrc') for (const [k, n] of [...totals.slots].sort()) console.log(`    ${k}: ${n}`);

@@ -854,7 +854,8 @@ CREATE TABLE IF NOT EXISTS student_ps_alerts (
 );
 
 -- Per-student PowerSchool reads: when the alerts were last read, and the raw
--- guardian-contact fields #66 uses (null = not set in PowerSchool).
+-- guardian-contact fields that decide each parent's contact status (#66; null = not set
+-- in PowerSchool). The status is calculated when read, never stored.
 CREATE TABLE IF NOT EXISTS student_powerschool (
   student_id INTEGER PRIMARY KEY REFERENCES students(id),
   alerts_synced_at TEXT,              -- ISO time of the last successful read

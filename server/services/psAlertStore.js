@@ -1,6 +1,8 @@
 // Stored PowerSchool student alerts (#117): the sync's write and the reads the
 // API routes and PrisMCP share. Tables: student_ps_alerts, student_powerschool
-// (server/db/schema.sql). Reads never return the #66 contact fields.
+// and student_ps_guardians (server/db/schema.sql). The alert reads never return the
+// contact fields; they feed each parent's contact status (#66), decided in
+// server/services/guardianContactStore.js.
 import { describeAlerts, CONTACT_FIELDS } from '../lib/psAlerts.js';
 
 /**

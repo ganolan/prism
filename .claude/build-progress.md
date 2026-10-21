@@ -1090,7 +1090,7 @@ POSTed to PowerSchool with `fetch` (`server/services/powerschoolWeb.js`), then f
 (`server/services/psAlertsSync.js`). The trigger rules come from the live catalogue each sync.
 
 - **Store:** `student_ps_alerts` (Prism key + PowerSchool alert id) and `student_powerschool` (`alerts_synced_at`
-  and the raw `X_DNC_G1/G2`, `X_G1DECEASED/G2DECEASED` values for #66, store only). A student read this sync gets
+  and the raw `X_DNC_G1/G2`, `X_G1DECEASED/G2DECEASED` values for #66, store only; used from 2026-10-21, see "Do-not-contact guardians (#66)" below). A student read this sync gets
   exactly the alerts that fire now; a section that fails keeps its students' last-known rows; a sync that reads
   no section throws (the phase shows the error, the sync carries on).
 - **Show (revised 2026-10-18 with Graham):** family alerts added (correspondence G1 / G2 / G1+G2,
@@ -1103,7 +1103,7 @@ POSTed to PowerSchool with `fetch` (`server/services/powerschoolWeb.js`), then f
   (`scripts/parity-ps-alerts.js`). Shapes in `.claude/powerschool-api-reference.md` "Student alerts over plain
   HTTP (#117)".
 - **Follow-ups:** the extra-time amount and other detail in the SPP / Support Summary popups (HTML, not probed);
-  #66 decides how the contact fields show; the same plain-HTTP session answers `/ws/attendance/section_info`, so
+  #66 decides how the contact fields show (done 2026-10-21, below); the same plain-HTTP session answers `/ws/attendance/section_info`, so
   the block pass can drop its browser (#141).
 
 ## Linked quizzes, loose ends (2026-10-14, branch `claude/angry-hopper-5c1f00`)
@@ -1690,3 +1690,16 @@ Commits `9535caa`, `6fa7cbe`, `efc3a30`, `eb65e61`, `bac9d07`, `92481a9`, `66a2d
 - **Quiz overall result:** `get_quiz_results` records a serve for the result task dated by the group's `loaded_at`, so `write_quiz_overall_suggestions` stamps `data_as_of` with the results' load time (results loaded 2 days ago show stale).
 - **Grading run:** after a failed submissions read it also skips the mastery read (status `skipped`, no stamp); the sync dialog counts a skipped phase as finished.
 - **Docs and descriptions:** `get_assignment_context` NOT_FOUND also covers a `course_id` that is not the assignment's course; the install guide's "Joining reads in progress" says an upgraded queued run moves up the queue as a button press would.
+
+## Do-not-contact guardians (#66, 2026-10-21)
+
+Commits `fa69791` to `a41199e`, then the reference docs and the parity script. Spec: `docs/superpowers/specs/2026-10-21-do-not-contact-guardians-design.md`.
+
+- **Why:** Schoology syncs every guardian into `parents`, so Copy all (student page) and Parent emails (Class Tools) could copy a guardian PowerSchool marks do-not-contact or deceased.
+- **Read:** the alert sync also reads each section's Emergency Contact List (`GET /teachers/home.html`, then `/teachers/StudEmgContacts.html?sectionid=` with home as the Referer), plain HTTP on the session it already holds. Parser: `server/lib/psEmergencyContacts.js`; page method: `PowerSchoolWeb` in `server/services/powerschoolWeb.js`. A failed list keeps the last-known slots and the section's alerts are still stored. The summary gains `guardians: { read, failed, students }`.
+- **Store:** `student_ps_guardians (student_id, slot, name, email)`; `student_powerschool.correspondence` (raw `x_homeemail`) and `guardians_synced_at`. Written by `applyPsGuardians` in `server/services/psAlertStore.js`; schema and `MIGRATIONS` both updated.
+- **Decide:** `server/lib/guardianContacts.js` (pure: place a parent in a slot by email, then by name; status `not_checked`, `not_matched`, `do_not_contact`, `deceased`, `contactable`, with `primary` from the correspondence code) and `server/services/guardianContactStore.js` (`contactsForStudents`: a flag on one child applies to every row linked by `schoology_uid` or email, to a fixpoint). Calculated when a page requests it, never stored. With `powerschool_alerts` off, nothing changes.
+- **Show:** the student route returns `contact` per parent and `guardians_synced_at`; Class Tools leaves out every parent who is not contactable and states how many. A deceased guardian's card and a do-not-contact guardian's email stay hidden until Show alerts; Copy all copies contactable parents only. Pattern recorded in `docs/design-language.md` "PowerSchool alerts".
+- **Verified intel:** `.claude/powerschool-api-reference.md` "Guardian contacts (#66, verified 2026-10-21)"; probe `scripts/probe-ps-guardian-contacts.js`.
+- **Live check:** `DB_PATH=<copy> node scripts/parity-ps-guardians.js` runs the sync on a database copy and prints counts only: lists read and failed, students with slots, and parent rows per status (with the primary count). It refuses to run without `DB_PATH` or on `~/prism/data/students.db`.
+- **Not done (by design):** the DNC and deceased pop-ups for reason text, the correspondence pop-up, PrisMCP contact status. Follow-up: fill `parents.phone` from the list's phone columns.

@@ -64,7 +64,7 @@ The same browser session from `mastery:login` authenticates B **and** D (shared 
   no-uid path 500s, multiget 400s every submission path, the dropbox page renders server-side with no JSON). The
   web form's upload and post requests are captured (schoology-api-reference.md). **Still open:** whether a post
   notifies the student, a non-empty comment thread on a OneDrive (LTI) task, and any internal bulk route.
-- **PowerSchool guardian/contact tables** — the per-guardian *identities/contact details* the #66 "Correspondence" alerts do NOT provide (those are a single `X_HomeEmail` field). `X_HomeEmail` value decoding also pending (PII-safe).
+- ~~**PowerSchool guardian/contact tables** — the per-guardian *identities/contact details* the #66 "Correspondence" alerts do NOT provide (those are a single `X_HomeEmail` field). `X_HomeEmail` value decoding also pending (PII-safe).~~ **Found 2026-10-21 (#66):** the teacher page `/teachers/StudEmgContacts.html?sectionid=` (the Emergency Contact List) holds both guardian slots with name, email and phone, and `X_HomeEmail` is a one-character code (`1`, `2` or `3`). It is a teacher HTML page reached from `home.html`. See powerschool-api-reference.md "Guardian contacts (#66)". **Still open:** the DNC and deceased pop-ups (`mbapop_dnc1.html`, `mbapop_dnc2.html`, `mbapop_deceasedg2.html`) were not read, because every current student has those fields blank.
 - Other Schoology LTI apps beyond the attendance app (`/apps/...`); crawl pass 2 (course/section/groups/profile seeds) not run this session.
 
 When you extend any of these, append findings to the relevant `*-api-reference.md` and update the Frontier list here.

@@ -636,6 +636,8 @@ pending shape probes.
 
 #### #66 resolution — "G1/G2 Correspondence" alerts are NOT per-guardian identities
 
+*(Superseded in part 2026-10-21: the per-guardian names and emails are on the Emergency Contact List, and `X_HomeEmail` is a one-character code. See "Guardian contacts (#66, verified 2026-10-21)" above. The 2026-05-30 findings are kept below.)*
+
 Verified via **GET-only** `aet_customalert_sf.html` reads (no POSTs): the three correspondence
 alerts — `G1 Correspondence` (32012479), `G2 Correspondence` (32012481), `G1&G2 Correspondence`
 (32012482) — **all reference the same single student-extension field, `X_HomeEmail`** (per the
@@ -643,12 +645,12 @@ documented catalog above). They do **not** resolve distinct per-guardian identit
 G1/G2/G1&G2 distinction is encoded in each alert's trigger match against that one field's value,
 not via separate guardian records. Live reads of `U_DEF_EXT_STUDENTS.X_HomeEmail` (dcid 44467,
 2-guardian; dcid 38590 Claire Tse, G2 deceased) both returned 200 with a single, **heterogeneous,
-PII-bearing** value per student — so exact value decoding was left for a careful PII-safe pass.
+PII-bearing** value per student — so exact value decoding was left for a careful PII-safe pass. *(Decoded 2026-10-21: a one-character code, `1`, `2` or `3`.)*
 
 **Takeaway for Prism:** the genuinely *per-guardian* flags are the **paired** fields already in
 the catalog — `X_DNC_G1`/`X_DNC_G2` (do-not-contact) and `X_G1DECEASED`/`X_G2DECEASED` — not the
 Correspondence alerts. Distinct per-guardian *contact details* (names/emails) are not exposed by
-these alerts; they live in PowerSchool's guardian/contact tables (see Frontier).
+these alerts; they live in PowerSchool's guardian/contact tables (see Frontier). *(Found 2026-10-21: the Emergency Contact List; see "Guardian contacts (#66)" above.)*
 
 ### Student grade level, gender and postal address (#116, verified 2026-10-17)
 
@@ -741,6 +743,49 @@ second launch is gone: the grade pass took 480 ms for 9 sections, all from the l
 number", "Plain HTTP, no browser".)*
 
 Gender is in the same list (`…students[].gender`); Prism stores nothing from it (#164).
+
+### Guardian contacts (#66, verified 2026-10-21)
+
+Which Prism parent is PowerSchool's Guardian 1 or Guardian 2, and what PowerSchool says about each. Read only, over plain
+HTTP on the attendance LTI session, no browser. Every value was masked: the probe printed headers, lengths and counts, never
+a name, email or phone number. Probe: `scripts/probe-ps-guardian-contacts.js`. Data: the 9 active sections, 110 roster rows
+and 219 Prism parents (Prism's parents read from prod's database, opened read only).
+
+- **Contact fields** (`stuFieldValues.json`, already read by the alert sync above): `x_dnc_g1`, `x_dnc_g2`, `x_g1deceased`
+  and `x_g2deceased` were null for all 110 rows. `x_homeemail` is a one-character code on all 110: `3` for 97, `1` for 7 and
+  `2` for 6. The alert catalogue confirms the codes: G1 Correspondence is `in 1`, G2 Correspondence is `in 2`, G1 and G2
+  Correspondence is `in 3`.
+- **Catalogue rules** (`getAlertTypes.json`): Do Not Contact Guardian 1 / 2 (10672509 / 10672510) are `notblank`; Deceased
+  Guardian 1 / 2 (10593864 / 10733416) are `in 1`. Their pop-ups are `mbapop_dnc1.html`, `mbapop_dnc2.html` and
+  `mbapop_deceasedg2.html` (Deceased Guardian 1 has none). Every current student has these fields blank, so those pop-ups
+  were left unread.
+- **The Emergency Contact List is the slot map.** `GET /teachers/StudEmgContacts.html?sectionid={sectionDcid}`, reached the
+  way a teacher clicks to it: `GET /teachers/home.html` first, then the list with home as the Referer. It answered 200 for 9
+  of 9 sections, with no security violation. Each page holds one HTML table, with the header
+  `Student | Guardian 1 | G1 Email | G1 Phone | G1 Faculty | Guardian 2 | G2 Email | G2 Phone | G2 Faculty`, one row per
+  student, every cell set on all 110 rows and one email per email cell. Guardian names have the shape `Last, First`. All 110
+  rows joined to the section roster by the `Student` cell equal to the roster's `lastfirst`.
+- **Matching Prism parents to slots** (219 parents):
+  - by email to exactly one slot: 188; for each of these, first name plus surname named the same slot when it named any (178
+    agree, **0 disagree**);
+  - the same email in both slots: 3 parents (3 students), each placed by first name plus surname;
+  - a Prism email that is in neither slot: 19 parents, of whom 18 were placed by first name plus surname;
+  - no Prism email: 9 parents, all placed by first name plus surname;
+  - placed by surname alone, or not at all: **1 parent**, who would show as "not matched".
+
+  Surnames are shared between the two slots for 31 of 110 students, so surname alone is not enough.
+- **The correspondence pop-up** (`mbapop_emailcorr.html`, opened from the attendance page the way #163's Support Summary
+  read is): one table `Guardian | Email | Phone`, with one row for code 1 or 2 and two rows for code 3; 9 of 9 had no other
+  text. It lists the correspondence guardians without their slot. The code and the Emergency Contact List hold the same
+  answer with one read per section instead of one per student, so Prism leaves the pop-up unread. The free-text note the
+  issue quoted in May was not on any of the 9.
+- **No notes name a contact guardian.** The Divorced pop-ups (3 students) hold a single line of 41 to 49 characters; none of
+  19 Student Support Summaries has a contact word (G1, G2, both, contact, correspondence, custody, mother, father, email) in
+  any row.
+
+How Prism uses this: the alert sync reads the list once per section on its session (`server/lib/psEmergencyContacts.js`),
+stores the slots, and decides each parent's status when a page requests it (`server/lib/guardianContacts.js`). A live check on a
+database copy, counts only: `DB_PATH=<copy> node scripts/parity-ps-guardians.js`.
 
 ### Student home / postal address (#68 — wanted feature; feasibility, live probe pending)
 

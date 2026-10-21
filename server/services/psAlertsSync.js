@@ -2,7 +2,8 @@
  * psAlertsSync.js — read each active course's students' PowerSchool alerts
  * (#117): accommodation and learning-support plans, health alerts and a few
  * others (server/lib/psAlerts.js ALERT_DEFS), plus the raw guardian-contact
- * fields #66 uses (do-not-contact, deceased, the correspondence code). Behind the
+ * fields that decide which parents the copies leave out (#66: do-not-contact,
+ * deceased, the correspondence code). Behind the
  * powerschool_alerts feature.
  *
  * Plain HTTP, no browser (#141): the PowerSchool session comes from the attendance

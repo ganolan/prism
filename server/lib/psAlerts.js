@@ -14,7 +14,9 @@
  *
  * Prism keeps a short, curated set (ALERT_DEFS), keyed by the catalogue id, with
  * its own neutral labels. Contact alerts (do not contact, deceased guardian) are
- * stored as raw field values for #66 and never shown as badges.
+ * stored as raw field values and never shown as badges; server/lib/guardianContacts.js
+ * turns them, with the Emergency Contact List's guardian slots, into each parent's
+ * contact status (#66), which decides who the copies leave out.
  */
 
 // Category drives the badge colour: learning support, health, other, family.

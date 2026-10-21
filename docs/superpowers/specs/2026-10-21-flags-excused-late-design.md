@@ -1,7 +1,7 @@
 # Flags: Excused and Late from Prism (#40)
 
 Design agreed with Graham on 21 October 2026. Mockups: the private Artifact page "Excused and Late in
-Prism" (https://claude.ai/artifact/RcePZWizTujDo17X1zpLf3), version 6.
+Prism" (https://claude.ai/artifact/RcePZWizTujDo17X1zpLf3), version 7.
 
 ## Intent
 
@@ -79,8 +79,9 @@ row, beside the status pill, the comments chip and the "Open in Schoology" link.
 ### Open
 
 ```
-Excused     Leaves this task out of Sam's grade. Schoology locks the rubric.
-Late        Marks the work late. The grade still counts.
+Excused     Visibly flags the work as excused in Schoology. It is left out of Sam's grade,
+            and the rubric locks.
+Late        Visibly flags the work as late in Schoology. The grade still counts.
 ──────────
 IN SCHOOLOGY ONLY (i)
 Incomplete  (grayed)

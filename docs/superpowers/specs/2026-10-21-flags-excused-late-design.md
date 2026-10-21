@@ -122,7 +122,7 @@ A subheading, "Flag in Schoology", then five items, each with its symbol, its na
 - **Late:** "Left out of Sam's grade while flagged."
 - **Absent:** "Absent for this task. Left out of Sam's grade."
 - **Incomplete:** "No grade while flagged."
-- **Missing:** "Scores this task as zero. Topic averages are unchanged." (on a task with no topics: "Scores this task as zero.")
+- **Missing:** "Scores this task as zero. Topic levels already entered still count." (on a task with no topics: "Scores this task as zero.")
 
 Below a divider: "On graded work, Schoology removes the grade while a flag is set. Prism keeps a copy and
 offers to restore it when you clear the flag." The ticked item's line reads "Choose again to clear it."
@@ -172,12 +172,15 @@ state.
 Graham, 21 October 2026: a task marked Missing shows **IE on every measurement topic** in the shared
 feedback view (the student page and the gradebook pop-up), so it can inform discussions with the student.
 
-- **Prism's display only:** Schoology keeps Missing off the topics: its 0 stays on the task (verified).
-  Each IE carries the Missing symbol, and one line sits above the rubric: "Shown as IE because the work is
-  marked Missing. Schoology's topic averages do not include it."
-- **Topic averages are untouched:** Prism's per-topic summaries keep Schoology's own numbers. Recording real
-  IEs in Schoology is #175.
-- The gradebook cell keeps the Missing symbol; the assessment card keeps the grayed saved grade.
+- **What Schoology holds (probed 21 and 22 October 2026):** Missing writes no topic levels; it keeps the
+  levels that exist, and those still count in the topic averages. Missing on ungraded work leaves the topics untouched.
+- **No levels in Schoology** (the usual case: the work never arrived): each topic shows IE with the
+  Missing symbol, and one line sits above the rubric: "Shown as IE because the work is marked Missing.
+  Schoology holds no topic levels for this task yet." Recording real IEs in Schoology is #175.
+- **Levels in Schoology** (Missing set over graded work): the real levels show as they are, because they
+  count, with the line "Marked Missing. These levels still count in the topic averages."
+- Prism's per-topic summaries keep Schoology's own numbers. The gradebook cell keeps the Missing symbol;
+  the assessment card keeps the grayed saved grade.
 
 ## Saving and restoring the grade
 

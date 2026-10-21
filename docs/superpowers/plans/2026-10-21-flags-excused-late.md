@@ -242,7 +242,7 @@ Graham, 21 Oct 2026: Exempt (1) and Missing (3) are final; Late (6), Incomplete 
   - write-comment with `points` on a pair whose fresh exception is 6 sends `exception: 0` with the grade; on exception 0 it echoes 0; on a final flag (1 or 3) with `points` the route refuses with 409.
   - after a successful grade write over a marker, the pair's `excused_grades` row has `restored_at` set and a `flag` status line is removed.
   - `setGradeFlag` code 0 from Missing: the PUT carries `grade: null`; when the pair holds levels the copy lacks, the copy holds them before the PUT.
-  - `flagGuide(3, 'Sam', { aligned: true })` is "Scores this task as zero. Topic averages are unchanged."; `{ aligned: false }` gives "Scores this task as zero."
+  - `flagGuide(3, 'Sam', { aligned: true })` is "Scores this task as zero. Topic levels already entered still count."; `{ aligned: false }` gives "Scores this task as zero."
 - [ ] **Step 2: Run.** Expected: FAIL.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run both full suites and `npm run build`.** Expected: PASS.
@@ -257,7 +257,7 @@ Graham, 21 Oct 2026 (spec "Missing shows IE on the student page").
 **Files:**
 - Modify: `client/src/components/AssignmentFeedback.jsx` (and the rubric pieces it renders: `RubricDescriptorGrid`, `CompactRubric`, feedback rows), `client/src/app.css`, their tests, `docs/design-language.md`.
 
-- [ ] **Step 1: Write failing tests:** with `exception: 3` on an aligned task, every topic shows IE whatever levels the grade holds, each with the Missing symbol (`FlagSymbol` code 3, no name), and the line "Shown as IE because the work is marked Missing. Schoology's topic averages do not include it." appears above the rubric; on a task with feedback rows, every row shows IE the same way; with exception 0, 1, 2, 5 or 6 nothing changes; the student page and the gradebook pop-up both show it (they share the view); no per-topic summary on the student page changes.
+- [ ] **Step 1: Write failing tests:** with `exception: 3` on an aligned task whose grade holds no topic levels, every topic shows IE with the Missing symbol (`FlagSymbol` code 3, no name), and the line "Shown as IE because the work is marked Missing. Schoology holds no topic levels for this task yet." appears above the rubric; when the grade holds levels, they show as they are with the line "Marked Missing. These levels still count in the topic averages."; on a task with feedback rows, every row shows IE the same way; with exception 0, 1, 2, 5 or 6 nothing changes; the student page and the gradebook pop-up both show it (they share the view); no per-topic summary on the student page changes.
 - [ ] **Step 2: Run.** Expected: FAIL.
 - [ ] **Step 3: Implement** in `AssignmentFeedback` as a display transform of the levels it renders (never written anywhere).
 - [ ] **Step 4: Run both full suites and `npm run build`.** Expected: PASS.

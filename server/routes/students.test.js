@@ -22,6 +22,19 @@ async function get(path) {
   } finally { server.close(); }
 }
 
+async function put(path, body) {
+  const app = express();
+  app.use(express.json());
+  app.use('/api/students', router);
+  const server = app.listen(0);
+  try {
+    const res = await fetch(`http://localhost:${server.address().port}${path}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    return { status: res.status, body: await res.json() };
+  } finally { server.close(); }
+}
+
 let studentId, assignmentId;
 beforeEach(() => {
   vi.mocked(getFeatures).mockReturnValue({ powerschool_alerts: true });
@@ -108,8 +121,8 @@ describe('GET /api/students/:id — guardian contact status (#66)', () => {
     addFamily();
     const { body } = await get(`/api/students/${studentId}`);
     const byName = Object.fromEntries(body.parents.map((p) => [p.first_name, p.contact]));
-    expect(byName.Robin).toEqual({ status: 'contactable', primary: true, reason: null });
-    expect(byName.Kit).toEqual({ status: 'do_not_contact', primary: false, reason: 'Do not contact (PowerSchool)' });
+    expect(byName.Robin).toEqual({ status: 'contactable', primary: true, reason: null, ps: { email: 'robin@example.test', phone: null } });
+    expect(byName.Kit).toEqual({ status: 'do_not_contact', primary: false, reason: 'Do not contact (PowerSchool)', ps: { email: 'kit@example.test', phone: null } });
     expect(body.guardians_synced_at).toBe(SYNCED);
   });
 
@@ -118,5 +131,66 @@ describe('GET /api/students/:id — guardian contact status (#66)', () => {
     const { body } = await get(`/api/students/${studentId}`);
     expect(body.parents[0].contact.status).toBe('not_checked');
     expect(body).toHaveProperty('guardians_synced_at', null);
+  });
+});
+
+// #173: the PowerSchool slot's email and phone, and the teacher's extra phone and email.
+describe('/api/students/:id parents: PowerSchool details and the teacher\'s additions (#173)', () => {
+  const SYNCED = '2026-10-21T01:00:00.000Z';
+  let robin;
+  let kit;
+  beforeEach(() => {
+    const db = getDb();
+    robin = db.prepare(`INSERT INTO parents (student_id, schoology_uid, first_name, last_name, email) VALUES (?, 'p1', 'Robin', 'Sample', 'robin.login@example.test')`).run(studentId).lastInsertRowid;
+    kit = db.prepare(`INSERT INTO parents (student_id, schoology_uid, first_name, last_name, email, phone, extra_email) VALUES (?, 'p2', 'Kit', 'Sample', 'kit@example.test', '5550 0199', 'kit.work@example.test')`).run(studentId).lastInsertRowid;
+    db.prepare(`INSERT INTO student_ps_guardians (student_id, slot, name, email, phone) VALUES (?, 1, 'Sample, Robin', 'robin@example.test', '5550 0100'), (?, 2, 'Sample, Kit', NULL, '5550 0101')`).run(studentId, studentId);
+    db.prepare(`INSERT INTO student_powerschool (student_id, guardians_synced_at) VALUES (?, ?)`).run(studentId, SYNCED);
+  });
+  const byName = (body) => Object.fromEntries(body.parents.map((p) => [p.first_name, p]));
+
+  test('GET sends contact.ps', async () => {
+    const { body } = await get(`/api/students/${studentId}`);
+    const { Robin, Kit } = byName(body);
+    expect(Robin.contact.ps).toEqual({ email: 'robin@example.test', phone: '5550 0100' });
+    expect(Robin.extra_email).toBeNull();
+    expect(Kit).toMatchObject({ email: 'kit@example.test', phone: '5550 0199', extra_email: 'kit.work@example.test' });
+  });
+
+  test('a slot with no email falls back to the Schoology email: ps.email is null beside the Schoology email', async () => {
+    const { Kit } = byName((await get(`/api/students/${studentId}`)).body);
+    expect(Kit.contact).toMatchObject({ status: 'contactable', ps: { email: null, phone: '5550 0101' } });
+    expect(Kit.email).toBe('kit@example.test');
+  });
+
+  test('feature off: no contact, but the extra email arrives on the row', async () => {
+    vi.mocked(getFeatures).mockReturnValue({ powerschool_alerts: false });
+    const { Kit } = byName((await get(`/api/students/${studentId}`)).body);
+    expect(Kit).not.toHaveProperty('contact');
+    expect(Kit.extra_email).toBe('kit.work@example.test');
+  });
+
+  test('PUT updates only the keys sent', async () => {
+    let r = await put(`/api/students/${studentId}/parents/${kit}`, { extra_email: 'kit.home@example.test' });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ id: kit, phone: '5550 0199', extra_email: 'kit.home@example.test' });
+    r = await put(`/api/students/${studentId}/parents/${kit}`, { phone: '5550 0198' });
+    expect(r.body).toMatchObject({ phone: '5550 0198', extra_email: 'kit.home@example.test' });
+    r = await put(`/api/students/${studentId}/parents/${kit}`, { phone: '', extra_email: null });
+    expect(r.body).toMatchObject({ phone: null, extra_email: null });
+    r = await put(`/api/students/${studentId}/parents/${robin}`, { phone: ' 5550 0197 ', extra_email: ' robin.home@example.test ' });
+    expect(r.body).toMatchObject({ phone: '5550 0197', extra_email: 'robin.home@example.test' });
+    r = await put(`/api/students/${studentId}/parents/${robin}`, {});
+    expect(r.body).toMatchObject({ phone: '5550 0197', extra_email: 'robin.home@example.test' });
+  });
+
+  test('PUT refuses an extra email without @', async () => {
+    const r = await put(`/api/students/${studentId}/parents/${kit}`, { phone: '5550 0198', extra_email: 'kit at example' });
+    expect(r).toEqual({ status: 400, body: { error: 'Extra email must be an email address' } });
+    expect(getDb().prepare('SELECT phone, extra_email FROM parents WHERE id = ?').get(kit)).toEqual({ phone: '5550 0199', extra_email: 'kit.work@example.test' });
+  });
+
+  test('PUT for another student\'s parent is not found', async () => {
+    const r = await put(`/api/students/${studentId + 1}/parents/${kit}`, { phone: '5550 0198' });
+    expect(r.status).toBe(404);
   });
 });

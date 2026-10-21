@@ -1,7 +1,7 @@
 // Each parent's contact status for the routes (#66): may Prism copy their address?
 // Reads parents, student_ps_guardians and student_powerschool (server/db/schema.sql);
 // the decision itself is server/lib/guardianContacts.js.
-import { CONTACT_REASONS, FLAG_RANK as RANK, decideParents, emailKey } from '../lib/guardianContacts.js';
+import { CONTACT_REASONS, FLAG_RANK as RANK, decideParents, emailKey, placeParents } from '../lib/guardianContacts.js';
 
 const marks = (n) => Array(n).fill('?').join(',');
 // The SQL form, used only to find related rows: trims spaces, tabs, line breaks and
@@ -12,8 +12,21 @@ const SQL_EMAIL_KEY = (col) => `lower(trim(${col}, char(32, 9, 10, 13, 160)))`;
 // The keys that link a parent row to the same guardian's rows for other children.
 const keysOf = (p) => [p.schoology_uid && `uid:${p.schoology_uid}`, emailKey(p.email) && `email:${emailKey(p.email)}`].filter(Boolean);
 
+// One student's PowerSchool details per parent: Map<parentId, { email, phone }> for each
+// parent uniquely placed in a slot (none when the student was never checked).
+function psDetails(checked, parents, slots) {
+  const out = new Map();
+  if (!checked) return out;
+  const placed = placeParents(parents, slots);
+  const held = [...placed.values()].filter(Boolean);
+  for (const [id, slot] of placed) {
+    if (slot && held.filter((s) => s === slot).length === 1) out.set(id, { email: slots[slot].email ?? null, phone: slots[slot].phone ?? null });
+  }
+  return out;
+}
+
 /**
- * Map<studentId, { guardiansSyncedAt, byParent: Map<parentId, { status, primary, reason, uncertain? }> }>
+ * Map<studentId, { guardiansSyncedAt, byParent: Map<parentId, { status, primary, reason, uncertain?, ps }> }>
  * for each requested student (listed even with no parents). checked = the student has
  * a guardian read (student_powerschool.guardians_synced_at). Each student's own parents
  * are decided by decideParents (server/lib/guardianContacts.js), which also gives a
@@ -31,6 +44,11 @@ const keysOf = (p) => [p.schoology_uid && `uid:${p.schoology_uid}`, emailKey(p.e
  * status from another row gets the plain reason (CONTACT_REASONS) and no `uncertain`
  * mark, even when the row it came from was uncertain: the uncertainty belongs to the
  * other child's record, whose card states it.
+ *
+ * ps (#173): { email, phone } of the PowerSchool slot the parent is uniquely placed in on
+ * this student's record (placeParents; either may be null), else null: not checked, not
+ * placed, or placed in a slot another parent shares (two parents with one email). It is
+ * given whatever the status; the routes copy nothing of a parent that is not contactable.
  */
 export function contactsForStudents(db, studentIds) {
   const ids = [...new Set((studentIds || []).map(Number))];
@@ -54,12 +72,12 @@ export function contactsForStudents(db, studentIds) {
   const q = marks(decide.length);
   const parents = db.prepare(`SELECT id, student_id, schoology_uid, first_name, last_name, email
     FROM parents WHERE student_id IN (${q}) ORDER BY id`).all(...decide);
-  const slotRows = db.prepare(`SELECT student_id, slot, name, email FROM student_ps_guardians WHERE student_id IN (${q})`).all(...decide);
+  const slotRows = db.prepare(`SELECT student_id, slot, name, email, phone FROM student_ps_guardians WHERE student_id IN (${q})`).all(...decide);
   const psRows = db.prepare(`SELECT student_id, guardians_synced_at, dnc_g1, dnc_g2, g1_deceased, g2_deceased, correspondence
     FROM student_powerschool WHERE student_id IN (${q})`).all(...decide);
   const ps = new Map(psRows.map((r) => [r.student_id, r]));
   const slots = new Map();
-  for (const r of slotRows) (slots.get(r.student_id) ?? slots.set(r.student_id, {}).get(r.student_id))[r.slot] = { name: r.name, email: r.email };
+  for (const r of slotRows) (slots.get(r.student_id) ?? slots.set(r.student_id, {}).get(r.student_id))[r.slot] = { name: r.name, email: r.email, phone: r.phone };
   const parentsOf = new Map();
   for (const p of parents) (parentsOf.get(p.student_id) ?? parentsOf.set(p.student_id, []).get(p.student_id)).push(p);
 
@@ -93,12 +111,14 @@ export function contactsForStudents(db, studentIds) {
 
   for (const sid of ids) {
     const byParent = new Map();
+    const details = psDetails(ps.get(sid)?.guardians_synced_at != null, parentsOf.get(sid) || [], slots.get(sid) || {});
     for (const p of parentsOf.get(sid) || []) {
       const own = decided.get(p.id);
       const flag = flagOf.get(find(p.id));
-      byParent.set(p.id, flag && (RANK[own.status] ?? 0) < RANK[flag]
-        ? { status: flag, primary: false, reason: CONTACT_REASONS[flag] }
-        : own);
+      byParent.set(p.id, {
+        ...(flag && (RANK[own.status] ?? 0) < RANK[flag] ? { status: flag, primary: false, reason: CONTACT_REASONS[flag] } : own),
+        ps: details.get(p.id) ?? null,
+      });
     }
     out.set(sid, { guardiansSyncedAt: ps.get(sid)?.guardians_synced_at ?? null, byParent });
   }

@@ -9,8 +9,28 @@ describe('parseEmergencyContacts', () => {
       { student: 'Cho, Sam', g1: ['Cho, Dae', 'dae@example.org'], g2: ['', ''] },
     ]);
     expect(parseEmergencyContacts(html)).toEqual([
-      { student: 'Lee, Ana', g1: { name: 'Lee, Mei', email: 'mei.lee@example.org' }, g2: { name: 'Park, Jin', email: 'jin@example.org' } },
-      { student: 'Cho, Sam', g1: { name: 'Cho, Dae', email: 'dae@example.org' }, g2: { name: null, email: null } },
+      { student: 'Lee, Ana', g1: { name: 'Lee, Mei', email: 'mei.lee@example.org', phone: null }, g2: { name: 'Park, Jin', email: 'jin@example.org', phone: null } },
+      { student: 'Cho, Sam', g1: { name: 'Cho, Dae', email: 'dae@example.org', phone: null }, g2: { name: null, email: null, phone: null } },
+    ]);
+  });
+
+  test('keeps each slot\'s phone', () => {
+    const html = emergencyHtml([
+      { student: 'Lee, Ana', g1: ['Lee, Mei', 'm@example.org', ' 5550&nbsp;0100 '], g2: ['Park, Jin', 'j@example.org', '+00-555-0101'] },
+      { student: 'Cho, Sam', g1: ['Cho, Dae', 'd@example.org', ''], g2: ['', '', ''] },
+    ]);
+    const [lee, cho] = parseEmergencyContacts(html);
+    expect(lee.g1.phone).toBe('5550 0100');
+    expect(lee.g2.phone).toBe('+00-555-0101');
+    expect(cho.g1.phone).toBeNull();
+    expect(cho.g2).toEqual({ name: null, email: null, phone: null });
+  });
+
+  test('a list without phone columns parses with null phones', () => {
+    const html = '<table><tr><th>Student</th><th>Guardian 1</th><th>G1 Email</th><th>Guardian 2</th><th>G2 Email</th></tr>'
+      + '<tr><td>Lee, Ana</td><td>Lee, Mei</td><td>m@example.org</td><td>Park, Jin</td><td>j@example.org</td></tr></table>';
+    expect(parseEmergencyContacts(html)).toEqual([
+      { student: 'Lee, Ana', g1: { name: 'Lee, Mei', email: 'm@example.org', phone: null }, g2: { name: 'Park, Jin', email: 'j@example.org', phone: null } },
     ]);
   });
 

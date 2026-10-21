@@ -122,9 +122,10 @@ describe('GET /api/tools/emails/:courseId and guardian contact status', () => {
   const addParent = (studentId, uid, first, email) => getDb().prepare(
     'INSERT INTO parents (student_id, schoology_uid, first_name, last_name, email) VALUES (?, ?, ?, ?, ?)'
   ).run(studentId, uid, first, 'Sample', email).lastInsertRowid;
-  const addSlot = (studentId, slot, name, email) => getDb().prepare(
-    'INSERT INTO student_ps_guardians (student_id, slot, name, email) VALUES (?, ?, ?, ?)'
-  ).run(studentId, slot, name, email);
+  const addSlot = (studentId, slot, name, email, phone = null) => getDb().prepare(
+    'INSERT INTO student_ps_guardians (student_id, slot, name, email, phone) VALUES (?, ?, ?, ?, ?)'
+  ).run(studentId, slot, name, email, phone);
+  const setExtra = (parentId, extra) => getDb().prepare('UPDATE parents SET extra_email = ? WHERE id = ?').run(extra, parentId);
   const setPs = (studentId, fields) => {
     const cols = ['guardians_synced_at', ...Object.keys(fields)];
     getDb().prepare(`INSERT INTO student_powerschool (student_id, ${cols.join(', ')}) VALUES (?, ${cols.map(() => '?').join(', ')})`)
@@ -226,7 +227,7 @@ describe('GET /api/tools/emails/:courseId and guardian contact status', () => {
     const b = addStudent({ first: 'Ben', last: 'Sample' });
     addParent(a, 'p1', 'Jordan', 'home@example.test');
     addParent(b, 'p2', 'Robin', ' Home@example.test ');
-    addSlot(b, 1, 'Sample, Robin', 'home@example.test');
+    addSlot(b, 1, 'Sample, Robin', null); // placed by name; no PowerSchool email, so the Schoology one is copied
     setPs(a, {});
     setPs(b, {});
     const { body } = await parents();
@@ -252,5 +253,94 @@ describe('GET /api/tools/emails/:courseId and guardian contact status', () => {
     const { body } = await get(`/api/tools/emails/${courseA}?type=both`);
     expect(body.addresses).toEqual(['ada@example.test', 'robin@example.test']);
     expect(body.excluded).toBe(1);
+  });
+
+  // #173: the PowerSchool address, and the teacher's extra email.
+  test('feature on: copies the PowerSchool address instead of the Schoology one', async () => {
+    on();
+    const a = addStudent({ first: 'Ada', last: 'Sample' });
+    addParent(a, 'p1', 'Robin', 'robin.login@example.test');
+    addSlot(a, 1, 'Sample, Robin', 'robin@example.test', '5550 0100');
+    setPs(a, {});
+    const { body } = await parents();
+    expect(body.emails).toEqual(['"Robin Sample (parent of Ada Sample)" <robin@example.test>']);
+    expect(body.excluded).toBe(0);
+  });
+
+  test('feature on: a slot with no email falls back to the Schoology email', async () => {
+    on();
+    const a = addStudent({ first: 'Ada', last: 'Sample' });
+    addParent(a, 'p1', 'Robin', 'robin.login@example.test');
+    addSlot(a, 1, 'Sample, Robin', null, '5550 0100');
+    setPs(a, {});
+    expect((await parents()).body.addresses).toEqual(['robin.login@example.test']);
+  });
+
+  test('feature on: a parent with only a PowerSchool email is copied', async () => {
+    on();
+    const a = addStudent({ first: 'Ada', last: 'Sample' });
+    addParent(a, 'p1', 'Robin', null);
+    addSlot(a, 1, 'Sample, Robin', 'robin@example.test');
+    setPs(a, {});
+    const { body } = await parents();
+    expect(body.addresses).toEqual(['robin@example.test']);
+    expect(body.excluded).toBe(0);
+  });
+
+  test('feature on: copies a copyable parent\'s extra email', async () => {
+    on();
+    const a = familyWithOneFlagged();
+    const robin = getDb().prepare("SELECT id FROM parents WHERE student_id = ? AND first_name = 'Robin'").get(a).id;
+    setExtra(robin, 'robin.work@example.test');
+    const { body } = await parents();
+    expect(body.emails).toEqual([
+      '"Robin Sample (parent of Ada Sample)" <robin@example.test>',
+      '"Robin Sample (parent of Ada Sample)" <robin.work@example.test>',
+    ]);
+    expect(body.excluded).toBe(1);
+  });
+
+  test('feature on: a left-out guardian\'s extra email is withheld and counted once', async () => {
+    on();
+    const a = familyWithOneFlagged();
+    const kit = getDb().prepare("SELECT id FROM parents WHERE student_id = ? AND first_name = 'Kit'").get(a).id;
+    setExtra(kit, 'kit.work@example.test');
+    const { body } = await parents();
+    expect(body.addresses).toEqual(['robin@example.test']);
+    expect(body.formatted).not.toContain('kit');
+    expect(body.excluded).toBe(1);
+  });
+
+  test('feature on: a left-out guardian\'s Schoology, PowerSchool and extra addresses are one guardian not copied', async () => {
+    on();
+    const a = addStudent({ first: 'Ada', last: 'Sample' });
+    const kit = addParent(a, 'p2', 'Kit', 'kit.login@example.test');
+    setExtra(kit, 'kit.work@example.test');
+    addSlot(a, 2, 'Sample, Kit', 'kit@example.test');
+    setPs(a, { dnc_g2: '1' });
+    const { body } = await parents();
+    expect(body.addresses).toEqual([]);
+    expect(body.excluded).toBe(1);
+  });
+
+  test('feature off: the extra email is copied', async () => {
+    const a = addStudent({ first: 'Ada', last: 'Sample' });
+    const robin = addParent(a, 'p1', 'Robin', 'robin@example.test');
+    setExtra(robin, 'robin.work@example.test');
+    const kit = addParent(a, 'p2', 'Kit', null);
+    setExtra(kit, 'kit.work@example.test');
+    const { body } = await parents();
+    expect(body.addresses).toEqual(['kit.work@example.test', 'robin@example.test', 'robin.work@example.test']);
+    expect(body.excluded).toBe(0);
+  });
+
+  test('feature on: a student with only a legacy parent_email is counted in a mixed class', async () => {
+    on();
+    familyWithOneFlagged();
+    const b = addStudent({ first: 'Ben', last: 'Sample' });
+    getDb().prepare('UPDATE students SET parent_email = ? WHERE id = ?').run('legacy-b@example.test', b);
+    const { body } = await parents();
+    expect(body.addresses).toEqual(['robin@example.test']);
+    expect(body.excluded).toBe(2); // Kit and Ben's legacy address
   });
 });

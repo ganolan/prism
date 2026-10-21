@@ -25,8 +25,9 @@ CREATE TABLE IF NOT EXISTS parents (
   first_name TEXT NOT NULL,
   last_name TEXT NOT NULL,
   email TEXT,
-  phone TEXT,
+  phone TEXT,                         -- the teacher's extra phone, typed in Prism ("Extra phone")
   relationship TEXT,
+  extra_email TEXT,                   -- the teacher's extra email, typed in Prism (#173)
   UNIQUE(student_id, schoology_uid)
 );
 
@@ -868,14 +869,16 @@ CREATE TABLE IF NOT EXISTS student_powerschool (
 );
 
 -- PowerSchool's two guardian slots per student (#66), from the Emergency Contact List:
--- the name as PowerSchool shows it (`Last, First`) and the slot's first email address.
--- A sync replaces a student's rows only when it read the list for them; a failed read
--- keeps the last-known rows. A slot with neither name nor email has no row.
+-- the name as PowerSchool shows it (`Last, First`), the slot's first email address and
+-- its phone as written (#173). A sync replaces a student's rows only when it read the
+-- list for them; a failed read keeps the last-known rows. A slot with no name, email or
+-- phone has no row.
 CREATE TABLE IF NOT EXISTS student_ps_guardians (
   student_id INTEGER NOT NULL REFERENCES students(id),
   slot INTEGER NOT NULL CHECK (slot IN (1, 2)),
   name TEXT,
   email TEXT,
+  phone TEXT,
   PRIMARY KEY (student_id, slot)
 );
 

@@ -2,22 +2,27 @@
 // one HTML table per section, header `Student | Guardian 1 | G1 Email | G1 Phone | G1 Faculty |
 // Guardian 2 | G2 Email | G2 Phone | G2 Faculty`, one row per student, guardian names as
 // `Last, First`. Probed 21/10/2026 (docs/superpowers/specs/2026-10-21-do-not-contact-guardians-design.md).
-// It is the map from a student to PowerSchool's two guardian slots; Prism reads only the
-// name and email of each slot (the phones and faculty flags are ignored).
+// It is the map from a student to PowerSchool's two guardian slots; Prism reads the name,
+// email and phone of each slot (#173; the faculty flags are ignored).
 const decode = (v) => v
   .replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'")
   .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 const text = (html) => decode(html.replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
 
 const HEADERS = { student: 'Student', g1Name: 'Guardian 1', g1Email: 'G1 Email', g2Name: 'Guardian 2', g2Email: 'G2 Email' };
+// Read when present: a list without them still parses, with null phones.
+const PHONE_HEADERS = { g1Phone: 'G1 Phone', g2Phone: 'G2 Phone' };
 
 // An email cell's first address, lower-cased ("a@x.org; b@x.org" → "a@x.org").
 const email = (cell) => (text(cell).split(/[\s;,]+/)[0] || '').toLowerCase() || null;
 const name = (cell) => text(cell) || null;
+// A phone cell as written (one number per cell, probed 21/10/2026): trimmed, spaces collapsed.
+const phone = (cell) => (cell == null ? null : text(cell) || null);
 
-// → [{ student, g1: { name, email }, g2: { name, email } }] in page order. The table is
-// the one whose header row holds the five headers above (any order, other columns
-// ignored); a layout table before it is skipped. Throws when no row is that header.
+// → [{ student, g1: { name, email, phone }, g2: { name, email, phone } }] in page order.
+// The table is the one whose header row holds the five headers above (any order, other
+// columns ignored; G1 Phone and G2 Phone are read when there); a layout table before it
+// is skipped. Throws when no row is that header.
 export function parseEmergencyContacts(html) {
   const source = String(html || '');
   // Innermost rows only, so a layout table wrapped around the list cannot swallow it.
@@ -30,7 +35,11 @@ export function parseEmergencyContacts(html) {
   for (let i = 0; i < rows.length && !cols; i++) {
     const labels = rows[i].cells.map(text);
     const found = Object.fromEntries(Object.entries(HEADERS).map(([key, label]) => [key, labels.indexOf(label)]));
-    if (Object.values(found).every((n) => n >= 0)) { cols = found; from = i; }
+    if (Object.values(found).every((n) => n >= 0)) {
+      cols = found;
+      from = i;
+      for (const [key, label] of Object.entries(PHONE_HEADERS)) cols[key] = labels.indexOf(label);
+    }
   }
   if (!cols) throw new Error('emergency contact list: header not found');
   const list = [];
@@ -38,13 +47,13 @@ export function parseEmergencyContacts(html) {
     // The table ends before the next row when a </table> sits between them.
     if (/<\/table/i.test(source.slice(rows[i - 1].end, rows[i].end - 1))) break;
     const c = rows[i].cells;
-    if (c.length <= Math.max(...Object.values(cols))) continue;
+    if (c.length <= Math.max(...Object.keys(HEADERS).map((k) => cols[k]))) continue;
     const student = text(c[cols.student]);
     if (!student) continue;
     list.push({
       student,
-      g1: { name: name(c[cols.g1Name]), email: email(c[cols.g1Email]) },
-      g2: { name: name(c[cols.g2Name]), email: email(c[cols.g2Email]) },
+      g1: { name: name(c[cols.g1Name]), email: email(c[cols.g1Email]), phone: phone(c[cols.g1Phone]) },
+      g2: { name: name(c[cols.g2Name]), email: email(c[cols.g2Email]), phone: phone(c[cols.g2Phone]) },
     });
   }
   return list;

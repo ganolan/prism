@@ -18,10 +18,11 @@ export const launchHtml = ({ sectionDcid = '9001', action = `${PS}/integrations/
 </form><script>document.forms[0].submit()</script></body></html>`;
 
 // A made-up Emergency Contact List (#66) in the probed shape: rows are
-// { student, g1: [name, email], g2: [name, email] }, names `Last, First`.
+// { student, g1: [name, email, phone?], g2: [name, email, phone?] }, names `Last, First`
+// (no phone: an empty cell).
 export const emergencyHtml = (rows = []) => `<html><body><table><tr><td>Menu</td></tr></table>
 <table class="grid"><thead><tr><th>Student</th><th>Guardian 1</th><th>G1 Email</th><th>G1 Phone</th><th>G1 Faculty</th><th>Guardian 2</th><th>G2 Email</th><th>G2 Phone</th><th>G2 Faculty</th></tr></thead><tbody>
-${rows.map((r) => `<tr><td>${r.student}</td><td>${r.g1[0]}</td><td>${r.g1[1]}</td><td>555-0100</td><td></td><td>${r.g2[0]}</td><td>${r.g2[1]}</td><td>555-0101</td><td></td></tr>`).join('\n')}
+${rows.map((r) => `<tr><td>${r.student}</td><td>${r.g1[0]}</td><td>${r.g1[1]}</td><td>${r.g1[2] ?? ''}</td><td></td><td>${r.g2[0]}</td><td>${r.g2[1]}</td><td>${r.g2[2] ?? ''}</td><td></td></tr>`).join('\n')}
 </tbody></table></body></html>`;
 
 const sf = (id, field, operator, operand = '') => ({

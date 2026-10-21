@@ -210,7 +210,29 @@ describe('migration: guardian slots and the correspondence code (#66)', () => {
     expect(cols).toEqual(expect.arrayContaining(['correspondence', 'guardians_synced_at']));
     expect(db.prepare('SELECT dnc_g1, correspondence, guardians_synced_at FROM student_powerschool').get())
       .toEqual({ dnc_g1: '1', correspondence: null, guardians_synced_at: null });
-    expect(db.prepare('PRAGMA table_info(student_ps_guardians)').all().map((c) => c.name)).toEqual(['student_id', 'slot', 'name', 'email']);
+    expect(db.prepare('PRAGMA table_info(student_ps_guardians)').all().map((c) => c.name)).toEqual(['student_id', 'slot', 'name', 'email', 'phone']);
+  });
+});
+
+describe('migration: guardian phones and the extra email (#173)', () => {
+  test('an existing database gains student_ps_guardians.phone and parents.extra_email', () => {
+    const db = new Database(':memory:');
+    db.exec(`CREATE TABLE parents (id INTEGER PRIMARY KEY AUTOINCREMENT, student_id INTEGER NOT NULL, schoology_uid TEXT,
+      first_name TEXT NOT NULL, last_name TEXT NOT NULL, email TEXT, phone TEXT, relationship TEXT, UNIQUE(student_id, schoology_uid))`);
+    db.exec(`CREATE TABLE student_ps_guardians (student_id INTEGER NOT NULL, slot INTEGER NOT NULL CHECK (slot IN (1, 2)),
+      name TEXT, email TEXT, PRIMARY KEY (student_id, slot))`);
+    db.prepare(`INSERT INTO parents (student_id, first_name, last_name, phone) VALUES (1, 'Robin', 'Sample', '5550 0100')`).run();
+    db.prepare(`INSERT INTO student_ps_guardians (student_id, slot, name) VALUES (1, 1, 'Sample, Robin')`).run();
+    migrate(db);
+    expect(db.prepare('SELECT phone, extra_email FROM parents').get()).toEqual({ phone: '5550 0100', extra_email: null });
+    expect(db.prepare('SELECT name, phone FROM student_ps_guardians').get()).toEqual({ name: 'Sample, Robin', phone: null });
+  });
+
+  test('a fresh DB has both columns from schema.sql', () => {
+    const db = new Database(':memory:');
+    db.exec(readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'schema.sql'), 'utf-8'));
+    expect(db.prepare('PRAGMA table_info(parents)').all().map((c) => c.name)).toContain('extra_email');
+    expect(db.prepare('PRAGMA table_info(student_ps_guardians)').all().map((c) => c.name)).toContain('phone');
   });
 });
 

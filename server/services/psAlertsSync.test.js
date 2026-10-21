@@ -241,9 +241,10 @@ describe('syncPsAlerts', () => {
 });
 
 describe('syncPsAlerts: guardian slots (#66)', () => {
-  const lee = { student: 'Lee, Ana', g1: ['Lee, Mei', 'mei@example.org'], g2: ['Lee, Jun', 'jun@example.org'] };
+  const lee = { student: 'Lee, Ana', g1: ['Lee, Mei', 'mei@example.org', '5550 0100'], g2: ['Lee, Jun', 'jun@example.org'] };
   const sections = { 9001: [{ studentid: '101', studentdcid: '5001', lastfirst: 'Lee, Ana', values: { x_homeemail: '2' } }] };
   const slots = (id) => db.prepare('SELECT slot, name, email FROM student_ps_guardians WHERE student_id = ? ORDER BY slot').all(id);
+  const phones = (id) => db.prepare('SELECT slot, phone FROM student_ps_guardians WHERE student_id = ? ORDER BY slot').all(id);
   const run = (web) => syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar } });
 
   test('stores each student\'s guardian slots, the correspondence code and guardians_synced_at', async () => {
@@ -256,6 +257,7 @@ describe('syncPsAlerts: guardian slots (#66)', () => {
       { slot: 1, name: 'Lee, Mei', email: 'mei@example.org' },
       { slot: 2, name: 'Lee, Jun', email: 'jun@example.org' },
     ]);
+    expect(phones(a)).toEqual([{ slot: 1, phone: '5550 0100' }, { slot: 2, phone: null }]);
     const row = db.prepare('SELECT correspondence, guardians_synced_at IS NOT NULL synced FROM student_powerschool WHERE student_id = ?').get(a);
     expect(row).toEqual({ correspondence: '2', synced: 1 });
     const pages = web.requests.filter((q) => q.path === '/teachers/home.html' || q.path === '/teachers/StudEmgContacts.html');
@@ -334,6 +336,17 @@ describe('applyPsGuardians', () => {
     expect(db.prepare('SELECT student_id, slot, name FROM student_ps_guardians ORDER BY student_id, slot').all())
       .toEqual([{ student_id: a, slot: 1, name: 'Lee, Mei' }, { student_id: b, slot: 2, name: 'Keep, Me' }]);
     expect(db.prepare('SELECT student_id, guardians_synced_at FROM student_powerschool').all()).toEqual([{ student_id: a, guardians_synced_at: '2026-10-21T00:00:00.000Z' }]);
+  });
+
+  test('stores a slot\'s phone, and a slot with only a phone', () => {
+    const a = addStudent('5001');
+    applyPsGuardians(db, new Map([
+      ['5001', { g1: { name: 'Lee, Mei', email: 'mei@example.org', phone: '5550 0100' }, g2: { name: null, email: null, phone: '5550 0101' } }],
+    ]));
+    expect(db.prepare('SELECT slot, name, email, phone FROM student_ps_guardians WHERE student_id = ? ORDER BY slot').all(a)).toEqual([
+      { slot: 1, name: 'Lee, Mei', email: 'mei@example.org', phone: '5550 0100' },
+      { slot: 2, name: null, email: null, phone: '5550 0101' },
+    ]);
   });
 });
 

@@ -191,7 +191,9 @@ router.get('/:id', (req, res) => {
   ).all(req.params.id);
 
   // #66: each guardian's contact status from PowerSchool (may Prism copy the address?),
-  // when the feature is on. Off: parents are returned exactly as stored.
+  // when the feature is on, with the PowerSchool slot's email and phone (contact.ps,
+  // #173). Off: parents are returned exactly as stored (the teacher's phone and
+  // extra_email are columns, so they arrive either way).
   let guardiansSyncedAt;
   if (getFeatures().powerschool_alerts) {
     const contacts = contactsForStudents(db, [student.id]).get(student.id);
@@ -259,13 +261,22 @@ router.put('/:id', (req, res) => {
   res.json(updated);
 });
 
-// PUT /api/students/:id/parents/:parentId — update a parent's phone number
+// PUT /api/students/:id/parents/:parentId — the teacher's additions to a parent (#173):
+// body { phone?, extra_email? }. Only the keys sent are updated; '' or null clears one.
+// An extra email must hold an @. → the updated row.
+const EDITABLE_PARENT_FIELDS = ['phone', 'extra_email'];
 router.put('/:id/parents/:parentId', (req, res) => {
   const db = getDb();
-  const { phone } = req.body;
-  const result = db.prepare(`UPDATE parents SET phone = ? WHERE id = ? AND student_id = ?`)
-    .run(phone ?? null, req.params.parentId, req.params.id);
-  if (result.changes === 0) return res.status(404).json({ error: 'Parent not found' });
+  const body = req.body || {};
+  const fields = EDITABLE_PARENT_FIELDS.filter((k) => Object.hasOwn(body, k));
+  const values = fields.map((k) => (body[k] == null ? null : String(body[k]).trim() || null));
+  const extra = values[fields.indexOf('extra_email')];
+  if (extra && !extra.includes('@')) return res.status(400).json({ error: 'Extra email must be an email address' });
+  const where = 'WHERE id = ? AND student_id = ?';
+  const found = fields.length
+    ? db.prepare(`UPDATE parents SET ${fields.map((k) => `${k} = ?`).join(', ')} ${where}`).run(...values, req.params.parentId, req.params.id).changes
+    : db.prepare(`SELECT 1 FROM parents ${where}`).get(req.params.parentId, req.params.id);
+  if (!found) return res.status(404).json({ error: 'Parent not found' });
   const updated = db.prepare('SELECT * FROM parents WHERE id = ?').get(req.params.parentId);
   res.json(updated);
 });

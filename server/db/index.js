@@ -196,6 +196,9 @@ const MIGRATIONS = [
   // #66: the raw correspondence code, and when the guardian slots were last read.
   `ALTER TABLE student_powerschool ADD COLUMN correspondence TEXT`,
   `ALTER TABLE student_powerschool ADD COLUMN guardians_synced_at TEXT`,
+  // #173: each guardian slot's phone, and the teacher's extra email for a parent.
+  `ALTER TABLE student_ps_guardians ADD COLUMN phone TEXT`,
+  `ALTER TABLE parents ADD COLUMN extra_email TEXT`,
 ];
 
 // Remove orphaned auto-flag rows. The auto-flag feature that wrote 'missing',

@@ -31,7 +31,7 @@ router.get('/', (req, res) => {
   res.json(rows);
 });
 
-// GET /api/students/:id — student profile with courses, grades, notes, flags
+// GET /api/students/:id — student profile with courses, grades, notes, and flags (open resubmission requests)
 // GET /api/students/:id/support-summary → { rows: [{ category, description, url? }], readAt }:
 // the PowerSchool Student Support Summary, read on demand when the teacher opens
 // "Show alerts" (#163; server/services/psSupportSummary.js). For the teacher only.
@@ -176,15 +176,12 @@ router.get('/:id', (req, res) => {
     'SELECT * FROM notes WHERE student_id = ? ORDER BY created_at DESC'
   ).all(req.params.id);
 
-  const flags = db.prepare(
-    'SELECT * FROM flags WHERE student_id = ? ORDER BY created_at DESC'
-  ).all(req.params.id);
-
-  // Open resubmission requests (triage) still read as 'resubmit_requested' badges.
-  const requests = db.prepare(`
+  // Open resubmission requests (triage) read as 'resubmit_requested' badges. They are the only
+  // flags the student page shows: Flag for review is gone (#40).
+  const flags = db.prepare(`
     SELECT id, student_id, assignment_id, created_at FROM resubmissions
     WHERE student_id = ? AND kind = 'request' AND status = 'open'
-  `).all(req.params.id).map((r) => ({ id: `resubmission-${r.id}`, student_id: r.student_id, assignment_id: r.assignment_id, flag_type: 'resubmit_requested', flag_reason: null, resolved: 0, created_at: r.created_at }));
+  `).all(req.params.id).map((r) => ({ id: `resubmission-${r.id}`, student_id: r.student_id, assignment_id: r.assignment_id, flag_type: 'resubmit_requested', resolved: 0, created_at: r.created_at }));
 
   let parents = db.prepare(
     'SELECT * FROM parents WHERE student_id = ? ORDER BY last_name, first_name'
@@ -207,7 +204,7 @@ router.get('/:id', (req, res) => {
   const psAlerts = student && getFeatures().powerschool_alerts ? psAlertsForStudent(db, student.id) : null;
 
   res.json({
-    ...student, courses, grades, notes, flags: [...flags, ...requests], parents, grading_scales: getGradingScalesMap(),
+    ...student, courses, grades, notes, flags, parents, grading_scales: getGradingScalesMap(),
     ...(psAlerts ? { ps_alerts: psAlerts.alerts, ps_alerts_synced_at: psAlerts.synced_at } : {}),
     ...(guardiansSyncedAt !== undefined ? { guardians_synced_at: guardiansSyncedAt } : {}),
   });

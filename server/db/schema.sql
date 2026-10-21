@@ -177,17 +177,6 @@ CREATE TABLE IF NOT EXISTS notes (
   updated_at TEXT DEFAULT (datetime('now'))
 );
 
-CREATE TABLE IF NOT EXISTS flags (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  student_id INTEGER NOT NULL REFERENCES students(id),
-  assignment_id INTEGER REFERENCES assignments(id),
-  flag_type TEXT NOT NULL DEFAULT 'custom',
-  flag_reason TEXT,
-  resolved INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now')),
-  resolved_at TEXT
-);
-
 CREATE TABLE IF NOT EXISTS sync_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   sync_type TEXT NOT NULL,
@@ -534,7 +523,6 @@ CREATE INDEX IF NOT EXISTS idx_enrolments_course ON enrolments(course_id);
 CREATE INDEX IF NOT EXISTS idx_grades_student ON grades(student_id);
 CREATE INDEX IF NOT EXISTS idx_grades_assignment ON grades(assignment_id);
 CREATE INDEX IF NOT EXISTS idx_assignments_course ON assignments(course_id);
-CREATE INDEX IF NOT EXISTS idx_flags_student ON flags(student_id);
 CREATE INDEX IF NOT EXISTS idx_notes_student ON notes(student_id);
 CREATE INDEX IF NOT EXISTS idx_parents_student ON parents(student_id);
 CREATE INDEX IF NOT EXISTS idx_feedback_student ON feedback(student_id);

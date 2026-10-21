@@ -4,7 +4,7 @@ import { sameInSchoology, afterRefresh } from './assessmentFreshness.js';
 const data = (over = {}) => ({
   topics: [{ id: 't1' }, { id: 't2' }],
   students: [
-    { schoology_uid: '2', scores: { t1: { grade: 'EX' } }, grade_comment: 'Good', comment_status: 1, exception: 0, review_flag: null },
+    { schoology_uid: '2', scores: { t1: { grade: 'EX' } }, grade_comment: 'Good', comment_status: 1, exception: 0, resubmit_flag: null },
     { schoology_uid: '1', scores: {}, grade_comment: '', comment_status: null, exception: 0 },
   ],
   ...over,
@@ -13,7 +13,7 @@ const data = (over = {}) => ({
 describe('sameInSchoology (#52)', () => {
   it('ignores order and Prism-only fields', () => {
     const b = data();
-    b.students = [{ ...b.students[1] }, { ...b.students[0], review_flag: { id: 3 } }];
+    b.students = [{ ...b.students[1] }, { ...b.students[0], resubmit_flag: { id: 3 } }];
     b.topics = [{ id: 't2' }, { id: 't1' }];
     expect(sameInSchoology(data(), b)).toBe(true);
   });

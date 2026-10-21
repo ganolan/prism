@@ -102,7 +102,10 @@ so they compose without clashing with the border.
 `--accent #7c3aed` · `--success #10b981` · `--warning #f59e0b` ·
 `--danger #ef4444` / `--danger-bg`. (All defined per-theme in `app.css`.)
 
-### Status pill (header flags — `HeaderPill`)
+### Status pill (header flags — `HeaderPill`, removed 21 Oct 2026)
+`HeaderPill` existed only for Flag for review (#20) and went with it (#40). The pattern below is kept as the
+record of how a header pill toggles; the card header's remaining pills are `.resubmit-pill` (Ask to resubmit)
+and the Refer / Extend controls, and the Flags menu (#40) takes the place Flag for review held.
 - **Inactive:** `1.5px solid <accent>` border, `--card-bg` background, `--text-muted`
   text, accent-coloured icon. Click → activates.
 - **Active:** `2.5px solid <accent>` border, filled (`<accentBg>` / `<accentText>`).
@@ -193,7 +196,7 @@ Scope-narrowing checkboxes in the same cluster share a verb for parallelism:
 
 ## Source of truth (where the patterns live today)
 
-`client/src/pages/AssessmentSummaryPage.jsx` — `HeaderPill`, the control band, the
+`client/src/pages/AssessmentSummaryPage.jsx` — the control band, the
 comment publish indicator, and the whole-class command bar. (The proficiency-level
 palette, formerly `CELL_COLORS` here, is now the canonical `LEVEL_COLORS` in
 `client/src/lib/masteryLevels.js` — see "Canonical level palette" above.)
@@ -487,7 +490,7 @@ each colour standing for a *function* so the hierarchy reads at a glance.
   (mirroring the Summative / Formative `TypeFilterToggle`): submission status
   (3 pills for LTI / *Submitted* + *Unsubmitted* for non-LTI), grading completeness
   (*Ungraded / Partially graded / Graded*), visibility (*Visible / Not visible*),
-  *Flag for review*, *Ask to resubmit*. Semantics: **OR within a group, AND
+  *Ask to resubmit*. Semantics: **OR within a group, AND
   across groups**; selection is in-memory (resets each visit, like the
   Summative/Formative toggles). Status-pill colour follows the assignment's
   due-date proximity, so the pills shift as a deadline nears/passes.
@@ -1104,8 +1107,8 @@ deadline" flags a resubmission that arrived past its `until` date. The same `↩
 classes appear on the gradebook/student-page `SubmissionBadges` run, so the vocabulary reads the same
 in both places.
 
-**Card control (`ResubmitControl`, `.resubmit-control`).** Lives in the assessment card's header next
-to "Flag for review". No open request: a plain pill button, "⟳ Ask to resubmit". An open request:
+**Card control (`ResubmitControl`, `.resubmit-control`).** Lives in the assessment card's header
+(Flag for review sat beside it until 21 Oct 2026, #40). No open request: a plain pill button, "⟳ Ask to resubmit". An open request:
 the same pill shape goes **active** (`.resubmit-pill--active`, thicker border, filled
 `--badge-resubmit-bg`/`-text` — the same blue as the panel's `.badge-resubmit` tag) and reads
 "⟳ Resubmit by DD/MM/YYYY". Clicking either opens an inline panel beside it (`.resubmit-control__panel`,
@@ -1254,7 +1257,7 @@ The full submission picture in one compact, wrapping row of short facts (`Submis
 
 ## Card actions: pills in the header, editors in a row below it (October 2026)
 
-The /assessment/ card header holds one line of action pills (Flag for review, Refer, Waive / Extend, Ask to resubmit). An action that needs input opens its editor (`ActionPanel`) as a full-width row directly under the header (`.card-action-panel`, `var(--bg-subtle)`), never inline among the pills, which made the header wrap and squeezed the stepper. The editor has two rows: a bold title + the deadline (stepper, "school days", lesson hint, Next lesson picks), then the note field, the primary action and Cancel. The card shows the same triage actions as the dashboard row, from the same rules: missing work at the limit gets Refer + Extend; work handed in late at the limit gets Refer + Waive and no Extend (the work is in); a decision shows as a "Referred" / "Referral waived" badge with Undo. The pill whose editor is open is drawn as selected (`aria-expanded="true"`: pale accent fill, 2.5px accent outline), deliberately not a solid fill, which read as another primary button beside Refer. **Refer is red everywhere** (card: a red-outlined pill; rail: `button.primary.danger`), matching the red ring, the "to refer" badge and "Referred": the accent purple is reserved for the selected / open action, so a referral can never be mistaken for it.
+The /assessment/ card header holds one line of action pills (Refer, Waive / Extend, Ask to resubmit; Flag for review was removed 21 Oct 2026, #40). An action that needs input opens its editor (`ActionPanel`) as a full-width row directly under the header (`.card-action-panel`, `var(--bg-subtle)`), never inline among the pills, which made the header wrap and squeezed the stepper. The editor has two rows: a bold title + the deadline (stepper, "school days", lesson hint, Next lesson picks), then the note field, the primary action and Cancel. The card shows the same triage actions as the dashboard row, from the same rules: missing work at the limit gets Refer + Extend; work handed in late at the limit gets Refer + Waive and no Extend (the work is in); a decision shows as a "Referred" / "Referral waived" badge with Undo. The pill whose editor is open is drawn as selected (`aria-expanded="true"`: pale accent fill, 2.5px accent outline), deliberately not a solid fill, which read as another primary button beside Refer. **Refer is red everywhere** (card: a red-outlined pill; rail: `button.primary.danger`), matching the red ring, the "to refer" badge and "Referred": the accent purple is reserved for the selected / open action, so a referral can never be mistaken for it.
 
 ## Unpublished assessments behind a filter (October 2026)
 
@@ -1351,7 +1354,7 @@ The /assessment/ card header holds one line of action pills (Flag for review, Re
 
 The /assessment/ filter used to be one row of descriptive pills: OR within a group, AND across groups. Picking every pill that meant "unfinished" (Ungraded + Partially graded + Not visible + Ask to resubmit) showed nobody, because no student had all of them. The page now answers "who needs me?" first.
 
-- **Two reason rows, "any of":** **Needs action** (your move now: To grade, Partly graded, Draft not published, Feedback hidden, Resubmitted, Referral to decide, Resubmission overdue, Make-up test, Flagged for review) and **Watch** (may need a word with the student: Not started, due soon; In progress, past due; Late, before the limit; Resubmission pending). Every selected reason in both rows combines as "any of". A pill shows only while some student has that reason (or it is selected); an empty row reads "Nothing needs action" / "Nothing to watch". The page opens with nothing selected: all students.
+- **Two reason rows, "any of":** **Needs action** (your move now: To grade, Partly graded, Draft not published, Feedback hidden, Resubmitted, Referral to decide, Resubmission overdue, Make-up test) and **Watch** (may need a word with the student: Not started, due soon; In progress, past due; Late, before the limit; Resubmission pending). Every selected reason in both rows combines as "any of". A pill shows only while some student has that reason (or it is selected); an empty row reads "Nothing needs action" / "Nothing to watch". The page opens with nothing selected: all students.
 - **Refine (collapsed):** the old descriptive pills, still OR within a group and AND across groups, narrowing whatever the reasons selected. "Not visible" now counts only feedback that exists. Refine opens by itself while one of its pills is active.
 - **Reason chips on each card:** a row under the header, aligned past the avatar like the timeline, with the same names as the pills plus the detail ("Referral to decide, 11 school days late", "Resubmission due 20/10"). Late clocks take triage's green / amber / red.
 - **The list holds still while you work:** who matches is worked out when the filter changes, not on every save, so a card stays in view after its reason is resolved. "N shown students no longer match the filter. Update the list" refreshes it. Filtered-out cards stay mounted and are only hidden, so an unsaved draft survives a filter change. The class-wide bar (Publish all, Discard all, Show all, Mark all, Accept all) acts on the shown cards.
@@ -1359,7 +1362,7 @@ The /assessment/ filter used to be one row of descriptive pills: OR within a gro
 
 ## Triage: Unfinished grading and filtered links (October 2026)
 
-- **Unfinished grading panel** (named "Loose ends" for its first two days; renamed 17/10/2026 to say what it holds): in the triage rail (Dashboard and course page), one row per task with unfinished work that runs on no clock: drafts not published (a live Prism draft; one Schoology changed under is left out, the same check the card makes), feedback hidden (a teacher comment the student cannot see), flagged for review. No ring and no action column, because nothing here is late: title, then "2 drafts not published, 1 with feedback hidden, 1 flagged, oldest draft 09/10/2026", then the course line. Tasks with a draft come first, oldest first. Hidden when empty, like Resubmissions. No Stats strip tile: the tiles are for overdue work.
+- **Unfinished grading panel** (named "Loose ends" for its first two days; renamed 17/10/2026 to say what it holds): in the triage rail (Dashboard and course page), one row per task with unfinished work that runs on no clock: drafts not published (a live Prism draft; one Schoology changed under is left out, the same check the card makes), feedback hidden (a teacher comment the student cannot see), unread student comments. No ring and no action column, because nothing here is late: title, then "2 drafts not published, 1 with feedback hidden, oldest draft 09/10/2026", then the course line. Tasks with a draft come first, oldest first. Hidden when empty, like Resubmissions. No Stats strip tile: the tiles are for overdue work.
 - **Links open the page already filtered (`?filter=`):** an Unfinished grading title selects that row's reasons; a Feedback owed title selects the whole Needs action row (`?filter=action`; a group name stands for its row); a Resubmissions name focuses the student and selects Resubmitted (arrived) or Resubmission pending + overdue (waiting). Late work and Make-up names still only focus the student.
 - **Feedback owed is unchanged:** hidden feedback is its own count, not a reason to keep the feedback clock running, because feedback is sometimes held on purpose (moderation).
 - **Draft validity on the server:** `server/lib/assessmentDraft.js` mirrors the client's `draftBaseline` (parity test in `client/src/lib/assessmentDraft.test.js`), and `unfinishedGrading.test.js` checks the server baseline against the one the card computes from the real `/api/mastery/.../assignment/...` payload.
@@ -1570,3 +1573,10 @@ Chosen 18/10/2026 from three mockups (state chip on every row, verb where it mat
 - **Flag colors follow Schoology, everywhere a flag shows:** Excused green (`--flag-excused`), Late red (`--flag-late`, both clocks), Incomplete amber (`--flag-incomplete`), Missing red (`--flag-missing`). `EXCEPTION_TONE` in `gradeLabel.js` gives the status pill and the "Excused, rubric locked" badge the same tones. Green is also the level EX and "Submitted"; the words and the dashed chip keep them apart.
 - **Overdue is Prism's status; Missing is Schoology's flag (21 Oct 2026).** The red pill for past-due work with nothing submitted reads "Overdue" (kind `overdue`, gradebook letter **O**); "Missing" (chip `Miss`) now means only Schoology's exception 3, so the two cannot be confused. The triage reason `referred_missing` keeps its wording, "Referred, not submitted".
 - **`amber` status tone is `badge-amber`.** It was pink while nothing used the tone; Incomplete is the first user.
+
+## Flag for review removed (21 Oct 2026, #40)
+
+- **Graham dropped it completely.** The card header pill, its reason field, the "Review: ..." badge on the gradebook pop-up and the student page, the "Flag for review" refine pill, the "Flagged for review" Needs action reason and the "flagged" count in Triage's Unfinished grading all went, with the `flags` table (`DROP TABLE IF EXISTS flags` in `MIGRATIONS`) and `/api/flags`. The 8 stale automatic "Below 50%" flags in prod went with the table.
+- **Kept, because they are different things:** the AI suggestion's reviewer flags (`reviewer_flags`, `reviewer_flags_brief`, the amber "Reviewer flags" tray) and the Ask to resubmit request (built from the `resubmissions` table; the student page still lists open requests under `flags`).
+- **The card header slot is free** for the Flags menu (Excused, Late; see "Exception chips and flag colors" below), which sits first in the right-hand cluster.
+

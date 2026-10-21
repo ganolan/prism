@@ -532,23 +532,6 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
     }
   }
 
-  // Submission-scoped 'review needed' flags for this assignment (#20).
-  // Prism-local; keyed by internal student_id. assignmentRow is undefined for
-  // an unknown assignment id — no flags can exist in that case.
-  const reviewFlagRows = assignmentRow
-    ? db.prepare(`
-        SELECT id, student_id, flag_reason FROM flags
-        WHERE assignment_id = ? AND flag_type = 'review_needed' AND resolved = 0
-        ORDER BY created_at, id
-      `).all(assignmentRow.id)
-    : [];
-  const reviewFlagMap = {};
-  // ORDER BY above + overwrite-on-iterate: if legacy duplicate unresolved
-  // flags of the same type exist (#124), the newest one wins deterministically.
-  for (const r of reviewFlagRows) {
-    reviewFlagMap[r.student_id] = { id: r.id, flag_reason: r.flag_reason };
-  }
-
   // Triage resubmissions: open request (the card's pill) + derived state.
   const resubmissionMap = assignmentRow ? resubmissionByStudent(db, assignmentRow.id) : new Map();
   // The full submission picture per student (due, extension, submitted when / how
@@ -597,7 +580,6 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
         exception: exceptionMap[s.schoology_uid] || 0,
         comment_status: commentStatusMap[s.schoology_uid] ?? null,
         has_grade_row: hasGradeRowMap[s.schoology_uid] === true,
-        review_flag: reviewFlagMap[s.id] || null,
         resubmit_flag: resubmission?.request ? { id: resubmission.request.id } : null,
         resubmission,
         resubmitted: resubmittedMap[s.schoology_uid] === true,

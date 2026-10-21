@@ -63,7 +63,7 @@ beforeEach(() => {
   const db = getDb();
   db.exec(
     'DELETE FROM student_ps_alerts; DELETE FROM student_powerschool; ' +
-    'DELETE FROM feedback_snapshots; DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM enrolments; ' +
+    'DELETE FROM feedback_snapshots; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM enrolments; ' +
     'DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
   );
   courseId = db.prepare(
@@ -128,15 +128,6 @@ describe('GET /api/courses/:id/gradebook — resubmit_requested', () => {
     const { body } = await get(`/api/courses/${courseId}/gradebook`);
     expect(body.grades[studentId][assignmentId].resubmit_requested).toBe(true);
   });
-
-  test('a review_needed flag does not set resubmit_requested', async () => {
-    getDb().prepare(
-      `INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason)
-       VALUES (?, ?, 'review_needed', 'check it')`
-    ).run(studentId, assignmentId);
-    const { body } = await get(`/api/courses/${courseId}/gradebook`);
-    expect(body.grades[studentId][assignmentId].resubmit_requested).toBe(false);
-  });
 });
 
 describe('GET /api/courses/:id/gradebook — resubmitted', () => {
@@ -181,31 +172,10 @@ describe('GET /api/courses/:id/gradebook — resubmitted', () => {
   });
 });
 
-describe('GET /api/courses/:id/gradebook — review_needed', () => {
-  test('cell review_needed is an empty array with no flag', async () => {
+describe('GET /api/courses/:id/gradebook — Flag for review is gone (#40)', () => {
+  test('a cell carries no review_needed', async () => {
     const { body } = await get(`/api/courses/${courseId}/gradebook`);
-    expect(body.grades[studentId][assignmentId].review_needed).toEqual([]);
-  });
-
-  test('an unresolved review_needed flag surfaces with its id and reason', async () => {
-    getDb().prepare(
-      `INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason)
-       VALUES (?, ?, 'review_needed', 'rescore Q3')`
-    ).run(studentId, assignmentId);
-    const { body } = await get(`/api/courses/${courseId}/gradebook`);
-    const reviews = body.grades[studentId][assignmentId].review_needed;
-    expect(reviews).toHaveLength(1);
-    expect(reviews[0].flag_reason).toBe('rescore Q3');
-    expect(typeof reviews[0].id).toBe('number');
-  });
-
-  test('a resolved review_needed flag is excluded', async () => {
-    getDb().prepare(
-      `INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason, resolved)
-       VALUES (?, ?, 'review_needed', 'old note', 1)`
-    ).run(studentId, assignmentId);
-    const { body } = await get(`/api/courses/${courseId}/gradebook`);
-    expect(body.grades[studentId][assignmentId].review_needed).toEqual([]);
+    expect(body.grades[studentId][assignmentId]).not.toHaveProperty('review_needed');
   });
 });
 

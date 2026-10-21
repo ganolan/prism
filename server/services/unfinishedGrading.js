@@ -3,7 +3,6 @@
 //  - a Prism draft not yet published (a stored /assessment/ draft that is still live:
 //    Schoology has not changed under it, the same check the card makes when it opens),
 //  - feedback hidden (a teacher comment in Schoology the student cannot see),
-//  - a review flag (Prism's own "Flag for review"),
 //  - an unread student comment (the student typed or attached something in the
 //    submission comment thread since the teacher last opened it in Prism).
 // The same three are Needs action reasons on the /assessment/ page
@@ -18,7 +17,7 @@ import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows, scoreScaleF
 import { getFeedbackRows, getRowLevels } from './feedbackRows.js';
 import { readThread } from './submissionCommentStore.js';
 
-export const UNFINISHED_GRADING_REASONS = ['draft', 'feedback_hidden', 'flagged', 'unread_comment'];
+export const UNFINISHED_GRADING_REASONS = ['draft', 'feedback_hidden', 'unread_comment'];
 
 // The baseline signature the /assessment/ card computes for a student of this
 // assignment (AssessmentSummaryPage's currentBaseline over the GET
@@ -51,7 +50,7 @@ function parseDraft(json) {
 }
 
 // → [{ courseId, courseName, blockNumber, assignmentId, schoologyAssignmentId, title, aligned,
-//      drafts, feedbackHidden, flagged, unreadComments, oldestDraftOn, students: [{ studentId, studentName, reasons }] }]
+//      drafts, feedbackHidden, unreadComments, oldestDraftOn, students: [{ studentId, studentName, reasons }] }]
 // Tasks with a draft come first (oldest draft first), then the most unfinished grading.
 export function getUnfinishedGrading(db, { courseId = null, studentId = null } = {}) {
   const out = [];
@@ -68,11 +67,6 @@ export function getUnfinishedGrading(db, { courseId = null, studentId = null } =
       WHERE ${inCourse} AND (g.comment_status IS NULL OR g.comment_status != 1)
         AND COALESCE(g.exception, 0) != 1 AND COALESCE(g.grade_comment, '') != ''
     `).all(c.id).filter((g) => teacherText(g.grade_comment, g.stored_line || null).length > 0);
-    const flags = db.prepare(`
-      SELECT DISTINCT f.assignment_id, f.student_id
-      FROM flags f JOIN assignments a ON a.id = f.assignment_id
-      WHERE ${inCourse} AND f.flag_type = 'review_needed' AND f.resolved = 0
-    `).all(c.id);
 
     // Pairs with a student comment newer than the teacher last saw; readThread decides
     // whether it is real work (typed text or a file), not an automatic revision line.
@@ -85,12 +79,11 @@ export function getUnfinishedGrading(db, { courseId = null, studentId = null } =
 
     const byAssignment = new Map();
     const entry = (aid) => {
-      if (!byAssignment.has(aid)) byAssignment.set(aid, { drafts: [], hidden: [], flags: [], unread: [] });
+      if (!byAssignment.has(aid)) byAssignment.set(aid, { drafts: [], hidden: [], unread: [] });
       return byAssignment.get(aid);
     };
     for (const d of drafts) entry(d.assignment_id).drafts.push(d);
     for (const h of hidden) entry(h.assignment_id).hidden.push(h);
-    for (const f of flags) entry(f.assignment_id).flags.push(f);
     for (const u of unread) entry(u.assignment_id).unread.push(u);
 
     for (const [aid, found] of byAssignment) {
@@ -117,7 +110,6 @@ export function getUnfinishedGrading(db, { courseId = null, studentId = null } =
         }
       }
       for (const h of found.hidden) add(h.student_id, 'feedback_hidden');
-      for (const f of found.flags) add(f.student_id, 'flagged');
       for (const u of found.unread) add(u.student_id, 'unread_comment');
       if (reasons.size === 0) continue;
 
@@ -129,12 +121,12 @@ export function getUnfinishedGrading(db, { courseId = null, studentId = null } =
       out.push({
         courseId: c.id, courseName: c.course_name, blockNumber: c.block_number ?? null,
         assignmentId: a.id, schoologyAssignmentId: a.schoology_assignment_id, title: a.title, aligned: !!a.aligned,
-        drafts: count('draft'), feedbackHidden: count('feedback_hidden'), flagged: count('flagged'), unreadComments: count('unread_comment'),
+        drafts: count('draft'), feedbackHidden: count('feedback_hidden'), unreadComments: count('unread_comment'),
         oldestDraftOn, students,
       });
     }
   }
-  const total = (r) => r.drafts + r.feedbackHidden + r.flagged + r.unreadComments;
+  const total = (r) => r.drafts + r.feedbackHidden + r.unreadComments;
   return out.sort((x, y) => (x.oldestDraftOn ? 0 : 1) - (y.oldestDraftOn ? 0 : 1)
     || (x.oldestDraftOn && y.oldestDraftOn ? x.oldestDraftOn.localeCompare(y.oldestDraftOn) : 0)
     || total(y) - total(x) || x.title.localeCompare(y.title));

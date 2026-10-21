@@ -160,7 +160,7 @@ notes
 ├── created_at
 └── updated_at
 
-flags
+flags (table removed 21 Oct 2026, #40; Flag for review is gone)
 ├── id
 ├── student_id (FK)
 ├── assignment_id (FK, nullable)

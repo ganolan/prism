@@ -149,30 +149,15 @@ export function getGradeMetaRows(db, assignmentSchoologyId) {
   `).all(assignmentSchoologyId);
 }
 
-// Unresolved Prism-local flags for an assignment (local id), grouped by
-// student_id. review_needed carries its reason; resubmit_requested is a
-// boolean — true for a student with an open triage resubmission request
-// (moved off the `flags` table, 2026-10-03).
+// Prism-local flags for an assignment (local id), keyed by student_id: only
+// resubmit_requested, true for a student with an open triage resubmission request.
+// (Flag for review was removed with the flags table, #40.)
 export function getFlagsByStudent(db, assignmentLocalId) {
-  const rows = db.prepare(`
-    SELECT student_id, flag_type, flag_reason FROM flags
-    WHERE assignment_id = ? AND resolved = 0 AND flag_type = 'review_needed'
-    ORDER BY created_at, id
-  `).all(assignmentLocalId);
   const byStudent = {};
-  // ORDER BY above + overwrite-on-iterate: if legacy duplicate unresolved
-  // flags of the same type exist (#124), the newest one wins deterministically.
-  for (const r of rows) {
-    byStudent[r.student_id] = { review_needed: { reason: r.flag_reason || '' }, resubmit_requested: false };
-  }
   const openRequesters = db.prepare(`
     SELECT student_id FROM resubmissions WHERE assignment_id = ? AND kind = 'request' AND status = 'open'
   `).all(assignmentLocalId);
-  for (const { student_id } of openRequesters) {
-    const entry = byStudent[student_id] || { review_needed: null, resubmit_requested: false };
-    entry.resubmit_requested = true;
-    byStudent[student_id] = entry;
-  }
+  for (const { student_id } of openRequesters) byStudent[student_id] = { resubmit_requested: true };
   return byStudent;
 }
 
@@ -353,7 +338,7 @@ export function getAssessmentContext(db, { assignmentId }) {
       grading_state,
       is_lti: isLti,
       due_date: assignmentRow.due_date ?? null,
-      flags: flagsByStudent[st.id] || { review_needed: null, resubmit_requested: false },
+      flags: flagsByStudent[st.id] || { resubmit_requested: false },
       resubmission: (() => {
         const r = resubmissions.get(st.id);
         return r ? { state: r.state, deadline: r.request?.until ?? null, source: r.request?.source ?? null } : null;

@@ -13,16 +13,6 @@ describe('SubmissionBadges', () => {
     expect(screen.getByText('Incomplete')).toHaveClass('badge', 'badge-amber');
   });
 
-  it('renders a review_needed flag as "⚑ Review: <reason>"', () => {
-    render(
-      <SubmissionBadges
-        status={[]}
-        flags={[{ id: 1, flag_type: 'review_needed', flag_reason: 'rescore Q3' }]}
-      />
-    );
-    expect(screen.getByText(/⚑ Review: rescore Q3/)).toHaveClass('badge', 'badge-amber');
-  });
-
   it('renders the resubmit_requested and resubmitted badges', () => {
     render(
       <SubmissionBadges
@@ -35,27 +25,10 @@ describe('SubmissionBadges', () => {
     expect(screen.getByText(/↩ Resubmitted/)).toHaveClass('badge', 'badge-resubmitted');
   });
 
-  it('renders an unknown multi-word flag type with all underscores replaced', () => {
-    render(
-      <SubmissionBadges
-        status={[]}
-        flags={[{ id: 9, flag_type: 'manual_score_override', flag_reason: 'see notes', resolved: 0 }]}
-      />
-    );
-    expect(screen.getByText('manual score override')).toHaveClass('badge', 'badge-red');
-    expect(screen.getByText('see notes')).toBeInTheDocument();
-  });
-
-  it('suppresses a generic-flag reason that merely repeats the assignment title', () => {
-    render(
-      <SubmissionBadges
-        status={[]}
-        flags={[{ id: 9, flag_type: 'late_submission', flag_reason: 'Unit 3 Essay', resolved: 0 }]}
-        assignmentTitle="Unit 3 Essay"
-      />
-    );
-    expect(screen.getByText('late submission')).toBeInTheDocument();
-    expect(screen.queryByText('Unit 3 Essay')).not.toBeInTheDocument();
+  it('shows only the resubmit_requested flag; Flag for review is gone (#40)', () => {
+    render(<SubmissionBadges status={[]} flags={[{ id: 1, flag_type: 'review_needed', flag_reason: 'rescore Q3' }]} />);
+    expect(screen.queryByText(/Review/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/rescore Q3/)).not.toBeInTheDocument();
   });
 
   it('renders nothing when there are no badges, flags, or resubmission', () => {

@@ -7,21 +7,15 @@ import LateClock from './LateClock.jsx';
 //
 // Props:
 //   status         — array from submissionStatus(): [{ kind, label, tone }]
-//   flags          — array of flag objects; renders review_needed,
-//                    resubmit_requested, and any other flag_type generically
+//   flags          — array of flag objects; renders resubmit_requested (the only flag
+//                    left: Flag for review was removed, #40)
 //   resubmitted    — boolean → "↩ Resubmitted" badge
-//   assignmentTitle — optional; the generic-flag branch suppresses a reason
-//                    that merely repeats the assignment title
 
 const TONE_CLASS = { red: 'badge-red', blue: 'badge-blue', amber: 'badge-amber', green: 'badge-green', yellow: 'badge-amber', neutral: 'badge-gray' };
 
-function formatFlagReason(flag) {
-  return flag?.flag_reason || '';
-}
-
 // lateTitle: why it is late, for the late clock's hover (lateText(timeline)). A badge with
 // `flagged` (the teacher's Late flag) gets the filled clock.
-export default function SubmissionBadges({ status = [], flags = [], resubmitted = false, assignmentTitle, lateTitle = 'Late' }) {
+export default function SubmissionBadges({ status = [], flags = [], resubmitted = false, lateTitle = 'Late' }) {
   if (status.length === 0 && flags.length === 0 && !resubmitted) return null;
   return (
     <>
@@ -31,34 +25,11 @@ export default function SubmissionBadges({ status = [], flags = [], resubmitted 
           {(b.late || b.flagged) && <LateClock flagged={b.flagged} title={lateTitle} />}
         </span>
       ))}
-      {flags.map(flag => {
-        const flagReason = formatFlagReason(flag);
-        // Review flags use the same amber badge + "⚑ Review: …" format as the
-        // assessment page.
-        if (flag.flag_type === 'review_needed') {
-          return (
-            <span key={flag.id} className="badge badge-amber" style={{ fontSize: '0.68rem' }}>
-              ⚑ Review: {flagReason}
-            </span>
-          );
-        }
-        if (flag.flag_type === 'resubmit_requested') {
-          return (
-            <span key={flag.id} className="badge badge-resubmit" style={{ fontSize: '0.68rem' }}>
-              ⟳ Re-submit requested
-            </span>
-          );
-        }
-        const showReason = flagReason && flagReason !== assignmentTitle;
-        return (
-          <span key={flag.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
-            <span className={`badge ${flag.resolved ? 'badge-green' : 'badge-red'}`} style={{ textTransform: 'capitalize' }}>
-              {flag.flag_type.replaceAll('_', ' ')}
-            </span>
-            {showReason && <span className="text-xs text-muted">{flagReason}</span>}
-          </span>
-        );
-      })}
+      {flags.filter(flag => flag.flag_type === 'resubmit_requested').map(flag => (
+        <span key={flag.id} className="badge badge-resubmit" style={{ fontSize: '0.68rem' }}>
+          ⟳ Re-submit requested
+        </span>
+      ))}
       {resubmitted && (
         <span className="badge badge-resubmitted" style={{ fontSize: '0.68rem' }}
               title="The student has submitted new work since this was last graded">

@@ -26,7 +26,7 @@ const ATTACHMENT = {
     descriptors: { ED: 'Polished and intuitive.', EX: 'Clear and usable.', D: 'Inconsistent.', EM: 'Hard to use.' } }] },
   topicByCriterion: [{ criterion_id: 'c1', topic_id: 't1' }],
 };
-const GRADE = { score: 75, exception: 0, review_needed: [], resubmit_requested: false, resubmitted: false };
+const GRADE = { score: 75, exception: 0, resubmit_requested: false, resubmitted: false };
 
 function renderModal(props = {}) {
   return render(

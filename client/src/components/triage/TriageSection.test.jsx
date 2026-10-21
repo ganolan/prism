@@ -997,9 +997,9 @@ describe('TriageSection — email (#137)', () => {
 describe('Unfinished grading panel', () => {
   const ROWS = [
     { courseId: 5, courseName: 'AP CSP', blockNumber: '7', assignmentId: 40, schoologyAssignmentId: 'a40', title: 'CPT 2', aligned: true,
-      drafts: 2, feedbackHidden: 1, flagged: 0, oldestDraftOn: '2026-10-09', students: [] },
+      drafts: 2, feedbackHidden: 1, oldestDraftOn: '2026-10-09', students: [] },
     { courseId: 6, courseName: 'MGD', assignmentId: 41, schoologyAssignmentId: 'a41', title: 'Brick Breaker', aligned: false,
-      drafts: 0, feedbackHidden: 0, flagged: 1, oldestDraftOn: null, students: [] },
+      drafts: 0, feedbackHidden: 0, unreadComments: 1, oldestDraftOn: null, students: [] },
   ];
 
   it('lists each task with its unfinished grading and links to the page with those reasons selected', async () => {
@@ -1008,13 +1008,14 @@ describe('Unfinished grading panel', () => {
     const panel = await screen.findByLabelText('Unfinished grading');
     expect(within(panel).getByRole('link', { name: 'CPT 2' })).toHaveAttribute('href', '/course/5/assessment/a40?filter=draft,feedback_hidden');
     expect(within(panel).getByText(/2 drafts not published, 1 with feedback hidden/)).toHaveTextContent('oldest draft 09/10/2026');
-    expect(within(panel).getByRole('link', { name: 'Brick Breaker' })).toHaveAttribute('href', '/course/6/assessment/a41?filter=flagged');
-    expect(within(panel).getByText('1 flagged')).toBeInTheDocument();
+    expect(within(panel).getByRole('link', { name: 'Brick Breaker' })).toHaveAttribute('href', '/course/6/assessment/a41?filter=unread_comment');
+    expect(within(panel).getByText('1 unread comment')).toBeInTheDocument();
+    expect(within(panel).queryByText(/flagged/)).toBeNull();
     expect(within(panel).getByText('[BK 7] AP CSP')).toBeInTheDocument();
   });
 
   it('counts unread student comments and links with Unread comment selected', async () => {
-    api.getTriage.mockResolvedValue({ ...PAYLOAD, unfinishedGrading: [{ ...ROWS[1], flagged: 0, unreadComments: 2 }] });
+    api.getTriage.mockResolvedValue({ ...PAYLOAD, unfinishedGrading: [{ ...ROWS[1], unreadComments: 2 }] });
     renderSection();
     const panel = await screen.findByLabelText('Unfinished grading');
     expect(within(panel).getByText('2 unread comments')).toBeInTheDocument();
@@ -1048,7 +1049,7 @@ describe('panel order (most urgent first)', () => {
   it('the rail renders in that order', async () => {
     api.getTriage.mockResolvedValue({
       ...PAYLOAD,
-      unfinishedGrading: [{ courseId: 5, courseName: 'AP CSP', assignmentId: 40, schoologyAssignmentId: 'a40', title: 'CPT 2', aligned: true, drafts: 1, feedbackHidden: 0, flagged: 0, oldestDraftOn: null, students: [] }],
+      unfinishedGrading: [{ courseId: 5, courseName: 'AP CSP', assignmentId: 40, schoologyAssignmentId: 'a40', title: 'CPT 2', aligned: true, drafts: 1, feedbackHidden: 0, oldestDraftOn: null, students: [] }],
       makeUps: [], lateWork: [], resubmissions: [],
       feedbackOwed: [{ ...PAYLOAD.feedbackOwed[0], tone: 'red' }],
     });

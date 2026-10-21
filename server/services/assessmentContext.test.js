@@ -43,7 +43,7 @@ beforeEach(() => {
   getDb().exec(
     'DELETE FROM student_ps_alerts; DELETE FROM student_powerschool; ' +
     'DELETE FROM rubric_row_levels; DELETE FROM rubric_attachments; DELETE FROM rubric_criteria; DELETE FROM rubrics; ' +
-    'DELETE FROM status_lines; DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM assessment_drafts; DELETE FROM assessment_analysis; DELETE FROM feedback; DELETE FROM mastery_alignments; DELETE FROM mastery_scores; ' +
+    'DELETE FROM status_lines; DELETE FROM resubmissions; DELETE FROM assessment_drafts; DELETE FROM assessment_analysis; DELETE FROM feedback; DELETE FROM mastery_alignments; DELETE FROM mastery_scores; ' +
     'DELETE FROM grades; DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
     'DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
   );
@@ -210,7 +210,6 @@ describe('getAssessmentContext', () => {
     // Make the assignment LTI with a due date and a submitted state for the student.
     db.prepare(`UPDATE assignments SET is_lti_submission = 1, due_date = '2026-06-01' WHERE id = ?`).run(assignmentId);
     db.prepare(`UPDATE grades SET lti_submission_state = 'submitted' WHERE student_id = ? AND assignment_id = ?`).run(studentId, assignmentId);
-    db.prepare(`INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason, resolved) VALUES (?, ?, 'review_needed', 'verify build', 0)`).run(studentId, assignmentId);
 
     const ctx = getAssessmentContext(db, { courseId, assignmentId: 'sa-1' });
     const s = ctx.students[0];
@@ -218,7 +217,7 @@ describe('getAssessmentContext', () => {
     expect(s.grading_state).toBe('complete'); // one aligned topic scored + comment present
     expect(s.is_lti).toBe(true);
     expect(s.due_date).toBe('2026-06-01');
-    expect(s.flags).toEqual({ review_needed: { reason: 'verify build' }, resubmit_requested: false });
+    expect(s.flags).toEqual({ resubmit_requested: false }); // Flag for review is gone (#40): no review_needed key
   });
 
   test('M3: a comment that is only Prism\'s stored status line does not make grading_state complete', () => {
@@ -358,40 +357,24 @@ describe('normalizeSubmissionStatus', () => {
 });
 
 describe('getFlagsByStudent', () => {
-  test('groups review_needed flags (only unresolved) and resubmit_requested from an open resubmission request', () => {
+  test('carries only resubmit_requested, from an open resubmission request (Flag for review is gone, #40)', () => {
     const db = getDb();
     const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-f', 'ROB')`).run().lastInsertRowid;
     const assignmentId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-f', 'NB')`).run(courseId).lastInsertRowid;
     const sId = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-f', 'Ada', 'L')`).run().lastInsertRowid;
     db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'enr-f')`).run(sId, courseId);
-    db.prepare(`INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason, resolved) VALUES (?, ?, 'review_needed', 'check sources', 0)`).run(sId, assignmentId);
-    db.prepare(`INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason, resolved) VALUES (?, ?, 'review_needed', 'old', 1)`).run(sId, assignmentId);
     requestResubmission(db, { studentId: sId, assignmentId, source: 'app' });
 
     const byStudent = getFlagsByStudent(db, assignmentId);
-    expect(byStudent[sId]).toEqual({
-      review_needed: { reason: 'check sources' },
-      resubmit_requested: true,
-    });
+    expect(byStudent[sId]).toEqual({ resubmit_requested: true });
+    expect(byStudent[sId]).not.toHaveProperty('review_needed');
   });
 
-  // #124: with legacy duplicate unresolved flags of the same type (no unique
-  // constraint prevents this pre-fix), the read must pick a deterministic
-  // winner — the newest row — rather than whichever SQLite happens to return
-  // last with no ORDER BY.
-  test('two legacy duplicate unresolved review_needed rows: the newest wins', () => {
+  test('a student with no open request has no entry', () => {
     const db = getDb();
-    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-dup', 'ROB')`).run().lastInsertRowid;
-    const assignmentId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-dup', 'NB')`).run(courseId).lastInsertRowid;
-    const sId = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-dup', 'Ada', 'L')`).run().lastInsertRowid;
-    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'enr-dup')`).run(sId, courseId);
-    // Both unresolved, same type; explicit created_at so ordering is deterministic
-    // regardless of insertion order or rowid.
-    db.prepare(`INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason, resolved, created_at) VALUES (?, ?, 'review_needed', 'newer', 0, '2026-02-02')`).run(sId, assignmentId);
-    db.prepare(`INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason, resolved, created_at) VALUES (?, ?, 'review_needed', 'older', 0, '2026-01-01')`).run(sId, assignmentId);
-
-    const byStudent = getFlagsByStudent(db, assignmentId);
-    expect(byStudent[sId].review_needed).toEqual({ reason: 'newer' });
+    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-g', 'ROB')`).run().lastInsertRowid;
+    const assignmentId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-g', 'NB')`).run(courseId).lastInsertRowid;
+    expect(getFlagsByStudent(db, assignmentId)).toEqual({});
   });
 });
 

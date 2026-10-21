@@ -691,7 +691,6 @@ export function RubricModal({
     due_date: assignment.due_date, accepts_submissions: assignment.accepts_submissions, is_test: assignment.is_test,
   });
   const flags = [
-    ...(grade.review_needed || []).map(f => ({ ...f, flag_type: 'review_needed' })),
     ...(grade.resubmit_requested ? [{ id: 'resubmit', flag_type: 'resubmit_requested' }] : []),
   ];
   // The attached rubric (descriptors, or an unaligned task's feedback rows with this
@@ -751,7 +750,7 @@ export function RubricModal({
         </div>
         <div style={{ padding: '1rem 1.1rem' }}>
           <AssignmentFeedback
-            status={status} flags={flags} resubmitted={grade.resubmitted} assignmentTitle={assignment.title}
+            status={status} flags={flags} resubmitted={grade.resubmitted}
             links={links}
             timeline={timeline}
             lateTitle={lateText(timeline, { flagged: Number(grade.exception) === 4 })}

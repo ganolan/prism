@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 import AssessmentSummaryPage, { StudentRubricCard } from './AssessmentSummaryPage.jsx';
-import { createFlag, deleteFlag, writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, getAttemptLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale, requestResubmission, undoResubmission, getFeatures, getQuizGroupFor, getQuizResults, rebuildQuizOverall, saveRowLevels, getDraftsForAssignment, getAssignmentFileSummaries } from '../services/api.js';
+import { writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, getAttemptLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale, requestResubmission, undoResubmission, getFeatures, getQuizGroupFor, getQuizResults, rebuildQuizOverall, saveRowLevels, getDraftsForAssignment, getAssignmentFileSummaries } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 import { formatDateTime } from '../lib/formatDate.js';
 import { feedbackRowTopics, rowScores, rowTopicMapping } from '../lib/feedbackRows.js';
@@ -35,8 +35,6 @@ vi.mock('../services/api.js', () => ({
   writeMasteryScores: vi.fn().mockResolvedValue({}),
   writeMasteryComment: vi.fn().mockResolvedValue({}),
   sendAllGrades: vi.fn().mockResolvedValue({ results: [] }),
-  createFlag: vi.fn().mockResolvedValue({ id: 99, flag_reason: 'Check citations' }),
-  deleteFlag: vi.fn().mockResolvedValue({ success: true }),
   getSettings: vi.fn().mockResolvedValue({ triage: { resubmitLessonsDefault: 3 } }),
   getTriagePair: vi.fn().mockResolvedValue(null),
   requestResubmission: vi.fn(),
@@ -256,109 +254,18 @@ describe('StudentRubricCard — cell language (Slice 1)', () => {
   });
 });
 
-describe('StudentRubricCard review flag (#20)', () => {
-  it('shows a "Flag for review" button when there is no review flag', () => {
+describe('StudentRubricCard: Flag for review is gone (#40)', () => {
+  it('renders no "Flag for review" button, reason input or review badge', () => {
     renderCard();
-    expect(screen.getByRole('button', { name: /flag for review/i })).toBeInTheDocument();
-  });
-
-  it('creates a submission-scoped review_needed flag with a reason', async () => {
-    renderCard();
-    fireEvent.click(screen.getByRole('button', { name: /flag for review/i }));
-    fireEvent.change(screen.getByPlaceholderText('Reason for review...'), {
-      target: { value: 'Check citations' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Flag' }));
-
-    await waitFor(() => {
-      expect(createFlag).toHaveBeenCalledWith({
-        student_id: 1,
-        assignment_id: 50,
-        flag_type: 'review_needed',
-        flag_reason: 'Check citations',
-      });
-    });
-    expect(await screen.findByText(/Review: Check citations/)).toBeInTheDocument();
-  });
-
-  it('creates the flag when Enter is pressed in the reason input', async () => {
-    renderCard();
-    fireEvent.click(screen.getByRole('button', { name: /flag for review/i }));
-    const input = screen.getByPlaceholderText('Reason for review...');
-    fireEvent.change(input, { target: { value: 'Check citations' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
-
-    await waitFor(() => {
-      expect(createFlag).toHaveBeenCalledWith({
-        student_id: 1,
-        assignment_id: 50,
-        flag_type: 'review_needed',
-        flag_reason: 'Check citations',
-      });
-    });
-    expect(await screen.findByText(/Review: Check citations/)).toBeInTheDocument();
-  });
-
-  it('does not create a flag when Enter is pressed with an empty reason', () => {
-    renderCard();
-    fireEvent.click(screen.getByRole('button', { name: /flag for review/i }));
-    fireEvent.keyDown(screen.getByPlaceholderText('Reason for review...'), { key: 'Enter' });
-    expect(createFlag).not.toHaveBeenCalled();
-  });
-
-  it('cancels the reason input when Escape is pressed', () => {
-    renderCard();
-    fireEvent.click(screen.getByRole('button', { name: /flag for review/i }));
-    const input = screen.getByPlaceholderText('Reason for review...');
-    fireEvent.change(input, { target: { value: 'oops' } });
-    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(screen.queryByRole('button', { name: /flag for review/i })).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText('Reason for review...')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /flag for review/i })).toBeInTheDocument();
+    expect(screen.queryByText(/Review:/)).not.toBeInTheDocument();
   });
 
-  it('cancels the reason input via the Cancel button', () => {
-    renderCard();
-    fireEvent.click(screen.getByRole('button', { name: /flag for review/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(screen.queryByPlaceholderText('Reason for review...')).not.toBeInTheDocument();
-    expect(createFlag).not.toHaveBeenCalled();
-  });
-
-  it('shows the review badge and a Clear control when a flag exists', () => {
+  it('a stale review_flag on the student renders nothing either', () => {
     renderCard({ student: { ...makeStudent(), review_flag: { id: 7, flag_reason: 'Re-mark' } } });
-    expect(screen.getByText(/Review: Re-mark/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Clear review flag' })).toBeInTheDocument();
-  });
-
-  it('clears the review flag via deleteFlag', async () => {
-    renderCard({ student: { ...makeStudent(), review_flag: { id: 7, flag_reason: 'Re-mark' } } });
-    fireEvent.click(screen.getByRole('button', { name: 'Clear review flag' }));
-    await waitFor(() => expect(deleteFlag).toHaveBeenCalledWith(7));
-  });
-
-  it('flagging for review does not trigger a Schoology write', async () => {
-    renderCard();
-    fireEvent.click(screen.getByRole('button', { name: /flag for review/i }));
-    fireEvent.change(screen.getByPlaceholderText('Reason for review...'), {
-      target: { value: 'Check citations' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Flag' }));
-    await waitFor(() => expect(createFlag).toHaveBeenCalled());
-    expect(writeMasteryScores).not.toHaveBeenCalled();
-    expect(writeMasteryComment).not.toHaveBeenCalled();
-  });
-
-  it('shows an error and keeps no flag when creation fails', async () => {
-    createFlag.mockRejectedValueOnce(new Error('network down'));
-    renderCard();
-    fireEvent.click(screen.getByRole('button', { name: /flag for review/i }));
-    fireEvent.change(screen.getByPlaceholderText('Reason for review...'), {
-      target: { value: 'Check citations' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Flag' }));
-
-    expect(await screen.findByText(/Flag failed: network down/)).toBeInTheDocument();
-    expect(screen.queryByText(/Review: Check citations/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Review: Re-mark/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Clear review flag' })).not.toBeInTheDocument();
   });
 });
 
@@ -1795,8 +1702,8 @@ describe('AssessmentSummaryPage filtering', () => {
     assignment: { title: 'Notebook 4', is_lti_submission: 1, due_date: '2026-06-01', lti_fetch_status: 'ok' },
     topics: [{ id: 't1', title: 'T1', category_title: 'C', external_id: 'X1' }],
     students: [
-      { id: 1, schoology_uid: 'u1', first_name: 'Ada', last_name: 'L', scores: {}, grade_comment: '', exception: 0, comment_status: 0, lti_submission_state: 'submitted', submission_type: null, late: 0, draft: 0, submitted_at: 0, review_flag: null, resubmit_flag: null },
-      { id: 2, schoology_uid: 'u2', first_name: 'Bob', last_name: 'M', scores: {}, grade_comment: '', exception: 0, comment_status: 0, lti_submission_state: 'not_started', submission_type: null, late: 0, draft: 0, submitted_at: 0, review_flag: null, resubmit_flag: null },
+      { id: 1, schoology_uid: 'u1', first_name: 'Ada', last_name: 'L', scores: {}, grade_comment: '', exception: 0, comment_status: 0, lti_submission_state: 'submitted', submission_type: null, late: 0, draft: 0, submitted_at: 0, resubmit_flag: null },
+      { id: 2, schoology_uid: 'u2', first_name: 'Bob', last_name: 'M', scores: {}, grade_comment: '', exception: 0, comment_status: 0, lti_submission_state: 'not_started', submission_type: null, late: 0, draft: 0, submitted_at: 0, resubmit_flag: null },
     ],
   };
 
@@ -1813,14 +1720,14 @@ describe('AssessmentSummaryPage filtering', () => {
 });
 
 describe('AssessmentSummaryPage Needs action / Watch', () => {
-  const base = { scores: {}, grade_comment: '', exception: 0, comment_status: 0, submission_type: null, late: 0, draft: 0, submitted_at: 0, review_flag: null, resubmit_flag: null };
+  const base = { scores: {}, grade_comment: '', exception: 0, comment_status: 0, submission_type: null, late: 0, draft: 0, submitted_at: 0, resubmit_flag: null };
   const mastery = {
     assignment: { id: 50, title: 'Notebook 4', is_lti_submission: 1, due_date: '2026-06-01', lti_fetch_status: 'ok' },
     topics: [{ id: 't1', title: 'T1', category_title: 'C', external_id: 'X1' }],
     students: [
       { ...base, id: 1, schoology_uid: 'u1', first_name: 'Ada', last_name: 'L', lti_submission_state: 'submitted', attention: { handedIn: true, reasons: [] } },
       { ...base, id: 2, schoology_uid: 'u2', first_name: 'Bob', last_name: 'M', lti_submission_state: 'not_started', attention: { handedIn: false, reasons: [{ id: 'late', daysLate: 4, tone: 'green' }] } },
-      { ...base, id: 3, schoology_uid: 'u3', first_name: 'Cy', last_name: 'N', lti_submission_state: 'submitted', scores: { t1: { grade: 'EX' } }, grade_comment: 'Great work.', review_flag: { id: 7, flag_reason: 'Re-mark' }, comment_status: 1, attention: { handedIn: true, reasons: [] } },
+      { ...base, id: 3, schoology_uid: 'u3', first_name: 'Cy', last_name: 'N', lti_submission_state: 'submitted', scores: { t1: { grade: 'EX' } }, grade_comment: 'Great work.', comment_status: 1, attention: { handedIn: true, reasons: [] } },
     ],
   };
   const pill = (re) => within(document.querySelector('.assessment-filter-bar')).getByRole('button', { name: re });
@@ -1845,29 +1752,30 @@ describe('AssessmentSummaryPage Needs action / Watch', () => {
 
   it('a card stays shown once its reason is resolved, until the list is updated', async () => {
     renderPage(mastery);
-    await waitFor(() => expect(screen.getByText('Cy N')).toBeInTheDocument());
-    fireEvent.click(pill(/^Flagged for review1/));
-    expect(screen.getByText('Ada L')).not.toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: 'Clear review flag' }));
-    await waitFor(() => expect(screen.getByText(/1 no longer matches/)).toBeInTheDocument());
-    expect(screen.getByText('Cy N')).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: 'Update the list' }));
+    await waitFor(() => expect(screen.getByText('Ada L')).toBeInTheDocument());
+    fireEvent.click(pill(/^To grade1/));
     expect(screen.getByText('Cy N')).not.toBeVisible();
-    expect(screen.getByText(/No students match Flagged for review/)).toBeInTheDocument();
+    // Choosing a level on Ada's card makes it a draft: To grade no longer holds, the card stays.
+    fireEvent.click(within(document.querySelector('#student-card-1')).getByTitle('Set T1 to Developing'));
+    await waitFor(() => expect(screen.getByText(/1 no longer matches/)).toBeInTheDocument());
+    expect(screen.getByText('Ada L')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Update the list' }));
+    expect(screen.getByText('Ada L')).not.toBeVisible();
+    expect(screen.getByText(/No students match To grade/)).toBeInTheDocument();
     fireEvent.click(within(screen.getByText(/No students match/).parentElement).getByRole('button', { name: 'Clear filters' }));
-    expect(screen.getByText('Cy N')).toBeVisible();
+    expect(screen.getByText('Ada L')).toBeVisible();
   });
 });
 
 describe('AssessmentSummaryPage ?filter= links (triage)', () => {
-  const base = { scores: {}, grade_comment: '', exception: 0, comment_status: 0, submission_type: null, late: 0, draft: 0, submitted_at: 0, review_flag: null, resubmit_flag: null, lti_submission_state: 'submitted', attention: { handedIn: true, reasons: [] } };
+  const base = { scores: {}, grade_comment: '', exception: 0, comment_status: 0, submission_type: null, late: 0, draft: 0, submitted_at: 0, resubmit_flag: null, lti_submission_state: 'submitted', attention: { handedIn: true, reasons: [] } };
   const topics = [{ id: 't1', title: 'T1', category_title: 'C', external_id: 'X1' }];
   const mastery = {
     assignment: { id: 50, title: 'Notebook 4', is_lti_submission: 1, due_date: '2026-06-01', lti_fetch_status: 'ok' },
     topics,
     students: [
       { ...base, id: 1, schoology_uid: 'u1', first_name: 'Ada', last_name: 'L' },
-      { ...base, id: 2, schoology_uid: 'u2', first_name: 'Bob', last_name: 'M', review_flag: { id: 9, flag_reason: 'x' } },
+      { ...base, id: 2, schoology_uid: 'u2', first_name: 'Bob', last_name: 'M', grade_comment: 'x', comment_status: 0 },
     ],
   };
   const renderAt = (entry) => {
@@ -1880,11 +1788,11 @@ describe('AssessmentSummaryPage ?filter= links (triage)', () => {
   };
 
   it('preselects the reasons named in ?filter= (unknown ids ignored)', async () => {
-    renderAt('/course/4/assessment/8?filter=flagged,nonsense');
+    renderAt('/course/4/assessment/8?filter=feedback_hidden,nonsense');
     await waitFor(() => expect(screen.getByText('Bob M')).toBeInTheDocument());
     expect(screen.getByText('Bob M')).toBeVisible();
     expect(screen.getByText('Ada L')).not.toBeVisible();
-    expect(within(document.querySelector('.assessment-filter-bar')).getByRole('button', { name: /^Flagged for review/ }))
+    expect(within(document.querySelector('.assessment-filter-bar')).getByRole('button', { name: /^Feedback hidden/ }))
       .toHaveAttribute('aria-pressed', 'true');
   });
 
@@ -1907,7 +1815,7 @@ describe('AssessmentSummaryPage sticky view mode', () => {
     assignment: { title: 'Notebook 4', is_lti_submission: 1, due_date: '2026-06-01', lti_fetch_status: 'ok' },
     topics: [{ id: 't1', title: 'T1', category_title: 'C', external_id: 'X1' }],
     students: [
-      { id: 1, schoology_uid: 'u1', first_name: 'Ada', last_name: 'L', scores: {}, grade_comment: '', exception: 0, comment_status: 0, lti_submission_state: 'submitted', submission_type: null, late: 0, draft: 0, submitted_at: 0, review_flag: null, resubmit_flag: null },
+      { id: 1, schoology_uid: 'u1', first_name: 'Ada', last_name: 'L', scores: {}, grade_comment: '', exception: 0, comment_status: 0, lti_submission_state: 'submitted', submission_type: null, late: 0, draft: 0, submitted_at: 0, resubmit_flag: null },
     ],
   };
 

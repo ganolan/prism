@@ -6,8 +6,8 @@ const LTI = { is_lti_submission: 1, due_date: '2026-06-01' };
 const NON_LTI = { is_lti_submission: 0, due_date: '2026-06-01' };
 const TOPICS = [{ id: 't1' }];
 const students = [
-  { scores: { t1: { grade: 'EX' } }, grade_comment: 'x', exception: 0, comment_status: 1, lti_submission_state: 'submitted', review_flag: null, resubmit_flag: null },
-  { scores: {}, grade_comment: '', exception: 0, comment_status: 0, lti_submission_state: 'not_started', review_flag: null, resubmit_flag: null },
+  { scores: { t1: { grade: 'EX' } }, grade_comment: 'x', exception: 0, comment_status: 1, lti_submission_state: 'submitted', resubmit_flag: null },
+  { scores: {}, grade_comment: '', exception: 0, comment_status: 0, lti_submission_state: 'not_started', resubmit_flag: null },
 ];
 
 // The descriptive pills sit under the collapsed Refine section.
@@ -76,7 +76,7 @@ describe('AssessmentFilterBar', () => {
   it('the group pill shows none / some / all, selects every pill in its row, then clears the whole row', () => {
     const many = [
       { ...students[0], scores: {}, grade_comment: '', attention: { handedIn: true, reasons: [] } },
-      { ...students[1], review_flag: { id: 1 }, attention: { handedIn: false, reasons: [] } },
+      { ...students[1], resubmitted: true, attention: { handedIn: false, reasons: [] } },
     ];
     const onSetMany = vi.fn();
     const bar = (active) => <AssessmentFilterBar students={many} assignment={LTI} topics={TOPICS} active={new Set(active)} onToggle={() => {}} onSetMany={onSetMany} />;
@@ -86,13 +86,13 @@ describe('AssessmentFilterBar', () => {
     rerender(bar(['to_grade']));
     expect(group).toHaveAttribute('aria-pressed', 'mixed');
     fireEvent.click(group);
-    expect(onSetMany).toHaveBeenLastCalledWith(['to_grade', 'flagged'], true);
-    rerender(bar(['to_grade', 'flagged']));
+    expect(onSetMany).toHaveBeenLastCalledWith(['to_grade', 'resubmitted'], true);
+    rerender(bar(['to_grade', 'resubmitted']));
     expect(group).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(group);
     const [ids, on] = onSetMany.mock.lastCall;
     expect(on).toBe(false);
-    expect(ids).toEqual(expect.arrayContaining(['to_grade', 'flagged', 'draft', 'feedback_hidden', 'referral']));
+    expect(ids).toEqual(expect.arrayContaining(['to_grade', 'resubmitted', 'draft', 'feedback_hidden', 'referral']));
   });
 
   it('states how many students show; Refine sits at the end of the Watch row', () => {

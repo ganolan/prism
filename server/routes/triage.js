@@ -93,7 +93,7 @@ router.get('/', (req, res) => {
   const courseId = req.query.courseId ?? null;
   res.json({
     ...getTriage(db, { courseId, includeFormative: optBool(req.query.includeFormative) }),
-    // Unfinished work with no clock (drafts, hidden feedback, flags): the Unfinished grading panel.
+    // Unfinished work with no clock (drafts, hidden feedback, unread comments): the Unfinished grading panel.
     unfinishedGrading: getUnfinishedGrading(db, { courseId }),
   });
 });

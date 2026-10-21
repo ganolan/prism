@@ -88,7 +88,7 @@ async function post(path, body) {
   }
 }
 
-describe('GET /api/mastery/:courseId/assignment/:assignmentId — review and resubmit flags', () => {
+describe('GET /api/mastery/:courseId/assignment/:assignmentId — resubmit flags', () => {
   let courseId;
   let studentId;
   let assignmentInternalId;
@@ -96,7 +96,7 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — review and res
   beforeEach(() => {
     const db = getDb();
     db.exec(
-      'DELETE FROM feedback_snapshots; DELETE FROM status_lines; DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; ' +
+      'DELETE FROM feedback_snapshots; DELETE FROM status_lines; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; ' +
       'DELETE FROM students; DELETE FROM courses;'
     );
     courseId = db.prepare(
@@ -151,11 +151,11 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — review and res
     }
   });
 
-  test('review_flag is null when the student has no review flag', async () => {
+  test('a student carries no review_flag (Flag for review is gone, #40)', async () => {
     const { status, body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
     expect(status).toBe(200);
     expect(body.students).toHaveLength(1);
-    expect(body.students[0].review_flag).toBeNull();
+    expect(body.students[0]).not.toHaveProperty('review_flag');
   });
 
   test('each student carries attention: handedIn + the calendar reasons (cardAttention.test.js has the cases)', async () => {
@@ -163,35 +163,10 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — review and res
     expect(body.students[0].attention).toEqual({ handedIn: expect.any(Boolean), reasons: expect.any(Array) });
   });
 
-  test('review_flag carries id and reason for a review_needed flag', async () => {
-    const db = getDb();
-    const flagId = db.prepare(
-      `INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason)
-       VALUES (?, ?, 'review_needed', 'Check the citations')`
-    ).run(studentId, assignmentInternalId).lastInsertRowid;
-
-    const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
-    expect(body.students[0].review_flag).toEqual({
-      id: flagId,
-      flag_reason: 'Check the citations',
-    });
-  });
-
-  test('a non-review flag on the same submission is ignored', async () => {
-    const db = getDb();
-    db.prepare(
-      `INSERT INTO flags (student_id, assignment_id, flag_type, flag_reason)
-       VALUES (?, ?, 'custom', 'something else')`
-    ).run(studentId, assignmentInternalId);
-
-    const { body } = await get(`/api/mastery/${courseId}/assignment/sa-1`);
-    expect(body.students[0].review_flag).toBeNull();
-  });
-
   test('does not throw for an unknown assignment id', async () => {
     const { status, body } = await get(`/api/mastery/${courseId}/assignment/no-such-assignment`);
     expect(status).toBe(200);
-    expect(body.students.every(s => s.review_flag === null)).toBe(true);
+    expect(body.students.every(s => !('review_flag' in s))).toBe(true);
   });
 
   // #76: the assignment-context response must carry the Schoology assignment
@@ -328,7 +303,7 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — individually a
   beforeEach(() => {
     const db = getDb();
     db.exec(
-      'DELETE FROM feedback_snapshots; DELETE FROM assignment_assignees; DELETE FROM flags; DELETE FROM grades; ' +
+      'DELETE FROM feedback_snapshots; DELETE FROM assignment_assignees; DELETE FROM grades; ' +
       'DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
     );
     courseId = db.prepare(
@@ -543,7 +518,7 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
   beforeEach(() => {
     const db = getDb();
     db.exec(
-      'DELETE FROM feedback_snapshots; DELETE FROM status_lines; DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM mastery_alignments; ' +
+      'DELETE FROM feedback_snapshots; DELETE FROM status_lines; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM mastery_alignments; ' +
       'DELETE FROM mastery_scores; DELETE FROM measurement_topics; ' +
       'DELETE FROM reporting_categories; DELETE FROM assignment_assignees; ' +
       'DELETE FROM enrolments; DELETE FROM assignments; ' +
@@ -1143,7 +1118,7 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
   beforeEach(() => {
     const db = getDb();
     db.exec(
-      'DELETE FROM feedback_snapshots; DELETE FROM status_lines; DELETE FROM flags; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM mastery_alignments; ' +
+      'DELETE FROM feedback_snapshots; DELETE FROM status_lines; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM mastery_alignments; ' +
       'DELETE FROM mastery_scores; DELETE FROM measurement_topics; ' +
       'DELETE FROM reporting_categories; DELETE FROM assignment_assignees; ' +
       'DELETE FROM enrolments; DELETE FROM assignments; ' +
@@ -1714,7 +1689,7 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId/submission-links (
     db.exec(
       'DELETE FROM feedback_snapshots; DELETE FROM mastery_rollups; DELETE FROM mastery_scores; DELETE FROM mastery_alignments; ' +
       'DELETE FROM measurement_topics; DELETE FROM reporting_categories; DELETE FROM assignment_assignees; ' +
-      'DELETE FROM flags; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; ' +
+      'DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; ' +
       'DELETE FROM students; DELETE FROM courses;'
     );
     courseId = db.prepare(
@@ -1834,7 +1809,7 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
       'DELETE FROM rubric_row_levels; DELETE FROM rubric_attachments; DELETE FROM rubrics; ' +
       'DELETE FROM feedback_snapshots; DELETE FROM mastery_rollups; DELETE FROM mastery_scores; DELETE FROM mastery_alignments; ' +
       'DELETE FROM measurement_topics; DELETE FROM reporting_categories; DELETE FROM assignment_assignees; ' +
-      'DELETE FROM flags; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; ' +
+      'DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; ' +
       'DELETE FROM students; DELETE FROM courses;'
     );
     courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-S', 'Course')`).run().lastInsertRowid;

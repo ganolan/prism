@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import LargerScreenNote from '../components/LargerScreenNote.jsx';
 import { useParams, Link, useSearchParams, Navigate, useLocation } from 'react-router-dom';
-import { getMasteryForAssignment, getSyncRun, getQuizGroupFor, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, createFlag, deleteFlag, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, getTriagePair, loadQuizResults, rebuildQuizOverall, saveRowLevels, getAssignmentCommentSummaries, getAssignmentFileSummaries } from '../services/api.js';
+import { getMasteryForAssignment, getSyncRun, getQuizGroupFor, getSubmissionLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, writeMasteryScores, writeMasteryComment, sendAllGrades, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, getTriagePair, loadQuizResults, rebuildQuizOverall, saveRowLevels, getAssignmentCommentSummaries, getAssignmentFileSummaries } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 import { feedbackRowTopics, rowScores, rowTopicMapping, isRowKey, rowName } from '../lib/feedbackRows.js';
 import { makeDraftSaver } from '../lib/assessmentDraftSaver.js';
@@ -105,69 +105,6 @@ function topLineIs(text, line) {
   if (!line) return false;
   const t = String(text ?? '').replace(/\r\n/g, '\n');
   return t === line || t.startsWith(`${line}\n`);
-}
-
-// A header status pill for the per-submission review / resubmit flags (#20/#49).
-// Inactive: thin accent border, white background, neutral text, accent icon —
-// clicking activates. Active: thicker accent border + filled accent colours;
-// clicking clears it, and hovering swaps the icon/label to a ✕ "Clear"
-// affordance so it's obvious the click will remove the flag. Sized to match the
-// control-band buttons (0.85rem / 600).
-function HeaderPill({ active, accent, activeBg, activeText, icon, label, clearLabel, onClick, busy }) {
-  const [hover, setHover] = useState(false);
-  const base = {
-    display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
-    borderRadius: 999, padding: '0 0.7rem', lineHeight: 1.2,
-    // Fixed height + border-box so the inactive (1.5px) and active (2.5px) border
-    // widths produce the SAME outer height — the header band never resizes when a
-    // pill activates.
-    height: '1.8rem', boxSizing: 'border-box', whiteSpace: 'nowrap',
-    fontSize: '0.85rem', fontWeight: 600, fontFamily: 'inherit',
-    cursor: busy ? 'default' : 'pointer', userSelect: 'none',
-    transition: 'background 0.12s, border-color 0.12s, color 0.12s',
-  };
-  // Fixed-width icon box so swapping the glyph (icon ↔ ✕) never resizes the pill.
-  const iconBox = { display: 'inline-block', width: '1em', textAlign: 'center', flexShrink: 0 };
-
-  if (!active) {
-    return (
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={busy}
-        style={{ ...base, border: `1.5px solid ${accent}`, background: 'var(--card-bg)', color: 'var(--text-muted)' }}
-      >
-        <span aria-hidden="true" style={{ ...iconBox, color: accent }}>{icon}</span>
-        {label}
-      </button>
-    );
-  }
-
-  // Active: clicking clears. On hover we keep the SAME label text (and width) to
-  // avoid a resize-flicker loop — only the icon swaps to ✕, the label gets a
-  // strike-through, and the colours shift to the danger palette so it reads as
-  // "this click removes it".
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={busy}
-      aria-label={clearLabel}
-      title="Click to clear"
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      onFocus={() => setHover(true)}
-      onBlur={() => setHover(false)}
-      style={{
-        ...base, border: `2.5px solid ${hover ? 'var(--danger)' : accent}`,
-        background: hover ? 'var(--danger-bg)' : activeBg,
-        color: hover ? 'var(--danger)' : activeText,
-      }}
-    >
-      <span aria-hidden="true" style={iconBox}>{hover ? '✕' : icon}</span>
-      <span style={{ textDecoration: hover ? 'line-through' : 'none' }}>{label}</span>
-    </button>
-  );
 }
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
@@ -327,14 +264,6 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   );
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState(null);
-
-  // Review flag (#20) — Prism-local, submission-scoped. Written via /api/flags,
-  // entirely independent of the Schoology grade/comment write below.
-  const [reviewFlag, setReviewFlag] = useState(student.review_flag || null);
-  const [showFlagInput, setShowFlagInput] = useState(false);
-  const [flagReason, setFlagReason] = useState('');
-  const [flagBusy, setFlagBusy] = useState(false);
-  const [flagError, setFlagError] = useState(null);
 
   // Exception (Excused/Incomplete/Missing) on the underlying grade locks the
   // rubric grid: setting one of these in Schoology deletes the score, so any
@@ -944,45 +873,6 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     }
   }
 
-  async function handleFlagForReview() {
-    const reason = flagReason.trim();
-    if (!reason || !assignmentRow?.id) return;
-    setFlagError(null);
-    setFlagBusy(true);
-    try {
-      const flag = await createFlag({
-        student_id: student.id,
-        assignment_id: assignmentRow.id,
-        flag_type: 'review_needed',
-        flag_reason: reason,
-      });
-      setReviewFlag({ id: flag.id, flag_reason: flag.flag_reason });
-      // The page's Flagged for review reason + count follow the card.
-      onSaved?.(student.schoology_uid, { review_flag: { id: flag.id, flag_reason: flag.flag_reason } });
-      setShowFlagInput(false);
-      setFlagReason('');
-    } catch (err) {
-      setFlagError(`Flag failed: ${err.message}`);
-    } finally {
-      setFlagBusy(false);
-    }
-  }
-
-  async function handleClearReviewFlag() {
-    if (!reviewFlag) return;
-    setFlagError(null);
-    setFlagBusy(true);
-    try {
-      await deleteFlag(reviewFlag.id);
-      setReviewFlag(null);
-      onSaved?.(student.schoology_uid, { review_flag: null });
-    } catch (err) {
-      setFlagError(`Clear failed: ${err.message}`);
-    } finally {
-      setFlagBusy(false);
-    }
-  }
-
   // A resubmission that has arrived rings the card blue (the stronger signal; the status
   // pill reads "Resubmitted"), asked for or not.
   const resubmissionArrived = student.resubmission?.state === 'arrived' || !!student.resubmitted;
@@ -1106,63 +996,10 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         {saveResult?.startsWith('error') && (
           <span className="badge badge-red" style={{ fontSize: '0.68rem' }}>{saveResult}</span>
         )}
-        {/* Right-aligned control cluster — pins the review/resubmit pills to the
+        {/* Right-aligned control cluster — pins the resubmit, extend and refer controls to the
             card's right edge so they sit on the same vertical plane across every
             card regardless of student-name length. */}
         <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
-        {/* Review flag (#20) — Prism-local; never part of a Schoology save.
-            Control and badge live together here in the card header. */}
-        {reviewFlag ? (
-          <HeaderPill
-            active
-            accent="var(--badge-amber-text)"
-            activeBg="var(--badge-amber-bg)"
-            activeText="var(--badge-amber-text)"
-            icon="⚑"
-            label={`Review: ${reviewFlag.flag_reason}`}
-            clearLabel="Clear review flag"
-            onClick={handleClearReviewFlag}
-            busy={flagBusy}
-          />
-        ) : showFlagInput ? (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
-            <input
-              type="text"
-              value={flagReason}
-              onChange={e => setFlagReason(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && !flagBusy && flagReason.trim()) handleFlagForReview();
-                if (e.key === 'Escape') { setShowFlagInput(false); setFlagReason(''); }
-              }}
-              placeholder="Reason for review..."
-              style={{ fontSize: '0.78rem', width: 200 }}
-              autoFocus
-            />
-            <button
-              className="primary"
-              onClick={handleFlagForReview}
-              disabled={flagBusy || !flagReason.trim()}
-              style={{ fontSize: '0.7rem' }}
-            >
-              Flag
-            </button>
-            <button
-              className="ghost"
-              onClick={() => { setShowFlagInput(false); setFlagReason(''); }}
-              title="Cancel (Esc)"
-              style={{ fontSize: '0.7rem' }}
-            >
-              Cancel
-            </button>
-          </span>
-        ) : (
-          <HeaderPill
-            accent="var(--badge-amber-text)"
-            icon="⚑"
-            label="Flag for review"
-            onClick={() => setShowFlagInput(true)}
-          />
-        )}
         {/* Resubmission (triage) — ask with a deadline in school days; each action publishes a
             status line to the student's Schoology comment after a confirm (spec Amendment B).
             Not offered on an archived/excluded course (the server refuses those). */}
@@ -1186,9 +1023,6 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           panelHost={panelHost}
           onChange={handleResubmitChange}
         />}
-        {flagError && (
-          <span className="text-sm" style={{ color: 'var(--danger)' }}>{flagError}</span>
-        )}
         {isRubricLocked && (
           <span className={`badge ${LOCK_BADGE[student.exception]}`} style={{ fontSize: '0.68rem' }} title="Exception set in Schoology: score data is deleted while the exception is active">
             {exceptionLabel}, rubric locked

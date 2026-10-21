@@ -99,8 +99,6 @@ export const updateNote = (id, data) => request(`/notes/${id}`, { method: 'PUT',
 export const deleteNote = (id) => request(`/notes/${id}`, { method: 'DELETE' });
 
 // Flags
-export const createFlag = (data) => request('/flags', { method: 'POST', body: JSON.stringify(data) });
-export const deleteFlag = (id) => request(`/flags/${id}`, { method: 'DELETE' });
 
 // Class tools — courseIds may be a single id or an array of ids (sent comma-separated)
 const courseList = (courseIds) => [].concat(courseIds).join(',');

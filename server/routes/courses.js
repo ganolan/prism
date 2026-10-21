@@ -245,25 +245,10 @@ router.get('/:id/gradebook', (req, res) => {
     WHERE a.course_id = ?
   `).all(req.params.id);
 
-  // Open triage resubmission requests (#49, Part A; moved off `flags` 2026-10-03).
+  // Open triage resubmission requests (#49, Part A).
   const resubmitSet = openRequestKeys(db, Number(req.params.id));
   // Arrived resubmissions (visible-feedback snapshots, Amendment B) — the ↩ badge.
   const arrived = arrivedKeys(db, { courseId: Number(req.params.id) });
-
-  // Unresolved 'review needed' flags (#57). Prism-local — surfaced on the
-  // gradebook rubric modal alongside submission status.
-  const reviewFlags = db.prepare(`
-    SELECT f.id, f.student_id, f.assignment_id, f.flag_reason
-    FROM flags f
-    JOIN assignments a ON a.id = f.assignment_id
-    WHERE a.course_id = ? AND f.flag_type = 'review_needed' AND f.resolved = 0
-  `).all(req.params.id);
-  const reviewByKey = {};
-  for (const f of reviewFlags) {
-    const key = `${f.student_id}:${f.assignment_id}`;
-    if (!reviewByKey[key]) reviewByKey[key] = [];
-    reviewByKey[key].push({ id: f.id, flag_reason: f.flag_reason });
-  }
 
   // Index grades by student_id -> assignment_id
   const gradeMap = {};
@@ -271,7 +256,6 @@ router.get('/:id/gradebook', (req, res) => {
     if (!gradeMap[g.student_id]) gradeMap[g.student_id] = {};
     g.resubmit_requested = resubmitSet.has(`${g.student_id}:${g.assignment_id}`);
     g.resubmitted = arrived.has(`${g.student_id}:${g.assignment_id}`);
-    g.review_needed = reviewByKey[`${g.student_id}:${g.assignment_id}`] || [];
     gradeMap[g.student_id][g.assignment_id] = g;
   }
 

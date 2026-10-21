@@ -35,17 +35,8 @@ function renderCourseSection(flagsByAssignment, gradeOverrides = {}, sectionProp
   );
 }
 
-describe('CourseSection review flag badge', () => {
-  it('renders a review_needed flag as an amber "⚑ Review:" badge on the assignment row', () => {
-    renderCourseSection({
-      10: [{ id: 5, flag_type: 'review_needed', flag_reason: 'Check citations', assignment_id: 10, resolved: 0 }],
-    });
-    const badge = screen.getByText(/⚑ Review: Check citations/);
-    expect(badge).toBeInTheDocument();
-    expect(badge).toHaveClass('badge', 'badge-amber');
-  });
-
-  it('renders no review badge when the assignment has no flags', () => {
+describe('CourseSection resubmit badge', () => {
+  it('renders no review badge: Flag for review is gone (#40)', () => {
     renderCourseSection({});
     expect(screen.queryByText(/⚑ Review:/)).not.toBeInTheDocument();
   });

@@ -63,7 +63,7 @@ Tracks implementation status across Prism's development phases. Check this befor
 ## Phase 2 Enrichment — COMPLETE (2026-04-03)
 
 - [x] Notes CRUD: create, update, delete notes per student (general or course-specific)
-- [x] Flags CRUD: create flags with type (custom, review_needed, late_submission, performance_change), resolve/reopen workflow
+- [x] *(Removed 21 Oct 2026, #40: the flags table, /api/flags and the Flag for review UI are gone.)* Flags CRUD: create flags with type (custom, review_needed, late_submission, performance_change), resolve/reopen workflow
 - [x] Notes + flags UI on student profile page with inline editing
 - [x] Active flags banner on student page
 - [x] Class tools backend + frontend page includes email list generation, random name picker, and group generator with CSV export
@@ -1728,3 +1728,11 @@ Commits `c481c5b` and `610a40e` (server) and `76f679e` (client), then the docs (
 - **Quiz overall result:** the "comment was edited" guard stays, since a stored edit is still never overwritten; its messages no longer name the Feedback page. Prod had no edited overall comments.
 - **Prod plist:** `npm run prism:install` re-run on the mini the same day, so the server agent no longer sets `INBOX_DIR` (the only difference in the planned agents; the database, tailnet and backup were unchanged). Install's closing message now reports an empty database only on a first deploy.
 
+
+## Flag for review removed (#40, 2026-10-21)
+
+- **Why:** Graham dropped Flag for review completely. Prism's flags are now Schoology's (Excused, Late), set from one Flags menu on the card.
+- **Removed:** `server/routes/flags.js` (and `/api/flags`), the `flags` table (gone from `schema.sql`; `DROP TABLE IF EXISTS flags` in `MIGRATIONS`, which also removes prod's 8 stale automatic "Below 50%" rows), `purgeLegacyAutoFlags`, `purgeStudentScopedFlags` and `migrateResubmitFlags` (the last had already run in prod on 2026-10-03). Gradebook `review_needed`, assessment-card `review_flag`, `getFlagsByStudent`'s `review_needed`, Triage's `flagged` count and reason, the `flagged` reason and `review` refine pill in `assessmentFilters.js`, `HeaderPill`, `createFlag`/`deleteFlag`, and the "Review:" badge in `SubmissionBadges`.
+- **Kept:** the AI suggestion's `reviewer_flags` / `reviewer_flags_brief`, `resubmit_requested` in `get_assignment_context` (from `resubmissions`), and the student page's open-request entries (still returned under `flags`). `feedback.flag_for_review` / `flag_reason` are old columns of the AI feedback table, unused by the code and left alone.
+- **Old links:** a `?filter=flagged` or `review` link is ignored by `parseFilterParam` (no filter).
+- **Slot:** the card header's right-hand cluster now starts with Refer; the Flags menu goes first in it.

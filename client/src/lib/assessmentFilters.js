@@ -72,7 +72,6 @@ export function filterGroups(assignment) {
       { id: 'visible', label: 'Visible' },
       { id: 'not_visible', label: 'Not visible' },
     ] },
-    { key: 'flag', pills: [{ id: 'review', label: 'Flag for review' }] },
   ];
 }
 
@@ -93,8 +92,6 @@ export function studentMatchesPill(student, pillId, { assignment, topics }) {
     case 'not_visible':
       // Only feedback that exists can be hidden: a student with no comment is not "not visible".
       return hasTeacherComment(student) && student.comment_status !== 1;
-    case 'review':
-      return student.review_flag != null;
     default:
       return true;
   }
@@ -148,7 +145,7 @@ const hasTeacherComment = (student) => teacherText(student.grade_comment, studen
 // ─── Needs action + Watch reasons ───────────────────────────────────────────
 // Each reason is a pill in its row and a chip on the student's card. The ones the
 // teacher's own grading changes (to grade, partly graded, draft, feedback hidden,
-// resubmitted, flagged) are worked out here, so they follow each save at once. The
+// resubmitted) are worked out here, so they follow each save at once. The
 // school-calendar ones come from the server (server/services/cardAttention.js:
 // student.attention.reasons), built from triage's Late work, Resubmissions and
 // Make-up tests rows.
@@ -163,7 +160,6 @@ export const REASONS = {
   referral: { group: 'action', label: 'Referral to decide', tone: 'red' },
   resubmission_overdue: { group: 'action', label: 'Resubmission overdue', tone: 'red' },
   make_up: { group: 'action', label: 'Make-up test', tone: 'amber' },
-  flagged: { group: 'action', label: 'Flagged for review', tone: 'yellow' },
   not_started_soon: { group: 'watch', label: 'Not started, due soon', tone: 'yellow' },
   in_progress_late: { group: 'watch', label: 'In progress, past due', tone: 'blue' },
   late: { group: 'watch', label: 'Late', tone: 'yellow' },
@@ -221,7 +217,6 @@ export function studentReasons(student, ctx) {
     if (hasTeacherComment(student) && student.comment_status !== 1) out.push({ id: 'feedback_hidden' });
     if (student.resubmission?.state === 'arrived' || student.resubmitted) out.push({ id: 'resubmitted' });
   }
-  if (student.review_flag != null) out.push({ id: 'flagged' });
   const unread = ctx.commentSummaryOf?.(student)?.unread || 0;
   if (unread > 0) out.push({ id: 'unread_comment', count: unread });
   for (const r of student.attention?.reasons || []) if (REASONS[r.id]) out.push(r);
@@ -236,7 +231,7 @@ export function countReasons(students, ctx) {
 
 // Every pill id the page knows (reasons + Refine), for reading ?filter= from a link.
 // A group name ('action', 'watch') stands for every reason in that row.
-const REFINE_IDS = ['submitted', 'in_progress', 'not_started', 'ungraded', 'partial', 'graded', 'visible', 'not_visible', 'review'];
+const REFINE_IDS = ['submitted', 'in_progress', 'not_started', 'ungraded', 'partial', 'graded', 'visible', 'not_visible'];
 export function parseFilterParam(param) {
   const known = new Set([...REASON_IDS, ...REFINE_IDS]);
   const ids = String(param || '').split(',').map(x => x.trim())

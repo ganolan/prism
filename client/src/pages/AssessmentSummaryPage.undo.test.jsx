@@ -32,8 +32,6 @@ vi.mock('../services/api.js', () => ({
   writeMasteryScores: vi.fn().mockResolvedValue({}),
   writeMasteryComment: vi.fn().mockResolvedValue({}),
   sendAllGrades: vi.fn().mockResolvedValue({ results: [] }),
-  createFlag: vi.fn().mockResolvedValue({ id: 99, flag_reason: 'Check citations' }),
-  deleteFlag: vi.fn().mockResolvedValue({ success: true }),
   getSettings: vi.fn().mockResolvedValue({ triage: { resubmitLessonsDefault: 3 } }),
   getTriagePair: vi.fn().mockResolvedValue(null),
   requestResubmission: vi.fn(),

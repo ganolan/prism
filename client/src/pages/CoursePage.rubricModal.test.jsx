@@ -23,7 +23,7 @@ function renderModal({ assignment = {}, comment = '', student = STUDENT, grade =
         courseId="5"
         topics={TOPICS}
         comment={comment}
-        grade={{ score: null, review_needed: [], resubmit_requested: false, resubmitted: false, lti_submission_state: 'in_progress', ...grade }}
+        grade={{ score: null, resubmit_requested: false, resubmitted: false, lti_submission_state: 'in_progress', ...grade }}
         onClose={() => {}}
       />
     </MemoryRouter>

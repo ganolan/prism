@@ -204,7 +204,7 @@ const MIGRATIONS = [
   // #40: Late (exception 4) is not feedback. Rewrite stored fingerprints that carry it
   // ("e":4) to "e":0, so a flagged-Late row is not read as graded. save_log holds
   // fingerprints as JSON strings inside a JSON array, so there the quotes are escaped.
-  // Idempotent: once rewritten, no row matches. Last in the list so save_log exists.
+  // Idempotent: once rewritten, no row matches. Placed after save_log is added.
   `UPDATE feedback_snapshots SET
      fingerprint = replace(fingerprint, '"e":4,"l"', '"e":0,"l"'),
      synced_fingerprint = replace(synced_fingerprint, '"e":4,"l"', '"e":0,"l"'),
@@ -212,31 +212,12 @@ const MIGRATIONS = [
      save_log = replace(save_log, '\\"e\\":4,\\"l\\"', '\\"e\\":0,\\"l\\"')
    WHERE instr(fingerprint, '"e":4,"l"') > 0 OR instr(synced_fingerprint, '"e":4,"l"') > 0
       OR instr(arrival_baseline, '"e":4,"l"') > 0 OR instr(save_log, '\\"e\\":4,\\"l\\"') > 0`,
+  // #40: Flag for review is gone, and with it the flags table (its Review flags, the stale automatic
+  // "Below 50%" ones, and the old resubmit_requested rows that migrateResubmitFlags had already moved
+  // to `resubmissions` on 2026-10-03). schema.sql no longer creates it; this drops it where it exists.
+  // The table's index goes with it.
+  `DROP TABLE IF EXISTS flags`,
 ];
-
-// Remove orphaned auto-flag rows. The auto-flag feature that wrote 'missing',
-// 'late_submission', and 'performance_change' rows into the flags table was
-// dropped in commit 743a68d, but the rows it had created were left behind —
-// surfacing as stale, un-removable badges on the student page. None of these
-// are creatable flag types any more (flags.js only writes 'review_needed',
-// 'resubmit_requested', and 'custom'), so any surviving row is an orphan.
-// 'performance_change' rows carry an assignment_id, so purgeStudentScopedFlags
-// does not catch them — they must be named explicitly here. Idempotent — safe
-// to run on every boot. See #45.
-export function purgeLegacyAutoFlags(database) {
-  database.exec(
-    `DELETE FROM flags WHERE flag_type IN ('missing', 'late_submission', 'performance_change')`
-  );
-}
-
-// Remove orphaned student-scoped flags. Before #20/#19, flags could be created
-// against a student profile with no assignment_id (the retired FlagsCard).
-// Review flags are now always submission-scoped — student AND assignment — so a
-// NULL assignment_id marks a flag with no home in the UI. Idempotent — safe to
-// run on every boot. See #20/#19.
-export function purgeStudentScopedFlags(database) {
-  database.exec(`DELETE FROM flags WHERE assignment_id IS NULL`);
-}
 
 // Remove mastery score rows with no level. The full mastery sync stored an
 // observation with null points as an empty row (the assignment refresh already
@@ -289,33 +270,6 @@ export function backfillFirstSubmittedAt(database) {
     UPDATE grades SET first_submitted_at = latest_revision_at
     WHERE COALESCE(first_submitted_at, 0) = 0 AND COALESCE(latest_revision_at, 0) > 0
   `);
-}
-
-// Triage resubmissions (2026-10-03): the #49 'resubmit_requested' flag toggle
-// becomes an open request (default 3 lessons from when it was set). A flag on an
-// archived or excluded course becomes a closed request instead — nothing can
-// act on it there, and an open one would sit unresolvable in the history.
-// Idempotent: only runs while such flags exist, and the flags are removed after
-// the copy.
-export function migrateResubmitFlags(database) {
-  const flags = database.prepare(`
-    SELECT f.id, f.student_id, f.assignment_id, f.created_at, a.course_id,
-           (COALESCE(c.archived, 0) = 1 OR COALESCE(c.excluded, 0) = 1) AS retired
-    FROM flags f JOIN assignments a ON a.id = f.assignment_id JOIN courses c ON c.id = a.course_id
-    WHERE f.flag_type = 'resubmit_requested' AND f.resolved = 0
-  `).all();
-  const insertOpen = database.prepare(`
-    INSERT OR IGNORE INTO resubmissions (student_id, assignment_id, course_id, kind, status, requested_at, lessons, source)
-    VALUES (?, ?, ?, 'request', 'open', ?, 3, 'app')
-  `);
-  const insertClosed = database.prepare(`
-    INSERT INTO resubmissions (student_id, assignment_id, course_id, kind, status, requested_at, lessons, source, closed_at, close_note)
-    VALUES (?, ?, ?, 'request', 'closed', ?, 3, 'app', datetime('now'), 'Migrated (archived course)')
-  `);
-  database.transaction(() => {
-    for (const f of flags) (f.retired ? insertClosed : insertOpen).run(f.student_id, f.assignment_id, f.course_id, f.created_at);
-    database.exec(`DELETE FROM flags WHERE flag_type = 'resubmit_requested'`);
-  })();
 }
 
 // #127: mastery_rollups must be keyed per course. The original PK
@@ -378,8 +332,6 @@ export function migrate(database) {
   migrateMasteryRollupsPk(database);
 
   // Data purges — independent of each other; order does not matter.
-  purgeLegacyAutoFlags(database);
-  purgeStudentScopedFlags(database);
   purgeEmptyMasteryScores(database);
   backfillExcludedCourses(database);
   // A failure here is logged, not fatal: the Synced times are a convenience, startup is not.
@@ -389,7 +341,6 @@ export function migrate(database) {
     console.error('[db] could not backfill archived courses\' Synced times:', err.message);
   }
   backfillFirstSubmittedAt(database);
-  migrateResubmitFlags(database);
 }
 
 export function getDb() {

@@ -11,7 +11,7 @@ const TOPICS = [{ id: 't1' }, { id: 't2' }];
 const stu = (over = {}) => ({
   scores: {}, grade_comment: '', exception: 0, comment_status: 0,
   lti_submission_state: null, submission_type: null, submitted_at: 0,
-  review_flag: null, resubmit_flag: null, ...over,
+  resubmit_flag: null, ...over,
 });
 
 describe('normalizedSubmissionState', () => {
@@ -141,9 +141,9 @@ describe('studentMatchesPill (visibility + flag + resubmit)', () => {
     expect(studentMatchesPill(stu({ grade_comment: 'Good', comment_status: 1 }), 'not_visible', ctx)).toBe(false);
     expect(studentMatchesPill(stu({ comment_status: 0 }), 'not_visible', ctx)).toBe(false); // nothing to show yet
   });
-  it('review matches a review_flag', () => {
-    expect(studentMatchesPill(stu({ review_flag: { id: 1 } }), 'review', ctx)).toBe(true);
-    expect(studentMatchesPill(stu(), 'review', ctx)).toBe(false);
+  it('there is no review pill: Flag for review is gone (#40)', () => {
+    expect(filterGroups(LTI).flatMap(g => g.pills).map(p => p.id)).not.toContain('review');
+    expect(filterGroups(LTI).map(g => g.key)).not.toContain('flag');
   });
 });
 
@@ -163,12 +163,12 @@ describe('studentReasons (Needs action + Watch)', () => {
     expect(ids(stu({ attention: { handedIn: true, reasons: [] } }), drafted)).toEqual(['draft']);
     expect(ids(stu({ scores: { t1: { grade: 'EX' } } }), drafted)).toEqual(['draft']);
   });
-  it('partly graded, feedback hidden, resubmitted and flagged', () => {
+  it('partly graded, feedback hidden and resubmitted', () => {
     expect(ids(stu({ scores: { t1: { grade: 'EX' } }, grade_comment: 'Good', comment_status: 0 })))
       .toEqual(['partly_graded', 'feedback_hidden']);
     expect(ids(stu({ resubmission: { state: 'arrived' }, scores: { t1: { grade: 'EX' }, t2: { grade: 'EX' } }, grade_comment: 'x', comment_status: 1 })))
       .toEqual(['resubmitted']);
-    expect(ids(stu({ review_flag: { id: 1 }, exception: 1 }))).toEqual(['flagged']);
+    expect(ids(stu({ review_flag: { id: 1 } }))).not.toContain('flagged'); // Flag for review is gone (#40)
   });
   it('excused: no grading reasons', () => {
     expect(ids(stu({ exception: 1, attention: { handedIn: true, reasons: [] } }))).toEqual([]);
@@ -192,8 +192,9 @@ describe('studentReasons (Needs action + Watch)', () => {
     expect(ids(stu({ summary: { count: 2, unread: 1 } }))).toEqual([]); // no summaries loaded
   });
   it('countReasons counts each reason across students', () => {
-    const c = countReasons([stu({ attention: { handedIn: true, reasons: [] } }), stu({ review_flag: { id: 2 } })], ctx);
-    expect(c).toMatchObject({ to_grade: 1, flagged: 1, late: 0 });
+    const c = countReasons([stu({ attention: { handedIn: true, reasons: [] } }), stu({ grade_comment: 'x', comment_status: 0 })], ctx);
+    expect(c).toMatchObject({ to_grade: 1, feedback_hidden: 1, late: 0 });
+    expect(c).not.toHaveProperty('flagged');
   });
 });
 
@@ -225,8 +226,11 @@ describe('parseFilterParam', () => {
     expect([...parseFilterParam('to_grade, draft,submitted,bogus')]).toEqual(['to_grade', 'draft', 'submitted']);
     expect(parseFilterParam(null).size).toBe(0);
   });
+  it('drops the retired Flag for review ids (old links keep working, with no filter)', () => {
+    expect(parseFilterParam('flagged,review').size).toBe(0);
+  });
   it('a group name stands for every reason in its row', () => {
-    expect([...parseFilterParam('action')]).toEqual(['to_grade', 'partly_graded', 'draft', 'feedback_hidden', 'resubmitted', 'unread_comment', 'referral', 'resubmission_overdue', 'make_up', 'flagged']);
+    expect([...parseFilterParam('action')]).toEqual(['to_grade', 'partly_graded', 'draft', 'feedback_hidden', 'resubmitted', 'unread_comment', 'referral', 'resubmission_overdue', 'make_up']);
     expect([...parseFilterParam('watch,submitted,resubmit')]).toEqual(['not_started_soon', 'in_progress_late', 'late', 'referred_missing', 'resubmission_pending', 'submitted']);
   });
 });

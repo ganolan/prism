@@ -5,9 +5,11 @@ export const FLAG_CODES = [1, 2, 3, 5, 6];
 
 export const isFlagCode = (code) => FLAG_CODES.includes(Number(code)) && code !== '' && code != null;
 
-// Exempt (1) and Absent (5): the student is not doing this task, so it is never owed, late,
-// referred, made up or waiting on feedback. Incomplete, Missing and Late still leave work owed.
-export const isNotDoingTask = (code) => isFlagCode(code) && (Number(code) === 1 || Number(code) === 5);
+// Exempt (1) is the only flag that is a decision: the student is not doing this task, so it is
+// never owed, late, referred, made up or waiting on feedback. Absent (5) is a marker (teachers use
+// it as "their one chance" or as "a reminder to follow up", and Prism assumes neither), so it changes
+// nothing in Prism's own tracking; Incomplete, Missing and Late leave the work owed too.
+export const isExempt = (code) => isFlagCode(code) && Number(code) === 1;
 
 // Names and status-line verbs, as client/src/lib/flags.js FLAGS has them (UI word "Exempt").
 export const FLAG_NAMES = { 1: 'Exempt', 2: 'Incomplete', 3: 'Missing', 5: 'Absent', 6: 'Late' };

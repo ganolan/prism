@@ -5,7 +5,7 @@
 
 import { submissionStatus } from './gradeLabel.js';
 import { teacherText } from './statusLines.js';
-import { isFlag, isNotDoingTask } from './flags.js';
+import { isFlag, isExempt } from './flags.js';
 
 // Tone → CSS-var pairs. Mirrors BADGE_TONE_CLASS in CoursePage / SubmissionBadges
 // (amber→pink, yellow→amber) so colours stay consistent, plus a resubmit tone.
@@ -205,7 +205,7 @@ export function reasonTone(r) {
 // → [{ id, ...detail }] in REASONS order.
 export function studentReasons(student, ctx) {
   const out = [];
-  const excused = isNotDoingTask(student.exception); // Exempt or Absent
+  const excused = isExempt(student.exception); // Exempt (Absent is a marker, not a decision)
   if (!excused) {
     const grading = gradingStateOf(student, ctx.topics || []);
     const handedIn = student.attention

@@ -20,7 +20,7 @@ import { teacherText } from '../lib/statusLines.js';
 import { preferredFirstName } from './studentNames.js';
 import { TriageError, toneFor, makeUpTone, currentCourses, roster, ALIGNED_SQL, fullName, MAX_EXTENSION_LESSONS, deadlineFrom, laterOf } from './triageCommon.js';
 import { resubmissionRows } from './resubmissions.js';
-import { isNotDoingTask } from '../lib/flags.js';
+import { isExempt } from '../lib/flags.js';
 
 export { TriageError, toneFor, makeUpTone, MAX_EXTENSION_LESSONS };
 
@@ -99,7 +99,7 @@ export function studentState(a, facts, st) {
     exception: g.exception ?? 0,
   });
   return {
-    excused: isNotDoingTask(g.exception), // Exempt or Absent
+    excused: isExempt(g.exception), // Exempt
     // Schoology's own on-time/late call for the submission (0 = on time).
     late: g.late,
     submitted: isSubmitted(a, g),

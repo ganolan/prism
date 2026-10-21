@@ -65,7 +65,7 @@ export function getUnfinishedGrading(db, { courseId = null, studentId = null } =
       FROM grades g JOIN assignments a ON a.id = g.assignment_id
       LEFT JOIN status_lines sl ON sl.student_id = g.student_id AND sl.assignment_id = g.assignment_id
       WHERE ${inCourse} AND (g.comment_status IS NULL OR g.comment_status != 1)
-        AND COALESCE(g.exception, 0) NOT IN (1, 5) AND COALESCE(g.grade_comment, '') != ''
+        AND COALESCE(g.exception, 0) != 1 AND COALESCE(g.grade_comment, '') != ''
     `).all(c.id).filter((g) => teacherText(g.grade_comment, g.stored_line || null).length > 0);
 
     // Pairs with a student comment newer than the teacher last saw; readThread decides

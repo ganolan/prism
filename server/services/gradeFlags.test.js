@@ -212,7 +212,7 @@ describe('setGradeFlag: withdrawing records', () => {
     refId = db.prepare(`INSERT INTO referrals (student_id, assignment_id, course_id, action, days_late) VALUES (?, ?, ?, 'referred', 12)`).run(s, a, c).lastInsertRowid;
   });
 
-  test.each([1, 5])('code %i undoes the open extension, request and referral (record only) and lists them', async (code) => {
+  test.each([1])('code %i (Exempt) undoes the open extension, request and referral (record only) and lists them', async (code) => {
     const out = await flag(code);
     expect(out.withdrawn).toEqual([
       { type: 'extension', id: extId, label: 'Extension to Fri 23/10/2026' },
@@ -231,7 +231,7 @@ describe('setGradeFlag: withdrawing records', () => {
     expect(out.withdrawn[0]).toEqual({ type: 'extension', id: extId, label: 'Make-up by Fri 23/10/2026' });
   });
 
-  test.each([6, 2, 3])('code %i withdraws nothing', async (code) => {
+  test.each([6, 2, 3, 5])('code %i withdraws nothing (Absent is a marker, not a decision)', async (code) => {
     const out = await flag(code);
     expect(out.withdrawn).toEqual([]);
     expect(count('extensions') + count('resubmissions') + count('referrals')).toBe(3);

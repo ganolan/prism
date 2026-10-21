@@ -113,7 +113,7 @@ describe('getUnfinishedGrading: unread student comments', () => {
 });
 
 describe('getUnfinishedGrading: feedback hidden and several reasons', () => {
-  test('hidden = a teacher comment the student cannot see (not exempt or absent, not a status line alone)', () => {
+  test('hidden = a teacher comment the student cannot see (not exempt, not a status line alone; Absent is a marker, so it counts)', () => {
     const ids = ['Ana', 'Ben', 'Cal', 'Dee', 'Eve', 'Fay'].map((name, i) => student(`u${i}`, name));
     const a = assignment('Brick Breaker');
     grade(ids[0], a.id, { grade_comment: 'Nice work.', comment_status: null }); // hidden
@@ -121,12 +121,12 @@ describe('getUnfinishedGrading: feedback hidden and several reasons', () => {
     grade(ids[2], a.id, { grade_comment: 'Nice work.', comment_status: 0, exception: 1 }); // excused
     grade(ids[3], a.id, { grade_comment: '', comment_status: 0 }); // nothing to show
     grade(ids[4], a.id, { grade_comment: 'Resubmission requested - due Thu 15/10.', comment_status: 0 });
-    grade(ids[5], a.id, { grade_comment: 'Nice work.', comment_status: 0, exception: 5 }); // absent, like exempt
+    grade(ids[5], a.id, { grade_comment: 'Nice work.', comment_status: 0, exception: 5 }); // absent: a marker, still hidden
     db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, 'Resubmission requested - due Thu 15/10.', 'ask')`).run(ids[4], a.id);
     const [row] = getUnfinishedGrading(db);
-    expect(row).toMatchObject({ feedbackHidden: 1, drafts: 0 });
+    expect(row).toMatchObject({ feedbackHidden: 2, drafts: 0 });
     expect(row).not.toHaveProperty('flagged');
-    expect(row.students.map((s) => s.studentName)).toEqual(['Ana X']);
+    expect(row.students.map((s) => s.studentName)).toEqual(['Ana X', 'Fay X']);
   });
 
   test('the reasons are draft, feedback_hidden and unread_comment (Flag for review is gone, #40)', () => {

@@ -17,7 +17,7 @@ import { ALIGNED_SQL, laterOf } from './triageCommon.js';
 import { todayLocal, epochToLocalDate } from '../lib/schoolDays.js';
 import { sqliteUtcToEpoch } from '../lib/resubmission.js';
 import { attentionByStudent } from './cardAttention.js';
-import { isNotDoingTask } from '../lib/flags.js';
+import { isExempt } from '../lib/flags.js';
 
 const LATE_EXCEPTION = 6; // Schoology's Late flag (probed 21 Oct 2026; 4 is invalid)
 
@@ -36,7 +36,7 @@ function localEpoch(date, time) {
 // Prism must not accuse a student on missing data. Only a known-owing state gets
 // a "day N" clock.
 function submissionState(assignment, g) {
-  if (isNotDoingTask(g.exception)) return 'excused'; // Exempt (1) or Absent (5)
+  if (isExempt(g.exception)) return 'excused'; // Exempt (1) only; Absent (5) is a marker
   if (assignment.is_test) {
     if (g.test_attempt === 'took') return 'submitted';
     if (g.test_attempt === 'none') return 'not_started';

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FLAGS, FLAG_ORDER, FLAGS_MENU_HEADING, flagGuide, isFlag, isNotDoingTask, flagEffect } from './flags.js';
+import { FLAGS, FLAG_ORDER, FLAGS_MENU_HEADING, flagGuide, isFlag, isExempt, flagEffect } from './flags.js';
 
 describe('Schoology flags (#40, probed 21 October 2026)', () => {
   it('codes 1 Exempt, 2 Incomplete, 3 Missing, 5 Absent, 6 Late; 4 is not a flag', () => {
@@ -18,9 +18,9 @@ describe('Schoology flags (#40, probed 21 October 2026)', () => {
     for (const c of [0, 4, 7, null, undefined, '', 'x']) expect(isFlag(c)).toBe(false);
   });
 
-  it('isNotDoingTask: Exempt (1) and Absent (5) only (the server mirror agrees)', () => {
-    for (const c of [1, 5, '5']) expect(isNotDoingTask(c)).toBe(true);
-    for (const c of [0, 2, 3, 4, 6, null, undefined, '']) expect(isNotDoingTask(c)).toBe(false);
+  it('isExempt: Exempt (1) only; Absent (5) is a marker, not a decision (the server mirror agrees)', () => {
+    for (const c of [1, '1']) expect(isExempt(c)).toBe(true);
+    for (const c of [0, 2, 3, 4, 5, '5', 6, null, undefined, '']) expect(isExempt(c)).toBe(false);
   });
 
   it('flagEffect says what Schoology does to the grade: Missing counts it as zero, the rest remove it', () => {

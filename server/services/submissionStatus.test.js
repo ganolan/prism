@@ -185,12 +185,12 @@ describe('getSubmissionStatus - excused, scored, late', () => {
     ]);
   });
 
-  test('exception 5 (Absent) is excused too and never owes', () => {
+  test('exception 5 (Absent) is a marker: it owes like an unflagged student', () => {
     const ada = student('u1', 'Ada', 'Lin');
     const id = assignment('a1', 'Essay', '2026-10-05', { accepts: 1 });
     grade(ada, id, { exception: 5 });
     expect(flat(getSubmissionStatus(db, { today: TODAY, status: 'all', courseId }))).toEqual([
-      { name: 'Ada Lin', title: 'Essay', status: 'excused', owing: false },
+      { name: 'Ada Lin', title: 'Essay', status: 'not_started', owing: true },
     ]);
   });
 

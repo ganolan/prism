@@ -92,12 +92,19 @@ describe('attentionByStudent: late work (summative)', () => {
 });
 
 describe('attentionByStudent: Absent', () => {
-  test('an Absent (5) student is left out like an Exempt one, even when referred', () => {
+  test('an Absent (5) student is treated like an unflagged one: a referred pair is still "referred, not submitted"', () => {
     const maya = student('u1', 'Maya');
     const a = assignment('2026-10-05');
     recordReferral(db, { studentId: maya.id, assignmentId: a.id, action: 'referred', today: TODAY });
     grade(maya.id, a.id, { exception: 5 });
-    expect(reasonsFor(a, [maya])).toEqual([[]]);
+    expect(reasonsFor(a, [maya])[0]).toEqual([{ id: 'referred_missing', referredOn: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), tone: 'red' }]);
+  });
+
+  test('an Absent (5) student with work outstanding past the limit still needs the referral decision', () => {
+    const maya = student('u1', 'Maya');
+    const a = assignment('2026-10-05');
+    grade(maya.id, a.id, { exception: 5 });
+    expect(reasonsFor(a, [maya])[0]).toEqual([{ id: 'referral', kind: 'outstanding', daysLate: 9, tone: 'red' }]);
   });
 });
 

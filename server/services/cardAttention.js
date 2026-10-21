@@ -19,7 +19,7 @@ import { sqliteUtcToEpoch } from '../lib/resubmission.js';
 import { loadCalendar } from './schoolCalendar.js';
 import { getTriageSettings } from './settings.js';
 import { getTriage, isSubmitted, extensionUntil, assignmentFacts, studentState } from './triage.js';
-import { isNotDoingTask } from '../lib/flags.js';
+import { isExempt } from '../lib/flags.js';
 
 export function attentionByStudent(db, { assignment, students, today = todayLocal() }) {
   const out = new Map(students.map((s) => [s.id, { handedIn: false, reasons: [] }]));
@@ -83,7 +83,7 @@ export function attentionByStudent(db, { assignment, students, today = todayLoca
 
   for (const s of students) {
     const g = grades.get(s.id) || {};
-    if (isNotDoingTask(g.exception)) continue; // Exempt or Absent
+    if (isExempt(g.exception)) continue; // Exempt
     if (referred.has(s.id)) {
       const st = studentState(assignment, facts, s);
       if (!st.submitted && !st.scored) {

@@ -42,7 +42,7 @@ import { formatDateTime } from '../lib/formatDate.js';
 import { workLinkText, workLinksStatusText } from '../lib/workLink.js';
 import { briefFlags, textSignature } from '../lib/reviewerFlags.js';
 import { receivedLine, composeComment, lineDate } from '../lib/statusLines.js';
-import { FLAGS, isFlag, isNotDoingTask, flagEffect } from '../lib/flags.js';
+import { FLAGS, isFlag, isExempt, flagEffect } from '../lib/flags.js';
 import { afterRefresh } from '../lib/assessmentFreshness.js';
 import SyncStatus from '../components/SyncStatus.jsx';
 import SyncHelp from '../components/SyncHelp.jsx';
@@ -1007,8 +1007,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         {resubmitEnabled && (
           <ReferControl student={student} assignmentId={assignmentRow?.id} panelHost={panelHost} onChange={handlePairChange} />
         )}
-        {/* Hidden once the work is in (no deadline left to extend) and for Exempt or Absent (the student is not doing the task). */}
-        {resubmitEnabled && (topics.length > 0 || assignmentRow?.is_test === 1) && !isNotDoingTask(student.exception)
+        {/* Hidden once the work is in (no deadline left to extend) and for Exempt (the student is not doing the task). */}
+        {resubmitEnabled && (topics.length > 0 || assignmentRow?.is_test === 1) && !isExempt(student.exception)
           && student.timeline?.submission?.state !== 'submitted' && (
           <ExtendControl student={student} assignment={assignmentRow || {}} courseId={courseId} panelHost={panelHost} onChange={handleExtensionChange} />
         )}

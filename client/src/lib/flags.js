@@ -18,9 +18,10 @@ export const FLAGS_MENU_HEADING = 'Flag in Schoology';
 
 export const isFlag = (code) => code !== '' && code != null && Object.hasOwn(FLAGS, Number(code));
 
-// Exempt (1) and Absent (5): the student is not doing this task, so it is never owed, late or
-// extendable. Incomplete, Missing and Late still leave the work owed. Mirrors server/lib/flags.js.
-export const isNotDoingTask = (code) => isFlag(code) && (Number(code) === 1 || Number(code) === 5);
+// Exempt (1) is the only decision flag: the student is not doing this task, so it is never owed,
+// late or extendable. Absent (5) is a marker (Prism assumes no meaning for it) and the rest leave the
+// work owed. Mirrors server/lib/flags.js.
+export const isExempt = (code) => isFlag(code) && Number(code) === 1;
 
 // What Schoology does to the grade while a flag is set (probed 21 Oct 2026): Missing sets it to 0
 // (and keeps the topic levels); every other flag removes it.

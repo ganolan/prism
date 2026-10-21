@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { FLAG_CODES, isFlagCode, isNotDoingTask } from './flags.js';
+import { FLAG_CODES, isFlagCode, isExempt } from './flags.js';
 
 describe('Schoology flag codes (#40, probed 21 October 2026)', () => {
   test('1 Exempt, 2 Incomplete, 3 Missing, 5 Absent, 6 Late; 4 is invalid', () => {
@@ -9,8 +9,8 @@ describe('Schoology flag codes (#40, probed 21 October 2026)', () => {
     for (const c of [1, 2, 3, 5, 6, '6']) expect(isFlagCode(c)).toBe(true);
     for (const c of [0, 4, 7, null, undefined, '', 'x']) expect(isFlagCode(c)).toBe(false);
   });
-  test('isNotDoingTask: Exempt (1) and Absent (5) only, numbers or numeric strings', () => {
-    for (const c of [1, 5, '5']) expect(isNotDoingTask(c)).toBe(true);
-    for (const c of [0, 2, 3, 4, 6, null, undefined, '']) expect(isNotDoingTask(c)).toBe(false);
+  test('isExempt: Exempt (1) only, number or numeric string; Absent (5) is a marker, not a decision', () => {
+    for (const c of [1, '1']) expect(isExempt(c)).toBe(true);
+    for (const c of [0, 2, 3, 4, 5, '5', 6, null, undefined, '']) expect(isExempt(c)).toBe(false);
   });
 });

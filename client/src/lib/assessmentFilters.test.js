@@ -170,8 +170,12 @@ describe('studentReasons (Needs action + Watch)', () => {
       .toEqual(['resubmitted']);
     expect(ids(stu({ review_flag: { id: 1 } }))).not.toContain('flagged'); // Flag for review is gone (#40)
   });
-  it.each([1, 5])('exempt or absent (%i): no grading reasons', (exception) => {
-    expect(ids(stu({ exception, attention: { handedIn: true, reasons: [] } }))).toEqual([]);
+  it('exempt: no grading reasons', () => {
+    expect(ids(stu({ exception: 1, attention: { handedIn: true, reasons: [] } }))).toEqual([]);
+  });
+  it('absent is a marker, not a decision: server reasons (a referral) stay, as for an unflagged student', () => {
+    const s = { attention: { handedIn: true, reasons: [{ id: 'referral', kind: 'outstanding', daysLate: 9 }] } };
+    expect(ids(stu({ exception: 5, ...s }))).toEqual(['referral']);
   });
   it('server reasons join in REASONS order; unknown ids are dropped', () => {
     const s = stu({ attention: { handedIn: true, reasons: [{ id: 'resubmission_pending', until: '2026-10-20' }, { id: 'referral', kind: 'outstanding', daysLate: 9 }, { id: 'nope' }] } });

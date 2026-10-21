@@ -122,11 +122,11 @@ describe('getTriage — late work', () => {
     expect(getTriage(db, { today: TODAY }).lateWork).toEqual([]);
   });
 
-  test('Absent (5) is never listed as late, like Exempt', () => {
+  test('Absent (5) is a marker: listed as late like an unflagged student', () => {
     const a = student('u1', 'Ada', 'L');
     const id = assignment('a1', 'Essay', '2026-10-05');
     grade(a, id, { exception: 5 });
-    expect(getTriage(db, { today: TODAY }).lateWork).toEqual([]);
+    expect(getTriage(db, { today: TODAY }).lateWork[0]).toMatchObject({ kind: 'outstanding', daysLate: 9 });
   });
 
   test('Missing exception still counts as outstanding (grade timestamp is not a submission)', () => {
@@ -436,12 +436,13 @@ describe('getTriage — make-up tests', () => {
     expect(getTriage(db, { today: TODAY, now }).makeUps.map((r) => r.studentName)).toEqual(['Ada L']);
   });
 
-  test('Absent (5) is not listed for a make-up, like Exempt', () => {
+  test('Absent (5) is a marker: the student is still listed for the make-up, like an unflagged one', () => {
     const ada = student('u1', 'Ada', 'L');
     const id = testItem('t1', 'Unit 1 test', '2026-10-15', { assignees: ['u1'] });
     missed(ada, id, { exception: 5 });
-    expect(getTriage(db, { today: TODAY, now }).makeUps).toEqual([]);
+    expect(getTriage(db, { today: TODAY, now }).makeUps.map((r) => r.studentName)).toEqual(['Ada L']);
   });
+
   test('not listed: excused, scored by hand or in mastery, dropped, on the other (*) copy', () => {
     const ada = student('u1', 'Ada', 'L');
     const bo = student('u2', 'Bo', 'M');
@@ -929,14 +930,21 @@ describe('resubmissions list', () => {
     const r2 = requestResubmission(db, { studentId: s2, assignmentId: a, lessons: 1, requestedAt: sqlAt('2026-10-12') });
     gradeStands(db, r2.id, { today: TODAY });
     grade(s3, a, { score: null, exception: 1, submitted_at: epoch('2026-09-25'), latest_revision_at: epoch('2026-10-14') });
-    const s4 = student('u4', 'Abe', 'Ng');
-    grade(s4, a, { score: null, exception: 5, submitted_at: epoch('2026-09-25'), latest_revision_at: epoch('2026-10-14') }); // Absent
     captureFeedbackSnapshots(db);
     expect(getTriage(db, { today: TODAY }).resubmissions.map((r) => r.studentId)).toEqual([s]);
     db.prepare('UPDATE grades SET score = 80, submitted_at = ? WHERE student_id = ?').run(epoch('2026-10-15'), s); // regraded
     const t = getTriage(db, { today: TODAY });
     expect(t.resubmissions).toEqual([]);
     expect(t.resubmissionHistoryCount).toBe(1);
+  });
+  test('Absent (5) is a marker: its arrived resubmission still shows, Exempt (1) does not', () => {
+    const s = student('u1', 'Maya', 'Chen'); const s2 = student('u2', 'Ethan', 'Wong'); const a = assignment('a1', 'CP1', '2026-09-21');
+    const req = requestResubmission(db, { studentId: s, assignmentId: a, requestedAt: sqlAt('2026-10-09') });
+    requestResubmission(db, { studentId: s2, assignmentId: a, requestedAt: sqlAt('2026-10-09') });
+    grade(s, a, { score: null, exception: 5, latest_revision_at: epoch('2026-10-14') });
+    grade(s2, a, { score: null, exception: 1, latest_revision_at: epoch('2026-10-14') });
+    captureFeedbackSnapshots(db);
+    expect(getTriage(db, { today: TODAY }).resubmissions).toMatchObject([{ studentId: s, state: 'arrived', id: req.id }]);
   });
   test('Review Focus 5: a dropped student or an archived course drops the row; history keeps it', () => {
     const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'CP1', '2026-09-21');

@@ -9,7 +9,7 @@
 //   lock the pair -> resolve it -> eligibility -> fresh read -> refuse if it differs from what the
 //   page loaded -> keep the copy (the write goes ahead only once it is stored) -> PUT (the code,
 //   every other field echoed from the fresh read, #46) -> read back and confirm -> mirror the
-//   read-back into grades -> withdraw Prism's open records (Exempt and Absent) -> the status
+//   read-back into grades -> withdraw Prism's open records (Exempt only) -> the status
 //   line -> (clearing) the draft -> release.
 // A gateway error (non-2xx, or a per-entry response_code of 400+) means Schoology wrote nothing:
 // nothing in Prism changes and it is never retried here (one transient 502 was seen in the probes).
@@ -18,7 +18,7 @@ import {
   lockPair, pairTarget, freshGrade, putSucceeded, publishStatusLine, removeStatusLine, checkLine,
 } from './statusLinePublisher.js';
 import { TriageError } from './triageCommon.js';
-import { FLAG_CODES, FLAG_NAMES, isFlagCode, isNotDoingTask, removesLevels } from '../lib/flags.js';
+import { FLAG_CODES, FLAG_NAMES, isFlagCode, isExempt, removesLevels } from '../lib/flags.js';
 import { flagLine } from '../lib/statusLines.js';
 import { todayLocal } from '../lib/schoolDays.js';
 import { levelForScore } from '../lib/scoreScales.js';
@@ -369,9 +369,10 @@ export async function setGradeFlag(db, { studentId, assignmentId, code, expected
     }
     capture(db, t, 'after');
 
-    // Exempt and Absent: the student is not doing the task, so Prism's open records on it close.
+    // Exempt is a decision: the student is not doing the task, so Prism's open records on it close.
+    // Absent is only a marker and withdraws nothing.
     let withdrawn = [];
-    if (isNotDoingTask(target)) {
+    if (isExempt(target)) {
       const records = openRecords(db, t);
       try {
         db.transaction(() => { for (const r of records) UNDO[r.type](db, r.id); })();

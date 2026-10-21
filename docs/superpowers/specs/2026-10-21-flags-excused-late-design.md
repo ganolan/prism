@@ -1,7 +1,7 @@
 # Flags: Excused and Late from Prism (#40)
 
 Design agreed with Graham on 21 October 2026. Mockups: the private Artifact page "Excused and Late in
-Prism" (https://claude.ai/artifact/RcePZWizTujDo17X1zpLf3), version 4.
+Prism" (https://claude.ai/artifact/RcePZWizTujDo17X1zpLf3), version 5.
 
 ## Intent
 
@@ -23,7 +23,9 @@ one button with a list. Prism follows the gradebook's word: **Flags**.
 - **Flag for review is removed** completely (see "Removing Flag for review").
 - **Three surfaces:** the assessment page card header, the gradebook submission pop-up, and each task on
   the student page. The last two share one view (`AssignmentFeedback`, #135), so one control serves both.
-- **Late shows as one mark.** A teacher's Late flag uses the same late clock as a late submission.
+- **Late shows as a clock with two forms:** an outline clock for a late submission (as today), a filled
+  clock for a teacher's Late flag (Graham: the two must look different in the gradebook).
+- **Excused, Incomplete and Missing take the grade's place** in a gradebook cell, as a visible mark.
 - **Prism's own "Missing" status is renamed "Overdue"**, so "Missing" only ever means Schoology's flag.
 - **Excused withdraws Prism's open records on the task** (extension, resubmission request, make-up
   tracking, referral), after listing them.
@@ -37,7 +39,7 @@ one button with a list. Prism follows the gradebook's word: **Flags**.
 - Set, change and clear Excused and Late from the three surfaces, written to Schoology and read back.
 - Warn before a write that deletes a grade, and list exactly what Schoology deletes.
 - Show every flag state correctly everywhere a grade shows, including Late with its grade still visible.
-- Leave Prism with one meaning per word: **Late** (one clock), **Missing** (Schoology's flag), **Overdue**
+- Leave Prism with one meaning per word: **Late** (a clock: outline from the submission, filled from the flag), **Missing** (Schoology's flag), **Overdue**
   (Prism's past-due status).
 
 ## Non-goals
@@ -54,7 +56,8 @@ one button with a list. Prism follows the gradebook's word: **Flags**.
   naming each one is a failure, even if the flag is set correctly.
 - **A warning based on assumption.** The warning lists what the probes showed Schoology deletes, not what
   the issue guessed.
-- **Two marks for one meaning.** A second late indicator, or "Missing" meaning two things, is a failure.
+- **A mark that reads as a grade.** An exception chip that a teacher could mistake for a level (such as
+  "Exc" read as "EX"), or "Missing" meaning two things, is a failure.
 - **A Prism-only action in the Flags menu.** The menu holds Schoology's flags only.
 
 ## The Flags control
@@ -129,21 +132,43 @@ Missing     (grayed)
 - **A failed write** shows its reason beside the pill (for example "Schoology refused the change: …") and
   leaves the previous state showing.
 
-## Late: one clock
+## Gradebook cells: exceptions
 
-Today a late submission (`grades.late`, from Schoology's submission timing) puts a quiet red clock in the
-gradebook cell's top-right corner, and on the status pill elsewhere (`LateClock`, design language entry of
-17 October 2026). Schoology's Late flag (exception 4) is a second, separate signal.
+Today a cell with an exception shows the word ("Excused") as plain text where the grade would be. Each of
+Excused, Incomplete and Missing gets a chip in the grade's place instead, in a shape no grade uses:
 
-- **One mark:** a cell or pill is late when either signal is set, and shows the same clock either way.
-- **The hover text names the source:** "Submitted 2 school days late" (the existing `lateText`), "Marked
-  late with Flags", or both on two lines.
-- **The Flags menu ticks Late only when the flag is set.** That is where a teacher tells the two sources
-  apart and clears the flag.
+- **Shape:** an empty chip (card background) with a 1.5px dashed border, the same size and radius as a
+  level chip. A level is a filled, colored chip in capitals (ED, EX, D, EM, IE); the dashed border means
+  "no grade here".
+- **Text:** a short, mixed-case code: **Exc**, **Inc**, **Miss**. Mixed case and the dashed border keep
+  "Exc" apart from the level "EX".
+- **Ink:** muted for Excused (left out of the grade), amber for Incomplete, red for Missing (a zero in
+  Schoology). The border takes the ink color.
+- **Hover:** "Excused: left out of the grade", "Incomplete (set in Schoology)", "Missing (set in
+  Schoology): counts as zero".
+- **The cell opens the pop-up** when clicked, as a graded cell does, so the Flags button is reachable
+  from the gradebook.
+- **The student page and the pop-up** show the same chip where they show the grade (the shared view).
+
+## Late: two clocks
+
+Today a late submission (`grades.late`, from Schoology's submission timing) puts a quiet red outline clock
+in the gradebook cell's top-right corner, and on the status pill elsewhere (`LateClock`, design language
+entry of 17 October 2026). Schoology's Late flag (exception 4) is a second, separate signal.
+
+- **Outline clock:** a late submission, as today.
+- **Filled clock:** the teacher's Late flag (a solid red disc with white hands, the same size). Both are
+  clocks, so both read as "late"; the fill marks the one a teacher set.
+- **Both signals:** the filled clock shows, and the hover lists both.
+- **Hover text:** "Submitted 2 school days late" (the existing `lateText`), "Marked late with Flags", or
+  "Marked late with Flags" then the submission line.
+- **Everywhere the clock shows:** the gradebook corner and the status pill (`LateClock` gains a `flagged`
+  form for both variants).
+- **The Flags menu ticks Late only when the flag is set,** and that is where a teacher clears it.
 - **Bug to fix:** `gradeLabel` (`client/src/lib/gradeLabel.js`) returns the text "Late" in place of the
   grade when exception is 4, so the gradebook cell hides a grade Schoology still counts. Exception 4 must
-  show the grade, with the clock. The assessment card's amber "Marked late in Schoology" badge goes; the
-  clock on the status pill and the Flags pill replace it.
+  show the grade, with the filled clock. The assessment card's amber "Marked late in Schoology" badge
+  goes; the filled clock on the status pill and the Flags pill replace it.
 - **Late is display only** (my call). Today any exception, Late included, counts as
   feedback or completion: `hasFeedback` (`server/lib/resubmission.js`), the feedback fingerprints
   (`server/lib/feedbackFingerprint.js`, stored in `feedback_snapshots`), `gradingState`
@@ -247,14 +272,14 @@ A dev copy refuses this write, as it refuses other Schoology writes.
   flag write.
 - Client tests: the menu (items, grayed group, ticks, keyboard), the Excused panel (reason, open records,
   the warning on a graded task only), the
-  saving and failed states, the late clock and its hover text for each source, `gradeLabel` showing the
+  saving and failed states, the exception chips, the two late clocks and their hover text, `gradeLabel` showing the
   grade for exception 4, the Overdue label, and the removal of Flag for review.
 - The full root and client suites and `npm run build`, as AGENTS.md requires.
 
 ## Documentation
 
 - `docs/design-language.md`: the Flags menu (a grayed group under one caption, explained without hover),
-  the single late clock, and Overdue.
+  the dashed exception chips, the outline and filled late clocks, and Overdue.
 - `.claude/schoology-api-reference.md`: the probe results.
 - `.claude/build-progress.md`, and `mcp/server.js` descriptions where `review_needed` or "Missing"
   appears.

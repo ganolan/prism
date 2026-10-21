@@ -783,9 +783,17 @@ and 219 Prism parents (Prism's parents read from prod's database, opened read on
   19 Student Support Summaries has a contact word (G1, G2, both, contact, correspondence, custody, mother, father, email) in
   any row.
 
+- **Phones and which email is which (#173, probe 2026-10-21, 27 students).** The phone columns are G1 Phone and G2 Phone, one
+  number per cell (counts above). Each guardian has one address: every address on the correspondence pop-up equals that
+  guardian's address on the Emergency Contact List. The correspondence code (`x_homeemail`) chooses a guardian, not an
+  address: 1 or 2 names one guardian, 3 names both. Where a Prism parent's email differs from PowerSchool's (19 of 219
+  parents), it is that parent's Schoology login address, which appears on no PowerSchool list.
+
 How Prism uses this: the alert sync reads the list once per section on its session (`server/lib/psEmergencyContacts.js`),
-stores the slots, and decides each parent's status when a page requests it (`server/lib/guardianContacts.js`). A live check on a
-database copy, counts only: `DB_PATH=<copy> node scripts/parity-ps-guardians.js`.
+stores the slots with their email and phone, and decides each parent's status when a page requests it
+(`server/lib/guardianContacts.js`). Since 2026-10-21 (#173) a parent placed in a slot of their own shows that slot's email and
+phone; the Schoology email is the fallback. A live check on a database copy, counts only:
+`DB_PATH=<copy> node scripts/parity-ps-guardians.js`.
 
 ### Student home / postal address (#68 — wanted feature; feasibility, live probe pending)
 

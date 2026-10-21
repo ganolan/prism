@@ -1703,3 +1703,15 @@ Commits `fa69791` to `a41199e`, then the reference docs and the parity script. S
 - **Verified intel:** `.claude/powerschool-api-reference.md` "Guardian contacts (#66, verified 2026-10-21)"; probe `scripts/probe-ps-guardian-contacts.js`.
 - **Live check:** `DB_PATH=<copy> node scripts/parity-ps-guardians.js` runs the sync on a database copy and prints counts only: lists read and failed, students with slots, and parent rows per status (with the primary count and the uncertain count). It refuses to run without `DB_PATH` or on `~/prism/data/students.db`, symlinks followed.
 - **Not done (by design):** the DNC and deceased pop-ups for reason text, the correspondence pop-up, PrisMCP contact status. Follow-up: fill `parents.phone` from the list's phone columns.
+
+## Guardian details from PowerSchool (#173, 2026-10-21)
+
+Commits `610a40e` (server) and `76f679e` (client), then the docs and the parity script. Follow-up from #66.
+
+- **Why:** `parents.phone` was typed by hand, and a parent's Schoology login address is not the address PowerSchool holds. The Emergency Contact List already read for #66 has G1 Phone and G2 Phone and one email per guardian.
+- **Read:** `server/lib/psEmergencyContacts.js` reads the phone columns when present (a list without them still parses, with null phones and one warning); `student_ps_guardians` gains `phone`.
+- **Decide:** `contactsForStudents` gives each parent `contact.ps` (`{ email, phone }` of the slot they are uniquely placed in, else null), `contact.email` (the address to show) and `contact.copy` (the addresses that may be linked and copied). The copy rule is unchanged from #66: contactable guardians only. Every copy list leaves out an address that a do-not-contact or deceased guardian holds, across linked rows.
+- **Teacher additions:** `parents.extra_email` is new (schema and `MIGRATIONS`); `parents.phone` is now the teacher's extra phone. `PUT /api/students/:id/parents/:parentId` takes `{ phone?, extra_email? }` and refuses an extra email with whitespace, a semicolon, a comma, `<` or `>`, or no `@`.
+- **Show:** the guardian card lists the PowerSchool email and phone, then the "Added in Prism" extra phone and email, with an Edit button for those two. Class Tools copies exactly `contact.copy`; its "not copied" count is guardians. Pattern in `docs/design-language.md` "PowerSchool alerts".
+- **Verified intel:** `.claude/powerschool-api-reference.md` "Guardian contacts", the 2026-10-21 line on phones and which email is which.
+- **Live check:** `scripts/parity-ps-guardians.js` also prints how many parents have a PowerSchool phone and how many PowerSchool emails differ from Schoology's (counts only). Not run in this session (it reaches PowerSchool).

@@ -762,8 +762,9 @@ each colour standing for a *function* so the hierarchy reads at a glance.
   Save and Cancel side by side at 44px. The "add note" pencil is a 44px target.
   (Flags are added on the assessment page, not here.)
 - **Form fields stay 16px.** An inline `font-size` beats the shell's 16px phone
-  rule, so the note course picker and the parent phone field moved theirs into
-  classes; `input[type="tel"]` joined the 16px list.
+  rule, so the note course picker and the guardian's extra phone and email
+  fields (`.parent-detail-input`) moved theirs into classes; `input[type="tel"]`
+  joined the 16px list.
 - **Tap for hover.** `HelpDot` also opens on a tap (click), and closes on blur
   or scroll (a fixed popover would otherwise float away from its dot). Its
   popover is clamped to stay on screen near either edge.
@@ -1435,7 +1436,13 @@ The alerts PowerSchool shows beside a student's name (accommodation plans, learn
   - **Show alerts (N)** counts the PowerSchool alerts plus the do-not-contact and deceased guardians, so it appears for a student with a flagged guardian and no other alert. Revealed with no alerts, it shows only Hide alerts (no empty badge row, no alerts read date).
   - **Always visible, in neutral words:** **Copy all emails** copies contactable guardians only, with muted "N not copied" beside it when any with an email are left out, and is hidden when none is contactable. Under the heading, muted small "Checked against PowerSchool DD/MM/YYYY" or "Not checked against PowerSchool yet". "No parent/guardian contacts synced yet" shows only when the student has no guardians at all, never when every card is hidden.
   - **Class Tools, Email List:** the server leaves the same guardians out; the tool states "N guardians not copied" ("1 guardian not copied"), muted, beside the copy button.
-  - **Feature off:** no status on any guardian, so the cards, Copy all and Class Tools are exactly as before.
+  - **Feature off:** no status on any guardian, so the cards, Copy all and Class Tools are as before, apart from the extra email (below).
+  - **Guardian details from PowerSchool (#173, 21/10/2026).** Graham's design: a guardian placed in a PowerSchool slot of their own shows that slot's email and phone; the Schoology email is the fallback. Each card lists the PowerSchool email, the PowerSchool phone, then the teacher's extra phone and extra email, each with a muted "Added in Prism" label (`.contact-added`).
+  - **Edit is for the teacher's additions only.** An **Edit** button (`.ghost.accent`; a deceased or do-not-contact card has none) opens two inputs, "Extra phone" and "Extra email" (`.parent-detail-input`), with Save and Cancel. The PowerSchool values cannot be edited. A teacher should rarely need it.
+  - **The extra email follows the guardian's status.** It is linked and copied only for a contactable guardian, and never for one Prism leaves out. A restricted guardian's extra phone and email, like their PowerSchool details, are plain text with no `mailto:`, `tel:` or copy button.
+  - **An address a flagged guardian holds is never copied for anyone else.** If a do-not-contact or deceased guardian holds an address, every other guardian's card and copy list leaves it out, in any linked row.
+  - **Class Tools counts guardians.** The "N guardians not copied" line counts guardians left out, not addresses.
+  - **Feature off:** the Schoology email and the teacher's phone show as before, plus the extra email, which is the teacher's own data and is shown and copied.
 
 ## Sync dialog: time per phase (October 2026, #143)
 

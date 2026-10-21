@@ -3,7 +3,9 @@
 // also reads each section's Emergency Contact List, against the database DB_PATH names
 // (use a .backup copy, never prod). Then print counts only: lists read and failed,
 // students with guardian slots, and per contact status the number of parent rows (and
-// how many of them are the primary contact). No names, emails or values.
+// how many of them are the primary contact), how many parents have a PowerSchool phone,
+// and how many have a PowerSchool email that differs from the Schoology email (#173; a
+// parent with both set, compared trimmed and ignoring case). No names, emails or values.
 // Usage: DB_PATH=/path/to/copy.db node scripts/parity-ps-guardians.js
 import 'dotenv/config';
 import { realpathSync } from 'fs';
@@ -37,11 +39,18 @@ async function main() {
   console.log(`guardian lists: read ${r.guardians.read}, failed ${r.guardians.failed}; students with slots ${r.guardians.students}`);
 
   const ids = db.prepare('SELECT DISTINCT student_id FROM parents').all().map((x) => x.student_id);
+  const schoologyEmail = new Map(db.prepare('SELECT id, email FROM parents').all().map((p) => [p.id, p.email]));
+  const key = (e) => String(e).trim().toLowerCase();
   const counts = new Map();
   let parentRows = 0;
   let uncertain = 0;
+  let withPsPhone = 0;
+  let emailDiffers = 0;
   for (const { byParent } of contactsForStudents(db, ids).values()) {
-    for (const contact of byParent.values()) {
+    for (const [parentId, contact] of byParent) {
+      if (contact.ps?.phone) withPsPhone += 1;
+      const sch = schoologyEmail.get(parentId);
+      if (contact.ps?.email && sch && key(contact.ps.email) !== key(sch)) emailDiffers += 1;
       const c = counts.get(contact.status) ?? counts.set(contact.status, { n: 0, primary: 0 }).get(contact.status);
       c.n += 1;
       if (contact.primary) c.primary += 1;
@@ -55,6 +64,8 @@ async function main() {
     console.log(`  ${status}: ${c.n}${status === 'contactable' ? ` (primary ${c.primary})` : ''}`);
   }
   console.log(`  of which flagged from a slot no parent is placed in (uncertain): ${uncertain}`);
+  console.log(`parents with a PowerSchool phone: ${withPsPhone}`);
+  console.log(`parents whose PowerSchool email differs from the Schoology email: ${emailDiffers}`);
 }
 
 if (isMain(import.meta.url)) await main();

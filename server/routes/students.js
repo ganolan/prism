@@ -191,9 +191,10 @@ router.get('/:id', (req, res) => {
   ).all(req.params.id);
 
   // #66: each guardian's contact status from PowerSchool (may Prism copy the address?),
-  // when the feature is on, with the PowerSchool slot's email and phone (contact.ps,
-  // #173). Off: parents are returned exactly as stored (the teacher's phone and
-  // extra_email are columns, so they arrive either way).
+  // when the feature is on, with the PowerSchool slot's email and phone (contact.ps),
+  // the address to show (contact.email) and the addresses the page may link and copy
+  // (contact.copy, empty unless contactable; #173). Off: parents are returned exactly as
+  // stored (the teacher's phone and extra_email are columns, so they arrive either way).
   let guardiansSyncedAt;
   if (getFeatures().powerschool_alerts) {
     const contacts = contactsForStudents(db, [student.id]).get(student.id);

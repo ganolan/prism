@@ -185,6 +185,15 @@ describe('getSubmissionStatus - excused, scored, late', () => {
     ]);
   });
 
+  test('exception 5 (Absent) is excused too and never owes', () => {
+    const ada = student('u1', 'Ada', 'Lin');
+    const id = assignment('a1', 'Essay', '2026-10-05', { accepts: 1 });
+    grade(ada, id, { exception: 5 });
+    expect(flat(getSubmissionStatus(db, { today: TODAY, status: 'all', courseId }))).toEqual([
+      { name: 'Ada Lin', title: 'Essay', status: 'excused', owing: false },
+    ]);
+  });
+
   test('scored but never submitted (e.g. paper mark entered by hand) does not owe', () => {
     const ada = student('u1', 'Ada', 'Lin');
     const id = assignment('a1', 'Essay', '2026-10-05', { accepts: 1 });

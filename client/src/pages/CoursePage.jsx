@@ -756,7 +756,7 @@ export function RubricModal({
             timeline={timeline}
             lateTitle={lateText(timeline)}
             topics={topics} attachment={attachment} palette={palette} exception={grade.exception}
-            firstName={student.first_name}
+            firstName={name}
             score={topics.length > 0 ? null : score}
             comment={comment}
           />
@@ -1157,8 +1157,8 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                 }
                 // Aligned summatives show a mini rubric strip of the student's
                 // per-topic proficiency instead of a numeric score (#32).
-                // A flag (Exempt/Incomplete/Missing/Absent/Late) removes the scores in
-                // Schoology, so those cells keep the symbol below.
+                // A flag (Exempt/Incomplete/Missing/Absent/Late) removes the grade in
+                // Schoology (Missing counts it as zero), so those cells keep the symbol below.
                 const isRubricLocked = isFlag(g.exception);
                 const rubricTopics = (a.aligned && !isRubricLocked)
                   ? buildAssignmentRubric(a.schoology_assignment_id, s.schoology_uid, indexed)
@@ -1186,7 +1186,10 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                 // Late (the submission) is a quiet clock in the cell's top-right corner, so the status
                 // stays centred; graded late work keeps it (submissionStatus is empty
                 // once scored). How late is in the hover text (the timeline).
-                const isLate = status.some(b => b.late) || (g.score != null && !!tl?.submission?.late);
+                // A flagged cell keeps it too: the flag replaces the status, not the fact that the
+                // work came in late (the timeline's call, else Schoology's own).
+                const isLate = status.some(b => b.late) || (g.score != null && !!tl?.submission?.late)
+                  || (isFlag(g.exception) && Boolean(tl?.submission?.late ?? g.late === 1));
                 // A cell with an overall comment gets a corner indicator and an
                 // instant hover overlay (#36) — `position: relative` anchors the
                 // indicator.
@@ -1207,7 +1210,7 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                 // A flag stands where the grade was: its symbol with its name under it. The cell
                 // button owns click and focus, so the symbol is hover-only here (passive).
                 const scoreText = lbl.kind === 'exception'
-                  ? <FlagSymbol code={lbl.exception} showName passive firstName={s.first_name} savedLevel={g.saved_level ?? null} />
+                  ? <FlagSymbol code={lbl.exception} showName passive firstName={preferredFirstName(s)} savedLevel={g.saved_level ?? null} />
                   : c
                   ? <span style={{ background: c.headerFill, color: CELL_TEXT, border: `1px solid ${c.finalBorder}`, padding: '0.1rem 0.4rem', borderRadius: 4, fontWeight: 500, display: 'inline-block', minWidth: 24 }}>{text}</span>
                   : text;

@@ -54,6 +54,7 @@ describe('hasFeedback', () => {
   test('every flag (Exempt, Incomplete, Missing, Absent, Late) is feedback (#40)', () => {
     for (const exception of [1, 2, 3, 5, 6, '6']) expect(hasFeedback({ score: null, exception, grade_comment: '' })).toBe(true);
     expect(hasFeedback({ score: null, exception: 0, grade_comment: '' })).toBe(false);
+    expect(hasFeedback({ score: null, exception: 4, grade_comment: '' })).toBe(false); // 4 is no flag
   });
 });
 

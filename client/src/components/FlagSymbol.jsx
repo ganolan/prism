@@ -22,9 +22,19 @@ const GLYPHS = {
   missing: (<><path d="M8 3.6v5.4" /><circle cx="8" cy="12" r="0.6" fill="currentColor" /></>),
 };
 
+function Disc({ flag }) {
+  return (
+    <span className="flag-symbol__disc" aria-hidden="true">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        {GLYPHS[flag.key]}
+      </svg>
+    </span>
+  );
+}
+
 // A Schoology flag as a symbol (#40): a round color-coded disc with the flag's name in tiny
 // capitals under it (showName), standing where a grade would. The popover (hover, focus or a
-// tap) holds the name, what the flag does (flagGuide), the reason line Prism wrote and, when it
+// tap) holds the symbol and name, what the flag does (flagGuide), the reason line Prism wrote and, when it
 // kept a copy of the grade the flag removed, where that copy is.
 //   size        'cell' (the gradebook cell and the pop-up) or 'inline' (a little smaller, in text)
 //   firstName   the student's first name, for the guide line
@@ -67,16 +77,15 @@ export default function FlagSymbol({ code, size = 'cell', showName = false, firs
   return (
     <>
       <span className={`flag-symbol flag-symbol--${flag.key} flag-symbol--${size}`} role="img" aria-label={flag.name} {...handlers}>
-        <span className="flag-symbol__disc" aria-hidden="true">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            {GLYPHS[flag.key]}
-          </svg>
-        </span>
+        <Disc flag={flag} />
         {showName && <span className="flag-symbol__name">{flag.name.toUpperCase()}</span>}
       </span>
       {pos && (
         <span className="help-pop flag-pop" role="tooltip" style={{ left: pos.left, top: pos.top }}>
-          <span className="flag-pop__line flag-pop__name">{flag.name}</span>
+          <span className="flag-pop__line flag-pop__head">
+            <span className={`flag-symbol flag-symbol--${flag.key} flag-symbol--inline`} aria-hidden="true"><Disc flag={flag} /></span>
+            <span className="flag-pop__name">{flag.name}</span>
+          </span>
           <span className="flag-pop__line">{flagGuide(code, firstName)}</span>
           {reasonLine && <span className="flag-pop__line">{reasonLine}</span>}
           {savedLevel && <span className="flag-pop__line">Grade saved in Prism: {savedLevel}. Clear the flag to restore it.</span>}

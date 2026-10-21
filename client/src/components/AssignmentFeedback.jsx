@@ -17,11 +17,12 @@ import CompactRubric from './CompactRubric.jsx';
 import RubricDescriptorGrid from './RubricDescriptorGrid.jsx';
 import { feedbackDescriptorRows, feedbackRowView } from '../lib/rubricDescriptorRows.js';
 import FlagSymbol from './FlagSymbol.jsx';
-import { FLAGS, isFlag } from '../lib/flags.js';
+import { FLAGS, isFlag, flagEffect } from '../lib/flags.js';
 import { LEVELS, LEVEL_COLORS, CELL_TEXT, masteryCodeForLevel } from '../lib/masteryLevels.js';
 
-// Schoology removes the rubric scores while any flag is set (Exempt, Incomplete, Missing,
-// Absent, Late: the gradebook and /assessment/ lock the same five).
+// The rubric is hidden while any flag is set (Exempt, Incomplete, Missing, Absent, Late: the
+// gradebook and /assessment/ lock the same five). Schoology removes the grade for four of them
+// and counts Missing as zero (flagEffect).
 const lockName = (exception) => (isFlag(exception) ? FLAGS[Number(exception)].name : null);
 
 const HEADER = Object.fromEntries(LEVELS.map((l) => [l, LEVEL_COLORS[l].headerFill]));
@@ -94,7 +95,7 @@ export default function AssignmentFeedback({
     rubric = (
       <div className="assignment-feedback__notice text-sm">
         <strong>{lock}</strong>
-        {', rubric hidden because Schoology deletes scores when a flag is set.'}
+        {Number(exception) === 3 ? `, rubric hidden. ${flagEffect(exception)}` : `, rubric hidden because ${flagEffect(exception)}`}
       </div>
     );
   } else if (rows) {

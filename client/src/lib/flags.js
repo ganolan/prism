@@ -18,6 +18,17 @@ export const FLAGS_MENU_HEADING = 'Flag in Schoology';
 
 export const isFlag = (code) => code !== '' && code != null && Object.hasOwn(FLAGS, Number(code));
 
+// Exempt (1) and Absent (5): the student is not doing this task, so it is never owed, late or
+// extendable. Incomplete, Missing and Late still leave the work owed. Mirrors server/lib/flags.js.
+export const isNotDoingTask = (code) => isFlag(code) && (Number(code) === 1 || Number(code) === 5);
+
+// What Schoology does to the grade while a flag is set (probed 21 Oct 2026): Missing sets it to 0
+// (and keeps the topic levels); every other flag removes it.
+export function flagEffect(code) {
+  if (!isFlag(code)) return '';
+  return Number(code) === 3 ? 'Schoology counts this as zero while it is flagged.' : 'Schoology removes the grade while it is flagged.';
+}
+
 // One line per flag for the menu and the symbol's popover. The student's first name makes it
 // read as theirs; with none it says "the student".
 export function flagGuide(code, firstName) {

@@ -5,6 +5,7 @@
 // Resubmission time = grades.latest_revision_at (native: newest non-draft
 // revision; LTI: the grader's submissionDate).
 import { hasPriorFeedback } from './feedbackFingerprint.js';
+import { isFlagCode } from './flags.js';
 
 const parseFp = (fp) => { try { return JSON.parse(fp) || {}; } catch { return {}; } };
 
@@ -21,7 +22,7 @@ export const PART_SCORE = 1;    // score or exception
 export const PART_LEVELS = 2;   // rubric levels
 export const PART_COMMENT = 4;  // the visible comment (status line stripped)
 
-const scoreDiffers = (b, c) => (b.s ?? null) !== (c.s ?? null) || (Number(b.e) || 0) !== (Number(c.e) || 0);
+const scoreDiffers = (b, c) => (b.s ?? null) !== (c.s ?? null) || (isFlagCode(b.e) ? Number(b.e) : 0) !== (isFlagCode(c.e) ? Number(c.e) : 0);
 const levelsDiffer = (b, c) => JSON.stringify(b.l || []) !== JSON.stringify(c.l || []);
 
 // Which parts differ between two fingerprints (PART_* bits).
@@ -74,7 +75,7 @@ export function feedbackAnswered(baselineFp, currentFp, evidence = null) {
 export function hasFeedback(grade) {
   if (!grade) return false;
   if (grade.score != null) return true;
-  if (Number(grade.exception) > 0) return true;
+  if (isFlagCode(grade.exception)) return true;
   return String(grade.grade_comment ?? '').trim().length > 0;
 }
 

@@ -20,6 +20,7 @@ import { teacherText } from '../lib/statusLines.js';
 import { preferredFirstName } from './studentNames.js';
 import { TriageError, toneFor, makeUpTone, currentCourses, roster, ALIGNED_SQL, fullName, MAX_EXTENSION_LESSONS, deadlineFrom, laterOf } from './triageCommon.js';
 import { resubmissionRows } from './resubmissions.js';
+import { isNotDoingTask } from '../lib/flags.js';
 
 export { TriageError, toneFor, makeUpTone, MAX_EXTENSION_LESSONS };
 
@@ -98,7 +99,7 @@ export function studentState(a, facts, st) {
     exception: g.exception ?? 0,
   });
   return {
-    excused: Number(g.exception) === 1,
+    excused: isNotDoingTask(g.exception), // Exempt or Absent
     // Schoology's own on-time/late call for the submission (0 = on time).
     late: g.late,
     submitted: isSubmitted(a, g),
@@ -367,7 +368,7 @@ function requireStudent(db, studentId) {
 }
 
 // Referral = the at-limit action ('referred' only; a per-student extension is
-// recordExtension, a true exemption is Schoology's Excused flag).
+// recordExtension, a true exemption is Schoology's Exempt flag).
 export function recordReferral(db, { studentId, assignmentId, action, note = null, source = 'app', today = todayLocal() } = {}) {
   // 'waived' = the teacher decides a submitted-late pair is not referred (stored as
   // the legacy 'exempt', which meant the same; the schema CHECK allows only those two).

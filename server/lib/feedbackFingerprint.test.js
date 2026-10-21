@@ -61,6 +61,10 @@ describe('every flag is feedback (#40)', () => {
     for (const e of [1, 2, 3, 5, 6]) expect(fingerprint({ exception: e })).not.toBe(fingerprint({ exception: 0 }));
     expect(fingerprint({ exception: '6' })).toBe(fingerprint({ exception: 6 }));
   });
+  test('4 is not a Schoology flag: it counts as nothing', () => {
+    expect(fingerprint({ exception: 4 })).toBe(fingerprint({ exception: 0 }));
+    expect(hasPriorFeedback('{"s":null,"e":4,"l":[],"c":""}')).toBe(false);
+  });
   test('a stored baseline with only a flag is prior feedback', () => {
     for (const e of [1, 2, 3, 5, 6]) expect(hasPriorFeedback(`{"s":null,"e":${e},"l":[],"c":""}`)).toBe(true);
     expect(hasPriorFeedback('{"s":null,"e":0,"l":[],"c":""}')).toBe(false);

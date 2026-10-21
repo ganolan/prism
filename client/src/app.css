@@ -1531,6 +1531,7 @@ img.file-viewer-media { background: transparent; }
 .flag-symbol--incomplete { --flag-c: var(--flag-incomplete); }
 .flag-symbol--missing { --flag-c: var(--flag-missing); }
 .flag-symbol--missing .flag-symbol__disc { background: var(--card-bg); color: var(--flag-missing); border: 1.5px solid var(--flag-missing); }
+.flag-pop__head { display: flex; align-items: center; gap: 0.4rem; }
 .flag-pop__name { font-weight: 700; }
 .flag-pop__line { display: block; }
 .flag-pop__line + .flag-pop__line { margin-top: 0.25rem; }

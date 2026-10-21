@@ -111,6 +111,12 @@ describe('buildTimeline: missing work', () => {
     expect(buildTimeline({ ...base, assignment: native, grade: { score: 80 } }).overdue).toBeNull();
   });
 
+  test('Absent (5) is like Exempt: state excused, no overdue clock', () => {
+    const t = buildTimeline({ ...base, today: '2026-10-19', assignment: { ...native, aligned: 1 }, grade: { exception: 5 } });
+    expect(t.submission.state).toBe('excused');
+    expect(t.overdue).toBeNull();
+  });
+
   test('no submission signal synced is unknown, never "not submitted" (Prism must not accuse on missing data)', () => {
     const lti0 = buildTimeline({ ...base, assignment: lti, grade: null });
     expect(lti0.submission.state).toBe('unknown');

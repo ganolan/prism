@@ -7,6 +7,7 @@ import { todayLocal } from '../lib/schoolDays.js';
 import { currentCourses, roster, ALIGNED_SQL, fullName } from './triageCommon.js';
 import { assignmentFacts, studentState, tracksSubmissions } from './triage.js';
 import { timelineContext, agentTimeline } from './submissionTimeline.js';
+import { isNotDoingTask } from '../lib/flags.js';
 
 function assignmentsForCourse(db, courseId, assignmentId) {
   return db.prepare(`
@@ -20,7 +21,7 @@ function assignmentsForCourse(db, courseId, assignmentId) {
 // Per (student, assignment) status. Returns null to mean "skip this item
 // entirely" (the student sits a different copy of a test). First match wins.
 function itemStatus(a, g, tracked) {
-  if (Number(g.exception) === 1) return 'excused';
+  if (isNotDoingTask(g.exception)) return 'excused'; // Exempt (1) or Absent (5)
   if (a.is_test === 1) {
     if (g.test_attempt === 'took') return 'submitted';
     if (g.test_attempt === 'none') return 'not_started';

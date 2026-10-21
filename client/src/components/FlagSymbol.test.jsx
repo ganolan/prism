@@ -46,6 +46,15 @@ describe('FlagSymbol', () => {
     expect(screen.getByRole('tooltip')).toBeInTheDocument();
   });
 
+  it('the popover shows the symbol beside the name (not a second named image)', () => {
+    render(<FlagSymbol code={5} />);
+    fireEvent.click(screen.getByRole('img', { name: 'Absent' }));
+    const pop = screen.getByRole('tooltip');
+    expect(pop.querySelector('.flag-symbol__disc svg')).not.toBeNull();
+    expect(pop.querySelector('.flag-symbol--absent')).not.toBeNull();
+    expect(screen.getAllByRole('img', { name: 'Absent' })).toHaveLength(1);
+  });
+
   it('a tap (click) opens it and stays open until the next tap', () => {
     render(<FlagSymbol code={1} firstName="Sam" />);
     const sym = screen.getByRole('img', { name: 'Exempt' });

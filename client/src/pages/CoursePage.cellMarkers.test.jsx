@@ -57,13 +57,13 @@ describe('gradebook cell comment markers', () => {
   });
 });
 
-describe('gradebook cell: the late clock is the submission only', () => {
-  const lateTimeline = {
-    due: { date: '2026-10-06', time: '15:00' }, extension: null, deadline: '2026-10-06',
-    submission: { state: 'submitted', firstAt: Math.floor(new Date('2026-10-12T09:00:00').getTime() / 1000), latestAt: null, late: true, day: 4, lateMinutes: null, schoologyLate: true, flagged: false },
-    overdue: null, resubmission: null, referral: null, limit: 8,
-  };
+const lateTimeline = {
+  due: { date: '2026-10-06', time: '15:00' }, extension: null, deadline: '2026-10-06',
+  submission: { state: 'submitted', firstAt: Math.floor(new Date('2026-10-12T09:00:00').getTime() / 1000), latestAt: null, late: true, day: 4, lateMinutes: null, schoologyLate: true, flagged: false },
+  overdue: null, resubmission: null, referral: null, limit: 8,
+};
 
+describe('gradebook cell: the late clock is the submission only', () => {
   it('a late submission without a flag: the outline corner clock, with how late', () => {
     renderGrid({ score: 80, exception: null, late: 1 }, {}, { 10: { 1: lateTimeline } });
     const clock = document.querySelector('.late-clock');
@@ -96,10 +96,25 @@ describe('gradebook cell: flag symbols', () => {
     expect(cell()).not.toHaveTextContent('100');
   });
 
-  it('a Late flag on a late submission is one symbol; the cell never draws a second, filled clock', () => {
-    renderGrid({ score: null, exception: 6, late: 1 });
+  it('a Late flag on a late submission: one symbol plus the outline corner clock for the submission, never a filled clock', () => {
+    renderGrid({ score: null, exception: 6, late: 1 }, {}, { 10: { 1: lateTimeline } });
     expect(cell().querySelectorAll('.flag-symbol')).toHaveLength(1);
-    expect(document.querySelector('.late-clock--flagged')).toBeNull();
+    const clocks = cell().querySelectorAll('.late-clock');
+    expect(clocks).toHaveLength(1);
+    expect(clocks[0]).toHaveClass('late-clock--corner');
+    expect(clocks[0]).not.toHaveClass('late-clock--flagged');
+    expect(clocks[0]).toHaveAttribute('title', '3 school days late');
+  });
+
+  it.each([1, 6])('any flag (%i) with a late submission keeps the corner clock, even with no timeline', (exception) => {
+    renderGrid({ score: null, exception, late: 1 });
+    expect(cell().querySelector('.flag-symbol')).not.toBeNull();
+    expect(cell().querySelectorAll('.late-clock')).toHaveLength(1);
+  });
+
+  it('a flag with an on-time submission has no clock', () => {
+    renderGrid({ score: null, exception: 6, late: 0 });
+    expect(cell().querySelector('.late-clock')).toBeNull();
   });
 
   it.each([[1, 'exempt', 'EXEMPT'], [2, 'incomplete', 'INCOMPLETE'], [3, 'missing', 'MISSING'], [5, 'absent', 'ABSENT'], [6, 'late', 'LATE']])(

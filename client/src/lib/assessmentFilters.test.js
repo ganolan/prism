@@ -45,6 +45,9 @@ describe('gradingStateOf', () => {
   it('some missing is partial', () =>
     expect(gradingStateOf(stu({ scores: { t1: { grade: 'EX' } }, grade_comment: 'x' }), TOPICS)).toBe('partial'));
   it('excepted is complete', () => expect(gradingStateOf(stu({ exception: 3 }), TOPICS)).toBe('complete'));
+  it('exception 4 is no flag: ungraded until graded', () => {
+    expect(gradingStateOf(stu({ exception: 4 }), TOPICS)).toBe('ungraded');
+  });
   it('every flag is complete: Exempt, Incomplete, Missing, Absent and Late (server parity, #40)', () => {
     for (const exception of [1, 2, 3, 5, 6]) expect(gradingStateOf(stu({ exception }), TOPICS)).toBe('complete');
     expect(gradingStateOf(stu({ exception: 6 }), [])).toBe('complete');
@@ -167,8 +170,8 @@ describe('studentReasons (Needs action + Watch)', () => {
       .toEqual(['resubmitted']);
     expect(ids(stu({ review_flag: { id: 1 } }))).not.toContain('flagged'); // Flag for review is gone (#40)
   });
-  it('excused: no grading reasons', () => {
-    expect(ids(stu({ exception: 1, attention: { handedIn: true, reasons: [] } }))).toEqual([]);
+  it.each([1, 5])('exempt or absent (%i): no grading reasons', (exception) => {
+    expect(ids(stu({ exception, attention: { handedIn: true, reasons: [] } }))).toEqual([]);
   });
   it('server reasons join in REASONS order; unknown ids are dropped', () => {
     const s = stu({ attention: { handedIn: true, reasons: [{ id: 'resubmission_pending', until: '2026-10-20' }, { id: 'referral', kind: 'outstanding', daysLate: 9 }, { id: 'nope' }] } });

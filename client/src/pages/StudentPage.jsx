@@ -72,7 +72,7 @@ const commentsWorthAChip = (g, summary) => !!summary || !!g.submission_type || N
 // ({ [aid]: OneDrive link }), `commentSummaries` and `fileSummaries` ({ [aid]: summary },
 // null when the feature is off) arrive after the page renders, this student's only.
 export function CourseSection({
-  course, grades, flagsByAssignment, studentUid, scales, studentName = 'the student', attemptLinks = {}, rubrics = NO_RUBRICS,
+  course, grades, flagsByAssignment, studentUid, scales, studentName = 'the student', studentFirstName = null, attemptLinks = {}, rubrics = NO_RUBRICS,
   studentId = null, workLinks = {}, commentSummaries = null, onCommentSummary = () => {},
   fileSummaries = null, onFileSummary = () => {},
   refreshKey = 0,
@@ -196,6 +196,7 @@ export function CourseSection({
                         attachment={rubrics.attachments[g.schoology_assignment_id] || null}
                         palette={rubrics.palette}
                         exception={g.exception}
+                        firstName={studentFirstName}
                         score={topics.length > 0 ? null : gradeLabel({
                           score: g.score, max_points: g.assignment_max_points,
                           exception: g.exception, grading_scale_id: g.grading_scale_id, scales,
@@ -721,6 +722,7 @@ export default function StudentPage() {
             studentUid={student.schoology_uid}
             scales={student.grading_scales}
             studentName={`${displayName} ${student.last_name}`}
+            studentFirstName={displayName}
             attemptLinks={attemptLinks}
             rubrics={rubrics}
             studentId={student.id}

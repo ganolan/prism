@@ -2203,6 +2203,22 @@ describe('StudentRubricCard — triage actions on the card', () => {
     expect(row).toContainElement(screen.getByLabelText('Extension (school days)'));
   });
 
+  it.each([[1, 'Exempt'], [5, 'Absent']])('flag %i (%s): the student is not doing the task, so no Extend', (exception) => {
+    renderCard({
+      student: { ...makeStudent(), exception, timeline: tl('not_submitted'), late_work: { kind: 'outstanding', tone: 'red', day: 9 } },
+      assignmentRow: summative,
+    });
+    expect(screen.queryByRole('button', { name: 'Extend' })).not.toBeInTheDocument();
+  });
+
+  it('Missing (3) still offers Extend: the work is owed', () => {
+    renderCard({
+      student: { ...makeStudent(), exception: 3, timeline: tl('not_submitted'), late_work: { kind: 'outstanding', tone: 'red', day: 9 } },
+      assignmentRow: summative,
+    });
+    expect(screen.getByRole('button', { name: 'Extend' })).toBeInTheDocument();
+  });
+
   it('handed in late past the limit: Refer and Waive, and no Extend (the work is in)', () => {
     renderCard({
       student: { ...makeStudent(), timeline: tl('submitted'), late_work: { kind: 'submitted_late', tone: 'red', day: 9 } },

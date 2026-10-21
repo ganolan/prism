@@ -5,6 +5,7 @@
 
 import { submissionStatus } from './gradeLabel.js';
 import { teacherText } from './statusLines.js';
+import { isFlag, isNotDoingTask } from './flags.js';
 
 // Tone → CSS-var pairs. Mirrors BADGE_TONE_CLASS in CoursePage / SubmissionBadges
 // (amber→pink, yellow→amber) so colours stay consistent, plus a resubmit tone.
@@ -34,7 +35,7 @@ export function normalizedSubmissionState(student, assignment) {
 
 export function gradingStateOf(student, topics) {
   // Any flag (Exempt, Incomplete, Missing, Absent, Late) counts as handled (server gradingState parity, #40).
-  if (Number(student.exception) > 0) return 'complete';
+  if (isFlag(student.exception)) return 'complete';
   const scores = student.scores || {};
   const scoredCount = topics.filter(t => scores[t.id] != null).length;
   // Prism's own status line (student.status_line) is not teacher feedback (final review M3).
@@ -204,7 +205,7 @@ export function reasonTone(r) {
 // → [{ id, ...detail }] in REASONS order.
 export function studentReasons(student, ctx) {
   const out = [];
-  const excused = Number(student.exception) === 1;
+  const excused = isNotDoingTask(student.exception); // Exempt or Absent
   if (!excused) {
     const grading = gradingStateOf(student, ctx.topics || []);
     const handedIn = student.attention

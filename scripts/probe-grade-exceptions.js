@@ -1,4 +1,4 @@
-// Live probe of Schoology grade exceptions (#40): what Excused (1) and Late (4) do to a
+// Live probe of Schoology grade exceptions (#40): what Exempt (1) and Late (6) do to a
 // grade record through the public bulk PUT /sections/{id}/grades, and how a flag clears.
 //
 // DEFAULT IS READ-ONLY: prints the pair's three views of the grade:
@@ -10,7 +10,7 @@
 // after the teacher's explicit go-ahead on that target. Every field the op does not change is
 // echoed from a fresh read (the #46 rule), the raw answer is printed, then the three views again.
 //
-// ops: excused | excused-nullgrade | incomplete | missing | absent | late (6) | late4 | clear0 | clearnull | bulk-invalid |
+// ops: excused | excused-nullgrade | incomplete | missing | absent | late (6) | late4 (code 4 is invalid: expect a 400 entry) | clear0 | clearnull | bulk-invalid |
 //      restore (RESTORE='{"grade":…,"exception":…,"comment":…,"comment_status":…}')
 //
 // Usage: node scripts/probe-grade-exceptions.js <sectionId> <assignmentId> <enrollmentId> <uid>

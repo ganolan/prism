@@ -122,6 +122,13 @@ describe('getTriage — late work', () => {
     expect(getTriage(db, { today: TODAY }).lateWork).toEqual([]);
   });
 
+  test('Absent (5) is never listed as late, like Exempt', () => {
+    const a = student('u1', 'Ada', 'L');
+    const id = assignment('a1', 'Essay', '2026-10-05');
+    grade(a, id, { exception: 5 });
+    expect(getTriage(db, { today: TODAY }).lateWork).toEqual([]);
+  });
+
   test('Missing exception still counts as outstanding (grade timestamp is not a submission)', () => {
     const a = student('u1', 'Ada', 'L');
     const id = assignment('a1', 'Essay', '2026-10-05');
@@ -429,6 +436,12 @@ describe('getTriage — make-up tests', () => {
     expect(getTriage(db, { today: TODAY, now }).makeUps.map((r) => r.studentName)).toEqual(['Ada L']);
   });
 
+  test('Absent (5) is not listed for a make-up, like Exempt', () => {
+    const ada = student('u1', 'Ada', 'L');
+    const id = testItem('t1', 'Unit 1 test', '2026-10-15', { assignees: ['u1'] });
+    missed(ada, id, { exception: 5 });
+    expect(getTriage(db, { today: TODAY, now }).makeUps).toEqual([]);
+  });
   test('not listed: excused, scored by hand or in mastery, dropped, on the other (*) copy', () => {
     const ada = student('u1', 'Ada', 'L');
     const bo = student('u2', 'Bo', 'M');
@@ -916,6 +929,8 @@ describe('resubmissions list', () => {
     const r2 = requestResubmission(db, { studentId: s2, assignmentId: a, lessons: 1, requestedAt: sqlAt('2026-10-12') });
     gradeStands(db, r2.id, { today: TODAY });
     grade(s3, a, { score: null, exception: 1, submitted_at: epoch('2026-09-25'), latest_revision_at: epoch('2026-10-14') });
+    const s4 = student('u4', 'Abe', 'Ng');
+    grade(s4, a, { score: null, exception: 5, submitted_at: epoch('2026-09-25'), latest_revision_at: epoch('2026-10-14') }); // Absent
     captureFeedbackSnapshots(db);
     expect(getTriage(db, { today: TODAY }).resubmissions.map((r) => r.studentId)).toEqual([s]);
     db.prepare('UPDATE grades SET score = 80, submitted_at = ? WHERE student_id = ?').run(epoch('2026-10-15'), s); // regraded

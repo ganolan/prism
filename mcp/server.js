@@ -483,7 +483,7 @@ export function createServer({ devCopy = false } = {}) {
   server.registerTool(
     'record_referral',
     {
-      description: "Record the teacher's decision on a late-work row at the referral limit: 'referred' (referred to the academic office) or 'waived' (work handed in late that the teacher decides not to refer, e.g. a pre-arranged absence; only for kind submitted_late, else NOT_SUBMITTED). ONLY call when the teacher explicitly says so. Use student_id/assignment_id from get_triage lateWork; rejects pairs not currently on the list, and rows not yet at the referral limit (tone red: 8+ school days late by default) with NOT_AT_LIMIT. To give a student more time use extend_deadline; a true exemption from the task is Schoology's Excused flag.",
+      description: "Record the teacher's decision on a late-work row at the referral limit: 'referred' (referred to the academic office) or 'waived' (work handed in late that the teacher decides not to refer, e.g. a pre-arranged absence; only for kind submitted_late, else NOT_SUBMITTED). ONLY call when the teacher explicitly says so. Use student_id/assignment_id from get_triage lateWork; rejects pairs not currently on the list, and rows not yet at the referral limit (tone red: 8+ school days late by default) with NOT_AT_LIMIT. To give a student more time use extend_deadline; a true exemption from the task is Schoology's Exempt flag (an absence is its Absent flag).",
       inputSchema: {
         student_id: z.number().describe('lateWork[].studentId'),
         assignment_id: z.number().describe('lateWork[].assignmentId'),

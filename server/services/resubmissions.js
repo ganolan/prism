@@ -13,6 +13,7 @@ import { resubmissionStateFromSnapshot, sqliteUtcToEpoch } from '../lib/resubmis
 import { epochToLocalDate, todayLocal } from '../lib/schoolDays.js';
 import { currentFingerprints, snapshotMap, EMPTY_FINGERPRINT } from './feedbackSnapshots.js';
 import { canUnsubmit, unsubmitUrl, isUncertainUnsubmitError } from './ltiUnsubmit.js';
+import { isNotDoingTask } from '../lib/flags.js';
 
 const OPEN_REQUEST = `kind = 'request' AND status = 'open'`;
 
@@ -401,7 +402,7 @@ export function resubmissionRows(db, { course, students, cal, today, settings, s
       if (!pair) continue;
       const { state, request, snapshot, grade } = pair;
       if (state !== 'waiting' && state !== 'arrived') continue;
-      if (Number(grade?.exception) === 1) continue; // excused
+      if (isNotDoingTask(grade?.exception)) continue; // Exempt or Absent
       if (!assigneeCache.has(a.id)) assigneeCache.set(a.id, assigneesOf(a));
       const assignees = assigneeCache.get(a.id);
       if (assignees && !assignees.has(st.schoology_uid)) continue;

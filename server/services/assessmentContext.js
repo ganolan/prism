@@ -10,6 +10,7 @@ import { getScoreScales, getFeatures } from '../middleware/featureGate.js';
 import { psAlertFieldsForAgents } from './psAlertStore.js';
 import { findScoreScale, levelForScore } from '../lib/scoreScales.js';
 import { resolveAssignmentId } from './idResolvers.js';
+import { isFlagCode } from '../lib/flags.js';
 import { preferredFirstName } from './studentNames.js';
 import { resubmissionByStudent } from './resubmissions.js';
 import { teacherText } from '../lib/statusLines.js';
@@ -57,7 +58,7 @@ export function normalizeSubmissionStatus({
 // Absent or Late) counts as handled → 'complete'. Complete = every aligned topic has a
 // level AND a comment is present. Empty = nothing entered. Otherwise partial.
 export function gradingState({ scoredCount, topicsCount, hasComment, exception } = {}) {
-  if (Number(exception) > 0) return 'complete';
+  if (isFlagCode(exception)) return 'complete';
   if (scoredCount === 0 && !hasComment) return 'ungraded';
   if (topicsCount === 0) return 'complete'; // no rubric topics to score; a comment/score-bearing row is handled
   if (scoredCount === topicsCount && hasComment) return 'complete';

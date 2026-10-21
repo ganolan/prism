@@ -91,6 +91,16 @@ describe('attentionByStudent: late work (summative)', () => {
   });
 });
 
+describe('attentionByStudent: Absent', () => {
+  test('an Absent (5) student is left out like an Exempt one, even when referred', () => {
+    const maya = student('u1', 'Maya');
+    const a = assignment('2026-10-05');
+    recordReferral(db, { studentId: maya.id, assignmentId: a.id, action: 'referred', today: TODAY });
+    grade(maya.id, a.id, { exception: 5 });
+    expect(reasonsFor(a, [maya])).toEqual([[]]);
+  });
+});
+
 describe('attentionByStudent: OneDrive / Google Drive watch reasons', () => {
   test('opened but not submitted after the due date → in progress, late (summative and formative)', () => {
     const maya = student('u1', 'Maya');

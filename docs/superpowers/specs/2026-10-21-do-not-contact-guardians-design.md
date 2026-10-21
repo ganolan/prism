@@ -174,10 +174,13 @@ The student page may be on a projector in a parent conference, so family facts s
 **Show alerts** click (`PsAlertReveal`, hidden again on every page load; `docs/design-language.md` "PowerSchool
 alerts", 18 October 2026).
 
-- **`do_not_contact` and `deceased`** (Graham, 21 October 2026): the card shows the guardian's name only. No
-  email, no `mailto:` link, no copy button, no reason. After **Show alerts**, the card adds the reason ("Do
-  not contact (PowerSchool)", "Deceased (PowerSchool)") and the email as plain text, still without a link or a
-  copy button.
+- **`deceased`** (Graham, 21 October 2026): the guardian's whole card is hidden. After **Show alerts**, the
+  card appears with the reason "Deceased (PowerSchool)" and the email as plain text, without a link or a copy
+  button. A student whose only synced parent is hidden shows no card, and also no "No parent/guardian contacts
+  synced yet" message (that message would be false).
+- **`do_not_contact`** (Graham, 21 October 2026): the card shows the guardian's name only. No email, no
+  `mailto:` link, no copy button, no reason. After **Show alerts**, the card adds the reason "Do not contact
+  (PowerSchool)" and the email as plain text, still without a link or a copy button.
 - **`not_matched` and `not_checked`** (my call: these state nothing about the family): always visible, a
   muted line with the reason ("Not matched to a PowerSchool guardian", "Not checked against PowerSchool yet")
   and the email as plain text, without a link or a copy button.

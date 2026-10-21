@@ -2,7 +2,12 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
+vi.mock('../middleware/featureGate.js', async () => {
+  const real = await vi.importActual('../middleware/featureGate.js');
+  return { ...real, getFeatures: vi.fn(() => ({ powerschool_alerts: true })) };
+});
 
+import { getFeatures } from '../middleware/featureGate.js';
 import router from './students.js';
 import { getDb } from '../db/index.js';
 import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
@@ -19,8 +24,9 @@ async function get(path) {
 
 let studentId, assignmentId;
 beforeEach(() => {
+  vi.mocked(getFeatures).mockReturnValue({ powerschool_alerts: true });
   const db = getDb();
-  db.exec('DELETE FROM student_ps_alerts; DELETE FROM student_powerschool; DELETE FROM feedback_snapshots; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
+  db.exec('DELETE FROM student_ps_guardians; DELETE FROM parents; DELETE FROM student_ps_alerts; DELETE FROM student_powerschool; DELETE FROM feedback_snapshots; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
   const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-1', 'AIML')`).run().lastInsertRowid;
   studentId = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u1', 'Maya', 'Chen')`).run().lastInsertRowid;
   db.prepare(`INSERT INTO enrolments (student_id, course_id) VALUES (?, ?)`).run(studentId, courseId);
@@ -77,5 +83,40 @@ describe('GET /api/students/:id — PowerSchool alerts (#117)', () => {
     const { body } = await get(`/api/students/${studentId}`);
     expect(body.ps_alerts).toEqual([]);
     expect(body.ps_alerts_synced_at).toBeNull();
+  });
+});
+
+describe('GET /api/students/:id — guardian contact status (#66)', () => {
+  const SYNCED = '2026-10-21T01:00:00.000Z';
+  function addFamily() {
+    const db = getDb();
+    db.prepare(`INSERT INTO parents (student_id, schoology_uid, first_name, last_name, email) VALUES (?, 'p1', 'Robin', 'Sample', 'robin@example.test'), (?, 'p2', 'Kit', 'Sample', 'kit@example.test')`).run(studentId, studentId);
+    db.prepare(`INSERT INTO student_ps_guardians (student_id, slot, name, email) VALUES (?, 1, 'Sample, Robin', 'robin@example.test'), (?, 2, 'Sample, Kit', 'kit@example.test')`).run(studentId, studentId);
+    db.prepare(`INSERT INTO student_powerschool (student_id, guardians_synced_at, dnc_g2, correspondence) VALUES (?, ?, '1', '1')`).run(studentId, SYNCED);
+  }
+
+  test('feature off: parents carry no contact and the body has no guardians_synced_at', async () => {
+    vi.mocked(getFeatures).mockReturnValue({ powerschool_alerts: false });
+    addFamily();
+    const { body } = await get(`/api/students/${studentId}`);
+    expect(body.parents).toHaveLength(2);
+    for (const p of body.parents) expect(p).not.toHaveProperty('contact');
+    expect(body).not.toHaveProperty('guardians_synced_at');
+  });
+
+  test('feature on: each parent carries contact and the body the guardian read time', async () => {
+    addFamily();
+    const { body } = await get(`/api/students/${studentId}`);
+    const byName = Object.fromEntries(body.parents.map((p) => [p.first_name, p.contact]));
+    expect(byName.Robin).toEqual({ status: 'contactable', primary: true, reason: null });
+    expect(byName.Kit).toEqual({ status: 'do_not_contact', primary: false, reason: 'Do not contact (PowerSchool)' });
+    expect(body.guardians_synced_at).toBe(SYNCED);
+  });
+
+  test('feature on, never read: not_checked and a null guardians_synced_at', async () => {
+    getDb().prepare(`INSERT INTO parents (student_id, schoology_uid, first_name, last_name, email) VALUES (?, 'p1', 'Robin', 'Sample', 'robin@example.test')`).run(studentId);
+    const { body } = await get(`/api/students/${studentId}`);
+    expect(body.parents[0].contact.status).toBe('not_checked');
+    expect(body).toHaveProperty('guardians_synced_at', null);
   });
 });

@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
 import { preferredFirstName } from '../services/studentNames.js';
+import { getFeatures } from '../middleware/featureGate.js';
+import { contactsForStudents } from '../services/guardianContactStore.js';
 
 const router = Router();
 
@@ -14,6 +16,7 @@ function parseCourseIds(param) {
 // GET /api/tools/emails/:courseId — email list for one or more courses
 // :courseId is a comma-separated list of course IDs.
 // Query params: type=student|parent|both (default: student)
+// Answers `excluded`: guardians left out because PowerSchool does not clear them (#66).
 router.get('/emails/:courseId', (req, res) => {
   const db = getDb();
   const type = req.query.type || 'student';
@@ -39,7 +42,7 @@ router.get('/emails/:courseId', (req, res) => {
   // Get parents from parents table (richer than legacy parent_email field) — names + which
   // student they belong to, so each parent can be grouped under their child.
   const parents = db.prepare(`
-    SELECT DISTINCT p.student_id, p.first_name, p.last_name, p.email
+    SELECT DISTINCT p.id, p.student_id, p.first_name, p.last_name, p.email
     FROM parents p
     JOIN enrolments e ON e.student_id = p.student_id
     WHERE e.course_id IN (${placeholders}) AND e.dropped_at IS NULL
@@ -47,19 +50,35 @@ router.get('/emails/:courseId', (req, res) => {
     ORDER BY p.last_name, p.first_name
   `).all(...courseIds);
 
+  const parentsExist = parents.length > 0;
+
+  // #66: with PowerSchool alerts on, only guardians PowerSchool says are contactable are
+  // copied (not do-not-contact, deceased, unmatched or unchecked), and the legacy
+  // parent_email, which has no guardian to check, is not copied at all. This runs before
+  // the address de-duplication so a left-out guardian cannot take the place of a kept one.
+  const wantStudent = type === 'student' || type === 'both';
+  const wantParent = type === 'parent' || type === 'both';
+  const checkContacts = getFeatures().powerschool_alerts;
+  const withheld = []; // addresses of guardians left out, counted after de-duplication
+  let keptParents = parents;
+  if (checkContacts && wantParent) {
+    const contacts = contactsForStudents(db, students.map(s => s.id));
+    keptParents = parents.filter(p => {
+      if (contacts.get(p.student_id)?.byParent.get(p.id)?.status === 'contactable') return true;
+      withheld.push(p.email);
+      return false;
+    });
+  }
+
   const parentsByStudent = new Map();
-  for (const p of parents) {
+  for (const p of keptParents) {
     if (!parentsByStudent.has(p.student_id)) parentsByStudent.set(p.student_id, []);
     parentsByStudent.get(p.student_id).push(p);
   }
-  const parentsExist = parents.length > 0;
 
   const fullName = (first, last) => [first, last].filter(Boolean).join(' ').trim();
   // Match the rest of the app: teacher override > Schoology preferred > first name
   const studentName = (s) => fullName(preferredFirstName(s), s.last_name);
-
-  const wantStudent = type === 'student' || type === 'both';
-  const wantParent = type === 'parent' || type === 'both';
 
   // Walk students in roster order. For "both" this naturally places each student's
   // parents immediately after the student; for "parent" it groups parents by child.
@@ -74,6 +93,8 @@ router.get('/emails/:courseId', (req, res) => {
         for (const p of parentsByStudent.get(s.id) || []) {
           entries.push({ email: p.email, name: `${fullName(p.first_name, p.last_name)} (parent of ${sName})` });
         }
+      } else if (s.parent_email && checkContacts) {
+        withheld.push(s.parent_email);
       } else if (s.parent_email) {
         // Legacy fallback: no parent name on file, but we still know whose parent it is
         entries.push({ email: s.parent_email, name: `Parent of ${sName}` });
@@ -91,6 +112,11 @@ router.get('/emails/:courseId', (req, res) => {
     return true;
   });
 
+  // Guardians left out, by address: one that is also copied through another child is
+  // not counted.
+  const copied = new Set(deduped.map(e => e.email.toLowerCase()));
+  const excluded = new Set(withheld.map(e => e.trim().toLowerCase()).filter(e => !copied.has(e))).size;
+
   // "Name <email>". Quote the display name when it contains characters that have
   // meaning in an address list — commas, and the parens used by the "parent of" tag.
   const emails = deduped.map(e => {
@@ -106,6 +132,7 @@ router.get('/emails/:courseId', (req, res) => {
     // Bare addresses, same order + dedup, for the "emails only" format
     addresses: deduped.map(e => e.email),
     count: emails.length,
+    excluded,
   });
 });
 

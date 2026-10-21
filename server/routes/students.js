@@ -8,6 +8,7 @@ import { getRoster } from '../services/assessmentContext.js';
 import { matchFilesToRoster } from '../lib/oneDriveSubmissions.js';
 import { getFeatures } from '../middleware/featureGate.js';
 import { psAlertsForStudent } from '../services/psAlertStore.js';
+import { contactsForStudents } from '../services/guardianContactStore.js';
 import { readSupportSummary, SupportSummaryError } from '../services/psSupportSummary.js';
 
 const router = Router();
@@ -185,9 +186,18 @@ router.get('/:id', (req, res) => {
     WHERE student_id = ? AND kind = 'request' AND status = 'open'
   `).all(req.params.id).map((r) => ({ id: `resubmission-${r.id}`, student_id: r.student_id, assignment_id: r.assignment_id, flag_type: 'resubmit_requested', flag_reason: null, resolved: 0, created_at: r.created_at }));
 
-  const parents = db.prepare(
+  let parents = db.prepare(
     'SELECT * FROM parents WHERE student_id = ? ORDER BY last_name, first_name'
   ).all(req.params.id);
+
+  // #66: each guardian's contact status from PowerSchool (may Prism copy the address?),
+  // when the feature is on. Off: parents are returned exactly as stored.
+  let guardiansSyncedAt;
+  if (getFeatures().powerschool_alerts) {
+    const contacts = contactsForStudents(db, [student.id]).get(student.id);
+    parents = parents.map((p) => ({ ...p, contact: contacts.byParent.get(p.id) }));
+    guardiansSyncedAt = contacts.guardiansSyncedAt;
+  }
 
   // #117: PowerSchool alerts (labels + when last read), when the feature is on.
   const psAlerts = student && getFeatures().powerschool_alerts ? psAlertsForStudent(db, student.id) : null;
@@ -195,6 +205,7 @@ router.get('/:id', (req, res) => {
   res.json({
     ...student, courses, grades, notes, flags: [...flags, ...requests], parents, grading_scales: getGradingScalesMap(),
     ...(psAlerts ? { ps_alerts: psAlerts.alerts, ps_alerts_synced_at: psAlerts.synced_at } : {}),
+    ...(guardiansSyncedAt !== undefined ? { guardians_synced_at: guardiansSyncedAt } : {}),
   });
 });
 

@@ -5,7 +5,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 vi.mock('../components/MasteryPerformanceSummary.jsx', () => ({ default: () => null }));
 vi.mock('../services/api.js', () => ({
   getStudent: vi.fn(),
-  updateStudent: vi.fn(), updateParentPhone: vi.fn(), createNote: vi.fn(), updateNote: vi.fn(), deleteNote: vi.fn(),
+  updateStudent: vi.fn(), updateParent: vi.fn(), createNote: vi.fn(), updateNote: vi.fn(), deleteNote: vi.fn(),
   getAttemptLinks: vi.fn().mockResolvedValue({ links: {} }),
 }));
 

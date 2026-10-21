@@ -92,3 +92,14 @@ describe('the sync queue (background sync)', () => {
   });
 });
 
+
+describe('updateParent (#173)', () => {
+  it('PUTs the teacher\'s extra phone and email to the parent', async () => {
+    const f = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ id: 3 }) });
+    vi.stubGlobal('fetch', f);
+    await api.updateParent(7, 3, { phone: '0000 0001', extra_email: null });
+    expect(f).toHaveBeenCalledWith('/api/students/7/parents/3', expect.objectContaining({
+      method: 'PUT', body: JSON.stringify({ phone: '0000 0001', extra_email: null }),
+    }));
+  });
+});

@@ -10,7 +10,7 @@ vi.mock('../components/MasteryPerformanceSummary.jsx', () => ({ default: () => n
 vi.mock('../hooks/useProficiencyScale.js', () => ({ useProficiencyScale: () => ({ pointsToLevel: () => null }) }));
 vi.mock('../services/api.js', () => ({
   getStudent: vi.fn(),
-  updateStudent: vi.fn(), updateParentPhone: vi.fn(), createNote: vi.fn(), updateNote: vi.fn(), deleteNote: vi.fn(),
+  updateStudent: vi.fn(), updateParent: vi.fn(), createNote: vi.fn(), updateNote: vi.fn(), deleteNote: vi.fn(),
   getAttemptLinks: vi.fn().mockResolvedValue({ links: {} }),
   searchStudents: vi.fn(),
   searchPeople: vi.fn(),
@@ -70,7 +70,7 @@ describe('Student page: adding a note by touch', () => {
     expect(container.querySelector('.card.student-header .student-photo, .card.student-header .student-profile')).not.toBeNull();
     expect(screen.getByRole('button', { name: 'Edit' })).toHaveClass('tap-target');
     expect(screen.getByRole('button', { name: 'Delete' })).toHaveClass('tap-target');
-    expect(screen.getByRole('button', { name: '+ Add Phone' })).toHaveClass('tap-target');
+    expect(screen.getByRole('button', { name: 'Edit extra phone and email' })).toHaveClass('tap-target');
     expect(screen.getByRole('link', { name: 'mei.lee.a.very.long.address@example.com' }).closest('.contact-email')).not.toBeNull();
   });
 });

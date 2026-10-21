@@ -425,6 +425,7 @@ a.link:hover { text-decoration: underline; }
 input[type="text"],
 input[type="search"],
 input[type="email"],
+input[type="tel"],
 input[type="number"],
 select,
 textarea {
@@ -1517,7 +1518,14 @@ button.cell-open:focus-visible { outline: 2px solid var(--accent); outline-offse
 .student-photo { width: 144px; height: 144px; border-radius: 50%; object-fit: cover; flex-shrink: 0; border: 2px solid var(--border); cursor: zoom-in; }
 .student-name-row { display: flex; align-items: center; gap: 0.5rem; }
 .contact-email { display: flex; align-items: center; gap: 0.15rem; }
-.parent-phone-input { flex: 1; font-size: 0.8rem; }
+.parent-detail-input { font-size: 0.8rem; padding: 0.3rem 0.5rem; }
+/* #173: a guardian's details from PowerSchool, then the teacher's own, labelled. */
+.contact-added { margin-left: 0.4rem; font-size: 0.7rem; }
+.parent-edit-btn { margin-left: auto; }
+.parent-edit { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.4rem; }
+.parent-edit label { display: flex; flex-direction: column; gap: 0.15rem; }
+.parent-edit__error { margin: 0; padding: 0.4rem 0.6rem; }
+.parent-edit__actions { display: flex; gap: 0.4rem; }
 /* #66: a guardian not cleared by PowerSchool shows the address as plain text (no mailto, no copy). */
 .contact-email-plain { min-width: 0; overflow-wrap: anywhere; }
 .parent-name { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
@@ -1740,7 +1748,7 @@ button.cell-open:focus-visible { outline: 2px solid var(--accent); outline-offse
   /* The copy button's 44px hit area overlaps the lines above and below rather
      than spacing them out. */
   .contact-email .tap-target { margin: -12px 0; }
-  .parent-phone-input { font-size: 16px; }
+  .parent-detail-input { font-size: 16px; }
   .preferred-name-btn { min-height: 36px; }
 
   /* Student notes: a 44px "add" pencil; the form stacks (the note full width,

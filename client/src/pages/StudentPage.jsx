@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { formatDate, formatDateTime } from '../lib/formatDate.js';
 import {
-  getStudent, updateStudent, updateParentPhone,
+  getStudent, updateStudent, updateParent,
   createNote, updateNote, deleteNote, startSync,
 } from '../services/api.js';
 import MasteryPerformanceSummary from '../components/MasteryPerformanceSummary.jsx';
@@ -220,70 +220,130 @@ export function CourseSection({
 // every parent is shown and copied as before). Do not contact and deceased are family
 // facts, kept behind Show alerts with the PowerSchool alerts; every guardian not cleared
 // as contactable is left out of Copy all. The reason is shown as the API sends it.
+// #173: contact.email is the address to show (PowerSchool's, else Schoology's) and
+// contact.copy the only addresses that may get a mailto link, a copy button or a place in
+// Copy all ([] unless contactable; never one a flagged guardian holds). contact.ps.phone is
+// PowerSchool's number; parents.phone and parents.extra_email are the teacher's own,
+// labelled "Added in Prism". Off: the Schoology email and the extra email, both copied.
 // See docs/design-language.md "PowerSchool alerts".
 const REVEAL_ONLY = new Set(['do_not_contact', 'deceased']);
 const NOT_CHECKED = { status: 'not_checked', primary: false, reason: 'Not checked against PowerSchool yet' };
 // Fail safe: with the feature on, a parent the API sent no contact for is not checked.
 const withContact = (p, checking) => (checking && !p.contact ? { ...p, contact: NOT_CHECKED } : p);
 const isRevealOnly = (p) => REVEAL_ONLY.has(p.contact?.status);
-const isCopyable = (p) => !!p.email && (!p.contact || p.contact.status === 'contactable');
+const emailKey = (e) => (e || '').trim().toLowerCase();
+const shownEmail = (p) => (p.contact && p.contact.email !== undefined ? p.contact.email : p.email);
+function copyList(p) {
+  // Fail safe: only a contactable guardian is ever copied, whatever copy holds.
+  if (p.contact) return p.contact.status === 'contactable' ? p.contact.copy || [] : [];
+  const out = [];
+  for (const e of [p.email, p.extra_email]) if (emailKey(e) && !out.some((c) => emailKey(c) === emailKey(e))) out.push(e);
+  return out;
+}
+const isCopyable = (p) => copyList(p).length > 0;
+const hasAddress = (p) => !!(emailKey(shownEmail(p)) || emailKey(p.extra_email));
+
+const AddedInPrism = () => <span className="text-muted contact-added">Added in Prism</span>;
+
+// One address: a mailto link and a copy button only when `linked`, else plain text.
+function ContactEmail({ email, linked, added }) {
+  return (
+    <p className="text-sm contact-email">
+      {linked ? (
+        <>
+          <a href={`mailto:${email}`} className="link">{email}</a>
+          <CopyButton text={email} />
+        </>
+      ) : <span className="contact-email-plain">{email}</span>}
+      {added && <AddedInPrism />}
+    </p>
+  );
+}
+
+function ContactPhone({ phone, linked, added }) {
+  return (
+    <p className="text-sm">
+      {linked ? <a href={`tel:${phone}`} className="link">{phone}</a> : phone}
+      {added && <AddedInPrism />}
+    </p>
+  );
+}
 
 function ParentCard({ parent, studentId, onUpdated, revealed = false }) {
-  const [editingPhone, setEditingPhone] = useState(false);
-  const [phoneVal, setPhoneVal] = useState(parent.phone || '');
+  const [editing, setEditing] = useState(false);
+  const [phoneVal, setPhoneVal] = useState('');
+  const [extraVal, setExtraVal] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
 
-  async function savePhone() {
-    await updateParentPhone(studentId, parent.id, phoneVal.trim() || null);
-    setEditingPhone(false);
-    onUpdated();
+  function startEditing() {
+    setPhoneVal(parent.phone || '');
+    setExtraVal(parent.extra_email || '');
+    setError(null);
+    setEditing(true);
+  }
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      await updateParent(studentId, parent.id, { phone: phoneVal.trim() || null, extra_email: extraVal.trim() || null });
+      setEditing(false);
+      onUpdated();
+    } catch (e) {
+      setError(e.message); // e.g. the server's "Extra email must be an email address"
+    } finally {
+      setSaving(false);
+    }
   }
 
   const status = parent.contact?.status;
-  // Not cleared: no mailto, tel or copy, so the address is never one click from an email.
+  // Not cleared: no mailto, tel or copy for any detail, so none is one click from an email or a call.
   const restricted = !!status && status !== 'contactable';
   const revealOnly = isRevealOnly(parent);
   if (status === 'deceased' && !revealed) return null;
   const nameOnly = status === 'do_not_contact' && !revealed;
+
+  const copy = copyList(parent);
+  const linked = (e) => copy.some((c) => emailKey(c) === emailKey(e));
+  const address = shownEmail(parent);
+  const psPhone = parent.contact?.ps?.phone;
 
   return (
     <div style={{ padding: '0.5rem 0.65rem', background: 'var(--bg-subtle)', borderRadius: 8, border: '1px solid var(--border)' }}>
       <p className="text-sm parent-name">
         <span style={{ fontWeight: 600 }}>{parent.first_name} {parent.last_name}</span>
         {status === 'contactable' && parent.contact.primary && <span className="badge badge-pink">Primary contact</span>}
+        {!revealOnly && !editing && (
+          <button
+            className="ghost accent tap-target parent-edit-btn" style={{ fontSize: '0.75rem', padding: '0.15rem 0.4rem' }}
+            onClick={startEditing} aria-label="Edit extra phone and email"
+          >Edit</button>
+        )}
       </p>
       {!nameOnly && (
         <>
           {restricted && parent.contact.reason && <p className="text-sm text-muted">{parent.contact.reason}</p>}
-          {parent.email && (restricted ? (
-            <p className="text-sm contact-email"><span className="contact-email-plain">{parent.email}</span></p>
-          ) : (
-            <p className="text-sm contact-email">
-              <a href={`mailto:${parent.email}`} className="link">{parent.email}</a>
-              <CopyButton text={parent.email} />
-            </p>
-          ))}
+          {address && <ContactEmail email={address} linked={linked(address)} />}
           {parent.relationship && <p className="text-sm text-muted">{parent.relationship}</p>}
-          {revealOnly ? (
-            parent.phone && <p className="text-sm" style={{ marginTop: '0.3rem' }}>{parent.phone}</p>
-          ) : editingPhone ? (
-            <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem', alignItems: 'center' }}>
-              <input
-                type="tel" value={phoneVal} onChange={e => setPhoneVal(e.target.value)}
-                placeholder="Phone number" className="parent-phone-input"
-              />
-              <button className="primary" style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }} onClick={savePhone}>Save</button>
-              <button className="ghost" style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }} onClick={() => { setEditingPhone(false); setPhoneVal(parent.phone || ''); }}>Cancel</button>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.3rem' }}>
-              {parent.phone ? (
-                <>
-                  <p className="text-sm">{restricted ? parent.phone : <a href={`tel:${parent.phone}`} className="link">{parent.phone}</a>}</p>
-                  <button className="ghost accent tap-target" style={{ fontSize: '0.75rem', padding: '0.15rem 0.4rem' }} onClick={() => setEditingPhone(true)}>Edit</button>
-                </>
-              ) : (
-                <button className="ghost accent tap-target" style={{ fontSize: '0.75rem', padding: '0.15rem 0.4rem' }} onClick={() => setEditingPhone(true)}>+ Add Phone</button>
-              )}
+          {psPhone && <ContactPhone phone={psPhone} linked={!restricted} />}
+          {parent.phone && <ContactPhone phone={parent.phone} linked={!restricted} added />}
+          {parent.extra_email && <ContactEmail email={parent.extra_email} linked={linked(parent.extra_email)} added />}
+          {editing && (
+            <div className="parent-edit">
+              <label className="text-sm">
+                Extra phone
+                <input type="tel" value={phoneVal} onChange={(e) => setPhoneVal(e.target.value)} className="parent-detail-input" />
+              </label>
+              <label className="text-sm">
+                Extra email
+                <input type="email" value={extraVal} onChange={(e) => setExtraVal(e.target.value)} className="parent-detail-input" />
+              </label>
+              {error && <p className="alert alert-error text-sm parent-edit__error" role="alert">{error}</p>}
+              <div className="parent-edit__actions">
+                <button className="primary" style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }} onClick={save} disabled={saving}>Save</button>
+                <button className="ghost" style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }} onClick={() => setEditing(false)}>Cancel</button>
+              </div>
             </div>
           )}
         </>
@@ -412,7 +472,9 @@ export default function StudentPage() {
   const parents = (student.parents || []).map((p) => withContact(p, 'guardians_synced_at' in student));
   const revealOnlyCount = parents.filter(isRevealOnly).length;
   const copyableParents = parents.filter(isCopyable);
-  const notCopied = parents.filter((p) => p.email && !isCopyable(p)).length;
+  const notCopied = parents.filter((p) => hasAddress(p) && !isCopyable(p)).length;
+  // A deceased guardian has no card until Show alerts (#66).
+  const shownCards = parents.filter((p) => alertsShown || p.contact?.status !== 'deceased').length;
 
   const gradesByCourse = {};
   for (const g of student.grades) {
@@ -515,14 +577,14 @@ export default function StudentPage() {
               {copyableParents.length > 0 && (
                 <span className="family-copy-all">
                   <CopyButton
-                    text={copyableParents.map(p => `${p.first_name} ${p.last_name} <${p.email}>`).join('; ')}
+                    text={copyableParents.flatMap(p => copyList(p).map(e => `${p.first_name} ${p.last_name} <${e}>`)).join('; ')}
                     label="Copy all emails"
                   />
                   {notCopied > 0 && <span className="text-sm text-muted">{notCopied} not copied</span>}
                 </span>
               )}
             </div>
-            {'guardians_synced_at' in student && parents.length > 0 && (
+            {'guardians_synced_at' in student && shownCards > 0 && (
               <p className="text-sm text-muted" style={{ marginTop: '-0.5rem', marginBottom: '0.5rem' }}>
                 {student.guardians_synced_at ? `Checked against PowerSchool ${formatDate(student.guardians_synced_at)}` : 'Not checked against PowerSchool yet'}
               </p>

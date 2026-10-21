@@ -752,7 +752,7 @@ each colour standing for a *function* so the hierarchy reads at a glance.
   desktop / on phones. A `display: none` element paints nothing, so adding
   phone-only markup cannot change desktop.
 - **`.tap-target`** gives a small text or icon button a 44px hit area on phones
-  (notes Edit/Delete, + Add Phone, copy buttons, the Dashboard card cog). Where
+  (notes Edit/Delete, a guardian card's Edit, copy buttons, the Dashboard card cog). Where
   the bigger box would push lines apart (the copy button beside an email), a
   negative margin lets it overlap them instead.
 - **Student page:** the photo drops from 144px to 88px, the name row wraps

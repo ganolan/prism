@@ -9,7 +9,7 @@ const summary = vi.fn(() => null);
 vi.mock('../components/MasteryPerformanceSummary.jsx', () => ({ default: (props) => summary(props) }));
 vi.mock('../services/api.js', () => ({
   getStudent: vi.fn(),
-  updateStudent: vi.fn(), updateParentPhone: vi.fn(), createNote: vi.fn(), updateNote: vi.fn(), deleteNote: vi.fn(),
+  updateStudent: vi.fn(), updateParent: vi.fn(), createNote: vi.fn(), updateNote: vi.fn(), deleteNote: vi.fn(),
   getAttemptLinks: vi.fn().mockResolvedValue({ links: {} }),
   getRubricConfig: vi.fn().mockResolvedValue({ reportingCategoryColors: {} }),
   getSyncStatus: vi.fn(),

@@ -48,9 +48,11 @@ export const updateStudent = (id, preferred_name_teacher) => request(`/students/
   method: 'PUT',
   body: JSON.stringify({ preferred_name_teacher }),
 });
-export const updateParentPhone = (studentId, parentId, phone) => request(`/students/${studentId}/parents/${parentId}`, {
+// The teacher's additions to a parent (#173): { phone?, extra_email? }; only the keys
+// sent are updated, '' or null clears one. A bad extra email is a 400 with the reason.
+export const updateParent = (studentId, parentId, fields) => request(`/students/${studentId}/parents/${parentId}`, {
   method: 'PUT',
-  body: JSON.stringify({ phone }),
+  body: JSON.stringify(fields),
 });
 
 // Grades

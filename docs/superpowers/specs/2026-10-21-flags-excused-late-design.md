@@ -1,7 +1,7 @@
 # Flags: Excused and Late from Prism (#40)
 
 Design agreed with Graham on 21 October 2026. Mockups: the private Artifact page "Excused and Late in
-Prism" (https://claude.ai/artifact/RcePZWizTujDo17X1zpLf3), version 5.
+Prism" (https://claude.ai/artifact/RcePZWizTujDo17X1zpLf3), version 6.
 
 ## Intent
 
@@ -31,13 +31,19 @@ one button with a list. Prism follows the gradebook's word: **Flags**.
   tracking, referral), after listing them.
 - **Excused takes an optional reason for the student**, written into the student's Schoology comment as a
   status line with the date, because students and parents often need to know why.
+- **Flag colors follow Schoology: Excused is green, Late is red,** on the Flags pill and everywhere else
+  Prism shows the flag (status pill, gradebook chip, late clock).
+- **Excusing a graded task keeps the grade in Prism.** Schoology removes it; Prism saves a copy first,
+  shows it grayed and locked while the task is excused, and offers to restore it when the flag is cleared
+  (Graham left the storage to the builder; the choice below is mine).
 - **Order of work:** flags first. Editing grades and comments from the gradebook and the student page is a
   separate, later issue (to open as part of this work).
 
 ## Goals
 
 - Set, change and clear Excused and Late from the three surfaces, written to Schoology and read back.
-- Warn before a write that deletes a grade, and list exactly what Schoology deletes.
+- Keep a copy of every grade Schoology removes when a task is excused, and offer to restore it when the
+  flag is cleared.
 - Show every flag state correctly everywhere a grade shows, including Late with its grade still visible.
 - Leave Prism with one meaning per word: **Late** (a clock: outline from the submission, filled from the flag), **Missing** (Schoology's flag), **Overdue**
   (Prism's past-due status).
@@ -48,14 +54,15 @@ one button with a list. Prism follows the gradebook's word: **Flags**.
 - Bulk flags ("excuse everyone who…"). A follow-up if needed.
 - Editing grades or comments outside the assessment page (the separate issue above).
 - A PrisMCP tool that sets flags (my call: nothing asked for one; it can follow later).
-- Recovering a grade Schoology deleted. Schoology destroys it; Prism cannot restore it.
+- Restoring a grade removed before this feature existed: no copy of it exists.
 
 ## Anti-goals
 
-- **A silent loss of data.** A write that deletes a grade, topic ratings or a comment without the warning
-  naming each one is a failure, even if the flag is set correctly.
-- **A warning based on assumption.** The warning lists what the probes showed Schoology deletes, not what
-  the issue guessed.
+- **A grade lost to Excused.** Prism saves every part of the grade Schoology removes (score, topic
+  ratings, rubric row levels, comment) before the write. A read-back that shows a loss Prism did not save
+  is a failure, even if the flag is set correctly.
+- **A saved copy based on assumption.** What Prism saves and restores follows what the probes showed
+  Schoology removes, not what the issue guessed.
 - **A mark that reads as a grade.** An exception chip that a teacher could mistake for a level (such as
   "Exc" read as "EX"), or "Missing" meaning two things, is a failure.
 - **A Prism-only action in the Flags menu.** The menu holds Schoology's flags only.
@@ -65,7 +72,8 @@ one button with a list. Prism follows the gradebook's word: **Flags**.
 ### Closed
 
 A pill in the card header, in the place Flag for review held: `⚑ Flags ▾`. When a flag is set, the pill
-names it: `⚑ Excused ▾`, `⚑ Late ▾`, `⚑ Missing ▾`. In the shared view it is a smaller pill in the badge
+names it and takes the flag's color: `⚑ Excused ▾` green, `⚑ Late ▾` red, `⚑ Missing ▾` red outline,
+`⚑ Incomplete ▾` amber outline (see "Flag colors"). In the shared view it is a smaller pill in the badge
 row, beside the status pill, the comments chip and the "Open in Schoology" link.
 
 ### Open
@@ -94,7 +102,7 @@ Missing     (grayed)
 
 ### Choosing
 
-- **Choosing Late, or clearing a flag, saves at once**: Prism writes it to Schoology, reads it back, and
+- **Choosing or clearing Late saves at once**, and so does clearing Excused when Prism holds no saved grade: Prism writes it to Schoology, reads it back, and
   the pill shows the new state. While the write runs, the pill shows a saving state and the menu cannot be
   reopened.
 - **Choosing the ticked item clears it** (exception 0, or whatever the probe shows clears it).
@@ -104,9 +112,9 @@ Missing     (grayed)
   "Excuse Jordan?". In the shared view, the same panel opens inside the view. It holds:
   - **Reason for the student (optional):** one line of text. Prism writes a status line
     (below) only when a reason is given.
-  - **Open records:** see the point after the grade warning.
-  - **The grade warning,** on a graded task only (red), as described below.
-  - **Buttons:** "Cancel", and "Excuse" ("Excuse and delete the grade" when the grade warning shows).
+  - **Open records:** see the point after the saved grade.
+    - **The saved grade,** on a graded task only, as described below.
+  - **Buttons:** "Cancel" and "Excuse".
 - **The status line:** a new kind, `excused`, in `server/lib/statusLines.js`, published through
   `statusLinePublisher.js` like the others (first line of the comment, Display on, removed by exact
   stored text). Its text is `Excused on Tue 21/10.` followed by the reason, for example `Excused on Tue
@@ -114,10 +122,10 @@ Missing     (grayed)
   reason follows the existing note rules (plain ASCII, `plainLine`). It replaces any earlier Prism line
   for the pair, such as an extension's. Clearing Excused removes it. When the probes show Excused deletes
   the comment, write the line after the flag, so the deletion cannot remove it.
-- **The grade warning** (red, graded task only) states: "Schoology deletes this grade when
-  a task is excused. Clearing the flag later leaves the task ungraded." It lists each item Schoology will
-  delete (score, each topic rating, the comment if the probe shows it goes) and has two buttons, "Cancel"
-  and "Excuse and delete the grade".
+- **The saved grade** (graded task only): an amber note states "Schoology removes this grade while the
+  task is excused. Prism keeps a copy, and clearing the flag offers to restore it." Below it, a list of
+  what Prism saves (score, each topic level, each rubric row level, "Your comment"). See "Saving and
+  restoring the grade".
 - **Excused withdraws Prism's open records on the task** (Graham, 21 October 2026): an extension, a
   resubmission request, make-up tracking and a referral. Before the write, the panel lists them ("Excusing
   also withdraws: Extension to Fri 24/10/2026").
@@ -126,9 +134,48 @@ Missing     (grayed)
   probes show Excused deletes the comment, the stored status line is already gone: record each line as
   removed without writing again. A staged draft and open AI suggestions stay (the rubric is locked, and
   they return to use if the flag is cleared).
-- **Late and clearing a flag open no panel:** the grade stays, and nothing is deleted.
-- **After Excused:** the card shows the "Excused" status pill and "Excused, rubric locked", the rubric
-  grays, and Extend hides (all existing behavior for exception 1).
+- **Late opens no panel:** the grade stays, and nothing is removed.
+- **After Excused:** the card shows the green "Excused" status pill and "Excused, rubric locked", and
+  Extend hides (existing behavior for exception 1). The rubric is grayed and locked; on a graded task it
+  shows the saved levels, under the caption "Saved before excusing on Tue 21/10. Clear the flag to
+  restore it."
+
+### Saving and restoring the grade
+
+My call on storage: **a saved copy in its own table while excused, restored as a draft on clear.**
+
+- **Saving:** before the Excused write, Prism takes the grade from the fresh pre-write read (the safety
+  pattern's re-read): score, comment and comment_status, each topic level (`mastery_scores`), and each
+  rubric row level (`rubric_row_levels`). It stores them in a new table (`excused_grades`: student,
+  assignment, the saved grade as JSON, `saved_at`, `restored_at`), one row per student and task. The
+  write goes ahead only once the copy is stored.
+- **Why its own table, and not a draft:** a draft can be edited, discarded, replaced by staged AI
+  suggestions, or published. While the task is excused, the copy must stay exactly as it was, and the
+  rubric is locked anyway.
+- **While excused:** the rubric shows the saved levels, grayed and locked. In the gradebook, the Exc
+  chip's hover adds "Grade saved in Prism: Exhibiting".
+- **Clearing Excused with a saved copy** opens a small panel, "Clear Excused?", with one box, ticked by
+  default: "Restore the saved grade as a draft: Exhibiting (3.5), 2 topic levels and the comment". Buttons
+  "Cancel" and "Clear Excused". If the student already has a draft, the box's text adds "(replaces your
+  current draft)".
+- **Restoring:** after the clear write and its read-back, Prism writes the saved grade into the student's
+  draft (`assessment_drafts`), and sets `restored_at`. The card then shows the usual Publish button: the
+  grade returns to Schoology through the existing publish, with its checks. Clearing with the box unticked keeps the saved copy; while it exists and no flag is set, the card offers
+  "Restore saved grade".
+- **If the probes show Schoology keeps the grade** when a task is excused, nothing is lost: Prism skips
+  the saved copy and the restore, and the rubric simply shows Schoology's grade, locked.
+
+### Flag colors
+
+Schoology shows Excused in green and Late in red (Graham, 21 October 2026). Prism uses the same, everywhere:
+
+- **Excused, green:** the Flags pill when set, the status pill (today blue, tone `blue` in
+  `gradeLabel.js`), "Excused, rubric locked" (today red), and the gradebook chip's ink.
+- **Late, red:** the Flags pill when set and both late clocks (already red).
+- **Incomplete, amber; Missing, red:** the pill outline, status pill and chip (my call; Schoology's
+  colors for these were not checked).
+- Green is also the color of the level EX and of "Submitted". The words, and the dashed chip in the
+  gradebook, keep them apart.
 - **A failed write** shows its reason beside the pill (for example "Schoology refused the change: …") and
   leaves the previous state showing.
 
@@ -142,7 +189,7 @@ Excused, Incomplete and Missing gets a chip in the grade's place instead, in a s
   "no grade here".
 - **Text:** a short, mixed-case code: **Exc**, **Inc**, **Miss**. Mixed case and the dashed border keep
   "Exc" apart from the level "EX".
-- **Ink:** muted for Excused (left out of the grade), amber for Incomplete, red for Missing (a zero in
+- **Ink:** green for Excused (left out of the grade), amber for Incomplete, red for Missing (a zero in
   Schoology). The border takes the ink color.
 - **Hover:** "Excused: left out of the grade", "Incomplete (set in Schoology)", "Missing (set in
   Schoology): counts as zero".
@@ -231,8 +278,7 @@ gradebook write carries a separate `flags` field).
 
 How the results change the design (my calls):
 - **Prism deletes only what Schoology's own write deletes.** If Excused leaves the score, ratings or
-  comment in place, Prism leaves them too and the warning omits them; the grade
-  warning appears only when Schoology deletes something. Prism never sends `grade: null` or deletes topic ratings itself. Ratings that
+  comment in place, Prism leaves them too and saves no copy of them. Prism never sends `grade: null` or deletes topic ratings itself. Ratings that
   survive but stop counting toward the grade are left alone and documented.
 - **One flag per task stays,** unless a probe shows Schoology holds Late independently of the exception;
   then Late becomes a separate tick beside the exception list.
@@ -242,7 +288,7 @@ How the results change the design (my calls):
   names.
 
 Record each result, with its date and the raw response shape, in `.claude/schoology-api-reference.md`
-(the AGENTS.md rules on observed shapes apply). The warning's list comes from these results.
+(the AGENTS.md rules on observed shapes apply). What Prism saves comes from these results.
 
 ### Write path
 
@@ -258,8 +304,7 @@ Copy `server/services/quizWriteback.js`:
 - re-read the row from Schoology before the write, and refuse if it changed since the page loaded (score,
   exception or comment), showing the teacher what changed;
 - echo every field the write is not meant to change (the #46 rule in the API reference);
-- read the row back after the write, and confirm the flag (and, for Excused, the deletion the warning
-  listed);
+- read the row back after the write, and confirm the flag (and, for Excused, that every part Schoology removed is in the saved copy);
 - update the local `grades` row from that read-back, not from the request.
 
 A dev copy refuses this write, as it refuses other Schoology writes.
@@ -270,9 +315,11 @@ A dev copy refuses this write, as it refuses other Schoology writes.
   per-entry 207 handling.
 - Server tests for the `excused` status line: its text, its removal on clear, and its order after the
   flag write.
+- Server tests for the saved grade: stored before the write (and the write refused if storing fails),
+  restored into the draft on clear, kept when the box is unticked.
 - Client tests: the menu (items, grayed group, ticks, keyboard), the Excused panel (reason, open records,
-  the warning on a graded task only), the
-  saving and failed states, the exception chips, the two late clocks and their hover text, `gradeLabel` showing the
+  the saved grade on a graded task only), the clear panel, the grayed saved rubric, the
+  saving and failed states, the flag colors, the exception chips, the two late clocks and their hover text, `gradeLabel` showing the
   grade for exception 4, the Overdue label, and the removal of Flag for review.
 - The full root and client suites and `npm run build`, as AGENTS.md requires.
 

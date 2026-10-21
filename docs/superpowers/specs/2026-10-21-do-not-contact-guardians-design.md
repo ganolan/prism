@@ -155,6 +155,17 @@ Status (the first row that applies decides):
 "Any value" is deliberately wider than the catalogue's `in 1`: an unexpected value is treated as a flag (fail
 safe). The legacy `students.parent_email` (CSV import, no name) is `not_checked` when the feature is on.
 
+**A flagged slot with no parent placed in it** (the controller's ruling, 21 October 2026). Take a slot N whose
+`dnc_gN` or `gN_deceased` holds any value, and that has no uniquely placed parent. Every parent of the student
+takes slot N's status, except a parent uniquely placed in an unflagged slot. Each one gets `uncertain: true` and
+the reason "Not matched to a PowerSchool guardian. Guardian N is flagged: Deceased (PowerSchool)" (or "Do not
+contact (PowerSchool)"). Two parents placed in one slot by a shared email are not uniquely placed. When both
+slots qualify, `do_not_contact` wins (slot 1 on a tie), and a parent's own flag stays when it is as strong. For
+a student with flags and an unread guardian list, every parent takes the strongest flag: none of them is
+placed. Such
+a parent is hidden, left out of copies and counted exactly as its status, and the flag also applies to the
+same guardian's rows for other children (below); a row given a flag that way has the plain reason.
+
 **A flag for one child applies to every child** (my call, from the fail-safe rule). Siblings each have their
 own PowerSchool record, so a guardian may be flagged on one child's record and not on another's. A parent who
 is `do_not_contact` or `deceased` for any student is that status for every student whose `parents` row has
@@ -184,6 +195,9 @@ alerts", 18 October 2026).
 - **`not_matched` and `not_checked`** (my call: these state nothing about the family): always visible, a
   muted line with the reason ("Not matched to a PowerSchool guardian", "Not checked against PowerSchool yet")
   and the email as plain text, without a link or a copy button.
+- **Uncertain flags** (the controller's ruling, 21 October 2026): a parent given a flagged slot's status
+  (see "Decide") is shown exactly as that status, with the API's reason as sent. With the feature on, a
+  parent sent without `contact` is shown and treated as `not_checked`.
 - **"Primary contact"** (my call: it is the same fact as the Correspondence G1 or G2 alert, which is hidden
   today): a label shown only after **Show alerts**.
 - **Copy all:** copies only contactable parents, and states "N not copied" beside it when any are left out

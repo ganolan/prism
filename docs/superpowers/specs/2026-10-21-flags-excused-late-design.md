@@ -1,7 +1,7 @@
 # Flags: setting Schoology's grade flags from Prism (#40)
 
 Design agreed with Graham on 21 October 2026 and revised the same day after the live probes. Mockups: the
-private Artifact page "Flags in Prism" (https://claude.ai/artifact/RcePZWizTujDo17X1zpLf3), version 9.
+private Artifact page "Flags in Prism" (https://claude.ai/artifact/RcePZWizTujDo17X1zpLf3), version 10.
 Probe results: `.claude/schoology-api-reference.md`, "Grade exceptions (flags)".
 
 ## Intent
@@ -30,8 +30,8 @@ this account for Excused).
 
 ## Decisions (Graham, 21 October 2026)
 
-- **All five flags are settable:** Exempt, Late, Absent, Incomplete, Missing, each with one line of
-  guidance in the menu.
+- **All five flags are settable:** Exempt, Late, Absent, Incomplete, Missing, each with a short line of
+  guidance in the menu, under one subheading, "Flag in Schoology".
 - **One Flags button**, in the style of Schoology's, on the assessment card header, the gradebook pop-up
   and each task on the student page (the last two share `AssignmentFeedback`, #135).
 - **Every flag opens a panel**: an optional reason for the student, the saved-grade note on graded work,
@@ -102,15 +102,15 @@ badge row.
 
 ### Open
 
-Five items, each with its symbol, its name and one line (verbatim, with the student's first name):
+A subheading, "Flag in Schoology", then five items, each with its symbol, its name and a short line
+(verbatim, with the student's first name; Graham, 21 October 2026: one subheading instead of repeating
+"Visibly flags the work as … in Schoology"):
 
-- **Exempt:** "Visibly flags the work as exempt in Schoology. It is left out of Sam's grade."
-- **Late:** "Visibly flags the work as late in Schoology. It is left out of Sam's grade while the flag is
-  set."
-- **Absent:** "Visibly flags Sam as absent for this task in Schoology. It is left out of Sam's grade."
-- **Incomplete:** "Visibly flags the work as incomplete in Schoology. The task has no grade while the flag
-  is set."
-- **Missing:** "Visibly flags the work as missing in Schoology. It counts as zero in Sam's grade."
+- **Exempt:** "Left out of Sam's grade."
+- **Late:** "Left out of Sam's grade while flagged."
+- **Absent:** "Absent for this task. Left out of Sam's grade."
+- **Incomplete:** "No grade while flagged."
+- **Missing:** "Counts as zero in Sam's grade."
 
 Below a divider: "On graded work, Schoology removes the grade while a flag is set. Prism keeps a copy and
 offers to restore it when you clear the flag." The ticked item's line reads "Choose again to clear it."

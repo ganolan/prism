@@ -8,7 +8,7 @@
 
 **Tech Stack:** Node ESM + Express + better-sqlite3, React + Vite, Vitest + React Testing Library.
 
-**Spec:** `docs/superpowers/specs/2026-10-21-flags-excused-late-design.md` (revised after the probes; mockups: https://claude.ai/artifact/RcePZWizTujDo17X1zpLf3, version 9).
+**Spec:** `docs/superpowers/specs/2026-10-21-flags-excused-late-design.md` (revised after the probes; mockups: https://claude.ai/artifact/RcePZWizTujDo17X1zpLf3, version 10).
 
 **Revision (21 Oct 2026):** Tasks 1 to 6 are done. The probes changed the design (five settable flags, Late = 6, every flag removes the grade, symbols). Task 10 reworks the display from Tasks 2 to 4; Tasks 7 and 8 are rewritten. Order: 10, 7, 8, 9.
 
@@ -161,7 +161,7 @@ Done earlier and now partly wrong: Tasks 2 and 3 assumed Late = 4 and that Late 
 - Delete: `client/src/components/ExceptionChip.jsx` and its test (replaced by `FlagSymbol`)
 
 **Interfaces:**
-- Produces: `client/src/lib/flags.js` exporting `FLAGS = { 1: { key: 'exempt', name: 'Exempt', verb: 'exempt' }, 2: { key: 'incomplete', name: 'Incomplete', verb: 'incomplete' }, 3: { key: 'missing', name: 'Missing', verb: 'missing' }, 5: { key: 'absent', name: 'Absent', verb: 'absent' }, 6: { key: 'late', name: 'Late', verb: 'late' } }`, `FLAG_ORDER = [1, 6, 5, 2, 3]`, `flagGuide(code, firstName) -> string` (the spec's verbatim menu lines), `isFlag(code) -> boolean`; `<FlagSymbol code size="cell"|"inline" showName savedLevel reasonLine />` with a popover (hover and tap) holding name, `flagGuide` text without the "Visibly flags" sentence, the reason line, and "Grade saved in Prism: {savedLevel}. Clear the flag to restore it."; server `FLAG_CODES = [1, 2, 3, 5, 6]` exported from `server/lib/flags.js` (create) for Task 7.
+- Produces: `client/src/lib/flags.js` exporting `FLAGS = { 1: { key: 'exempt', name: 'Exempt', verb: 'exempt' }, 2: { key: 'incomplete', name: 'Incomplete', verb: 'incomplete' }, 3: { key: 'missing', name: 'Missing', verb: 'missing' }, 5: { key: 'absent', name: 'Absent', verb: 'absent' }, 6: { key: 'late', name: 'Late', verb: 'late' } }`, `FLAG_ORDER = [1, 6, 5, 2, 3]`, `flagGuide(code, firstName) -> string` (the spec's verbatim menu lines), `FLAGS_MENU_HEADING = 'Flag in Schoology'`, `isFlag(code) -> boolean`; `<FlagSymbol code size="cell"|"inline" showName savedLevel reasonLine />` with a popover (hover and tap) holding name, `flagGuide` text without the "Visibly flags" sentence, the reason line, and "Grade saved in Prism: {savedLevel}. Clear the flag to restore it."; server `FLAG_CODES = [1, 2, 3, 5, 6]` exported from `server/lib/flags.js` (create) for Task 7.
 
 - [ ] **Step 1: Write failing tests:**
   - `gradeLabel({ exception: 6, score: null, ... })` is `{ kind: 'exception', exception: 6, text: 'Late' }`; exception 5 gives 'Absent'; 1 gives 'Exempt'; exception 4 gives no exception label.
@@ -225,7 +225,7 @@ Done earlier and now partly wrong: Tasks 2 and 3 assumed Late = 4 and that Late 
 
 - [ ] **Step 1: Write failing tests:**
   - closed pill "Flags" with no flag; with exception 1 it shows the Exempt symbol, the text "Exempt" and class `flags-pill--exempt`; 6 gives `flags-pill--late`; 5 `--absent`.
-  - open menu lists the five in `FLAG_ORDER` with `flagGuide` text verbatim, the divider note verbatim, and ticks the set flag with "Choose again to clear it."
+  - open menu shows the subheading `FLAGS_MENU_HEADING`, then the five in `FLAG_ORDER` with `flagGuide` text verbatim, the divider note verbatim, and ticks the set flag with "Choose again to clear it."
   - choosing any flag calls `getGradeFlags` then opens `FlagPanel` titled "Mark Sam late?" (verb from `FLAGS`): reason input labeled "Reason for the student (optional)", preview `Added to the top of Sam's comment: "Marked late on Tue 21/10. <reason>"` when a reason is typed, "Also withdraws: Extension to Fri 24/10/2026" only for Exempt and Absent with an open record, the saved-grade note only on graded work (the Missing wording for code 3), buttons "Cancel" and "Mark late"; confirming calls `setGradeFlag` with `{ code: 6, expected, reason }`.
   - choosing the ticked flag with a saved copy opens `ClearFlagPanel` with the box ticked, "(replaces your current draft)" when `hasDraft`, and a "Re-enter in Schoology:" line for `notRestorable` parts; without a copy it calls `setGradeFlag` with `code: 0` at once.
   - a `CHANGED` error shows its message beside the pill and keeps the old state; while pending the pill is disabled.

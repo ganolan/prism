@@ -874,7 +874,7 @@ Write probes on two archived Robotics 1(A-B) 2024-25 tasks (section `7361044264`
 - **Per-entry codes are reliable:** a bulk PUT with one valid and one unknown enrollment answered `[{204}, {404}]`, and the valid entry was written.
 - **Every PUT restamps `timestamp`,** even one that changes nothing.
 - **Transient gateway errors:** the first write of the session answered `502` (CloudFront HTML) and changed nothing; the same write succeeded on retry.
-- **The gradebook page is `/course/{id}/grades`** (`/course/{id}/gradebook` renders no grid). For a past course, the grades show only after choosing the grading period in its dropdown.
+- **The gradebook page is `/course/{id}/grades`** (`/course/{id}/gradebook` renders no grid). For a past course the grid opens on "All grading periods" and shows no grades; switch that control to the term (for example "Semester 1: …") to load them (Graham, 2026-10-21).
 
 ### Grade Value Encoding
 

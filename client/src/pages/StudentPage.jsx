@@ -215,7 +215,16 @@ export function CourseSection({
   );
 }
 
-function ParentCard({ parent, studentId, onUpdated }) {
+// A parent's PowerSchool contact check (#66), present only with the powerschool_alerts
+// feature on (no `contact`: every parent is shown and copied as before). Do not contact
+// and deceased are family facts, kept behind Show alerts with the PowerSchool alerts;
+// every guardian not cleared as contactable is left out of Copy all.
+// See docs/design-language.md "PowerSchool alerts".
+const REVEAL_ONLY = new Set(['do_not_contact', 'deceased']);
+const isRevealOnly = (p) => REVEAL_ONLY.has(p.contact?.status);
+const isCopyable = (p) => !!p.email && (!p.contact || p.contact.status === 'contactable');
+
+function ParentCard({ parent, studentId, onUpdated, revealed = false }) {
   const [editingPhone, setEditingPhone] = useState(false);
   const [phoneVal, setPhoneVal] = useState(parent.phone || '');
 
@@ -225,36 +234,55 @@ function ParentCard({ parent, studentId, onUpdated }) {
     onUpdated();
   }
 
+  const status = parent.contact?.status;
+  // Not cleared: no mailto, tel or copy, so the address is never one click from an email.
+  const restricted = !!status && status !== 'contactable';
+  const revealOnly = isRevealOnly(parent);
+  if (status === 'deceased' && !revealed) return null;
+  const nameOnly = status === 'do_not_contact' && !revealed;
+
   return (
     <div style={{ padding: '0.5rem 0.65rem', background: 'var(--bg-subtle)', borderRadius: 8, border: '1px solid var(--border)' }}>
-      <p className="text-sm" style={{ fontWeight: 600 }}>{parent.first_name} {parent.last_name}</p>
-      {parent.email && (
-        <p className="text-sm contact-email">
-          <a href={`mailto:${parent.email}`} className="link">{parent.email}</a>
-          <CopyButton text={parent.email} />
-        </p>
-      )}
-      {parent.relationship && <p className="text-sm text-muted">{parent.relationship}</p>}
-      {editingPhone ? (
-        <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem', alignItems: 'center' }}>
-          <input
-            type="tel" value={phoneVal} onChange={e => setPhoneVal(e.target.value)}
-            placeholder="Phone number" className="parent-phone-input"
-          />
-          <button className="primary" style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }} onClick={savePhone}>Save</button>
-          <button className="ghost" style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }} onClick={() => { setEditingPhone(false); setPhoneVal(parent.phone || ''); }}>Cancel</button>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.3rem' }}>
-          {parent.phone ? (
-            <>
-              <p className="text-sm"><a href={`tel:${parent.phone}`} className="link">{parent.phone}</a></p>
-              <button className="ghost accent tap-target" style={{ fontSize: '0.75rem', padding: '0.15rem 0.4rem' }} onClick={() => setEditingPhone(true)}>Edit</button>
-            </>
+      <p className="text-sm parent-name">
+        <span style={{ fontWeight: 600 }}>{parent.first_name} {parent.last_name}</span>
+        {revealed && status === 'contactable' && parent.contact.primary && <span className="badge badge-pink">Primary contact</span>}
+      </p>
+      {!nameOnly && (
+        <>
+          {restricted && parent.contact.reason && <p className="text-sm text-muted">{parent.contact.reason}</p>}
+          {parent.email && (restricted ? (
+            <p className="text-sm contact-email"><span className="contact-email-plain">{parent.email}</span></p>
           ) : (
-            <button className="ghost accent tap-target" style={{ fontSize: '0.75rem', padding: '0.15rem 0.4rem' }} onClick={() => setEditingPhone(true)}>+ Add Phone</button>
+            <p className="text-sm contact-email">
+              <a href={`mailto:${parent.email}`} className="link">{parent.email}</a>
+              <CopyButton text={parent.email} />
+            </p>
+          ))}
+          {parent.relationship && <p className="text-sm text-muted">{parent.relationship}</p>}
+          {revealOnly ? (
+            parent.phone && <p className="text-sm" style={{ marginTop: '0.3rem' }}>{parent.phone}</p>
+          ) : editingPhone ? (
+            <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem', alignItems: 'center' }}>
+              <input
+                type="tel" value={phoneVal} onChange={e => setPhoneVal(e.target.value)}
+                placeholder="Phone number" className="parent-phone-input"
+              />
+              <button className="primary" style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }} onClick={savePhone}>Save</button>
+              <button className="ghost" style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }} onClick={() => { setEditingPhone(false); setPhoneVal(parent.phone || ''); }}>Cancel</button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.3rem' }}>
+              {parent.phone ? (
+                <>
+                  <p className="text-sm">{restricted ? parent.phone : <a href={`tel:${parent.phone}`} className="link">{parent.phone}</a>}</p>
+                  <button className="ghost accent tap-target" style={{ fontSize: '0.75rem', padding: '0.15rem 0.4rem' }} onClick={() => setEditingPhone(true)}>Edit</button>
+                </>
+              ) : (
+                <button className="ghost accent tap-target" style={{ fontSize: '0.75rem', padding: '0.15rem 0.4rem' }} onClick={() => setEditingPhone(true)}>+ Add Phone</button>
+              )}
+            </div>
           )}
-        </div>
+        </>
       )}
     </div>
   );
@@ -275,6 +303,10 @@ export default function StudentPage() {
   const [editNoteText, setEditNoteText] = useState('');
 
   const [photoEnlarged, setPhotoEnlarged] = useState(false);
+  // The Show alerts reveal, shared by the alert badges and the guardian cards (#66).
+  // Never remembered: it belongs to one student id, and is cleared when the page's student changes.
+  const [alertsShownFor, setAlertsShownFor] = useState(null);
+  useEffect(() => { setAlertsShownFor(null); }, [id]);
 
   useEffect(() => {
     if (!photoEnlarged) return;
@@ -372,6 +404,11 @@ export default function StudentPage() {
   }
 
   const titleName = displayedFullName;
+  const alertsShown = alertsShownFor === student.id;
+  const parents = student.parents || [];
+  const revealOnlyCount = parents.filter(isRevealOnly).length;
+  const copyableParents = parents.filter(isCopyable);
+  const notCopied = parents.filter((p) => p.email && !isCopyable(p)).length;
 
   const gradesByCourse = {};
   for (const g of student.grades) {
@@ -412,10 +449,14 @@ export default function StudentPage() {
                     <span className="text-sm text-muted" title="Student ID">ID: {student.email.split('@')[0]}</span>
                   )}
                 </div>
-                {student.ps_alerts?.length > 0 && (
+                {(student.ps_alerts?.length || 0) + revealOnlyCount > 0 && (
                   <div style={{ marginTop: '0.35rem' }}>
-                    {/* Hidden until clicked, never remembered (keyed: a new student starts hidden). */}
-                    <PsAlertReveal key={student.id} studentId={student.id} alerts={student.ps_alerts} syncedAt={student.ps_alerts_synced_at} />
+                    {/* Hidden until clicked, never remembered (the reveal belongs to this student id). */}
+                    <PsAlertReveal
+                      studentId={student.id} alerts={student.ps_alerts || []} syncedAt={student.ps_alerts_synced_at}
+                      shown={alertsShown} onShownChange={(v) => setAlertsShownFor(v ? student.id : null)}
+                      extraCount={revealOnlyCount}
+                    />
                   </div>
                 )}
                 {showLegalName && (
@@ -467,19 +508,27 @@ export default function StudentPage() {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
               <h3 style={{ margin: 0 }}>Family Contacts</h3>
-              {student.parents?.some(p => p.email) && (
-                <CopyButton
-                  text={student.parents.filter(p => p.email).map(p => `${p.first_name} ${p.last_name} <${p.email}>`).join('; ')}
-                  label="Copy all emails"
-                />
+              {copyableParents.length > 0 && (
+                <span className="family-copy-all">
+                  <CopyButton
+                    text={copyableParents.map(p => `${p.first_name} ${p.last_name} <${p.email}>`).join('; ')}
+                    label="Copy all emails"
+                  />
+                  {notCopied > 0 && <span className="text-sm text-muted">{notCopied} not copied</span>}
+                </span>
               )}
             </div>
-            {(!student.parents || student.parents.length === 0) ? (
+            {'guardians_synced_at' in student && parents.length > 0 && (
+              <p className="text-sm text-muted" style={{ marginTop: '-0.5rem', marginBottom: '0.5rem' }}>
+                {student.guardians_synced_at ? `Checked against PowerSchool ${formatDate(student.guardians_synced_at)}` : 'Not checked against PowerSchool yet'}
+              </p>
+            )}
+            {parents.length === 0 ? (
               <p className="text-sm text-muted">No parent/guardian contacts synced yet. Run a Schoology sync to pull family data.</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                {student.parents.map(p => (
-                  <ParentCard key={p.id} parent={p} studentId={id} onUpdated={reload} />
+                {parents.map(p => (
+                  <ParentCard key={p.id} parent={p} studentId={id} onUpdated={reload} revealed={alertsShown} />
                 ))}
               </div>
             )}

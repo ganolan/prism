@@ -211,6 +211,12 @@ function EmailTool({ courseIds }) {
             {copied ? 'Copied!' : `Copy ${result.count} emails`}
           </button>
         )}
+        {/* #66: guardians PowerSchool has not cleared for contact are left out by the server. */}
+        {result?.excluded > 0 && (
+          <span className="text-sm text-muted" style={{ alignSelf: 'center' }}>
+            {result.excluded === 1 ? '1 guardian not copied' : `${result.excluded} guardians not copied`}
+          </span>
+        )}
       </div>
       {result && (
         <textarea ref={textareaRef} readOnly value={text} rows={3}

@@ -44,26 +44,34 @@ function SupportSummary({ studentId }) {
 // The page may be on a projector during a parent conference, so before the click
 // only "Show alerts (N)" shows: no labels, no categories, no colours. The reveal is
 // never remembered: every page load (and every other student) starts hidden.
-export default function PsAlertReveal({ alerts, syncedAt = null, studentId = null }) {
-  const [shown, setShown] = useState(false);
-  if (!alerts?.length) return null;
+// Controlled when `shown` is given: the student page shares the reveal with its
+// guardian cards (#66), and `extraCount` counts the guardians it hides (do not
+// contact, deceased), so the button appears even for a student with no alert.
+export default function PsAlertReveal({ alerts, syncedAt = null, studentId = null, shown: shownProp, onShownChange, extraCount = 0 }) {
+  const [shownState, setShownState] = useState(false);
+  const controlled = shownProp !== undefined;
+  const shown = controlled ? shownProp : shownState;
+  const setShown = (v) => { if (!controlled) setShownState(v); onShownChange?.(v); };
+  const list = alerts || [];
+  const count = list.length + extraCount;
+  if (count <= 0) return null;
   if (!shown) {
     return (
       <button type="button" className="ghost ps-alerts-reveal" aria-expanded="false" onClick={() => setShown(true)}>
-        Show alerts ({alerts.length})
+        Show alerts ({count})
       </button>
     );
   }
   return (
     <div className="ps-alerts-revealed">
-      <PsAlertBadges alerts={alerts} syncedAt={syncedAt} />
-      {syncedAt && (
+      <PsAlertBadges alerts={list} syncedAt={syncedAt} />
+      {syncedAt && list.length > 0 && (
         <span className="text-sm text-muted">from PowerSchool, read {formatDate(syncedAt)}</span>
       )}
       <button type="button" className="ghost ps-alerts-reveal" aria-expanded="true" onClick={() => setShown(false)}>
         Hide alerts
       </button>
-      {studentId != null && alerts.some((a) => a.key === 'support_summary') && <SupportSummary studentId={studentId} />}
+      {studentId != null && list.some((a) => a.key === 'support_summary') && <SupportSummary studentId={studentId} />}
     </div>
   );
 }

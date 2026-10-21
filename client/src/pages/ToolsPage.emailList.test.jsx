@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ToolsPage from './ToolsPage.jsx';
 import * as api from '../services/api.js';
@@ -50,5 +50,23 @@ describe('Email List tool', () => {
 
     expect(within(card).getByRole('textbox')).toHaveValue('jane@example.com, john@example.com');
     expect(api.getEmails).toHaveBeenCalledTimes(1);
+  });
+
+  // #66: the server leaves out guardians who may not be contacted and says how many.
+  it('states how many guardians were not copied', async () => {
+    api.getEmails.mockResolvedValue({ formatted: 'a@example.test', addresses: ['a@example.test'], count: 1, excluded: 2 });
+    const user = userEvent.setup();
+    const card = await selectCourseAndGenerate(user);
+    expect(await within(card).findByText('2 guardians not copied')).toHaveClass('text-muted');
+  });
+
+  it('uses the singular for one guardian, and says nothing when none were left out', async () => {
+    api.getEmails.mockResolvedValue({ formatted: 'a@example.test', addresses: ['a@example.test'], count: 1, excluded: 1 });
+    const user = userEvent.setup();
+    const card = await selectCourseAndGenerate(user);
+    expect(await within(card).findByText('1 guardian not copied')).toBeInTheDocument();
+    api.getEmails.mockResolvedValue({ formatted: 'a@example.test', addresses: ['a@example.test'], count: 1, excluded: 0 });
+    await user.click(within(card).getByRole('button', { name: /generate/i }));
+    await waitFor(() => expect(within(card).queryByText(/not copied/)).not.toBeInTheDocument());
   });
 });

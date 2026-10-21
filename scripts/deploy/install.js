@@ -64,7 +64,8 @@ async function main() {
   }
   log('launchd agents written');
 
-  if (!currentRelease(root)) {
+  const firstDeploy = !currentRelease(root);
+  if (firstDeploy) {
     log('first deploy (origin/main must be CI-green)');
     const r = await deploy({ root, fx: deployEffects(root), log });
     if (r.action !== 'deployed') throw new Error(`The first deploy did not complete: ${JSON.stringify(r)}`);
@@ -86,11 +87,20 @@ async function main() {
   }
   log('deploy watcher running');
 
-  log(
-    `\nprod is up on http://127.0.0.1:3001 (loopback only) serving ${currentRelease(root)}` +
-      '\nThe database is EMPTY until cutover. Nothing is published on the tailnet and the nightly backup is not loaded.' +
-      '\nLogs: ~/prism/logs/{server,deploy}.log',
-  );
+  log(finishMessage({ firstDeploy, release: currentRelease(root) }));
+}
+
+/**
+ * The closing report. Only a first install has an empty database and nothing
+ * published; a re-run (for example to apply a change to the agents) restarts
+ * prod on its existing database, tailnet and backup unchanged.
+ */
+export function finishMessage({ firstDeploy, release }) {
+  const head = `\nprod is up on http://127.0.0.1:3001 (loopback only) serving ${release}`;
+  const state = firstDeploy
+    ? '\nThe database is EMPTY until cutover. Nothing is published on the tailnet and the nightly backup is not loaded.'
+    : '\nAgents rewritten and the server restarted. The database, the tailnet address and the backup agent are unchanged.';
+  return `${head}${state}\nLogs: ~/prism/logs/{server,deploy}.log`;
 }
 
 if (isMain(import.meta.url)) {

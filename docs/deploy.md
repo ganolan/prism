@@ -224,8 +224,11 @@ From a dev clone on the mini, with `origin/main` CI-green:
 npm run prism:install -- --env-from ~/repos/prism/.env
 ```
 
-Re-runnable. It brings prod up on an **empty** database, loopback only, and
-fails loudly if the deploy watcher does not stay running.
+Re-runnable. The first run brings prod up on an **empty** database, loopback
+only, and fails loudly if the deploy watcher does not stay running. A re-run
+rewrites the agents and restarts the server on the existing database (the way to
+apply a change to `scripts/deploy/launchd.js`; last done 2026-10-21 for #122's
+`INBOX_DIR` removal).
 
 **Upgrading an install from before the watcher** (a live release with no
 `scripts/deploy/watch.js`): first let the old agent deploy the new commit —

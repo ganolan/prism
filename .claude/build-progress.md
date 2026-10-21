@@ -1726,5 +1726,5 @@ Commits `c481c5b` and `610a40e` (server) and `76f679e` (client), then the docs (
 - **Kept:** `for-assignment`, `analysis` and `suggestion-state`, which `/assessment` uses. The `feedback_json` shape is unchanged; `product-spec.md` keeps the old inbox schema as history.
 - **Schema:** `inbox_log` leaves `schema.sql`, and `DROP TABLE IF EXISTS inbox_log` in `MIGRATIONS` removes it from existing databases.
 - **Quiz overall result:** the "comment was edited" guard stays, since a stored edit is still never overwritten; its messages no longer name the Feedback page. Prod had no edited overall comments.
-- **Prod plist:** still sets `INBOX_DIR` until the next `install.js` run; nothing reads it.
+- **Prod plist:** `npm run prism:install` re-run on the mini the same day, so the server agent no longer sets `INBOX_DIR` (the only difference in the planned agents; the database, tailnet and backup were unchanged). Install's closing message now reports an empty database only on a first deploy.
 

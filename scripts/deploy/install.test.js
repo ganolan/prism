@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { watcherProblem } from './install.js';
+import { finishMessage, watcherProblem } from './install.js';
 
 let root;
 beforeEach(() => {
@@ -23,5 +23,19 @@ describe('watcherProblem', () => {
   it('is satisfied once the live release has watch.js', () => {
     writeFileSync(join(root, 'releases', 'r1', 'scripts', 'deploy', 'watch.js'), '');
     expect(watcherProblem(root)).toBe(null);
+  });
+});
+
+// A re-run (to apply an agent change) must not report prod's live database as empty.
+describe('finishMessage', () => {
+  it('reports an empty database only on the first deploy', () => {
+    expect(finishMessage({ firstDeploy: true, release: 'r1' })).toMatch(/database is EMPTY until cutover/);
+  });
+
+  it('reports a re-run as a restart with the database unchanged', () => {
+    const m = finishMessage({ firstDeploy: false, release: 'r1' });
+    expect(m).toMatch(/serving r1/);
+    expect(m).toMatch(/database, the tailnet address and the backup agent are unchanged/);
+    expect(m).not.toMatch(/EMPTY/);
   });
 });

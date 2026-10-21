@@ -62,6 +62,42 @@ describe('makeDraftSaver', () => {
     expect(saveAssessmentDraft).toHaveBeenCalledWith(wire({ comment: 'x' }), { keepalive: true });
   });
 
+  // #40 review: a flag write can restore a saved grade into the server draft, so the card first
+  // settles a queued save (or delete) and waits for it: a debounced one landing later would
+  // overwrite the restored draft.
+  it('settle() sends a queued save now, returns its promise, and leaves nothing for the timer', async () => {
+    const s = makeDraftSaver(target, { delay: 500 });
+    s.save({ comment: 'typing' });
+    const p = s.settle();
+    expect(saveAssessmentDraft).toHaveBeenCalledWith(wire({ comment: 'typing' }));
+    await expect(p).resolves.toBeUndefined();
+    vi.advanceTimersByTime(1000);
+    expect(saveAssessmentDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it('settle() sends a queued delete now', async () => {
+    const s = makeDraftSaver(target, { delay: 500 });
+    s.remove();
+    await s.settle();
+    expect(deleteAssessmentDraft).toHaveBeenCalledWith(target);
+    vi.advanceTimersByTime(1000);
+    expect(deleteAssessmentDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it('settle() with nothing queued resolves and sends nothing', async () => {
+    const s = makeDraftSaver(target, { delay: 500 });
+    await expect(s.settle()).resolves.toBeUndefined();
+    expect(saveAssessmentDraft).not.toHaveBeenCalled();
+    expect(deleteAssessmentDraft).not.toHaveBeenCalled();
+  });
+
+  it('settle() resolves even when the save fails (best effort)', async () => {
+    saveAssessmentDraft.mockReturnValueOnce(Promise.reject(new Error('offline')));
+    const s = makeDraftSaver(target, { delay: 500 });
+    s.save({ comment: 'x' });
+    await expect(s.settle()).resolves.toBeUndefined();
+  });
+
   it('flush() is a no-op when nothing is pending', () => {
     const s = makeDraftSaver(target, { delay: 500 });
     s.flush();

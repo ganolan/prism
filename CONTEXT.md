@@ -100,7 +100,7 @@ and is never a caller or teacher input.** The numeric mapping is configured once
   Insufficient Evidence row stops it) until a level is published. On other score scales the
   row levels do not match the scale's levels, so no average is staged.
 
-### PowerSchool alerts vs flags (#117)
+### PowerSchool alerts vs flags (#117, #40)
 
 - **PowerSchool alert**: an alert PowerSchool's custom-alerts plugin shows beside a student's
   name (accommodation plan, learning support level, EpiPen, siblings, ...), read on each sync and
@@ -109,8 +109,21 @@ and is never a caller or teacher input.** The numeric mapping is configured once
   divorced/separated, staff child, siblings). Family alerts appear on the student page (behind
   "Show alerts") and in PrisMCP only, never on a roster. Every view hides alerts until the
   teacher asks for them.
-- **Flag**: the teacher's own Prism marker on a student or an assignment (`flags`, feature
-  `student_flags`, e.g. review needed). Never call a PowerSchool alert a flag.
+- **Flag**: one of Schoology's five grade flags on a student's task, set from Prism or from
+  Schoology's gradebook (#40): **Exempt** (1), **Incomplete** (2), **Missing** (3), **Absent** (5),
+  **Late** (6). Schoology's API calls them exceptions (`grades.exception`; 4 is invalid). While a
+  flag is set Schoology removes the grade (Missing sets it to 0). Prism has no flags of its own
+  (the Prism `flags` table and Flag for review were removed on 21 Oct 2026). Never call a
+  PowerSchool alert a flag.
+- **Final flag**: Exempt or Missing. The rubric stays locked while it is set, and the work counts
+  as handled (feedback given, grading complete).
+- **Marker**: Late, Incomplete or Absent. The teacher grades straight through it; publishing a
+  grade clears it in Schoology. Until then the work stays in feedback owed.
+- **Overdue**: Prism's own status for work past its due date with no submission. Not the
+  Missing flag, which only the teacher sets.
+- **Saved grade**: the copy of a grade (score, topic levels, rubric row levels, comment) Prism
+  keeps in `excused_grades` before a flag removes it. Clearing the flag offers to restore it as a
+  draft; a grade published since retires it.
 
 ## Archived-course surfaces (avoid label collisions)
 

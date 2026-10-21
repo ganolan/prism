@@ -1,8 +1,9 @@
 import { useId, useState } from 'react';
 import ActionPanel, { PanelRow } from './ActionPanel.jsx';
 import { FLAGS, isExempt } from '../lib/flags.js';
-import { flagLine, plainLine } from '../lib/statusLines.js';
+import { flagLine, plainLine, teacherText } from '../lib/statusLines.js';
 import { localIsoDate } from '../lib/formatDate.js';
+import { HiddenCommentWarning } from './StatusLineModal.jsx';
 
 // What a marker leaves for the teacher to do next (#40 design, "Next steps"). Exempt and Missing
 // are final, so they have none.
@@ -42,6 +43,9 @@ export default function FlagPanel({ code, firstName = null, state, host = null, 
   const records = isExempt(code) ? (state.openRecords || []) : [];
   const saved = savedNote(code, state);
   const steps = nextSteps(code, who);
+  // A reason publishes a status line, which turns Display on: a hidden teacher comment (text other
+  // than Prism's own line) would become visible, so the panel warns as Extend and Resubmit do.
+  const hidden = Boolean(note) && Number(state.commentStatus) !== 1 && teacherText(state.comment || '', state.storedLine || null) !== '';
 
   return (
     <ActionPanel host={host} label={title}>
@@ -57,6 +61,7 @@ export default function FlagPanel({ code, firstName = null, state, host = null, 
           </small>
         )}
       </div>
+      {hidden && <HiddenCommentWarning />}
       {records.length > 0 && (
         <p className="flag-panel__line">{`Also withdraws: ${records.map((r) => r.label).join(', ')}`}</p>
       )}

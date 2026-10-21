@@ -32,11 +32,13 @@ const sameScore = (x, y) => (x == null || y == null ? x == null && y == null : M
 //               comment the comment it loaded (sent as expected.comment when given)
 //   aligned     the task has measurement topics (Missing's line)
 //   panelHost   where the panel draws (the card's action-panel row); inline when null
+//   beforeWrite()  awaited before each write (the card settles its queued draft save, so a
+//               debounced save cannot overwrite a draft the write restores)
 //   onChange(result)  after a write (result null after an error that followed the write, such as a
 //               read-back mismatch); may return a promise (the page refetching the pair), and the
 //               pill stays busy until it settles; a rejection shows "Saved, but the page could not
 //               refresh. Reload to see it."
-export default function FlagsMenu({ student, assignmentId, exception = 0, score = null, comment, aligned = false, size = 'md', panelHost = null, onChange }) {
+export default function FlagsMenu({ student, assignmentId, exception = 0, score = null, comment, aligned = false, size = 'md', panelHost = null, beforeWrite = null, onChange }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -102,6 +104,7 @@ export default function FlagsMenu({ student, assignmentId, exception = 0, score 
     setError(null);
     const expected = { exception: current, score: num(score), ...(typeof comment === 'string' ? { comment } : {}) };
     try {
+      await beforeWrite?.();
       const result = await setGradeFlag({ studentId: student.id, assignmentId, expected, ...body });
       setPanel(null);
       // Set, but a later step did not finish: the line in the comment, or the restore.

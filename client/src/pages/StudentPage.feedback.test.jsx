@@ -248,6 +248,16 @@ describe('CourseSection: flags (#40)', () => {
     expect(screen.queryByRole('button', { name: /Flags/ })).toBeNull();
   });
 
+  it('none on an excluded course (the server refuses a flag there: NOT_ELIGIBLE)', () => {
+    render(
+      <MemoryRouter>
+        <CourseSection course={{ id: 1, course_name: 'Template', archived: 0, excluded: 1 }} grades={[grade()]} flagsByAssignment={{}}
+          studentUid="u1" scales={{}} studentName="Ada Lovelace" rubrics={NONE} studentId={7} onFlagChange={() => {}} />
+      </MemoryRouter>
+    );
+    expect(screen.queryByRole('button', { name: /Flags/ })).toBeNull();
+  });
+
   it('a flagged points task: the symbol\'s popover names the saved grade (saved_level)', () => {
     renderSection([grade({ mastery: null, score: null, exception: 1, saved_level: '75 / 100', flag_line: 'Marked exempt on Wed 21/10.' })], NONE);
     fireEvent.mouseEnter(screen.getAllByRole('img', { name: 'Exempt' }).at(-1));

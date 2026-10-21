@@ -152,6 +152,32 @@ describe('FlagsMenu: the panel for setting a flag', () => {
     expect(screen.queryByRole('group', { name: 'Mark Sam late?' })).toBeNull();
   });
 
+  // A reason publishes a status line, and publishing turns Display on (#40 review I3): a hidden
+  // teacher comment would become visible, so the panel warns as Extend and Resubmit do.
+  const HIDDEN = /Their comment is hidden from the student\. Publishing turns Display on, so your current hidden comment becomes visible to the student and parents\./;
+  it('a reason over a hidden teacher comment: the hidden-comment warning', async () => {
+    api.getGradeFlags.mockResolvedValueOnce(state({ commentStatus: 0, comment: 'Private: check plagiarism.' }));
+    renderMenu();
+    await choose('Late');
+    const panel = await screen.findByRole('group', { name: 'Mark Sam late?' });
+    expect(within(panel).queryByText(HIDDEN)).toBeNull(); // no reason, no line, Display unchanged
+    fireEvent.change(within(panel).getByLabelText('Reason for the student (optional)'), { target: { value: 'Late.' } });
+    expect(within(panel).getByRole('alert')).toHaveTextContent(HIDDEN);
+  });
+
+  it.each([
+    ['Display on', { commentStatus: 1, comment: 'Private: check plagiarism.' }],
+    ['an empty comment', { commentStatus: 0, comment: '' }],
+    ['only Prism\'s own line', { commentStatus: 0, comment: 'Extension - now due Fri 23/10 (3 school days).', storedLine: 'Extension - now due Fri 23/10 (3 school days).' }],
+  ])('no warning with %s', async (_label, over) => {
+    api.getGradeFlags.mockResolvedValueOnce(state(over));
+    renderMenu();
+    await choose('Late');
+    const panel = await screen.findByRole('group', { name: 'Mark Sam late?' });
+    fireEvent.change(within(panel).getByLabelText('Reason for the student (optional)'), { target: { value: 'Late.' } });
+    expect(within(panel).queryByText(HIDDEN)).toBeNull();
+  });
+
   it('no reason: reason null', async () => {
     renderMenu();
     await choose('Absent');
@@ -334,6 +360,20 @@ describe('FlagsMenu: refetching after a write (#40 review M3)', () => {
   });
 });
 
+describe('FlagsMenu: the card\'s queued draft save goes first (#40 review)', () => {
+  it('beforeWrite is awaited before the flag write', async () => {
+    let settled = false;
+    const beforeWrite = vi.fn(() => new Promise((resolve) => setTimeout(() => { settled = true; resolve(); }, 0)));
+    api.setGradeFlag.mockImplementationOnce(async () => { expect(settled).toBe(true); return RESULT; });
+    renderMenu({ beforeWrite });
+    await choose('Late');
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark late' }));
+    await waitFor(() => expect(api.setGradeFlag).toHaveBeenCalled());
+    expect(beforeWrite).toHaveBeenCalledTimes(1);
+    expect(beforeWrite.mock.invocationCallOrder[0]).toBeLessThan(api.setGradeFlag.mock.invocationCallOrder[0]);
+  });
+});
+
 describe('FlagsMenu: pending and failures', () => {
   it('while a read or write is pending the pill is disabled', async () => {
     let resolve;
@@ -348,11 +388,11 @@ describe('FlagsMenu: pending and failures', () => {
   });
 
   it('a CHANGED refusal shows its message beside the pill and keeps the old state', async () => {
-    api.setGradeFlag.mockRejectedValue(Object.assign(new Error('Changed in Schoology since the page loaded: the score (now 50). Nothing was written: reload, then try again.'), { code: 'CHANGED' }));
+    api.setGradeFlag.mockRejectedValue(Object.assign(new Error('Changed in Schoology since Prism last read this task: the score (now 50). Nothing was written. Sync, then try again.'), { code: 'CHANGED' }));
     const { onChange } = renderMenu();
     await choose('Late');
     fireEvent.click(await screen.findByRole('button', { name: 'Mark late' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Changed in Schoology since the page loaded: the score (now 50).');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Changed in Schoology since Prism last read this task: the score (now 50). Nothing was written. Sync, then try again.');
     expect(onChange).not.toHaveBeenCalled();
     expect(pill()).toHaveTextContent('Flags');
     expect(pill().className).not.toMatch(/flags-pill--late/);

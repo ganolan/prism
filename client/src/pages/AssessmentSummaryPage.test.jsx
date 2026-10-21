@@ -12,7 +12,7 @@ import { feedbackRowTopics, rowScores, rowTopicMapping } from '../lib/feedbackRo
 let mockSaver;
 vi.mock('../lib/assessmentDraftSaver.js', () => ({
   makeDraftSaver: () => {
-    mockSaver = { save: vi.fn(), remove: vi.fn(), flush: vi.fn(), dispose: vi.fn() };
+    mockSaver = { save: vi.fn(), remove: vi.fn(), flush: vi.fn(), settle: vi.fn(async () => {}), dispose: vi.fn() };
     return mockSaver;
   },
 }));
@@ -2818,6 +2818,25 @@ describe('StudentRubricCard: the Flags menu (#40)', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Restore saved grade' })).toBeEnabled());
   });
 
+  it('"Restore saved grade" and a flag write first settle the card\'s queued draft save (#40 review)', async () => {
+    setGradeFlag.mockResolvedValue({ exception: 0, saved: false, withdrawn: [], line: null, restored: { draft: true, notRestored: [] } });
+    renderCard({ student: { ...makeStudent(), exception: 0, score: null, saved_grade: SAVED }, onRefreshPair: vi.fn(async () => ({ ...makeStudent(), exception: 0 })) });
+    fireEvent.click(screen.getByRole('button', { name: 'Restore saved grade' }));
+    await waitFor(() => expect(setGradeFlag).toHaveBeenCalledTimes(1));
+    expect(mockSaver.settle).toHaveBeenCalled();
+    expect(mockSaver.settle.mock.invocationCallOrder[0]).toBeLessThan(setGradeFlag.mock.invocationCallOrder[0]);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Restore saved grade' })).toBeEnabled());
+
+    mockSaver.settle.mockClear();
+    getGradeFlags.mockResolvedValueOnce({ exception: 0, score: null, graded: false, gradeText: null, savedGrade: null, openRecords: [], hasDraft: false });
+    fireEvent.click(screen.getByRole('button', { name: /Flags/ }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /^Late/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark late' }));
+    await waitFor(() => expect(setGradeFlag).toHaveBeenCalledTimes(2));
+    expect(mockSaver.settle).toHaveBeenCalled();
+    expect(mockSaver.settle.mock.invocationCallOrder[0]).toBeLessThan(setGradeFlag.mock.invocationCallOrder[1]);
+  });
+
   it('a failed refetch after the restore says so', async () => {
     setGradeFlag.mockResolvedValueOnce({ exception: 0, saved: false, withdrawn: [], line: null, restored: { draft: true, notRestored: [] } });
     renderCard({ student: { ...makeStudent(), exception: 0, score: null, saved_grade: SAVED }, onRefreshPair: vi.fn(async () => { throw new Error('offline'); }) });
@@ -2825,19 +2844,43 @@ describe('StudentRubricCard: the Flags menu (#40)', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Saved, but the page could not refresh. Reload to see it.');
   });
 
-  it('a final flag drops the staged levels (the comment edit stays), so nothing waits under the lock', async () => {
+  it('a final flag keeps the staged levels as a draft (the comment edit stays) and says so on the card', async () => {
     getGradeFlags.mockResolvedValueOnce({ exception: 0, score: null, graded: false, gradeText: null, savedGrade: null, openRecords: [], hasDraft: false });
     setGradeFlag.mockResolvedValueOnce({ exception: 1, saved: false, withdrawn: [], line: null, restored: null });
-    const onRefreshPair = vi.fn(async () => ({ ...makeStudent(), exception: 1, score: null }));
-    renderCard({ student: { ...makeStudent(), exception: 0, score: null }, onRefreshPair });
+    // The page refetches the pair and passes the flagged student back in (as AssessmentSummaryPage does).
+    let setStudent;
+    const flagged = { ...makeStudent(), exception: 1, score: null };
+    const onRefreshPair = vi.fn(async () => { setStudent(flagged); return flagged; });
+    function Harness() {
+      const [st, set] = useState({ ...makeStudent(), exception: 0, score: null });
+      setStudent = set;
+      return (
+        <MemoryRouter>
+          <StudentRubricCard student={st} topics={TOPICS} courseId="4" assignmentId="8"
+            assignmentRow={{ id: 50, mastery_grading_period_id: 1, mastery_grading_category_id: 2 }} onSaved={() => {}} onRefreshPair={onRefreshPair} />
+        </MemoryRouter>
+      );
+    }
+    render(<Harness />);
     fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
     fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), { target: { value: 'Away this week.' } });
     expect(screen.getByText('2 pending changes')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Flags/ }));
     fireEvent.click(screen.getByRole('menuitemradio', { name: /^Exempt/ }));
     fireEvent.click(await screen.findByRole('button', { name: 'Mark exempt' }));
-    await waitFor(() => expect(screen.getByText('1 pending change')).toBeInTheDocument());
+    await waitFor(() => expect(onRefreshPair).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByText('Your staged levels stay as a draft until the flag is cleared.')).toBeInTheDocument());
+    expect(screen.getByText('2 pending changes')).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue('Away this week.');
+  });
+
+  it('the staged-levels note shows only under a final flag with staged levels', () => {
+    const { unmount } = renderCard({ student: { ...makeStudent(), exception: 1 } });
+    expect(screen.queryByText(/Your staged levels stay as a draft/)).toBeNull();
+    unmount();
+    renderCard({ student: { ...makeStudent(), exception: 6 } });
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    expect(screen.queryByText(/Your staged levels stay as a draft/)).toBeNull();
   });
 
   it('no flag and a copy waiting: "Restore saved grade" restores it as a draft and stages it', async () => {

@@ -524,16 +524,12 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // status line, saved copy, timeline), the comment editor follows the line the flag wrote or
   // removed (an unsaved edit keeps the teacher's text with the line swapped on top), and a restored
   // copy becomes the card's staged draft.
-  // A final flag (Exempt, Missing) locks the rubric: staged levels (topics, rows, the overall) are
-  // dropped, so none waits under the lock or blocks Publish all; the comment and Display edits stay.
+  // A final flag (Exempt, Missing) locks the rubric: staged levels (topics, rows, the overall) stay
+  // as the card's draft (Publish all skips a flagged card), and the card says so (stagedUnderFlag).
   // A failed refetch throws, so the Flags pill says the page could not refresh.
   async function handleFlagChange(result) {
     const fresh = onRefreshPair ? await onRefreshPair(student.schoology_uid) : null;
     if (onRefreshPair && !fresh) throw new Error('The page could not refresh.');
-    if (isFinalFlag(fresh?.exception ?? result?.exception)) {
-      flushNextRef.current = true;
-      setPending({});
-    }
     if (fresh) {
       const newLine = fresh.status_line?.line || '';
       if (commentDirty) {
@@ -570,6 +566,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     setRestoreError(null);
     let result;
     try {
+      // A debounced draft save landing after the restore would overwrite the restored draft.
+      await saverRef.current.settle();
       result = await setGradeFlag({
         studentId: student.id, assignmentId: assignmentRow.id, code: 0,
         expected: { exception: Number(student.exception) || 0, score: student.score ?? null, comment: student.grade_comment || '' },
@@ -1150,6 +1148,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             comment={student.grade_comment || ''}
             aligned={!scoreScale && topics.length > 0}
             panelHost={panelHost}
+            beforeWrite={() => saverRef.current.settle()}
             onChange={handleFlagChange}
           />
         )}
@@ -1188,6 +1187,9 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
       )}
 
       {markerNote && <div className="flag-marker-note">{markerNote}</div>}
+      {isRubricLocked && Object.keys(pending).length > 0 && (
+        <div className="flag-marker-note">Your staged levels stay as a draft until the flag is cleared.</div>
+      )}
       {showSaved && (
         <div className="flag-saved-caption">
           {`Saved before the flag${savedOn ? ` on ${savedOn}` : ''}. Clear the flag to restore it.`}

@@ -1,7 +1,6 @@
 features:
   schoology_sync: true
   manual_notes: true
-  student_flags: true
   class_tools: true
   analytics: true
   people_search: true

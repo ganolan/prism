@@ -135,7 +135,8 @@ shared view, titled "Mark Jordan exempt?" (late, absent, incomplete, missing). I
 
 - **Reason for the student (optional):** one line. With a reason, Prism writes the status line with a
   preview: "Added to the top of Jordan's comment: "Marked exempt on Wed 21/10. Medical leave from 13 to 24
-  October."" Prism writes the line only when a reason is given.
+  October."" Prism writes the line only when a reason is given. A line turns Display on, so over a hidden
+  teacher comment the panel shows Extend's hidden-comment warning (review, 22 October 2026).
 - **Records withdrawn** (Exempt only): "Also withdraws: Extension to Fri 24/10/2026".
 - **The saved grade** (graded work only): "Schoology removes this grade while the flag is set. Prism keeps
   a copy: Exhibiting (3.5) and 2 topic levels. Your comment stays." For Missing: "Schoology sets this
@@ -164,7 +165,9 @@ A flag that replaces another flag (one value per task) opens the same panel.
 The card shows the flag's symbol and the pill takes the flag's color. For Exempt and Missing the rubric is
 grayed and locked, with the saved levels and the caption "Saved before the flag on Wed 21/10. Clear the
 flag to restore it." For Late, Incomplete and Absent the rubric stays open, with a note above it: "Grading
-this work clears Late." Extend hides for Exempt. A failed write shows its reason beside the pill and keeps the previous
+this work clears Late." Under Exempt or Missing, levels the teacher had staged stay as the card's draft,
+with the line "Your staged levels stay as a draft until the flag is cleared." (review, 22 October 2026).
+Extend hides for Exempt. A failed write shows its reason beside the pill and keeps the previous
 state.
 
 ### Missing shows IE on the student page
@@ -179,13 +182,18 @@ feedback view (the student page and the gradebook pop-up), so it can inform disc
   Schoology holds no topic levels for this task yet." Recording real IEs in Schoology is #175.
 - **Levels in Schoology** (Missing set over graded work): the real levels show as they are, because they
   count, with the line "Marked Missing. These levels still count in the topic averages."
+- **Feedback rows** (review, 22 October 2026): row levels live only in Prism, so a feedback-row task
+  says "Shown as IE because the work is marked Missing. No rubric rows are scored for this task yet."
+  or "Marked Missing. These are the rubric rows Prism holds for this task."
 - Prism's per-topic summaries keep Schoology's own numbers. The gradebook cell keeps the Missing symbol;
   the assessment card keeps the grayed saved grade.
 
 ## Saving and restoring the grade
 
 - **Saving:** before the flag write, Prism takes the grade from the fresh pre-write read: score,
-  `max_points`, comment and `comment_status`, each topic level (`mastery_scores`), each rubric row level
+  `max_points`, comment and `comment_status`, each topic level (`mastery_scores`; read fresh from
+  Schoology with `readPairLevels` whenever the write blanks levels Schoology holds, review 22 October
+  2026: the local copy can be stale), each rubric row level
   (`rubric_row_levels`), and the overall scale level. It stores them in a new table `excused_grades`
   (student, assignment, the saved grade as JSON, the flag, `saved_at`, `restored_at`), one row per student
   and task. The write goes ahead only once the copy is stored. A copy is kept until restored or replaced.

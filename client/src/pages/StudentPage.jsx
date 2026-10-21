@@ -76,7 +76,7 @@ export function CourseSection({
   studentId = null, workLinks = {}, commentSummaries = null, onCommentSummary = () => {},
   fileSummaries = null, onFileSummary = () => {},
   refreshKey = 0,
-  onFlagChange = null, // each task's Flags menu writes, then the page refetches (#40); off on an archived course
+  onFlagChange = null, // each task's Flags menu writes, then the page refetches (#40); off on an archived or excluded course
 }) {
   const [expanded, setExpanded] = useState(true);
   // The page syncs its courses in the background and bumps `refreshKey` when a sync ends: the summary
@@ -200,7 +200,7 @@ export function CourseSection({
                         firstName={studentFirstName}
                         savedLevel={g.saved_level ?? null}
                         reasonLine={g.flag_line ?? null}
-                        flagsMenu={onFlagChange && !course.archived && studentId != null ? {
+                        flagsMenu={onFlagChange && !course.archived && !course.excluded && studentId != null ? {
                           student: { id: studentId, firstName: studentFirstName }, assignmentId: g.assignment_id,
                           exception: g.exception, score: g.score ?? null, comment: g.grade_comment || '',
                           aligned: topics.length > 0, onChange: onFlagChange,

@@ -24,14 +24,14 @@ teacher picks one from a small menu in the gradebook. Nothing explains what each
   Missing replaces the score with 0. Clearing the flag does not bring the grade back. This is because the
   school's setting "keep grades with flags" is off, so Schoology's own gradebook behaves the same way.
 - **Late does not mean late.** A Late flag removes the work from the grade while it is set. A teacher who
-  marks work late expecting it to still count gives the student a better grade, not a fair one.
+  marks work late expecting it to still count can give the student a better grade than the work earned.
 - **Missing does not reach the standards on its own.** Missing puts a 0 on the task but writes nothing
-  to the measurement topics. When the work was never handed in, the topics hold no evidence from the task, so the
-  student's levels stay the same and Insufficient Evidence appears nowhere. (IE written first does count
-  under Missing: tested on 22 October 2026.)
+  to the measurement topics. Work that was never handed in leaves the student's topic levels as they
+  were: they show no Insufficient Evidence for it. (IE written first does count under Missing: tested
+  on 22 October 2026.)
 - **Absent has no agreed meaning.** Some teachers use it for "this was their one chance", others as a
   reminder to follow up. Either way the task leaves the grade without any notice.
-- **Nothing follows up.** A Late, Incomplete or Absent flag left in place raises the term grade, and no
+- **Nothing follows up.** A Late, Incomplete or Absent flag left in place can raise the term grade, and no
   report reminds the teacher it is there.
 
 **What Prism does.**

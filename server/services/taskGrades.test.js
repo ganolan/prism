@@ -47,4 +47,35 @@ describe('writeGrades (#108)', () => {
     expect(row(ids.bo).score).toBe(4);
     expect(db.prepare('SELECT COUNT(*) AS n FROM grades').get().n).toBe(2);
   });
+
+  // #40 review: a saved copy (excused_grades) waits after a flag is cleared. When the teacher
+  // re-enters the grade in Schoology, the sync retires it, as a grade published from Prism does.
+  describe('a waiting saved copy', () => {
+    const copy = () => db.prepare('SELECT restored_at FROM excused_grades WHERE student_id = ? AND assignment_id = ?').get(ids.ada, ids.task);
+    const wait = (savedAt = '2026-10-19 14:00:00') => db.prepare(`INSERT INTO excused_grades (student_id, assignment_id, flag, saved_json, saved_at, restored_at)
+      VALUES (?, ?, 1, '{"score":3}', ?, NULL)`).run(ids.ada, ids.task, savedAt);
+    const sync = (g) => writeGrades(db, { courseId: ids.courseId, now: NOW, grades: [{ enrollment_id: '801', assignment_id: 'A1', ...g }] });
+
+    test('unflagged with a score in Schoology (re-entered there): the copy is retired', () => {
+      wait();
+      sync({ grade: 3, exception: 0 });
+      expect(copy().restored_at).not.toBeNull();
+    });
+
+    test.each([
+      ['still flagged', { grade: null, exception: 1 }],
+      ['Missing\'s 0', { grade: 0, exception: 3 }],
+      ['unflagged and ungraded (cleared, not re-entered yet)', { grade: null, exception: 0 }],
+    ])('%s: the copy keeps waiting', (_label, g) => {
+      wait();
+      sync(g);
+      expect(copy().restored_at).toBeNull();
+    });
+
+    test('a copy saved after this sync started (a flag write racing the read) is not retired', () => {
+      wait('2026-10-19 15:00:05'); // NOW is 15:00:00: the read predates the copy
+      sync({ grade: 3, exception: 0 });
+      expect(copy().restored_at).toBeNull();
+    });
+  });
 });

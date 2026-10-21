@@ -284,6 +284,76 @@ describe('setGradeFlag: setting a flag', () => {
     await expect(flag(1)).rejects.toMatchObject({ code: 'SCHOOLOGY_WRITE_FAILED' });
     expect(copyRow()).toEqual(kept);
   });
+
+  // A flag that blanks the levels (1, 2, 5, 6) must keep the levels Schoology holds, not Prism's
+  // local mastery_scores, which can be stale (sync skips mastery when the sign-in fails; a status
+  // line refreshes the score only). Review finding C1.
+  test.each([1, 6])('0 -> %i over stale local levels: the levels are read fresh and the copy holds them before the PUT', async (code) => {
+    // Local still says EX/EX; Schoology holds ED for t1 and D for t2 (entered there since).
+    readPairLevels.mockResolvedValueOnce({ t1: 'ED', t2: 'D' });
+    let copyAtPut = null;
+    pushGradeUpdates.mockImplementationOnce(async (_section, entries) => {
+      copyAtPut = copyRow();
+      entries.forEach(applyPut);
+      return { status: 207, data: { grades: { grade: [{ response_code: 204 }] } } };
+    });
+    const out = await flag(code);
+    expect(readPairLevels).toHaveBeenCalledWith({ sectionId: 'sec', studentUid: 'u1', assignmentId: 'sa', topicIds: ['t1', 't2'] });
+    expect(JSON.parse(copyAtPut.saved_json).topics).toEqual({ t1: 'ED', t2: 'D' });
+    expect(out).toMatchObject({ exception: code, saved: true });
+    // Schoology blanked every level: the stale local ones go too (the copy holds Schoology's).
+    expect(levels()).toEqual([]);
+  });
+
+  test('0 -> 1: a level only in Schoology (none locally) is kept in the copy', async () => {
+    db.exec('DELETE FROM mastery_scores');
+    readPairLevels.mockResolvedValueOnce({ t2: 'EM' });
+    await flag(1);
+    expect(JSON.parse(copyRow().saved_json)).toMatchObject({ score: 75, topics: { t2: 'EM' } });
+  });
+
+  test('Missing -> Late over levels Missing kept: read fresh, and the copy holds them', async () => {
+    record = { ...record, exception: 3, grade: 0 };
+    db.prepare('UPDATE grades SET exception = 3, score = 0').run();
+    readPairLevels.mockResolvedValueOnce({ t1: 'D', t2: 'D' });
+    await flag(6);
+    expect(readPairLevels).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(copyRow().saved_json).topics).toEqual({ t1: 'D', t2: 'D' });
+  });
+
+  test.each([1, 2, 5, 6])('0 -> %i: the fresh level read fails: SCHOOLOGY_READ_FAILED, nothing written', async (code) => {
+    readPairLevels.mockRejectedValueOnce(new Error('Not logged in to Schoology'));
+    await expect(flag(code)).rejects.toMatchObject({ code: 'SCHOOLOGY_READ_FAILED' });
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
+    expect(copyRow()).toBeNull();
+    expect(gradeRow()).toMatchObject({ score: 75, exception: 0 });
+    expect(levels()).toHaveLength(2);
+  });
+
+  test('an ungraded pair with no levels reads nothing fresh (Exempt before any work exists)', async () => {
+    db.exec('DELETE FROM mastery_scores');
+    db.prepare('UPDATE grades SET score = NULL').run();
+    record = { ...record, grade: null };
+    await flag(1);
+    expect(readPairLevels).not.toHaveBeenCalled();
+  });
+
+  test('Missing (3) keeps the levels, so it reads nothing fresh', async () => {
+    await flag(3);
+    expect(readPairLevels).not.toHaveBeenCalled();
+  });
+
+  test('a fresh level the copy does not hold after the write: READBACK_MISMATCH (anti-goal: no lost grades)', async () => {
+    // A waiting copy that holds the score but not the fresh levels can only appear if the copy
+    // went wrong; the check catches it after the write.
+    readPairLevels.mockResolvedValueOnce({ t1: 'ED', t2: 'ED' });
+    pushGradeUpdates.mockImplementationOnce(async (_section, entries) => {
+      db.prepare(`UPDATE excused_grades SET saved_json = json_set(saved_json, '$.topics', json('{}'))`).run();
+      entries.forEach(applyPut);
+      return { status: 207, data: {} };
+    });
+    await expect(flag(1)).rejects.toMatchObject({ code: 'READBACK_MISMATCH', message: expect.stringMatching(/topic level/) });
+  });
 });
 
 describe('setGradeFlag: withdrawing records', () => {
@@ -678,7 +748,7 @@ describe('readFlagState', () => {
     const before = await readFlagState(db, { studentId: s, assignmentId: a });
     expect(before).toEqual({
       exception: 0, score: 75, comment: 'Good work.', commentStatus: 1, graded: true, gradeText: '75 / 100 and 2 topic levels', savedGrade: null,
-      openRecords: [{ type: 'extension', id: extId, label: 'Extension to Fri 23/10/2026' }], hasDraft: false,
+      openRecords: [{ type: 'extension', id: extId, label: 'Extension to Fri 23/10/2026' }], hasDraft: false, storedLine: null,
     });
     expect(pushGradeUpdates).not.toHaveBeenCalled();
     await flag(6);
@@ -711,6 +781,11 @@ describe('readFlagState', () => {
     db.prepare('UPDATE grades SET exception = 0').run();
     expect((await readFlagState(db, { studentId: s, assignmentId: a })).savedGrade)
       .toMatchObject({ summary: 'Exhibiting Depth (90)', restoreSummary: null, notRestored: ['90'] });
+  });
+
+  test('storedLine: Prism\'s published line, so the panel can tell the teacher\'s own text from it (hidden-comment warning)', async () => {
+    db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, 'Extension - now due Fri 23/10 (3 school days).', 'extension')`).run(s, a);
+    expect((await readFlagState(db, { studentId: s, assignmentId: a })).storedLine).toBe('Extension - now due Fri 23/10 (3 school days).');
   });
 
   test('a failed read: SCHOOLOGY_READ_FAILED', async () => {

@@ -4,9 +4,13 @@
 // intentionally NOT updated on conflict here. The grades write seeds them to 0
 // on initial insert.
 
+import { retireCopy } from './savedGrades.js';
+
 // `grades`: rows of GET /sections/{id}/grades (or its ?assignment_id= form).
 // A student is found by the course's stored enrolment, then through
-// `enrollIdToUid` (enrolment id → uid) for one not stored yet. → rows written.
+// `enrollIdToUid` (enrolment id → uid) for one not stored yet. A pair with no flag and a score
+// retires a saved copy still waiting from a cleared flag (#40: the teacher re-entered the grade in
+// Schoology); `now` is when the read began, so a copy kept after it is left alone. → rows written.
 export function writeGrades(db, { courseId, grades, now, enrollIdToUid = {} }) {
   const upsertGrade = db.prepare(`
     INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, grade_comment, comment_status, exception, submitted_at, late, draft, synced_at)
@@ -43,6 +47,9 @@ export function writeGrades(db, { courseId, grades, now, enrollIdToUid = {} }) {
       const assignRow = selectAssignmentByExt.get(String(g.assignment_id));
       if (!assignRow) continue;
       upsertGrade.run(studentId, assignRow.id, enrollmentId, g.grade ?? null, g.max_points ?? assignRow.max_points ?? null, g.comment || null, g.comment_status ?? null, g.exception ?? 0, Number(g.timestamp) || 0, now);
+      if (!(Number(g.exception) || 0) && g.grade != null && g.grade !== '') {
+        retireCopy(db, { studentId, assignmentId: assignRow.id, savedBefore: now });
+      }
       gradesCount++;
     }
   });

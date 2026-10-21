@@ -102,6 +102,9 @@ describe('AssignmentFeedback', () => {
     const NO_LEVELS = [{ ...TOPICS[0], grade: null }, { topic_id: 't2', title: 'Reflect', external_id: 'ART.6.1', category_title: 'HS Art: Responding', grade: null }];
     const NO_LEVEL_LINE = 'Shown as IE because the work is marked Missing. Schoology holds no topic levels for this task yet.';
     const LEVEL_LINE = 'Marked Missing. These levels still count in the topic averages.';
+    // Feedback-row levels live only in Prism (#40 review I4): the lines say so.
+    const ROW_NO_LEVEL_LINE = 'Shown as IE because the work is marked Missing. No rubric rows are scored for this task yet.';
+    const ROW_LEVEL_LINE = 'Marked Missing. These are the rubric rows Prism holds for this task.';
     const ROWS = {
       mode: 'feedback_rows',
       rubric: { criteria: [
@@ -178,8 +181,9 @@ describe('AssignmentFeedback', () => {
       const awarded = table.querySelectorAll('td[data-awarded="true"]');
       expect(awarded).toHaveLength(2);
       awarded.forEach((td) => expect(missingSymbols(td)).toHaveLength(1));
-      expect(screen.getByText(NO_LEVEL_LINE)).toBeInTheDocument();
-      expect(follows(screen.getByText(NO_LEVEL_LINE), table)).toBe(true);
+      expect(screen.getByText(ROW_NO_LEVEL_LINE)).toBeInTheDocument();
+      expect(screen.queryByText(NO_LEVEL_LINE)).not.toBeInTheDocument();
+      expect(follows(screen.getByText(ROW_NO_LEVEL_LINE), table)).toBe(true);
     });
 
     it('on a feedback-row task with row levels, they show as they are', () => {
@@ -187,7 +191,8 @@ describe('AssignmentFeedback', () => {
       expect(screen.getByText('Tests and fixes.').closest('td')).toHaveAttribute('data-awarded', 'true');
       expect(screen.getByText('Rough.').closest('td')).toHaveAttribute('data-awarded', 'true');
       expect(missingSymbols(screen.getByRole('table'))).toHaveLength(0);
-      expect(screen.getByText(LEVEL_LINE)).toBeInTheDocument();
+      expect(screen.getByText(ROW_LEVEL_LINE)).toBeInTheDocument();
+      expect(screen.queryByText(LEVEL_LINE)).not.toBeInTheDocument();
     });
 
     it('is a display transform: the topics it was given are not changed', () => {

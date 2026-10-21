@@ -23,16 +23,19 @@ export function makeDraftSaver(target, { delay = 500 } = {}) {
 
   function clearTimer() { if (timer) { clearTimeout(timer); timer = null; } }
 
+  // → a promise that settles when the request does (never rejects: best effort).
   function send() {
     clearTimer();
     if (pendingDraft) {
       const body = wireBody(pendingDraft);
       pendingDraft = null;
-      saveAssessmentDraft(body).catch(() => {});
-    } else if (pendingDelete) {
-      pendingDelete = false;
-      deleteAssessmentDraft(target).catch(() => {});
+      return Promise.resolve(saveAssessmentDraft(body)).then(() => {}, () => {});
     }
+    if (pendingDelete) {
+      pendingDelete = false;
+      return Promise.resolve(deleteAssessmentDraft(target)).then(() => {}, () => {});
+    }
+    return Promise.resolve();
   }
 
   return {
@@ -65,6 +68,9 @@ export function makeDraftSaver(target, { delay = 500 } = {}) {
         saveAssessmentDraft(body, { keepalive: true }).catch(() => {});
       }
     },
+    // Send a queued save or delete now and wait for it (#40): a server-side write to this draft
+    // (a flag write restoring a saved grade) must not be overwritten by a debounced one landing later.
+    settle() { return send(); },
     dispose() { clearTimer(); pendingDraft = null; pendingDelete = false; },
   };
 }

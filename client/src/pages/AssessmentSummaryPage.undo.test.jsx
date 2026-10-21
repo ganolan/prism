@@ -11,7 +11,7 @@ import { writeMasteryComment } from '../services/api.js';
 let mockSaver;
 vi.mock('../lib/assessmentDraftSaver.js', () => ({
   makeDraftSaver: () => {
-    mockSaver = { save: vi.fn(), remove: vi.fn(), flush: vi.fn(), dispose: vi.fn() };
+    mockSaver = { save: vi.fn(), remove: vi.fn(), flush: vi.fn(), settle: vi.fn(async () => {}), dispose: vi.fn() };
     return mockSaver;
   },
 }));

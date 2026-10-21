@@ -160,16 +160,17 @@ notes
 ├── created_at
 └── updated_at
 
-flags (table removed 21 Oct 2026, #40; Flag for review is gone)
-├── id
+excused_grades (#40: the saved grade a Schoology flag removes, one row per student and task)
 ├── student_id (FK)
-├── assignment_id (FK, nullable)
-├── flag_type (review_needed, late_submission, performance_change, custom)
-├── flag_reason
-├── resolved (boolean)
-├── created_at
-└── resolved_at
+├── assignment_id (FK)
+├── flag (the Schoology flag code: 1 Exempt, 2 Incomplete, 3 Missing, 5 Absent, 6 Late)
+├── saved_json (score, max_points, comment, comment_status, topic levels, rubric row levels, scale level)
+├── saved_at
+└── restored_at (null while the copy waits to be restored)
 ```
+
+The Prism `flags` table (review_needed and other Prism-only flags) was removed on 21 Oct 2026
+(#40): "flag" now means only Schoology's grade flags, set from Prism through the Flags menu.
 
 **UI — Phase 1:**
 - Class dashboard: select a course, see all students with their current grades in a table
@@ -345,7 +346,6 @@ feedback
 features:
   schoology_sync: true
   manual_notes: true
-  student_flags: true
   class_tools: true
   analytics: true
   schoology_writeback: false # hidden for colleagues

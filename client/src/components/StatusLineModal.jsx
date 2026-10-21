@@ -32,6 +32,25 @@ import { useSchoologyConnection, connectionState } from './SchoologyConnectionSt
 // Focus: moves into the dialog on open (the line, or the dialog itself in removeMode —
 // never the primary button), Tab is trapped inside, and focus returns on close.
 // Parents give each action its own `key`, so a new action always remounts it.
+// A status line always turns Display on, so a teacher comment hidden from the student would become
+// visible: the warning every status-line action shows (this modal for Ask, Extend and the rest;
+// FlagPanel when a flag's reason writes a line, #40). `below` names the comment preview under it;
+// `onReread` adds the re-read button.
+export function HiddenCommentWarning({ below = false, onReread = null }) {
+  return (
+    <div className="alert alert-warning" role="alert">
+      Their comment is hidden from the student. Publishing turns Display on, so your current hidden comment
+      {below ? ' (below)' : ''} becomes visible to the student and parents. Edit or remove it in Schoology first if it isn&apos;t for them.
+      {onReread && (
+        <>
+          {' '}
+          <button type="button" className="ghost btn-sm" onClick={onReread}>Re-read from Schoology</button>
+        </>
+      )}
+    </div>
+  );
+}
+
 const FOCUSABLE = 'button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
 
 export default function StatusLineModal({
@@ -209,11 +228,7 @@ export default function StatusLineModal({
         )}
         {!preview && !loadError && <p className="text-sm text-muted">Reading their comment from Schoology…</p>}
         {preview?.hiddenWarning && !removeMode && (
-          <div className="alert alert-warning" role="alert">
-            Their comment is hidden from the student. Publishing turns Display on, so your current hidden comment
-            (below) becomes visible to the student and parents. Edit or remove it in Schoology first if it isn&apos;t for them.{' '}
-            <button type="button" className="ghost btn-sm" onClick={() => setAttempt((n) => n + 1)}>Re-read from Schoology</button>
-          </div>
+          <HiddenCommentWarning below onReread={() => setAttempt((n) => n + 1)} />
         )}
         {preview && (
           <>

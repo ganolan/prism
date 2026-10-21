@@ -7,6 +7,19 @@ import { levelForScore } from '../lib/scoreScales.js';
 const num = (v) => (v == null || v === '' ? null : Number(v));
 const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
+// A new grade landed over a flag's saved copy: published from Prism over a marker (write-comment,
+// send-all, /write) or, read by a sync, re-entered in Schoology after the flag was cleared
+// (taskGrades.js writeGrades). The grade the flag removed is no longer the one to restore, so a
+// waiting copy is retired (restored_at set) and "Restore saved grade" is no longer offered.
+// `savedBefore` (ISO; the sync's start, before its read): only a copy saved before it is retired,
+// so a read taken before a flag write cannot retire the copy that write just kept.
+// → true when a waiting copy was retired.
+export function retireCopy(db, { studentId, assignmentId, savedBefore = null } = {}) {
+  return db.prepare(`UPDATE excused_grades SET restored_at = datetime('now')
+    WHERE student_id = ? AND assignment_id = ? AND restored_at IS NULL AND (? IS NULL OR julianday(saved_at) < julianday(?))`)
+    .run(Number(studentId), Number(assignmentId), savedBefore, savedBefore).changes > 0;
+}
+
 // "a", "a and b", "a, b and c".
 export function joinParts(parts) {
   if (parts.length <= 1) return parts[0] ?? '';

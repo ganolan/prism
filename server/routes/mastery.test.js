@@ -2335,7 +2335,7 @@ describe('grading over a flag (#40)', () => {
     });
   });
 
-  describe('levels over a final flag are refused (a level write clears any flag but Missing, verified)', () => {
+  describe('levels over a final flag are refused (a level write clears Exempt, Incomplete, Absent and Late: probed 21-22 Oct 2026)', () => {
     const gradeInfo = { tF: { grade: '75', gradingScaleId: 1 } };
     const write = () => post(`/api/mastery/${courseId}/write`, { enrollmentId: 'eF', assignmentId: 'sa-A', gradeInfo, gradingPeriodId: 1, gradingCategoryId: 2 });
     beforeEach(() => { writeMasteryScores.mockReset().mockResolvedValue({}); });

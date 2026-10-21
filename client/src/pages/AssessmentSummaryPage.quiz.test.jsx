@@ -5,7 +5,7 @@ import AssessmentSummaryPage from './AssessmentSummaryPage.jsx';
 import { getQuizGroupFor, loadQuizResults, getMasteryForAssignment, getSyncRun } from '../services/api.js';
 import { formatDateTime } from '../lib/formatDate.js';
 
-vi.mock('../lib/assessmentDraftSaver.js', () => ({ makeDraftSaver: () => ({ save: vi.fn(), remove: vi.fn(), flush: vi.fn(), dispose: vi.fn() }) }));
+vi.mock('../lib/assessmentDraftSaver.js', () => ({ makeDraftSaver: () => ({ save: vi.fn(), remove: vi.fn(), flush: vi.fn(), settle: vi.fn(async () => {}), dispose: vi.fn() }) }));
 vi.mock('../components/quiz/QuestionsTab.jsx', () => ({ default: ({ groupId }) => <div>Questions for group {groupId}</div> }));
 vi.mock('../components/quiz/FreeResponseTab.jsx', () => ({ default: ({ groupId }) => <div>Free response for group {groupId}</div> }));
 vi.mock('../services/api.js', () => ({

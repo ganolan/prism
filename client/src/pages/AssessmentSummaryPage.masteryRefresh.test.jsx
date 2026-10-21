@@ -6,7 +6,7 @@ import AssessmentSummaryPage from './AssessmentSummaryPage.jsx';
 import { BumpDataVersionContext } from '../hooks/useDataVersion.jsx';
 import { getSyncStatus, getMasteryForAssignment, getFeedbackForAssignment, syncMasteryForAssignment, ensureSync, getCurrentSync, getSyncRun, getSyncRunEvents } from '../services/api.js';
 
-vi.mock('../lib/assessmentDraftSaver.js', () => ({ makeDraftSaver: () => ({ save: vi.fn(), remove: vi.fn(), flush: vi.fn(), dispose: vi.fn() }) }));
+vi.mock('../lib/assessmentDraftSaver.js', () => ({ makeDraftSaver: () => ({ save: vi.fn(), remove: vi.fn(), flush: vi.fn(), settle: vi.fn(async () => {}), dispose: vi.fn() }) }));
 vi.mock('../services/api.js', () => ({
   getMasteryForAssignment: vi.fn(),
   getSyncStatus: vi.fn(),

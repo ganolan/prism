@@ -337,8 +337,9 @@ router.post('/:courseId/assignment/:assignmentId/sync', (req, res) => {
   res.json(enqueue({ kind: 'task', courseId: Number(courseId), assignmentId: String(assignmentId), trigger: 'button', force: true }));
 });
 
-// A level write clears any flag but Missing in Schoology (verified), so levels are never written
-// over a final flag (Exempt, Missing; #40): the card keeps those locked, and a stale card (Prism
+// A level write clears Exempt, Incomplete, Absent and Late in Schoology (probed 21-22 Oct 2026;
+// not probed under Missing), so levels are never written over a final flag (Exempt, Missing;
+// #40): the card keeps those locked, and a stale card (Prism
 // holding a marker that is now final in Schoology) must not wipe one. Checks Prism's row for each
 // pair, then (fresh: true) one read of the section's grades for all of them, before any write.
 // → null (go ahead) or { status, error, code } (nothing was written).

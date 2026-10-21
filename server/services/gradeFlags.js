@@ -18,7 +18,7 @@ import {
   lockPair, pairTarget, freshGrade, putSucceeded, publishStatusLine, removeStatusLine, checkLine,
 } from './statusLinePublisher.js';
 import { TriageError } from './triageCommon.js';
-import { FLAG_CODES, FLAG_NAMES, isFlagCode, isExempt, removesLevels } from '../lib/flags.js';
+import { FLAG_CODES, FLAG_NAMES, isExempt, removesLevels } from '../lib/flags.js';
 import { flagLine } from '../lib/statusLines.js';
 import { todayLocal } from '../lib/schoolDays.js';
 import { levelForScore } from '../lib/scoreScales.js';
@@ -98,10 +98,18 @@ const isGraded = (g) => g.score != null || Object.keys(g.topics).length > 0 || O
 const copyOf = (db, t) => db.prepare('SELECT * FROM excused_grades WHERE student_id = ? AND assignment_id = ?').get(t.studentId, t.assignmentId) || null;
 const waitingCopy = (db, t) => { const c = copyOf(db, t); return c && c.restored_at == null ? c : null; };
 
-// Keep the copy for a new flag, BEFORE the write. A copy still waiting to be restored is kept
-// when the pair is already flagged (the fresh record no longer holds the grade the first flag
-// removed: Missing's 0 is the flag's own) or holds no grade now. Otherwise a graded pair's grade
-// replaces it. → { saved, undo } where undo() puts the previous row back (for a failed write).
+// Keep the copy for a new flag, BEFORE the write. A copy still waiting to be restored is kept only
+// while it holds everything the pair has now: each current topic and row level equals the copy's,
+// and the current score is none or the copy's (Missing's 0 is the flag's own, not a grade). Parts
+// that are empty because a flag blanked them are fine. Anything else (a regrade since, then a flag
+// set outside Prism that kept or did not yet blank the levels) means the copy is out of date: the
+// current grade replaces it. An ungraded pair with no waiting copy stores nothing.
+// → { saved, undo } where undo() puts the previous row back exactly (Schoology wrote nothing).
+function holdsAll(saved, now) {
+  if (now.score != null && !sameScore(num(saved.score), now.score)) return false;
+  const within = (cur, kept) => Object.entries(cur || {}).every(([k, level]) => (kept || {})[k] === level);
+  return within(now.topics, saved.topics) && within(now.rows, saved.rows);
+}
 function keepCopy(db, t, fresh, was, code) {
   const existing = copyOf(db, t);
   const waiting = existing && existing.restored_at == null;
@@ -118,7 +126,7 @@ function keepCopy(db, t, fresh, was, code) {
     }
   };
   try {
-    if (waiting && (isFlagCode(was) || !isGraded(now))) {
+    if (waiting && holdsAll(JSON.parse(existing.saved_json), now)) {
       db.prepare('UPDATE excused_grades SET flag = ? WHERE student_id = ? AND assignment_id = ?').run(code, t.studentId, t.assignmentId);
       return { saved: true, undo };
     }
@@ -167,7 +175,7 @@ async function readBack(t, code) {
   }
   const shown = Number(back?.exception) || 0;
   if (!back || shown !== code) {
-    throw new TriageError('READBACK_MISMATCH', `Schoology answered, but its record shows ${back ? flagName(shown) : 'no grade record'}, not ${flagName(code)}: Prism has not recorded the change. Check the task in Schoology, then sync.`);
+    throw Object.assign(new TriageError('READBACK_MISMATCH', `Schoology answered, but its record shows ${back ? flagName(shown) : 'no grade record'}, not ${flagName(code)}: Prism has not recorded the change. Check the task in Schoology, then sync.`), { back });
   }
   return back;
 }
@@ -184,7 +192,11 @@ function mirror(db, t, back, code) {
     `).run(t.studentId, t.assignmentId, t.enrollmentId, num(back.grade), Number(back.exception) || 0,
       back.comment ?? '', back.comment_status ?? null, new Date().toISOString());
     if (removesLevels(code)) {
-      db.prepare('DELETE FROM mastery_scores WHERE student_uid = ? AND assignment_schoology_id = ?').run(uidOf(db, t), String(a.schoology_assignment_id));
+      // Only levels the stored copy holds: a level Prism has no other record of is never dropped here.
+      const kept = waitingCopy(db, t);
+      const held = kept ? JSON.parse(kept.saved_json).topics || {} : {};
+      const drop = db.prepare('DELETE FROM mastery_scores WHERE student_uid = ? AND assignment_schoology_id = ? AND topic_id = ? AND grade = ?');
+      for (const [topicId, level] of Object.entries(held)) drop.run(uidOf(db, t), String(a.schoology_assignment_id), topicId, level);
     }
   })();
 }
@@ -264,7 +276,7 @@ function planRestore(db, a, saved) {
 
 // The saved copy into the card's draft ({ pending, comment, display, displayTouched, base }), with
 // the base the card computes now (after the clear and the line removal are mirrored), so the card
-// does not discard it as stale. Replaces any draft. Marks the copy restored.
+// does not discard it as stale. Replaces any draft. Marks the copy restored once a draft is written.
 function restoreDraft(db, t, copy) {
   const a = assignmentOf(db, t);
   const { pending, notRestored } = planRestore(db, a, JSON.parse(copy.saved_json));
@@ -280,8 +292,10 @@ function restoreDraft(db, t, copy) {
           ON CONFLICT(assignment_id, student_id) DO UPDATE SET draft_json = excluded.draft_json, enrolment_id = excluded.enrolment_id, updated_at = datetime('now')
         `).run(t.assignmentId, t.studentId, t.enrollmentId, JSON.stringify(body));
         draft = true;
+        db.prepare(`UPDATE excused_grades SET restored_at = datetime('now') WHERE student_id = ? AND assignment_id = ?`).run(t.studentId, t.assignmentId);
       }
-      db.prepare(`UPDATE excused_grades SET restored_at = datetime('now') WHERE student_id = ? AND assignment_id = ?`).run(t.studentId, t.assignmentId);
+      // Nothing the card can stage (e.g. a points-only score): the copy stays waiting, so
+      // "Restore saved grade" is still offered beside the parts to re-enter in Schoology.
     })();
     return { draft, notRestored };
   } catch (err) {
@@ -352,7 +366,18 @@ export async function setGradeFlag(db, { studentId, assignmentId, code, expected
       try { copy.undo(); } catch (e) { console.error('[grade flag] could not put the earlier copy back:', e.message); }
       throw err;
     }
-    const back = await readBack(t, target);
+    let back;
+    try {
+      back = await readBack(t, target);
+    } catch (err) {
+      // The record still reads as before the write (old flag, same score): Schoology wrote nothing,
+      // so the copy goes back exactly as on a refused PUT. Any other read-back keeps the copy.
+      const b = err.back;
+      if (b && (Number(b.exception) || 0) === was && sameScore(num(b.grade), score)) {
+        try { copy.undo(); } catch (e) { console.error('[grade flag] could not put the earlier copy back:', e.message); }
+      }
+      throw err;
+    }
     // The flag is set: Schoology must not have removed a grade Prism did not keep (anti-goal).
     if (target !== 0 && was === 0 && score != null && !sameScore(num(back.grade), score)) {
       const kept = waitingCopy(db, t);

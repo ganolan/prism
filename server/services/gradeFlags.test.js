@@ -137,6 +137,50 @@ describe('setGradeFlag: setting a flag', () => {
     expect(copyRow()).toMatchObject({ flag: 1, saved_json: first });
   });
 
+  describe('a waiting copy against a grade that changed since', () => {
+    // Exempt over EX/EX (75), cleared without restoring: copy A waits. The teacher regrades ED/ED (100).
+    beforeEach(async () => {
+      await flag(1);
+      await flag(0, { restore: false });
+      expect(JSON.parse(copyRow().saved_json).topics).toEqual({ t1: 'EX', t2: 'EX' });
+      for (const t of ['t1', 't2']) db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('u1', 'sa', ?, 100, 'ED')`).run(t);
+      record = { ...record, grade: 100 };
+      db.prepare('UPDATE grades SET score = 100').run();
+    });
+
+    test('Missing set outside Prism (levels kept), then Exempt: the new copy holds ED/ED, not copy A', async () => {
+      record = { ...record, exception: 3, grade: 0 };
+      db.prepare('UPDATE grades SET exception = 3, score = 0').run();
+      await flag(1);
+      expect(JSON.parse(copyRow().saved_json)).toMatchObject({ score: null, topics: { t1: 'ED', t2: 'ED' } });
+      expect(copyRow()).toMatchObject({ flag: 1, restored_at: null });
+      const out = await flag(0);
+      expect(out.restored).toEqual({ draft: true, notRestored: [] });
+      expect(draftRow().pending).toEqual({ t1: 'ED', t2: 'ED' });
+    });
+
+    test('Late set outside Prism (local levels not yet dropped), then Exempt: the new copy holds ED/ED', async () => {
+      record = { ...record, exception: 6, grade: null };
+      db.prepare('UPDATE grades SET exception = 6, score = NULL').run();
+      await flag(1);
+      expect(JSON.parse(copyRow().saved_json)).toMatchObject({ score: null, topics: { t1: 'ED', t2: 'ED' } });
+      expect(levels()).toEqual([]); // held by the new copy, so the mirror may drop them
+    });
+
+    test('a regrade then Exempt in Prism: the new grade replaces copy A', async () => {
+      await flag(1);
+      expect(JSON.parse(copyRow().saved_json)).toMatchObject({ score: 100, topics: { t1: 'ED', t2: 'ED' } });
+    });
+  });
+
+  test('a waiting copy that holds everything now is kept (nothing regraded since)', async () => {
+    await flag(1);
+    await flag(0, { restore: false });
+    const first = copyRow().saved_json;
+    await flag(6);
+    expect(copyRow()).toMatchObject({ flag: 6, saved_json: first });
+  });
+
   test('storing the copy fails: no PUT, error thrown, nothing changed', async () => {
     db.exec(`CREATE TRIGGER fail_copy BEFORE INSERT ON excused_grades BEGIN SELECT RAISE(ABORT, 'disk full'); END;`);
     try {
@@ -165,11 +209,30 @@ describe('setGradeFlag: setting a flag', () => {
     await expect(setGradeFlag(db, { studentId: s, assignmentId: a, code: 1, expected: { exception: '0', score: 75 } })).resolves.toMatchObject({ exception: 1 });
   });
 
-  test('read-back shows the old exception: READBACK_MISMATCH, grades unchanged, copy kept', async () => {
+  test('read-back shows the old exception and score (Schoology wrote nothing): READBACK_MISMATCH, grades unchanged, copy rolled back', async () => {
     pushGradeUpdates.mockResolvedValueOnce({ status: 207, data: { grades: { grade: [{ response_code: 204 }] } } }); // accepted, changed nothing
     await expect(flag(1)).rejects.toMatchObject({ code: 'READBACK_MISMATCH' });
     expect(gradeRow()).toMatchObject({ score: 75, exception: 0 });
     expect(levels()).toHaveLength(2);
+    expect(copyRow()).toBeNull();
+  });
+
+  test('read-back that wrote nothing puts back the earlier waiting copy exactly', async () => {
+    await flag(6);
+    await flag(0, { restore: false });
+    const kept = copyRow();
+    pushGradeUpdates.mockResolvedValueOnce({ status: 207, data: {} });
+    await expect(flag(1)).rejects.toMatchObject({ code: 'READBACK_MISMATCH' });
+    expect(copyRow()).toEqual(kept);
+  });
+
+  test('read-back that shows some other change: READBACK_MISMATCH, grades unchanged, copy kept', async () => {
+    pushGradeUpdates.mockImplementationOnce(async (_section, entries) => {
+      entries.forEach((e) => applyPut({ ...e, exception: 2 })); // something else landed
+      return { status: 207, data: {} };
+    });
+    await expect(flag(1)).rejects.toMatchObject({ code: 'READBACK_MISMATCH' });
+    expect(gradeRow()).toMatchObject({ score: 75, exception: 0 });
     expect(copyRow()).toMatchObject({ flag: 1, restored_at: null });
   });
 
@@ -330,7 +393,12 @@ describe('setGradeFlag: clearing', () => {
     const out = await flag(0);
     expect(out.restored).toEqual({ draft: false, notRestored: ['75'] });
     expect(draftRow()).toBeNull();
-    expect(copyRow().restored_at).not.toBeNull();
+    // Nothing staged: the copy stays waiting, so "Restore saved grade" is still offered.
+    expect(copyRow().restored_at).toBeNull();
+    expect(out.saved).toBe(true);
+    const again = await flag(0);
+    expect(again.restored).toEqual({ draft: false, notRestored: ['75'] });
+    expect(pushGradeUpdates).toHaveBeenCalledTimes(2); // the restore-only path writes nothing
   });
 
   test('a score-scale task with feedback rows: row: and __scale__ levels staged', async () => {

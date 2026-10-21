@@ -201,6 +201,17 @@ const MIGRATIONS = [
   `ALTER TABLE parents ADD COLUMN extra_email TEXT`,
   // #122: the feedback inbox and its log are gone (graders write through PrisMCP).
   `DROP TABLE IF EXISTS inbox_log`,
+  // #40: Late (exception 4) is not feedback. Rewrite stored fingerprints that carry it
+  // ("e":4) to "e":0, so a flagged-Late row is not read as graded. save_log holds
+  // fingerprints as JSON strings inside a JSON array, so there the quotes are escaped.
+  // Idempotent: once rewritten, no row matches. Last in the list so save_log exists.
+  `UPDATE feedback_snapshots SET
+     fingerprint = replace(fingerprint, '"e":4,"l"', '"e":0,"l"'),
+     synced_fingerprint = replace(synced_fingerprint, '"e":4,"l"', '"e":0,"l"'),
+     arrival_baseline = replace(arrival_baseline, '"e":4,"l"', '"e":0,"l"'),
+     save_log = replace(save_log, '\\"e\\":4,\\"l\\"', '\\"e\\":0,\\"l\\"')
+   WHERE instr(fingerprint, '"e":4,"l"') > 0 OR instr(synced_fingerprint, '"e":4,"l"') > 0
+      OR instr(arrival_baseline, '"e":4,"l"') > 0 OR instr(save_log, '\\"e\\":4,\\"l\\"') > 0`,
 ];
 
 // Remove orphaned auto-flag rows. The auto-flag feature that wrote 'missing',

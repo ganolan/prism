@@ -56,6 +56,21 @@ describe('fingerprint', () => {
   });
 });
 
+describe('Late (exception 4) is not feedback', () => {
+  test('a Late exception fingerprints like no exception', () => {
+    expect(fingerprint({ exception: 4 })).toBe(fingerprint({ exception: 0 }));
+    expect(fingerprint({ exception: '4', score: 5 })).toBe(fingerprint({ exception: 0, score: 5 }));
+  });
+  test('Excused, Incomplete and Missing still change the fingerprint', () => {
+    for (const e of [1, 2, 3]) expect(fingerprint({ exception: e })).not.toBe(fingerprint({ exception: 0 }));
+  });
+  test('a stored baseline with only a Late exception is not prior feedback', () => {
+    expect(hasPriorFeedback('{"s":null,"e":4,"l":[],"c":""}')).toBe(false);
+    expect(hasPriorFeedback('{"s":null,"e":1,"l":[],"c":""}')).toBe(true);
+    expect(hasPriorFeedback('{"s":3,"e":4,"l":[],"c":""}')).toBe(true);
+  });
+});
+
 describe('hasPriorFeedback', () => {
   test('true for a score of 0', () => {
     expect(hasPriorFeedback(fingerprint({ score: 0, exception: 0, comment: '', commentStatus: 0, levels: [] }))).toBe(true);

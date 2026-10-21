@@ -4,7 +4,9 @@
 // score, exception OR comment — sets it, a submission alone never does).
 // Resubmission time = grades.latest_revision_at (native: newest non-draft
 // revision; LTI: the grader's submissionDate).
-import { hasPriorFeedback } from './feedbackFingerprint.js';
+import { hasPriorFeedback, feedbackException } from './feedbackFingerprint.js';
+
+export { feedbackException };
 
 const parseFp = (fp) => { try { return JSON.parse(fp) || {}; } catch { return {}; } };
 
@@ -21,7 +23,7 @@ export const PART_SCORE = 1;    // score or exception
 export const PART_LEVELS = 2;   // rubric levels
 export const PART_COMMENT = 4;  // the visible comment (status line stripped)
 
-const scoreDiffers = (b, c) => (b.s ?? null) !== (c.s ?? null) || (Number(b.e) || 0) !== (Number(c.e) || 0);
+const scoreDiffers = (b, c) => (b.s ?? null) !== (c.s ?? null) || feedbackException(b.e) !== feedbackException(c.e);
 const levelsDiffer = (b, c) => JSON.stringify(b.l || []) !== JSON.stringify(c.l || []);
 
 // Which parts differ between two fingerprints (PART_* bits).
@@ -70,11 +72,11 @@ export function feedbackAnswered(baselineFp, currentFp, evidence = null) {
   return Boolean(c.c) && c.c !== b.c && (graded || Boolean(parts & PART_COMMENT));
 }
 
-// Feedback given = a score, an exception, or a non-empty comment.
+// Feedback given = a score, an exception other than Late (4, a flag only), or a non-empty comment.
 export function hasFeedback(grade) {
   if (!grade) return false;
   if (grade.score != null) return true;
-  if ((Number(grade.exception) || 0) > 0) return true;
+  if (feedbackException(grade.exception) > 0) return true;
   return String(grade.grade_comment ?? '').trim().length > 0;
 }
 

@@ -1706,7 +1706,7 @@ Commits `fa69791` to `a41199e`, then the reference docs and the parity script. S
 
 ## Guardian details from PowerSchool (#173, 2026-10-21)
 
-Commits `c481c5b` and `610a40e` (server) and `76f679e` (client), then the docs (`3d412f2`, `9a66054`). The review fixes follow in one commit (below). Follow-up from #66.
+Commits `c481c5b` and `610a40e` (server) and `76f679e` (client), then the docs (`3d412f2`, `9a66054`). Review fixes: `5656d3b` (`contact.tel`, the de-duplication and the stricter extra email check). Follow-up from #66.
 
 - **Why:** `parents.phone` was typed by hand, and the email on a parent's Schoology account is not always the address PowerSchool holds. The Emergency Contact List already read for #66 has G1 Phone and G2 Phone and one email per guardian.
 - **Read:** `server/lib/psEmergencyContacts.js` reads the phone columns when present (a list without them still parses, with null phones and one warning); `student_ps_guardians` gains `phone`.

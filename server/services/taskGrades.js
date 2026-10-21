@@ -10,7 +10,8 @@ import { retireCopy } from './savedGrades.js';
 // A student is found by the course's stored enrolment, then through
 // `enrollIdToUid` (enrolment id → uid) for one not stored yet. A pair with no flag and a score
 // retires a saved copy still waiting from a cleared flag (#40: the teacher re-entered the grade in
-// Schoology); `now` is when the read began, so a copy kept after it is left alone. → rows written.
+// Schoology), only when the record's Schoology `timestamp` is later than the copy (retireCopy
+// `writtenAt`), so a read racing a flag write never retires that write's copy. → rows written.
 export function writeGrades(db, { courseId, grades, now, enrollIdToUid = {} }) {
   const upsertGrade = db.prepare(`
     INSERT INTO grades (student_id, assignment_id, enrolment_id, score, max_score, grade_comment, comment_status, exception, submitted_at, late, draft, synced_at)
@@ -48,7 +49,7 @@ export function writeGrades(db, { courseId, grades, now, enrollIdToUid = {} }) {
       if (!assignRow) continue;
       upsertGrade.run(studentId, assignRow.id, enrollmentId, g.grade ?? null, g.max_points ?? assignRow.max_points ?? null, g.comment || null, g.comment_status ?? null, g.exception ?? 0, Number(g.timestamp) || 0, now);
       if (!(Number(g.exception) || 0) && g.grade != null && g.grade !== '') {
-        retireCopy(db, { studentId, assignmentId: assignRow.id, savedBefore: now });
+        retireCopy(db, { studentId, assignmentId: assignRow.id, writtenAt: Number(g.timestamp) || 0 });
       }
       gradesCount++;
     }

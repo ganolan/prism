@@ -11,13 +11,24 @@ const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 // send-all, /write) or, read by a sync, re-entered in Schoology after the flag was cleared
 // (taskGrades.js writeGrades). The grade the flag removed is no longer the one to restore, so a
 // waiting copy is retired (restored_at set) and "Restore saved grade" is no longer offered.
-// `savedBefore` (ISO; the sync's start, before its read): only a copy saved before it is retired,
-// so a read taken before a flag write cannot retire the copy that write just kept.
+// `writtenAt` (the sync's case): the grade record's Schoology `timestamp` (epoch seconds; every
+// PUT restamps it, probed 2026-10-21). The copy is retired only when Schoology wrote the record
+// more than RETIRE_SKEW_S after the copy was saved: a read taken before a flag write's PUT (the
+// pre-flag grade, written before the copy) never retires the copy that write just kept. A record
+// with no timestamp retires nothing. Not probed: whether a level entered in Schoology's own
+// gradebook moves the timestamp; if not, the copy keeps waiting (nothing is lost).
 // → true when a waiting copy was retired.
-export function retireCopy(db, { studentId, assignmentId, savedBefore = null } = {}) {
-  return db.prepare(`UPDATE excused_grades SET restored_at = datetime('now')
-    WHERE student_id = ? AND assignment_id = ? AND restored_at IS NULL AND (? IS NULL OR julianday(saved_at) < julianday(?))`)
-    .run(Number(studentId), Number(assignmentId), savedBefore, savedBefore).changes > 0;
+export const RETIRE_SKEW_S = 5;
+export function retireCopy(db, { studentId, assignmentId, writtenAt } = {}) {
+  if (writtenAt !== undefined) {
+    const at = Number(writtenAt);
+    if (!Number.isFinite(at) || at <= 0) return false;
+    return db.prepare(`UPDATE excused_grades SET restored_at = datetime('now')
+      WHERE student_id = ? AND assignment_id = ? AND restored_at IS NULL AND CAST(strftime('%s', saved_at) AS INTEGER) + ? < ?`)
+      .run(Number(studentId), Number(assignmentId), RETIRE_SKEW_S, at).changes > 0;
+  }
+  return db.prepare(`UPDATE excused_grades SET restored_at = datetime('now') WHERE student_id = ? AND assignment_id = ? AND restored_at IS NULL`)
+    .run(Number(studentId), Number(assignmentId)).changes > 0;
 }
 
 // "a", "a and b", "a, b and c".

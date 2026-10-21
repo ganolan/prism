@@ -138,7 +138,8 @@ function keepCopy(db, t, fresh, was, code, freshTopics = null) {
   };
   try {
     if (waiting && holdsAll(JSON.parse(existing.saved_json), now)) {
-      db.prepare('UPDATE excused_grades SET flag = ? WHERE student_id = ? AND assignment_id = ?').run(code, t.studentId, t.assignmentId);
+      // Restamped: a sync retires a copy only for a Schoology write after saved_at (retireCopy).
+      db.prepare(`UPDATE excused_grades SET flag = ?, saved_at = datetime('now') WHERE student_id = ? AND assignment_id = ?`).run(code, t.studentId, t.assignmentId);
       return { saved: true, undo };
     }
     if (!isGraded(now)) return { saved: false, undo };

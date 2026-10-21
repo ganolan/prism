@@ -91,6 +91,21 @@ describe('makeDraftSaver', () => {
     expect(deleteAssessmentDraft).not.toHaveBeenCalled();
   });
 
+  it('settle() also waits for a save already in flight (sent before, not yet answered)', async () => {
+    let answer;
+    saveAssessmentDraft.mockReturnValueOnce(new Promise((resolve) => { answer = resolve; }));
+    const s = makeDraftSaver(target, { delay: 500 });
+    s.save({ comment: 'x' }, { immediate: true }); // sent now, still in flight
+    let settled = false;
+    const p = s.settle().then(() => { settled = true; });
+    await Promise.resolve(); await Promise.resolve();
+    expect(settled).toBe(false);
+    answer({ ok: true });
+    await p;
+    expect(settled).toBe(true);
+    expect(saveAssessmentDraft).toHaveBeenCalledTimes(1);
+  });
+
   it('settle() resolves even when the save fails (best effort)', async () => {
     saveAssessmentDraft.mockReturnValueOnce(Promise.reject(new Error('offline')));
     const s = makeDraftSaver(target, { delay: 500 });

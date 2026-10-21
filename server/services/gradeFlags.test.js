@@ -186,6 +186,15 @@ describe('setGradeFlag: setting a flag', () => {
     expect(copyRow()).toMatchObject({ flag: 6, saved_json: first });
   });
 
+  test('a waiting copy kept for a new flag is restamped (saved_at): a sync compares Schoology\'s write time with it', async () => {
+    await flag(1);
+    await flag(0, { restore: false });
+    db.prepare(`UPDATE excused_grades SET saved_at = '2026-01-01 00:00:00'`).run();
+    await flag(6);
+    expect(copyRow().saved_at).not.toBe('2026-01-01 00:00:00');
+    expect(Date.parse(`${copyRow().saved_at.replace(' ', 'T')}Z`)).toBeGreaterThan(Date.now() - 60_000);
+  });
+
   test('storing the copy fails: no PUT, error thrown, nothing changed', async () => {
     db.exec(`CREATE TRIGGER fail_copy BEFORE INSERT ON excused_grades BEGIN SELECT RAISE(ABORT, 'disk full'); END;`);
     try {

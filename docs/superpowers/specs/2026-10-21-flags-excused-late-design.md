@@ -1,7 +1,7 @@
 # Flags: setting Schoology's grade flags from Prism (#40)
 
 Design agreed with Graham on 21 October 2026 and revised the same day after the live probes. Mockups: the
-private Artifact page "Flags in Prism" (https://claude.ai/artifact/RcePZWizTujDo17X1zpLf3), version 10.
+private Artifact page "Flags in Prism" (https://claude.ai/artifact/RcePZWizTujDo17X1zpLf3), version 10. Absent revised to a marker the same day (no mockup change).
 Probe results: `.claude/schoology-api-reference.md`, "Grade exceptions (flags)".
 
 ## Intent
@@ -36,14 +36,20 @@ this account for Excused).
   and each task on the student page (the last two share `AssignmentFeedback`, #135).
 - **Every flag opens a panel**: an optional reason for the student, the saved-grade note on graded work,
   and the records it withdraws.
-- **The reason** becomes a status line in the student's Schoology comment: `Marked exempt on Tue 21/10.`
+- **The reason** becomes a status line in the student's Schoology comment: `Marked exempt on Wed 21/10.`
   plus the reason (`Marked late on …`, `Marked absent on …`, `Marked incomplete on …`, `Marked missing
   on …`).
 - **Graded work keeps its grade in Prism:** before any flag, Prism saves the grade (score, topic levels,
   rubric row levels, comment); the rubric shows it grayed and locked while flagged; clearing the flag
   offers to restore it as a draft.
-- **Exempt and Absent withdraw Prism's open records** on the task (extension, resubmission request,
-  make-up, referral), after listing them. Late, Incomplete and Missing keep them.
+- **Exempt is the only decision flag.** It withdraws Prism's open records on the task (extension,
+  resubmission request, make-up, referral), after listing them, hides Extend, and takes the student out of
+  make-ups, late work and feedback owed.
+- **Absent is a marker, not a decision** (Graham, 21 October 2026). Teachers read it differently: "this
+  was their one chance", or "a reminder to follow up". Prism assumes neither. Absent changes nothing in
+  Prism by itself: no withdrawals, Extend stays, and make-ups, late work and feedback owed keep tracking
+  the student. The panel explains what Absent does in Schoology and points to the two usual next steps.
+  Late, Incomplete and Missing are markers in the same sense.
 - **Flags show as symbols**, never as grade-like chips: a round, color-coded symbol with the flag's name
   in tiny capitals underneath, and a popover on hover or tap.
 - **Colors:** Exempt green, Late red, Absent slate gray, Incomplete amber, Missing red (outlined).
@@ -122,12 +128,14 @@ Choosing any flag opens a panel under the card header (the action panel slot Ext
 shared view, titled "Mark Jordan exempt?" (late, absent, incomplete, missing). It holds:
 
 - **Reason for the student (optional):** one line. With a reason, Prism writes the status line with a
-  preview: "Added to the top of Jordan's comment: "Marked exempt on Tue 21/10. Medical leave from 13 to 24
+  preview: "Added to the top of Jordan's comment: "Marked exempt on Wed 21/10. Medical leave from 13 to 24
   October."" Prism writes the line only when a reason is given.
-- **Records withdrawn** (Exempt and Absent only): "Also withdraws: Extension to Fri 24/10/2026".
+- **Records withdrawn** (Exempt only): "Also withdraws: Extension to Fri 24/10/2026".
 - **The saved grade** (graded work only): "Schoology removes this grade while the flag is set. Prism keeps
   a copy: Exhibiting (3.5) and 2 topic levels. Your comment stays." For Missing: "Schoology sets this
   grade to 0 while the flag is set. Prism keeps a copy: …".
+- **Next steps** (Absent only): "If Sam will make this up, set a date with Extend. If Sam will not do
+  this task, mark Exempt instead."
 - **Buttons:** "Cancel" and "Mark exempt" (the flag's verb).
 
 A flag that replaces another flag (one value per task) opens the same panel.
@@ -144,8 +152,7 @@ A flag that replaces another flag (one value per task) opens the same panel.
 ### After a write
 
 The card shows the flag's symbol, the pill takes the flag's color, the rubric is grayed and locked (with
-the saved levels and the caption "Saved before the flag on Tue 21/10. Clear the flag to restore it."), and
-Extend hides for Exempt and Absent. A failed write shows its reason beside the pill and keeps the previous
+the saved levels and the caption "Saved before the flag on Wed 21/10. Clear the flag to restore it."), and Extend hides for Exempt. A failed write shows its reason beside the pill and keeps the previous
 state.
 
 ## Saving and restoring the grade
@@ -196,7 +203,7 @@ state.
 
 - Server: the flag write for each code, the refusal on a changed row, the read-back, per-entry 207
   handling, the saved copy (stored before the write; the write refused if storing fails), the status line
-  (text per flag, removal on clear, written after the flag), withdrawals for Exempt and Absent only, the
+  (text per flag, removal on clear, written after the flag), withdrawals for Exempt only, the
   restore into the draft with a valid `base`, the busy lock.
 - Client: the menu (five items, verbatim copy, ticks, keyboard), the panel (reason preview, withdrawals,
   saved-grade note), the clear panel, the pill colors, `FlagSymbol` (five symbols, names, popover), the

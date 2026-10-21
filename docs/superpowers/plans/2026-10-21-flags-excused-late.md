@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-21-flags-excused-late-design.md` (revised after the probes; mockups: https://claude.ai/artifact/RcePZWizTujDo17X1zpLf3, version 10).
 
-**Revision (21 Oct 2026):** Tasks 1 to 6 are done. The probes changed the design (five settable flags, Late = 6, every flag removes the grade, symbols). Task 10 reworks the display from Tasks 2 to 4; Tasks 7 and 8 are rewritten. Order: 10, 7, 8, 9.
+**Revision (21 Oct 2026):** Tasks 1 to 6 are done. The probes changed the design (five settable flags, Late = 6, every flag removes the grade, symbols). Task 10 reworks the display from Tasks 2 to 4; Tasks 7 and 8 are rewritten. Order: 10, 7, 11, 8, 9.
 
 ## Global Constraints
 
@@ -178,6 +178,21 @@ Done earlier and now partly wrong: Tasks 2 and 3 assumed Late = 4 and that Late 
 
 ---
 
+### Task 11: Absent is a marker, not a decision
+
+Graham, 21 Oct 2026, after Tasks 10 and 7: Absent must not be treated as "not doing the task". Only Exempt is a decision.
+
+**Files:**
+- Modify: `server/lib/flags.js` and `client/src/lib/flags.js` (`isNotDoingTask` is code 1 only; rename to `isExempt` if that reads better, updating every caller), every site Task 10's fix round changed to treat 5 like 1 (`server/services/triage.js`, `submissionStatus.js`, `submissionTimeline.js`, `cardAttention.js`, `resubmissions.js`, `unfinishedGrading.js` `NOT IN (1, 5)` back to code 1, `client/src/lib/assessmentFilters.js`, `client/src/pages/AssessmentSummaryPage.jsx` Extend), `server/services/gradeFlags.js` (withdrawals for code 1 only), their tests, `mcp/server.js` (the `excused` state is Exempt only), `docs/design-language.md`.
+
+- [ ] **Step 1: Write failing tests:** for each site, code 5 behaves like an unflagged student (Extend shows; listed for make-ups and late work when otherwise due; owes; overdue clock counts; hidden feedback listed); code 1 unchanged; `setGradeFlag` with code 5 withdraws nothing.
+- [ ] **Step 2: Run.** Expected: FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run both full suites and `npm run build`.** Expected: PASS.
+- [ ] **Step 5: Commit** `fix(flags): Absent is a marker; only Exempt is a decision (#40)`.
+
+---
+
 ### Task 7: The flag write service and route
 
 **Files:**
@@ -200,7 +215,7 @@ Done earlier and now partly wrong: Tasks 2 and 3 assumed Late = 4 and that Late 
   - fresh exception or score differs from `expected` → `CHANGED`, no PUT.
   - read-back shows the old exception → `READBACK_MISMATCH`, `grades` unchanged, copy kept.
   - a 502 answer, and a 207 with a per-entry 400 → `SCHOOLOGY_WRITE_FAILED`, nothing mirrored.
-  - code 1 or 5 with an open extension, resubmission and referral → each undone (record only) and listed; code 6, 2 or 3 → none undone.
+  - code 1 with an open extension, resubmission and referral → each undone (record only) and listed; codes 5, 6, 2, 3 → none undone (Task 11).
   - with a reason, one `publishStatusLine` call with kind `flag`; without a reason, a stored line from a withdrawn record is removed.
   - `publishStatusLine` throws after the flag write → result has the new `exception` and `line.error`; records stay withdrawn.
   - code 0 from a flag with a saved copy and `restore: true` → PUT with `exception: 0`, `assessment_drafts` row holds `pending` with the saved topic, `row:` and `__scale__` levels, `comment`, `display`, and `base === cardBaselineFor(db, a)(student)`; an existing draft is replaced; `restored_at` set; a points-only task, or a saved overall that differs from the levels' computed score, returns `notRestored` naming it.
@@ -226,7 +241,7 @@ Done earlier and now partly wrong: Tasks 2 and 3 assumed Late = 4 and that Late 
 - [ ] **Step 1: Write failing tests:**
   - closed pill "Flags" with no flag; with exception 1 it shows the Exempt symbol, the text "Exempt" and class `flags-pill--exempt`; 6 gives `flags-pill--late`; 5 `--absent`.
   - open menu shows the subheading `FLAGS_MENU_HEADING`, then the five in `FLAG_ORDER` with `flagGuide` text verbatim, the divider note verbatim, and ticks the set flag with "Choose again to clear it."
-  - choosing any flag calls `getGradeFlags` then opens `FlagPanel` titled "Mark Sam late?" (verb from `FLAGS`): reason input labeled "Reason for the student (optional)", preview `Added to the top of Sam's comment: "Marked late on Tue 21/10. <reason>"` when a reason is typed, "Also withdraws: Extension to Fri 24/10/2026" only for Exempt and Absent with an open record, the saved-grade note only on graded work (the Missing wording for code 3), buttons "Cancel" and "Mark late"; confirming calls `setGradeFlag` with `{ code: 6, expected, reason }`.
+  - choosing any flag calls `getGradeFlags` then opens `FlagPanel` titled "Mark Sam late?" (verb from `FLAGS`): reason input labeled "Reason for the student (optional)", preview `Added to the top of Sam's comment: "Marked late on Tue 21/10. <reason>"` when a reason is typed, "Also withdraws: Extension to Fri 24/10/2026" only for Exempt with an open record; for Absent, the next-steps line "If Sam will make this up, set a date with Extend. If Sam will not do this task, mark Exempt instead.", the saved-grade note only on graded work (the Missing wording for code 3), buttons "Cancel" and "Mark late"; confirming calls `setGradeFlag` with `{ code: 6, expected, reason }`.
   - choosing the ticked flag with a saved copy opens `ClearFlagPanel` with the box ticked, "(replaces your current draft)" when `hasDraft`, and a "Re-enter in Schoology:" line for `notRestorable` parts; without a copy it calls `setGradeFlag` with `code: 0` at once.
   - a `CHANGED` error shows its message beside the pill and keeps the old state; while pending the pill is disabled.
   - keyboard: ArrowDown moves through the five, Enter chooses, Escape closes.

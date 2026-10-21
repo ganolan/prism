@@ -93,8 +93,10 @@ export const FLAG_RANK = { do_not_contact: 2, deceased: 1 };
 const rank = (status) => FLAG_RANK[status] ?? 0;
 const slotFlag = (flags, slot) => (isSet(flags[`dnc_g${slot}`]) ? 'do_not_contact' : isSet(flags[`g${slot}_deceased`]) ? 'deceased' : null);
 
-// The reason for a parent who takes the flag of a slot no parent is placed in.
-export const uncertainReason = (slot, status) => `${CONTACT_REASONS.not_matched}. Guardian ${slot} is flagged: ${CONTACT_REASONS[status]}`;
+// The reason for a parent who takes the flag of a slot no parent is placed in: why Prism
+// could not identify them (basis), then the flag.
+export const SHARED_SLOT_REASON = 'Matched to the same PowerSchool guardian as another parent';
+export const uncertainReason = (basis, slot, status) => `${basis}. Guardian ${slot} is flagged: ${CONTACT_REASONS[status]}`;
 
 /**
  * Every parent of one student: Map<parentId, { status, primary, reason, uncertain? }>.
@@ -105,11 +107,13 @@ export const uncertainReason = (slot, status) => `${CONTACT_REASONS.not_matched}
  * A flagged slot with no parent in it (controller's ruling, 21 October 2026): when slot N
  * is flagged (dnc_gN or gN_deceased, any value) and no parent is uniquely placed in N,
  * the flagged guardian may be any parent Prism could not place. So every parent not
- * uniquely placed in an unflagged slot takes N's flag, with `uncertain: true` and
- * uncertainReason. Two parents placed in one slot by a shared email are not uniquely
- * placed. do_not_contact wins over deceased when both slots qualify (slot 1 wins a tie),
- * and a parent's own flag wins when it is as strong. A student with flags but no guardian
- * read has no placed parents, so all of them take the strongest flag this way.
+ * uniquely placed in a slot takes N's flag, with `uncertain: true` and uncertainReason
+ * (basis: not matched, not checked, or sharing a slot). A parent uniquely placed in a slot
+ * is identified, so it keeps its own status and reason (21 October 2026). Two parents
+ * placed in one slot by a shared email are not uniquely placed. do_not_contact wins over
+ * deceased when both slots qualify (slot 1 wins a tie), and a parent's own flag wins when
+ * it is as strong. A student with flags but no guardian read has no placed parents, so all
+ * of them take the strongest flag this way.
  */
 export function decideParents({ checked, parents, slots = {}, flags = {}, correspondence }) {
   const placed = checked ? placeParents(parents, slots) : new Map();
@@ -127,9 +131,9 @@ export function decideParents({ checked, parents, slots = {}, flags = {}, corres
   for (const p of parents) {
     const slot = placed.get(p.id) ?? null;
     const { status, primary } = statusFor({ checked, slot, flags, correspondence });
-    const clear = unique(slot) && !slotFlag(flags, slot);
-    if (open && !clear && rank(status) < rank(open.status)) {
-      out.set(p.id, { status: open.status, primary: false, reason: uncertainReason(open.slot, open.status), uncertain: true });
+    if (open && !unique(slot) && rank(status) < rank(open.status)) {
+      const basis = slot ? SHARED_SLOT_REASON : CONTACT_REASONS[checked ? 'not_matched' : 'not_checked'];
+      out.set(p.id, { status: open.status, primary: false, reason: uncertainReason(basis, open.slot, open.status), uncertain: true });
     } else {
       out.set(p.id, { status, primary, reason: CONTACT_REASONS[status] ?? null });
     }

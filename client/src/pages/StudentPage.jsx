@@ -249,7 +249,7 @@ function ParentCard({ parent, studentId, onUpdated, revealed = false }) {
     <div style={{ padding: '0.5rem 0.65rem', background: 'var(--bg-subtle)', borderRadius: 8, border: '1px solid var(--border)' }}>
       <p className="text-sm parent-name">
         <span style={{ fontWeight: 600 }}>{parent.first_name} {parent.last_name}</span>
-        {revealed && status === 'contactable' && parent.contact.primary && <span className="badge badge-pink">Primary contact</span>}
+        {status === 'contactable' && parent.contact.primary && <span className="badge badge-pink">Primary contact</span>}
       </p>
       {!nameOnly && (
         <>

@@ -152,7 +152,7 @@ describe('contactsForStudents', () => {
     const q = addParent(a, 'p2', 'Kit', 'Sample', 'kit@example.test');
     setPs(a, { alerts_synced_at: SYNCED, dnc_g1: '1' });
     const out = contactsForStudents(db, [a]).get(a);
-    const dnc = { status: 'do_not_contact', primary: false, uncertain: true, reason: 'Not matched to a PowerSchool guardian. Guardian 1 is flagged: Do not contact (PowerSchool)' };
+    const dnc = { status: 'do_not_contact', primary: false, uncertain: true, reason: 'Not checked against PowerSchool yet. Guardian 1 is flagged: Do not contact (PowerSchool)' };
     expect(out.byParent.get(p)).toEqual(dnc);
     expect(out.byParent.get(q)).toEqual(dnc);
   });

@@ -108,9 +108,10 @@ describe('statusFor', () => {
 describe('decideParents', () => {
   const none = { dnc_g1: null, dnc_g2: null, g1_deceased: null, g2_deceased: null };
   const slots = { 1: { name: 'Sample, Robin', email: 'r@example.test' }, 2: { name: 'Sample, Kit', email: 'k@example.test' } };
-  const uncertain = (status, slot) => ({
+  const SHARED = 'Matched to the same PowerSchool guardian as another parent';
+  const uncertain = (status, slot, basis = CONTACT_REASONS.not_matched) => ({
     status, primary: false, uncertain: true,
-    reason: `Not matched to a PowerSchool guardian. Guardian ${slot} is flagged: ${CONTACT_REASONS[status]}`,
+    reason: `${basis}. Guardian ${slot} is flagged: ${CONTACT_REASONS[status]}`,
   });
 
   test('with no flags each parent gets statusFor plus its reason', () => {
@@ -128,14 +129,14 @@ describe('decideParents', () => {
   test('two parents on one slot by a shared email are not uniquely placed: both take the other slot\'s flag', () => {
     const shared = { 1: { name: 'Sample, Robin', email: 'r@example.test' }, 2: { name: 'Sample, Kit', email: 'family@example.test' } };
     const out = decideParents({ checked: true, parents: [parent(10, 'Kit', 'Sample', 'family@example.test'), parent(11, 'Jo', 'Other', 'FAMILY@example.test')], slots: shared, flags: { ...none, dnc_g1: '1' } });
-    expect(out.get(10)).toEqual(uncertain('do_not_contact', 1));
-    expect(out.get(11)).toEqual(uncertain('do_not_contact', 1));
+    expect(out.get(10)).toEqual(uncertain('do_not_contact', 1, SHARED));
+    expect(out.get(11)).toEqual(uncertain('do_not_contact', 1, SHARED));
   });
 
   test('a student with flags but no guardian read: every parent takes the strongest flag', () => {
     const out = decideParents({ checked: false, parents: [parent(10, 'Robin', 'Sample', 'r@example.test'), parent(11, 'Jo', 'Other', null)], slots, flags: { ...none, g1_deceased: '1', dnc_g2: 'Y' } });
-    expect(out.get(10)).toEqual(uncertain('do_not_contact', 2));
-    expect(out.get(11)).toEqual(uncertain('do_not_contact', 2));
+    expect(out.get(10)).toEqual(uncertain('do_not_contact', 2, CONTACT_REASONS.not_checked));
+    expect(out.get(11)).toEqual(uncertain('do_not_contact', 2, CONTACT_REASONS.not_checked));
     // No flags: not_checked as before.
     expect(decideParents({ checked: false, parents: [parent(12, 'Robin', 'Sample')], slots, flags: none }).get(12))
       .toEqual({ status: 'not_checked', primary: false, reason: 'Not checked against PowerSchool yet' });
@@ -153,10 +154,10 @@ describe('decideParents', () => {
     expect(out.get(11)).toEqual({ status: 'not_matched', primary: false, reason: 'Not matched to a PowerSchool guardian' });
   });
 
-  test('a parent placed in a flagged slot keeps the stronger of the two flags', () => {
-    // Robin is placed in slot 1 (deceased); slot 2 (do not contact) has no one placed.
+  test('a parent uniquely placed in a flagged slot keeps its own flag and reason', () => {
+    // Robin is placed in slot 1 (deceased), so Robin is not the slot 2 guardian (do not contact, no one placed).
     const out = decideParents({ checked: true, parents: [parent(10, 'Robin', 'Sample', 'r@example.test')], slots, flags: { ...none, g1_deceased: '1', dnc_g2: '1' } });
-    expect(out.get(10)).toEqual(uncertain('do_not_contact', 2));
+    expect(out.get(10)).toEqual({ status: 'deceased', primary: false, reason: 'Deceased (PowerSchool)' });
     // The other way round, the parent's own do_not_contact is stronger and stays certain.
     const own = decideParents({ checked: true, parents: [parent(10, 'Robin', 'Sample', 'r@example.test')], slots, flags: { ...none, dnc_g1: '1', g2_deceased: '1' } });
     expect(own.get(10)).toEqual({ status: 'do_not_contact', primary: false, reason: 'Do not contact (PowerSchool)' });

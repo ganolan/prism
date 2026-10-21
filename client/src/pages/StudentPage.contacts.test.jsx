@@ -103,12 +103,12 @@ describe('StudentPage family contacts (#66)', () => {
     expect(screen.queryByRole('button', { name: /Show alerts/ })).not.toBeInTheDocument();
   });
 
-  it('Primary contact appears only after the reveal', async () => {
+  it('Primary contact shows without the reveal, and still after it', async () => {
     load({ parents: [parent(1, 'contactable', { contact: { status: 'contactable', primary: true, reason: null } })],
       ps_alerts: [{ key: 'corr_g1', label: 'Correspondence G1', category: 'family' }] });
     renderPage();
     await screen.findByText('Guardian Number1');
-    expect(screen.queryByText('Primary contact')).not.toBeInTheDocument();
+    expect(screen.getByText('Primary contact')).toBeInTheDocument();
     await showAlerts(1);
     expect(screen.getByText('Primary contact')).toBeInTheDocument();
   });

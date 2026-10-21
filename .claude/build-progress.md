@@ -1702,13 +1702,13 @@ Commits `fa69791` to `a41199e`, then the reference docs and the parity script. S
 - **Show:** the student route returns `contact` per parent and `guardians_synced_at`; Class Tools leaves out every parent who is not contactable and states how many. A deceased guardian's card and a do-not-contact guardian's email stay hidden until Show alerts; Copy all copies contactable parents only. Pattern recorded in `docs/design-language.md` "PowerSchool alerts".
 - **Verified intel:** `.claude/powerschool-api-reference.md` "Guardian contacts (#66, verified 2026-10-21)"; probe `scripts/probe-ps-guardian-contacts.js`.
 - **Live check:** `DB_PATH=<copy> node scripts/parity-ps-guardians.js` runs the sync on a database copy and prints counts only: lists read and failed, students with slots, and parent rows per status (with the primary count and the uncertain count). It refuses to run without `DB_PATH` or on `~/prism/data/students.db`, symlinks followed.
-- **Not done (by design):** the DNC and deceased pop-ups for reason text, the correspondence pop-up, PrisMCP contact status. Follow-up: fill `parents.phone` from the list's phone columns.
+- **Not done (by design):** the DNC and deceased pop-ups for reason text, the correspondence pop-up, PrisMCP contact status. Follow-up: fill `parents.phone` from the list's phone columns. *(Superseded 2026-10-21 by #173: the list's phones are stored on the slot, `student_ps_guardians.phone`; `parents.phone` stays the teacher's extra phone.)*
 
 ## Guardian details from PowerSchool (#173, 2026-10-21)
 
 Commits `610a40e` (server) and `76f679e` (client), then the docs and the parity script. Follow-up from #66.
 
-- **Why:** `parents.phone` was typed by hand, and a parent's Schoology login address is not the address PowerSchool holds. The Emergency Contact List already read for #66 has G1 Phone and G2 Phone and one email per guardian.
+- **Why:** `parents.phone` was typed by hand, and the email on a parent's Schoology account is not always the address PowerSchool holds. The Emergency Contact List already read for #66 has G1 Phone and G2 Phone and one email per guardian.
 - **Read:** `server/lib/psEmergencyContacts.js` reads the phone columns when present (a list without them still parses, with null phones and one warning); `student_ps_guardians` gains `phone`.
 - **Decide:** `contactsForStudents` gives each parent `contact.ps` (`{ email, phone }` of the slot they are uniquely placed in, else null), `contact.email` (the address to show) and `contact.copy` (the addresses that may be linked and copied). The copy rule is unchanged from #66: contactable guardians only. Every copy list leaves out an address that a do-not-contact or deceased guardian holds, across linked rows.
 - **Teacher additions:** `parents.extra_email` is new (schema and `MIGRATIONS`); `parents.phone` is now the teacher's extra phone. `PUT /api/students/:id/parents/:parentId` takes `{ phone?, extra_email? }` and refuses an extra email with whitespace, a semicolon, a comma, `<` or `>`, or no `@`.

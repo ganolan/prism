@@ -782,12 +782,11 @@ and 219 Prism parents (Prism's parents read from prod's database, opened read on
 - **No notes name a contact guardian.** The Divorced pop-ups (3 students) hold a single line of 41 to 49 characters; none of
   19 Student Support Summaries has a contact word (G1, G2, both, contact, correspondence, custody, mother, father, email) in
   any row.
-
 - **Phones and which email is which (#173, probe 2026-10-21, 27 students).** The phone columns are G1 Phone and G2 Phone, one
   number per cell (counts above). Each guardian has one address: every address on the correspondence pop-up equals that
   guardian's address on the Emergency Contact List. The correspondence code (`x_homeemail`) chooses a guardian, not an
   address: 1 or 2 names one guardian, 3 names both. Where a Prism parent's email differs from PowerSchool's (19 of 219
-  parents), it is that parent's Schoology login address, which appears on no PowerSchool list.
+  parents), it is the email on that parent's Schoology account, which appears on no PowerSchool list.
 
 How Prism uses this: the alert sync reads the list once per section on its session (`server/lib/psEmergencyContacts.js`),
 stores the slots with their email and phone, and decides each parent's status when a page requests it

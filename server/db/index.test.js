@@ -199,6 +199,21 @@ describe('migration: feedback_snapshots.arrival_write_at (residual review R2)', 
   });
 });
 
+describe('migration: guardian slots and the correspondence code (#66)', () => {
+  test('an existing database gains correspondence and guardians_synced_at', () => {
+    const db = new Database(':memory:');
+    db.exec(`CREATE TABLE student_powerschool (student_id INTEGER PRIMARY KEY, alerts_synced_at TEXT, dnc_g1 TEXT, dnc_g2 TEXT,
+      g1_deceased TEXT, g2_deceased TEXT)`);
+    db.prepare(`INSERT INTO student_powerschool (student_id, dnc_g1) VALUES (1, '1')`).run();
+    migrate(db);
+    const cols = db.prepare('PRAGMA table_info(student_powerschool)').all().map((c) => c.name);
+    expect(cols).toEqual(expect.arrayContaining(['correspondence', 'guardians_synced_at']));
+    expect(db.prepare('SELECT dnc_g1, correspondence, guardians_synced_at FROM student_powerschool').get())
+      .toEqual({ dnc_g1: '1', correspondence: null, guardians_synced_at: null });
+    expect(db.prepare('PRAGMA table_info(student_ps_guardians)').all().map((c) => c.name)).toEqual(['student_id', 'slot', 'name', 'email']);
+  });
+});
+
 describe('migration: sync_metrics per-phase timing (#143)', () => {
   test('a DB whose sync_metrics predates the timing columns gains them (NULL on old rows)', () => {
     const db = new Database(':memory:');

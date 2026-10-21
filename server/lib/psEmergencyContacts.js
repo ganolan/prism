@@ -53,16 +53,17 @@ export function parseEmergencyContacts(html) {
 // How a row's student cell and a roster `lastfirst` are compared.
 const key = (v) => String(v ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
 
-// Rows joined to a section's roster by name → Map<studentdcid, { g1, g2 }>. A `lastfirst`
-// held by two roster students joins neither: a name cannot say which row is whose.
+// Rows joined to a section's roster by name → Map<studentdcid, { g1, g2 }>. A name held by
+// two roster students, or by two list rows, joins neither: a name cannot say which is whose.
 export function slotsByDcid(rows, roster) {
-  const held = new Map();
-  for (const s of roster) held.set(key(s.lastfirst), (held.get(key(s.lastfirst)) || 0) + 1);
+  const count = (items, of) => items.reduce((m, item) => m.set(key(of(item)), (m.get(key(of(item))) || 0) + 1), new Map());
+  const held = count(roster, (s) => s.lastfirst);
+  const listed = count(rows, (r) => r.student);
   const byName = new Map(rows.map((r) => [key(r.student), r]));
   const map = new Map();
   for (const s of roster) {
     const row = byName.get(key(s.lastfirst));
-    if (row && held.get(key(s.lastfirst)) === 1) map.set(String(s.studentdcid), { g1: row.g1, g2: row.g2 });
+    if (row && held.get(key(s.lastfirst)) === 1 && listed.get(key(s.lastfirst)) === 1) map.set(String(s.studentdcid), { g1: row.g1, g2: row.g2 });
   }
   return map;
 }

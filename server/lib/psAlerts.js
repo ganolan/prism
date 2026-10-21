@@ -50,13 +50,15 @@ export const forRoster = (alerts) => (alerts || []).filter((a) => ROSTER_CATEGOR
 const DEF_BY_KEY = new Map(ALERT_DEFS.map((d) => [d.key, d]));
 const DEF_BY_PS_ID = new Map(ALERT_DEFS.flatMap((d) => d.psAlertIds.map((id) => [id, d])));
 
-// Guardian-contact fields #66 decides how to show: stored raw, as PowerSchool
-// returns them (null = not set). column = student_powerschool column.
+// Guardian-contact fields #66 uses: stored raw, as PowerSchool returns them (null =
+// not set). column = student_powerschool column. x_homeemail is the correspondence code
+// (also read for the correspondence alerts).
 export const CONTACT_FIELDS = [
   { field: 'x_dnc_g1', column: 'dnc_g1' },
   { field: 'x_dnc_g2', column: 'dnc_g2' },
   { field: 'x_g1deceased', column: 'g1_deceased' },
   { field: 'x_g2deceased', column: 'g2_deceased' },
+  { field: 'x_homeemail', column: 'correspondence' },
 ];
 const CONTACT_TABLE = 'U_DEF_EXT_STUDENTS';
 

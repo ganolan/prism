@@ -2,7 +2,8 @@
  * psAlertsSync.js — read each active course's students' PowerSchool alerts
  * (#117): accommodation and learning-support plans, health alerts and a few
  * others (server/lib/psAlerts.js ALERT_DEFS), plus the raw guardian-contact
- * fields #66 will use. Behind the powerschool_alerts feature.
+ * fields #66 uses (do-not-contact, deceased, the correspondence code). Behind the
+ * powerschool_alerts feature.
  *
  * Plain HTTP, no browser (#141): the PowerSchool session comes from the attendance
  * LTI launch (server/services/powerschoolWeb.js), then per section:
@@ -12,11 +13,17 @@
  *   getAlerts.json            → manual alerts (when a kept one exists)
  * The alert catalogue (getAlertTypes.json) is read once per sync, so the trigger
  * rules are PowerSchool's current ones, never a copy.
+ * Then, once the section's alerts are read, its Emergency Contact List (#66): GET
+ * /teachers/home.html, then /teachers/StudEmgContacts.html?sectionid= with home as the
+ * Referer (the click path PowerTeacher expects), joined to the roster by name
+ * (server/lib/psEmergencyContacts.js) into each student's two guardian slots.
  *
  * Fresh every sync, reconciled per student: a student read this sync gets exactly
  * the alerts that fire now (cleared ones go). A section that fails keeps its
- * students' last-known alerts. Students without an active course are not read
- * and keep theirs (their alerts_synced_at shows how old they are).
+ * students' last-known alerts. The guardian slots follow the same rule, separately: a
+ * list that fails to read (or a student it cannot match) keeps the last-known slots,
+ * and the section's alerts are still stored. Students without an active course are not
+ * read and keep theirs (their alerts_synced_at shows how old they are).
  *
  * See .claude/powerschool-api-reference.md "Student alerts (#117)".
  */
@@ -24,7 +31,8 @@ import { getDb } from '../db/index.js';
 import { cookieJar } from './schoologyWeb.js';
 import { PowerSchoolWeb } from './powerschoolWeb.js';
 import { alertPlan, fieldValuesParams, sectionAlerts, dropMeta } from '../lib/psAlerts.js';
-import { applyPsAlerts } from './psAlertStore.js';
+import { parseEmergencyContacts, slotsByDcid } from '../lib/psEmergencyContacts.js';
+import { applyPsAlerts, applyPsGuardians } from './psAlertStore.js';
 
 const Q = '/teachers/mba_alerts/queries/';
 // PowerSchool school number for the high school; the plugin passes the same.
@@ -33,11 +41,12 @@ export const PS_SCHOOL_ID = 40;
 const LOGIN_MESSAGE = 'Not logged in to Schoology: run `npm run mastery:login` and retry.';
 
 // One section's reads. Throws on any failed read, so a partial answer never
-// clears a student's alerts.
+// clears a student's alerts. → { found: Map<dcid, entry>, roster } (roster rows with a studentdcid).
 async function readSection(ps, plan, sectionDcid) {
   const roster = await ps.read(`${Q}getStudentsInSection.json`, { sectionIds: sectionDcid });
-  const ids = (Array.isArray(roster) ? roster : []).filter((r) => r && r.studentid != null).map((r) => String(r.studentid));
-  if (!ids.length) return new Map();
+  const rows = (Array.isArray(roster) ? roster : []).filter((r) => r && r.studentid != null);
+  const ids = rows.map((r) => String(r.studentid));
+  if (!ids.length) return { found: new Map(), roster: [] };
   const values = await ps.read(`${Q}stuFieldValues.json`, fieldValuesParams(ids, plan.sf), { method: 'GET' });
   const adv = [];
   for (const type of plan.adv) {
@@ -48,7 +57,14 @@ async function readSection(ps, plan, sectionDcid) {
   const manual = plan.man.length
     ? dropMeta(await ps.read(`${Q}getAlerts.json`, { typeIds: plan.man.map((t) => t.id).join(','), studentIds: ids.join(',') }))
     : [];
-  return sectionAlerts({ plan, roster, values, adv, manual });
+  return { found: sectionAlerts({ plan, roster, values, adv, manual }), roster: rows.filter((r) => r.studentdcid != null) };
+}
+
+// A section's Emergency Contact List (#66), read the way a teacher reaches it: home, then
+// the list with home as the Referer. → the parsed rows. Throws on a failed read.
+async function readGuardianList(ps, sectionDcid) {
+  await ps.teacherPage('/teachers/home.html');
+  return parseEmergencyContacts(await ps.teacherPage(`/teachers/StudEmgContacts.html?sectionid=${sectionDcid}`, { referer: '/teachers/home.html' }));
 }
 
 /**
@@ -57,12 +73,13 @@ async function readSection(ps, plan, sectionDcid) {
  * session (login-recoverable message) or PowerSchool will not start a session.
  *
  * deps: { fetchImpl, jar } for tests. → { processed, read, failed, skipped,
- * students, withAlerts, results: [{ courseId, courseName, status, students?, reason? }] }
+ * students, withAlerts, guardians: { read, failed, students } (sections whose list was read /
+ * not read, students given slots), results: [{ courseId, courseName, status, students?, reason? }] }
  */
 // `courseIds` (#58): only those courses (a Sync Course or a retry); absent = every active course.
 export async function syncPsAlerts({ onProgress, courseIds = null, db = getDb(), deps = {} } = {}) {
   const log = (message) => { console.log(`[psAlertsSync] ${message}`); onProgress?.({ message }); };
-  const summary = { processed: 0, read: 0, failed: 0, skipped: 0, students: 0, withAlerts: 0, results: [] };
+  const summary = { processed: 0, read: 0, failed: 0, skipped: 0, students: 0, withAlerts: 0, guardians: { read: 0, failed: 0, students: 0 }, results: [] };
   const courses = db.prepare(`
     SELECT id, schoology_section_id, course_name FROM courses
     WHERE excluded = 0 AND archived = 0 AND schoology_section_id IS NOT NULL
@@ -78,6 +95,7 @@ export async function syncPsAlerts({ onProgress, courseIds = null, db = getDb(),
 
   let plan = null;
   const byDcid = new Map();
+  const guardiansByDcid = new Map();
   for (const c of courses) {
     summary.processed++;
     try {
@@ -100,16 +118,37 @@ export async function syncPsAlerts({ onProgress, courseIds = null, db = getDb(),
         plan = read;
         log(`Alert catalogue: ${kept} kept alerts.`);
       }
-      let found;
+      let section;
       try {
-        found = await readSection(ps, plan, sectionDcid);
+        section = await readSection(ps, plan, sectionDcid);
       } catch (err) {
         if (err.code !== 'PS_SESSION') throw err;
         log(`${c.course_name}: PowerSchool session ended, starting a new one`);
         await ps.launch(c.schoology_section_id).catch((e) => { throw asLogin(e); });
-        found = await readSection(ps, plan, sectionDcid);
+        section = await readSection(ps, plan, sectionDcid);
       }
+      const { found, roster } = section;
       for (const [dcid, entry] of found) byDcid.set(dcid, entry);
+      if (roster.length) {
+        // Its own try: a list that will not read costs the guardians, never the alerts just read.
+        try {
+          let list;
+          try {
+            list = await readGuardianList(ps, sectionDcid);
+          } catch (err) {
+            if (!err.sessionEnded) throw err;
+            log(`${c.course_name}: PowerSchool session ended, starting a new one`);
+            await ps.launch(c.schoology_section_id).catch((e) => { throw asLogin(e); });
+            list = await readGuardianList(ps, sectionDcid);
+          }
+          for (const [dcid, slots] of slotsByDcid(list, roster)) guardiansByDcid.set(dcid, slots);
+          summary.guardians.read++;
+        } catch (err) {
+          if (err.message === LOGIN_MESSAGE || err.code === 'PS_SECURITY') throw err;
+          summary.guardians.failed++;
+          log(`${c.course_name}: guardians not read (${err.message}), kept the last ones`);
+        }
+      }
       summary.read++;
       summary.results.push({ courseId: c.id, courseName: c.course_name, status: 'read', students: found.size });
       log(`${c.course_name}: ${found.size} students read`);
@@ -129,6 +168,7 @@ export async function syncPsAlerts({ onProgress, courseIds = null, db = getDb(),
   const applied = applyPsAlerts(db, byDcid, { idByKey });
   summary.students = applied.students;
   summary.withAlerts = applied.withAlerts;
-  log(`Done: ${applied.students} students read, ${applied.withAlerts} with alerts (${summary.failed} courses not read).`);
+  summary.guardians.students = applyPsGuardians(db, guardiansByDcid).students;
+  log(`Done: ${applied.students} students read, ${applied.withAlerts} with alerts (${summary.failed} courses not read), ${summary.guardians.students} with guardians (${summary.guardians.failed} lists not read).`);
   return summary;
 }

@@ -58,6 +58,12 @@ describe('slotsByDcid', () => {
     expect([...map.keys()]).toEqual(['5002']);
   });
 
+  test('a name repeated in the list joins neither', () => {
+    const twice = [...rows, { student: 'lee, ana', g1: { name: 'Other, Pat', email: 'p@example.org' }, g2: { name: null, email: null } }];
+    const map = slotsByDcid(twice, [{ lastfirst: 'Lee, Ana', studentdcid: '5001' }, { lastfirst: 'Cho, Sam', studentdcid: '5002' }]);
+    expect([...map.keys()]).toEqual(['5002']);
+  });
+
   test('a roster student with no row is left out', () => {
     expect(slotsByDcid(rows, [{ lastfirst: 'Kim, Zed', studentdcid: '5009' }]).size).toBe(0);
   });

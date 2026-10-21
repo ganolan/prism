@@ -854,14 +854,28 @@ CREATE TABLE IF NOT EXISTS student_ps_alerts (
 );
 
 -- Per-student PowerSchool reads: when the alerts were last read, and the raw
--- guardian-contact fields #66 will use (store only; null = not set in PowerSchool).
+-- guardian-contact fields #66 uses (null = not set in PowerSchool).
 CREATE TABLE IF NOT EXISTS student_powerschool (
   student_id INTEGER PRIMARY KEY REFERENCES students(id),
   alerts_synced_at TEXT,              -- ISO time of the last successful read
   dnc_g1 TEXT,                        -- X_DNC_G1: do not contact guardian 1
   dnc_g2 TEXT,                        -- X_DNC_G2: do not contact guardian 2
   g1_deceased TEXT,                   -- X_G1DECEASED
-  g2_deceased TEXT                    -- X_G2DECEASED
+  g2_deceased TEXT,                   -- X_G2DECEASED
+  correspondence TEXT,                -- X_HOMEEMAIL, raw: which guardian(s) PowerSchool sends correspondence to
+  guardians_synced_at TEXT            -- ISO time the guardian slots below were last read
+);
+
+-- PowerSchool's two guardian slots per student (#66), from the Emergency Contact List:
+-- the name as PowerSchool shows it (`Last, First`) and the slot's first email address.
+-- A sync replaces a student's rows only when it read the list for them; a failed read
+-- keeps the last-known rows. A slot with neither name nor email has no row.
+CREATE TABLE IF NOT EXISTS student_ps_guardians (
+  student_id INTEGER NOT NULL REFERENCES students(id),
+  slot INTEGER NOT NULL CHECK (slot IN (1, 2)),
+  name TEXT,
+  email TEXT,
+  PRIMARY KEY (student_id, slot)
 );
 
 -- The newest comment the teacher has seen in each pair's thread (Schoology's own

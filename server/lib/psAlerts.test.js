@@ -46,7 +46,7 @@ describe('fieldValuesParams', () => {
     expect(p.get('stuList')).toBe('101,102');
     expect(p.get('student_id')).toBe('101,102');
     const fields = [...p.entries()].filter(([k]) => /^field\d+$/.test(k)).map(([, v]) => v);
-    expect(fields).toEqual(['x_spp', 'x_ls_support_level', 'x_allergyepi', 'x_healthcareplanactive', 'x_dnc_g1', 'x_dnc_g2', 'x_g1deceased', 'x_g2deceased']);
+    expect(fields).toEqual(['x_spp', 'x_ls_support_level', 'x_allergyepi', 'x_healthcareplanactive', 'x_dnc_g1', 'x_dnc_g2', 'x_g1deceased', 'x_g2deceased', 'x_homeemail']);
     expect(p.get('fieldTbl4')).toBe('U_DEF_EXT_STUDENTS0');
     expect(p.get('fieldTbl5')).toBe('U_DEF_EXT_STUDENTS');
     expect(p.getAll('table1')).toEqual(['U_DEF_EXT_STUDENTS']);
@@ -116,7 +116,7 @@ describe('sectionAlerts', () => {
     const out = sectionAlerts({ plan, roster, values, adv, manual: [] });
     expect([...out.keys()]).toEqual(['5001', '5002']); // 103 had no field record: not read, not listed
     expect(out.get('5001').alerts).toEqual(['accommodation_plan', 'learning_support_2', 'support_summary']);
-    expect(out.get('5001').contact).toEqual({ dnc_g1: null, dnc_g2: '1', g1_deceased: null, g2_deceased: null });
+    expect(out.get('5001').contact).toEqual({ dnc_g1: null, dnc_g2: '1', g1_deceased: null, g2_deceased: null, correspondence: null });
     expect(out.get('5002').alerts).toEqual(['epipen', 'allergies']);
     expect(out.get('5002').contact.g2_deceased).toBe('1');
   });

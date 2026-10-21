@@ -36,6 +36,35 @@ export function applyPsAlerts(db, byDcid, { now = new Date().toISOString(), idBy
   return { students, withAlerts };
 }
 
+/**
+ * Store the guardian slots a sync read (#66). byDcid: Map<PowerSchool student dcid,
+ * { g1, g2 }> with each slot { name, email } (server/lib/psEmergencyContacts.js
+ * slotsByDcid). Each matched student gets exactly these slots (a slot with neither name
+ * nor email gets no row) and guardians_synced_at = now; students not in the map are
+ * untouched. → { students }.
+ */
+export function applyPsGuardians(db, byDcid, { now = new Date().toISOString() } = {}) {
+  const find = db.prepare('SELECT id FROM students WHERE school_uid = ?');
+  const clear = db.prepare('DELETE FROM student_ps_guardians WHERE student_id = ?');
+  const add = db.prepare('INSERT INTO student_ps_guardians (student_id, slot, name, email) VALUES (?, ?, ?, ?)');
+  const stamp = db.prepare(`
+    INSERT INTO student_powerschool (student_id, guardians_synced_at) VALUES (?, ?)
+    ON CONFLICT(student_id) DO UPDATE SET guardians_synced_at = excluded.guardians_synced_at
+  `);
+  let students = 0;
+  db.transaction(() => {
+    for (const [dcid, { g1, g2 }] of byDcid) {
+      const row = find.get(`1_${dcid}`);
+      if (!row) continue;
+      students++;
+      clear.run(row.id);
+      for (const [slot, g] of [[1, g1], [2, g2]]) if (g?.name || g?.email) add.run(row.id, slot, g.name ?? null, g.email ?? null);
+      stamp.run(row.id, now);
+    }
+  })();
+  return { students };
+}
+
 // ── Reads for the API and PrisMCP ──────────────────────────────────────────
 
 // Map<studentId, [{ key, label, category, title? }]> for these students (each

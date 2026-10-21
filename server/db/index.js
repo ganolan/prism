@@ -193,6 +193,9 @@ const MIGRATIONS = [
   // ('pending'), or keeps why that read failed ('failed'). Existing rows stay NULL (no backfill).
   `ALTER TABLE courses ADD COLUMN first_sync TEXT`,
   `ALTER TABLE courses ADD COLUMN first_sync_error TEXT`,
+  // #66: the raw correspondence code, and when the guardian slots were last read.
+  `ALTER TABLE student_powerschool ADD COLUMN correspondence TEXT`,
+  `ALTER TABLE student_powerschool ADD COLUMN guardians_synced_at TEXT`,
 ];
 
 // Remove orphaned auto-flag rows. The auto-flag feature that wrote 'missing',

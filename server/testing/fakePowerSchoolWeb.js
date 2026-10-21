@@ -41,7 +41,7 @@ export const CATALOGUE = [
   {},
 ];
 
-// sections: { [sectionDcid]: [{ studentid, studentdcid, values: {field: value}, adv: [alert ids], man: [alert ids] }] }
+// sections: { [sectionDcid]: [{ studentid, studentdcid, lastfirst? ('X'), values: {field: value}, adv: [alert ids], man: [alert ids] }] }
 //   gradeLevel (integer), photoURL? (overrides the list's /teachers/stpnormal/{studentid}ph.jpeg)
 // schoology: { [schoologySectionId]: sectionDcid | null }
 // popups: { [studentDcid]: html } for /teachers/alerts/aet_customalert_custompopup.html (#163);
@@ -134,7 +134,7 @@ export function fakePowerSchoolWeb({
     }
     if (name === 'getAlertTypes.json') return json(catalogue);
     if (name === 'getStudentsInSection.json') {
-      const rows = (sections[p.get('sectionIds')] || []).map((s) => ({ ccid: '1', sectionid: p.get('sectionIds'), lastfirst: 'X', studentid: s.studentid, studentdcid: s.studentdcid }));
+      const rows = (sections[p.get('sectionIds')] || []).map((s) => ({ ccid: '1', sectionid: p.get('sectionIds'), lastfirst: s.lastfirst ?? 'X', studentid: s.studentid, studentdcid: s.studentdcid }));
       return json([...rows, {}]);
     }
     const all = Object.values(sections).flat();

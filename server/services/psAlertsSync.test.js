@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { migrate } from '../db/index.js';
 import { syncPsAlerts } from './psAlertsSync.js';
-import { applyPsAlerts, psAlertsByStudent, psAlertsForStudent } from './psAlertStore.js';
+import { applyPsAlerts, applyPsGuardians, psAlertsByStudent, psAlertsForStudent } from './psAlertStore.js';
 import { PowerSchoolWeb, launchForm } from './powerschoolWeb.js';
 import { fakePowerSchoolWeb, emergencyHtml } from '../testing/fakePowerSchoolWeb.js';
 import { parseEmergencyContacts } from '../lib/psEmergencyContacts.js';
@@ -237,6 +237,103 @@ describe('syncPsAlerts', () => {
     const web2 = fakePowerSchoolWeb();
     await syncPsAlerts({ db: empty, deps: { fetchImpl: web2.fetchImpl, jar: web2.jar } });
     expect(web2.requests).toHaveLength(0);
+  });
+});
+
+describe('syncPsAlerts: guardian slots (#66)', () => {
+  const lee = { student: 'Lee, Ana', g1: ['Lee, Mei', 'mei@example.org'], g2: ['Lee, Jun', 'jun@example.org'] };
+  const sections = { 9001: [{ studentid: '101', studentdcid: '5001', lastfirst: 'Lee, Ana', values: { x_homeemail: '2' } }] };
+  const slots = (id) => db.prepare('SELECT slot, name, email FROM student_ps_guardians WHERE student_id = ? ORDER BY slot').all(id);
+  const run = (web) => syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar } });
+
+  test('stores each student\'s guardian slots, the correspondence code and guardians_synced_at', async () => {
+    addCourse('S1', 'Alpha');
+    const a = addStudent('5001');
+    const web = fakePowerSchoolWeb({ sections, emergency: { 9001: emergencyHtml([lee]) } });
+    const r = await run(web);
+    expect(r.guardians).toEqual({ read: 1, failed: 0, students: 1 });
+    expect(slots(a)).toEqual([
+      { slot: 1, name: 'Lee, Mei', email: 'mei@example.org' },
+      { slot: 2, name: 'Lee, Jun', email: 'jun@example.org' },
+    ]);
+    const row = db.prepare('SELECT correspondence, guardians_synced_at IS NOT NULL synced FROM student_powerschool WHERE student_id = ?').get(a);
+    expect(row).toEqual({ correspondence: '2', synced: 1 });
+    const pages = web.requests.filter((q) => q.path === '/teachers/home.html' || q.path === '/teachers/StudEmgContacts.html');
+    expect(pages.map((q) => q.path)).toEqual(['/teachers/home.html', '/teachers/StudEmgContacts.html']);
+    expect(pages[1]).toMatchObject({ params: { sectionid: '9001' }, referer: 'https://powerschool.hkis.edu.hk/teachers/home.html' });
+  });
+
+  test('a list that fails keeps last-known guardians and still stores alerts', async () => {
+    addCourse('S1', 'Alpha');
+    const a = addStudent('5001');
+    db.prepare("INSERT INTO student_ps_guardians (student_id, slot, name, email) VALUES (?, 1, 'Old, Name', 'old@example.org')").run(a);
+    db.prepare("INSERT INTO student_powerschool (student_id, guardians_synced_at) VALUES (?, '2026-10-01T00:00:00.000Z')").run(a);
+    const web = fakePowerSchoolWeb({
+      sections: { 9001: [{ studentid: '101', studentdcid: '5001', lastfirst: 'Lee, Ana', values: { x_spp: '1' } }] },
+      emergency: { 9001: { status: 500 } },
+    });
+    const r = await run(web);
+    expect(r).toMatchObject({ read: 1, failed: 0, guardians: { read: 0, failed: 1, students: 0 } });
+    expect(keysOf(a)).toEqual(['accommodation_plan']);
+    expect(slots(a)).toEqual([{ slot: 1, name: 'Old, Name', email: 'old@example.org' }]);
+    expect(db.prepare('SELECT guardians_synced_at, alerts_synced_at IS NOT NULL alerts FROM student_powerschool WHERE student_id = ?').get(a))
+      .toEqual({ guardians_synced_at: '2026-10-01T00:00:00.000Z', alerts: 1 });
+  });
+
+  test('a Security Violation on the list stops the sync', async () => {
+    addCourse('S1', 'Alpha');
+    const a = addStudent('5001');
+    db.prepare("INSERT INTO student_ps_guardians (student_id, slot, name, email) VALUES (?, 1, 'Old, Name', 'old@example.org')").run(a);
+    const web = fakePowerSchoolWeb({ sections, failRead: (name) => name === 'StudEmgContacts.html' && '<h1>Security Violation Logged</h1>' });
+    await expect(run(web)).rejects.toMatchObject({ code: 'PS_SECURITY' });
+    expect(slots(a)).toHaveLength(1);
+  });
+
+  test('a student read again with a changed list replaces both slots', async () => {
+    addCourse('S1', 'Alpha');
+    const a = addStudent('5001');
+    await run(fakePowerSchoolWeb({ sections, emergency: { 9001: emergencyHtml([lee]) } }));
+    const changed = { student: 'Lee, Ana', g1: ['Lee, Mei', 'new@example.org'], g2: ['', ''] };
+    const r = await run(fakePowerSchoolWeb({ sections, emergency: { 9001: emergencyHtml([changed]) } }));
+    expect(r.guardians).toEqual({ read: 1, failed: 0, students: 1 });
+    expect(slots(a)).toEqual([{ slot: 1, name: 'Lee, Mei', email: 'new@example.org' }]);
+  });
+
+  test('a PowerSchool session that ends on the list is started again once and the list re-read', async () => {
+    addCourse('S1', 'Alpha');
+    const a = addStudent('5001');
+    const web = fakePowerSchoolWeb({ sections, emergency: { 9001: emergencyHtml([lee]) }, expireOnce: 'StudEmgContacts.html' });
+    const r = await run(web);
+    expect(r.guardians).toEqual({ read: 1, failed: 0, students: 1 });
+    expect(web.launches()).toBe(2);
+    expect(slots(a)).toHaveLength(2);
+  });
+
+  test('two roster students with one name get no slots', async () => {
+    addCourse('S1', 'Alpha');
+    const a = addStudent('5001'); const b = addStudent('5002');
+    const web = fakePowerSchoolWeb({
+      sections: { 9001: [{ studentid: '101', studentdcid: '5001', lastfirst: 'Lee, Ana' }, { studentid: '102', studentdcid: '5002', lastfirst: 'Lee, Ana' }] },
+      emergency: { 9001: emergencyHtml([lee]) },
+    });
+    const r = await run(web);
+    expect(r.guardians).toEqual({ read: 1, failed: 0, students: 0 });
+    expect(slots(a)).toEqual([]); expect(slots(b)).toEqual([]);
+  });
+});
+
+describe('applyPsGuardians', () => {
+  test('replaces a read student\'s slots, skips an empty slot and leaves the others alone', () => {
+    const a = addStudent('5001'); const b = addStudent('5002');
+    db.prepare("INSERT INTO student_ps_guardians (student_id, slot, name, email) VALUES (?, 2, 'Keep, Me', NULL)").run(b);
+    const r = applyPsGuardians(db, new Map([
+      ['5001', { g1: { name: 'Lee, Mei', email: null }, g2: { name: null, email: null } }],
+      ['7777', { g1: { name: 'Nobody', email: null }, g2: { name: null, email: null } }],
+    ]), { now: '2026-10-21T00:00:00.000Z' });
+    expect(r).toEqual({ students: 1 });
+    expect(db.prepare('SELECT student_id, slot, name FROM student_ps_guardians ORDER BY student_id, slot').all())
+      .toEqual([{ student_id: a, slot: 1, name: 'Lee, Mei' }, { student_id: b, slot: 2, name: 'Keep, Me' }]);
+    expect(db.prepare('SELECT student_id, guardians_synced_at FROM student_powerschool').all()).toEqual([{ student_id: a, guardians_synced_at: '2026-10-21T00:00:00.000Z' }]);
   });
 });
 

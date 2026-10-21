@@ -43,6 +43,13 @@ describe('placeParents', () => {
     expect(placed.get(11)).toBeNull();
   });
 
+  test('a name matching both slots is not placed, even when one slot is taken by email', () => {
+    const slots = { 1: { name: 'Sample, Robin', email: 'r@example.test' }, 2: { name: 'Sample, Robin Kit', email: 'k@example.test' } };
+    const placed = placeParents([parent(10, 'Someone', 'Else', 'r@example.test'), parent(11, 'Robin', 'Sample', 'x@example.test')], slots);
+    expect(placed.get(10)).toBe(1);
+    expect(placed.get(11)).toBeNull(); // slot 2 is open, but the name cannot tell the slots apart
+  });
+
   test('two name matches on one slot place neither', () => {
     const slots = { 1: { name: 'Sample, Robin', email: 'r@example.test' }, 2: { name: 'Other, Kit', email: 'k@example.test' } };
     const placed = placeParents([parent(10, 'Robin', 'Sample', null), parent(11, 'Robin', 'Sample', 'y@example.test'), parent(12, 'Kit', 'Other', null)], slots);

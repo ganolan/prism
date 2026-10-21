@@ -86,6 +86,36 @@ describe('contactsForStudents', () => {
     expect(byParent.get(bOther)).toEqual({ status: 'contactable', primary: false, reason: null });
   });
 
+  test('a flag spreads along a chain of uids and emails', () => {
+    // A's row (uid X, e1) is flagged by A's own record; B's row (uid X, e2) and C's row
+    // (uid Y, e2) carry no flags, but all three are one guardian.
+    const a = addStudent(1);
+    const b = addStudent(2);
+    const c = addStudent(3);
+    addParent(a, 'uX', 'Robin', 'Sample', 'e1@example.test');
+    addSlot(a, 1, 'Sample, Robin', 'e1@example.test');
+    setPs(a, { guardians_synced_at: SYNCED, dnc_g1: '1' });
+    const pb = addParent(b, 'uX', 'Robin', 'Sample', 'e2@example.test');
+    addSlot(b, 1, 'Sample, Robin', 'e2@example.test');
+    setPs(b, { guardians_synced_at: SYNCED });
+    const pc = addParent(c, 'uY', 'Robin', 'Sample', 'E2@example.test');
+    const cOther = addParent(c, 'uZ', 'Jordan', 'Sample', 'jordan@example.test');
+    addSlot(c, 1, 'Sample, Robin', 'e2@example.test');
+    addSlot(c, 2, 'Sample, Jordan', 'jordan@example.test');
+    setPs(c, { guardians_synced_at: SYNCED });
+    const dnc = { status: 'do_not_contact', primary: false, reason: 'Do not contact (PowerSchool)' };
+
+    const both = contactsForStudents(db, [b, c]);
+    expect(both.get(b).byParent.get(pb)).toEqual(dnc);
+    expect(both.get(c).byParent.get(pc)).toEqual(dnc);
+    expect(both.get(c).byParent.get(cOther).status).toBe('contactable');
+
+    const onlyC = contactsForStudents(db, [c]);
+    expect([...onlyC.keys()]).toEqual([c]);
+    expect(onlyC.get(c).byParent.get(pc)).toEqual(dnc);
+    expect(onlyC.get(c).byParent.get(cOther).status).toBe('contactable');
+  });
+
   test('do_not_contact wins over deceased across rows', () => {
     const a = addStudent(1);
     const b = addStudent(2);

@@ -21,7 +21,8 @@ export const CONTACT_REASONS = {
 
 const SLOTS = [1, 2];
 
-const emailKey = (email) => (email == null ? '' : String(email).trim().toLowerCase());
+// An email as compared everywhere in #66: trimmed, any case. '' when there is none.
+export const emailKey = (email) => (email == null ? '' : String(email).trim().toLowerCase());
 const words = (text) => (text == null ? [] : String(text).toLowerCase().match(/\p{L}+/gu) || []);
 
 // PowerSchool shows a slot's name as `Last, First`. A parent matches a slot by name

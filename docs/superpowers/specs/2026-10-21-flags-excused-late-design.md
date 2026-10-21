@@ -167,6 +167,18 @@ flag to restore it." For Late, Incomplete and Absent the rubric stays open, with
 this work clears Late." Extend hides for Exempt. A failed write shows its reason beside the pill and keeps the previous
 state.
 
+### Missing shows IE on the student page
+
+Graham, 21 October 2026: a task marked Missing shows **IE on every measurement topic** in the shared
+feedback view (the student page and the gradebook pop-up), so it can inform discussions with the student.
+
+- **Prism's display only:** Schoology holds no IE for Missing (its 0 never reaches the topics, verified).
+  Each IE carries the Missing symbol, and one line sits above the rubric: "Shown as IE because the work is
+  marked Missing. Schoology's topic averages do not include it."
+- **Topic averages are untouched:** Prism's per-topic summaries keep Schoology's own numbers. Recording real
+  IEs in Schoology is #175.
+- The gradebook cell keeps the Missing symbol; the assessment card keeps the grayed saved grade.
+
 ## Saving and restoring the grade
 
 - **Saving:** before the flag write, Prism takes the grade from the fresh pre-write read: score,

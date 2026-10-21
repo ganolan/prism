@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-21-flags-excused-late-design.md` (revised after the probes; mockups: https://claude.ai/artifact/RcePZWizTujDo17X1zpLf3, version 10).
 
-**Revision (21 Oct 2026):** Tasks 1 to 6 are done. The probes changed the design (five settable flags, Late = 6, every flag removes the grade, symbols). Task 10 reworks the display from Tasks 2 to 4; Tasks 7 and 8 are rewritten. Order: 10, 7, 11, 12, 8, 9.
+**Revision (21 Oct 2026):** Tasks 1 to 6 are done. The probes changed the design (five settable flags, Late = 6, every flag removes the grade, symbols). Task 10 reworks the display from Tasks 2 to 4; Tasks 7 and 8 are rewritten. Order: 10, 7, 11, 12, 13, 8, 9.
 
 ## Global Constraints
 
@@ -247,6 +247,21 @@ Graham, 21 Oct 2026: Exempt (1) and Missing (3) are final; Late (6), Incomplete 
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run both full suites and `npm run build`.** Expected: PASS.
 - [ ] **Step 5: Commit** `feat(flags): final flags and markers; clearing Missing removes the 0 (#40)`.
+
+---
+
+### Task 13: Missing shows IE on every topic in the shared view
+
+Graham, 21 Oct 2026 (spec "Missing shows IE on the student page").
+
+**Files:**
+- Modify: `client/src/components/AssignmentFeedback.jsx` (and the rubric pieces it renders: `RubricDescriptorGrid`, `CompactRubric`, feedback rows), `client/src/app.css`, their tests, `docs/design-language.md`.
+
+- [ ] **Step 1: Write failing tests:** with `exception: 3` on an aligned task, every topic shows IE whatever levels the grade holds, each with the Missing symbol (`FlagSymbol` code 3, no name), and the line "Shown as IE because the work is marked Missing. Schoology's topic averages do not include it." appears above the rubric; on a task with feedback rows, every row shows IE the same way; with exception 0, 1, 2, 5 or 6 nothing changes; the student page and the gradebook pop-up both show it (they share the view); no per-topic summary on the student page changes.
+- [ ] **Step 2: Run.** Expected: FAIL.
+- [ ] **Step 3: Implement** in `AssignmentFeedback` as a display transform of the levels it renders (never written anywhere).
+- [ ] **Step 4: Run both full suites and `npm run build`.** Expected: PASS.
+- [ ] **Step 5: Commit** `feat(flags): Missing shows IE on every topic in the feedback view (#40)`.
 
 ---
 

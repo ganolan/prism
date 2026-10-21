@@ -9,8 +9,9 @@ import { syncPsAttendance } from './psAttendanceSync.js';
 
 // → { course, studentsCount, assignmentsCount, gradesCount, finalized, masteryError }: finalized and
 // masteryError are finalizeArchivedCourse's (masteryError null when mastery was read). Stamps
-// sync_attempted_at, and course_synced_at when the read was complete (#171). A Schoology error is
-// thrown as it came: its message carries the status (403, 404) the route maps to its answer.
+// sync_attempted_at (and its live tasks' task_sync_attempted_at), and course_synced_at (and
+// task_synced_at on its tasks read in full) when the read was complete (#171, #172). A Schoology
+// error is thrown as it came: its message carries the status (403, 404) the route maps to its answer.
 export async function importArchivedCourse(db, sectionId) {
   const [sec, periodsData] = await Promise.all([
     apiGet(`/sections/${sectionId}`),
@@ -40,11 +41,16 @@ export async function importArchivedCourse(db, sectionId) {
   const courseRow = db.prepare('SELECT * FROM courses WHERE schoology_section_id = ?').get(String(sec.id));
   // #171: the import is no orchestrator run, so it stamps the course's Synced time itself: the
   // attempt always (a read that throws too), course_synced_at below only when the read was complete.
+  // #172: its tasks too, as stampCompleteSyncs (syncOrchestrator.js) does: every live task's attempt
+  // here, and task_synced_at below for the tasks read in full.
   let read;
   try {
     read = await finalizeArchivedCourse(db, { courseId: courseRow.id, sectionId: String(sec.id), now, runMastery: true });
   } finally {
-    db.prepare('UPDATE courses SET sync_attempted_at = ? WHERE id = ?').run(now, courseRow.id);
+    db.transaction(() => {
+      db.prepare('UPDATE courses SET sync_attempted_at = ? WHERE id = ?').run(now, courseRow.id);
+      db.prepare('UPDATE assignments SET task_sync_attempted_at = ? WHERE course_id = ? AND removed_at IS NULL').run(now, courseRow.id);
+    })();
   }
   const { studentsCount, assignmentsCount, gradesCount, finalized, masteryError } = read;
   // Bring the imported section's students to full parity (email + guardians).
@@ -69,7 +75,13 @@ export async function importArchivedCourse(db, sectionId) {
   // stampCompleteSyncs (syncOrchestrator.js), comment threads are not checked: the import reads none.
   const complete = finalized && !masteryError && read.fullRead
     && !(read.failedAssignmentIds || []).length && !read.submissionAbandoned;
-  if (complete) db.prepare('UPDATE courses SET course_synced_at = ? WHERE id = ?').run(now, courseRow.id);
+  if (complete) {
+    db.transaction(() => {
+      db.prepare('UPDATE courses SET course_synced_at = ? WHERE id = ?').run(now, courseRow.id);
+      const stampTask = db.prepare('UPDATE assignments SET task_synced_at = ? WHERE id = ?');
+      for (const t of read.readInFullTaskIds || []) stampTask.run(now, t);
+    })();
+  }
 
   const course = db.prepare('SELECT * FROM courses WHERE id = ?').get(courseRow.id);
   return { course, studentsCount, assignmentsCount, gradesCount, finalized, masteryError };

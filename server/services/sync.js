@@ -349,7 +349,8 @@ export async function enrichStudentProfiles(db, students, now) {
 // session was present (mastery attempted, success or caught failure), so a
 // session-less call leaves it null and a later session-enabled sync retries.
 // Does NOT touch student data (that is enrichStudentProfiles' job). Returns the
-// gradebook counts plus { finalized }. (#70)
+// gradebook counts (readInFullTaskIds among them, for the caller's task Synced
+// times, #172) plus { finalized, masteryError, fullRead }. (#70)
 // An archived section's submissions, read in full like a current sync's (#72
 // reversed, 19/10/2026: every read answers on an archived section, probed live:
 // dropbox revisions with late flags, OneDrive/LTI document states, test attempts).

@@ -119,6 +119,53 @@ describe('importArchivedCourse (#70, moved from POST /api/courses/import for #17
     expect(s.course_synced_at).toBeNull();
   });
 
+  // #172: an archived assessment page reads its task's own Synced time, as an orchestrator
+  // re-read stamps it (stampCompleteSyncs): read-in-full tasks on a complete read, every live
+  // task's attempt on any read.
+  const withTasks = () => {
+    const courseId = Number(db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-9', 'Bio')`).run().lastInsertRowid);
+    const add = (ext, removed = null) => Number(db.prepare(
+      'INSERT INTO assignments (course_id, schoology_assignment_id, title, removed_at) VALUES (?, ?, ?, ?)'
+    ).run(courseId, ext, ext, removed).lastInsertRowid);
+    return { full: add('A-full'), failed: add('A-failed'), removed: add('A-removed', '2026-01-01T00:00:00Z') };
+  };
+  const taskStamps = () => Object.fromEntries(db.prepare(
+    'SELECT schoology_assignment_id ext, task_synced_at, task_sync_attempted_at FROM assignments'
+  ).all().map((r) => [r.ext, { synced: r.task_synced_at, attempted: r.task_sync_attempted_at }]));
+
+  test('a complete read stamps the tasks read in full synced, and every live task attempted (#172)', async () => {
+    const t = withTasks();
+    finalizeArchivedCourse.mockResolvedValueOnce({ ...complete, readInFullTaskIds: [t.full] });
+    await importArchivedCourse(db, 'sec-9');
+    const at = stamps().synced_at;
+    expect(taskStamps()).toEqual({
+      'A-full': { synced: at, attempted: at },
+      'A-failed': { synced: null, attempted: at },
+      'A-removed': { synced: null, attempted: null },
+    });
+  });
+
+  test('an incomplete read stamps no task synced, only the live tasks\' attempt (#172)', async () => {
+    const t = withTasks();
+    finalizeArchivedCourse.mockResolvedValueOnce({ ...complete, masteryError: 'Schoology sign-in needed', readInFullTaskIds: [t.full] });
+    await importArchivedCourse(db, 'sec-9');
+    const at = stamps().synced_at;
+    expect(taskStamps()).toEqual({
+      'A-full': { synced: null, attempted: at },
+      'A-failed': { synced: null, attempted: at },
+      'A-removed': { synced: null, attempted: null },
+    });
+  });
+
+  test('a read that throws still stamps the live tasks\' attempt (#172)', async () => {
+    withTasks();
+    finalizeArchivedCourse.mockRejectedValueOnce(new Error('Schoology API 500'));
+    await expect(importArchivedCourse(db, 'sec-9')).rejects.toThrow('500');
+    const at = stamps().synced_at;
+    expect(taskStamps()['A-full']).toEqual({ synced: null, attempted: at });
+    expect(taskStamps()['A-removed']).toEqual({ synced: null, attempted: null });
+  });
+
   test('a Schoology error is thrown as it came (the route maps 403 and 404)', async () => {
     apiGet.mockRejectedValue(new Error('Schoology API 403: Forbidden'));
     await expect(importArchivedCourse(db, 'sec-9')).rejects.toThrow('403');

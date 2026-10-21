@@ -1349,6 +1349,18 @@ describe('finalizeArchivedCourse (#70)', () => {
     expect(db.prepare('SELECT submissions_read_at FROM courses WHERE id = ?').get(courseId).submissions_read_at).toBe('2026-05-31T00:00:00Z');
   });
 
+  test('returns the tasks read in full, for the caller to stamp their Synced time (#172)', async () => {
+    await oneOfEach();
+    vi.mocked(createSubmissionFetcher).mockResolvedValueOnce(reader());
+    hasMasterySession.mockReturnValue(false);
+
+    const r = await finalizeArchivedCourse(db, { courseId, sectionId: 'sec-9', now: '2026-05-31T00:00:00Z' });
+
+    const ids = db.prepare('SELECT id FROM assignments WHERE course_id = ? ORDER BY id').all(courseId).map((a) => a.id);
+    expect(ids).toHaveLength(2);
+    expect([...r.readInFullTaskIds].sort()).toEqual(ids);
+  });
+
   test('no saved session: the dropbox read still runs, but no stamp (OneDrive states and test takers wait for a session)', async () => {
     const sch = await oneOfEach();
     vi.mocked(createSubmissionFetcher).mockResolvedValueOnce(null);

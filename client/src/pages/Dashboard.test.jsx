@@ -481,6 +481,8 @@ describe('Dashboard: the first run (#171)', () => {
     const card = (await screen.findByText('Course 1')).closest('a');
     expect(card).toHaveAttribute('href', '/course/1');
     expect(within(card).getByText('Sync failed')).toHaveClass('badge', 'badge-red');
+    // #172: never tried (no error), so the badge says so rather than carrying an empty title.
+    expect(within(card).getByText('Sync failed')).toHaveAttribute('title', 'Not read yet');
     await waitFor(() => expect(api.getCoursesByView.mock.calls.length).toBeGreaterThan(0));
     await act(() => vi.advanceTimersByTimeAsync(100)); // the run's end reloads once
     const calls = api.getCoursesByView.mock.calls.length;

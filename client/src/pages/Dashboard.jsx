@@ -17,6 +17,7 @@ import { courseTriageSummary, courseRedLine } from '../lib/triage.js';
 // The first run (#171): a course whose first read has not finished yet is 'pending', and stays off
 // the dashboard while a run reads it (one whose read failed is shown, with a "Sync failed" badge).
 // A pending row with no run going was left by a run that stopped: it shows as "Sync failed" too.
+// Its badge's title says "Not read yet" when it has no error: it was never tried (#172).
 const isPending = (c) => c.first_sync === 'pending';
 const COURSES_POLL_MS = 3000;
 const PAST_IMPORT_POLL_MS = 5000;
@@ -212,7 +213,7 @@ export default function Dashboard() {
               </span>
             )}
             {!!c.hidden && <span className="badge" style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }}>Hidden</span>}
-            {(c.first_sync === 'failed' || isPending(c)) && <span className="badge badge-red" title={c.first_sync_error || undefined}>Sync failed</span>}
+            {(c.first_sync === 'failed' || isPending(c)) && <span className="badge badge-red" title={c.first_sync_error || (isPending(c) ? 'Not read yet' : undefined)}>Sync failed</span>}
           </div>
 
           {isSettings ? (

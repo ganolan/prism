@@ -343,4 +343,80 @@ describe('GET /api/tools/emails/:courseId and guardian contact status', () => {
     expect(body.addresses).toEqual(['robin@example.test']);
     expect(body.excluded).toBe(2); // Kit and Ben's legacy address
   });
+
+  // Controller's ruling (#173): an address a flagged guardian holds is never copied, for any guardian.
+  test('feature on: a do-not-contact guardian\'s PowerSchool address is not copied through the other guardian\'s slot', async () => {
+    on();
+    const a = addStudent({ first: 'Ada', last: 'Sample' });
+    addParent(a, 'p1', 'Robin', 'robin@example.test');
+    addParent(a, 'p2', 'Kit', 'kit@example.test');
+    addSlot(a, 1, 'Sample, Robin', 'family@example.test');
+    addSlot(a, 2, 'Sample, Kit', 'family@example.test');
+    setPs(a, { dnc_g1: '1' });
+    const { body } = await parents();
+    expect(body.addresses).toEqual(['kit@example.test']);
+    expect(body.emails.join(' ')).not.toContain('family@');
+    expect(body.formatted).not.toContain('family@');
+    expect(body.excluded).toBe(1);
+  });
+
+  test('feature on: an extra email a flagged guardian holds is not copied', async () => {
+    on();
+    const a = familyWithOneFlagged();
+    const robin = getDb().prepare("SELECT id FROM parents WHERE student_id = ? AND first_name = 'Robin'").get(a).id;
+    setExtra(robin, 'KIT@example.test');
+    const { body } = await parents();
+    expect(body.addresses).toEqual(['robin@example.test']);
+    expect(body.excluded).toBe(1);
+  });
+
+  test('feature on: two different left-out guardians sharing an address count as two', async () => {
+    on();
+    const a = addStudent({ first: 'Ada', last: 'Sample' });
+    const b = addStudent({ first: 'Ben', last: 'Sample' });
+    addParent(a, 'p1', 'Jordan', 'home@example.test');
+    addParent(b, 'p2', 'Pat', 'home@example.test');
+    setPs(a, {});
+    setPs(b, {});
+    const { body } = await parents();
+    expect(body.addresses).toEqual([]);
+    expect(body.excluded).toBe(2);
+  });
+
+  test('feature on: a student whose contactable parents have no address has a legacy parent_email counted', async () => {
+    on();
+    const a = addStudent({ first: 'Ada', last: 'Sample' });
+    addParent(a, 'p1', 'Robin', null);
+    addSlot(a, 1, 'Sample, Robin', null);
+    setPs(a, {});
+    getDb().prepare('UPDATE students SET parent_email = ? WHERE id = ?').run('legacy-a@example.test', a);
+    const { body } = await parents();
+    expect(body.addresses).toEqual([]);
+    expect(body.excluded).toBe(1);
+  });
+
+  test('feature on: a legacy parent_email equal to a left-out guardian\'s address counts once', async () => {
+    on();
+    const a = addStudent({ first: 'Ada', last: 'Sample' });
+    addParent(a, 'p1', 'Robin', 'robin@example.test');
+    addSlot(a, 1, 'Sample, Robin', 'robin@example.test');
+    setPs(a, { dnc_g1: '1' });
+    getDb().prepare('UPDATE students SET parent_email = ? WHERE id = ?').run('ROBIN@example.test', a);
+    const { body } = await parents();
+    expect(body.excluded).toBe(1);
+  });
+
+  test('feature on: a legacy address shared by two left-out guardians does not join them', async () => {
+    on();
+    const a = addStudent({ first: 'Ada', last: 'Sample' });
+    const b = addStudent({ first: 'Ben', last: 'Sample' });
+    const c = addStudent({ first: 'Cy', last: 'Sample' });
+    addParent(a, 'p1', 'Jordan', 'home@example.test');
+    addParent(b, 'p2', 'Pat', 'home@example.test');
+    setPs(a, {});
+    setPs(b, {});
+    getDb().prepare('UPDATE students SET parent_email = ? WHERE id = ?').run('home@example.test', c);
+    const { body } = await parents();
+    expect(body.excluded).toBe(2);
+  });
 });

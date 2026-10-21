@@ -10,7 +10,7 @@ const decode = (v) => v
 const text = (html) => decode(html.replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
 
 const HEADERS = { student: 'Student', g1Name: 'Guardian 1', g1Email: 'G1 Email', g2Name: 'Guardian 2', g2Email: 'G2 Email' };
-// Read when present: a list without them still parses, with null phones.
+// Read when present: a list without them still parses, with null phones and one warning.
 const PHONE_HEADERS = { g1Phone: 'G1 Phone', g2Phone: 'G2 Phone' };
 
 // An email cell's first address, lower-cased ("a@x.org; b@x.org" → "a@x.org").
@@ -39,6 +39,8 @@ export function parseEmergencyContacts(html) {
       cols = found;
       from = i;
       for (const [key, label] of Object.entries(PHONE_HEADERS)) cols[key] = labels.indexOf(label);
+      const missing = Object.entries(PHONE_HEADERS).filter(([key]) => cols[key] < 0).map(([, label]) => label);
+      if (missing.length) console.warn(`[psEmergencyContacts] the list has no ${missing.join(', ')} column: phones are left empty`);
     }
   }
   if (!cols) throw new Error('emergency contact list: header not found');

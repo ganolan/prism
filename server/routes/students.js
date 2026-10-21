@@ -263,7 +263,7 @@ router.put('/:id', (req, res) => {
 
 // PUT /api/students/:id/parents/:parentId — the teacher's additions to a parent (#173):
 // body { phone?, extra_email? }. Only the keys sent are updated; '' or null clears one.
-// An extra email must hold an @. → the updated row.
+// An extra email must be one address: an @, and no space, ';', ',', '<' or '>'. → the updated row.
 const EDITABLE_PARENT_FIELDS = ['phone', 'extra_email'];
 router.put('/:id/parents/:parentId', (req, res) => {
   const db = getDb();
@@ -271,7 +271,7 @@ router.put('/:id/parents/:parentId', (req, res) => {
   const fields = EDITABLE_PARENT_FIELDS.filter((k) => Object.hasOwn(body, k));
   const values = fields.map((k) => (body[k] == null ? null : String(body[k]).trim() || null));
   const extra = values[fields.indexOf('extra_email')];
-  if (extra && !extra.includes('@')) return res.status(400).json({ error: 'Extra email must be an email address' });
+  if (extra && (!extra.includes('@') || /[\s;,<>]/.test(extra))) return res.status(400).json({ error: 'Extra email must be an email address' });
   const where = 'WHERE id = ? AND student_id = ?';
   const found = fields.length
     ? db.prepare(`UPDATE parents SET ${fields.map((k) => `${k} = ?`).join(', ')} ${where}`).run(...values, req.params.parentId, req.params.id).changes

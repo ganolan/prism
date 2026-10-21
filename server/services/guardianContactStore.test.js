@@ -35,7 +35,7 @@ describe('contactsForStudents', () => {
     setPs(a, { alerts_synced_at: SYNCED });
     const out = contactsForStudents(db, [a]);
     expect(out.get(a).guardiansSyncedAt).toBeNull();
-    expect(out.get(a).byParent.get(p)).toEqual({ status: 'not_checked', primary: false, reason: 'Not checked against PowerSchool yet', ps: null });
+    expect(out.get(a).byParent.get(p)).toEqual({ status: 'not_checked', primary: false, reason: 'Not checked against PowerSchool yet', ps: null, email: 'robin@example.test', copy: [] });
   });
 
   test('a parent with no slot is not_matched', () => {
@@ -46,8 +46,8 @@ describe('contactsForStudents', () => {
     setPs(a, { guardians_synced_at: SYNCED, correspondence: '1' });
     const out = contactsForStudents(db, [a]).get(a);
     expect(out.guardiansSyncedAt).toBe(SYNCED);
-    expect(out.byParent.get(p)).toEqual({ status: 'not_matched', primary: false, reason: 'Not matched to a PowerSchool guardian', ps: null });
-    expect(out.byParent.get(q)).toEqual({ status: 'contactable', primary: true, reason: null, ps: ps('robin@example.test') });
+    expect(out.byParent.get(p)).toEqual({ status: 'not_matched', primary: false, reason: 'Not matched to a PowerSchool guardian', ps: null, email: 'jordan@example.test', copy: [] });
+    expect(out.byParent.get(q)).toEqual({ status: 'contactable', primary: true, reason: null, ps: ps('robin@example.test'), email: 'robin@example.test', copy: ['robin@example.test'] });
   });
 
   test('a flagged slot gives do_not_contact with its reason', () => {
@@ -58,8 +58,8 @@ describe('contactsForStudents', () => {
     addSlot(a, 2, 'Sample, Kit', 'kit@example.test');
     setPs(a, { guardians_synced_at: SYNCED, dnc_g1: '1', g2_deceased: '1' });
     const out = contactsForStudents(db, [a]).get(a);
-    expect(out.byParent.get(p)).toEqual({ status: 'do_not_contact', primary: false, reason: 'Do not contact (PowerSchool)', ps: ps('robin@example.test') });
-    expect(out.byParent.get(q)).toEqual({ status: 'deceased', primary: false, reason: 'Deceased (PowerSchool)', ps: ps('kit@example.test') });
+    expect(out.byParent.get(p)).toEqual({ status: 'do_not_contact', primary: false, reason: 'Do not contact (PowerSchool)', ps: ps('robin@example.test'), email: 'robin@example.test', copy: [] });
+    expect(out.byParent.get(q)).toEqual({ status: 'deceased', primary: false, reason: 'Deceased (PowerSchool)', ps: ps('kit@example.test'), email: 'kit@example.test', copy: [] });
   });
 
   test('a flag for one child applies to a sibling with the same uid or email', () => {
@@ -82,9 +82,9 @@ describe('contactsForStudents', () => {
     const out = contactsForStudents(db, [b]);
     expect([...out.keys()]).toEqual([b]);
     const byParent = out.get(b).byParent;
-    expect(byParent.get(bRobin)).toEqual({ status: 'do_not_contact', primary: false, reason: 'Do not contact (PowerSchool)', ps: ps('robin.work@example.test') });
-    expect(byParent.get(bKit)).toEqual({ status: 'deceased', primary: false, reason: 'Deceased (PowerSchool)', ps: null });
-    expect(byParent.get(bOther)).toEqual({ status: 'contactable', primary: false, reason: null, ps: ps('jordan@example.test') });
+    expect(byParent.get(bRobin)).toEqual({ status: 'do_not_contact', primary: false, reason: 'Do not contact (PowerSchool)', ps: ps('robin.work@example.test'), email: 'robin.work@example.test', copy: [] });
+    expect(byParent.get(bKit)).toEqual({ status: 'deceased', primary: false, reason: 'Deceased (PowerSchool)', ps: null, email: 'kit@example.test', copy: [] });
+    expect(byParent.get(bOther)).toEqual({ status: 'contactable', primary: false, reason: null, ps: ps('jordan@example.test'), email: 'jordan@example.test', copy: ['jordan@example.test'] });
   });
 
   test('a flag spreads along a chain of uids and emails', () => {
@@ -104,7 +104,7 @@ describe('contactsForStudents', () => {
     addSlot(c, 1, 'Sample, Robin', 'e2@example.test');
     addSlot(c, 2, 'Sample, Jordan', 'jordan@example.test');
     setPs(c, { guardians_synced_at: SYNCED });
-    const dnc = { status: 'do_not_contact', primary: false, reason: 'Do not contact (PowerSchool)', ps: ps('e2@example.test') };
+    const dnc = { status: 'do_not_contact', primary: false, reason: 'Do not contact (PowerSchool)', ps: ps('e2@example.test'), email: 'e2@example.test', copy: [] };
 
     const both = contactsForStudents(db, [b, c]);
     expect(both.get(b).byParent.get(pb)).toEqual(dnc);
@@ -141,10 +141,10 @@ describe('contactsForStudents', () => {
     setPs(a, { guardians_synced_at: SYNCED, g2_deceased: '1' });
     const out = contactsForStudents(db, [a]).get(a);
     expect(out.byParent.get(unplaced)).toEqual({
-      status: 'deceased', primary: false, uncertain: true, ps: null,
+      status: 'deceased', primary: false, uncertain: true, ps: null, email: 'jordan@example.test', copy: [],
       reason: 'Not matched to a PowerSchool guardian. Guardian 2 is flagged: Deceased (PowerSchool)',
     });
-    expect(out.byParent.get(placed)).toEqual({ status: 'contactable', primary: false, reason: null, ps: ps('robin@example.test') });
+    expect(out.byParent.get(placed)).toEqual({ status: 'contactable', primary: false, reason: null, ps: ps('robin@example.test'), email: 'robin@example.test', copy: ['robin@example.test'] });
   });
 
   test('a student with flags but no guardian read: every parent takes the flag', () => {
@@ -153,9 +153,9 @@ describe('contactsForStudents', () => {
     const q = addParent(a, 'p2', 'Kit', 'Sample', 'kit@example.test');
     setPs(a, { alerts_synced_at: SYNCED, dnc_g1: '1' });
     const out = contactsForStudents(db, [a]).get(a);
-    const dnc = { status: 'do_not_contact', primary: false, uncertain: true, ps: null, reason: 'Not checked against PowerSchool yet. Guardian 1 is flagged: Do not contact (PowerSchool)' };
-    expect(out.byParent.get(p)).toEqual(dnc);
-    expect(out.byParent.get(q)).toEqual(dnc);
+    const dnc = { status: 'do_not_contact', primary: false, uncertain: true, ps: null, copy: [], reason: 'Not checked against PowerSchool yet. Guardian 1 is flagged: Do not contact (PowerSchool)' };
+    expect(out.byParent.get(p)).toEqual({ ...dnc, email: 'robin@example.test' });
+    expect(out.byParent.get(q)).toEqual({ ...dnc, email: 'kit@example.test' });
   });
 
   test('an uncertain flag spreads to a sibling\'s rows with the same uid or email, with the plain reason', () => {
@@ -174,9 +174,9 @@ describe('contactsForStudents', () => {
     addSlot(b, 2, 'Else, Morgan', 'morgan@example.test');
     setPs(b, { guardians_synced_at: SYNCED });
     const out = contactsForStudents(db, [b]).get(b);
-    const deceased = { status: 'deceased', primary: false, reason: 'Deceased (PowerSchool)' };
-    expect(out.byParent.get(bJordan)).toEqual({ ...deceased, ps: ps('jordan.work@example.test') }); // same uid
-    expect(out.byParent.get(bMorgan)).toEqual({ ...deceased, ps: ps('morgan@example.test') }); // same email, any case
+    const deceased = { status: 'deceased', primary: false, reason: 'Deceased (PowerSchool)', copy: [] };
+    expect(out.byParent.get(bJordan)).toEqual({ ...deceased, ps: ps('jordan.work@example.test'), email: 'jordan.work@example.test' }); // same uid
+    expect(out.byParent.get(bMorgan)).toEqual({ ...deceased, ps: ps('morgan@example.test'), email: 'morgan@example.test' }); // same email, any case
   });
 
   test('a sibling is found by an email padded with no-break spaces, as JS trim reads it', () => {
@@ -200,7 +200,7 @@ describe('contactsForStudents', () => {
     addSlot(a, 2, 'Sample, Kit', 'kit@example.test', '5550 0101');
     setPs(a, { guardians_synced_at: SYNCED });
     const out = contactsForStudents(db, [a]).get(a);
-    expect(out.byParent.get(p)).toEqual({ status: 'contactable', primary: false, reason: null, ps: ps('robin@example.test', '5550 0100') });
+    expect(out.byParent.get(p)).toEqual({ status: 'contactable', primary: false, reason: null, ps: ps('robin@example.test', '5550 0100'), email: 'robin@example.test', copy: ['robin@example.test'] });
     expect(out.byParent.get(q).ps).toEqual(ps('kit@example.test', '5550 0101'));
   });
 
@@ -210,7 +210,7 @@ describe('contactsForStudents', () => {
     addSlot(a, 1, 'Sample, Robin', null, '5550 0100');
     setPs(a, { guardians_synced_at: SYNCED });
     // ps.email null: the routes use the Schoology email (parents.email).
-    expect(contactsForStudents(db, [a]).get(a).byParent.get(p)).toEqual({ status: 'contactable', primary: false, reason: null, ps: ps(null, '5550 0100') });
+    expect(contactsForStudents(db, [a]).get(a).byParent.get(p)).toEqual({ status: 'contactable', primary: false, reason: null, ps: ps(null, '5550 0100'), email: 'robin@example.test', copy: ['robin@example.test'] });
   });
 
   test('a shared slot gives no PowerSchool details', () => {
@@ -222,6 +222,67 @@ describe('contactsForStudents', () => {
     const out = contactsForStudents(db, [a]).get(a);
     expect(out.byParent.get(p).ps).toBeNull();
     expect(out.byParent.get(q).ps).toBeNull();
+  });
+
+  // Controller's ruling (#173): an address a do_not_contact or deceased guardian holds is
+  // never copied or linked, for any guardian.
+  test('a flagged guardian\'s PowerSchool address is not copied through the other guardian\'s slot', () => {
+    const a = addStudent(1);
+    const robin = addParent(a, 'p1', 'Robin', 'Sample', 'robin@example.test');
+    const kit = addParent(a, 'p2', 'Kit', 'Sample', 'kit@example.test');
+    addSlot(a, 1, 'Sample, Robin', 'family@example.test');
+    addSlot(a, 2, 'Sample, Kit', 'family@example.test');
+    setPs(a, { guardians_synced_at: SYNCED, dnc_g1: '1' });
+    const out = contactsForStudents(db, [a]).get(a);
+    expect(out.byParent.get(robin)).toMatchObject({ status: 'do_not_contact', email: 'family@example.test', copy: [] });
+    expect(out.byParent.get(kit)).toEqual({
+      status: 'contactable', primary: false, reason: null, ps: ps('family@example.test'), email: 'kit@example.test', copy: ['kit@example.test'],
+    });
+  });
+
+  test('a flagged slot\'s email is blocked when no parent is placed in it', () => {
+    const a = addStudent(1);
+    const kit = addParent(a, 'p2', 'Kit', 'Sample', 'kit@example.test');
+    addSlot(a, 1, 'Other, Pat', 'family@example.test'); // no Prism parent is this guardian
+    addSlot(a, 2, 'Sample, Kit', 'family@example.test');
+    setPs(a, { guardians_synced_at: SYNCED, g1_deceased: '1' });
+    expect(contactsForStudents(db, [a]).get(a).byParent.get(kit)).toMatchObject({
+      status: 'contactable', ps: ps('family@example.test'), email: 'kit@example.test', copy: ['kit@example.test'],
+    });
+  });
+
+  test('a blocked extra email is not copied; an extra email is copied once', () => {
+    const a = addStudent(1);
+    const robin = addParent(a, 'p1', 'Robin', 'Sample', 'robin@example.test');
+    const kit = addParent(a, 'p2', 'Kit', 'Sample', 'kit@example.test');
+    db.prepare('UPDATE parents SET extra_email = ? WHERE id = ?').run('shared@example.test', robin);
+    db.prepare('UPDATE parents SET extra_email = ? WHERE id = ?').run(' Shared@example.test ', kit);
+    addSlot(a, 1, 'Sample, Robin', 'robin@example.test');
+    addSlot(a, 2, 'Sample, Kit', 'kit@example.test');
+    setPs(a, { guardians_synced_at: SYNCED, dnc_g1: '1' });
+    expect(contactsForStudents(db, [a]).get(a).byParent.get(kit).copy).toEqual(['kit@example.test']);
+
+    db.prepare('UPDATE student_powerschool SET dnc_g1 = NULL').run();
+    db.prepare('UPDATE parents SET extra_email = ? WHERE id = ?').run('KIT@example.test', kit);
+    expect(contactsForStudents(db, [a]).get(a).byParent.get(kit).copy).toEqual(['kit@example.test']);
+    expect(contactsForStudents(db, [a]).get(a).byParent.get(robin).copy).toEqual(['robin@example.test', 'shared@example.test']);
+  });
+
+  test('a flag from another child blocks that guardian\'s addresses on this child\'s record', () => {
+    const a = addStudent(1);
+    const b = addStudent(2);
+    addParent(a, 'uR', 'Robin', 'Sample', 'robin@example.test');
+    addSlot(a, 1, 'Sample, Robin', 'robin@example.test');
+    setPs(a, { guardians_synced_at: SYNCED, dnc_g1: '1' });
+    // On B's record Robin is placed in an unflagged slot with another address; Kit shares it.
+    const bRobin = addParent(b, 'uR', 'Robin', 'Sample', 'robin.other@example.test');
+    const bKit = addParent(b, 'uK', 'Kit', 'Sample', 'kit@example.test');
+    addSlot(b, 1, 'Sample, Robin', 'home@example.test');
+    addSlot(b, 2, 'Sample, Kit', 'home@example.test');
+    setPs(b, { guardians_synced_at: SYNCED });
+    const out = contactsForStudents(db, [b]).get(b);
+    expect(out.byParent.get(bRobin)).toMatchObject({ status: 'do_not_contact', copy: [] });
+    expect(out.byParent.get(bKit)).toMatchObject({ status: 'contactable', email: 'kit@example.test', copy: ['kit@example.test'] });
   });
 
   test('a slot read without a guardian read stamp gives no PowerSchool details', () => {

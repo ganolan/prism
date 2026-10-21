@@ -44,7 +44,7 @@ router.get('/emails/:courseId', (req, res) => {
   // student they belong to, so each parent can be grouped under their child. A parent with
   // no Schoology email is still listed: PowerSchool or the teacher may give an address (#173).
   const parents = db.prepare(`
-    SELECT DISTINCT p.id, p.student_id, p.first_name, p.last_name, p.email, p.extra_email
+    SELECT DISTINCT p.id, p.student_id, p.schoology_uid, p.first_name, p.last_name, p.email, p.extra_email
     FROM parents p
     JOIN enrolments e ON e.student_id = p.student_id
     WHERE e.course_id IN (${placeholders}) AND e.dropped_at IS NULL
@@ -57,29 +57,29 @@ router.get('/emails/:courseId', (req, res) => {
   // copied (not do-not-contact, deceased, unmatched or unchecked), and the legacy
   // parent_email, which has no guardian to check, is not copied at all. This runs before
   // the address de-duplication so a left-out guardian cannot take the place of a kept one.
-  // #173: a copied guardian's address is the PowerSchool slot's email when there is one
-  // (contact.ps), else the Schoology email, followed by the teacher's extra email; every
-  // address of a left-out guardian is withheld.
+  // #173: a kept guardian contributes exactly contact.copy (guardianContactStore.js: the
+  // PowerSchool or Schoology address and the teacher's extra email, without any address a
+  // flagged guardian holds); every address of a left-out guardian is withheld. Off: the
+  // Schoology email and the extra email.
+  const fullName = (first, last) => [first, last].filter(Boolean).join(' ').trim();
   const wantStudent = type === 'student' || type === 'both';
   const wantParent = type === 'parent' || type === 'both';
   const checkContacts = getFeatures().powerschool_alerts;
-  const withheld = []; // per guardian left out, its addresses, counted after de-duplication
-  const addressesOf = (p, ps) => [ps?.email || p.email, p.extra_email].filter(Boolean);
+  const withheld = []; // guardians left out: { uid, name, addresses }, counted after de-duplication
   const parentsByStudent = new Map();
   if (wantParent) {
     const contacts = checkContacts ? contactsForStudents(db, students.map(s => s.id)) : null;
     for (const p of parents) {
-      if (!parentsByStudent.has(p.student_id)) parentsByStudent.set(p.student_id, []);
       const contact = contacts?.get(p.student_id)?.byParent.get(p.id);
       if (!contacts || contact?.status === 'contactable') {
-        parentsByStudent.get(p.student_id).push({ ...p, addresses: addressesOf(p, contact?.ps) });
+        if (!parentsByStudent.has(p.student_id)) parentsByStudent.set(p.student_id, []);
+        parentsByStudent.get(p.student_id).push({ ...p, addresses: contacts ? contact.copy : [p.email, p.extra_email].filter(Boolean) });
       } else {
-        withheld.push([p.email, contact?.ps?.email, p.extra_email].filter(Boolean));
+        withheld.push({ uid: p.schoology_uid, name: fullName(p.first_name, p.last_name), addresses: [p.email, contact?.ps?.email, p.extra_email].filter(Boolean) });
       }
     }
   }
 
-  const fullName = (first, last) => [first, last].filter(Boolean).join(' ').trim();
   // Match the rest of the app: teacher override > Schoology preferred > first name
   const studentName = (s) => fullName(preferredFirstName(s), s.last_name);
 
@@ -92,15 +92,18 @@ router.get('/emails/:courseId', (req, res) => {
       entries.push({ email: s.email, name: sName });
     }
     if (wantParent) {
-      if (checkContacts ? parentsByStudent.has(s.id) : parentsExist) {
-        for (const p of parentsByStudent.get(s.id) || []) {
-          const name = `${fullName(p.first_name, p.last_name)} (parent of ${sName})`;
-          for (const email of p.addresses) entries.push({ email, name });
-        }
-      } else if (s.parent_email && checkContacts) {
-        // A student with no parent rows, in any class: the legacy address has no guardian to check.
-        withheld.push([s.parent_email]);
-      } else if (s.parent_email) {
+      const kept = parentsByStudent.get(s.id) || [];
+      for (const p of kept) {
+        const name = `${fullName(p.first_name, p.last_name)} (parent of ${sName})`;
+        for (const email of p.addresses) entries.push({ email, name });
+      }
+      if (!s.parent_email || (checkContacts ? kept.some(p => p.addresses.length) : parentsExist)) {
+        // Nothing more: no legacy address, or the parent rows stand for it.
+      } else if (checkContacts) {
+        // No parent address copied for this student, in any class: the legacy address has
+        // no guardian to check.
+        withheld.push({ uid: null, name: '', addresses: [s.parent_email] });
+      } else {
         // Legacy fallback: no parent name on file, but we still know whose parent it is
         entries.push({ email: s.parent_email, name: `Parent of ${sName}` });
       }
@@ -117,20 +120,32 @@ router.get('/emails/:courseId', (req, res) => {
     return true;
   });
 
-  // Guardians left out, by address: one that is also copied through another child is
-  // not counted. Both sets use one key (trimmed, any case: emailKey). A guardian's own
-  // addresses (Schoology, PowerSchool, extra) count once together, as do rows that share
-  // an address (one guardian of two children): the addresses not copied are joined into
-  // groups (union-find), and each group is one guardian.
+  // Guardians left out, counted once each. One guardian's rows (one per child) are joined
+  // when they share a Schoology uid, or an address and the same name, so two people who
+  // share a mailbox count twice. A legacy address (no name) joins the first guardian, or
+  // else the first legacy address, it shares an address with: one only, so it cannot join
+  // two guardians into one. A guardian counts when one of its addresses is not copied: one
+  // also copied through another guardian is not counted. Addresses compare by emailKey.
   const copied = new Set(deduped.map(e => emailKey(e.email)));
-  const group = new Map();
-  const find = (k) => { while (group.get(k) !== k) k = group.get(k); return k; };
-  for (const addresses of withheld) {
-    const keys = addresses.map(emailKey).filter(k => k && !copied.has(k));
-    for (const k of keys) if (!group.has(k)) group.set(k, k);
-    for (const k of keys.slice(1)) group.set(find(k), find(keys[0]));
+  const nameKey = (name) => name.trim().replace(/\s+/g, ' ').toLowerCase();
+  const shares = (a, b) => a.addresses.some(x => b.addresses.some(y => emailKey(x) === emailKey(y)));
+  const root = withheld.map((_, i) => i);
+  const find = (i) => { while (root[i] !== i) i = root[i]; return i; };
+  const named = withheld.map((g, i) => i).filter(i => withheld[i].name);
+  const legacy = withheld.map((g, i) => i).filter(i => !withheld[i].name);
+  for (const i of named) {
+    for (const j of named) {
+      if (j >= i) break;
+      const [a, b] = [withheld[i], withheld[j]];
+      if ((a.uid && a.uid === b.uid) || (nameKey(a.name) === nameKey(b.name) && shares(a, b))) root[find(i)] = find(j);
+    }
   }
-  const excluded = new Set([...group.keys()].map(find)).size;
+  for (const i of legacy) {
+    const j = [...named, ...legacy.filter(k => k < i)].find(k => shares(withheld[i], withheld[k]));
+    if (j !== undefined) root[find(i)] = find(j);
+  }
+  const uncopied = new Set(withheld.flatMap((g, i) => (g.addresses.some(e => emailKey(e) && !copied.has(emailKey(e))) ? [find(i)] : [])));
+  const excluded = uncopied.size;
 
   // "Name <email>". Quote the display name when it contains characters that have
   // meaning in an address list — commas, and the parens used by the "parent of" tag.

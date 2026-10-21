@@ -121,8 +121,8 @@ describe('GET /api/students/:id — guardian contact status (#66)', () => {
     addFamily();
     const { body } = await get(`/api/students/${studentId}`);
     const byName = Object.fromEntries(body.parents.map((p) => [p.first_name, p.contact]));
-    expect(byName.Robin).toEqual({ status: 'contactable', primary: true, reason: null, ps: { email: 'robin@example.test', phone: null } });
-    expect(byName.Kit).toEqual({ status: 'do_not_contact', primary: false, reason: 'Do not contact (PowerSchool)', ps: { email: 'kit@example.test', phone: null } });
+    expect(byName.Robin).toEqual({ status: 'contactable', primary: true, reason: null, ps: { email: 'robin@example.test', phone: null }, email: 'robin@example.test', copy: ['robin@example.test'] });
+    expect(byName.Kit).toEqual({ status: 'do_not_contact', primary: false, reason: 'Do not contact (PowerSchool)', ps: { email: 'kit@example.test', phone: null }, email: 'kit@example.test', copy: [] });
     expect(body.guardians_synced_at).toBe(SYNCED);
   });
 
@@ -151,14 +151,14 @@ describe('/api/students/:id parents: PowerSchool details and the teacher\'s addi
   test('GET sends contact.ps', async () => {
     const { body } = await get(`/api/students/${studentId}`);
     const { Robin, Kit } = byName(body);
-    expect(Robin.contact.ps).toEqual({ email: 'robin@example.test', phone: '5550 0100' });
+    expect(Robin.contact).toMatchObject({ ps: { email: 'robin@example.test', phone: '5550 0100' }, email: 'robin@example.test', copy: ['robin@example.test'] });
     expect(Robin.extra_email).toBeNull();
     expect(Kit).toMatchObject({ email: 'kit@example.test', phone: '5550 0199', extra_email: 'kit.work@example.test' });
   });
 
   test('a slot with no email falls back to the Schoology email: ps.email is null beside the Schoology email', async () => {
     const { Kit } = byName((await get(`/api/students/${studentId}`)).body);
-    expect(Kit.contact).toMatchObject({ status: 'contactable', ps: { email: null, phone: '5550 0101' } });
+    expect(Kit.contact).toMatchObject({ status: 'contactable', ps: { email: null, phone: '5550 0101' }, email: 'kit@example.test', copy: ['kit@example.test', 'kit.work@example.test'] });
     expect(Kit.email).toBe('kit@example.test');
   });
 
@@ -187,6 +187,14 @@ describe('/api/students/:id parents: PowerSchool details and the teacher\'s addi
     const r = await put(`/api/students/${studentId}/parents/${kit}`, { phone: '5550 0198', extra_email: 'kit at example' });
     expect(r).toEqual({ status: 400, body: { error: 'Extra email must be an email address' } });
     expect(getDb().prepare('SELECT phone, extra_email FROM parents WHERE id = ?').get(kit)).toEqual({ phone: '5550 0199', extra_email: 'kit.work@example.test' });
+  });
+
+  test('PUT refuses an extra email that is more than one address', async () => {
+    for (const extra of ['a@example.test b@example.test', 'a@example.test;b@example.test', 'a@example.test, b@example.test', 'Kit <kit@example.test>']) {
+      const r = await put(`/api/students/${studentId}/parents/${kit}`, { extra_email: extra });
+      expect(r).toEqual({ status: 400, body: { error: 'Extra email must be an email address' } });
+    }
+    expect(getDb().prepare('SELECT extra_email FROM parents WHERE id = ?').get(kit).extra_email).toBe('kit.work@example.test');
   });
 
   test('PUT for another student\'s parent is not found', async () => {

@@ -10,6 +10,8 @@ const marks = (n) => Array(n).fill('?').join(',');
 // are not linked (school addresses are ASCII).
 const SQL_EMAIL_KEY = (col) => `lower(trim(${col}, char(32, 9, 10, 13, 160)))`;
 // The keys that link a parent row to the same guardian's rows for other children.
+// A PowerSchool flag is set by any value but null and '' (as guardianContacts.js reads it).
+const isFlagged = (v) => v != null && String(v) !== '';
 const keysOf = (p) => [p.schoology_uid && `uid:${p.schoology_uid}`, emailKey(p.email) && `email:${emailKey(p.email)}`].filter(Boolean);
 
 // One student's PowerSchool details per parent: Map<parentId, { email, phone }> for each
@@ -48,7 +50,15 @@ function psDetails(checked, parents, slots) {
  * ps (#173): { email, phone } of the PowerSchool slot the parent is uniquely placed in on
  * this student's record (placeParents; either may be null), else null: not checked, not
  * placed, or placed in a slot another parent shares (two parents with one email). It is
- * given whatever the status; the routes copy nothing of a parent that is not contactable.
+ * given whatever the status.
+ *
+ * email and copy (#173, controller's ruling): the one rule both routes and the client use.
+ * An address is blocked when a do_not_contact or deceased guardian holds it (see blocked
+ * below). email = the address to show: ps.email when not blocked, else the Schoology email
+ * when not blocked, else the first of the two that is set (shown as plain text), else
+ * null. copy = the addresses that may be linked and copied: [] unless the status is
+ * contactable, else [email, extra_email] without blocked or empty ones, de-duplicated
+ * (emailKey).
  */
 export function contactsForStudents(db, studentIds) {
   const ids = [...new Set((studentIds || []).map(Number))];
@@ -70,7 +80,7 @@ export function contactsForStudents(db, studentIds) {
   const decide = [...known];
 
   const q = marks(decide.length);
-  const parents = db.prepare(`SELECT id, student_id, schoology_uid, first_name, last_name, email
+  const parents = db.prepare(`SELECT id, student_id, schoology_uid, first_name, last_name, email, extra_email
     FROM parents WHERE student_id IN (${q}) ORDER BY id`).all(...decide);
   const slotRows = db.prepare(`SELECT student_id, slot, name, email, phone FROM student_ps_guardians WHERE student_id IN (${q})`).all(...decide);
   const psRows = db.prepare(`SELECT student_id, guardians_synced_at, dnc_g1, dnc_g2, g1_deceased, g2_deceased, correspondence
@@ -109,16 +119,45 @@ export function contactsForStudents(db, studentIds) {
     if ((RANK[flagOf.get(g)] ?? 0) < (RANK[status] ?? 0)) flagOf.set(g, status);
   }
 
+  // Every decided row's final status: its own, or its group's flag when that is stronger.
+  const finalOf = new Map();
+  for (const p of parents) {
+    const own = decided.get(p.id);
+    const flag = flagOf.get(find(p.id));
+    finalOf.set(p.id, flag && (RANK[own.status] ?? 0) < RANK[flag] ? { status: flag, primary: false, reason: CONTACT_REASONS[flag] } : own);
+  }
+  const details = new Map(decide.map((sid) => [sid, psDetails(ps.get(sid)?.guardians_synced_at != null, parentsOf.get(sid) || [], slots.get(sid) || {})]));
+
+  // Addresses held by a do_not_contact or deceased guardian (controller's ruling, #173):
+  // a flagged row's Schoology email, extra email and PowerSchool email, and the email of
+  // every flagged slot on a decided student's record, whether or not a parent is placed
+  // in it. No guardian's address in this set is copied or linked: two guardians can share
+  // a family mailbox, and a flagged one's mail must not reach it through the other.
+  const blocked = new Set();
+  const block = (email) => { if (emailKey(email)) blocked.add(emailKey(email)); };
+  for (const p of parents) {
+    if (!RANK[finalOf.get(p.id).status]) continue;
+    block(p.email); block(p.extra_email); block(details.get(p.student_id).get(p.id)?.email);
+  }
+  for (const sid of decide) {
+    const flags = ps.get(sid) || {};
+    for (const slot of [1, 2]) {
+      if (isFlagged(flags[`dnc_g${slot}`]) || isFlagged(flags[`g${slot}_deceased`])) block(slots.get(sid)?.[slot]?.email);
+    }
+  }
+  const open = (email) => !!emailKey(email) && !blocked.has(emailKey(email));
+
   for (const sid of ids) {
     const byParent = new Map();
-    const details = psDetails(ps.get(sid)?.guardians_synced_at != null, parentsOf.get(sid) || [], slots.get(sid) || {});
     for (const p of parentsOf.get(sid) || []) {
-      const own = decided.get(p.id);
-      const flag = flagOf.get(find(p.id));
-      byParent.set(p.id, {
-        ...(flag && (RANK[own.status] ?? 0) < RANK[flag] ? { status: flag, primary: false, reason: CONTACT_REASONS[flag] } : own),
-        ps: details.get(p.id) ?? null,
-      });
+      const contact = finalOf.get(p.id);
+      const psOf = details.get(sid).get(p.id) ?? null;
+      const email = [psOf?.email, p.email].find(open) ?? ([psOf?.email, p.email].find((e) => emailKey(e)) || null);
+      const copy = [];
+      if (contact.status === 'contactable') {
+        for (const e of [email, p.extra_email]) if (open(e) && !copy.some((c) => emailKey(c) === emailKey(e))) copy.push(e);
+      }
+      byParent.set(p.id, { ...contact, ps: psOf, email, copy });
     }
     out.set(sid, { guardiansSyncedAt: ps.get(sid)?.guardians_synced_at ?? null, byParent });
   }

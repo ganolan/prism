@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'vitest';
+import { describe, test, expect, vi, afterEach } from 'vitest';
 import { parseEmergencyContacts, slotsByDcid } from './psEmergencyContacts.js';
 import { emergencyHtml } from '../testing/fakePowerSchoolWeb.js';
 
@@ -26,12 +26,24 @@ describe('parseEmergencyContacts', () => {
     expect(cho.g2).toEqual({ name: null, email: null, phone: null });
   });
 
-  test('a list without phone columns parses with null phones', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  test('a list without phone columns parses with null phones, and warns once naming them', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const html = '<table><tr><th>Student</th><th>Guardian 1</th><th>G1 Email</th><th>Guardian 2</th><th>G2 Email</th></tr>'
       + '<tr><td>Lee, Ana</td><td>Lee, Mei</td><td>m@example.org</td><td>Park, Jin</td><td>j@example.org</td></tr></table>';
-    expect(parseEmergencyContacts(html)).toEqual([
+    const rows = parseEmergencyContacts(html);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0].join(' ')).toMatch(/G1 Phone, G2 Phone/);
+    expect(rows).toEqual([
       { student: 'Lee, Ana', g1: { name: 'Lee, Mei', email: 'm@example.org', phone: null }, g2: { name: 'Park, Jin', email: 'j@example.org', phone: null } },
     ]);
+  });
+
+  test('a list with both phone columns does not warn', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    parseEmergencyContacts(emergencyHtml([{ student: 'Lee, Ana', g1: ['Lee, Mei', 'm@example.org'], g2: ['', ''] }]));
+    expect(warn).not.toHaveBeenCalled();
   });
 
   test('takes the first address of an email cell', () => {

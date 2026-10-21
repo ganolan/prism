@@ -220,6 +220,20 @@ describe('GET /api/tools/emails/:courseId and guardian contact status', () => {
     expect(body.excluded).toBe(0);
   });
 
+  test('feature on: a left-out address copied through another guardian is not counted, whatever its spacing or case', async () => {
+    on();
+    const a = addStudent({ first: 'Ada', last: 'Sample' });
+    const b = addStudent({ first: 'Ben', last: 'Sample' });
+    addParent(a, 'p1', 'Jordan', 'home@example.test');
+    addParent(b, 'p2', 'Robin', ' Home@example.test ');
+    addSlot(b, 1, 'Sample, Robin', 'home@example.test');
+    setPs(a, {});
+    setPs(b, {});
+    const { body } = await parents();
+    expect(body.addresses).toEqual([' Home@example.test ']);
+    expect(body.excluded).toBe(0);
+  });
+
   test('feature on: the legacy parent_email is not copied and is counted', async () => {
     on();
     const a = addStudent({ first: 'Ada', last: 'Sample' });

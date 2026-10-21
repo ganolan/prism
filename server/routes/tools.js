@@ -3,6 +3,7 @@ import { getDb } from '../db/index.js';
 import { preferredFirstName } from '../services/studentNames.js';
 import { getFeatures } from '../middleware/featureGate.js';
 import { contactsForStudents } from '../services/guardianContactStore.js';
+import { emailKey } from '../lib/guardianContacts.js';
 
 const router = Router();
 
@@ -113,9 +114,9 @@ router.get('/emails/:courseId', (req, res) => {
   });
 
   // Guardians left out, by address: one that is also copied through another child is
-  // not counted.
-  const copied = new Set(deduped.map(e => e.email.toLowerCase()));
-  const excluded = new Set(withheld.map(e => e.trim().toLowerCase()).filter(e => !copied.has(e))).size;
+  // not counted. Both sets use one key (trimmed, any case: emailKey).
+  const copied = new Set(deduped.map(e => emailKey(e.email)));
+  const excluded = new Set(withheld.map(emailKey).filter(e => !copied.has(e))).size;
 
   // "Name <email>". Quote the display name when it contains characters that have
   // meaning in an address list — commas, and the parens used by the "parent of" tag.

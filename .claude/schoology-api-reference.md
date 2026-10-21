@@ -851,6 +851,31 @@ Full scale level names: Insufficient Evidence (IE), Emerging (EM), Developing (D
 
   Prism: `config.yaml` `grading.scoreScales`, `server/lib/scoreScales.js`, and the `points` option on `/api/mastery/:courseId/write-comment` and `send-all`.
 
+### Grade exceptions (flags) (#40, verified 2026-10-21)
+
+Write probes on two archived Robotics 1(A-B) 2024-25 tasks (section `7361044264`), each write approved by the teacher, then read back three ways: the public record (`GET /sections/{id}/grades?assignment_id=`), the mastery observations (`district_mastery/api/observations/search`), and the gradebook cell (`GET /iapi/grades/grader_grade_data/{section}/all?uids=&grade_item_nids=`). Targets: an empty record (`2. Lesson 0 - Soldering (F)` `7538989885`, enrollment `3174504287`) and a graded aligned record (`Robotics 1. Lesson 8 - Digital and Analog Input (F)(ATL)` `7406703830`, enrollment `3174504286`: `grade 90`, a visible comment, 3 observations at 100). Both were restored; only `timestamp` differs from before. Script: `scripts/probe-grade-exceptions.js` (read-only unless `CONFIRM=<op>:<assignmentId>:<enrollmentId>`).
+
+- **Exception codes (public `exception`, and the gradebook cell's `exception`):** `1` Exempt (the gradebook's word on this account for Excused, `core.excused: "Exempt"`), `2` Incomplete, `3` Missing, `5` Absent, `6` Late. **`4` is invalid:** a public PUT with `exception: 4` answers 207 with the entry `{"response_code":400,"message":"Invalid exception code"}`. Late `6` was identified by the teacher marking a cell Late in the gradebook; Absent `5` by the teacher reading a prod row (13 prod rows held `5`, none `4`). *(Prism assumed 4 = Late until 2026-10-21.)*
+- **Public `PUT /sections/{id}/grades` with an exception, every other field echoed:**
+
+  | Flag | `grade` after | Observations after | Comment, `comment_status` |
+  |---|---|---|---|
+  | 1 Exempt | `null` (even when `grade: "90"` is sent) | each `points: null` (rows remain) | kept |
+  | 2 Incomplete | `null` | each `points: null` | kept |
+  | 3 Missing | `0` | **kept** at 100 | kept |
+  | 5 Absent | `null` | each `points: null` | kept |
+  | 6 Late | `null` | each `points: null` | kept |
+
+  On an empty record every code sets `exception` and the `timestamp`. Each answer was 207 with per-entry `204`.
+- **Clearing:** `exception: 0` and `exception: null` both clear (204). The record stays ungraded: the observations stay at `points: null`. After Missing, the echoed `grade: "0"` keeps the 0.
+- **No grade beside a flag:** writing the observations (`POST /iapi2/district-mastery/course/{section}/observations`) while Late was set **cleared the exception** (back to 0, `grade` 100 computed); a public PUT of `grade: "90"` with `exception: 6` removed the grade again.
+- **The gradebook does the same on this account.** `s_grades_grader_*.js` `exceptionChanged` sets `cell.grade = null` for any exception unless `realm_settings.is_persistence_of_flags_in_gradebook_enabled`, and always for Missing; HKIS has that setting `false` (archived `7361044264` and current `8458134359`, read from `grader_header_data.body.realm_settings`). The gradebook then saves with `PUT /iapi/grades/grader_grade_data/{courseNid}/{gradingPeriodId}`. Its strings: `core.mark_empty_cells_late_message` "Any material marked as 'Late' is ignored when calculating that student's category and grading period scores" (the same for Absent and Exempt).
+- **Restoring a grade:** write the observations first (the score recomputes from them), then the public PUT with the overall `grade` when it differs from the computed one (William's 90 over three levels of 100 was an overall set by hand).
+- **Per-entry codes are reliable:** a bulk PUT with one valid and one unknown enrollment answered `[{204}, {404}]`, and the valid entry was written.
+- **Every PUT restamps `timestamp`,** even one that changes nothing.
+- **Transient gateway errors:** the first write of the session answered `502` (CloudFront HTML) and changed nothing; the same write succeeded on retry.
+- **The gradebook page is `/course/{id}/grades`** (`/course/{id}/gradebook` renders no grid). For a past course, the grades show only after choosing the grading period in its dropdown.
+
 ### Grade Value Encoding
 
 Each measurement topic maps to a 0-4 point scale: IE=0, EM=1, D=2, EX=3, ED=4.

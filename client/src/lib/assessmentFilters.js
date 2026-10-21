@@ -32,7 +32,8 @@ export function normalizedSubmissionState(student, assignment) {
 }
 
 export function gradingStateOf(student, topics) {
-  if (student.exception) return 'complete';
+  // Excused, Incomplete, Missing (1 to 3) count as handled; Late (4) is a flag only (server gradingState parity, #40).
+  if (student.exception && Number(student.exception) !== 4) return 'complete';
   const scores = student.scores || {};
   const scoredCount = topics.filter(t => scores[t.id] != null).length;
   // Prism's own status line (student.status_line) is not teacher feedback (final review M3).

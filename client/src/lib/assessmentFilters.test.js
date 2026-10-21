@@ -45,6 +45,14 @@ describe('gradingStateOf', () => {
   it('some missing is partial', () =>
     expect(gradingStateOf(stu({ scores: { t1: { grade: 'EX' } }, grade_comment: 'x' }), TOPICS)).toBe('partial'));
   it('excepted is complete', () => expect(gradingStateOf(stu({ exception: 3 }), TOPICS)).toBe('complete'));
+  it('Excused, Incomplete and Missing are complete', () => {
+    for (const exception of [1, 2, 3]) expect(gradingStateOf(stu({ exception }), TOPICS)).toBe('complete');
+  });
+  it('Late (4) is a flag, not a grade: ungraded until graded (server parity, #40)', () => {
+    expect(gradingStateOf(stu({ exception: 4 }), TOPICS)).toBe('ungraded');
+    expect(gradingStateOf(stu({ exception: 4 }), [])).toBe('ungraded');
+    expect(gradingStateOf(stu({ exception: 4, scores: { t1: { grade: 'EX' }, t2: { grade: 'D' } }, grade_comment: 'x' }), TOPICS)).toBe('complete');
+  });
   // Final review M3 (server gradingState parity): Prism's own status line is not feedback.
   it('a comment that is only the stored status line is not a comment', () => {
     const line = 'Resubmission requested - due Thu 15/10.';

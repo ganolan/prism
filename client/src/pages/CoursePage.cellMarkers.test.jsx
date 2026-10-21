@@ -117,7 +117,8 @@ describe('gradebook cell: the Overdue letter (#40)', () => {
     const badge = cell().querySelector('.badge');
     expect(badge).toHaveTextContent(/^O$/);
     expect(badge).toHaveAttribute('title', 'Overdue');
-    expect(cell()).not.toHaveTextContent('M');
+    expect(cell().querySelectorAll('.badge')).toHaveLength(1);
+    expect(badge).not.toHaveTextContent('M');
   });
   it('no grade row at all gives the same letter', () => {
     const data = {
